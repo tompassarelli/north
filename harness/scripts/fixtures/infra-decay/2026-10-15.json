@@ -1,0 +1,866 @@
+{
+  "source": "Trimmed read-only snapshot, 2026-10-15; gh run list Background sweeps, git log origin/main (24h), stat test-health.json, systemctl laptop-auto.timer. Commit subjects classified by iteration-ledger record heuristic.",
+  "at": "2026-10-15T05:00:00Z",
+  "changes": [],
+  "owners": {
+    "smashcraft": "smashcraft-claude-lead"
+  },
+  "workflows": [
+    {
+      "repo": "smashcraft",
+      "name": "Background sweeps",
+      "runs": [
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:55:06Z",
+          "databaseId": 38683988155,
+          "startedAt": "2026-10-15T04:55:06Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T05:02:05Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:50:31Z",
+          "databaseId": 38683581738,
+          "startedAt": "2026-10-15T04:50:31Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:55:09Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:46:11Z",
+          "databaseId": 38683204952,
+          "startedAt": "2026-10-15T04:46:11Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:50:33Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:44:21Z",
+          "databaseId": 38683038820,
+          "startedAt": "2026-10-15T04:44:21Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:46:13Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:33:50Z",
+          "databaseId": 38682120561,
+          "startedAt": "2026-10-15T04:33:50Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:44:24Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:27:28Z",
+          "databaseId": 38681553548,
+          "startedAt": "2026-10-15T04:27:28Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:33:52Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:24:16Z",
+          "databaseId": 38681274350,
+          "startedAt": "2026-10-15T04:24:16Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:27:30Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:18:12Z",
+          "databaseId": 38680753247,
+          "startedAt": "2026-10-15T04:18:12Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:24:18Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:13:50Z",
+          "databaseId": 38680374797,
+          "startedAt": "2026-10-15T04:13:50Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:18:14Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T04:07:01Z",
+          "databaseId": 38679766971,
+          "startedAt": "2026-10-15T04:07:01Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:13:52Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T03:59:08Z",
+          "databaseId": 38679073747,
+          "startedAt": "2026-10-15T03:59:08Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T04:07:02Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T03:50:38Z",
+          "databaseId": 38678355328,
+          "startedAt": "2026-10-15T03:50:38Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T03:59:09Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T03:41:59Z",
+          "databaseId": 38677613722,
+          "startedAt": "2026-10-15T03:41:59Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T03:50:40Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T03:32:43Z",
+          "databaseId": 38676817581,
+          "startedAt": "2026-10-15T03:32:43Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T03:42:01Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T03:31:23Z",
+          "databaseId": 38676701096,
+          "startedAt": "2026-10-15T03:31:23Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T03:32:45Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T03:21:08Z",
+          "databaseId": 38675809268,
+          "startedAt": "2026-10-15T03:21:08Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T03:31:25Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T03:09:32Z",
+          "databaseId": 38674792847,
+          "startedAt": "2026-10-15T03:09:32Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T03:21:09Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T02:51:27Z",
+          "databaseId": 38673197842,
+          "startedAt": "2026-10-15T02:51:27Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T03:09:34Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T02:40:57Z",
+          "databaseId": 38672272373,
+          "startedAt": "2026-10-15T02:40:57Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T02:51:28Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-15T02:00:28Z",
+          "databaseId": 38668692503,
+          "startedAt": "2026-10-15T02:00:28Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T02:40:58Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "",
+          "createdAt": "2026-10-15T01:44:09Z",
+          "databaseId": 38667246665,
+          "startedAt": "2026-10-15T01:44:09Z",
+          "status": "queued",
+          "updatedAt": "2026-10-15T01:47:27Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-14T20:24:23Z",
+          "databaseId": 38631782542,
+          "startedAt": "2026-10-14T20:24:23Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T01:44:11Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-14T20:04:02Z",
+          "databaseId": 38628911334,
+          "startedAt": "2026-10-14T20:04:02Z",
+          "status": "completed",
+          "updatedAt": "2026-10-14T20:24:25Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-14T19:51:31Z",
+          "databaseId": 38627179858,
+          "startedAt": "2026-10-14T19:51:31Z",
+          "status": "completed",
+          "updatedAt": "2026-10-14T20:04:05Z",
+          "workflowName": "Background sweeps"
+        },
+        {
+          "conclusion": "cancelled",
+          "createdAt": "2026-10-14T19:36:23Z",
+          "databaseId": 38625086193,
+          "startedAt": "2026-10-14T19:36:23Z",
+          "status": "completed",
+          "updatedAt": "2026-10-15T01:47:15Z",
+          "workflowName": "Background sweeps"
+        }
+      ]
+    },
+    {
+      "repo": "smashcraft",
+      "name": "runner:farm-big",
+      "label": "farm-big",
+      "online": 0
+    }
+  ],
+  "files": [
+    {
+      "name": "test-health.json",
+      "modified": 1791724164.8944843,
+      "period_s": 86400,
+      "owner": "test-audit-lead"
+    }
+  ],
+  "timers": [
+    {
+      "name": "laptop-auto.timer",
+      "enabled": true,
+      "next": null
+    }
+  ],
+  "commits": {
+    "smashcraft": [
+      {
+        "subject": "Keep the character select cover up while starting choices load"
+      },
+      {
+        "subject": "Give Cairne readable grab, pummel, throws, get-up attack and ledge attack"
+      },
+      {
+        "subject": "Regenerate reports for claude/land-movement-traction-0babaffa2606"
+      },
+      {
+        "subject": "Keep the Lich at 0.06 traction so the light target still meets the tech-chase and DI mix-up targets"
+      },
+      {
+        "subject": "Count the down smash loop's hits per opponent stock now that the Expert Thrall takes the looping fighter's stock"
+      },
+      {
+        "subject": "Give heroes Melee-style traction by body type and double it above walk speed while standing or landing"
+      },
+      {
+        "subject": "Drive command-grab clip phases from a per-hero clip set so any grabbing special can draw its hold"
+      },
+      {
+        "subject": "Make the Peon's ultimate Tower Rush: five stock Orc Watch Towers that shoot the nearest foe, then crumble"
+      },
+      {
+        "subject": "Read Team Battle fields in the dev setup receipt so native pad setup decodes again"
+      },
+      {
+        "subject": "Reserve Autoland's measured 19-job suite profile now that reports shard and the suite runs wider"
+      },
+      {
+        "subject": "Split reaction-distribution sweeps per tier and guard, sharing the quiet prefix"
+      },
+      {
+        "subject": "Replace the pitched Blink jump sound with a light footstep push-off"
+      },
+      {
+        "subject": "Enlarge Shadow Hunter's Spirit Glaive by a third, hitbox and drawing together"
+      },
+      {
+        "subject": "Cut the farm suite's critical path from 408 s to 258 s: perf split by look, zero-to-death sweeps in four processes, four Bun shards, all Lua jobs at once"
+      },
+      {
+        "subject": "Measure cold advantage-state reports in three cost-balanced shards"
+      },
+      {
+        "subject": "Regenerate reports for claude/land-claude-platform-hellfire-squash-0fb400860563 claude/land-chen-breath-land-0f873fdfcb3f"
+      },
+      {
+        "subject": "Extend Chen's Breath of Fire into a long, widening cone"
+      },
+      {
+        "subject": "Platform climb rule and Hellfire backdrop cleanup (squashed playtest pair)"
+      },
+      {
+        "subject": "Add Team Battle: per-slot teams, friendly fire and team wins"
+      },
+      {
+        "subject": "Reuse advantage-state reports when their code inputs are unchanged"
+      },
+      {
+        "subject": "Reflow the Autoland land step and name another landing as a reason main moves"
+      },
+      {
+        "subject": "Land a green Autoland test run straight from its test run when main hasn't moved on its paths"
+      },
+      {
+        "subject": "Record current-tree Beastmaster Classic cue use"
+      },
+      {
+        "subject": "Include companion bite statuses in authored placement checksums"
+      },
+      {
+        "subject": "Give Beastmaster's summons real jobs: Bear charges and mauls, Hawk's dive stuns, Quilbeast is 1.6x"
+      },
+      {
+        "subject": "review: accept stale Classic record handback"
+      },
+      {
+        "subject": "test: isolate the local refresh protocol boundary"
+      },
+      {
+        "subject": "fix: hand stale solo retries back for local refresh"
+      },
+      {
+        "subject": "test: attribute stale Classic record handback"
+      },
+      {
+        "subject": "fix: hand stale Classic records back to the local waiter"
+      },
+      {
+        "subject": "Keep Classic effect records valid across unrelated landings"
+      },
+      {
+        "subject": "Record Classic cues for session gold on landed victory and phase"
+      },
+      {
+        "subject": "Refresh Classic effect record for victory and phase pair on main 409d68d"
+      },
+      {
+        "subject": "Record Classic cue models for integrated session win gold"
+      },
+      {
+        "subject": "Refresh Classic effect record for Lock the Single Player game speed at Fast"
+      },
+      {
+        "subject": "Hold lobby Fast and lock the game speed at load and every match start (#564)"
+      },
+      {
+        "subject": "Resolve current controller and playtest builds from fetched main"
+      },
+      {
+        "subject": "Refresh the Classic record for the ClientWatch consumer"
+      },
+      {
+        "subject": "Consume the ClientWatch fix for unreadable native process prefixes"
+      },
+      {
+        "subject": "sessionRates: name the fork when matches fill only part of each minute (#564)"
+      },
+      {
+        "subject": "Refresh Classic effect record for current main victory and phase pair"
+      },
+      {
+        "subject": "sessionRates: print one fork verdict per map load (#564)"
+      },
+      {
+        "subject": "Record unchanged victory and phase source pair for later landing"
+      },
+      {
+        "subject": "Keep phased fighter bodies above the alpha-key cutoff"
+      },
+      {
+        "subject": "Play results casts once and complete stock victory clips"
+      },
+      {
+        "subject": "Record final CPU and countdown pair on landed telemetry and music"
+      },
+      {
+        "subject": "Show centered animated match and rematch countdowns"
+      },
+      {
+        "subject": "Seed startup CPU fighter defaults from synchronized binding completion"
+      },
+      {
+        "subject": "Record Autoland merge preservation source proofs"
+      },
+      {
+        "subject": "fix: preserve resolved merge trees in Autoland"
+      },
+      {
+        "subject": "Keep the reviewed music and telemetry record together through Autoland rebase"
+      },
+      {
+        "subject": "Record reviewed session gold tally from exact Classic stock"
+      },
+      {
+        "subject": "Translate final pad keys into the matching journal actions"
+      },
+      {
+        "subject": "Install pinned Bun and map dependencies for controller contract tests"
+      },
+      {
+        "subject": "Record synthetic acceptance tapes with final J/H C-stick keys"
+      },
+      {
+        "subject": "Use fixed participant slots when displaying win counts"
+      },
+      {
+        "subject": "Refresh Classic effect record for Record each Classic effect use with its own input digest and"
+      },
+      {
+        "subject": "Record each Classic effect use with its own input digest and the cache once in the header"
+      },
+      {
+        "subject": "Refuse Classic effect record conflicts in Autoland and gate the candidate's record in the suite"
+      },
+      {
+        "subject": "Show session gold win counts beneath selected fighter names"
+      },
+      {
+        "subject": "Refresh Classic effect record for final keyboard mapping"
+      },
+      {
+        "subject": "Track map-session wins and render stock gold coin tallies"
+      },
+      {
+        "subject": "Restore C-stick J/H and align the controller with keyboard defaults"
+      },
+      {
+        "subject": "Refresh Classic effect record for Write per-second session rates from the playable build and s"
+      },
+      {
+        "subject": "Write per-second session rates from the playable build and summarise them per minute"
+      },
+      {
+        "subject": "Make pad Start press Y at character select when the keys session follows the menu"
+      },
+      {
+        "subject": "Regenerate reports for claude/land-claude-char-tile-hover-20261014-e4cda050de2c"
+      },
+      {
+        "subject": "Refresh Classic effect record for Light fighter tiles from the pointer instead of frame hover"
+      },
+      {
+        "subject": "Light fighter tiles from the pointer instead of frame hover events"
+      },
+      {
+        "subject": "Record final paired-input and Forsaken grab follow-up from trusted 24268 cache"
+      },
+      {
+        "subject": "Package continuous Forsaken grab poses while preserving batch peer assets"
+      },
+      {
+        "subject": "Animate Forsaken grab entry and preserve its catch pose"
+      },
+      {
+        "subject": "Send playable keyboard input two rows per sync message"
+      },
+      {
+        "subject": "Record exact corrected release batch from trusted 24268 stock cache"
+      },
+      {
+        "subject": "Record Warden recovery cost for the existing three-seed workload"
+      },
+      {
+        "subject": "Apply one shared stage fog envelope across every player zoom"
+      },
+      {
+        "subject": "Keep Forsaken diagonal inputs on the shared vertical sword tilt"
+      },
+      {
+        "subject": "Package final Forsaken stock sword throws while preserving batch peer assets"
+      },
+      {
+        "subject": "Record exact frozen release batch from trusted 24268 cache"
+      },
+      {
+        "subject": "Record exact Classic effects for complete corrected green release batch"
+      },
+      {
+        "subject": "Guard summon feedback against absent animal slots"
+      },
+      {
+        "subject": "Show confirmed Beastmaster summon strikes and silence Hawk ready cry"
+      },
+      {
+        "subject": "Record green release batch with corrected Grom quiet model"
+      },
+      {
+        "subject": "Register measured Grom quiet Bloodlust model facts"
+      },
+      {
+        "subject": "Record focused Grom audio Lua cost after mute regression"
+      },
+      {
+        "subject": "Mute Grom Bloodlust casts and intrinsic effect audio"
+      },
+      {
+        "subject": "Attach exact scenario titles to existing mutant receipts"
+      },
+      {
+        "subject": "Name recorded causal guarantees for integrated source checks"
+      },
+      {
+        "subject": "Record final verified green release batch Classic effects"
+      },
+      {
+        "subject": "Update synthetic input fixtures for final keyboard defaults"
+      },
+      {
+        "subject": "Recognize 0 light shield as the old custom preset default"
+      },
+      {
+        "subject": "Cover customized keys that block the new default destinations"
+      },
+      {
+        "subject": "Exclude the old default jump slot from customized key ownership cases"
+      },
+      {
+        "subject": "Update keyboard defaults and upgrade untouched saved slots"
+      },
+      {
+        "subject": "Union verified Rifleman and Paladin private asset families"
+      },
+      {
+        "subject": "Refresh Classic effect record for Select the attack clip when the pad driver starts a scripted"
+      },
+      {
+        "subject": "Mark the grounded Forsaken Consecration danger boundary"
+      },
+      {
+        "subject": "Use stock sword names for Forsaken Paladin and remove hammer prop"
+      },
+      {
+        "subject": "Package the stock Sword with Forsaken swings and ready transitions"
+      },
+      {
+        "subject": "Keep the stock sword in Forsaken weapon authoring"
+      },
+      {
+        "subject": "Use a stock right-arm weapon swing for Forsaken pummel"
+      },
+      {
+        "subject": "Blend stock weapon swings into shipped idle at their edges"
+      },
+      {
+        "subject": "Refresh Forsaken hammer white overlay from stock swing timeline"
+      },
+      {
+        "subject": "Fit Forsaken back-air hurt arm to stock swing phases"
+      },
+      {
+        "subject": "Remove obsolete Forsaken back-air boot departure"
+      },
+      {
+        "subject": "Package Forsaken stock weapon timeline and hammer body"
+      },
+      {
+        "subject": "Author stock Forsaken weapon swings and contact geometry"
+      },
+      {
+        "subject": "Match Blademaster Mirror Image colour to its owner"
+      },
+      {
+        "subject": "fix: remove stale Sylvanas Charm identity status (#511)"
+      },
+      {
+        "subject": "Keep all eighteen Banshee startup frames hittable and reset the target on stock loss (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Draw Banshee Form wake as a dark blended ribbon at its hit radius (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Give Sylvanas her air jump and air specials back whenever Banshee Form ends (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Walk only live trail pieces each frame and skip the platform check outside specials (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Give Sylvanas her air jump and air specials back as Banshee Form turns solid (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Compare Banshee trail ticks as numbers so the Lua32 run agrees (Refs smashcraft#511)"
+      },
+      {
+        "subject": "List Banshee Form's Possession models as Definitive redraws to review (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Pose Banshee Form with Sylvanas's Banshee Flight clip (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Draw Banshee Form's trail at its hit size and drop the tall Animate Dead pillar (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Make Sylvanas's ultimate Banshee Form: a homing ethereal dive that leaves a shadow trail (Refs smashcraft#511)"
+      },
+      {
+        "subject": "Align Sylvanas special cues with arrow, curse and drain contact"
+      },
+      {
+        "subject": "Bring Frost Wyrm into grounded midrange combat"
+      },
+      {
+        "subject": "Make Jaina Blizzard area visible and let its ice animation advance"
+      },
+      {
+        "subject": "Pass each diagnostic camera to the stage clipping range"
+      },
+      {
+        "subject": "Allow clearing the diagnostic stage fog override"
+      },
+      {
+        "subject": "Preserve stage fog controls while tracking camera range"
+      },
+      {
+        "subject": "Keep stage fog and clipping relative to the player camera"
+      },
+      {
+        "subject": "Restore Rifleman smash timelines in Classic and Definitive"
+      },
+      {
+        "subject": "Stop character select dialog hover events displacing the cursor"
+      },
+      {
+        "subject": "Select the attack clip when the pad driver starts a scripted normal"
+      },
+      {
+        "subject": "Refresh Classic effect record for Wire standalone lobby services and name the RC readiness bou"
+      },
+      {
+        "subject": "Wire standalone lobby services and name the RC readiness boundary"
+      },
+      {
+        "subject": "Consume published Wisp lobby preparation and native controller observation"
+      },
+      {
+        "subject": "Prepare a requested-map playtest lobby before declaring RC readiness"
+      },
+      {
+        "subject": "Refresh Classic effect record for Peon worker startup cues"
+      },
+      {
+        "subject": "Replace Peon worker startup explosions with lumber and small dust"
+      },
+      {
+        "subject": "Record exact Classic effects for localized Forsaken VFX"
+      },
+      {
+        "subject": "Use world-space hit area light for Cleansing Hammer contact"
+      },
+      {
+        "subject": "Localize Forsaken hammer light and restore Consecration footprint"
+      },
+      {
+        "subject": "Refresh exact Classic record for Forsaken palette import"
+      },
+      {
+        "subject": "Author Forsaken Paladin hammer on retained rig"
+      },
+      {
+        "subject": "Refresh Classic effect record for accepted Forsaken dash 0.1.1"
+      },
+      {
+        "subject": "Pin the accepted Forsaken dash bodies for 0.1.1"
+      },
+      {
+        "subject": "Give Forsaken Paladin a body-led lunging sword cut for his dash attack"
+      },
+      {
+        "subject": "Refresh Classic effect record for Continue Cairne Shockwave startup through short-hop landing"
+      },
+      {
+        "subject": "Continue Cairne Shockwave startup through short-hop landing"
+      },
+      {
+        "subject": "Restore gold Start focus while keeping native dialog hover"
+      },
+      {
+        "subject": "Fix stage dialog hover event cursor loop"
+      },
+      {
+        "subject": "Draw Forsaken Paladin with Warcraft III's model and our clips"
+      },
+      {
+        "subject": "Document the Forsaken stock source and Classic public package"
+      },
+      {
+        "subject": "WIP: move Forsaken Paladin stock art to its private hero source"
+      },
+      {
+        "subject": "Refresh Classic effect record for Lay Thunder Clap ring flat at its hit radius and flash the i"
+      },
+      {
+        "subject": "Lay Thunder Clap ring flat at its hit radius and flash the impact"
+      },
+      {
+        "subject": "Refresh Classic effect record for Run the every-grabber release contract as a farm sweep; it i"
+      },
+      {
+        "subject": "Run the every-grabber release contract as a farm sweep; it is over the per-test Lua32 budget"
+      },
+      {
+        "subject": "Measure the tilt up air that jump squat still buffers in the platform advantage sweep"
+      },
+      {
+        "subject": "Press the camera scenario's jump before its up smash so jump squat cancel does not ground every fighter"
+      },
+      {
+        "subject": "Keep the grab escape lag private to moves so the dash-grab startup pin is not read as a copy of it"
+      },
+      {
+        "subject": "Use floorMod in the grab release contract's mash schedule"
+      },
+      {
+        "subject": "Grab hold follows the Ultimate formula; releases free the victim first (#550 finding #17)"
+      },
+      {
+        "subject": "Up smash cancels jump squat like grab (#550 finding #18)"
+      },
+      {
+        "subject": "Launches leave only the midair jump; air hits refresh it (#550 finding #16)"
+      },
+      {
+        "subject": "Refresh Classic effect record for Measure Frost Armor's shell, Doomhammer Slam's burst and the"
+      },
+      {
+        "subject": "Measure Frost Armor's shell, Doomhammer Slam's burst and the Defile ground disc models"
+      },
+      {
+        "subject": "Mark Death and Decay's strike on the ground and spread Doomhammer Slam's burst to its tips at impact"
+      },
+      {
+        "subject": "Show Lich's Death and Decay field for its whole life, a frost shell for Frost Armor and a ground slam for Doomhammer Slam"
+      },
+      {
+        "subject": "Regenerate reports for claude/land-claude-peon-rest-0d6b8c8dae46"
+      },
+      {
+        "subject": "Refresh Classic effect record for Peon's down special no longer heals, so his kit declares no"
+      },
+      {
+        "subject": "Peon's down special no longer heals, so his kit declares no identity trait"
+      },
+      {
+        "subject": "Measure the Sleep and Divine Shield models Peon's Rest draws"
+      },
+      {
+        "subject": "Flash a golden shield on Peon's Rest hit and keep the Zzz readable for the whole sleep"
+      },
+      {
+        "subject": "Give Peon a Rest down special: a frame-2 point-blank kill hit, then a long sleep"
+      },
+      {
+        "subject": "Refresh Classic effect record for Cite portrait colour measurement in the regression kind tag"
+      },
+      {
+        "subject": "Cite portrait colour measurement in the regression kind tag"
+      },
+      {
+        "subject": "Regenerate Classic Anub portrait family from current victory body"
+      },
+      {
+        "subject": "Preserve Classic Anub portrait colour and reject washed-out tiles"
+      },
+      {
+        "subject": "Seek Cairne's pooled Shockwave after selecting its live sequence"
+      },
+      {
+        "subject": "Validate decoded native images and type pending calibration explicitly"
+      },
+      {
+        "subject": "Improve Classic special cues and require native screen acceptance"
+      },
+      {
+        "subject": "Refresh Classic effect record for Expect the selection hand only while a chip is carried in th"
+      },
+      {
+        "subject": "Expect the selection hand only while a chip is carried in the selection journey"
+      },
+      {
+        "subject": "Show Warcraft's own cursor on fighter select except while a chip is carried, and share one Start rectangle across character and stage select"
+      },
+      {
+        "subject": "Refresh Classic effect record for Frozen Throne's floating platforms are ice floes only, with"
+      },
+      {
+        "subject": "Frozen Throne's floating platforms are ice floes only, with no grey rock hung beneath"
+      },
+      {
+        "subject": "Record what Warcraft 3.0's water options are and which Smashcraft can use"
+      },
+      {
+        "subject": "Stand the arena at a fixed height instead of reading terrain z at the map centre"
+      },
+      {
+        "subject": "Refresh Classic effect record for Classic victory poses"
+      },
+      {
+        "subject": "Give every Classic fighter body its victory pose so winners animate on the results screen"
+      },
+      {
+        "subject": "Refresh Classic effect record for results sounds and stage sea floors"
+      },
+      {
+        "subject": "Draw every stage's sea floor with Tomb of Sargeras's sea, not the zigzag plane"
+      },
+      {
+        "subject": "Stop end-of-match sounds when the results screen closes"
+      },
+      {
+        "subject": "Refresh Classic effect record for Shadow Hunter jump pose"
+      },
+      {
+        "subject": "Give Shadow Hunter a neutral ready pose for jumps instead of his victory flourish"
+      },
+      {
+        "subject": "Refresh Kael advantage routes after Flamestrike cap correction"
+      },
+      {
+        "subject": "Refresh Classic effect record for combo timing and damage corrections"
+      },
+      {
+        "subject": "Break the nine remaining guaranteed damage strings"
+      },
+      {
+        "subject": "Refresh Classic report for current Warden coverage landing"
+      },
+      {
+        "subject": "Cover Warden forward-air blade arc with frame-specific regions"
+      },
+      {
+        "subject": "Refresh Classic effect record for Anubarak animation"
+      },
+      {
+        "subject": "Drive Anub'arak attacks with body-led lunges (Refs #445)"
+      },
+      {
+        "subject": "Refresh Classic effect record for rebased Blademaster hurtboxes"
+      }
+    ]
+  }
+}

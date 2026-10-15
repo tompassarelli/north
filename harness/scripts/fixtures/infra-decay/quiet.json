@@ -1,0 +1,73 @@
+{
+  "source": "Seeded quiet day at threshold boundaries",
+  "at": "2026-10-15T05:00:00Z",
+  "changes": [],
+  "workflows": [
+    {
+      "repo": "fixture",
+      "name": "Background sweeps",
+      "runs": [
+        {
+          "createdAt": "2026-10-15T03:00:00Z",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "repo": "fixture",
+      "name": "runner:farm-big",
+      "label": "farm-big",
+      "online": 1
+    }
+  ],
+  "files": [
+    {
+      "name": "test-health.json",
+      "modified": 1791867600.0,
+      "period_s": 86400,
+      "owner": "test-audit-lead"
+    }
+  ],
+  "timers": [
+    {
+      "name": "laptop-auto.timer",
+      "enabled": true,
+      "next": 1792040460000000
+    }
+  ],
+  "commits": {
+    "fixture": [
+      {
+        "subject": "Regenerate records"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      },
+      {
+        "subject": "Change fighter"
+      }
+    ]
+  }
+}
