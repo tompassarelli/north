@@ -169,6 +169,13 @@ def describe(row):
             f"--to-node {row['from_node']} --answer {row['id']} --body <answer>.")
 
 
+def inbox_path(node):
+    if node["id"] == "proxy":
+        return Path(org.org_file()).parent / "handoffs/proxy-inbox.md"
+    status = Path(node["status_file"])
+    return status.with_name(status.name.removesuffix("-status.md") + "-inbox.md")
+
+
 def mirror(row, registry, deadline=None):
     source = registry.get(row["from_node"], {})
     target = registry.get(row["to_node"], {})
@@ -176,17 +183,16 @@ def mirror(row, registry, deadline=None):
     if source.get("status_file"):
         append(Path(source["status_file"]), line, deadline=deadline)
     if row["to_node"] == "proxy":
-        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", line, deadline=deadline)
+        append(inbox_path({"id": "proxy"}), line, deadline=deadline)
     elif target.get("status_file"):
-        status = Path(target["status_file"])
-        append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), line, deadline=deadline)
+        append(inbox_path(target), line, deadline=deadline)
 
 
 def deliver(node, body, locate=org.address, deadline=None):
     if not node or node.get("state") != "active":
         raise RuntimeError("recipient is not an active registered node")
     if node["id"] == "proxy":
-        append(Path(org.org_file()).parent / "handoffs/proxy-inbox.md", body, deadline=deadline)
+        append(inbox_path(node), body, deadline=deadline)
         if node["provider"] != "codex":
             return
         if org.health(node) != "active":
@@ -194,8 +200,7 @@ def deliver(node, body, locate=org.address, deadline=None):
     if node["provider"] == "claude":
         if not node.get("status_file"):
             raise RuntimeError("registered Claude session has no inbox")
-        status = Path(node["status_file"])
-        append(status.with_name(status.name.removesuffix("-status.md") + "-inbox.md"), body, deadline=deadline)
+        append(inbox_path(node), body, deadline=deadline)
         return
     if node["id"] != "proxy" and org.health(node) != "active":
         result = run([str(ROOT / "bin/agents"), "lead", "restart", node["id"]], timeout=80, deadline=deadline)
