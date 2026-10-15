@@ -388,6 +388,8 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     subprocess.run([str(installed_threads), 'register-spawn', '--parent', 'gate-lead', '--task', 'gate_registered', '--brief-file', str(ts_brief)], env=env, check=True)
     refused = spawn('gate_registered', coach_line + '\nopaque relay text', True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
-    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash')
+    spawn('gate_delegate', 'Run the entire operator task: fix the failing build and report.', False)
+    spawn('gate_probe', 'echo_probe', False)
+    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, and leaves header-less spawns to the registration check')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')
 PY

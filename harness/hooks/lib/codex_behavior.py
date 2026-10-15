@@ -1164,6 +1164,8 @@ def codex_box_denial(event):
     except Exception:
         return None
     brief = spawn_box_brief(event, message)
+    if not hasattr(routing, "codex_qualifies") or "category" not in routing.brief_header(brief):
+        return None
     qualifies, failed = routing.codex_qualifies({"brief": brief})
     if not qualifies:
         return deny(f"route to Claude: {failed}")
