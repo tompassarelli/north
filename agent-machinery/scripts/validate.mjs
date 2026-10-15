@@ -6,10 +6,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const EXCLUDED_TEXT = new Set(["PROVENANCE.md", "NOTICE", "LICENSE", "LICENSE-MIT", "LICENSE-APACHE"]);
 const FORBIDDEN_DIRS = new Set(["adapters", "hooks", "providers", "secrets"]);
-// Upstream guides copied verbatim by refresh-guides.mjs are third-party text,
-// like LICENSE and NOTICE; their sample paths are not this package's markers.
-const VENDORED_GUIDES = "skills/skill-maintenance/references/guides/";
-const VENDORED_HEADER = /^<!-- Vendored from https:\/\/github\.com\/\S+ \([^)]+\), retrieved \d{4}-\d{2}-\d{2}\./;
 const forbiddenBrands = [
   ["Nor", "th"], ["Fi", "rn"], ["Nix", "OS"], ["Bea", "gle"],
 ].map((parts) => parts.join(""));
@@ -113,7 +109,6 @@ export function validatePackage() {
       `provider interface metadata is outside package authority: ${rel}`);
     if (EXCLUDED_TEXT.has(rel) || statSync(path).size > 1_000_000) continue;
     const text = readFileSync(path, "utf8");
-    if (rel.startsWith(VENDORED_GUIDES) && VENDORED_HEADER.test(text)) continue;
     assert(!FORBIDDEN_TEXT.test(text), `non-portable source marker in ${rel}`);
   }
   return { units: catalog.units.length };

@@ -4,9 +4,32 @@ Keep the code workable as it grows: modules with one responsibility, callers
 that go through interfaces, names that say what things are, and size and
 complexity limits on the code that changes most. The repo's `structure.toml`
 holds the limits and the module map; the `code-health` tool measures against
-it. Where files live by authority and lifecycle is the
-[project-structure](../../../../harness/skills/project-structure/SKILL.md)
-skill; this note covers what goes inside them.
+it. Where files live comes first, below.
+
+## File layout
+
+Trace the real sources, producers, consumers, retained state and rerun command
+before choosing directories, because a layout built from guesses misplaces
+authority. Add a directory boundary only where authority, lifecycle, retrieval
+or retention differs, since extra folders cost lookups without telling a reader
+anything. Keep the language's and build tool's native layout, because tools and
+newcomers expect it.
+
+For data pipelines, keep immutable inputs or their external identities and the
+transforms that produced each result, so a result can be traced and rerun. Keep
+a checkpoint only when it saves an expensive rerun or serves inspection,
+recovery or handoff; other intermediates are disposable. Ordinary software
+needs no data-stage or experiment folders.
+
+Name files by the repository's conventions and put a date, sequence or subject
+first only when it is how people retrieve them, because names are the index.
+Move every consumer, script, build rule, test and document in the same change
+as the files, so nothing points at the old place.
+
+A handoff layout is done when the native workflow runs and a newcomer can find
+the source, inputs, outputs, disposable work and the rerun command. Data
+provenance, checkpoint and naming detail is in the
+[project layout notes](../../../../harness/skills/repo-safety/references/project-layout.md).
 
 ## Modules and responsibilities
 

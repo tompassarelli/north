@@ -1,13 +1,11 @@
 #!/usr/bin/env bun
-// Refreshes the vendored harness-authoring guides under
-// skills/skill-maintenance/references/guides/, or with --check lists the
-// ones older than STALE_DAYS. Only openly licensed sources are vendored;
-// link-only sources live in skills/skill-maintenance/references/guides.md.
+// Refreshes the vendored guides under ../harness/skills/agent-policy/references/guides/,
+// or with --check lists the ones older than STALE_DAYS; link-only sources live in guides.md beside them.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const STALE_DAYS = 90;
-const root = join(import.meta.dir, "..", "skills", "skill-maintenance", "references", "guides");
+const root = join(import.meta.dir, "..", "..", "harness", "skills", "agent-policy", "references", "guides");
 const manifestPath = join(root, "sources.json");
 
 const SOURCES = [

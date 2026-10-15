@@ -103,11 +103,13 @@ for idea-level inspiration alone.
 
 ## Harness authoring guides
 
-`skills/skill-maintenance/references/guides/` vendors openly licensed guides
-for writing agent instructions and skills. `scripts/refresh-guides.mjs`
+`scripts/refresh-guides.mjs` vendors openly licensed guides for writing agent
+instructions and skills into the host repository's
+`harness/skills/agent-policy/references/guides/`, outside this package. It
 fetches each source at its upstream `HEAD`, records the exact commit URL,
 license and retrieval date in each file's header and in
 `guides/sources.json`, and converts the one Jupyter notebook to Markdown.
 Sources without a reuse license (Anthropic and OpenAI documentation sites,
 blog posts) are linked and summarized in
-`skills/skill-maintenance/references/guides.md`, not copied. See `NOTICE`.
+`guides.md` beside that directory, not copied. Attribution and license texts
+are in that directory's `NOTICE`.

@@ -6,7 +6,7 @@
 # One `rg -l --hidden` rooted there measured 3.5 GB RSS and a quarter of a
 # 24-core machine; `convo` answers the same question in 0.3-0.4 s at ~31 MB
 # because it keeps an FTS index instead of re-reading the corpus. AGENTS.md and
-# the `convo` skill say so; this hook is the layer that cannot be forgotten.
+# the `todo` skill say so; this hook is the layer that cannot be forgotten.
 #
 # WHAT IS REFUSED is only the shape that walks the whole tree: a recursive
 # search whose ROOT is the corpus root, the symlink, or one of the interior

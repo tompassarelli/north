@@ -687,7 +687,7 @@ def capacity_refusal(event, texts):
         return (
             f"Domain {rank[0]} ranks below {rank[2]} in Tom's priority order (agents org show), so its local "
             f"spawns stop at {ceiling:g} of the {limit:g} CPUs; {provisioned:g} are committed. Move code-only work "
-            "to a cloud worker (cloud-workers skill) or queue it until a lease ends. Take a real conflict to the "
+            "to a cloud worker (workers skill) or queue it until a lease ends. Take a real conflict to the "
             "proxy, not Tom."
         )
     return (
@@ -695,7 +695,7 @@ def capacity_refusal(event, texts):
         f"protected desktop pressure is {protected:g}% (limit {PROTECTED_PRESSURE_LIMIT:g}%), and "
         f"{local_workers()} local workers are running. Queue this worker until a lease ends, "
         "send heavy checks to the farm, or use a cloud worker for code-only work "
-        "(cloud-workers skill). Workers already running are unaffected. For an urgent fix, "
+        "(workers skill). Workers already running are unaffected. For an urgent fix, "
         "start the brief with CASE=URGENT FACT=\"<why it can't wait>\". Codex, whose briefs are encrypted, appends \"<epoch>\\t<agent name>\\t<fact>\" to ~/.local/state/agents/spawn-urgent.tsv first."
     )
 

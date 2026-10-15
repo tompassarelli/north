@@ -53,12 +53,12 @@ labelled fallback. For repeated menu work, identify the starting screen once,
 batch known inputs, and check the ending state; stop a chain on an unexpected
 result. Record successful chains (start/end state, build, geometry, inputs,
 waits, time, artifact) in the project and measure warm loops separately from
-cold launch, loading and builds ([fast native iteration](references/fast-native-iteration.md)).
+cold launch, loading and builds ([fast native iteration](fast-native-iteration.md)).
 
 Before designing or diagnosing input, commands, netcode, rollback or FileIO,
 resolve the Warcraft semantics from pinned API documentation, existing map code
-and a distinct prior-art approach (`prior-art`), with the API family's
-evidence in [API gotchas](references/api-gotchas.md). Player-issued orders
+and a distinct prior-art approach (`planning`), with the API family's
+evidence in [API gotchas](api-gotchas.md). Player-issued orders
 differ from map-script `Issue*Order`; event arrival does not preserve press,
 frame or analog value; capture, transport, confirmation, rendering and
 button-to-pixel time are different quantities. Answer an input-timing question

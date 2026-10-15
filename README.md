@@ -49,4 +49,4 @@ Each document has one job:
 - [AGENTS.md](AGENTS.md): rules for agents working in this repository, including build and check
   commands.
 - [agent-machinery/README.md](agent-machinery/README.md): the shared procedures package.
-- [harness/skills/testing/SKILL.md](harness/skills/testing/SKILL.md): how tests are kept and run.
+- [agent-machinery/skills/verification/SKILL.md](agent-machinery/skills/verification/SKILL.md): how tests are kept and run.

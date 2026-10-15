@@ -30,8 +30,8 @@ Each omission maps to one section of `SKILL.md`.
 - The trigger is any non-trivial bug or unexplained behavior, not reverse
   engineering. Tracing and binary tools are one observation section.
 - The search pass is bounded (a handful of queries) so it stays cheap; it is
-  not a prior-art survey. `prior-art` owns design-choice research.
-- "Two failed fixes" matches the bootstrap's existing two-failure stop and
-  inserts research plus a differential trace before the third attempt.
+  not a prior-art survey. `planning` owns design-choice research.
+- "Two failed fixes" matches the bootstrap's existing two-failure stop; before
+  a third attempt or escalation the agent tests the premise both fixes shared.
 - No hook enforces this: whether an attempt was a guess is not mechanically
   decidable.

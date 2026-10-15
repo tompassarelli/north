@@ -80,7 +80,7 @@ once on success. Keep state choices in the typed core and operating-system or
 provider calls at the host boundary.
 
 Retain and exercise acceptance journeys under the
-[testing skill](../harness/skills/testing/SKILL.md).
+[verification skill](../agent-machinery/skills/verification/SKILL.md).
 
 ## Adopt, reject, defer
 

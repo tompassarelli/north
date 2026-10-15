@@ -104,7 +104,7 @@ mod tests {
             "token: abc123",
             "key sk-abcdefghijklmnopqrstuvwxyz012345",
             "blob Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXcVbNmQwErTy",
-            "see harness/skills/orchestrating-codex/references/session-diagnostics.md",
+            "see harness/skills/workers/references/codex-sessions.md",
             "landed 4502d16752b0b5a1c3f9e2d8a7b6c5d4e3f2a1b0 and convo:2216789",
         ]
         .join("\n");
@@ -113,7 +113,7 @@ mod tests {
         assert!(!out.contains("abc123"));
         assert!(!out.contains("sk-abcdefghij"));
         assert!(!out.contains("Zx9Qw8Er7Ty6"));
-        assert!(out.contains("harness/skills/orchestrating-codex/references/session-diagnostics.md"));
+        assert!(out.contains("harness/skills/workers/references/codex-sessions.md"));
         assert!(out.contains("4502d16752b0b5a1c3f9e2d8a7b6c5d4e3f2a1b0"));
         assert!(out.contains("convo:2216789"));
     }

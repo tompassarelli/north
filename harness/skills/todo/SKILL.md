@@ -1,9 +1,9 @@
 ---
 name: todo
 description: >-
-  Keep restart-grade records for cross-turn work, external waits, parked tasks, and handoffs. Also handles an explicit cross-supervisor protocol request.
-grounded: 2026-10-06
-written: 2026-10-06
+  Keep restart-grade records for cross-turn work, external waits, parked tasks, and handoffs. Also handles an explicit cross-supervisor protocol request, and recalls past agent work, decisions, commands or session IDs across Claude Code and Codex transcripts with the indexed convo CLI instead of searching transcript storage.
+grounded: 2026-10-15
+written: 2026-10-15
 metadata:
   kind: playbook
 ---
@@ -43,3 +43,25 @@ Read [nixos-config:cross-supervisor transport](references/cross-supervisor.md).
 It specifies the paired monitors, duplex helper, event delivery, renewal, and
 settlement. Never ask the operator to relay protocol tokens. `OPEN` and
 `RECEIVED` convey no work ownership; transfers need separate acknowledgement.
+
+## Recall past work with convo
+
+Find past agent work, decisions, commands or session IDs across Claude Code and
+Codex transcripts with the indexed `convo` CLI; the `corpus-scan-guard` hook
+refuses recursive raw scans of transcript storage, which is too large to sweep.
+
+- Search with `convo <words>` (all words in one message; `-x` for exact strings,
+  ids and error text) and narrow by role, tool, project, session, provider or
+  time; flags are in `convo --help`.
+- Open a hit with `convo show <id> -C 3` or `convo session <id prefix>`, and read
+  a raw transcript only at the path and line `show` printed, so no read sweeps
+  the corpus.
+- Treat exit 2 as inconclusive, never as absence, because the index may be busy
+  or stale.
+- Treat a hit as a recorded claim: check the speaker, the date and any later
+  reversal, and verify consequential facts against current source, because
+  transcripts record what was said, not what is true now.
+
+Read [convo judging and internals](references/convo.md) for exit codes, what is
+indexed, the corpus layout, maintenance (`index --full`, `compress`, `restore`)
+and skill-usage counts.

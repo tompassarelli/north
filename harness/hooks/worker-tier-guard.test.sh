@@ -113,7 +113,7 @@ done
 run allow 'known facets'                worker        $'Category: tooling\nSpec: measured\nScope: one-file\nSurface: rust\nVerify: local-test\nPayback: enables x; cost 5 min'
 PAYBACK='Payback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days'
 for cat in tooling infra ci harness; do
-  EXPECT_REASON='iteration-economics' run deny "$cat without Payback" worker "Category: $cat$FACETS"
+  EXPECT_REASON='planning skill' run deny "$cat without Payback" worker "Category: $cat$FACETS"
   run deny "native $cat without Payback" codex "Category: $cat$FACETS"
   run allow "$cat with saving Payback" worker "Category: $cat"$'\n'"$PAYBACK$FACETS"
 done

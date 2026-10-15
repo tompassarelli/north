@@ -55,16 +55,16 @@ a rule when its numbers move.
   dismisses it.
 - When the reviewer must come from another family, use Codex `gpt-6-astra`
   xhigh while Codex usage remains, then `gpt-6.1-sol` high, then Opus at a
-  different tier. Gemini (`gemini-review`) is the cheap extra reviewer, for
+  different tier. Gemini ([gemini-review.md](gemini-review.md)) is the cheap extra reviewer, for
   public diffs only.
 
 ## Compute routing (agreed with Tom 2026-10-10)
 
 - A cloud run costs only the plan usage a local worker would, machine
-  included. Send code-only Smashcraft and Wisp items to `cloud-workers`
+  included. Send code-only Smashcraft and Wisp items to cloud workers ([cloud.md](cloud.md))
   first: 4 cores per run, no cap on runs.
 - Send parallel batch work (balance and CPU fields, suites, soaks) to GitHub
-  runners through `github-actions` first. Move it to vast.ai through `vast-job`
+  runners through `github` first. Move it to vast.ai through `vast-job`
   when the farm queue delays a result.
 - Run always-on Warcraft clients, the offline LAN pool and GPU work on the
   Hetzner box once it exists, and on the vast.ai VM until then. Keep signed-in

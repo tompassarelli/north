@@ -37,6 +37,6 @@ implementation and one repair cycle by default; after that, simplify or report
 the missing observation. Do not build observability or runtime infrastructure
 to reassure an already resolved decision.
 
-A named repeated edit-to-signal loop belongs to competitive-development-loop;
+A named repeated edit-to-signal loop belongs to performance-design;
 the one-off check remains here. Preserve useful measurements without turning
 every command into a profiling campaign.

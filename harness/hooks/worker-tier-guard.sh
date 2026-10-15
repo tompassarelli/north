@@ -4,7 +4,7 @@
 # worker-high or worker-xhigh take only escalations. A `Follows:` line marks an escalation and
 # allows any worker tier. A Spec/Scope/Surface/Verify facet outside its closed
 # vocabulary (threads FACETS) is denied at any worker tier, and so is a
-# tooling/infra/ci/harness brief without a `Payback:` line (iteration-economics).
+# tooling/infra/ci/harness brief without a `Payback:` line (planning).
 # Non-worker agent types always allow.
 #
 # Kill-switch: `north config agents off worker-tier-guard` or env
@@ -71,7 +71,7 @@ payback = re.search(
 )
 if reason is None and infra and not payback:
     reason = (
-        f"Category: {infra.group(1)} needs a Payback: line priced with the iteration-economics skill: "
+        f"Category: {infra.group(1)} needs a Payback: line priced with the planning skill: "
         "`Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` "
         "or, for enabling work, `Payback: enables <what>; cost <M> min`."
     )

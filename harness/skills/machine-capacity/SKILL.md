@@ -2,62 +2,60 @@
 name: machine-capacity
 description: >-
   Bound sustained multi-core or >1 GiB local work and diagnose agent-caused resource pressure. Skip ordinary edits and small checks.
-grounded: 2026-10-09
-written: 2026-10-09
+grounded: 2026-10-15
+written: 2026-10-15
 metadata:
   kind: playbook
 ---
 
 # Machine capacity
 
-- Resolve the helper at `$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs` and invoke it with Bun.
-- Run `machine-capacity estimate -- CMD` before staffing local work; leases size from it by default.
-- Admit sustained multi-core or >1 GiB work through the shared helper, never worker slots or load average.
-- Never set CPUQuota, CPUWeight or AllowedCPUs outside machine-capacity; `heavy-command-guard` refuses it.
-- Choose the smallest sufficient class: moderate = 2 CPUs/2 GiB; heavy = 6 CPUs/8 GiB; exclusive = all allowed cores/no peer batch; gpu = 1 CPU/2 GiB for headless Chrome/wisp renders (not grim captures), two at a time; native = 2 CPUs/4 GiB/no CPU quota.
-- Use critical (all cores minus the attended desktop reserve, 16 GiB, one-hour batch limits, front of the queue, no CPU-capacity or pressure wait) only as the landing-train holder or for a run with an explicit `--critical` release-blocker diagnostic.
-- Use tom (2 CPUs, 2 GiB, front of the queue with critical, no CPU-capacity or pressure wait) only for the build Tom is waiting to play: the Tom-build watcher and lane builds.
-- Expect a batch land check that safe-push runs under its landing lock (owner land-check, SAFE_PUSH_LAND_HEAD set) to be admitted as critical at its own size, so the lock holder never waits on batch load.
-- Use `run --class CLASS --owner OWNER --timeout-seconds N -- COMMAND ARG...` for batch work, including legitimate setup/download time.
-- Omit `--class` on `run` to size from the usage log: p90 peak cores and memory of the shape's last 20 runs plus 25%, gpu when GPU-busy over a fifth of the run, moderate until three runs exist; the admission line shows `sizing`, with `p75Seconds` from the last 20 exact-signature runs' wall time (null and `uncalibrated` under three).
-- Expect a declared moderate, heavy, native or gpu `run`/`session` to be charged, once three runs of its owner's leading letters plus command shape exist, the p90 of per-run p90 cores within 1 and 1.5x the class and p90 peak memory plus 20%; the scope keeps the declared CPUQuota/MemoryHigh, admission and the spawn gate count the charge, and `status` shows `cpus` beside `declaredCpus` and `evidenceRuns`.
-- Use `session --class native --owner OWNER -- COMMAND ARG...` for Warcraft clients/private desktops, one scope per client and two per pair.
-- Expect native DEFER_GPU_BUSY while GPU busy averages at least 85% over 5 s with no gpu lease running, and attended DEFER_GPU_CLIENTS while four Warcraft clients run; `status`/`probe` show `gpuBusyPercent`/`gpuClients`/`gpuLeases`.
-- Expect gpu DEFER_GPU_SLOTS at two gpu leases and DEFER_NATIVE_WAITING for a minute after a native client was deferred; native clients outrank renders.
-- Never start wine, proton, steam-run or a game .exe outside a native session; `native-launch-guard` refuses it.
-- Run cargo build, full `bun test` suites, `bun wisp map build` and headless wisp renders (`view`, `headless --render`) through `run`; `heavy-command-guard` refuses them unwrapped.
-- Keep native sessions foreground until command exit, Ctrl-C or explicit stop; only native sessions have no default deadline.
-- Respect batch session's 30-minute default, batch's one-hour maximum and exclusive's 15-minute maximum.
-- Request native-only `--memory-gib 1.5` for measured smaller offline clients.
-- Require positive whole-MiB values and retain memory/CPU admission rules.
-- Charge that request at 1536 MiB instead of 4096 MiB and apply the same MemoryHigh to that client only.
-- Read [leases and limits](references/leases-and-limits.md) for reserve/renew/release commands, admission details and session recovery.
-- Respect CPU weights: compositor session 300, native 200, app 100, batch agent 20.
-- Keep attended batch within cores minus four and 20% RAM available; defer while protected-slice CPU some avg10 is at least 10%.
-- Keep unattended within all cores and an 8 GiB available-memory floor, never above a quarter of RAM (small hosts such as nexus).
-- Cap leased memory at 75% RAM in both profiles.
-- Let swayidle set `mode away` after 10 minutes idle and `mode present` on input; auto without an away signal is attended.
-- Query `mode`/`probe` for active mode/profile.
-- Queue moderate/heavy work in arrival order while declared batch CPUs exceed the core limit or system CPU some avg10 exceeds 30%.
-- Let queued exclusive work drain heavy jobs while moderate/update:wisp continue.
-- Start after batch leases end and block new batch work until release without blocking native clients.
-- Keep every descendant inside its scope and supervise the wrapper through terminal `RELEASED`.
-- Never detach work or renewal processes.
-- Keep queued wrappers supervised until they start automatically.
-- Retry DEFER from probe/reserve/native after a known release or 30 seconds.
-- Never busy-poll.
-- Treat RUN/RESERVED as permission to continue and RECLAIMED as expired leases/finished helper scopes, never permission to kill peers.
-- Retain allowances while wrapper or scope is live, including native sessions.
-- Assign exact-scope cleanup to the owner/accountable parent.
-- Reserve an agent lease before compute-using workers, renew before expiry and release at settlement.
-- Charge 768 MiB without reserving local CPU.
-- Give worker local commands their own run scopes; persist reservations only for agent class.
-- Respect the spawn gate when committedBatchCpus (each live batch lease at max(reserved, measured cores) plus unleased heavy load, which includes all agent.slice work outside agent-capacity.slice, such as local Codex sessions) reaches aggregateCpuLimit or protectedCpuSomeAvg10 exceeds 20; queue, use the farm or use cloud workers.
-- Expect a heavy run to be charged and committed at least its declared 6 CPUs, so at most three heavy builds share the 20-CPU line.
-- Scale native pairs one at a time and stop adding above protectedCpuSomeAvg10 20 in either profile.
-- Use status for holders, remaining seconds, queue order, each run lease's `measured` cores/memory/GPU beside its reservation, and `unleasedHeavy` (cgroups outside leases, session and native slices over one core in the capacity-watchdog's latest 30 s sample, with its top processes and claude or codex `sessions`).
-- Read `~/.local/state/agents/watchdog/incidents.md` and `capacity-watchdog report` for the 30 s watchdog sampler's unleased-tree and stray git maintenance incidents and 5/30-minute pressure windows; the `[routine:watchdog]` cron reads them every 5 minutes.
-- Read `~/.local/state/agents/machine-capacity-usage.jsonl` for each released run's measured CPU seconds, mean/peak cores, peak memory and GPU seconds by owner and command shape.
-- Treat memory PSI as diagnostic and system CPU PSI as admission pacing rather than desktop harm.
-- Leave signaling of peers to their owner/accountable parent.
-- Never lower correctness requirements because of pressure.
+## Admission
+
+- Resolve the helper at `$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs` and invoke it with Bun, because every caller must reach the one shared admission state.
+- Admit sustained multi-core or >1 GiB work through the helper, never through worker slots or load average, because idle slots measure neither CPU nor memory and several reasonable commands together exhaust the desktop.
+- Run `machine-capacity estimate -- CMD` before staffing local work, because leases size from it by default.
+- Never set CPUQuota, CPUWeight or AllowedCPUs outside machine-capacity, because uncounted quotas defeat shared admission; `heavy-command-guard` refuses it.
+- Run cargo build, full `bun test` suites, `bun wisp map build` and headless wisp renders (`view`, `headless --render`) through `run`, because `heavy-command-guard` refuses them unwrapped.
+- Never start wine, proton, steam-run or a game .exe outside a native session, because unadmitted game clients starve the desktop; `native-launch-guard` refuses it.
+- Use `run --class CLASS --owner OWNER --timeout-seconds N -- COMMAND ARG...` for batch work, with the timeout covering setup and download time, because every run needs a finite bound.
+- Use `session --class native --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops (one scope per client, two per pair), because they must outlive a batch deadline.
+
+## Classes
+
+Choose the smallest sufficient class, because oversized claims queue peers for nothing.
+
+- moderate = 2 CPUs/2 GiB; heavy = 6 CPUs/8 GiB; exclusive = all allowed cores and no peer batch; gpu = 1 CPU/2 GiB for headless Chrome and wisp renders (not grim captures), two at a time; native = 2 CPUs/4 GiB/no CPU quota.
+- critical (all cores minus the attended desktop reserve, 16 GiB, one-hour batch limits, front of the queue, no CPU-capacity or pressure wait) only for the landing-train holder or a run with an explicit `--critical` release-blocker diagnostic, because it jumps the queue and ignores pressure.
+- tom (2 CPUs, 2 GiB, front of the queue with critical, no CPU-capacity or pressure wait) only for the build Tom is waiting to play (the Tom-build watcher and lane builds), because it ignores pressure.
+- A batch land check that safe-push runs under its landing lock (owner land-check, SAFE_PUSH_LAND_HEAD set) is admitted as critical at its own size, so the lock holder never waits on batch load.
+- Omit `--class` on `run` to size from the usage log (p90 of the last 20 runs plus 25%; moderate until three runs exist), because measured sizing beats guessing; the charging rules are in [admission details](references/admission-details.md).
+- Request native-only `--memory-gib 1.5` for measured smaller offline clients, because it charges 1536 MiB instead of 4096 MiB for that client only.
+- Respect batch `session`'s 30-minute default, batch's one-hour maximum and exclusive's 15-minute maximum, because only native sessions have no default deadline.
+
+## Leases and supervision
+
+- Reserve an agent lease before compute-using workers, renew before expiry and release at settlement, because the lease is the only record that frees the allowance; it charges 768 MiB without reserving local CPU.
+- Give worker local commands their own run scopes and persist reservations only for the agent class, because larger classes cannot outlive their wrapper.
+- Keep native sessions foreground until command exit, Ctrl-C or explicit stop, because a detached tree escapes its scope.
+- Keep every descendant inside its scope and supervise the wrapper through terminal `RELEASED`; never detach work or renewal processes, because a forcibly killed wrapper cannot clean up and its allowance stays charged.
+- Keep queued wrappers supervised until they start automatically, because a dropped wrapper drops its queue ticket.
+- Retry a DEFER after a known release or 30 seconds and never busy-poll, because polling adds the load the queue exists to avoid.
+- Treat RUN/RESERVED as permission to continue, and RECLAIMED as expired leases or finished helper scopes, never as permission to kill peers, because peers belong to their owners.
+- Retain allowances while a wrapper or scope is live, including native sessions, because a live scope is real load.
+- Assign exact-scope cleanup to the owner or accountable parent, and leave signaling of peers to them, because only they know what is safe to stop.
+- Respect the spawn gate when committed batch CPUs reach the aggregate limit or protected CPU pressure exceeds 20; queue, use the farm or use cloud workers, because adding local workers then slows everything (thresholds in [admission details](references/admission-details.md)).
+- Expect a heavy run to be charged at least its declared 6 CPUs, so at most three heavy builds share the 20-CPU line.
+- Never lower correctness requirements because of pressure, because slower correct work beats fast wrong work.
+
+## Profiles and pressure
+
+- Attended batch stays within cores minus four and 20% RAM available, and defers while protected-slice CPU some avg10 is at least 10%, because the desktop must stay responsive. Unattended stays within all cores and an 8 GiB available-memory floor, never above a quarter of RAM on small hosts such as nexus.
+- Cap leased memory at 75% RAM in both profiles, so the kernel never has to reclaim from interactive work.
+- Treat memory PSI as diagnostic and system CPU PSI as admission pacing rather than desktop harm, because batch quota throttling inflates both without hurting the desktop.
+- Scale native pairs one at a time and stop adding above protectedCpuSomeAvg10 20, because Warcraft clients are the heaviest steady load.
+- For diagnosis read `status` (holders, queue order, measured versus reserved, `unleasedHeavy`), the watchdog's `incidents.md` and `capacity-watchdog report`, and the usage log; the paths and fields are in [admission details](references/admission-details.md).
+
+Read [leases and limits](references/leases-and-limits.md) for reserve/renew/release commands, admission rationale and session recovery.
+Read [admission details](references/admission-details.md) for thresholds, native GPU deferrals, mode switching and queue behavior.
+Read [testing on this machine](references/testing-on-this-machine.md) for the local test runners, timing checks and review paths the verification skill leaves unnamed.

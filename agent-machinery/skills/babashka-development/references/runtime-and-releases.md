@@ -40,7 +40,7 @@ binary selection/linking. Before editing tasks that combine `:depends`, `:cli`,
 packaging or upgrading Linux consumers, use the release's current static versus
 dynamic selection rules rather than assuming the older artifact shape.
 
-This checkpoint is a discovery aid, not a freshness claim. A skill-maintenance
+This checkpoint is a discovery aid, not a freshness claim. An agent-policy maintenance
 run updates it when an official release adds, removes, or materially changes a
 capability or deployment constraint; ordinary application work reports a stale
 checkpoint and continues from official sources.

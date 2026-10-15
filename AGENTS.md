@@ -13,7 +13,7 @@ Build output stays in the worktree's `target/`.
 - Put North state transitions in `src/state_core.rs` and standalone menu transitions in `src/menu.rs`; the Rust host performs authorized effects and renders projections.
 - Change Rust build settings (profiles, linker, caches, crate splits) only after
   measuring them per [compile-times](agent-machinery/skills/rust-development/references/compile-times.md).
-- Follow [testing](harness/skills/testing/SKILL.md) for test retention, mutation evidence and execution.
+- Follow [verification](agent-machinery/skills/verification/SKILL.md) for test retention, mutation evidence and execution.
 - Check with `depbox run -- nix develop -c cargo test --locked --offline` for the host, and
   `depbox run -- bun test` plus `depbox run -- bun run check` inside `agent-machinery/` for its procedures.
 - Edit in `worktrees/<slug>`, never `main/`, and land through `safe-push --to main`.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Todo"
+  short_description: "Keep restart-grade records and recall past agent work across Claude and Codex transcripts"
+  default_prompt: "Use $todo to record resumable work, or to find where past work, decisions or commands were recorded."

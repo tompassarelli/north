@@ -8,21 +8,15 @@
   },
   "units": [
     {"id":"agent-machinery","kind":"module","source":"catalog.json","members":["agent-practice"]},
-    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","ceremony-budget","competitive-development-loop","debugging","effect-development","external-code","planning","prior-art","program-craftsmanship","program-stewardship","rust-development","skill-maintenance","verification"]},
+    {"id":"agent-practice","kind":"module","source":"catalog.json","members":["babashka-development","debugging","effect-development","external-code","planning","program-craftsmanship","rust-development","verification"]},
     {"id":"babashka-development","kind":"skill","source":"skills/babashka-development/SKILL.md"},
-    {"id":"ceremony-budget","kind":"skill","source":"skills/ceremony-budget/SKILL.md"},
-    {"id":"competitive-development-loop","kind":"skill","source":"skills/competitive-development-loop/SKILL.md"},
     {"id":"debugging","kind":"skill","source":"skills/debugging/SKILL.md"},
     {"id":"external-code","kind":"skill","source":"skills/external-code/SKILL.md"},
     {"id":"effect-development","kind":"skill","source":"skills/effect-development/SKILL.md"},
     {"id":"planning","kind":"skill","source":"skills/planning/SKILL.md"},
-    {"id":"prior-art","kind":"skill","source":"skills/prior-art/SKILL.md"},
     {"id":"program-craftsmanship","kind":"skill","source":"skills/program-craftsmanship/SKILL.md"},
-    {"id":"program-stewardship","kind":"skill","source":"skills/program-stewardship/SKILL.md"},
     {"id":"rust-development","kind":"skill","source":"skills/rust-development/SKILL.md"},
-    {"id":"skill-maintenance","kind":"skill","source":"skills/skill-maintenance/SKILL.md"},
     {"id":"verification","kind":"skill","source":"skills/verification/SKILL.md"},
-    {"id":"importing-skills","kind":"skill","source":"skills/importing-skills/SKILL.md"},
     {"id":"threejs","kind":"skill","source":"skills/threejs/SKILL.md"}
   ],
   "assets": [

@@ -3,9 +3,13 @@ name: warcraft-modding
 description: >-
   Use for any Warcraft III map work: Wisp TypeScript maps (hot reload, headless
   and 32-bit Lua tests), the native game (LAN and signed-in clients, startup
-  recovery, desync debugging), and Smashcraft's ts/.
-grounded: 2026-10-10
-written: 2026-10-13
+  recovery, desync debugging), and Smashcraft's ts/. Also use to cut frame cost,
+  Lua instruction counts or per-frame allocation in TypeScriptToLua code on PUC
+  Lua 5.3 (over-ceiling Lua32 tests, failing `bun wisp perf compare`, GC
+  pressure), and to develop maps and tooling in WurstScript (Wurst projects,
+  compiler workflows, tests, compile-time object data, WC3 UI).
+grounded: 2026-10-15
+written: 2026-10-15
 metadata:
   kind: domain
 ---
@@ -18,7 +22,7 @@ metadata:
 - Follow the noun-first command vocabulary in wisp:docs/cli.md. Rename a noun together with all its callers and leave no alias. Register each new noun in the vocabulary and the feature index.
 - Smashcraft: read smashcraft:AGENTS.md and smashcraft:docs/typescript.md before changing its pinned Wisp consumer in `ts/`. Find its commands through help and the docs index.
 - Follow `game-ip` for where game facts may come from: never memory reads, debuggers, injection or decomp.
-- Use `wurst-development` for Wurst, `smashcraft-animation` for fighter animation, `smashcraft-stage-design` for stage art, `lua-performance` for frame cost and Lua ceilings, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
+- Read [wurst.md](references/wurst.md) when the source or toolchain is Wurst and [lua-performance.md](references/lua-performance.md) for frame cost, allocation and Lua32 ceilings, because each holds measured or toolchain-specific rules. Use `smashcraft` for fighter animation, characters and stage art, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
 
 ## Fast iteration
 
@@ -38,7 +42,7 @@ metadata:
 - Errors: rely on recorded TypeScript throw sites, not on a Lua debug library, and enable the stack-traces plugin for full stacks. [api-gotchas.md](references/api-gotchas.md) covers patch-specific natives, assets, input, sync, FileIO and Warsmash investigation.
 - Warsmash is AGPL-3.0. Confirm its behavior against the real game before changing Wisp, and record that behavior in wisp:docs/warsmash-notes.md; never copy or adapt its code into MIT Wisp.
 - Build plumbing: declare typed UI frames through wisp:docs/ui.md. Measure existing compressed imports before re-encoding them (wisp:docs/asset-ingestion.md). Use wisp:docs/ci.md's reusable workflow, and keep private-runner .w3x builds out of public uploads.
-- Tests: register `test()` in `*.tests.ts` for Bun and 32-bit Lua under the [testing skill](../testing/SKILL.md); it owns retention and bug-fix coverage.
+- Tests: register `test()` in `*.tests.ts` for Bun and 32-bit Lua under the `verification` skill; it owns retention and bug-fix coverage.
 
 ## Native clients and checks
 
@@ -76,3 +80,5 @@ metadata:
 - [bot-perception.md](references/bot-perception.md) for CPU observation, history or checksum changes.
 - [effect-in-wisp.md](references/effect-in-wisp.md) for Effect integration.
 - [failure-modes.md](references/failure-modes.md) for unfamiliar build or session symptoms.
+- [wurst.md](references/wurst.md) for any WurstScript project, compiler, test, object-data or UI work.
+- [lua-performance.md](references/lua-performance.md) for over-ceiling Lua32 tests, a failing `bun wisp perf compare`, per-frame allocation or GC pressure.

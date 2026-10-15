@@ -20,7 +20,7 @@ a harness.
 ```sh
 bun test
 bun run check
-bun run check:guides    # lists vendored guides older than 90 days
+bun run check:guides    # lists vendored guides (../harness/skills/agent-policy/references/guides) older than 90 days
 bun run refresh:guides  # re-fetches them at upstream HEAD
 bun scripts/effect-kit.mjs init|check|sync|upgrade|scan  # the Effect kit; --help
 ```
@@ -28,7 +28,7 @@ bun scripts/effect-kit.mjs init|check|sync|upgrade|scan  # the Effect kit; --hel
 Consumers should resolve assets through the manifest or the exports from
 `agent-machinery:index.mjs`; no path outside this package is an authority.
 
-Follow the [testing skill](../harness/skills/testing/SKILL.md) when retaining,
+Follow the [verification skill](skills/verification/SKILL.md) when retaining,
 changing or running tests.
 
 ## Skill delivery

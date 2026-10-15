@@ -160,18 +160,18 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 Skills that cite many sources keep them beside the skill, so they are not repeated here:
 
-- [agent-machinery/skills/skill-maintenance/references/guides.md](../agent-machinery/skills/skill-maintenance/references/guides.md):
+- [harness/skills/agent-policy/references/guides.md](../harness/skills/agent-policy/references/guides.md):
   instruction, skill and hook writing guides.
-- [harness/skills/testing/references/sources.md](../harness/skills/testing/references/sources.md): testing
+- [agent-machinery/skills/verification/references/testing-sources.md](../agent-machinery/skills/verification/references/testing-sources.md): testing
   practice.
-- [harness/skills/github-actions/references/sources.md](../harness/skills/github-actions/references/sources.md):
+- [harness/skills/github/references/actions-sources.md](../harness/skills/github/references/actions-sources.md):
   GitHub Actions and REST limits.
-- [harness/skills/lua-performance/references/sources.md](../harness/skills/lua-performance/references/sources.md):
+- [harness/skills/warcraft-modding/references/lua-performance-sources.md](../harness/skills/warcraft-modding/references/lua-performance-sources.md):
   Lua and TypeScriptToLua performance.
 - [harness/skills/warcraft-modding/references/api-gotchas.md](../harness/skills/warcraft-modding/references/api-gotchas.md),
-  [harness/skills/smashcraft-animation/references/library.md](../harness/skills/smashcraft-animation/references/library.md),
+  [harness/skills/smashcraft/references/animation-library.md](../harness/skills/smashcraft/references/animation-library.md),
   [agent-machinery/skills/babashka-development/references/](../agent-machinery/skills/babashka-development/references/)
-  and [harness/skills/project-structure/references/notes.md](../harness/skills/project-structure/references/notes.md):
+  and [harness/skills/repo-safety/references/project-layout.md](../harness/skills/repo-safety/references/project-layout.md):
   domain references.
 - [harness/model-watch-sources.toml](../harness/model-watch-sources.toml) and
   [harness/model-catalog.toml](../harness/model-catalog.toml): release feeds, prices and benchmark scores the
