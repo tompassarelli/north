@@ -2,7 +2,7 @@ use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
 
 fn bash(command: &str) -> HookInput {
-    let payload = json!({"tool_name":"Bash", "cwd":"/home/test/code/proj/main", "tool_input":{"command":command}});
+    let payload = json!({"tool_name":"Bash", "cwd":std::env::temp_dir(), "tool_input":{"command":command}});
     HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap()
 }
 
