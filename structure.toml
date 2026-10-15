@@ -1,0 +1,149 @@
+[thresholds]
+file_lines = 500
+function_lines = 60
+function_complexity = 15
+hotspot_top = 10
+
+[review]
+commits = 600
+hand_lines_added = 20000
+days = 3
+hotspot_score = 0
+
+[ignore]
+paths = ["target/**", "src/fixtures/**", "src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "harness/lib/routing-scenarios/**"]
+
+[[module]]
+name = "tests"
+thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
+paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "src/test_inputs.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "src/guard/launch_critical_fixtures.rs"]
+responsibility = "Journeys, goldens, property inputs and the fake runtime."
+may_use = ["cli","tui","providers","fleet","app","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation","retiring"]
+
+[[module]]
+name = "foundation"
+paths = ["src/foundation/**", "src/error.rs", "src/usage.rs"]
+responsibility = "Error type, clock port and time values, identifiers."
+may_use = []
+
+[[module]]
+name = "platform"
+paths = ["src/platform/**", "src/local_store.rs", "src/pyjson.rs"]
+responsibility = "Adapters for processes, git, GitHub, SQLite, files, ssh, local storage and clipboard."
+may_use = ["foundation"]
+
+[[module]]
+name = "shell"
+paths = ["src/shell/**", "src/shellcmd.rs"]
+responsibility = "One shell lexer and segmenter for every guard and gate."
+may_use = ["foundation"]
+
+[[module]]
+name = "domain"
+paths = ["src/domain/**", "src/router.rs", "src/router/**"]
+responsibility = "Workforce members, messages, briefs, work-item refs, routing, pace and placement policy."
+may_use = ["foundation"]
+
+[[module]]
+name = "app"
+paths = ["src/app/**", "src/state_core.rs", "src/north_state.rs", "src/menu.rs"]
+responsibility = "Typed North TUI semantics: state, events, transitions, snapshot, conversation port."
+may_use = ["domain", "platform", "foundation"]
+
+[[module]]
+name = "fleet"
+paths = ["src/fleet/**", "src/session_host.rs", "src/lead_journal.rs"]
+responsibility = "Headless agent sessions: Runtime port, process host, delivery journal, admission, supervision."
+may_use = ["domain", "platform", "foundation"]
+
+[[module]]
+name = "guard"
+paths = ["src/guard/**", "src/hook.rs"]
+responsibility = "Tool-call policy over provider-neutral ToolCall values."
+may_use = ["shell", "domain", "platform", "foundation"]
+
+[[module]]
+name = "threads"
+paths = ["src/threads/**", "src/threads_client.rs", "src/work_items.rs", "src/event_store.rs"]
+responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
+may_use = ["domain", "platform", "foundation"]
+
+[[module]]
+name = "landing"
+paths = ["src/landing/**", "src/dep_gate.rs", "src/language_gate.rs", "src/language_gate/**", "src/provenance.rs", "src/issue_box_lint.rs", "src/autoland_status.rs", "src/follows_release.rs"]
+responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
+may_use = ["shell", "threads", "domain", "platform", "foundation"]
+
+[[module]]
+name = "catalog"
+paths = ["src/catalog/**", "src/agent_catalog.rs"]
+responsibility = "Agent catalog, activation generations, projection port and policy checks."
+may_use = ["domain", "platform", "foundation"]
+
+[[module]]
+name = "grounding"
+paths = ["src/grounding/**"]
+responsibility = "Index and retrieval of existing infrastructure and history for prompts."
+may_use = ["domain", "platform", "foundation"]
+
+[[module]]
+name = "capacity"
+paths = ["src/capacity/**"]
+responsibility = "Machine capacity leases, admission, watchdog and playtest slices."
+may_use = ["platform", "foundation"]
+
+[[module]]
+name = "lanes"
+paths = ["src/lanes/**"]
+responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks."
+may_use = ["threads", "platform", "foundation"]
+
+[[module]]
+name = "ops"
+paths = ["src/ops/**", "src/health.rs", "src/health/**"]
+responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, todo lint, runtime update."
+may_use = ["fleet", "threads", "capacity", "domain", "shell", "platform", "foundation"]
+
+[[module]]
+name = "learn"
+paths = ["src/learn/**"]
+responsibility = "Replay, tuning, measurement and backtests over recorded outcomes."
+may_use = ["threads", "domain", "platform", "foundation"]
+
+[[module]]
+name = "providers"
+paths = ["src/providers/**", "src/claude_stream.rs", "src/contract_probe.rs", "src/daemon.rs", "src/usage_stream.rs", "src/codex.rs", "src/rpc.rs", "src/codex_socket.rs", "src/codex_shared_tests.rs"]
+responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection, install."
+may_use = ["fleet", "app", "guard", "catalog", "threads", "domain", "platform", "foundation"]
+
+[[module]]
+name = "tui"
+paths = ["src/tui/**", "src/interactive.rs", "src/command_surface.rs", "src/composer.rs", "src/prompts.rs", "src/references.rs"]
+responsibility = "Terminal I/O and views over app and fleet read models."
+may_use = ["app", "fleet", "catalog", "domain", "platform", "foundation"]
+
+[[module]]
+name = "retiring"
+paths = ["src/watch.rs", "src/stopgap.rs", "src/event_delivery.rs"]
+responsibility = "Vendor-workaround code scheduled for deletion; nothing new may import it."
+may_use = ["platform", "foundation"]
+
+[[module]]
+name = "cli"
+thresholds = { file_lines = 4100, function_lines = 150 }
+paths = ["src/main.rs", "src/cli/**"]
+responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
+may_use = ["tui", "providers", "fleet", "app", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation", "retiring"]
+
+[[module]]
+name = "js-survivors"
+paths = ["lib/automation-chrome/**", "agent-machinery/**"]
+responsibility = "Playwright automation and the agent-machinery JS package."
+may_use = []
+
+[[module]]
+name = "ts-legacy"
+thresholds = { file_lines = 1400 }
+paths = ["harness/**/*.ts", "harness/**/*.mjs", "bin/**/*.ts"]
+responsibility = "TypeScript awaiting a Rust port; may not grow."
+may_use = []
