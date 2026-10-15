@@ -12,7 +12,7 @@ written: 2026-10-09
 2. Search the exact error with product, version and platform before the second fix or the first on an unfamiliar system.
 3. List good/bad differences and change one variable per predicted experiment.
 4. Trace both runs identically with existing instrumentation and diff normalized output to the first divergence.
-5. Repair that cause and run the failing and working cases once each.
+5. Repair that cause and run the failing and working cases once each. When a fix lands, find and fix every other instance of the same cause in the same change, and add a check that fails on the class, not just the reported case.
 6. Stop after two failed fixes with one supported recommendation.
 
 Read [observation tools](references/observation-tools.md) when choosing a trace.

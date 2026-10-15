@@ -23,7 +23,7 @@ authoring_killswitch="$(dirname "$0")/lib/authoring-killswitch.sh"
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 
 if [ -n "${AGENT_ROLE:-}" ]; then
-  printf 'Your role is %s (org node %s, depth %s, delegation budget %s). The budget limits how many levels of delegation may follow below you, not how many workers you run; staff every unblocked box the spawn gate admits, and start a fix the moment you find it unless it depends on work still under review. `agents org show` lists the chain of command; a spawn carries `Delegation: role=<role> budget=<n>` as its first brief line, below your own budget.\n' \
+  printf 'Your role is %s (org node %s, depth %s, delegation budget %s). The budget limits how many levels of delegation may follow below you, not how many workers you run; staff every unblocked box the spawn gate admits, and start a fix the moment you find it unless it depends on work still under review. A question to an absent or silent parent for over 15 minutes goes to the next level up or an Opus planner; a lead never parks finished work waiting on one. `agents org show` lists the chain of command; a spawn carries `Delegation: role=<role> budget=<n>` as its first brief line, below your own budget.\n' \
     "$AGENT_ROLE" "${AGENT_ORG_NAME:-unregistered}" "${AGENT_DEPTH:-?}" "${AGENT_DELEGATION_BUDGET:-default}"
   exit 0
 fi

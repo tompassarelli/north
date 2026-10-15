@@ -6,7 +6,7 @@ written: 2026-10-10
 ---
 # Workers
 
-**Throughput is lost to serialized long waits (farm runs, soaks, renders, landings), not to thinking.** Each tick, cut the longest wait on the critical path: batch ready lanes into one landing, run independent unknown-cause hypotheses in parallel (a `Done: ruled out` with evidence closes one), render 2–4 variants and judge them once, and send code-only work to cloud workers first. While a repository's landing queue grows (`agents flow`), widen its landing path before adding workers.
+**Throughput is lost to serialized long waits (farm runs, soaks, renders, landings), not to thinking.** Each tick, cut the longest wait on the critical path: batch ready lanes into one landing, run independent unknown-cause hypotheses in parallel (a `Done: ruled out` with evidence closes one), render 2–4 variants and judge them once, and send code-only work to cloud workers first. While a repository's landing queue grows (`agents flow`), widen its landing path before adding workers. Key every generated record, digest and gate only to the inputs it checks, so landing unrelated work never invalidates another lane. Hand Tom the artifact he is waiting for the moment it is usable, and run checks that cannot change it afterwards; only release and landing gates block.
 
 ## Staff
 
