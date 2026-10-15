@@ -14,6 +14,7 @@ import tempfile
 import time
 import threading
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 
 HERE = Path(__file__).resolve().parent
@@ -220,9 +221,13 @@ class Grants(unittest.TestCase):
                 capacity = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(capacity)
                 event = {"tool_name": "collaborationspawn_agent", "session_id": "parent", "cwd": str(root),
+                         "tool_use_id": "first",
                          "tool_input": {"task_name": "playtest", "message": "[routine:watchdog]"}}
                 self.assertIsNone(capacity.evaluate(event)[0])
+                capacity.confirm_spawn(event)
+                event["tool_use_id"] = "second"
                 self.assertIsNone(capacity.evaluate(event)[0])
+                capacity.confirm_spawn(event)
                 self.assertIn("2/2", capacity.evaluate(event)[0])
                 self.assertIsNone(pace_sampler.grant_for(state, "codex", "parent", time.time() + 3601))
                 fresh = control | {"at": time.time(), "windows": [{"window": "week", "age_s": 0,
@@ -235,6 +240,10 @@ class Grants(unittest.TestCase):
                 pace_sampler.grant("codex", 3, expiry, "lead", "proxy one reviewer", "review", 1)
                 self.assertIsNone(pace_sampler.grant_for(state, "codex", "parent", task="playtest"))
                 self.assertIsNone(pace_sampler.reserve(gate, "codex", "codex", session="parent", task="review"))
+                data = json.loads((state / "pace-control.json").read_text())
+                data["grants"][0]["pending"][0]["id"] = "review"
+                (state / "pace-control.json").write_text(json.dumps(data))
+                pace_sampler.confirm(state, "parent", "review")
                 self.assertIsNone(pace_sampler.grant_for(state, "codex", "parent", task="review"))
                 data = json.loads((state / "pace-control.json").read_text())
                 data["grants"][0]["until"] = time.time() - 1
@@ -248,6 +257,43 @@ class Grants(unittest.TestCase):
                 peer.close()
                 os.environ.clear()
                 os.environ.update(previous)
+
+    def test_refused_spawns_release_slots_without_consuming_uses(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / "agents"
+            state.mkdir()
+            org = state / "org.json"
+            org.write_text(json.dumps({"nodes": [
+                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            peer = ProviderPeer(root, {"parent": "active"})
+            try:
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                                NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
+                                NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
+                    expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
+                    pace_sampler.grant("codex", 2, expiry, "lead", "refused spawn regression", "review", 3)
+                    gate = state / "usage-gate.json"
+                    def reserve(identity):
+                        return pace_sampler.reserve(gate, "codex", "codex", session="parent",
+                                                    task="review", tool_use_id=identity)
+                    now = time.time()
+                    with patch.object(pace_sampler.time, "time", return_value=now):
+                        self.assertIsNone(reserve("denied-one"))
+                        self.assertIsNone(reserve("denied-two"))
+                        self.assertIn("2/2", reserve("blocked"))
+                    with patch.object(pace_sampler.time, "time", return_value=now + pace_sampler.RESERVATION_TTL_S + 1):
+                        self.assertIsNone(reserve("started"))
+                        self.assertEqual(json.loads((state / "pace-control.json").read_text())["grants"][0]["uses"], 3)
+                        pace_sampler.confirm(state, "parent", "started")
+                        pace_sampler.confirm(state, "parent", "started")
+                        self.assertEqual(json.loads((state / "pace-control.json").read_text())["grants"][0]["uses"], 2)
+                        self.assertIsNone(reserve("another"))
+                        self.assertIn("2/2", reserve("blocked-again"))
+                        rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
+                        self.assertEqual([r["tool_use_id"] for r in rows if r["event"] == "grant-admission"], ["started"])
+            finally:
+                peer.close()
 
     def test_grant_subtree_live_workers_and_pending_admissions(self):
         with tempfile.TemporaryDirectory() as scratch:

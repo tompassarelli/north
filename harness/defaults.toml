@@ -734,3 +734,10 @@ unit = "minutes before predicted departure to prepare the question round"
 source = "tom: adaptive-harness plan C1a, 2026-10-15: initial 45-minute lead, uncalibrated"
 fallback = "the departure round requires its own consecutive-pass and open-question checks"
 consumers = ["harness/lib/presence.py"]
+
+[spawn_reservation_ttl_s]
+value = 5
+unit = "seconds an unconfirmed spawn reserves a proxy grant slot"
+source = "prior: release downstream hook refusals within seconds while serial spawn hooks complete"
+fallback = "live worker measurements retain started spawns after the reservation expires"
+consumers = ["harness/lib/pace_sampler.py"]

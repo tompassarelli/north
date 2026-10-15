@@ -358,6 +358,14 @@ def billed_account(provider):
     return f"{provider}:{label}" if label else None
 
 
+def confirm_spawn(event):
+    north_lib()
+    import pace_sampler
+    home = os.environ.get("SPAWN_CAPACITY_HOME")
+    state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+    pace_sampler.confirm(state / "agents", event.get("session_id"), event.get("tool_use_id"))
+
+
 def spawn_reservation(event, verdict, provider):
     try:
         north_lib()
@@ -562,7 +570,8 @@ def evaluate_spawn(event):
             import pace_sampler
             home = os.environ.get("SPAWN_CAPACITY_HOME")
             state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
-            return pace_sampler.reserve(state / "agents/usage-gate.json", provider, name, session=session, task=task), warning
+            return pace_sampler.reserve(state / "agents/usage-gate.json", provider, name, session=session, task=task,
+                                        tool_use_id=event.get("tool_use_id")), warning
         return None, warning
     if any(EXEMPT_MARKER in t for t in texts):
         return admitted()

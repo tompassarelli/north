@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from datetime import datetime, timezone
 from contextlib import closing
 from pathlib import Path
@@ -43,6 +44,8 @@ def save(path, data):
 
 
 RESERVE_WAIT_S = 6.0
+DEFAULTS = tomllib.loads((Path(__file__).resolve().parents[1] / "defaults.toml").read_text())
+RESERVATION_TTL_S = DEFAULTS["spawn_reservation_ttl_s"]["value"]
 
 
 def locked(lock, wait):
@@ -156,7 +159,31 @@ def grant(account, maximum, until, lead, reason, task=None, uses=None):
     return row
 
 
-def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=None, reservation=None):
+def confirm(directory, session, tool_use_id):
+    if not tool_use_id or not (directory / "pace-control.json").exists():
+        return
+    with (directory / "pace-control.lock").open("a") as lock:
+        if not locked(lock, RESERVE_WAIT_S):
+            return
+        path = directory / "pace-control.json"
+        state = load(path, {})
+        for row in state.get("grants", []):
+            if row.get("session") != session:
+                continue
+            for reservation in row.get("pending", []):
+                if reservation.get("id") != tool_use_id or reservation.get("confirmed"):
+                    continue
+                reservation["confirmed"] = True
+                if "uses" in row:
+                    row["uses"] -= 1
+                save(path, state)
+                append(directory / "pace-control.jsonl", json.dumps({"event": "grant-admission", "at": time.time(),
+                       "account": row["account"], "session": session, "lead": row["lead"],
+                       "tool_use_id": tool_use_id}))
+                return
+
+
+def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=None, tool_use_id=None, reservation=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     proposed = grant_for(path.parent, account, session, task=task)
     live = grant_workers(proposed) if proposed else None
@@ -185,18 +212,16 @@ def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=Non
         grant = grant_for(path.parent, account, session, task=task)
         if grant:
             row = next(g for g in state["grants"] if g["account"] == account and g["lead"] == grant["lead"])
-            pending = [at for at in row.get("pending", []) if 0 <= time.time() - at < 120]
+            pending = [r for r in row.get("pending", []) if 0 <= time.time() - r["at"] < RESERVATION_TTL_S]
             if live is not None:
                 pending = pending[len(set(live) - set(row.get("live", []))):]
             workers = len(live) + len(pending) if live is not None else None
             if workers is None or workers >= row["max_workers"]:
                 return f"Hold: proxy grant for {grant['lead']} workers {workers}/{grant['max_workers']}; measured count required."
-            row["live"], row["pending"] = sorted(live), pending + [time.time()]
-            if "uses" in row:
-                row["uses"] -= 1
+            if "uses" in row and sum(not r.get("confirmed") for r in pending) >= row["uses"]:
+                return f"Hold: proxy grant for {grant['lead']} has all remaining uses reserved."
+            row["live"], row["pending"] = sorted(live), pending + [{"at": time.time(), "id": tool_use_id}]
             save(state_path, state)
-            append(path.parent / "pace-control.jsonl", json.dumps({"event": "grant-admission", "at": time.time(),
-                   "account": account, "session": session, "lead": grant["lead"], "workers": workers + 1}))
             return None
         controls = verdicts.get(provider, {}).get("controls", {})
         control = controls.get(account) or controls.get(provider)

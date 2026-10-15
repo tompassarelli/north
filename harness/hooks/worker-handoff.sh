@@ -49,6 +49,7 @@ type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 NORTH_DEFAULTS="$(dirname "$0")/lib/defaults.toml"
 [ -r "$NORTH_DEFAULTS" ] || NORTH_DEFAULTS="$(dirname "$0")/../defaults.toml"
 export NORTH_DEFAULTS
+export NORTH_HOOK_LIB="$(dirname "$0")/lib"
 
 read -r -d '' PY <<'PYEOF' || true
 import json, os, re, subprocess, sys, time, tomllib
@@ -68,6 +69,10 @@ if not isinstance(data, dict):
     sys.exit(0)
 if data.get("hook_event_name") == "PostToolUse" and data.get("tool_name") == "Agent":
     args, result = data.get("tool_input"), data.get("tool_response")
+    if isinstance(result, dict) and result.get("agentId"):
+        sys.path.insert(0, os.environ["NORTH_HOOK_LIB"])
+        import spawn_capacity
+        spawn_capacity.confirm_spawn(data)
     if isinstance(args, dict) and isinstance(result, dict) and result.get("status") == "async_launched":
         kind, child, brief = args.get("subagent_type"), result.get("agentId"), args.get("prompt")
         if (isinstance(kind, str) and kind.startswith("worker") and isinstance(brief, str)
