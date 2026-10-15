@@ -140,18 +140,28 @@ fn observe_system(frame: &Value, transcript: &mut Transcript) {
 fn observe_user(frame: &Value, transcript: &mut Transcript) {
     let content = &frame["message"]["content"];
     if let Some(text) = content.as_str() {
+        transcript.status = Status::Working;
+        transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
         if frame["isReplay"] == true {
-            transcript.status = Status::Working;
-            transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
             push(transcript, EntryKind::User, text.to_owned());
+        } else {
+            push(transcript, EntryKind::Notice, text.to_owned());
         }
         return;
     }
     for block in content.as_array().into_iter().flatten() {
         match block["type"].as_str() {
             Some("tool_result") => push(transcript, EntryKind::ToolResult, summarize(&tool_result_text(block), TOOL_RESULT_CHARS)),
-            Some("text") if frame["isReplay"] == true => push(transcript, EntryKind::User, block["text"].as_str().unwrap_or_default().to_owned()),
-            Some("text") => push(transcript, EntryKind::Notice, block["text"].as_str().unwrap_or_default().to_owned()),
+            Some("text") if frame["isReplay"] == true => {
+                transcript.status = Status::Working;
+                transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
+                push(transcript, EntryKind::User, block["text"].as_str().unwrap_or_default().to_owned());
+            }
+            Some("text") => {
+                transcript.status = Status::Working;
+                transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
+                push(transcript, EntryKind::Notice, block["text"].as_str().unwrap_or_default().to_owned());
+            }
             _ => {}
         }
     }
@@ -204,7 +214,7 @@ fn turn_signals(frame: &Value) -> Vec<TurnSignal> {
         Some("system") if frame["subtype"] == "init" => {
             vec![TurnSignal::Opened { conversation, model: frame["model"].as_str().map(str::to_owned), effort: None }]
         }
-        Some("user") if frame["isReplay"] == true => {
+        Some("user") if has_user_message(frame) => {
             vec![TurnSignal::Started { conversation: conversation.clone() }, TurnSignal::Prompt { conversation, text: replay_text(frame) }]
         }
         Some("assistant") if frame["parent_tool_use_id"].is_null() => vec![TurnSignal::Started { conversation }],
@@ -212,6 +222,14 @@ fn turn_signals(frame: &Value) -> Vec<TurnSignal> {
         Some("system") if frame["subtype"] == "task_notification" => task_signal(frame, |task| TurnSignal::TaskEnded { conversation, task }),
         Some("result") => vec![TurnSignal::Ended { conversation, exit: result_exit(frame), totals: result_totals(frame) }],
         _ => Vec::new(),
+    }
+}
+
+fn has_user_message(frame: &Value) -> bool {
+    match &frame["message"]["content"] {
+        Value::String(_) => true,
+        Value::Array(blocks) => blocks.iter().any(|block| block["type"] != "tool_result"),
+        _ => false,
     }
 }
 
@@ -322,6 +340,15 @@ mod turn_state {
             Claude.observe(&frame, &mut transcript);
         }
         assert_eq!(transcript.status, Status::Idle);
+    }
+
+    #[test]
+    fn a_new_claude_user_message_opens_a_turn_before_assistant_output() {
+        let user = json!({"type": "user", "session_id": "s", "uuid": "u", "message": {"content": "continue the task"}});
+        let mut transcript = Transcript::new();
+        Claude.observe(&user, &mut transcript);
+        assert_eq!(transcript.status, Status::Working);
+        assert!(matches!(Claude.signals(&user).as_slice(), [TurnSignal::Started { .. }, TurnSignal::Prompt { .. }]));
     }
 
     #[test]

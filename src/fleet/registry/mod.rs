@@ -18,6 +18,7 @@ use super::transcript::{StreamTail, stream_len, stream_path};
 
 mod follower;
 mod parents;
+mod status;
 
 pub use follower::Follower;
 
@@ -340,6 +341,9 @@ fn recent(runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcri
     let mut transcript = seeded(record);
     for frame in recent_frames(record)? {
         runtime.observe(&frame, &mut transcript);
+    }
+    if let Some(status) = status::latest_turn_status(&stream_path(&record.host_dir), record.stream_offset, &|frame| runtime.signals(frame))? {
+        transcript.status = status;
     }
     Ok(transcript)
 }
