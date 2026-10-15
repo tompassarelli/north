@@ -1217,6 +1217,13 @@ printf 'on:\n  push:\n    branches: ["claude/**"]\n' >"$real_repo/.github/workfl
 autoland_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf 'queued work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'work for the train'
+SAFE_PUSH_TEST_AUTOLAND_STATUS=$'error\tlocal refresh required: Classic effect record\thttps://example.test/refresh' run_real_case '' --to main
+[ "$case_status" -eq 75 ] || fail 'a stale Classic record did not return to its local waiter'
+expect_output 'returned this lane for local Classic record refresh'
+queue_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
+retained_queue_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${queue_tip:0:12}"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse "$retained_queue_branch")" = "$queue_tip" ] || fail 'the stale Classic lane queue ref was dropped'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$autoland_base" ] || fail 'a stale Classic record was landed'
 SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tTrain retested\thttps://example.test/run' run_real_case '' --to main
 expect_status nonzero
 expect_output "main lands through Autoland's one queue"

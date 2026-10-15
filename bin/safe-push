@@ -80,6 +80,8 @@ Options:
                sets landing.queue = autoland,
                the lane is checked, pushed to claude/land-<lane>-<sha> and
                waits for the Autoland workflow's batched queue to land it;
+               a Classic record refresh handback returns 75 and retains the
+               source lane and queue branch for local repair and requeue;
                a BRANCH other than origin's default (farm/*, scratch) skips
                the lock and the queue and runs the hook in its own push
   --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
@@ -1634,6 +1636,10 @@ land_through_autoland() {
     waited=$((waited + delay))
     delay=$(( delay * 3 / 2 > 60 ? 60 : delay * 3 / 2 ))
   done
+  if [ "$state" = error ] && [ "$description" = 'local refresh required: Classic effect record' ]; then
+    printf 'safe-push: Autoland returned this lane for local Classic record refresh: %s; source and queue branch %s retained; NOT landed.\n' "$url" "$queue_branch" >&2
+    exit 75
+  fi
   if [ "$state" != success ]; then
     printf 'safe-push: ✗ Autoland did not land this lane: %s %s; NOT landed.\n' "$description" "$url" >&2
     SAFE_PUSH_ACTIVE=1 git push -q --force-with-lease="refs/heads/$queue_branch:$sha" origin ":refs/heads/$queue_branch" 2>/dev/null || true
