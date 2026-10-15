@@ -45,6 +45,7 @@ shim_main() {
   fi
 
   case "$tool:${1:-}" in
+    north:dep-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -233,6 +234,9 @@ printf 'planning property: %s rows\n' "$property_rows"
 [ ! -s "$trace" ] || fail 'pure planning invoked git or a scanner'
 unset -f git gitleaks
 real_git="$(command -v git)"
+real_north="$(command -v north)"
+[ "$(head -c 2 "${real_north:?}")" != '#!' ] || real_north="$(readlink -f "$HOME/.local/state/north/current/north")"
+export SAFE_PUSH_TEST_REAL_NORTH="$real_north"
 new_real_bin() {
   real_bin="$scratch/real-bin${1:-}"
   mkdir -p "$real_bin"
