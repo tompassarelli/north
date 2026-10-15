@@ -1,4 +1,6 @@
 import argparse
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -6,7 +8,6 @@ from pathlib import Path
 import re
 import shlex
 import sys
-import subprocess
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -19,45 +20,75 @@ from defaults import DEFAULTS
 from usage import local_account
 
 
-def receipt(state, ident, record=False):
-    path = state / "spawn-receipts"
-    if path.exists() and ident in path.read_text().splitlines():
-        return True
-    if record:
-        with path.open("a") as target:
-            target.write(ident + "\n")
-            target.flush()
-            os.fsync(target.fileno())
-    return record
+@contextmanager
+def registry_until(deadline=None):
+    registry = org.Org()
+    path = Path(org.org_file())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with Path(str(path) + ".lock").open("a") as lock:
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                remaining = float("inf") if deadline is None else deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("spawn release deadline reached")
+                time.sleep(min(0.01, remaining))
+        try:
+            registry.data = json.loads(path.read_text())
+        except FileNotFoundError:
+            registry.data = {"version": org.VERSION}
+        if registry.data.get("version") != org.VERSION:
+            org.die(f"{path} has unsupported schema version")
+        registry.nodes = registry.data.get("nodes", [])
+        yield registry
 
 
-def reconcile(state, registry, ident):
-    if receipt(state, ident):
-        return True
-    node = registry.find(f"spawn-{ident}")
-    if not node or node.get("state") == "failed" or node.get("died"):
-        return False
-    if node.get("session") or (node.get("pid") and org.alive(node["pid"])):
-        receipt(state, ident, record=True)
-        if node.get("state") == "launching":
-            node["state"] = "active"
-            registry.save()
-        return True
-    if node.get("launch_deadline", 0) > time.time():
-        return None
+def owner_start(pid):
     try:
-        exists = subprocess.run(["tmux", "-L", f"socrates-{node['id']}", "has-session", "-t", node["id"]],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.2).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        exists = False
-    if exists:
-        receipt(state, ident, record=True)
-        node["state"] = "active"
-        registry.save()
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+    except FileNotFoundError:
+        return None
+
+
+def claim_path(state, ident):
+    return state / "spawn-claims" / ident
+
+
+def mark(path, value):
+    with path.open("a") as target:
+        target.write(value + "\n")
+        target.flush()
+        os.fsync(target.fileno())
+
+
+def reconcile(state, registry, job, deadline=None):
+    ident = job["spawn_id"]
+    path = claim_path(state, ident)
+    if not path.exists():
+        node = registry.find(f"spawn-{ident}")
+        return bool(node and (node.get("session") or (node.get("pid") and org.alive(node["pid"]))))
+    lines = path.read_text().splitlines()
+    if "started" in lines:
         return True
-    node.update(state="failed", died=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
-    registry.save()
-    return False
+    if not lines:
+        return None
+    owner = json.loads(lines[0])
+    if owner_start(owner["pid"]) == owner["start"]:
+        return None
+    if "failed" not in lines:
+        from events import Store
+        node = registry.find(f"spawn-{ident}")
+        if node:
+            node.update(state="failed", died=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+            registry.save()
+        spawn_queue.enqueue_spawn(state, job, {"reason": "launcher exited before worker started"})
+        Store(deadline=deadline).publish("STUCK", from_node="spawn-release", to_node="proxy",
+                        body=f"Spawn {ident} launcher exited without a worker started mark; queued for recovery",
+                        key=f"spawn-failed:{ident}")
+        mark(path, "failed")
+    return None
 
 
 def field(text, key):
@@ -66,6 +97,9 @@ def field(text, key):
 
 
 def main(argv):
+    if len(argv) == 2 and argv[0] == "started":
+        mark(Path(argv[1]), "started")
+        return 0
     if argv == ["release"]:
         return release()
     parser = argparse.ArgumentParser(prog="agents spawn")
@@ -99,24 +133,23 @@ def main(argv):
                 if entry.get("spawn_id") == ident), job)
     result = start(state, job)
     if result == 0:
-        with org.Org() as registry:
-            node = registry.find(f"spawn-{ident}")
-            if node and node.get("state") == "launching":
-                return result
+        path = claim_path(state, ident)
+        if path.exists() and "started" not in path.read_text().splitlines():
+            return result
         for entry in spawn_queue.read(state, placement.now().timestamp()):
             if entry.get("spawn_id") == ident:
                 spawn_queue.admit(state, entry["lane"], ident)
     return result
 
 
-def start(state, job, decision=None, unattended=False):
+def start(state, job, decision=None, unattended=False, deadline=None):
     ident, parent, session = job["spawn_id"], job["parent"], job["session"]
     name = f"spawn-{ident}"
     saved = state / "spawn"
     brief = saved / f"{ident}.md"
     text = brief.read_text()
-    with org.Org() as registry:
-        existing = reconcile(state, registry, ident)
+    with registry_until(deadline) as registry:
+        existing = reconcile(state, registry, job, deadline)
         if existing is not False:
             print(f"{name} (already active)")
             return 3 if unattended and existing is None else 0
@@ -175,30 +208,48 @@ def start(state, job, decision=None, unattended=False):
                  if node["provider"] == "codex" else [])
         node.update(model=decision["model"], effort=decision["effort"], tier=decision["tier"],
                     cwd=job["cwd"], args=extra, parent_session=session, state="launching",
-                    spawn_id=ident, launch_deadline=time.time() + 5)
+                    spawn_id=ident)
+        path = claim_path(state, ident)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            return 3
+        with os.fdopen(descriptor, "w") as target:
+            target.write(json.dumps({"pid": os.getpid(), "start": owner_start(os.getpid())}) + "\n")
+            target.flush()
+            os.fsync(target.fileno())
         registry.save()
+    previous = {key: os.environ.get(key) for key in ("AGENT_SPAWN_CLAIM", "AGENT_SPAWN_TOOL")}
+    os.environ.update(AGENT_SPAWN_CLAIM=str(path), AGENT_SPAWN_TOOL=str(Path(__file__).resolve()))
     try:
         session = org.launch(node, extra, node["cwd"], dry=os.environ.get("AGENTS_SPAWN_DRY") == "1")
-    except SystemExit:
-        with org.Org() as registry:
-            registry.need(name)["state"] = "failed"
-            registry.save()
-        org.started(name, None)
-    except Exception:
-        with org.Org() as registry:
-            current = registry.need(name)
-            current["launch_deadline"] = 0
-            reconcile(state, registry, ident)
+    except TimeoutError:
         raise
-    with org.Org() as registry:
-        current = registry.need(name)
-        if session:
-            receipt(state, ident, record=True)
-            current["state"] = "active"
-        else:
-            current["state"] = "failed"
-        registry.save()
-    org.started(name, session)
+    except (Exception, SystemExit):
+        with registry_until(deadline) as registry:
+            current = registry.find(name)
+            if current:
+                current.update(state="failed", died=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+                registry.save()
+        raise
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    with registry_until(deadline) as registry:
+        current = registry.find(name)
+        if current:
+            if session:
+                current.update(state="active", session=session)
+                print(org.line(current))
+            else:
+                current.update(state="failed", died=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+            registry.save()
+    if not session:
+        org.die(f"{name} failed to start", 1)
     return 0
 
 
@@ -216,6 +267,7 @@ def release(wait=5):
     previous = signal.signal(signal.SIGALRM, timeout)
     timer = signal.setitimer(signal.ITIMER_REAL, wait)
     began = time.monotonic()
+    deadline = began + wait
     try:
         with (state / "spawn-release.lock").open("a") as lock:
             if not pace_sampler.locked(lock, 0):
@@ -224,27 +276,27 @@ def release(wait=5):
                 if not job.get("spawn_id"):
                     continue
                 try:
-                    with org.Org() as registry:
-                        existing = reconcile(state, registry, job["spawn_id"])
+                    with registry_until(deadline) as registry:
+                        existing = reconcile(state, registry, job, deadline)
                         orphan = registry.find(job["parent"]) is None
                     if existing:
                         spawn_queue.admit(state, job["lane"], job["spawn_id"])
                         continue
+                    if existing is None:
+                        continue
                     if orphan:
                         from events import Store
-                        Store().publish("STUCK", f"spawn-{job['spawn_id']}", from_node="spawn-release", to_node="proxy",
+                        Store(deadline=deadline).publish("STUCK", from_node="spawn-release", to_node="proxy",
                                         body=f"Queued spawn {job['spawn_id']} lost parent {job['parent']}",
                                         key=f"spawn-orphan:{job['spawn_id']}")
                         spawn_queue.admit(state, job["lane"], job["spawn_id"])
-                        continue
-                    if existing is None:
                         continue
                     brief = (state / "spawn" / f"{job['spawn_id']}.md").read_text()
                     decision = placement.place_spawn(brief, job, pace_sampler.load(state / "usage-gate.json", {}),
                                                      placement.config(), placement.now())
                     if decision["kind"] not in ("launch", "native") or decision.get("host") not in (None, resident_cap.host()):
                         continue
-                    if start(state, job, decision, unattended=True) == 0:
+                    if start(state, job, decision, unattended=True, deadline=deadline) == 0:
                         spawn_queue.admit(state, job["lane"], job["spawn_id"])
                         return 0
                 except TimeoutError:

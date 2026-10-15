@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+import fcntl
+import hashlib
 import importlib.util
 import json
 import os
 import sys
+import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -32,6 +36,7 @@ class Scratch:
                           SPAWN_CAPACITY_HOME=str(self.root), SPAWN_CAPACITY_STATUS=str(self.probe),
                           AGENTS_ORG_FILE=str(self.state / "org.json"), AGENTS_ORCHESTRATION=str(self.policy),
                           CLAUDE_CONFIG_DIR=str(self.root / ".claude"), CODEX_BEHAVIOR_STATE=str(self.root / "behavior"),
+                          THREADS_DB=str(self.root / "threads.db"),
                           AGENT_ROLE="lead")
         self.cpus(0)
         spec = importlib.util.spec_from_file_location("queue_capacity", HERE.parent / "hooks/lib/spawn_capacity.py")
@@ -145,10 +150,14 @@ class DurableLaunch(unittest.TestCase):
                          "tier": "codex:sol-high", "model": "gpt-6.1-sol", "effort": "high"}
         self.enterContext(patch.object(spawn.placement, "place_spawn", return_value=self.decision, create=True))
         self.original_launch = spawn.org.launch
-        self.launch = self.enterContext(patch.object(spawn.org, "launch", return_value="worker-session"))
+        self.launch = self.enterContext(patch.object(spawn.org, "launch", side_effect=self.worker_started))
         with spawn.org.Org() as registry:
             spawn.org.add(registry, "parent", {"role": "lead", "session": "parent-session"})
         os.environ.update(AGENT_ORG_NAME="parent", CLAUDE_CODE_SESSION_ID="parent-session")
+
+    def worker_started(self, node, *args, **kwargs):
+        subprocess.run([sys.executable, str(HERE / "spawn.py"), "started", os.environ["AGENT_SPAWN_CLAIM"]], check=True)
+        return "worker-session"
 
     def queued(self, ident, parent="parent"):
         job = {"spawn_id": ident, "parent": parent, "session": "parent-session", "provider": "codex",
@@ -159,56 +168,154 @@ class DurableLaunch(unittest.TestCase):
         self.spawn.spawn_queue.enqueue_spawn(self.state, job, {"reason": "capacity"})
         return job
 
-    def test_interrupted_launch_keeps_work_queued_until_one_worker_starts(self):
+    def test_manual_retry_during_slow_launch_starts_only_one_worker(self):
         spawn = self.spawn
         job = self.queued("111111111111")
-        def interrupted(node, *args, **kwargs):
+        launches = self.scratch.root / "launches"
+        launches.write_text("launch\n")
+        def slow(node, *args, **kwargs):
             with spawn.org.Org() as registry:
-                claim = registry.need(node["id"])
-                self.assertEqual(claim["state"], "launching")
-                self.assertEqual(claim["spawn_id"], job["spawn_id"])
-                self.assertFalse(claim["session"])
-            self.assertEqual(spawn.main([job["spawn_id"]]), 0)
+                registry.need(node["id"])["launch_deadline"] = time.time() - 10
+                registry.save()
+            retry = """
+import spawn
+import sys
+from pathlib import Path
+def duplicate(*args, **kwargs):
+    with Path(sys.argv[2]).open("a") as target:
+        target.write("duplicate\\n")
+    return "duplicate-session"
+spawn.org.launch = duplicate
+spawn.main([sys.argv[1]])
+"""
+            result = subprocess.run([sys.executable, "-c", retry, job["spawn_id"], str(launches)],
+                                    env=dict(os.environ, PYTHONPATH=str(HERE)), capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("already active", result.stdout)
             self.assertEqual(len(spawn.spawn_queue.read(self.state, 0)), 1)
-            raise OSError("launcher unavailable")
-        self.launch.side_effect = interrupted
+            return self.worker_started(node)
+        self.launch.side_effect = slow
         self.assertEqual(spawn.release(), 0)
-        self.assertEqual([row["spawn_id"] for row in spawn.spawn_queue.read(self.state, 0)], [job["spawn_id"]])
-        with spawn.org.Org() as registry:
-            self.assertEqual(registry.need("spawn-" + job["spawn_id"])["state"], "failed")
-        self.launch.side_effect = None
-        self.assertEqual(spawn.release(), 0)
-        self.assertEqual(spawn.release(), 0)
-        self.assertEqual(self.launch.call_count, 2)
-        self.assertEqual(spawn.spawn_queue.read(self.state, 0), [])
-        stale = self.queued("222222222222")
-        with spawn.org.Org() as registry:
-            node = spawn.org.add(registry, "spawn-" + stale["spawn_id"], {"role": "worker", "parent": "parent"})
-            node.update(state="launching", spawn_id=stale["spawn_id"], launch_deadline=time.time() - 10)
-            registry.save()
-        with patch.object(spawn.subprocess, "run", return_value=type("Result", (), {"returncode": 1})()):
-            self.assertEqual(spawn.release(), 0)
-        self.assertEqual(self.launch.call_count, 3)
+        self.assertEqual(launches.read_text().splitlines(), ["launch"])
+        self.assertEqual(self.launch.call_count, 1)
         self.assertEqual(spawn.spawn_queue.read(self.state, 0), [])
 
-    def test_started_spawn_cannot_relaunch_after_finish_and_org_cleanup(self):
+    def test_worker_started_mark_prevents_relaunch_after_launcher_crash_and_org_cleanup(self):
         spawn = self.spawn
         job = self.queued("333333333333")
-        self.assertEqual(spawn.release(), 0)
-        with spawn.org.Org() as registry:
-            node = registry.need("spawn-" + job["spawn_id"])
-            node["state"] = "finished"
-            registry.save()
-        self.assertEqual(spawn.main([job["spawn_id"]]), 0)
-        with spawn.org.Org() as registry:
-            spawn.org.remove(registry, "spawn-" + job["spawn_id"])
-        spawn.spawn_queue.enqueue_spawn(self.state, job, {"reason": "queue removal interrupted"})
+        class LauncherCrash(BaseException):
+            pass
+        def crash(node, *args, **kwargs):
+            self.worker_started(node)
+            with spawn.org.Org() as registry:
+                current = registry.need(node["id"])
+                current["state"] = "finished"
+                registry.save()
+                spawn.org.remove(registry, node["id"])
+            raise LauncherCrash()
+        self.launch.side_effect = crash
+        with self.assertRaises(LauncherCrash):
+            spawn.release()
+        path = spawn.claim_path(self.state, job["spawn_id"])
+        owner = json.loads(path.read_text().splitlines()[0])
+        owner["start"] = "dead-owner"
+        path.write_text(json.dumps(owner) + "\n" + "\n".join(path.read_text().splitlines()[1:]) + "\n")
+        self.assertIn("started", path.read_text().splitlines())
+        self.launch.side_effect = self.worker_started
         self.assertEqual(spawn.main([job["spawn_id"]]), 0)
         spawn.spawn_queue.enqueue_spawn(self.state, job, {"reason": "queue removal interrupted"})
         self.assertEqual(spawn.release(), 0)
         self.assertEqual(self.launch.call_count, 1)
         self.assertEqual(spawn.spawn_queue.read(self.state, 0), [])
-        self.assertEqual((self.state / "spawn-receipts").read_text().splitlines(), [job["spawn_id"]])
+        self.assertIn("started", path.read_text().splitlines())
+
+    def test_release_deadline_leaves_claim_intact_when_org_lock_is_held(self):
+        spawn = self.spawn
+        job = self.queued("888888888888")
+        holder = (self.state / "org.json.lock").open("a")
+        self.addCleanup(holder.close)
+        def interrupted(node, *args, **kwargs):
+            fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            unlock = threading.Timer(0.6, fcntl.flock, args=(holder, fcntl.LOCK_UN))
+            unlock.start()
+            self.addCleanup(unlock.join)
+            time.sleep(1)
+        self.launch.side_effect = interrupted
+        began = time.monotonic()
+        self.assertEqual(spawn.release(wait=0.1), 2)
+        self.assertLess(time.monotonic() - began, 0.2)
+        path = spawn.claim_path(self.state, job["spawn_id"])
+        self.assertTrue(path.exists())
+        self.assertNotIn("failed", path.read_text().splitlines())
+        self.assertEqual(len(spawn.spawn_queue.read(self.state, 0)), 1)
+        began = time.monotonic()
+        self.assertEqual(spawn.release(wait=0.1), 2)
+        self.assertLess(time.monotonic() - began, 0.2)
+        self.assertEqual(self.launch.call_count, 1)
+        fcntl.flock(holder, fcntl.LOCK_UN)
+
+    def test_dead_unstarted_owner_queues_once_and_reports_to_proxy(self):
+        import events
+        spawn = self.spawn
+        job = self.queued("999999999999")
+        self.launch.side_effect = OSError("launcher unavailable")
+        self.assertEqual(spawn.release(), 0)
+        path = spawn.claim_path(self.state, job["spawn_id"])
+        owner = json.loads(path.read_text().splitlines()[0])
+        owner["start"] = "dead-owner"
+        path.write_text(json.dumps(owner) + "\n")
+        spawn.spawn_queue.admit(self.state, "codex", job["spawn_id"])
+        with patch.object(events.Store, "publish", wraps=events.Store().publish) as publish, patch.object(spawn.spawn_queue, "enqueue_spawn", wraps=spawn.spawn_queue.enqueue_spawn) as enqueue:
+            self.assertEqual(spawn.main([job["spawn_id"]]), 0)
+            self.assertEqual(spawn.release(), 0)
+            self.assertEqual(spawn.release(), 0)
+            self.assertEqual(enqueue.call_count, 1)
+            self.assertEqual(publish.call_count, 1)
+            self.assertEqual(publish.call_args.kwargs["to_node"], "proxy")
+        self.assertEqual(self.launch.call_count, 1)
+        self.assertEqual(len(spawn.spawn_queue.read(self.state, 0)), 1)
+        self.assertIn("failed", path.read_text().splitlines())
+
+    def test_launch_wrappers_mark_started_before_executing_the_brief(self):
+        spawn = self.spawn
+        stubs = self.scratch.root / "bin"
+        stubs.mkdir()
+        pooled = self.scratch.root / "pooled"
+        (pooled / "sqlite").mkdir(parents=True)
+        key = hashlib.sha256(f"{pooled}\n{pooled}/sqlite".encode()).hexdigest()[:16]
+        endpoint = f"unix://{os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')}/codex-shared-{key}/app-server.sock"
+        owner = subprocess.Popen([sys.executable, "-c", "import signal; signal.pause()", "app-server", "--listen", endpoint])
+        self.addCleanup(owner.wait)
+        self.addCleanup(owner.terminate)
+        commands = {
+            "agents": '#!/bin/sh\n[ "${2:-}" != --burn ]\n',
+            "sqlite3": '#!/bin/sh\necho fixture-session\n',
+            "ss": f'#!/bin/sh\necho \'/tmp/codex-daemon-{os.getuid()}/abcdef users:(("codex",pid={owner.pid},fd=31))\'\n',
+            "websocat": '#!/bin/sh\ncat >/dev/null\necho \'{"id":2,"result":{}}\'\n',
+            "spawn-quiet": '#!/bin/sh\nwhile [ "$1" != -e ]; do shift; done\nshift\nexec "$@"\n',
+            "claude": '#!/bin/sh\ngrep -qx started "$CLAIM_PROBE" || exit 1\n[ -z "${AGENT_SPAWN_CLAIM:-}" ] || exit 1\necho claude >>"$WORKER_PROBE"\n',
+            "codex": '#!/bin/sh\ngrep -qx started "$CLAIM_PROBE" || exit 1\n[ -z "${AGENT_SPAWN_CLAIM:-}" ] || exit 1\necho codex >>"$WORKER_PROBE"\n',
+        }
+        for name, script in commands.items():
+            path = stubs / name
+            path.write_text(script)
+            path.chmod(0o755)
+        observed = self.scratch.root / "workers"
+        self.launch.side_effect = self.original_launch
+        with patch.dict(os.environ, PATH=f"{stubs}:{HERE.parents[1] / 'bin'}:{os.environ['PATH']}",
+                        AGENTS_SESSION_HOST="ghostty", CODEX_LEAD_COACH="0", WORKER_PROBE=str(observed),
+                        NORTH_CODEX_POOLED_HOME=str(pooled), NORTH_CODEX_CONVERSATION_HOME=str(pooled),
+                        NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(pooled / "sqlite")), \
+             patch.object(spawn.org, "selected_profile", return_value=None), patch.object(spawn.org, "trust"):
+            for provider, ident in (("claude", "aaaaaaaaaaaa"), ("codex", "bbbbbbbbbbbb")):
+                with self.subTest(provider=provider):
+                    job = self.queued(ident)
+                    os.environ["CLAIM_PROBE"] = str(spawn.claim_path(self.state, ident))
+                    decision = dict(self.decision, provider=provider)
+                    self.assertEqual(spawn.start(self.state, job, decision, unattended=True), 0)
+                    spawn.spawn_queue.admit(self.state, "codex", ident)
+                    self.assertIn("started", spawn.claim_path(self.state, ident).read_text().splitlines())
+        self.assertEqual(observed.read_text().splitlines(), ["claude", "codex"])
 
     def test_bad_queued_jobs_do_not_block_newer_work_or_the_sampler(self):
         import events
@@ -224,6 +331,7 @@ class DurableLaunch(unittest.TestCase):
         def launch(node, *args, **kwargs):
             if node["provider"] == "claude":
                 return self.original_launch(node, *args, **kwargs)
+            self.worker_started(node)
             return "newer-session"
         self.launch.side_effect = launch
         self.enterContext(patch.object(spawn.pace_sampler.usage, "DB", str(self.scratch.root / "usage.db")))
@@ -233,6 +341,9 @@ class DurableLaunch(unittest.TestCase):
             self.assertEqual([row["spawn_id"] for row in spawn.spawn_queue.read(self.state, 0)], [missing["spawn_id"], broken["spawn_id"]])
             with spawn.org.Org() as registry:
                 self.assertEqual(registry.need("spawn-" + newer["spawn_id"])["session"], "newer-session")
+                failed = registry.need("spawn-" + missing["spawn_id"])
+                self.assertEqual(failed["state"], "failed")
+                self.assertTrue(failed.get("died"))
             self.assertEqual(publish.call_count, 1)
             self.assertEqual(publish.call_args.args[0], "STUCK")
             self.assertEqual(publish.call_args.kwargs["to_node"], "proxy")

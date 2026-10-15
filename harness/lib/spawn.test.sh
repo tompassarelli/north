@@ -37,6 +37,13 @@ import sys
 sys.path.insert(0, str(Path(sys.argv[1]) / "harness/lib"))
 import spawn
 spawn.placement.place_spawn = lambda *args: json.loads(os.environ["DECISION"])
+original = spawn.org.launch
+def started(node, *args, **kwargs):
+    session = original(node, *args, **kwargs)
+    if session:
+        spawn.main(["started", os.environ["AGENT_SPAWN_CLAIM"]])
+    return session
+spawn.org.launch = started
 sys.exit(spawn.main(sys.argv[2:]))
 PY
 printf 'Item: north#spawn\nCategory: tooling\nDo the work.\n' >"$scratch/brief.md"
@@ -97,6 +104,7 @@ cat "$scratch/claude.out" "$scratch/codex.out" "$scratch/native.out" "$scratch/r
 python3 - "$repo" "$scratch" <<'PY'
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(sys.argv[1]) / "harness/lib"))
@@ -113,7 +121,7 @@ launches = []
 def launch(node, *args, **kwargs):
     launches.append(node["id"])
     assert spawn.main([ident]) == 0
-    return None if len(launches) == 1 else "retry-session"
+    return None
 spawn.org.launch = launch
 try:
     spawn.main([str(brief)])
@@ -125,59 +133,11 @@ with spawn.org.Org() as registry:
     node = registry.need(name)
     assert node.get("died") and not node["session"], node
 assert spawn.main([ident]) == 0
-assert launches == [name, name], launches
-with spawn.org.Org() as registry:
-    node = registry.need(name)
-    assert node["session"] == "retry-session" and not node.get("died"), node
 assert spawn.main([str(brief)]) == 0
-assert launches == [name, name], launches
-print("ok: failed launch retries once and records its session; starting and live retries launch nothing")
-PY
-python3 - "$repo" "$scratch" <<'PY'
-from contextlib import redirect_stdout
-import hashlib
-import io
-from pathlib import Path
-import sys
-sys.path.insert(0, str(Path(sys.argv[1]) / "harness/lib"))
-import spawn
-root = Path(sys.argv[2])
-brief = root / "missing-profile.md"
-brief.write_text("Item: north#missing-profile\nDo the work.\n")
-ident = hashlib.sha256(b"parent-session" + brief.read_bytes()).hexdigest()[:12]
-name = f"spawn-{ident}"
-spawn.placement.place_spawn = lambda *args: {
-    "kind": "launch", "provider": "claude", "account": "claude:c",
-    "tier": "claude:opus-medium", "model": "claude-opus-5-5", "effort": "medium"}
-profile = root / "home/claude-c"
-missing = root / "home/claude-c-missing"
-profile.rename(missing)
-try:
-    spawn.main([str(brief)])
-except SystemExit as error:
-    assert error.code == 1, error.code
-else:
-    raise AssertionError("missing profile must fail the launch")
-finally:
-    missing.rename(profile)
-with spawn.org.Org() as registry:
-    node = registry.need(name)
-    assert node.get("died") and not node["session"], node
-launch = spawn.org.launch
-def in_progress(node, *args, **kwargs):
-    assert spawn.main([ident]) == 0
-    return launch(node, *args, **kwargs)
-spawn.org.launch = in_progress
-out = io.StringIO()
-with redirect_stdout(out):
-    assert spawn.main([ident]) == 0
-    assert spawn.main([str(brief)]) == 0
-assert out.getvalue().count("env ") == 1, out.getvalue()
-assert out.getvalue().count("already active") == 2, out.getvalue()
-with spawn.org.Org() as registry:
-    node = registry.need(name)
-    assert node["session"] and not node.get("died"), node
-print("ok: restoring a missing profile launches exactly once; in-progress and active retries stay suppressed")
+assert launches == [name], launches
+state = Path(os.environ["XDG_STATE_HOME"]) / "agents"
+assert spawn.claim_path(state, ident).exists()
+print("ok: a failed launcher with a living owner keeps its claim and suppresses retries")
 PY
 python3 - "$repo" "$scratch" <<'PY'
 from contextlib import redirect_stdout
@@ -205,6 +165,13 @@ def place(text, spawner, gate, cfg, now):
             "tier": "claude:opus-medium", "model": "claude-opus-5-5", "effort": "medium",
             "host": "unavailable-host" if "Host: unavailable" in text else spawn.resident_cap.host()}
 spawn.placement.place_spawn = place
+original_launch = spawn.org.launch
+def started(node, *args, **kwargs):
+    session = original_launch(node, *args, **kwargs)
+    if session:
+        spawn.main(["started", os.environ["AGENT_SPAWN_CLAIM"]])
+    return session
+spawn.org.launch = started
 briefs = []
 for name in ("older", "newer"):
     brief = root / f"{name}.md"

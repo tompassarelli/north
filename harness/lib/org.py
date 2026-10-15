@@ -471,7 +471,7 @@ def launch(node, extra, cwd, resume=False, dry=False):
     if dry:
         print(shlex.join(["env", *(f"{k}={env[k]}" for k in ("AGENT_ROLE", "AGENT_DEPTH", "AGENT_DELEGATION_BUDGET", "AGENT_ORG_NAME", "AGENT_DOMAIN", "CLAUDE_CONFIG_DIR") if k in env)]) + " " + inner)
         return session
-    script = ('agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
+    script = ('if [ -n "${AGENT_SPAWN_CLAIM:-}" ]; then python3 "$AGENT_SPAWN_TOOL" started "$AGENT_SPAWN_CLAIM" || exit; unset AGENT_SPAWN_CLAIM AGENT_SPAWN_TOOL; fi; agents org set "$AGENT_ORG_NAME" --pid $$ >/dev/null; '
               f'trap \'agents org exit "$AGENT_ORG_NAME" --pid $$ >/dev/null\' EXIT HUP TERM; {inner}; exit $?')
     if host == "tmux":
         tmux = ["tmux", "-L", f"socrates-{node['id']}"]

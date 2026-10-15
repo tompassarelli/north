@@ -152,6 +152,7 @@ case "$cmd" in
         unset CODEX_HOME CODEX_SQLITE_HOME
         codex "$@"; worker_status=$?; touch "$CODEX_LEAD_COACH_WORKER_EXIT"; exit "$worker_status"'
     fi
+    script='if [ -n "${AGENT_SPAWN_CLAIM:-}" ]; then python3 "$AGENT_SPAWN_TOOL" started "$AGENT_SPAWN_CLAIM" || exit; unset AGENT_SPAWN_CLAIM AGENT_SPAWN_TOOL; fi; '"$script"
     command=(bash -c "$script" _)
     if [ -n "${CODEX_LEAD_RESUME:-}" ]; then command+=(resume); fi
     model_args=(-m "$burn_model")
