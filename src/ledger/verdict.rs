@@ -12,18 +12,18 @@ const MAIN: &str = "origin/main";
 
 pub fn landed(ledger: &Ledger, repo: &Path, task_ref: &str, revision: &str) -> NorthResult<String> {
     git::stdout(repo, &["fetch", "-q", "origin", "main"], |output| refusal("git fetch origin main failed", output))
-        .map_err(NorthError::Rejected)?;
+        .map_err(NorthError::Refused)?;
     let commit = format!("{revision}^{{commit}}");
     let resolved = git::stdout(repo, &["rev-parse", "--verify", "--end-of-options", &commit], |output| {
         refusal(&format!("{revision} is not a commit here"), output)
     })
-    .map_err(NorthError::Rejected)?;
+    .map_err(NorthError::Refused)?;
     let sha = String::from_utf8_lossy(&resolved).trim().to_owned();
     let ancestry = git::run(repo, &["merge-base", "--is-ancestor", &sha, MAIN])?;
     match ancestry.status.code() {
         Some(0) => {}
-        Some(1) => return Err(NorthError::Rejected(format!("{sha} is not on freshly fetched {MAIN}; nothing recorded"))),
-        _ => return Err(NorthError::Rejected(refusal("git merge-base failed", &ancestry))),
+        Some(1) => return Err(NorthError::Refused(format!("{sha} is not on freshly fetched {MAIN}; nothing recorded"))),
+        _ => return Err(NorthError::Refused(refusal("git merge-base failed", &ancestry))),
     }
     ledger.record_landed(task_ref, &sha, Timestamp::now().unix_millis())?;
     Ok(sha)

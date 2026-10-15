@@ -13,6 +13,7 @@ pub enum NorthError {
     Protocol(String),
     State(String),
     Rejected(String),
+    Refused(String),
     Interrupted,
     AppServerExit(ExitStatus),
 }
@@ -36,7 +37,7 @@ impl NorthError {
 impl fmt::Display for NorthError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Usage(message) => formatter.write_str(message),
+            Self::Usage(message) | Self::Refused(message) => formatter.write_str(message),
             Self::Io(error) => write!(formatter, "I/O failed: {error}"),
             Self::Json(error) => write!(formatter, "JSON failed: {error}"),
             Self::Configuration(message) => {
@@ -63,6 +64,7 @@ impl Error for NorthError {
             | Self::Protocol(_)
             | Self::State(_)
             | Self::Rejected(_)
+            | Self::Refused(_)
             | Self::Interrupted
             | Self::AppServerExit(_) => None,
         }
