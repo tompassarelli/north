@@ -1259,7 +1259,7 @@ fn operator_dir(
     ))
 }
 
-fn repo_root(repo: &str) -> NorthResult<PathBuf> {
+pub(crate) fn repo_root(repo: &str) -> NorthResult<PathBuf> {
     repo_root_in(repo, env::var("NORTH_REPO_ROOTS").ok().as_deref())
 }
 

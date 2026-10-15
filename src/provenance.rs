@@ -691,7 +691,7 @@ fn debt(paths: &[String], only_due: bool) -> Result<(), String> {
     }
     Ok(())
 }
-fn stamp(value: &str) -> Option<i128> {
+pub(crate) fn stamp(value: &str) -> Option<i128> {
     let m =
         re!(r"\A(\d{4}-\d{2}-\d{2}|\d{8}|\d{4}-W\d{2}(?:-\d)?|\d{4}W\d{2}\d?)(?:(?s:.)(.+))?\z")
             .captures(value)?;

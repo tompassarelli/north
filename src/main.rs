@@ -1,6 +1,7 @@
 mod agent_catalog;
 mod dep_gate;
 mod provenance;
+mod follows_release;
 mod issue_box_lint;
 mod claude_stream;
 mod language_gate;
@@ -93,6 +94,7 @@ enum NorthCommand {
     ContractProbe(Vec<String>),
     Provenance(Vec<String>),
     IssueBoxLint(Vec<String>),
+    FollowsRelease(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -113,6 +115,7 @@ Commands:
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   threads ARGV                                  Run a NorthThreads command on the ledger host
+  follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   help                                          Show this help
 
 Options:
@@ -162,6 +165,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments[0] == "issue-box-lint" {
         return Ok(NorthCommand::IssueBoxLint(arguments[1..].to_vec()));
+    }
+    if arguments[0] == "follows-release" {
+        return Ok(NorthCommand::FollowsRelease(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -1965,6 +1971,7 @@ async fn run_cli() -> NorthResult<ExitCode> {
         }
         NorthCommand::Provenance(arguments) => return Ok(ExitCode::from(provenance::run(&arguments))),
         NorthCommand::IssueBoxLint(arguments) => return Ok(ExitCode::from(issue_box_lint::run(&arguments))),
+        NorthCommand::FollowsRelease(arguments) => return Ok(ExitCode::from(follows_release::run(&arguments))),
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };
