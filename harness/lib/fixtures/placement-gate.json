@@ -1,0 +1,176 @@
+{
+  "claude": {
+    "ts": "2026-10-15T05:33:06Z",
+    "controls": {
+      "claude:c": {
+        "allowed_workers": 1,
+        "held": false,
+        "workers": 24,
+        "worker_minutes": 29.606285385290782,
+        "burn_pct_worker_min": {},
+        "sample": [
+          [
+            "5h",
+            "2026-10-15T05:30:26Z"
+          ],
+          [
+            "week",
+            "2026-10-15T05:30:26Z"
+          ]
+        ],
+        "at": 1792042386.0,
+        "windows": [
+          {
+            "window": "5h",
+            "used_pct": 57.0,
+            "quota_ceiling": 95,
+            "burn_pct_h": 15.391765033925086,
+            "reset_h": 0.7980996008333333,
+            "age_s": 0,
+            "as_of": "2026-10-15T05:33:06Z",
+            "resets_at": "2026-10-15T06:19:59Z",
+            "projected_pct": 69.28416152969606,
+            "anchor": {
+              "used": 50.0,
+              "at": 1792042008.720833,
+              "minutes": 97.66031996409097
+            },
+            "horizon_h": 0.7980996008333333,
+            "smoothed_pct_h": 15.391765033925086
+          },
+          {
+            "window": "week",
+            "used_pct": 73.0,
+            "quota_ceiling": 95,
+            "burn_pct_h": 2.0076215261641415,
+            "reset_h": 6.4647662675,
+            "age_s": 0,
+            "as_of": "2026-10-15T05:33:06Z",
+            "resets_at": "2026-10-15T11:59:59Z",
+            "projected_pct": 75.92148665942055,
+            "anchor": {
+              "used": 72.0,
+              "at": 1792042008.720833,
+              "minutes": 97.66031996409097
+            },
+            "horizon_h": 6.4647662675,
+            "smoothed_pct_h": 2.0076215261641415
+          }
+        ],
+        "target": null,
+        "state_since": 1792040433.7528582,
+        "changed": false,
+        "held_reason": null,
+        "target_burn_pct_h": 1.0
+      },
+      "claude:a": {
+        "allowed_workers": 1,
+        "held": true,
+        "workers": 14,
+        "worker_minutes": 20.941049563884732,
+        "burn_pct_worker_min": {},
+        "sample": [
+          [
+            "5h",
+            "2026-10-15T05:30:19Z"
+          ],
+          [
+            "week",
+            "2026-10-15T05:30:19Z"
+          ]
+        ],
+        "at": 1792042386.0,
+        "windows": [
+          {
+            "window": "5h",
+            "used_pct": 54.0,
+            "quota_ceiling": 95,
+            "burn_pct_h": 18.934450180188954,
+            "reset_h": 1.9650440452777778,
+            "age_s": 0,
+            "as_of": "2026-10-15T05:33:06Z",
+            "resets_at": "2026-10-15T07:30:00Z",
+            "projected_pct": 91.20702857718905,
+            "anchor": {
+              "used": 54.0,
+              "at": 1792042245.2389355,
+              "minutes": 20.941049563884732
+            },
+            "horizon_h": 1.9650440452777778,
+            "smoothed_pct_h": 18.934450180188954
+          },
+          {
+            "window": "week",
+            "used_pct": 15.0,
+            "quota_ceiling": 95,
+            "burn_pct_h": 5.024190547078526,
+            "reset_h": 164.46504404527778,
+            "age_s": 0,
+            "as_of": "2026-10-15T05:33:06Z",
+            "resets_at": "2026-10-22T02:00:00Z",
+            "projected_pct": 117.79065252829861,
+            "anchor": {
+              "used": 15.0,
+              "at": 1792042245.2389355,
+              "minutes": 20.941049563884732
+            },
+            "horizon_h": 164.46504404527778,
+            "smoothed_pct_h": 5.024190547078526
+          }
+        ],
+        "target": null,
+        "state_since": 1792033829.0265005,
+        "changed": false,
+        "held_reason": null,
+        "target_burn_pct_h": 1.0
+      }
+    }
+  },
+  "codex": {
+    "ts": "2026-10-15T05:33:06Z",
+    "controls": {
+      "codex": {
+        "allowed_workers": 140,
+        "held": false,
+        "workers": 1,
+        "worker_minutes": 0.4474366585413615,
+        "burn_pct_worker_min": {},
+        "sample": [
+          [
+            "week",
+            "2026-10-15T05:32:21Z"
+          ]
+        ],
+        "at": 1792042386.0,
+        "windows": [
+          {
+            "window": "week",
+            "used_pct": 63.0,
+            "quota_ceiling": 98,
+            "burn_pct_h": 0.6736526946107785,
+            "reset_h": 120.01333968361111,
+            "age_s": 0,
+            "as_of": "2026-10-15T05:33:06Z",
+            "resets_at": "2026-10-20T05:33:24Z",
+            "projected_pct": 75.43286819519575,
+            "anchor": {
+              "used": 63.0,
+              "at": 1792042331.9061654,
+              "minutes": 0.4474366585413615
+            },
+            "horizon_h": 18.455902120868366,
+            "smoothed_pct_h": 0.6736526946107785
+          }
+        ],
+        "target": {
+          "by": "2026-10-16T00:00:00+00:00",
+          "spend_to_pct": 95.0
+        },
+        "state_since": 1792013909.6463056,
+        "changed": true,
+        "held_reason": null,
+        "target_burn_pct_h": 1.0
+      }
+    }
+  }
+}

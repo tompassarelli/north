@@ -12,6 +12,14 @@ source = "standard: adaptive-harness cycle design, daily or after 20 landings"
 fallback = "the daily cycle still runs when fewer runs land"
 consumers = ["harness/scripts/harness-learn.py"]
 
+[placement_drain_margin]
+value = 0.5
+unit = "weekly usage percentage points per hour below target burn before placement prefers another account"
+source = "prior: half a point per hour avoids moving a native spawn for small burn differences"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay placement against observed account burn" }
+fallback = "without measured target and smoothed burn, keep the spawner account first"
+consumers = ["harness/lib/placement.py"]
+
 [reservation_fallback_points]
 value = 1.0
 unit = "weekly usage percentage points per running or new worker when reservation calibration is unavailable"

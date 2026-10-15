@@ -259,11 +259,12 @@ def explorable(ctx, tier, box, project):
             and eligible(tier, box) and account_state(ctx, account_of(tier)) == "under pace")
 
 
-def choose(ctx, box, explore_slot=False):
+def choose(ctx, box, explore_slot=False, *, account_prices=None):
     project = ctx["projects"][box["project"]]
     if box.get("local") and not ctx.get("lease"):
         return {"tier": None, "wait": "capacity lease"}
-    prices = {n: price(ctx, n) for n in {account_of(t) for t in ctx["tiers"]}}
+    prices = ({n: price(ctx, n) for n in {account_of(t) for t in ctx["tiers"]}}
+              if account_prices is None else account_prices)
     priced = [(prices[account_of(t)], t["rank"], t) for t in ctx["tiers"]]
     if explore_slot:
         pool = [(p, r, t) for p, r, t in priced if p != math.inf and explorable(ctx, t, box, project)]
@@ -271,7 +272,7 @@ def choose(ctx, box, explore_slot=False):
             return {"tier": min(pool, key=lambda x: x[1])[2], "explore": True}
     band = bands(ctx, project)
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
-    open_ = [x for x in admitted if x[0] != math.inf and pace_open(ctx, account_of(x[2]), project)]
+    open_ = [x for x in admitted if x[0] != math.inf and (account_prices is not None or pace_open(ctx, account_of(x[2]), project))]
     if not open_:
         if any(p != math.inf for p, _, _ in admitted):
             if project.get("target"):
@@ -281,12 +282,12 @@ def choose(ctx, box, explore_slot=False):
     tier = min(open_, key=lambda x: (x[0], x[1]))[2]
     out = {"tier": tier}
     name = account_of(tier)
-    if account_state(ctx, name) != "under pace":
+    if account_prices is None and account_state(ctx, name) != "under pace":
         start = enforce_from(ctx, name)
         why = (f"{project.get('name', box['project'])} drains it under Tom's grant until {project['target']}"
                if enforced(ctx, name) else f"pace enforced from {start.isoformat() if start else 'unset'}")
         out["warn"] = f"account {name} at or over pace; admitted, {why}"
-    if (len(admitted) == 1 and project["u"] >= LATE
+    if (account_prices is None and len(admitted) == 1 and project["u"] >= LATE
             and billing(ctx, name, "fast") != "plan"):
         out["needs"] = missed_target(project.get("name", box["project"]), project.get("target", "its target"), ctx.get("services"))
     return out

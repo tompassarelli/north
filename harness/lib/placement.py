@@ -11,11 +11,15 @@ import re
 import subprocess
 import sys
 import tomllib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import resident_cap
+import pace_control
+import plan_usage
+import routing
+from defaults import DEFAULTS
 from ssh_transport import ssh_argv
 
 CLOUD = ("anthropic-cloud", "codex-cloud")
@@ -134,18 +138,129 @@ def place(text, cfg, at, probe=None):
                 return target, "codex_cloud on"
             why.append("codex-cloud off until C1")
         elif target == "laptop":
-            state = probe.setdefault("laptop", laptop_state())
+            if "laptop" not in probe:
+                probe["laptop"] = laptop_state()
+            state = probe["laptop"]
             if state == "available":
                 return target, "laptop available"
             laptop_why = f"laptop {state}"
             why.append(laptop_why)
         elif isinstance(hosts.get(target, {}).get("resident_cap"), int):
             cap = hosts[target]["resident_cap"]
-            online, live = probe.setdefault(target, host_load(target))
+            if target not in probe:
+                probe[target] = host_load(target)
+            online, live = probe[target]
             if online and live < cap:
                 return target, f"{target} {live}/{cap}"
             why.append(f"{target} {live}/{cap}" if online else f"{target} offline")
     return f"held: {laptop_why or (why[0] if why else 'no target in [placement] order')}", "; ".join(why)
+
+
+def place_spawn(brief_text, spawner, gate, cfg, now):
+    at = routing.moment(now)
+    stamp = at.timestamp()
+    def field(key):
+        match = re.search(rf"(?mi)^\s*{key}:\s*(.+)$", brief_text)
+        return match.group(1).strip() if match else ""
+
+    def queued(reason, eta):
+        return {"kind": "queued", "reason": reason, "eta": eta.isoformat().replace("+00:00", "Z")}
+
+    item, _, needs = facets(brief_text)
+    project = item.split("#", 1)[0].split()[0].lower() if item else ""
+    p = spawner["provider"]
+    own = spawner.get("account", p)
+    if ":" not in own and own != p:
+        own = f"{p}:{own}"
+    tiers = cfg.get("tiers", {})
+    requested = field("Tier") or spawner.get("tier") or spawner.get("subagent_type", "")
+    requested = next((k for k, t in tiers.items() if requested in (k, k.split(":", 1)[1], t.get("agent"))), requested)
+    if requested not in tiers:
+        requested = DEFAULTS["default_tier"]
+    floor = tiers.get(requested, {}).get("start", 0)
+    difficulty = max(float(field("Difficulty") or floor), floor)
+    category = field("Category") or "tooling"
+    _, _, providers = plan_usage.resolve_mode(cfg)
+    accounts, controls, reasons, etas = {}, {}, {}, []
+    for provider in providers:
+        verdict = gate.get(provider, {})
+        policy = cfg.get("accounts", {}).get(provider, {})
+        if not verdict.get("controls") and policy.get("auto_route", True):
+            reasons[provider] = "stale"
+            etas.append(at + timedelta(minutes=1))
+        for name, control in verdict.get("controls", {}).items():
+            if not control.get("auto_route", policy.get("auto_route", True)):
+                continue
+            windows = {w["window"]: dict(w, headroom=100 - w["used_pct"],
+                       reset_in=(routing.moment(w["resets_at"]) - at).total_seconds() / 3600,
+                       window_h=168 if w["window"] == "week" else 5,
+                       beta=w.get("smoothed_pct_h")) for w in control.get("windows", [])}
+            accounts[name] = {"windows": windows, "provider": provider, "age_min": 0,
+                              "target_left": policy.get("target_left", 5), "usd_per_week": 0}
+            controls[name] = control
+            billing = cfg.get("billing", {}).get(name, cfg.get("billing", {}).get(provider, {}))
+            reason = control.get("held_reason")
+            if billing.get("standard", "plan") != "plan":
+                reason = "blocked"
+            elif not pace_control.fresh(control, stamp) or "held_reason" not in control:
+                reason = "stale"
+            reasons[name] = reason
+            if reason == "short-window":
+                etas.extend(routing.moment(w["resets_at"]) for w in control["windows"] if w["window"] != "week")
+            elif reason not in (None, "floor", "blocked"):
+                dwell = datetime.fromtimestamp(control.get("state_since", stamp), timezone.utc)
+                etas.append(max(at + timedelta(minutes=1), dwell + timedelta(minutes=DEFAULTS["pace_state_dwell_min"]))
+                            if reason == "workers" else at + timedelta(minutes=1))
+    open_accounts = [n for n, reason in reasons.items() if reason is None]
+    if not open_accounts:
+        if reasons and all(r == "floor" for r in reasons.values()):
+            return {"kind": "refused", "reason": "every eligible account at its floor"}
+        return queued("accounts temporarily unavailable", min(etas) if etas else at + timedelta(minutes=1))
+
+    margin = DEFAULTS["placement_drain_margin"]
+    def order(name):
+        control = controls[name]
+        week = next((w for w in control["windows"] if w["window"] == "week"), {})
+        goal, burn = control.get("target_burn_pct_h"), week.get("smoothed_pct_h")
+        draining = goal is not None and burn is not None and goal - burn > margin
+        reset = routing.expiry(accounts[name])
+        return (0, reset, name != own, name) if draining else (1, name != own, reset, name)
+
+    open_accounts.sort(key=order)
+    first = open_accounts[0]
+    if first.split(":", 1)[0] == p and requested in tiers and requested.split(":", 1)[0] == p:
+        name, key = first, requested
+    else:
+        available = {k: t for k, t in tiers.items() if k.split(":", 1)[0] in
+                     {n.split(":", 1)[0] for n in open_accounts}}
+        bands = plan_usage.resolve_bands(plan_usage.bands_of(tiers), available)
+        starts = {key: lo for lo, hi, key in bands if hi > floor}
+        candidates = [dict(t, key=k, rank=i, start=starts.get(k, 100),
+                           account=next(n for n in open_accounts if n.split(":", 1)[0] == k.split(":", 1)[0]))
+                      for i, (k, t) in enumerate(available.items()) if k in starts]
+        ctx = {"now": at, "accounts": accounts, "tiers": candidates, "success": cfg.get("success", {}),
+               "projects": {project: dict(cfg.get("projects", {}).get(project, {}), u=1)}}
+        box = {"id": item, "project": project, "category": category, "difficulty": difficulty,
+               "sensitivity": "private" if needs & {"private", "local-state"} else "public"}
+        chosen = routing.choose(ctx, box, account_prices={n: i for i, n in enumerate(open_accounts)})["tier"]
+        if chosen is None:
+            return queued("no open tier admits the requested band", at + timedelta(minutes=1))
+        name, key = chosen["account"], chosen["key"]
+    probe = {n: (False, 0) for n in cfg.get("hosts", {})}
+    probe.update(laptop="unavailable", credit=(False, "cloud credit: no snapshot"))
+    probe.update(cfg.get("placement", {}).get("probe", {}))
+    provider = name.split(":", 1)[0]
+    cloud = "anthropic-cloud" if provider == "claude" else f"{provider}-cloud"
+    rules = cfg.get("placement", {})
+    host_cfg = dict(cfg, placement=dict(rules, order=[h for h in rules.get("order", []) if h not in CLOUD or h == cloud]))
+    host, why = place(brief_text, host_cfg, at, probe)
+    if host.startswith("held:"):
+        return queued(why or host, at + timedelta(minutes=1))
+    if name == own:
+        return {"kind": "native"}
+    tier = tiers[key]
+    return {"kind": "launch", "provider": name.split(":", 1)[0], "account": name,
+            "tier": key, "model": tier["model"], "effort": tier["effort"], "host": host}
 
 
 def main(argv):
