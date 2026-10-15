@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude Code UserPromptSubmit hook: before Tom's proxy answers, injects a Grounding block naming the
 # existing skills, policy, hooks, decisions, live usage/org state and recent history that match his
-# message (grounding/grounding.ts, tier A over a precomputed index), or the tier-B command to run.
+# message (north grounding hook, tier A over a precomputed index), or the tier-B command to run.
 # Only Tom's top-level interactive session (cli entrypoint, AGENT_ROLE unset, not a subagent) gets it.
 #
 # Kill-switch: `north config agents off prompt-grounding` or env
