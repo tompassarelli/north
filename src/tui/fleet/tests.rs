@@ -142,13 +142,15 @@ fn summary(name: &str, status: Status, last_activity_ms: u64) -> SessionSummary 
             "account": "work",
             "cwd": format!("/code/{name}"),
             "model": null,
-            "created_ms": 0,
+            "created_ms": last_activity_ms,
             "host_pid": null,
             "conversation": null,
         }))
         .unwrap(),
         status,
         last_activity_ms: Some(last_activity_ms),
+        since_ms: 0,
+        depth: 0,
     }
 }
 
@@ -379,8 +381,8 @@ fn the_digest_lists_open_gates_first_then_sessions_and_todays_landings() {
     key(&mut desk, &mut screen, control('t'));
     let shown = rendered(&desk, &mut screen, 36_000);
     let at = |needle: &str| shown.find(needle).unwrap_or_else(|| panic!("{needle:?} missing from\n{shown}"));
-    assert!(at("gate 3 · idle-one · default in 25s") < at("parser working · fix the parser"));
-    assert!(at("parser working · fix the parser") < at("12.3k tokens · api $0.0048 · report: Looking at **parser.rs** now."));
+    assert!(at("gate 3 · idle-one · default in 25s") < at("parser working 0m · up 36s"));
+    assert!(at("parser working 0m · up 36s") < at("12.3k tokens · api $0.0048 · report: Looking at **parser.rs** now."));
     assert!(at("landed today") < at("T1 abcdef123 · wall 12m"));
     assert!(at("claude work 5h 37% left") < at("codex plus unmeasured"));
 }

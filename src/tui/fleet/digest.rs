@@ -1,4 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Gate;
@@ -11,16 +14,21 @@ use super::desk::SessionSummary;
 pub struct SessionFacts {
     pub task: Option<String>,
     pub report: Option<String>,
+    pub live_tokens: u64,
     pub quota: Option<Quota>,
 }
 
 impl SessionFacts {
     pub fn of(record: &SessionRecord, transcript: Option<&Transcript>) -> Self {
         let entries = transcript.map_or(&[][..], |transcript| transcript.entries.as_slice());
-        let first_prompt = entries.iter().find(|entry| entry.kind == EntryKind::User).map(|entry| first_line(urgent_text(&entry.text).unwrap_or(&entry.text)));
+        let first_prompt = entries.iter().find(|entry| entry.kind == EntryKind::User).map(|entry| task_title(urgent_text(&entry.text).unwrap_or(&entry.text)));
         let finished = entries.iter().rposition(|entry| entry.kind == EntryKind::TurnEnd).unwrap_or(0);
         let report = entries[..finished].iter().rev().find(|entry| entry.kind == EntryKind::Assistant).map(|entry| first_line(&entry.text));
-        Self { task: record.task_ref.clone().or(first_prompt), report, quota: transcript.and_then(|transcript| transcript.quota.clone()) }
+        Self {
+            task: record.task_ref.clone().or(first_prompt),
+            report,
+            live_tokens: transcript.map_or(0, |transcript| transcript.tracker.live_tokens()),
+            quota: transcript.and_then(|transcript| transcript.quota.clone()) }
     }
 }
 
@@ -62,6 +70,23 @@ impl DigestPane {
         let current = self.selected_gate.and_then(|id| open.iter().position(|open| *open == id)).unwrap_or(0);
         self.selected_gate = open.get(current.saturating_add_signed(delta).min(open.len().saturating_sub(1))).copied();
     }
+}
+
+fn task_title(prompt: &str) -> String {
+    brief_path(prompt).and_then(|path| title_of(&path)).unwrap_or_else(|| first_line(prompt))
+}
+
+fn brief_path(prompt: &str) -> Option<PathBuf> {
+    prompt
+        .split_whitespace()
+        .map(|word| word.trim_matches(|character: char| matches!(character, '"' | '\'' | '`' | '.' | ',' | ':' | ')')))
+        .find(|word| word.starts_with('/') && word.ends_with(".md"))
+        .map(PathBuf::from)
+}
+
+fn title_of(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    BufReader::new(file).lines().map_while(Result::ok).map(|line| line.trim().trim_start_matches('#').trim().to_owned()).find(|line| !line.is_empty())
 }
 
 fn first_line(text: &str) -> String {

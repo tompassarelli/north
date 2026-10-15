@@ -13,6 +13,10 @@ pub struct Tokens {
 }
 
 impl Tokens {
+    pub fn total(self) -> u64 {
+        self.input + self.output + self.cache_read + self.cache_write
+    }
+
     fn since(self, earlier: Tokens) -> Tokens {
         Tokens {
             input: self.input.saturating_sub(earlier.input),
@@ -55,6 +59,7 @@ pub enum TurnSignal {
     Started { conversation: String },
     Prompt { conversation: String, text: String },
     Usage { conversation: String, total: Tokens },
+    Call { conversation: String, call: String, tokens: Tokens },
     Ended { conversation: String, exit: TurnExit, totals: TurnTotals },
     TaskStarted { conversation: String, task: String },
     TaskEnded { conversation: String, task: String },
@@ -67,6 +72,7 @@ impl TurnSignal {
             | TurnSignal::Started { conversation }
             | TurnSignal::Prompt { conversation, .. }
             | TurnSignal::Usage { conversation, .. }
+            | TurnSignal::Call { conversation, .. }
             | TurnSignal::Ended { conversation, .. }
             | TurnSignal::TaskStarted { conversation, .. }
             | TurnSignal::TaskEnded { conversation, .. } => conversation,
@@ -108,6 +114,7 @@ struct Open {
     baseline: Tokens,
     prompt: Option<String>,
     calls: u64,
+    call_tokens: HashMap<String, Tokens>,
 }
 
 impl Turns {
@@ -121,7 +128,7 @@ impl Turns {
             }
             TurnSignal::Started { .. } => {
                 let baseline = thread.total;
-                thread.open.get_or_insert(Open { started_ms: now_ms, baseline, prompt: None, calls: 0 });
+                thread.open.get_or_insert(Open { started_ms: now_ms, baseline, prompt: None, calls: 0, call_tokens: HashMap::new() });
             }
             TurnSignal::Prompt { text, .. } => {
                 if let Some(open) = thread.open.as_mut().filter(|open| open.prompt.is_none()) {
@@ -134,6 +141,11 @@ impl Turns {
                     open.calls += 1;
                 }
                 thread.total = total;
+            }
+            TurnSignal::Call { call, tokens, .. } => {
+                if let Some(open) = thread.open.as_mut() {
+                    open.call_tokens.insert(call, tokens);
+                }
             }
             TurnSignal::TaskStarted { task, .. } => {
                 thread.tasks.insert(task);
@@ -148,6 +160,10 @@ impl Turns {
 
     pub fn in_flight(&self) -> bool {
         self.threads.values().any(Thread::busy)
+    }
+
+    pub fn live_tokens(&self) -> u64 {
+        self.threads.values().filter_map(Thread::live_tokens).sum()
     }
 
     pub fn busy(&self, conversation: &str) -> bool {
@@ -168,12 +184,21 @@ impl Thread {
         self.open.is_some() || !self.tasks.is_empty()
     }
 
+    fn live_tokens(&self) -> Option<u64> {
+        let open = self.open.as_ref()?;
+        if open.call_tokens.is_empty() {
+            return Some(self.total.since(open.baseline).total());
+        }
+        Some(open.call_tokens.values().map(|tokens| tokens.total()).sum())
+    }
+
     fn finish(&mut self, conversation: String, exit: TurnExit, totals: TurnTotals, now_ms: u64) -> Turn {
         let open = self.open.take().unwrap_or_else(|| Open {
             started_ms: now_ms.saturating_sub(totals.wall_ms.unwrap_or(0)),
             baseline: self.total,
             prompt: None,
             calls: 0,
+            call_tokens: HashMap::new(),
         });
         Turn {
             conversation,

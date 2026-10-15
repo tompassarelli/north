@@ -16,6 +16,7 @@ use crate::fleet::runtime::SESSION_ENV;
 use super::desk::SessionSummary;
 use super::digest::{DigestPane, SessionFacts};
 use super::form::{FormOutcome, LaunchForm, newline_modifier};
+use super::order::arrange;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Focus {
@@ -113,13 +114,8 @@ impl Screen {
         self.sessions.iter().find(|session| session.record.name == name)
     }
 
-    pub fn sync(&mut self, mut sessions: Vec<SessionSummary>) {
-        sessions.sort_by(|left, right| {
-            activity_rank(left.status)
-                .cmp(&activity_rank(right.status))
-                .then_with(|| last_seen(right).cmp(&last_seen(left)))
-                .then_with(|| left.record.name.cmp(&right.record.name))
-        });
+    pub fn sync(&mut self, sessions: Vec<SessionSummary>) {
+        let sessions = arrange(sessions);
         self.mark_finished(&sessions);
         self.sessions = sessions;
         if self.selected_session().is_none() {
@@ -458,19 +454,6 @@ impl Screen {
             self.scroll_limit = u16::MAX;
         }
     }
-}
-
-pub fn activity_rank(status: Status) -> u8 {
-    match status {
-        Status::Working => 0,
-        Status::Starting => 1,
-        Status::Idle | Status::Parked => 2,
-        Status::Exited => 3,
-    }
-}
-
-fn last_seen(session: &SessionSummary) -> u64 {
-    session.last_activity_ms.unwrap_or(session.record.created_ms)
 }
 
 fn composer_area() -> TextArea<'static> {

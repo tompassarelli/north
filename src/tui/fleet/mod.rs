@@ -2,13 +2,18 @@ mod desk;
 mod digest;
 mod digest_view;
 mod form;
+mod order;
 mod painter;
+mod table;
 mod runner;
 mod screen;
 mod view;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod frame_tests;
 
 use std::env;
 use std::io::{self, Stdout, Write};

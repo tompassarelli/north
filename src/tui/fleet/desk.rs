@@ -19,6 +19,8 @@ pub struct SessionSummary {
     pub record: SessionRecord,
     pub status: Status,
     pub last_activity_ms: Option<u64>,
+    pub since_ms: u64,
+    pub depth: usize,
 }
 
 pub trait SessionDesk {
@@ -74,13 +76,14 @@ pub struct FleetDesk {
     fleet: Arc<Fleet>,
     records: Vec<SessionRecord>,
     followers: BTreeMap<String, Follower>,
+    states: BTreeMap<String, (Status, u64)>,
     digest: Digest,
     upkeep: Upkeep,
 }
 
 impl FleetDesk {
     pub fn new(fleet: Fleet) -> Self {
-        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), digest: Digest::default(), upkeep: Upkeep::default() }
+        Self { fleet: Arc::new(fleet), records: Vec::new(), followers: BTreeMap::new(), states: BTreeMap::new(), digest: Digest::default(), upkeep: Upkeep::default() }
     }
 
     fn follow_new(&mut self) -> NorthResult<bool> {
@@ -92,6 +95,20 @@ impl FleetDesk {
             }
         }
         Ok(changed)
+    }
+
+    fn track_states(&mut self) {
+        let now = now_ms();
+        self.states.retain(|name, _| self.followers.contains_key(name));
+        for record in &self.records {
+            let Some(follower) = self.followers.get(&record.name) else { continue };
+            let transcript = follower.transcript();
+            let first_seen = transcript.turns.last().map_or(record.created_ms, |turn| turn.ended_ms);
+            let entry = self.states.entry(record.name.clone()).or_insert((transcript.status, first_seen));
+            if entry.0 != transcript.status {
+                *entry = (transcript.status, now);
+            }
+        }
     }
 
     fn poll_followers(&mut self) -> NorthResult<bool> {
@@ -132,6 +149,8 @@ impl SessionDesk for FleetDesk {
                     record: record.clone(),
                     status: transcript.map_or(Status::Starting, |transcript| transcript.status),
                     last_activity_ms: transcript.and_then(|transcript| transcript.last_activity_ms),
+                    since_ms: self.states.get(&record.name).map_or(record.created_ms, |(_, since)| *since),
+                    depth: 0,
                 }
             })
             .collect()

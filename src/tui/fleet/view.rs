@@ -9,7 +9,7 @@ use crate::fleet::model::{Status, Transcript};
 use super::desk::SessionSummary;
 use super::form::{Field, LaunchForm};
 use super::screen::{Dialog, Focus, Notice, Screen};
-use super::digest_view::{draw_digest, header_lines};
+use super::digest_view::{draw_digest, header_lines, span};
 use super::painter::TranscriptPainter;
 
 const MUTED: Style = Style::new().fg(Color::DarkGray);
@@ -82,13 +82,14 @@ fn session_item(session: &SessionSummary, marker: Span<'static>, now_ms: u64) ->
     let record = &session.record;
     let headline = Line::from(vec![
         marker,
+        Span::raw("  ".repeat(session.depth)),
         Span::styled(record.name.clone(), Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" "),
         Span::styled(session.status.label(), status_style(session.status)),
-        Span::styled(format!(" · {}", age(now_ms, session.last_activity_ms.unwrap_or(record.created_ms))), MUTED),
+        Span::styled(format!(" · {}", span(now_ms.saturating_sub(record.created_ms))), MUTED),
     ]);
     let directory = record.cwd.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| record.cwd.display().to_string());
-    let mut detail = vec![Span::raw("  ")];
+    let mut detail = vec![Span::raw("  ".repeat(session.depth + 1))];
     if session.status == Status::Exited {
         detail.push(Span::styled("type to resume · ", Style::default().fg(Color::Yellow)));
     }
@@ -109,7 +110,7 @@ pub fn status_style(status: Status) -> Style {
 pub fn age(now_ms: u64, then_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(then_ms) / 60_000;
     match minutes {
-        0 => "now".into(),
+        0 => "0m".into(),
         1..=59 => format!("{minutes}m"),
         60..=1439 => format!("{}h", minutes / 60),
         _ => format!("{}d", minutes / 1440),

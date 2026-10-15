@@ -3,6 +3,8 @@ use ratatui::text::{Line, Span};
 
 use crate::fleet::model::{Entry, EntryKind, Transcript};
 
+use super::table::{self, Block};
+
 const OPERATOR: Style = Style::new().fg(Color::Rgb(226, 220, 199)).bg(Color::Rgb(52, 58, 62));
 const PENDING: Style = OPERATOR.add_modifier(Modifier::DIM);
 
@@ -70,7 +72,7 @@ fn paint_entry(entry: &Entry, width: usize, lines: &mut Vec<Line<'static>>) {
     let dim = Style::default().add_modifier(Modifier::DIM);
     match entry.kind {
         EntryKind::User => paint_user(&entry.text, width, OPERATOR, lines),
-        EntryKind::Assistant => paint_markdown(&entry.text, lines),
+        EntryKind::Assistant => paint_markdown(&entry.text, width, lines),
         EntryKind::Tool => lines.push(Line::from(vec![Span::styled("  ↳ ", dim), Span::styled(one_line(&entry.text, width.saturating_sub(4)), dim)])),
         EntryKind::ToolResult => lines.push(Line::from(Span::styled(format!("    {}", one_line(&entry.text, width.saturating_sub(4))), dim))),
         EntryKind::Error => lines.extend(prefixed(&entry.text, Style::default().fg(Color::Red))),
@@ -87,10 +89,9 @@ fn paint_user(text: &str, width: usize, style: Style, lines: &mut Vec<Line<'stat
     }
 }
 
-fn paint_markdown(text: &str, lines: &mut Vec<Line<'static>>) {
-    let markdown = tui_markdown::from_str(text);
+fn paint_markdown(text: &str, width: usize, lines: &mut Vec<Line<'static>>) {
     let mut started = false;
-    for line in markdown.lines {
+    for line in markdown_lines(text, width.saturating_sub(2)) {
         let blank = line.spans.iter().all(|span| span.content.trim().is_empty());
         if !started && blank {
             continue;
@@ -98,9 +99,28 @@ fn paint_markdown(text: &str, lines: &mut Vec<Line<'static>>) {
         let prefix = if started { Span::raw("  ") } else { Span::styled("• ", Style::default().fg(Color::Gray)) };
         started = true;
         let mut spans = vec![prefix];
-        spans.extend(line.spans.into_iter().map(|span| Span::styled(span.content.into_owned(), line.style.patch(span.style))));
+        spans.extend(line.spans);
         lines.push(Line::from(spans));
     }
+}
+
+fn markdown_lines(text: &str, width: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for block in table::blocks(text) {
+        match block {
+            Block::Table(table) => lines.extend(table.lines(width)),
+            Block::Prose(prose) => {
+                let source = prose.join("
+");
+                let markdown = tui_markdown::from_str(&source);
+                lines.extend(markdown.lines.into_iter().map(|line| {
+                    let spans: Vec<Span<'static>> = line.spans.into_iter().map(|span| Span::styled(span.content.into_owned(), line.style.patch(span.style))).collect();
+                    Line::from(spans)
+                }));
+            }
+        }
+    }
+    lines
 }
 
 fn prefixed(text: &str, style: Style) -> Vec<Line<'static>> {

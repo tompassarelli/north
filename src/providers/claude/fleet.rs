@@ -217,12 +217,23 @@ fn turn_signals(frame: &Value) -> Vec<TurnSignal> {
         Some("user") if has_user_message(frame) => {
             vec![TurnSignal::Started { conversation: conversation.clone() }, TurnSignal::Prompt { conversation, text: replay_text(frame) }]
         }
-        Some("assistant") if frame["parent_tool_use_id"].is_null() => vec![TurnSignal::Started { conversation }],
+        Some("assistant") if frame["parent_tool_use_id"].is_null() => {
+            let call = call_signal(frame, &conversation);
+            [Some(TurnSignal::Started { conversation }), call].into_iter().flatten().collect()
+        }
         Some("system") if frame["subtype"] == "task_started" => task_signal(frame, |task| TurnSignal::TaskStarted { conversation, task }),
         Some("system") if frame["subtype"] == "task_notification" => task_signal(frame, |task| TurnSignal::TaskEnded { conversation, task }),
         Some("result") => vec![TurnSignal::Ended { conversation, exit: result_exit(frame), totals: result_totals(frame) }],
         _ => Vec::new(),
     }
+}
+
+fn call_signal(frame: &Value, conversation: &str) -> Option<TurnSignal> {
+    let message = &frame["message"];
+    let usage = &message["usage"];
+    let count = |key: &str| usage[key].as_u64().unwrap_or(0);
+    let tokens = Tokens { input: count("input_tokens"), output: count("output_tokens"), cache_read: count("cache_read_input_tokens"), cache_write: count("cache_creation_input_tokens") };
+    Some(TurnSignal::Call { conversation: conversation.to_owned(), call: message["id"].as_str()?.to_owned(), tokens }).filter(|_| usage.is_object())
 }
 
 fn has_user_message(frame: &Value) -> bool {
@@ -366,6 +377,16 @@ mod turn_state {
         assert_eq!(Claude.signals(&started), [TurnSignal::TaskStarted { conversation: "s".into(), task: "a1".into() }]);
         assert_eq!(Claude.signals(&ended), [TurnSignal::TaskEnded { conversation: "s".into(), task: "a1".into() }]);
         assert_eq!(Claude.signals(&subagent), []);
+    }
+
+    #[test]
+    fn an_assistant_frame_reports_its_call_usage_while_the_turn_runs() {
+        let frame = json!({
+            "type": "assistant", "session_id": "s", "parent_tool_use_id": null,
+            "message": {"id": "msg_1", "content": [], "usage": {"input_tokens": 5, "output_tokens": 9, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 2}}
+        });
+        let tokens = Tokens { input: 5, output: 9, cache_read: 100, cache_write: 2 };
+        assert_eq!(Claude.signals(&frame), [TurnSignal::Started { conversation: "s".into() }, TurnSignal::Call { conversation: "s".into(), call: "msg_1".into(), tokens }]);
     }
 }
 

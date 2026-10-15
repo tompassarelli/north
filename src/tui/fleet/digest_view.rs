@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use crate::fleet::books::{Landing, SessionSpend};
 use crate::fleet::gates::Gate;
 use crate::fleet::model::{Account, Quota};
+use crate::foundation::clock::Timestamp;
 
 use super::desk::SessionSummary;
 use super::digest::DigestPane;
@@ -35,7 +36,7 @@ pub fn digest_lines(digest: &DigestPane, sessions: &[SessionSummary], now_ms: u6
     lines.push(Line::default());
     lines.push(Line::from(Span::styled("sessions", BOLD)));
     for session in sessions {
-        lines.extend(session_lines(digest, session, width));
+        lines.extend(session_lines(digest, session, width, now_ms));
     }
     lines.push(Line::default());
     lines.push(Line::from(Span::styled("landed today", BOLD)));
@@ -73,24 +74,34 @@ fn gate_lines(gate: &Gate, selected: bool, now_ms: u64) -> Vec<Line<'static>> {
     vec![Line::from(vec![Span::styled("✓ ", MUTED), Span::styled(format!("gate {} · {}", gate.id, gate.request.session), MUTED), Span::styled(verdict, MUTED)])]
 }
 
-fn session_lines(digest: &DigestPane, session: &SessionSummary, width: usize) -> Vec<Line<'static>> {
+fn session_lines(digest: &DigestPane, session: &SessionSummary, width: usize, now_ms: u64) -> Vec<Line<'static>> {
     let name = &session.record.name;
     let facts = digest.facts.get(name).cloned().unwrap_or_default();
-    let status = session.status.label();
-    let task = one_line(facts.task.as_deref().unwrap_or("no task yet"), width.saturating_sub(name.chars().count() + status.len() + 6));
+    let status = format!("{} {}", session.status.label(), super::view::age(now_ms, session.since_ms));
+    let up = format!(" · up {} · started {}", span(now_ms.saturating_sub(session.record.created_ms)), clock(session.record.created_ms));
+    let indent = "  ".repeat(session.depth);
+    let task = one_line(facts.task.as_deref().unwrap_or("no task yet"), width.saturating_sub(indent.len() + name.chars().count() + status.len() + up.len() + 6));
     let headline = Line::from(vec![
-        Span::styled(format!("  {name} "), BOLD),
+        Span::styled(format!("  {indent}{name} "), BOLD),
         Span::styled(status, super::view::status_style(session.status)),
+        Span::styled(up, MUTED),
         Span::styled(format!(" · {task}"), MUTED),
     ]);
-    let spend = format!("    {} · ", digest.books.spend_of(name).map_or_else(|| "0 tokens".to_owned(), spend_text));
+    let spend = format!("    {indent}{} · ", spend_text(digest.books.spend_of(name), facts.live_tokens));
     let report = one_line(&format!("report: {}", facts.report.as_deref().unwrap_or("no report yet")), width.saturating_sub(spend.chars().count()));
     vec![headline, Line::from(vec![Span::styled(spend, MUTED), Span::raw(report)])]
 }
 
-fn spend_text(spend: &SessionSpend) -> String {
+fn clock(unix_ms: u64) -> String {
+    let start = Timestamp::from_unix_millis(i64::try_from(unix_ms).unwrap_or(0)).local_day_start_ms();
+    let minutes = unix_ms.saturating_sub(start) / 60_000;
+    format!("{:02}:{:02}", minutes / 60 % 24, minutes % 60)
+}
+
+fn spend_text(spend: Option<&SessionSpend>, live_tokens: u64) -> String {
+    let Some(spend) = spend else { return format!("{} tokens", count(live_tokens)) };
     let dollars = spend.api_usd.map_or_else(|| "plan $ unmeasured".to_owned(), api_dollars);
-    format!("{} tokens · {dollars}", count(spend.tokens))
+    format!("{} tokens · {dollars}", count(spend.tokens + live_tokens))
 }
 
 fn api_dollars(usd: f64) -> String {
