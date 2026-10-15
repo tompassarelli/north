@@ -95,6 +95,8 @@ def main():
         return subprocess.run(["rsync", "-a", "--protect-args", "-e", route, *kwargs.pop("options", []), src, dst], **kwargs)
 
     files = subprocess.check_output(["git", "-C", str(source), "ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+    common = subprocess.check_output(["git", "-C", str(source), "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True).strip()
+    baseline = str(Path(common).parent)
     selected = []
     for item in sorted(set(files.split(b"\0")) - {b""}):
         path = Path(os.fsdecode(item))
@@ -104,7 +106,7 @@ def main():
     running = False
     try:
         ssh("mkdir", "-p", remote + "/source", remote + "/out", check=True)
-        copy(str(source) + "/", "nexus:" + remote + "/source/", options=["--from0", "--files-from=-"], input=b"\0".join(selected) + b"\0", check=True)
+        copy(str(source) + "/", "nexus:" + remote + "/source/", options=["--checksum", "--copy-dest=" + baseline, "--from0", "--files-from=-"], input=b"\0".join(selected) + b"\0", check=True)
         ssh("git", "-C", remote + "/source", "init", "-q", check=True)
         spec = json.dumps(dict(root=remote + "/source", cwd=cwd, install=args.install, command=command))
         launch = json.dumps(dict(pid=remote + "/run.pid", timeout=args.timeout_seconds))

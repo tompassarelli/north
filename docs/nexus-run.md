@@ -1,6 +1,6 @@
 # CPU jobs on Nexus
 
-Run `nexus-run` from an owned project worktree. It sends tracked files and nonignored local additions over the existing strict SSH route, installs dependencies when requested, and runs the command on Nexus under a moderate capacity lease (2 CPUs / 2 GiB). Concurrent jobs use separate temporary workspaces; admission queues them normally. GPU and native-client work stays with its existing owners.
+Run `nexus-run` from an owned project worktree. It sends tracked files and nonignored local additions over the existing strict SSH route, installs dependencies when requested, and runs the command on Nexus under a moderate capacity lease (2 CPUs / 2 GiB). Files already present in the same repository's main checkout on Nexus are checksum-verified and copied locally into the temporary workspace, reducing network transfer without sharing writable files. Concurrent jobs use separate temporary workspaces; admission queues them normally. GPU and native-client work stays with its existing owners.
 
 ```bash
 nexus-run -- bun --version
