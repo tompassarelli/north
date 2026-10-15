@@ -13,6 +13,7 @@ mod prompts;
 mod references;
 mod usage;
 mod local_store;
+mod lead_journal;
 mod interactive;
 mod work_items;
 mod session_host;
