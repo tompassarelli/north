@@ -41,6 +41,78 @@ def socket_recipient(directory, session):
 
 
 class LandingHealth(unittest.TestCase):
+    def lane_observation(self, directory, age, busy=False, update=False):
+        now = int(time.time())
+        source = directory / "source"
+        repository = directory / "clone"
+        source.mkdir()
+        repository.mkdir()
+
+        def git(path, *arguments, at=None):
+            environment = dict(os.environ, GIT_COMMITTER_DATE=f"@{at or now - 7200} +0000",
+                               GIT_AUTHOR_DATE=f"@{now - 7200} +0000")
+            result = subprocess.run(["git", "-C", str(path), *arguments], env=environment,
+                                    capture_output=True, text=True, check=True)
+            return result.stdout.strip()
+
+        git(source, "init", "-q", "-b", "main")
+        git(source, "config", "user.name", "Lane fixture")
+        git(source, "config", "user.email", "fixture@example.invalid")
+        git(source, "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "main")
+        main = git(source, "rev-parse", "HEAD")
+        git(source, "checkout", "-qb", "work")
+        git(source, "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "old lane commit")
+        for index in range(4):
+            git(source, "branch", f"claude/land-{index}")
+        git(repository, "init", "-q")
+        git(repository, "remote", "add", "origin", "https://github.com/tompassarelli/fixture.git")
+        git(repository, "fetch", "-q", str(source), "+refs/heads/*:refs/remotes/origin/*", at=now - age)
+        if update:
+            git(source, "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "another old commit")
+            for index in range(4):
+                git(source, "branch", "-f", f"claude/land-{index}")
+            git(repository, "fetch", "-q", str(source), "+refs/heads/*:refs/remotes/origin/*", at=now - 300)
+        rows = [dict(ref=f"refs/heads/busy-{index}", before=main, after=main,
+                     timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - index)))
+                for index in range(105)] if busy else []
+        if busy:
+            rows.append(dict(ref="refs/heads/main", before="0" * 40, after=main,
+                             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 3500))))
+        calls = []
+        external = landing_health.command
+
+        def command(argv, deadline=None):
+            if argv[:2] != ["gh", "api"]:
+                if argv[:4] == ["git", "-C", str(repository), "fetch"]:
+                    argv = [str(source) if argument == "origin" else argument for argument in argv]
+                return external(argv, deadline)
+            calls.append(argv[2])
+            selected = [row for row in rows if row["ref"] == "refs/heads/main"] if "&ref=refs/heads/main" in argv[2] else rows
+            page = int(argv[2].split("page=")[-1].split("&")[0])
+            return json.dumps(selected[(page - 1) * 100:page * 100])
+
+        with patch.object(landing_health, "command", side_effect=command):
+            observation = landing_health.sample(repository, {}, now, deadline=time.monotonic() + 10)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("&ref=refs/heads/main", calls[0])
+        self.assertEqual(len(observation["lanes"]), 4)
+        self.assertEqual(observation["lane_age_fallbacks"], {})
+        return observation, now
+
+    def test_busy_pushes_leave_recently_fetched_old_commits_young(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            observation, now = self.lane_observation(Path(temporary), 600, busy=True)
+            self.assertEqual(set(observation["lanes"].values()), {now - 600})
+            self.assertNotIn("LANDING-STALL", landing_health.anomalies(observation, now))
+            self.assertEqual(len(observation["arrivals"]), 1)
+
+    def test_old_first_fetch_stalls_without_main_arrivals_after_tip_update(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            observation, now = self.lane_observation(Path(temporary), 2400, update=True)
+            self.assertTrue(all(at <= now - 2400 for at in observation["lanes"].values()))
+            self.assertEqual(observation["arrivals"], {})
+            self.assertIn("LANDING-STALL", landing_health.anomalies(observation, now))
+
     def test_source_gap_reaches_only_proxy_once_while_delivery_waits(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -96,9 +168,10 @@ class LandingHealth(unittest.TestCase):
                                THREADS_DB=str(directory / "events.db"), PYTHONDONTWRITEBYTECODE="1")
             real_git = shutil.which("git")
 
-            def git(*arguments):
+            def git(*arguments, at=None):
                 result = subprocess.run([real_git, "-C", str(repository), *arguments],
-                                        env=environment, capture_output=True, text=True)
+                                        env=environment if at is None else dict(environment, GIT_COMMITTER_DATE=f"@{int(at)} +0000"),
+                                        capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 return result.stdout.strip()
 
@@ -113,9 +186,9 @@ class LandingHealth(unittest.TestCase):
             (repository / "generated.tsv").write_text("seed\n")
             (repository / "arbitrary.txt").write_text("seed\n")
 
-            def commit():
+            def commit(at=None):
                 git("add", ".")
-                git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "recorded input")
+                git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "recorded input", at=at)
                 return git("rev-parse", "HEAD")
 
             base = commit()
@@ -133,8 +206,8 @@ class LandingHealth(unittest.TestCase):
                          timestamp=now - 1900)]
             for index in range(4):
                 (repository / "lane.txt").write_text(str(index))
-                lane = commit()
-                git("update-ref", f"refs/remotes/origin/claude/land-{index}", lane)
+                lane = commit(at=now - 7200)
+                git("update-ref", f"refs/remotes/origin/claude/land-{index}", lane, at=now - 1800)
                 rows.append(dict(id=index + 2, ref=f"refs/heads/claude/land-{index}", before="0" * 40,
                                  after=lane, timestamp=now - 1800))
                 git("reset", "--hard", second)
@@ -257,6 +330,11 @@ class LandingHealth(unittest.TestCase):
             self.assertIn("schema incomplete", saved["source_error"])
             self.assertEqual(len(pending()), 7)
             fixture.write_text("[]")
+            for index in range(4):
+                ref = f"refs/remotes/origin/claude/land-{index}"
+                lane = git("rev-parse", ref)
+                git("update-ref", "-d", ref)
+                git("update-ref", ref, lane, at=time.time() - 3600)
             state_path = directory / "landing-health.json"
             state_data = json.loads(state_path.read_text())
             state_data["fixture"]["observation"]["lanes"] = {}
@@ -274,6 +352,8 @@ class LandingHealth(unittest.TestCase):
             git("update-ref", "refs/remotes/origin/claude/land-merged", fourth)
             rows[:] = [dict(ref="refs/heads/claude/land-0", before=second, after=tip,
                             timestamp=time.time(), activity_type="branch_creation")]
+            git("update-ref", "-d", "refs/remotes/origin/claude/land-0")
+            git("update-ref", "refs/remotes/origin/claude/land-0", tip, at=rows[0]["timestamp"])
             save_rows()
             refresh()
             simulated = [0.0]

@@ -32,7 +32,7 @@ def git(path, *args, deadline=None):
 def activity(repository, now, deadline=None):
     rows = []
     for page in range(1, 6):
-        batch = json.loads(command(["gh", "api", f"repos/{repository}/activity?time_period=day&per_page=100&page={page}"], deadline))
+        batch = json.loads(command(["gh", "api", f"repos/{repository}/activity?time_period=day&per_page=100&page={page}&ref=refs/heads/main"], deadline))
         if not isinstance(batch, list):
             raise ValueError("repository activity is not a list")
         for row in batch:
@@ -41,8 +41,8 @@ def activity(repository, now, deadline=None):
             row["at"] = instant(row["timestamp"])
         rows.extend(batch)
         if len(batch) < 100 or min(row["at"] for row in batch) < now - 3600:
-            return rows
-    raise RuntimeError("repository activity exceeds five-page coverage budget")
+            return rows, now - 3600
+    return rows, max(now - 3600, min(row["at"] for row in rows) + 1)
 
 
 def generated(path, deadline=None):
@@ -76,23 +76,29 @@ def sample(path, previous, now, deadline=None):
     if not match:
         raise ValueError("repository origin is not a GitHub repository")
     read("fetch", "-q", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
-    main = read("rev-parse", "origin/main")
-    refs = read("for-each-ref", "--format=%(refname:short) %(objectname)", "--no-merged=origin/main", "refs/remotes/origin/claude/land-*")
+    main, reflogs = read("rev-parse", "--path-format=absolute", "origin/main", "--git-path", "logs/refs/remotes/origin/claude").splitlines()
+    refs = read("for-each-ref", "--format=%(refname:short) %(objectname) %(committerdate:unix)", "--no-merged=origin/main", "refs/remotes/origin/claude/land-*")
     authority = generated(path, deadline)
-    rows = activity(match[1], now, deadline) if refs or authority else []
+    rows, since = activity(match[1], now, deadline) if refs or authority else ([], now - 3600)
     main_rows = [row for row in rows if row["ref"] == "refs/heads/main"]
     if main_rows and max(main_rows, key=lambda row: row["at"])["after"] != main:
         raise RuntimeError("repository activity and fetched main tip disagree; arrival coverage unknown")
     lanes = {}
+    fallbacks = []
     for line in refs.splitlines():
-        name, tip = line.split()
+        name, tip, committed = line.split()
         ref = "refs/heads/" + name.removeprefix("origin/")
-        seen = previous.get("lanes", {}).get(ref, now - 3600)
-        history = [row for row in rows if row["ref"] == ref]
-        creation = max([row["at"] for row in history if (row.get("activity_type") == "branch_creation" or row["before"] == "0" * 40) and row["after"] != "0" * 40], default=0)
-        seen = max(seen, creation)
-        evidence = [row["at"] for row in history if row["at"] >= creation and row["after"] != "0" * 40]
-        lanes[ref] = min([seen, *evidence])
+        seen = min(previous.get("lanes", {}).get(ref, now), int(committed))
+        try:
+            with (Path(reflogs) / name.removeprefix("origin/claude/")).open() as history:
+                oldest = history.readline()
+        except FileNotFoundError:
+            oldest = ""
+        if oldest:
+            seen = max(seen, int(oldest.split("\t", 1)[0].rsplit(" ", 2)[1]))
+        else:
+            fallbacks.append(ref)
+        lanes[ref] = seen
     arrivals = {}
     for row in sorted(rows, key=lambda row: row["at"]):
         if row["ref"] != "refs/heads/main" or row["at"] < now - 3600:
@@ -121,7 +127,8 @@ def sample(path, previous, now, deadline=None):
                 added, removed, name = line.split("\t", 2)
                 if name in authority and added.isdigit() and removed.isdigit() and int(added) + int(removed) > 800:
                     changes.setdefault(name, set()).add(sha)
-    return dict(at=now, main=main, lanes=lanes, arrivals=arrivals,
+    return dict(at=now, activity_since=since, main=main, lanes=lanes, arrivals=arrivals,
+                lane_age_fallbacks={ref: "reflog absent; committer date plus previous observation" for ref in fallbacks},
                 changes={name: sorted(shas) for name, shas in changes.items()})
 
 
@@ -129,12 +136,16 @@ def anomalies(observation, now):
     old = sum(now - at >= 1800 for at in observation["lanes"].values())
     landed = sum(at >= now - 1800 for at in observation["arrivals"].values())
     found = {}
-    if old >= 4 and landed <= 1:
+    since = observation.get("activity_since", now - 3600)
+    if old >= 4 and landed <= 1 and since <= now - 1800:
         found["LANDING-STALL"] = f"{old} unlanded land refs at least30m old; {landed} commits actually reached current origin/main within30m"
     for name, shas in observation["changes"].items():
         recent = [sha for sha in shas if observation["arrivals"][sha] >= now - 3600]
         if len(recent) >= 2:
             found[f"REGEN-CHURN:{name}"] = f"generated {name} changed more than800 lines in {len(recent)} commits actually reached current origin/main within1h"
+    if since > now - 3600:
+        found = {identity: f"{body}; measured activity covers {max(0, int(now - since))}s of last1h"
+                 for identity, body in found.items()}
     return found
 
 
