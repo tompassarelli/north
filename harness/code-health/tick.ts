@@ -74,7 +74,9 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
     return { repo, result: "error", detail };
   };
 
-  const signal = run([...env.codeHealth, "signal", "--repo", checkout], checkout);
+  const fetched = run(["git", "-C", checkout, "fetch", "-q", "origin"], checkout);
+  if (fetched.code !== 0) return release(`fetch origin failed: ${fetched.stderr.trim()}`);
+  const signal = run([...env.codeHealth, "signal", "--repo", checkout, "--rev", "origin/main"], checkout);
   if (signal.code === 1) {
     rmSync(lock, { force: true });
     return { repo, result: "quiet", detail: "quiet" };
@@ -82,7 +84,7 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
   const reasons = signal.stdout.split("\n").filter((line) => line.startsWith("FIRE"));
   if (signal.code !== 0 || reasons.length === 0) return release(`signal exit ${signal.code}: ${signal.stderr.trim()}`);
 
-  const report = run([...env.codeHealth, "report", "--repo", checkout], checkout);
+  const report = run([...env.codeHealth, "report", "--repo", checkout, "--rev", "origin/main"], checkout);
   if (report.code !== 0) return release(`report exit ${report.code}: ${report.stderr.trim()}`);
   const reportPath = join(state, "review-report.txt");
   writeFileSync(reportPath, report.stdout);

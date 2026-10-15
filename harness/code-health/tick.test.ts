@@ -10,6 +10,8 @@ function scratch(signal: string) {
   const root = mkdtempSync(join(tmpdir(), "code-health-tick-"));
   mkdirSync(join(root, "code/smashcraft/main"), { recursive: true });
   Bun.spawnSync(["git", "init", "-q", join(root, "code/smashcraft/main")]);
+  Bun.spawnSync(["git", "init", "-q", "--bare", join(root, "origin.git")]);
+  Bun.spawnSync(["git", "-C", join(root, "code/smashcraft/main"), "remote", "add", "origin", join(root, "origin.git")]);
   const fake = join(root, "code-health");
   writeFileSync(fake, `#!/usr/bin/env bash\necho "$*" >> ${root}/calls\ncase $1 in\n  signal) ${signal} ;;\n  report) echo "hotspots: sim/physics.ts 412" ;;\nesac\n`);
   chmodSync(fake, 0o755);
@@ -63,4 +65,11 @@ test("a configured account is passed to the review launch", () => {
   const lines: string[] = [];
   expect(tickRepo("smashcraft", { ...env, account: "a" }, (line) => lines.push(line)).result).toBe("started");
   expect(lines[0]).toEndWith(" --account a");
+});
+
+test("a failed fetch is an error that releases the lock, not quiet", () => {
+  const { root, env } = scratch("echo quiet; exit 1");
+  Bun.spawnSync(["git", "-C", join(root, "code/smashcraft/main"), "remote", "set-url", "origin", join(root, "missing.git")]);
+  expect(tickRepo("smashcraft", env, () => {}).result).toBe("error");
+  expect(existsSync(join(env.stateRoot, "smashcraft/review.lock"))).toBe(false);
 });
