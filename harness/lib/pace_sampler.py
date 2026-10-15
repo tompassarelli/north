@@ -159,6 +159,12 @@ def grant(account, maximum, until, lead, reason, task=None, uses=None):
     return row
 
 
+def reservations(row):
+    row["pending"] = [r if isinstance(r, dict) else {"at": r, "confirmed": True}
+                      for r in row.get("pending", [])]
+    return row["pending"]
+
+
 def confirm(directory, session, tool_use_id):
     if not tool_use_id or not (directory / "pace-control.json").exists():
         return
@@ -170,7 +176,7 @@ def confirm(directory, session, tool_use_id):
         for row in state.get("grants", []):
             if row.get("session") != session:
                 continue
-            for reservation in row.get("pending", []):
+            for reservation in reservations(row):
                 if reservation.get("id") != tool_use_id or reservation.get("confirmed"):
                     continue
                 reservation["confirmed"] = True
@@ -212,15 +218,18 @@ def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=Non
         grant = grant_for(path.parent, account, session, task=task)
         if grant:
             row = next(g for g in state["grants"] if g["account"] == account and g["lead"] == grant["lead"])
-            pending = [r for r in row.get("pending", []) if 0 <= time.time() - r["at"] < RESERVATION_TTL_S]
+            retained = reservations(row)
+            pending = [r for r in retained if 0 <= time.time() - r["at"] < RESERVATION_TTL_S]
+            slots = [r for r in pending if not r.get("counted_live")]
             if live is not None:
-                pending = pending[len(set(live) - set(row.get("live", []))):]
-            workers = len(live) + len(pending) if live is not None else None
+                for reservation in slots[:len(set(live) - set(row.get("live", [])))]:
+                    reservation["counted_live"] = True
+            workers = len(live) + sum(not r.get("counted_live") for r in slots) if live is not None else None
             if workers is None or workers >= row["max_workers"]:
                 return f"Hold: proxy grant for {grant['lead']} workers {workers}/{grant['max_workers']}; measured count required."
             if "uses" in row and sum(not r.get("confirmed") for r in pending) >= row["uses"]:
                 return f"Hold: proxy grant for {grant['lead']} has all remaining uses reserved."
-            row["live"], row["pending"] = sorted(live), pending + [{"at": time.time(), "id": tool_use_id}]
+            row["live"], row["pending"] = sorted(live), retained + [{"at": time.time(), "id": tool_use_id}]
             save(state_path, state)
             return None
         controls = verdicts.get(provider, {}).get("controls", {})

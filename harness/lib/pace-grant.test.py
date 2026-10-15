@@ -295,6 +295,92 @@ class Grants(unittest.TestCase):
             finally:
                 peer.close()
 
+    def test_live_and_expired_reservations_charge_each_confirmed_spawn_once(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / "agents"
+            state.mkdir()
+            org = state / "org.json"
+            org.write_text(json.dumps({"nodes": [
+                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            peer = ProviderPeer(root, {"parent": "active"})
+            try:
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                                NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
+                                NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
+                    expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
+                    gate = state / "usage-gate.json"
+                    def reserve(identity):
+                        return pace_sampler.reserve(gate, "codex", "codex", session="parent",
+                                                    task="review", tool_use_id=identity)
+                    for uses in (1, 2):
+                        with self.subTest(uses=uses):
+                            pace_sampler.grant("codex", 4, expiry, "lead", "concurrent confirmation", "review", uses)
+                            self.assertIsNone(reserve("first"))
+                            child = f"child-{uses}"
+                            with sqlite3.connect(peer.db) as db:
+                                db.execute("INSERT INTO threads VALUES (?,0)", (child,))
+                                db.execute("INSERT INTO thread_spawn_edges VALUES ('parent',?)", (child,))
+                            peer.statuses[child] = "active"
+                            second = reserve("second")
+                            if uses == 1:
+                                self.assertIsNotNone(second)
+                            else:
+                                self.assertIsNone(second)
+                                pace_sampler.confirm(state, "parent", "second")
+                            pace_sampler.confirm(state, "parent", "first")
+                            pace_sampler.confirm(state, "parent", "first")
+                            self.assertEqual(json.loads((state / "pace-control.json").read_text())["grants"][0]["uses"], 0)
+                            self.assertIsNotNone(reserve("third"))
+                    pace_sampler.grant("codex", 4, expiry, "lead", "late confirmation", "review", 2)
+                    now = time.time()
+                    with patch.object(pace_sampler.time, "time", return_value=now):
+                        self.assertIsNone(reserve("late"))
+                    with patch.object(pace_sampler.time, "time", return_value=now + pace_sampler.RESERVATION_TTL_S + 1):
+                        self.assertIsNone(reserve("next"))
+                        for identity in ("late", "next", "late", "next"):
+                            pace_sampler.confirm(state, "parent", identity)
+                        self.assertEqual(json.loads((state / "pace-control.json").read_text())["grants"][0]["uses"], 0)
+                    rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
+                    self.assertEqual([r["tool_use_id"] for r in rows if r["event"] == "grant-admission"],
+                                     ["first", "second", "first", "late", "next"])
+            finally:
+                peer.close()
+
+    def test_numeric_pending_reservations_are_already_charged(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / "agents"
+            state.mkdir()
+            org = state / "org.json"
+            org.write_text(json.dumps({"nodes": [
+                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            peer = ProviderPeer(root, {"parent": "active"})
+            try:
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                                NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
+                                NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
+                    expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
+                    pace_sampler.grant("codex", 2, expiry, "lead", "existing numeric state", "review", 1)
+                    path = state / "pace-control.json"
+                    data = json.loads(path.read_text())
+                    data["grants"][0]["pending"] = [time.time()]
+                    path.write_text(json.dumps(data))
+                    pace_sampler.confirm(state, "parent", "unrelated")
+                    gate = state / "usage-gate.json"
+                    self.assertIsNone(pace_sampler.reserve(gate, "codex", "codex", session="parent",
+                                                          task="review", tool_use_id="new"))
+                    self.assertEqual(json.loads(path.read_text())["grants"][0]["uses"], 1)
+                    self.assertIn("2/2", pace_sampler.reserve(gate, "codex", "codex", session="parent",
+                                                            task="review", tool_use_id="blocked"))
+                    pace_sampler.confirm(state, "parent", "new")
+                    pace_sampler.confirm(state, "parent", "new")
+                    self.assertEqual(json.loads(path.read_text())["grants"][0]["uses"], 0)
+                    rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
+                    self.assertEqual([r["tool_use_id"] for r in rows if r["event"] == "grant-admission"], ["new"])
+            finally:
+                peer.close()
+
     def test_grant_subtree_live_workers_and_pending_admissions(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
