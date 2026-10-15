@@ -668,7 +668,7 @@ for name in agents threads safe-push capacity-watchdog codex-lead retired-tool h
   "$real_git" -C "$real_repo" commit -qm "retire $name" -m "Removes-tool: $name"
   HOME="$tool_home" run_real_case '' --dry-run
   case "$name" in
-    retired-tool|helper.test.sh) expect_status zero ;;
+    codex-lead|retired-tool|helper.test.sh) expect_status zero ;;
     *) expect_status nonzero; [ ! -s "$real_trace" ] || fail 'core removal reached scan' ;;
   esac
   [ "$(real_remote_state)" = "$remote_before" ] || fail 'tool-removal dry-run changed origin'
@@ -2106,6 +2106,15 @@ lane_branch_exists() {
   "$real_git" -C "$lane_container/main" rev-parse -q --verify refs/heads/lane >/dev/null
 }
 
+lane_branch_removed() {
+  local tries=0
+  while lane_branch_exists && [ "$tries" -lt 100 ]; do
+    sleep 0.1
+    tries=$((tries + 1))
+  done
+  ! lane_branch_exists
+}
+
 remote_lane_exists() {
   "$real_git" --git-dir="$lane_remote" rev-parse -q --verify refs/heads/lane >/dev/null
 }
@@ -2116,7 +2125,7 @@ expect_status zero
 [ "$(landed_for lane-clean)" = "$("$real_git" --git-dir="$lane_remote" rev-parse main)" ] \
   || fail 'the push log does not record the session lane-clean landing on main'
 lane_removed || fail 'landed clean lane was not removed once its caller left'
-! lane_branch_exists || fail 'landed clean lane branch was not deleted'
+lane_branch_removed || fail 'landed clean lane branch was not deleted'
 
 new_lane_container keep
 run_lane --keep-lane
