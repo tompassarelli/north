@@ -13,7 +13,7 @@ pub struct HookInput {
 
 impl HookInput {
     pub fn parse(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() as u64 > INPUT_LIMIT {
+        if std::str::from_utf8(bytes).ok()?.chars().count() as u64 > INPUT_LIMIT {
             return None;
         }
         let data = pyjson::loads(bytes).ok()?;
@@ -72,6 +72,7 @@ pub enum Verdict {
     Deny(String),
     Ask(String),
     Context(String),
+    Rewrite(Value, String),
 }
 
 pub type Guard = fn(&HookInput) -> Verdict;
@@ -137,7 +138,10 @@ impl HookKind {
 
     fn guards(self) -> &'static [Guard] {
         match self {
-            Self::PreBash => &[crate::guard::launch_critical::evaluate],
+            Self::PreBash => &[
+                crate::guard::launch_critical::evaluate,
+                crate::guard::desktop_action::decide,
+            ],
             Self::PreEdit => &[crate::guard::launch_critical::evaluate],
             Self::PreAgent => &[],
             Self::PostTool => &[],
@@ -153,6 +157,7 @@ impl HookKind {
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
     let mut context = Vec::new();
     let mut ask = None;
+    let mut updated_input = None;
     for guard in guards {
         match guard(input) {
             Verdict::Allow => {}
@@ -178,9 +183,17 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
                 }
             }
             Verdict::Context(text) => context.push(text),
+            Verdict::Rewrite(updated, text) => {
+                updated_input = Some(updated);
+                context.push(text);
+            }
         }
     }
     let mut output = Value::object([("hookEventName", event.into())]);
+    if let Some(updated) = updated_input {
+        output["permissionDecision"] = "allow".into();
+        output["updatedInput"] = updated;
+    }
     if let Some(reason) = ask {
         output["permissionDecision"] = "ask".into();
         output["permissionDecisionReason"] = reason.into();
@@ -281,7 +294,7 @@ fn process(
 ) -> io::Result<()> {
     let mut bytes = Vec::new();
     if reader
-        .take(INPUT_LIMIT + 1)
+        .take(INPUT_LIMIT * 4 + 1)
         .read_to_end(&mut bytes)
         .is_err()
     {
@@ -469,6 +482,45 @@ mod tests {
             }, |_| panic!("ran after deny")], "PreToolUse").unwrap();
             assert_eq!(output, b"{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"No. Tom is using the desktop. Use the private desktop, wait until he is idle, or put the need in your brief and announce it in one line first.\"}}\n");
             eprintln!("desktop-action opaque surrogate: fixture deny matches Python's 260-byte denial");
+        }
+    }
+
+    #[test]
+    fn python_rewrite_output_preserves_both_provider_inputs() {
+        for bytes in [
+            br#"{"tool_name":"Bash","tool_input":{"command":"echo ready","opaque":"\ud800"}}"#.as_slice(),
+            br#"{"tool_name":"functions.exec_command","tool_input":"{\"cmd\":\"echo ready\",\"opaque\":\"\\ud800\"}"}"#.as_slice(),
+        ] {
+            let mut output = Vec::new();
+            process(bytes, &mut output, &[|input| {
+                let mut updated = input.tool_input.clone();
+                let field = if input.tool_name() == "Bash" { "command" } else { "cmd" };
+                updated[field] = "wrapped".into();
+                Verdict::Rewrite(updated, "fixture context".into())
+            }], "PreToolUse").unwrap();
+            let field = if bytes.starts_with(br#"{"tool_name":"Bash""#) { "command" } else { "cmd" };
+            assert_eq!(String::from_utf8(output).unwrap(), format!("{{\"hookSpecificOutput\": {{\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"allow\", \"updatedInput\": {{\"{field}\": \"wrapped\", \"opaque\": \"\\ud800\"}}, \"additionalContext\": \"fixture context\"}}}}\n"));
+        }
+    }
+
+    #[test]
+    fn python_character_limit_accepts_multibyte_payloads() {
+        for character in ['é', '🦀'] {
+            for count in [600_000, INPUT_LIMIT as usize - 8, INPUT_LIMIT as usize - 7] {
+                let bytes =
+                    format!("{{\"x\":\"{}\"}}", character.to_string().repeat(count)).into_bytes();
+                let accepted = count + 8 <= INPUT_LIMIT as usize;
+                assert_eq!(HookInput::parse(&bytes).is_some(), accepted);
+                let mut output = Vec::new();
+                process(
+                    bytes.as_slice(),
+                    &mut output,
+                    &[|_| Verdict::Context("accepted".into())],
+                    "Stop",
+                )
+                .unwrap();
+                assert_eq!(!output.is_empty(), accepted);
+            }
         }
     }
 

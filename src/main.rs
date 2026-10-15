@@ -1929,6 +1929,12 @@ fn effort_label_ref(effort: &str) -> &'static str {
 
 fn main() -> ExitCode {
     let arguments: Vec<_> = env::args().skip(1).collect();
+    if arguments.first().is_some_and(|argument| argument == "desktop-idle-state") {
+        return match arguments.get(1) {
+            Some(value) if guard::desktop_action::record_idle(value == "idle").is_ok() => ExitCode::SUCCESS,
+            _ => ExitCode::from(1),
+        };
+    }
     if arguments.first().is_some_and(|argument| argument == "hook") {
         return match hook::run(&arguments[1..]) {
             Ok(()) => ExitCode::SUCCESS,
