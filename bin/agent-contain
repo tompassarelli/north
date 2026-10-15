@@ -98,12 +98,15 @@ def incident(inbox, host, action, pid, info, count=1):
     return line
 
 
-def move(pids):
+def move(pids, proc):
+    pids = [pid for pid in pids if (proc / str(pid)).exists()]
+    if not pids:
+        return True, []
     unit = f"agent-contain-{pids[0]}-{int(datetime.datetime.now().timestamp())}.scope"
     args = [os.environ.get("AGENT_CONTAIN_BUSCTL") or "busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
             "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail",
             "2", "PIDs", "au", str(len(pids)), *map(str, pids), "Slice", "s", SLICE, "0"]
-    return subprocess.run(args, capture_output=True, text=True).returncode == 0
+    return subprocess.run(args, capture_output=True, text=True).returncode == 0, pids
 
 
 def sweep(dry):
@@ -133,7 +136,12 @@ def sweep(dry):
         for pid, info in moves:
             print(f"move {pid} {info['cgroup']} {info['cmd']}")
         return 0
-    moved = move([pid for pid, _ in moves])
+    moved, pids = move([pid for pid, _ in moves], proc)
+    if not moved:
+        moved, pids = move(pids, proc)
+    if not moved:
+        pids = [pid for pid in pids if (proc / str(pid)).exists()]
+    remaining = set(pids)
     reported = env_path("AGENT_CONTAIN_STATE", Path.home() / ".local/state/agent-contain/reported.json")
     try:
         last = json.loads(reported.read_text())
@@ -142,9 +150,11 @@ def sweep(dry):
     now = time.time()
     groups = {}
     for pid, info in moves:
+        if pid not in remaining:
+            continue
         groups.setdefault(info["cgroup"].split("/agent-contain-")[0], []).append((pid, info))
     for cg, members in groups.items():
-        if moved and now - last.get(cg, 0) < REPEAT_SECONDS:
+        if now - last.get(cg, 0) < REPEAT_SECONDS:
             continue
         pid, info = members[0]
         print(incident(inbox, host, "moved" if moved else "move-failed", pid, info, len(members)), end="")

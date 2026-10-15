@@ -36,7 +36,7 @@ chmod +x "$busctl"
 
 run() {
   AGENT_CONTAIN_STATE=$tmp/reported.json AGENT_CONTAIN_BUSCTL=$busctl AGENT_CONTAIN_PROC=$proc AGENT_CONTAIN_CGROUP=$cg AGENT_CONTAIN_INBOX=$inbox AGENT_CONTAIN_UID=1000 \
-    AGENT_CONTAIN_HOST=testhost python3 "$tool" sweep "$@"
+    AGENT_CONTAIN_HOST=testhost python3 ${runner:+"$runner"} "$tool" sweep "$@"
 }
 
 lead=$user/app.slice/app-spawn-quiet-lead-1.scope
@@ -75,6 +75,80 @@ check "the frozen container gets one INCIDENT line naming pid, command and cgrou
 run >/dev/null
 check "an already frozen container and an already reported cgroup are not reported again within the hour" "2" "$(rg -c '^INCIDENT' "$inbox")"
 check "repeat moves still happen" "2" "$(rg -c 'StartTransientUnit' "$tmp/busctl.log")"
+
+reset_moves() {
+  rm -f "$inbox" "$tmp/reported.json" "$tmp/busctl.log"
+  add 201 bash 200 "$lead" "bash -c bun test"
+  add 202 bun 201 "$lead" "bun test"
+}
+
+cat > "$tmp/exit-before-move.py" <<'PY'
+import runpy
+import shutil
+import sys
+
+namespace = runpy.run_path(sys.argv[1])
+sweep = namespace["sweep"]
+original = sweep.__globals__["processes"]
+
+def processes(proc):
+    table = original(proc)
+    shutil.rmtree(proc / "201")
+    return table
+
+sweep.__globals__["processes"] = processes
+sys.exit(sweep(False))
+PY
+reset_moves
+runner=$tmp/exit-before-move.py run > "$tmp/out"
+check "a child exiting after the scan leaves the live child contained without a failure incident" \
+  "1" "$(rg -c "action=moved pid=202 .*cgroup=$lead$" "$inbox")"
+check "the move excludes a child that exited before the call" \
+  "1" "$(rg -c 'PIDs au 1 202 Slice' "$tmp/busctl.log")"
+
+cat > "$busctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AGENT_CONTAIN_PROC/../busctl.log"
+rm -rf "$AGENT_CONTAIN_PROC/201" "$AGENT_CONTAIN_PROC/202"
+exit 1
+SH
+reset_moves
+run > "$tmp/out"
+check "a failed move whose children all exited produces no incident" "" "$(cat "$tmp/out")"
+check "a failed move whose children all exited is not retried" "1" "$(wc -l < "$tmp/busctl.log" | tr -d ' ')"
+
+cat > "$busctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AGENT_CONTAIN_PROC/../busctl.log"
+if [ -d "$AGENT_CONTAIN_PROC/201" ]; then
+  rm -rf "$AGENT_CONTAIN_PROC/201"
+  exit 1
+fi
+exit 0
+SH
+reset_moves
+run > "$tmp/out"
+check "a failed move retries surviving children and reports their successful containment" \
+  "1" "$(rg -c "action=moved pid=202 .*cgroup=$lead$" "$inbox")"
+check "the retry excludes the child that exited during the first move" \
+  "1" "$(rg -c 'PIDs au 1 202 Slice' "$tmp/busctl.log")"
+
+cat > "$busctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$AGENT_CONTAIN_PROC/../busctl.log"
+rm -rf "$AGENT_CONTAIN_PROC/201"
+exit 1
+SH
+reset_moves
+add 202 bun 200 "$lead" "bun test"
+run > "$tmp/out"
+check "a failed retry reports only the still-live child" \
+  "1" "$(rg -c "action=move-failed pid=202 .*cgroup=$lead$" "$inbox")"
+run > "$tmp/out"
+check "repeated containment failures in the same cgroup produce one incident within the hour" \
+  "1" "$(wc -l < "$inbox" | tr -d ' ')"
+check "rate-limited failures still retry containment once per sweep" \
+  "4" "$(wc -l < "$tmp/busctl.log" | tr -d ' ')"
 
 echo "agent-contain: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
