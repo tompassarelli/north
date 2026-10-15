@@ -135,7 +135,7 @@ def claude_session():
     return [{k: r[k] for k in ("ts", "used_pct", "resets_at")} for r in rows], throttled
 
 
-def place(text, cfg, at, probe=None):
+def place(text, cfg, at, probe=None, *, overflow=True):
     probe = probe or {}
     rules = cfg.get("placement", {})
     item, native, needs = facets(text)
@@ -144,7 +144,7 @@ def place(text, cfg, at, probe=None):
     code_only = not native and not private
     hosts = cfg.get("hosts", {})
     box = {"brief": text}
-    if code_only and routing.codex_qualifies(box)[0]:
+    if overflow and code_only and routing.codex_qualifies(box)[0]:
         if "claude_rows" not in probe or "claude_throttled" not in probe:
             probe["claude_rows"], probe["claude_throttled"] = claude_session()
         over, reason = routing.claude_session_overflow(
@@ -315,7 +315,10 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         cloud = "anthropic-cloud" if provider == "claude" else f"{provider}-cloud"
         host_cfg = dict(cfg, hosts=hosts,
                         placement=dict(rules, order=[h for h in rules.get("order", []) if h not in CLOUD or h == cloud]))
-        host, why = place(brief_text, host_cfg, at, probe)
+        host, why = place(brief_text, host_cfg, at, probe, overflow=(name == "claude:a"))
+        if host == "codex" and name == "claude:a":
+            host_reasons.append(f"claude:a overflow: {why}")
+            continue
         if host.startswith("held:"):
             host_reasons.append(why or host)
             continue

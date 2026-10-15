@@ -1,4 +1,5 @@
 import copy
+from datetime import timedelta
 import json
 import os
 from pathlib import Path
@@ -165,6 +166,24 @@ class SpawnPlacement(unittest.TestCase):
         self.control("codex")["target_burn_pct_h"] = week["smoothed_pct_h"] + 1
         candidates = self.place(candidates=True)["candidates"]
         self.assertEqual([c["account"] for c in candidates], ["codex", "claude:c", "claude:a"])
+
+    def test_spawn_overflows_claude_a_to_codex_when_its_5h_window_projects_over_target(self):
+        self.control("claude:c")["held_reason"] = "workers"
+        resets = (self.at + timedelta(hours=2)).isoformat()
+        self.cfg["placement"]["probe"]["claude_rows"] = [
+            {"ts": (self.at - timedelta(minutes=m)).isoformat(), "used_pct": pct, "resets_at": resets}
+            for m, pct in ((20, 80), (5, 85))]
+        result = self.place(candidates=True)
+        self.assertEqual((result["kind"], result["account"]), ("launch", "codex"))
+        self.assertEqual([c["account"] for c in result["candidates"]], ["codex"])
+        self.control("codex")["held_reason"] = "floor"
+        result = self.place()
+        self.assertEqual(result["kind"], "queued")
+        self.assertTrue(result["reason"].startswith("claude:a overflow: claude:a 5h projected"), result["reason"])
+        self.control("codex")["held_reason"] = None
+        self.brief = self.brief.replace("Surface: shell", "Surface: ts")
+        result = self.place(candidates=True)
+        self.assertEqual((result["kind"], result["account"]), ("native", "claude:a"))
 
     def admission_fixture(self):
         for name in ("claude:a", "claude:c", "codex"):
