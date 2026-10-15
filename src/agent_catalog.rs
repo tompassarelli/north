@@ -5,6 +5,7 @@ use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
+#[path = "catalog/registration_checks.rs"]
 mod registration_checks;
 
 use rustix::fs::{FlockOperation, flock};

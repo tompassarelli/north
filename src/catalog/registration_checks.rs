@@ -8,12 +8,12 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 
-use super::{agents_root, canonical, configuration, fetch_main, git_output, git_text, read_json, string_field};
+use super::{agents_root, configuration, read_json, string_field};
 
 pub(super) struct HookPathInputs {
-    claude: PathBuf,
-    codex: PathBuf,
-    provider_hooks: PathBuf,
+    pub(super) claude: PathBuf,
+    pub(super) codex: PathBuf,
+    pub(super) provider_hooks: PathBuf,
 }
 
 #[derive(Debug)]
