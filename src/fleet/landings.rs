@@ -79,7 +79,7 @@ mod tests {
 
     fn session(name: &str, task_ref: Option<&str>, created_ms: u64) -> SessionRecord {
         serde_json::from_value(serde_json::json!({
-            "name": name, "provider": "claude", "account": "a", "cwd": "/home/tom/code/north/main", "model": null,
+            "name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null,
             "created_ms": created_ms, "host_pid": null, "conversation": null, "task_ref": task_ref
         }))
         .unwrap()
