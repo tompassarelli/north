@@ -107,15 +107,24 @@ pointwise on (category x tier) and (category x tier|depth) ledgers, with no Rout
 facets cover most runs or (b) passes about 300 labelled cases.
 
 
-### Similar-task retrieval: replay pending (2026-10-15)
+### Similar-task retrieval: keep current routing (2026-10-15)
 
-The narrow `--retrieval-only --boot 2000 --seed 7` arm is implemented; its single local replay is queued for machine capacity. No result or adoption is claimed. The frozen read-only snapshot has 344 finished worker runs satisfying the exact `flow.brief_coverage` contract, above the >=300 retrieval trigger. The broad model/retry replay still waits for >500; its CLI and arms are preserved.
+The narrow `--retrieval-only --boot 2000 --seed 7` replay completed on a frozen read-only snapshot with 344 finished worker runs satisfying the exact `flow.brief_coverage` contract, above the >=300 retrieval trigger, among 3600 finished workers. It evaluated 138 targets. The broad model/retry replay still waits for >500; its CLI and arms are preserved.
 
 The new arm scores the same source-qualified first-assignment targets for k=10 and k=20. Original brief token-count cosine similarity uses no fitted vocabulary or corpus statistics. Training runs must finish strictly before each target starts; decisions and recommend incumbents advance in target-start order. Success uses the existing `succeeded` rule, with Follows labels and required landings available before the decision. Invalid historical tiers are excluded, never coerced. The baseline calls the corrected pure `recommend` with its existing sparse-evidence rules.
 
 Within the k nearest positive-similarity neighbors, each tier's price per success is the sum of positive timestamped allocations for priced neighbors divided by successful priced neighbors. A tier needs a priced success; missing prices cannot supply free successes. Allocation rows must end strictly before the decision; untimestamped aggregate run prices are excluded. These sums may be partial. Allocation-window endpoints support this exclusion but cannot establish historical ingestion time or price-configuration availability. Missing retrieval evidence abstains.
 
 Evaluation reports each arm's actual executed-tier matches, abstentions, and waste/escalation rates. A paired target-row bootstrap uses seed 7 and 2000 draws for both k values. Empty support or any unsupported resample yields an unavailable CI and no adoption candidate. Matched arms can select different populations; these observational comparisons cannot establish causal improvement. Only a strictly positive waste-saving CI can produce a candidate for independent validity review. Production recommend remains unchanged. Three collected synthetic scenarios pass and kill recorded scratch faults for future allocation leakage, ignoring the k limit, and treating empty matches as zero loss. Private frozen input, source identities, exact commands and mutation receipts are held in the owning review handoff; no briefs or native run identifiers enter Git.
+
+Savings below are current-rule rate minus retrieval rate, in percentage points; positive favors retrieval. Both arms use 2000 supported bootstrap draws. The current rule matched 45 executed tiers, abstained on 28 targets, and had 66.67% waste and 8.89% escalation among matches.
+
+| Neighbors | Retrieval matches / abstentions | Waste / escalation | Waste saving, 95% CI | Escalation saving, 95% CI |
+| --- | --- | --- | --- | --- |
+| 10 | 48 / 38 | 60.42% / 8.33% | +6.25 pp [-9.31, +22.97] | +0.56 pp [-7.66, +8.57] |
+| 20 | 56 / 14 | 69.64% / 12.50% | -2.98 pp [-17.37, +11.59] | -3.61 pp [-12.40, +4.03] |
+
+Neither waste-saving interval excludes zero, so neither arm qualifies for adoption. Keep current routing. Matches and abstentions are separate subsets of the 138 targets; unsupported or unmatched predictions account for the remainder. The different matched populations and partial historical cost availability limit this observational comparison.
 
 ## Goal ETA (north#35 box 7)
 
