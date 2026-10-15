@@ -52,7 +52,8 @@ metadata:
 - Reserve an agent lease before compute-using workers, renew before expiry and release at settlement.
 - Charge 768 MiB without reserving local CPU.
 - Give worker local commands their own run scopes; persist reservations only for agent class.
-- Respect the spawn gate when committedBatchCpus (each live batch lease at max(reserved, measured cores) plus unleased heavy load) reaches aggregateCpuLimit or protectedCpuSomeAvg10 exceeds 20; queue, use the farm or use cloud workers.
+- Respect the spawn gate when committedBatchCpus (each live batch lease at max(reserved, measured cores) plus unleased heavy load, which includes all agent.slice work outside agent-capacity.slice, such as local Codex sessions) reaches aggregateCpuLimit or protectedCpuSomeAvg10 exceeds 20; queue, use the farm or use cloud workers.
+- Expect a heavy run to be charged and committed at least its declared 6 CPUs, so at most three heavy builds share the 20-CPU line.
 - Scale native pairs one at a time and stop adding above protectedCpuSomeAvg10 20 in either profile.
 - Use status for holders, remaining seconds, queue order, each run lease's `measured` cores/memory/GPU beside its reservation, and `unleasedHeavy` (cgroups outside leases, session and native slices over one core in the capacity-watchdog's latest 30 s sample, with its top processes and claude or codex `sessions`).
 - Read `~/.local/state/agents/watchdog/incidents.md` and `capacity-watchdog report` for the 30 s watchdog sampler's unleased-tree and stray git maintenance incidents and 5/30-minute pressure windows; the `[routine:watchdog]` cron reads them every 5 minutes.

@@ -79,9 +79,9 @@ try {
   assert.equal(declared, 17.71);
   assert.ok(declared > reconstruction.aggregateCpuLimit);
   assert.equal(declaredProbe.decision, 'DEFER_CPU_CAPACITY');
-  assert.ok(committed + 2 < reconstruction.aggregateCpuLimit);
+  assert.equal(Math.round(committed * 100) / 100, 16.21);
   assert.equal(estimatedProbe.aggregateCpuLimit, reconstruction.aggregateCpuLimit);
-  assert.equal(estimatedProbe.decision, 'RUN');
+  assert.equal(estimatedProbe.decision, 'DEFER_CPU_CAPACITY');
   const fixtureGate = (charges: number) => {
     writeFileSync(join(scratch, 'status.json'), JSON.stringify({
       profile: 'attended', holding: [], committedBatchCpus: charges,
@@ -94,8 +94,8 @@ try {
     return JSON.parse(result.stdout.toString()) !== null;
   };
   assert.equal(fixtureGate(declared), true);
-  assert.equal(fixtureGate(committed), false);
-  console.log(`Reconstructed 11 Oct refusal: declared=${declared}/${reconstruction.aggregateCpuLimit} fixture=${declaredProbe.decision} gate=REFUSE; estimated=${committed}/${reconstruction.aggregateCpuLimit} fixture=${estimatedProbe.decision} gate=ALLOW moderate.`);
+  assert.equal(fixtureGate(committed), true);
+  console.log(`Reconstructed 11 Oct refusal: declared=${declared}/${reconstruction.aggregateCpuLimit} fixture=${declaredProbe.decision} gate=REFUSE; estimated=${committed}/${reconstruction.aggregateCpuLimit} fixture=${estimatedProbe.decision} gate=REFUSE; heavies stay committed at their reservation (15 Oct load 129).`);
   const estimateOverload = reconstruction.holding.reduce((sum: number, holder: any) => sum + runningCpuCommitment(holder.class, 1, 4, holder.cpus).cpus, reconstruction.unleasedHeavyCores);
   assert.equal(fixtureProbe(estimateOverload).decision, 'DEFER_CPU_CAPACITY');
   assert.equal(fixtureGate(estimateOverload), true);

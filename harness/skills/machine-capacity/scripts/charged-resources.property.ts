@@ -22,7 +22,7 @@ for (let trial = 0; trial < 2000; trial += 1) {
   const declared = resourceClass(kind, cores);
   const charged = chargedResources(kind, cores, runCores, runMemory);
   const expected = learned.has(kind) && runs >= 3
-    ? { cpus: Math.min(Math.max(reference(runCores), 1), declared.cpus * 1.5), memoryMiB: reference(runMemory) * 1.2 }
+    ? { cpus: Math.max(Math.min(Math.max(reference(runCores), 1), declared.cpus * 1.5), kind === 'heavy' ? declared.cpus : 0), memoryMiB: reference(runMemory) * 1.2 }
     : declared;
   if (charged.cpus !== expected.cpus || Math.abs(charged.memoryMiB - expected.memoryMiB) > 1e-9) {
     console.error(JSON.stringify({ seed: Bun.argv[3] ?? 0x5eed, trial, kind, cores, runCores, runMemory, charged, expected }));
@@ -30,10 +30,10 @@ for (let trial = 0; trial < 2000; trial += 1) {
   }
   const measured = runCores[0] ?? 0;
   const native = policy.runningCpuCommitment('native', measured, declared.cpus, declared.cpus);
-  if (native.cpus !== measured * 1.25) {
+  if (native.cpus !== measured * 1.25 || policy.runningCpuCommitment('heavy', measured, 1, declared.cpus).cpus !== Math.max(measured * 1.25, declared.cpus)) {
     console.error(JSON.stringify({ trial, measured, declared, native, expected: measured * 1.25 }));
     process.exit(1);
   }
 }
 console.log('charged-resources property: 2000 cases PASS');
-console.log('native-commitment property: 2000 cases PASS');
+console.log('native and heavy commitment property: 2000 cases PASS');

@@ -564,15 +564,15 @@ export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$origina
 # core outside the desktop session and lease scopes are reported.
 watchdog="$scratch/watchdog"
 mkdir -p "$watchdog"
-printf '%s\n' '{"at":"1970-01-01T00:20:00.000Z","intervalSeconds":30,"cgroups":[{"cgroup":"app.slice","cores":2.5},{"cgroup":"app.slice/app-build.scope","cores":2},{"cgroup":"session.slice/niri.scope","cores":2},{"cgroup":"agent.slice/agent-capacity.slice/agent-capacity-0123abcd.scope","cores":2}],"top":[{"pid":7,"cores":2,"cgroup":"app.slice/app-build.scope","command":"make -j"}]}' >"$watchdog/samples.jsonl"
+printf '%s\n' '{"at":"1970-01-01T00:20:00.000Z","intervalSeconds":30,"cgroups":[{"cgroup":"app.slice","cores":2.5},{"cgroup":"app.slice/app-build.scope","cores":2},{"cgroup":"session.slice/niri.scope","cores":2},{"cgroup":"agent.slice","cores":4.6},{"cgroup":"agent.slice/agent-capacity.slice","cores":2},{"cgroup":"agent.slice/agent-capacity.slice/agent-capacity-0123abcd.scope","cores":2},{"cgroup":"agent.slice/run-p2-i2.scope","cores":0.6}],"top":[{"pid":7,"cores":2,"cgroup":"app.slice/app-build.scope","command":"make -j"}]}' >"$watchdog/samples.jsonl"
 unleased_sample() {
   env -u AGENT_CAPACITY_CPU_PRESSURE CAPACITY_WATCHDOG_DIR="$watchdog" AGENT_CAPACITY_NOW="$1" \
     XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" "${@:2}"
 }
 [[ $(unleased_sample 1300000 status | jq -c '.unleasedHeavy') == null ]]
-[[ $(unleased_sample 1210000 status | jq -c '.unleasedHeavy | {cores, windowSeconds, heavy: [.heavy[] | {cgroup, cores}]}') == '{"cores":2,"windowSeconds":30,"heavy":[{"cgroup":"app.slice/app-build.scope","cores":2}]}' ]]
+[[ $(unleased_sample 1210000 status | jq -c '.unleasedHeavy | {cores, windowSeconds, heavy: [.heavy[] | {cgroup, cores}]}') == '{"cores":4.6,"windowSeconds":30,"heavy":[{"cgroup":"app.slice/app-build.scope","cores":2}]}' ]]
 # The spawn gate's committed CPUs add unleased heavy load to live batch leases.
-[[ $(unleased_sample 1210000 probe --class agent | jq -c '{leasedBatchCpus, committedBatchCpus}') == '{"leasedBatchCpus":0,"committedBatchCpus":2}' ]]
+[[ $(unleased_sample 1210000 probe --class agent | jq -c '{leasedBatchCpus, committedBatchCpus}') == '{"leasedBatchCpus":0,"committedBatchCpus":4.6}' ]]
 
 for pid in "${collector_pids[@]}"; do wait "$pid"; done
 collector_pids=()

@@ -707,10 +707,9 @@ function readUnleased() {
     const sample = JSON.parse(lastLine(join(directory, 'samples.jsonl')) ?? 'null');
     const now = Number(process.env.AGENT_CAPACITY_NOW ?? Date.now());
     if (sample === null || now - Date.parse(sample.at) > unleasedStaleMilliseconds) return null;
-    const listed = sample.cgroups.map(entry => entry.cgroup);
     const heavy = sample.cgroups
       .filter(({ cgroup, cores }) => cores > unleasedCoreThreshold && !unleasedSkipped.test(cgroup)
-        && !listed.some(other => other.startsWith(`${cgroup}/`)))
+        && !sample.cgroups.some(other => other.cgroup.startsWith(`${cgroup}/`)))
       .map(({ cgroup, cores }) => ({
         cgroup, cores: round(cores),
         top: (sample.top ?? []).filter(item => item.cgroup === cgroup).slice(0, 3)
@@ -719,7 +718,8 @@ function readUnleased() {
     const sessions = (sample.top ?? []).filter(item => item.cores >= 0.25
       && sessionProviders.has((item.command.split(' ')[0] ?? '').split('/').at(-1)))
       .slice(0, 5).map(({ pid, cores, command }) => ({ pid, session: sessionFromArgs(command.split(' ')), cores, command }));
-    return { heavy, sessions, cores: round(heavy.reduce((sum, entry) => sum + entry.cores, 0)), windowSeconds: Math.round(sample.intervalSeconds) };
+    const agentResidual = Math.max(0, (sample.cgroups.find(entry => entry.cgroup === 'agent.slice')?.cores ?? 0) - (sample.cgroups.find(entry => entry.cgroup === 'agent.slice/agent-capacity.slice')?.cores ?? 0) - heavy.filter(({ cgroup }) => cgroup.startsWith('agent.slice/')).reduce((sum, entry) => sum + entry.cores, 0));
+    return { heavy, sessions, agentResidualCores: round(agentResidual), cores: round(heavy.reduce((sum, entry) => sum + entry.cores, 0) + agentResidual), windowSeconds: Math.round(sample.intervalSeconds) };
   } catch {
     return null;
   }

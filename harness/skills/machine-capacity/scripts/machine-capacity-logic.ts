@@ -224,8 +224,8 @@ export function learnedMinimumRuns(): number {
 export function chargedResources(kind: string, cores: number, runCores: readonly number[], runMemoryMiB: readonly number[]): Resources {
   const declared = resourceClass(kind, cores);
   if (!learnedClass(kind) || runCores.length < learnedMinimumRuns() || runMemoryMiB.length < learnedMinimumRuns()) return declared;
-  const cpus = p90(runCores);
-  return { cpus: Math.max(1, Math.min(cpus, declared.cpus * 1.5)), memoryMiB: p90(runMemoryMiB) * DEFAULTS["capacity_memory_margin"] };
+  const cpus = Math.max(1, Math.min(p90(runCores), declared.cpus * 1.5));
+  return { cpus: kind === 'heavy' ? Math.max(cpus, declared.cpus) : cpus, memoryMiB: p90(runMemoryMiB) * DEFAULTS["capacity_memory_margin"] };
 }
 
 export interface TaskSignature {
@@ -365,7 +365,7 @@ export function runningCpuCommitment(kind: string, measuredCores: number | null,
   const measured = measuredCores !== null && Number.isFinite(measuredCores) && measuredCores >= 0 ? measuredCores : null;
   const predicted = estimateP50 !== null && Number.isFinite(estimateP50) && estimateP50 >= 0 ? estimateP50 : reserved;
   return {
-    cpus: (kind === 'native' && measured !== null ? measured : Math.max(measured ?? 0, predicted)) * 1.25,
+    cpus: kind === 'native' && measured !== null ? measured * 1.25 : kind === 'heavy' ? Math.max((measured ?? predicted) * 1.25, reserved) : Math.max(measured ?? 0, predicted) * 1.25,
     basis: measured === null ? 'estimate-missing-measurement' : kind === 'native' ? 'native-measured' : 'measured-or-estimate',
   };
 }
