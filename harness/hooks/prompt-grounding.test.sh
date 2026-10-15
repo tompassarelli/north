@@ -3,6 +3,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 grounding="$here/../grounding"
 runner="${NORTH_GROUNDING_BIN:-$here/../../target/debug/north}"
+[ -x "$runner" ] || runner="${CARGO_TARGET_DIR:-$HOME/.cache/cargo-target/north}/debug/north"
 bun="$(command -v bun)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/prompt-grounding-test.XXXXXX")"
 trap 'rm -rf -- "$scratch"' EXIT
