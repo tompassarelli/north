@@ -16,6 +16,7 @@ from defaults import DEFAULTS
 SLOT_MIN = DEFAULTS["presence_slot_min"]
 WINDOW_DAYS = DEFAULTS["presence_window_days"]
 PREDEPARTURE_LEAD_MIN = DEFAULTS["predeparture_lead_min"]
+IDLE_REOPEN_SEC = DEFAULTS["laptop_idle_reopen_sec"]
 
 
 def timestamp(value):
@@ -123,22 +124,21 @@ def presence(now, signals):
     evidence = []
     stated_now = stated(now)
     live = []
-    for name in ('desktop', 'gaming'):
-        row = signals.get(name, {})
-        at = timestamp(row['at']) if row.get('at') else now
-        if row.get('active') is True and timedelta(0) <= now - at <= timedelta(minutes=15):
-            live.append(at)
-            evidence.append(name)
-    recent = [timestamp(row['at']) for row in turns if now - timedelta(minutes=15) <= timestamp(row['at'])]
+    row = signals.get('desktop', {})
+    at = timestamp(row['at']) if row.get('at') else now
+    if row.get('active') is True and timedelta(0) <= now - at <= timedelta(minutes=SLOT_MIN):
+        live.append(at)
+        evidence.append('desktop')
+    recent = [timestamp(row['at']) for row in turns if now - timedelta(minutes=SLOT_MIN) <= timestamp(row['at'])]
     if recent:
         live.append(max(recent))
         evidence.append('human-turn')
-    if stated_now:
+    if live:
+        state, since = 'present', min(live)
+    elif stated_now:
         since, entry = stated_now
         state = 'travelling'
         evidence = [{'stated': entry.get('said', ''), 'kind': entry['kind']}]
-    elif live:
-        state, since = 'present', min(live)
     elif sleeping(now, block, zone):
         state = 'asleep'
         local = now.astimezone(zone)
@@ -160,7 +160,18 @@ def presence(now, signals):
             transition = {'state': candidate, 'at': iso(slot), 'p': round(p, 4)}
             break
         slot += step
-    return {'state': state, 'since': iso(since), 'next': transition, 'evidence': evidence}
+    idle_since = None
+    for row in sorted(idle, key=lambda row: timestamp(row['at'])):
+        if row['idle'] is True:
+            if idle_since is None:
+                idle_since = timestamp(row['at'])
+        else:
+            idle_since = None
+    if idle_since is not None and turns:
+        idle_since = max(idle_since, max(timestamp(row['at']) for row in turns))
+    sustained_idle = idle_since is not None and (now - idle_since).total_seconds() >= IDLE_REOPEN_SEC
+    pool_state = state if state == 'present' or sustained_idle else 'unknown'
+    return {'state': state, 'pool_state': pool_state, 'since': iso(since), 'next': transition, 'evidence': evidence}
 
 
 def read_json(path):
@@ -252,11 +263,6 @@ def live_signals(now, proc=Path('/proc')):
             signals['desktop'] = {'active': desktop['idle'] is False, 'at': iso(now)}
     except (OSError, ValueError, KeyError, TypeError, IndexError):
         pass
-    laptop = read_json(Path(os.environ.get('LAPTOP_STATE') or state / 'placement/laptop.json'))
-    observations = read_json(Path(os.environ.get('LAPTOP_STATE') or state / 'placement/laptop.json').with_name('laptop-observations.json'))
-    if laptop.get('reason') == 'gaming' and laptop.get('by') == 'laptop-auto' and observations.get('at'):
-        at = timestamp(observations['at'])
-        signals['gaming'] = {'active': timedelta(0) <= now - at <= timedelta(minutes=2), 'at': iso(at)}
     return signals
 
 

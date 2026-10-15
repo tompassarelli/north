@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 from ssh_transport import ssh_argv
+from defaults import DEFAULTS
 
 GRACE = {"close": 120, "drain": 900}
 STATE = Path(os.environ.get("LAPTOP_STATE") or Path.home() / ".local/state/placement/laptop.json")
@@ -277,7 +278,7 @@ def observe(args):
         elif in_window and "active" in observations and (t - max(parse(observations["active"]), edge)).total_seconds() >= 300:
             if s["state"] == "available":
                 s = write("draining", t, "active", "laptop-auto", grace=GRACE["drain"])
-        elif auto and in_window and "idle" in observations and (t - parse(observations["idle"])).total_seconds() >= 1800:
+        elif auto and in_window and "idle" in observations and (t - parse(observations["idle"])).total_seconds() >= DEFAULTS["laptop_idle_reopen_sec"]:
             if s["state"] != "available":
                 s = write("available", t, "idle", "laptop-auto")
     path.parent.mkdir(parents=True, exist_ok=True)
