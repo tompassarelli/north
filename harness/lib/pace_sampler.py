@@ -397,7 +397,7 @@ def sample(provider=None, initial=2, notify=True):
             fcntl.flock(lock, fcntl.LOCK_EX)
             nodes = fleet_sessions()
             state["grants"] = [g for g in load(directory / "pace-control.json", {}).get("grants", [])
-                               if any(n.get("name") == g["lead"] and n.get("conversation") == g["session"]
+                               if any(n.get("name") == g["lead"] and n.get("conversation") == g["session"] and n.get("status") != "exited"
                                       and n.get("provider") == g["account"].split(":")[0]
                                       and (not g["account"].startswith("claude:") or n.get("account") == g["account"].split(":", 1)[1])
                                       for n in nodes)]
@@ -432,8 +432,6 @@ def sample(provider=None, initial=2, notify=True):
             print(f"pace-control: delivery failed for {account}: {type(error).__name__}", file=sys.stderr)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(deliveries))) as pool:
         list(pool.map(send, deliveries))
-    import spawn
-    spawn.release()
     return verdicts
 
 

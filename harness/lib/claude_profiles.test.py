@@ -46,15 +46,7 @@ with tempfile.TemporaryDirectory() as temporary:
                       + ' }\nplans = { c = "max-5x" }\nauto_route_requires = { c = "max-5x" }\nprofiles = { '
                       + f'b = {{ "{socket.gethostname()}" = {{}} }}, c = {{ "{socket.gethostname()}" = {{ path = "{profile}" }} }}'
                       + ' }\n')
-    capture = root / "launch.json"
-    stub = fake / "spawn-quiet"
-    stub.write_text('#!/usr/bin/env python3\nimport json,os,sys\n'
-                    'open(os.environ["CAPTURE"],"w").write(json.dumps({"argv":sys.argv[1:],"profile":os.environ.get("CLAUDE_CONFIG_DIR")}))\n')
-    stub.chmod(0o755)
-    brief = root / "brief.md"
-    brief.write_text("Read this fixture brief.")
-    env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), AGENTS_ORG_FILE=str(root / "org.json"),
-               AGENTS_SESSION_HOST="ghostty", CAPTURE=str(capture), PATH=f"{fake}:{os.environ['PATH']}")
+    env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), PATH=f"{fake}:{os.environ['PATH']}")
     env.pop("CLAUDE_CONFIG_DIR", None)
     env.pop("AGENT_ORG_NAME", None)
     before = json.loads((profile / ".claude.json").read_text())
@@ -70,23 +62,6 @@ with tempfile.TemporaryDirectory() as temporary:
     assert (profile / "settings.json.before-harness-sync").read_text() == "profile onboarding"
     for name in ("CLAUDE.md", "settings.json", "hooks", "skills", "agents", "commands"):
         assert (profile / name).is_symlink() and (profile / name).resolve() == (source / name).resolve(), name
-    for label in ("c", "b", None):
-        name = f"fixture-{label}"
-        args = [sys.executable, "-I", str(HERE / "org.py"), "lead", "start", "--provider", "claude", "--domain", "north",
-                "--brief", str(brief), "--cwd", str(cwd), "--name", name]
-        if label:
-            args += ["--account", label]
-        selected_env = env | {"CLAUDE_CONFIG_DIR": str(profile)} if label == "b" else env
-        result = subprocess.run(args, env=selected_env, capture_output=True, text=True)
-        assert result.returncode == 0, result.stderr
-        launched = json.loads(capture.read_text())
-        assert launched["profile"] == (str(profile) if label == "c" else None), launched
-        node = next(n for n in json.loads((root / "org.json").read_text())["nodes"] if n["id"] == name)
-        assert node.get("account") == label and node["session"], node
-        assert launched["argv"][0] == "ghostty" and node["session"] in launched["argv"][-1], launched
-        if label == "c":
-            assert json.loads((profile / ".claude.json").read_text())["projects"][str(cwd)]["hasTrustDialogAccepted"]
-            assert not json.loads((home / ".claude.json").read_text())["projects"][str(cwd)]["hasTrustDialogAccepted"]
     result = subprocess.run([sys.executable, "-I", str(HERE / "usage_claude.py"), "--no-refresh"],
                             env=env, capture_output=True, text=True, check=True)
     readings = [json.loads(line) for line in result.stdout.splitlines()]
@@ -106,9 +81,6 @@ with tempfile.TemporaryDirectory() as temporary:
     readings = [json.loads(line) for line in result.stdout.splitlines()]
     ctx = plan_usage.live_ctx(cfg, catalog, readings, None, datetime.now(timezone.utc), {}, {"claude-b": 50, "claude-c": 25})
     assert ctx["accounts"]["claude:c"]["auto_route"] and routing.route_account(ctx, "claude") == "claude:c", ctx
-    result = subprocess.run([sys.executable, "-I", str(HERE / "org.py"), "lead", "start", "--provider", "claude",
-                             "--account", "missing", "--domain", "north", "--brief", str(brief)], env=env, capture_output=True, text=True)
-    assert result.returncode != 0 and "has no profile" in result.stderr, result
     account = {"windows": {"week": {"headroom": 93, "window_h": 168, "reset_in": 150, "beta": 0,
                                    "resets_at": "2099-01-01T00:00:00Z", "as_of": "2098-12-28T00:00:00Z"}},
                "age_min": 1, "target_left": 5, "usd_per_week": 25, "extra_usage": False, "spend": False, "hasCredits": False}

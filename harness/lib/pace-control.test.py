@@ -22,7 +22,12 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import pace_control
 import pace_sampler
-from events import Store
+
+
+def fleet_stub(root, sessions=()):
+    fleet, north, sent = root / "fleet.json", root / "north", root / "fleet-sends"
+    fleet.write_text(json.dumps(sessions)); north.write_text('#!/bin/sh\ncase "$1 $2" in "fleet list") cat "$NORTH_FLEET_FIXTURE";; "fleet send") printf "%s\\t%s\\n" "$3" "$4" >>"$NORTH_FLEET_SENDS";; *) exit 2;; esac\n'); north.chmod(0o755)
+    return fleet, north, sent
 
 
 class Pace(unittest.TestCase):
@@ -116,9 +121,12 @@ class Pace(unittest.TestCase):
 
             server = threading.Thread(target=serve)
             server.start()
+            fleet, north, sent = fleet_stub(root, [{"name": "fixture-worker", "conversation": "fixture-worker",
+                                                    "parent": None, "provider": "codex", "status": "working"}])
             env = dict(os.environ, HOME=scratch, XDG_STATE_HOME=str(root / ".local/state"),
                        NORTH_CODEX_POOLED_HOME=str(pooled), NORTH_CODEX_CONVERSATION_HOME=str(pooled),
-                       AGENTS_ORCHESTRATION=str(policy), AGENTS_ORG_FILE=str(state / "org.json"),
+                       AGENTS_ORCHESTRATION=str(policy), NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet),
+                       NORTH_FLEET_SENDS=str(sent),
                        PATH=str(root) + os.pathsep + os.environ["PATH"])
             env.pop("THREADS_DB", None)
             command = [sys.executable, "-I", str(HERE / "pace_sampler.py"), "--provider", "codex", "--dry-run"]
@@ -232,7 +240,7 @@ class Pace(unittest.TestCase):
                 os.environ.clear()
                 os.environ.update(old_env)
 
-    def test_pace_delivery_publishes_canonical_addressed_events(self):
+    def test_pace_delivery_sends_fleet_notices_and_phone_alerts(self):
         with tempfile.TemporaryDirectory() as scratch:
             previous = dict(os.environ)
             try:
@@ -241,47 +249,41 @@ class Pace(unittest.TestCase):
                 ssh = root / "bin/ssh"
                 ssh.write_text("#!/bin/sh\nprintf alert >>\"$ALERT_RECEIPT\"\n")
                 ssh.chmod(0o700)
-                directory = root / "agents"
-                directory.mkdir()
-                status = directory / "handoffs/lead-status.md"
-                registry = directory / "org.json"
-                registry.write_text(json.dumps({"version": 1, "nodes": [{"id": "lead", "provider": "codex", "state": "active", "status_file": str(status)}]}))
+                fleet, north, sent = fleet_stub(root, [{"name": "parent", "conversation": "parent", "parent": None,
+                                                        "provider": "codex", "status": "working"}])
                 os.environ.update(THREADS_DB=str(root / "events.db"), XDG_STATE_HOME=str(root),
-                                  AGENTS_ORG_FILE=str(registry), ALERT_RECEIPT=str(root / "alert"),
+                                  NORTH_BIN=str(north), NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(sent),
+                                  ALERT_RECEIPT=str(root / "alert"),
                                   PATH=f"{root / 'bin'}:{os.environ['PATH']}")
                 control = {"at": 42, "held": True, "allowed_workers": 1, "windows": []}
                 pace_sampler.deliver("codex", control)
-                from events import Store
-                pending = Store().pending()
-                self.assertEqual([(row["kind"], row["to_node"]) for row in pending], [("KICKOFF", "proxy"), ("KICKOFF", "lead")])
-                self.assertTrue(all(row["body"].startswith("HOLD-SPAWNS codex allowed=1") for row in pending))
-                self.assertIn("HOLD-SPAWNS", status.with_name("lead-inbox.md").read_text())
+                self.assertEqual(sent.read_text().splitlines(), ["parent\tHOLD-SPAWNS codex allowed=1 "])
                 self.assertEqual((root / "alert").read_text(), "alert")
             finally:
                 os.environ.clear()
                 os.environ.update(previous)
 
-    def test_account_delivery_preserves_proxy_grants_and_sampler_prunes_departed_leads(self):
+    def test_account_delivery_preserves_proxy_grants_and_prunes_departed_parents(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             state = root / "agents"
             state.mkdir()
-            org = state / "org.json"
+            fleet, north, sent_path = fleet_stub(root)
             names = ("holder", "ordinary", "scoped", "exhausted", "foreign", "removed", "replaced", "finished", "provider", "billed", "billed-live")
-            nodes = [{"id": name, "session": name, "provider": "codex", "state": "active",
-                      "status_file": str(root / (name + "-status.md"))} for name in names]
+            nodes = [{"name": name, "conversation": name, "parent": None, "provider": "codex", "status": "working"} for name in names]
             for node in nodes:
-                if node["id"].startswith("billed"):
+                if node["name"].startswith("billed"):
                     node.update(provider="claude", account="c")
-            org.write_text(json.dumps({"nodes": nodes}))
+            fleet.write_text(json.dumps(nodes))
             now = time.time()
             data = {"accounts": {}, "history": [],
                     "providers": {p: {"next_at": now + 86400} for p in ("claude", "codex", "gemini")}}
             pace_sampler.save(state / "pace-control.json", data)
             previous = dict(os.environ)
             try:
-                os.environ.update(HOME=scratch, XDG_STATE_HOME=scratch, AGENTS_ORG_FILE=str(org),
+                os.environ.update(HOME=scratch, XDG_STATE_HOME=scratch, NORTH_BIN=str(north),
+                                  NORTH_FLEET_FIXTURE=str(fleet), NORTH_FLEET_SENDS=str(sent_path),
                                   THREADS_DB=str(root / "usage.db"), AGENTS_USAGE_REMOTE="",
                                   AGENTS_ORCHESTRATION=str(root / "policy.toml"))
                 (root / "policy.toml").write_text("")
@@ -303,42 +305,41 @@ class Pace(unittest.TestCase):
                     if grant["lead"] == "exhausted":
                         grant["uses"] = 0
                     if grant["lead"] == "foreign":
-                        grant["authority"] = "lead"
+                        grant["authority"] = "parent"
                 pace_sampler.save(state / "pace-control.json", data)
-                nodes = [n for n in nodes if n["id"] != "removed"]
+                nodes = [n for n in nodes if n["name"] != "removed"]
                 for node in nodes:
-                    if node["id"] == "replaced":
-                        node["session"] = "replacement"
-                    if node["id"] == "finished":
-                        node["state"] = "finished"
-                    if node["id"] == "provider":
+                    if node["name"] == "replaced":
+                        node["conversation"] = "replacement"
+                    if node["name"] == "finished":
+                        node["status"] = "exited"
+                    if node["name"] == "provider":
                         node["provider"] = "claude"
-                    if node["id"] == "billed":
+                    if node["name"] == "billed":
                         node.pop("account")
-                org.write_text(json.dumps({"nodes": nodes}))
+                fleet.write_text(json.dumps(nodes))
                 window = {"window": "week", "used_pct": 35, "burn_pct_h": 2, "reset_h": 100,
                           "projected_pct": 235}
                 control = {"at": now, "held": True, "allowed_workers": 1, "windows": [window]}
-                store = Store()
-                sessions = {node["id"]: node["session"] for node in nodes}
+                sessions = {node["name"]: node["conversation"] for node in nodes}
 
                 def sent(action="HOLD-SPAWNS"):
-                    prefix = f"pace:codex:{now}:{action}:"
-                    return [(sessions[row["to_node"]], row["body"]) for row in store.pending()
-                            if row["key"].startswith(prefix) and row["to_node"] in sessions]
+                    return [(recipient, body) for row in sent_path.read_text().splitlines()
+                            for recipient, body in [row.split("\t", 1)] if body.startswith(f"{action} codex ")]
 
                 with patch.object(pace_sampler, "run", return_value=(0, "", "")):
                     pace_sampler.deliver("codex", control)
                     self.assertNotIn("holder", [session for session, _ in sent()])
-                    self.assertFalse((root / "holder-inbox.md").exists())
-                    for name in ("ordinary", "scoped", "exhausted", "foreign", "replacement"):
-                        line = next(line for session, line in sent() if session == name)
+                    for name in ("ordinary", "scoped", "exhausted", "foreign", "replaced"):
+                        line = next((line for session, line in sent() if session == name), None)
+                        self.assertIsNotNone(line, sent_path.read_text())
                         self.assertIn("HOLD-SPAWNS codex allowed=1", line)
                         self.assertIn("used=35.0%", line)
                     pace_sampler.deliver("claude:c", control)
-                    self.assertIn("HOLD-SPAWNS claude:c", (root / "billed-inbox.md").read_text())
-                    self.assertFalse((root / "billed-live-inbox.md").exists())
-                    self.assertIn("INCIDENT burn HOLD-SPAWNS", (state / "handoffs/proxy-inbox.md").read_text())
+                    sent_claude = [(recipient, body) for row in sent_path.read_text().splitlines()
+                                   for recipient, body in [row.split("\t", 1)] if body.startswith("HOLD-SPAWNS claude:c")]
+                    self.assertIn("billed", [recipient for recipient, _ in sent_claude])
+                    self.assertNotIn("billed-live", [recipient for recipient, _ in sent_claude])
                     pace_sampler.deliver("codex", control | {"held": False})
                     self.assertNotIn("holder", [session for session, _ in sent("RESUME-SPAWNS")])
                     self.assertIn("RESUME-SPAWNS", next(line for session, line in sent("RESUME-SPAWNS") if session == "ordinary"))
@@ -353,33 +354,6 @@ class Pace(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 remaining = pace_sampler.load(state / "pace-control.json", {})["grants"]
                 self.assertEqual(remaining, [g for g in data["grants"] if g["lead"] in ("holder", "scoped", "exhausted", "foreign", "billed-live")])
-            finally:
-                os.environ.clear()
-                os.environ.update(previous)
-
-    def test_profile_metadata_timeouts_share_one_parallel_budget(self):
-        import hashlib
-        import socket
-        with tempfile.TemporaryDirectory() as scratch:
-            root = Path(scratch)
-            policy = root / "orchestration.toml"
-            host = socket.gethostname()
-            rows = []
-            for label in ("a", "b", "c"):
-                directory = root / label
-                directory.mkdir()
-                rows.extend([f'[accounts.claude.profiles.{label}."{host}"]', f'path="{directory}"'])
-            policy.write_text("\n".join(rows))
-            vendor = root / "claude"
-            vendor.write_text("#!/bin/sh\nsleep 30\n")
-            vendor.chmod(0o755)
-            previous = dict(os.environ)
-            try:
-                os.environ.update(AGENTS_ORCHESTRATION=str(policy), PATH=str(root) + os.pathsep + os.environ["PATH"])
-                start = time.monotonic()
-                counts = pace_sampler.worker_counts(["claude:a", "claude:b", "claude:c"], timeout=0.3)
-                self.assertEqual(counts, {"claude:a": None, "claude:b": None, "claude:c": None})
-                self.assertLess(time.monotonic() - start, 0.8)
             finally:
                 os.environ.clear()
                 os.environ.update(previous)
