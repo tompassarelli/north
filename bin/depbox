@@ -48,7 +48,7 @@ for path in .rustup .gitconfig .config/git .nix-profile .local/bin .local/state/
   if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); fi
 done
 
-if [ "${CARGO_TARGET_DIR:-}" = "$home/.cache/north-land-target" ]; then
+if [ "${CARGO_TARGET_DIR:-}" = "$home/.cache/cargo-target/north" ]; then
   mkdir -p "$CARGO_TARGET_DIR"
   args+=(--bind "$CARGO_TARGET_DIR" "$CARGO_TARGET_DIR")
 fi
@@ -58,7 +58,7 @@ args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session -
 for var in PATH HOME USER LANG TERM NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
 done
-if [ "${CARGO_TARGET_DIR:-}" = "$home/.cache/north-land-target" ]; then
+if [ "${CARGO_TARGET_DIR:-}" = "$home/.cache/cargo-target/north" ]; then
   args+=(--setenv CARGO_TARGET_DIR "$CARGO_TARGET_DIR")
 fi
 args+=(--chdir "$PWD")
