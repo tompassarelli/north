@@ -21,6 +21,16 @@ fn git(args: &[&str]) {
             .success()
     );
 }
+pub fn ordered_payload(root: &str) -> Vec<u8> {
+    format!(
+        r#"{{"tool_name":"apply_patch","tool_input":{{"z":{},"a":{}}}}}"#,
+        json!(format!(
+            "*** Begin Patch\n*** Delete File: {root}/north/main/README.md\n*** End Patch"
+        )),
+        json!("*** Begin Patch\n*** Delete File: /tmp/ok\n*** End Patch")
+    )
+    .into_bytes()
+}
 pub fn fixture() -> Fixture {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("code").display().to_string();
@@ -126,6 +136,19 @@ pub fn fixture() -> Fixture {
         json!({"tool_name":"apply_patch", "tool_input":{"input":"not a patch"}}),
         true,
     ));
+    for input in [
+        json!("not a patch"),
+        json!([]),
+        json!(format!(
+            "*** Begin Patch\n*** Delete File: {main}/src/kept.txt\n*** End Patch"
+        )),
+    ] {
+        cases.push((
+            "direct patch string or array".into(),
+            json!({"tool_name":"apply_patch", "tool_input":input}),
+            true,
+        ));
+    }
     let north = format!("{root}/north/main");
     let galileo = format!("{root}/galileo/main");
     for path in [&north, &galileo] {
@@ -165,22 +188,6 @@ pub fn fixture() -> Fixture {
     cases.push((
         "Bash top-level cwd overrides workdir".into(),
         json!({"tool_name":"Bash", "cwd":north, "tool_input":{"command":"git add README.md", "workdir":"/tmp"}}),
-        true,
-    ));
-    let mut ordered = serde_json::Map::new();
-    ordered.insert(
-        "z".into(),
-        json!(format!(
-            "*** Begin Patch\n*** Delete File: {north}/README.md\n*** End Patch"
-        )),
-    );
-    ordered.insert(
-        "a".into(),
-        json!("*** Begin Patch\n*** Delete File: /tmp/ok\n*** End Patch"),
-    );
-    cases.push((
-        "first patch envelope follows input order".into(),
-        json!({"tool_name":"apply_patch", "tool_input":ordered}),
         true,
     ));
     let property_main = format!("{root}/property/main");

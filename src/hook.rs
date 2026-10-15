@@ -8,6 +8,7 @@ const INPUT_LIMIT: u64 = 1024 * 1024;
 pub struct HookInput {
     pub data: Value,
     pub tool_input: Value,
+    pub raw: Vec<u8>,
 }
 
 impl HookInput {
@@ -17,15 +18,26 @@ impl HookInput {
         }
         let data: Value = serde_json::from_slice(bytes).ok()?;
         data.as_object()?;
+        let patch = data["tool_name"]
+            .as_str()
+            .is_some_and(|tool| tool.ends_with("apply_patch"));
         let tool_input = match data.get("tool_input") {
-            Some(Value::String(text)) => serde_json::from_str(text).ok()?,
+            Some(Value::String(text)) => match serde_json::from_str(text) {
+                Ok(value) => value,
+                Err(_) if patch => Value::String(text.clone()),
+                Err(_) => return None,
+            },
             Some(value) => value.clone(),
             None => json!({}),
         };
-        if !tool_input.is_object() && !tool_input.is_null() {
+        if !patch && !tool_input.is_object() && !tool_input.is_null() {
             return None;
         }
-        Some(Self { data, tool_input })
+        Some(Self {
+            data,
+            tool_input,
+            raw: bytes.to_vec(),
+        })
     }
 
     pub fn tool_name(&self) -> &str {

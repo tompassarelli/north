@@ -101,23 +101,6 @@ def tripwire_property():
     return count
 
 
-def launch_property(cwd):
-    from launch_critical_decide import decide
-    Path(cwd, '.git').mkdir(exist_ok=True)
-    count = 0
-    for trigger in (f'git -C {cwd} reset --hard HEAD', f'rm {cwd}/src/main.txt', f'sed -i s/a/b/ {cwd}/src/main.txt', f'cargo test --target-dir {Path(cwd).parent}/target-agent'):
-        def denied(command):
-            return bool(decide({'tool_name': 'Bash', 'cwd': str(Path(cwd).parent / 'worktrees/lane'), 'tool_input': {'command': command}}))
-        for prefix in ('', 'CHECK=1 ', 'command ', 'sudo ', 'env CHECK=1 '):
-            for command in [prefix + trigger] + ['printf ready ' + separator + ' ' + prefix + trigger for separator in (';', '&&', '|')]:
-                check(denied(command), 'launch prefix/chaining', command)
-                count += 1
-        for command in ('echo ' + shlex.quote(trigger), 'git commit -m ' + shlex.quote(trigger), "cat <<'BODY'\n" + trigger + '\nBODY'):
-            check(not denied(command), 'launch inert data', command)
-            count += 1
-    return count
-
-
 def exercise(name, home, cwd, boundary):
     path = Path(__file__).resolve().parent.parent / (name + '-guard.sh')
     guard = Guard(path)
@@ -293,7 +276,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--guard', choices=TRIGGERS)
     parser.add_argument('--tripwire', action='store_true')
-    parser.add_argument('--launch', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='shellcmd-property-', dir='/tmp') as temporary:
         home = Path(temporary) / 'home'
@@ -304,12 +286,10 @@ def main():
         try:
             os.environ['HOME'] = str(home)
             os.environ.pop('AGENT_NO_AUTHORING_HOOKS', None)
-            names = [] if args.tripwire or args.launch else [args.guard] if args.guard else TRIGGERS
+            names = [] if args.tripwire else [args.guard] if args.guard else TRIGGERS
             count = sum(exercise(name, str(home), str(cwd), bool(args.guard)) for name in names)
-            if args.tripwire or (not args.guard and not args.launch):
+            if args.tripwire or not args.guard:
                 count += tripwire_property()
-            if args.launch or (not args.guard and not args.tripwire):
-                count += launch_property(str(cwd))
             print(f'shellcmd property: {count} decisions, seed=20261011, guards={len(names)}')
         finally:
             os.environ.clear()

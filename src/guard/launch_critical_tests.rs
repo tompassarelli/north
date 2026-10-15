@@ -13,6 +13,11 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
         root: fixture.root.clone(),
         home: std::env::var("HOME").unwrap(),
     };
+    assert!(
+        policy
+            .decide(&HookInput::parse(&fixtures::ordered_payload(&fixture.root)).unwrap())
+            .is_some()
+    );
     for (name, payload, denied) in &fixture.cases {
         let input = HookInput::parse(&serde_json::to_vec(payload).unwrap()).unwrap();
         let reason = policy.decide(&input);
@@ -137,6 +142,6 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
     );
     println!(
         "launch guard: {} ported fixture/property and entry-point decisions passed",
-        fixture.cases.len() + entry_cases.len() + 2
+        fixture.cases.len() + entry_cases.len() + 3
     );
 }

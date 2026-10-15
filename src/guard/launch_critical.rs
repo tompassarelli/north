@@ -778,12 +778,45 @@ fn patch_removals(envelope: &str) -> Vec<String> {
     }
     removed
 }
-fn find_envelope(value: &Value) -> Option<&str> {
-    match value {
-        Value::String(s) => s.contains(PATCH_BEGIN).then_some(s),
-        Value::Object(map) => map.values().find_map(find_envelope),
-        _ => None,
+fn find_envelope(raw: &serde_json::value::RawValue) -> Option<String> {
+    if raw.get().starts_with('"') {
+        let text: String = serde_json::from_str(raw.get()).ok()?;
+        return text.contains(PATCH_BEGIN).then_some(text);
     }
+    if !raw.get().starts_with('{') {
+        return None;
+    }
+    struct Envelope;
+    impl<'de> serde::de::Visitor<'de> for Envelope {
+        type Value = Option<String>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an object containing a patch envelope")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut entries: Vec<(String, Box<serde_json::value::RawValue>)> = Vec::new();
+            while let Some((key, value)) =
+                map.next_entry::<String, Box<serde_json::value::RawValue>>()?
+            {
+                if let Some((_, previous)) = entries.iter_mut().find(|(name, _)| name == &key) {
+                    *previous = value;
+                } else {
+                    entries.push((key, value));
+                }
+            }
+            Ok(entries
+                .into_iter()
+                .find_map(|(_, value)| find_envelope(&value)))
+        }
+    }
+    serde::Deserializer::deserialize_map(
+        &mut serde_json::Deserializer::from_str(raw.get()),
+        Envelope,
+    )
+    .ok()
+    .flatten()
 }
 fn invokes_apply_patch(text: &str) -> bool {
     SEGMENT_SPLIT
@@ -817,7 +850,7 @@ impl Policy {
         }
         None
     }
-    fn patch_tool(&self, input: &Value, cwd: &str) -> Option<String> {
+    fn patch_tool(&self, input: &Value, cwd: &str, envelope: Option<&str>) -> Option<String> {
         let explicit: Vec<_> = ["file_path", "path"]
             .iter()
             .filter_map(|key| input[key].as_str().map(str::to_owned))
@@ -830,7 +863,7 @@ impl Policy {
             .filter(|s| !s.is_empty())
             .or_else(|| input["cwd"].as_str());
         let patch_cwd = selected.unwrap_or(cwd);
-        let Some(envelope) = find_envelope(input) else {
+        let Some(envelope) = envelope else {
             return Some(patch_fail_closed());
         };
         let targets = patch_targets(envelope);
@@ -1217,7 +1250,10 @@ impl Policy {
             .filter(|s| !s.is_empty())
             .unwrap_or(&current);
         if tool.ends_with("apply_patch") {
-            return self.patch_tool(ti, cwd);
+            let fields: BTreeMap<String, Box<serde_json::value::RawValue>> =
+                serde_json::from_slice(&input.raw).ok()?;
+            let envelope = fields.get("tool_input").and_then(|raw| find_envelope(raw));
+            return self.patch_tool(ti, cwd, envelope.as_deref());
         }
         if tool != "Bash" {
             let path = ti["file_path"].as_str()?;
@@ -1404,7 +1440,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::hook::authoring_guards_off(ID) {
         return Verdict::Allow;
     }
-    let raw = input.data.to_string();
+    let raw = String::from_utf8_lossy(&input.raw);
     if std::env::var("LAUNCH_CRITICAL_CODE_ROOT")
         .unwrap_or_default()
         .is_empty()
@@ -1431,7 +1467,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         return Verdict::Allow;
     };
     if !raw.contains("/pins/")
-        && let Some(path) = input.tool_input["file_path"]
+        && let Some(path) = input.data["tool_input"]["file_path"]
             .as_str()
             .filter(|s| !s.is_empty())
     {
