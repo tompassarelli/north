@@ -61,12 +61,14 @@ def collected_fixture():
                 if endpoint.endswith("/actions/workflows?per_page=100"):
                     output = [{"workflows": source["workflows"]}]
                 else:
-                    workflow = next(w for w in source["workflows"] if f'/workflows/{w["id"]}/runs?' in endpoint)
-                    if "status=" in endpoint:
+                    if "/actions/runs?status=" in endpoint:
                         status = endpoint.split("status=", 1)[1].split("&", 1)[0]
-                        outstanding = workflow.get("outstanding", {})
-                        output = [{"workflow_runs": [outstanding] if outstanding.get("status") == status else []}]
+                        output = [{"workflow_runs": [dict(w["outstanding"], workflow_id=w["id"])
+                                                     for w in source["workflows"]
+                                                     if w.get("outstanding", {}).get("status") == status]}]
                     else:
+                        workflow = next(w for w in source["workflows"] if f'/workflows/{w["id"]}/runs?' in endpoint)
+                        assert "created=%3E%3D" in endpoint and "status=" not in endpoint
                         page = int(endpoint.rsplit("page=", 1)[1])
                         output = {"workflow_runs": [dict(workflow["run"], id=workflow["id"] * 10000 + i)
                             for i in range((page - 1) * 100, min(page * 100, workflow["count"]))]}
@@ -126,6 +128,18 @@ class InfraDecay(unittest.TestCase):
                         if r["check"] == "workflow-jobs" and r["value"]["workflow"] == "Background sweeps")
             self.assertEqual(jobs["value"]["cancelled"], 6)
             self.assertTrue(jobs["firing"])
+
+    def test_queue_states_are_read_once_per_repo_not_per_workflow(self):
+        calls = []
+        original = decay.command
+        with patch.object(decay, "command", side_effect=lambda args: calls.append(args[-1]) or original(args)):
+            with collected_fixture() as (snapshot, now, _):
+                pass
+        queue = sorted(c for c in calls if "status=" in c)
+        self.assertEqual(queue, [f"repos/fixture/smashcraft/actions/runs?status={state}&per_page=100"
+                                 for state in sorted(decay.QUEUE_STATES)])
+        per_workflow = [c for c in calls if "/workflows/" in c and "/runs?" in c]
+        self.assertTrue(per_workflow and all("created=%3E%3D2026-10-13T05%3A00%3A00Z" in c for c in per_workflow))
 
     def test_unowned_workflow_routes_to_registered_test_audit_lead(self):
         snapshot = fixture("quiet")
