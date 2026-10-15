@@ -184,7 +184,9 @@ impl Fleet {
 
     pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
         let asker = self.record(&request.session)?;
-        gates::open(self.ledger.as_ref(), request, asker.parent.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))
+        let id = gates::open(self.ledger.as_ref(), request, asker.parent.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))?;
+        parents::await_default(id)?;
+        Ok(id)
     }
 
     pub fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {
@@ -227,7 +229,7 @@ impl Fleet {
         let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
-        let spec = runtime.host(account, &request, opening, &instructions);
+        let spec = runtime.host(account, &request, opening, &instructions)?;
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
         if !host.running() {

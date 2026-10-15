@@ -116,7 +116,7 @@ may_use = ["threads", "domain", "platform", "foundation"]
 
 [[module]]
 name = "providers"
-paths = ["src/providers/**", "src/claude_stream.rs", "src/contract_probe.rs", "src/daemon.rs", "src/usage_stream.rs", "src/codex.rs", "src/rpc.rs", "src/codex_socket.rs", "src/codex_shared_tests.rs"]
+paths = ["src/providers/**", "src/claude_stream.rs", "src/contract_probe.rs", "src/daemon.rs", "src/usage_stream.rs", "src/codex.rs", "src/rpc.rs"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection, install."
 may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation"]
 

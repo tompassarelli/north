@@ -13,7 +13,6 @@ mod health;
 mod contract_probe;
 mod router;
 mod codex;
-mod codex_socket;
 mod error;
 mod foundation;
 mod rpc;

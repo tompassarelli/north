@@ -1,15 +1,15 @@
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
 use crate::codex::chat_updates;
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::gates::Question;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
-use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime, SESSION_ENV, binary, new_uuid, summarize};
+use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 
-use super::accounts;
+use super::{accounts, launch, questions};
 
 const PROVIDER: &str = "codex";
 const COMMAND_CHARS: usize = 400;
@@ -34,16 +34,15 @@ impl Runtime for Codex {
         Ok(None)
     }
 
-    fn host(&self, account: &Account, _request: &LaunchRequest, _opening: Opening, _instructions: &str) -> HostSpec {
-        let mut argv = vec![binary("codex").display().to_string()];
-        argv.extend(["app-server", "--listen", "stdio://", "--enable", "multi_agent_v2"].map(str::to_owned));
-        HostSpec {
+    fn host(&self, account: &Account, _request: &LaunchRequest, _opening: Opening, _instructions: &str) -> NorthResult<HostSpec> {
+        let server = launch::app_server(&account.home)?;
+        Ok(HostSpec {
             key: format!("codex-{}", account.label),
             shared: true,
-            argv,
-            env: codex_env(&account.home),
+            argv: server.argv,
+            env: server.env,
             cwd: std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from),
-        }
+        })
     }
 
     fn handshake(&self) -> Vec<String> {
@@ -137,15 +136,10 @@ impl Runtime for Codex {
     fn quota(&self, frame: &Value) -> Option<Quota> {
         account_quota(frame)
     }
-}
 
-fn codex_env(home: &Path) -> Vec<(String, OsString)> {
-    let mut env = vec![("CODEX_HOME".into(), home.as_os_str().to_owned())];
-    let sqlite = home.join("sqlite");
-    if sqlite.is_dir() {
-        env.push(("CODEX_SQLITE_HOME".into(), sqlite.into_os_string()));
+    fn question(&self, frame: &Value) -> Option<Question> {
+        questions::question(frame)
     }
-    env
 }
 
 fn turn_in_progress(frame: &Value) -> Option<&str> {

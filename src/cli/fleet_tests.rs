@@ -1,16 +1,17 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::*;
 use crate::fleet::books::{Books, Landing, SessionSpend};
+use crate::fleet::gates::{ASKED_REPLY, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};
 use crate::fleet::turns::{RunRecord, RunSink, TurnExit};
 use crate::session_host::{SessionHost, Watcher};
 
 #[derive(Default)]
-struct Recorded(Mutex<Vec<RunRecord>>, Mutex<Vec<(String, String, Delivery)>>);
+struct Recorded(Mutex<Vec<RunRecord>>, Mutex<Vec<(String, String, Delivery)>>, Mutex<Vec<GateRequest>>, Mutex<Vec<(PathBuf, String)>>);
 
 impl RunSink for Recorded {
     fn record_run(&self, run: &RunRecord) -> NorthResult<u64> {
@@ -33,6 +34,14 @@ impl ReceiptBook for Recorded {
 impl Courier for Recorded {
     fn post(&self, parent: &str, text: String, delivery: Delivery) {
         self.1.lock().unwrap().push((parent.to_owned(), text, delivery));
+    }
+
+    fn ask(&self, request: GateRequest) {
+        self.2.lock().unwrap().push(request);
+    }
+
+    fn answer(&self, host_dir: &Path, frame: String) {
+        self.3.lock().unwrap().push((host_dir.to_path_buf(), frame));
     }
 }
 
@@ -170,6 +179,31 @@ fn a_child_delivers_each_finished_turn_in_order_while_its_parent_is_busy() {
         ("boss".to_owned(), "[from kid · turn 2 · exit completed] second".to_owned(), Delivery::Queued),
         ("boss".to_owned(), "[from kid · turn 3 · exit completed] third".to_owned(), Delivery::Queued),
     ]);
+}
+
+#[test]
+fn a_codex_question_opens_a_gate_for_its_session_and_unblocks_the_turn() {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join(".hosts/codex-pooled");
+    let session = root.path().join("kid");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = json!({
+        "name": "kid", "provider": "codex", "account": "pooled", "cwd": "/tmp", "model": null, "created_ms": 0,
+        "host_pid": null, "conversation": "th-1", "host_dir": host, "parent": "boss"
+    });
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let sink = Arc::new(Recorded::default());
+    let mut watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), root.path().to_path_buf(), host.clone());
+    let asked = |thread: &str, id: u64| json!({"id": id, "method": "item/tool/requestUserInput", "params": {"threadId": thread, "turnId": "t", "itemId": "q",
+        "questions": [{"id": "db", "header": "Database", "question": "Which database?", "options": [{"label": "sqlite (Recommended)", "description": ""}, {"label": "postgres", "description": ""}]}]}});
+    watch.line(asked("th-1", 4).to_string().as_bytes());
+    watch.line(asked("stranger", 5).to_string().as_bytes());
+    let gates = sink.2.lock().unwrap();
+    assert_eq!(gates.iter().map(|gate| (gate.session.as_str(), gate.question.as_str(), gate.default)).collect::<Vec<_>>(), [("kid", "Database: Which database?", 1)]);
+    let answers = sink.3.lock().unwrap();
+    assert_eq!(answers.len(), 1, "only a fleet session's question is answered");
+    let reply: Value = serde_json::from_str(&answers[0].1).unwrap();
+    assert_eq!((answers[0].0.as_path(), reply["id"].as_u64(), reply["result"]["answers"]["db"]["answers"][0].as_str()), (host.as_path(), Some(4), Some(ASKED_REPLY)));
 }
 
 #[test]

@@ -7,6 +7,7 @@ use serde_json::Value;
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
+use super::gates::Question;
 use super::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
 use super::turns::TurnSignal;
 
@@ -35,7 +36,7 @@ pub trait Runtime: Send + Sync {
     fn models(&self) -> &'static [&'static str];
     fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account>;
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
-    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> HostSpec;
+    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec>;
     fn handshake(&self) -> Vec<String>;
     fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>>;
     fn message(&self, transcript: &Transcript, text: &str) -> NorthResult<Vec<String>>;
@@ -44,6 +45,9 @@ pub trait Runtime: Send + Sync {
     fn observe(&self, frame: &Value, transcript: &mut Transcript);
     fn signals(&self, frame: &Value) -> Vec<TurnSignal>;
     fn quota(&self, frame: &Value) -> Option<Quota>;
+    fn question(&self, _frame: &Value) -> Option<Question> {
+        None
+    }
 }
 
 #[derive(Clone)]

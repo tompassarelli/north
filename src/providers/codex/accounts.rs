@@ -18,7 +18,7 @@ pub fn discover(provider: &ProviderName, state_root: &Path, home: &Path) -> Vec<
     default.into_iter().chain(named).collect()
 }
 
-fn pooled_home(home: &Path) -> PathBuf {
+pub fn pooled_home(home: &Path) -> PathBuf {
     ["NORTH_CODEX_CONVERSATION_HOME", "NORTH_CODEX_POOLED_HOME"]
         .iter()
         .filter_map(std::env::var_os)

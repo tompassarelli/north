@@ -7,7 +7,8 @@ use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
-use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, binary, new_uuid, summarize};
+use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
+use crate::providers::install;
 
 use super::accounts;
 
@@ -34,8 +35,8 @@ impl Runtime for Claude {
         new_uuid().map(Some)
     }
 
-    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> HostSpec {
-        let mut argv = vec![binary("claude").display().to_string()];
+    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec> {
+        let mut argv = vec![install::runtime("claude").display().to_string()];
         argv.extend(
             [
                 "-p",
@@ -64,13 +65,13 @@ impl Runtime for Claude {
         if !instructions.is_empty() {
             argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
         }
-        HostSpec {
+        Ok(HostSpec {
             key: request.name.clone(),
             shared: false,
             argv,
             env: claude_env(account, request),
             cwd: request.cwd.clone(),
-        }
+        })
     }
 
     fn handshake(&self) -> Vec<String> {
@@ -123,6 +124,7 @@ fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsStri
     vec![
         ("CLAUDE_CONFIG_DIR".into(), account.home.clone().into()),
         ("DISABLE_AUTOUPDATER".into(), "1".into()),
+        ("DISABLE_INSTALLATION_CHECKS".into(), "1".into()),
         ("BASH_DEFAULT_TIMEOUT_MS".into(), cap_ms.clone().into()),
         ("BASH_MAX_TIMEOUT_MS".into(), cap_ms.into()),
         (SESSION_ENV.into(), request.name.clone().into()),
@@ -453,7 +455,7 @@ mod launch {
             parent: None,
             task_ref: None,
         };
-        let spec = Claude.host(&account, &request, Opening::Fresh(None), "");
+        let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
         assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);
     }
 }

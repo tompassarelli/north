@@ -26,6 +26,39 @@ impl GateRequest {
     }
 }
 
+pub const ASKED_REPLY: &str = "North put this question to your parent session as a gate (to Tom when you have no parent). \
+The answer arrives later as a message that starts with [gate N]. Keep working on everything the question does not block, \
+and end your turn when nothing else is left.";
+const ASK_DEFAULT_AFTER_MS: u64 = 30 * 60 * 1000;
+const RECOMMENDED: &str = "(Recommended)";
+const FILLERS: [&str; 2] = ["Use your best judgment", "Wait for a written answer"];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Ask {
+    pub text: String,
+    pub options: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Question {
+    pub conversation: String,
+    pub asks: Vec<Ask>,
+    pub reply: String,
+}
+
+impl Ask {
+    pub fn gate(&self, session: &str) -> GateRequest {
+        let mut options: Vec<String> = self.options.iter().map(|option| option.trim()).filter(|option| !option.is_empty()).map(str::to_owned).collect();
+        let recommend = options.iter().position(|option| option.contains(RECOMMENDED)).map_or(1, |index| index + 1);
+        for filler in FILLERS {
+            if options.len() < 2 {
+                options.push(filler.to_owned());
+            }
+        }
+        GateRequest { session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Answerer {
     Tom,
@@ -290,5 +323,19 @@ mod tests {
         assert!(default_overdue(&book, 41_000, deliver).unwrap().is_empty());
         assert!(default_overdue(&Stale(&book, snapshot), 42_000, deliver).unwrap().is_empty(), "a sweeper with a stale view loses the close and stays quiet");
         assert_eq!(delivered.into_inner().unwrap(), ["worker"]);
+    }
+
+    #[test]
+    fn a_provider_question_becomes_a_valid_gate_that_defaults_to_its_recommendation() {
+        let ask = |options: &[&str]| Ask { text: "Which port?".into(), options: options.iter().map(|option| (*option).to_owned()).collect() };
+        let chosen = ask(&["8080", "9090 (Recommended)"]).gate("kid");
+        assert_eq!((chosen.session.as_str(), chosen.recommend, chosen.default), ("kid", 2, 2));
+        chosen.validate().unwrap();
+        for sparse in [ask(&[]), ask(&["only"]), ask(&[" "])] {
+            let gate = sparse.gate("kid");
+            gate.validate().unwrap();
+            assert_eq!((gate.options.len(), gate.default), (2, 1), "{sparse:?}");
+        }
+        assert_eq!(ask(&["only"]).gate("kid").options, ["only", "Use your best judgment"]);
     }
 }

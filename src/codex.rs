@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use crate::error::{NorthError, NorthResult};
+use crate::providers::codex::{accounts, launch};
 use crate::rpc::{self, Events, Rpc};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
@@ -159,10 +160,6 @@ struct OwnedServer {
     stderr_task: JoinHandle<()>,
 }
 
-#[cfg(test)]
-#[path = "codex_shared_tests.rs"]
-mod shared_tests;
-
 impl Codex {
     pub async fn start(cwd: &Path) -> NorthResult<Self> {
         let mut codex = Self::connect(cwd).await?;
@@ -171,37 +168,12 @@ impl Codex {
     }
 
     pub async fn connect(cwd: &Path) -> NorthResult<Self> {
-        match std::env::var("NORTH_CODEX_ENDPOINT") {
-            Ok(endpoint) => Self::connect_endpoint(&endpoint).await,
-            Err(std::env::VarError::NotPresent) => Self::connect_with_command(cwd, Command::new("codex")).await,
-            Err(error) => Err(NorthError::Protocol(format!("Invalid NORTH_CODEX_ENDPOINT: {error}"))),
-        }
-    }
-
-    async fn connect_endpoint(endpoint: &str) -> NorthResult<Self> {
-        let socket = crate::codex_socket::connect(endpoint).await?;
-        let (rpc, _events, rpc_task) = Rpc::start_websocket(socket);
-        Self::initialize_connection(rpc, rpc_task, None).await
-    }
-
-    #[cfg(test)]
-    async fn connect_with_home(cwd: &Path, codex_home: &Path) -> NorthResult<Self> {
-        let mut command = Command::new("codex");
+        let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from);
+        let server = launch::app_server(&accounts::pooled_home(&home))?;
+        let mut command = Command::new(&server.argv[0]);
         command
-            .env("CODEX_HOME", codex_home)
-            .env("CODEX_SQLITE_HOME", codex_home);
-        Self::connect_with_command(cwd, command).await
-    }
-
-    async fn connect_with_command(cwd: &Path, mut command: Command) -> NorthResult<Self> {
-        command
-            .args([
-                "app-server",
-                "--listen",
-                "stdio://",
-                "--enable",
-                "multi_agent_v2",
-            ])
+            .args(&server.argv[1..])
+            .envs(server.env)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -228,12 +200,12 @@ impl Codex {
             }
         });
         let (rpc, _events, rpc_task) = Rpc::start(stdout, stdin);
-        Self::initialize_connection(rpc, rpc_task, Some(OwnedServer { child, stderr, stderr_task })).await
+        Self::initialize_connection(rpc, rpc_task, OwnedServer { child, stderr, stderr_task }).await
     }
 
-    async fn initialize_connection(rpc: Rpc, rpc_task: JoinHandle<()>, owned_server: Option<OwnedServer>) -> NorthResult<Self> {
+    async fn initialize_connection(rpc: Rpc, rpc_task: JoinHandle<()>, owned_server: OwnedServer) -> NorthResult<Self> {
         let mut codex = Self {
-            owned_server,
+            owned_server: Some(owned_server),
             rpc,
             rpc_task,
             thread_id: None,

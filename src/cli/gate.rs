@@ -1,4 +1,3 @@
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -6,7 +5,7 @@ use serde_json::{Value, json};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::Fleet;
-use crate::fleet::runtime::{binary, now_ms};
+use crate::fleet::runtime::now_ms;
 
 const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) | north gate list [--json]";
 const WAIT_POLL: Duration = Duration::from_secs(2);
@@ -27,15 +26,7 @@ fn usage() -> NorthError {
 
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     let request = gate_request(flags)?;
-    let id = fleet.open_gate(&request)?;
-    Command::new(binary("setsid"))
-        .arg(std::env::current_exe()?)
-        .args(["gate", "await", &id.to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    println!("{id}");
+    println!("{}", fleet.open_gate(&request)?);
     Ok(())
 }
 

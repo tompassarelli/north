@@ -1,5 +1,8 @@
+use std::path::Path;
+
 use crate::error::NorthResult;
 
+use super::gates::GateRequest;
 use super::model::{Delivery, Entry, SessionRecord};
 use super::runtime::summarize;
 use super::turns::TurnExit;
@@ -14,6 +17,8 @@ pub trait ReceiptBook: Send + Sync {
 
 pub trait Courier: Send + Sync {
     fn post(&self, parent: &str, text: String, delivery: Delivery);
+    fn ask(&self, request: GateRequest);
+    fn answer(&self, host_dir: &Path, frame: String);
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -118,6 +123,10 @@ mod tests {
         fn post(&self, parent: &str, text: String, delivery: Delivery) {
             self.0.lock().unwrap().push((parent.to_owned(), text, delivery));
         }
+
+        fn ask(&self, _request: GateRequest) {}
+
+        fn answer(&self, _host_dir: &Path, _frame: String) {}
     }
 
     fn report(exit: TurnExit, reply: &str) -> Report {

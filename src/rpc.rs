@@ -1,12 +1,9 @@
 use std::collections::BTreeMap;
 
-use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 
 use crate::error::{NorthError, NorthResult};
 
@@ -43,14 +40,10 @@ impl Rpc {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        Self::start_transport(Transport::JsonLines {
+        Self::start_transport(Transport {
             lines: BufReader::new(Box::new(reader) as Box<dyn AsyncRead + Unpin + Send>).lines(),
             writer: Box::new(writer),
         })
-    }
-
-    pub fn start_websocket(socket: WebSocketStream<UnixStream>) -> (Self, Events, JoinHandle<()>) {
-        Self::start_transport(Transport::WebSocket(Box::new(socket)))
     }
 
     fn start_transport(transport: Transport) -> (Self, Events, JoinHandle<()>) {
@@ -88,38 +81,18 @@ impl Rpc {
     }
 }
 
-enum Transport {
-    JsonLines {
-        lines: tokio::io::Lines<BufReader<Box<dyn AsyncRead + Unpin + Send>>>,
-        writer: Box<dyn AsyncWrite + Unpin + Send>,
-    },
-    WebSocket(Box<WebSocketStream<UnixStream>>),
+struct Transport {
+    lines: tokio::io::Lines<BufReader<Box<dyn AsyncRead + Unpin + Send>>>,
+    writer: Box<dyn AsyncWrite + Unpin + Send>,
 }
 
 impl Transport {
     async fn receive(&mut self) -> Result<Option<String>, String> {
-        match self {
-            Self::JsonLines { lines, .. } => lines.next_line().await.map_err(|error| error.to_string()),
-            Self::WebSocket(socket) => loop {
-                match socket.next().await {
-                    Some(Ok(Message::Text(text))) => return Ok(Some(text.to_string())),
-                    Some(Ok(Message::Close(_))) | None => return Ok(None),
-                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {
-                        socket.flush().await.map_err(|error| error.to_string())?;
-                    }
-                    Some(Ok(_)) => return Err("Codex sent a non-text WebSocket message".into()),
-                    Some(Err(error)) => return Err(error.to_string()),
-                }
-            },
-        }
+        self.lines.next_line().await.map_err(|error| error.to_string())
     }
 
     async fn send(&mut self, message: &Value) -> Result<(), String> {
-        match self {
-            Self::JsonLines { writer, .. } => write_message(writer, message).await,
-            Self::WebSocket(socket) => socket.send(Message::Text(message.to_string().into()))
-                .await.map_err(|error| error.to_string()),
-        }
+        write_message(&mut self.writer, message).await
     }
 }
 

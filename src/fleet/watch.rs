@@ -7,6 +7,7 @@ use serde_json::Value;
 use crate::session_host::FrameWatch;
 
 use super::books::WatchBooks;
+use super::gates::Question;
 use super::landings::{self, push_log};
 use super::model::{EntryKind, SessionRecord, Transcript};
 use super::prompt::is_deepened;
@@ -96,6 +97,14 @@ impl TurnWatch {
         }
     }
 
+    fn relay(&self, question: Question) {
+        let Some(record) = find_session(&self.root, &self.host_dir, &question.conversation) else { return };
+        for ask in &question.asks {
+            self.courier.ask(ask.gate(&record.name));
+        }
+        self.courier.answer(&self.host_dir, question.reply);
+    }
+
     fn observe_landing(&self, record: &SessionRecord) {
         if let Err(error) = landings::observe(self.ledger.as_ref(), record, &push_log()) {
             eprintln!("north ledger: {}", error.user_message());
@@ -106,6 +115,9 @@ impl TurnWatch {
 impl FrameWatch for TurnWatch {
     fn line(&mut self, line: &[u8]) {
         let Ok(frame) = serde_json::from_slice::<Value>(line) else { return };
+        if let Some(question) = self.runtime.question(&frame) {
+            self.relay(question);
+        }
         let signals = self.runtime.signals(&frame);
         for signal in &signals {
             self.views.entry(signal.conversation().to_owned()).or_insert_with(|| View::of(signal.conversation()));
