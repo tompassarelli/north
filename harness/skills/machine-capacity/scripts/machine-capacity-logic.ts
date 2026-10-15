@@ -43,6 +43,7 @@ export function resourceClass(kind: string, cores: number): Resources {
     case 'agent': return { cpus: 0, memoryMiB: 768 };
     case 'native': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 4096 };
     case 'moderate': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 2048 };
+    case 'tom': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 2048 };
     case 'heavy': return { cpus: cores < 8 ? cores : cores > 8 ? 6 : 3, memoryMiB: 8192 };
     case 'gpu': return { cpus: 1, memoryMiB: 2048 };
     case 'critical': return { cpus: cores < 8 ? cores : cores - reservedCpus('attended', cores), memoryMiB: 16384 };
@@ -64,7 +65,7 @@ export function nativeMemoryRequest(kind: string, cores: number, memoryGiB: numb
 }
 
 export function batchClass(kind: string): boolean {
-  return ['moderate', 'heavy', 'exclusive', 'gpu', 'critical'].includes(kind);
+  return ['moderate', 'heavy', 'exclusive', 'gpu', 'critical', 'tom'].includes(kind);
 }
 
 export function maximumSeconds(kind: string): number {
@@ -174,7 +175,7 @@ export function admissionDecision(
   }
   if (unboundedRuns > 0) return 'DEFER_UNBOUNDED_PEER';
   if (peerExclusiveRuns > 0) return 'DEFER_EXCLUSIVE';
-  if (kind === 'critical') {
+  if (kind === 'critical' || kind === 'tom') {
     return profile === 'attended' && protectedCpuSomeAvg10BasisPoints >= 1000 ? 'DEFER_INTERACTIVE_PRESSURE' : 'RUN';
   }
   if (kind === 'gpu' && nativeWaiting > 0) return 'DEFER_NATIVE_WAITING';

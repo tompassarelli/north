@@ -135,6 +135,12 @@ fi
 [[ $(decision unattended critical 20000 0 0 0 0) == DEFER_MEMORY_HEADROOM ]]
 [[ $(decision unattended critical 80000 0 0 24 16384 --peer-batch-runs 1 --peer-exclusive-runs 1) == DEFER_EXCLUSIVE ]]
 [[ $(decision attended critical 80000 1000 0 0 0) == DEFER_INTERACTIVE_PRESSURE ]]
+# Tom-facing builds skip the queue and CPU waits like critical work but lease
+# only a moderate 2-CPU, 2 GiB scope.
+[[ $(fixture attended tom 70000 0 0 0 0 | jq -c '[.decision, .cpus, .memoryMiB]') == '["RUN",2,2048]' ]]
+[[ $(decision attended tom 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) == RUN ]]
+[[ $(decision attended moderate 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) != RUN ]]
+[[ $(decision attended tom 80000 1000 0 0 0) == DEFER_INTERACTIVE_PRESSURE ]]
 [[ $(decision unattended heavy 80000 0 0 20 16384 --peer-batch-runs 1) == DEFER_CPU_CAPACITY ]]
 [[ $(decision unattended exclusive 80000 0 0 20 16384 --peer-batch-runs 1) == DEFER_EXCLUSIVE ]]
 
