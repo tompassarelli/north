@@ -6,7 +6,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 threads=$repo/bin/threads
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/follows-release-test.XXXXXX")
 export scratch
-export NORTH_LOCAL=$repo/target/debug/north
+export NORTH_LOCAL=${CARGO_TARGET_DIR:-$repo/target}/debug/north
 trap 'rm -rf "${scratch:?}"' EXIT
 export THREADS_DB=$scratch/threads.db XDG_STATE_HOME=$scratch/state
 export SPAWN_CAPACITY_HOME=$scratch/home SPAWN_CAPACITY_STATUS=$scratch/probe.json
