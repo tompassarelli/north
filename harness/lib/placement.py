@@ -135,6 +135,15 @@ def claude_session():
     return [{k: r[k] for k in ("ts", "used_pct", "resets_at")} for r in rows], throttled
 
 
+def claude_out(at, rules, probe):
+    if "claude_rows" not in probe or "claude_throttled" not in probe:
+        probe["claude_rows"], probe["claude_throttled"] = claude_session()
+    if "claude_paces" not in probe:
+        probe["claude_paces"] = (pace_sampler.load(pace_sampler.state_dir() / "usage-gate.json", {}).get("claude") or {}).get("paces")
+    return routing.claude_unavailable(probe["claude_paces"], probe["claude_rows"], at, rules.get("claude_session_target", 90),
+                                      rules.get("claude_session_ceiling", 95), probe["claude_throttled"])
+
+
 def place(text, cfg, at, probe=None, *, overflow=True):
     probe = probe or {}
     rules = cfg.get("placement", {})
@@ -144,14 +153,10 @@ def place(text, cfg, at, probe=None, *, overflow=True):
     code_only = not native and not private
     hosts = cfg.get("hosts", {})
     box = {"brief": text}
-    if overflow and code_only and routing.codex_qualifies(box)[0]:
-        if "claude_rows" not in probe or "claude_throttled" not in probe:
-            probe["claude_rows"], probe["claude_throttled"] = claude_session()
-        over, reason = routing.claude_session_overflow(
-            probe["claude_rows"], at, rules.get("claude_session_target", 90),
-            rules.get("claude_session_ceiling", 95), probe["claude_throttled"])
+    if overflow and code_only:
+        over, reason = claude_out(at, rules, probe)
         if over:
-            return "codex", reason
+            return "codex", reason if routing.codex_qualifies(box)[0] else f"{reason}; codex:sol-high on the tight leash"
     why, laptop_why = [], None
     for target in rules.get("order", []):
         if target in CLOUD and not code_only:
@@ -287,6 +292,7 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
     if "probe" in rules:
         probe = {n: (False, 0) for n in cfg.get("hosts", {})}
         probe.update(laptop="unavailable", credit=(False, "cloud credit: no snapshot"))
+        probe.update(claude_rows=[], claude_throttled=None)
         probe.update(rules["probe"])
         hosts = cfg.get("hosts", {})
     else:
@@ -294,18 +300,22 @@ def place_spawn(brief_text, spawner, gate, cfg, now):
         hosts = dict(cfg.get("hosts", {}))
         hosts[local] = dict(hosts.get(local, {}), resident_cap=hosts.get(local, {}).get("resident_cap", sys.maxsize))
         rules = dict(rules, order=[local, "laptop"])
-    probe.setdefault("claude_rows", [])
-    probe.setdefault("claude_throttled", None)
+    probe.setdefault("claude_paces", (gate.get("claude") or {}).get("paces"))
     if needs & {"private", "local-state"} or project in rules.get("private_repos", []):
         rules = dict(rules, order=[h for h in rules.get("order", []) if h == local])
     candidates, host_reasons = [], []
     laptop_queue = None
+    _, native, _ = facets(brief_text)
+    code_only = not native and not (needs & {"private", "local-state"}) and project not in rules.get("private_repos", [])
+    overflowed = code_only and claude_out(at, rules, probe)[0]
     while open_accounts:
         first = open_accounts[0]
         if first.split(":", 1)[0] == p and requested in tiers and requested.split(":", 1)[0] == p:
             name, key = first, requested
         else:
             chosen = spawn_tier([first])
+            if chosen is None and overflowed and first.split(":", 1)[0] == "codex" and "codex:sol-high" in tiers:
+                chosen = {"account": first, "key": "codex:sol-high"}
             if chosen is None:
                 open_accounts.remove(first)
                 continue

@@ -110,8 +110,14 @@ expect "claude:a 5h projected 70%: today's target" "$today" "$(place_line under 
 expect "claude:a 5h projected 70%: today's target is anthropic-cloud" "target anthropic-cloud" "${today%% (*}"
 expect "claude:a 5h 91% used: codex" "target codex (claude:a 5h 91% >= 90%)" "$(place_line full tooling)"
 expect "claude:a 429 5 min ago: codex" "target codex (claude:a 5h 429 5 min ago)" "$(place_line throttled tooling)"
-expect "claude:a 5h projected 103%, Surface ts: today's target" "$today" "$(place_line over tooling-ts)"
-expect "claude:a 5h projected 103%, Claude-routed bug-known-cause: today's target" "$today" "$(place_line over tooling-bug)"
+expect "claude:a 5h projected 103%, Surface ts: codex sol-high tight leash" "target codex (claude:a 5h projected 103% > 90%; codex:sol-high on the tight leash)" "$(place_line over tooling-ts)"
+expect "claude:a 5h projected 103%, Claude-routed bug-known-cause: codex sol-high tight leash" "target codex (claude:a 5h projected 103% > 90%; codex:sol-high on the tight leash)" "$(place_line over tooling-bug)"
+printf "${tooling/Scope: module/Scope: cross-module}" >"$scratch/tooling-cross.md"
+printf '{"claude": {"paces": {"claude:a": {"state": "at or over pace"}, "claude:b": {"state": "at or over pace"}}}}\n' >"$scratch/state/agents/usage-gate.json"
+expect "every Claude account held, cross-module box: codex sol-high tight leash" "target codex (no Claude account admits: claude:a at or over pace, claude:b at or over pace; codex:sol-high on the tight leash)" "$(place_line under tooling-cross)"
+printf '{"claude": {"paces": {"claude:a": {"state": "at or over pace"}, "claude:b": {"state": "under pace"}}}}\n' >"$scratch/state/agents/usage-gate.json"
+expect "claude:b under pace, cross-module box: today's target" "$today" "$(place_line under tooling-cross)"
+rm -f "$scratch/state/agents/usage-gate.json"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

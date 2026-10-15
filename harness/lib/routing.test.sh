@@ -388,7 +388,14 @@ cases = [
 for got_rows, kwargs, want in cases:
     got = routing.claude_session_overflow(got_rows, now, **kwargs)
     assert got == want, (got_rows, kwargs, got, want)
-print(f"PASS claude_session_overflow: {len(cases)} cases cover burn over the 30 min before the newest reading of the newest window (resets within 5 min count as one window), projected from that reading, stale windows and older readings ignored, no readings, target, ceiling and a 429 within 15 min")
+held = {"claude:a": {"state": "at or over pace"}, "claude:b": {"state": "at or over pace"}}
+assert routing.claude_unavailable(held, [], now) == (True, "no Claude account admits: claude:a at or over pace, claude:b at or over pace")
+assert routing.claude_unavailable(dict(held, **{"claude:b": {"state": "under pace"}}), [], now)[0] is False
+assert routing.claude_unavailable(dict(held, **{"claude:b": {"state": "under pace", "stale": "old"}}), [], now)[0] is True
+assert routing.claude_unavailable(None, [], now)[0] is False
+assert routing.claude_unavailable({}, [], now)[0] is False
+assert routing.claude_unavailable({"claude:a": {"state": "under pace"}}, [], now, throttled_at="2026-10-15T07:45:00Z") == (True, "claude:a 5h 429 15 min ago")
+print(f"PASS claude_session_overflow: {len(cases)} cases cover burn over the 30 min before the newest reading of the newest window (resets within 5 min count as one window), projected from that reading, stale windows and older readings ignored, no readings, target, ceiling and a 429 within 15 min; claude_unavailable when every Claude account is at or over pace or stale, never on a missing reading")
 PY
 
 for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate codex-explore; do

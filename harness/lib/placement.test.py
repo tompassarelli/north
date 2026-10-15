@@ -183,6 +183,9 @@ class SpawnPlacement(unittest.TestCase):
         self.control("codex")["held_reason"] = None
         self.brief = self.brief.replace("Surface: shell", "Surface: ts")
         result = self.place(candidates=True)
+        self.assertEqual((result["kind"], result["account"]), ("launch", "codex"))
+        self.cfg["placement"]["probe"]["claude_rows"] = []
+        result = self.place(candidates=True)
         self.assertEqual((result["kind"], result["account"]), ("native", "claude:a"))
 
     def admission_fixture(self):
@@ -233,6 +236,7 @@ class SpawnPlacement(unittest.TestCase):
         del self.cfg["placement"]["probe"]
         for local in ("gex45", "whiterabbit"):
             with self.subTest(local=local), patch.dict(os.environ, RESIDENT_CAP_HOST=local), \
+                 patch.object(placement, "claude_session", return_value=([], None)), \
                  patch.object(placement.resident_cap, "count", return_value=3), \
                  patch.object(placement, "laptop_state", return_value="unavailable"), \
                  patch.object(placement.subprocess, "run", side_effect=AssertionError("remote probe")):

@@ -334,6 +334,14 @@ def codex_qualifies(box, shape_only=False, explore=False):
     return True, None
 
 
+def claude_unavailable(paces, rows, now, target=90, ceiling=95, throttled_at=None):
+    over, reason = claude_session_overflow(rows, now, target, ceiling, throttled_at)
+    held = sorted(n for n, p in (paces or {}).items() if p.get("state") == "at or over pace" or p.get("stale"))
+    if over or not paces or len(held) < len(paces):
+        return over, reason
+    return True, "no Claude account admits: " + ", ".join(f"{n} at or over pace" for n in held)
+
+
 def claude_session_overflow(rows, now, target=90, ceiling=95, throttled_at=None):
     now = moment(now)
     throttled = moment(throttled_at) if throttled_at else None

@@ -1180,17 +1180,27 @@ def codex_box_denial(event):
         return None if admitted else deny(f"route to Claude: {failed}")
     explore = routing.header_word(fields, "explore") == "codex"
     qualifies, failed = routing.codex_qualifies({"brief": brief}, explore=explore)
-    if not qualifies:
+    overflow = None if qualifies else claude_overflow()
+    if not qualifies and not overflow:
         return deny(f"route to Claude: {failed}")
     category = routing.header_word(fields, "category")
-    leash = "tight" if explore else routing.codex_class(category)["leash"]
+    leash = "tight" if explore or overflow else routing.codex_class(category)["leash"]
     opaque = re.fullmatch(r"[A-Za-z0-9_=-]+", message) is not None
     if leash != "loose" and not opaque and not message.startswith("COACH BOX: "):
         return deny(
-            f"This {category} box runs under a {leash} leash. "
+            f"This {category} box runs under a {leash} leash{f' as Claude overflow ({overflow}); use Codex sol-high' if overflow else ''}. "
             "Start the message with a `COACH BOX: {json}` line so the coach watches it."
         )
     return None
+
+
+def claude_overflow():
+    try:
+        import placement
+        out, why = placement.claude_out(placement.now(), placement.config().get("placement", {}), {})
+    except Exception:
+        return None
+    return why if out else None
 
 
 def pre_spawn(event):

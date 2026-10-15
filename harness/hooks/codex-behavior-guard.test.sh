@@ -368,6 +368,8 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
         f'def north_lib():\n    sys.path.insert(0, {str(Path(hook).resolve().parents[2] / "harness/lib")!r})\n'
     )
     gate_hook = str(gate_hooks / 'codex-behavior-guard.sh')
+    env['XDG_STATE_HOME'] = str(root / 'gate-xdg')
+    (root / 'gate-xdg/agents').mkdir(parents=True)
 
     def tooling_box(surface):
         return f'Item: north#51\nCategory: tooling\nSpec: exact\nScope: module\nSurface: {surface}\nVerify: local-test\nFiles: harness/hooks/lib/codex_behavior.py\nETA: 20 min\nDone when: `bash harness/hooks/codex-behavior-guard.test.sh` passes\n\nThe goal in full sentences.'
@@ -381,6 +383,17 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     assert 'COACH BOX:' in refused['permissionDecisionReason'] and 'normal leash' in refused['permissionDecisionReason'], refused
     coach_line = 'COACH BOX: ' + json.dumps({'brief': str(gate_brief), 'state': str(root / 'gate-coach'), 'cwd': str(game), 'tool': str(fake_coach)})
     spawn('gate_coached', coach_line + '\n' + tooling_box('shell'), False)
+    held = {'claude': {'paces': {'claude:a': {'state': 'at or over pace'}, 'claude:b': {'state': 'at or over pace'}}}}
+    (root / 'gate-xdg/agents/usage-gate.json').write_text(json.dumps(held))
+    cross = tooling_box('ts').replace('Scope: module', 'Scope: cross-module')
+    refused = spawn('gate_overflow_nocoach', cross, True)
+    assert 'tight leash as Claude overflow (no Claude account admits: claude:a at or over pace, claude:b at or over pace); use Codex sol-high' in refused['permissionDecisionReason'], refused
+    spawn('gate_overflow_coached', coach_line + '\n' + cross, False)
+    held['claude']['paces']['claude:b'] = {'state': 'under pace'}
+    (root / 'gate-xdg/agents/usage-gate.json').write_text(json.dumps(held))
+    refused = spawn('gate_overflow_open', coach_line + '\n' + cross, True)
+    assert 'route to Claude: Scope cross-module' in refused['permissionDecisionReason'], refused
+    (root / 'gate-xdg/agents/usage-gate.json').unlink()
     refused = spawn('gate_coached_ts', coach_line + '\n' + tooling_box('ts'), True)
     assert 'route to Claude: Surface ts' in refused['permissionDecisionReason'], refused
     balance = tooling_box('assets').replace('Category: tooling', 'Category: balance-tuning').replace('Verify: local-test', 'Verify: visual')
@@ -412,6 +425,6 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     spawn('gate_opaque_ok', 'gAAAAABq0JPY_QUer0123456789abcdefABCDEF-_=', False)
     spawn('gate_delegate', 'Run the entire operator task: fix the failing build and report.', False)
     spawn('gate_probe', 'echo_probe', False)
-    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, admits an Explore: codex Tom-facing assets/visual box only on the tight leash, admits a Category: review box only for work from another family, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
+    print('PASS Codex spawn gate routes failing boxes to Claude and requires COACH BOX below a loose leash, admits an Explore: codex Tom-facing assets/visual box only on the tight leash, admits a Category: review box only for work from another family, admits a failing box on the tight leash while no Claude account admits, checks the registered brief behind an encrypted message, and leaves header-less spawns to the registration check')
     print(f'behavior Git/ledger/process/relay boundary: {decisions} decisions passed')
 PY
