@@ -6,8 +6,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Delivery, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
-use crate::fleet::registry::Fleet;
+use crate::fleet::model::{Delivery, Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
+use crate::fleet::prompt::PromptMode;
+use crate::fleet::registry::{Fleet, urgent_text};
 use crate::fleet::runtime::{Runtimes, new_uuid};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
@@ -16,7 +17,7 @@ use crate::ledger::Ledger;
 use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
-const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] [--task REF] PROMPT... \
+const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] [--task REF] PROMPT... \
      | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
@@ -204,6 +205,7 @@ struct LaunchFlags {
     model: Option<String>,
     name: Option<String>,
     system_prompt: Option<PathBuf>,
+    prompt_mode: PromptMode,
     foreground_cap_secs: Option<u64>,
     idle_exit_minutes: Option<u64>,
     parent: Option<String>,
@@ -219,6 +221,7 @@ impl LaunchFlags {
             "--model" => self.model = Some(value),
             "--name" => self.name = Some(value),
             "--system-prompt" => self.system_prompt = Some(absolute(&value)?),
+            "--prompt" => self.prompt_mode = PromptMode::parse(&value).ok_or_else(usage)?,
             "--foreground-cap" => self.foreground_cap_secs = Some(value.parse().map_err(|_| usage())?),
             "--idle-exit" => self.idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
             "--parent" => self.parent = Some(value),
@@ -250,6 +253,7 @@ impl LaunchFlags {
             prompt,
             system_prompt: self.system_prompt,
             foreground_cap_secs: self.foreground_cap_secs,
+            prompt_mode: self.prompt_mode,
             idle_exit_minutes: self.idle_exit_minutes,
             parent: self.parent,
             task_ref: self.task_ref,
@@ -317,9 +321,17 @@ fn show(fleet: &Fleet, name: &str, follow: bool) -> NorthResult<()> {
 
 fn print_entries(transcript: &Transcript, from: usize) -> usize {
     for entry in &transcript.entries[from..] {
-        println!("{}: {}", kind_label(entry.kind), entry.text);
+        println!("{}", entry_line(entry));
     }
     transcript.entries.len()
+}
+
+fn entry_line(entry: &Entry) -> String {
+    let (label, text) = match (entry.kind, urgent_text(&entry.text)) {
+        (EntryKind::User, Some(text)) => ("user (urgent)", text),
+        (kind, _) => (kind_label(kind), entry.text.as_str()),
+    };
+    format!("{label}: {}", text.trim_end().replace('\n', "\n  "))
 }
 
 fn kind_label(kind: EntryKind) -> &'static str {

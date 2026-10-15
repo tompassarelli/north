@@ -10,6 +10,7 @@ use crate::{
 
 mod fleet;
 mod ledger;
+mod orders;
 #[cfg(test)]
 mod tests;
 
@@ -23,6 +24,7 @@ enum Command {
     Threads(Vec<String>),
     Fleet(Vec<String>),
     Ledger(Vec<String>),
+    Orders(Vec<String>),
     Agents(Vec<String>),
     Work(Vec<String>),
     SessionHost(Vec<String>),
@@ -60,6 +62,7 @@ Commands:
   threads ARGV                                  Run a NorthThreads command on the ledger host
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
+  orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   help                                          Show this help
@@ -111,6 +114,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "threads" => Command::Threads(rest),
         "fleet" => Command::Fleet(rest),
         "ledger" | "task" => Command::Ledger([vec![command.to_owned()], rest].concat()),
+        "orders" => Command::Orders(rest),
         "work" => Command::Work(rest),
         "session-host" => Command::SessionHost(rest),
         "dep-gate" => Command::DepGate(rest),
@@ -149,6 +153,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
+        Command::Orders(arguments) => orders::run(&arguments),
         Command::Help => in_runtime(async {
             println!("{CLI_HELP}");
             Ok(ExitCode::SUCCESS)

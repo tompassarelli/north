@@ -7,7 +7,7 @@ use crate::codex::chat_updates;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
-use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid, summarize};
+use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime, binary, new_uuid, summarize};
 
 use super::accounts;
 
@@ -29,7 +29,7 @@ impl Runtime for Codex {
         Ok(None)
     }
 
-    fn host(&self, account: &Account, _request: &LaunchRequest, _opening: Opening) -> HostSpec {
+    fn host(&self, account: &Account, _request: &LaunchRequest, _opening: Opening, _instructions: &str) -> HostSpec {
         let mut argv = vec![binary("codex").display().to_string()];
         argv.extend(["app-server", "--listen", "stdio://", "--enable", "multi_agent_v2"].map(str::to_owned));
         HostSpec {
@@ -53,25 +53,27 @@ impl Runtime for Codex {
         vec![initialize.to_string(), json!({"method": "initialized", "params": {}}).to_string()]
     }
 
-    fn open(&self, name: &str, request: &LaunchRequest, opening: Opening) -> NorthResult<Vec<String>> {
+    fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>> {
         let mut params = json!({"approvalPolicy": "never", "sandbox": "danger-full-access"});
         if let Some(model) = &request.model {
             params["model"] = json!(model);
         }
-        let method = match opening {
+        if !instructions.text.is_empty() {
+            params["developerInstructions"] = json!(instructions.text);
+        }
+        let (method, refresh) = match opening {
             Opening::Resume(thread) => {
                 params["threadId"] = json!(thread);
-                "thread/resume"
+                let refresh = (instructions.changed && !instructions.text.is_empty()).then(|| developer_message(name, thread, instructions.text));
+                ("thread/resume", refresh.transpose()?)
             }
             Opening::Fresh(_) => {
                 params["cwd"] = json!(request.cwd);
-                if let Some(path) = &request.system_prompt {
-                    params["baseInstructions"] = json!(std::fs::read_to_string(path)?);
-                }
-                "thread/start"
+                ("thread/start", None)
             }
         };
-        Ok(vec![json!({"id": open_id(name), "method": method, "params": params}).to_string()])
+        let open = json!({"id": open_id(name), "method": method, "params": params}).to_string();
+        Ok([Some(open), refresh].into_iter().flatten().collect())
     }
 
     fn message(&self, transcript: &Transcript, text: &str) -> NorthResult<Vec<String>> {
@@ -107,6 +109,10 @@ impl Runtime for Codex {
         if thread.is_none() || thread != transcript.conversation.as_deref() {
             return;
         }
+        if let Some(turn) = turn_in_progress(frame) {
+            transcript.status = Status::Working;
+            transcript.active_turn = Some(turn.to_owned());
+        }
         match frame["method"].as_str() {
             Some("turn/started") => {
                 transcript.status = Status::Working;
@@ -131,6 +137,16 @@ fn codex_env(home: &Path) -> Vec<(String, OsString)> {
         env.push(("CODEX_SQLITE_HOME".into(), sqlite.into_os_string()));
     }
     env
+}
+
+fn turn_in_progress(frame: &Value) -> Option<&str> {
+    frame["method"].as_str().filter(|method| method.starts_with("item/")).and(frame["params"]["turnId"].as_str())
+}
+
+fn developer_message(name: &str, thread: &str, text: &str) -> NorthResult<String> {
+    let item = json!({"type": "message", "role": "developer", "content": [{"type": "input_text", "text": text}]});
+    let id = format!("{name}:thread/inject_items:{}", new_uuid()?);
+    Ok(json!({"id": id, "method": "thread/inject_items", "params": {"threadId": thread, "items": [item]}}).to_string())
 }
 
 fn open_id(name: &str) -> String {
@@ -275,6 +291,8 @@ mod projection {
 
 #[cfg(test)]
 mod turn_state {
+    use crate::fleet::prompt::PromptMode;
+    use crate::fleet::runtime::Instructions;
     use crate::fleet::turns::Turns;
 
     use super::*;
@@ -289,6 +307,7 @@ mod turn_state {
             prompt: String::new(),
             system_prompt: None,
             foreground_cap_secs: None,
+            prompt_mode: PromptMode::North,
             idle_exit_minutes: None,
             parent: None,
             task_ref: None,
@@ -298,9 +317,44 @@ mod turn_state {
     #[test]
     fn threads_open_with_full_access_like_claude_sessions() {
         for opening in [Opening::Fresh(None), Opening::Resume("th")] {
-            let frame: Value = serde_json::from_str(&Codex.open("t", &request(), opening).unwrap()[0]).unwrap();
+            let frame: Value = serde_json::from_str(&Codex.open("t", &request(), opening, Instructions { text: "", changed: true }).unwrap()[0]).unwrap();
             assert_eq!(frame["params"]["sandbox"], "danger-full-access", "{opening:?}");
         }
+    }
+
+    #[test]
+    fn north_instructions_join_codex_own_and_a_changed_rendering_reaches_a_loaded_thread() {
+        let open = |opening, changed| -> Vec<Value> {
+            let frames = Codex.open("t", &request(), opening, Instructions { text: "standing orders", changed }).unwrap();
+            frames.iter().map(|frame| serde_json::from_str(frame).unwrap()).collect()
+        };
+        for opening in [Opening::Fresh(None), Opening::Resume("th")] {
+            let frame = &open(opening, true)[0];
+            assert_eq!(frame["params"]["developerInstructions"], "standing orders", "{opening:?}");
+            assert!(frame["params"]["baseInstructions"].is_null(), "{opening:?} replaced Codex's own instructions");
+        }
+        let refreshed = open(Opening::Resume("th"), true);
+        let injected = &refreshed.last().unwrap()["params"];
+        assert_eq!((injected["threadId"].as_str(), injected["items"][0]["role"].as_str()), (Some("th"), Some("developer")));
+        assert_eq!(injected["items"][0]["content"][0]["text"], "standing orders");
+        assert_eq!(open(Opening::Resume("th"), false).len(), 1, "an unchanged rendering must not grow the thread");
+    }
+
+    #[test]
+    fn a_window_that_opens_mid_turn_still_sees_the_turn_and_can_interrupt_it() {
+        let mut transcript = Transcript::new();
+        transcript.name = "t".into();
+        transcript.conversation = Some("th".into());
+        let delta = json!({"method": "item/agentMessage/delta", "params": {"threadId": "th", "turnId": "t9", "itemId": "m", "delta": "16"}});
+        Codex.observe(&delta, &mut transcript);
+        assert_eq!((transcript.status, transcript.active_turn.as_deref()), (Status::Working, Some("t9")));
+        let interrupt: Value = serde_json::from_str(&Codex.interrupt(&transcript).unwrap()[0]).unwrap();
+        assert_eq!((interrupt["method"].as_str(), interrupt["params"]["turnId"].as_str()), (Some("turn/interrupt"), Some("t9")));
+        let usage = json!({"method": "thread/tokenUsage/updated", "params": {"threadId": "th", "turnId": "t9", "tokenUsage": {"total": {}}}});
+        let completed = json!({"method": "turn/completed", "params": {"threadId": "th", "turn": {"id": "t9", "status": "completed"}}});
+        Codex.observe(&completed, &mut transcript);
+        Codex.observe(&usage, &mut transcript);
+        assert_eq!(transcript.status, Status::Idle, "usage reported after the turn must not reopen it");
     }
 
     #[test]

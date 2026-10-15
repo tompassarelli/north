@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::session_host::FrameWatch;
 
+use super::prompt::is_deepened;
 use super::records::find_session;
 use super::runtime::{Runtime, now_ms};
 use super::turns::{RunRecord, RunSink, Turn, Turns};
@@ -32,7 +33,8 @@ impl TurnWatch {
             task_ref: session.as_ref().and_then(|record| record.task_ref.clone()),
             provider: self.runtime.provider().label().to_owned(),
             account: session.as_ref().map(|record| record.account.clone()),
-            system_prompt: session.and_then(|record| record.system_prompt).and_then(|path| std::fs::read_to_string(path).ok()),
+            system_prompt_sha: session.and_then(|record| record.system_prompt_sha),
+            deepen: turn.prompt.as_deref().is_some_and(is_deepened),
             turn,
         };
         if let Err(error) = self.sink.record_run(&run) {

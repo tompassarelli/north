@@ -32,7 +32,7 @@ pub enum Notice {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Launch(LaunchRequest),
-    Send { name: String, text: String, delivery: Delivery },
+    Send { name: String, text: String, delivery: Delivery, deepen: bool },
     Revive(String),
     Interrupt(String),
     Stop(String),
@@ -245,6 +245,7 @@ impl Screen {
             'c' => return self.interrupt_selected(),
             'x' => self.confirm_stop(),
             'd' => return self.forget_selected(),
+            'g' => return self.deepen(),
             _ => {}
         }
         None
@@ -303,6 +304,14 @@ impl Screen {
         }
     }
 
+    fn deepen(&mut self) -> Option<Command> {
+        let mut command = self.submit(Delivery::Queued)?;
+        if let Command::Send { deepen, .. } = &mut command {
+            *deepen = true;
+        }
+        Some(command)
+    }
+
     fn submit(&mut self, delivery: Delivery) -> Option<Command> {
         let text = self.composer.lines().join("\n");
         if text.trim().is_empty() {
@@ -315,7 +324,7 @@ impl Screen {
         let name = session.record.name.clone();
         self.composer = composer_area();
         self.scroll = 0;
-        Some(Command::Send { name, text, delivery })
+        Some(Command::Send { name, text, delivery, deepen: false })
     }
 
     fn open_launch_form(&mut self) {
@@ -414,7 +423,7 @@ fn composer_area() -> TextArea<'static> {
 fn control_action(key: KeyEvent) -> Option<char> {
     let KeyCode::Char(character) = key.code else { return None };
     let character = character.to_ascii_lowercase();
-    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd')).then_some(character)
+    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g')).then_some(character)
 }
 
 fn user_entries(transcript: Option<&Transcript>) -> usize {

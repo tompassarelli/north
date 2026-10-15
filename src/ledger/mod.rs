@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS runs(
   prompt_sha TEXT,
   prompt TEXT,
   system_prompt_sha TEXT,
+  deepen INTEGER NOT NULL DEFAULT 0 CHECK(deepen IN (0,1)),
   started_ms INTEGER NOT NULL,
   ended_ms INTEGER NOT NULL,
   wall_ms INTEGER NOT NULL,
@@ -57,7 +58,7 @@ CREATE TABLE IF NOT EXISTS checks(
 ) STRICT;
 ";
 
-const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account,prompt_sha,started_ms,ended_ms,wall_ms,turns,\
+const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account,prompt_sha,system_prompt_sha,deepen,started_ms,ended_ms,wall_ms,turns,\
      tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit";
 
 pub struct Ledger {
@@ -74,6 +75,8 @@ pub struct Run {
     pub effort: Option<String>,
     pub account: Option<String>,
     pub prompt_sha: Option<String>,
+    pub system_prompt_sha: Option<String>,
+    pub deepen: bool,
     pub started_ms: i64,
     pub ended_ms: i64,
     pub wall_ms: i64,
@@ -179,9 +182,9 @@ impl RunSink for Ledger {
         let millis = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
         self.with(|conn| {
             conn.execute(
-                "INSERT INTO runs(session, task_ref, provider, model, effort, account, prompt_sha, prompt, system_prompt_sha,
+                "INSERT INTO runs(session, task_ref, provider, model, effort, account, prompt_sha, prompt, system_prompt_sha, deepen,
                    started_ms, ended_ms, wall_ms, turns, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, exit)
-                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 params![
                     run.session,
                     run.task_ref,
@@ -191,7 +194,8 @@ impl RunSink for Ledger {
                     run.account,
                     turn.prompt.as_deref().map(sha),
                     turn.prompt,
-                    run.system_prompt.as_deref().map(sha),
+                    run.system_prompt_sha,
+                    run.deepen,
                     millis(turn.started_ms),
                     millis(turn.ended_ms),
                     millis(turn.wall_ms),
@@ -230,15 +234,17 @@ fn run_from_row(row: &Row<'_>) -> rusqlite::Result<Run> {
         effort: row.get(5)?,
         account: row.get(6)?,
         prompt_sha: row.get(7)?,
-        started_ms: row.get(8)?,
-        ended_ms: row.get(9)?,
-        wall_ms: row.get(10)?,
-        turns: row.get(11)?,
-        tokens_in: row.get(12)?,
-        tokens_out: row.get(13)?,
-        tokens_cache_read: row.get(14)?,
-        tokens_cache_write: row.get(15)?,
-        exit: row.get(16)?,
+        system_prompt_sha: row.get(8)?,
+        deepen: row.get(9)?,
+        started_ms: row.get(10)?,
+        ended_ms: row.get(11)?,
+        wall_ms: row.get(12)?,
+        turns: row.get(13)?,
+        tokens_in: row.get(14)?,
+        tokens_out: row.get(15)?,
+        tokens_cache_read: row.get(16)?,
+        tokens_cache_write: row.get(17)?,
+        exit: row.get(18)?,
     })
 }
 

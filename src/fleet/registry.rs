@@ -7,8 +7,9 @@ use crate::error::{NorthError, NorthResult};
 
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
+use super::prompt::{PromptInputs, StandingOrders, prompt_sha, render};
 use super::records::{ARCHIVE, read_record, write_record};
-use super::runtime::{Opening, Runtime, Runtimes, now_ms};
+use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
 use super::turns::RunSink;
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, stream_len, stream_path};
@@ -32,11 +33,8 @@ pub struct Fleet {
 
 impl Fleet {
     pub fn open(runtimes: Runtimes, sink: Arc<dyn RunSink>) -> NorthResult<Self> {
-        let home = std::env::var_os("HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?;
-        let state = home.join(".local/state/north");
+        let home = home_dir()?;
+        let state = state_dir(&home);
         let root = state.join("fleet");
         fs::create_dir_all(&root)?;
         Ok(Self { root, state, home, runtimes, sink })
@@ -44,6 +42,10 @@ impl Fleet {
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
         Ok(TurnWatch::new(self.runtimes.get(provider)?, self.sink.clone(), self.root.clone(), host_dir.to_path_buf()))
+    }
+
+    pub fn orders(&self) -> StandingOrders {
+        StandingOrders::in_state(&self.state)
     }
 
     pub fn accounts(&self) -> Vec<Account> {
@@ -93,6 +95,8 @@ impl Fleet {
             idle_exit_minutes: request.idle_exit_minutes,
             parent: request.parent.clone(),
             task_ref: request.task_ref.clone(),
+            prompt_mode: request.prompt_mode,
+            system_prompt_sha: None,
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
@@ -179,7 +183,11 @@ impl Fleet {
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
         let runtime = self.runtime(record)?;
         let request = relaunch_request(record);
-        let spec = runtime.host(account, &request, opening);
+        let instructions = self.instructions(record)?;
+        let sha = prompt_sha(&instructions);
+        let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
+        record.system_prompt_sha = Some(sha);
+        let spec = runtime.host(account, &request, opening, &instructions);
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
         if !host.running() {
@@ -193,7 +201,7 @@ impl Fleet {
         record.host_pid = host.pid();
         record.stopped = false;
         write_record(&self.root.join(&record.name), record)?;
-        let frames = runtime.open(&record.name, &request, opening)?;
+        let frames = runtime.open(&record.name, &request, opening, Instructions { text: &instructions, changed })?;
         if frames.is_empty() {
             return Ok(());
         }
@@ -201,6 +209,17 @@ impl Fleet {
         host.send(&frames)?;
         record.conversation = Some(await_conversation(runtime.as_ref(), record, opened_from)?);
         write_record(&self.root.join(&record.name), record)
+    }
+
+    fn instructions(&self, record: &SessionRecord) -> NorthResult<String> {
+        let orders = self.orders().read()?;
+        let extra = record.system_prompt.as_deref().map(fs::read_to_string).transpose()?;
+        Ok(render(&PromptInputs {
+            mode: record.prompt_mode,
+            orders: &orders,
+            foreground_cap_secs: record.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS),
+            extra: extra.as_deref(),
+        }))
     }
 
     fn send_text(&self, record: &SessionRecord, transcript: &Transcript, text: &str) -> NorthResult<()> {
@@ -212,7 +231,7 @@ impl Fleet {
         let interrupted_from = stream_len(&record.host_dir);
         Host::new(record.host_dir.clone()).send(&runtime.interrupt(transcript)?)?;
         let settled = await_settled(runtime.as_ref(), record, transcript.clone(), interrupted_from)?;
-        self.send_text(record, &settled, &format!("{URGENT_PREFIX}\n{text}"))
+        self.send_text(record, &settled, &urgent_prefixed(text))
     }
 
     fn host_in_use(&self, stopping: &SessionRecord) -> NorthResult<bool> {
@@ -410,9 +429,28 @@ fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
         prompt: String::new(),
         system_prompt: record.system_prompt.clone(),
         foreground_cap_secs: record.foreground_cap_secs,
+        prompt_mode: record.prompt_mode,
         idle_exit_minutes: record.idle_exit_minutes,
         parent: record.parent.clone(),
         task_ref: record.task_ref.clone(),
     }
 }
 
+pub fn urgent_prefixed(text: &str) -> String {
+    format!("{URGENT_PREFIX}\n{text}")
+}
+
+pub fn urgent_text(text: &str) -> Option<&str> {
+    text.strip_prefix(URGENT_PREFIX).map(|rest| rest.trim_start_matches('\n'))
+}
+
+pub fn home_dir() -> NorthResult<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| NorthError::Configuration("HOME is not set".into()))
+}
+
+pub fn state_dir(home: &Path) -> PathBuf {
+    home.join(".local/state/north")
+}

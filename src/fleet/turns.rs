@@ -188,7 +188,8 @@ pub struct RunRecord {
     pub task_ref: Option<String>,
     pub provider: String,
     pub account: Option<String>,
-    pub system_prompt: Option<String>,
+    pub system_prompt_sha: Option<String>,
+    pub deepen: bool,
     pub turn: Turn,
 }
 

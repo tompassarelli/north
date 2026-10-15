@@ -164,7 +164,7 @@ fn draw_status(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
 fn hints(screen: &Screen) -> Line<'static> {
     let pairs: &[(&str, &str)] = match screen.focus {
         Focus::List => &[("j/k", "select"), ("r", "resume"), ("Tab", "composer"), ("PgUp/PgDn", "scroll"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^D", "forget"), ("^Q", "quit")],
-        Focus::Composer => &[("Enter", "send"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent: interrupts and delivers within ~3 s"), ("Tab", "list"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^Q", "quit")],
+        Focus::Composer => &[("Enter", "send"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent: interrupts and delivers within ~3 s"), ("^G", "deepen and send"), ("Tab", "list"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^Q", "quit")],
     };
     let mut spans = Vec::new();
     for (index, (key, action)) in pairs.iter().enumerate() {

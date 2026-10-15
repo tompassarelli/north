@@ -69,3 +69,33 @@ async fn notifications_after_the_turn_do_not_keep_a_codex_host_awake() {
     let parked = tokio::time::timeout(Duration::from_secs(10), host.wait()).await;
     assert_eq!(parked.ok().map(Result::unwrap), Some(143), "an idle host must park despite steady non-turn output");
 }
+
+#[test]
+fn text_show_marks_urgent_user_messages_and_indents_their_lines() {
+    let urgent = crate::fleet::registry::urgent_prefixed("stop\nand look");
+    let lines: Vec<String> = [Entry { kind: EntryKind::User, text: urgent }, Entry { kind: EntryKind::User, text: "plain".into() }].iter().map(entry_line).collect();
+    assert_eq!(lines, ["user (urgent): stop\n  and look", "user: plain"]);
+}
+
+#[test]
+fn a_deepened_turn_is_tagged_with_its_session_prompt_sha() {
+    let root = tempfile::tempdir().unwrap();
+    let session = root.path().join("deep");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = json!({
+        "name": "deep", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0,
+        "host_pid": null, "conversation": "s", "host_dir": session, "system_prompt_sha": "abc"
+    });
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let sink = Arc::new(Recorded::default());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), root.path().to_path_buf(), session.clone());
+    let prompt = crate::fleet::prompt::deepened("fix the parser");
+    for frame in [
+        json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": "u", "message": {"content": prompt}}),
+        json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false}),
+    ] {
+        watch.line(frame.to_string().as_bytes());
+    }
+    let runs = sink.0.lock().unwrap();
+    assert_eq!(runs.iter().map(|run| (run.session.as_str(), run.deepen, run.system_prompt_sha.as_deref())).collect::<Vec<_>>(), [("deep", true, Some("abc"))]);
+}

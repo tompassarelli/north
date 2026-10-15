@@ -1,4 +1,5 @@
 mod host;
+pub mod prompt;
 mod records;
 pub mod model;
 pub mod registry;

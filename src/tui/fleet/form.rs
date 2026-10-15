@@ -6,6 +6,7 @@ use tui_textarea::TextArea;
 
 use crate::composer::edit_textarea;
 use crate::fleet::model::{Account, LaunchRequest, ProviderName};
+use crate::fleet::prompt::PromptMode;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Field {
@@ -63,7 +64,7 @@ impl LaunchForm {
             provider,
             accounts,
             account: 0,
-            field: Field::Prompt,
+            field: Field::ORDER[0],
             name: line(&unique_name(cwd, taken), ""),
             directory: line(&cwd.display().to_string(), ""),
             model: line("", "default"),
@@ -188,6 +189,7 @@ impl LaunchForm {
             prompt,
             system_prompt: None,
             foreground_cap_secs: None,
+            prompt_mode: PromptMode::North,
             idle_exit_minutes: None,
             parent: None,
             task_ref: None,

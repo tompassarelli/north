@@ -4,6 +4,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use crate::error::NorthResult;
+use crate::fleet::prompt::deepened;
 
 use super::desk::SessionActions;
 use super::screen::Command;
@@ -81,7 +82,8 @@ impl Runner {
 fn perform(actions: &dyn SessionActions, command: &Command) -> NorthResult<()> {
     match command {
         Command::Launch(request) => actions.launch(request),
-        Command::Send { name, text, delivery } => actions.send(name, text, *delivery),
+        Command::Send { name, text, delivery, deepen: true } => actions.send(name, &deepened(text), *delivery),
+        Command::Send { name, text, delivery, deepen: false } => actions.send(name, text, *delivery),
         Command::Revive(name) => actions.revive(name),
         Command::Interrupt(name) => actions.interrupt(name),
         Command::Stop(name) => actions.stop(name),

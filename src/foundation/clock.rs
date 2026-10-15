@@ -74,6 +74,11 @@ impl Timestamp {
         format!("{:04}-{:02}-{:02}T{:02}:{:02}", at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute())
     }
 
+    pub fn iso_date(self) -> String {
+        let at = self.moment();
+        format!("{:04}-{:02}-{:02}", at.year(), u8::from(at.month()), at.day())
+    }
+
     pub fn iso_minute(self) -> String {
         format!("{}Z", self.date_and_minute())
     }

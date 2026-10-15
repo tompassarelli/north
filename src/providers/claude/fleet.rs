@@ -7,7 +7,7 @@ use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
-use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Opening, Runtime, binary, new_uuid, summarize};
+use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, binary, new_uuid, summarize};
 
 use super::accounts;
 
@@ -29,7 +29,7 @@ impl Runtime for Claude {
         new_uuid().map(Some)
     }
 
-    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening) -> HostSpec {
+    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> HostSpec {
         let mut argv = vec![binary("claude").display().to_string()];
         argv.extend(
             [
@@ -43,6 +43,8 @@ impl Runtime for Claude {
                 "--strict-mcp-config",
                 "--permission-mode",
                 "bypassPermissions",
+                "--system-prompt-snapshot",
+                "off",
             ]
             .map(str::to_owned),
         );
@@ -54,8 +56,8 @@ impl Runtime for Claude {
         if let Some(model) = &request.model {
             argv.extend(["--model".into(), model.clone()]);
         }
-        if let Some(prompt) = &request.system_prompt {
-            argv.extend(["--system-prompt-file".into(), prompt.display().to_string()]);
+        if !instructions.is_empty() {
+            argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
         }
         HostSpec {
             key: request.name.clone(),
@@ -70,7 +72,7 @@ impl Runtime for Claude {
         Vec::new()
     }
 
-    fn open(&self, _name: &str, _request: &LaunchRequest, _opening: Opening) -> NorthResult<Vec<String>> {
+    fn open(&self, _name: &str, _request: &LaunchRequest, _opening: Opening, _instructions: Instructions) -> NorthResult<Vec<String>> {
         Ok(Vec::new())
     }
 

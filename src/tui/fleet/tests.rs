@@ -10,8 +10,10 @@ use ratatui::backend::TestBackend;
 
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Delivery, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
+use crate::fleet::prompt::deepened;
 
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
+use super::form::Field;
 use super::runner::Runner;
 use super::screen::{Command, Dialog, Focus, Screen};
 use super::{apply_event, drive};
@@ -35,7 +37,7 @@ impl SessionActions for ActionsFake {
     }
 
     fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
-        self.record(Command::Send { name: name.into(), text: text.into(), delivery })
+        self.record(Command::Send { name: name.into(), text: text.into(), delivery, deepen: false })
     }
 
     fn revive(&self, name: &str) -> NorthResult<()> {
@@ -243,5 +245,29 @@ fn alt_u_sends_urgently_to_a_parked_session() {
     assert_eq!(screen.selected.as_deref(), Some("parser"));
     type_text(&mut desk, &mut screen, "stop and look");
     key(&mut desk, &mut screen, KeyEvent::new(KeyCode::Char('u'), KeyModifiers::ALT));
-    assert_eq!(desk.performed(), [Command::Send { name: "parser".into(), text: "stop and look".into(), delivery: Delivery::Now }]);
+    assert_eq!(desk.performed(), [Command::Send { name: "parser".into(), text: "stop and look".into(), delivery: Delivery::Now, deepen: false }]);
+}
+
+#[test]
+fn the_launch_form_tabs_from_its_first_field() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    key(&mut desk, &mut screen, control('n'));
+    for _ in 0..4 {
+        key(&mut desk, &mut screen, press(KeyCode::Tab));
+    }
+    let Some(Dialog::Launch(form)) = &screen.dialog else { panic!("Ctrl+N opens the launch form") };
+    assert_eq!(form.field, Field::ORDER[4]);
+}
+
+#[test]
+fn ctrl_g_sends_the_draft_after_the_deepen_questions() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    type_text(&mut desk, &mut screen, "fix the parser");
+    key(&mut desk, &mut screen, control('g'));
+    let sent = deepened("fix the parser");
+    assert_eq!(desk.performed(), [Command::Send { name: "parser".into(), text: sent, delivery: Delivery::Queued, deepen: false }]);
+    assert_eq!(screen.pending_for("parser"), ["fix the parser"]);
+    assert!(screen.composer.is_empty());
 }

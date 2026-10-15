@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::prompt::PromptMode;
 use super::turns::{Turn, Turns};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash, Serialize, Deserialize)]
@@ -35,6 +36,7 @@ pub struct LaunchRequest {
     pub prompt: String,
     pub system_prompt: Option<PathBuf>,
     pub foreground_cap_secs: Option<u64>,
+    pub prompt_mode: PromptMode,
     pub idle_exit_minutes: Option<u64>,
     pub parent: Option<String>,
     pub task_ref: Option<String>,
@@ -66,6 +68,10 @@ pub struct SessionRecord {
     pub parent: Option<String>,
     #[serde(default)]
     pub task_ref: Option<String>,
+    #[serde(default)]
+    pub prompt_mode: PromptMode,
+    #[serde(default)]
+    pub system_prompt_sha: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
