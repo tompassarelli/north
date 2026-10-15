@@ -179,10 +179,12 @@ pub fn clauses(text: &str) -> Vec<String> {
     merged
 }
 fn distance(a: &str, b: &str) -> usize {
+    let a: Vec<_> = a.encode_utf16().collect();
+    let b: Vec<_> = b.encode_utf16().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, x) in a.bytes().enumerate() {
+    for (i, x) in a.iter().enumerate() {
         let mut next = vec![i + 1];
-        for (j, y) in b.bytes().enumerate() {
+        for (j, y) in b.iter().enumerate() {
             next.push(
                 (next[j] + 1)
                     .min(row[j + 1] + 1)
@@ -291,7 +293,7 @@ pub fn search(
             continue;
         }
         let (catalog, projects) = *domain.get(stem).unwrap_or(&(0.0, 0.0));
-        if (word.len() == 2 && catalog == 0.0) || (long && catalog == 0.0 && projects == 0.0) {
+        if (ulen(word) == 2 && catalog == 0.0) || (long && catalog == 0.0 && projects == 0.0) {
             continue;
         }
         let mut idf = (1.0 + total / count).ln();
@@ -411,10 +413,10 @@ pub fn search(
         let mut matched: Vec<_> = qwords
             .iter()
             .filter(|w| {
-                hay.contains(if w.len() > 5 {
-                    &w[..w.len() - 2]
+                hay.contains(&if ulen(w) > 5 {
+                    cut(w, ulen(w) - 2)
                 } else {
-                    w.as_str()
+                    w.to_string()
                 })
             })
             .cloned()
@@ -487,4 +489,22 @@ pub fn search(
             .collect(),
         words.into_iter().map(|(w, _)| w).collect(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unicode_vocabulary_repairs_preserve_coverage_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Sqlite::open(&dir.path().join("index.db"), false).unwrap();
+        db.exec(SCHEMA).unwrap();
+        db.exec("insert into docs values ('policy','one','one','foobαa quokka','foobαa quokka',0,0);").unwrap();
+        let (hits, words) = search("foobaa quokka", &mut db, 0.0, 80, 0.0).unwrap();
+        assert_eq!(words, ["foobαa", "quokka"]);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].cover, 1.0);
+        assert_eq!(distance("foobaa", "foobαa"), 1);
+    }
 }
