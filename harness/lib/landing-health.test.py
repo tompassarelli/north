@@ -2,8 +2,10 @@
 import json
 import fcntl
 import os
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -17,6 +19,25 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 import events
 import landing_health
+
+
+@contextmanager
+def socket_recipient(directory, session):
+    with subprocess.Popen([sys.executable, "-c",
+                           "import sys; from pathlib import Path; print(Path('/proc/self/stat').read_text().split()[0], flush=True); sys.stdin.read()",
+                           "--session-id", session, "--settings", json.dumps(events.INBOUND)],
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE) as child:
+        try:
+            pid = child.stdout.readline().strip().decode()
+            if not pid.isdecimal():
+                raise RuntimeError("socket recipient exited before becoming ready")
+            with socket.socket(socket.AF_UNIX) as peer:
+                peer.bind(str(directory / f"{pid}.sock"))
+                peer.listen(128)
+                peer.settimeout(3)
+                yield peer
+        finally:
+            child.kill()
 
 
 class LandingHealth(unittest.TestCase):
@@ -61,12 +82,17 @@ class LandingHealth(unittest.TestCase):
                 self.assertEqual(saved["episodes"]["LANDING-HEALTH-SOURCE"]["sent"], [])
 
     def test_recorded_supervisor_git_activity_and_inbox_journey(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             directory = Path(temporary)
+            sockets = directory / "sockets"
+            sockets.mkdir()
+            recipients = {name: stack.enter_context(socket_recipient(sockets, session)) for name, session in
+                          (("fixture-lead", "recorded-native-recipient"), ("proxy", "recorded-proxy-recipient"))}
             repository = directory / "repos/fixture/main"
             repository.mkdir(parents=True)
             environment = dict(os.environ, AGENTS_REPO_ROOT=str(directory / "repos"),
                                AGENTS_ORG_FILE=str(directory / "org.json"),
+                               AGENTS_CLAUDE_SOCKET_DIR=str(sockets),
                                THREADS_DB=str(directory / "events.db"), PYTHONDONTWRITEBYTECODE="1")
             real_git = shutil.which("git")
 
@@ -131,7 +157,8 @@ class LandingHealth(unittest.TestCase):
                 executable.chmod(0o755)
             environment["PATH"] = str(tools) + ":" + environment["PATH"]
             status = directory / "lead-status.md"
-            Path(environment["AGENTS_ORG_FILE"]).write_text(json.dumps(dict(version=1, nodes=[dict(
+            Path(environment["AGENTS_ORG_FILE"]).write_text(json.dumps(dict(version=1,
+                proxy=dict(provider="claude", session="recorded-proxy-recipient"), nodes=[dict(
                 id="fixture-lead", domain="fixture", role="lead", provider="claude", state="active",
                 status_file=str(status), session="recorded-native-recipient")])) )
 
@@ -153,12 +180,24 @@ class LandingHealth(unittest.TestCase):
                 saved["fixture"]["attempted_at"] = 0
                 state.write_text(json.dumps(saved))
 
+            def assert_pushed(rows):
+                for name, peer in recipients.items():
+                    expected = [events.describe(row) for row in rows if row["to_node"] == name]
+                    received = []
+                    for _ in expected:
+                        connection, _ = peer.accept()
+                        with connection, connection.makefile("r") as stream:
+                            received.append(json.loads(stream.readline()))
+                    self.assertCountEqual(received, [dict(type="user", message=dict(role="user", content=body))
+                                                     for body in expected])
+
             supervise()
             captured = pending()
             self.assertEqual(len(captured), 6)
             self.assertEqual({row["to_node"] for row in captured}, {"fixture-lead", "proxy"})
             self.assertTrue(all(row["from_node"] == "landing-health" for row in captured))
             self.assertTrue(all(row["delivered_at"] and not row["last_error"] for row in captured))
+            assert_pushed(captured)
             self.assertEqual(sum("LANDING-STALL" in row["body"] for row in captured), 2)
             self.assertEqual(sum("REGEN-CHURN" in row["body"] for row in captured), 4)
             self.assertTrue(all("arbitrary.txt" not in row["body"] for row in captured))
@@ -204,6 +243,7 @@ class LandingHealth(unittest.TestCase):
             self.assertEqual(retried["body"], failed["body"])
             self.assertTrue(retried["delivered_at"])
             self.assertIsNone(retried["last_error"])
+            assert_pushed([retried])
             self.assertIn(events.describe(retried), (directory / "handoffs/proxy-inbox.md").read_text())
             self.assertEqual(sum("LANDING-HEALTH-SOURCE" in row["body"] for row in pending()), 1)
             refresh()

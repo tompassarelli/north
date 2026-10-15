@@ -194,7 +194,7 @@ def mirror(row, registry, deadline=None):
 
 
 def session_address(session, directory=None):
-    sockets = Path(directory or f"/run/user/{os.getuid()}/cc-socks")
+    sockets = Path(directory or os.environ.get("AGENTS_CLAUDE_SOCKET_DIR") or f"/run/user/{os.getuid()}/cc-socks")
     candidates = []
     for path in sorted(sockets.glob("*.sock")) if sockets.is_dir() else []:
         try:
