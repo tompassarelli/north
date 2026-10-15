@@ -10,6 +10,8 @@ import math
 import random
 import sqlite3
 import sys
+from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,42 +83,46 @@ TIER_GRIDS = {"success_threshold": ("SUCCESS_THRESHOLD", [60, 70, 75, 80, 85, 90
               "incumbent_margin": ("MARGIN", [0, 5, 10, 15, 20, 30])}
 
 
-def sweep_tier(db, since, name):
+def sweep_tier(db, since, name, values=None):
     attr, grid = TIER_GRIDS[name]
     base = {a: getattr(T, a) for a, _ in TIER_GRIDS.values()}
     base["USD_MIN"] = T.USD_MIN
     rows = []
-    for v in grid:
-        patch = {**base, attr: v}
-        if attr == "MIN_RUNS":
-            patch["USD_MIN"] = v
-        rows.append({"value": v, **score_picks(tier_picks(db, since, patch))})
-    for a, v in base.items():
-        setattr(T, a, v)
+    try:
+        for v in grid if values is None else values:
+            patch = {**base, attr: v}
+            if attr == "MIN_RUNS":
+                patch["USD_MIN"] = v
+            rows.append({"value": v, **score_picks(tier_picks(db, since, patch))})
+    finally:
+        for a, v in base.items():
+            setattr(T, a, v)
     return rows
 
 
 def eta_pairs(db, floor, since):
-    T.DEFAULTS["eta_min_samples"] = floor
-    return T.walk_forward_eta(T.calibration_runs(db), since, "9999")
-
-
-def sweep_eta_min_samples(db, since):
     keep = T.DEFAULTS["eta_min_samples"]
+    T.DEFAULTS["eta_min_samples"] = floor
+    try:
+        return T.walk_forward_eta(T.calibration_runs(db), since, "9999")
+    finally:
+        T.DEFAULTS["eta_min_samples"] = keep
+
+
+def sweep_eta_min_samples(db, since, values=(1, 2, 3, 5, 8)):
     out = []
-    for floor in (1, 2, 3, 5, 8):
+    for floor in values:
         pairs = [(r, eta) for r, eta in eta_pairs(db, floor, since) if r["minutes"] > 0]
         errs = [abs(math.log(r["minutes"] / eta)) for r, eta in pairs]
         out.append({"value": floor, "n": len(pairs), "median_abs_log_err": T.quantile(errs, .5),
-                    "p75_abs_log_err": T.quantile(errs, .75), "covered": sum(r["minutes"] <= eta for r, eta in pairs) / len(pairs)})
-    T.DEFAULTS["eta_min_samples"] = keep
+                    "p75_abs_log_err": T.quantile(errs, .75), "covered": sum(r["minutes"] <= eta for r, eta in pairs) / len(pairs) if pairs else None})
     return out
 
 
-def sweep_eta_coverage(db, since, overdue):
+def sweep_eta_coverage(db, since, overdue, values=(0.5, 0.6, 0.7, 0.75, 0.8, 0.9)):
     pairs = sorted(eta_pairs(db, T.DEFAULTS["eta_min_samples"], ""), key=lambda p: p[0]["ended"])
     out = []
-    for q in (0.5, 0.6, 0.7, 0.75, 0.8, 0.9):
+    for q in values:
         false_alarm = unflagged = n = over_quote = 0
         ratios = []
         for r, eta in pairs:
@@ -445,6 +451,82 @@ KINDS = {**{k: lambda db, a, k=k: sweep_tier(db, a.since, k) for k in TIER_GRIDS
          "money_ceiling": lambda db, a: sweep_money_ceiling(db, T.DEFAULTS["usage_stale_min"])}
 
 
+def iso_stamp(text):
+    value = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def training_db(path, cutoff):
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    with closing(open_db(path)) as source:
+        sql, = source.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runs'").fetchone()
+        db.execute(sql)
+        for row in source.execute("SELECT * FROM runs ORDER BY ended, agent"):
+            r = dict(row)
+            ended = iso_stamp(r["ended"]) if r["ended"] else None
+            if ended is None or ended >= cutoff or r["outcome"] == "running":
+                continue
+            r["ended"] = ended
+            if r["started"]:
+                r["started"] = iso_stamp(r["started"])
+            r["cost_usd"] = None
+            if not r.get("landed_at") or iso_stamp(r["landed_at"]) >= cutoff:
+                r["landed"], r["landed_at"] = 0, None
+            db.execute(f"INSERT INTO runs VALUES ({','.join('?' for _ in r)})", tuple(r.values()))
+    db.commit()
+    db.execute("PRAGMA query_only = ON")
+    return db
+
+
+W5 = {"eta_min_samples", "eta_coverage", "calibration_thin_n", "box_chain_gap_min", "box_calibration_n"}
+
+
+def proposal_rows(db, a):
+    from defaults import registry
+    for name, entry in sorted(registry().items()):
+        if not str(entry.get("source", "")).startswith("measured:") or a.kind and a.kind != name:
+            continue
+        current = entry["value"]
+        row = {"report": "W1" if name in TIER_GRIDS else "W5" if name in W5 else "unavailable",
+               "default": name, "current": current, "proposed": current, "n": 0,
+               "score_current": None, "score_proposed": None, "train_until": a.train_until, "since": a.since,
+               "objective": None, "direction": None, "eligible": False,
+               "reason": "unsupported: no implemented W1/W5 scorer"}
+        if name in TIER_GRIDS:
+            values = sorted(set([current, *TIER_GRIDS[name][1]]))
+            scores = sweep_tier(db, a.since, name, values)
+            objective, direction = "rate", "maximize"
+            reason = "production replay required; descriptive threads.recommend only; untimestamped costs unavailable; mismatched tiers unknown"
+        elif name == "eta_min_samples":
+            scores = sweep_eta_min_samples(db, a.since, sorted(set([current, 1, 2, 3, 5, 8])))
+            objective, direction = "median_abs_log_err", "minimize"
+            reason = "held-out ETA judgment required"
+        elif name == "eta_coverage":
+            scores = sweep_eta_coverage(db, a.since, T.DEFAULTS["overdue_ratio"], sorted(set([current, .5, .6, .7, .75, .8, .9])))
+            objective, direction = "cost", "minimize"
+            reason = "proposal only: overdue false alarms plus unfinished unflagged"
+        else:
+            if name in W5:
+                row["reason"] = "unsupported: no meaningful scalar policy scorer" + (
+                    "; untimestamped USD evidence unavailable" if name == "calibration_thin_n" else "")
+            yield row
+            continue
+        row.update(objective=objective, direction=direction)
+        baseline = next(s for s in scores if s["value"] == current)
+        usable = [s for s in scores if s["n"] and s[objective] is not None and math.isfinite(s[objective])]
+        row["n"] = baseline["n"]
+        if baseline not in usable or len(usable) != len(scores):
+            row["reason"] = "insufficient evidence for every candidate comparison; " + reason
+        else:
+            best = min(usable, key=lambda s: (s[objective] * (-1 if direction == "maximize" else 1), s["value"] != current, s["value"]))
+            row.update(proposed=best["value"], n=best["n"], score_current=baseline[objective],
+                       score_proposed=best[objective], eligible=name == "eta_min_samples", reason=reason)
+        yield row
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("db", nargs="?", help="a copy of the NorthThreads ledger, opened read-only")
@@ -454,7 +536,25 @@ def main():
     p.add_argument("--since", default="2026-10-05")
     p.add_argument("--transcripts", default="~/.claude/projects")
     p.add_argument("--days", type=float, default=7)
+    p.add_argument("--propose", action="store_true", help="emit read-only training proposals")
+    p.add_argument("--train-until", help="exclusive ISO training cutoff, required for --propose")
+    p.add_argument("--json", action="store_true", help="emit proposal JSONL")
     a = p.parse_args()
+    if a.propose:
+        if not a.db or not a.train_until or not a.json or a.priors:
+            p.error("--propose requires db, --train-until and --json, without --priors")
+        try:
+            a.train_until, a.since = iso_stamp(a.train_until), iso_stamp(a.since)
+        except ValueError:
+            p.error("--train-until and --since must be ISO dates or timestamps")
+        if a.since >= a.train_until:
+            p.error("--since must precede --train-until")
+        with closing(training_db(a.db, a.train_until)) as db:
+            for row in proposal_rows(db, a):
+                print(json.dumps(row, allow_nan=False))
+        return
+    if a.train_until or a.json:
+        p.error("--train-until and --json require --propose")
     if a.priors:
         for line in priors(open_db(a.priors), a):
             print(line)
