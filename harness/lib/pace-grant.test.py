@@ -288,10 +288,50 @@ class Grants(unittest.TestCase):
                         pace_sampler.confirm(state, "parent", "started")
                         pace_sampler.confirm(state, "parent", "started")
                         self.assertEqual(json.loads((state / "pace-control.json").read_text())["grants"][0]["uses"], 2)
+                        pace_sampler.confirm(state, "parent", "denied-one", launched=False)
+                        pace_sampler.confirm(state, "parent", "denied-two", launched=False)
                         self.assertIsNone(reserve("another"))
                         self.assertIn("2/2", reserve("blocked-again"))
                         rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
                         self.assertEqual([r["tool_use_id"] for r in rows if r["event"] == "grant-admission"], ["started"])
+            finally:
+                peer.close()
+
+    def test_delayed_confirmation_keeps_the_last_grant_use_reserved(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            state = root / "agents"
+            state.mkdir()
+            org = state / "org.json"
+            org.write_text(json.dumps({"nodes": [
+                {"id": "lead", "session": "parent", "provider": "codex", "state": "active"}]}))
+            peer = ProviderPeer(root, {"parent": "active"})
+            try:
+                with patch.dict(os.environ, XDG_STATE_HOME=str(root), AGENTS_ORG_FILE=str(org),
+                                NORTH_CODEX_CONVERSATION_HOME=str(peer.pool),
+                                NORTH_CODEX_CONVERSATION_SQLITE_HOME=str(peer.pool / "sqlite")):
+                    expiry = datetime.fromtimestamp(time.time() + 3600, timezone.utc).isoformat()
+                    pace_sampler.grant("codex", 4, expiry, "lead", "delayed confirmation", "review", 1)
+                    gate = state / "usage-gate.json"
+                    path = state / "pace-control.json"
+                    def reserve(identity):
+                        return pace_sampler.reserve(gate, "codex", "codex", session="parent",
+                                                    task="review", tool_use_id=identity)
+                    now = time.time()
+                    with patch.object(pace_sampler.time, "time", return_value=now):
+                        self.assertIsNone(reserve("first"))
+                    with sqlite3.connect(peer.db) as db:
+                        db.execute("INSERT INTO threads VALUES ('child',0)")
+                        db.execute("INSERT INTO thread_spawn_edges VALUES ('parent','child')")
+                    peer.statuses["child"] = "active"
+                    with patch.object(pace_sampler.time, "time", return_value=now + pace_sampler.RESERVATION_TTL_S + 1):
+                        self.assertIn("all remaining uses reserved", reserve("second"))
+                        self.assertEqual(json.loads(path.read_text())["grants"][0]["uses"], 1)
+                        for identity in ("first", "second", "first"):
+                            pace_sampler.confirm(state, "parent", identity)
+                            self.assertEqual(json.loads(path.read_text())["grants"][0]["uses"], 0)
+                    rows = [json.loads(line) for line in (state / "pace-control.jsonl").read_text().splitlines()]
+                    self.assertEqual([r["tool_use_id"] for r in rows if r["event"] == "grant-admission"], ["first"])
             finally:
                 peer.close()
 

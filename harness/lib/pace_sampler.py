@@ -165,7 +165,7 @@ def reservations(row):
     return row["pending"]
 
 
-def confirm(directory, session, tool_use_id):
+def confirm(directory, session, tool_use_id, *, launched=True):
     if not tool_use_id or not (directory / "pace-control.json").exists():
         return
     with (directory / "pace-control.lock").open("a") as lock:
@@ -179,6 +179,10 @@ def confirm(directory, session, tool_use_id):
             for reservation in reservations(row):
                 if reservation.get("id") != tool_use_id or reservation.get("confirmed"):
                     continue
+                if not launched:
+                    row["pending"].remove(reservation)
+                    save(path, state)
+                    return
                 reservation["confirmed"] = True
                 if "uses" in row:
                     row["uses"] -= 1
@@ -227,7 +231,7 @@ def reserve(path, provider, account, wait=RESERVE_WAIT_S, session=None, task=Non
             workers = len(live) + sum(not r.get("counted_live") for r in slots) if live is not None else None
             if workers is None or workers >= row["max_workers"]:
                 return f"Hold: proxy grant for {grant['lead']} workers {workers}/{grant['max_workers']}; measured count required."
-            if "uses" in row and sum(not r.get("confirmed") for r in pending) >= row["uses"]:
+            if "uses" in row and sum(not r.get("confirmed") for r in retained) >= row["uses"]:
                 return f"Hold: proxy grant for {grant['lead']} has all remaining uses reserved."
             row["live"], row["pending"] = sorted(live), retained + [{"at": time.time(), "id": tool_use_id}]
             save(state_path, state)
