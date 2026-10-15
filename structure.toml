@@ -25,7 +25,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "src/test_inputs.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli","tui-worker","tui","providers","fleet","app","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation","retiring"]
+may_use = ["cli","tui-worker","tui","providers","ledger","fleet","app","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation","retiring"]
 
 [[module]]
 name = "foundation"
@@ -62,6 +62,12 @@ name = "fleet"
 paths = ["src/fleet/**", "src/session_host.rs", "src/lead_journal.rs"]
 responsibility = "Headless agent sessions: Runtime port, process host, delivery journal, admission, supervision."
 may_use = ["domain", "platform", "foundation"]
+
+[[module]]
+name = "ledger"
+paths = ["src/ledger/**"]
+responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
+may_use = ["fleet", "platform", "foundation"]
 
 [[module]]
 name = "guard"
@@ -140,7 +146,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["tui-worker", "tui", "providers", "fleet", "app", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation", "retiring"]
+may_use = ["tui-worker", "tui", "providers", "ledger", "fleet", "app", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation", "retiring"]
 
 [[module]]
 name = "js-survivors"

@@ -11,15 +11,18 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::{Runtimes, new_uuid};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
+use crate::fleet::turns::{RunSink, Turn};
+use crate::ledger::Ledger;
+use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
-const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] PROMPT... \
+const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME] [--task REF] PROMPT... \
      | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
 pub fn run(arguments: &[String]) -> ExitCode {
-    let result = Fleet::open(runtimes()).and_then(|fleet| dispatch(fleet, arguments));
+    let result = open_fleet().and_then(|fleet| dispatch(fleet, arguments));
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -32,6 +35,34 @@ pub fn run(arguments: &[String]) -> ExitCode {
 fn runtimes() -> Runtimes {
     Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex)])
 }
+
+fn open_fleet() -> NorthResult<Fleet> {
+    let sink: Arc<dyn RunSink> = Arc::new(Ledger::open_default()?);
+    Fleet::open(runtimes(), sink)
+}
+
+pub fn host_watch(config: &HostConfig) -> Option<Box<dyn FrameWatch>> {
+    let provider = ProviderName::new(config.provider.as_deref()?);
+    match open_fleet().and_then(|fleet| fleet.watch(&provider, &config.state_dir)) {
+        Ok(watch) => Some(Box::new(watch)),
+        Err(error) => {
+            eprintln!("north session-host: turn watch unavailable: {}", error.user_message());
+            None
+        }
+    }
+}
+
+fn turn_json(turn: &Turn) -> Value {
+    json!({
+        "exit": turn.exit.label(),
+        "turns": turn.turns,
+        "tokens_in": turn.tokens.input,
+        "tokens_out": turn.tokens.output,
+        "tokens_cache_read": turn.tokens.cache_read,
+        "tokens_cache_write": turn.tokens.cache_write,
+    })
+}
+
 
 fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -129,6 +160,7 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     let mut session = session_json(follower.record(), transcript.status);
     session["active_turn"] = json!(transcript.active_turn);
     session["entries"] = Value::Array(entries);
+    session["turns"] = transcript.turns.iter().map(turn_json).collect();
     println!("{session}");
     Ok(())
 }
@@ -175,6 +207,7 @@ struct LaunchFlags {
     foreground_cap_secs: Option<u64>,
     idle_exit_minutes: Option<u64>,
     parent: Option<String>,
+    task_ref: Option<String>,
 }
 
 impl LaunchFlags {
@@ -189,6 +222,7 @@ impl LaunchFlags {
             "--foreground-cap" => self.foreground_cap_secs = Some(value.parse().map_err(|_| usage())?),
             "--idle-exit" => self.idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
             "--parent" => self.parent = Some(value),
+            "--task" => self.task_ref = Some(value),
             _ => return Err(usage()),
         }
         Ok(())
@@ -218,6 +252,7 @@ impl LaunchFlags {
             foreground_cap_secs: self.foreground_cap_secs,
             idle_exit_minutes: self.idle_exit_minutes,
             parent: self.parent,
+            task_ref: self.task_ref,
         })
     }
 }
@@ -298,3 +333,7 @@ fn kind_label(kind: EntryKind) -> &'static str {
         EntryKind::Notice => "notice",
     }
 }
+
+#[cfg(test)]
+#[path = "fleet_tests.rs"]
+mod tests;

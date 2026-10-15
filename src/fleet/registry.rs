@@ -4,11 +4,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
-use crate::foundation::clock::Timestamp;
 
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
-use super::runtime::{Opening, Runtime, Runtimes};
+use super::records::{ARCHIVE, read_record, write_record};
+use super::runtime::{Opening, Runtime, Runtimes, now_ms};
+use super::turns::RunSink;
+pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, stream_len, stream_path};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
@@ -18,19 +20,18 @@ const SETTLE_POLL: Duration = Duration::from_millis(50);
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
 const RECENT_WINDOW: u64 = 1 << 20;
 const URGENT_PREFIX: &str = "[urgent message; your previous step was interrupted — answer this, then resume your task]";
-const RECORD: &str = "session.json";
 const HOSTS: &str = ".hosts";
-const ARCHIVE: &str = ".archive";
 
 pub struct Fleet {
     root: PathBuf,
     state: PathBuf,
     home: PathBuf,
     runtimes: Runtimes,
+    sink: Arc<dyn RunSink>,
 }
 
 impl Fleet {
-    pub fn open(runtimes: Runtimes) -> NorthResult<Self> {
+    pub fn open(runtimes: Runtimes, sink: Arc<dyn RunSink>) -> NorthResult<Self> {
         let home = std::env::var_os("HOME")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
@@ -38,7 +39,11 @@ impl Fleet {
         let state = home.join(".local/state/north");
         let root = state.join("fleet");
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, runtimes })
+        Ok(Self { root, state, home, runtimes, sink })
+    }
+
+    pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.sink.clone(), self.root.clone(), host_dir.to_path_buf()))
     }
 
     pub fn accounts(&self) -> Vec<Account> {
@@ -87,8 +92,12 @@ impl Fleet {
             foreground_cap_secs: request.foreground_cap_secs,
             idle_exit_minutes: request.idle_exit_minutes,
             parent: request.parent.clone(),
+            task_ref: request.task_ref.clone(),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
+        if let Some(task_ref) = &request.task_ref {
+            self.sink.join_task(task_ref, &request.name)?;
+        }
         self.send_text(&record, &recent(runtime.as_ref(), &record)?, &request.prompt)?;
         Ok(record)
     }
@@ -174,7 +183,7 @@ impl Fleet {
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
         if !host.running() {
-            host.start(&spec, idle_exit(record))?;
+            host.start(&spec, &record.provider, idle_exit(record))?;
             host.send(&runtime.handshake())?;
         }
         if record.host_dir != host_dir {
@@ -261,7 +270,7 @@ impl Follower {
             self.transcript.last_activity_ms = Some(now_ms());
         }
         for frame in &frames {
-            self.runtime.observe(frame, &mut self.transcript);
+            project(self.runtime.as_ref(), frame, &mut self.transcript);
         }
         self.persist_conversation()?;
         self.transcript.status = settled_status(&self.record, self.transcript.status);
@@ -289,6 +298,18 @@ impl Follower {
         }
         self.record.conversation = observed;
         write_record(&self.session_dir, &self.record)
+    }
+}
+
+fn project(runtime: &dyn Runtime, frame: &serde_json::Value, transcript: &mut Transcript) {
+    runtime.observe(frame, transcript);
+    for signal in runtime.signals(frame) {
+        if transcript.conversation.as_deref() != Some(signal.conversation()) {
+            continue;
+        }
+        if let Some(turn) = transcript.tracker.observe(signal, now_ms()) {
+            transcript.turns.push(turn);
+        }
     }
 }
 
@@ -391,20 +412,7 @@ fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
         foreground_cap_secs: record.foreground_cap_secs,
         idle_exit_minutes: record.idle_exit_minutes,
         parent: record.parent.clone(),
+        task_ref: record.task_ref.clone(),
     }
 }
 
-fn read_record(session_dir: &Path) -> NorthResult<SessionRecord> {
-    Ok(serde_json::from_str(&fs::read_to_string(session_dir.join(RECORD))?)?)
-}
-
-fn write_record(session_dir: &Path, record: &SessionRecord) -> NorthResult<()> {
-    let temporary = session_dir.join(format!("{RECORD}.tmp"));
-    fs::write(&temporary, serde_json::to_vec_pretty(record)?)?;
-    fs::rename(temporary, session_dir.join(RECORD))?;
-    Ok(())
-}
-
-fn now_ms() -> u64 {
-    u64::try_from(Timestamp::now().unix_millis()).unwrap_or(0)
-}

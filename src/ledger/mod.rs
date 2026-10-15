@@ -1,0 +1,265 @@
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Duration;
+
+use rusqlite::{Connection, Row, params};
+use sha2::{Digest, Sha256};
+
+use crate::error::{NorthError, NorthResult};
+use crate::fleet::turns::{RunRecord, RunSink};
+
+mod report;
+mod verdict;
+
+pub use report::{print_runs, print_summary};
+pub use verdict::{check, landed};
+
+const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS runs(
+  run_id INTEGER PRIMARY KEY,
+  session TEXT NOT NULL,
+  task_ref TEXT,
+  provider TEXT NOT NULL,
+  model TEXT,
+  effort TEXT,
+  account TEXT,
+  prompt_sha TEXT,
+  prompt TEXT,
+  system_prompt_sha TEXT,
+  started_ms INTEGER NOT NULL,
+  ended_ms INTEGER NOT NULL,
+  wall_ms INTEGER NOT NULL,
+  turns INTEGER NOT NULL,
+  tokens_in INTEGER NOT NULL,
+  tokens_out INTEGER NOT NULL,
+  tokens_cache_read INTEGER NOT NULL,
+  tokens_cache_write INTEGER NOT NULL,
+  exit TEXT NOT NULL CHECK(exit IN ('completed','interrupted','failed','killed'))
+) STRICT;
+CREATE TABLE IF NOT EXISTS tasks(
+  task_ref TEXT PRIMARY KEY,
+  category TEXT,
+  sessions TEXT NOT NULL DEFAULT '[]',
+  wall_ms INTEGER,
+  outcome TEXT CHECK(outcome IN ('landed','abandoned','not done')),
+  landed_sha TEXT,
+  review TEXT,
+  corrections INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE TABLE IF NOT EXISTS checks(
+  check_id INTEGER PRIMARY KEY,
+  task_ref TEXT NOT NULL,
+  command TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  head_sha TEXT,
+  exit INTEGER NOT NULL,
+  ran_ms INTEGER NOT NULL
+) STRICT;
+";
+
+const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account,prompt_sha,started_ms,ended_ms,wall_ms,turns,\
+     tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit";
+
+pub struct Ledger {
+    conn: Mutex<Connection>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct Run {
+    pub run_id: i64,
+    pub session: String,
+    pub task_ref: Option<String>,
+    pub provider: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub account: Option<String>,
+    pub prompt_sha: Option<String>,
+    pub started_ms: i64,
+    pub ended_ms: i64,
+    pub wall_ms: i64,
+    pub turns: i64,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+    pub tokens_cache_read: i64,
+    pub tokens_cache_write: i64,
+    pub exit: String,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct Task {
+    pub task_ref: String,
+    pub sessions: serde_json::Value,
+    pub wall_ms: Option<i64>,
+    pub outcome: Option<String>,
+    pub landed_sha: Option<String>,
+    pub checks: i64,
+    pub last_check_exit: Option<i64>,
+    pub last_check_sha: Option<String>,
+}
+
+pub struct CheckRun<'a> {
+    pub task_ref: &'a str,
+    pub command: &'a str,
+    pub cwd: &'a Path,
+    pub head_sha: Option<&'a str>,
+    pub exit: i32,
+    pub ran_ms: i64,
+}
+
+impl Ledger {
+    pub fn open_default() -> NorthResult<Self> {
+        let home = std::env::var_os("HOME")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?;
+        Self::open(&PathBuf::from(home).join(".local/state/north/ledger.db"))
+    }
+
+    pub fn open(path: &Path) -> NorthResult<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(path).map_err(sql)?;
+        conn.busy_timeout(Duration::from_secs(5)).map_err(sql)?;
+        conn.pragma_update(None, "journal_mode", "WAL").map_err(sql)?;
+        conn.execute_batch(SCHEMA).map_err(sql)?;
+        Ok(Self { conn: Mutex::new(conn) })
+    }
+
+    pub fn runs(&self) -> NorthResult<Vec<Run>> {
+        self.with(|conn| {
+            let mut statement = conn.prepare(&format!("SELECT {RUN_COLUMNS} FROM runs ORDER BY run_id"))?;
+            statement.query_map([], run_from_row)?.collect()
+        })
+    }
+
+    pub fn tasks(&self) -> NorthResult<Vec<Task>> {
+        self.with(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT t.task_ref, t.sessions, t.wall_ms, t.outcome, t.landed_sha,
+                   (SELECT count(*) FROM checks c WHERE c.task_ref = t.task_ref),
+                   (SELECT c.exit FROM checks c WHERE c.task_ref = t.task_ref ORDER BY c.check_id DESC LIMIT 1),
+                   (SELECT c.head_sha FROM checks c WHERE c.task_ref = t.task_ref ORDER BY c.check_id DESC LIMIT 1)
+                 FROM tasks t ORDER BY t.task_ref",
+            )?;
+            statement.query_map([], task_from_row)?.collect()
+        })
+    }
+
+    pub fn record_landed(&self, task_ref: &str, sha: &str, landed_ms: i64) -> NorthResult<()> {
+        self.with(|conn| {
+            conn.execute(
+                "INSERT INTO tasks(task_ref, outcome, landed_sha, wall_ms)
+                 VALUES(?1, 'landed', ?2, ?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1))
+                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, wall_ms = excluded.wall_ms",
+                params![task_ref, sha, landed_ms],
+            )
+            .map(drop)
+        })
+    }
+
+    pub fn record_check(&self, check: &CheckRun) -> NorthResult<()> {
+        self.with(|conn| {
+            conn.execute("INSERT OR IGNORE INTO tasks(task_ref) VALUES(?1)", [check.task_ref])?;
+            conn.execute(
+                "INSERT INTO checks(task_ref, command, cwd, head_sha, exit, ran_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                params![check.task_ref, check.command, check.cwd.display().to_string(), check.head_sha, check.exit, check.ran_ms],
+            )
+            .map(drop)
+        })
+    }
+
+    fn with<T>(&self, work: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> NorthResult<T> {
+        work(&self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())).map_err(sql)
+    }
+}
+
+impl RunSink for Ledger {
+    fn record_run(&self, run: &RunRecord) -> NorthResult<()> {
+        let turn = &run.turn;
+        let millis = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+        self.with(|conn| {
+            conn.execute(
+                "INSERT INTO runs(session, task_ref, provider, model, effort, account, prompt_sha, prompt, system_prompt_sha,
+                   started_ms, ended_ms, wall_ms, turns, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, exit)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                params![
+                    run.session,
+                    run.task_ref,
+                    run.provider,
+                    turn.model,
+                    turn.effort,
+                    run.account,
+                    turn.prompt.as_deref().map(sha),
+                    turn.prompt,
+                    run.system_prompt.as_deref().map(sha),
+                    millis(turn.started_ms),
+                    millis(turn.ended_ms),
+                    millis(turn.wall_ms),
+                    millis(turn.turns),
+                    millis(turn.tokens.input),
+                    millis(turn.tokens.output),
+                    millis(turn.tokens.cache_read),
+                    millis(turn.tokens.cache_write),
+                    turn.exit.label(),
+                ],
+            )
+            .map(drop)
+        })
+    }
+
+    fn join_task(&self, task_ref: &str, session: &str) -> NorthResult<()> {
+        self.with(|conn| {
+            conn.execute(
+                "INSERT INTO tasks(task_ref, sessions) VALUES(?1, json_array(?2))
+                 ON CONFLICT(task_ref) DO UPDATE SET sessions = json_insert(tasks.sessions, '$[#]', ?2)
+                 WHERE NOT EXISTS (SELECT 1 FROM json_each(tasks.sessions) WHERE value = ?2)",
+                params![task_ref, session],
+            )
+            .map(drop)
+        })
+    }
+}
+
+fn run_from_row(row: &Row<'_>) -> rusqlite::Result<Run> {
+    Ok(Run {
+        run_id: row.get(0)?,
+        session: row.get(1)?,
+        task_ref: row.get(2)?,
+        provider: row.get(3)?,
+        model: row.get(4)?,
+        effort: row.get(5)?,
+        account: row.get(6)?,
+        prompt_sha: row.get(7)?,
+        started_ms: row.get(8)?,
+        ended_ms: row.get(9)?,
+        wall_ms: row.get(10)?,
+        turns: row.get(11)?,
+        tokens_in: row.get(12)?,
+        tokens_out: row.get(13)?,
+        tokens_cache_read: row.get(14)?,
+        tokens_cache_write: row.get(15)?,
+        exit: row.get(16)?,
+    })
+}
+
+fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
+    let sessions: String = row.get(1)?;
+    Ok(Task {
+        task_ref: row.get(0)?,
+        sessions: serde_json::from_str(&sessions).unwrap_or_default(),
+        wall_ms: row.get(2)?,
+        outcome: row.get(3)?,
+        landed_sha: row.get(4)?,
+        checks: row.get(5)?,
+        last_check_exit: row.get(6)?,
+        last_check_sha: row.get(7)?,
+    })
+}
+
+fn sha(text: &str) -> String {
+    Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn sql(error: rusqlite::Error) -> NorthError {
+    NorthError::State(format!("ledger: {error}"))
+}

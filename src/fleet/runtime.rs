@@ -5,8 +5,10 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 
 use super::model::{Account, LaunchRequest, ProviderName, Transcript};
+use super::turns::TurnSignal;
 
 pub struct HostSpec {
     pub key: String,
@@ -33,6 +35,7 @@ pub trait Runtime: Send + Sync {
     fn interrupt(&self, transcript: &Transcript) -> NorthResult<Vec<String>>;
     fn close(&self, transcript: &Transcript) -> Vec<String>;
     fn observe(&self, frame: &Value, transcript: &mut Transcript);
+    fn signals(&self, frame: &Value) -> Vec<TurnSignal>;
 }
 
 #[derive(Clone)]
@@ -97,4 +100,8 @@ pub fn labelled_homes(directory: &Path, prefix: &str, marker: &str) -> Vec<(Stri
         .collect();
     found.sort();
     found
+}
+
+pub fn now_ms() -> u64 {
+    u64::try_from(Timestamp::now().unix_millis()).unwrap_or(0)
 }

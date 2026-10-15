@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use crate::codex::chat_updates;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
+use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::fleet::runtime::{HostSpec, Opening, Runtime, binary, new_uuid, summarize};
 
 use super::accounts;
@@ -53,7 +54,7 @@ impl Runtime for Codex {
     }
 
     fn open(&self, name: &str, request: &LaunchRequest, opening: Opening) -> NorthResult<Vec<String>> {
-        let mut params = json!({"approvalPolicy": "never", "sandbox": "workspace-write"});
+        let mut params = json!({"approvalPolicy": "never", "sandbox": "danger-full-access"});
         if let Some(model) = &request.model {
             params["model"] = json!(model);
         }
@@ -116,6 +117,10 @@ impl Runtime for Codex {
             Some("error") => observe_error(params, transcript),
             _ => {}
         }
+    }
+
+    fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
+        turn_signals(frame)
     }
 }
 
@@ -186,6 +191,56 @@ fn observe_item(frame: &Value, transcript: &mut Transcript) {
     }
 }
 
+fn turn_signals(frame: &Value) -> Vec<TurnSignal> {
+    if frame["id"].as_str().is_some_and(|id| id.ends_with(":thread-open")) {
+        return opened(&frame["result"]).into_iter().collect();
+    }
+    let params = &frame["params"];
+    let Some(conversation) = params["threadId"].as_str().map(str::to_owned) else { return Vec::new() };
+    let signal = match frame["method"].as_str() {
+        Some("turn/started") => TurnSignal::Started { conversation },
+        Some("item/completed") if params["item"]["type"] == "userMessage" => TurnSignal::Prompt { conversation, text: message_text(&params["item"]) },
+        Some("thread/tokenUsage/updated") => TurnSignal::Usage { conversation, total: usage_tokens(&params["tokenUsage"]["total"]) },
+        Some("turn/completed") => TurnSignal::Ended {
+            conversation,
+            exit: turn_exit(params["turn"]["status"].as_str()),
+            totals: TurnTotals { wall_ms: params["turn"]["durationMs"].as_u64(), ..TurnTotals::default() },
+        },
+        _ => return Vec::new(),
+    };
+    vec![signal]
+}
+
+fn opened(result: &Value) -> Option<TurnSignal> {
+    Some(TurnSignal::Opened {
+        conversation: result["thread"]["id"].as_str()?.to_owned(),
+        model: result["model"].as_str().map(str::to_owned),
+        effort: result["reasoningEffort"].as_str().map(str::to_owned),
+    })
+}
+
+fn message_text(item: &Value) -> String {
+    item["content"].as_array().into_iter().flatten().filter_map(|part| part["text"].as_str()).collect::<Vec<_>>().join("\n")
+}
+
+fn usage_tokens(total: &Value) -> Tokens {
+    let count = |key: &str| total[key].as_u64().unwrap_or(0);
+    Tokens {
+        input: count("inputTokens").saturating_sub(count("cachedInputTokens")),
+        output: count("outputTokens"),
+        cache_read: count("cachedInputTokens"),
+        cache_write: count("cacheWriteInputTokens"),
+    }
+}
+
+fn turn_exit(status: Option<&str>) -> TurnExit {
+    match status {
+        Some("interrupted") => TurnExit::Interrupted,
+        Some("failed") => TurnExit::Failed,
+        _ => TurnExit::Completed,
+    }
+}
+
 fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
     if !text.is_empty() {
         transcript.entries.push(Entry { kind, text });
@@ -215,5 +270,53 @@ mod projection {
         let stranger = project("other");
         assert!(stranger.entries.is_empty());
         assert_eq!(stranger.conversation, None);
+    }
+}
+
+#[cfg(test)]
+mod turn_state {
+    use crate::fleet::turns::Turns;
+
+    use super::*;
+
+    fn request() -> LaunchRequest {
+        LaunchRequest {
+            name: "t".into(),
+            provider: Codex.provider(),
+            account: "pooled".into(),
+            cwd: PathBuf::from("/tmp"),
+            model: None,
+            prompt: String::new(),
+            system_prompt: None,
+            foreground_cap_secs: None,
+            idle_exit_minutes: None,
+            parent: None,
+            task_ref: None,
+        }
+    }
+
+    #[test]
+    fn threads_open_with_full_access_like_claude_sessions() {
+        for opening in [Opening::Fresh(None), Opening::Resume("th")] {
+            let frame: Value = serde_json::from_str(&Codex.open("t", &request(), opening).unwrap()[0]).unwrap();
+            assert_eq!(frame["params"]["sandbox"], "danger-full-access", "{opening:?}");
+        }
+    }
+
+    #[test]
+    fn cumulative_thread_usage_becomes_per_turn_tokens() {
+        let usage = |input: u64, cached: u64, output: u64| {
+            json!({"method": "thread/tokenUsage/updated", "params": {"threadId": "th", "tokenUsage": {"total": {"inputTokens": input, "cachedInputTokens": cached, "cacheWriteInputTokens": 0, "outputTokens": output}}}})
+        };
+        let started = json!({"method": "turn/started", "params": {"threadId": "th", "turn": {"id": "t2"}}});
+        let completed = json!({"method": "turn/completed", "params": {"threadId": "th", "turn": {"id": "t2", "status": "completed", "durationMs": 1822}}});
+        let mut turns = Turns::default();
+        let mut finished = Vec::new();
+        for frame in [usage(17156, 11008, 5), started, usage(38350, 27136, 10), completed] {
+            finished.extend(Codex.signals(&frame).into_iter().filter_map(|signal| turns.observe(signal, 0)));
+        }
+        let turn = &finished;
+        assert_eq!(turn.len(), 1);
+        assert_eq!((turn[0].tokens, turn[0].turns, turn[0].wall_ms), (Tokens { input: 5066, output: 5, cache_read: 16128, cache_write: 0 }, 1, 1822));
     }
 }

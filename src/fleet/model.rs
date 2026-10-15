@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::turns::{Turn, Turns};
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ProviderName(String);
@@ -35,6 +37,7 @@ pub struct LaunchRequest {
     pub foreground_cap_secs: Option<u64>,
     pub idle_exit_minutes: Option<u64>,
     pub parent: Option<String>,
+    pub task_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -61,6 +64,8 @@ pub struct SessionRecord {
     pub idle_exit_minutes: Option<u64>,
     #[serde(default)]
     pub parent: Option<String>,
+    #[serde(default)]
+    pub task_ref: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -115,10 +120,21 @@ pub struct Transcript {
     pub conversation: Option<String>,
     pub last_activity_ms: Option<u64>,
     pub active_turn: Option<String>,
+    pub turns: Vec<Turn>,
+    pub tracker: Turns,
 }
 
 impl Transcript {
     pub fn new() -> Self {
-        Self { name: String::new(), status: Status::Starting, entries: Vec::new(), conversation: None, last_activity_ms: None, active_turn: None }
+        Self {
+            name: String::new(),
+            status: Status::Starting,
+            entries: Vec::new(),
+            conversation: None,
+            last_activity_ms: None,
+            active_turn: None,
+            turns: Vec::new(),
+            tracker: Turns::default(),
+        }
     }
 }

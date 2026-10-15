@@ -9,6 +9,7 @@ use crate::{
 };
 
 mod fleet;
+mod ledger;
 #[cfg(test)]
 mod tests;
 
@@ -21,6 +22,7 @@ enum Command {
     Hook(Vec<String>),
     Threads(Vec<String>),
     Fleet(Vec<String>),
+    Ledger(Vec<String>),
     Agents(Vec<String>),
     Work(Vec<String>),
     SessionHost(Vec<String>),
@@ -57,6 +59,8 @@ Commands:
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   threads ARGV                                  Run a NorthThreads command on the ledger host
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
+  ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
+  task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   help                                          Show this help
 
@@ -106,6 +110,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "hook" => Command::Hook(rest),
         "threads" => Command::Threads(rest),
         "fleet" => Command::Fleet(rest),
+        "ledger" | "task" => Command::Ledger([vec![command.to_owned()], rest].concat()),
         "work" => Command::Work(rest),
         "session-host" => Command::SessionHost(rest),
         "dep-gate" => Command::DepGate(rest),
@@ -143,6 +148,7 @@ fn dispatch(command: Command) -> ExitCode {
         },
         Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
+        Command::Ledger(arguments) => ledger::run(&arguments),
         Command::Help => in_runtime(async {
             println!("{CLI_HELP}");
             Ok(ExitCode::SUCCESS)
@@ -154,7 +160,7 @@ fn dispatch(command: Command) -> ExitCode {
             work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS)
         }),
         Command::SessionHost(arguments) => in_runtime(async move {
-            session_host::run(&arguments).await.map(ExitCode::from)
+            session_host::run(&arguments, fleet::host_watch).await.map(ExitCode::from)
         }),
         Command::DepGate(arguments) => in_runtime(async move { Ok(ExitCode::from(dep_gate::run(&arguments))) }),
         Command::AutolandStatus(arguments) => in_runtime(async move { Ok(ExitCode::from(autoland_status::run(&arguments))) }),

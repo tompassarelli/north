@@ -24,7 +24,7 @@ pub const STDIN_BLOCKED: &str = r#"{"error":"stdin-blocked"}"#;
 pub const STDIN_CLOSED: &str = r#"{"error":"stdin-closed"}"#;
 pub const INVALID_FRAME: &str = r#"{"error":"invalid-frame"}"#;
 
-const USAGE: &str = "Usage: north session-host --name NAME --generation N --state-dir DIR [--socket PATH] [--idle-exit SECS] \
+const USAGE: &str = "Usage: north session-host --name NAME --generation N --state-dir DIR [--socket PATH] [--idle-exit SECS] [--provider NAME] \
      -- RUNTIME [ARG...]";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,6 +34,7 @@ pub struct HostConfig {
     pub state_dir: PathBuf,
     pub socket: Option<PathBuf>,
     pub idle_exit: Option<Duration>,
+    pub provider: Option<String>,
     pub runtime: Vec<String>,
 }
 
@@ -41,6 +42,7 @@ impl HostConfig {
     pub fn parse(arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(USAGE.into());
         let (mut name, mut generation, mut state_dir, mut socket, mut idle_exit) = (None, None, None, None, None);
+        let mut provider = None;
         let mut index = 0;
         while index < arguments.len() {
             let flag = arguments[index].as_str();
@@ -55,6 +57,7 @@ impl HostConfig {
                 }
                 "--state-dir" if state_dir.is_none() => state_dir = Some(PathBuf::from(value)),
                 "--socket" if socket.is_none() => socket = Some(PathBuf::from(value)),
+                "--provider" if provider.is_none() => provider = Some(value.clone()),
                 "--idle-exit" if idle_exit.is_none() => {
                     let seconds = value.parse::<u64>().map_err(|_| usage())?;
                     idle_exit = Some((seconds > 0).then(|| Duration::from_secs(seconds)));
@@ -71,6 +74,7 @@ impl HostConfig {
                 state_dir,
                 socket,
                 idle_exit: idle_exit.flatten(),
+                provider,
                 runtime,
             }),
             _ => Err(usage()),
@@ -159,6 +163,40 @@ fn is_control(line: &str) -> bool {
         .is_ok_and(|frame| frame.get("type").and_then(|kind| kind.as_str()) == Some("control_request"))
 }
 
+pub trait FrameWatch: Send {
+    fn line(&mut self, line: &[u8]);
+    fn in_flight(&self) -> bool;
+    fn close(&mut self);
+}
+
+#[derive(Clone, Default)]
+pub struct Watcher(Option<Arc<Mutex<Box<dyn FrameWatch>>>>);
+
+impl Watcher {
+    pub fn new(watch: Box<dyn FrameWatch>) -> Self {
+        Self(Some(Arc::new(Mutex::new(watch))))
+    }
+
+    fn with<T>(&self, idle: T, act: impl FnOnce(&mut Box<dyn FrameWatch>) -> T) -> T {
+        match &self.0 {
+            Some(watch) => act(&mut watch.lock().unwrap_or_else(|poisoned| poisoned.into_inner())),
+            None => idle,
+        }
+    }
+
+    fn lines(&self, bytes: &[u8]) {
+        self.with((), |watch| bytes.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).for_each(|line| watch.line(line)));
+    }
+
+    fn in_flight(&self) -> bool {
+        self.with(false, |watch| watch.in_flight())
+    }
+
+    fn close(&self) {
+        self.with((), |watch| watch.close());
+    }
+}
+
 pub struct SessionHost {
     pub stdin: StdinQueue,
     child: Child,
@@ -166,10 +204,17 @@ pub struct SessionHost {
     stdout: JoinHandle<io::Result<()>>,
     stderr: JoinHandle<io::Result<()>>,
     server: Option<JoinHandle<()>>,
+    parking: Option<JoinHandle<()>>,
+    watcher: Watcher,
 }
 
 impl SessionHost {
+    #[cfg(test)]
     pub fn spawn(config: &HostConfig) -> NorthResult<Self> {
+        Self::spawn_watched(config, Watcher::default())
+    }
+
+    pub fn spawn_watched(config: &HostConfig, watcher: Watcher) -> NorthResult<Self> {
         let directory = config.generation_dir();
         fs::create_dir_all(&directory)?;
         let stream = append(&directory.join("stream.jsonl"))?;
@@ -191,9 +236,11 @@ impl SessionHost {
             stdin: StdinQueue { control, user, next: Arc::default(), activity: activity.clone() },
             child,
             writer: tokio::spawn(feed_stdin(input, priority, lines)),
-            stdout: tokio::spawn(copy_lines(output, stream, activity)),
+            stdout: tokio::spawn(copy_lines(output, stream, activity, watcher.clone())),
             stderr: tokio::spawn(copy_rotating(errors, log, STDERR_ROTATE_BYTES)),
             server: None,
+            parking: None,
+            watcher,
         })
     }
 
@@ -201,16 +248,22 @@ impl SessionHost {
         self.server = Some(tokio::spawn(accept_clients(listener, self.stdin.clone())));
     }
 
+    pub fn park_when_idle(&mut self, limit: Duration) {
+        let parked = exit_when_idle(self.stdin.activity.clone(), self.watcher.clone(), limit, self.child.id());
+        self.parking = Some(tokio::spawn(parked));
+    }
+
     pub async fn wait(self) -> NorthResult<u8> {
-        let Self { stdin, mut child, writer, stdout, stderr, server } = self;
+        let Self { stdin, mut child, writer, stdout, stderr, server, parking, watcher } = self;
         drop(stdin);
         let status = child.wait().await?;
-        if let Some(server) = server {
-            server.abort();
+        for task in [server, parking].into_iter().flatten() {
+            task.abort();
         }
         writer.abort();
         let _ = writer.await;
         let drained = (stdout.await, stderr.await);
+        watcher.close();
         for result in [drained.0, drained.1] {
             result.map_err(|error| NorthError::State(format!("pipe task failed: {error}")))??;
         }
@@ -226,24 +279,24 @@ pub fn exit_code(status: ExitStatus) -> u8 {
     }
 }
 
-pub async fn run(arguments: &[String]) -> NorthResult<u8> {
+pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Option<Box<dyn FrameWatch>>) -> NorthResult<u8> {
     let config = HostConfig::parse(arguments)?;
     let socket = config.socket_path()?;
     let listener = bind(&socket)?;
-    let mut host = SessionHost::spawn(&config)?;
+    let watcher = watch_for(&config).map(Watcher::new).unwrap_or_default();
+    let mut host = SessionHost::spawn_watched(&config, watcher)?;
     host.serve(listener);
-    let watch = config.idle_exit.map(|limit| tokio::spawn(exit_when_idle(host.stdin.activity.clone(), limit, host.child.id())));
-    let code = host.wait().await;
-    if let Some(watch) = watch {
-        watch.abort();
+    if let Some(limit) = config.idle_exit {
+        host.park_when_idle(limit);
     }
+    let code = host.wait().await;
     let _ = fs::remove_file(&socket);
     code
 }
 
-async fn exit_when_idle(activity: Activity, limit: Duration, child: Option<u32>) {
+async fn exit_when_idle(activity: Activity, watcher: Watcher, limit: Duration, child: Option<u32>) {
     let tick = (limit / 4).min(Duration::from_secs(5));
-    while activity.idle_for() < limit {
+    while watcher.in_flight() || activity.idle_for() < limit {
         tokio::time::sleep(tick).await;
     }
     if let Some(pid) = child.and_then(|pid| i32::try_from(pid).ok()).and_then(rustix::process::Pid::from_raw) {
@@ -378,7 +431,7 @@ async fn write_frame(input: &mut ChildStdin, Frame { mut line, reply }: Frame) -
     }
 }
 
-async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File, activity: Activity) -> io::Result<()> {
+async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File, activity: Activity, watcher: Watcher) -> io::Result<()> {
     let mut pending = Vec::new();
     let mut chunk = vec![0; 64 * 1024];
     loop {
@@ -388,6 +441,7 @@ async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File, activity
             if !pending.is_empty() {
                 pending.push(b'\n');
                 file.write_all(&pending)?;
+                watcher.lines(&pending);
             }
             return Ok(());
         }
@@ -396,6 +450,7 @@ async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File, activity
         if let Some(position) = pending[start..].iter().rposition(|byte| *byte == b'\n') {
             let complete = start + position + 1;
             file.write_all(&pending[..complete])?;
+            watcher.lines(&pending[..complete]);
             pending.drain(..complete);
         }
     }
@@ -436,6 +491,7 @@ mod child {
             state_dir: root.to_path_buf(),
             socket: None,
             idle_exit: None,
+            provider: None,
             runtime: vec!["sh".into(), "-c".into(), script.into()],
         }
     }
@@ -551,6 +607,7 @@ mod socket {
             state_dir: root.to_path_buf(),
             socket: Some(root.join("lead-g1.sock")),
             idle_exit: None,
+            provider: None,
             runtime: vec!["sh".into(), "-c".into(), script.into()],
         };
         let path = config.socket_path().unwrap();
@@ -707,6 +764,7 @@ mod fake {
             state_dir: root.path().to_path_buf(),
             socket: None,
             idle_exit: None,
+            provider: None,
             runtime,
         })
         .unwrap();

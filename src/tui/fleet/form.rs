@@ -190,6 +190,7 @@ impl LaunchForm {
             foreground_cap_secs: None,
             idle_exit_minutes: None,
             parent: None,
+            task_ref: None,
         })
     }
 }

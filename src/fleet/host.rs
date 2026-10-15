@@ -9,6 +9,7 @@ use rustix::process::{Pid, Signal, kill_process_group, test_kill_process};
 
 use crate::error::{NorthError, NorthResult};
 
+use super::model::ProviderName;
 use super::runtime::{HostSpec, binary};
 
 const SOCKET_WAIT: Duration = Duration::from_secs(10);
@@ -33,7 +34,7 @@ impl Host {
         self.pid().is_some_and(alive)
     }
 
-    pub fn start(&self, spec: &HostSpec, idle_exit: Option<Duration>) -> NorthResult<u32> {
+    pub fn start(&self, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>) -> NorthResult<u32> {
         fs::create_dir_all(&self.dir)?;
         let socket = self.socket();
         let _ = fs::remove_file(&socket);
@@ -46,6 +47,7 @@ impl Host {
             .arg(&socket)
             .arg("--idle-exit")
             .arg(idle_exit.map_or(0, |limit| limit.as_secs()).to_string())
+            .args(["--provider", provider.label()])
             .arg("--")
             .args(&spec.argv)
             .current_dir(&spec.cwd)
