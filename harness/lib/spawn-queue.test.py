@@ -254,6 +254,28 @@ spawn.main([sys.argv[1]])
         self.assertEqual(self.launch.call_count, 1)
         fcntl.flock(holder, fcntl.LOCK_UN)
 
+    def test_release_deadline_stops_slow_probes_and_keeps_remaining_jobs_queued(self):
+        spawn = self.spawn
+        jobs = [self.queued(ident) for ident in ("111111111111", "222222222222")]
+        def probe(*args, **kwargs):
+            time.sleep(0.35)
+            return subprocess.CompletedProcess(args[0], 0, '{"state":"unavailable"}')
+        def place(*args):
+            return {"kind": "queued", "reason": spawn.placement.laptop_state()}
+        with patch.dict(os.environ):
+            os.environ.pop("LAPTOP_STATE", None)
+            with patch.object(spawn.placement, "place_spawn", side_effect=place), \
+                    patch.object(spawn.placement.subprocess, "run", side_effect=probe) as probes:
+                began = time.monotonic()
+                result = spawn.release(wait=0.1)
+                elapsed = time.monotonic() - began
+        self.assertEqual(result, 2)
+        self.assertLess(elapsed, 0.2)
+        self.assertEqual(probes.call_count, 1)
+        self.launch.assert_not_called()
+        self.assertEqual([job["spawn_id"] for job in spawn.spawn_queue.read(self.state, 0)],
+                         [job["spawn_id"] for job in jobs])
+
     def test_dead_unstarted_owner_queues_once_and_reports_to_proxy(self):
         import events
         spawn = self.spawn

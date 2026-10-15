@@ -20,6 +20,10 @@ from defaults import DEFAULTS
 from usage import local_account
 
 
+class ReleaseDeadline(BaseException):
+    pass
+
+
 @contextmanager
 def registry_until(deadline=None):
     registry = org.Org()
@@ -262,7 +266,7 @@ def release(wait=5):
         return 0
 
     def timeout(*_):
-        raise TimeoutError("spawn release deadline reached")
+        raise ReleaseDeadline("spawn release deadline reached; remaining jobs still queued")
 
     previous = signal.signal(signal.SIGALRM, timeout)
     timer = signal.setitimer(signal.ITIMER_REAL, wait)
@@ -304,7 +308,7 @@ def release(wait=5):
                 except (Exception, SystemExit) as error:
                     print(f"agents spawn release: {job['spawn_id']}: {error}", file=sys.stderr)
         return 0
-    except (TimeoutError, OSError, ValueError, AttributeError) as error:
+    except (ReleaseDeadline, TimeoutError, OSError, ValueError, AttributeError) as error:
         print(f"agents spawn release: {error}", file=sys.stderr)
         return 2
     finally:
