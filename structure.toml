@@ -33,6 +33,10 @@ paths = ["src/foundation/**", "src/error.rs", "src/usage.rs"]
 responsibility = "Error type, clock port and time values, identifiers."
 may_use = []
 
+[[generated]]
+paths = ["harness/skills/machine-capacity/scripts/machine-capacity.mjs"]
+producer = "harness/skills/machine-capacity/scripts/build-machine-capacity"
+
 [[module]]
 name = "platform"
 paths = ["src/platform/**", "src/local_store.rs", "src/pyjson.rs"]
