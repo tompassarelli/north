@@ -34,7 +34,7 @@ def rows(text):
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
-def collect(args):
+def collect(args, now):
     proposals, sources = [], []
     for label, command, suffix in (
         ("defaults", args.defaults_command, []),
@@ -44,7 +44,8 @@ def collect(args):
             sources.append({"source": label, "status": "absent"})
             continue
         try:
-            proposals.extend(dict(row, dimension=row.get("dimension") or row.get("report") or label)
+            proposals.extend({"produced_at": now.isoformat(), **row,
+                              "dimension": row.get("dimension") or row.get("report") or label}
                              for row in rows(run(shlex.split(command) + suffix, args.repo)))
             sources.append({"source": label, "status": "read"})
         except FileNotFoundError:
@@ -64,13 +65,25 @@ def collect(args):
     return proposals, sources
 
 
-def judgment(row, minimum):
+def judgment(row, minimum, now):
     if row.get("eligible") is not True:
         return "ineligible", row.get("reason") or "owner did not authorize adoption"
     if (row.get("report") == "W5" or row.get("dimension") == "W5") and row.get("default") != "eta_min_samples":
         return "ineligible", "W5 only automates eta_min_samples"
     if not all(key in row for key in ("default", "dimension", "current", "proposed")):
         return "waited", "insufficient evidence: proposal fields missing"
+    try:
+        held_out = stamp(row["since"]) >= stamp(row["train_until"])
+    except (KeyError, ValueError, TypeError, AttributeError):
+        held_out = False
+    if not held_out:
+        return "waited", "in-sample evidence: evaluation window must start at or after train_until"
+    try:
+        recent = now - timedelta(days=7) <= stamp(row["produced_at"]) <= now
+    except (KeyError, ValueError, TypeError, AttributeError):
+        recent = False
+    if not recent:
+        return "waited", "stale evidence: not produced within the last 7 days"
     n = row.get("n")
     if type(n) is not int or n < minimum:
         return "waited", "insufficient evidence"
@@ -145,82 +158,114 @@ def history(path):
                 elif row["verdict"] in ("reverted", "kept"):
                     active.pop(key, None)
                     if row["verdict"] == "reverted":
-                        reverted[(key, json.dumps(row["proposed"], sort_keys=True))] = row["n"]
+                        reverted[(key, json.dumps(row["proposed"], sort_keys=True))] = max(row["n"], row.get("trial_n", 0))
     return active, reverted
+
+
+def oriented(row, trial):
+    if (row.get("default"), row.get("dimension")) != (trial["default"], trial["dimension"]):
+        return None
+    if (row.get("current"), row.get("proposed")) == (trial["current"], trial["proposed"]):
+        return row
+    if (row.get("current"), row.get("proposed")) != (trial["proposed"], trial["current"]):
+        return None
+    flipped = dict(row, current=row["proposed"], proposed=row["current"],
+                   score_current=row.get("score_proposed"), score_proposed=row.get("score_current"))
+    low, high = row.get("ci_low"), row.get("ci_high")
+    if type(low) in (int, float) and type(high) in (int, float):
+        flipped.update(ci_low=-high, ci_high=-low)
+    return flipped
+
+
+def attempt(args, row, now, revert=False):
+    try:
+        return land(args, row, now, revert), None
+    except ValueError as error:
+        return None, ("waited", str(error))
+    except Exception as error:
+        return None, ("failed", f"{type(error).__name__}: {error}")
 
 
 def cycle(args):
     now = stamp(args.now) if args.now else datetime.now(timezone.utc)
     minimum = DEFAULTS["learn_min_n"]
-    active, reverted = history(args.state / "cycles.jsonl")
-    proposals, sources = collect(args)
-    verdicts, changed = [], set()
-    for name, trial in active.copy().items():
-        result = dict(trial, action="rejudge", verdict="waited", reason="awaiting fresh post-landing evidence")
-        if trial["dimension"] in changed:
-            result["reason"] = "dimension already changed this cycle"
-        elif stamp(trial["landed_at"]).date() < now.date():
-            for row in proposals:
-                if (row.get("default"), row.get("current"), row.get("proposed"), row.get("dimension")) != (
-                        name, trial["current"], trial["proposed"], trial["dimension"]):
-                    continue
-                try:
-                    if not stamp(trial["landed_at"]) <= stamp(row.get("since", "")) <= now:
+    verdicts, sources = [], []
+    try:
+        active, reverted = history(args.state / "cycles.jsonl")
+        proposals, sources = collect(args, now)
+        changed = set()
+        for name, trial in active.copy().items():
+            result = dict(trial, action="rejudge", verdict="waited", reason="awaiting fresh post-landing evidence")
+            if trial["dimension"] in changed:
+                result["reason"] = "dimension already changed this cycle"
+            elif stamp(trial["landed_at"]).date() < now.date():
+                for candidate in proposals:
+                    row = oriented(candidate, trial)
+                    if row is None:
                         continue
-                except (ValueError, TypeError):
-                    continue
-                verdict, reason = judgment(row, minimum)
-                result = dict(row, action="rejudge", trial_sha=trial["sha"], verdict="waited", reason=reason)
-                if verdict in ("won", "rejected"):
+                    try:
+                        if not stamp(trial["landed_at"]) <= stamp(row.get("since", "")) <= now:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+                    verdict, reason = judgment(row, minimum, now)
+                    result = dict(row, action="rejudge", trial_sha=trial["sha"], trial_n=trial["n"],
+                                  verdict="waited", reason=reason)
                     if verdict == "rejected":
-                        result.update(sha=land(args, row, now, revert=True), verdict="reverted")
-                        reverted[(name, json.dumps(row["proposed"], sort_keys=True))] = row["n"]
-                        changed.add(row["dimension"])
-                    else:
+                        sha, failure = attempt(args, row, now, revert=True)
+                        if failure:
+                            result["verdict"], result["reason"] = failure
+                        else:
+                            result.update(sha=sha, verdict="reverted")
+                            reverted[(name, json.dumps(row["proposed"], sort_keys=True))] = max(row["n"], trial["n"])
+                            changed.add(row["dimension"])
+                            active.pop(name)
+                        break
+                    if verdict == "won":
                         result["verdict"] = "kept"
-                    active.pop(name)
-                    break
-        verdicts.append(result)
-    for row in proposals:
-        result = dict(row, action="propose")
-        verdict, reason = judgment(row, minimum)
-        name, dimension = row.get("default"), row.get("dimension")
-        if verdict != "ineligible" and name in active:
-            verdict, reason = "waited", "knob has an active trial"
-        if verdict == "won":
-            previous = reverted.get((name, json.dumps(row.get("proposed"), sort_keys=True)))
-            if dimension in changed:
-                verdict, reason = "waited", "dimension already changed this cycle"
-            elif previous is not None and row["n"] < previous + minimum:
-                verdict, reason = "waited", "reverted value needs more evidence"
-            elif row.get("current") == row.get("proposed"):
-                verdict, reason = "waited", "unchanged value"
-            else:
-                try:
-                    sha = land(args, row, now)
-                except ValueError as error:
-                    verdict, reason = "waited", str(error)
+                        active.pop(name)
+                        break
+            verdicts.append(result)
+        for row in proposals:
+            result = dict(row, action="propose")
+            verdict, reason = judgment(row, minimum, now)
+            name, dimension = row.get("default"), row.get("dimension")
+            if verdict != "ineligible" and name in active:
+                verdict, reason = "waited", "knob has an active trial"
+            if verdict == "won":
+                previous = reverted.get((name, json.dumps(row.get("proposed"), sort_keys=True)))
+                if dimension in changed:
+                    verdict, reason = "waited", "dimension already changed this cycle"
+                elif previous is not None and row["n"] < previous + minimum:
+                    verdict, reason = "waited", "reverted value needs more evidence"
+                elif row.get("current") == row.get("proposed"):
+                    verdict, reason = "waited", "unchanged value"
                 else:
-                    result.update(sha=sha, landed_at=datetime.now(timezone.utc).isoformat())
-                    verdict = "landed"
-                    changed.add(dimension)
-                    active[name] = result
-        result.update(verdict=verdict, reason=reason)
-        verdicts.append(result)
-    record = {"time": now.isoformat(), "learn_after_landings": DEFAULTS["learn_after_landings"],
-              "sources": sources, "proposals": verdicts}
-    with (args.state / "cycles.jsonl").open("a") as stream:
-        stream.write(json.dumps(record, allow_nan=False) + "\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    body = " | ".join(
-        f"{row.get('dimension')}: {row.get('default')} {row.get('current')}->{row.get('proposed')} "
-        + (f"{row['verdict']} {row['sha']}" if row["verdict"] in ("landed", "reverted") else
-           f"{row['verdict']} (n={row.get('n')}, score={row.get('score_current')}->{row.get('score_proposed')}, "
-           f"ci=[{row.get('ci_low')}, {row.get('ci_high')}]; {row['reason']})")
-        for row in verdicts) or "nothing judged"
-    run([args.agents, "event", "LEARN", "--from-node", "harness-learn", "--to-node", "proxy", "--body", body])
-    print(body)
+                    sha, failure = attempt(args, row, now)
+                    if failure:
+                        verdict, reason = failure
+                    else:
+                        result.update(sha=sha, landed_at=datetime.now(timezone.utc).isoformat())
+                        verdict = "landed"
+                        changed.add(dimension)
+                        active[name] = result
+            result.update(verdict=verdict, reason=reason)
+            verdicts.append(result)
+    finally:
+        record = {"time": now.isoformat(), "learn_after_landings": DEFAULTS["learn_after_landings"],
+                  "sources": sources, "proposals": verdicts}
+        with (args.state / "cycles.jsonl").open("a") as stream:
+            stream.write(json.dumps(record, allow_nan=False, default=str) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        body = " | ".join(
+            f"{row.get('dimension')}: {row.get('default')} {row.get('current')}->{row.get('proposed')} "
+            + (f"{row['verdict']} {row['sha']}" if row["verdict"] in ("landed", "reverted") else
+               f"{row['verdict']} (n={row.get('n')}, score={row.get('score_current')}->{row.get('score_proposed')}, "
+               f"ci=[{row.get('ci_low')}, {row.get('ci_high')}]; {row['reason']})")
+            for row in verdicts) or "nothing judged"
+        run([args.agents, "event", "LEARN", "--from-node", "harness-learn", "--to-node", "proxy", "--body", body])
+        print(body)
 
 
 def main():
@@ -239,14 +284,18 @@ def main():
     ledger = Path(os.environ.get("THREADS_DB", Path.home() / ".local/state/threads/threads.db"))
     now = stamp(args.now) if args.now else datetime.now(timezone.utc)
     if args.defaults_command is None and defaults_source.exists() and ledger.exists() and "--propose" in defaults_source.read_text():
+        window = (now - timedelta(days=7)).isoformat()
         args.defaults_command = shlex.join([sys.executable, str(defaults_source), str(ledger), "--propose",
-                                           "--train-until", now.isoformat(), "--since", (now - timedelta(days=7)).isoformat(), "--json"])
+                                           "--train-until", window, "--since", window, "--json"])
     pace_source = args.repo / "harness/lib/pace_replay.py"
     if args.pace_command is None and pace_source.exists():
         args.pace_command = shlex.join([sys.executable, str(pace_source)])
     args.state.mkdir(parents=True, exist_ok=True)
     with (args.state / "cycle.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
         cycle(args)
 
 

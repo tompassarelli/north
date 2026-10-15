@@ -57,12 +57,15 @@ class LearningCycle(unittest.TestCase):
             (state / "proposals").mkdir()
             fixture = state / "proposals" / "ETA.jsonl"
             current = registry["eta_min_samples"]["value"]
-            tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+            today = datetime.now(timezone.utc)
+            tomorrow = (today + timedelta(days=1)).isoformat()
 
             def proposal(**changes):
                 return dict({"dimension": "ETA", "default": "eta_min_samples", "current": current,
                              "proposed": current + 1, "n": 30, "score_current": 0.8, "score_proposed": 0.9,
-                             "ci_low": 0.02, "ci_high": 0.18, "eligible": True, "reason": "paired held-out fixture"},
+                             "ci_low": 0.02, "ci_high": 0.18, "eligible": True, "reason": "paired held-out fixture",
+                             "train_until": (today - timedelta(days=8)).isoformat(),
+                             "since": (today - timedelta(days=7)).isoformat(), "produced_at": today.isoformat()},
                             **changes)
 
             def execute(proposals, now=None, extra=()):
@@ -123,17 +126,48 @@ class LearningCycle(unittest.TestCase):
             supplied = execute([], tomorrow, ["--defaults-command", f"{sys.executable} {source}",
                                                "--pace-command", str(root / "missing")])
             self.assertEqual(supplied[0]["verdict"], "ineligible")
+            in_sample = proposal(dimension="B1", default="eta_coverage", train_until=today.isoformat())
+            self.assertEqual(execute([in_sample], tomorrow)[0]["reason"],
+                             "in-sample evidence: evaluation window must start at or after train_until")
+            stale = proposal(dimension="B1", default="eta_coverage", produced_at=(today - timedelta(days=9)).isoformat())
+            self.assertEqual(execute([stale], tomorrow)[0]["reason"], "stale evidence: not produced within the last 7 days")
+            standing = proposal(current=current + 1, proposed=current + 2, n=56)
+            relanded = execute([standing])[0]
+            self.assertEqual(relanded["verdict"], "landed")
+            reversed_loss = proposal(current=current + 2, proposed=current + 1, n=20, since=relanded["landed_at"],
+                                     score_current=0.7, score_proposed=0.9, ci_low=0.05, ci_high=0.3)
+            flipped = execute([reversed_loss], tomorrow)[0]
+            self.assertEqual((flipped["verdict"], flipped["current"], flipped["proposed"], flipped["ci_low"], flipped["ci_high"]),
+                             ("reverted", current + 1, current + 2, -0.3, -0.05))
+            self.assertEqual(tomllib.loads(command("git", "show", "origin/main:harness/defaults.toml"))["eta_min_samples"]["value"],
+                             current + 1)
+            self.assertEqual(execute([standing], tomorrow)[0]["reason"], "reverted value needs more evidence")
+            failing = root / "failing-safe-push"
+            failing.write_text("#!/usr/bin/env bash\ngit log -1 --format=%s | grep -q eta_coverage && exit 1\nexec "
+                               + str(ROOT / "bin/safe-push") + ' "$@"\n')
+            failing.chmod(0o755)
+            before_failure = command("git", "rev-parse", "origin/main")
+            partial = execute([proposal(current=current + 1, proposed=current + 3),
+                               proposal(dimension="B1", default="eta_coverage", current=registry["eta_coverage"]["value"], proposed=0.8)],
+                              None, ["--safe-push", failing])
+            self.assertEqual([row["verdict"] for row in partial], ["landed", "failed"])
+            self.assertIn("RuntimeError", partial[1]["reason"])
+            body = json.loads(events.read_text().splitlines()[-1])[-1]
+            self.assertIn(f"landed {partial[0]['sha']}", body)
+            self.assertIn("failed (", body)
+            self.assertEqual(command("git", "rev-list", "--count", f"{before_failure}..origin/main"), "1")
+            self.assertEqual(execute([proposal(current=current + 1, proposed=current + 3)], tomorrow)[1]["reason"],
+                             "knob has an active trial")
+            cycles = len((state / "cycles.jsonl").read_text().splitlines())
             with (state / "cycle.lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
-                process = subprocess.Popen([sys.executable, SCRIPT, "--repo", str(repo), "--state", str(state),
-                                            "--agents", str(agents)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
-                    with self.assertRaises(subprocess.TimeoutExpired):
-                        process.communicate(timeout=0.2)
+                    process = subprocess.run([sys.executable, SCRIPT, "--repo", str(repo), "--state", str(state),
+                                              "--agents", str(agents)], env=env, capture_output=True, text=True, timeout=10)
                 finally:
                     fcntl.flock(lock, fcntl.LOCK_UN)
-                    stdout, stderr = process.communicate(timeout=10)
-                self.assertEqual(process.returncode, 0, stderr.decode())
+                self.assertEqual((process.returncode, process.stdout, process.stderr), (0, "", ""))
+            self.assertEqual(len((state / "cycles.jsonl").read_text().splitlines()), cycles)
             self.assertEqual(command("git", "status", "--porcelain"), "")
             self.assertEqual(len(command("git", "worktree", "list").splitlines()), 1)
             self.assertEqual(command("git", "branch", "--list", "harness-learn-*"), "")
@@ -142,7 +176,7 @@ class LearningCycle(unittest.TestCase):
             pending = json.loads(command(ROOT / "bin/agents", "event", "list"))
             self.assertEqual([(row["kind"], row["body"]) for row in pending if row["id"] == published["id"]],
                              [("LEARN", "fixture cycle")])
-            print("PASS scratch bare origin: gain-only adoption, dimension/trial limits, fresh CI reversion, evidence growth, one LEARN per cycle, shared lock, cleanup")
+            print("PASS scratch bare origin: gain-only adoption, dimension/trial limits, fresh CI reversion, evidence growth, one LEARN per cycle, held-out and recent evidence, reversed re-judge rows, failed landings recorded, non-blocking lock, cleanup")
 
 
 if __name__ == "__main__":
