@@ -2,6 +2,7 @@ mod agent_catalog;
 mod dep_gate;
 mod claude_stream;
 mod language_gate;
+mod contract_probe;
 mod north_state;
 mod menu;
 mod state_core;
@@ -78,6 +79,7 @@ enum NorthCommand {
     DepGate(Vec<String>),
     LanguageGate(Vec<String>),
     GuardLanguage,
+    ContractProbe(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — interactive coding workspace
@@ -93,6 +95,7 @@ Commands:
   config agents [sync|status|on|off|path|inspect]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
+  contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   help                                          Show this help
 
 Options:
@@ -130,6 +133,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Nor
     }
     if arguments == ["guard", "language"] {
         return Ok(NorthCommand::GuardLanguage);
+    }
+    if arguments[0] == "contract-probe" {
+        return Ok(NorthCommand::ContractProbe(arguments[1..].to_vec()));
     }
     let kind = if arguments[0].starts_with('-') {
         "option"
@@ -1924,6 +1930,9 @@ async fn run_cli() -> NorthResult<ExitCode> {
         NorthCommand::DepGate(arguments) => return Ok(ExitCode::from(dep_gate::run(&arguments))),
         NorthCommand::LanguageGate(arguments) => return Ok(language_gate::run_gate(&arguments)),
         NorthCommand::GuardLanguage => return Ok(language_gate::run_guard()),
+        NorthCommand::ContractProbe(arguments) => {
+            return contract_probe::run(&arguments).await.map(ExitCode::from);
+        }
         NorthCommand::Tui => None,
         NorthCommand::Resume(conversation) => Some(conversation),
     };
@@ -1943,6 +1952,7 @@ mod command_tests {
             "work",
             "session-host",
             "dep-gate",
+            "contract-probe",
             "--resume",
             "-h",
             "--help",
@@ -1978,6 +1988,9 @@ mod command_tests {
                     }
                     [gate, rest @ ..] if gate == "dep-gate" => {
                         Some(NorthCommand::DepGate(rest.to_vec()))
+                    }
+                    [probe, rest @ ..] if probe == "contract-probe" => {
+                        Some(NorthCommand::ContractProbe(rest.to_vec()))
                     }
                     _ => None,
                 };
