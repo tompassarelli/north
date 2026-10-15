@@ -8,7 +8,11 @@ def ssh_argv(*arguments):
     route = ["-F", str(profile)] if configured is not None or profile.is_file() else []
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     reuse = []
-    if runtime and os.path.isabs(runtime):
+    explicit = any(arg.startswith("-S") or
+                   (arguments[i + 1] if arg == "-o" and i + 1 < len(arguments) else arg[2:] if arg.startswith("-o") else "")
+                   .split("=", 1)[0].strip().lower() in ("controlmaster", "controlpath")
+                   for i, arg in enumerate(arguments))
+    if runtime and os.path.isabs(runtime) and not explicit and len(os.fsencode(runtime + "/north-ssh-" + "0" * 40)) + 20 <= 107:
         reuse = ["-o", "ControlMaster=auto", "-o", f"ControlPath={runtime}/north-ssh-%C",
                  "-o", "ControlPersist=10m", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"]
     return ["ssh", *route, *reuse, *arguments]

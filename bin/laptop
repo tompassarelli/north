@@ -293,8 +293,11 @@ def forward(argv):
     env = [f"{k}={os.environ[k]}" for k in FORWARD_ENV if os.environ.get(k)]
     if not any(e.startswith("LAPTOP_BY=") for e in env):
         env.append(f"LAPTOP_BY={os.environ.get('USER', 'unknown')}@{socket.gethostname()}")
-    r = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                                shlex.join(["env", *env, "laptop", *argv])))
+    try:
+        r = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                                    shlex.join(["env", *env, "laptop", *argv])), timeout=20)
+    except subprocess.TimeoutExpired:
+        die(f"{dest} timed out; remote outcome unknown", code=124)
     sys.exit(r.returncode)
 
 

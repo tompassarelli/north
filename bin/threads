@@ -2273,8 +2273,11 @@ def refresh_snapshot(dest, force=False, snapshot=SNAPSHOT):
     """Keep a local copy of the remote ledger for reads while the remote is unreachable."""
     if not force and os.path.exists(snapshot) and time.time() - os.path.getmtime(snapshot) < SNAPSHOT_SECONDS:
         return
-    r = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                               "threads snapshot"), capture_output=True)
+    try:
+        r = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                                   "threads snapshot"), capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return
     if r.returncode != 0 or not r.stdout.startswith(b"SQLite format 3"):
         return
     tmp = f"{snapshot}.{os.getpid()}.tmp"
@@ -2299,8 +2302,12 @@ def ssh(dest, args, **io):
     if args[:1] == ["show"]:
         remote += ["THREADS_ARCHIVES_LOCAL=1"]
     remote = ["env", *remote] if remote else []
-    return subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                                  shlex.join(remote + ["threads", *args])), **io).returncode
+    try:
+        return subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                                      shlex.join(remote + ["threads", *args])), timeout=20, **io).returncode
+    except subprocess.TimeoutExpired:
+        print(f"NorthThreads: {dest} timed out; remote outcome unknown", file=sys.stderr)
+        return 124
 
 
 def flush_spool(dest) -> bool:
@@ -2384,6 +2391,8 @@ def proxy(dest, argv) -> int:
     if argv[:1] in (["agent-events"], ["agent-event-state"]):
         if code == UNREACHABLE:
             print(f"NorthThreads: {dest} unreachable; canonical events unavailable", file=sys.stderr)
+        return code
+    if code == 124:
         return code
     if code != UNREACHABLE:
         if not (code == 0 and argv[:1] == ["calibrate"] and "--write" in argv and "--goal-row" in argv):

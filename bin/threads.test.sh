@@ -595,6 +595,96 @@ mux_argv=$(XDG_RUNTIME_DIR=/run/user/4242 PYTHONDONTWRITEBYTECODE=1 python3 -I -
 check '[unit] ssh_argv carries ControlMaster=auto and a ControlPath under XDG_RUNTIME_DIR, ahead of the caller options and destination' \
   'grep -qx ControlMaster=auto <<<"$mux_argv" && grep -qx "ControlPath=/run/user/4242/north-ssh-%C" <<<"$mux_argv" && [ "$(tail -n 3 <<<"$mux_argv" | tr "\n" " ")" = "BatchMode=yes nexus true " ]'
 
+python3 -I - "$repo" "$scratch/stalled-ssh" <<'PYSTALL' >"$scratch/stalled-ssh.out" 2>&1
+import importlib.machinery, importlib.util, io, os, subprocess, sys, time
+from pathlib import Path
+from unittest.mock import patch
+repo, root = map(Path, sys.argv[1:])
+root.mkdir()
+fake = root / "ssh"
+fake.write_text('#!/bin/sh\nexec sleep 60\n')
+fake.chmod(0o755)
+os.environ["PATH"] = str(root) + os.pathsep + os.environ["PATH"]
+def load(name):
+    loader = importlib.machinery.SourceFileLoader(name, str(repo / "bin" / name))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(name, loader))
+    loader.exec_module(mod)
+    return mod
+threads = load("threads")
+laptop = load("laptop")
+nexus = load("nexus-run")
+threads.SPOOL = str(root / "spool")
+threads.SNAPSHOT = str(root / "snapshot")
+laptop.REMOTE = root / "remote"
+laptop.REMOTE.write_text("nexus")
+real_run = subprocess.run
+calls = []
+def bounded(argv, **kwargs):
+    if argv[0] == "ssh":
+        bound = kwargs.get("timeout")
+        calls.append(bound)
+        assert bound is not None and 0 < bound <= 20, f"unbounded SSH: {argv}"
+        kwargs["timeout"] = min(bound, 0.1)
+    return real_run(argv, **kwargs)
+with patch.object(subprocess, "run", bounded):
+    started = time.monotonic()
+    for args in (["claim", "wisp#99", "--by", "stall"], ["job-run", "stall", "--started", "2026-10-15T00:00:00Z"], ["ingest"]):
+        with patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(b'{}\n'))):
+            before = len(calls)
+            assert threads.proxy("nexus", args) == 124, args
+            assert len(calls) == before + 1, "timed-out write was replayed"
+        assert not Path(threads.SPOOL).exists(), "timed-out write was queued for replay"
+    snapshot = root / "snapshot"
+    snapshot.write_bytes(b"keep existing snapshot")
+    threads.refresh_snapshot("nexus", force=True, snapshot=str(snapshot))
+    assert snapshot.read_bytes() == b"keep existing snapshot"
+    try:
+        laptop.forward(["close"])
+    except SystemExit as error:
+        assert error.code == 124
+    else:
+        raise AssertionError("laptop timeout succeeded")
+    with patch.object(sys, "argv", ["nexus-run", "--source", str(repo), "--cwd", ".", "--", "true"]):
+        try:
+            nexus.main()
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            raise AssertionError("nexus timeout succeeded")
+    assert len(calls) == 6
+    assert time.monotonic() - started < 10
+print("stalled SSH waits fail within their bounds and writes are never replayed")
+PYSTALL
+stall_status=$?
+check '[integration] stalled SSH fails within its bound without replaying writes' '[ "$stall_status" -eq 0 ] || { cat "$scratch/stalled-ssh.out"; false; }'
+
+python3 -I - "$repo/harness/lib" <<'PYEXPLICIT' >"$scratch/explicit-ssh.out" 2>&1
+import os, sys
+sys.path.insert(0, sys.argv[1])
+from ssh_transport import ssh_argv
+os.environ["XDG_RUNTIME_DIR"] = "/run/user/4242"
+for explicit in (["-o", "ControlMaster=no"], ["-oControlMaster=no"], ["-o", "ControlPath=none"], ["-oControlPath=none"], ["-S", "none"], ["-Snone"]):
+    argv = ssh_argv(*explicit, "nexus", "true")
+    assert argv[-len(explicit) - 2:] == [*explicit, "nexus", "true"]
+    assert not any("ControlMaster=auto" == arg or arg.startswith("ControlPath=/run/") or arg == "ControlPersist=10m" for arg in argv), argv
+print("explicit multiplexing choices suppress defaults")
+PYEXPLICIT
+explicit_status=$?
+check '[unit] explicit SSH multiplexing choices suppress defaults' '[ "$explicit_status" -eq 0 ] || { cat "$scratch/explicit-ssh.out"; false; }'
+
+python3 -I - "$repo/harness/lib" <<'PYSOCKET' >"$scratch/socket-ssh.out" 2>&1
+import os, sys
+sys.path.insert(0, sys.argv[1])
+from ssh_transport import ssh_argv
+for runtime, reuse in (("/" + "a" * 74, False), ("/" + "é" * 20, False), ("/" + "a" * 35, True), ("/" + "a" * 36, False)):
+    os.environ["XDG_RUNTIME_DIR"] = runtime
+    argv = ssh_argv("nexus", "true")
+    assert ("ControlMaster=auto" in argv) == reuse, argv
+print("expanded socket paths reserve 20 bytes within the Unix socket limit")
+PYSOCKET
+socket_status=$?
+check '[unit] SSH socket paths leave room for the OpenSSH suffix' '[ "$socket_status" -eq 0 ] || { cat "$scratch/socket-ssh.out"; false; }'
+
 touch "$scratch/down"
 jobrun() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" SSH_TRACE="$scratch/ssh.trace" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$repo/bin/job-run" "$@" 2>&1; }
 jobrun nightly -- sh -c 'exit 3' >/dev/null; jobstatus=$?
