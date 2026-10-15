@@ -240,7 +240,7 @@ class Pace(unittest.TestCase):
                 os.environ.clear()
                 os.environ.update(old_env)
 
-    def test_pace_delivery_sends_fleet_notices_and_phone_alerts(self):
+    def test_pace_delivery_publishes_canonical_addressed_events(self):
         with tempfile.TemporaryDirectory() as scratch:
             previous = dict(os.environ)
             try:
@@ -263,7 +263,7 @@ class Pace(unittest.TestCase):
                 os.environ.clear()
                 os.environ.update(previous)
 
-    def test_account_delivery_preserves_proxy_grants_and_prunes_departed_parents(self):
+    def test_account_delivery_preserves_proxy_grants_and_sampler_prunes_departed_leads(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
