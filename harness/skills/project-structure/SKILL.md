@@ -3,7 +3,7 @@ name: project-structure
 description: >-
   Organize project files by real authority, lifecycle, and retrieval needs, including data pipelines and handoff layouts.
 grounded: 2026-10-06
-written: 2026-10-06
+written: 2026-10-15
 metadata:
   kind: playbook
 ---
@@ -24,4 +24,4 @@ consumer, script, build rule, test, and document together.
 
 Finish when the native workflow runs and a newcomer can locate source, inputs,
 outputs, disposable work, and the rerun path. For naming and data examples,
-use `references/notes.md`.
+use `references/notes.md`. Structure inside modules (responsibilities, interfaces, limits, `structure.toml`) is in [program-craftsmanship](../../../agent-machinery/skills/program-craftsmanship/references/structure.md).

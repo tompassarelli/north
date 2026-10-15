@@ -4,3 +4,4 @@
 - Treat `~/code/resources/` as read-only third-party material and check licenses before reuse.
 - Keep `~/code/clients/` confidential and runtime data directories outside project ownership.
 - Use `repo-safety` for worktree creation, landing, rescue and pin retirement.
+- Keep code within the repository's `structure.toml` and follow `program-craftsmanship` when the `code-health` gate or edit-time hook fires.
