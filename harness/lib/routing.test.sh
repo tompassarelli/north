@@ -289,6 +289,18 @@ cases = [(base, True, None),
          (base.replace("Spec: exact", "Spec: exact (north#36)"), True, None),
          (base.replace("ETA: 20 min", "ETA: 15-25 min"), False, "ETA 15-25 min"),
          (base.replace("ETA: 20 min", "ETA: 10-20 min"), True, None),
+         (base.replace("ETA: 20 min", "ETA: 1h"), False, "ETA 1h"),
+         (base.replace("ETA: 20 min", "ETA: 1.5h"), False, "ETA 1.5h"),
+         (base.replace("ETA: 20 min", "ETA: 1h30"), False, "ETA 1h30"),
+         (base.replace("ETA: 20 min", "ETA: 2hrs"), False, "ETA 2hrs"),
+         (base.replace("ETA: 20 min", "ETA: 20min"), True, None),
+         (base.replace("ETA: 20 min", "ETA: 10m"), True, None),
+         (base.replace("ETA: 20 min", "ETA: 0.3h"), True, None),
+         (base.replace("Surface: shell", "Surface: shell (ts)"), False, "Surface shell (ts)"),
+         (base.replace("Surface: shell", "Surface: shell(ts)"), False, "Surface shell(ts)"),
+         (base.replace("Surface: shell", "Surface: (ts) shell"), False, "Surface (ts) shell"),
+         (base.replace("Surface: shell", "Surface: shell (no ts files touched)"), False, "Surface shell (no ts files touched)"),
+         (base.replace("Surface: shell", "Surface: shell (the scripts)"), True, None),
          ("", False, "Header missing")]
 for text, ok, why in cases:
     got = routing.codex_qualifies({"brief": text})
@@ -309,6 +321,14 @@ assert not routing.explorable(explore_ctx, dict(sol_medium, class_runs={"bug-kno
 assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("shell", "ts")), {})
 for category in ("performance", "netcode-determinism", "balance-tuning", "research"):
     assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("bug-known-cause", category)), {}), category
+for category in routing.CODEX_NEVER_EXPLORE:
+    listed = routing.CODEX_CLASS[category]
+    routing.CODEX_CLASS[category] = dict(listed, tiers=["codex:sol-medium"])
+    try:
+        assert routing.codex_qualifies(dict(bug, brief=bug["brief"].replace("bug-known-cause", category)), shape_only=True)[0]
+        assert not routing.explorable(explore_ctx, sol_medium, dict(bug, brief=bug["brief"].replace("bug-known-cause", category)), {}), category
+    finally:
+        routing.CODEX_CLASS[category] = listed
 assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"], "leash": "normal"}
 assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": [], "leash": "tight"}
 assert routing.COACH == {"takeover_fixes": 3, "first_steps": 10, "first_minutes": 8, "ladder_steps": [20, 30, 50], "ladder_minutes": [15, 20, 30]}

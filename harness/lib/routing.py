@@ -39,6 +39,9 @@ COACH = {"takeover_fixes": DEFAULTS["coach_takeover_fixes"], "first_steps": DEFA
          "ladder_minutes": DEFAULTS["coach_ladder_minutes"]}
 CODEX_ETA_MAX = DEFAULTS["codex_eta_max_min"]
 CODEX_FILES_MAX = DEFAULTS["codex_files_max"]
+HEADER_FACETS = {"spec": ("exact", "measured", "judged"), "scope": ("one-file", "module", "cross-module", "cross-repo"),
+                 "surface": ("shell", "docs", "nix", "ts", "assets", "lua", "workflow"),
+                 "verify": ("none", "local-test", "native", "visual", "farm")}
 CODEX_NEVER_EXPLORE = ("netcode-determinism", "performance", "balance-tuning")
 MEASURED_SPEC_CATEGORIES = ("tooling", "native-check")
 CODEX_SCOPES = ("one-file", "module")
@@ -271,7 +274,11 @@ def brief_header(text):
 
 
 def header_word(fields, name):
-    words = re.findall(r"[a-z0-9-]+", re.sub(r"\([^)]*\)", "", fields.get(name, "").lower()))
+    value = fields.get(name, "").lower()
+    facets = HEADER_FACETS.get(name, tuple(CODEX_CLASS))
+    if any(w in facets for note in re.findall(r"\(([^)]*)\)", value) for w in re.findall(r"[a-z0-9-]+", note)):
+        return None
+    words = re.findall(r"[a-z0-9-]+", re.sub(r"\([^)]*\)", "", value))
     return words[0] if len(words) == 1 else None
 
 
@@ -284,8 +291,10 @@ def brief_category(box):
 
 
 def header_minutes(value):
-    numbers = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", value)]
-    return max(numbers) * (60 if re.search(r"\bh(?:ours?|rs?)?\b", value) else 1) if numbers else None
+    spans = [sum(float(n) * (60 if u.startswith("h") else 1)
+                 for n, u in re.findall(r"(\d+(?:\.\d+)?)\s*(h(?:ours?|rs?)?|m(?:in(?:ute)?s?)?)?(?![a-z])", seg.lower()))
+             for seg in re.split(r"[-\u2013,]|\bto\b|\bor\b", value) if re.search(r"\d", seg)]
+    return max(spans) if spans else None
 
 
 def header_files(value):
@@ -459,7 +468,7 @@ def plan(ctx):
         t = r["tier"]
         boxes[box["id"]] = {"tier": t and t["key"], "account": t and account_of(t), "explore": r.get("explore", False), "wait": r.get("wait"),
                             "fast": bool(t) and fast(ctx, account_of(t), project["u"]),
-                            "fallback": bool(t) and t.get("fallback", False)}
+                            "fallback": bool(t) and t.get("fallback", False), "leash": r.get("leash")}
         if r.get("needs"):
             if r["needs"] not in needs:
                 needs.append(r["needs"])
@@ -525,6 +534,9 @@ def divergence(result, expect):
     for b, f in expect.get("fast", {}).items():
         if result["boxes"][b]["fast"] != f:
             return f"box {b}: fast {result['boxes'][b]['fast']}, expected {f}"
+    for b, l in expect.get("leash", {}).items():
+        if result["boxes"][b]["leash"] != l:
+            return f"box {b}: leash {result['boxes'][b]['leash']}, expected {l}"
     for p, f in expect.get("capacity", {}).items():
         if result["capacity"].get(p, {}).get("fallback", "available") != f:
             return f"capacity {p}: {result['capacity'].get(p)}, expected fallback {f}"
