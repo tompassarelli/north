@@ -24,7 +24,7 @@ pub const STDIN_BLOCKED: &str = r#"{"error":"stdin-blocked"}"#;
 pub const STDIN_CLOSED: &str = r#"{"error":"stdin-closed"}"#;
 pub const INVALID_FRAME: &str = r#"{"error":"invalid-frame"}"#;
 
-const USAGE: &str = "Usage: north session-host --name NAME --generation N --state-dir DIR [--socket PATH] \
+const USAGE: &str = "Usage: north session-host --name NAME --generation N --state-dir DIR [--socket PATH] [--idle-exit SECS] \
      -- RUNTIME [ARG...]";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,13 +33,14 @@ pub struct HostConfig {
     pub generation: u64,
     pub state_dir: PathBuf,
     pub socket: Option<PathBuf>,
+    pub idle_exit: Option<Duration>,
     pub runtime: Vec<String>,
 }
 
 impl HostConfig {
     pub fn parse(arguments: &[String]) -> NorthResult<Self> {
         let usage = || NorthError::Usage(USAGE.into());
-        let (mut name, mut generation, mut state_dir, mut socket) = (None, None, None, None);
+        let (mut name, mut generation, mut state_dir, mut socket, mut idle_exit) = (None, None, None, None, None);
         let mut index = 0;
         while index < arguments.len() {
             let flag = arguments[index].as_str();
@@ -54,6 +55,10 @@ impl HostConfig {
                 }
                 "--state-dir" if state_dir.is_none() => state_dir = Some(PathBuf::from(value)),
                 "--socket" if socket.is_none() => socket = Some(PathBuf::from(value)),
+                "--idle-exit" if idle_exit.is_none() => {
+                    let seconds = value.parse::<u64>().map_err(|_| usage())?;
+                    idle_exit = Some((seconds > 0).then(|| Duration::from_secs(seconds)));
+                }
                 _ => return Err(usage()),
             }
             index += 2;
@@ -65,6 +70,7 @@ impl HostConfig {
                 generation,
                 state_dir,
                 socket,
+                idle_exit: idle_exit.flatten(),
                 runtime,
             }),
             _ => Err(usage()),
@@ -96,14 +102,33 @@ struct Frame {
 }
 
 #[derive(Clone)]
+pub struct Activity(Arc<Mutex<Instant>>);
+
+impl Activity {
+    fn new() -> Self {
+        Self(Arc::new(Mutex::new(Instant::now())))
+    }
+
+    fn touch(&self) {
+        *self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Instant::now();
+    }
+
+    fn idle_for(&self) -> Duration {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).elapsed()
+    }
+}
+
+#[derive(Clone)]
 pub struct StdinQueue {
     control: mpsc::Sender<Frame>,
     user: mpsc::Sender<Frame>,
     next: Arc<Mutex<u64>>,
+    activity: Activity,
 }
 
 impl StdinQueue {
     pub async fn enqueue(&self, line: String, reply: Option<Reply>) -> Option<u64> {
+        self.activity.touch();
         let respond = |message: String| {
             if let Some(reply) = &reply {
                 let _ = reply.send(message);
@@ -161,11 +186,12 @@ impl SessionHost {
         let errors = child.stderr.take().ok_or_else(missing)?;
         let (control, priority) = mpsc::channel(STDIN_LINES);
         let (user, lines) = mpsc::channel(STDIN_LINES);
+        let activity = Activity::new();
         Ok(Self {
-            stdin: StdinQueue { control, user, next: Arc::default() },
+            stdin: StdinQueue { control, user, next: Arc::default(), activity: activity.clone() },
             child,
             writer: tokio::spawn(feed_stdin(input, priority, lines)),
-            stdout: tokio::spawn(copy_lines(output, stream)),
+            stdout: tokio::spawn(copy_lines(output, stream, activity)),
             stderr: tokio::spawn(copy_rotating(errors, log, STDERR_ROTATE_BYTES)),
             server: None,
         })
@@ -182,9 +208,9 @@ impl SessionHost {
         if let Some(server) = server {
             server.abort();
         }
-        let drained = (stdout.await, stderr.await);
         writer.abort();
         let _ = writer.await;
+        let drained = (stdout.await, stderr.await);
         for result in [drained.0, drained.1] {
             result.map_err(|error| NorthError::State(format!("pipe task failed: {error}")))??;
         }
@@ -206,9 +232,23 @@ pub async fn run(arguments: &[String]) -> NorthResult<u8> {
     let listener = bind(&socket)?;
     let mut host = SessionHost::spawn(&config)?;
     host.serve(listener);
+    let watch = config.idle_exit.map(|limit| tokio::spawn(exit_when_idle(host.stdin.activity.clone(), limit, host.child.id())));
     let code = host.wait().await;
+    if let Some(watch) = watch {
+        watch.abort();
+    }
     let _ = fs::remove_file(&socket);
     code
+}
+
+async fn exit_when_idle(activity: Activity, limit: Duration, child: Option<u32>) {
+    let tick = (limit / 4).min(Duration::from_secs(5));
+    while activity.idle_for() < limit {
+        tokio::time::sleep(tick).await;
+    }
+    if let Some(pid) = child.and_then(|pid| i32::try_from(pid).ok()).and_then(rustix::process::Pid::from_raw) {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::Term);
+    }
 }
 
 pub fn bind(path: &Path) -> io::Result<UnixListener> {
@@ -338,11 +378,12 @@ async fn write_frame(input: &mut ChildStdin, Frame { mut line, reply }: Frame) -
     }
 }
 
-async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File) -> io::Result<()> {
+async fn copy_lines(mut source: impl AsyncRead + Unpin, mut file: File, activity: Activity) -> io::Result<()> {
     let mut pending = Vec::new();
     let mut chunk = vec![0; 64 * 1024];
     loop {
         let read = source.read(&mut chunk).await?;
+        activity.touch();
         if read == 0 {
             if !pending.is_empty() {
                 pending.push(b'\n');
@@ -394,6 +435,7 @@ mod child {
             generation: 1,
             state_dir: root.to_path_buf(),
             socket: None,
+            idle_exit: None,
             runtime: vec!["sh".into(), "-c".into(), script.into()],
         }
     }
@@ -508,6 +550,7 @@ mod socket {
             generation: 1,
             state_dir: root.to_path_buf(),
             socket: Some(root.join("lead-g1.sock")),
+            idle_exit: None,
             runtime: vec!["sh".into(), "-c".into(), script.into()],
         };
         let path = config.socket_path().unwrap();
@@ -663,6 +706,7 @@ mod fake {
             generation: 1,
             state_dir: root.path().to_path_buf(),
             socket: None,
+            idle_exit: None,
             runtime,
         })
         .unwrap();

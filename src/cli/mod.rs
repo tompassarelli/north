@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
 use crate::{
-    agent_catalog, autoland_status, contract_probe, dep_gate, follows_release, grounding, guard,
+    agent_catalog, autoland_status, contract_probe, dep_gate, fleet, follows_release, grounding, guard,
     health, hook, issue_box_lint, language_gate, provenance, session_host, threads_client, tui,
     work_items,
 };
@@ -19,6 +19,7 @@ enum Command {
     DesktopIdleState(Option<String>),
     Hook(Vec<String>),
     Threads(Vec<String>),
+    Fleet(Vec<String>),
     Agents(Vec<String>),
     Work(Vec<String>),
     SessionHost(Vec<String>),
@@ -70,6 +71,7 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
         "desktop-idle-state" => return Ok(Command::DesktopIdleState(arguments.get(1).cloned())),
         "hook" => return Ok(Command::Hook(arguments[1..].to_vec())),
         "threads" => return Ok(Command::Threads(arguments[1..].to_vec())),
+        "fleet" => return Ok(Command::Fleet(arguments[1..].to_vec())),
         _ => {}
     }
     if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
@@ -152,6 +154,7 @@ fn dispatch(command: Command) -> ExitCode {
             }
         },
         Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
+        Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Help => in_runtime(async {
             println!("{CLI_HELP}");
             Ok(ExitCode::SUCCESS)

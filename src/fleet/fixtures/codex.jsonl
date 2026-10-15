@@ -1,0 +1,5 @@
+{"id":"t-codex:thread-open","result":{"thread":{"id":"01a13fa3-008b-7402-bd21-86ae1787adc8"}}}
+{"method":"turn/started","params":{"threadId":"01a13fa3-008b-7402-bd21-86ae1787adc8","turn":{"id":"01a13fa3-0134-7901-abe4-4402d3454f86"}}}
+{"method":"item/completed","params":{"threadId":"01a13fa3-008b-7402-bd21-86ae1787adc8","turnId":"01a13fa3-0134-7901-abe4-4402d3454f86","item":{"type":"userMessage","id":"01a13fa3-0deb-7913-bc52-0d2094b446a8","clientId":null,"content":[{"type":"text","text":"Reply with exactly: pong","text_elements":[]}]}}}
+{"method":"item/completed","params":{"threadId":"01a13fa3-008b-7402-bd21-86ae1787adc8","turnId":"01a13fa3-0134-7901-abe4-4402d3454f86","item":{"type":"agentMessage","id":"msg_04486f03a8224fb5016ad0cd963db88191b19a26f6832986c9","text":"pong","phase":"final_answer","memoryCitation":null,"delivery":null,"questions":null}}}
+{"method":"turn/completed","params":{"threadId":"01a13fa3-008b-7402-bd21-86ae1787adc8","turn":{"id":"01a13fa3-0134-7901-abe4-4402d3454f86","status":"completed"}}}

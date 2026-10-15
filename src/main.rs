@@ -43,6 +43,7 @@ mod daemon;
 #[cfg_attr(not(test), allow(dead_code))]
 mod event_delivery;
 mod threads_client;
+mod fleet;
 mod tui;
 #[cfg(test)]
 mod test_inputs;

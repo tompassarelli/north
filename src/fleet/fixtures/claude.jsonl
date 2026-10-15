@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"7557fc31-3bae-471d-8307-ce4fc827601c"}
+{"type":"user","isReplay":true,"uuid":"141651bd-e573-42a6-8c70-14312fe20885","message":{"content":"Reply with exactly: pong"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"pong"}]}}
+{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed"}

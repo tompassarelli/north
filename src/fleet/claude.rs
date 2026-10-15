@@ -1,0 +1,175 @@
+use std::ffi::OsString;
+
+use serde_json::Value;
+
+use crate::claude_stream::{encode_interrupt, encode_user_message};
+use crate::error::NorthResult;
+
+use super::model::{Account, Entry, EntryKind, LaunchRequest, Status, Transcript};
+use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Opening, Runtime, binary, new_uuid, summarize};
+
+const TOOL_RESULT_CHARS: usize = 400;
+
+pub struct Claude;
+
+impl Runtime for Claude {
+    fn assign_conversation(&self) -> NorthResult<Option<String>> {
+        new_uuid().map(Some)
+    }
+
+    fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening) -> HostSpec {
+        let mut argv = vec![binary("claude").display().to_string()];
+        argv.extend(
+            [
+                "-p",
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--replay-user-messages",
+                "--strict-mcp-config",
+                "--permission-mode",
+                "bypassPermissions",
+            ]
+            .map(str::to_owned),
+        );
+        match opening {
+            Opening::Fresh(Some(conversation)) => argv.extend(["--session-id".into(), conversation.into()]),
+            Opening::Resume(conversation) => argv.extend(["--resume".into(), conversation.into()]),
+            Opening::Fresh(None) => {}
+        }
+        if let Some(model) = &request.model {
+            argv.extend(["--model".into(), model.clone()]);
+        }
+        if let Some(prompt) = &request.system_prompt {
+            argv.extend(["--system-prompt-file".into(), prompt.display().to_string()]);
+        }
+        HostSpec {
+            key: request.name.clone(),
+            shared: false,
+            argv,
+            env: claude_env(account, request),
+            cwd: request.cwd.clone(),
+        }
+    }
+
+    fn handshake(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn open(&self, _name: &str, _request: &LaunchRequest, _opening: Opening) -> NorthResult<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    fn message(&self, _transcript: &Transcript, text: &str) -> NorthResult<Vec<String>> {
+        Ok(vec![encode_user_message(&new_uuid()?, text)])
+    }
+
+    fn interrupt(&self, _transcript: &Transcript) -> NorthResult<Vec<String>> {
+        Ok(vec![encode_interrupt(&format!("interrupt-{}", new_uuid()?))])
+    }
+
+    fn close(&self, _transcript: &Transcript) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn observe(&self, frame: &Value, transcript: &mut Transcript) {
+        if transcript.status == Status::Starting {
+            transcript.status = Status::Idle;
+        }
+        match frame["type"].as_str() {
+            Some("system") => observe_system(frame, transcript),
+            Some("user") => observe_user(frame, transcript),
+            Some("assistant") => observe_assistant(frame, transcript),
+            Some("result") => observe_result(frame, transcript),
+            Some("command_lifecycle") if frame["state"] == "started" => transcript.status = Status::Working,
+            _ => {}
+        }
+    }
+}
+
+fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsString)> {
+    let cap_ms = (request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS) * 1000).to_string();
+    vec![
+        ("CLAUDE_CONFIG_DIR".into(), account.home.clone().into()),
+        ("DISABLE_AUTOUPDATER".into(), "1".into()),
+        ("BASH_DEFAULT_TIMEOUT_MS".into(), cap_ms.clone().into()),
+        ("BASH_MAX_TIMEOUT_MS".into(), cap_ms.into()),
+    ]
+}
+
+fn observe_system(frame: &Value, transcript: &mut Transcript) {
+    if frame["subtype"] == "init" {
+        if let Some(session) = frame["session_id"].as_str() {
+            transcript.conversation = Some(session.to_owned());
+        }
+    }
+}
+
+fn observe_user(frame: &Value, transcript: &mut Transcript) {
+    let content = &frame["message"]["content"];
+    if let Some(text) = content.as_str() {
+        if frame["isReplay"] == true {
+            transcript.status = Status::Working;
+            transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
+            push(transcript, EntryKind::User, text.to_owned());
+        }
+        return;
+    }
+    for block in content.as_array().into_iter().flatten() {
+        match block["type"].as_str() {
+            Some("tool_result") => push(transcript, EntryKind::ToolResult, summarize(&tool_result_text(block), TOOL_RESULT_CHARS)),
+            Some("text") if frame["isReplay"] == true => push(transcript, EntryKind::User, block["text"].as_str().unwrap_or_default().to_owned()),
+            Some("text") => push(transcript, EntryKind::Notice, block["text"].as_str().unwrap_or_default().to_owned()),
+            _ => {}
+        }
+    }
+}
+
+fn tool_result_text(block: &Value) -> String {
+    match &block["content"] {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts.iter().filter_map(|part| part["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn observe_assistant(frame: &Value, transcript: &mut Transcript) {
+    for block in frame["message"]["content"].as_array().into_iter().flatten() {
+        match block["type"].as_str() {
+            Some("text") => push(transcript, EntryKind::Assistant, block["text"].as_str().unwrap_or_default().to_owned()),
+            Some("tool_use") => push(transcript, EntryKind::Tool, tool_use_text(block)),
+            _ => {}
+        }
+    }
+}
+
+fn tool_use_text(block: &Value) -> String {
+    let name = block["name"].as_str().unwrap_or("tool");
+    let input = &block["input"];
+    let detail = ["command", "file_path", "pattern", "description", "prompt"]
+        .iter()
+        .find_map(|key| input[*key].as_str())
+        .map_or_else(|| input.to_string(), str::to_owned);
+    format!("{name} {}", summarize(&detail, TOOL_RESULT_CHARS))
+}
+
+fn observe_result(frame: &Value, transcript: &mut Transcript) {
+    transcript.status = Status::Idle;
+    transcript.active_turn = None;
+    let subtype = frame["subtype"].as_str().unwrap_or("result");
+    let aborted = frame["terminal_reason"].as_str().is_some_and(|reason| reason.starts_with("aborted"));
+    if frame["is_error"] == true && !aborted {
+        let detail = frame["result"].as_str().unwrap_or(subtype);
+        push(transcript, EntryKind::Error, detail.to_owned());
+    }
+    let label = if aborted { "interrupted".to_owned() } else { subtype.to_owned() };
+    push(transcript, EntryKind::TurnEnd, label);
+}
+
+fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
+    if !text.is_empty() {
+        transcript.entries.push(Entry { kind, text });
+    }
+}
