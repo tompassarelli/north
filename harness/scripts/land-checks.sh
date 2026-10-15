@@ -44,6 +44,7 @@ while IFS= read -r -d '' path; do
     while IFS= read -r -d '' test; do add_test "$test"; done <"$scratch/matches"
   fi
 done <"$scratch/changes"
+[ ! -x "${CARGO_TARGET_DIR:-target}/debug/north" ] || export NORTH_PACE_BIN="$(realpath "${CARGO_TARGET_DIR:-target}/debug/north")"
 for test in "${selected[@]}"; do
   printf 'land check: %s\n' "$test"
   case "$test" in *.sh) bash "$test" ;; *.py) python3 "$test" ;; esac
