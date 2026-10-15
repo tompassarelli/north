@@ -5,6 +5,7 @@ mod language_gate;
 mod contract_probe;
 mod north_state;
 mod menu;
+mod router;
 mod state_core;
 mod codex;
 mod codex_socket;

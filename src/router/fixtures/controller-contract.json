@@ -1,0 +1,120 @@
+{
+  "controls": {
+    "fixture:floor": {
+      "allowed_workers": 1,
+      "held": true,
+      "held_reason": "floor",
+      "workers": 2,
+      "worker_minutes": 10.0,
+      "burn_pct_worker_min": {
+        "week": 0.05
+      },
+      "target_burn_pct_h": 0.0,
+      "sample": [
+        [
+          "week",
+          "2026-10-15T01:46:30Z"
+        ]
+      ],
+      "at": 1792028800,
+      "windows": [
+        {
+          "window": "week",
+          "used_pct": 101.0,
+          "burn_pct_h": 6.0,
+          "reset_h": 2.0,
+          "age_s": 10,
+          "as_of": "2026-10-15T01:46:30Z",
+          "resets_at": "2026-10-15T03:46:40Z",
+          "quota_ceiling": 95,
+          "anchor": {
+            "used": 101.0,
+            "at": 1792028800,
+            "minutes": 0
+          },
+          "marks": [
+            [
+              1792010800,
+              91.0
+            ],
+            [
+              1792014400,
+              93.0
+            ],
+            [
+              1792018000,
+              95.0
+            ],
+            [
+              1792021600,
+              97.0
+            ],
+            [
+              1792025200,
+              99.0
+            ],
+            [
+              1792028800,
+              101.0
+            ]
+          ],
+          "smoothed_pct_h": 1.9653272596164977,
+          "burn_workers": 2.0,
+          "seeded": false,
+          "sustained_pct_h": 2.0,
+          "bound_pct_h": 0.608433734939759,
+          "horizon_h": 2.0,
+          "projected_pct": 102.21686746987952
+        }
+      ],
+      "target": null,
+      "state_since": 1792018000,
+      "allowed_since": 1792007200,
+      "throttle": {
+        "capacity": true,
+        "week": true,
+        "floor": true
+      },
+      "changed": false
+    }
+  },
+  "replay": {
+    "fixture:floor": {
+      "held_min": 440.0,
+      "intervals": [
+        [
+          1792000000,
+          1792002400,
+          "workers"
+        ],
+        [
+          1792003600,
+          1792004200,
+          "workers"
+        ],
+        [
+          1792005400,
+          1792018000,
+          "workers"
+        ],
+        [
+          1792018000,
+          1792028800,
+          "floor"
+        ]
+      ],
+      "by_reason": {
+        "floor": 180.0,
+        "stale": 0.0,
+        "throttle": 260.0,
+        "dwell": 0.0
+      },
+      "old_projection_min": 0.0,
+      "old_projection_intervals": [],
+      "old_controller_min": 0.0,
+      "old_pace_hold_min": 0.0,
+      "new_pace_hold_min": 0.0,
+      "new_pace_intervals": []
+    }
+  }
+}
