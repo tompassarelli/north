@@ -13,7 +13,7 @@ metadata:
 
 - Use `codex-lead --help` for start/id/send/goal/status/workers syntax.
 - Never type into its window or take Tom's focus.
-- Assign SOL-starting bands to the Codex lead and Claude-starting bands to Claude workers.
+- Claude writes every Codex box brief; the Codex lead registers it with `threads register-spawn` and spawns it verbatim through `coach.py prompt`, never decomposing or rewording it. Send it only boxes `routing.codex_qualifies` passes.
 - Read `workers`; choose tiers from the plan and `worker-ledger --summary`, never low/max or Astra without Tom naming it.
 - Write `~/.local/state/agents/handoffs/codex-lead-brief.md` with scope, first reads, ordered queue, checks, files, ETA, the lead's staffing/landing/status role and every line of the next section, because the Codex lead cannot load this skill.
 - Require worker reports beginning `Done:`, `Not done:` or `Blocked:` and brief fields `Item`, `Category`, plus `Follows` on retries/escalations/continuations.
@@ -72,3 +72,5 @@ metadata:
 - Before each commit, the worker confirms `git diff --stat` against the merge base lists only its authorized paths; whole-tree scripts, `cargo fmt` and mutation runs leaked edits.
 - Have the worker write its result to the named result file, take test totals from the runner output, report its native id from `CODEX_THREAD_ID`, and chain the final check and landing with `&&`, never `;`.
 - Give a review-only worker the frozen gate results and corpus counts, and forbid rebuilding or rerunning suites.
+- Name tests and assertions the worker must not change as "pre-existing on origin/main", never "existing"; Codex stopped on its own new tests.
+- The coach leash level (tight, normal, loose) comes from `codex_leash_<category>` in harness/defaults.toml and runs in lib/codex/coach.py; never run the manual teach-back protocol.
