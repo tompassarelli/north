@@ -363,7 +363,7 @@ def codex_explorable(tier, box):
     if codex_class(category)["route"] == "codex":
         return tier.get("runs", math.inf) < DEFAULTS["explore_runs"]
     return (tier["key"] in codex_class(category)["tiers"]
-            and tier.get("class_runs", {}).get(category, 0) < DEFAULTS["learn_min_n"])
+            and tier.get("class_runs", {}).get(category, 0) < DEFAULTS["codex_explore_min_n"])
 
 
 def explorable(ctx, tier, box, project):
