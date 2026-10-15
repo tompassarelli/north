@@ -6,7 +6,7 @@ use crate::error::NorthResult;
 use super::super::model::{SessionRecord, Transcript};
 use super::super::records::{read_record, write_record};
 use super::super::runtime::{Runtime, now_ms};
-use super::super::transcript::{StreamTail, stream_path};
+use super::super::transcript::{StreamTail, WINDOW_SIZE, stream_len, stream_path};
 use super::{seeded, settled_status};
 
 pub struct Follower {
@@ -19,7 +19,9 @@ pub struct Follower {
 
 impl Follower {
     pub(super) fn open(runtime: Arc<dyn Runtime>, record: SessionRecord, session_dir: PathBuf) -> NorthResult<Self> {
-        let tail = StreamTail::open(stream_path(&record.host_dir), record.stream_offset);
+        let path = stream_path(&record.host_dir);
+        let offset = stream_len(&record.host_dir).saturating_sub(WINDOW_SIZE).max(record.stream_offset);
+        let tail = StreamTail::open(path, offset);
         let transcript = seeded(&record);
         let mut follower = Self { runtime, record, session_dir, tail, transcript };
         follower.poll()?;
@@ -79,4 +81,3 @@ fn project(runtime: &dyn Runtime, frame: &serde_json::Value, transcript: &mut Tr
         }
     }
 }
-

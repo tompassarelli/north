@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -14,7 +15,7 @@ use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
 pub use super::watch::TurnWatch;
-use super::transcript::{StreamTail, stream_len, stream_path};
+use super::transcript::{StreamTail, WINDOW_SIZE, read_window, stream_len, stream_path};
 
 mod follower;
 mod parents;
@@ -27,7 +28,6 @@ const OPEN_POLL: Duration = Duration::from_millis(100);
 const SETTLE_WAIT: Duration = Duration::from_secs(15);
 const SETTLE_POLL: Duration = Duration::from_millis(50);
 const DEFAULT_IDLE_EXIT_MINUTES: u64 = 10;
-const RECENT_WINDOW: u64 = 1 << 20;
 const URGENT_PREFIX: &str = "[urgent message; your previous step was interrupted — answer this, then resume your task]";
 const HOSTS: &str = ".hosts";
 
@@ -333,8 +333,19 @@ fn seeded(record: &SessionRecord) -> Transcript {
 }
 
 fn recent_frames(record: &SessionRecord) -> NorthResult<Vec<serde_json::Value>> {
-    let window_start = stream_len(&record.host_dir).saturating_sub(RECENT_WINDOW).max(record.stream_offset);
-    Ok(StreamTail::open(stream_path(&record.host_dir), window_start).frames()?)
+    let path = stream_path(&record.host_dir);
+    let window_start = stream_len(&record.host_dir).saturating_sub(WINDOW_SIZE).max(record.stream_offset);
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let bytes = read_window(&mut file, window_start, WINDOW_SIZE)?;
+    let complete = bytes.iter().rposition(|byte| *byte == b'\n').map_or(0, |index| index + 1);
+    Ok(bytes[..complete]
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice(line).ok())
+        .collect())
 }
 
 fn recent(runtime: &dyn Runtime, record: &SessionRecord) -> NorthResult<Transcript> {

@@ -7,8 +7,7 @@ use serde_json::Value;
 use crate::error::NorthResult;
 use crate::fleet::model::Status;
 use crate::fleet::turns::TurnSignal;
-
-const CHUNK: u64 = 8192;
+use crate::fleet::transcript::{WINDOW_SIZE, read_window};
 
 pub(super) fn latest_turn_status(
     path: &Path,
@@ -31,10 +30,8 @@ pub(super) fn latest_turn_status(
     }
     let mut remainder = Vec::new();
     while cursor > offset {
-        let start = cursor.saturating_sub(CHUNK).max(offset);
-        file.seek(SeekFrom::Start(start))?;
-        let mut bytes = vec![0; (cursor - start) as usize];
-        file.read_exact(&mut bytes)?;
+        let start = cursor.saturating_sub(WINDOW_SIZE).max(offset);
+        let mut bytes = read_window(&mut file, start, cursor - start)?;
         bytes.extend(remainder);
         let mut end = bytes.len();
         if skip_partial_tail {

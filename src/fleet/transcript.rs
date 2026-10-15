@@ -4,10 +4,22 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
+pub const WINDOW_SIZE: u64 = 1 << 20;
+
 pub struct StreamTail {
     path: PathBuf,
     offset: u64,
     partial: Vec<u8>,
+}
+
+pub fn read_window(file: &mut File, offset: u64, limit: u64) -> io::Result<Vec<u8>> {
+    let file_len = file.metadata()?.len();
+    let start = offset.min(file_len);
+    let length = file_len.saturating_sub(start).min(limit) as usize;
+    file.seek(SeekFrom::Start(start))?;
+    let mut bytes = vec![0; length];
+    file.read_exact(&mut bytes)?;
+    Ok(bytes)
 }
 
 impl StreamTail {
@@ -33,8 +45,8 @@ impl StreamTail {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(error) => return Err(error),
         };
-        file.seek(SeekFrom::Start(self.offset + self.partial.len() as u64))?;
-        file.read_to_end(&mut self.partial)?;
+        let start = self.offset + self.partial.len() as u64;
+        self.partial.extend(read_window(&mut file, start, WINDOW_SIZE)?);
         Ok(())
     }
 }
