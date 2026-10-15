@@ -1,0 +1,457 @@
+#!/usr/bin/env -S bun --no-install
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+
+export const STAGES = ["intake", "implement", "review", "local_checks", "farm_suite", "record_refresh", "autoland", "build", "install"] as const;
+export type Stage = (typeof STAGES)[number];
+export type StageRow = { stage: Stage; start: string | null; end: string | null; minutes: number; source: string };
+export type Change = {
+  id: string; repo: string; title: string; tom_ask: boolean; ask_at: string | null; stages: StageRow[];
+  landed_at: string | null; in_build_at: string | null; total_minutes: number | null; bottleneck_stage: Stage | null;
+  sha: string | null; lead: string | null; ask_ids: number[]; agent_minutes: number | null; record_commits: number; kind: string;
+};
+
+const HOME = homedir();
+const env = process.env;
+const CODE = env.ITERATION_LEDGER_CODE_ROOT ?? join(HOME, "code");
+const AGENTS = env.ITERATION_LEDGER_AGENTS_STATE ?? join(HOME, ".local/state/agents");
+const OUT_DIR = env.ITERATION_LEDGER_OUT ?? join(AGENTS, "iteration-ledger");
+const THREADS_DB = env.ITERATION_LEDGER_THREADS_DB ?? join(HOME, ".local/state/threads/snapshot.db");
+const CONVO_DB = env.ITERATION_LEDGER_CONVO_DB ?? join(HOME, ".local/state/convo/index-v4.db");
+const MAPS = env.ITERATION_LEDGER_MAPS ?? join(HOME, ".local/share/Steam/steamapps/compatdata/3516115571/pfx/drive_c/users/steamuser/Documents/Warcraft III/Maps/00-Smashcraft");
+const REPOS = (env.ITERATION_LEDGER_REPOS ?? "smashcraft,wisp,padbridge,smashcraft-client,north").split(",");
+const OWNER = env.ITERATION_LEDGER_OWNER ?? "tompassarelli";
+const GH_TTL_MS = Number(env.ITERATION_LEDGER_GH_TTL_MIN ?? 20) * 60_000;
+const BUILD_MIN = 6;
+
+const args = process.argv.slice(2);
+const flag = (name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const DAYS = Number(flag("--days") ?? 14);
+const OFFLINE = args.includes("--offline");
+const NOW = Date.now();
+const SINCE_MS = NOW - DAYS * 86_400_000;
+
+const ms = (s: string | null | undefined) => (s ? Date.parse(s) : NaN);
+const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+const mins = (a: number, b: number) => Math.round(((b - a) / 60_000) * 10) / 10;
+export const median = (xs: number[]) => quantile(xs, 0.5);
+export function quantile(xs: number[], q: number): number | null {
+  const v = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const i = (v.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+  return Math.round((v[lo] + (v[hi] - v[lo]) * (i - lo)) * 10) / 10;
+}
+
+function sh(cmd: string[], cwd?: string): string {
+  const r = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  return r.exitCode === 0 ? r.stdout.toString() : "";
+}
+
+export const RECORD_RE = /\brecords?\b|\bregenerat|\bre-?record/i;
+export const isRecordSubject = (s: string) => RECORD_RE.test(s);
+
+type Commit = { sha: string; parents: string[]; author: number; committer: number; subject: string; authorName: string };
+function gitLog(repo: string, extra: string[]): Commit[] {
+  const out = sh(["git", "-C", join(CODE, repo, "main"), "log", "origin/main", ...extra, `--since=${iso(SINCE_MS)}`, "--format=%H%x1f%P%x1f%aI%x1f%cI%x1f%an%x1f%s"]);
+  return out.split("\n").filter(Boolean).map((l) => {
+    const [sha, p, a, c, an, s] = l.split("\x1f");
+    return { sha, parents: p.split(" ").filter(Boolean), author: ms(a), committer: ms(c), authorName: an, subject: s };
+  });
+}
+function mergedCommits(repo: string, merge: Commit): Commit[] {
+  if (merge.parents.length < 2) return [];
+  const out = sh(["git", "-C", join(CODE, repo, "main"), "log", `${merge.parents[0]}..${merge.sha}`, "--no-merges", "--format=%H%x1f%P%x1f%aI%x1f%cI%x1f%an%x1f%s"]);
+  return out.split("\n").filter(Boolean).map((l) => {
+    const [sha, p, a, c, an, s] = l.split("\x1f");
+    return { sha, parents: p.split(" "), author: ms(a), committer: ms(c), authorName: an, subject: s };
+  });
+}
+
+type Run = { agent: string; staffed: number; first_commit: number; review_requested: number; landed_at: number; landed_sha: string; minutes: number; brief_path: string | null; item: string | null; brief: string };
+function loadRuns(): Run[] {
+  if (!existsSync(THREADS_DB)) return [];
+  const db = new Database(THREADS_DB, { readonly: true });
+  const rows = db.query(`select agent, staffed, first_commit, review_requested, landed_at, landed_sha, minutes, brief_path, item, coalesce(brief_text, '') as brief from runs where landed_sha is not null and landed_sha != '' and ended >= ?`).all(iso(SINCE_MS - 86_400_000)) as any[];
+  db.close();
+  return rows.map((r) => ({ ...r, staffed: ms(r.staffed), first_commit: ms(r.first_commit), review_requested: ms(r.review_requested), landed_at: ms(r.landed_at) }));
+}
+
+type Ev = { seq: number; ts: number; kind: string; actor: string; to: string; body: string; sha: string; item: string | null; repo: string | null; root: number | null; about: number | null };
+function loadEvents(): Ev[] {
+  if (!existsSync(THREADS_DB)) return [];
+  const db = new Database(THREADS_DB, { readonly: true });
+  const rows = db.query(`select seq, ts, kind, actor, item, data from events where kind in ('KICKOFF','LANDED','LAND-READY') and ts >= ?`).all(iso(SINCE_MS)) as any[];
+  db.close();
+  return rows.map((r) => {
+    const d = JSON.parse(r.data);
+    return { seq: r.seq, ts: ms(r.ts), kind: r.kind, actor: r.actor, to: d.to_node ?? "", body: d.body ?? "", sha: d.sha ?? "", item: r.item, repo: d.repo ?? null, root: d.root_event ?? null, about: d.about ?? d.answer ?? null };
+  });
+}
+
+export function repoOf(text: string, repos = REPOS): string | null {
+  const t = text.toLowerCase();
+  const item = t.match(/\b([a-z-]+)#\d+/);
+  if (item && repos.includes(item[1])) return item[1];
+  for (const r of [...repos].sort((a, b) => b.length - a.length)) if (t.includes(r)) return r;
+  if (/\b(fighter|hero|stage|lich|thrall|cairne|peon|chen|paladin|sylvanas|tinker|illidan|blademaster|kobold|map|w3x|smash|special|hitbox|knockback|tom's maps)\b/.test(t)) return "smashcraft";
+  return null;
+}
+
+type Ask = { at: number; repo: string | null; text: string; lead: string; leads: string[]; ids: number[]; source: string; linked?: boolean };
+const TOM_ASK_RE = /\bTom's\s+(?!screen|machine|account|desktop|lobby)\w+|\bTom\s+(?:asks?|asked|wants|says|reports|raises|sets|decided|\d{2}:\d{2}Z)\b/i;
+export function dedupeAsks(asks: Ask[]): Ask[] {
+  const out: Ask[] = [];
+  for (const a of [...asks].sort((x, y) => x.at - y.at)) {
+    const key = a.text.slice(0, 120);
+    const prior = out.find((o) => o.text.slice(0, 120) === key && a.at - o.at <= 10 * 60_000);
+    if (prior) { prior.ids.push(...a.ids); prior.leads.push(...a.leads); prior.repo ??= a.repo; }
+    else out.push({ ...a, ids: [...a.ids], leads: [...a.leads] });
+  }
+  return out;
+}
+function proxyAsks(events: Ev[]): Ask[] {
+  return dedupeAsks(events.filter((e) => e.kind === "KICKOFF" && e.actor === "proxy" && TOM_ASK_RE.test(e.body))
+    .map((e) => ({ at: e.ts, repo: e.repo ?? repoOf(e.item ?? "") ?? repoOf(e.body), text: e.body.slice(0, 160), lead: e.to, leads: [e.to], ids: [e.seq], source: "events:proxy KICKOFF naming Tom" })));
+}
+
+type AskLink = { ask: Ask; source: string };
+const idIn = (text: string, id: number) => new RegExp(`(?<!\\d)${id}(?!\\d)`).test(text);
+export function linkAsks(asks: Ask[], events: Ev[], statusLines: string[], runs: Run[] = []): Map<string, AskLink> {
+  const links = new Map<string, AskLink>();
+  const put = (sha: string, l: AskLink) => { if (sha && !links.has(sha)) links.set(sha.toLowerCase(), l); };
+  for (const r of runs) {
+    const ask = asks.find((a) => a.ids.some((id) => idIn(r.brief, id)));
+    if (ask) put(r.landed_sha, { ask, source: `runs:worker brief names ask, staffed ${iso(r.staffed)}` });
+  }
+  for (const e of events.filter((x) => (x.kind === "LANDED" || x.kind === "LAND-READY") && x.sha)) {
+    const direct = asks.find((a) => a.ids.some((id) => id === e.root || id === e.about || idIn(e.body, id)));
+    if (direct) { put(e.sha, { ask: direct, source: `events:${e.kind} ${e.seq} names ask` }); continue; }
+    const byLead = asks.filter((a) => a.leads.includes(e.actor) && a.at <= e.ts && e.ts - a.at <= 12 * 3_600_000).at(-1);
+    if (byLead) put(e.sha, { ask: byLead, source: `estimate:first ${e.kind} ${e.seq} by kicked lead after ask` });
+  }
+  const briefs = briefStems();
+  for (const line of statusLines) {
+    const shas = line.match(/\b[0-9a-f]{8,40}\b/g);
+    if (!shas) continue;
+    const viaBrief = briefs.find((b) => line.includes(b.stem) && asks.some((a) => a.ids.some((id) => b.ids.includes(id))));
+    const ask = asks.find((a) => a.ids.some((id) => idIn(line, id) || viaBrief?.ids.includes(id)));
+    if (!ask) continue;
+    for (const sha of line.match(/\b[0-9a-f]{8,40}\b/g) ?? []) put(sha, { ask, source: "status file line names ask and sha" });
+  }
+  return links;
+}
+function briefStems(): { stem: string; ids: number[] }[] {
+  const root = join(AGENTS, "handoffs");
+  if (!existsSync(root)) return [];
+  const out: { stem: string; ids: number[] }[] = [];
+  for (const d of readdirSync(root, { withFileTypes: true }).filter((x) => x.isDirectory())) {
+    for (const f of readdirSync(join(root, d.name)).filter((x) => x.endsWith(".md"))) {
+      const stem = f.replace(/\.md$/, "").replace(/^0+(?=\d)/, "").split("-").slice(0, 2).join("-");
+      if (!stem.includes("-")) continue;
+      const head = readFileSync(join(root, d.name, f), "utf8").slice(0, 4000);
+      const ids = [...head.matchAll(/events?\s+((?:\d{3,6}[\s,/&and]*)+)/gi)].flatMap((m) => (m[1].match(/\d{3,6}/g) ?? []).map(Number));
+      if (ids.length) out.push({ stem, ids });
+    }
+  }
+  return out;
+}
+function statusLines(): string[] {
+  const dir = join(AGENTS, "handoffs");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((f) => f.endsWith("-status.md")).flatMap((f) => readFileSync(join(dir, f), "utf8").split("\n"));
+}
+
+function pooledAgentMinutes(): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!existsSync(THREADS_DB)) return out;
+  const db = new Database(THREADS_DB, { readonly: true });
+  const rows = db.query(`select item, brief_path, substr(coalesce(brief_text,''),1,400) as brief, minutes from runs where role = 'worker' and ended >= ?`).all(iso(SINCE_MS)) as any[];
+  db.close();
+  for (const r of rows) {
+    const repo = repoOf(r.item ?? "") ?? repoOf(r.brief_path ?? "") ?? repoOf(r.brief ?? "");
+    if (repo) out[repo] = (out[repo] ?? 0) + (r.minutes ?? 0);
+  }
+  return out;
+}
+
+function convoAskCounts(): Record<string, number> {
+  const counts: Record<string, number> = {};
+  if (!existsSync(CONVO_DB)) return counts;
+  const db = new Database(CONVO_DB, { readonly: true });
+  const rows = db.query(`select f.project as project, f.title as title, substr(b.text,1,600) as text from msg m join files f on f.id = m.file_id join body b on b.id = m.body
+    where m.role = 'user' and m.dup = 0 and f.agent is null and f.provider = 'anthropic' and m.ts >= ?`).all(iso(SINCE_MS)) as any[];
+  db.close();
+  for (const r of rows) {
+    const text: string = r.text ?? "";
+    if (text.length < 12 || /^\s*[<\[{]/.test(text) || /another claude session|^\s*(KICKOFF|ANSWER|STUCK|QUESTION|LAND-READY|EVENT)\b/i.test(text)) continue;
+    const proj = String(r.project ?? "").replace(/-home-tom-code-/, "");
+    const repo = REPOS.slice().sort((a, b) => b.length - a.length).find((x) => proj.startsWith(x)) ?? repoOf(text);
+    if (repo) counts[repo] = (counts[repo] ?? 0) + 1;
+  }
+  return counts;
+}
+
+type MeasureRow = { shaPrefix: string; askAt: number | null; inBuildAt: number | null };
+function measureRows(landings: Map<string, number>): MeasureRow[] {
+  const file = join(AGENTS, "handoffs/throughput-architect-measure.md");
+  if (!existsSync(file)) return [];
+  const rows: MeasureRow[] = [];
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const cells = line.split("|").map((c) => c.trim());
+    if (cells.length < 7 || !/^[0-9a-f]{8,}/.test(cells[1])) continue;
+    const prefix = cells[1].slice(0, 10);
+    const landedAt = [...landings.entries()].find(([sha]) => sha.startsWith(prefix))?.[1];
+    if (!landedAt) continue;
+    const at = (cell: string) => {
+      const m = cell.match(/^~?(\d{2}):(\d{2})$/) ?? cell.match(/\b(\d{2}):(\d{2})$/);
+      if (!m) return null;
+      const d = new Date(landedAt); d.setUTCHours(Number(m[1]), Number(m[2]), 0, 0);
+      let t = d.getTime(); if (t > landedAt + 3 * 3_600_000) t -= 86_400_000;
+      return t;
+    };
+    rows.push({ shaPrefix: prefix, askAt: at(cells[3]), inBuildAt: null });
+  }
+  return rows;
+}
+
+type GhRun = { databaseId: number; headBranch: string; headSha: string; status: string; conclusion: string; createdAt: string; startedAt: string; updatedAt: string; displayTitle: string };
+function ghRuns(repo: string, workflow: string, limit: number): GhRun[] {
+  mkdirSync(join(OUT_DIR, "gh-cache"), { recursive: true });
+  const cache = join(OUT_DIR, "gh-cache", `${repo}--${workflow}.json`);
+  const fresh = existsSync(cache) && NOW - statSync(cache).mtimeMs < GH_TTL_MS;
+  if (!fresh && !OFFLINE) {
+    const out = sh(["gh", "run", "list", "-R", `${OWNER}/${repo}`, "-w", workflow, "-L", String(limit), "--json", "databaseId,headBranch,headSha,status,conclusion,createdAt,startedAt,updatedAt,displayTitle"]);
+    if (out.trim().startsWith("[")) {
+      const prior: GhRun[] = existsSync(cache) ? JSON.parse(readFileSync(cache, "utf8")) : [];
+      const merged = new Map<number, GhRun>();
+      for (const r of [...prior, ...JSON.parse(out)]) merged.set(r.databaseId, r);
+      const keep = [...merged.values()].filter((r) => ms(r.createdAt) >= SINCE_MS);
+      writeFileSync(cache + ".tmp", JSON.stringify(keep)); renameSync(cache + ".tmp", cache);
+    }
+  }
+  return existsSync(cache) ? JSON.parse(readFileSync(cache, "utf8")) : [];
+}
+
+function flowMedians(repo: string): Record<string, number> {
+  const f = join(AGENTS, "flow", `${OWNER}--${repo}-medians.json`);
+  return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")).medians ?? {} : {};
+}
+
+type LandCheck = { at: number; repoPath: string; sha: string; seconds: number };
+function landChecks(): LandCheck[] {
+  const f = join(AGENTS, "land-checks.tsv");
+  if (!existsSync(f)) return [];
+  return readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => {
+    const [at, repoPath, sha, secs] = l.split("\t");
+    return { at: ms(at), repoPath, sha, seconds: Number(secs) };
+  });
+}
+
+function mapsBuilds(): number[] {
+  const out: number[] = [];
+  for (const dir of [MAPS, join(MAPS, "older")]) {
+    if (!existsSync(dir)) continue;
+    for (const f of readdirSync(dir)) if (/^Smashcraft .*\.w3x$/.test(f)) out.push(statSync(join(dir, f)).mtimeMs);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+function stage(stage: Stage, start: number, end: number, source: string): StageRow {
+  const ok = Number.isFinite(start) && Number.isFinite(end) && end >= start;
+  return { stage, start: ok ? iso(start) : null, end: ok ? iso(end) : null, minutes: ok ? mins(start, end) : 0, source };
+}
+function estimate(stage: Stage, end: number, minutes: number, why: string): StageRow {
+  return { stage, start: Number.isFinite(end) ? iso(end - minutes * 60_000) : null, end: Number.isFinite(end) ? iso(end) : null, minutes: Math.round(minutes * 10) / 10, source: `estimate:${why}` };
+}
+
+const BOT = /\[bot\]$/;
+const LANE_END = /^Regenerate reports for /;
+
+export function groupPushes(ordered: Commit[], expand: (c: Commit) => Commit[] = () => []): { tail: Commit; pieces: Commit[] }[] {
+  const groups: { tail: Commit; pieces: Commit[] }[] = [];
+  let cur: Commit[] = [];
+  const close = () => { if (cur.length) groups.push({ tail: cur[cur.length - 1], pieces: cur.flatMap((c) => { const inner = expand(c); return inner.length ? inner : [c]; }) }); cur = []; };
+  for (const c of ordered) {
+    if (cur.length && Math.abs(c.committer - cur[cur.length - 1].committer) > 2000) close();
+    cur.push(c);
+    if (LANE_END.test(c.subject) || c.parents.length > 1) close();
+  }
+  close();
+  return groups;
+}
+const landingGroups = (repo: string, ordered: Commit[]) => groupPushes(ordered, (c) => mergedCommits(repo, c));
+
+function buildRepo(repo: string, runsBySha: Map<string, Run[]>, links: Map<string, AskLink>, checks: LandCheck[], builds: number[], measure: (l: Map<string, number>) => MeasureRow[]) {
+  const all = gitLog(repo, ["--no-merges"]);
+  const firstParent = gitLog(repo, ["--first-parent"]);
+  const med = flowMedians(repo);
+  const ghAutoland = med["autoland.yml"] !== undefined ? ghRuns(repo, "autoland.yml", 1000).filter((r) => r.conclusion === "success" && r.displayTitle !== "Autoland plan") : [];
+  const ghFarm = med["farm-test.yml"] !== undefined ? ghRuns(repo, "farm-test.yml", 300).filter((r) => r.status === "completed") : [];
+  const repoPath = join(CODE, repo, "main");
+  const repoChecks = checks.filter((c) => c.repoPath === repoPath);
+  const checkBySha = new Map(repoChecks.map((c) => [c.sha, c]));
+  const checkMedian = median(repoChecks.map((c) => c.seconds / 60));
+  const landedAtBySha = new Map(firstParent.map((c) => [c.sha, c.committer]));
+  const measured = new Map(measure(landedAtBySha).map((m) => [m.shaPrefix, m]));
+
+  const changes: Change[] = [];
+  let last: Change | null = null;
+  let lastCommit: Commit | null = null;
+  for (const { tail: c, pieces } of landingGroups(repo, [...firstParent].reverse())) {
+    const recordPieces = pieces.filter((p) => isRecordSubject(p.subject) || BOT.test(p.authorName));
+    const workPieces = pieces.filter((p) => !recordPieces.includes(p));
+    if (!workPieces.length) {
+      if (last && lastCommit && c.committer - lastCommit.committer < 60 * 60_000) {
+        last.record_commits += recordPieces.length;
+        const prior = last.stages.find((s) => s.stage === "record_refresh");
+        const row = stage("record_refresh", ms(prior?.start) || lastCommit.committer, c.committer, "git:record commit landed after change");
+        if (prior) Object.assign(prior, row);
+        else last.stages.push(row);
+        if (last.landed_at && c.committer > ms(last.landed_at)) last.landed_at = iso(c.committer);
+        continue;
+      }
+    }
+    const head = workPieces[0] ?? c;
+    const author = Math.min(...(workPieces.length ? workPieces : pieces).map((p) => p.author));
+    const landed = c.committer;
+    const runs = pieces.flatMap((p) => runsBySha.get(p.sha) ?? []);
+    const staffed = Math.min(...runs.map((r) => r.staffed).filter(Number.isFinite));
+    const firstCommit = Math.min(...runs.map((r) => r.first_commit).filter(Number.isFinite), author);
+    const agentMinutes = runs.length ? runs.reduce((a, r) => a + (r.minutes || 0), 0) : null;
+    const m = [...measured.entries()].find(([p]) => c.sha.startsWith(p) || pieces.some((x) => x.sha.startsWith(p)))?.[1];
+    const lead = runs.find((r) => r.brief_path)?.brief_path?.split("/").pop()?.replace(/-brief\.md$|\.md$/, "") ?? null;
+
+    let askAt: number | null = m?.askAt ?? null;
+    let askSource = "measure:throughput-architect-measure.md";
+    let askIds: number[] = [];
+    const link = [...links.entries()].find(([sha]) => pieces.some((p) => p.sha.startsWith(sha)))?.[1];
+    if (link && link.ask.at <= landed) { askIds = link.ask.ids; link.ask.linked = true; if (askAt === null) { askAt = link.ask.at; askSource = link.source; } }
+
+    const stages: StageRow[] = [];
+    const implStart = Number.isFinite(staffed) ? staffed : NaN;
+    stages.push(askAt !== null ? stage("intake", askAt, Math.max(askAt, Number.isFinite(implStart) ? implStart : author), Number.isFinite(implStart) ? `${askSource}->runs.staffed` : `estimate:${askSource}->first commit, no staffed run so includes implement`) : stage("intake", NaN, NaN, "none:not a Tom ask"));
+    const implEnd = Number.isFinite(firstCommit) ? firstCommit : author;
+    stages.push(Number.isFinite(implStart) ? stage("implement", implStart, Math.max(implStart, implEnd), "runs.staffed->first commit") : stage("implement", NaN, NaN, "none:no worker run recorded"));
+
+    const farm = ghFarm.filter((r) => ms(r.updatedAt) <= landed && ms(r.updatedAt) >= author).sort((a, b) => ms(b.updatedAt) - ms(a.updatedAt))[0];
+    const al = ghAutoland.filter((r) => ms(r.updatedAt) <= landed + 3 * 60_000 && ms(r.createdAt) >= landed - 180 * 60_000 && ms(r.createdAt) <= landed - 60_000 && ms(r.createdAt) >= author)
+      .sort((a, b) => ms(b.updatedAt) - ms(a.updatedAt))[0];
+    let alRow: StageRow;
+    if (al) alRow = stage("autoland", Math.min(ms(al.createdAt), landed), landed, `gh:autoland.yml run ${al.databaseId}`);
+    else if (med["autoland.yml"] !== undefined) alRow = estimate("autoland", landed, med["autoland.yml"], "flow median autoland.yml");
+    else alRow = stage("autoland", NaN, NaN, "none:repo has no Autoland");
+    const alStart = ms(alRow.start) || landed;
+    let farmRow: StageRow;
+    if (farm) farmRow = stage("farm_suite", ms(farm.createdAt), ms(farm.updatedAt), `gh:farm-test.yml run ${farm.databaseId}`);
+    else if (med["farm-test.yml"] !== undefined) farmRow = estimate("farm_suite", alStart, med["farm-test.yml"], "flow median farm-test.yml");
+    else farmRow = stage("farm_suite", NaN, NaN, "none:repo has no farm gate");
+    const farmStart = ms(farmRow.start) || alStart;
+    const check = pieces.map((p) => checkBySha.get(p.sha)).find(Boolean);
+    let lcRow: StageRow;
+    if (check) lcRow = stage("local_checks", check.at - check.seconds * 1000, check.at, "land-checks.tsv");
+    else if (checkMedian !== null) lcRow = estimate("local_checks", farmStart, checkMedian, "land-checks.tsv repo median");
+    else lcRow = estimate("local_checks", farmStart, 2, "throughput-architect-measure small-change median");
+    const reviewEnd = ms(lcRow.start) || farmStart;
+    const reviewStart = Number.isFinite(implStart) ? Math.max(implEnd, implStart) : author;
+    stages.push(stage("review", reviewStart, Math.max(reviewStart, reviewEnd), "derived:first commit->checks start (review, rebase, queue)"));
+    stages.push(lcRow, farmRow);
+    const recRuns = recordPieces.length ? recordPieces : [];
+    const recStart = workPieces.length ? Math.max(...workPieces.map((p) => p.author)) : Math.min(...recRuns.map((p) => p.author));
+    stages.push(recRuns.length ? stage("record_refresh", recStart, Math.max(recStart, ...recRuns.map((p) => p.author)), "git:last work commit->last record commit in landing") : stage("record_refresh", NaN, NaN, "none:no record commit"));
+    stages.push(alRow);
+    let inBuild: number | null = null;
+    if (repo === "smashcraft") {
+      inBuild = builds.find((b) => b >= landed + BUILD_MIN * 60_000) ?? null;
+      stages.push(inBuild ? stage("build", landed, inBuild - 60_000, "maps-mtime:first Maps build after land, includes wait to start") : stage("build", NaN, NaN, "none:not yet in a Maps build"));
+      stages.push(inBuild ? estimate("install", inBuild, 1, "build writes into Maps folder") : stage("install", NaN, NaN, "none:not yet installed"));
+    } else {
+      stages.push(stage("build", NaN, NaN, "none:no playable build step"), stage("install", NaN, NaN, "none:no install step"));
+    }
+    const startAll = askAt ?? (Number.isFinite(implStart) ? implStart : author);
+    const endAll = inBuild ?? landed;
+    const counted = stages.filter((s) => s.start);
+    const bottleneck = counted.length ? counted.reduce((a, b) => (b.minutes > a.minutes ? b : a)).stage : null;
+    const ch: Change = {
+      id: `${repo}@${head.sha.slice(0, 10)}`, repo, title: head.subject, tom_ask: askAt !== null, ask_at: askAt !== null ? iso(askAt) : null, stages: stages.filter((r) => r.start),
+      landed_at: iso(landed), in_build_at: inBuild ? iso(inBuild) : null, total_minutes: mins(startAll, endAll), bottleneck_stage: bottleneck,
+      sha: c.sha, lead, ask_ids: askIds, agent_minutes: agentMinutes, record_commits: recordPieces.length, kind: recordPieces.length && !workPieces.length ? "record-only" : "change",
+    };
+    changes.push(ch);
+    last = ch; lastCommit = c;
+  }
+  return { all, firstParent, changes };
+}
+
+export function summarize(changes: Change[]) {
+  const stage_minutes_median: Record<string, number | null> = {};
+  const stage_minutes_p90: Record<string, number | null> = {};
+  for (const s of STAGES) {
+    const xs = changes.map((c) => c.stages.find((r) => r.stage === s)!).filter((r) => r && r.start).map((r) => r.minutes);
+    stage_minutes_median[s] = median(xs);
+    stage_minutes_p90[s] = quantile(xs, 0.9);
+  }
+  return { stage_minutes_median, stage_minutes_p90 };
+}
+
+function main() {
+  const t0 = Date.now();
+  const runs = loadRuns();
+  const runsBySha = new Map<string, Run[]>();
+  for (const r of runs) runsBySha.set(r.landed_sha, [...(runsBySha.get(r.landed_sha) ?? []), r]);
+  const events = loadEvents();
+  const asks = proxyAsks(events);
+  const links = linkAsks(asks, events, statusLines(), runs);
+  const pooled = pooledAgentMinutes();
+  const checks = landChecks();
+  const builds = mapsBuilds();
+  const convo = convoAskCounts();
+  const projects: Record<string, unknown> = {};
+  const changes: Change[] = [];
+  for (const repo of REPOS) {
+    if (!existsSync(join(CODE, repo, "main"))) continue;
+    const { all, firstParent, changes: cs } = buildRepo(repo, runsBySha, links, checks, builds, measureRows);
+    const real = cs.filter((c) => c.kind === "change");
+    const half = NOW - (DAYS / 2) * 86_400_000;
+    const sum = summarize(real);
+    projects[repo] = {
+      asks: asks.filter((a) => a.repo === repo).length,
+      asks_source: `events:proxy KICKOFFs naming Tom, deduped within 10 min; events start ${events.length ? iso(Math.min(...events.map((e) => e.ts))) : "n/a"}`,
+      asks_linked: asks.filter((a) => a.repo === repo && a.linked).length,
+      tom_messages: convo[repo] ?? 0,
+      tom_messages_source: "convo index: Tom-typed top-level Claude messages placed in repo",
+      agent_minutes_pooled_per_change: real.length ? Math.round(((pooled[repo] ?? 0) / real.length) * 10) / 10 : null,
+      agent_minutes_pooled_total: pooled[repo] ?? 0,
+      commits: all.length,
+      landings: firstParent.length,
+      changes: real.length,
+      record_commits: all.filter((c) => isRecordSubject(c.subject) || BOT.test(c.authorName)).length,
+      tom_ask_changes: real.filter((c) => c.tom_ask).length,
+      agent_minutes_per_change_median: median(real.map((c) => c.agent_minutes ?? NaN)),
+      agent_minutes_per_change_p90: quantile(real.map((c) => c.agent_minutes ?? NaN), 0.9),
+      changes_with_runs: real.filter((c) => c.agent_minutes !== null).length,
+      week1: { commits: all.filter((c) => c.committer < half).length, changes: real.filter((c) => ms(c.landed_at) < half).length },
+      week2: { commits: all.filter((c) => c.committer >= half).length, changes: real.filter((c) => ms(c.landed_at) >= half).length },
+      ...sum,
+    };
+    changes.push(...cs);
+  }
+  for (const a of asks) {
+    if (a.linked) continue;
+    changes.push({
+      id: `ask@${iso(a.at)}->${a.lead}`, repo: a.repo ?? "unknown", title: a.text, tom_ask: true, ask_at: iso(a.at),
+      stages: [stage("intake", a.at, NOW, `${a.source}; open, no landing linked`)], landed_at: null, in_build_at: null,
+      total_minutes: mins(a.at, NOW), bottleneck_stage: "intake", sha: null, lead: a.leads.join(","), ask_ids: a.ids, agent_minutes: null, record_commits: 0, kind: "open-ask",
+    });
+  }
+  changes.sort((a, b) => ms(b.landed_at ?? b.ask_at) - ms(a.landed_at ?? a.ask_at));
+  const doc = { generated_at: iso(NOW), window_days: DAYS, targets: { small_change_ask_to_maps_minutes: [2, 5], record_sim_change_ask_to_land_minutes: 20, pre_land_gate_seconds: 90, map_build_seconds: 30, ask_to_editing_seconds: 30, source: "Tom 05:16Z 15 Oct via proxy event 7330" }, since: iso(SINCE_MS), elapsed_s: (Date.now() - t0) / 1000, projects, changes };
+  mkdirSync(OUT_DIR, { recursive: true });
+  const out = join(OUT_DIR, "changes.json");
+  writeFileSync(out + ".tmp", JSON.stringify(doc, null, 1));
+  renameSync(out + ".tmp", out);
+  console.log(`${out}: ${changes.length} rows, ${Object.keys(projects).length} projects, ${doc.elapsed_s}s`);
+}
+
+if (import.meta.main) main();
