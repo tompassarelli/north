@@ -6,7 +6,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Modifier, Style};
 use tui_textarea::{TextArea, WrapMode};
 
-use crate::composer::edit_textarea;
 use crate::error::NorthResult;
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Decision;
@@ -14,6 +13,7 @@ use crate::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, T
 use crate::fleet::runtime::SESSION_ENV;
 
 use super::desk::SessionSummary;
+use super::editor::edit_textarea;
 use super::digest::{DigestPane, SessionFacts};
 use super::form::{FormOutcome, LaunchForm, newline_modifier};
 use super::order::arrange;

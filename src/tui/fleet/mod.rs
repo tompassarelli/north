@@ -1,6 +1,7 @@
 mod desk;
 mod digest;
 mod digest_view;
+mod editor;
 mod form;
 mod order;
 mod painter;

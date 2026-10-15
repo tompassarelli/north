@@ -21,7 +21,10 @@ pub struct SessionFacts {
 impl SessionFacts {
     pub fn of(record: &SessionRecord, transcript: Option<&Transcript>) -> Self {
         let entries = transcript.map_or(&[][..], |transcript| transcript.entries.as_slice());
-        let first_prompt = entries.iter().find(|entry| entry.kind == EntryKind::User).map(|entry| task_title(urgent_text(&entry.text).unwrap_or(&entry.text)));
+        let first_prompt = entries.iter().filter(|entry| entry.kind == EntryKind::User)
+            .map(|entry| urgent_text(&entry.text).unwrap_or(&entry.text))
+            .find(|prompt| !prompt.trim_start().starts_with("<task-notification>"))
+            .map(task_title);
         let finished = entries.iter().rposition(|entry| entry.kind == EntryKind::TurnEnd).unwrap_or(0);
         let report = entries[..finished].iter().rev().find(|entry| entry.kind == EntryKind::Assistant).map(|entry| first_line(&entry.text));
         Self {

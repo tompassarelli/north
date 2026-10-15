@@ -408,7 +408,7 @@ impl Codex {
             json!({
                 "clientInfo": {
                     "name": "north",
-                    "title": "North TUI",
+                    "title": "North fleet",
                     "version": env!("CARGO_PKG_VERSION")
                 },
                 "capabilities": {

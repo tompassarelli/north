@@ -224,20 +224,12 @@ env -u NORTH_CODEX_ENDPOINT \
   "$fixture/launchers/north" || fail "ordinary North launch failed"
 mapfile -t launched_env <"$env_log"
 [[ -z "${launched_env[0]}" ]] || fail "North retained ambient account home"
-[[ "${launched_env[2]}" = unix:///synthetic/shared/app-server.sock ]] ||
-  fail "North and Codex chose different shared endpoints"
-env -u NORTH_CODEX_ENDPOINT \
-  CODEX_TEST_ARGV_LOG="$argv_log" CODEX_TEST_ENV_LOG="$env_log" \
-  "$fixture/launchers/north" --resume "$ASID" || fail "North historical resume failed"
-[[ "$(<"$CODEX_TEST_SHARED_HOME_LOG")" = "$base/openai/fallback" ]] ||
-  fail "North historical resume selected another server home"
-grep -Fxq -- --resume "$argv_log" || fail "North lost explicit resume action"
-grep -Fxq -- "$ASID" "$argv_log" || fail "North lost requested conversation"
+[[ -z "${launched_env[2]}" ]] || fail "North started a shared conversation server"
 env -u NORTH_CODEX_ENDPOINT \
   CODEX_TEST_ARGV_LOG="$argv_log" CODEX_TEST_ENV_LOG="$env_log" \
   "$fixture/launchers/north" --help || fail "North help failed"
 mapfile -t launched_env <"$env_log"
-[[ -z "${launched_env[2]}" ]] || fail "North maintenance started a server"
+[[ -z "${launched_env[2]}" ]] || fail "North help started a shared server"
 
 # Pooled non-interactive execution owns its provider and permission argv.
 # Plain exec needs the executable full-access switch. Nested exec resume needs

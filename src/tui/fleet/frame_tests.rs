@@ -174,6 +174,33 @@ fn the_task_line_shows_the_brief_title_not_the_launch_prompt() {
 }
 
 #[test]
+fn the_task_line_skips_a_first_task_notification_for_the_brief_title_or_task_ref() {
+    let directory = tempfile::tempdir().unwrap();
+    let brief = directory.path().join("brief-tui-unify.md");
+    std::fs::write(&brief, "# Box: one TUI\n").unwrap();
+    let record = family("tui", None, 1, Status::Working, 0).record;
+    let mut transcript = Transcript::new();
+    transcript.entries = vec![
+        Entry { kind: EntryKind::User, text: "<task-notification>child started</task-notification>".into() },
+        Entry { kind: EntryKind::User, text: format!("Read the brief at {}", brief.display()) },
+    ];
+    let facts = SessionFacts::of(&record, Some(&transcript));
+    assert_eq!(facts.task.as_deref(), Some("Box: one TUI"));
+    let summary = family("tui", None, 1, Status::Working, 0);
+    let mut digest = DigestPane::default();
+    digest.facts.insert("tui".into(), facts);
+    let rendered = digest_lines(&digest, &[summary], 0, 160).iter()
+        .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+        .collect::<String>();
+    assert!(rendered.contains("Box: one TUI"), "{rendered}");
+    assert!(!rendered.contains("<task-notification>"), "{rendered}");
+    let mut tagged = record;
+    tagged.task_ref = Some("north#418".into());
+    transcript.entries.truncate(1);
+    assert_eq!(SessionFacts::of(&tagged, Some(&transcript)).task.as_deref(), Some("north#418"));
+}
+
+#[test]
 fn a_working_session_shows_live_tokens_from_usage_frames_before_its_turn_ends() {
     let record = family("busy", None, 1, Status::Working, 0).record;
     let mut transcript = Transcript::new();

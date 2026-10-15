@@ -14,22 +14,15 @@ hotspot_score = 0
 paths = ["target/**", "src/fixtures/**", "src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "harness/lib/routing-scenarios/**"]
 
 [[module]]
-name = "tui-worker"
-thresholds = { file_lines = 1692, function_lines = 146, function_complexity = 53 }
-paths = ["src/tui/mod.rs", "src/tui/app.rs", "src/tui/render.rs", "src/tui/terminal.rs", "src/tui/tests.rs"]
-responsibility = "North TUI application worker, rendering and terminal loop moved out of main.rs; frozen at its moved size."
-may_use = ["tui", "providers", "fleet", "app", "threads", "catalog", "domain", "platform", "foundation"]
-
-[[module]]
 name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "src/test_inputs.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli","tui-worker","tui","providers","ledger","fleet","app","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation"]
+may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation"]
 
 [[module]]
 name = "foundation"
-paths = ["src/foundation/**", "src/error.rs", "src/usage.rs"]
+paths = ["src/foundation/**", "src/error.rs"]
 responsibility = "Error type, clock port and time values, identifiers."
 may_use = []
 
@@ -39,8 +32,8 @@ producer = "harness/skills/machine-capacity/scripts/build-machine-capacity"
 
 [[module]]
 name = "platform"
-paths = ["src/platform/**", "src/local_store.rs", "src/pyjson.rs"]
-responsibility = "Adapters for processes, git, GitHub, SQLite, files, ssh, local storage and clipboard."
+paths = ["src/platform/**", "src/pyjson.rs"]
+responsibility = "Adapters for processes, git, GitHub, SQLite, files and ssh."
 may_use = ["foundation"]
 
 [[module]]
@@ -54,12 +47,6 @@ name = "domain"
 paths = ["src/domain/**", "src/router.rs", "src/router/**"]
 responsibility = "Workforce members, messages, briefs, work-item refs, routing, pace and placement policy."
 may_use = ["foundation"]
-
-[[module]]
-name = "app"
-paths = ["src/app/**", "src/state_core.rs", "src/north_state.rs", "src/menu.rs"]
-responsibility = "Typed North TUI semantics: state, events, transitions, snapshot, conversation port."
-may_use = ["domain", "platform", "foundation"]
 
 [[module]]
 name = "fleet"
@@ -131,20 +118,20 @@ may_use = ["threads", "domain", "platform", "foundation"]
 name = "providers"
 paths = ["src/providers/**", "src/claude_stream.rs", "src/contract_probe.rs", "src/daemon.rs", "src/usage_stream.rs", "src/codex.rs", "src/rpc.rs", "src/codex_socket.rs", "src/codex_shared_tests.rs"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection, install."
-may_use = ["fleet", "app", "guard", "catalog", "threads", "domain", "platform", "foundation"]
+may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation"]
 
 [[module]]
 name = "tui"
-paths = ["src/tui/**", "src/interactive.rs", "src/command_surface.rs", "src/composer.rs", "src/prompts.rs", "src/references.rs"]
-responsibility = "Terminal I/O and views over app and fleet read models."
-may_use = ["app", "fleet", "catalog", "domain", "platform", "foundation"]
+paths = ["src/tui/**"]
+responsibility = "Fleet terminal screen, input, transcript and digest views."
+may_use = ["fleet", "catalog", "domain", "platform", "foundation"]
 
 [[module]]
 name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["tui-worker", "tui", "providers", "ledger", "fleet", "app", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation"]
+may_use = ["tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "learn", "domain", "shell", "platform", "foundation"]
 
 [[module]]
 name = "verify"

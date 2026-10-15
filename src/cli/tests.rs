@@ -9,7 +9,6 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
         "session-host",
         "dep-gate",
         "contract-probe",
-        "--resume",
         "-h",
         "--help",
         "help",
@@ -26,14 +25,9 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
                 number /= alphabet.len();
             }
             let expected = match args.as_slice() {
-                [] => Some(Command::Tui),
+                [] => Some(Command::Fleet(Vec::new())),
                 [help] if ["help", "-h", "--help"].contains(&help.as_str()) => {
                     Some(Command::Help)
-                }
-                [resume, id]
-                    if resume == "--resume" && !id.is_empty() && !id.starts_with('-') =>
-                {
-                    Some(Command::Resume(id.clone()))
                 }
                 [config, agents, rest @ ..] if config == "config" && agents == "agents" => {
                     Some(Command::Agents(rest.to_vec()))
@@ -62,4 +56,3 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
         }
     }
 }
-

@@ -5,12 +5,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 use serde::Deserialize;
 
-use crate::north_state::NorthState;
 use crate::error::{NorthError, NorthResult};
 use crate::platform::sqlite::{self, Access};
 use crate::platform::{github, process};
 
-pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\nIn the app use /work followed by the same arguments. Escape closes a list or item.\nGitHub owns issues; NorthThreads records holders, handoffs and runs.";
+pub const HELP: &str = "Work items\n\n  north work list\n  north work search TEXT\n  north work show REPO#N\n  north work claim REPO#N [--by NAME] [--eta MINUTES]\n  north work release REPO#N [--to NAME]\n  north work need REPO#N BLOCKER#N\n  north work unneed REPO#N BLOCKER#N\n  north work close REPO#N --comment RESULT\n\n\nGitHub owns issues; NorthThreads records holders, handoffs and runs.";
 
 async fn command(program: &str, arguments: &[String]) -> NorthResult<String> {
     let result = if program == "gh" {
@@ -79,17 +78,43 @@ pub struct WorkRow {
     pub eta: String,
 }
 
-impl WorkRow {
-    pub fn menu_texts(&self) -> (String, String, &str) {
-        let description = if self.holder.is_empty() { "No holder".into() } else { format!("{} · {} held / {} ETA", self.holder, self.clock, self.eta) };
-        let annotation = if self.state == "closed" { "closed" } else if self.blocked { "blocked" } else if self.holder.is_empty() { "ready" } else { "held" };
-        (format!("{}  {}", self.reference, self.title), description, annotation)
-    }
-}
-
 pub enum ResultView {
     List(Vec<WorkRow>),
     Document { title: String, text: String },
+}
+
+fn request(arguments: &[String]) -> NorthResult<(&'static str, String)> {
+    match arguments {
+        [] => Ok(("work-list", String::new())),
+        [verb] if verb == "list" => Ok(("work-list", String::new())),
+        [verb, rest @ ..] if verb == "search" && !rest.is_empty() => Ok(("work-search", rest.join(" "))),
+        [verb, reference, rest @ ..] => {
+            let action = action(verb).ok_or_else(|| NorthError::Usage(HELP.into()))?;
+            let payload = std::iter::once(reference.as_str()).chain(rest.iter().map(String::as_str)).collect::<Vec<_>>().join(" ");
+            Ok((action, payload))
+        }
+        _ => Err(NorthError::Usage(HELP.into())),
+    }
+}
+
+fn action(verb: &str) -> Option<&'static str> {
+    Some(match verb {
+        "show" => "work-show",
+        "claim" => "work-claim",
+        "release" => "work-release",
+        "need" => "work-need",
+        "unneed" => "work-unneed",
+        "close" => "work-close",
+        _ => return None,
+    })
+}
+
+fn row_status(row: &WorkRow) -> &'static str {
+    if row.state == "closed" { "closed" } else if row.blocked { "blocked" } else if row.holder.is_empty() { "ready" } else { "held" }
+}
+
+fn holder(row: &WorkRow) -> String {
+    if row.holder.is_empty() { "No holder".into() } else { format!("{} · {} held / {} ETA", row.holder, row.clock, row.eta) }
 }
 
 async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {
@@ -171,77 +196,18 @@ pub async fn execute(action: &str, payload: &str) -> NorthResult<ResultView> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn generated_work_words_route_without_a_coding_turn() {
-        let mut state = NorthState::open().unwrap();
-        let mut seed = 20261015u64;
-        for length in 0..64 {
-            let word = (0..length).map(|_| {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-                char::from(b'a' + ((seed >> 32) % 26) as u8)
-            }).collect::<String>();
-            let payload = if length == 0 { String::new() } else { format!("north#{length} --comment 世界 {seed}") };
-            let input = if word.is_empty() { "/work".into() } else { format!("/work {word} {payload}") };
-            let action = format!("work-{}", if word.is_empty() { "list" } else { &word });
-            state.execute_command(&input).unwrap();
-            let effect = state.host_effect().unwrap();
-            assert_eq!((effect.action(), effect.payload()), (action.as_str(), payload.as_str()), "{input}");
-            assert!(state.pending_inputs().is_empty(), "{input} must not submit to Codex");
-            state.clear_host_effect().unwrap();
-        }
-    }
-
-    #[test]
-    fn spec_6_closed_blocked_held_and_ready_items_show_their_status() {
-        let mut state = NorthState::open().unwrap();
-        let rows = [
-            ("north#1", "open", false, "", "ready"),
-            ("north#2", "open", true, "", "blocked"),
-            ("north#3", "open", false, "tom", "held"),
-            ("smashcraft#247", "closed", false, "", "closed"),
-        ].into_iter().map(|(reference, status, blocked, holder, _)| WorkRow {
-            reference: reference.into(), title: "Archer".into(), state: status.into(), blocked,
-            holder: holder.into(), clock: "3m".into(), eta: "5m".into(),
-        }).collect::<Vec<_>>();
-        state.work_menu(&rows).unwrap();
-        assert_eq!(state.menu().rows.iter().map(|row| row.annotation.as_str()).collect::<Vec<_>>(), ["ready", "blocked", "held", "closed"]);
-        assert!(state.menu().rows[2].description.contains("3m held / 5m ETA"));
-        state.query_menu("Archer").unwrap();
-        state.move_menu(-1).unwrap();
-        state.accept_menu().unwrap();
-        let effect = state.host_effect().unwrap();
-        assert_eq!((effect.action(), effect.payload()), ("work-show", "smashcraft#247"));
-    }
-}
-
-pub fn project(state: &mut NorthState, view: &ResultView) -> NorthResult<()> {
-    match view {
-        ResultView::List(rows) => state.work_menu(rows),
-        ResultView::Document { title, text } => {
-            let lines = text.lines().enumerate().map(|(i, line)| (i.to_string(), line.to_owned())).collect::<Vec<_>>();
-            let rows = lines.iter().map(|(key, line)| (key.as_str(), line.as_str(), "", "")).collect::<Vec<_>>();
-            state.open_settings_menu("document", title, &rows)
-        }
-    }
-}
-
 pub async fn run(arguments: &[String]) -> NorthResult<()> {
     if arguments.first().is_some_and(|arg| matches!(arg.as_str(), "help" | "--help" | "-h")) {
         println!("{HELP}"); return Ok(());
     }
-    let mut state = NorthState::open()?;
-    state.execute_command(&format!("/work {}", arguments.join(" ")))?;
-    let effect = state.host_effect().ok_or_else(|| NorthError::Usage(HELP.into()))?;
-    let view = execute(effect.action(), effect.payload()).await?;
-    project(&mut state, &view)?;
+    let (action, payload) = request(arguments)?;
+    let view = execute(action, &payload).await?;
     match view {
-        ResultView::List(_) => {
+        ResultView::List(rows) => {
             println!("Item\tTitle\tStatus\tHolder / time / ETA");
-            for row in state.menu().rows.iter() { println!("{}\t{}\t{}\t{}", row.key, row.label, row.annotation, row.description); }
+            for row in rows {
+                println!("{}\t{}\t{}\t{}", row.reference, row.title, row_status(&row), holder(&row));
+            }
         }
         ResultView::Document { title, text } => println!("{title}\n\n{text}"),
     }

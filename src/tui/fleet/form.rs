@@ -4,9 +4,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Modifier, Style};
 use tui_textarea::TextArea;
 
-use crate::composer::edit_textarea;
 use crate::fleet::model::{Account, LaunchRequest, ProviderName};
 use crate::fleet::prompt::PromptMode;
+
+use super::editor::edit_textarea;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Field {

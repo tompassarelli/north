@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::{
     agent_catalog, autoland_status, contract_probe, dep_gate, follows_release, grounding, guard,
-    health, hook, issue_box_lint, language_gate, provenance, session_host, threads_client, tui,
+    health, hook, issue_box_lint, language_gate, provenance, session_host, threads_client,
     work_items,
 };
 
@@ -17,13 +17,11 @@ mod tests;
 
 #[derive(Debug, Eq, PartialEq)]
 enum Command {
-    Tui,
-    Resume(String),
+    Fleet(Vec<String>),
     Help,
     DesktopIdleState(Option<String>),
     Hook(Vec<String>),
     Threads(Vec<String>),
-    Fleet(Vec<String>),
     Ledger(Vec<String>),
     Agents(Vec<String>),
     Work(Vec<String>),
@@ -40,11 +38,11 @@ enum Command {
     Grounding(Vec<String>),
 }
 
-const CLI_HELP: &str = "North — interactive coding workspace
+const CLI_HELP: &str = "North — fleet session console
 
 Usage: north [COMMAND]
 
-Run north with no arguments to open the TUI.
+Run north with no arguments to open the fleet screen.
 
 Commands:
   health [--dry-run]                             Check harness invariants
@@ -69,13 +67,12 @@ Commands:
   help                                          Show this help
 
 Options:
-  --resume ID  Open this conversation
   -h, --help  Show this help";
 
 fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Command> {
     let arguments = arguments.into_iter().collect::<Vec<_>>();
     if arguments.is_empty() {
-        return Ok(Command::Tui);
+        return Ok(Command::Fleet(Vec::new()));
     }
     if arguments[0] == "desktop-idle-state" {
         return Ok(Command::DesktopIdleState(arguments.get(1).cloned()));
@@ -85,12 +82,6 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     }
     if arguments.len() == 1 && matches!(arguments[0].as_str(), "-h" | "--help" | "help") {
         return Ok(Command::Help);
-    }
-    if arguments.first().is_some_and(|argument| argument == "--resume") {
-        if arguments.len() == 2 && !arguments[1].is_empty() && !arguments[1].starts_with('-') {
-            return Ok(Command::Resume(arguments[1].clone()));
-        }
-        return Err(NorthError::Usage("Usage: north --resume ID".into()));
     }
     if arguments.len() >= 2 && arguments[0] == "config" && arguments[1] == "agents" {
         return Ok(Command::Agents(arguments[2..].to_vec()));
@@ -181,14 +172,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Grounding(arguments) => in_runtime(async move {
             grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
         }),
-        Command::Tui => in_runtime(open_tui(None)),
-        Command::Resume(conversation) => in_runtime(open_tui(Some(conversation))),
     }
-}
-
-async fn open_tui(requested_conversation: Option<String>) -> NorthResult<ExitCode> {
-    tui::run(env::current_dir()?, requested_conversation).await?;
-    Ok(ExitCode::SUCCESS)
 }
 
 #[tokio::main]

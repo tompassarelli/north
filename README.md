@@ -3,7 +3,7 @@
 North is the harness that Socrates, Tom's agent workforce, runs on. Claude Code and Codex are the
 base harnesses; North adds what a workforce needs on top: staffing and routing of workers, a safe
 landing path to main, hooks that guard each tool call, shared skills and the policy checks that keep
-them honest. It also ships `north`, a terminal app for directing coding work.
+them honest. It also ships `north`, a terminal fleet screen for directing sessions and decisions.
 
 It is built for Tom and the agents in Socrates. Anyone who directs coding agents can read it, try
 the `north` app, or borrow a command, hook or skill. The full harness expects Tom's machines and his
@@ -15,8 +15,8 @@ model is never called an agent.
 
 ## Try it
 
-You need Nix with flakes, and the Codex CLI on `PATH` and signed in: the app starts
-`codex app-server` itself.
+You need Nix with flakes to build North. Install and sign in to a provider CLI to launch sessions
+for that provider.
 
 ```sh
 git clone https://github.com/tompassarelli/north && cd north
@@ -29,7 +29,7 @@ a change lands: [docs/harness.md](docs/harness.md).
 
 ## Where things live
 
-- [src/](src/): the `north` app, including typed Rust state transitions, menus and host effects.
+- [src/](src/): the `north` fleet runtime, terminal screen and authorized host effects.
 - [bin/](bin/): every harness command (`agents`, `threads`, `safe-push`, `worker-ledger` and more).
 - [harness/](harness/): hooks, skills, defaults and policy owners.
 - [agent-machinery/](agent-machinery/): provider-independent doctrine, contracts and skills.

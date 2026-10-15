@@ -8,10 +8,8 @@ publish = false
 autobins = false
 
 [dependencies]
-arboard = { version = "3", features = ["wayland-data-control"] }
 crossterm = "0.28.1"
 futures-util = { version = "0.3", features = ["sink"] }
-image = { version = "0.25.9", default-features = false, features = ["png"] }
 ratatui = "0.30.0"
 regex = "=1.13.1"
 percent-encoding = "2.3.2"
@@ -39,10 +37,6 @@ path = "src/bin/verify_north/main.rs"
 
 [lints.rust]
 unsafe_code = "forbid"
-
-[[example]]
-name = "menu_step"
-test = true
 
 [[example]]
 name = "fake_claude"
