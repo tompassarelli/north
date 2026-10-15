@@ -1268,3 +1268,28 @@ fn usage_error(command: &str, message: &str) -> u8 {
     eprintln!("{}\n{name}: error: {message}", help.lines().next().unwrap());
     2
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_galileo_plan_row_bar_is_found_and_a_measurement_is_not() {
+        assert_eq!(date("२०२६१०१५"), None);
+        assert_eq!(stamp("2026-10-15T00:00:00.१२३Z"), None);
+        assert_eq!(quantity("٨", "ms"), quantity("8", "ms"));
+        assert_eq!(quantity("٥٠", "ms"), quantity("50", "ms"));
+        assert_ne!(quantity("٨", "ms"), quantity("٥٠", "ms"));
+        let found =
+            bars("| 9.11p | query view | the 1,000-row query keystroke stays under 50 ms | open |");
+        assert_eq!(
+            found
+                .iter()
+                .map(|b| (b.comparator.as_str(), b.number.as_str(), b.unit.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("under", "50", "ms")]
+        );
+        assert!(
+            bars("| 9.11p | query view | measured 57.8 ms on the 1,000-row query | done |")
+                .is_empty()
+        );
+    }
+}

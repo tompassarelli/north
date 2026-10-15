@@ -557,7 +557,7 @@ PYGENERATED
 provenance_scan() {
   local base="${1%%..*}" head="${1##*..}"
   [ "$base" != "$1" ] && [ -n "$base" ] || return 0
-  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/provenance" check "$base" "$head" && return 0
+  command -v north >/dev/null 2>&1 || return 0; north provenance check "$base" "$head" && return 0
   echo "safe-push: ✗ a new gating bar, hook or policy line has no Provenance record; add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer <quote with date | run file plus rerun command | link | issue>; rationale <repo path#anchor | not recorded>; revisit <YYYY-MM-DD | closed REPO#N | event text>', or end it '; soft' (origin none allowed) for a bar that does not gate, whose miss lands with 'Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>'; NOT pushed."
   return 1
 }

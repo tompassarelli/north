@@ -120,7 +120,7 @@ reworded line keeping its bar needs none. A box that lands over a soft target,
 or a gate moved to debt, carries `Target-debt: <bar>; measured <value>; owner
 <lead or org name>; revisit <date YYYY-MM-DD | closed REPO#N>`; `Target-paid:
 <commit of the Target-debt>` retires it and names what was measured.
-`provenance debt --due` lists unpaid debt whose trigger fired.
+The harness lists unpaid debt whose trigger fired.
 
 ## Routing the next pass
 

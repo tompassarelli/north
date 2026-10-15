@@ -186,3 +186,45 @@ pub(crate) fn run(args: &[String]) -> u8 {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_smashcraft_12_oct_boxes_flag_only_mechanical_checks_routed_to_tom() {
+        let body=[
+            "- [ ] Tom's play session on the current patch build (findings go into the next patch). Product proof (laptop, Tom).",
+            "- [ ] Product proof (laptop, Tom's next launch): the controller helper builds on Tom's laptop for the current build (`bun wisp play` prints a helper path, not \"keyboard\").",
+            "- [ ] Tom (note 7): \"the cursor should start on \"start match\" on the screen selection screen\". Entering stage select puts the pad focus and the mouse cursor on Start Match.",
+            "- [ ] Tom tries it on his pad in his next playtest.",
+            "- [ ] Tom's feel check in his next playtest.",
+            "- [x] Tom tries the old pad build.",
+            "- [ ] Frame native time is measured once per release candidate on Tom's machine, by one quiet laptop run under an exclusive lease.",
+        ].join("\n");
+        assert_eq!(
+            flagged(&body)
+                .iter()
+                .map(|b| b.chars().take(40).collect::<String>())
+                .collect::<Vec<_>>(),
+            vec![
+                "Product proof (laptop, Tom's next launch",
+                "Tom tries it on his pad in his next play"
+            ]
+        );
+        assert_eq!(
+            flagged("- [ ] proof (Tom and Tom's laptop): input works"),
+            vec!["proof (Tom and Tom's laptop): input works"]
+        );
+        assert_eq!(
+            flagged("- [ ] proof (Tom's laptop and Tom): input works"),
+            vec!["proof (Tom's laptop and Tom): input works"]
+        );
+    }
+    #[test]
+    fn test_galileo_box_with_a_bar_flags_only_without_an_origin() {
+        let body=["- [ ] 9.11p: the 1,000-row query keystroke stays under 50 ms.","- [ ] 9.11p: the 1,000-row query keystroke stays under 50 ms (origin experiment; pointer galileo bench/keystroke.json plus `just bench keystroke`).","- [ ] 9.12p: export finishes under 2 s (soft)."].join("\n");
+        assert_eq!(
+            flagged(&body),
+            vec!["9.11p: the 1,000-row query keystroke stays under 50 ms."]
+        );
+    }
+}

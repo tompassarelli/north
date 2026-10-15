@@ -22,7 +22,7 @@ metadata:
 - Make a Done-when box machine-checkable where possible, as a named command and its expected output, so an auto-close job can run it on main.
 - File one issue per fix when an audit or review finds several, never one issue for the whole audit.
 - Link a box that another issue already owns to that issue; never copy it in.
-- Run `issue-box-lint REPO#N` after writing boxes; it flags any box that hands Tom a mechanical check.
+- Run `north issue-box-lint REPO#N` after writing boxes; it flags any box that hands Tom a mechanical check.
 - Keep a shared target (such as a 45–55% balance band or a frame budget) in the one issue that owns it; other issues' boxes require only no regression against main.
 - File native, Tom-decision and time-gated proofs as their own issue when the code they verify can land first.
 - Rewrite an issue's Status and route in the same edit that changes a box's verification class.

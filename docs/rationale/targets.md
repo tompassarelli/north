@@ -18,7 +18,7 @@ Alternatives that lost:
 - A separate debt store: it duplicates git history, which already carries every landing and its trailers.
 
 Trade-off accepted: agents can land over a soft target. The debt stays in `Target-debt` trailers on main and
-`provenance debt --due` surfaces it in the tick once its trigger fires.
+`north provenance debt --due` surfaces it in the tick once its trigger fires.
 
 Overturned by: debt entries piling up unpaid past their triggers, or a soft-target miss reaching users.
 
