@@ -110,7 +110,7 @@ for field in Category Spec Scope Surface Verify; do
   run deny "native missing $field" codex "$incomplete"
   run deny "missing $field escalated" worker-high $'Follows: worker failed.\n'"$incomplete"
 done
-run allow 'known facets'                worker        $'Category: tooling\nSpec: measured\nScope: one-file\nSurface: shell\nVerify: local-test\nPayback: enables x; cost 5 min'
+run allow 'known facets'                worker        $'Category: tooling\nSpec: measured\nScope: one-file\nSurface: rust\nVerify: local-test\nPayback: enables x; cost 5 min'
 PAYBACK='Payback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days'
 for cat in tooling infra ci harness; do
   EXPECT_REASON='iteration-economics' run deny "$cat without Payback" worker "Category: $cat$FACETS"

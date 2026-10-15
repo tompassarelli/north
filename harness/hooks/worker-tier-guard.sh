@@ -39,7 +39,7 @@ if not isinstance(kind, str) or not kind.startswith("worker") or not isinstance(
 FACETS = {
     "Spec": ["exact", "measured", "judged"],
     "Scope": ["one-file", "module", "cross-module", "cross-repo"],
-    "Surface": ["ts", "lua", "nix", "shell", "workflow", "docs", "assets"],
+    "Surface": ["ts", "rust", "lua", "nix", "shell", "workflow", "docs", "assets"],
     "Verify": ["none", "local-test", "farm", "native", "visual"],
 }
 reason = None

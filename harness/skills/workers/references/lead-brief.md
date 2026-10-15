@@ -16,6 +16,11 @@ Read <repo>/AGENTS.md first. Resume state: <status file>.
 Loop:
 1. For each Done when line you write, name the existing property, replay or
    golden test that covers it; a new example test needs a one-line reason.
+   The first Done when line is an oracle outside the agent, naming the
+   artifact or state and the pass condition; the agent attaches the observed
+   result, not a claim. Give each brief a Sources line with the decisive
+   authoritative source (a summary only with a pointer to what it digests),
+   and Methods only when the choice changes correctness.
    Schedule your tick, staff every unblocked box up to the spawn gate, land
    what passes, and append one status line per box to <status file>. Start a
    fix the moment you find it; a review or report your parent names is a
