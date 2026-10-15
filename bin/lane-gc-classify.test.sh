@@ -103,10 +103,10 @@ check 'dry run: each lane gets its class and action, and nothing changes' '
   grep -q "north: landed-elsewhere ~/code/north/worktrees/equiv: archive to archive/north/equiv/" <<<"$out" &&
   grep -q "north: superseded ~/code/north/worktrees/sup: archive to archive/north/sup/" <<<"$out" &&
   grep -q "north: stale-dirty ~/code/north/worktrees/wip: archive to archive/north/wip/<snapshot>, then retire" <<<"$out" &&
-  grep -q "north: owned ~/code/north/worktrees/own: surface to north-lead (north#5 north#6)" <<<"$out" &&
-  grep -q "north: owned ~/code/north/worktrees/held: surface to north-lead" <<<"$out" &&
-  grep -q "north: owned branch loose: surface to north-lead$" <<<"$out" &&
-  grep -q "would alert scratch-lead: 26 owned unlanded lanes" <<<"$out" &&
+  grep -q "north: owned ~/code/north/worktrees/own: surface to north-parent (north#5 north#6)" <<<"$out" &&
+  grep -q "north: owned ~/code/north/worktrees/held: surface to north-parent" <<<"$out" &&
+  grep -q "north: owned branch loose: surface to north-parent$" <<<"$out" &&
+  grep -q "would alert scratch-parent: 26 owned unlanded lanes" <<<"$out" &&
   lanes_intact && [ "$(git -C "$main" tag -l "archive/*")" = "archive/north/equiv/${legacy:0:12}" ] && [ ! -e "$scratch/alerts" ]'
 
 printf '#!/usr/bin/env bash\nwhile read -r old new ref; do case "$ref" in refs/tags/*) exit 1 ;; esac; done\n' >"$scratch/origin/north.git/hooks/pre-receive"
