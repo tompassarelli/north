@@ -87,7 +87,7 @@ impl TurnWatch {
 
     fn report(&mut self, record: &SessionRecord, turn: &Turn, number: u64) {
         let view = self.views.remove(&turn.conversation);
-        let Some(parent) = record.parent.as_deref().filter(|_| !self.turns.busy(&turn.conversation)) else { return };
+        let Some(parent) = record.parent.as_deref() else { return };
         let (reply, lines) = view.map(|view| (view.reply, view.transcript.entries)).unwrap_or_default();
         let landed = landings::landed_between(record, &push_log(), turn.started_ms, turn.ended_ms);
         let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply };

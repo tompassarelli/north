@@ -142,7 +142,7 @@ fn every_model_fleet_can_launch_has_a_price() {
 }
 
 #[test]
-fn a_child_reports_its_finished_turn_to_its_parent_but_not_while_a_task_is_outstanding() {
+fn a_child_delivers_each_finished_turn_in_order_while_its_parent_is_busy() {
     let root = tempfile::tempdir().unwrap();
     let session = root.path().join("kid");
     std::fs::create_dir_all(&session).unwrap();
@@ -153,15 +153,23 @@ fn a_child_reports_its_finished_turn_to_its_parent_but_not_while_a_task_is_outst
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
     let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session.clone());
-    let user = |text: &str| json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": "u", "message": {"content": text}});
+    let user = |turn: u8| json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": format!("u{turn}"), "message": {"content": format!("run step {turn}")}});
     let said = |text: &str| json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": text}]}});
-    let task = |subtype: &str| json!({"type": "system", "subtype": subtype, "session_id": "s", "task_id": "t1"});
+    let task = json!({"type": "system", "subtype": "task_started", "session_id": "s", "task_id": "t1"});
     let result = json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false});
-    for frame in [user("run the build"), said("Started the build in the background."), task("task_started"), result.clone(), task("task_notification"), said("Build passed: 12 tests."), result] {
-        watch.line(frame.to_string().as_bytes());
+    watch.line(task.to_string().as_bytes());
+    for (turn, report) in [(1, "first"), (2, "second"), (3, "third")] {
+        for frame in [user(turn), said(report), result.clone()] {
+            watch.line(frame.to_string().as_bytes());
+        }
     }
+    watch.line(json!({"type": "system", "subtype": "task_notification", "session_id": "s", "task_id": "t1"}).to_string().as_bytes());
     let posted = sink.1.lock().unwrap();
-    assert_eq!(*posted, [("boss".to_owned(), "[from kid · turn 2 · exit completed] Build passed: 12 tests.".to_owned(), Delivery::Queued)]);
+    assert_eq!(*posted, [
+        ("boss".to_owned(), "[from kid · turn 1 · exit completed] first".to_owned(), Delivery::Queued),
+        ("boss".to_owned(), "[from kid · turn 2 · exit completed] second".to_owned(), Delivery::Queued),
+        ("boss".to_owned(), "[from kid · turn 3 · exit completed] third".to_owned(), Delivery::Queued),
+    ]);
 }
 
 #[test]

@@ -53,8 +53,7 @@ impl Fleet {
 
 impl Courier for Fleet {
     fn post(&self, parent: &str, text: String, delivery: Delivery) {
-        let (fleet, parent) = (self.clone(), parent.to_owned());
-        std::thread::spawn(move || fleet.tell(&parent, &text, delivery));
+        self.tell(parent, &text, delivery);
     }
 }
 
