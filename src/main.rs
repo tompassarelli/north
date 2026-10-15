@@ -14,6 +14,7 @@ mod rpc;
 mod prompts;
 mod references;
 mod usage;
+mod usage_stream;
 mod local_store;
 mod lead_journal;
 mod interactive;
