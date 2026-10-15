@@ -45,7 +45,7 @@ shim_main() {
   fi
 
   case "$tool:${1:-}" in
-    north:dep-gate|north:provenance) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:dep-gate|north:provenance|north:autoland-status) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
