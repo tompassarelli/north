@@ -62,8 +62,8 @@ before=2026-10-13T13:00:00Z after=2026-11-05T08:00:00Z
 
 expect "code-only at nexus 6/6, gex45 offline: anthropic-cloud" anthropic-cloud "$(place gex45-offline unavailable $before code-only)"
 expect "code-only, gex45 online below cap: gex45" gex45 "$(place gex45-online unavailable $before code-only)"
-expect "code-only after expiry, laptop available: laptop" laptop "$(place gex45-offline available $after code-only)"
-expect "code-only after expiry, laptop unavailable: held" "held: laptop unavailable" "$(place gex45-offline unavailable $after code-only)"
+expect "code-only after expiry, laptop available: held, never the laptop" "held: gex45 offline" "$(place gex45-offline available $after code-only)"
+expect "code-only after expiry, laptop unavailable: held" "held: gex45 offline" "$(place gex45-offline unavailable $after code-only)"
 expect "native at 6/6, laptop available: laptop" laptop "$(place gex45-online available $before native)"
 expect "native at 6/6, laptop unavailable: held" "held: laptop unavailable" "$(place gex45-online unavailable $before native)"
 expect "private repo skips the cloud: held" "held: laptop unavailable" "$(place gex45-offline unavailable $before private)"
@@ -72,7 +72,7 @@ line="$(AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DI
   PLACEMENT_NOW=$before "$root/bin/agents" plan --credit)"
 expect "credit line with no readout" "cloud credit: unread, expires in 22 days" "$line"
 printf '{"usd_spent_period": 250.0, "read_at": "2026-10-12T00:00:00Z"}\n' >"$scratch/state/agents/costs/claude-a-cloud-credit.json"
-expect "credit recorded as spent skips anthropic-cloud" "held: laptop unavailable" "$(place gex45-offline unavailable $before code-only)"
+expect "credit recorded as spent skips anthropic-cloud" "held: gex45 offline" "$(place gex45-offline unavailable $before code-only)"
 
 rm -f "$scratch/state/agents/costs/claude-a-cloud-credit.json"
 tooling='Item: north#51 overflow\nCategory: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nETA: 20 min\nFiles: harness/lib/routing.py\nDone when: `bash harness/lib/routing.test.sh` passes\n'

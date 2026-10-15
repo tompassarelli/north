@@ -257,6 +257,15 @@ class SpawnPlacement(unittest.TestCase):
         self.assertEqual((result["kind"], result["host"], result["reason"]),
                          ("queued", "laptop", "laptop job: threads queue add laptop"))
 
+    def test_code_only_work_never_falls_back_to_the_laptop(self):
+        rules = {"order": ["anthropic-cloud", "laptop"], "probe": {}}
+        probe = {"credit": (False, "cloud credit: empty"), "laptop": "available"}
+        target, reason = placement.place(self.brief, dict(self.cfg, placement=rules), self.at, probe, overflow=False)
+        self.assertEqual(target, "held: anthropic-cloud empty")
+        self.assertIn("laptop refused for code-only work", reason)
+        native = self.brief.replace("Verify: local-test", "Verify: native")
+        self.assertEqual(placement.place(native, dict(self.cfg, placement=rules), self.at, probe, overflow=False)[0], "laptop")
+
     def test_private_and_local_state_work_stay_local_and_queue_at_capacity(self):
         del self.cfg["placement"]["probe"]
         self.cfg["hosts"]["whiterabbit"] = {"resident_cap": 3}

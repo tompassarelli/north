@@ -175,6 +175,9 @@ def place(text, cfg, at, probe=None, *, overflow=True):
                 return target, "codex_cloud on"
             why.append("codex-cloud off until C1")
         elif target == "laptop":
+            if code_only:
+                why.append("laptop refused for code-only work: fix the cloud or remote lane")
+                continue
             if "laptop" not in probe:
                 probe["laptop"] = laptop_state()
             state = probe["laptop"]
