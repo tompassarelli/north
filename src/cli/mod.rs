@@ -35,7 +35,6 @@ enum Command {
     GuardLanguage,
     ContractProbe(Vec<String>),
     Grounding(Vec<String>),
-    Wisp(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — fleet session console
@@ -110,7 +109,6 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         return Some(Command::Tool(tool, rest));
     }
     Some(match command {
-        "wisp" => Command::Wisp(rest),
         "hook" => Command::Hook(rest),
         "threads" => Command::Threads(rest),
         "fleet" => Command::Fleet(rest),
@@ -146,9 +144,6 @@ fn dispatch(command: Command) -> ExitCode {
                 ExitCode::from(2)
             }
         },
-        Command::Wisp(arguments) => in_runtime(async move {
-            crate::platform::wisp_payoff::run(&arguments).map(|()| ExitCode::SUCCESS)
-        }),
         Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),

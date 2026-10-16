@@ -84,32 +84,7 @@ pub(super) fn decode(path: &Path, value: &Value, fallback: i64) -> Vec<Run> {
         return scripts
             .iter()
             .filter(|s| !text(s, "script").is_empty())
-            .map(|s| {
-                let verdict = text(s, "verdict");
-                let agreement = if number(s, "compare") > 0.0 && number(s, "headless") > 0.0 {
-                    match verdict {
-                        "PASS" => Some(true),
-                        "FAIL" => Some(false),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                Run {
-                    path: path.into(),
-                    kind: family(text(s, "script")),
-                    script: Some(text(s, "script").into()),
-                    at: fallback,
-                    client_minutes: ["game", "reset", "reload", "run"]
-                        .iter()
-                        .map(|key| number(s, key))
-                        .sum::<f64>()
-                        / 30.0,
-                    estimated: false,
-                    agreement,
-                    invalid: verdict == "INVALID",
-                }
-            })
+            .map(|s| pad_run(path, s, fallback))
             .collect();
     }
     let Some(results) = value["results"].as_array() else {
@@ -140,4 +115,31 @@ pub(super) fn decode(path: &Path, value: &Value, fallback: i64) -> Vec<Run> {
             invalid: text(s, "verdict") == "invalid",
         })
         .collect()
+}
+
+fn pad_run(path: &Path, s: &Value, fallback: i64) -> Run {
+    let verdict = text(s, "verdict");
+    let agreement = if number(s, "compare") > 0.0 && number(s, "headless") > 0.0 {
+        match verdict {
+            "PASS" => Some(true),
+            "FAIL" => Some(false),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    Run {
+        path: path.into(),
+        kind: family(text(s, "script")),
+        script: Some(text(s, "script").into()),
+        at: fallback,
+        client_minutes: ["game", "reset", "reload", "run"]
+            .iter()
+            .map(|key| number(s, key))
+            .sum::<f64>()
+            / 30.0,
+        estimated: false,
+        agreement,
+        invalid: verdict == "INVALID",
+    }
 }

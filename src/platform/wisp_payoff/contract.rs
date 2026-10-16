@@ -7,7 +7,6 @@ use std::path::Path;
 #[derive(Debug, Serialize)]
 pub struct Family {
     pub id: String,
-    pub path_rule: String,
     pub scripts: Vec<String>,
     pub match_rule: ScriptMatch,
     pub verdict: &'static str,
@@ -78,16 +77,6 @@ pub(super) fn families(runs: &[Run], now: i64) -> Vec<Family> {
                 .filter_map(|s| Path::new(s).parent())
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect();
-            let path_rule = if id.starts_with("accept/") {
-                "accept check id equals id after accept/; no pad script match".into()
-            } else if parents.iter().all(|p| p.ends_with("/pads")) {
-                "exact script membership in scripts".into()
-            } else {
-                format!(
-                    "POSIX dirname(script) equals one of: {}; basename ends .pad",
-                    parents.iter().cloned().collect::<Vec<_>>().join(", ")
-                )
-            };
             let match_rule = if id.starts_with("accept/") {
                 ScriptMatch {
                     kind: "none",
@@ -106,7 +95,6 @@ pub(super) fn families(runs: &[Run], now: i64) -> Vec<Family> {
             };
             Family {
                 id,
-                path_rule,
                 scripts,
                 match_rule,
                 verdict: if retired { "wisp-only" } else { "native" },

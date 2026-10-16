@@ -6,6 +6,7 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Tool {
+    Wisp,
     DepGate,
     AutolandStatus,
     AutolandWait,
@@ -21,6 +22,7 @@ pub(super) enum Tool {
 impl Tool {
     pub(super) fn named(command: &str) -> Option<Self> {
         Some(match command {
+            "wisp" => Self::Wisp,
             "dep-gate" => Self::DepGate,
             "autoland-status" => Self::AutolandStatus,
             "autoland-wait" => Self::AutolandWait,
@@ -37,6 +39,9 @@ impl Tool {
 
     pub(super) fn run(self, arguments: &[String]) -> ExitCode {
         let run = match self {
+            Self::Wisp => return super::in_runtime(async move {
+                crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
+            }),
             Self::DepGate => dep_gate::run,
             Self::AutolandStatus => autoland_status::run,
             Self::AutolandWait => autoland_status::wait,
