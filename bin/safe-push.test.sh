@@ -2123,7 +2123,7 @@ chmod +x "$landing_root/lane/.hooks/pre-push"
 lock_file="$scratch/xdg-state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).lock"
 run_landing "$landing_root/lane" & pid_lane=$!
 wait_for test -s "$landing_root/hook-pid"
-kill -TERM "$(sed -n 's/^pid \([0-9]*\) .*/\1/p' "$lock_file")"
+kill -TERM "$(sed -n 's/^pid \([0-9]*\) .*/\1/p' "$lock_file")" 2>/dev/null || true
 freed=''
 for i in $(seq 30); do
   if flock -n "$lock_file" true; then freed="$i"; break; fi
