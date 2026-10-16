@@ -1,0 +1,28 @@
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+fn target(depbox: &Path, checkout: &Path) -> String {
+    fs::create_dir_all(checkout.join("src")).unwrap();
+    fs::write(checkout.join("Cargo.toml"), "[package]\nname = \"isolation-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n").unwrap();
+    fs::write(checkout.join("src/main.rs"), "fn main() {}\n").unwrap();
+    assert!(Command::new("git").args(["init", "-q"]).current_dir(checkout).status().unwrap().success());
+    let output = Command::new(depbox)
+        .args(["run", "--", "cargo", "metadata", "--offline", "--no-deps", "--format-version", "1"])
+        .current_dir(checkout)
+        .env("CARGO_TARGET_DIR", Path::new(&std::env::var_os("HOME").unwrap()).join(".cache/cargo-target/north"))
+        .output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    metadata["target_directory"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn sandboxed_checkouts_keep_build_outputs_in_their_own_target_directories() {
+    let depbox = std::env::current_dir().unwrap().join("bin/depbox");
+    let scratch = tempfile::tempdir().unwrap();
+    for name in ["first", "second"] {
+        let checkout = scratch.path().join(name);
+        assert_eq!(target(&depbox, &checkout), checkout.join("target").display().to_string());
+    }
+}
