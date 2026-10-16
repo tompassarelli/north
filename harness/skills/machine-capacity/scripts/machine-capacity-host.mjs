@@ -1247,7 +1247,7 @@ async function main(argv) {
   }
   if (operation === 'status') {
     if (argv.length !== 1) fail('status accepts no arguments');
-    print(status(root), process.stdout);
+    print(status(root));
     return 0;
   }
   if (operation === 'probe') {
