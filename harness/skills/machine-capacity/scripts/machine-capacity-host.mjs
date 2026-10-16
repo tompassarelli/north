@@ -877,7 +877,7 @@ function decision(root, requested, create, ticket = null) {
     const quietOwners = runs.filter(lease => lease.class === 'native' && lease.quiet).map(lease => lease.owner);
     const code = admission({
       ...signals, ...gpu, profile, class: admittedClass(requested), leasedMemoryMiB: leased.memoryMiB,
-      leasedBatchCpus: committedBatchCpus, leasedNativeCpus: committedNativeCpus,
+      leasedBatchCpus: round(committedBatchCpus - (unleased?.cores ?? 0)), leasedNativeCpus: committedNativeCpus, unleasedHeavyCores: unleased?.cores ?? 0,
       requestedCpus: granted.cpus, requestedMemoryMiB: granted.memoryMiB,
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
