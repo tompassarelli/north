@@ -121,7 +121,7 @@ pub struct Policy {
     pub defaults: Defaults,
 }
 
-fn json_value(item: &Item) -> Value {
+pub(crate) fn json_value(item: &Item) -> Value {
     if let Some(table) = item.as_table_like() {
         return Value::Object(
             table
@@ -173,6 +173,42 @@ fn tiers(document: &DocumentMut, key: &str) -> Result<Vec<Tier>, String> {
         .collect()
 }
 
+fn field<T: serde::de::DeserializeOwned>(json: &Value, name: &str) -> Result<T, String> {
+    decode(json[name]["value"].clone(), name)
+}
+
+pub fn parse_defaults(defaults: &str) -> Result<Defaults, String> {
+    let defaults_doc = defaults
+        .parse::<DocumentMut>()
+        .map_err(|e| format!("defaults: {e}"))?;
+    let defaults_json = json_value(defaults_doc.as_item());
+    let mut codex_route = BTreeMap::new();
+    let mut codex_tier = BTreeMap::new();
+    for (name, entry) in defaults_json
+        .as_object()
+        .ok_or("defaults: expected table")?
+    {
+        if let Some(category) = name.strip_prefix("codex_route_") {
+            let route: String = decode(entry["value"].clone(), name)?;
+            if !matches!(route.as_str(), "claude" | "codex") {
+                return Err(format!("{name}: unknown value {route}"));
+            }
+            codex_route.insert(category.to_owned(), route);
+        }
+        if let Some(category) = name.strip_prefix("codex_tier_") {
+            codex_tier.insert(category.to_owned(), decode(entry["value"].clone(), name)?);
+        }
+    }
+    Ok(Defaults {
+        codex_route,
+        codex_tier,
+        codex_eta_max_min: field(&defaults_json, "codex_eta_max_min")?,
+        codex_files_max: field(&defaults_json, "codex_files_max")?,
+        placement_drain_margin: field(&defaults_json, "placement_drain_margin")?,
+        reservation_fallback_points: field(&defaults_json, "reservation_fallback_points")?,
+    })
+}
+
 pub fn parse(orchestration: &str, catalog: &str, defaults: &str) -> Result<Policy, String> {
     let document = orchestration
         .parse::<DocumentMut>()
@@ -201,27 +237,7 @@ pub fn parse(orchestration: &str, catalog: &str, defaults: &str) -> Result<Polic
         .parse::<DocumentMut>()
         .map_err(|e| format!("catalog: {e}"))?;
     let catalog = json_value(catalog.as_item());
-    let defaults_doc = defaults
-        .parse::<DocumentMut>()
-        .map_err(|e| format!("defaults: {e}"))?;
-    let defaults_json = json_value(defaults_doc.as_item());
-    let mut codex_route = BTreeMap::new();
-    let mut codex_tier = BTreeMap::new();
-    for (name, entry) in defaults_json
-        .as_object()
-        .ok_or("defaults: expected table")?
-    {
-        if let Some(category) = name.strip_prefix("codex_route_") {
-            let route: String = decode(entry["value"].clone(), name)?;
-            if !matches!(route.as_str(), "claude" | "codex") {
-                return Err(format!("{name}: unknown value {route}"));
-            }
-            codex_route.insert(category.to_owned(), route);
-        }
-        if let Some(category) = name.strip_prefix("codex_tier_") {
-            codex_tier.insert(category.to_owned(), decode(entry["value"].clone(), name)?);
-        }
-    }
+    let defaults = parse_defaults(defaults)?;
     Ok(Policy {
         router,
         mode: decode(config["mode"].clone(), "mode")?,
@@ -238,26 +254,7 @@ pub fn parse(orchestration: &str, catalog: &str, defaults: &str) -> Result<Polic
         on_request: tiers(&document, "on_request")?,
         hosts: decode(config["hosts"].clone(), "hosts")?,
         catalog: decode(catalog["accounts"].clone(), "catalog.accounts")?,
-        defaults: Defaults {
-            codex_route,
-            codex_tier,
-            codex_eta_max_min: decode(
-                defaults_json["codex_eta_max_min"]["value"].clone(),
-                "codex_eta_max_min",
-            )?,
-            codex_files_max: decode(
-                defaults_json["codex_files_max"]["value"].clone(),
-                "codex_files_max",
-            )?,
-            placement_drain_margin: decode(
-                defaults_json["placement_drain_margin"]["value"].clone(),
-                "placement_drain_margin",
-            )?,
-            reservation_fallback_points: decode(
-                defaults_json["reservation_fallback_points"]["value"].clone(),
-                "reservation_fallback_points",
-            )?,
-        },
+        defaults,
     })
 }
 

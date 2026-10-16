@@ -103,6 +103,11 @@ impl Timestamp {
         format!("{}:{:02}.{:06}+00:00", self.date_and_minute(), at.second(), at.microsecond())
     }
 
+    pub fn local_hour_minute(self) -> String {
+        let minutes = (self.unix_seconds() + local_offset_seconds()).div_euclid(60);
+        format!("{:02}:{:02}", minutes.div_euclid(60).rem_euclid(24), minutes.rem_euclid(60))
+    }
+
     pub fn compact(self) -> String {
         let at = self.moment();
         format!("{:04}{:02}{:02}T{:02}{:02}Z", at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute())

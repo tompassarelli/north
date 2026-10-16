@@ -114,6 +114,19 @@ pub fn codex_qualifies(
     shape_only: bool,
     defaults: &Defaults,
 ) -> (bool, Option<String>) {
+    qualifies(text, shape_only, false, defaults)
+}
+
+pub fn codex_explore_qualifies(text: &str, defaults: &Defaults) -> (bool, Option<String>) {
+    qualifies(text, false, true, defaults)
+}
+
+fn qualifies(
+    text: &str,
+    shape_only: bool,
+    explore: bool,
+    defaults: &Defaults,
+) -> (bool, Option<String>) {
     let fields = brief_header(text);
     let get = |name: &str| fields.get(name).map(String::as_str).unwrap_or("");
     let shown = |name: &str| {
@@ -126,7 +139,7 @@ pub fn codex_qualifies(
     }
     let category = header_word(&fields, "category", defaults);
     let spec = header_word(&fields, "spec", defaults);
-    if !shape_only && codex_class(category.as_deref(), defaults).route != "codex" {
+    if !(shape_only || explore) && codex_class(category.as_deref(), defaults).route != "codex" {
         return fail(format!("Category {}", shown("category")));
     }
     if spec.as_deref() != Some("exact")
@@ -135,16 +148,8 @@ pub fn codex_qualifies(
     {
         return fail(format!("Spec {}", shown("spec")));
     }
-    for (name, title, allowed) in [
-        ("scope", "Scope", &["one-file", "module"][..]),
-        ("surface", "Surface", &["shell", "docs", "nix"][..]),
-        ("verify", "Verify", &["none", "local-test", "native"][..]),
-    ] {
-        if !header_word(&fields, name, defaults)
-            .is_some_and(|word| allowed.contains(&word.as_str()))
-        {
-            return fail(format!("{title} {}", shown(name)));
-        }
+    if let Some(why) = vocabulary_refusal(&fields, explore, defaults) {
+        return fail(why);
     }
     if !COMMAND.is_match(get("done when")) {
         return fail("Done when has no command".into());
@@ -152,27 +157,100 @@ pub fn codex_qualifies(
     if !get("open questions").trim().is_empty() {
         return fail("Open questions".into());
     }
+    if let Some(why) = limits_refusal(&fields, defaults) {
+        return fail(why);
+    }
+    (true, None)
+}
+
+fn vocabulary_refusal(
+    fields: &BTreeMap<String, String>,
+    explore: bool,
+    defaults: &Defaults,
+) -> Option<String> {
+    let (surfaces, verifies) = if explore {
+        (
+            &["shell", "docs", "nix", "assets"][..],
+            &["none", "local-test", "native", "visual"][..],
+        )
+    } else {
+        (
+            &["shell", "docs", "nix"][..],
+            &["none", "local-test", "native"][..],
+        )
+    };
+    for (name, title, allowed) in [
+        ("scope", "Scope", &["one-file", "module"][..]),
+        ("surface", "Surface", surfaces),
+        ("verify", "Verify", verifies),
+    ] {
+        if !header_word(fields, name, defaults).is_some_and(|word| allowed.contains(&word.as_str()))
+        {
+            return Some(format!("{title} {}", shown(fields, name)));
+        }
+    }
+    None
+}
+
+fn limits_refusal(fields: &BTreeMap<String, String>, defaults: &Defaults) -> Option<String> {
+    let get = |name: &str| fields.get(name).map(String::as_str).unwrap_or("");
     if header_minutes(get("eta")).is_none_or(|eta| eta > defaults.codex_eta_max_min) {
-        return fail(format!(
-            "ETA {}",
-            if get("eta").trim().is_empty() {
-                "missing"
-            } else {
-                get("eta").trim()
-            }
-        ));
+        return Some(format!("ETA {}", shown(fields, "eta")));
     }
     let files = header_files(get("files"));
     if files.is_empty()
         || files.len() as u64 > defaults.codex_files_max
         || !files.iter().all(|name| PATH.is_match(name))
     {
-        return fail("Files".into());
+        return Some("Files".into());
     }
-    if get("follows").to_lowercase().contains("gpt-") {
-        return fail("Follows a Codex run".into());
+    get("follows")
+        .to_lowercase()
+        .contains("gpt-")
+        .then(|| "Follows a Codex run".into())
+}
+
+fn shown(fields: &BTreeMap<String, String>, name: &str) -> String {
+    let first = fields
+        .get(name)
+        .map(|value| value.trim().split('\n').next().unwrap_or("").to_owned())
+        .unwrap_or_default();
+    if first.is_empty() {
+        "missing".into()
+    } else {
+        first
     }
-    (true, None)
+}
+
+pub fn review_admits(
+    fields: &BTreeMap<String, String>,
+    family: &str,
+    defaults: &Defaults,
+) -> (bool, String) {
+    match header_word(fields, "reviews", defaults) {
+        Some(author) => (
+            author != family,
+            format!("Reviews {}", shown(fields, "reviews")),
+        ),
+        None => (false, "Reviews missing".into()),
+    }
+}
+
+pub fn codex_box_refusal(text: &str, defaults: &Defaults) -> Option<String> {
+    let fields = brief_header(text);
+    if !fields.contains_key("category") {
+        return None;
+    }
+    if header_word(&fields, "category", defaults).as_deref() == Some("review") {
+        let (admitted, why) = review_admits(&fields, "codex", defaults);
+        return (!admitted).then_some(why);
+    }
+    let (_, why) = if header_word(&fields, "explore", defaults).as_deref() == Some("codex") {
+        codex_explore_qualifies(text, defaults)
+    } else {
+        codex_qualifies(text, false, defaults)
+    };
+    why
 }
 
 #[cfg(test)]

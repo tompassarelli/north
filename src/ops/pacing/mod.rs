@@ -65,6 +65,9 @@ fn request() -> u8 {
         if let Some(answer) = placement::operation(&value)? {
             return Ok(answer);
         }
+        if let Some(answer) = crate::router::ops::answer(&value) {
+            return answer;
+        }
         crate::pace::answer_value(value)
     });
     match outcome {
