@@ -56,6 +56,7 @@ jobs:
       - name: Shell and Python tests
         env:
           NORTH_HOME: ${{ github.workspace }}
+          NORTH_PACE_BIN: ${{ github.workspace }}/target/debug/north
         run: |
           # Machine-bound: these need ~/code checkouts, a systemd user manager, /etc/codex/hooks/runtime, live agent state or shellcheck 0.11; they run locally.
           skip=(
