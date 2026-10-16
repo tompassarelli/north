@@ -227,10 +227,10 @@ function activeProfile(root) {
   return { mode, profile: modes.get(mode) ?? 'attended' };
 }
 
+// The manager's private socket reports peer pid 0 inside a PID namespace and fails with ENODATA; without XDG_RUNTIME_DIR the client uses the user bus.
+const systemdClientEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'XDG_RUNTIME_DIR' || !process.env.DBUS_SESSION_BUS_ADDRESS));
 function setSlice(slice, ...properties) {
-  const result = Bun.spawnSync([
-    'systemctl', '--user', 'set-property', '--runtime', slice, ...properties,
-  ], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit' });
+  const result = Bun.spawnSync(['systemctl', '--user', 'set-property', '--runtime', slice, ...properties], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: systemdClientEnv() });
   return result.exitCode === 0;
 }
 
@@ -303,7 +303,7 @@ function scopeUnit(id) {
 function scopeLive(id) {
   const result = Bun.spawnSync([
     'systemctl', '--user', 'show', scopeUnit(id), '--property=ActiveState', '--value',
-  ], { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore' });
+  ], { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore', env: systemdClientEnv() });
   const state = result.stdout.toString().trim();
   // Unknown manager state must not free a possibly live resource allowance.
   return !['inactive', 'failed'].includes(state);
@@ -1102,12 +1102,12 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
   const unit = scopeUnit(admitted.lease);
   const stop = () => {
     Bun.spawnSync(['systemctl', '--user', 'stop', unit], {
-      stdin: 'ignore', stdout: 'ignore', stderr: 'ignore',
+      stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: systemdClientEnv(),
     });
   };
   try {
     const child = Bun.spawn([
-      ...(process.env.NORTH_FLEET_SCOPE ? [northCommand, 'session-unit'] : ['systemd-run']), '--user', '--scope', '--quiet', '--collect', '--expand-environment=no',
+      ...(process.env.NORTH_FLEET_SCOPE ? [northCommand, 'session-unit'] : ['systemd-run']), '--user', '--scope', '--quiet', '--collect', '--expand-environment=no', ...(process.env.XDG_RUNTIME_DIR && process.env.DBUS_SESSION_BUS_ADDRESS ? [`--setenv=XDG_RUNTIME_DIR=${process.env.XDG_RUNTIME_DIR}`] : []),
       `--unit=${unit}`,
       `--slice=${leaseSlice(requested.name)}`,
       // A quota-throttled game client stalls for the rest of each period.
@@ -1116,7 +1116,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
       `--property=RuntimeMaxSec=${timeoutSeconds === null ? 'infinity' : `${timeoutSeconds}s`}`,
       '--property=KillMode=control-group',
       '--', ...command,
-    ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
+    ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: systemdClientEnv() });
     const measurement = measureScope(root, admitted.lease, scopeCgroup(requested.name, unit));
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
