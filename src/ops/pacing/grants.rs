@@ -59,13 +59,15 @@ pub(super) fn workers(grant: &Value, nodes: &[Value]) -> BTreeSet<String> {
         })
         .collect()
 }
-pub(super) fn create(
-    directory: &Path,
-    request: &Value,
-    nodes: &[Value],
-    at: f64,
-    operator: Option<&str>,
-) -> Result<Value, String> {
+struct Terms<'a> {
+    account: &'a str,
+    until: &'a str,
+    expiry: f64,
+    maximum: u64,
+    reason: &'a str,
+}
+
+fn terms<'a>(request: &'a Value, at: f64) -> Result<Terms<'a>, String> {
     let account = request["account"].as_str().ok_or("account required")?;
     let until = request["until"].as_str().ok_or("--until required")?;
     let expiry = super::target::seconds(until).ok_or("--until must be a future UTC timestamp")?;
@@ -88,6 +90,20 @@ pub(super) fn create(
     {
         return Err("positive uses and task required".into());
     }
+    Ok(Terms {
+        account,
+        until,
+        expiry,
+        maximum,
+        reason,
+    })
+}
+
+fn registered_lead<'a>(
+    request: &Value,
+    nodes: &'a [Value],
+    account: &str,
+) -> Result<&'a Value, String> {
     let (provider, label) = account.split_once(':').unwrap_or((account, ""));
     let node = nodes
         .iter()
@@ -100,24 +116,39 @@ pub(super) fn create(
     if provider == "claude" && node["account"] != label {
         return Err("grant account differs from the lead's billed account".into());
     }
-    let until_utc = crate::foundation::clock::Timestamp::parse_rfc3339(until)
+    Ok(node)
+}
+
+fn grant_row(
+    request: &Value,
+    terms: &Terms,
+    node: &Value,
+    at: f64,
+    operator: Option<&str>,
+) -> Result<Value, String> {
+    let until_utc = crate::foundation::clock::Timestamp::parse_rfc3339(terms.until)
         .ok_or("invalid UTC expiry")?
         .iso_micros_utc_offset()
         .replace(".000000", "");
-    let mut row = json!({"account":account,"lead":node["name"],"session":node["conversation"],"max_workers":maximum,
-        "until":expiry,"until_utc":until_utc,"reason":reason,"authority":"proxy","at":at,"granted_by":operator});
+    let mut row = json!({"account":terms.account,"lead":node["name"],"session":node["conversation"],"max_workers":terms.maximum,
+        "until":terms.expiry,"until_utc":until_utc,"reason":terms.reason,"authority":"proxy","at":at,"granted_by":operator});
     for field in ["task", "uses"] {
         if !request[field].is_null() {
             row[field] = request[field].clone();
         }
     }
+    Ok(row)
+}
+
+fn store_grant(directory: &Path, row: &Value, at: f64) -> Result<(), String> {
     let _lock = storage::lock(directory, "pace-control.lock", Some(6.0))?;
     let path = directory.join("pace-control.json");
     let mut state = load(&path);
     let mut grants: Vec<_> = rows(&state["grants"])
         .iter()
         .filter(|g| {
-            number(&g["until"], 0.0) > at && !(g["account"] == account && g["lead"] == node["name"])
+            number(&g["until"], 0.0) > at
+                && !(g["account"] == row["account"] && g["lead"] == row["lead"])
         })
         .cloned()
         .collect();
@@ -131,7 +162,20 @@ pub(super) fn create(
     save(&path, &state)?;
     let mut audit = row.clone();
     audit["event"] = json!("proxy-grant");
-    storage::append(&directory.join("pace-control.jsonl"), &audit)?;
+    storage::append(&directory.join("pace-control.jsonl"), &audit)
+}
+
+pub(super) fn create(
+    directory: &Path,
+    request: &Value,
+    nodes: &[Value],
+    at: f64,
+    operator: Option<&str>,
+) -> Result<Value, String> {
+    let terms = terms(request, at)?;
+    let node = registered_lead(request, nodes, terms.account)?;
+    let row = grant_row(request, &terms, node, at, operator)?;
+    store_grant(directory, &row, at)?;
     Ok(row)
 }
 pub(super) fn normalize(row: &mut Value) {
@@ -198,30 +242,54 @@ pub(super) fn confirm(
     }
     Ok(())
 }
-pub(super) fn expired(
-    directory: &Path,
-    request: &Value,
-    nodes: &[Value],
-    at: f64,
-) -> Result<(), String> {
-    let account = request["account"].as_str().unwrap_or_default();
+struct Holder<'a> {
+    account: &'a str,
+    node: &'a Value,
+    request: &'a Value,
+}
+
+impl Holder<'_> {
+    fn names(&self, row: &Value) -> bool {
+        row["account"] == self.account
+            && row["session"] == self.request["session"]
+            && row["lead"] == self.node["name"]
+    }
+}
+
+fn session_holder<'a>(
+    request: &'a Value,
+    nodes: &'a [Value],
+    account: &'a str,
+) -> Option<Holder<'a>> {
     let (provider, label) = account.split_once(':').unwrap_or((account, ""));
-    let Some(node) = nodes.iter().find(|n| {
-        n["conversation"] == request["session"]
-            && n["provider"] == provider
-            && (provider != "claude" || n["account"] == label)
-    }) else {
-        return Ok(());
-    };
-    let _lock = storage::lock(directory, "pace-control.lock", Some(6.0))?;
-    let state = load(&directory.join("pace-control.json"));
-    let audit_path = directory.join("pace-control.jsonl");
-    let audit: Vec<Value> = std::fs::read_to_string(&audit_path)
+    nodes
+        .iter()
+        .find(|n| {
+            n["conversation"] == request["session"]
+                && n["provider"] == provider
+                && (provider != "claude" || n["account"] == label)
+        })
+        .map(|node| Holder {
+            account,
+            node,
+            request,
+        })
+}
+
+fn audit_rows(path: &Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
         .unwrap_or_default()
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter(Value::is_object)
-        .collect();
+        .collect()
+}
+
+fn latest_grant<'a>(
+    state: &'a Value,
+    audit: &'a [Value],
+    holder: &Holder,
+) -> Option<(&'a Value, bool)> {
     let mut matching: Vec<_> = rows(&state["grants"])
         .iter()
         .map(|g| (g, true))
@@ -231,69 +299,110 @@ pub(super) fn expired(
                 .filter(|r| r["event"] == "proxy-grant")
                 .map(|g| (g, false)),
         )
-        .filter(|(g, _)| {
-            g["account"] == account
-                && g["session"] == request["session"]
-                && g["lead"] == node["name"]
-                && g["authority"] == "proxy"
-        })
+        .filter(|(g, _)| holder.names(g) && g["authority"] == "proxy")
         .collect();
     matching.sort_by(|(a, ar), (b, br)| {
         number(&a["at"], 0.0)
             .total_cmp(&number(&b["at"], 0.0))
             .then(ar.cmp(br))
     });
-    let Some((grant, retained)) = matching.last() else {
-        return Ok(());
-    };
-    let consumed = audit
+    matching.last().copied()
+}
+
+fn admissions_since(audit: &[Value], holder: &Holder, grant: &Value) -> f64 {
+    audit
         .iter()
         .filter(|r| {
             r["event"] == "grant-admission"
-                && r["account"] == account
-                && r["session"] == request["session"]
-                && r["lead"] == node["name"]
+                && holder.names(r)
                 && number(&r["at"], 0.0) >= number(&grant["at"], 0.0)
         })
-        .count() as f64;
-    if number(&grant["until"], 0.0) > at
-        || (!grant["task"].is_null() && grant["task"] != request["task"])
+        .count() as f64
+}
+
+fn still_granted(
+    audit: &[Value],
+    holder: &Holder,
+    (grant, retained): (&Value, bool),
+    at: f64,
+) -> bool {
+    let consumed = admissions_since(audit, holder, grant);
+    number(&grant["until"], 0.0) > at
+        || (!grant["task"].is_null() && grant["task"] != holder.request["task"])
         || grant["uses"]
             .as_f64()
-            .is_some_and(|uses| uses <= if *retained { 0.0 } else { consumed })
-    {
-        return Ok(());
-    }
-    let key = json!([
-        account,
-        node["name"],
-        request["session"],
+            .is_some_and(|uses| uses <= if retained { 0.0 } else { consumed })
+}
+
+fn holding_key(holder: &Holder, grant: &Value) -> String {
+    json!([
+        holder.account,
+        holder.node["name"],
+        holder.request["session"],
         grant["at"],
         grant["until"],
         grant["task"]
     ])
-    .to_string();
-    if audit.iter().any(|r| {
+    .to_string()
+}
+
+fn already_holding(audit: &[Value], key: &str) -> bool {
+    audit.iter().any(|r| {
         r["event"] == "grant-expired-holding"
             && r["key"]
                 .as_str()
                 .and_then(|value| serde_json::from_str::<Value>(value).ok())
-                == serde_json::from_str::<Value>(&key).ok()
-    }) {
-        return Ok(());
-    }
+                == serde_json::from_str::<Value>(key).ok()
+    })
+}
+
+fn announce_expiry(
+    audit_path: &Path,
+    holder: &Holder,
+    grant: &Value,
+    key: String,
+    at: f64,
+) -> Result<(), String> {
+    let account = holder.account;
     let expiry =
         crate::foundation::clock::Timestamp::from_unix_seconds_f64(number(&grant["until"], 0.0))
             .iso_micros_utc_offset();
-    let name = node["name"].as_str().unwrap_or_default();
-    let reason = request["reason"].as_str().unwrap_or_default();
+    let name = holder.node["name"].as_str().unwrap_or_default();
+    let reason = holder.request["reason"].as_str().unwrap_or_default();
     let _ = process::send(
         name,
         &format!("GRANT-EXPIRED-HOLDING {name} {account} expired={expiry} {reason}"),
     );
     storage::append(
-        &audit_path,
-        &json!({"event":"grant-expired-holding","at":at,"lead":name,"session":request["session"],
+        audit_path,
+        &json!({"event":"grant-expired-holding","at":at,"lead":name,"session":holder.request["session"],
         "account":account,"until":grant["until"],"reason":reason,"key":key}),
     )
+}
+
+pub(super) fn expired(
+    directory: &Path,
+    request: &Value,
+    nodes: &[Value],
+    at: f64,
+) -> Result<(), String> {
+    let account = request["account"].as_str().unwrap_or_default();
+    let Some(holder) = session_holder(request, nodes, account) else {
+        return Ok(());
+    };
+    let _lock = storage::lock(directory, "pace-control.lock", Some(6.0))?;
+    let state = load(&directory.join("pace-control.json"));
+    let audit_path = directory.join("pace-control.jsonl");
+    let audit = audit_rows(&audit_path);
+    let Some(latest) = latest_grant(&state, &audit, &holder) else {
+        return Ok(());
+    };
+    if still_granted(&audit, &holder, latest, at) {
+        return Ok(());
+    }
+    let key = holding_key(&holder, latest.0);
+    if already_holding(&audit, &key) {
+        return Ok(());
+    }
+    announce_expiry(&audit_path, &holder, latest.0, key, at)
 }

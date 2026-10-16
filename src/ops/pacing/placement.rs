@@ -9,6 +9,7 @@ mod candidates;
 mod hosts;
 mod launch;
 mod overflow;
+mod survey;
 mod tiers;
 use candidates::admit;
 use hosts::{credit, host, hydrate, laptop};
@@ -92,110 +93,122 @@ fn private(text: &str, cfg: &DocumentMut) -> bool {
         || needs.contains("local-state")
         || strings(cfg.get("placement").and_then(|p| p.get("private_repos"))).contains(&repo)
 }
+type Placed = (String, String);
+
+fn overflow_target(text: &str, cfg: &DocumentMut, at: f64, probe: &mut Value) -> Option<Placed> {
+    hydrate(probe);
+    let reason = overflow(cfg, probe, at)?;
+    let qualified = crate::router::brief::codex_qualifies(text, false, &routing_defaults()).0;
+    Some((
+        "codex".into(),
+        if qualified {
+            reason
+        } else {
+            format!("{reason}; codex:sol-high on the tight leash")
+        },
+    ))
+}
+fn place_anthropic_cloud(cfg: &DocumentMut, at: f64, probe: &Value) -> Result<Placed, String> {
+    let (usable, line) = if let Some(pair) = probe["credit"].as_array() {
+        (
+            pair[0].as_bool().unwrap_or(false),
+            pair[1].as_str().unwrap_or_default().to_owned(),
+        )
+    } else {
+        credit(cfg, at)
+    };
+    if usable {
+        return Ok(("anthropic-cloud".into(), line));
+    }
+    Err(format!(
+        "anthropic-cloud {}",
+        line.trim_start_matches("cloud credit: ")
+    ))
+}
+fn place_codex_cloud(rules: Option<&Item>) -> Result<Placed, String> {
+    let enabled = rules
+        .and_then(|p| p.get("codex_cloud"))
+        .and_then(Item::as_bool)
+        == Some(true);
+    if enabled {
+        return Ok(("codex-cloud".into(), "codex_cloud on".into()));
+    }
+    Err("codex-cloud off until C1".into())
+}
+fn place_laptop(
+    code_only: bool,
+    probe: &Value,
+    laptop_why: &mut Option<String>,
+) -> Result<Placed, String> {
+    if code_only {
+        return Err("laptop refused for code-only work: fix the cloud or remote lane".into());
+    }
+    let state = probe["laptop"]
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(laptop);
+    if state == "available" {
+        return Ok(("laptop".into(), "laptop available".into()));
+    }
+    let reason = format!("laptop {state}");
+    *laptop_why = Some(reason.clone());
+    Err(reason)
+}
+fn place_resident(cfg: &DocumentMut, probe: &Value, name: &str) -> Option<Result<Placed, String>> {
+    let cap = cfg
+        .get("hosts")
+        .and_then(|h| h.get(name))
+        .and_then(|h| h.get("resident_cap"))
+        .and_then(Item::as_integer)?;
+    let (online, live) = if let Some(pair) = probe[name].as_array() {
+        (
+            pair[0].as_bool().unwrap_or(false),
+            pair[1].as_i64().unwrap_or(0),
+        )
+    } else {
+        host(name)
+    };
+    if online && live < cap {
+        return Some(Ok((name.to_owned(), format!("{name} {live}/{cap}"))));
+    }
+    Some(Err(if online {
+        format!("{name} {live}/{cap}")
+    } else {
+        format!("{name} offline")
+    }))
+}
 fn place(
     text: &str,
     cfg: &DocumentMut,
     at: f64,
     probe: &mut Value,
     allow_overflow: bool,
-) -> (String, String) {
+) -> Placed {
     let (_, native, _) = facets(text);
     let code_only = !native && !private(text, cfg);
     let rules = cfg.get("placement");
     if allow_overflow && code_only {
-        hydrate(probe);
-        if let Some(reason) = overflow(cfg, probe, at) {
-            let qualified =
-                crate::router::brief::codex_qualifies(text, false, &routing_defaults()).0;
-            return (
-                "codex".into(),
-                if qualified {
-                    reason
-                } else {
-                    format!("{reason}; codex:sol-high on the tight leash")
-                },
-            );
+        if let Some(found) = overflow_target(text, cfg, at, probe) {
+            return found;
         }
     }
     let mut why = Vec::new();
     let mut laptop_why = None;
     for name in strings(rules.and_then(|p| p.get("order"))) {
-        if ["anthropic-cloud", "codex-cloud"].contains(&name.as_str()) && !code_only
-            || native && name != "laptop"
-        {
+        let cloud = ["anthropic-cloud", "codex-cloud"].contains(&name.as_str());
+        if cloud && !code_only || native && name != "laptop" {
             continue;
         }
-        match name.as_str() {
-            "anthropic-cloud" => {
-                let (usable, line) = if let Some(pair) = probe["credit"].as_array() {
-                    (
-                        pair[0].as_bool().unwrap_or(false),
-                        pair[1].as_str().unwrap_or_default().to_owned(),
-                    )
-                } else {
-                    credit(cfg, at)
-                };
-                if usable {
-                    return (name, line);
-                }
-                why.push(format!(
-                    "anthropic-cloud {}",
-                    line.trim_start_matches("cloud credit: ")
-                ));
-            }
-            "codex-cloud" => {
-                if rules
-                    .and_then(|p| p.get("codex_cloud"))
-                    .and_then(Item::as_bool)
-                    == Some(true)
-                {
-                    return (name, "codex_cloud on".into());
-                }
-                why.push("codex-cloud off until C1".into());
-            }
-            "laptop" => {
-                if code_only {
-                    why.push(
-                        "laptop refused for code-only work: fix the cloud or remote lane".into(),
-                    );
-                    continue;
-                }
-                let state = probe["laptop"]
-                    .as_str()
-                    .map(str::to_owned)
-                    .unwrap_or_else(laptop);
-                if state == "available" {
-                    return (name, "laptop available".into());
-                }
-                let reason = format!("laptop {state}");
-                laptop_why = Some(reason.clone());
-                why.push(reason);
-            }
-            _ => {
-                if let Some(cap) = cfg
-                    .get("hosts")
-                    .and_then(|h| h.get(&name))
-                    .and_then(|h| h.get("resident_cap"))
-                    .and_then(Item::as_integer)
-                {
-                    let (online, live) = if let Some(pair) = probe[&name].as_array() {
-                        (
-                            pair[0].as_bool().unwrap_or(false),
-                            pair[1].as_i64().unwrap_or(0),
-                        )
-                    } else {
-                        host(&name)
-                    };
-                    if online && live < cap {
-                        return (name.clone(), format!("{name} {live}/{cap}"));
-                    }
-                    why.push(if online {
-                        format!("{name} {live}/{cap}")
-                    } else {
-                        format!("{name} offline")
-                    });
-                }
-            }
+        let attempt = match name.as_str() {
+            "anthropic-cloud" => Some(place_anthropic_cloud(cfg, at, probe)),
+            "codex-cloud" => Some(place_codex_cloud(rules)),
+            "laptop" => Some(place_laptop(code_only, probe, &mut laptop_why)),
+            _ => place_resident(cfg, probe, &name),
+        };
+        match attempt {
+            Some(Ok(found)) => return found,
+            Some(Err(reason)) => why.push(reason),
+            None => {}
         }
     }
     (

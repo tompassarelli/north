@@ -17,51 +17,45 @@ mod sampling;
 mod sampling_tests;
 mod storage;
 
-pub(crate) fn run(_arguments: &[String]) -> u8 {
-    if let [command, provider] = _arguments {
+pub(crate) fn run(arguments: &[String]) -> u8 {
+    if let [command, provider] = arguments {
         if command == "gate" {
-            return match sampling::sample(Some(provider), 2, true) {
-                Ok(gate) => {
-                    if let Some(reason) = gate[provider]["refusal"].as_str() {
-                        println!("{reason}");
-                        3
-                    } else {
-                        0
-                    }
-                }
-                Err(error) => {
-                    eprintln!("north pace: {error}");
-                    2
-                }
-            };
+            return gate(provider);
         }
     }
-    if _arguments.first().is_some_and(|s| s == "place") {
-        return match placement::cli(&_arguments[1..]) {
-            Ok(()) => 0,
-            Err(error) => {
-                eprintln!("north place: {error}");
-                2
-            }
-        };
+    match arguments.first().map(String::as_str) {
+        Some("place") => finish(placement::cli(&arguments[1..]), "north place"),
+        Some("sample") => finish(command::cli(&arguments[1..]), "north pace"),
+        Some("grant") => finish(command::cli(arguments), "north pace"),
+        _ => request(),
     }
-    if _arguments
-        .first()
-        .is_some_and(|s| s == "sample" || s == "grant")
-    {
-        let args = if _arguments[0] == "sample" {
-            &_arguments[1..]
-        } else {
-            _arguments
-        };
-        return match command::cli(args) {
-            Ok(()) => 0,
-            Err(error) => {
-                eprintln!("north pace: {error}");
-                2
-            }
-        };
+}
+fn finish(outcome: Result<(), String>, label: &str) -> u8 {
+    match outcome {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{label}: {error}");
+            2
+        }
     }
+}
+fn gate(provider: &str) -> u8 {
+    match sampling::sample(Some(provider), 2, true) {
+        Ok(gate) => {
+            if let Some(reason) = gate[provider]["refusal"].as_str() {
+                println!("{reason}");
+                3
+            } else {
+                0
+            }
+        }
+        Err(error) => {
+            eprintln!("north pace: {error}");
+            2
+        }
+    }
+}
+fn request() -> u8 {
     let outcome = command::input().and_then(|value| {
         if let Some(answer) = command::operation(&value)? {
             return Ok(answer);

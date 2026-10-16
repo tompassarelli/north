@@ -61,65 +61,77 @@ pub(super) fn operation(request: &Value) -> Result<Option<Value>, String> {
 }
 pub(super) fn cli(arguments: &[String]) -> Result<(), String> {
     if arguments.first().is_some_and(|s| s == "grant") {
-        let account = arguments.get(1).ok_or("account required")?;
-        if !matches!(
-            account.as_str(),
-            "codex" | "claude:a" | "claude:b" | "claude:c"
-        ) {
-            return Err("invalid grant account".into());
-        }
-        let maximum = arguments
-            .get(2)
-            .and_then(|s| s.parse::<u64>().ok())
-            .ok_or("positive worker limit required")?;
-        let mut request = json!({"op":"grant","account":account,"max_workers":maximum});
-        for pair in arguments[3..].chunks(2) {
-            let [flag, value] = pair else {
-                return Err("grant options require values".into());
-            };
-            let key = match flag.as_str() {
-                "--until" => "until",
-                "--for" => "lead",
-                "--reason" => "reason",
-                "--task" => "task",
-                "--uses" => "uses",
-                _ => return Err(format!("unknown option {flag}")),
-            };
-            request[key] = if key == "uses" {
-                json!(value.parse::<u64>().map_err(|e| e.to_string())?)
-            } else {
-                json!(value)
-            };
-        }
+        let request = grant_request(arguments)?;
         println!("{}", operation(&request)?.ok_or("invalid operation")?);
         return Ok(());
     }
+    let (provider, initial, notify) = sample_options(arguments)?;
+    sampling::sample(provider, initial, notify)?;
+    Ok(())
+}
+fn grant_request(arguments: &[String]) -> Result<Value, String> {
+    let account = arguments.get(1).ok_or("account required")?;
+    if !matches!(
+        account.as_str(),
+        "codex" | "claude:a" | "claude:b" | "claude:c"
+    ) {
+        return Err("invalid grant account".into());
+    }
+    let maximum = arguments
+        .get(2)
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or("positive worker limit required")?;
+    let mut request = json!({"op":"grant","account":account,"max_workers":maximum});
+    for pair in arguments[3..].chunks(2) {
+        let [flag, value] = pair else {
+            return Err("grant options require values".into());
+        };
+        let key = grant_option_key(flag)?;
+        request[key] = if key == "uses" {
+            json!(value.parse::<u64>().map_err(|e| e.to_string())?)
+        } else {
+            json!(value)
+        };
+    }
+    Ok(request)
+}
+fn grant_option_key(flag: &str) -> Result<&'static str, String> {
+    match flag {
+        "--until" => Ok("until"),
+        "--for" => Ok("lead"),
+        "--reason" => Ok("reason"),
+        "--task" => Ok("task"),
+        "--uses" => Ok("uses"),
+        _ => Err(format!("unknown option {flag}")),
+    }
+}
+fn sample_options(arguments: &[String]) -> Result<(Option<&str>, i64, bool), String> {
     let mut provider = None;
     let mut initial = 2;
     let mut notify = true;
     let mut args = arguments.iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
-            "--provider" => {
-                let value = args.next().ok_or("provider required")?;
-                if !matches!(value.as_str(), "claude" | "codex" | "gemini") {
-                    return Err("invalid provider".into());
-                }
-                provider = Some(value.as_str());
-            }
-            "--initial" => {
-                initial = args
-                    .next()
-                    .and_then(|s| s.parse().ok())
-                    .filter(|n| *n > 0)
-                    .ok_or("--initial must be positive")?
-            }
+            "--provider" => provider = Some(provider_option(args.next())?),
+            "--initial" => initial = initial_option(args.next())?,
             "--dry-run" => notify = false,
             _ => return Err(format!("unknown option {argument}")),
         }
     }
-    sampling::sample(provider, initial, notify)?;
-    Ok(())
+    Ok((provider, initial, notify))
+}
+fn provider_option(value: Option<&String>) -> Result<&str, String> {
+    let value = value.ok_or("provider required")?;
+    if !matches!(value.as_str(), "claude" | "codex" | "gemini") {
+        return Err("invalid provider".into());
+    }
+    Ok(value.as_str())
+}
+fn initial_option(value: Option<&String>) -> Result<i64, String> {
+    value
+        .and_then(|s| s.parse().ok())
+        .filter(|n| *n > 0)
+        .ok_or_else(|| "--initial must be positive".into())
 }
 pub(super) fn input() -> Result<Value, String> {
     let mut input = String::new();

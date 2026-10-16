@@ -40,47 +40,11 @@ pub(in crate::ops::pacing) fn tier_for(
     if provider == "gemini" && (needs.contains("private") || needs.contains("local-state")) {
         return None;
     }
-    let tiers = cfg.get("tiers")?.as_table_like()?;
-    let mut full = Vec::new();
-    let mut previous = 0.0;
-    for (index, (key, tier)) in tiers.iter().enumerate() {
-        let start = if index == 0 {
-            0.0
-        } else {
-            tier.get("start")
-                .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|n| n as f64)))
-                .unwrap_or(0.0)
-                .max(previous)
-        };
-        full.push((key, start));
-        previous = start;
-    }
+    let full = tier_starts(cfg.get("tiers")?.as_table_like()?);
     let qualifies = crate::router::brief::codex_qualifies(text, false, defaults).0;
     let category = field(text, "Category");
     let class = crate::router::brief::codex_class(Some(category), defaults);
-    let mut bands: Vec<(String, f64, f64)> = Vec::new();
-    let mut pending = None;
-    for (index, (key, start)) in full.iter().enumerate() {
-        let hi = full
-            .get(index + 1)
-            .map(|(_, start)| *start)
-            .unwrap_or(100.0);
-        if key.split(':').next() == Some(provider) {
-            bands.push(((*key).into(), pending.take().unwrap_or(*start), hi));
-        } else if pending.is_none() {
-            pending = Some(*start);
-        }
-    }
-    if pending.is_some() {
-        if let Some(last) = bands.last_mut() {
-            last.2 = 100.0;
-        }
-    }
-    let available: Vec<_> = bands
-        .into_iter()
-        .filter(|(_, lo, hi)| hi > lo && *hi > floor)
-        .map(|(key, lo, _)| (key, lo))
-        .collect();
+    let available = available_bands(&full, provider, floor);
     for (index, (key, lo)) in available.iter().enumerate() {
         if provider == "codex" && (!qualifies || !class.tiers.contains(key)) {
             continue;
@@ -101,4 +65,46 @@ pub(in crate::ops::pacing) fn tier_for(
         }
     }
     None
+}
+fn tier_starts(tiers: &dyn toml_edit::TableLike) -> Vec<(String, f64)> {
+    let mut full = Vec::new();
+    let mut previous = 0.0;
+    for (index, (key, tier)) in tiers.iter().enumerate() {
+        let start = if index == 0 {
+            0.0
+        } else {
+            tier.get("start")
+                .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|n| n as f64)))
+                .unwrap_or(0.0)
+                .max(previous)
+        };
+        full.push((key.to_owned(), start));
+        previous = start;
+    }
+    full
+}
+fn available_bands(full: &[(String, f64)], provider: &str, floor: f64) -> Vec<(String, f64)> {
+    let mut bands: Vec<(String, f64, f64)> = Vec::new();
+    let mut pending = None;
+    for (index, (key, start)) in full.iter().enumerate() {
+        let hi = full
+            .get(index + 1)
+            .map(|(_, start)| *start)
+            .unwrap_or(100.0);
+        if key.split(':').next() == Some(provider) {
+            bands.push((key.clone(), pending.take().unwrap_or(*start), hi));
+        } else if pending.is_none() {
+            pending = Some(*start);
+        }
+    }
+    if pending.is_some() {
+        if let Some(last) = bands.last_mut() {
+            last.2 = 100.0;
+        }
+    }
+    bands
+        .into_iter()
+        .filter(|(_, lo, hi)| hi > lo && *hi > floor)
+        .map(|(key, lo, _)| (key, lo))
+        .collect()
 }
