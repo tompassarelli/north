@@ -913,19 +913,34 @@ run_land_checks() {
     exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
     stderr_pid=$!
     status=0
-    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" bash -euo pipefail -c "$command") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
+    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" timeout --kill-after=10 "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" bash -euo pipefail -c "$command") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
     safe_push_child=$!
     wait "$safe_push_child" || status=$?
     safe_push_child=""
     exec {stdout_fd}>&- {stderr_fd}>&-
-    wait "$stdout_pid"
-    wait "$stderr_pid"
+    reap_log_pipes "$stdout_pid" "$stderr_pid"
     if [ "$status" -ne 0 ]; then
       printf 'safe-push: land check %s exited %s; log: %s; NOT pushed.\n' "$command" "$status" "$log" >&2
       return "$status"
     fi
     rm -f -- "$log"
   done
+}
+
+log_pipe_running() {
+  local fields
+  { read -r fields <"/proc//stat"; } 2>/dev/null || return 1
+  fields=${fields##*) }
+  [ "${fields%% *}" != Z ]
+}
+
+reap_log_pipes() {
+  local pid i
+  for i in $(seq 50); do
+    for pid in "$@"; do log_pipe_running "$pid" && { sleep 0.1; continue 2; }; done
+    break
+  done
+  for pid in "$@"; do kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
 }
 
 remote_destination_snapshot() {

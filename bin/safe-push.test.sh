@@ -1690,6 +1690,46 @@ grep -qx 'safe-push: cancelled' "$landing_root/a.out" || fail 'missing cancelled
 ! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'cancelled admission falsely reported the base as landed'
 printf 'PASS: recorded SIGINT cancels with exit 130 and no false landed receipt\n'
 
+new_landing_origin dead-check-orphans
+make_landing_clone "$landing_root/a" a.txt
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: sleep 40 & echo \$! >'$landing_root/orphan-pid'; exit 7"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'check leaves an orphan holding its output'
+run_landing "$landing_root/a" & pid_a=$!
+wait_for test -s "$landing_root/orphan-pid"
+finished=''
+for i in $(seq 150); do
+  if ! kill -0 "$pid_a" 2>/dev/null; then finished="$i"; break; fi
+  sleep 0.1
+done
+kill "$(cat "$landing_root/orphan-pid")" 2>/dev/null || true
+status_a=0; wait "$pid_a" || status_a=$?
+[ -n "$finished" ] || fail 'a dead land check left safe-push waiting on its orphaned log children'
+[ "$status_a" -ne 0 ] || fail 'a failed land check let the push succeed'
+grep -q 'exited 7' "$landing_root/a.out" || fail "missing land check failure: $(cat "$landing_root/a.out")"
+lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+flock -n "${landing_state:-$scratch/xdg-state}/safe-push/$lock_key.lock" true || fail 'a dead land check left the landing lock held'
+printf 'PASS: recorded dead land check with orphaned children releases safe-push and the lock\n'
+
+new_landing_origin hung-check-timeout
+make_landing_clone "$landing_root/a" a.txt
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: sleep 40"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'check hangs alive'
+SAFE_PUSH_LAND_CHECK_TIMEOUT=2 run_landing "$landing_root/a" & pid_a=$!
+finished=''
+for i in $(seq 200); do
+  if ! kill -0 "$pid_a" 2>/dev/null; then finished="$i"; break; fi
+  sleep 0.1
+done
+[ -n "$finished" ] || { kill "$pid_a" 2>/dev/null || true; fail 'a hung land check held the landing queue past its timeout'; }
+status_a=0; wait "$pid_a" || status_a=$?
+[ "$status_a" -ne 0 ] || fail 'a timed out land check let the push succeed'
+grep -q 'exited 124' "$landing_root/a.out" || fail "missing land check timeout: $(cat "$landing_root/a.out")"
+lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+flock -n "${landing_state:-$scratch/xdg-state}/safe-push/$lock_key.lock" true || fail 'a timed out land check left the landing lock held'
+printf 'PASS: recorded hung land check times out, fails the push and frees the lock\n'
+
 # Concurrent landings from lanes cut at the same base serialize on the
 # per-origin lock; the later one rebases onto the earlier, so both land in
 # order with no non-fast-forward rejection.
