@@ -24,8 +24,6 @@ case "$payload" in
       *'"tool_name":"update_plan"'*|*'"tool_name": "update_plan"'*|\
       *'"tool_name":"apply_patch"'*|*'"tool_name": "apply_patch"'*|\
       *'spawn_agent"'*) ;;
-      *'"tool_name":"exec_command"'*|*'"tool_name": "exec_command"'*|\
-      *'"tool_name":"functions.exec_command"'*|*'"tool_name": "functions.exec_command"'*) exit 0 ;;
       *) exit 0 ;;
     esac
     ;;
