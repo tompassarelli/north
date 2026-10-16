@@ -74,6 +74,7 @@ pub struct Screen {
     pub busy: BTreeMap<String, usize>,
     pub pending: Vec<PendingMessage>,
     pub digest: DigestPane,
+    pub slash: super::slash::SlashMenu,
     bell: bool,
     scroll_limit: u16,
     page: u16,
@@ -96,6 +97,7 @@ impl Screen {
             busy: BTreeMap::new(),
             pending: Vec::new(),
             digest: DigestPane::default(),
+            slash: super::slash::SlashMenu::default(),
             bell: false,
             scroll_limit: u16::MAX,
             page: 10,
@@ -253,6 +255,16 @@ impl Screen {
         }
         if let Some(action) = control_action(key) {
             return self.handle_control(action);
+        }
+        if self.focus == Focus::Composer {
+            let input = self.composer.lines().join("\n");
+            if let Some(completion) = self.slash.handle(&input, key) {
+                if let Some(text) = completion {
+                    self.composer = composer_area();
+                    self.composer.insert_str(text);
+                }
+                return None;
+            }
         }
         self.notice = None;
         match key.code {

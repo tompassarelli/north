@@ -16,6 +16,29 @@ use super::view;
 
 const MINUTE: u64 = 60_000;
 
+#[test]
+fn slash_suggestions_filter_close_and_insert_without_sending() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut screen = table_screen();
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    screen.handle_key(key(KeyCode::Char('/')));
+    let rows = frame(&mut screen, None, 100, 0).join("\n");
+    assert!(rows.contains("commands") && rows.contains("/config") && rows.contains("/model"), "{rows}");
+    screen.handle_key(key(KeyCode::Char('m')));
+    let rows = frame(&mut screen, None, 100, 0).join("\n");
+    assert!(rows.contains("/model") && !rows.contains("/config"), "{rows}");
+    screen.handle_key(key(KeyCode::Esc));
+    assert!(!frame(&mut screen, None, 100, 0).join("\n").contains("commands"));
+    screen.handle_key(key(KeyCode::Backspace));
+    screen.handle_key(key(KeyCode::Down));
+    assert!(screen.handle_key(key(KeyCode::Tab)).is_none());
+    assert_eq!(screen.composer.lines(), &["/effort "]);
+    screen.composer.select_all();
+    screen.composer.insert_str("/config");
+    assert!(screen.handle_key(key(KeyCode::Enter)).is_none());
+    assert_eq!(screen.composer.lines(), &["/config "]);
+}
+
 fn family(name: &str, parent: Option<&str>, created_ms: u64, status: Status, since_ms: u64) -> SessionSummary {
     let record: SessionRecord = serde_json::from_value(serde_json::json!({
         "name": name,

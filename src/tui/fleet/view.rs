@@ -38,6 +38,9 @@ pub fn draw(frame: &mut Frame<'_>, screen: &mut Screen, transcript: Option<&Tran
     }
     draw_composer(frame, screen, rows[2]);
     draw_status(frame, screen, rows[3]);
+    if screen.focus == Focus::Composer && screen.dialog.is_none() {
+        screen.slash.draw(frame, rows[2], &screen.composer.lines().join("\n"));
+    }
     match &screen.dialog {
         Some(Dialog::Launch(form)) => draw_launch_form(frame, form),
         Some(Dialog::ConfirmStop(name)) => draw_confirm_stop(frame, name),

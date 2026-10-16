@@ -8,6 +8,7 @@ mod painter;
 mod table;
 mod runner;
 mod screen;
+mod slash;
 mod state_clock;
 mod view;
 
