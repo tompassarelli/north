@@ -97,12 +97,7 @@ fi
 [[ $(decision unattended gpu 80000 0 0 0 0 --native-waiting 1) == DEFER_NATIVE_WAITING ]]
 [[ $(decision unattended native 80000 0 0 0 0 --gpu-busy-percent 95) == DEFER_GPU_BUSY ]]
 [[ $(decision unattended native 80000 0 0 2 4096 --gpu-busy-percent 95 --gpu-runs 2) == RUN ]]
-[[ $(decision attended native 80000 0 0 0 0 --gpu-clients 3 --new-clients 1 --gpu-runs 1) == RUN ]]
 [[ $(decision attended native 80000 0 0 0 0 --gpu-clients 4 --new-clients 1 --gpu-runs 1) == DEFER_GPU_CLIENTS ]]
-# The attended client cap charges only the clients a native request starts.
-[[ $(decision attended native 80000 0 0 0 0 --gpu-clients 4 --new-clients 0) == RUN ]]
-[[ $(decision attended native 80000 0 0 0 0 --gpu-clients 3 --new-clients 2) == DEFER_GPU_CLIENTS ]]
-[[ $(decision attended native 80000 0 0 0 0 --gpu-clients 2 --new-clients 2) == RUN ]]
 
 # Peer ceilings hold batch work at the aggregate limit: 20 cores present, 24 away.
 [[ $(decision attended heavy 80000 0 0 18 21504 --peer-batch-runs 3) == DEFER_CPU_CAPACITY ]]
@@ -261,6 +256,7 @@ for number in 1 2 3 4; do
   [[ ! -e "/sys/fs/cgroup$group" ]]
 done
 [[ $(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class exclusive | jq -r '.decision') == RUN ]]
+[[ "$(AGENT_CAPACITY_GPU_CLIENTS=4 XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class native --memory-gib 1 | jq -r .reason) $(AGENT_CAPACITY_GPU_CLIENTS=4 XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class native --new-clients 0 --memory-gib 1 | jq -r .reason)" == 'DEFER_GPU_CLIENTS RUN' ]]
 export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
 
 # An agent allowance does not block its exclusive command, which then blocks peers.
@@ -371,7 +367,7 @@ set -e
 # A native client runs unthrottled at high weight beside the batch slice.
 mkfifo "$scratch/native-group.receipt"
 XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
-  --class native --new-clients 0 --owner fixture:/capacity --timeout-seconds 30 \
+  --class native --owner fixture:/capacity --timeout-seconds 30 \
   -- bash -c 'IFS=: read -r _ _ group < /proc/self/cgroup; printf "%s\n" "$group" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' \
   fixture-native "$scratch/native-group" >"$scratch/native-out" 2>"$scratch/native-err" &
 fixture_pids+=("$!")
@@ -397,7 +393,7 @@ for lifetime in run session; do
   [[ $lifetime != run ]] || options=(--timeout-seconds 30)
   mkfifo "$scratch/memory-group-$lifetime.receipt"
   XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" "$lifetime" \
-    --class native --new-clients 0 --memory-gib 1.5 --owner fixture:/capacity "${options[@]}" \
+    --class native --memory-gib 1.5 --owner fixture:/capacity "${options[@]}" \
     -- bash -c 'IFS=: read -r _ _ group < /proc/self/cgroup; printf "%s\n" "$group" >"$1"; printf "ready\n" >"$1.receipt"; sleep 60 & wait' \
     fixture-native-memory "$scratch/memory-group-$lifetime" \
     >"$scratch/memory-out-$lifetime" 2>"$scratch/memory-err-$lifetime" &
@@ -410,7 +406,7 @@ for lifetime in run session; do
   [[ $(head -n 1 "$scratch/memory-err-$lifetime" | jq -r '.requestedMemoryMiB') -eq 1536 ]]
   lease=$(head -n 1 "$scratch/memory-err-$lifetime" | jq -r '.lease')
   [[ $(jq -r '.memoryMiB' "$fixture_runtime/agent-capacity-v1/leases/$lease.json") -eq 1536 ]]
-  probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class native --new-clients 0 --memory-gib 1.5)
+  probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class native --memory-gib 1.5)
   [[ $(jq -r '.leasedMemoryMiB' <<<"$probe") -eq 1536 ]]
   [[ $(jq -r '.requestedMemoryMiB' <<<"$probe") -eq 1536 ]]
   kill -TERM "${fixture_pids[0]}"

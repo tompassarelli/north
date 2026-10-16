@@ -125,14 +125,7 @@ function parseClass(values, cores) {
   if (!Number.isFinite(resources.cpus) || !Number.isFinite(resources.memoryMiB)) {
     fail(`policy rejected resource class: ${name}`);
   }
-  return { name, ...resources };
-}
-
-// Native requests declare the Warcraft clients they start: 1 per client, 2 for a pair,
-// 0 for a run on clients already up, so the attended cap charges only new clients.
-function parseNewClients(values, name) {
-  if (name !== 'native') return values.has('--new-clients') ? fail('--new-clients declares a native request\'s clients') : 0;
-  return parseNonnegativeInteger(required(values, '--new-clients'), '--new-clients');
+  return { name, ...resources, newClients: !values.has('--new-clients') ? Number(name === 'native') : name === 'native' ? parseNonnegativeInteger(values.get('--new-clients'), '--new-clients') : fail('--new-clients declares a native request\'s clients') };
 }
 
 function parsePsi(path, kind) {
@@ -889,7 +882,7 @@ function decision(root, requested, create, ticket = null) {
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
-      queuedAhead, exclusiveWaiting, newClients: requested.newClients ?? 0, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
+      queuedAhead, exclusiveWaiting, newClients: requested.newClients ?? Number(requested.name === 'native'), gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
       nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined,
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
@@ -1262,8 +1255,7 @@ async function main(argv) {
     if (separator !== argv.length) fail('probe accepts no command');
     const signals = readSignals();
     const besideNative = values.has('--beside-native') ? { besideNative: parseOwner(values, '--beside-native') } : {};
-    const requested = parseClass(values, signals.cores);
-    const result = decision(root, { ...requested, ...besideNative, newClients: parseNewClients(values, requested.name) }, null);
+    const result = decision(root, { ...parseClass(values, signals.cores), ...besideNative }, null);
     print(result);
     return result.decision === 'RUN' ? 0 : 75;
   }
@@ -1309,7 +1301,6 @@ async function main(argv) {
       : parsed.values.has('--class') ? chargeFromUsage(parseClass(parsed.values, signals.cores), owner, command, signals.cores)
         : sizeFromUsage(command, owner, signals.cores);
     requested.estimate ??= estimateCommand(command, requested.name, owner, signals.cores);
-    requested.newClients = parseNewClients(parsed.values, requested.name);
     if (parsed.values.has('--beside-native')) requested.besideNative = parseOwner(parsed.values, '--beside-native');
     if (parsed.values.has('--quiet')) requested.quiet = requested.name === 'native' || fail('--quiet marks a native evidence session');
     if (operation === 'run' && owner === 'land-check' && process.env.SAFE_PUSH_LAND_HEAD && batchClass(requested.name)) requested.landing = true;

@@ -22,7 +22,7 @@ metadata:
 - Use `session --class native --new-clients N --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops (one scope per client, two per pair), because they must outlive a batch deadline.
 - Start native evidence runs (accept, gate runs, capture batches, native soaks, pad scripts) with `session --class native --new-clients 0 --quiet` for the run's duration only, because I/O, copies and memory pressure from batch work stall both clients even at `nice -n 19`; moderate, heavy, exclusive and gpu work then queues until the run ends and is refused when its own timeout runs out first. Never mark idle pair pools, clones or private desktops quiet, because they are live most of the day while nothing is measured. Pass `--beside-native NATIVE-OWNER` only for that evidence run's own build steps.
 
-- Declare `--new-clients N` on every native `run`, `session` and `probe`: 1 for a clone or one client, 2 for a pair start, 0 for a run on clients already up, because attended admission defers only when live Warcraft clients plus N exceed four.
+- Declare `--new-clients N` on a native `run`, `session` or `probe`: 1 for a clone or one client (the default), 2 for a pair start, 0 for a run on clients already up, because attended admission defers only when live Warcraft clients plus N exceed four.
 
 ## Classes
 
