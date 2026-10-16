@@ -2,8 +2,8 @@ use super::git_invocation::words;
 use crate::hook::{HookInput, Verdict};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 
-pub(super) const DENIAL: &str = "Native evidence runs go through the batch planner: `bun wisp native plan --boxes FILE.tsv --out PLAN.json` then `bun wisp native run PLAN.json --out DIR`. For a run that can't batch, prefix NORTH_NATIVE_SOLO='<reason>'; the reason is recorded in the run ledger.";
-pub(super) const QUIET_DENIAL: &str = "The quiet native lease is for timing checks only; the batch planner takes it per timing batch. Use `bun wisp native plan --boxes FILE.tsv --out PLAN.json` then `bun wisp native run PLAN.json --out DIR`, or prefix NORTH_NATIVE_SOLO='<reason>' for a recorded exception.";
+pub(super) const DENIAL: &str = "Native evidence runs go through `bun wisp native submit SPEC`; the runner drains the queue with `bun wisp native drain`. For a run that can't batch, prefix NORTH_NATIVE_SOLO='<reason>'; the reason is recorded in the run ledger.";
+pub(super) const QUIET_DENIAL: &str = "The quiet native lease is for timing checks only; the runner takes it per timing batch. Submit with `bun wisp native submit SPEC`; the runner drains the queue with `bun wisp native drain`, or prefix NORTH_NATIVE_SOLO='<reason>' for a recorded exception.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::hook::authoring_guards_off("north-hook") {
