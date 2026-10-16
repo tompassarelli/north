@@ -206,6 +206,9 @@ impl Fleet {
 
     pub fn answer_gate(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<Closure> {
         let gate = self.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
+        if gate.closure.is_some() {
+            return self.decide(id, Decision::Option(number));
+        }
         let asker = self.record(&gate.request.session)?;
         gates::answer_gate(self.ledger.as_ref(), id, number, note, caller, asker.parent.as_deref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
     }

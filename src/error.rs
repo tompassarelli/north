@@ -46,7 +46,7 @@ impl fmt::Display for NorthError {
             }
             Self::Protocol(message) => write!(formatter, "Codex protocol failed: {message}"),
             Self::State(message) => write!(formatter, "Incomplete North state: {message}"),
-            Self::GateAnswered { id, answer, by } => write!(formatter, "gate {id} was already answered: {answer} by {by}"),
+            Self::GateAnswered { id, answer, by } => write!(formatter, "gate {id} was already answered: {} by {by}", answer.split_whitespace().collect::<Vec<_>>().join(" ")),
             Self::Rejected(message) => write!(formatter, "Codex rejected the request: {message}"),
             Self::Interrupted => write!(formatter, "Codex turn was interrupted"),
             Self::AppServerExit(status) => {
