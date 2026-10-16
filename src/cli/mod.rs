@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
 use crate::{
-    agent_catalog, autoland_status, contract_probe, dep_gate, follows_release, grounding, guard,
+    agent_catalog, autoland_status, capacity, contract_probe, dep_gate, follows_release, grounding, guard,
     health, hook, issue_box_lint, language_gate, pace, provenance, session_host, threads_client,
     work_items,
 };
@@ -37,6 +37,7 @@ enum Command {
     FollowsRelease(Vec<String>),
     Pace(Vec<String>),
     Grounding(Vec<String>),
+    Capacity(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — fleet session console
@@ -65,6 +66,7 @@ Commands:
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
   gate [open --session S --question Q --option O... --recommend N --default N --default-after D | list [--json]]  Ask Tom a decision; the fleet screen answers it
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
+  capacity admission < FACTS.json               Decide one machine-capacity admission
   help                                          Show this help
 
 Options:
@@ -120,6 +122,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "follows-release" => Command::FollowsRelease(rest),
         "grounding" => Command::Grounding(rest),
         "pace" => Command::Pace(rest),
+        "capacity" => Command::Capacity(rest),
         _ => return None,
     })
 }
@@ -172,6 +175,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::IssueBoxLint(arguments) => in_runtime(async move { Ok(ExitCode::from(issue_box_lint::run(&arguments))) }),
         Command::FollowsRelease(arguments) => in_runtime(async move { Ok(ExitCode::from(follows_release::run(&arguments))) }),
         Command::Pace(arguments) => ExitCode::from(pace::run(&arguments)),
+        Command::Capacity(arguments) => ExitCode::from(capacity::run(&arguments)),
         Command::Grounding(arguments) => in_runtime(async move {
             grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
         }),

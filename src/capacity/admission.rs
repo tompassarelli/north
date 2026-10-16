@@ -1,0 +1,198 @@
+use serde::{Deserialize, Serialize};
+
+const INTERACTIVE_PRESSURE_BASIS_POINTS: u32 = 1000;
+const BATCH_PRESSURE_BASIS_POINTS: u32 = 3000;
+const GPU_BUSY_PERCENT: u32 = 85;
+const ATTENDED_GPU_CLIENTS: u32 = 4;
+const GPU_SLOTS: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Profile {
+    Attended,
+    Unattended,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Class {
+    Agent,
+    Native,
+    Moderate,
+    Heavy,
+    Exclusive,
+    Gpu,
+    Critical,
+    Tom,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Facts {
+    pub(crate) profile: Profile,
+    pub(crate) class: Class,
+    pub(crate) cores: u32,
+    #[serde(rename = "memoryTotalMiB")]
+    pub(crate) memory_total_mib: f64,
+    #[serde(rename = "memoryAvailableMiB")]
+    pub(crate) memory_available_mib: f64,
+    pub(crate) cpu_some_avg10_basis_points: u32,
+    pub(crate) protected_cpu_some_avg10_basis_points: u32,
+    #[serde(rename = "leasedMemoryMiB")]
+    pub(crate) leased_memory_mib: f64,
+    pub(crate) leased_batch_cpus: f64,
+    pub(crate) leased_native_cpus: f64,
+    pub(crate) requested_cpus: f64,
+    #[serde(rename = "requestedMemoryMiB")]
+    pub(crate) requested_memory_mib: f64,
+    pub(crate) peer_batch_runs: u32,
+    pub(crate) peer_exclusive_runs: u32,
+    pub(crate) unbounded_runs: u32,
+    pub(crate) queued_ahead: u32,
+    pub(crate) exclusive_waiting: u32,
+    pub(crate) gpu_busy_percent: u32,
+    pub(crate) gpu_clients: u32,
+    pub(crate) gpu_runs: u32,
+    pub(crate) native_waiting: u32,
+    pub(crate) quiet_native_runs: u32,
+    pub(crate) beside_native: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum Reason {
+    Run,
+    Invalid,
+    DeferMemoryHeadroom,
+    DeferMemoryCapacity,
+    DeferNativeCpus,
+    DeferGpuClients,
+    DeferGpuBusy,
+    DeferUnboundedPeer,
+    DeferExclusive,
+    DeferInteractivePressure,
+    DeferNativeQuiet,
+    DeferNativeWaiting,
+    DeferGpuSlots,
+    DeferQueued,
+    DeferExclusiveQueued,
+    DeferCpuCapacity,
+    DeferCpuPressure,
+}
+
+pub(crate) fn decide(facts: &Facts) -> Reason {
+    if invalid(facts) {
+        return Reason::Invalid;
+    }
+    if let Some(reason) = memory(facts) {
+        return reason;
+    }
+    match facts.class {
+        Class::Agent => Reason::Run,
+        Class::Native => native(facts),
+        _ => batch(facts),
+    }
+}
+
+fn invalid(facts: &Facts) -> bool {
+    facts.cores == 0
+        || facts.memory_total_mib <= 0.0
+        || facts.memory_available_mib <= 0.0
+        || facts.requested_cpus < 0.0
+        || facts.requested_memory_mib <= 0.0
+}
+
+fn memory(facts: &Facts) -> Option<Reason> {
+    if facts.memory_available_mib - facts.requested_memory_mib < memory_floor_mib(facts.profile, facts.memory_total_mib) {
+        return Some(Reason::DeferMemoryHeadroom);
+    }
+    ((facts.leased_memory_mib + facts.requested_memory_mib) * 4.0 > facts.memory_total_mib * 3.0)
+        .then_some(Reason::DeferMemoryCapacity)
+}
+
+fn memory_floor_mib(profile: Profile, total: f64) -> f64 {
+    let share = match profile {
+        Profile::Attended => total / 5.0,
+        Profile::Unattended => total / 12.0,
+    };
+    if total < 32768.0 { share } else { share.max(8192.0).min(total / 4.0) }
+}
+
+fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
+    let reserved = match profile {
+        Profile::Attended if cores > 8 => 4,
+        Profile::Attended if cores > 4 => 2,
+        Profile::Attended => 1,
+        Profile::Unattended => 0,
+    };
+    f64::from(cores - reserved)
+}
+
+fn native(facts: &Facts) -> Reason {
+    if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
+        return Reason::DeferNativeCpus;
+    }
+    if facts.profile == Profile::Attended && facts.gpu_clients >= ATTENDED_GPU_CLIENTS {
+        return Reason::DeferGpuClients;
+    }
+    if facts.gpu_busy_percent >= GPU_BUSY_PERCENT && facts.gpu_runs == 0 {
+        return Reason::DeferGpuBusy;
+    }
+    Reason::Run
+}
+
+fn interactive_pressure(facts: &Facts) -> bool {
+    facts.profile == Profile::Attended && facts.protected_cpu_some_avg10_basis_points >= INTERACTIVE_PRESSURE_BASIS_POINTS
+}
+
+fn batch(facts: &Facts) -> Reason {
+    if facts.unbounded_runs > 0 {
+        return Reason::DeferUnboundedPeer;
+    }
+    if facts.peer_exclusive_runs > 0 {
+        return Reason::DeferExclusive;
+    }
+    if matches!(facts.class, Class::Critical | Class::Tom) {
+        return if interactive_pressure(facts) { Reason::DeferInteractivePressure } else { Reason::Run };
+    }
+    if facts.quiet_native_runs > 0 && !facts.beside_native {
+        return Reason::DeferNativeQuiet;
+    }
+    if facts.class == Class::Gpu {
+        if facts.native_waiting > 0 {
+            return Reason::DeferNativeWaiting;
+        }
+        if facts.gpu_runs >= GPU_SLOTS {
+            return Reason::DeferGpuSlots;
+        }
+    }
+    if facts.class == Class::Exclusive {
+        return if facts.exclusive_waiting > 0 {
+            Reason::DeferQueued
+        } else if facts.peer_batch_runs > 0 {
+            Reason::DeferExclusive
+        } else {
+            Reason::Run
+        };
+    }
+    shared(facts)
+}
+
+fn shared(facts: &Facts) -> Reason {
+    if facts.exclusive_waiting > 0 && facts.class == Class::Heavy {
+        return Reason::DeferExclusiveQueued;
+    }
+    if interactive_pressure(facts) {
+        return Reason::DeferInteractivePressure;
+    }
+    if facts.queued_ahead > 0 {
+        return Reason::DeferQueued;
+    }
+    if facts.leased_batch_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
+        return Reason::DeferCpuCapacity;
+    }
+    if facts.cpu_some_avg10_basis_points > BATCH_PRESSURE_BASIS_POINTS {
+        return Reason::DeferCpuPressure;
+    }
+    Reason::Run
+}

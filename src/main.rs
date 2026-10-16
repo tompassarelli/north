@@ -1,4 +1,5 @@
 mod agent_catalog;
+mod capacity;
 mod platform;
 mod cli;
 mod dep_gate;
