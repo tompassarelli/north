@@ -261,9 +261,7 @@ def live_signals(now, proc=Path('/proc')):
                     continue
     except OSError:
         pass
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'hooks/lib'))
-    from desktop_action import state_path
-    desktop = read_json(state_path())
+    desktop = read_json(Path(os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}') / 'desktop-idle.json')
     try:
         stat = (proc / str(int(desktop['pid'])) / 'stat').read_text()
         name, fields = stat.split('(', 1)[1].rsplit(')', 1)
