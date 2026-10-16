@@ -34,11 +34,11 @@ impl Runtime for Codex {
         Ok(None)
     }
 
-    fn host(&self, account: &Account, _request: &LaunchRequest, _opening: Opening, _instructions: &str) -> NorthResult<HostSpec> {
-        let server = launch::app_server(&account.home)?;
+    fn host(&self, account: &Account, request: &LaunchRequest, _opening: Opening, _instructions: &str) -> NorthResult<HostSpec> {
+        let server = launch::session_server(&account.home)?;
         Ok(HostSpec {
-            key: format!("codex-{}", account.label),
-            shared: true,
+            key: request.name.clone(),
+            shared: false,
             argv: server.argv,
             env: server.env,
             cwd: std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from),

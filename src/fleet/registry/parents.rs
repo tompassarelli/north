@@ -25,7 +25,7 @@ impl Fleet {
         let lines = self.recent(runtime.as_ref(), &child)?.entries;
         let death = HostDeath { child: &child, host_pid, mid_task: mid_task(self, runtime.as_ref(), &child)?, lines: &lines };
         if deliver_death(self.ledger.as_ref(), &Inline(self), &death, now_ms())? {
-            Host::new(child.host_dir.clone()).terminate();
+            Host::new(child.host_dir.clone()).terminate()?;
         }
         Ok(())
     }

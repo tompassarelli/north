@@ -56,7 +56,11 @@ unit="agent-bounded-${stamp}-${BASHPID}-${RANDOM}"
 # The transient scope is the accountable cgroup owner. RuntimeMaxSec and GNU
 # timeout independently bound its life; unshare's PID namespace makes owner
 # death kill every remaining descendant, including a changed process group.
-exec "$SYSTEMD_RUN" --user --scope --quiet --collect --same-dir \
+owner=()
+if [[ -n "${NORTH_FLEET_SCOPE:-}" ]]; then
+  owner=(--property="BindsTo=$NORTH_FLEET_SCOPE" --property="After=$NORTH_FLEET_SCOPE")
+fi
+exec "$SYSTEMD_RUN" --user --scope --quiet --collect --same-dir "${owner[@]}" \
   --unit="$unit" --slice=agent-bounded.slice \
   --property="RuntimeMaxSec=${seconds}s" \
   "$UNSHARE" --user --map-current-user --pid --fork --kill-child=KILL \

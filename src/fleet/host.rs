@@ -10,7 +10,7 @@ use rustix::process::{Pid, Signal, kill_process_group, test_kill_process};
 use crate::error::{NorthError, NorthResult};
 
 use super::model::ProviderName;
-use super::runtime::{HostSpec, binary};
+use super::runtime::{HostSpec, binary, new_uuid};
 
 const SOCKET_WAIT: Duration = Duration::from_secs(10);
 const REPLY_WAIT: Duration = Duration::from_secs(10);
@@ -36,10 +36,19 @@ impl Host {
 
     pub fn start(&self, spec: &HostSpec, provider: &ProviderName, idle_exit: Option<Duration>) -> NorthResult<u32> {
         fs::create_dir_all(&self.dir)?;
+        if self.dir.join("host.scope").exists() {
+            self.terminate()?;
+        }
         let socket = self.socket();
         let _ = fs::remove_file(&socket);
+        let unit = format!("north-session-{}.scope", new_uuid()?);
+        fs::write(self.dir.join("host.scope"), &unit)?;
         let mut command = Command::new(binary("setsid"));
         command
+            .arg(binary("systemd-run"))
+            .args(["--user", "--scope", "--quiet", "--collect", "--slice=agent.slice", "--property=KillMode=control-group", "--property=TimeoutStopSec=5s", "--unit"])
+            .arg(&unit)
+            .arg("--")
             .arg(std::env::current_exe()?)
             .args(["session-host", "--name", &spec.key, "--generation", "1", "--state-dir"])
             .arg(&self.dir)
@@ -57,10 +66,14 @@ impl Host {
         for (key, value) in &spec.env {
             command.env(key, value);
         }
+        command.env("NORTH_FLEET_SCOPE", &unit);
+        let _ = fs::remove_file(self.dir.join("host.pid"));
         let pid = command.spawn()?.id();
-        fs::write(self.dir.join("host.pid"), pid.to_string())?;
-        self.await_socket(pid)?;
-        Ok(pid)
+        if let Err(error) = self.await_socket(pid) {
+            self.terminate()?;
+            return Err(error);
+        }
+        self.pid().ok_or_else(|| NorthError::State("session host did not record its pid".into()))
     }
 
     pub fn send(&self, frames: &[String]) -> NorthResult<()> {
@@ -82,15 +95,23 @@ impl Host {
         Ok(())
     }
 
-    pub fn terminate(&self) {
-        let Some(pid) = self.pid() else { return };
-        let Some(group) = i32::try_from(pid).ok().and_then(Pid::from_raw) else { return };
+    pub fn terminate(&self) -> NorthResult<()> {
+        if let Ok(unit) = fs::read_to_string(self.dir.join("host.scope")) {
+            let status = Command::new(binary("systemctl")).args(["--user", "stop", unit.trim()]).status()?;
+            if !status.success() && status.code() != Some(5) {
+                return Err(NorthError::State(format!("could not stop session scope {}", unit.trim())));
+            }
+            return Ok(());
+        }
+        let Some(pid) = self.pid() else { return Ok(()) };
+        let Some(group) = i32::try_from(pid).ok().and_then(Pid::from_raw) else { return Ok(()) };
         let _ = kill_process_group(group, Signal::Term);
         let deadline = Instant::now() + TERM_GRACE;
         while group_alive(group) && Instant::now() < deadline {
             std::thread::sleep(POLL);
         }
         let _ = kill_process_group(group, Signal::Kill);
+        Ok(())
     }
 
     fn socket(&self) -> PathBuf {

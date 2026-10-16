@@ -30,3 +30,16 @@ landings in its digest. A bare `north` follows the same path as `north fleet`.
 Run `nix develop -c cargo check --locked --offline` to check the Rust
 interfaces. `verify-north` drives the fleet screen and CLI against the installed
 build, including the headless session path.
+
+Each fleet session owns a `north-session-<uuid>.scope` in the user systemd
+manager, including its provider host and process descendants. Codex sessions
+have separate app-servers so stopping one cannot terminate another. The host
+records its PID separately from the scope runner; its directory retains the
+scope name in `host.scope` after the host exits. Stop and forget synchronously
+stop that scope before completing; revive clears the previous scope first.
+
+Launchers that create additional systemd units use `north session-unit` with
+the usual `systemd-run` arguments. This Rust adapter binds the unit to the
+inherited `NORTH_FLEET_SCOPE` with `BindsTo` and `After`, so capacity jobs and
+private desktop clients end with their session even after reparenting.
+`run-bounded` applies the same dependency to its bounded scope.

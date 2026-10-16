@@ -1107,7 +1107,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
   };
   try {
     const child = Bun.spawn([
-      'systemd-run', '--user', '--scope', '--quiet', '--collect', '--expand-environment=no',
+      ...(process.env.NORTH_FLEET_SCOPE ? [northCommand, 'session-unit'] : ['systemd-run']), '--user', '--scope', '--quiet', '--collect', '--expand-environment=no',
       `--unit=${unit}`,
       `--slice=${leaseSlice(requested.name)}`,
       // A quota-throttled game client stalls for the rest of each period.

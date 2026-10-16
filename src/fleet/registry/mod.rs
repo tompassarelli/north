@@ -166,10 +166,14 @@ impl Fleet {
             let transcript = self.recent(runtime.as_ref(), &record)?;
             let _ = host.send(&runtime.close(&transcript));
         }
+        let terminate = !self.host_in_use(&record)?;
+        let was_stopped = record.stopped;
         record.stopped = true;
         write_record(&self.root.join(name), &record)?;
-        if !self.host_in_use(&record)? {
-            host.terminate();
+        if terminate && let Err(error) = host.terminate() {
+            record.stopped = was_stopped;
+            write_record(&self.root.join(name), &record)?;
+            return Err(error);
         }
         Ok(())
     }

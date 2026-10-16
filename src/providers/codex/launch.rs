@@ -31,8 +31,15 @@ pub struct AppServer {
 }
 
 pub fn app_server(account_home: &Path) -> NorthResult<AppServer> {
+    server(account_home, contained())
+}
+
+pub fn session_server(account_home: &Path) -> NorthResult<AppServer> {
+    server(account_home, Vec::new())
+}
+
+fn server(account_home: &Path, mut argv: Vec<String>) -> NorthResult<AppServer> {
     let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from);
-    let mut argv = contained();
     argv.extend(masked(&home, std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from)));
     argv.push(install::runtime("codex").display().to_string());
     for setting in settings(std::fs::read_to_string(CONTEXT_FILE).ok().as_deref(), subagent())? {

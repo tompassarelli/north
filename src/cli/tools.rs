@@ -15,6 +15,7 @@ pub(super) enum Tool {
     FollowsRelease,
     Pace,
     Capacity,
+    SessionUnit,
 }
 
 impl Tool {
@@ -29,6 +30,7 @@ impl Tool {
             "follows-release" => Self::FollowsRelease,
             "pace" => Self::Pace,
             "capacity" => Self::Capacity,
+            "session-unit" => Self::SessionUnit,
             _ => return None,
         })
     }
@@ -44,6 +46,7 @@ impl Tool {
             Self::FollowsRelease => follows_release::run,
             Self::Pace => return ExitCode::from(pace::run(arguments)),
             Self::Capacity => return ExitCode::from(capacity::run(arguments)),
+            Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
         };
         super::in_runtime(async move { Ok(ExitCode::from(run(arguments))) })
     }

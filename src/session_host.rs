@@ -286,6 +286,8 @@ pub fn exit_code(status: ExitStatus) -> u8 {
 pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Option<Box<dyn FrameWatch>>) -> NorthResult<u8> {
     let config = HostConfig::parse(arguments)?;
     let socket = config.socket_path()?;
+    fs::create_dir_all(&config.state_dir)?;
+    fs::write(config.state_dir.join("host.pid"), std::process::id().to_string())?;
     let listener = bind(&socket)?;
     let watcher = watch_for(&config).map(Watcher::new).unwrap_or_default();
     let mut host = SessionHost::spawn_watched(&config, watcher)?;
