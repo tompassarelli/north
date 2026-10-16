@@ -3,9 +3,8 @@ use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
 use crate::{
-    agent_catalog, autoland_status, capacity, contract_probe, dep_gate, follows_release, grounding, guard,
-    health, hook, issue_box_lint, language_gate, pace, provenance, session_host, threads_client,
-    work_items,
+    agent_catalog, contract_probe, grounding, guard, health, hook, language_gate, session_host,
+    threads_client, work_items,
 };
 
 mod fleet;
@@ -14,6 +13,9 @@ mod ledger;
 mod orders;
 #[cfg(test)]
 mod tests;
+mod tools;
+
+use tools::Tool;
 
 #[derive(Debug, Eq, PartialEq)]
 enum Command {
@@ -26,18 +28,12 @@ enum Command {
     Agents(Vec<String>),
     Work(Vec<String>),
     SessionHost(Vec<String>),
-    DepGate(Vec<String>),
-    AutolandStatus(Vec<String>),
+    Tool(Tool, Vec<String>),
     LanguageGate(Vec<String>),
     Health(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
-    Provenance(Vec<String>),
-    IssueBoxLint(Vec<String>),
-    FollowsRelease(Vec<String>),
-    Pace(Vec<String>),
     Grounding(Vec<String>),
-    Capacity(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — fleet session console
@@ -104,6 +100,9 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
 }
 
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
+    if let Some(tool) = Tool::named(command) {
+        return Some(Command::Tool(tool, rest));
+    }
     Some(match command {
         "hook" => Command::Hook(rest),
         "threads" => Command::Threads(rest),
@@ -112,17 +111,10 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "orders" | "gate" => Command::Fleet([vec![command.to_owned()], rest].concat()),
         "work" => Command::Work(rest),
         "session-host" => Command::SessionHost(rest),
-        "dep-gate" => Command::DepGate(rest),
-        "autoland-status" => Command::AutolandStatus(rest),
         "language-gate" => Command::LanguageGate(rest),
         "health" => Command::Health(rest),
         "contract-probe" => Command::ContractProbe(rest),
-        "provenance" => Command::Provenance(rest),
-        "issue-box-lint" => Command::IssueBoxLint(rest),
-        "follows-release" => Command::FollowsRelease(rest),
         "grounding" => Command::Grounding(rest),
-        "pace" => Command::Pace(rest),
-        "capacity" => Command::Capacity(rest),
         _ => return None,
     })
 }
@@ -163,19 +155,13 @@ fn dispatch(command: Command) -> ExitCode {
         Command::SessionHost(arguments) => in_runtime(async move {
             session_host::run(&arguments, fleet::host_watch).await.map(ExitCode::from)
         }),
-        Command::DepGate(arguments) => in_runtime(async move { Ok(ExitCode::from(dep_gate::run(&arguments))) }),
-        Command::AutolandStatus(arguments) => in_runtime(async move { Ok(ExitCode::from(autoland_status::run(&arguments))) }),
+        Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments)) }),
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
         Command::ContractProbe(arguments) => in_runtime(async move {
             contract_probe::run(&arguments).await.map(ExitCode::from)
         }),
-        Command::Provenance(arguments) => in_runtime(async move { Ok(ExitCode::from(provenance::run(&arguments))) }),
-        Command::IssueBoxLint(arguments) => in_runtime(async move { Ok(ExitCode::from(issue_box_lint::run(&arguments))) }),
-        Command::FollowsRelease(arguments) => in_runtime(async move { Ok(ExitCode::from(follows_release::run(&arguments))) }),
-        Command::Pace(arguments) => ExitCode::from(pace::run(&arguments)),
-        Command::Capacity(arguments) => ExitCode::from(capacity::run(&arguments)),
         Command::Grounding(arguments) => in_runtime(async move {
             grounding::main(&arguments).map(|code| ExitCode::from(code as u8))
         }),
