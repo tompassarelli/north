@@ -247,6 +247,13 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
 - Others seen: `-Zshare-generics=y`, `-Zcache-proc-macros` (5-10% incremental,
   per Bevy), Cargo `-Zno-embed-metadata` (smaller `target/`) [bevy].
 
+## Watched, not adoptable: rustd
+
+- What: [rustd](https://github.com/DioxusLabs/rustd) (DioxusLabs, MIT/Apache-2.0, branch `rustd-spike`, read 2026-10-16 from `RUSTD.md`) keeps a workspace loaded in rust-analyzer's database and compiles changed functions from RA's MIR with Cranelift, linking them in front of rustc's rlibs. Its launch chart claims a saved edit becomes a linked debug binary in about 200 ms, 4.3x-11.6x faster than incremental `cargo build` on the regex workspace (8 cores).
+- Status: a prototype. Its own document says latency is "only comparable to cargo once a crate is at 100%" of functions compiled; there is no drop glue or unwinding yet (RA's MIR "has no cleanup edges"), async is planned as "the largest single item", unit tests inside `src/` are not relinked, there is no debug info, and no cargo subcommand exists (it scrapes `cargo rustc -- --print link-args`). The toolchain must be the exact rustc that rust-analyzer's `ra-ap-rustc_abi` was cut from; a mismatch miscompiled `?`. RA can take 0.5-8 GB per workspace.
+- Fit here: none today. This host repository has 89 `async fn` on tokio and relies on `Drop`, so rustd cannot build it, and our toolchain pin would have to follow rustd's.
+- Adopt when all hold: async, drop glue and unwinding supported; a cargo-integrated entry point; unit tests in `src/` relinked; its scoreboard shows 0 mismatches on a crate shaped like ours. Then measure it with `rust-build-timings.sh --label rustd` like any other lever.
+
 ## galileo
 
 Read-only notes from galileo's eleven manifests (nine under `crates/`, two
