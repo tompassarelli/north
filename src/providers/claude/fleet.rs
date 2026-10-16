@@ -10,7 +10,7 @@ use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 use crate::providers::install;
 
-use super::{accounts, turns};
+use super::{accounts, turns, user_text};
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
@@ -146,31 +146,23 @@ fn observe_system(frame: &Value, transcript: &mut Transcript) {
 fn observe_user(frame: &Value, transcript: &mut Transcript) {
     let content = &frame["message"]["content"];
     if let Some(text) = content.as_str() {
-        transcript.status = Status::Working;
-        transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
-        if frame["isReplay"] == true {
-            push(transcript, EntryKind::User, text.to_owned());
-        } else {
-            push(transcript, EntryKind::Notice, text.to_owned());
-        }
+        observe_user_text(frame, text, transcript);
         return;
     }
     for block in content.as_array().into_iter().flatten() {
         match block["type"].as_str() {
             Some("tool_result") => push(transcript, EntryKind::ToolResult, summarize(&tool_result_text(block), TOOL_RESULT_CHARS)),
-            Some("text") if frame["isReplay"] == true => {
-                transcript.status = Status::Working;
-                transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
-                push(transcript, EntryKind::User, block["text"].as_str().unwrap_or_default().to_owned());
-            }
-            Some("text") => {
-                transcript.status = Status::Working;
-                transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
-                push(transcript, EntryKind::Notice, block["text"].as_str().unwrap_or_default().to_owned());
-            }
+            Some("text") => observe_user_text(frame, block["text"].as_str().unwrap_or_default(), transcript),
             _ => {}
         }
     }
+}
+
+fn observe_user_text(frame: &Value, text: &str, transcript: &mut Transcript) {
+    transcript.status = Status::Working;
+    transcript.active_turn = frame["uuid"].as_str().map(str::to_owned);
+    let (kind, text) = user_text::entry(text, frame["isReplay"] == true, frame["isSynthetic"] == true);
+    push(transcript, kind, text);
 }
 
 fn tool_result_text(block: &Value) -> String {
@@ -224,22 +216,35 @@ fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
         transcript.entries.push(Entry { kind, text });
     }
 }
-
 #[cfg(test)]
 mod projection {
     use super::*;
 
+    fn projected(fixture: &str) -> (Transcript, Vec<(EntryKind, String)>) {
+        let mut transcript = Transcript::new();
+        fixture.lines().for_each(|line| Claude.observe(&serde_json::from_str(line).unwrap(), &mut transcript));
+        let kinds = transcript.entries.iter().map(|entry| (entry.kind, entry.text.clone())).collect();
+        (transcript, kinds)
+    }
+
     #[test]
     fn claude_turn_projects_to_user_assistant_and_idle() {
-        let mut transcript = Transcript::new();
-        transcript.name = "t-claude".into();
-        for line in include_str!("fixtures/fleet.jsonl").lines() {
-            Claude.observe(&serde_json::from_str(line).unwrap(), &mut transcript);
-        }
-        let kinds: Vec<(EntryKind, &str)> = transcript.entries.iter().map(|entry| (entry.kind, entry.text.as_str())).collect();
-        assert_eq!(kinds, [(EntryKind::User, "Reply with exactly: pong"), (EntryKind::Assistant, "pong"), (EntryKind::TurnEnd, "success")]);
+        let (transcript, kinds) = projected(include_str!("fixtures/fleet.jsonl"));
+        assert_eq!(kinds, [(EntryKind::User, "Reply with exactly: pong".into()), (EntryKind::Assistant, "pong".into()), (EntryKind::TurnEnd, "success".into())]);
         assert_eq!(transcript.status, Status::Idle);
         assert_eq!(transcript.conversation.as_deref(), Some("7557fc31-3bae-471d-8307-ce4fc827601c"));
+    }
+
+    #[test]
+    fn a_local_command_projects_to_the_operator_command_and_its_outcome() {
+        let (transcript, kinds) = projected(include_str!("fixtures/compact.jsonl"));
+        assert_eq!(kinds, [
+            (EntryKind::Notice, "This session is being continued from a previous conversation that ran out of context.".into()),
+            (EntryKind::Notice, "Compacted".into()),
+            (EntryKind::User, "/compact".into()),
+            (EntryKind::TurnEnd, "success".into()),
+        ]);
+        assert_eq!(transcript.status, Status::Idle);
     }
 }
 

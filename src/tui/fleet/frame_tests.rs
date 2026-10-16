@@ -33,10 +33,6 @@ fn slash_suggestions_filter_close_and_insert_without_sending() {
     screen.handle_key(key(KeyCode::Down));
     assert!(screen.handle_key(key(KeyCode::Tab)).is_none());
     assert_eq!(screen.composer.lines(), &["/effort "]);
-    screen.composer.select_all();
-    screen.composer.insert_str("/config");
-    assert!(screen.handle_key(key(KeyCode::Enter)).is_none());
-    assert_eq!(screen.composer.lines(), &["/config "]);
 }
 
 fn family(name: &str, parent: Option<&str>, created_ms: u64, status: Status, since_ms: u64) -> SessionSummary {

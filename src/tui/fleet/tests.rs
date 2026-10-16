@@ -294,6 +294,37 @@ fn the_launch_form_tabs_from_its_first_field() {
 }
 
 #[test]
+fn one_enter_sends_a_slash_command_while_its_suggestions_are_open() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    type_text(&mut desk, &mut screen, "/compact");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    type_text(&mut desk, &mut screen, "/comp");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    let compact = Command::Send { name: "parser".into(), text: "/compact".into(), delivery: Delivery::Queued, deepen: false };
+    assert_eq!(desk.performed(), [compact.clone(), compact]);
+    assert_eq!(screen.pending_for("parser"), ["/compact", "/compact"]);
+    assert!(screen.composer.is_empty());
+}
+
+#[test]
+fn a_pending_message_waits_for_its_own_echo() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    type_text(&mut desk, &mut screen, "/compact");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    let entries = &mut desk.transcripts.get_mut("parser").unwrap().entries;
+    entries.push(Entry { kind: EntryKind::User, text: "[from child · turn 1] report".into() });
+    screen.reconcile(|name| desk.transcript(name));
+    assert_eq!(screen.pending_for("parser"), ["/compact"]);
+    let entries = &mut desk.transcripts.get_mut("parser").unwrap().entries;
+    entries.push(Entry { kind: EntryKind::Notice, text: "Compacted".into() });
+    entries.push(Entry { kind: EntryKind::User, text: "/compact".into() });
+    screen.reconcile(|name| desk.transcript(name));
+    assert!(screen.pending.is_empty());
+}
+
+#[test]
 fn ctrl_g_sends_the_draft_after_the_deepen_questions() {
     let mut desk = desk();
     let mut screen = screen(&desk);

@@ -17,6 +17,7 @@ use super::editor::edit_textarea;
 use super::digest::{DigestPane, SessionFacts};
 use super::form::{FormOutcome, LaunchForm, newline_modifier};
 use super::order::arrange;
+use super::slash::SlashMenu;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Focus {
@@ -59,7 +60,7 @@ impl Command {
 pub struct PendingMessage {
     pub session: String,
     pub text: String,
-    users_before: usize,
+    echoes_before: usize,
 }
 
 pub struct Screen {
@@ -74,7 +75,7 @@ pub struct Screen {
     pub busy: BTreeMap<String, usize>,
     pub pending: Vec<PendingMessage>,
     pub digest: DigestPane,
-    pub slash: super::slash::SlashMenu,
+    pub slash: SlashMenu,
     bell: bool,
     scroll_limit: u16,
     page: u16,
@@ -97,7 +98,7 @@ impl Screen {
             busy: BTreeMap::new(),
             pending: Vec::new(),
             digest: DigestPane::default(),
-            slash: super::slash::SlashMenu::default(),
+            slash: SlashMenu::default(),
             bell: false,
             scroll_limit: u16::MAX,
             page: 10,
@@ -180,8 +181,8 @@ impl Screen {
         *self.busy.entry(command.session().to_owned()).or_default() += 1;
         let message = match command {
             Command::Send { name, text, .. } => {
-                let waiting = self.pending.iter().filter(|pending| &pending.session == name).count();
-                self.pending.push(PendingMessage { session: name.clone(), text: text.clone(), users_before: user_entries(transcript) + waiting });
+                let waiting = self.pending.iter().filter(|pending| &pending.session == name && &pending.text == text).count();
+                self.pending.push(PendingMessage { session: name.clone(), text: text.clone(), echoes_before: echoes(transcript, text) + waiting });
                 return;
             }
             Command::Launch(request) => format!("launching {}…", request.name),
@@ -195,7 +196,7 @@ impl Screen {
     }
 
     pub fn reconcile<'t>(&mut self, transcript_of: impl Fn(&str) -> Option<&'t Transcript>) {
-        self.pending.retain(|pending| user_entries(transcript_of(&pending.session)) <= pending.users_before);
+        self.pending.retain(|pending| echoes(transcript_of(&pending.session), &pending.text) <= pending.echoes_before);
     }
 
     pub fn pending_for(&self, session: &str) -> Vec<&str> {
@@ -256,15 +257,8 @@ impl Screen {
         if let Some(action) = control_action(key) {
             return self.handle_control(action);
         }
-        if self.focus == Focus::Composer {
-            let input = self.composer.lines().join("\n");
-            if let Some(completion) = self.slash.handle(&input, key) {
-                if let Some(text) = completion {
-                    self.composer = composer_area();
-                    self.composer.insert_str(text);
-                }
-                return None;
-            }
+        if self.focus == Focus::Composer && self.slash.intercept(&mut self.composer, key) {
+            return None;
         }
         self.notice = None;
         match key.code {
@@ -487,8 +481,9 @@ fn control_action(key: KeyEvent) -> Option<char> {
     (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g' | 't')).then_some(character)
 }
 
-fn user_entries(transcript: Option<&Transcript>) -> usize {
-    transcript.map_or(0, |transcript| transcript.entries.iter().filter(|entry| entry.kind == EntryKind::User).count())
+fn echoes(transcript: Option<&Transcript>, text: &str) -> usize {
+    let text = text.trim();
+    transcript.map_or(0, |transcript| transcript.entries.iter().filter(|entry| entry.kind == EntryKind::User && entry.text.trim_end().ends_with(text)).count())
 }
 
 fn option_number(digit: char) -> usize {
