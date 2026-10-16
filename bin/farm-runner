@@ -6,7 +6,8 @@ owner=${FARM_RUNNER_OWNER:-tompassarelli}
 specs=${FARM_RUNNER_SPECS:-smashcraft=3}
 slice=${FARM_RUNNER_SLICE:-agent-capacity-farm.slice}
 state_cache=${FARM_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner/laptop-state.json}
-game=${FARM_RUNNER_GAME:-[W]arcraft III\.exe}
+# The kernel truncates comm to 15 bytes; argv matches would count wrappers that name the exe.
+game=${FARM_RUNNER_GAME:-Warcraft III.ex}
 pool_state=${FARM_RUNNER_POOL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wisp/lan}
 playtest_dir=${FARM_RUNNER_PLAYTEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/playtest}
 playtest_idle=${FARM_RUNNER_PLAYTEST_IDLE:-600}
@@ -31,7 +32,7 @@ pool_game_live() {
 
 tom_game() {
   local pid cgroup
-  for pid in $(pgrep -f "$game" 2>/dev/null); do
+  for pid in $(pgrep -x "$game" 2>/dev/null); do
     cgroup=$(cat "/proc/$pid/cgroup" 2>/dev/null) || continue
     case $cgroup in
       *libpod* | */native.slice/*) ;;

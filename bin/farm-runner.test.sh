@@ -33,7 +33,14 @@ decide() {
 
 check "an available laptop with no game and no pool game takes new jobs" "run" "$(decide available 'no-such-game-zz9' idle)"
 check "a live pool capture drains: running jobs continue, no new registrations" "drain" "$(decide available 'no-such-game-zz9' live)"
-check "Tom's own game freezes the runners even during a pool capture" "freeze" "$(decide available '[s]ystemd --user' live)"
+check "Tom's own game freezes the runners even during a pool capture" "freeze" "$(decide available 'systemd' live)"
+bash -c 'sleep 30; :' zz9-game-test >/dev/null 2>&1 & wrapper=$!
+check "a wrapper whose arguments name the game is not Tom's game" "run" "$(decide available 'zz9-game-test' idle)"
+kill "$wrapper"
+cp "$(command -v bash)" "$tmp/zz9-game-test"
+"$tmp/zz9-game-test" -c 'sleep 30; :' >/dev/null 2>&1 & game_pid=$!
+check "a process named as the game outside the pool slice freezes the runners" "freeze" "$(decide available 'zz9-game-test' idle)"
+kill "$game_pid"
 check "a laptop that is not available freezes the runners" "freeze" "$(decide draining 'no-such-game-zz9' idle)"
 
 echo "farm-runner: $pass passed, $fail failed"
