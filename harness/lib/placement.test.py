@@ -239,7 +239,7 @@ class SpawnPlacement(unittest.TestCase):
                  patch.object(placement, "claude_session", return_value=([], None)), \
                  patch.object(placement.resident_cap, "count", return_value=3), \
                  patch.object(placement, "laptop_state", return_value="unavailable"), \
-                 patch.object(placement.subprocess, "run", side_effect=AssertionError("remote probe")):
+                 patch.object(placement, "ssh_argv", side_effect=AssertionError("remote probe")):
                 result = placement.place_spawn(self.brief, self.spawner, self.gate, self.cfg, self.at)
             self.assertEqual((result["kind"], result["account"], result["host"]), ("native", "claude:a", local))
         self.brief = self.brief.replace("Verify: local-test", "Verify: native")
