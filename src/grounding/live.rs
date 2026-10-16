@@ -23,15 +23,7 @@ pub fn pace_lines() -> Vec<String> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|w| {
-                    format!(
-                        "{} {:.0}% (resets {}Z, as of {}Z)",
-                        s(w, "window"),
-                        num(w, "used_pct").round(),
-                        slice(&s(w, "resets_at"), 11, 5),
-                        slice(&s(w, "as_of"), 11, 5)
-                    )
-                })
+                .map(window_line)
                 .collect::<Vec<_>>()
                 .join("; ");
             lines.push(format!(
@@ -50,6 +42,25 @@ pub fn pace_lines() -> Vec<String> {
         }
     }
     lines
+}
+fn window_line(w: &Value) -> String {
+    format!(
+        "{} {:.0}% (resets {}, as of {}Z)",
+        s(w, "window"),
+        num(w, "used_pct").round(),
+        reset(w),
+        slice(&s(w, "as_of"), 11, 5)
+    )
+}
+fn reset(w: &Value) -> String {
+    let resets = s(w, "resets_at");
+    let (Some(at), Some(now)) = (Timestamp::parse_loose(&resets), Timestamp::parse_loose(&s(w, "as_of"))) else {
+        return format!("{}Z", slice(&resets, 11, 5));
+    };
+    let minutes = (at.unix_seconds() - now.unix_seconds()).max(0) / 60;
+    let left = if minutes < 120 { format!("{minutes}m") } else { format!("{}h", (minutes + 30) / 60) };
+    let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][at.unix_days().rem_euclid(7) as usize];
+    format!("{weekday} {} {}Z, in {left}", at.iso_date(), slice(&at.iso_minute(), 11, 5))
 }
 pub fn org_lines(_message: &str) -> Vec<String> {
     let north = std::env::var_os("NORTH_BIN").unwrap_or_else(|| "north".into());
@@ -70,4 +81,18 @@ pub fn org_lines(_message: &str) -> Vec<String> {
             (!compact.is_empty()).then_some(compact)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn reset_names_day_date_and_time_left() {
+        let week = json!({"window": "week", "used_pct": 99, "resets_at": "2026-10-17T12:00:00Z", "as_of": "2026-10-16T08:54:03Z"});
+        assert_eq!(window_line(&week), "week 99% (resets Sat 2026-10-17 12:00Z, in 27h, as of 08:54Z)");
+        let five = json!({"window": "5h", "used_pct": 100, "resets_at": "2026-10-16T09:20:00Z", "as_of": "2026-10-16T08:57:00Z"});
+        assert_eq!(window_line(&five), "5h 100% (resets Fri 2026-10-16 09:20Z, in 23m, as of 08:57Z)");
+    }
 }
