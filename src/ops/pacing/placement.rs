@@ -6,15 +6,14 @@ use storage::{number, rows};
 use toml_edit::{DocumentMut, Item};
 
 mod candidates;
+pub(crate) mod gate;
 mod hosts;
 mod launch;
-mod overflow;
 mod survey;
 mod tiers;
 use candidates::admit;
-use hosts::{credit, host, hydrate, laptop};
+use hosts::{credit, host, laptop};
 pub(super) use launch::{Probes, spawn};
-use overflow::overflow;
 pub(super) use tiers::routing_defaults;
 use tiers::tier_for;
 
@@ -95,19 +94,6 @@ fn private(text: &str, cfg: &DocumentMut) -> bool {
 }
 type Placed = (String, String);
 
-fn overflow_target(text: &str, cfg: &DocumentMut, at: f64, probe: &mut Value) -> Option<Placed> {
-    hydrate(probe);
-    let reason = overflow(cfg, probe, at)?;
-    let qualified = crate::router::brief::codex_qualifies(text, false, &routing_defaults()).0;
-    Some((
-        "codex".into(),
-        if qualified {
-            reason
-        } else {
-            format!("{reason}; codex:sol-high on the tight leash")
-        },
-    ))
-}
 fn place_anthropic_cloud(cfg: &DocumentMut, at: f64, probe: &Value) -> Result<Placed, String> {
     let (usable, line) = if let Some(pair) = probe["credit"].as_array() {
         (
@@ -124,16 +110,6 @@ fn place_anthropic_cloud(cfg: &DocumentMut, at: f64, probe: &Value) -> Result<Pl
         "anthropic-cloud {}",
         line.trim_start_matches("cloud credit: ")
     ))
-}
-fn place_codex_cloud(rules: Option<&Item>) -> Result<Placed, String> {
-    let enabled = rules
-        .and_then(|p| p.get("codex_cloud"))
-        .and_then(Item::as_bool)
-        == Some(true);
-    if enabled {
-        return Ok(("codex-cloud".into(), "codex_cloud on".into()));
-    }
-    Err("codex-cloud off until C1".into())
 }
 fn place_laptop(
     code_only: bool,
@@ -178,8 +154,7 @@ fn place_resident(cfg: &DocumentMut, probe: &Value, name: &str) -> Option<Result
     }))
 }
 fn skipped_target(name: &str, code_only: bool, native: bool) -> bool {
-    let cloud = ["anthropic-cloud", "codex-cloud"].contains(&name);
-    cloud && !code_only || native && name != "laptop"
+    name == "anthropic-cloud" && !code_only || native && name != "laptop"
 }
 fn held_placement(laptop_why: Option<String>, why: Vec<String>) -> Placed {
     (
@@ -192,21 +167,10 @@ fn held_placement(laptop_why: Option<String>, why: Vec<String>) -> Placed {
         why.join("; "),
     )
 }
-fn place(
-    text: &str,
-    cfg: &DocumentMut,
-    at: f64,
-    probe: &mut Value,
-    allow_overflow: bool,
-) -> Placed {
+fn place(text: &str, cfg: &DocumentMut, at: f64, probe: &mut Value) -> Placed {
     let (_, native, _) = facets(text);
     let code_only = !native && !private(text, cfg);
     let rules = cfg.get("placement");
-    if allow_overflow && code_only {
-        if let Some(found) = overflow_target(text, cfg, at, probe) {
-            return found;
-        }
-    }
     let mut why = Vec::new();
     let mut laptop_why = None;
     for name in strings(rules.and_then(|p| p.get("order"))) {
@@ -215,7 +179,6 @@ fn place(
         }
         let attempt = match name.as_str() {
             "anthropic-cloud" => Some(place_anthropic_cloud(cfg, at, probe)),
-            "codex-cloud" => Some(place_codex_cloud(rules)),
             "laptop" => Some(place_laptop(code_only, probe, &mut laptop_why)),
             _ => place_resident(cfg, probe, &name),
         };
@@ -295,7 +258,7 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
     if args.first().is_none_or(|s| s != "place") || args.len() < 2 {
         return Err("north place place BRIEF... | credit".into());
     }
-    let mut probe = json!({});
+    let gate = storage::load(&storage::directory().join("usage-gate.json"));
     for path in &args[1..] {
         let text = if path == "-" {
             use std::io::Read;
@@ -307,11 +270,15 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
         } else {
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
-        let (target, why) = place(&text, &cfg, at, &mut probe, true);
+        let decision = gate::decide(&text, &cfg, &gate, credit(&cfg, at), at);
+        for verdict in &decision.verdicts {
+            println!("  {}", verdict.line);
+        }
         let item = field(&text, "Item");
         println!(
-            "{}: target {target} ({why})",
-            if item.is_empty() { path } else { item }
+            "{}: {}",
+            if item.is_empty() { path } else { item },
+            gate::summary(&decision)
         );
     }
     Ok(())

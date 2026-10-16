@@ -6,7 +6,9 @@ mod command;
 mod grant_tests;
 mod grants;
 mod gate_order;
-mod placement;
+pub(crate) mod placement;
+#[cfg(test)]
+mod placement_gate_tests;
 #[cfg(test)]
 mod placement_tests;
 mod process;

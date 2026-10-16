@@ -1,8 +1,8 @@
 use super::super::storage::load;
 use super::super::{process, sampling, storage, target};
 use super::{local, moment, operator, stamp};
-use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use serde_json::Value;
+use std::path::Path;
 use toml_edit::{DocumentMut, Item};
 
 pub(in crate::ops::pacing) fn credit(cfg: &DocumentMut, at: f64) -> (bool, String) {
@@ -161,34 +161,4 @@ pub(in crate::ops::pacing) fn host(name: &str) -> (bool, i64) {
                 .map(|n| (true, n))
         })
         .unwrap_or((false, 0))
-}
-pub(in crate::ops::pacing) fn hydrate(probe: &mut Value) {
-    if probe.get("claude_rows").is_none() || probe.get("claude_throttled").is_none() {
-        let path = std::env::var_os("THREADS_DB")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-                    .join(".local/state/threads/snapshot.db")
-            });
-        let records=rusqlite::Connection::open_with_flags(path,rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok().and_then(|db| {
-            db.busy_timeout(std::time::Duration::from_secs(1)).ok()?;
-            let mut q=db.prepare("SELECT ts,used_pct,resets_at,source FROM usage WHERE provider='claude' AND account='a' AND name='session' ORDER BY ts").ok()?;
-            q.query_map([],|r|Ok(json!({"ts":r.get::<_,String>(0)?,"used_pct":r.get::<_,Option<f64>>(1)?,"resets_at":r.get::<_,Option<String>>(2)?,"source":r.get::<_,Option<String>>(3)?}))).ok()?.collect::<Result<Vec<_>,_>>().ok()
-        }).unwrap_or_default();
-        probe["claude_throttled"] = records
-            .last()
-            .filter(|r| {
-                r["source"].as_str().is_some_and(|s| {
-                    let s = s.to_lowercase();
-                    s.contains("429") || s.contains("throttled=true") || s.contains("rate limit")
-                })
-            })
-            .map(|r| r["ts"].clone())
-            .unwrap_or(Value::Null);
-        probe["claude_rows"] = json!(records);
-    }
-    if probe.get("claude_paces").is_none() {
-        probe["claude_paces"] =
-            load(&storage::directory().join("usage-gate.json"))["claude"]["paces"].clone();
-    }
 }

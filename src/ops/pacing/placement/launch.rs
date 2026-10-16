@@ -1,5 +1,5 @@
 use super::survey::{Survey, open_accounts, survey_controls, unavailable};
-use super::{facets, field, hydrate, overflow, place, private, queued, strings, tier_for};
+use super::{field, place, private, queued, strings, tier_for};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use toml_edit::{DocumentMut, Item, TableLike};
@@ -12,7 +12,6 @@ pub(in crate::ops::pacing) struct Probes {
 struct Prepared {
     cfg: DocumentMut,
     probe: Value,
-    overflowed: bool,
 }
 
 struct Plan<'a> {
@@ -27,7 +26,6 @@ struct Plan<'a> {
     local: &'a str,
     own: &'a str,
     at: f64,
-    overflowed: bool,
 }
 
 #[derive(Default)]
@@ -125,14 +123,7 @@ fn restrict_to_local(cfg: &mut DocumentMut, local: &str) {
     cfg["placement"]["order"] = toml_edit::value(allowed);
 }
 
-fn prepare(
-    text: &str,
-    gate: &Value,
-    cfg: &DocumentMut,
-    at: f64,
-    probes: Probes,
-    local: &str,
-) -> Prepared {
+fn prepare(text: &str, cfg: &DocumentMut, probes: Probes, local: &str) -> Prepared {
     let Probes {
         configured,
         observed,
@@ -148,56 +139,32 @@ fn prepare(
     if private(text, &cfg) {
         restrict_to_local(&mut cfg, local);
     }
-    if probe["claude_paces"].is_null() {
-        probe["claude_paces"] = gate["claude"]["paces"].clone();
-    }
-    let code_only = !facets(text).1 && !private(text, &cfg);
-    if code_only {
-        hydrate(&mut probe);
-    }
-    let overflowed = code_only && overflow(&cfg, &probe, at).is_some();
-    Prepared {
-        cfg,
-        probe,
-        overflowed,
-    }
+    Prepared { cfg, probe }
 }
 
 fn candidate_tier(plan: &Plan, provider: &str) -> Option<String> {
     let preferred =
         provider == plan.provider && plan.requested.split(':').next() == Some(plan.provider);
-    let key = if preferred {
-        Some(plan.requested.to_owned())
-    } else {
-        tier_for(
-            plan.text,
-            plan.cfg,
-            provider,
-            plan.floor,
-            plan.difficulty,
-            plan.defaults,
-        )
-    };
-    key.or_else(|| {
-        let spill = plan.overflowed
-            && provider == "codex"
-            && plan
-                .tiers
-                .is_some_and(|t| t.get("codex:sol-high").is_some());
-        spill.then(|| "codex:sol-high".into())
-    })
+    if preferred {
+        return Some(plan.requested.to_owned());
+    }
+    tier_for(
+        plan.text,
+        plan.cfg,
+        provider,
+        plan.floor,
+        plan.difficulty,
+        plan.defaults,
+    )
 }
 
+/// Only Claude runs in Anthropic's cloud, and no other cloud lane remains a target.
 fn host_config(cfg: &DocumentMut, provider: &str) -> DocumentMut {
     let mut host_cfg = cfg.clone();
-    let cloud = if provider == "claude" {
-        "anthropic-cloud"
-    } else {
-        "codex-cloud"
-    };
     let mut filtered = toml_edit::Array::new();
     for h in strings(cfg.get("placement").and_then(|p| p.get("order"))) {
-        if !["anthropic-cloud", "codex-cloud"].contains(&h.as_str()) || h == cloud {
+        let cloud = h.ends_with("-cloud");
+        if !cloud || h == "anthropic-cloud" && provider == "claude" {
             filtered.push(h);
         }
     }
@@ -205,10 +172,8 @@ fn host_config(cfg: &DocumentMut, provider: &str) -> DocumentMut {
     host_cfg
 }
 
-fn landing(host: &str, why: &str, name: &str, local: &str) -> Landing {
-    if host == "codex" && name == "claude:a" {
-        Landing::Refused(format!("claude:a overflow: {why}"))
-    } else if host.starts_with("held:") {
+fn landing(host: &str, why: &str, local: &str) -> Landing {
+    if host.starts_with("held:") {
         Landing::Refused(if why.is_empty() {
             host.into()
         } else {
@@ -248,8 +213,8 @@ fn consider_account(
         return;
     };
     let host_cfg = host_config(cfg, provider);
-    let (host, why) = place(plan.text, &host_cfg, plan.at, probe, name == "claude:a");
-    match landing(&host, &why, name, plan.local) {
+    let (host, why) = place(plan.text, &host_cfg, plan.at, probe);
+    match landing(&host, &why, plan.local) {
         Landing::Refused(reason) => out.host_reasons.push(reason),
         Landing::Laptop => {
             let mut q = queued("laptop job: threads queue add laptop", plan.at + 60.0);
@@ -344,11 +309,7 @@ pub(in crate::ops::pacing) fn spawn(
     if open.is_empty() {
         return unavailable(&survey, at);
     }
-    let Prepared {
-        cfg,
-        mut probe,
-        overflowed,
-    } = prepare(text, gate, cfg, at, probes, local);
+    let Prepared { cfg, mut probe } = prepare(text, cfg, probes, local);
     let plan = Plan {
         text,
         cfg: &cfg,
@@ -361,7 +322,6 @@ pub(in crate::ops::pacing) fn spawn(
         local,
         own: &own,
         at,
-        overflowed,
     };
     let mut out = Outcome::default();
     for name in &open {
