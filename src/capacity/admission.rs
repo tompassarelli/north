@@ -41,6 +41,8 @@ pub(crate) struct Facts {
     #[serde(rename = "leasedMemoryMiB")]
     pub(crate) leased_memory_mib: f64,
     pub(crate) leased_batch_cpus: f64,
+    #[serde(default)]
+    pub(crate) unleased_heavy_cores: f64,
     pub(crate) leased_native_cpus: f64,
     pub(crate) requested_cpus: f64,
     #[serde(rename = "requestedMemoryMiB")]
@@ -188,7 +190,7 @@ fn shared(facts: &Facts) -> Reason {
     if facts.queued_ahead > 0 {
         return Reason::DeferQueued;
     }
-    if facts.leased_batch_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
+    if facts.leased_batch_cpus + facts.unleased_heavy_cores + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
         return Reason::DeferCpuCapacity;
     }
     if facts.cpu_some_avg10_basis_points > BATCH_PRESSURE_BASIS_POINTS {

@@ -1,0 +1,122 @@
+[
+  [
+    "cargo build --release",
+    "refuse"
+  ],
+  [
+    "cargo test --locked",
+    "route"
+  ],
+  [
+    "cargo check --offline",
+    "allow"
+  ],
+  [
+    "tsc --build",
+    "route"
+  ],
+  [
+    "bun run tsc -b",
+    "route"
+  ],
+  [
+    "tsc --noEmit",
+    "allow"
+  ],
+  [
+    "bun test a.test.ts b.test.ts",
+    "route"
+  ],
+  [
+    "bun test --timeout 1000 a.test.ts b.test.ts",
+    "route"
+  ],
+  [
+    "bun test a.test.ts",
+    "allow"
+  ],
+  [
+    "bun test --preload setup.ts a.test.ts",
+    "allow"
+  ],
+  [
+    "bun test",
+    "refuse"
+  ],
+  [
+    "bun test -t selected",
+    "refuse"
+  ],
+  [
+    "bun wisp map build",
+    "refuse"
+  ],
+  [
+    "bun wisp headless --render out --frames 3",
+    "refuse"
+  ],
+  [
+    "bun wisp view scene out",
+    "refuse"
+  ],
+  [
+    "bun wisp map rebuild",
+    "allow"
+  ],
+  [
+    "systemctl --user set-property unit.scope CPUQuota=50%",
+    "refuse"
+  ],
+  [
+    "systemd-run --property=CPUWeight=20 -- echo ready",
+    "refuse"
+  ],
+  [
+    "tee /sys/fs/cgroup/unit.scope/cpu.weight.nice",
+    "refuse"
+  ],
+  [
+    "echo 20 >/sys/fs/cgroup/unit.scope/cpu.max",
+    "refuse"
+  ],
+  [
+    "cat /sys/fs/cgroup/cpu.max",
+    "allow"
+  ],
+  [
+    "systemctl set-property unit.scope MemoryHigh=1G",
+    "allow"
+  ],
+  [
+    "echo 'cargo test; tsc --build; bun test a.ts b.ts'",
+    "allow"
+  ],
+  [
+    "cat <<'BODY'\ncargo build\nBODY",
+    "allow"
+  ],
+  [
+    "bun /opt/machine-capacity.mjs run --owner x --timeout-seconds 60 -- cargo build",
+    "allow"
+  ],
+  [
+    "machine-capacity run --owner x --timeout-seconds 60 -- bash -c 'bun test a.ts b.ts'",
+    "allow"
+  ],
+  [
+    "echo ready # > /sys/fs/cgroup/cpu.max",
+    "allow"
+  ],
+  [
+    "bunx tsc --build",
+    "route"
+  ],
+  [
+    "bun test ./tests",
+    "route"
+  ],
+  [
+    "bun test test/*.test.ts",
+    "route"
+  ]
+]

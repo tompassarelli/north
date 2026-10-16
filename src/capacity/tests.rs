@@ -11,6 +11,7 @@ fn facts(class: Class) -> Facts {
         protected_cpu_some_avg10_basis_points: 0,
         leased_memory_mib: 0.0,
         leased_batch_cpus: 0.0,
+        unleased_heavy_cores: 0.0,
         leased_native_cpus: 0.0,
         requested_cpus: 2.0,
         requested_memory_mib: 2048.0,
@@ -65,4 +66,14 @@ fn four_core_history_request_admits_only_at_its_clamped_grant() {
     };
     assert_eq!(decide(&Facts { requested_cpus: 5.0, ..host.clone() }), Reason::DeferCpuCapacity);
     assert_eq!(decide(&Facts { requested_cpus: 4.0, ..host }), Reason::Run);
+}
+
+#[test]
+fn unleased_heavy_cpu_reduces_admitted_capacity() {
+    let mut host = facts(Class::Moderate);
+    host.leased_batch_cpus = 16.0;
+    host.unleased_heavy_cores = 3.0;
+    assert_eq!(decide(&host), Reason::DeferCpuCapacity);
+    host.unleased_heavy_cores = 2.0;
+    assert_eq!(decide(&host), Reason::Run);
 }

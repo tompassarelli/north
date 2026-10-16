@@ -148,6 +148,7 @@ impl HookKind {
                 crate::guard::blind_stage::evaluate,
                 crate::guard::git_stash::evaluate,
                 crate::guard::native_evidence::evaluate,
+                crate::guard::heavy_command::evaluate,
             ],
             Self::PreEdit => &[crate::guard::launch_critical::evaluate],
             Self::PreAgent => &[],
@@ -179,8 +180,9 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
     let mut context = Vec::new();
     let mut ask = None;
     let mut updated_input = None;
+    let mut rewritten = None;
     for guard in guards {
-        match guard(input) {
+        match guard(rewritten.as_ref().unwrap_or(input)) {
             Verdict::Allow => {}
             Verdict::Approve if event == "PermissionRequest" => {
                 return Some(permission_decision("allow", None));
@@ -212,6 +214,9 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
             }
             Verdict::Context(text) => context.push(text),
             Verdict::Rewrite(updated, text) => {
+                let mut data = input.data.clone();
+                data["tool_input"] = updated.clone();
+                rewritten = HookInput::parse(pyjson::dumps(&data).as_bytes());
                 updated_input = Some(updated);
                 context.push(text);
             }
@@ -678,3 +683,7 @@ mod tests {
         assert!(off(&env));
     }
 }
+
+#[cfg(test)]
+#[path = "hook_rewrite_tests.rs"]
+mod rewrite_tests;

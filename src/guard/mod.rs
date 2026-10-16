@@ -8,3 +8,5 @@ pub mod shell_call;
 mod git_invocation;
 #[cfg(test)]
 mod git_tests;
+
+pub mod heavy_command;
