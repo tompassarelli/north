@@ -45,7 +45,19 @@ shim_main() {
   fi
 
   case "$tool:${1:-}" in
-    north:dep-gate|north:provenance|north:autoland-status) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:dep-gate)
+      "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
+      local status=$?
+      if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_ON_DEP_GATE:-0}" = 1 ]; then rm -f -- "$0"; fi
+      return "$status"
+      ;;
+    north:provenance)
+      "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
+      local status=$?
+      if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE:-0}" = 1 ]; then rm -f -- "$0"; fi
+      return "$status"
+      ;;
+    north:autoland-status|north:autoland-wait|north:safe-push-result) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -77,6 +89,11 @@ shim_main() {
     gh:api)
       case "${2:-}" in
         repos/*/commits/*/status)
+          if [[ "${SAFE_PUSH_TEST_AUTOLAND_STATUS:-}" == success$'\t'* ]]; then
+            local landed_sha="${2#*/commits/}"
+            landed_sha="${landed_sha%/status}"
+            git --git-dir="${SAFE_PUSH_TEST_REMOTE:?}" update-ref refs/heads/main "$landed_sha"
+          fi
           printf '%s\n' "${SAFE_PUSH_TEST_AUTOLAND_STATUS:?}"
           return 0
           ;;
@@ -1173,7 +1190,7 @@ autoland_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf 'queued work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'work for the train'
 SAFE_PUSH_TEST_AUTOLAND_STATUS=$'error\tlocal refresh required: Classic effect record\thttps://example.test/refresh' run_real_case '' --to main
-[ "$case_status" -eq 75 ] || fail 'a stale Classic record did not return to its local waiter'
+[ "$case_status" -eq 1 ] || fail 'a stale Classic record did not return as a refusal'
 expect_output 'returned this lane for local Classic record refresh'
 queue_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
 retained_queue_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${queue_tip:0:12}"
@@ -1183,7 +1200,34 @@ SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tTrain retested\thttps://example.test/r
 expect_status nonzero
 expect_output "main lands through Autoland's one queue"
 expect_output 'Autoland did not land this lane: Train retested'
+expect_output 'safe-push: refused Autoland did not land this lane: Train retested https://example.test/run'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$autoland_base" ] || fail 'an Autoland repository pushed main directly'
+printf 'landed by train\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'landed by train'
+test_landed_sha=$("$real_git" -C "$real_repo" rev-parse HEAD)
+runtime_calls="$scratch/runtime-calls"
+runtime_wrapper="$scratch/north-runtime-wrapper"
+cat >"$runtime_wrapper" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >>"${SAFE_PUSH_TEST_RUNTIME_CALLS:?}"
+exec "${SAFE_PUSH_TEST_RUNTIME_BINARY:?}" "$@"
+SH
+chmod +x "$runtime_wrapper"
+SAFE_PUSH_TEST_REAL_NORTH="$runtime_wrapper" SAFE_PUSH_TEST_RUNTIME_BINARY="$real_north" \
+  SAFE_PUSH_TEST_RUNTIME_CALLS="$runtime_calls" SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE=1 \
+  SAFE_PUSH_TEST_AUTOLAND_STATUS="$(printf 'success\tAutoland landed %s\thttps://example.test/success' "$test_landed_sha")" run_real_case '' --to main
+expect_status zero
+expect_output 'safe-push: landed '
+grep -Eq 'safe-push: landed [0-9a-f]{40}$' <<<"$case_output" || fail 'successful landing omitted its terminal sha'
+grep -Fxq follows-release "$runtime_calls" || fail 'follows-release was not invoked through the runtime after PATH lost north'
+printf 'PASS: safe_push_follows_release_uses_runtime_without_path_north\n'
+printf 'PASS: safe_push_landing_emits_terminal_sha\n'
+printf 'timed out lane\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'timed out lane'
+SAFE_PUSH_TEST_AUTOLAND_STATUS=$'pending\tAutoland workflow queued\thttps://example.test/pending' \
+  SAFE_PUSH_AUTOLAND_WAIT_SECONDS=1 SAFE_PUSH_AUTOLAND_POLL_SECONDS=1 run_real_case '' --to main
+[ "$case_status" -eq 2 ] || fail 'Autoland timeout did not exit 2'
+expect_output 'safe-push: timed out after 1m (run https://example.test/pending)'
 run_real_case '' --to main --direct
 expect_status zero
 expect_output '--direct: bypassing'

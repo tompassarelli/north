@@ -11,6 +11,7 @@ mod fleet;
 mod gate;
 mod ledger;
 mod orders;
+mod safe_push_result;
 #[cfg(test)]
 mod tests;
 mod tools;
@@ -52,6 +53,8 @@ Commands:
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
+  autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
+  safe-push-result STATUS SHA REASON MINUTES URL  Print safe-push.s terminal result
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes

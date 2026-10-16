@@ -16,6 +16,48 @@
 read -r self_pid _ </proc/self/stat
 set -euo pipefail
 
+safe_push_terminal() {
+  local status="${1:-$?}" terminal_sha="" terminal_reason
+  trap - EXIT
+  if [ "${safe_push_internal:-0}" = 1 ] || [ "${safe_push_help:-0}" = 1 ]; then exit "$status"; fi
+  if [ "${safe_push_timed_out:-0}" -eq 1 ]; then
+    local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
+    if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result timeout '' '' "${safe_push_timeout_minutes:-180}" "${safe_push_run_url:-unknown}"; then exit 2; fi
+    printf 'safe-push: timed out after %sm (run %s)\n' "${safe_push_timeout_minutes:-180}" "${safe_push_run_url:-unknown}"
+    exit 2
+  fi
+  if [ "$status" -eq 0 ] && [ "${dry:-0}" -eq 1 ]; then exit 0; fi
+  if [ "$status" -eq 0 ] && [ "${dry:-0}" -eq 0 ]; then
+    terminal_sha="${safe_push_landed_sha:-}"
+    [ -n "$terminal_sha" ] || terminal_sha=$(git -C "${repo_root:-$PWD}" ls-remote "${origin_url:-origin}" "refs/heads/${to:-$(git -C "${repo_root:-$PWD}" branch --show-current 2>/dev/null)}" 2>/dev/null | awk 'NR == 1 {print $1}')
+    [ -n "$terminal_sha" ] || terminal_sha=$(git -C "${repo_root:-$PWD}" rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)
+    if [ -n "$terminal_sha" ]; then
+      local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
+      if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result landed "$terminal_sha" '' 0 ''; then exit 0; fi
+      printf 'safe-push: landed %s\n' "$terminal_sha"
+      exit 0
+    fi
+  fi
+  terminal_reason="${safe_push_refusal:-safe-push did not land}"
+  local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
+  if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result refused '' "$terminal_reason" 0 ''; then exit 1; fi
+  printf 'safe-push: refused %s\n' "$terminal_reason"
+  exit 1
+}
+
+safe_push_exit() {
+  local status=$?
+  if declare -F finish_push >/dev/null; then finish_push; fi
+  if [ "${NORTH_NO_AUTOREAP:-0}" = 1 ]; then exit "$status"; fi
+  safe_push_terminal "$status"
+}
+
+safe_push_internal=0
+safe_push_help=0
+if [ "${1:-}" = --durable-harness-paths ] && [ "$#" -eq 2 ]; then safe_push_internal=1; fi
+if [ "$#" -eq 1 ] && [[ "$1" = -h || "$1" = --help ]]; then safe_push_help=1; fi
+trap safe_push_exit EXIT
+
 durable_harness_paths() {
   case "$1" in
     north) printf '%s\n' harness/ agent-machinery/ bin/ lib/ ;;
@@ -994,6 +1036,7 @@ cleanup_landed_lane() {
   occupants=$(lane_occupants "$repo_root")
   if [ -n "$occupants" ]; then
     printf 'safe-push: lane landed — your shell is in %s, so it and branch %s are removed once it leaves\n' "$repo_root" "$branch"
+    printf 'safe-push: cd %s when finished in the lane\n' "$main_checkout"
     # shellcheck disable=SC2086
     setsid -f "$BASH" -c "$(declare -f lane_occupied remove_landed_lane remove_landed_lane_when_vacant); remove_landed_lane_when_vacant \"\$@\"" \
       safe-push-lane-reaper "$main_checkout" "$repo_root" "$branch" $occupants </dev/null >/dev/null 2>&1 || true
@@ -1043,8 +1086,9 @@ remove_landed_lane_when_vacant() {
 
 release_follows() {
   [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] || return 0
-  command -v north >/dev/null 2>&1 || return 0
-  north follows-release --repo-dir "$repo_root" 2>&1 | sed 's/^/safe-push: /' || true
+  local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
+  [ -x "$north_runtime" ] || return 0
+  "$north_runtime" follows-release --repo-dir "$repo_root" 2>&1 | sed 's/^/safe-push: /' || true
 }
 
 capture_destination_state() {
@@ -1200,6 +1244,7 @@ if [ -n "$tag" ]; then
   if [ "$dry" = 1 ]; then echo "safe-push: ✓ clean (--dry-run) — would push tag $tag -> origin"; exit 0; fi
   echo "safe-push: ✓ clean — pushing tag $tag -> origin"
   SAFE_PUSH_ACTIVE=1 git push "$origin_url" "${tag_oid}:${tag_ref}"
+  safe_push_landed_sha="$target"
   exit 0
 fi
 
@@ -1216,7 +1261,6 @@ requeued=0
 finish_push() {
   [ -z "$push_ticket" ] || rm -f -- "$push_ticket" "$push_ticket.result"
 }
-trap finish_push EXIT
 
 live_safe_push() {
   { tr '\0' ' ' <"/proc/$1/cmdline"; } 2>/dev/null | grep -q safe-push
@@ -1348,6 +1392,7 @@ take_train_result() {
       fi
       fetch_destination >/dev/null
       release_follows
+      safe_push_landed_sha="$detail"
       if git reset -q --keep "$detail"; then cleanup_landed_lane || true; fi
       auto_reap || true
       exit 0
@@ -1549,9 +1594,11 @@ run_train() {
   release_push_lock
   if [ "$verdict" = landed ]; then
     git reset -q --keep "$detail"
+    safe_push_landed_sha="$detail"
     capture_repository_state
     destination_ref="refs/heads/$to"
     release_follows
+    safe_push_landed_sha="$detail"
     cleanup_landed_lane || true
     auto_reap || true
     exit 0
@@ -1689,41 +1736,37 @@ autoland_gap() {
 }
 
 land_through_autoland() {
-  local lane sha queue_branch line state description url last="" delay=10 waited=0 landed
+  local lane sha queue_branch line state description url wait_status=0 landed limit="${SAFE_PUSH_AUTOLAND_WAIT_SECONDS:-10800}"
   rebase_onto_destination "$1"
   lane=$(git symbolic-ref --quiet --short HEAD)
   sha=$(git rev-parse HEAD)
   queue_branch="claude/land-$(printf '%s' "$lane" | tr -c 'A-Za-z0-9._-' '-')-${sha:0:12}"
   echo "safe-push: $to lands through Autoland's one queue — checking and pushing $sha as $queue_branch"
   NORTH_NO_AUTOREAP=1 "$(readlink -f "${BASH_SOURCE[0]}")" --to "$queue_branch" || exit 1
-  while :; do
-    line=$(north autoland-status --sha "$sha" --branch "$queue_branch" 2>/dev/null) || line=""
-    IFS=$'\t' read -r state description url <<<"$line"
-    case "$state" in success|failure|error) break ;; esac
-    if [ "$line" != "$last" ]; then
-      printf 'safe-push: Autoland: %s %s\n' "${description:-not queued yet}" "$url"
-      last="$line"
-      delay=10
-    fi
-    if [ "$waited" -ge 10800 ]; then
-      printf 'safe-push: gave up after %ss waiting for Autoland on %s; it stays queued.\n' "$waited" "$queue_branch" >&2
-      exit 1
-    fi
-    sleep "$delay"
-    waited=$((waited + delay))
-    delay=$(( delay * 3 / 2 > 60 ? 60 : delay * 3 / 2 ))
-  done
+  line=$("${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}" autoland-wait \
+    --sha "$sha" --branch "$queue_branch" --destination "$to" \
+    --timeout-seconds "$limit" --poll-seconds "${SAFE_PUSH_AUTOLAND_POLL_SECONDS:-10}" 2>/dev/null) || wait_status=$?
+  IFS=$'\t' read -r state description url <<<"$line"
+  if [ "$state" = timeout ] || [ "$wait_status" -eq 2 ]; then
+    safe_push_timed_out=1
+    safe_push_timeout_minutes=$(((limit + 59) / 60))
+    safe_push_run_url="$url"
+    exit 2
+  fi
   if [ "$state" = error ] && [ "$description" = 'local refresh required: Classic effect record' ]; then
+    safe_push_refusal="Autoland returned this lane for local Classic record refresh: $url"
     printf 'safe-push: Autoland returned this lane for local Classic record refresh: %s; source and queue branch %s retained; NOT landed.\n' "$url" "$queue_branch" >&2
     exit 75
   fi
   if [ "$state" != success ]; then
+    safe_push_refusal="Autoland did not land this lane: ${description:-unknown} ${url:-unknown}"
     printf 'safe-push: ✗ Autoland did not land this lane: %s %s; NOT landed.\n' "$description" "$url" >&2
     SAFE_PUSH_ACTIVE=1 git push -q --force-with-lease="refs/heads/$queue_branch:$sha" origin ":refs/heads/$queue_branch" 2>/dev/null || true
     exit 1
   fi
   landed=${description##* }
   printf 'safe-push: ✓ Autoland landed this lane: origin %s is at %s (%s)\n' "$to" "$landed" "$url"
+  safe_push_landed_sha="$landed"
   fetch_destination >/dev/null
   capture_repository_state
   destination_ref="refs/heads/$to"
@@ -1913,5 +1956,6 @@ if [ "$to_seen" -eq 0 ]; then
   fi
 fi
 release_follows
+safe_push_landed_sha="$head_oid"
 cleanup_landed_lane || true
 auto_reap || true

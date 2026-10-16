@@ -57,9 +57,9 @@ queue() { printf 'Delegation: role=worker budget=0\nItem: north#%s\nFollows: %s\
 probe 0
 queue 7 'Land the predecessor box' codex:medium >/dev/null
 landed_at=$(date +%s.%N)
-out=$(cd "$container/worktrees/lane" && "$repo/bin/safe-push" --to main 2>&1); status=$?
-check '[1] a Follows box starts on its tier within 60 s of safe-push landing its predecessor' \
-  '[ "$status" -eq 0 ] && read -r at _ <"$scratch/bin/started" && awk -v a="$at" -v b="$landed_at" "BEGIN { exit !(a - b < 60) }" && grep -q "fleet send galileo-parent" "$scratch/bin/started" && grep -q "fresh worker at codex:medium" "$scratch/bin/started" && grep -q "box 1 north#7: started" <<<"$out"' \
+out=$(cd "$container/worktrees/lane" && SAFE_PUSH_TEST_REAL_NORTH="$NORTH_LOCAL" "$repo/bin/safe-push" --to main && pwd -P 2>&1); status=$?
+check '[1] safe_push_caller_can_run_pwd_after_landing: Follows box starts on tier within 60 s' \
+  '[ "$status" -eq 0 ] && read -r at _ <"$scratch/bin/started" && awk -v a="$at" -v b="$landed_at" "BEGIN { exit !(a - b < 60) }" && grep -q "fleet send galileo-parent" "$scratch/bin/started" && grep -q "fresh worker at codex:medium" "$scratch/bin/started" && grep -q "box 1 north#7: started" <<<"$out" && grep -q "safe-push: landed [0-9a-f]" <<<"$out" && grep -q "cd $container/main when finished in the lane" <<<"$out" && [ "$(tail -n 1 <<<"$out")" = "$container/worktrees/lane" ]' \
   || printf '%s\n' "$out"
 
 probe 8
