@@ -112,6 +112,7 @@ impl Fleet {
             task_ref: request.task_ref.clone(),
             prompt_mode: request.prompt_mode,
             system_prompt_sha: None,
+            placement: request.placement.clone(),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
@@ -122,9 +123,17 @@ impl Fleet {
     }
 
     pub fn revive(&self, name: &str, system_prompt: Option<PathBuf>) -> NorthResult<SessionRecord> {
+        self.revive_placed(name, system_prompt, None)
+    }
+
+    /// Revive with a fresh placement override note, which the restarted record keeps.
+    pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>) -> NorthResult<SessionRecord> {
         let mut record = self.record(name)?;
         if system_prompt.is_some() {
             record.system_prompt = system_prompt;
+        }
+        if placement.is_some() {
+            record.placement = placement;
         }
         if session_running(&record) {
             return Ok(record);
@@ -136,6 +145,14 @@ impl Fleet {
         let account = self.account(&relaunch_request(&record))?;
         self.start(&mut record, &account, Opening::Resume(&conversation))?;
         Ok(record)
+    }
+
+    pub fn session(&self, name: &str) -> NorthResult<SessionRecord> {
+        self.record(name)
+    }
+
+    pub fn running(&self, record: &SessionRecord) -> bool {
+        session_running(record)
     }
 
     pub fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
@@ -453,6 +470,7 @@ fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
         idle_exit_minutes: record.idle_exit_minutes,
         parent: record.parent.clone(),
         task_ref: record.task_ref.clone(),
+        placement: record.placement.clone(),
     }
 }
 

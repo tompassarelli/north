@@ -197,6 +197,7 @@ impl LaunchForm {
             idle_exit_minutes: None,
             parent: self.parent.clone(),
             task_ref: None,
+            placement: None,
         })
     }
 }

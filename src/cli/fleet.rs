@@ -17,10 +17,11 @@ use crate::ledger::Ledger;
 use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
+use super::fleet_placement::{self, Launch, Overrides};
 use super::{gate, orders};
 
-const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--test] PROMPT... \
-     | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
+const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
+     | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
@@ -94,7 +95,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
         [verb, name] => session_verb(&fleet, verb, name),
-        ["revive", name, "--system-prompt", file] => revive(&fleet, name, Some(absolute(file)?)),
+        ["revive", name, rest @ ..] => revive_with(&fleet, name, rest),
         ["show", name, flag] => show_with(&fleet, name, flag),
         _ => Err(usage()),
     }
@@ -105,7 +106,7 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
         "interrupt" => fleet.interrupt(name),
         "stop" => fleet.stop(name),
         "forget" => fleet.forget(name),
-        "revive" => revive(fleet, name, None),
+        "revive" => revive(fleet, name, None, Overrides::default()),
         "show" => show(fleet, name, false),
         "watchdog" => fleet.guard(name),
         _ => Err(usage()),
@@ -120,8 +121,29 @@ fn send(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     }
 }
 
-fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>) -> NorthResult<()> {
-    fleet.revive(name, system_prompt).map(|record| println!("{}", record.name))
+fn revive_with(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
+    let (mut system_prompt, mut overrides) = (None, Overrides::default());
+    for pair in words.chunks(2) {
+        match pair {
+            ["--system-prompt", file] => system_prompt = Some(absolute(file)?),
+            [flag, value] if overrides.set(flag, value) => {}
+            _ => return Err(usage()),
+        }
+    }
+    revive(fleet, name, system_prompt, overrides)
+}
+
+/// Revive re-runs placement for a stopped Claude session, keeping the reasons its launch recorded.
+fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, overrides: Overrides) -> NorthResult<()> {
+    let record = fleet.session(name)?;
+    let mut placement = None;
+    if record.provider.label() == "claude" && !record.verification && !fleet.running(&record) {
+        let overrides = overrides.recorded(record.placement.as_deref());
+        let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
+        let launch = Launch { name, account: &record.account, brief: brief.as_deref() };
+        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides)?;
+    }
+    fleet.revive_placed(name, system_prompt, placement).map(|record| println!("{}", record.name))
 }
 
 fn show_with(fleet: &Fleet, name: &str, flag: &str) -> NorthResult<()> {
@@ -146,10 +168,17 @@ fn list(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 
 fn list_lines(fleet: &Fleet) -> NorthResult<()> {
     for record in fleet.sessions()? {
-        let status = fleet.status(&record);
-        println!("{}\t{}\t{}\t{}\t{}", record.name, record.provider.label(), record.account, status.label(), record.cwd.display());
+        println!("{}", list_line(&record, fleet.status(&record)));
     }
     Ok(())
+}
+
+fn list_line(record: &SessionRecord, status: Status) -> String {
+    let line = format!("{}\t{}\t{}\t{}\t{}", record.name, record.provider.label(), record.account, status.label(), record.cwd.display());
+    match &record.placement {
+        Some(note) => format!("{line}\t{note}"),
+        None => line,
+    }
 }
 
 fn list_json(fleet: &Fleet) -> NorthResult<()> {
@@ -171,6 +200,7 @@ fn session_json(record: &SessionRecord, status: Status) -> Value {
         "task_ref": record.task_ref,
         "created_ms": record.created_ms,
         "host_pid": record.host_pid,
+        "placement": record.placement,
     })
 }
 
@@ -211,10 +241,21 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 }
 
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    let request = launch_request(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
+    let (mut request, overrides) = launch_parts(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
+    request.placement = placed(&request, &overrides)?;
     let record = fleet.launch(&request)?;
     println!("{}", record.name);
     Ok(())
+}
+
+/// Placement gates every Claude launch except `--test` sessions, before anything starts.
+fn placed(request: &LaunchRequest, overrides: &Overrides) -> NorthResult<Option<String>> {
+    if request.provider.label() != "claude" || request.verification {
+        return Ok(None);
+    }
+    let text = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
+    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref() };
+    fleet_placement::check(&launch, &text, overrides)
 }
 
 #[derive(Default)]
@@ -231,6 +272,7 @@ struct LaunchFlags {
     idle_exit_minutes: Option<u64>,
     parent: Option<String>,
     task_ref: Option<String>,
+    overrides: Overrides,
 }
 
 impl LaunchFlags {
@@ -247,6 +289,7 @@ impl LaunchFlags {
             "--idle-exit" => self.idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
             "--parent" => self.parent = Some(value),
             "--task" => self.task_ref = Some(value),
+            _ if self.overrides.set(flag, &value) => {}
             _ => return Err(usage()),
         }
         Ok(())
@@ -279,6 +322,7 @@ impl LaunchFlags {
             idle_exit_minutes: self.idle_exit_minutes,
             parent: parent(self.parent, caller),
             task_ref: self.task_ref,
+            placement: None,
         })
     }
 }
@@ -291,7 +335,12 @@ fn parent(flag: Option<String>, caller: Option<String>) -> Option<String> {
     }
 }
 
+#[cfg(test)]
 fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<LaunchRequest> {
+    launch_parts(providers, words, caller).map(|(request, _)| request)
+}
+
+fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<(LaunchRequest, Overrides)> {
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
@@ -304,7 +353,8 @@ fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<Str
         flags.set(providers, flag, value)?;
         index += 2;
     }
-    flags.request(words[index..].join(" "), caller)
+    let overrides = std::mem::take(&mut flags.overrides);
+    Ok((flags.request(words[index..].join(" "), caller)?, overrides))
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {

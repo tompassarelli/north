@@ -41,6 +41,8 @@ pub struct LaunchRequest {
     pub idle_exit_minutes: Option<u64>,
     pub parent: Option<String>,
     pub task_ref: Option<String>,
+    /// Why the launch overrode placement (`local: REASON`, `pin: REASON`), shown in `fleet list`.
+    pub placement: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -75,6 +77,8 @@ pub struct SessionRecord {
     pub prompt_mode: PromptMode,
     #[serde(default)]
     pub system_prompt_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placement: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

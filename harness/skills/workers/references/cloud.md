@@ -1,10 +1,12 @@
 # Cloud workers (Claude-only)
 
-Read this when `agents plan --place` prints `target anthropic-cloud`, or when you write a RemoteTrigger routine. Both lanes run Claude in Anthropic's cloud; a Codex lead hands such a box to a Claude parent or waits for `codex-cloud`.
+Read this when `north fleet launch` refuses a box for `anthropic-cloud` (or `agents plan --place` prints `target anthropic-cloud`), or when you write a RemoteTrigger routine. Both lanes run Claude in Anthropic's cloud.
+
+The launcher enforces placement: `north fleet launch` of a code-only box on a public repository exits nonzero with the Nexus command below, the safety line and the handback step, unless `--local "REASON"` is given, which the session records and `north fleet list` shows. A box is code-only only when its brief declares a code `Surface:` (rust, ts, lua, shell...), no local `Needs:` (warcraft, native, sign-ins, private, local-state, tui, fleet, live) and a public repository (`Repository:` or the `Item:` repo); an undeclared box stays local.
 
 ## Proton credit lane (until 2026-11-05T07:59Z)
 
-- `agents plan --place BRIEF` prints `target anthropic-cloud` for a code-only box before the credit expires (`[placement] cloud_credit` in orchestration.toml names its costs.toml entry) unless a readout records it spent; send that box here, at about $70/week, then use the routines below. claude:a's weekly % and pace do not gate it, because a cloud session spends the credit first.
+- Placement sends a code-only box to `anthropic-cloud` before the credit expires (`[placement] cloud_credit` in orchestration.toml names its costs.toml entry) unless a readout records it spent; send that box here, at about $70/week, then use the routines below. claude:a's weekly % and pace do not gate it, because a cloud session spends the credit first.
 - Run it on Nexus, whose `~/.claude` login is Proton (claude:a), never the laptop's `~/.claude-b`, and never change either login, because the credit belongs to the Proton account only.
 - Start: `ssh -tt nexus 'mkdir -p /tmp/cloud && cd /tmp/cloud && claude --cloud "<brief>"'`. It prints `Created cloud session: ...` and the `session_...` ID, then exits (`--cloud` refuses `-p`). Record the ID in the brief's thread so the box can be collected.
 - Every cloud brief carries this line, because cloud sessions always run in auto mode and send Tom's phone a permission prompt for some Bash calls, which no launch flag suppresses (three probes on 15 Oct): "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command." Never answer a cloud prompt for Tom.

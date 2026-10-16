@@ -81,8 +81,13 @@ holds the tier table. In order:
    ETA.
 4. **Write the brief.** Carry Item, Category, facet lines, files, Done when and ETA. A retry or
    follow-up adds `Follows:`.
-5. **Launch through Fleet.** Run `north fleet launch --provider claude|codex --account A --parent NAME`
-   with the brief as its system prompt. Fleet records the parent link and controls delivery.
+5. **Launch through Fleet.** Run `north fleet launch --provider claude --account A --parent NAME`
+   with the brief as its system prompt. Fleet records the parent link and controls delivery. The
+   launcher enforces placement before anything starts: it prints one verdict line per Claude account,
+   refuses a code-only public box with the exact Nexus `claude --cloud` command while the Proton
+   credit lasts, and refuses an account other than the one with the most headroom, naming it.
+   `--local "REASON"` and `--pin "REASON"` override and are recorded on the session and shown in
+   `north fleet list`; `north fleet revive` re-checks a stopped session and keeps those reasons.
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
    `follows-release` starts it once its predecessor lands on main.
 7. **Record.** Fleet receipts capture delivery and completion. `worker-ledger` records each run's

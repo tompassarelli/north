@@ -319,6 +319,7 @@ mod turn_state {
             idle_exit_minutes: None,
             parent: None,
             task_ref: None,
+            placement: None,
         }
     }
 

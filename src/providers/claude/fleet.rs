@@ -393,6 +393,7 @@ mod launch {
             idle_exit_minutes: None,
             parent: None,
             task_ref: None,
+            placement: None,
         };
         let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
         assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);

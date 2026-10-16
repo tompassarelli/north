@@ -8,6 +8,7 @@ use crate::{
 };
 
 mod fleet;
+mod fleet_placement;
 mod gate;
 mod ledger;
 mod orders;
