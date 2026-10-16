@@ -60,7 +60,7 @@ const queuePollMilliseconds = 1000;
 const northCommand = process.env.AGENT_CAPACITY_NORTH ?? 'north';
 
 function fail(message, status = 2) {
-  process.stderr.write(`machine-capacity: ${message}\n`);
+  writeFileSync(2, `machine-capacity: ${message}\n`);
   process.exit(status);
 }
 
@@ -1038,8 +1038,8 @@ function status(root) {
   });
 }
 
-function print(result, stream = process.stdout) {
-  stream.write(`${JSON.stringify(result)}\n`);
+function print(result, fd = 1) {
+  writeFileSync(fd, `${JSON.stringify(result)}\n`);
 }
 
 function parseOwner(values, option = '--owner') {
@@ -1076,7 +1076,7 @@ async function admit(root, requested, create) {
       if (result.decision === 'RESERVED') return result;
       if (result.reason === 'DEFER_NATIVE_QUIET' && create.timeoutSeconds !== null && result.queuedSeconds >= create.timeoutSeconds) return { ...result, decision: 'REFUSED' };
       if (result.reason !== reported) {
-        print({ ...result, decision: 'QUEUED' }, process.stderr);
+        print({ ...result, decision: 'QUEUED' }, 2);
         reported = result.reason;
       }
       await leaseChange(root, queuePollMilliseconds + Math.random() * queuePollMilliseconds);
@@ -1095,7 +1095,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
   }
   const native = requested.name === 'native';
   const admitted = await admit(root, requested, { kind: 'run', owner, timeoutSeconds });
-  print(admitted, process.stderr);
+  print(admitted, 2);
   if (admitted.decision === 'REFUSED') fail(`refused after ${admitted.queuedSeconds}s: native evidence run ${admitted.quietOwners.join(', ')} is live; retry after it ends`, 75);
   if (admitted.decision !== 'RESERVED') return 75;
   const limits = admitted.scope;
@@ -1146,11 +1146,11 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
           }, taskSignature(command, process.cwd(), requested.name), process.cwd());
         } finally { db.close(); }
       } catch (error) {
-        process.stderr.write(`machine-capacity: capacity database failed: ${error?.message ?? String(error)}\n`);
+        writeFileSync(2, `machine-capacity: capacity database failed: ${error?.message ?? String(error)}\n`);
       }
       recordUsage(entry);
     } catch (error) {
-      process.stderr.write(`machine-capacity: usage log failed: ${error?.message ?? String(error)}\n`);
+      writeFileSync(2, `machine-capacity: usage log failed: ${error?.message ?? String(error)}\n`);
     }
     return exitCode;
   } finally {
@@ -1160,9 +1160,9 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
     process.removeListener('SIGHUP', stop);
     try {
       if (scopeLive(admitted.lease)) throw new Error(`scope still live; retained lease ${admitted.lease}`);
-      print(changeLease(root, admitted.lease, owner, null, true), process.stderr);
+      print(changeLease(root, admitted.lease, owner, null, true), 2);
     } catch (error) {
-      process.stderr.write(`machine-capacity: lease cleanup failed: ${error?.message ?? String(error)}\n`);
+      writeFileSync(2, `machine-capacity: lease cleanup failed: ${error?.message ?? String(error)}\n`);
     }
   }
 }

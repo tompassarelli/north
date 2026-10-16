@@ -37,6 +37,10 @@ mod tui;
 mod test_inputs;
 
 fn main() -> std::process::ExitCode {
+    if let Err(error) = platform::stdio::blocking_outputs() {
+        eprintln!("north: cannot prepare standard output: {error}");
+        return std::process::ExitCode::FAILURE;
+    }
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     arguments
         .first()
