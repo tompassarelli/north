@@ -10,6 +10,7 @@ use crate::{
 mod fleet;
 mod gate;
 mod ledger;
+mod ops;
 mod orders;
 mod safe_push_result;
 #[cfg(test)]
@@ -63,6 +64,7 @@ Commands:
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   private-desktop [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
+  ops [check|snapshot|dividend|deadman|size]      Check core expectations, alert on breach, show the ops snapshot
   orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
   gate [open --session S --question Q --option O... --recommend N --default N --default-after D | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate

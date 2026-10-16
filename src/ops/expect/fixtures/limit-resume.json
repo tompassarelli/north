@@ -1,0 +1,1 @@
+{"expectation":"limit-resume","note":"rel-31 stopped on its 5h limit, which reset 30 min ago, and has not resumed","facts":{"now":1792143600,"limit_stops":[{"session":"rel-31","account":"claude:c","resets_at":1792141800}]}}

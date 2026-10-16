@@ -21,7 +21,7 @@ sessions() {
   local after="" page
   while :; do
     page=$(api GET "/v1/sessions?beta=true&limit=100${after:+&after_id=$after}")
-    jq -r '.data[] | [.id, .session_status, .environment_kind, .updated_at, .title] | @tsv' <<<"$page"
+    jq -r '.data[] | [.id, .session_status, .environment_kind, .updated_at, .created_at, .title] | @tsv' <<<"$page"
     after=$(jq -r 'if .has_more then .last_id // empty else empty end' <<<"$page")
     [ -n "$after" ] || break
   done
@@ -57,7 +57,7 @@ case $1 in
     mkdir -p "$2"
     listing=$(sessions)
     found=0
-    while IFS=$'\t' read -r id status kind _ title; do
+    while IFS=$'\t' read -r id status kind _ _ title; do
       [ "$status" = requires_action ] && [ "$kind" = anthropic_cloud ] || continue
       found=1
       events "$id" "$2/$id.jsonl"

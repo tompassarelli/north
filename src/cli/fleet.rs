@@ -54,7 +54,7 @@ fn runtimes() -> Runtimes {
     Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex)])
 }
 
-fn open_fleet() -> NorthResult<Fleet> {
+pub(super) fn open_fleet() -> NorthResult<Fleet> {
     Fleet::open(runtimes(), Arc::new(Ledger::open_default()?))
 }
 

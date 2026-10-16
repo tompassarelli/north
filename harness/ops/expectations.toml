@@ -1,0 +1,135 @@
+# Core behaviors north must keep (Tom, 2026-10-16: "insisting that we achieve a durable gain of function and we do not regress").
+#
+# `north ops check` evaluates every expectation every 5 minutes from live sources. A breach sends Tom's phone one push
+# and the proxy one message, then nothing until it clears, then a "cleared" message. Each expectation names its owner
+# box and the deterministic fix it should eventually become, so an alert that keeps firing turns into code, not chores.
+#
+# Fields: id, behavior (plain words), metric (built into north ops), op and threshold, window (now, 15m, 24h, 7d),
+# optional until (stop checking after), params (metric knobs), owner and fix. An issue labelled `bet` claims an
+# expectation as its dividend with a line like "Dividend: ... `north ops dividend <id>`"; `north ops dividend` then
+# reports it PAYING or DECAYED over the trailing 7 days.
+# Every expectation has a breach fixture in src/ops/expect/fixtures/<id>.json that the test suite replays.
+
+[[expectation]]
+id = "release-closed"
+behavior = "Public 0.1 release work items close every day"
+metric = "release_items_closed"
+op = ">="
+threshold = 1
+window = "24h"
+owner = "release-planner"
+fix = "the release planner launches the next unowned Public 0.1 item the moment one closes"
+
+[[expectation]]
+id = "throughput"
+behavior = "Size closed per day (S=1, M=2, L=4) keeps up with the trailing 7-day median"
+metric = "closed_size_vs_median"
+op = ">="
+threshold = 0.5
+window = "24h"
+params = { history_days = 7 }
+owner = "release-planner"
+fix = "every launch sizes its issue from the brief's ETA and the planner keeps enough boxes queued to meet the median"
+
+[[expectation]]
+id = "game-share"
+behavior = "Game work (smashcraft, wisp) is most of what lands"
+metric = "game_share_of_landings"
+op = ">="
+threshold = 0.6
+window = "24h"
+owner = "placement-gate"
+fix = "north route admits harness boxes only behind release work while bet 1 is open"
+
+[[expectation]]
+id = "cloud-lane"
+behavior = "Code-only boxes run in Anthropic cloud while the Proton credit lasts"
+metric = "cloud_placements"
+op = ">"
+threshold = 0
+window = "24h"
+until = "2026-11-05T07:59:00Z"
+owner = "placement-gate"
+fix = "north fleet launch places code-only public-repo boxes in Anthropic cloud itself"
+
+[[expectation]]
+id = "account-balance"
+behavior = "No usable Claude account sits idle (< 5% of its 5h window) while another is above 80%"
+metric = "idle_accounts_while_another_hot"
+op = "=="
+threshold = 0
+window = "now"
+params = { idle_below = 5, hot_above = 80, week_ceiling = 95 }
+owner = "route-loop"
+fix = "north route launches on the least-used account that has weekly room"
+
+[[expectation]]
+id = "account-exhaustion"
+behavior = "No Claude account is projected to exhaust a window within 1 hour"
+metric = "min_hours_to_exhaustion"
+op = ">="
+threshold = 1
+window = "now"
+owner = "pace"
+fix = "pace admission holds new launches on an account projected to exhaust within 2 hours"
+
+[[expectation]]
+id = "laptop-offload"
+behavior = "The laptop is not above its core count for 10 minutes while Nexus, the farm and the cloud sit idle"
+metric = "laptop_overload_while_offload_idle"
+op = "=="
+threshold = 0
+window = "now"
+params = { idle_minutes = 15 }
+owner = "farm-cap"
+fix = "machine-capacity admission sends queued heavy work to Nexus or the hosted farm when the laptop is over its cores"
+
+[[expectation]]
+id = "laptop-share"
+behavior = "Work is not all on the laptop: its share of measured CPU-hours stays under 80%"
+metric = "laptop_share_of_cpu"
+op = "<"
+threshold = 0.8
+window = "7d"
+owner = "placement-gate"
+fix = "placement routes heavy checks and native batches to Nexus and the hosted farm by default"
+
+[[expectation]]
+id = "landing-lock"
+behavior = "No landing lock is held longer than 15 minutes"
+metric = "longest_lock_hold_minutes"
+op = "<="
+threshold = 15
+window = "now"
+owner = "lock-order"
+fix = "safe-push bounds its gate under the lock and hands a stalled lane back to the queue"
+
+[[expectation]]
+id = "limit-resume"
+behavior = "No session stays stopped on a usage limit more than 10 minutes after its window resets"
+metric = "limit_stalled_minutes"
+op = "<="
+threshold = 10
+window = "now"
+owner = "fleet-recover"
+fix = "the fleet host resumes a limit-stopped session itself when its window resets"
+
+[[expectation]]
+id = "land-to-playable"
+behavior = "A landed release commit is playable in Tom's game within 20 minutes"
+metric = "land_to_playable_minutes"
+op = "<"
+threshold = 20
+window = "24h"
+owner = "tom-build"
+fix = "the tom-build watcher builds every landed smashcraft commit as soon as it lands"
+
+[[expectation]]
+id = "alerts"
+behavior = "The alert check itself runs: no gap over 15 minutes between checks"
+metric = "heartbeat_gap_minutes"
+op = "<="
+threshold = 15
+window = "24h"
+owner = "ops-observability"
+fix = "systemd reruns the check every 5 minutes and Nexus pages on a stale heartbeat"

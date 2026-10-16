@@ -1,0 +1,1 @@
+{"expectation":"laptop-share","note":"10 laptop CPU-hours against 1 on Nexus and none on the farm this week","facts":{"now":1792143600,"nexus":true,"farm":[],"runs":[{"place":"laptop","at":1792057200,"owner":"w","cpu_seconds":36000.0},{"place":"nexus","at":1792057200,"owner":"n","cpu_seconds":3600.0}]}}

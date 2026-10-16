@@ -1,0 +1,1 @@
+{"expectation":"account-exhaustion","note":"claude:a at 90% burning 20%/h, reset 3 h away: exhausts in 30 min","facts":{"now":1792143600,"pace":{"accounts":{"claude:a":{"windows":[{"window":"5h","used_pct":90.0,"burn_pct_h":20.0,"resets_at":"2026-10-16T12:40:00Z"}]}}}}}

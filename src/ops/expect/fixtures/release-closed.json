@@ -1,0 +1,1 @@
+{"expectation":"release-closed","note":"one Public 0.1 item open, the last close was 2 days ago","facts":{"now":1792143600,"release":[{"number":40,"open":true,"closed_at":null,"kind":"work"},{"number":41,"open":false,"closed_at":1791970800,"kind":"work"}]}}

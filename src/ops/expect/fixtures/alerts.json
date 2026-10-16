@@ -1,0 +1,1 @@
+{"expectation":"alerts","note":"the check ran at 00:00 and once an hour ago: a 23-hour gap","facts":{"now":1792143600,"checks":[1792057600,1792140000]}}

@@ -1,0 +1,1 @@
+{"expectation":"laptop-offload","note":"load 30/28 on 24 cores while Nexus, the farm and the cloud ran nothing for 15 min","facts":{"now":1792143600,"load":{"one":31.0,"five":30.0,"fifteen":28.0,"cores":24},"nexus":true,"farm":[],"cloud":[]}}

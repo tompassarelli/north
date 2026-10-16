@@ -1,0 +1,1 @@
+{"expectation":"landing-lock","note":"a live safe-push has held the smashcraft lock for 30 min","facts":{"now":1792143600,"locks":[{"repo":"smashcraft","holder":{"pid":4242,"dir":"/home/tom/code/smashcraft/worktrees/x","session":"rel-42"},"held_since":1792141800,"waiters":[]}]}}

@@ -56,3 +56,21 @@ pub(crate) fn run_within(program: &str, args: &[&str], limit: Duration) -> Optio
         stderr: Vec::new(),
     })
 }
+
+pub(crate) fn run_with_input(program: &str, dir: &Path, args: &[&str], input: &[u8]) -> Option<Vec<u8>> {
+    use std::io::Write;
+    let mut child = Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    let input = input.to_vec();
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let output = child.wait_with_output().ok()?;
+    writer.join().ok()?.ok()?;
+    output.status.success().then_some(output.stdout)
+}

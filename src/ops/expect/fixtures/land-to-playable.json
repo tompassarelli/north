@@ -1,0 +1,1 @@
+{"expectation":"land-to-playable","note":"the last build took 30 min from landing to playable","facts":{"now":1792143600,"builds":[{"at":1792140000,"land_to_playable_seconds":1800.0}]}}

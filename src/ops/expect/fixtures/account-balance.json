@@ -1,0 +1,1 @@
+{"expectation":"account-balance","note":"claude:a at 90% of its 5h window while claude:c sits at 2% with weekly room","facts":{"now":1792143600,"pace":{"accounts":{"claude:a":{"windows":[{"window":"5h","used_pct":90.0},{"window":"week","used_pct":50.0}]},"claude:c":{"windows":[{"window":"5h","used_pct":2.0},{"window":"week","used_pct":30.0}]}}}}}
