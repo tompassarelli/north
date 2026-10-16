@@ -33,11 +33,6 @@ export function clampToGrantable(request: Resources, maximum: Resources): { reso
   return { resources: { cpus, memoryMiB }, clamped: Object.keys(clamped).length > 0 ? clamped : null };
 }
 
-export function memoryFloorMiB(profile: string, memoryTotalMiB: number): number {
-  if (memoryTotalMiB < 32768) return profile === 'attended' ? memoryTotalMiB / 5 : memoryTotalMiB / 12;
-  return Math.min(Math.max(profile === 'attended' ? memoryTotalMiB / 5 : memoryTotalMiB / 12, 8192), memoryTotalMiB / 4);
-}
-
 export function resourceClass(kind: string, cores: number): Resources {
   switch (kind) {
     case 'agent': return { cpus: 0, memoryMiB: 768 };
@@ -74,10 +69,6 @@ export function maximumSeconds(kind: string): number {
 
 export function sessionSeconds(kind: string): number {
   return kind === 'exclusive' ? 900 : batchClass(kind) ? 1800 : 0;
-}
-
-export function batchPressureLimitBasisPoints(): number {
-  return 3000;
 }
 
 export function gpuBusyLimitPercent(): number {
@@ -129,67 +120,6 @@ export function topUnleasedGpuProcess(before: GpuProcessSample, after: GpuProces
     pid: top.pid, command: top.command,
     gpuBusyPercent: Math.round(Math.min(100, top.nanoseconds / ((after.at - before.at) * 1e6) * 100) * 100) / 100,
   };
-}
-
-export function gpuSlots(): number {
-  return 2;
-}
-
-export function nativeGpuDecision(profile: string, gpuBusyPercent: number, gpuClients: number, gpuRuns: number): string {
-  if (profile === 'attended' && gpuClients >= 4) return 'DEFER_GPU_CLIENTS';
-  if (gpuBusyPercent >= gpuBusyLimitPercent() && gpuRuns === 0) return 'DEFER_GPU_BUSY';
-  return 'RUN';
-}
-
-export function admissionDecision(
-  profile: string,
-  kind: string,
-  cores: number,
-  memoryTotalMiB: number,
-  memoryAvailableMiB: number,
-  cpuSomeAvg10BasisPoints: number,
-  protectedCpuSomeAvg10BasisPoints: number,
-  leasedMemoryMiB: number,
-  leasedBatchCpus: number,
-  leasedNativeCpus: number,
-  requestedCpus: number,
-  requestedMemoryMiB: number,
-  peerBatchRuns: number,
-  peerExclusiveRuns: number,
-  unboundedRuns: number,
-  queuedAhead: number,
-  exclusiveWaiting: number,
-  gpuBusyPercent: number,
-  gpuClients: number,
-  gpuRuns: number,
-  nativeWaiting: number,
-): string {
-  if (profile !== 'attended' && profile !== 'unattended') throw new Error('Unknown capacity profile');
-  if (cores <= 0 || memoryTotalMiB <= 0 || memoryAvailableMiB <= 0 || requestedCpus < 0 || requestedMemoryMiB <= 0) return 'INVALID';
-  if (memoryAvailableMiB - requestedMemoryMiB < memoryFloorMiB(profile, memoryTotalMiB)) return 'DEFER_MEMORY_HEADROOM';
-  if ((leasedMemoryMiB + requestedMemoryMiB) * 4 > memoryTotalMiB * 3) return 'DEFER_MEMORY_CAPACITY';
-  if (kind === 'agent') return 'RUN';
-  if (kind === 'native') {
-    if (leasedNativeCpus + requestedCpus > aggregateCpus(profile, cores)) return 'DEFER_NATIVE_CPUS';
-    return nativeGpuDecision(profile, gpuBusyPercent, gpuClients, gpuRuns);
-  }
-  if (unboundedRuns > 0) return 'DEFER_UNBOUNDED_PEER';
-  if (peerExclusiveRuns > 0) return 'DEFER_EXCLUSIVE';
-  if (kind === 'critical' || kind === 'tom') {
-    return profile === 'attended' && protectedCpuSomeAvg10BasisPoints >= 1000 ? 'DEFER_INTERACTIVE_PRESSURE' : 'RUN';
-  }
-  if (kind === 'gpu' && nativeWaiting > 0) return 'DEFER_NATIVE_WAITING';
-  if (kind === 'gpu' && gpuRuns >= gpuSlots()) return 'DEFER_GPU_SLOTS';
-  if (kind === 'exclusive') {
-    if (exclusiveWaiting > 0) return 'DEFER_QUEUED';
-    return peerBatchRuns > 0 ? 'DEFER_EXCLUSIVE' : 'RUN';
-  }
-  if (exclusiveWaiting > 0 && kind === 'heavy') return 'DEFER_EXCLUSIVE_QUEUED';
-  if (profile === 'attended' && protectedCpuSomeAvg10BasisPoints >= 1000) return 'DEFER_INTERACTIVE_PRESSURE';
-  if (queuedAhead > 0) return 'DEFER_QUEUED';
-  if (leasedBatchCpus + requestedCpus > aggregateCpus(profile, cores)) return 'DEFER_CPU_CAPACITY';
-  if (cpuSomeAvg10BasisPoints > batchPressureLimitBasisPoints()) return 'DEFER_CPU_PRESSURE';
-  return 'RUN';
 }
 
 export function sizingHeadroom(): number {

@@ -1,6 +1,6 @@
 # Admission details
 
-Exact thresholds and output fields behind the rules in `SKILL.md`. `bun "$capacity" status` and `probe` print the live values; the helper source owns the thresholds, so change them there and not in a parallel calculator.
+Exact thresholds and output fields behind the rules in `SKILL.md`. `bun "$capacity" status` and `probe` print the live values; the helper source and `src/capacity/admission.rs` (the decision behind `north capacity admission`) own the thresholds, so change them there and not in a parallel calculator.
 
 Contents:
 - Run sizing and charging
@@ -23,6 +23,8 @@ Contents:
 - `session --class native --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops: one scope per client, two per pair.
 - Native DEFER_GPU_BUSY while GPU busy averages at least 85% over 5 s with no gpu lease running; attended DEFER_GPU_CLIENTS while four Warcraft clients run. `status` and `probe` show `gpuBusyPercent`, `gpuClients` and `gpuLeases`.
 - gpu DEFER_GPU_SLOTS at two gpu leases; DEFER_NATIVE_WAITING for a minute after a native client was deferred, because native clients outrank renders.
+- While a native lease started with `--quiet` is live, new moderate, heavy, exclusive and gpu leases queue as DEFER_NATIVE_QUIET (the QUEUED line names `quietOwners`) and start within a second of the last quiet lease ending; agent, native, critical and tom leases still run, and native leases without `--quiet` never hold batch work. A wait that outlasts the job's `--timeout-seconds` exits 75 naming the evidence run.
+- Only the native owner's own build steps pass `--beside-native NATIVE-OWNER` on `run`, `session` or `probe`; the usage log records it as `besideNative`.
 - Scale native pairs one at a time and stop adding above protectedCpuSomeAvg10 20 in either profile.
 
 ## Profiles and mode
@@ -44,4 +46,4 @@ Contents:
 
 - `status` shows holders, remaining seconds, queue order, each run lease's `measured` cores, memory and GPU beside its reservation, and `unleasedHeavy` (cgroups outside leases, session and native slices over one core in the capacity-watchdog's latest 30 s sample, with top processes and claude or codex `sessions`).
 - `~/.local/state/agents/watchdog/incidents.md` and `capacity-watchdog report` list the 30 s sampler's unleased-tree and stray git maintenance incidents and 5/30-minute pressure windows; the `[routine:watchdog]` cron reads them every 5 minutes.
-- `~/.local/state/agents/machine-capacity-usage.jsonl` holds each released run's measured CPU seconds, mean/peak cores, peak memory and GPU seconds by owner and command shape.
+- `~/.local/state/agents/machine-capacity-usage.jsonl` holds each released run's measured CPU seconds, mean/peak cores, peak memory and GPU seconds by owner and command shape, with `queuedSeconds`, the admission wait the run spent queued.

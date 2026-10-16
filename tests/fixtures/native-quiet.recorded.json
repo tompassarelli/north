@@ -1,0 +1,5 @@
+{
+  "source": "~/.local/state/agents/machine-capacity-usage.jsonl, 16 Oct: smoke-2's native pair-0 session (00:22:11-01:10:27Z) and pin-repro's nice -n 19 moderate lease inside it (01:02:20-01:06:47Z), which stalled both clients in smoke-2 match 11",
+  "native": {"at": "2026-10-16T01:10:27.266Z", "owner": "smoke-2", "class": "native", "wallSeconds": 2896.21, "reservedCpus": 2, "reservedMemoryMiB": 4096},
+  "batch": {"at": "2026-10-16T01:06:47.283Z", "owner": "pin-repro", "class": "moderate", "wallSeconds": 267, "reservedCpus": 2, "reservedMemoryMiB": 2048}
+}

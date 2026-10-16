@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { join } from 'node:path';
-import { admissionDecision, clampToGrantable, grantableMaximum } from './machine-capacity-logic.ts';
+import { clampToGrantable, grantableMaximum } from './machine-capacity-logic.ts';
 
 const here = import.meta.dir;
 const helper = Bun.argv[2] ?? join(here, 'machine-capacity.mjs');
@@ -23,9 +23,7 @@ const sizedCpus = Math.ceil(4.33);
 const sizedMemoryMiB = 2429;
 const fourCoreGrant = clampToGrantable({ cpus: sizedCpus, memoryMiB: sizedMemoryMiB }, grantableMaximum('unattended', 4, 16384));
 assert.deepEqual(fourCoreGrant, { resources: { cpus: 4, memoryMiB: sizedMemoryMiB }, clamped: { cpus: [5, 4] } });
-assert.equal(admissionDecision('unattended', 'heavy', 4, 16384, 14000, 0, 0, 0, 0, 0, sizedCpus, sizedMemoryMiB, 0, 0, 0, 0, 0, 0, 0, 0, 0), 'DEFER_CPU_CAPACITY');
-assert.equal(admissionDecision('unattended', 'heavy', 4, 16384, 14000, 0, 0, 0, 0, 0, fourCoreGrant.resources.cpus, fourCoreGrant.resources.memoryMiB, 0, 0, 0, 0, 0, 0, 0, 0, 0), 'RUN');
-console.log(`4-core history p90 4.33: request ${sizedCpus} refused as DEFER_CPU_CAPACITY; clamped grant ${fourCoreGrant.resources.cpus} CPUs admits when idle.`);
+console.log(`4-core history p90 4.33: request ${sizedCpus} clamps to a ${fourCoreGrant.resources.cpus}-CPU grant; north capacity tests check that the grant admits when idle.`);
 
 // Attended on 4 cores keeps one core for the desktop, so exclusive asks 4 and is granted 3, admitted when idle.
 const attendedExclusive = fixtureOn('attended', 'exclusive', 4, 65536, 64000);
