@@ -24,8 +24,7 @@ JSON object or nothing, and a malformed event allows.
 - PostToolUse(Bash) records passing checks and issue opens and closes, and
   says once when the work passes twice its ETA or after a long run of
   read-only commands with no change; an apply_patch ends that run.
-- Stop refuses one ending per turn that lands work without accounting for its
-  issue box, escalates without having tried, asks
+- Stop refuses one ending per turn that escalates without having tried, asks
   permission, narrates, hands the check to someone else, lists what isn't
   proven, or says nearly done.
 """
@@ -100,8 +99,6 @@ def log_override(event, gate, case, fact):
 
 MAX_BOXES = 5
 
-ISSUE_WORK = re.compile(r"#\d+|\b(issues?|box(es)?|done[- ]when)\b", re.IGNORECASE)
-
 CORRECTION = re.compile(
     r"\b(fuck\w*|shit\w*|wtf|ffs|jesus|stop (asking|doing|with|adding|it)|"
     r"(i|i've) (already )?(told|asked) you|you keep|again\?|why (are|do|did) you|"
@@ -116,11 +113,6 @@ CLOSE_REQUEST = re.compile(
 )
 
 WORKER_JOB = re.compile(r"\bgh run (view|watch)\b.*--log|\b(rg|grep|tail|less|cat)\b[^|;&]*\.log\b|\bwisp (lan|pad|native|capture|soak)\b")
-LANDED = re.compile(r"\b(landed|pushed|merged)\b", re.IGNORECASE)
-BOX_ACCOUNTED = re.compile(
-    r"\b(closed|closing|close[sd]? #|ticked|checked off|box(es)?|remains? open|still open)\b|\b\d+/\d+\b",
-    re.IGNORECASE,
-)
 
 PLAN_PROCESS = [
     (r"\b(independent|second|separate|fresh)[- ]?(review|reviewer|opinion|audit)\b", "an extra review", ("review", "audit")),
@@ -1204,13 +1196,6 @@ def stop(event):
         return block(
             "No. You ended on a plan or a hand-off. That's not an ending. Do the next step "
             "yourself, now, and stop only when it's done or blocked."
-        )
-    with State(agent_key(event)) as state:
-        issue_work = any(ISSUE_WORK.search(prompt) for prompt in state["prompts"])
-    if issue_work and LANDED.search(message) and not BOX_ACCOUNTED.search(message):
-        return block(
-            "No. You landed it but closed nothing. Tick the issue box it satisfies or close "
-            "the issue now, then end. If it ticks no box yet, say which box remains."
         )
     if STOP_DISCLAIMERS.search(message):
         return block(

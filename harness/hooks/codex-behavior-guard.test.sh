@@ -83,11 +83,10 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     event('PostToolUse', 'bun test -t arc', session='land')
     assert stop('Tests pass on the arc fix.', 'land')
     assert stop('Done: tests pass on the arc fix; land the change with safe-push --to main.', 'land')
-    event('UserPromptSubmit', '', session='ad-hoc', prompt='why did you open with fast mode? change it to the default tier')
-    assert not stop('Both fixes are landed and future launches use the default tier.', 'ad-hoc')
-    event('UserPromptSubmit', '', session='issue-work', prompt='finish north#52')
-    assert stop('Both fixes are landed and future launches use the default tier.', 'issue-work')
-    assert not stop('Landed; #52 closed with every box ticked.', 'issue-work')
+    def test_mid_box_codex_turn_gets_no_stop_nudge():
+        event('UserPromptSubmit', '', session='mid-box', prompt='Read and do the box brief at brief-desktop-userns.md')
+        assert not stop("I've created the private-desktop-userns worktree from origin/main. The fix is still outstanding; I haven't yet tested or landed it.", 'mid-box')
+    test_mid_box_codex_turn_gets_no_stop_nudge()
     assert not stop('Not done: Stop: capacity. Checkpoint saved; the parent owns the exclusive-capacity dependency.', 'dependency-checkpoint')
 
     event('PostToolUse', '', session='orchestrator', tool='collaborationspawn_agent', response='{}')
