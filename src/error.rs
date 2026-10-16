@@ -61,15 +61,7 @@ impl Error for NorthError {
         match self {
             Self::Io(error) => Some(error),
             Self::Json(error) => Some(error),
-            Self::Usage(_)
-            | Self::Configuration(_)
-            | Self::Protocol(_)
-            | Self::State(_)
-            | Self::GateAnswered { .. }
-            | Self::Rejected(_)
-            | Self::Refused(_)
-            | Self::Interrupted
-            | Self::AppServerExit(_) => None,
+            _ => None,
         }
     }
 }
