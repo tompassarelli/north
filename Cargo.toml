@@ -39,3 +39,6 @@ unsafe_code = "forbid"
 [[example]]
 name = "fake_claude"
 path = "src/bin/fake_claude.rs"
+
+[profile.dev]
+debug = "line-tables-only"
