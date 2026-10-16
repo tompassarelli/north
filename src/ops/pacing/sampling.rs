@@ -1,0 +1,365 @@
+use super::{
+    admission,
+    control::{self, Control, Reading},
+    grants, process, readout, storage, target,
+    window::Window,
+};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use storage::{load, number, rows, save};
+
+pub(super) fn root() -> PathBuf {
+    if let Some(root) = std::env::var_os("NORTH_HOME") {
+        return root.into();
+    }
+    if let Ok(binary) = std::env::current_exe() {
+        if let Some(root) = binary
+            .ancestors()
+            .find(|root| root.join("harness/lib/usage.py").is_file())
+        {
+            return root.to_owned();
+        }
+    }
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main")
+}
+pub(super) fn policy_path() -> PathBuf {
+    std::env::var_os("AGENTS_ORCHESTRATION")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("AGENTS_OPERATOR_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                        .join("code/south/main/agents")
+                })
+                .join("orchestration.toml")
+        })
+}
+pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
+    std::fs::read_to_string(policy_path())
+        .map_err(|e| e.to_string())?
+        .parse()
+        .map_err(|e: toml_edit::TomlError| e.to_string())
+}
+pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Result<Value, String> {
+    let directory = storage::directory();
+    let _sampling = storage::lock(&directory, "pace-sampling.lock", None)?;
+    let at = storage::now();
+    let prior = load(&directory.join("pace-control.json"));
+    let adapters = [("claude", "claude"), ("codex", "codex"), ("gemini", "agy")];
+    let due: Vec<_> = adapters
+        .iter()
+        .filter(|(p, _)| {
+            provider.is_none_or(|only| only == *p)
+                && at >= number(&prior["providers"][*p]["next_at"], 0.0)
+        })
+        .collect();
+    let reads: BTreeMap<_, _> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = due
+            .iter()
+            .map(|(p, a)| {
+                let path = root().join(format!("harness/lib/usage_{a}.py"));
+                (
+                    *p,
+                    scope.spawn(move || process::adapter(&path.to_string_lossy())),
+                )
+            })
+            .collect();
+        jobs.into_iter()
+            .map(|(p, job)| {
+                (
+                    p,
+                    job.join().unwrap_or_else(|_| {
+                        (
+                            Vec::new(),
+                            json!({"code":1,"elapsed_s":0,"throttled":false}),
+                        )
+                    }),
+                )
+            })
+            .collect()
+    });
+    let fresh: Vec<_> = reads.values().flat_map(|(rows, _)| rows.clone()).collect();
+    let (db, remote) = readout::open()?;
+    readout::record(&db, &fresh)?;
+    if remote && !fresh.is_empty() {
+        let input = fresh
+            .iter()
+            .map(|row| {
+                let mut row = row.clone();
+                row["type"] = json!("usage");
+                format!("{row}\n")
+            })
+            .collect::<String>();
+        let result = process::run(
+            &root().join("bin/threads").to_string_lossy(),
+            &["ingest"],
+            Some(&input),
+            10.0,
+        );
+        let code = result.map_or(127, |r| r.code);
+        if code != 0 {
+            storage::append(
+                &directory.join("pace-control.jsonl"),
+                &json!({"at":at,"ingest_code":code,"retained":"pace-control.json history"}),
+            )?;
+        }
+    }
+    config()?;
+    let mut state;
+    let mut gate;
+    {
+        let _lock = storage::lock(&directory, "pace-control.lock", None)?;
+        state = load(&directory.join("pace-control.json"));
+        for key in ["accounts", "providers"] {
+            if !state[key].is_object() {
+                state[key] = json!({});
+            }
+        }
+        for (provider, (_, measured)) in &reads {
+            let previous = number(&state["providers"][*provider]["interval_s"], 60.0);
+            let cadence = admission::interval(
+                previous,
+                number(&measured["elapsed_s"], 0.0),
+                measured["throttled"] == true || measured["code"] != 0,
+                0.0,
+            );
+            let mut measured = measured.clone();
+            measured["interval_s"] = json!(cadence);
+            measured["next_at"] = json!(at + cadence);
+            state["providers"][*provider] = measured.clone();
+            measured["provider"] = json!(provider);
+            measured["at"] = json!(at);
+            storage::append(&directory.join("pace-control.jsonl"), &measured)?;
+        }
+        readout::record(&db, rows(&state["history"]))?;
+        let snapshot = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = snapshot.path().join("readout.db");
+        db.execute("VACUUM INTO ?", [path.to_string_lossy().as_ref()])
+            .map_err(|e| e.to_string())?;
+        let database = path.to_string_lossy();
+        let usage = root().join("harness/lib/usage.py");
+        let output = process::run_env(
+            "python3",
+            &["-I", &usage.to_string_lossy(), "--write-pace-gate"],
+            None,
+            30.0,
+            &[("THREADS_DB", &database)],
+        )?;
+        if output.code != 0 {
+            return Err(format!("usage gate failed: {}", output.err));
+        }
+        gate = serde_json::from_str(&output.out).map_err(|e| format!("invalid usage gate: {e}"))?;
+        let burn = process::run_env(
+            "python3",
+            &["-I", &usage.to_string_lossy(), "--burn-step", "codex"],
+            None,
+            15.0,
+            &[("THREADS_DB", &database)],
+        )?;
+        if !burn.out.is_empty() {
+            eprint!("{}", burn.out);
+        }
+    }
+    let nodes = process::fleet();
+    let mut deliveries;
+    {
+        let _lock = storage::lock(&directory, "pace-control.lock", None)?;
+        let retained = load(&directory.join("pace-control.json"));
+        state["grants"] = json!(
+            rows(&retained["grants"])
+                .iter()
+                .filter(|g| nodes.iter().any(|n| n["name"] == g["lead"]
+                    && n["conversation"] == g["session"]
+                    && n["status"] != "exited"
+                    && g["account"]
+                        .as_str()
+                        .is_some_and(|a| n["provider"] == a.split(':').next().unwrap_or_default()
+                            && (!a.starts_with("claude:")
+                                || n["account"] == a.trim_start_matches("claude:")))))
+                .collect::<Vec<_>>()
+        );
+        let providers: Vec<_> = reads.keys().copied().collect();
+        deliveries = update_controls(
+            &mut state,
+            &mut gate,
+            &providers,
+            &nodes,
+            storage::now(),
+            initial,
+            target::target_for,
+        )?;
+        for (account, control) in &deliveries {
+            let mut raw = serde_json::to_value(control).map_err(|e| e.to_string())?;
+            raw["account"] = json!(account);
+            storage::append(&directory.join("pace-control.jsonl"), &raw)?;
+        }
+        deliveries.retain(|(_, c)| notify && c.notify);
+        let history: Vec<_> = rows(&state["history"])
+            .iter()
+            .chain(fresh.iter())
+            .filter(|r| {
+                r["ts"]
+                    .as_str()
+                    .and_then(target::seconds)
+                    .is_some_and(|ts| ts >= storage::now() - 10800.0)
+            })
+            .cloned()
+            .collect();
+        state["history"] = json!(history);
+        save(&directory.join("pace-control.json"), &state)?;
+        save(&directory.join("usage-gate.json"), &gate)?;
+    }
+    std::thread::scope(|scope| {
+        for (account, control) in &deliveries {
+            let state = &state;
+            let nodes = &nodes;
+            scope.spawn(move || {
+                if let Err(error) = deliver(account, control, state, nodes) {
+                    eprintln!("pace-control: delivery failed for {account}: {error}");
+                }
+            });
+        }
+    });
+    Ok(gate)
+}
+pub(super) fn deliver(
+    account: &str,
+    control: &Control,
+    state: &Value,
+    nodes: &[Value],
+) -> Result<(), String> {
+    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
+    let action = if control.held == Some(true) {
+        "HOLD-SPAWNS"
+    } else {
+        "RESUME-SPAWNS"
+    };
+    let mut numbers = control
+        .windows
+        .iter()
+        .map(|w| {
+            format!(
+                "{} used={:.1}% burn={}%/h horizon={:.2}h projected={}%",
+                w.window,
+                w.used_pct,
+                w.burn_pct_h
+                    .map(|n| json!(n).to_string())
+                    .unwrap_or_else(|| "None".into()),
+                w.horizon_h.unwrap_or(w.reset_h),
+                w.projected_pct
+                    .map(|n| json!(n).to_string())
+                    .unwrap_or_else(|| "None".into())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    if let Some(target) = &control.target {
+        numbers.push_str(&format!(
+            " target={}% by={}",
+            json!(target.spend_to_pct),
+            target.by
+        ));
+    }
+    let line = format!(
+        "{action} {account} allowed={} {numbers}",
+        control.allowed_workers.unwrap_or(0)
+    );
+    for node in nodes {
+        if node["provider"] != provider
+            || node["status"] == "exited"
+            || provider == "claude"
+                && node["account"]
+                    .as_str()
+                    .is_some_and(|s| !s.is_empty() && s != label)
+        {
+            continue;
+        }
+        if grants::find(
+            state,
+            account,
+            &node["conversation"],
+            &Value::Null,
+            storage::now(),
+            nodes,
+        )
+        .is_some_and(|g| {
+            g["lead"] == node["name"]
+                && g["authority"] == "proxy"
+                && (provider != "claude" || node["account"] == label)
+        }) {
+            continue;
+        }
+        if let Err(error) = process::send(node["name"].as_str().unwrap_or_default(), &line) {
+            eprintln!("pace-control: {error}");
+        }
+    }
+    let output = process::run(
+        &root().join("bin/supply-alert").to_string_lossy(),
+        &["normal", &line, &format!("Pace: {account} {action}")],
+        None,
+        15.0,
+    )?;
+    if output.code != 0 {
+        eprintln!("pace-control: phone notification failed for {account}");
+    }
+    Ok(())
+}
+
+pub(super) fn update_controls(
+    state: &mut Value,
+    gate: &mut Value,
+    providers: &[&str],
+    nodes: &[Value],
+    at: f64,
+    initial: i64,
+    target_for: impl Fn(&str, f64) -> Result<Option<super::target::Target>, String>,
+) -> Result<Vec<(String, Control)>, String> {
+    if !state["accounts"].is_object() {
+        state["accounts"] = json!({});
+    }
+    let mut deliveries = Vec::new();
+    for provider in providers {
+        let projections = gate[provider]["projections"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        let mut controls = json!({});
+        for (account, windows) in projections {
+            let windows: Vec<Window> =
+                serde_json::from_value(windows).map_err(|e| e.to_string())?;
+            let previous: Control =
+                serde_json::from_value(state["accounts"][&account].clone()).unwrap_or_default();
+            let (p, label) = account.split_once(':').unwrap_or((&account, ""));
+            let count = nodes
+                .iter()
+                .filter(|n| {
+                    n["status"] == "working"
+                        && n["provider"] == p
+                        && (p != "claude" || n["account"] == label)
+                })
+                .count();
+            let current = at;
+            let control = control::advance(
+                &previous,
+                Reading {
+                    windows,
+                    workers: Some(count as i64),
+                    at: current,
+                    initial,
+                    margin: 10.0,
+                    target: target_for(&account, current)?,
+                },
+            );
+            deliveries.push((account.clone(), control.clone()));
+            let raw = serde_json::to_value(&control).map_err(|e| e.to_string())?;
+            controls[&account] = raw.clone();
+            state["accounts"][&account] = raw.clone();
+            gate[provider]["projections"][&account] = json!(control.windows);
+        }
+        gate[provider]["controls"] = controls;
+    }
+
+    Ok(deliveries)
+}

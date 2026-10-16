@@ -14,7 +14,7 @@ pub fn pace_lines() -> Vec<String> {
         return vec![];
     };
     let mut lines = vec![format!(
-        "Usage, source of truth {} (written by north harness/lib/pace_control.py; never quote a lead's status line):",
+        "Usage, source of truth {} (written by north pace; never quote a lead's status line):",
         display(&path)
     )];
     if let Some(accounts) = data["accounts"].as_object() {

@@ -256,8 +256,7 @@ def usage_verdict(event, grant=None):
             if verdict.get("pace_control"):
                 account = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
                 control = (verdict.get("controls") or {}).get(account) or (verdict.get("controls") or {}).get(provider)
-                import pace_control
-                if control is None or not pace_control.fresh(control, time.time()):
+                if control is None or not pace_call("fresh", control=control, at=time.time()):
                     return None
             return verdict
         except (OSError, ValueError, KeyError, TypeError):
@@ -320,12 +319,17 @@ def billed_account(provider):
     return f"{provider}:{label}" if label else None
 
 
+def pace_call(op, **request):
+    result = subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace"], input=json.dumps(dict(op=op, **request)), capture_output=True, text=True, timeout=10)
+    if result.returncode: raise ValueError(result.stderr.strip())
+    return json.loads(result.stdout)
+
+
 def confirm_spawn(event, *, launched=True):
     north_lib()
-    import pace_sampler
     home = os.environ.get("SPAWN_CAPACITY_HOME")
     state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
-    pace_sampler.confirm(state / "agents", event.get("session_id"), event.get("tool_use_id"), launched=launched)
+    pace_call("confirm", directory=str(state / "agents"), session=event.get("session_id"), tool_use_id=event.get("tool_use_id"), launched=launched)
 
 
 def spawn_reservation(event, verdict, provider):
@@ -480,10 +484,9 @@ def agents_state():
 
 def refusal_eta(event, reason):
     north_lib()
-    import pace_control
     from datetime import datetime
     now = time.time()
-    retry = pace_control.interval(0, 0)
+    retry = pace_call("interval", previous=0, elapsed=0, throttled=False, retry_after=0)
     if not reason.startswith("Hold:"):
         holding = (capacity_probe(("status",)) or {}).get("holding") or []
         ends = [now + h["remainingSeconds"] for h in holding if isinstance(h, dict) and h.get("kind") == "run"
@@ -504,7 +507,7 @@ def refusal_eta(event, reason):
     for w in windows:
         try:
             if (number(w.get("projected_pct")) or 0) > 100 or \
-                    w.get("window") == "week" and w["used_pct"] >= pace_control.week_ceiling(w, None):
+                    w.get("window") == "week" and w["used_pct"] >= pace_call("week_ceiling", window=w, target=None):
                 resets.append(datetime.fromisoformat(w["resets_at"].replace("Z", "+00:00")).timestamp())
         except (ValueError, KeyError, TypeError, AttributeError):
             pass
@@ -517,7 +520,6 @@ def evaluate(event):
     if result[0] and result[0].startswith("Hold:"):
         try:
             north_lib()
-            import pace_sampler
             home = os.environ.get("SPAWN_CAPACITY_HOME")
             state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
             provider = "claude" if event.get("tool_name") == "Agent" else "codex"
@@ -525,7 +527,7 @@ def evaluate(event):
             session = event.get("session_id") if not event.get("agent_id") else None
             inputs = event.get("tool_input") or {}
             task = (inputs.get("task_name") or inputs.get("name")) if isinstance(inputs, dict) else None
-            pace_sampler.expired_grant_hold(state / "agents", account, session, result[0], task=task)
+            pace_call("expired_grant_hold", directory=str(state / "agents"), account=account, session=session, reason=result[0], task=task)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError):
             pass
     return result
@@ -535,14 +537,13 @@ def evaluate_spawn(event):
     texts = brief_texts(event.get("tool_input") or {})
     provider = "claude" if event.get("tool_name") == "Agent" else "codex"
     north_lib()
-    import pace_sampler
     home = os.environ.get("SPAWN_CAPACITY_HOME")
     state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
     name = billed_account(provider) or provider
     session = event.get("session_id") if not event.get("agent_id") else None
     tool_input = event.get("tool_input") or {}
     task = (tool_input.get("task_name") or tool_input.get("name")) if isinstance(tool_input, dict) else None
-    grant = pace_sampler.grant_for(state / "agents", name, session, task=task)
+    grant = pace_call("grant_for", directory=str(state / "agents"), account=name, session=session, task=task)
     verdict = usage_verdict(event, grant)
     if verdict.get("refusal"):
         return verdict["refusal"], None
@@ -550,11 +551,10 @@ def evaluate_spawn(event):
     name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
     if verdict.get("pace_control") and not grant:
         north_lib()
-        import pace_control
         control = (verdict.get("controls") or {}).get(name) or (verdict.get("controls") or {}).get(provider)
         if control is None:
             return f"Hold: {name} pace controller has no fresh account reading; refresh before spawning.", None
-        hold = pace_control.refusal(name, control, time.time())
+        hold = pace_call("refusal", account=name, control=control, now=time.time())
         if hold:
             log_denial(event, "projection", hold)
             return hold, None
@@ -567,10 +567,9 @@ def evaluate_spawn(event):
                     f"{window['projected_pct']:.1f}% > 100%."), None
     def admitted(warning=None):
         if verdict.get("pace_control") or grant:
-            import pace_sampler
             home = os.environ.get("SPAWN_CAPACITY_HOME")
             state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
-            return pace_sampler.reserve(state / "agents/usage-gate.json", provider, name, session=session, task=task,
+            return pace_call("reserve", path=str(state / "agents/usage-gate.json"), provider=provider, account=name, session=session, task=task,
                                         tool_use_id=event.get("tool_use_id")), warning
         return None, warning
     if any(EXEMPT_MARKER in t for t in texts):

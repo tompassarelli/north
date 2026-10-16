@@ -19,7 +19,7 @@ impl Target {
     }
 }
 
-pub(super) fn seconds(text: &str) -> Option<f64> {
+pub(crate) fn seconds(text: &str) -> Option<f64> {
     Timestamp::parse_rfc3339(text).map(Timestamp::unix_seconds_f64)
 }
 

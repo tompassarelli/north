@@ -372,17 +372,6 @@ def notify_promos(db):
         stamp.write_text(line + "\n")
 
 
-def gate(db, provider):
-    """Exit 3 with the refusal when a spawn on this provider's account could bill money, 0 otherwise; refreshes the
-    provider's usage first so the verdict is current."""
-    import pace_sampler
-    reason = pace_sampler.sample(provider)[provider]["refusal"]
-    if reason:
-        print(reason)
-        return 3
-    return 0
-
-
 def burn_policy(provider, now=None):
     import math
     import re
@@ -603,6 +592,9 @@ def cost_lines(now):
 
 
 def main(argv):
+    if "--reservation-json" in argv:
+        print(json.dumps(ledger_reservation(**json.load(sys.stdin), details=True)))
+        return 0
     if "--burn" in argv:
         entry = burn_override(argv[argv.index("--burn") + 1])
         if entry:
@@ -622,6 +614,9 @@ def main(argv):
         if "snapshot still unreadable after one refresh" not in str(error):
             print(f"agents usage: {error}", file=sys.stderr)
         return 1
+    if "--write-pace-gate" in argv:
+        print(json.dumps(write_gate(db, ("claude", "codex", "gemini"), pace_locked=True)))
+        return 0
     if "--burn-step" in argv or "--burn-tick" in argv:
         option = "--burn-step" if "--burn-step" in argv else "--burn-tick"
         provider = argv[argv.index(option) + 1]
@@ -631,7 +626,7 @@ def main(argv):
         return 0
 
     if "--gate" in argv:
-        return gate(db, argv[argv.index("--gate") + 1])
+        return subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace", "gate", argv[argv.index("--gate") + 1]]).returncode
     if "--fast" in argv:
         return fast(db, argv[argv.index("--fast") + 1], argv[argv.index("--domain") + 1] if "--domain" in argv else None,
                     "--cached" in argv)

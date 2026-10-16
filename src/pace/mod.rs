@@ -1,16 +1,14 @@
-use std::io::{Read, Write};
-
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-mod admission;
-mod control;
-mod limits;
-mod target;
+pub(crate) mod admission;
+pub(crate) mod control;
+pub(crate) mod limits;
+pub(crate) mod target;
 #[cfg(test)]
 mod tests;
 mod trail;
-mod window;
+pub(crate) mod window;
 
 use control::{Control, Reading};
 use target::Target;
@@ -55,35 +53,55 @@ enum Request {
 
 fn answer(request: Request) -> Result<Value, String> {
     Ok(match request {
-        Request::Advance { previous, windows, workers, at, initial, margin, target } => {
-            let reading = Reading { windows, workers, at, initial, margin, target };
-            serde_json::to_value(control::advance(&previous, reading)).map_err(|error| error.to_string())?
+        Request::Advance {
+            previous,
+            windows,
+            workers,
+            at,
+            initial,
+            margin,
+            target,
+        } => {
+            let reading = Reading {
+                windows,
+                workers,
+                at,
+                initial,
+                margin,
+                target,
+            };
+            serde_json::to_value(control::advance(&previous, reading))
+                .map_err(|error| error.to_string())?
         }
         Request::Fresh { control, at } => json!(admission::is_fresh(&control, at)),
-        Request::Refusal { account, control, now } => json!(admission::refusal(&account, &control, now, target::target_for(&account, now))),
-        Request::Interval { previous, elapsed, throttled, retry_after } => {
-            json!(admission::interval(previous, elapsed, throttled, retry_after))
+        Request::Refusal {
+            account,
+            control,
+            now,
+        } => json!(admission::refusal(
+            &account,
+            &control,
+            now,
+            target::target_for(&account, now)
+        )),
+        Request::Interval {
+            previous,
+            elapsed,
+            throttled,
+            retry_after,
+        } => {
+            json!(admission::interval(
+                previous,
+                elapsed,
+                throttled,
+                retry_after
+            ))
         }
         Request::WeekCeiling { window, target } => json!(window.ceiling(target.as_ref())),
         Request::TargetFor { account, at } => json!(target::target_for(&account, at)?),
     })
 }
 
-pub(crate) fn run(_arguments: &[String]) -> u8 {
-    let mut input = String::new();
-    let outcome = std::io::stdin()
-        .read_to_string(&mut input)
-        .map_err(|error| error.to_string())
-        .and_then(|_| serde_json::from_str::<Request>(&input).map_err(|error| error.to_string()))
-        .and_then(answer);
-    match outcome {
-        Ok(value) => {
-            let _ = writeln!(std::io::stdout(), "{value}");
-            0
-        }
-        Err(message) => {
-            eprintln!("north pace: {message}");
-            2
-        }
-    }
+pub(crate) fn answer_value(value: Value) -> Result<Value, String> {
+    answer(serde_json::from_value(value).map_err(|e| e.to_string())?)
 }

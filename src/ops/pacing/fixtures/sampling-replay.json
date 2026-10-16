@@ -1,0 +1,834 @@
+[
+  {
+    "at": 1800000000.0,
+    "before": {},
+    "nodes": [
+      {
+        "name": "lead",
+        "conversation": "parent",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "worker",
+        "conversation": "child",
+        "provider": "codex",
+        "status": "working",
+        "parent": "lead"
+      }
+    ],
+    "windows": {
+      "codex": [
+        {
+          "window": "week",
+          "used_pct": 25.0,
+          "quota_ceiling": 85.0,
+          "burn_pct_h": null,
+          "reset_h": 144.0,
+          "age_s": 0.0,
+          "as_of": "2027-01-15T08:00:00+00:00",
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "projected_pct": null
+        }
+      ]
+    },
+    "accounts": {
+      "codex": {
+        "allowed_workers": 2,
+        "at": 1800000000.0,
+        "burn_pct_worker_min": {},
+        "changed": true,
+        "held": false,
+        "notified": null,
+        "notify": false,
+        "over": false,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:00:00+00:00"
+          ]
+        ],
+        "state_since": 1800000000.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000000.0,
+              "minutes": 0.0,
+              "used": 25.0
+            },
+            "as_of": "2027-01-15T08:00:00+00:00",
+            "burn_pct_h": null,
+            "horizon_h": 144.0,
+            "projected_pct": null,
+            "quota_ceiling": 85.0,
+            "reset_h": 144.0,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ]
+            ],
+            "used_pct": 25.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": null,
+        "workers": 2
+      }
+    },
+    "gate_controls": {
+      "codex": {
+        "allowed_workers": 2,
+        "at": 1800000000.0,
+        "burn_pct_worker_min": {},
+        "changed": true,
+        "held": false,
+        "notified": null,
+        "notify": false,
+        "over": false,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:00:00+00:00"
+          ]
+        ],
+        "state_since": 1800000000.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000000.0,
+              "minutes": 0.0,
+              "used": 25.0
+            },
+            "as_of": "2027-01-15T08:00:00+00:00",
+            "burn_pct_h": null,
+            "horizon_h": 144.0,
+            "projected_pct": null,
+            "quota_ceiling": 85.0,
+            "reset_h": 144.0,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ]
+            ],
+            "used_pct": 25.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": null,
+        "workers": 2
+      }
+    }
+  },
+  {
+    "at": 1800000060.0,
+    "before": {
+      "accounts": {
+        "codex": {
+          "allowed_workers": 2,
+          "at": 1800000000.0,
+          "burn_pct_worker_min": {},
+          "changed": true,
+          "held": false,
+          "notified": null,
+          "notify": false,
+          "over": false,
+          "sample": [
+            [
+              "week",
+              "2027-01-15T08:00:00+00:00"
+            ]
+          ],
+          "state_since": 1800000000.0,
+          "target": null,
+          "windows": [
+            {
+              "age_s": 0.0,
+              "anchor": {
+                "at": 1800000000.0,
+                "minutes": 0.0,
+                "used": 25.0
+              },
+              "as_of": "2027-01-15T08:00:00+00:00",
+              "burn_pct_h": null,
+              "horizon_h": 144.0,
+              "projected_pct": null,
+              "quota_ceiling": 85.0,
+              "reset_h": 144.0,
+              "resets_at": "2027-01-21T08:00:00+00:00",
+              "trail": [
+                [
+                  1800000000.0,
+                  25.0
+                ]
+              ],
+              "used_pct": 25.0,
+              "window": "week"
+            }
+          ],
+          "worker_minutes": null,
+          "workers": 2
+        }
+      },
+      "providers": {
+        "codex": {
+          "elapsed_s": 2,
+          "code": 0,
+          "throttled": false,
+          "interval_s": 60.0,
+          "next_at": 1800000060.0
+        }
+      },
+      "grants": [],
+      "history": [
+        {
+          "ts": "2027-01-15T08:00:00+00:00",
+          "provider": "codex",
+          "account": "recorded",
+          "kind": "window",
+          "name": "week",
+          "used_pct": 25,
+          "window_min": 10080,
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "source": "sanitized usage replay"
+        }
+      ]
+    },
+    "nodes": [
+      {
+        "name": "lead",
+        "conversation": "parent",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "worker",
+        "conversation": "child",
+        "provider": "codex",
+        "status": "working",
+        "parent": "lead"
+      }
+    ],
+    "windows": {
+      "codex": [
+        {
+          "window": "week",
+          "used_pct": 25.0,
+          "quota_ceiling": 85.0,
+          "burn_pct_h": null,
+          "reset_h": 143.98333333333332,
+          "age_s": 0.0,
+          "as_of": "2027-01-15T08:01:00+00:00",
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "projected_pct": null
+        }
+      ]
+    },
+    "accounts": {
+      "codex": {
+        "allowed_workers": 2,
+        "at": 1800000060.0,
+        "burn_pct_worker_min": {},
+        "changed": false,
+        "held": false,
+        "notified": false,
+        "notify": false,
+        "over": false,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:01:00+00:00"
+          ]
+        ],
+        "state_since": 1800000000.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000000.0,
+              "minutes": 2.0,
+              "used": 25.0
+            },
+            "as_of": "2027-01-15T08:01:00+00:00",
+            "burn_pct_h": null,
+            "horizon_h": 143.98333333333332,
+            "projected_pct": null,
+            "quota_ceiling": 85.0,
+            "reset_h": 143.98333333333332,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ],
+              [
+                1800000060.0,
+                25.0
+              ]
+            ],
+            "used_pct": 25.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": 2.0,
+        "workers": 2
+      }
+    },
+    "gate_controls": {
+      "codex": {
+        "allowed_workers": 2,
+        "at": 1800000060.0,
+        "burn_pct_worker_min": {},
+        "changed": false,
+        "held": false,
+        "notified": false,
+        "notify": false,
+        "over": false,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:01:00+00:00"
+          ]
+        ],
+        "state_since": 1800000000.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000000.0,
+              "minutes": 2.0,
+              "used": 25.0
+            },
+            "as_of": "2027-01-15T08:01:00+00:00",
+            "burn_pct_h": null,
+            "horizon_h": 143.98333333333332,
+            "projected_pct": null,
+            "quota_ceiling": 85.0,
+            "reset_h": 143.98333333333332,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ],
+              [
+                1800000060.0,
+                25.0
+              ]
+            ],
+            "used_pct": 25.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": 2.0,
+        "workers": 2
+      }
+    }
+  },
+  {
+    "at": 1800000660.0,
+    "before": {
+      "accounts": {
+        "codex": {
+          "allowed_workers": 2,
+          "at": 1800000060.0,
+          "burn_pct_worker_min": {},
+          "changed": false,
+          "held": false,
+          "notified": false,
+          "notify": false,
+          "over": false,
+          "sample": [
+            [
+              "week",
+              "2027-01-15T08:01:00+00:00"
+            ]
+          ],
+          "state_since": 1800000000.0,
+          "target": null,
+          "windows": [
+            {
+              "age_s": 0.0,
+              "anchor": {
+                "at": 1800000000.0,
+                "minutes": 2.0,
+                "used": 25.0
+              },
+              "as_of": "2027-01-15T08:01:00+00:00",
+              "burn_pct_h": null,
+              "horizon_h": 143.98333333333332,
+              "projected_pct": null,
+              "quota_ceiling": 85.0,
+              "reset_h": 143.98333333333332,
+              "resets_at": "2027-01-21T08:00:00+00:00",
+              "trail": [
+                [
+                  1800000000.0,
+                  25.0
+                ],
+                [
+                  1800000060.0,
+                  25.0
+                ]
+              ],
+              "used_pct": 25.0,
+              "window": "week"
+            }
+          ],
+          "worker_minutes": 2.0,
+          "workers": 2
+        }
+      },
+      "providers": {
+        "codex": {
+          "elapsed_s": 2,
+          "code": 0,
+          "throttled": false,
+          "interval_s": 60.0,
+          "next_at": 1800000120.0
+        }
+      },
+      "grants": [],
+      "history": [
+        {
+          "ts": "2027-01-15T08:00:00+00:00",
+          "provider": "codex",
+          "account": "recorded",
+          "kind": "window",
+          "name": "week",
+          "used_pct": 25,
+          "window_min": 10080,
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "source": "sanitized usage replay"
+        },
+        {
+          "ts": "2027-01-15T08:01:00+00:00",
+          "provider": "codex",
+          "account": "recorded",
+          "kind": "window",
+          "name": "week",
+          "used_pct": 25,
+          "window_min": 10080,
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "source": "sanitized usage replay"
+        }
+      ]
+    },
+    "nodes": [
+      {
+        "name": "lead",
+        "conversation": "parent",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "worker",
+        "conversation": "child",
+        "provider": "codex",
+        "status": "working",
+        "parent": "lead"
+      }
+    ],
+    "windows": {
+      "codex": [
+        {
+          "window": "week",
+          "used_pct": 26.0,
+          "quota_ceiling": 85.0,
+          "burn_pct_h": 5.454545454545454,
+          "reset_h": 143.81666666666666,
+          "age_s": 0.0,
+          "as_of": "2027-01-15T08:11:00+00:00",
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "projected_pct": 810.4545454545454
+        }
+      ]
+    },
+    "accounts": {
+      "codex": {
+        "allowed_workers": 1,
+        "at": 1800000660.0,
+        "burn_pct_worker_min": {
+          "week": 0.045454545454545456
+        },
+        "changed": true,
+        "held": true,
+        "notified": false,
+        "notify": false,
+        "over": true,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:11:00+00:00"
+          ]
+        ],
+        "state_since": 1800000660.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000660.0,
+              "minutes": 0.0,
+              "used": 26.0
+            },
+            "as_of": "2027-01-15T08:11:00+00:00",
+            "burn_pct_h": 5.454545454545454,
+            "horizon_h": 143.81666666666666,
+            "projected_pct": 180.62026188835284,
+            "quota_ceiling": 85.0,
+            "reset_h": 143.81666666666666,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ],
+              [
+                1800000060.0,
+                25.0
+              ],
+              [
+                1800000660.0,
+                26.0
+              ]
+            ],
+            "used_pct": 26.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": 20.0,
+        "workers": 2
+      }
+    },
+    "gate_controls": {
+      "codex": {
+        "allowed_workers": 1,
+        "at": 1800000660.0,
+        "burn_pct_worker_min": {
+          "week": 0.045454545454545456
+        },
+        "changed": true,
+        "held": true,
+        "notified": false,
+        "notify": false,
+        "over": true,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:11:00+00:00"
+          ]
+        ],
+        "state_since": 1800000660.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000660.0,
+              "minutes": 0.0,
+              "used": 26.0
+            },
+            "as_of": "2027-01-15T08:11:00+00:00",
+            "burn_pct_h": 5.454545454545454,
+            "horizon_h": 143.81666666666666,
+            "projected_pct": 180.62026188835284,
+            "quota_ceiling": 85.0,
+            "reset_h": 143.81666666666666,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ],
+              [
+                1800000060.0,
+                25.0
+              ],
+              [
+                1800000660.0,
+                26.0
+              ]
+            ],
+            "used_pct": 26.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": 20.0,
+        "workers": 2
+      }
+    }
+  },
+  {
+    "at": 1800000720.0,
+    "before": {
+      "accounts": {
+        "codex": {
+          "allowed_workers": 1,
+          "at": 1800000660.0,
+          "burn_pct_worker_min": {
+            "week": 0.045454545454545456
+          },
+          "changed": true,
+          "held": true,
+          "notified": false,
+          "notify": false,
+          "over": true,
+          "sample": [
+            [
+              "week",
+              "2027-01-15T08:11:00+00:00"
+            ]
+          ],
+          "state_since": 1800000660.0,
+          "target": null,
+          "windows": [
+            {
+              "age_s": 0.0,
+              "anchor": {
+                "at": 1800000660.0,
+                "minutes": 0.0,
+                "used": 26.0
+              },
+              "as_of": "2027-01-15T08:11:00+00:00",
+              "burn_pct_h": 5.454545454545454,
+              "horizon_h": 143.81666666666666,
+              "projected_pct": 180.62026188835284,
+              "quota_ceiling": 85.0,
+              "reset_h": 143.81666666666666,
+              "resets_at": "2027-01-21T08:00:00+00:00",
+              "trail": [
+                [
+                  1800000000.0,
+                  25.0
+                ],
+                [
+                  1800000060.0,
+                  25.0
+                ],
+                [
+                  1800000660.0,
+                  26.0
+                ]
+              ],
+              "used_pct": 26.0,
+              "window": "week"
+            }
+          ],
+          "worker_minutes": 20.0,
+          "workers": 2
+        }
+      },
+      "providers": {
+        "codex": {
+          "elapsed_s": 2,
+          "code": 0,
+          "throttled": false,
+          "interval_s": 60.0,
+          "next_at": 1800000720.0
+        }
+      },
+      "grants": [],
+      "history": [
+        {
+          "ts": "2027-01-15T08:00:00+00:00",
+          "provider": "codex",
+          "account": "recorded",
+          "kind": "window",
+          "name": "week",
+          "used_pct": 25,
+          "window_min": 10080,
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "source": "sanitized usage replay"
+        },
+        {
+          "ts": "2027-01-15T08:01:00+00:00",
+          "provider": "codex",
+          "account": "recorded",
+          "kind": "window",
+          "name": "week",
+          "used_pct": 25,
+          "window_min": 10080,
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "source": "sanitized usage replay"
+        },
+        {
+          "ts": "2027-01-15T08:11:00+00:00",
+          "provider": "codex",
+          "account": "recorded",
+          "kind": "window",
+          "name": "week",
+          "used_pct": 26,
+          "window_min": 10080,
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "source": "sanitized usage replay"
+        }
+      ]
+    },
+    "nodes": [
+      {
+        "name": "lead",
+        "conversation": "parent",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "worker",
+        "conversation": "child",
+        "provider": "codex",
+        "status": "working",
+        "parent": "lead"
+      }
+    ],
+    "windows": {
+      "codex": [
+        {
+          "window": "week",
+          "used_pct": 98.0,
+          "quota_ceiling": 85.0,
+          "burn_pct_h": 365,
+          "reset_h": 143.8,
+          "age_s": 0.0,
+          "as_of": "2027-01-15T08:12:00+00:00",
+          "resets_at": "2027-01-21T08:00:00+00:00",
+          "projected_pct": 52585.00000000001
+        }
+      ]
+    },
+    "accounts": {
+      "codex": {
+        "allowed_workers": 1,
+        "at": 1800000720.0,
+        "burn_pct_worker_min": {
+          "week": 0.045454545454545456
+        },
+        "changed": false,
+        "held": true,
+        "notified": false,
+        "notify": false,
+        "over": true,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:12:00+00:00"
+          ]
+        ],
+        "state_since": 1800000660.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000660.0,
+              "minutes": 2.0,
+              "used": 26.0
+            },
+            "as_of": "2027-01-15T08:12:00+00:00",
+            "burn_pct_h": 5.454545454545454,
+            "horizon_h": 143.8,
+            "projected_pct": 680.3305785123968,
+            "quota_ceiling": 85.0,
+            "reset_h": 143.8,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ],
+              [
+                1800000060.0,
+                25.0
+              ],
+              [
+                1800000660.0,
+                26.0
+              ],
+              [
+                1800000720.0,
+                98.0
+              ]
+            ],
+            "used_pct": 98.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": 2.0,
+        "workers": 2
+      }
+    },
+    "gate_controls": {
+      "codex": {
+        "allowed_workers": 1,
+        "at": 1800000720.0,
+        "burn_pct_worker_min": {
+          "week": 0.045454545454545456
+        },
+        "changed": false,
+        "held": true,
+        "notified": false,
+        "notify": false,
+        "over": true,
+        "sample": [
+          [
+            "week",
+            "2027-01-15T08:12:00+00:00"
+          ]
+        ],
+        "state_since": 1800000660.0,
+        "target": null,
+        "windows": [
+          {
+            "age_s": 0.0,
+            "anchor": {
+              "at": 1800000660.0,
+              "minutes": 2.0,
+              "used": 26.0
+            },
+            "as_of": "2027-01-15T08:12:00+00:00",
+            "burn_pct_h": 5.454545454545454,
+            "horizon_h": 143.8,
+            "projected_pct": 680.3305785123968,
+            "quota_ceiling": 85.0,
+            "reset_h": 143.8,
+            "resets_at": "2027-01-21T08:00:00+00:00",
+            "trail": [
+              [
+                1800000000.0,
+                25.0
+              ],
+              [
+                1800000060.0,
+                25.0
+              ],
+              [
+                1800000660.0,
+                26.0
+              ],
+              [
+                1800000720.0,
+                98.0
+              ]
+            ],
+            "used_pct": 98.0,
+            "window": "week"
+          }
+        ],
+        "worker_minutes": 2.0,
+        "workers": 2
+      }
+    }
+  }
+]

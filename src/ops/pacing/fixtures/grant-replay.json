@@ -1,0 +1,1343 @@
+[
+  {
+    "op": "grant",
+    "request": {
+      "account": "codex",
+      "maximum": 3,
+      "until": "2027-01-15T09:00:00+00:00",
+      "lead": "parent",
+      "reason": "recorded grant replay",
+      "task": "review",
+      "uses": 2
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {},
+    "gate": {},
+    "result": {
+      "account": "codex",
+      "lead": "parent",
+      "session": "session",
+      "max_workers": 3,
+      "until": 1800003600.0,
+      "until_utc": "2027-01-15T09:00:00+00:00",
+      "reason": "recorded grant replay",
+      "authority": "proxy",
+      "at": 1800000000.0,
+      "granted_by": "replay-operator",
+      "task": "review",
+      "uses": 2
+    },
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "grant_for",
+    "request": {
+      "account": "codex",
+      "session": "session",
+      "task": "other"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "grant_for",
+    "request": {
+      "account": "codex",
+      "session": "session",
+      "task": "review"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2
+        }
+      ]
+    },
+    "gate": {},
+    "result": {
+      "account": "codex",
+      "lead": "parent",
+      "session": "session",
+      "max_workers": 3,
+      "until": 1800003600.0,
+      "until_utc": "2027-01-15T09:00:00+00:00",
+      "reason": "recorded grant replay",
+      "authority": "proxy",
+      "at": 1800000000.0,
+      "granted_by": "replay-operator",
+      "task": "review",
+      "uses": 2
+    },
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "reserve",
+    "request": {
+      "provider": "codex",
+      "account": "codex",
+      "session": "session",
+      "task": "review",
+      "tool_use_id": "first"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "reserve",
+    "request": {
+      "provider": "codex",
+      "account": "codex",
+      "session": "session",
+      "task": "review",
+      "tool_use_id": "second"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            },
+            {
+              "at": 1800000000.0,
+              "id": "second"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "reserve",
+    "request": {
+      "provider": "codex",
+      "account": "codex",
+      "session": "session",
+      "task": "review",
+      "tool_use_id": "third"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            },
+            {
+              "at": 1800000000.0,
+              "id": "second"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": "Hold: proxy grant for parent has all remaining uses reserved.",
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            },
+            {
+              "at": 1800000000.0,
+              "id": "second"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "confirm",
+    "request": {
+      "session": "session",
+      "tool_use_id": "second",
+      "launched": false
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            },
+            {
+              "at": 1800000000.0,
+              "id": "second"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "reserve",
+    "request": {
+      "provider": "codex",
+      "account": "codex",
+      "session": "session",
+      "task": "review",
+      "tool_use_id": "third"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "confirm",
+    "request": {
+      "session": "session",
+      "tool_use_id": "first"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 2,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first"
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 1,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "confirm",
+    "request": {
+      "session": "session",
+      "tool_use_id": "first"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 1,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 1,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "reserve",
+    "request": {
+      "provider": "codex",
+      "account": "codex",
+      "session": "session",
+      "task": "review",
+      "tool_use_id": "fourth"
+    },
+    "at": 1800000020.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "child",
+        "conversation": "child-thread",
+        "parent": "parent",
+        "provider": "codex",
+        "status": "working"
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 1,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": "Hold: proxy grant for parent has all remaining uses reserved.",
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 1,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "confirm",
+    "request": {
+      "session": "session",
+      "tool_use_id": "third"
+    },
+    "at": 1800000051.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "child",
+        "conversation": "child-thread",
+        "parent": "parent",
+        "provider": "codex",
+        "status": "working"
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 1,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third"
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 0,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third",
+              "confirmed": true
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "grant_for",
+    "request": {
+      "account": "codex",
+      "session": "session",
+      "task": "review"
+    },
+    "at": 1800000051.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "child",
+        "conversation": "child-thread",
+        "parent": "parent",
+        "provider": "codex",
+        "status": "working"
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 0,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third",
+              "confirmed": true
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 0,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third",
+              "confirmed": true
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "reserve",
+    "request": {
+      "provider": "codex",
+      "account": "codex",
+      "session": "session",
+      "task": "review",
+      "tool_use_id": "spent"
+    },
+    "at": 1800000051.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "child",
+        "conversation": "child-thread",
+        "parent": "parent",
+        "provider": "codex",
+        "status": "working"
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 0,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third",
+              "confirmed": true
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": "Hold: codex pace controller has no account reading.",
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 0,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third",
+              "confirmed": true
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "grant_for",
+    "request": {
+      "account": "codex",
+      "session": "session",
+      "task": "review"
+    },
+    "at": 1800003651.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      },
+      {
+        "name": "child",
+        "conversation": "child-thread",
+        "parent": "parent",
+        "provider": "codex",
+        "status": "working"
+      }
+    ],
+    "before": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 0,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third",
+              "confirmed": true
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "gate": {},
+    "result": null,
+    "after": {
+      "accounts": {},
+      "providers": {},
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "max_workers": 3,
+          "until": 1800003600.0,
+          "until_utc": "2027-01-15T09:00:00+00:00",
+          "reason": "recorded grant replay",
+          "authority": "proxy",
+          "at": 1800000000.0,
+          "granted_by": "replay-operator",
+          "task": "review",
+          "uses": 0,
+          "pending": [
+            {
+              "at": 1800000000.0,
+              "id": "first",
+              "confirmed": true
+            },
+            {
+              "at": 1800000000.0,
+              "id": "third",
+              "confirmed": true
+            }
+          ],
+          "live": []
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "reserve_after_lock",
+    "request": {
+      "provider": "codex",
+      "account": "codex",
+      "session": "session",
+      "task": "review",
+      "tool_use_id": "expired-while-waiting"
+    },
+    "at": 1800000000.0,
+    "after_lock_at": 1800000002.0,
+    "nodes": [
+      {
+        "name": "parent",
+        "conversation": "session",
+        "provider": "codex",
+        "status": "working",
+        "parent": null
+      }
+    ],
+    "before": {
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "until": 1800000001.0,
+          "at": 1800000000.0,
+          "uses": 1,
+          "task": "review",
+          "max_workers": 2,
+          "authority": "proxy"
+        }
+      ]
+    },
+    "gate": {},
+    "result": "Hold: codex pace controller has no account reading.",
+    "after": {
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "parent",
+          "session": "session",
+          "until": 1800000001.0,
+          "at": 1800000000.0,
+          "uses": 1,
+          "task": "review",
+          "max_workers": 2,
+          "authority": "proxy"
+        }
+      ]
+    },
+    "after_gate": {}
+  },
+  {
+    "op": "expired",
+    "request": {
+      "account": "codex",
+      "session": "parent",
+      "task": "review",
+      "reason": "Hold: expired grant"
+    },
+    "at": 1800000000.0,
+    "nodes": [
+      {
+        "name": "pace-port-expired-notice-fixture",
+        "conversation": "parent",
+        "provider": "codex"
+      }
+    ],
+    "before": {
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "pace-port-expired-notice-fixture",
+          "session": "parent",
+          "at": 1799999900.0,
+          "until": 1799999999.0,
+          "task": "review",
+          "uses": 1,
+          "authority": "proxy"
+        }
+      ]
+    },
+    "gate": {},
+    "before_audit": [
+      {
+        "event": "grant-expired-holding",
+        "key": "[\"codex\", \"pace-port-expired-notice-fixture\", \"parent\", 1799999900.0, 1799999999.0, \"review\"]"
+      }
+    ],
+    "result": null,
+    "after": {
+      "grants": [
+        {
+          "account": "codex",
+          "lead": "pace-port-expired-notice-fixture",
+          "session": "parent",
+          "at": 1799999900.0,
+          "until": 1799999999.0,
+          "task": "review",
+          "uses": 1,
+          "authority": "proxy"
+        }
+      ]
+    },
+    "after_gate": {},
+    "after_audit": [
+      {
+        "event": "grant-expired-holding",
+        "key": "[\"codex\", \"pace-port-expired-notice-fixture\", \"parent\", 1799999900.0, 1799999999.0, \"review\"]"
+      }
+    ]
+  }
+]

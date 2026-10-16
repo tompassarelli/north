@@ -18,7 +18,7 @@ unit = "weekly usage percentage points per hour below target burn before placeme
 source = "prior: half a point per hour avoids moving a native spawn for small burn differences"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay placement against observed account burn" }
 fallback = "without measured target and smoothed burn, keep the spawner account first"
-consumers = ["harness/lib/placement.py"]
+consumers = ["src/pace/limits.rs"]
 
 [reservation_fallback_points]
 value = 1.0
@@ -530,7 +530,7 @@ unit = "seconds an unconfirmed spawn reserves a proxy grant slot"
 source = "prior: release downstream hook refusals within seconds while serial spawn hooks complete"
 settles_when = { need = 20, count = "count_worker_runs", what = "20 paired reserve-to-confirm samples needed to calibrate spawn reservation expiry; worker runs are the nearest existing count until paired samples are counted" }
 fallback = "live worker measurements retain started spawns after the reservation expires"
-consumers = ["harness/lib/pace_sampler.py"]
+consumers = ["src/pace/limits.rs"]
 
 [grant_reservation_hold_s]
 value = 30
@@ -538,4 +538,4 @@ unit = "seconds an unconfirmed proxy grant reservation holds a use"
 source = "prior: pace-control.jsonl has 377 legacy admissions without confirmation timestamps; no paired reserve-to-confirm samples, so use the 30 second floor"
 settles_when = { need = 20, count = "count_worker_runs", what = "20 paired reserve-to-confirm samples needed to calibrate the reservation hold; worker runs are the nearest existing count until paired samples are counted" }
 fallback = "late confirmations still charge once and emit grant-late-confirm"
-consumers = ["harness/lib/pace_sampler.py"]
+consumers = ["src/pace/limits.rs"]

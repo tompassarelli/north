@@ -27,7 +27,7 @@ plan() {
   if [ "${1:-}" = "--place" ] || [ "${1:-}" = "--credit" ]; then
     local verb="${1#--}"
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/placement.py" "$verb" "$@"
+    exec "${NORTH_PACE_BIN:-north}" pace place "$verb" "$@"
   fi
   for arg in "$@"; do
     if [ "$arg" = "--quote" ]; then
@@ -313,7 +313,7 @@ case "${1:-}" in
     ;;
   pace)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/pace_sampler.py" "$@"
+    exec "${NORTH_PACE_BIN:-north}" pace sample "$@"
     ;;
   presence)
     shift

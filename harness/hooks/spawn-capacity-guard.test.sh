@@ -13,7 +13,7 @@
 # spawn reads its account label, the account it bills.
 set -uo pipefail
 if [ "${1:-}" != --isolated ]; then
-  exec env -i PATH="$PATH" bash "$0" --isolated
+  exec env -i PATH="$PATH" NORTH_PACE_BIN="${NORTH_PACE_BIN:-north}" bash "$0" --isolated
 fi
 export PATH="/etc/codex/hooks/runtime:$PATH"
 
@@ -24,8 +24,8 @@ trap 'rm -rf "${SCRATCH:?}"' EXIT
 export HOME="$SCRATCH/home" XDG_STATE_HOME="$SCRATCH/home/.local/state" XDG_RUNTIME_DIR="$SCRATCH/run"
 export XDG_CONFIG_HOME="$SCRATCH/home/.config" XDG_DATA_HOME="$SCRATCH/home/.local/share"
 export CODEX_HOME="$SCRATCH/home/.codex" AGENTS_OPERATOR_DIR="$SCRATCH"
-export TZ=UTC PYTHONPATH="$SCRATCH/clock"
-mkdir -p "$PYTHONPATH" "$XDG_RUNTIME_DIR" "$SCRATCH/offline-bin"
+export TZ=UTC
+mkdir -p "$XDG_RUNTIME_DIR" "$SCRATCH/offline-bin"
 mkdir -p "$SCRATCH/bin"
 cat >"$SCRATCH/bin/north" <<'SH'
 #!/usr/bin/env bash
@@ -35,35 +35,6 @@ SH
 chmod +x "$SCRATCH/bin/north"
 export NORTH_BIN="$SCRATCH/bin/north" FLEET_JSON="$SCRATCH/fleet.json"
 printf '[]\n' >"$FLEET_JSON"
-cat >"$PYTHONPATH/sitecustomize.py" <<'PYCLOCK'
-import datetime
-import time
-
-NOW = 1791892800
-time.time = lambda: NOW
-time.time_ns = lambda: NOW * 1000000000
-gmtime, localtime, strftime = time.gmtime, time.localtime, time.strftime
-time.gmtime = lambda seconds=None: gmtime(NOW if seconds is None else seconds)
-time.localtime = lambda seconds=None: localtime(NOW if seconds is None else seconds)
-time.strftime = lambda fmt, stamp=None: strftime(fmt, time.localtime() if stamp is None else stamp)
-
-class ClockDatetime(datetime.datetime):
-    @classmethod
-    def now(cls, tz=None):
-        return cls.fromtimestamp(NOW, tz)
-
-    @classmethod
-    def utcnow(cls):
-        return cls.fromtimestamp(NOW, datetime.timezone.utc).replace(tzinfo=None)
-
-class ClockDate(datetime.date):
-    @classmethod
-    def today(cls):
-        return cls.fromtimestamp(NOW)
-
-datetime.datetime = ClockDatetime
-datetime.date = ClockDate
-PYCLOCK
 cat >"$SCRATCH/offline-bin/agents" <<'SH'
 #!/usr/bin/env bash
 exit 1
@@ -73,7 +44,6 @@ ln -s agents "$SCRATCH/offline-bin/claude"
 ln -s agents "$SCRATCH/offline-bin/ssh"
 ln -s "$HERE/.." "$SCRATCH/harness"
 export PATH="$SCRATCH/offline-bin:$PATH"
-date() { command date -d @1791892800 "$@"; }
 export AGENT_HOOK_ERRORS="$SCRATCH/errors.tsv"
 ACTIVATION="$SCRATCH/activation.active"
 STATUS="$SCRATCH/probe.json"
@@ -438,7 +408,7 @@ import sqlite3, sys
 from datetime import datetime, timedelta, timezone
 sys.path.insert(0, sys.argv[1])
 import usage
-import pace_control
+import json, os, subprocess
 now = datetime.now(timezone.utc)
 rows = []
 for account, used in (("a", float(sys.argv[3])), ("b", 40)):
@@ -453,7 +423,7 @@ with sqlite3.connect(sys.argv[2]) as db:
     usage.record(db, rows)
     verdicts = usage.write_gate(db, ["claude"])
     verdict = verdicts["claude"]
-    verdict["controls"] = {account: pace_control.advance({}, windows, 32, now.timestamp(), initial=64)
+    verdict["controls"] = {account: json.loads(subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace"], input=json.dumps(dict(op="advance", previous={}, windows=windows, workers=32, at=now.timestamp(), initial=64, margin=10, target=None)), capture_output=True, text=True, check=True).stdout)
                            for account, windows in verdict["projections"].items()}
     usage.gate_path().write_text(__import__("json").dumps(verdicts))
 PYMETER

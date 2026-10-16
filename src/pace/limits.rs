@@ -8,7 +8,7 @@ static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| {
         .expect("harness/defaults.toml parses")
 });
 
-fn default(name: &str) -> f64 {
+pub(crate) fn default(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
     value
         .as_float()
@@ -34,4 +34,14 @@ pub(super) fn state_dwell_seconds() -> f64 {
 
 pub(super) fn burn_window_seconds() -> f64 {
     default("pace_burn_window_min") * 60.0
+}
+
+pub(crate) fn reservation_ttl_seconds() -> f64 {
+    default("spawn_reservation_ttl_s")
+}
+pub(crate) fn grant_hold_seconds() -> f64 {
+    default("grant_reservation_hold_s")
+}
+pub(crate) fn placement_drain_margin() -> f64 {
+    default("placement_drain_margin")
 }
