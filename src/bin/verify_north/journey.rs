@@ -46,7 +46,15 @@ pub struct Plan {
     pub codex_account: String,
 }
 
+pub const NO_ACCOUNT: &str = "none";
+
+const CODEX_STEP: &str = "5";
+
 impl Plan {
+    fn skips(&self, number: &str) -> bool {
+        number == CODEX_STEP && self.codex_account == NO_ACCOUNT
+    }
+
     fn session(&self, provider: &str) -> String {
         format!("vn-{}-{provider}", self.stamp)
     }
@@ -67,6 +75,10 @@ struct FormPresses {
 pub fn walk(north: North, notes: Notes, plan: Plan) -> Option<&'static str> {
     let mut journey = Journey { north, notes, plan, terminal: None };
     for (index, (number, title, step)) in STEPS.iter().enumerate() {
+        if journey.plan.skips(number) {
+            report::skipped(number, title);
+            continue;
+        }
         let started = Instant::now();
         let outcome = step(&mut journey);
         report::step(number, title, &outcome, started.elapsed());

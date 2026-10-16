@@ -21,7 +21,7 @@ use notes::{Note, Notes};
 const USAGE: &str = "usage: verify-north [--north PATH] [--claude-account A] [--codex-account A]
 Builds north from the checkout around the current directory, or uses --north PATH (a bare name is
 looked up on PATH), then drives the fleet TUI and CLI end to end and cleans up. Exits nonzero on
-any failure. Defaults: --claude-account c, --codex-account pooled.";
+any failure. Defaults: --claude-account c, --codex-account none (skips the codex step).";
 
 struct Options {
     north: Option<String>,
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
 }
 
 fn parse(arguments: &[String]) -> Result<Options, String> {
-    let mut options = Options { north: None, claude_account: "c".into(), codex_account: "pooled".into() };
+    let mut options = Options { north: None, claude_account: "c".into(), codex_account: journey::NO_ACCOUNT.into() };
     let mut words = arguments.iter();
     while let Some(flag) = words.next() {
         let value = words.next().ok_or_else(|| format!("{flag} needs a value"))?.clone();
