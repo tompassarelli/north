@@ -177,6 +177,21 @@ fn place_resident(cfg: &DocumentMut, probe: &Value, name: &str) -> Option<Result
         format!("{name} offline")
     }))
 }
+fn skipped_target(name: &str, code_only: bool, native: bool) -> bool {
+    let cloud = ["anthropic-cloud", "codex-cloud"].contains(&name);
+    cloud && !code_only || native && name != "laptop"
+}
+fn held_placement(laptop_why: Option<String>, why: Vec<String>) -> Placed {
+    (
+        format!(
+            "held: {}",
+            laptop_why
+                .or_else(|| why.first().cloned())
+                .unwrap_or_else(|| "no target in [placement] order".into())
+        ),
+        why.join("; "),
+    )
+}
 fn place(
     text: &str,
     cfg: &DocumentMut,
@@ -195,8 +210,7 @@ fn place(
     let mut why = Vec::new();
     let mut laptop_why = None;
     for name in strings(rules.and_then(|p| p.get("order"))) {
-        let cloud = ["anthropic-cloud", "codex-cloud"].contains(&name.as_str());
-        if cloud && !code_only || native && name != "laptop" {
+        if skipped_target(&name, code_only, native) {
             continue;
         }
         let attempt = match name.as_str() {
@@ -211,15 +225,7 @@ fn place(
             None => {}
         }
     }
-    (
-        format!(
-            "held: {}",
-            laptop_why
-                .or_else(|| why.first().cloned())
-                .unwrap_or_else(|| "no target in [placement] order".into())
-        ),
-        why.join("; "),
-    )
+    held_placement(laptop_why, why)
 }
 fn release(reason: &str, control: &Value, at: f64) -> Vec<f64> {
     match reason {
