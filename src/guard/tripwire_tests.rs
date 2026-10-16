@@ -198,14 +198,24 @@ fn ported_cases_match_the_shell_guard() {
         .unwrap();
     let root = directory.path().display().to_string();
     sandbox(&root);
+    let unclassified = tempfile::Builder::new()
+        .prefix("tripwire-unclassified.")
+        .tempdir_in("/dev/shm")
+        .unwrap();
     let mut failures = Vec::new();
     let mut count = 0;
     for line in CASES.lines() {
-        let case: Value = serde_json::from_str(line).unwrap();
+        let case: Value = serde_json::from_str(
+            &line.replace("@UNCLASSIFIED@", &unclassified.path().display().to_string()),
+        )
+        .unwrap();
         let (want, got) = (expected(&root, &case), verdict(&root, &case, false));
         let codex = verdict(&root, &case, true);
         if got != codex {
-            failures.push(format!("{}: bash {got:?} exec_command {codex:?}", case["desc"]));
+            failures.push(format!(
+                "{}: bash {got:?} exec_command {codex:?}",
+                case["desc"]
+            ));
         }
         count += 1;
         if want != got {
