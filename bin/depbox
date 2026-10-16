@@ -35,9 +35,9 @@ args=(
   --proc /proc
   --tmpfs /tmp
   --tmpfs "/run/user/$uid"
-  --tmpfs /run/secrets.d
   --tmpfs "$home"
 )
+if [ -d /run/secrets.d ]; then args+=(--tmpfs /run/secrets.d); fi
 if [ "$HOME" != "$home" ]; then args+=(--tmpfs "$HOME"); fi
 
 for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix; do

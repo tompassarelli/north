@@ -7,7 +7,13 @@ fn target(depbox: &Path, checkout: &Path) -> String {
     fs::write(checkout.join("Cargo.toml"), "[package]\nname = \"isolation-fixture\"\nversion = \"0.0.0\"\nedition = \"2024\"\n").unwrap();
     fs::write(checkout.join("src/main.rs"), "fn main() {}\n").unwrap();
     assert!(Command::new("git").args(["init", "-q"]).current_dir(checkout).status().unwrap().success());
-    let output = Command::new(depbox)
+    let mut command = Command::new("bwrap");
+    command.args(["--bind", "/", "/", "--dev", "/dev", "--tmpfs", "/run", "--dir"])
+        .arg(format!("/run/user/{}", rustix::process::getuid().as_raw()));
+    if Path::new("/run/current-system").exists() {
+        command.args(["--ro-bind", "/run/current-system", "/run/current-system"]);
+    }
+    let output = command.arg("--").arg(depbox)
         .args(["run", "--", "cargo", "metadata", "--offline", "--no-deps", "--format-version", "1"])
         .current_dir(checkout)
         .env("CARGO_TARGET_DIR", Path::new(&std::env::var_os("HOME").unwrap()).join(".cache/cargo-target/north"))
