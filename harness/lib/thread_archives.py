@@ -78,7 +78,7 @@ def session_item(payload):
         return None
     session = event.get("session_id")
     node = next((n for n in nodes if session and n.get("conversation") == session and n.get("status") != "exited"), None)
-    match = re.fullmatch(r"(?:tompassarelli/)?([\w.-]+)#(\d+)", node.get("task_ref", "")) if node else None
+    match = re.fullmatch(r"(?:tompassarelli/)?([\w.-]+)#(\d+)", node.get("task_ref") or "") if node else None
     return (ALIASES.get(match[1], match[1]), int(match[2]), event.get("cwd")) if match else None
 
 
