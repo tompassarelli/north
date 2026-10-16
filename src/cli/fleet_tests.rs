@@ -182,6 +182,31 @@ fn a_child_delivers_each_finished_turn_in_order_while_its_parent_is_busy() {
 }
 
 #[test]
+fn background_progress_and_empty_turns_stay_in_the_ledger_while_reports_reach_the_parent() {
+    let root = tempfile::tempdir().unwrap();
+    let session = root.path().join("kid");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = json!({
+        "name": "kid", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0,
+        "host_pid": null, "conversation": "s", "host_dir": session, "parent": "boss"
+    });
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let sink = Arc::new(Recorded::default());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session);
+    for frame in include_str!("../fixtures/claude-stream/wake-receipts.jsonl").lines() {
+        watch.line(frame.as_bytes());
+    }
+    assert_eq!(sink.0.lock().unwrap().len(), 8);
+    let posted = sink.1.lock().unwrap();
+    assert_eq!(*posted, [
+        ("boss".into(), "[from kid · turn 4 · exit completed] Landed abc1234".into(), Delivery::Queued),
+        ("boss".into(), "[from kid · turn 5 · exit completed] Which target?".into(), Delivery::Queued),
+        ("boss".into(), "[from kid · turn 6 · exit completed] Still waiting on the final monitor".into(), Delivery::Queued),
+        ("boss".into(), "[from kid · turn 7 · exit completed] Done: all monitors finished".into(), Delivery::Queued),
+    ]);
+}
+
+#[test]
 fn a_codex_question_opens_a_gate_for_its_session_and_unblocks_the_turn() {
     let root = tempfile::tempdir().unwrap();
     let host = root.path().join(".hosts/codex-pooled");

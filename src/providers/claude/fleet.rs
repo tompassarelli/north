@@ -6,11 +6,11 @@ use serde_json::Value;
 use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
-use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
+use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 use crate::providers::install;
 
-use super::accounts;
+use super::{accounts, turns};
 
 const PROVIDER: &str = "claude";
 const TOOL_RESULT_CHARS: usize = 400;
@@ -111,7 +111,7 @@ impl Runtime for Claude {
     }
 
     fn signals(&self, frame: &Value) -> Vec<TurnSignal> {
-        turn_signals(frame)
+        turns::signals(frame)
     }
 
     fn frame_conversation<'a>(&self, frame: &'a Value) -> Option<&'a str> {
@@ -214,81 +214,9 @@ fn observe_result(frame: &Value, transcript: &mut Transcript) {
     push(transcript, EntryKind::TurnEnd, label);
 }
 
-fn turn_signals(frame: &Value) -> Vec<TurnSignal> {
-    let Some(conversation) = frame["session_id"].as_str().map(str::to_owned) else { return Vec::new() };
-    match frame["type"].as_str() {
-        Some("system") if frame["subtype"] == "init" => {
-            vec![TurnSignal::Opened { conversation, model: frame["model"].as_str().map(str::to_owned), effort: None }]
-        }
-        Some("user") if has_user_message(frame) => {
-            vec![TurnSignal::Started { conversation: conversation.clone() }, TurnSignal::Prompt { conversation, text: replay_text(frame) }]
-        }
-        Some("assistant") if frame["parent_tool_use_id"].is_null() => {
-            let call = call_signal(frame, &conversation);
-            [Some(TurnSignal::Started { conversation }), call].into_iter().flatten().collect()
-        }
-        Some("system") if frame["subtype"] == "task_started" => task_signal(frame, |task| TurnSignal::TaskStarted { conversation, task }),
-        Some("system") if frame["subtype"] == "task_notification" => task_signal(frame, |task| TurnSignal::TaskEnded { conversation, task }),
-        Some("result") => vec![TurnSignal::Ended { conversation, exit: result_exit(frame), totals: result_totals(frame) }],
-        _ => Vec::new(),
-    }
-}
-
-fn call_signal(frame: &Value, conversation: &str) -> Option<TurnSignal> {
-    let message = &frame["message"];
-    let usage = &message["usage"];
-    let count = |key: &str| usage[key].as_u64().unwrap_or(0);
-    let tokens = Tokens { input: count("input_tokens"), output: count("output_tokens"), cache_read: count("cache_read_input_tokens"), cache_write: count("cache_creation_input_tokens") };
-    Some(TurnSignal::Call { conversation: conversation.to_owned(), call: message["id"].as_str()?.to_owned(), tokens }).filter(|_| usage.is_object())
-}
-
-fn has_user_message(frame: &Value) -> bool {
-    match &frame["message"]["content"] {
-        Value::String(_) => true,
-        Value::Array(blocks) => blocks.iter().any(|block| block["type"] != "tool_result"),
-        _ => false,
-    }
-}
-
-fn task_signal(frame: &Value, signal: impl FnOnce(String) -> TurnSignal) -> Vec<TurnSignal> {
-    frame["task_id"].as_str().map(|task| signal(task.to_owned())).into_iter().collect()
-}
-
 fn resumes_after_result(frame: &Value, transcript: &Transcript) -> bool {
     let ended = transcript.status == Status::Idle && transcript.entries.last().is_some_and(|entry| entry.kind == EntryKind::TurnEnd);
     ended && frame["type"] == "assistant" && frame["parent_tool_use_id"].is_null()
-}
-
-fn replay_text(frame: &Value) -> String {
-    let content = &frame["message"]["content"];
-    match content.as_str() {
-        Some(text) => text.to_owned(),
-        None => content.as_array().into_iter().flatten().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join("\n"),
-    }
-}
-
-fn result_exit(frame: &Value) -> TurnExit {
-    let aborted = frame["terminal_reason"].as_str().is_some_and(|reason| reason.starts_with("aborted"));
-    match (aborted, frame["is_error"] == true) {
-        (true, _) => TurnExit::Interrupted,
-        (false, true) => TurnExit::Failed,
-        (false, false) => TurnExit::Completed,
-    }
-}
-
-fn result_totals(frame: &Value) -> TurnTotals {
-    let usage = &frame["usage"];
-    let count = |key: &str| usage[key].as_u64().unwrap_or(0);
-    TurnTotals {
-        tokens: usage.is_object().then(|| Tokens {
-            input: count("input_tokens"),
-            output: count("output_tokens"),
-            cache_read: count("cache_read_input_tokens"),
-            cache_write: count("cache_creation_input_tokens"),
-        }),
-        turns: frame["num_turns"].as_u64(),
-        wall_ms: frame["duration_ms"].as_u64(),
-    }
 }
 
 fn push(transcript: &mut Transcript, kind: EntryKind, text: String) {
@@ -320,6 +248,7 @@ mod turn_state {
     use serde_json::json;
 
     use super::*;
+    use crate::fleet::turns::{Tokens, TurnExit, TurnTotals};
 
     #[test]
     fn command_shaped_message_text_reaches_claude_verbatim() {

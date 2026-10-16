@@ -1,0 +1,27 @@
+{"type":"user","isReplay":true,"session_id":"s","message":{"content":"Start the monitors"}}
+{"type":"system","subtype":"task_started","session_id":"s","task_id":"first"}
+{"type":"system","subtype":"task_started","session_id":"s","task_id":"second"}
+{"type":"system","subtype":"task_started","session_id":"s","task_id":"last"}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}
+{"type":"system","subtype":"task_notification","session_id":"s","task_id":"first","status":"completed"}
+{"type":"user","isReplay":true,"session_id":"s","origin":{"kind":"task-notification","producer":"session-task"},"message":{"content":"<task-notification>\n<task-id>first</task-id>\n<summary>Monitor event: still waiting</summary>\n</task-notification>"}}
+{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"Still waiting, 1200000 ms left"}]}}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}
+{"type":"system","subtype":"task_notification","session_id":"s","task_id":"second","status":"completed"}
+{"type":"user","isReplay":true,"session_id":"s","origin":{"kind":"task-notification","producer":"session-task"},"message":{"content":"<task-notification>\n<task-id>second</task-id>\n<summary>Monitor event: dependency gate</summary>\n</task-notification>"}}
+{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"safe-push is at the dependency gate"}]}}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}
+{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"Landed abc1234"}]}}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}
+{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"Which target?"}]}}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}
+{"type":"user","isReplay":true,"session_id":"s","message":{"content":"Status please"}}
+{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"Still waiting on the final monitor"}]}}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}
+{"type":"system","subtype":"task_notification","session_id":"s","task_id":"last","status":"completed"}
+{"type":"user","isReplay":true,"session_id":"s","origin":{"kind":"task-notification","producer":"session-task"},"message":{"content":"<task-notification>\n<task-id>last</task-id>\n<status>completed</status>\n</task-notification>"}}
+{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"Done: all monitors finished"}]}}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}
+{"type":"user","isReplay":true,"session_id":"s","message":{"content":"One empty turn"}}
+{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"   "}]}}
+{"type":"result","subtype":"success","session_id":"s","is_error":false}

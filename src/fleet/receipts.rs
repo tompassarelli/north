@@ -28,10 +28,16 @@ pub struct Report {
     pub exit: TurnExit,
     pub landed: Option<String>,
     pub reply: Option<String>,
+    pub background: bool,
+    pub idle: bool,
 }
 
 impl Report {
     pub fn notice(&self, lines: &[Entry]) -> Option<(String, Delivery)> {
+        let reply = self.reply.as_deref().unwrap_or_default().trim();
+        if reply.is_empty() || (self.exit == TurnExit::Completed && self.background && !self.idle && self.landed.is_none() && !reportable(reply)) {
+            return None;
+        }
         match self.exit {
             TurnExit::Completed => Some((self.receipt(), Delivery::Queued)),
             TurnExit::Failed => Some((format!("{} The turn failed. {}", self.header(), last_lines(lines)), Delivery::Now)),
@@ -49,7 +55,7 @@ impl Report {
     }
 
     fn receipt(&self) -> String {
-        let reply = self.reply.as_deref().map(str::trim).unwrap_or("(no reply text)");
+        let reply = self.reply.as_deref().map(str::trim).unwrap_or_default();
         match reply.char_indices().nth(REPORT_CHARS) {
             Some((cut, _)) => format!("{} {}…\n[report truncated; read it all with `north fleet show {}`]", self.header(), &reply[..cut], self.child),
             None => format!("{} {reply}", self.header()),
@@ -92,6 +98,12 @@ pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &Host
     Ok(claimed)
 }
 
+fn reportable(text: &str) -> bool {
+    text.contains('?') || text.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| {
+        (7..=40).contains(&word.len()) && word.bytes().all(|byte| byte.is_ascii_hexdigit()) && word.bytes().any(|byte| byte.is_ascii_alphabetic())
+    })
+}
+
 fn last_lines(lines: &[Entry]) -> String {
     let tail = &lines[lines.len().saturating_sub(LAST_LINES)..];
     let rendered: Vec<String> = tail.iter().map(|entry| format!("{}: {}", entry.kind.label(), summarize(&entry.text.replace('\n', " "), LINE_CHARS))).collect();
@@ -130,7 +142,7 @@ mod tests {
     }
 
     fn report(exit: TurnExit, reply: &str) -> Report {
-        Report { child: "kid".into(), turn: 3, exit, landed: Some("abc123".into()), reply: Some(reply.into()) }
+        Report { child: "kid".into(), turn: 3, exit, landed: Some("abc123".into()), reply: Some(reply.into()), background: false, idle: true }
     }
 
     fn lines(count: usize) -> Vec<Entry> {
@@ -163,7 +175,9 @@ mod tests {
     #[test]
     fn a_failed_turn_is_urgent_and_carries_the_last_five_transcript_lines() {
         let (book, inbox) = (Book::default(), Inbox::default());
-        deliver_report(&book, &inbox, "boss", &report(TurnExit::Failed, "ignored"), &lines(7), 1).unwrap();
+        let failed = Report { background: true, idle: false, ..report(TurnExit::Failed, "ignored") };
+        assert!(!deliver_report(&book, &inbox, "boss", &Report { reply: None, ..failed.clone() }, &lines(7), 0).unwrap());
+        deliver_report(&book, &inbox, "boss", &failed, &lines(7), 1).unwrap();
         let posted = inbox.0.into_inner().unwrap();
         assert_eq!(posted.len(), 1);
         let (_, text, delivery) = &posted[0];
