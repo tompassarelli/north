@@ -24,7 +24,11 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 
 fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>) -> NorthResult<()> {
     let caller = std::env::var(crate::fleet::runtime::SESSION_ENV).ok().filter(|name| !name.is_empty());
-    let closure = fleet.answer_gate(id.parse().map_err(|_| usage())?, number.parse().map_err(|_| usage())?, note, caller.as_deref())?;
+    let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number.parse().map_err(|_| usage())?, note, caller.as_deref());
+    let closure = match result {
+        Err(error @ NorthError::GateAnswered { .. }) => { println!("{}", error.user_message()); return Ok(()); }
+        result => result?,
+    };
     println!("gate {id} closed by {}: {}", closure.by.label(), closure.answer);
     Ok(())
 }
@@ -40,7 +44,7 @@ fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
 }
 
 fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
-    let mut request = GateRequest { session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0 };
+    let mut request = GateRequest { verification: false, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0 };
     for pair in flags.chunks(2) {
         let [flag, value] = pair else { return Err(usage()) };
         match *flag {
@@ -108,7 +112,7 @@ fn await_default(fleet: &Fleet, id: i64) -> NorthResult<()> {
         let now = now_ms();
         if due(&gate, now) {
             return match fleet.decide(id, Decision::Default) {
-                Err(NorthError::Rejected(_)) => Ok(()),
+                Err(NorthError::GateAnswered { .. }) => Ok(()),
                 outcome => outcome.map(drop),
             };
         }

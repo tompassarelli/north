@@ -6,7 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Modifier, Style};
 use tui_textarea::{TextArea, WrapMode};
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Decision;
 use crate::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, Transcript};
@@ -216,6 +216,9 @@ impl Screen {
                 self.fail(&error);
             }
             (Command::Send { .. }, Ok(())) => {}
+            (Command::Decide { .. }, Err(error @ NorthError::GateAnswered { .. })) => {
+                self.notice = Some(Notice::Info(error.user_message()));
+            }
             (Command::Decide { gate, .. }, Ok(())) => self.notice = Some(Notice::Info(format!("answered gate {gate}"))),
             (Command::Decide { decision: Decision::Text(text), .. }, Err(error)) => {
                 self.composer.insert_str(text);

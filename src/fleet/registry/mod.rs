@@ -90,7 +90,9 @@ impl Fleet {
         }
         let conversation = runtime.assign_conversation()?;
         fs::create_dir_all(&session_dir)?;
+        let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
         let mut record = SessionRecord {
+            verification,
             name: request.name.clone(),
             provider: request.provider.clone(),
             account: request.account.clone(),
@@ -188,7 +190,8 @@ impl Fleet {
 
     pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
         let asker = self.record(&request.session)?;
-        let id = gates::open(self.ledger.as_ref(), request, asker.parent.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))?;
+        let request = GateRequest { verification: asker.verification, ..request.clone() };
+        let id = gates::open(self.ledger.as_ref(), &request, asker.parent.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))?;
         parents::await_default(id)?;
         Ok(id)
     }
@@ -220,7 +223,7 @@ impl Fleet {
     }
 
     pub fn digest(&self, since_ms: u64) -> NorthResult<Digest> {
-        Ok(Digest { gates: self.ledger.gates(since_ms)?, spend: self.ledger.spend()?, landed: self.ledger.landed_since(since_ms)? })
+        Ok(Digest { gates: gates::decisions(self.ledger.gates(since_ms)?), spend: self.ledger.spend()?, landed: self.ledger.landed_since(since_ms)? })
     }
 
     pub fn status(&self, record: &SessionRecord) -> Status {
@@ -462,6 +465,7 @@ fn await_conversation(runtime: &dyn Runtime, record: &SessionRecord, offset: u64
 
 fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
     LaunchRequest {
+        verification: record.verification,
         name: record.name.clone(),
         provider: record.provider.clone(),
         account: record.account.clone(),

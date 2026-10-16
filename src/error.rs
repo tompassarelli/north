@@ -13,6 +13,7 @@ pub enum NorthError {
     Protocol(String),
     State(String),
     Rejected(String),
+    GateAnswered { id: i64, answer: String, by: String },
     Refused(String),
     Interrupted,
     AppServerExit(ExitStatus),
@@ -45,6 +46,7 @@ impl fmt::Display for NorthError {
             }
             Self::Protocol(message) => write!(formatter, "Codex protocol failed: {message}"),
             Self::State(message) => write!(formatter, "Incomplete North state: {message}"),
+            Self::GateAnswered { id, answer, by } => write!(formatter, "gate {id} was already answered: {answer} by {by}"),
             Self::Rejected(message) => write!(formatter, "Codex rejected the request: {message}"),
             Self::Interrupted => write!(formatter, "Codex turn was interrupted"),
             Self::AppServerExit(status) => {
@@ -63,6 +65,7 @@ impl Error for NorthError {
             | Self::Configuration(_)
             | Self::Protocol(_)
             | Self::State(_)
+            | Self::GateAnswered { .. }
             | Self::Rejected(_)
             | Self::Refused(_)
             | Self::Interrupted

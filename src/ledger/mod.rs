@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS gates(
   opened_ms INTEGER NOT NULL,
   answer TEXT,
   answered_by TEXT,
-  closed_ms INTEGER
+  closed_ms INTEGER,
+  verification INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 CREATE INDEX IF NOT EXISTS runs_by_session ON runs(session);
 CREATE TABLE IF NOT EXISTS receipts(
@@ -151,6 +152,7 @@ impl Ledger {
         conn.busy_timeout(Duration::from_secs(5)).map_err(sql)?;
         conn.pragma_update(None, "journal_mode", "WAL").map_err(sql)?;
         conn.execute_batch(SCHEMA).map_err(sql)?;
+        add_missing_column(&conn, "gates", "verification", "INTEGER NOT NULL DEFAULT 0").map_err(sql)?;
         gates::allow_session_answerers(&conn).map_err(sql)?;
         add_missing_column(&conn, "tasks", "landed_ms", "INTEGER").map_err(sql)?;
         Ok(Self { conn: Mutex::new(conn) })

@@ -307,6 +307,7 @@ fn ctrl_g_sends_the_draft_after_the_deepen_questions() {
 
 fn gate(id: i64, session: &str, opened_ms: u64) -> Gate {
     let request = GateRequest {
+        verification: false,
         session: session.into(),
         question: "Rent the GPU box?".into(),
         options: vec!["rent it".into(), "wait".into()],
@@ -408,4 +409,24 @@ fn the_header_wraps_at_account_boundaries_so_every_account_shows() {
         assert!(text.iter().any(|line| line.contains(&format!("{} 5h 63% 7d opus 96% left", account.label))), "{} missing from {text:#?}", account.label);
     }
     assert_eq!(header_lines(&accounts[..2], |_| None, 160).len(), 1);
+}
+
+#[test]
+fn a_resolved_gate_shows_the_recorded_answer_as_information_without_redelivery() {
+    use crate::fleet::gates::{Answerer, Closure, GateBook, settle};
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = crate::ledger::Ledger::open(&directory.path().join("ledger.db")).unwrap();
+    let id = ledger.open_gate(&gate(18, "parser", 0).request, 0).unwrap();
+    let closure = Closure { answer: "already chosen".into(), by: Answerer::Session("parent".into()), closed_ms: 1 };
+    ledger.close_gate(id, &closure).unwrap();
+    let outcome = settle(&ledger, id, Decision::Option(2), 2, |_, _| panic!("an existing answer must never be delivered twice"));
+    let desk = desk();
+    let mut screen = screen(&desk);
+    screen.settle(Command::Decide { gate: id, session: "parser".into(), decision: Decision::Option(2) }, outcome.map(drop));
+    let expected = format!("gate {id} was already answered: already chosen by parent");
+    assert!(matches!(&screen.notice, Some(super::screen::Notice::Info(text)) if text == &expected));
+    let text = rendered(&desk, &mut screen, 2);
+    assert!(text.contains(&expected), "{text}");
+    assert!(!text.contains("Codex rejected"));
+    assert_eq!(ledger.gate(id).unwrap().unwrap().closure, Some(closure));
 }

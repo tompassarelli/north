@@ -19,7 +19,7 @@ use crate::tui;
 
 use super::{gate, orders};
 
-const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] PROMPT... \
+const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--test] PROMPT... \
      | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
@@ -219,6 +219,7 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 
 #[derive(Default)]
 struct LaunchFlags {
+    verification: bool,
     provider: Option<ProviderName>,
     account: Option<String>,
     cwd: Option<PathBuf>,
@@ -265,6 +266,7 @@ impl LaunchFlags {
             None => default_name(&provider, &account)?,
         };
         Ok(LaunchRequest {
+            verification: self.verification,
             name,
             provider,
             account,
@@ -293,6 +295,11 @@ fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<Str
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
+        if *flag == "--test" {
+            flags.verification = true;
+            index += 1;
+            continue;
+        }
         let value = words.get(index + 1).map(|value| (*value).to_owned()).ok_or_else(usage)?;
         flags.set(providers, flag, value)?;
         index += 2;

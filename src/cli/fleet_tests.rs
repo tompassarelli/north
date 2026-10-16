@@ -234,6 +234,8 @@ fn a_codex_question_opens_a_gate_for_its_session_and_unblocks_the_turn() {
 #[test]
 fn a_launch_inherits_the_calling_session_as_parent_unless_told_none() {
     let providers = [ProviderName::new("claude")];
+    let test_request = launch_request(&providers, &["--provider", "claude", "--account", "c", "--test", "test prompt"], None).unwrap();
+    assert!(test_request.verification);
     let parent = |flags: &[&str], caller: Option<&str>| {
         let words = [&["--provider", "claude", "--account", "c", "--name", "w"], flags, &["go"]].concat();
         launch_request(&providers, &words, caller.map(str::to_owned)).unwrap().parent

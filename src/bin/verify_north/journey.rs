@@ -82,7 +82,7 @@ fn open_fleet(journey: &mut Journey) -> Result<String, String> {
     let socket = format!("verify-north-{}", journey.plan.stamp);
     journey.notes.note(&Note::Terminal(socket.clone()));
     let program = journey.north.program().to_string_lossy().into_owned();
-    let terminal = Terminal::open(&socket, journey.north.directory(), &SIZE, &[&program, "fleet"])?;
+    let terminal = Terminal::open(&socket, journey.north.directory(), &SIZE, &["env", "NORTH_FLEET_TEST=1", &program, "fleet"])?;
     journey.notes.note(&Note::Watch(terminal.program()?));
     terminal.wait_for(SCREEN_WAIT, "the sessions list", |screen| screen.contains(" sessions "))?;
     let size = terminal.size()?;

@@ -306,6 +306,7 @@ mod turn_state {
 
     fn request() -> LaunchRequest {
         LaunchRequest {
+            verification: false,
             name: "t".into(),
             provider: Codex.provider(),
             account: "pooled".into(),

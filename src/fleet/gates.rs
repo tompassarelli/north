@@ -2,6 +2,7 @@ use crate::error::{NorthError, NorthResult};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GateRequest {
+    pub verification: bool,
     pub session: String,
     pub question: String,
     pub options: Vec<String>,
@@ -55,7 +56,7 @@ impl Ask {
                 options.push(filler.to_owned());
             }
         }
-        GateRequest { session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
+        GateRequest { verification: false, session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
     }
 }
 
@@ -152,16 +153,28 @@ pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&st
 
 fn settle_as(book: &dyn GateBook, id: i64, decision: Decision, by: Answerer, note: Option<&str>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
     let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
+    if let Some(closure) = &gate.closure {
+        return Err(already_answered(id, closure));
+    }
     let mut answer = answer(&gate, &decision)?;
     if let Some(note) = note.filter(|note| !note.trim().is_empty()) {
         answer.push_str(&format!("\n{}", note.trim()));
     }
     let closure = Closure { answer, by, closed_ms: now_ms };
     if !book.close_gate(id, &closure)? {
-        return Err(NorthError::Rejected(format!("gate {id} is already closed")));
+        let closed = book.gate(id)?.and_then(|gate| gate.closure).ok_or_else(|| NorthError::State(format!("gate {id} closed without an answer")))?;
+        return Err(already_answered(id, &closed));
     }
     deliver(&gate.request.session, &message(&gate, &closure))?;
     Ok(closure)
+}
+
+fn already_answered(id: i64, closure: &Closure) -> NorthError {
+    NorthError::GateAnswered { id, answer: closure.answer.clone(), by: closure.by.label().to_owned() }
+}
+
+pub fn decisions(gates: Vec<Gate>) -> Vec<Gate> {
+    gates.into_iter().filter(|gate| !gate.request.verification).collect()
 }
 
 pub fn due(gate: &Gate, now_ms: u64) -> bool {
@@ -171,7 +184,7 @@ pub fn due(gate: &Gate, now_ms: u64) -> bool {
 pub fn default_overdue(book: &dyn GateBook, now_ms: u64, deliver: impl Fn(&str, &str) -> NorthResult<()>) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
     let overdue = book.gates(now_ms)?.into_iter().filter(|gate| due(gate, now_ms));
     let settled = overdue.map(|gate| (gate.id, settle(book, gate.id, Decision::Default, now_ms, &deliver)));
-    Ok(settled.filter(|(_, outcome)| !matches!(outcome, Err(NorthError::Rejected(_)))).collect())
+    Ok(settled.filter(|(_, outcome)| !matches!(outcome, Err(NorthError::GateAnswered { .. }))).collect())
 }
 
 fn opened_notice(id: i64, request: &GateRequest) -> String {
@@ -240,6 +253,7 @@ mod tests {
 
     fn request() -> GateRequest {
         GateRequest {
+            verification: false,
             session: "worker".into(),
             question: "Rent the GPU box?".into(),
             options: vec!["rent it".into(), "wait".into()],
@@ -262,7 +276,7 @@ mod tests {
         assert_eq!(closure, Closure { answer: "rent it".into(), by: Answerer::Tom, closed_ms: 5_000 });
         assert_eq!(delivered, [("worker".to_owned(), "[gate 1] Tom answered: rent it\nYour question: Rent the GPU box?".to_owned())]);
         let again = settle(&book, id, Decision::Default, 40_000, |_, _| panic!("a closed gate must not deliver twice"));
-        assert!(matches!(again, Err(NorthError::Rejected(_))));
+        assert!(matches!(again, Err(NorthError::GateAnswered { .. })));
     }
 
     #[test]

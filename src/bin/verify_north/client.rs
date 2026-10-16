@@ -36,7 +36,7 @@ impl North {
 
     pub fn run(&self, arguments: &[&str], timeout: Duration) -> Result<String, String> {
         let mut command = Command::new(&self.program);
-        command.args(arguments).current_dir(&self.directory);
+        command.args(arguments).current_dir(&self.directory).env("NORTH_FLEET_TEST", "1");
         exec::operator_environment(&mut command);
         exec::stdout(command, timeout, self.notes.as_ref())
     }

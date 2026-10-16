@@ -28,6 +28,7 @@ pub struct Account {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LaunchRequest {
+    pub verification: bool,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,
@@ -44,6 +45,8 @@ pub struct LaunchRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SessionRecord {
+    #[serde(default)]
+    pub verification: bool,
     pub name: String,
     pub provider: ProviderName,
     pub account: String,

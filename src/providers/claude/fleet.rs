@@ -375,6 +375,7 @@ mod launch {
     fn the_host_names_its_session_to_the_commands_it_runs() {
         let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a") };
         let request = LaunchRequest {
+            verification: false,
             name: "worker".into(),
             provider: Claude.provider(),
             account: "a".into(),
