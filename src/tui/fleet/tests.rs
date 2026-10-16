@@ -324,7 +324,11 @@ fn observe(desk: &DeskFake, screen: &mut Screen) {
 }
 
 fn rendered(desk: &DeskFake, screen: &mut Screen, now_ms: u64) -> String {
-    let mut terminal = Terminal::new(TestBackend::new(160, 40)).unwrap();
+    rendered_at(desk, screen, now_ms, 160)
+}
+
+fn rendered_at(desk: &DeskFake, screen: &mut Screen, now_ms: u64, width: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
     let transcript = desk.transcript("parser");
     terminal.draw(|frame| view::draw(frame, screen, transcript, &mut TranscriptPainter::default(), now_ms)).unwrap();
     let buffer = terminal.backend().buffer();
@@ -429,4 +433,13 @@ fn a_resolved_gate_shows_the_recorded_answer_as_information_without_redelivery()
     assert!(text.contains(&expected), "{text}");
     assert!(!text.contains("Codex rejected"));
     assert_eq!(ledger.gate(id).unwrap().unwrap().closure, Some(closure));
+}
+
+#[test]
+fn the_key_hints_end_on_a_whole_hint_in_a_narrow_window() {
+    let desk = desk();
+    let mut screen = screen(&desk);
+    let page = rendered_at(&desk, &mut screen, 0, 60);
+    let footer = page.lines().last().unwrap();
+    assert_eq!(footer, "Enter send · Alt+Enter newline · ^Enter/Alt+U urgent");
 }

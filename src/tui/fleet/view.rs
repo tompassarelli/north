@@ -171,23 +171,30 @@ fn draw_status(frame: &mut Frame<'_>, screen: &Screen, area: Rect) {
     let line = match &screen.notice {
         Some(Notice::Error(message)) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Red))),
         Some(Notice::Info(message)) => Line::from(Span::styled(message.clone(), Style::default().fg(Color::Yellow))),
-        None => hints(screen),
+        None => hints(screen, usize::from(area.width)),
     };
     frame.render_widget(Paragraph::new(line), area);
 }
 
-fn hints(screen: &Screen) -> Line<'static> {
+fn hints(screen: &Screen, width: usize) -> Line<'static> {
     let answering = screen.digest.shown && screen.digest.selected().is_some();
     let pairs: &[(&str, &str)] = match (screen.focus, answering) {
         (Focus::List, true) => &[("j/k", "gate"), ("1-9", "answer with that option"), ("type", "answer in your words"), ("^T", "transcript"), ("Tab", "composer"), ("^Q", "quit")],
         (Focus::Composer, true) => &[("Enter", "answer the gate"), ("Alt+Enter", "newline"), ("Tab", "gates"), ("^T", "transcript"), ("^Q", "quit")],
         (Focus::List, false) => &[("j/k", "select"), ("r", "resume"), ("^T", "digest"), ("Tab", "composer"), ("PgUp/PgDn", "scroll"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^D", "forget"), ("^Q", "quit")],
-        (Focus::Composer, false) => &[("Enter", "send"), ("^T", "digest"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent: interrupts and delivers within ~3 s"), ("^G", "deepen and send"), ("Tab", "list"), ("^N", "new"), ("^C", "interrupt"), ("^X", "stop"), ("^Q", "quit")],
+        (Focus::Composer, false) => &[("Enter", "send"), ("Alt+Enter", "newline"), ("^Enter/Alt+U", "urgent"), ("Tab", "list"), ("^T", "digest"), ("^G", "deepen and send"), ("^C", "interrupt"), ("^X", "stop"), ("^N", "new"), ("^Q", "quit")],
     };
     let mut spans = Vec::new();
+    let mut used = 0;
     for (index, (key, action)) in pairs.iter().enumerate() {
+        let separator = if index > 0 { " · " } else { "" };
+        let cost = separator.chars().count() + key.chars().count() + 1 + action.chars().count();
+        if used + cost > width {
+            break;
+        }
+        used += cost;
         if index > 0 {
-            spans.push(Span::styled(" · ", MUTED));
+            spans.push(Span::styled(separator, MUTED));
         }
         spans.push(Span::styled(*key, Style::default().fg(Color::Cyan)));
         spans.push(Span::styled(format!(" {action}"), MUTED));
