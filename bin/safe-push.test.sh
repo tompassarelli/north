@@ -1730,6 +1730,18 @@ lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 flock -n "${landing_state:-$scratch/xdg-state}/safe-push/$lock_key.lock" true || fail 'a timed out land check left the landing lock held'
 printf 'PASS: recorded hung land check times out, fails the push and frees the lock\n'
 
+new_landing_origin push-without-movement
+make_landing_clone "$landing_root/a" a.txt
+printf '#!/bin/sh\nwhile read -r old new ref; do git update-ref "$ref" "$old"; done\n' >"$landing_remote/hooks/post-receive"
+chmod +x "$landing_remote/hooks/post-receive"
+main_before=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+status_a=0; run_landing "$landing_root/a" || status_a=$?
+[ "$status_a" -ne 0 ] || fail "a push that left main unmoved exited 0: $(cat "$landing_root/a.out")"
+[ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$main_before" ] || fail 'the fake push moved main'
+grep -q 'NOT landed: 1 lane commits missing from origin/main' "$landing_root/a.out" || fail "missing NOT landed refusal: $(cat "$landing_root/a.out")"
+! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'an unmoved main was reported as landed'
+printf 'PASS: recorded push that leaves main unmoved is refused as NOT landed\n'
+
 # Concurrent landings from lanes cut at the same base serialize on the
 # per-origin lock; the later one rebases onto the earlier, so both land in
 # order with no non-fast-forward rejection.
