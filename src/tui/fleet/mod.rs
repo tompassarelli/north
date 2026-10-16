@@ -140,6 +140,7 @@ fn refresh<D: SessionDesk>(desk: &mut D, screen: &mut Screen) -> bool {
             screen.reconcile(|name| desk.transcript(name));
             let facts = screen.sessions.iter().map(|session| (session.record.name.clone(), SessionFacts::of(&session.record, desk.transcript(&session.record.name)))).collect();
             screen.observe(desk.digest(), facts);
+            screen.digest.wisp_payoff = desk.wisp_payoff();
             true
         }
         Err(error) => {

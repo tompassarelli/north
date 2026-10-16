@@ -38,6 +38,7 @@ impl SessionFacts {
 #[derive(Default)]
 pub struct DigestPane {
     pub shown: bool,
+    pub wisp_payoff: String,
     pub books: Digest,
     pub facts: BTreeMap<String, SessionFacts>,
     pub selected_gate: Option<i64>,

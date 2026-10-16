@@ -31,6 +31,7 @@ pub trait SessionDesk {
     fn sessions(&self) -> Vec<SessionSummary>;
     fn transcript(&self, name: &str) -> Option<&Transcript>;
     fn digest(&self) -> Digest;
+    fn wisp_payoff(&self) -> String { String::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
 
@@ -137,8 +138,8 @@ impl SessionDesk for FleetDesk {
         self.digest = digest;
         let changed = self.poll_followers()? | listed | followed | booked;
         self.track_states();
-        self.upkeep.tend(&self.fleet, &self.digest)?;
-        Ok(changed)
+        let measured = self.upkeep.tend(&self.fleet, &self.digest)?;
+        Ok(changed | measured)
     }
 
     fn sessions(&self) -> Vec<SessionSummary> {
@@ -165,6 +166,8 @@ impl SessionDesk for FleetDesk {
         self.digest.clone()
     }
 
+    fn wisp_payoff(&self) -> String { self.upkeep.summary.clone() }
+
     fn actions(&self) -> Arc<dyn SessionActions> {
         self.fleet.clone()
     }
@@ -172,14 +175,17 @@ impl SessionDesk for FleetDesk {
 
 #[derive(Default)]
 struct Upkeep {
-    job: Option<JoinHandle<NorthResult<()>>>,
+    job: Option<JoinHandle<NorthResult<String>>>,
+    summary: String,
     last: Option<Instant>,
 }
 
 impl Upkeep {
-    fn tend(&mut self, fleet: &Arc<Fleet>, digest: &Digest) -> NorthResult<()> {
+    fn tend(&mut self, fleet: &Arc<Fleet>, digest: &Digest) -> NorthResult<bool> {
+        let mut changed = false;
         if let Some(job) = self.job.take_if(|job| job.is_finished()) {
-            job.join().map_err(|_| NorthError::State("fleet upkeep panicked".into()))??;
+            self.summary = job.join().map_err(|_| NorthError::State("fleet upkeep panicked".into()))??;
+            changed = true;
         }
         let now = now_ms();
         let gate_due = digest.open_gates().any(|gate| due(gate, now));
@@ -189,12 +195,13 @@ impl Upkeep {
             self.job = Some(thread::spawn(move || upkeep(&fleet)));
             self.last = Some(Instant::now());
         }
-        Ok(())
+        Ok(changed)
     }
 }
 
-fn upkeep(fleet: &Fleet) -> NorthResult<()> {
+fn upkeep(fleet: &Fleet) -> NorthResult<String> {
     let undelivered = fleet.default_overdue_gates()?.into_iter().find_map(|(_, outcome)| outcome.err());
     fleet.observe_landings()?;
-    undelivered.map_or(Ok(()), Err)
+    undelivered.map_or(Ok(()), Err)?;
+    Ok(crate::platform::wisp_payoff::collect(None).map(|report| report.summary()).unwrap_or_else(|error| format!("Wisp payoff unavailable: {error}")))
 }

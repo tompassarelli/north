@@ -35,6 +35,7 @@ enum Command {
     GuardLanguage,
     ContractProbe(Vec<String>),
     Grounding(Vec<String>),
+    Wisp(Vec<String>),
 }
 
 const CLI_HELP: &str = "North — fleet session console
@@ -44,6 +45,7 @@ Usage: north [COMMAND]
 Run north with no arguments to open the fleet screen.
 
 Commands:
+  wisp payoff [--since YYYY-MM-DD] [--json]      Measure Wisp agreement and native utilization
   health [--dry-run]                             Check harness invariants
   language-gate --repo DIR --base REV --head REV  Check language policy
   guard language                                PreToolUse language guard
@@ -108,6 +110,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         return Some(Command::Tool(tool, rest));
     }
     Some(match command {
+        "wisp" => Command::Wisp(rest),
         "hook" => Command::Hook(rest),
         "threads" => Command::Threads(rest),
         "fleet" => Command::Fleet(rest),
@@ -143,6 +146,9 @@ fn dispatch(command: Command) -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Command::Wisp(arguments) => in_runtime(async move {
+            crate::platform::wisp_payoff::run(&arguments).map(|()| ExitCode::SUCCESS)
+        }),
         Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
