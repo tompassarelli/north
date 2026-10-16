@@ -180,9 +180,10 @@ historical or synthetic reference data. They do not select the active
 repository or require its executable, source checkout or build dependency.
 
 <a id="inspiration-org-shape"></a>**The Socrates org shape.** The harness's hooks, lib and agent commands were copied into north from firn (4645127a),
-and the org tree, a proxy at the root with leads, sub-leads and workers under it, is defined in
-[harness/org.schema.json](../harness/org.schema.json). Where the shape and its names came from: origin not
-recorded.
+and the workforce tree, a proxy at the root with leads, sub-leads and workers under it, is now
+represented by [Fleet session parent links](features.md#fleet-sessions). The former org schema was retired
+when its status bus callers moved to Fleet (d304e9c0). Where the shape and its names came from: origin
+not recorded.
 
 <a id="inspiration-replay-loop"></a>**The replay and calibration loop.** Policy replay runs a recorded scenario through an isolated session and
 scores it with a detector (8bac5d16); the sweep picks the cheapest variant whose Wilson interval overlaps the
