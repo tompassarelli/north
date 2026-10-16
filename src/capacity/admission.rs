@@ -54,6 +54,7 @@ pub(crate) struct Facts {
     pub(crate) exclusive_waiting: u32,
     pub(crate) gpu_busy_percent: u32,
     pub(crate) gpu_clients: u32,
+    pub(crate) new_clients: u32,
     pub(crate) gpu_runs: u32,
     pub(crate) native_waiting: u32,
     pub(crate) quiet_native_runs: u32,
@@ -134,7 +135,7 @@ fn native(facts: &Facts) -> Reason {
     if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
         return Reason::DeferNativeCpus;
     }
-    if facts.profile == Profile::Attended && facts.gpu_clients >= ATTENDED_GPU_CLIENTS {
+    if facts.profile == Profile::Attended && facts.gpu_clients.saturating_add(facts.new_clients) > ATTENDED_GPU_CLIENTS {
         return Reason::DeferGpuClients;
     }
     if facts.gpu_busy_percent >= GPU_BUSY_PERCENT && facts.gpu_runs == 0 {
@@ -197,4 +198,28 @@ fn shared(facts: &Facts) -> Reason {
         return Reason::DeferCpuPressure;
     }
     Reason::Run
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn native_with(gpu_clients: u32, new_clients: u32) -> Reason {
+        let facts: Facts = serde_json::from_value(serde_json::json!({
+            "profile": "attended", "class": "native", "cores": 24, "memoryTotalMiB": 96343.0, "memoryAvailableMiB": 80000.0,
+            "cpuSomeAvg10BasisPoints": 0, "protectedCpuSomeAvg10BasisPoints": 0, "leasedMemoryMiB": 0.0, "leasedBatchCpus": 0.0,
+            "leasedNativeCpus": 0.0, "requestedCpus": 2.0, "requestedMemoryMiB": 4096.0, "peerBatchRuns": 0, "peerExclusiveRuns": 0,
+            "unboundedRuns": 0, "queuedAhead": 0, "exclusiveWaiting": 0, "gpuBusyPercent": 0, "gpuClients": gpu_clients,
+            "newClients": new_clients, "gpuRuns": 0, "nativeWaiting": 0, "quietNativeRuns": 0, "besideNative": false,
+        }))
+        .unwrap();
+        decide(&facts)
+    }
+
+    #[test]
+    fn attended_client_cap_counts_only_the_clients_a_request_starts() {
+        assert_eq!(native_with(4, 0), Reason::Run);
+        assert_eq!(native_with(3, 2), Reason::DeferGpuClients);
+        assert_eq!(native_with(2, 2), Reason::Run);
+    }
 }

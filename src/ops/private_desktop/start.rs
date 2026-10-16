@@ -201,7 +201,8 @@ fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
     } else {
         command.arg("session");
     }
-    command.args(["--class", "native", "--owner"]);
+    // The desktop starts no Warcraft client; clients inside it declare their own.
+    command.args(["--class", "native", "--new-clients", "0", "--owner"]);
     command.arg(format!("private-desktop:{}", std::process::id()));
     command
         .arg("--")

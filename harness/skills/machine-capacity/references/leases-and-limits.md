@@ -100,7 +100,7 @@ the default 4 GiB when omitted. Offline Warcraft clients may request 1.5 GiB.
 Only native clients allow this override; batch and agent classes keep their
 class allowances. It applies to newly started scopes only.
 
-Use `bun "$capacity" session --class native --owner OWNER -- COMMAND ARG...`
+Use `bun "$capacity" session --class native --new-clients N --owner OWNER -- COMMAND ARG...`
 for a foreground client or desktop intended to remain until explicitly
 stopped. It sets systemd's runtime limit to infinity but retains the same atomic
 admission, aggregate CPU quota, memory ceiling, and descendant containment.

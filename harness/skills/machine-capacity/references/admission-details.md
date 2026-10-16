@@ -20,8 +20,8 @@ Contents:
 
 ## Native sessions and GPU
 
-- `session --class native --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops: one scope per client, two per pair.
-- Native DEFER_GPU_BUSY while GPU busy averages at least 85% over 5 s with no gpu lease running; attended DEFER_GPU_CLIENTS while four Warcraft clients run. `status` and `probe` show `gpuBusyPercent`, `gpuClients` and `gpuLeases`.
+- `session --class native --new-clients N --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops: one scope per client, two per pair.
+- Native DEFER_GPU_BUSY while GPU busy averages at least 85% over 5 s with no gpu lease running; attended DEFER_GPU_CLIENTS when live Warcraft clients plus the request's `--new-clients` exceed four. `status` and `probe` show `gpuBusyPercent`, `gpuClients` and `gpuLeases`.
 - gpu DEFER_GPU_SLOTS at two gpu leases; DEFER_NATIVE_WAITING for a minute after a native client was deferred, because native clients outrank renders.
 - While a native lease started with `--quiet` is live, new moderate, heavy, exclusive and gpu leases queue as DEFER_NATIVE_QUIET (the QUEUED line names `quietOwners`) and start within a second of the last quiet lease ending; agent, native, critical and tom leases still run, and native leases without `--quiet` never hold batch work. A wait that outlasts the job's `--timeout-seconds` exits 75 naming the evidence run.
 - Only the native owner's own build steps pass `--beside-native NATIVE-OWNER` on `run`, `session` or `probe`; the usage log records it as `besideNative`.

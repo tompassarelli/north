@@ -113,7 +113,7 @@ try {
   assert.deepEqual(gpuBusyObservation(since, 85, null), { gpuBusySince: since, gpuBusySeconds: 0 });
   assert.deepEqual(gpuBusyObservation(after.at, 84, since), { gpuBusySince: null, gpuBusySeconds: 0 });
   writeFileSync(env.AGENT_CAPACITY_GPU_BUSY, '99\n');
-  const deferred = invoke(['probe', '--class', 'native']);
+  const deferred = invoke(['probe', '--class', 'native', '--new-clients', '0']);
   assert.equal(deferred.reason, 'DEFER_GPU_BUSY');
   assert.equal(deferred.gpuBusyPercent, 99);
   assert.equal(deferred.gpuProcess, null);
@@ -121,11 +121,11 @@ try {
   assert.equal(Number(await Bun.file(join(root, 'gpu-busy-since')).text()), deferred.gpuBusySince);
   const persistedSince = deferred.gpuBusySince - 30000;
   writeFileSync(join(root, 'gpu-busy-since'), String(persistedSince));
-  const repeated = invoke(['probe', '--class', 'native']);
+  const repeated = invoke(['probe', '--class', 'native', '--new-clients', '0']);
   assert.equal(repeated.gpuBusySince, persistedSince);
   assert.ok(repeated.gpuBusySeconds >= 30);
   writeFileSync(env.AGENT_CAPACITY_GPU_BUSY, '84\n');
-  assert.equal(invoke(['probe', '--class', 'native']).reason, 'RUN');
+  assert.equal(invoke(['probe', '--class', 'native', '--new-clients', '0']).reason, 'RUN');
   assert.equal(await Bun.file(join(root, 'gpu-busy-since')).exists(), false);
   console.log(`Recorded Radeon DRM counters: PID=${expected.pid}, share=${expected.gpuBusyPercent}%; leased peer excluded; busy duration persists and clears below 85%.`);
 } finally { rmSync(scratch, { recursive: true }); }

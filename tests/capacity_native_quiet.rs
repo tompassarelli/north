@@ -102,7 +102,7 @@ impl Host {
     fn native_session(&self, owner: &str, quiet: bool) -> (Wrapper, ChildStdin) {
         let live = self.leases("native");
         let mut child = self
-            .helper(&[&["session", "--class", "native", "--owner", owner][..], if quiet { &["--quiet"][..] } else { &[][..] }, &["--", "cat"]].concat())
+            .helper(&[&["session", "--class", "native", "--new-clients", "0", "--owner", owner][..], if quiet { &["--quiet"][..] } else { &[][..] }, &["--", "cat"]].concat())
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

@@ -22,6 +22,7 @@ fn facts(class: Class) -> Facts {
         exclusive_waiting: 0,
         gpu_busy_percent: 0,
         gpu_clients: 0,
+        new_clients: 0,
         gpu_runs: 0,
         native_waiting: 0,
         quiet_native_runs: 0,

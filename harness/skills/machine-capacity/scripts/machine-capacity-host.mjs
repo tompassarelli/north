@@ -128,6 +128,13 @@ function parseClass(values, cores) {
   return { name, ...resources };
 }
 
+// Native requests declare the Warcraft clients they start: 1 per client, 2 for a pair,
+// 0 for a run on clients already up, so the attended cap charges only new clients.
+function parseNewClients(values, name) {
+  if (name !== 'native') return values.has('--new-clients') ? fail('--new-clients declares a native request\'s clients') : 0;
+  return parseNonnegativeInteger(required(values, '--new-clients'), '--new-clients');
+}
+
 function parsePsi(path, kind) {
   const line = readFileSync(path, 'utf8').split('\n').find(value => value.startsWith(`${kind} `));
   const match = line?.match(/avg10=([0-9]+(?:\.[0-9]+)?)/);
@@ -882,7 +889,7 @@ function decision(root, requested, create, ticket = null) {
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
-      queuedAhead, exclusiveWaiting, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
+      queuedAhead, exclusiveWaiting, newClients: requested.newClients ?? 0, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
       nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined,
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
@@ -1197,7 +1204,7 @@ async function main(argv) {
       '--leased-cpus', '--leased-native-cpus', '--leased-memory-mib',
       '--peer-batch-runs', '--peer-exclusive-runs', '--unbounded-runs',
       '--memory-gib', '--cpu-some-avg10-basis-points', '--queued-ahead', '--exclusive-waiting',
-      '--gpu-busy-percent', '--gpu-clients', '--gpu-runs', '--native-waiting', '--quiet-native-runs', '--beside-native',
+      '--gpu-busy-percent', '--gpu-clients', '--new-clients', '--gpu-runs', '--native-waiting', '--quiet-native-runs', '--beside-native',
     ]));
     if (parsed.separator !== argv.length) fail('fixture accepts no command');
     const cores = parsePositiveInteger(required(parsed.values, '--cores'), '--cores');
@@ -1220,7 +1227,7 @@ async function main(argv) {
       leasedBatchCpus: leasedCpuCeilings, leasedNativeCpus: count('--leased-native-cpus'), cpuSomeAvg10BasisPoints: count('--cpu-some-avg10-basis-points'),
       peerBatchRuns: count('--peer-batch-runs'), peerExclusiveRuns: count('--peer-exclusive-runs'), unboundedRuns: count('--unbounded-runs'),
       queuedAhead: count('--queued-ahead'), exclusiveWaiting: count('--exclusive-waiting'), gpuBusyPercent: count('--gpu-busy-percent'),
-      gpuClients: count('--gpu-clients'), gpuRuns: count('--gpu-runs'), nativeWaiting: count('--native-waiting'),
+      gpuClients: count('--gpu-clients'), newClients: count('--new-clients'), gpuRuns: count('--gpu-runs'), nativeWaiting: count('--native-waiting'),
       quietNativeRuns: count('--quiet-native-runs'), besideNative: parsed.values.has('--beside-native'),
     });
     print({ decision: code, profile, class: requested.name, cpus: granted.cpus, memoryMiB: granted.memoryMiB,
@@ -1251,11 +1258,12 @@ async function main(argv) {
     return 0;
   }
   if (operation === 'probe') {
-    const { values, separator } = parseKeyValues(argv, 1, new Set(['--class', '--memory-gib', '--beside-native']));
+    const { values, separator } = parseKeyValues(argv, 1, new Set(['--class', '--memory-gib', '--beside-native', '--new-clients']));
     if (separator !== argv.length) fail('probe accepts no command');
     const signals = readSignals();
     const besideNative = values.has('--beside-native') ? { besideNative: parseOwner(values, '--beside-native') } : {};
-    const result = decision(root, { ...parseClass(values, signals.cores), ...besideNative }, null);
+    const requested = parseClass(values, signals.cores);
+    const result = decision(root, { ...requested, ...besideNative, newClients: parseNewClients(values, requested.name) }, null);
     print(result);
     return result.decision === 'RUN' ? 0 : 75;
   }
@@ -1291,7 +1299,7 @@ async function main(argv) {
     return 0;
   }
   if (operation === 'run' || operation === 'session') {
-    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--quiet']), new Set(['--quiet']));
+    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--new-clients', '--quiet']), new Set(['--quiet']));
     const command = argv.slice(parsed.separator + 1);
     if (parsed.separator === argv.length || command.length === 0) fail(`${operation} requires -- COMMAND ARG...`);
     const signals = readSignals();
@@ -1301,6 +1309,7 @@ async function main(argv) {
       : parsed.values.has('--class') ? chargeFromUsage(parseClass(parsed.values, signals.cores), owner, command, signals.cores)
         : sizeFromUsage(command, owner, signals.cores);
     requested.estimate ??= estimateCommand(command, requested.name, owner, signals.cores);
+    requested.newClients = parseNewClients(parsed.values, requested.name);
     if (parsed.values.has('--beside-native')) requested.besideNative = parseOwner(parsed.values, '--beside-native');
     if (parsed.values.has('--quiet')) requested.quiet = requested.name === 'native' || fail('--quiet marks a native evidence session');
     if (operation === 'run' && owner === 'land-check' && process.env.SAFE_PUSH_LAND_HEAD && batchClass(requested.name)) requested.landing = true;
@@ -1311,7 +1320,7 @@ async function main(argv) {
       : sessionSeconds(requested.name) || null;
     return runScoped(root, requested, owner, timeoutSeconds, command);
   }
-  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--quiet] [--beside-native NATIVE-OWNER]; see machine-capacity');
+  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--quiet] [--beside-native NATIVE-OWNER]; see machine-capacity');
 }
 
 process.exitCode = await main(Bun.argv.slice(2));

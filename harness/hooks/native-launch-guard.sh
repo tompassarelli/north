@@ -101,8 +101,8 @@ for segment in shellcmd.segments(tokens):
             "permissionDecisionReason": (
                 "No. A Wine/Proton/Warcraft client started here runs in your terminal scope, outside "
                 "capacity admission, and can saturate the GPU. Wrap it: bun \"$(dirname \"$(agents path "
-                "machine-capacity)\")/scripts/machine-capacity.mjs\" session --class native --owner OWNER "
-                "-- COMMAND ARG... (one session per client; retry DEFER after 30 s). Self-wrapping routes: "
+                "machine-capacity)\")/scripts/machine-capacity.mjs\" session --class native --new-clients 1 "
+                "--owner OWNER -- COMMAND ARG... (one session per client; retry DEFER after 30 s). Self-wrapping routes: "
                 "`wisp lan pool`, ~/.local/share/wisp/online/launch.sh."
             ),
         }}))
