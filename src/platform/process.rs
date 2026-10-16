@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, Write};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -26,10 +26,28 @@ pub(crate) async fn run_killing_on_drop(program: &str, args: &[String]) -> std::
 }
 
 pub(crate) fn run_within(program: &str, args: &[&str], limit: Duration) -> Option<Output> {
+    run_with_input_within(program, args, None, limit)
+}
+
+pub(crate) fn run_with_input_within(
+    program: &str,
+    args: &[&str],
+    input: Option<&[u8]>,
+    limit: Duration,
+) -> Option<Output> {
+    let stdin = match input {
+        Some(input) => {
+            let mut file = tempfile::tempfile().ok()?;
+            file.write_all(input).ok()?;
+            file.rewind().ok()?;
+            Stdio::from(file)
+        }
+        None => Stdio::null(),
+    };
     let output = tempfile::tempfile().ok()?;
     let mut child = Command::new(program)
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(stdin)
         .stdout(output.try_clone().ok()?)
         .stderr(Stdio::null())
         .spawn()

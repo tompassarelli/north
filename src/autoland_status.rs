@@ -122,7 +122,7 @@ fn wait_for_landing(
     timeout: u64,
     initial_delay: u64,
     mut read: impl FnMut() -> String,
-    mut is_ancestor: impl FnMut(&str) -> bool,
+    mut landed: impl FnMut(&str) -> Option<String>,
     mut pause: impl FnMut(u64),
 ) -> String {
     let mut waited = 0;
@@ -145,8 +145,8 @@ fn wait_for_landing(
         } else {
             sha
         };
-        if is_ancestor(landed_sha) {
-            return format!("success\torigin contains {landed_sha}\t{url}");
+        if let Some(landed_sha) = landed(landed_sha) {
+            return format!("success\tlanded {landed_sha}\t{url}");
         }
         if state == "failure" || state == "error" {
             return line;
@@ -237,14 +237,10 @@ pub fn wait(arguments: &[String]) -> u8 {
                 ),
             ];
             let _ = process::run_within("git", &fetch, Duration::from_secs(30));
-            let ancestry = [
-                "merge-base",
-                "--is-ancestor",
+            landed_commit(
                 candidate,
                 &format!("refs/remotes/origin/{}", options.destination),
-            ];
-            process::run_within("git", &ancestry, Duration::from_secs(30))
-                .is_some_and(|output| output.status.success())
+            )
         },
         |seconds| thread::sleep(Duration::from_secs(seconds)),
     );
@@ -254,6 +250,64 @@ pub fn wait(arguments: &[String]) -> u8 {
     } else {
         0
     }
+}
+
+fn git_output(arguments: &[&str]) -> Option<String> {
+    process::run_within("git", arguments, Duration::from_secs(30))
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+}
+
+fn patch_ids(arguments: &[&str]) -> Option<String> {
+    let patches = git_output(arguments)?;
+    process::run_with_input_within(
+        "git",
+        &["patch-id", "--stable"],
+        Some(patches.as_bytes()),
+        Duration::from_secs(30),
+    )
+    .filter(|output| output.status.success())
+    .and_then(|output| String::from_utf8(output.stdout).ok())
+}
+
+fn landed_commit(candidate: &str, destination: &str) -> Option<String> {
+    if process::run_within(
+        "git",
+        &["merge-base", "--is-ancestor", candidate, destination],
+        Duration::from_secs(30),
+    )
+    .is_some_and(|output| output.status.success())
+    {
+        return git_output(&["rev-parse", "--verify", &format!("{candidate}^{{commit}}")])
+            .map(|sha| sha.trim().to_owned());
+    }
+    let base = git_output(&["merge-base", candidate, destination])?;
+    let original = patch_ids(&[
+        "show",
+        "--no-ext-diff",
+        "--no-color",
+        "--binary",
+        "--format=commit %H",
+        candidate,
+    ])?;
+    let patch = original.split_whitespace().next()?;
+    let range = format!("{}..{destination}", base.trim());
+    let landed = patch_ids(&[
+        "log",
+        "--no-ext-diff",
+        "--no-color",
+        "--binary",
+        "--format=commit %H",
+        "-p",
+        "--no-merges",
+        &range,
+    ])?;
+    landed.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        (fields.next()? == patch)
+            .then(|| fields.next().map(str::to_owned))
+            .flatten()
+    })
 }
 
 #[cfg(test)]
@@ -313,7 +367,7 @@ mod tests {
             |_| {
                 let count = reads.get() + 1;
                 reads.set(count);
-                count > 1
+                (count > 1).then(|| sha.clone())
             },
             |seconds| sleeps.set(sleeps.get() + seconds),
         );
@@ -330,7 +384,7 @@ mod tests {
             1,
             1,
             || "pending\tAutoland workflow queued\thttps://example.test/pending".into(),
-            |_| false,
+            |_| None,
             |_| {},
         );
         assert_eq!(
