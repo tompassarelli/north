@@ -60,6 +60,7 @@ Commands:
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   threads ARGV                                  Run a NorthThreads command on the ledger host
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
+  private-desktop [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
   orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself

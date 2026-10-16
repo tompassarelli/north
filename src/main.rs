@@ -22,6 +22,7 @@ mod usage_stream;
 mod lead_journal;
 mod work_items;
 mod session_host;
+mod ops;
 mod hook;
 mod guard;
 mod pyjson;
@@ -36,5 +37,10 @@ mod tui;
 mod test_inputs;
 
 fn main() -> std::process::ExitCode {
-    cli::main()
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    arguments
+        .first()
+        .is_some_and(|argument| argument == "private-desktop")
+        .then(|| ops::private_desktop::run(&arguments[1..]))
+        .unwrap_or_else(cli::main)
 }
