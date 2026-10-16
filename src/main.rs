@@ -37,14 +37,12 @@ mod tui;
 mod test_inputs;
 
 fn main() -> std::process::ExitCode {
-    if let Err(error) = platform::stdio::blocking_outputs() {
-        eprintln!("north: cannot prepare standard output: {error}");
-        return std::process::ExitCode::FAILURE;
-    }
-    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
-    arguments
-        .first()
-        .is_some_and(|argument| argument == "private-desktop")
-        .then(|| ops::private_desktop::run(&arguments[1..]))
-        .unwrap_or_else(cli::main)
+    platform::stdio::with_blocking_outputs(|| {
+        let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+        arguments
+            .first()
+            .is_some_and(|argument| argument == "private-desktop")
+            .then(|| ops::private_desktop::run(&arguments[1..]))
+            .unwrap_or_else(cli::main)
+    })
 }
