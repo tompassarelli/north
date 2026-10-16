@@ -1603,9 +1603,9 @@ run_landing() {
       SAFE_PUSH_TEST_TRACE="$dir.trace" \
       SAFE_PUSH_TEST_STATE="$dir.state" \
       SAFE_PUSH_TEST_SCAN_GATE="${landing_gate:+$dir}" \
-      XDG_STATE_HOME="$scratch/xdg-state" \
+      XDG_STATE_HOME="${landing_state:-$scratch/xdg-state}" \
       PATH="${SAFE_PUSH_TEST_PATH:-$real_bin:$PATH}" \
-      "$TARGET" --to "${landing_to:-main}"
+      env --default-signal=INT "$TARGET" --to "${landing_to:-main}"
   ) >"$dir.out" 2>&1
 }
 
@@ -1627,6 +1627,68 @@ new_landing_origin() {
   "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
   cp -a "$landing_root" "$scratch/landing-template"
 }
+
+new_landing_origin deferred-capacity
+landing_state="$landing_root/state"
+make_landing_clone "$landing_root/a" a.txt
+make_landing_clone "$landing_root/b" b.txt
+mkfifo "$landing_root/admission-release" "$landing_root/recheck-release"
+land_command="printf 'DEFER_NATIVE_QUIET\\n'; if [ -e '$landing_root/deferred' ]; then touch '$landing_root/recheck'; read -r _ <'$landing_root/recheck-release'; else touch '$landing_root/deferred'; read -r _ <'$landing_root/admission-release'; fi"
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: $land_command"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'record deferred admission'
+run_landing "$landing_root/a" & pid_a=$!
+wait_for test -e "$landing_root/deferred"
+lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+if ! flock -n "$landing_state/safe-push/$lock_key.lock" true; then
+  printf 'admitted\n' >"$landing_root/admission-release"
+  wait "$pid_a" || true
+  fail 'deferred admission holds the landing lock'
+fi
+! queued_lane "$landing_root/a" || fail 'deferred admission retained a queue ticket'
+run_landing "$landing_root/b" & pid_b=$!
+status_b=0; wait "$pid_b" || status_b=$?
+[ "$status_b" -eq 0 ] || fail "ready lane failed: $(cat "$landing_root/b.out")"
+"$real_git" --git-dir="$landing_remote" cat-file -e main:b.txt || fail 'ready lane did not land first'
+! "$real_git" --git-dir="$landing_remote" cat-file -e main:a.txt 2>/dev/null || fail 'deferred lane landed before admission'
+printf 'admitted\n' >"$landing_root/admission-release"
+wait_for test -e "$landing_root/recheck"
+printf 'admitted\n' >"$landing_root/recheck-release"
+status_a=0; wait "$pid_a" || status_a=$?
+[ "$status_a" -eq 0 ] || fail "deferred lane failed after requeue: $(cat "$landing_root/a.out")"
+landing_state=''
+printf 'PASS: recorded deferred admission holds no lock or ticket; ready lane lands first; deferred lane requeues\n'
+
+new_landing_origin main-red-marker
+make_landing_clone "$landing_root/a" a.txt
+make_landing_clone "$landing_root/b" b.txt
+"$real_git" -C "$landing_root/b" commit --amend -qm 'repair red main' -m 'Main-red: 55'
+hold_landing_lock
+run_landing "$landing_root/a" & pid_a=$!
+wait_for bash -c 'compgen -G "$1/[1-9]*" >/dev/null' _ "$scratch/xdg-state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
+run_landing "$landing_root/b" & pid_b=$!
+wait_for bash -c 'compgen -G "$1/0*" >/dev/null' _ "$scratch/xdg-state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
+release_landing_lock
+status_a=0; wait "$pid_a" || status_a=$?
+status_b=0; wait "$pid_b" || status_b=$?
+[ $((status_a + status_b)) -eq 0 ] || fail "main-red marker lane failed: $(cat "$landing_root/a.out" "$landing_root/b.out")"
+[ "$("$real_git" --git-dir="$landing_remote" log --reverse --format=%s main | sed -n '2p')" = 'repair red main' ] || fail 'main-red marker did not take priority'
+printf 'PASS: recorded Main-red marker takes the landing lock before an ordinary waiting lane\n'
+
+new_landing_origin cancelled-admission
+make_landing_clone "$landing_root/a" a.txt
+mkfifo "$landing_root/cancel-wait"
+"$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity "bash -c 'printf \"%s\\n\" \"\$PPID\" >\"$landing_root/cancel-pid\"; read -r _ <\"$landing_root/cancel-wait\"'"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'cancel during admission'
+run_landing "$landing_root/a" & pid_a=$!
+wait_for test -s "$landing_root/cancel-pid"
+kill -INT "$(cat "$landing_root/cancel-pid")"
+status_a=0; wait "$pid_a" || status_a=$?
+[ "$status_a" -eq 130 ] || fail "cancelled admission returned $status_a: $(cat "$landing_root/a.out")"
+grep -qx 'safe-push: cancelled' "$landing_root/a.out" || fail 'missing cancelled receipt'
+! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'cancelled admission falsely reported the base as landed'
+printf 'PASS: recorded SIGINT cancels with exit 130 and no false landed receipt\n'
 
 # Concurrent landings from lanes cut at the same base serialize on the
 # per-origin lock; the later one rebases onto the earlier, so both land in

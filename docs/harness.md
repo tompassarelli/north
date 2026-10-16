@@ -104,8 +104,9 @@ Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land w
 `safe-push --to main` ([bin/safe-push](../bin/safe-push); `safe-push --help` is the full contract;
 the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). It:
 
-1. rebases the lane onto origin/main and takes the per-origin landing lock; lanes queued behind the
-   holder land together as one train;
+1. obtains the capacity scope named by committed `landing.capacity` before joining the landing
+   queue, then rebases onto origin/main and takes the per-origin lock; commits naming an open
+   red-main issue or carrying `Main-red:` take priority, and queued lanes can land as one train;
 2. runs the checks that the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness scripts
    and agent-machinery), or the pre-push hook when there are none;
@@ -114,6 +115,10 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
    gating number (`north provenance check`), a `Test-kind:` claim for each new test naming a recorded mutant
    only it kills, and the CI time budgets in `.safe-push`; it never force-pushes;
 4. pushes to main, removes the clean lane and its branch, and runs `follows-release`.
+
+North's land checks share that capacity scope. Checks without one release the landing lock before
+admission, then requeue and recheck if main moved. Cancellation prints `safe-push: cancelled` and
+exits 130; a landed receipt names the lane head verified on the destination.
 
 A repository with an Autoland workflow, or `landing.queue = autoland` in its `.safe-push`, instead
 gets a `claude/land-*` branch that the workflow lands; North has neither. A worker runs `safe-push` in

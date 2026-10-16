@@ -19,6 +19,10 @@ set -euo pipefail
 safe_push_terminal() {
   local status="${1:-$?}" terminal_sha="" terminal_reason
   trap - EXIT
+  if [ "$status" -eq 130 ] || [ "$status" -eq 143 ]; then
+    printf 'safe-push: cancelled\n'
+    exit 130
+  fi
   if [ "${safe_push_internal:-0}" = 1 ] || [ "${safe_push_help:-0}" = 1 ]; then exit "$status"; fi
   if [ "${safe_push_timed_out:-0}" -eq 1 ]; then
     local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
@@ -29,9 +33,9 @@ safe_push_terminal() {
   if [ "$status" -eq 0 ] && [ "${dry:-0}" -eq 1 ]; then exit 0; fi
   if [ "$status" -eq 0 ] && [ "${dry:-0}" -eq 0 ]; then
     terminal_sha="${safe_push_landed_sha:-}"
-    [ -n "$terminal_sha" ] || terminal_sha=$(git -C "${repo_root:-$PWD}" ls-remote "${origin_url:-origin}" "refs/heads/${to:-$(git -C "${repo_root:-$PWD}" branch --show-current 2>/dev/null)}" 2>/dev/null | awk 'NR == 1 {print $1}')
-    [ -n "$terminal_sha" ] || terminal_sha=$(git -C "${repo_root:-$PWD}" rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)
-    if [ -n "$terminal_sha" ]; then
+    if [ -n "$terminal_sha" ] && [ "$terminal_sha" = "${safe_push_published_head:-}" ] \
+        && git --git-dir="$safe_push_common_dir" fetch -q --no-tags "$origin_url" "refs/heads/${to:-$destination_branch}" \
+        && git --git-dir="$safe_push_common_dir" merge-base --is-ancestor "$terminal_sha" FETCH_HEAD; then
       local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
       if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result landed "$terminal_sha" '' 0 ''; then exit 0; fi
       printf 'safe-push: landed %s\n' "$terminal_sha"
@@ -57,6 +61,14 @@ safe_push_help=0
 if [ "${1:-}" = --durable-harness-paths ] && [ "$#" -eq 2 ]; then safe_push_internal=1; fi
 if [ "$#" -eq 1 ] && [[ "$1" = -h || "$1" = --help ]]; then safe_push_help=1; fi
 trap safe_push_exit EXIT
+safe_push_cancel() {
+  trap - INT TERM HUP
+  [ -z "${safe_push_child:-}" ] || kill -TERM "$safe_push_child" 2>/dev/null || true
+  exit 130
+}
+trap safe_push_cancel INT TERM HUP
+original_arguments=("$@")
+safe_push_common_dir=""
 
 durable_harness_paths() {
   case "$1" in
@@ -901,7 +913,10 @@ run_land_checks() {
     exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
     stderr_pid=$!
     status=0
-    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" bash -euo pipefail -c "$command") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- || status=$?
+    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" bash -euo pipefail -c "$command") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
+    safe_push_child=$!
+    wait "$safe_push_child" || status=$?
+    safe_push_child=""
     exec {stdout_fd}>&- {stderr_fd}>&-
     wait "$stdout_pid"
     wait "$stderr_pid"
@@ -1175,6 +1190,7 @@ enforce_one_branch_main() {
 if [ "$tag_seen" -eq 0 ] && [ "$to_seen" -eq 0 ]; then enforce_one_branch_main; fi
 
 # --- tag mode: scan the tag object and commit history absent from origin -----------
+safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 if [ -n "$tag" ]; then
   capture_repository_state
   tag_ref="refs/tags/$tag"
@@ -1244,7 +1260,7 @@ if [ -n "$tag" ]; then
   if [ "$dry" = 1 ]; then echo "safe-push: ✓ clean (--dry-run) — would push tag $tag -> origin"; exit 0; fi
   echo "safe-push: ✓ clean — pushing tag $tag -> origin"
   SAFE_PUSH_ACTIVE=1 git push "$origin_url" "${tag_oid}:${tag_ref}"
-  safe_push_landed_sha="$target"
+  safe_push_published_head="$target"; safe_push_landed_sha="$target"
   exit 0
 fi
 
@@ -1274,6 +1290,7 @@ drop_lock_fd() {
 red_fix_issue() {
   local named issue
   [ -n "$1" ] || return 0
+  if git log --format=%B "$1..HEAD" | grep -qE '^Main-red:[[:space:]]+[^[:space:]]'; then printf 'marker\n'; return 0; fi
   named=$(git log --format=%s "$1..HEAD" | grep -oE '#[0-9]+') || return 0
   issue=$(timeout 10 gh issue list --state open --search "\"$to is red\" in:title" --json number,title \
       --jq '.[] | "\(.number)\t\(.title)"' 2>/dev/null \
@@ -1392,7 +1409,7 @@ take_train_result() {
       fi
       fetch_destination >/dev/null
       release_follows
-      safe_push_landed_sha="$detail"
+      safe_push_published_head="$detail"; safe_push_landed_sha="$detail"
       if git reset -q --keep "$detail"; then cleanup_landed_lane || true; fi
       auto_reap || true
       exit 0
@@ -1594,11 +1611,11 @@ run_train() {
   release_push_lock
   if [ "$verdict" = landed ]; then
     git reset -q --keep "$detail"
-    safe_push_landed_sha="$detail"
+    safe_push_published_head="$detail"; safe_push_landed_sha="$detail"
     capture_repository_state
     destination_ref="refs/heads/$to"
     release_follows
-    safe_push_landed_sha="$detail"
+    safe_push_published_head="$detail"; safe_push_landed_sha="$detail"
     cleanup_landed_lane || true
     auto_reap || true
     exit 0
@@ -1674,11 +1691,15 @@ run_pre_push_checks() {
   else
     echo "safe-push: running the pre-push checks on $head before taking the landing lock"
   fi
-  if ! sync_dependencies || ! (drop_lock_fd; cd "$top" && printf '%s %s refs/heads/%s %s\n' "$local_ref" "$head" "$to" "${base:-$zero}" \
-      | "$hook" origin "$lock_url"); then
+  sync_dependencies || exit 1
+  (drop_lock_fd; cd "$top" && printf '%s %s refs/heads/%s %s\n' "$local_ref" "$head" "$to" "${base:-$zero}" \
+      | "$hook" origin "$lock_url") &
+  safe_push_child=$!
+  if ! wait "$safe_push_child"; then
     echo "safe-push: ✗ the pre-push checks failed; NOT pushed." >&2
     exit 1
   fi
+  safe_push_child=""
 }
 
 # Whether origin's commits base..upstream change any file that base..head changes.
@@ -1766,7 +1787,7 @@ land_through_autoland() {
   fi
   landed=${description##* }
   printf 'safe-push: ✓ Autoland landed this lane: origin %s is at %s (%s)\n' "$to" "$landed" "$url"
-  safe_push_landed_sha="$landed"
+  safe_push_published_head="$landed"; safe_push_landed_sha="$landed"
   fetch_destination >/dev/null
   capture_repository_state
   destination_ref="refs/heads/$to"
@@ -1775,6 +1796,23 @@ land_through_autoland() {
   auto_reap || true
   exit 0
 }
+
+safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
+if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] \
+    && [ "${SAFE_PUSH_CAPACITY_ADMITTED:-}" != "$(git rev-parse --show-toplevel)" ]; then
+  capacity_command=$(git config --blob HEAD:.safe-push --get landing.capacity 2>/dev/null) || capacity_command=''
+  if [ -n "$capacity_command" ]; then
+    capacity_status=0
+    SAFE_PUSH_LAND_HEAD=$(git rev-parse HEAD) bash -euo pipefail -c \
+      "exec $capacity_command env SAFE_PUSH_CAPACITY_ADMITTED=\"\$PWD\" bash \"\$@\"" \
+      safe-push-capacity "$(readlink -f "${BASH_SOURCE[0]}")" "${original_arguments[@]}" &
+    safe_push_child=$!
+    wait "$safe_push_child" || capacity_status=$?
+    safe_push_child=""
+    safe_push_internal=1
+    exit "$capacity_status"
+  fi
+fi
 
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
   scan_range_for_native=("refs/remotes/origin/$to..HEAD")
@@ -1808,6 +1846,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
       land_through_autoland "$autoland_base"
     fi
     autoland_gap
+    red_fix=$(red_fix_issue "$(fetch_destination)")
   fi
   if [ "$to" != "$(default_branch)" ]; then
     echo "safe-push: $to is not origin's default branch — pushing without the landing lock"
@@ -1819,7 +1858,6 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     queued=0
     first_base=$(fetch_destination)
     if exact_landing "${first_base:-HEAD}"; then
-      red_fix=$(red_fix_issue "$first_base")
       [ -z "$red_fix" ] || echo "safe-push: $to is red (#$red_fix) and this lane names it — queueing it ahead of the other lanes"
       echo "safe-push: exact landing — queueing for the landing lock before the checks, so a lane ahead can't restart them"
       push_ticket_info=$(printf '%s\t%s\t%s\t%s\n' "$(git rev-parse --show-toplevel)" \
@@ -1874,11 +1912,29 @@ capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
 check_instruction_limits "$head_oid"
 generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
-run_land_checks "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
+while :; do
+  land_base="${destination_oid:-${absent_base:-}}"
+  land_locked=0
+  if [ -n "$push_lock_fd" ] && has_land_checks && [ "${SAFE_PUSH_CAPACITY_ADMITTED:-}" != "$repo_root" ]; then
+    land_locked=1
+    release_push_lock
+  fi
+  run_land_checks "$land_base" "$head_oid" || exit $?
+  [ "$land_locked" -eq 1 ] || break
+  acquire_push_lock "$lock_url"
+  upstream=$(fetch_destination)
+  [ "$upstream" != "$land_base" ] || break
+  release_push_lock
+  rebase_onto_destination "$upstream"
+  capture_repository_state
+  capture_destination_state
+  acquire_push_lock "$lock_url"
+done
 if [ "$destination_branch" = main ] && has_land_checks; then hook_verified=1; fi
 command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to push without a secret scan"; exit 1; }
 if [ -n "$destination_oid" ] && [ "$destination_oid" = "$head_oid" ]; then
   echo "safe-push: nothing to push ($head_oid already at origin $destination_ref)"
+  safe_push_published_head=$(git rev-parse HEAD); safe_push_landed_sha="$head_oid"
   exit 0
 fi
 
@@ -1956,6 +2012,6 @@ if [ "$to_seen" -eq 0 ]; then
   fi
 fi
 release_follows
-safe_push_landed_sha="$head_oid"
+safe_push_published_head="$head_oid"; safe_push_landed_sha="$head_oid"
 cleanup_landed_lane || true
 auto_reap || true
