@@ -83,7 +83,7 @@ hook() {
     PLAYTEST_AFFINITY_LOG=$tmp/pins.log bash -c 'eval "$(sed -n "/^state_cache=/,/^units()/p" "$0" | head -n -1)"; playtest_hook' "$here/farm-runner"
 }
 
-hook '[s]ystemd --user' 600
+hook '[b]ash' 600
 check "Tom's game starting switches playtest on automatically" "true true" "$(jq -r '"\(.on) \(.auto)"' "$tmp/state.json")"
 hook 'no-such-game-zz9' 600
 check "an auto playtest stays on while the game was seen inside the idle period" "true" "$(jq -r .on "$tmp/state.json")"
