@@ -11,11 +11,14 @@ fn setup_failures_do_not_retire_checks_or_file_parity_fixes() {
         ("FAIL", 1.0, 0.0, None),
     ];
     for (verdict, compare, headless, expected) in rows {
-        let input = json!({"scripts":[{"script":"test/native/pads/448/a.pad", "verdict":verdict, "compare":compare,"headless":headless,"game":30,"run":60,"reset":15,"reload":15,"waited":900}]});
+        let input = json!({"fresh_each":false,"hot":false,"pairs":["lan-0"],"scripts":[{"pair":"lan-0","script":"test/native/pads/448/a.pad", "verdict":verdict, "compare":compare,"headless":headless,"game":30,"run":60,"reset":15,"reload":15,"waited":900}]});
         let runs = evidence::decode(Path::new("batch.json"), &input, 100);
         assert_eq!(runs[0].agreement, expected);
         assert_eq!(runs[0].client_minutes, 4.0);
         assert_eq!(runs[0].kind, "pad/448");
+        let mut unmarked = input.clone();
+        unmarked.as_object_mut().unwrap().remove("fresh_each");
+        assert!(evidence::decode(Path::new("report.json"), &unmarked, 100).is_empty());
         let mut headless = input;
         headless["headless_session"] = json!(true);
         assert!(evidence::decode(Path::new("batch.json"), &headless, 100).is_empty());
@@ -58,8 +61,9 @@ fn a_recent_disagreement_blocks_retirement_even_outside_the_display_filter() {
 
 #[test]
 fn allocating_accept_report_time_preserves_total_and_never_implies_parity() {
-    let input = json!({"started":1_791_000_000_000_i64,"finished":1_791_000_120_000_i64,"results":[{"id":"a","verdict":"pass"},{"id":"b","verdict":"fail"}]});
+    let input = json!({"started":1_791_000_000_000_i64,"finished":1_791_000_120_000_i64,"results":[{"id":"a","verdict":"pass"},{"id":"b","verdict":"fail"},{"id":"never-ran","verdict":"skipped"}]});
     let runs = evidence::decode(Path::new("report.json"), &input, 0);
+    assert_eq!(runs.len(), 2);
     assert_eq!(runs.iter().map(|r| r.client_minutes).sum::<f64>(), 4.0);
     assert!(runs.iter().all(|r| r.agreement.is_none() && r.estimated));
     let report = summarize(runs, None, 1_791_000_130);

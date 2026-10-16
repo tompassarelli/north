@@ -81,9 +81,21 @@ pub(super) fn decode(path: &Path, value: &Value, fallback: i64) -> Vec<Run> {
         return Vec::new();
     }
     if let Some(scripts) = value["scripts"].as_array() {
+        if !value["fresh_each"].is_boolean() || !value["hot"].is_boolean() {
+            return Vec::new();
+        }
+        let Some(pairs) = value["pairs"].as_array() else {
+            return Vec::new();
+        };
         return scripts
             .iter()
-            .filter(|s| !text(s, "script").is_empty())
+            .filter(|s| {
+                !text(s, "script").is_empty()
+                    && text(s, "pair") != "session"
+                    && pairs
+                        .iter()
+                        .any(|pair| pair.as_str() == Some(text(s, "pair")))
+            })
             .map(|s| pad_run(path, s, fallback))
             .collect();
     }
@@ -119,7 +131,10 @@ pub(super) fn decode(path: &Path, value: &Value, fallback: i64) -> Vec<Run> {
 
 fn pad_run(path: &Path, s: &Value, fallback: i64) -> Run {
     let verdict = text(s, "verdict");
-    let agreement = if number(s, "compare") > 0.0 && number(s, "headless") > 0.0 {
+    let agreement = if number(s, "compare") > 0.0
+        && number(s, "headless") > 0.0
+        && !text(s, "summary").starts_with("compare failed:")
+    {
         match verdict {
             "PASS" => Some(true),
             "FAIL" => Some(false),
