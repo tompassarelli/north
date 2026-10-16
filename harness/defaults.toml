@@ -138,14 +138,14 @@ value = 10
 unit = "percent headroom every window keeps before fast mode is allowed"
 source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): Codex drains to 10-20%, never below the band"
 fallback = "no window readout means no fast mode"
-consumers = ["harness/lib/routing.py"]
+consumers = ["src/router/ctx.rs"]
 
 [codex_floor]
 value = 10
 unit = "percent Codex left at Friday 23:59 ET under which Astra fallback is refused"
 source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): drain Codex to about 15% (10-20%)"
 fallback = "no Friday projection uses current headroom"
-consumers = ["harness/lib/routing.py"]
+consumers = ["src/router/ctx.rs"]
 
 [astra_cost]
 value = 5
@@ -153,7 +153,7 @@ unit = "percent of the Codex week one Astra fallback is assumed to cost"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 20, count = "count_astra_runs", what = "gpt-6-astra medium worker runs with Codex week used_pct readouts on the same reset at or before start and at or after end" }
 fallback = "Astra is unavailable when the projection is unknown"
-consumers = ["harness/lib/routing.py"]
+consumers = ["src/router/ctx.rs"]
 
 [late_ratio]
 value = 1.5
@@ -169,7 +169,7 @@ unit = "minutes a provider-capacity error keeps the provider unavailable"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "closed Codex capacity episodes (first capacity turn to the next ok turn) in Codex rollouts over 60 days" }
 fallback = "no capacity error means the provider is available"
-consumers = ["harness/lib/routing.py"]
+consumers = ["src/router/ctx.rs"]
 
 [explore_runs]
 value = 10
@@ -185,7 +185,7 @@ unit = "every Nth staffing slot is an explore slot"
 source = "tom: 15 Oct 2026 17:2x local answer to picker 8500: exploration share 10%"
 settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
 fallback = "with no explorable tier the slot staffs normally"
-consumers = ["harness/lib/routing.py"]
+consumers = ["src/router/ctx.rs"]
 
 [successor_days]
 value = 7
