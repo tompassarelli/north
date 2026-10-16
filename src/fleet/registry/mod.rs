@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::error::{NorthError, NorthResult};
 
 use super::books::{Digest, FleetBooks};
-use super::gates::{self, Closure, Decision, Gate, GateRequest, default_overdue, settle};
+use super::gates;
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
@@ -18,6 +18,7 @@ pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
 mod follower;
+mod gate_commands;
 mod parents;
 mod status;
 
@@ -186,35 +187,6 @@ impl Fleet {
         fs::create_dir_all(&archive)?;
         fs::rename(self.root.join(name), archive.join(format!("{name}-{}", now_ms())))?;
         Ok(())
-    }
-
-    pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
-        let asker = self.record(&request.session)?;
-        let request = GateRequest { verification: asker.verification, ..request.clone() };
-        let id = gates::open(self.ledger.as_ref(), &request, asker.parent.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))?;
-        parents::await_default(id)?;
-        Ok(id)
-    }
-
-    pub fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {
-        self.ledger.gate(id)
-    }
-
-    pub fn decide(&self, id: i64, decision: Decision) -> NorthResult<Closure> {
-        settle(self.ledger.as_ref(), id, decision, now_ms(), |session, text| self.send(session, text, Delivery::Now))
-    }
-
-    pub fn answer_gate(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<Closure> {
-        let gate = self.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
-        if gate.closure.is_some() {
-            return self.decide(id, Decision::Option(number));
-        }
-        let asker = self.record(&gate.request.session)?;
-        gates::answer_gate(self.ledger.as_ref(), id, number, note, caller, asker.parent.as_deref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
-    }
-
-    pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
-        default_overdue(self.ledger.as_ref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
     }
 
     pub fn observe_landings(&self) -> NorthResult<()> {
