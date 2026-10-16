@@ -155,8 +155,8 @@ def remaining_p75(measurement, elapsed):
     return points * max(0.0, 1.0 - elapsed / wall)
 
 
-def hard_stop_due(started, now, reading, cap, grace=300):
-    return now - started >= grace or reading >= cap + 1
+def hard_stop_due(deadline, now, reading, cap):
+    return now >= deadline or reading >= cap + 1
 
 
 def read_all(remote=True):

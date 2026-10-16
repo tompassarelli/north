@@ -149,15 +149,15 @@ def soft_stop(cap, reading, measurement, now=None, grace=300):
     with GROUP_LOCK:
         groups = list(LIVE_GROUPS.items())
         remaining = [remaining_p75(measurement, now - entry["started"]) for _, entry in groups]
-        if reading < cap + 1 and not any("stop_at" in entry for _, entry in groups) and remaining \
+        if reading < cap + 1 and not any("hard_at" in entry for _, entry in groups) and remaining \
                 and all(p is not None for p in remaining) and sum(remaining) <= max(0, cap - reading):
             return []
         events_ = []
         for proc, entry in groups:
-            if "stop_at" not in entry:
-                entry["stop_at"] = now
+            if "hard_at" not in entry:
+                entry["hard_at"] = now + grace
                 events_.append("graceful")
-            if hard_stop_due(entry["stop_at"], now, reading, cap, grace):
+            if hard_stop_due(entry["hard_at"], now, reading, cap):
                 events_.append("hard")
                 stop_group(proc)
         return events_
