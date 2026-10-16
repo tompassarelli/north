@@ -71,3 +71,15 @@ fn gate_from_row(row: &Row<'_>) -> rusqlite::Result<Gate> {
 fn ordinal(number: usize) -> i64 {
     i64::try_from(number).unwrap_or(i64::MAX)
 }
+
+pub(super) fn allow_session_answerers(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let schema: String = conn.query_row("SELECT sql FROM sqlite_master WHERE name = 'gates'", [], |row| row.get(0))?;
+    if schema.contains("CHECK(answered_by") {
+        let transaction = conn.unchecked_transaction()?;
+        transaction.execute_batch("ALTER TABLE gates RENAME TO gates_restricted;")?;
+        transaction.execute_batch(super::SCHEMA)?;
+        transaction.execute_batch("INSERT INTO gates SELECT * FROM gates_restricted; DROP TABLE gates_restricted;")?;
+        transaction.commit()?;
+    }
+    Ok(())
+}

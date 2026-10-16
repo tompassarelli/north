@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS gates(
   default_after_ms INTEGER NOT NULL,
   opened_ms INTEGER NOT NULL,
   answer TEXT,
-  answered_by TEXT CHECK(answered_by IN ('tom','default')),
+  answered_by TEXT,
   closed_ms INTEGER
 ) STRICT;
 CREATE INDEX IF NOT EXISTS runs_by_session ON runs(session);
@@ -151,6 +151,7 @@ impl Ledger {
         conn.busy_timeout(Duration::from_secs(5)).map_err(sql)?;
         conn.pragma_update(None, "journal_mode", "WAL").map_err(sql)?;
         conn.execute_batch(SCHEMA).map_err(sql)?;
+        gates::allow_session_answerers(&conn).map_err(sql)?;
         add_missing_column(&conn, "tasks", "landed_ms", "INTEGER").map_err(sql)?;
         Ok(Self { conn: Mutex::new(conn) })
     }

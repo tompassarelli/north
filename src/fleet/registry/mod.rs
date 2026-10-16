@@ -197,6 +197,12 @@ impl Fleet {
         settle(self.ledger.as_ref(), id, decision, now_ms(), |session, text| self.send(session, text, Delivery::Now))
     }
 
+    pub fn answer_gate(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<Closure> {
+        let gate = self.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
+        let asker = self.record(&gate.request.session)?;
+        gates::answer_gate(self.ledger.as_ref(), id, number, note, caller, asker.parent.as_deref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
+    }
+
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
         default_overdue(self.ledger.as_ref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
     }

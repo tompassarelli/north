@@ -7,17 +7,26 @@ use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) | north gate list [--json]";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) | north gate answer ID N [--note TEXT] | north gate list [--json]";
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
         ["open", flags @ ..] => open(fleet, flags),
+        ["answer", id, number] => answer(fleet, id, number, None),
+        ["answer", id, number, "--note", note] => answer(fleet, id, number, Some(note)),
         ["list"] => list(fleet, false),
         ["list", "--json"] => list(fleet, true),
         ["await", id] => await_default(fleet, id.parse().map_err(|_| usage())?),
         _ => Err(usage()),
     }
+}
+
+fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>) -> NorthResult<()> {
+    let caller = std::env::var(crate::fleet::runtime::SESSION_ENV).ok().filter(|name| !name.is_empty());
+    let closure = fleet.answer_gate(id.parse().map_err(|_| usage())?, number.parse().map_err(|_| usage())?, note, caller.as_deref())?;
+    println!("gate {id} closed by {}: {}", closure.by.label(), closure.answer);
+    Ok(())
 }
 
 fn usage() -> NorthError {

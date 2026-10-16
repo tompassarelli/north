@@ -59,15 +59,17 @@ impl Ask {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Answerer {
+    Session(String),
     Tom,
     Default,
 }
 
 impl Answerer {
-    pub fn label(self) -> &'static str {
+    pub fn label(&self) -> &str {
         match self {
+            Answerer::Session(name) => name,
             Answerer::Tom => "tom",
             Answerer::Default => "default",
         }
@@ -77,6 +79,7 @@ impl Answerer {
         match label {
             "tom" => Some(Answerer::Tom),
             "default" => Some(Answerer::Default),
+            name if !name.is_empty() => Some(Answerer::Session(name.to_owned())),
             _ => None,
         }
     }
@@ -135,8 +138,25 @@ pub fn open(book: &dyn GateBook, request: &GateRequest, parent: Option<&str>, no
 }
 
 pub fn settle(book: &dyn GateBook, id: i64, decision: Decision, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    let by = answerer(&decision);
+    settle_as(book, id, decision, by, None, now_ms, deliver)
+}
+
+pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&str>, caller: Option<&str>, parent: Option<&str>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    if caller.is_some() && caller != parent {
+        return Err(NorthError::Rejected("only Tom or the gate session's parent may answer".into()));
+    }
+    let by = caller.map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
+    settle_as(book, id, Decision::Option(number), by, note, now_ms, deliver)
+}
+
+fn settle_as(book: &dyn GateBook, id: i64, decision: Decision, by: Answerer, note: Option<&str>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
     let gate = book.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
-    let closure = Closure { answer: answer(&gate, &decision)?, by: answerer(&decision), closed_ms: now_ms };
+    let mut answer = answer(&gate, &decision)?;
+    if let Some(note) = note.filter(|note| !note.trim().is_empty()) {
+        answer.push_str(&format!("\n{}", note.trim()));
+    }
+    let closure = Closure { answer, by, closed_ms: now_ms };
     if !book.close_gate(id, &closure)? {
         return Err(NorthError::Rejected(format!("gate {id} is already closed")));
     }
@@ -177,7 +197,8 @@ fn answerer(decision: &Decision) -> Answerer {
 }
 
 fn message(gate: &Gate, closure: &Closure) -> String {
-    let verdict = match closure.by {
+    let verdict = match &closure.by {
+        Answerer::Session(name) => format!("{name} answered: {}", closure.answer),
         Answerer::Tom => format!("Tom answered: {}", closure.answer),
         Answerer::Default => format!("No answer in time, so the default applies: {}", closure.answer),
     };
@@ -318,7 +339,7 @@ mod tests {
         let delivered = Mutex::new(Vec::new());
         let deliver = |session: &str, _: &str| Ok(delivered.lock().unwrap().push(session.to_owned()));
         let swept = default_overdue(&book, 40_000, deliver).unwrap();
-        assert_eq!(swept.iter().map(|(id, outcome)| (*id, outcome.as_ref().map(|closure| closure.by).ok())).collect::<Vec<_>>(), [(overdue, Some(Answerer::Default))]);
+        assert_eq!(swept.iter().map(|(id, outcome)| (*id, outcome.as_ref().map(|closure| closure.by.clone()).ok())).collect::<Vec<_>>(), [(overdue, Some(Answerer::Default))]);
         assert!(book.gate(pending).unwrap().unwrap().is_open(), "a gate whose default is not due stays open");
         assert!(default_overdue(&book, 41_000, deliver).unwrap().is_empty());
         assert!(default_overdue(&Stale(&book, snapshot), 42_000, deliver).unwrap().is_empty(), "a sweeper with a stale view loses the close and stays quiet");

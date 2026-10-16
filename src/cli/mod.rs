@@ -64,7 +64,7 @@ Commands:
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
   orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
-  gate [open --session S --question Q --option O... --recommend N --default N --default-after D | list [--json]]  Ask Tom a decision; the fleet screen answers it
+  gate [open --session S --question Q --option O... --recommend N --default N --default-after D | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity admission < FACTS.json               Decide one machine-capacity admission
   help                                          Show this help
