@@ -82,16 +82,15 @@ def main(argv):
     budget = None
     db_path = Path(os.environ.get("THREADS_DB") or Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "threads/snapshot.db").resolve()
     try:
+        import routing
         import plan_usage
         import usage
-        import routing
         costs = tomllib.loads(costs_path().read_text())
         with open_ledger(db_path) as db:
             rows = usage.latest(db)
             ctx = plan_usage.live_ctx(cfg, {}, rows, db, now, cfg.get("tiers", {}), costs) if rows else {"accounts": {}}
-        accounts = list(ctx["accounts"].values())
-        if accounts and "share" in config and all(not routing.stale(a) for a in accounts):
-            budget = sum(routing.account_metrics(a, now)["available_usd"] for a in accounts) * config["share"] / 100
+        if ctx["accounts"] and "share" in config:
+            budget = sum(a["available_usd"] for a in routing.ask("plan", ctx=ctx)["accounts"].values()) * config["share"] / 100
     except (OSError, ValueError, sqlite3.Error):
         pass
     row = score(project, target, now, issues, runs, budget)

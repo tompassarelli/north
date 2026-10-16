@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import json
 import math
+import os
 import re
+import subprocess
 import sys
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -15,12 +17,16 @@ SUCCESS_THRESHOLD = DEFAULTS["success_threshold"]
 STATE_PRICE = {"under pace": 0, "at or over pace": 1}
 STALE_MIN = DEFAULTS["usage_stale_min"]
 MONEY_CEILING = DEFAULTS["money_ceiling"]
-FAST_FLOOR = DEFAULTS["fast_floor"]
 LATE = DEFAULTS["late_ratio"]
-CAPACITY_MIN = DEFAULTS["capacity_min"]
-ASTRA = {"key": "codex:astra", "model": "gpt-6-astra", "effort": "medium"}
-CODEX_FLOOR = DEFAULTS["codex_floor"]
-ASTRA_COST = DEFAULTS["astra_cost"]
+
+
+def ask(op, **request):
+    result = subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace"], input=json.dumps({"op": op, **request}, default=str), capture_output=True, text=True, timeout=10)
+    if result.returncode:
+        raise ValueError(result.stderr.strip())
+    return json.loads(result.stdout)
+
+
 CODEX_CLASS = {
     "tooling": {"route": DEFAULTS["codex_route_tooling"], "tiers": DEFAULTS["codex_tier_tooling"]},
     "native-check": {"route": DEFAULTS["codex_route_native-check"], "tiers": DEFAULTS["codex_tier_native-check"]},
@@ -58,20 +64,6 @@ def account_of(tier):
 def expiry(acct):
     week = acct.get("windows", {}).get("week")
     return week["reset_in"] if week else math.inf
-
-
-def route_account(ctx, p):
-    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and ctx["accounts"][n].get("auto_route", True) and price(ctx, n) != math.inf
-             and account_state(ctx, n) == "under pace"]
-    return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
-
-
-def provider_account(ctx, p):
-    routed = route_account(ctx, p)
-    if routed:
-        return routed
-    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and ctx["accounts"][n].get("auto_route", True)]
-    return min(names, key=lambda n: (price(ctx, n), expiry(ctx["accounts"][n]), n)) if names else p
 
 
 def moment(value):
@@ -125,56 +117,9 @@ def pace_open(ctx, name, project):
             or drain_open(project, name, ctx["now"]))
 
 
-def route(ctx, p):
-    """The account a new provider-p spawn routes to: the under-pace one, else one whose pace is not yet enforced."""
-    routed = route_account(ctx, p)
-    if routed:
-        return routed
-    names = [n for n in ctx["accounts"] if n.split(":", 1)[0] == p and ctx["accounts"][n].get("auto_route", True) and price(ctx, n) != math.inf and not enforced(ctx, n)
-             and not exhausted(ctx["accounts"][n])]
-    return min(names, key=lambda n: (expiry(ctx["accounts"][n]), n)) if names else None
-
-
-def route_label(ctx, p):
-    name = route(ctx, p)
-    if name is None:
-        return "none under pace"
-    if account_state(ctx, name) == "under pace":
-        return name
-    start = enforce_from(ctx, name)
-    return f"{name} (at or over pace, enforced from {start.isoformat() if start else 'unset'})"
-
-
-def pick_accounts(ctx):
-    return dict(ctx, tiers=[dict(t, account=t.get("account") or route(ctx, provider(t)) or provider_account(ctx, provider(t)))
-                            for t in ctx["tiers"]])
-
-
 def stale(acct):
     age = acct.get("age_min")
     return age is None or age > STALE_MIN
-
-
-def stale_warning(name, acct):
-    age = acct.get("age_min")
-    return f"account {name} STALE: usage {age if age is not None else 'unknown'} minutes old; run agents usage --refresh"
-
-
-def pace_reading(ctx, p, account=None):
-    """The named account, else the account a new provider-p spawn routes to, with its pace state; a stale or unknown
-    readout carries only its warning, so it never holds a spawn."""
-    names = sorted(n for n in ctx["accounts"] if n.split(":", 1)[0] == p and account in (None, n))
-    for n in names:
-        if stale(ctx["accounts"][n]):
-            return {"account": n, "stale": stale_warning(n, ctx["accounts"][n])}
-    if not names:
-        return None
-    name = account or route_account(ctx, p) or min(names, key=lambda n: (expiry(ctx["accounts"][n]), n))
-    m = account_metrics(ctx["accounts"][name], ctx["now"])
-    if m["used_pct"] is None:
-        return {"account": name, "stale": stale_warning(name, ctx["accounts"][name])}
-    return {"account": name, "state": m["state"], "used_pct": m["used_pct"], "pace_pct": m["pace_pct"],
-            "exhausted": exhausted(ctx["accounts"][name]), "stale": None}
 
 
 def used(acct):
@@ -295,11 +240,6 @@ def header_minutes(value):
 def header_files(value):
     names = [re.sub(r"^[-*]\s+", "", n.strip()).strip().strip("`\"'") for n in re.split(r",|\n", value)]
     return [n for n in names if n]
-
-
-def review_admits(fields, family):
-    author = header_word(fields, "reviews")
-    return (bool(author) and author != family), (f"Reviews {header_shown(fields, 'reviews')}" if author else "Reviews missing")
 
 
 def codex_qualifies(box, shape_only=False, explore=False):
@@ -444,156 +384,3 @@ def choose(ctx, box, explore_slot=False, *, account_prices=None):
             and billing(ctx, name, "fast") != "plan"):
         out["needs"] = missed_target(project.get("name", box["project"]), project.get("target", "its target"), ctx.get("services"))
     return out
-
-
-def fast(ctx, name, u):
-    acct = ctx["accounts"].get(name)
-    if acct is None or billing(ctx, name, "fast") != "plan" or price(ctx, name) == math.inf:
-        return False
-    if state(acct, ctx["now"]) != "under pace":
-        return False
-    return all(w["headroom"] > FAST_FLOOR for w in acct["windows"].values())
-
-
-def capacity(ctx):
-    """Providers whose model hit a capacity error in the last 15 minutes. Codex falls back to Astra medium only while
-    its Friday projection (else its current headroom) stays ASTRA_COST above the floor; otherwise it is unavailable."""
-    out = {}
-    for p, c in ctx.get("capacity", {}).items():
-        since = datetime.fromisoformat(c["since"].replace("Z", "+00:00"))
-        if (ctx["now"] - since).total_seconds() > CAPACITY_MIN * 60:
-            continue
-        name = provider_account(ctx, p)
-        m = account_metrics(ctx["accounts"][name], ctx["now"]) if name in ctx["accounts"] else None
-        left = m and (m["projected_left"] if m["projected_left"] is not None else
-                      None if m["used_pct"] is None else 100 - m["used_pct"])
-        astra = p == "codex" and c.get("model") != ASTRA["model"] and left is not None and left - ASTRA_COST >= CODEX_FLOOR
-        out[p] = {"since": c["since"], "model": c.get("model"), "left": left, "fallback": ASTRA["key"] if astra else None}
-    return out
-
-
-def capacity_lines(ctx, cap):
-    out = []
-    for p, c in sorted(cap.items()):
-        at = datetime.fromisoformat(c["since"].replace("Z", "+00:00")).astimezone().strftime("%H:%M")
-        if c["fallback"]:
-            out.append(f"account {p}: {c['model']} at capacity since {at}; its tiers fall back to "
-                       f"{ASTRA['model']} {ASTRA['effort']} ({c['left']:.1f}% left at Fri 23:59 ET, floor {CODEX_FLOOR}%)")
-        else:
-            out.append(f"account {p}: unavailable (provider capacity, since {at})")
-    return out
-
-
-def plan(ctx):
-    ctx = dict(ctx, now=datetime.fromisoformat(ctx["now"]) if isinstance(ctx["now"], str) else ctx["now"])
-    for name, acct in ctx["accounts"].items():
-        if stale(acct):
-            raise ValueError(stale_warning(name, acct))
-    cap = capacity(ctx)
-    hit = lambda t: provider(t) in cap and cap[provider(t)]["model"] in (None, t.get("model"))
-    ctx = dict(ctx, tiers=[dict(t, model=ASTRA["model"], effort=ASTRA["effort"], fallback=True) if hit(t) else t
-                           for t in ctx["tiers"] if not hit(t) or cap[provider(t)]["fallback"]])
-    ctx = pick_accounts(ctx)
-    accounts = {n: {**account_metrics(a, ctx["now"]), "price": price(ctx, n)}
-                for n, a in ctx["accounts"].items()}
-    boxes, needs, warnings, slot = {}, [], [], 0
-    for box in ctx["boxes"]:
-        project = ctx["projects"][box["project"]]
-        explore_slot = slot % DEFAULTS["explore_every"] == 0
-        slot += 1
-        r = choose(ctx, box, explore_slot)
-        t = r["tier"]
-        boxes[box["id"]] = {"tier": t and t["key"], "account": t and account_of(t), "explore": r.get("explore", False), "wait": r.get("wait"),
-                            "fast": bool(t) and fast(ctx, account_of(t), project["u"]),
-                            "fallback": bool(t) and t.get("fallback", False)}
-        if r.get("needs"):
-            if r["needs"] not in needs:
-                needs.append(r["needs"])
-        if r.get("warn") and r["warn"] not in warnings:
-            warnings.append(r["warn"])
-    explore = [t["key"] for t in ctx["tiers"] if t.get("runs", math.inf) < DEFAULTS["explore_runs"] and not successor_soon(t)]
-    held = [t["key"] for t in ctx["tiers"] if successor_soon(t)]
-    routes = {t["key"]: route(ctx, provider(t)) for t in ctx["tiers"]}
-    return {"accounts": accounts, "boxes": boxes, "explore": explore, "held": held, "needs": needs, "routes": routes,
-            "warnings": warnings,
-            "capacity": cap}
-
-
-def projection_lines(ctx):
-    out = []
-    for name, acct in sorted(ctx["accounts"].items()):
-        if acct.get("provider") != "codex":
-            continue
-        metrics = account_metrics(acct, ctx["now"])
-        projected = metrics["projected_left"]
-        band = acct["band"]
-        left = f"{projected:.1f}%" if projected is not None else "unknown (need two readings in last 3h)"
-        out.append(f"{name}: projected {left} left at Fri 23:59 ET (band {band[0]}-{band[1]})")
-        if metrics["drain_behind"]:
-            out.append("FLAG codex drain behind")
-    return out
-
-
-
-def render(ctx, result):
-    lines = []
-    for n, a in result["accounts"].items():
-        p = "inf" if a["price"] == math.inf else str(a["price"])
-        lines.append(f"account {n}: state {a['state']}, used {a['used_pct']}%, pace {a['pace_pct']}%, available ${a['available_usd']:.2f}, resets_at {a['resets_at']}, price {p}")
-    lines += projection_lines(dict(ctx, now=datetime.fromisoformat(ctx["now"]) if isinstance(ctx["now"], str) else ctx["now"]))
-    lines += capacity_lines(ctx, result["capacity"])
-    for box in ctx["boxes"]:
-        b = result["boxes"][box["id"]]
-        what = b["tier"] and b["tier"] + (f" on {b['account']}" if ":" in b["account"] else "")
-        what = what or (f"wait for {b['wait']}" if b["wait"] else "none")
-        tag = (" (explore)" if b["explore"] else "") + (f" on {ASTRA['model']} {ASTRA['effort']} (capacity fallback)" if b["fallback"] else "")
-        lines.append(f"box {box['id']} ({box['project']} {box['category']} d{box['difficulty']}): {what}{tag}, fast {'on' if b['fast'] else 'off'}")
-    if result["explore"]:
-        lines.append("explore: " + ", ".join(result["explore"]))
-    for k in result["held"]:
-        lines.append(f"no explore and no new lead: {k} (successor due)")
-    lines += [f"route: {tier}: {account or 'none under pace'}" for tier, account in result["routes"].items()]
-    lines.extend(result["warnings"])
-    lines.extend(result["needs"])
-    return "\n".join(lines)
-
-
-def divergence(result, expect):
-    for n, s in expect.get("states", {}).items():
-        if result["accounts"][n]["state"] != s:
-            return f"account {n}: state {result['accounts'][n]['state']}, expected {s}"
-    for b, t in expect.get("tiers", {}).items():
-        if result["boxes"][b]["tier"] != t:
-            return f"box {b}: tier {result['boxes'][b]['tier']}, expected {t}"
-    for b, a in expect.get("accounts", {}).items():
-        if result["boxes"][b]["account"] != a:
-            return f"box {b}: account {result['boxes'][b]['account']}, expected {a}"
-    for b, f in expect.get("fast", {}).items():
-        if result["boxes"][b]["fast"] != f:
-            return f"box {b}: fast {result['boxes'][b]['fast']}, expected {f}"
-    for p, f in expect.get("capacity", {}).items():
-        if result["capacity"].get(p, {}).get("fallback", "available") != f:
-            return f"capacity {p}: {result['capacity'].get(p)}, expected fallback {f}"
-    for k in ("explore", "held", "needs", "routes", "warnings"):
-        if k in expect and result[k] != expect[k]:
-            return f"{k}: {result[k]}, expected {expect[k]}"
-    return None
-
-
-def main(argv):
-    if len(argv) != 3 or argv[1] != "scenario":
-        print("usage: routing.py scenario FILE.json", file=sys.stderr)
-        return 2
-    with open(argv[2]) as f:
-        ctx = json.load(f)
-    result = plan(ctx)
-    print(render(ctx, result))
-    bad = "expect" in ctx and divergence(result, ctx["expect"])
-    if bad:
-        print(f"MISMATCH {bad}", file=sys.stderr)
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv))

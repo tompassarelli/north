@@ -25,9 +25,9 @@ project below the first in orchestration.toml's [projects] priority order stops 
 Pace hold: usage-gate.json carries routing's pace reading per account. The hold reads the account this session
 bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
 spawn whose project (brief `Item: repo#N`, else the Fleet session task reference) has no live target with a `drain` grant for the account
-in orchestration.toml (routing.drain_open, the rule `agents plan` routes by) is held from
+in orchestration.toml (`north pace` op drain, the rule `agents plan` routes by) is held from
 the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it, except that an account
-at its drain floor (week headroom at or below its target_left, routing.exhausted) holds before it too. Tom's top-level
+at its drain floor (week headroom at or below its target_left, as `north pace` reads it) holds before it too. Tom's top-level
 interactive Claude session and a spawn with neither an Item nor a Fleet task reference are only warned. A stale readout only warns.
 """
 
@@ -371,7 +371,7 @@ def account_reservation(event, verdict, provider, expected, in_flight, existing)
 
 def pace_hold(texts, verdict, provider="claude", event=None, expected=0.0, in_flight=0, existing=None):
     """(refusal, warning) for a spawn on an account at or over its pace line whose project has no open target with
-    Tom's drain grant for that account (routing.drain_open). The account holds from its `[pace] enforce_from` time
+    Tom's drain grant for that account (`north pace` op drain). The account holds from its `[pace] enforce_from` time
     in orchestration.toml and only warns before it or without one."""
     from datetime import datetime, timezone
     paces = verdict.get("paces") if isinstance(verdict.get("paces"), dict) else {}
@@ -403,13 +403,13 @@ def pace_hold(texts, verdict, provider="claude", event=None, expected=0.0, in_fl
     try:
         north_lib()
         import routing
-        now = datetime.now(timezone.utc)
-        if project and routing.drain_open(projects.get(project, {}), account, now):
+        opened = routing.ask("drain", project=projects.get(project, {}), account=account, now=datetime.now(timezone.utc)) if project else {}
+        if opened.get("drain_open"):
             return None, None
-        if project and routing.target_open(target, now):
+        if opened.get("target_open"):
             missing = (f"has an open target ({target}) but no drain grant for {account}. Queue it, or ask Tom "
                        "through the proxy for a drain grant.")
-    except (ImportError, OSError, StopIteration):
+    except (ImportError, OSError, StopIteration, ValueError, subprocess.SubprocessError):
         pass
     line = (f"Hold: {account} is at or over its pace line (used {number(pace.get('used_pct')) or 0:.1f}% vs pace "
             f"{number(pace.get('pace_pct')) or 0:.1f}%); {project or 'this project'} {missing}")

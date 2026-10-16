@@ -892,19 +892,10 @@ def codex_box_denial(event):
         import spawn_capacity
         spawn_capacity.north_lib()
         import routing
+        failed = routing.ask("codex_box", brief=message)
     except Exception:
         return None
-    if not hasattr(routing, "codex_qualifies") or "category" not in routing.brief_header(message):
-        return None
-    fields = routing.brief_header(message)
-    if routing.header_word(fields, "category") == "review":
-        admitted, failed = routing.review_admits(fields, "codex")
-        return None if admitted else deny(f"route to Claude: {failed}")
-    explore = routing.header_word(fields, "explore") == "codex"
-    qualifies, failed = routing.codex_qualifies({"brief": message}, explore=explore)
-    if not qualifies:
-        return deny(f"route to Claude: {failed}")
-    return None
+    return deny(f"route to Claude: {failed}") if failed else None
 
 
 def pre_spawn(event):

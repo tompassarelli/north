@@ -1,5 +1,5 @@
-"""Account and project lines for `agents plan`: build routing.py's ctx from orchestration.toml, the catalog's
-[accounts.*] billing and the live usage snapshot (or a scenario file), then let routing.py decide."""
+"""Account and project lines for `agents plan`: build the router's ctx from orchestration.toml, the catalog's
+[accounts.*] billing and the live usage snapshot (or a scenario file), then let `north pace` decide."""
 
 import math
 import re
@@ -237,15 +237,6 @@ def promo_lines(catalog, db, now, days=7):
     return out
 
 
-def account_line(ctx, name):
-    acct = ctx["accounts"][name]
-    m = routing.account_metrics(acct, ctx["now"])
-    pct = lambda value: f"{value:.1f}%" if value is not None else "unknown"
-    return (f"account {name}: state {m['state']}, used {pct(m['used_pct'])}, pace {pct(m['pace_pct'])}, "
-            f"available ${m['available_usd']:.2f}, resets_at {m['resets_at'] or 'unknown'}, "
-            f"fast {'on' if routing.fast(ctx, name, 1.0) else 'off'}")
-
-
 def project_line(name, p):
     target = p.get("target")
     if target is None:
@@ -274,39 +265,18 @@ def measured_lines(ctx):
 
 
 def lines(ctx, result=None):
-    out = [account_line(ctx, n) for n in sorted(ctx["accounts"])]
-    out += routing.projection_lines(ctx)
-    out += routing.capacity_lines(ctx, routing.capacity(ctx))
-    out += [f"route: {t['key']}: {routing.route_label(ctx, routing.provider(t))}" for t in ctx["tiers"]]
+    shown = routing.ask("plan_lines", ctx=ctx, result=result)
     projects = sorted(ctx["projects"].items(), key=lambda kv: kv[1].get("priority", math.inf))
-    out += [project_line(n, p) for n, p in projects]
-    out += measured_lines(ctx)
-    if result:
-        for box in ctx["boxes"]:
-            b = result["boxes"][box["id"]]
-            what = b["tier"] and b["tier"] + (f" on {b['account']}" if ":" in b["account"] else "")
-            what = what or (f"wait for {b['wait']}" if b["wait"] else "none")
-            tag = ((" (explore: brief header Explore: codex)" if b["tier"].startswith("codex:") else " (explore)") if b["explore"] else "") + (f" on {routing.ASTRA['model']} {routing.ASTRA['effort']} (capacity fallback)" if b.get("fallback") else "")
-            out.append(f"box {box['id']} ({box['project']} {box['category']} d{box['difficulty']}): {what}{tag}, "
-                       f"fast {'on' if b['fast'] else 'off'}")
-        out += ["explore: " + ", ".join(result["explore"])] if result["explore"] else []
-        out += [f"no explore and no new lead: {k} (successor due)" for k in result["held"]]
-        out += result["needs"]
-    return out
+    return shown["head"] + [project_line(n, p) for n, p in projects] + measured_lines(ctx) + shown["tail"]
 
 
 def replay(ctx):
-    ctx = dict(ctx, now=ts(ctx["now"]))
-    result = routing.plan(ctx)
-    return lines(ctx, result), routing.divergence(result, ctx.get("expect", {}))
+    result = json_plan(ctx)
+    return lines(ctx, result), routing.ask("divergence", result=result, expect=ctx.get("expect", {}))
 
 
 def json_plan(ctx):
-    result = routing.plan(ctx)
-    for account in result["accounts"].values():
-        if account["price"] == math.inf:
-            account["price"] = "unavailable"
-    return result
+    return routing.ask("plan", ctx=ctx)
 
 
 def open_db(path):

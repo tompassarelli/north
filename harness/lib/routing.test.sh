@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Money property over the catalog's tiers, then the four §4 scenarios and two Claude accounts (firn#12).
+# Money property over the catalog's tiers and the Python rules placement.py still shares (firn#12); north pace plans the scenarios.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 fail=0
@@ -35,7 +35,7 @@ def money(ctx, name, mode):
     overflow_free = b.get("overflow") in ("plan", "blocked") and not (a["hasCredits"] or a["extra_usage"] or a["spend"])
     return used >= routing.MONEY_CEILING and not overflow_free
 
-states = decisions = picks = fasts = 0
+states = decisions = picks = 0
 for bill in itertools.product(("plan", "money", None), ("plan", "money", None), ("plan", None), VALUES):
     for credits, extra, stale, pct in itertools.product((False, True), (False,), (False, True), (0, 94, 95, 100)):
         acct = {"windows": {"5h": {"headroom": 100 - pct, "reset_in": 2, "beta": 1}, "week": {"headroom": 100-pct,"reset_in":20,"beta":0.5,"window_h":168,"resets_at":"2026-10-12T08:00Z","as_of":now.isoformat()}},
@@ -56,13 +56,8 @@ for bill in itertools.product(("plan", "money", None), ("plan", "money", None), 
                 if money(ctx, name, "standard"):
                     print(f"FAIL choose picked money: {t['key']} box {box['id']} billing {billing} credits {credits} extra {extra} stale {stale} used {pct}")
                     sys.exit(1)
-                if routing.fast(ctx, name, projects[box["project"]]["u"]):
-                    fasts += 1
-                    if money(ctx, name, "fast"):
-                        print(f"FAIL fast on money: {name} billing {billing} credits {credits} extra {extra} stale {stale} used {pct}")
-                        sys.exit(1)
 print(f"PASS money property: {states} account states x {len(tiers)} catalog tiers x {len(boxes)} boxes with and without an explore slot; "
-      f"{decisions} decisions, {picks} picks, {fasts} fast-on, 0 money")
+      f"{decisions} decisions, {picks} picks, 0 money")
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 import plan_usage, sqlite3
@@ -95,21 +90,6 @@ r={"ts":rows[-1][0],"provider":"codex","account":"a","name":"week","resets_at":r
 assert plan_usage.beta(db,r,plan_usage.ts(r["ts"]))==1
 r["resets_at"]="2026-10-18T04:00:00Z"
 assert plan_usage.beta(db,r,plan_usage.ts(r["ts"])) is None
-a={"provider":"claude","target_left":5,"usd_per_week":50,"age_min":5,
-   "windows":{"week":{"headroom":60,"window_h":168,"reset_in":20,"resets_at":"2026-10-12T08:00Z","as_of":now.isoformat(),"beta":0}}}
-b=dict(a,windows={"week":dict(a["windows"]["week"],headroom=30,reset_in=10,resets_at="2026-10-11T22:00Z")})
-ctx={"now":now,"accounts":{"claude:a":a,"claude:b":b},"billing":{"claude":{"standard":"plan","overflow":"blocked"}}}
-assert routing.route_account(ctx,"claude")=="claude:b"
-b["windows"]["week"]["headroom"]=5
-assert routing.route_account(ctx,"claude")=="claude:a"
-a["windows"]["week"]["headroom"]=10
-ctx.update(tiers=[{"key":"claude:opus-medium","rank":0,"start":0}], projects={"north":{"u":1}}, lease=True,
-           pace={"enforce_from":{"claude:a":"2026-10-01T00:00Z","claude:b":"2026-10-01T00:00Z"}},
-           boxes=[{"id":"hold","project":"north","category":"feature","difficulty":95,"sensitivity":"private"}])
-assert routing.route_account(ctx,"claude") is None
-assert routing.pick_accounts(ctx)["tiers"][0]["account"]=="claude:b"
-held=routing.plan(ctx)
-assert held["boxes"]["hold"]["wait"]=="account pace" and held["needs"]==[], held
 rows=[]
 for provider,account,name,pct in (("claude","a","weekly_all",10),("claude","b","weekly_all",40),
                                   ("codex","x","week",20),("gemini","g","group1/weekly",10),
@@ -119,7 +99,7 @@ for provider,account,name,pct in (("claude","a","weekly_all",10),("claude","b","
 ctx=plan_usage.live_ctx({}, {}, rows, None, now, {}, {"claude-a":50,"claude-b":50,"codex":50,"gemini":1.25})
 cash={n:routing.account_metrics(a,now)["available_usd"] for n,a in ctx["accounts"].items()}
 assert cash=={"claude:a":45,"claude:b":30,"codex":40,"gemini":1}, cash
-print("PASS pace property: Claude5/Codex15, per-account cash including binding Gemini weekly quota, equality, Friday ET across DST, nearest eligible reset; held private work preserves real account identity without questions; 3h burn excludes older usage and other reset windows")
+print("PASS pace property: Claude5/Codex15, per-account cash including binding Gemini weekly quota, equality, Friday ET across DST; 3h burn excludes older usage and other reset windows")
 
 PY
 
@@ -127,7 +107,7 @@ python3 -I - "$HERE" <<'PY' || fail=1
 import json, sqlite3, sys
 from datetime import timedelta
 sys.path.insert(0, sys.argv[1])
-import plan_usage, routing
+import routing, plan_usage
 scenario = json.load(open(f"{sys.argv[1]}/routing-scenarios/measured.json"))
 now = plan_usage.ts(scenario["now"])
 tiers = {t["key"]: {"model": t["model"], "effort": t["effort"], "start": t["start"]} for t in scenario["tiers"]}
@@ -160,54 +140,14 @@ assert live["success"] == scenario["success"], live["success"]
 assert [(t["key"], t["runs"], t.get("successor")) for t in live["tiers"]] == [
     (t["key"], t["runs"], t.get("successor")) for t in scenario["tiers"]], live["tiers"]
 live.update({k: scenario[k] for k in ("billing", "lease", "accounts", "projects", "boxes")})
-result = routing.plan(live)
-bad = routing.divergence(result, scenario["expect"])
+result = routing.ask("plan", ctx=live)
+bad = routing.ask("divergence", result=result, expect=scenario["expect"])
 assert bad is None, bad
-assert result == routing.plan(scenario)
-blind = routing.plan(dict(live, success={}))
+assert result == routing.ask("plan", ctx=scenario)
+blind = routing.ask("plan", ctx=dict(live, success={}))
 assert blind["boxes"]["t1"]["tier"] == "claude:haiku", blind["boxes"]["t1"]
 print("PASS live measured: live_ctx from a fixture ledger (run_ok success with escalation and landing, unbriefed unclear runs left out, MIN_RUNS, runs per tier, "
       "latest successor per model) reaches the measured scenario's plan; without its success map t1 falls back to claude:haiku")
-PY
-
-python3 -I - "$HERE" <<'PY' || fail=1
-import copy, json, sys
-sys.path.insert(0, sys.argv[1])
-import routing
-base = json.load(open(f"{sys.argv[1]}/routing-scenarios/capacity-astra.json"))
-ctx = copy.deepcopy(base)
-ctx["now"] = routing.datetime.fromisoformat(ctx["now"])
-ctx["accounts"] = {"claude:a": ctx["accounts"]["claude"], "claude:b": copy.deepcopy(ctx["accounts"]["claude"])}
-ctx["accounts"]["claude:a"]["windows"]["week"]["headroom"] = 33
-ctx["accounts"]["claude:b"]["windows"]["week"].update(headroom=90, reset_in=10)
-assert routing.route_account(ctx, "claude") == "claude:b"
-a, b = routing.pace_reading(ctx, "claude", "claude:a"), routing.pace_reading(ctx, "claude", "claude:b")
-assert (a["account"], a["state"], a["used_pct"]) == ("claude:a", "at or over pace", 67), a
-assert (b["account"], b["state"]) == ("claude:b", "under pace"), b
-assert routing.pace_reading(ctx, "claude")["account"] == "claude:b"
-
-ctx = copy.deepcopy(base)
-ctx["accounts"] = {"codex:a": dict(copy.deepcopy(ctx["accounts"]["codex"]), age_min=4), "codex:b": ctx["accounts"]["codex"],
-                   "claude": ctx["accounts"]["claude"]}
-ctx["accounts"]["codex:a"]["windows"]["week"]["headroom"] = 3
-ctx["billing"]["codex"]["standard"] = "plan"
-cap = routing.capacity(dict(ctx, now=routing.datetime.fromisoformat(ctx["now"])))
-assert cap["codex"]["fallback"] == "codex:astra" and cap["codex"]["left"] > routing.CODEX_FLOOR, cap
-
-ctx = copy.deepcopy(base)
-ctx["tiers"].append({"key": "codex:astra-xhigh", "model": "gpt-6-astra", "effort": "xhigh", "rank": 5, "start": 90})
-ctx["boxes"].append({"id": "x1", "project": "galileo", "category": "feature", "difficulty": 95, "sensitivity": "private", "local": False,
-                     "brief": "Category: feature\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh"})
-feature = routing.CODEX_CLASS["feature"]
-routing.CODEX_CLASS["feature"] = dict(feature, tiers=feature["tiers"] + ["codex:astra-xhigh"])
-try:
-    result = routing.plan(ctx)
-finally:
-    routing.CODEX_CLASS["feature"] = feature
-assert result["boxes"]["x1"]["tier"] == "codex:astra-xhigh" and not result["boxes"]["x1"]["fallback"], result["boxes"]["x1"]
-assert result["boxes"]["f1"]["fallback"], result["boxes"]["f1"]
-print("PASS capacity and pace per account: a named account reads its own pace, not the routed one; Codex headroom comes from "
-      "the routed account, not the alphabetically first; the Astra fallback rewrites only tiers on the model at capacity")
 PY
 
 SCRATCH="$(mktemp -d)"
@@ -234,7 +174,7 @@ for name in ("codex", "claude:a", "claude:b"):
                "tiers": [{"key": "codex:sol-high" if p == "codex" else f"{p}:t", "account": name, "rank": 0, "start": 0}], "lease": True, "services": [],
                "projects": {k: dict(v, u=1.0) for k, v in cfg["projects"].items()}, "pace": cfg["pace"]}
         m = routing.account_metrics(acct, now)
-        reading = routing.pace_reading(ctx, p, name)
+        reading = routing.ask("gate", ctx=ctx, provider=p)["paces"][name]
         for project in cfg["projects"]:
             box = {"id": "b", "project": project, "category": "tooling", "difficulty": 10, "sensitivity": "private", "brief": QUALIFYING_BRIEF}
             routed = routing.choose(ctx, box)["tier"] is not None
@@ -337,20 +277,15 @@ for category in ("performance", "netcode-determinism", "balance-tuning"):
     assert routing.explorable(explore_ctx, sol_high, visual, {}), category
     assert not routing.codex_qualifies(visual, shape_only=True)[0], category
 assert not routing.codex_qualifies(dict(bug, brief=bug["brief"].replace("shell", "lua")), explore=True)[0]
-import json, plan_usage
+import json, plan_usage, routing
 explore_scenario = json.load(open(f"{sys.argv[1]}/routing-scenarios/codex-explore.json"))
-explore_result = routing.plan(explore_scenario)
+explore_result = routing.ask("plan", ctx=explore_scenario)
 shown = plan_usage.lines(dict(explore_scenario, now=routing.datetime.fromisoformat(explore_scenario["now"])), explore_result)
 assert any(line.startswith("box b0 ") and "(explore: brief header Explore: codex)" in line for line in shown), shown
 assert not any("Explore: codex" in line for line in shown if line.startswith("box b10 ")), shown
-review = lambda reviews: routing.brief_header(f"Category: review\nReviews: {reviews}\nSpec: judged\n")
-assert routing.review_admits(review("claude (opus-high netcode plan)"), "codex") == (True, "Reviews claude (opus-high netcode plan)")
-assert routing.review_admits(review("codex"), "codex") == (False, "Reviews codex")
-assert routing.review_admits(routing.brief_header("Category: review\n"), "codex") == (False, "Reviews missing")
-assert routing.review_admits(review("codex"), "claude")[0]
 assert routing.codex_class("tooling") == {"route": "codex", "tiers": ["codex:sol-high"]}
 assert routing.codex_class("bug-known-cause")["route"] == "claude" and routing.codex_class("new-thing") == {"route": "claude", "tiers": []}
-print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts or lua; Tom-facing performance, netcode and balance explore sol-high on assets or visual boxes but are never admitted; agents plan tells the lead to write Explore: codex; a review box is admitted only for a reviewer family other than its Reviews: author; per-class route and tiers read from defaults.toml")
+print(f"PASS codex_qualifies: {len(cases)} header cases cover C1-C10 with the failed criterion named, body lines ignored, multi-facet and range values refused, tiers looked up by header Category; Codex exploration only in a Claude class's listed tier, under the run cap, never on ts or lua; Tom-facing performance, netcode and balance explore sol-high on assets or visual boxes but are never admitted; agents plan tells the lead to write Explore: codex; per-class route and tiers read from defaults.toml")
 PY
 
 python3 -I - "$HERE" <<'PY' || fail=1
@@ -397,11 +332,4 @@ assert routing.claude_unavailable({"claude:a": {"state": "under pace"}}, [], now
 print(f"PASS claude_session_overflow: {len(cases)} cases cover burn over the 30 min before the newest reading of the newest window (resets within 5 min count as one window), projected from that reading, stale windows and older readings ignored, no readings, target, ceiling and a 429 within 15 min; claude_unavailable when every Claude account is at or over pace or stale, never on a missing reading")
 PY
 
-for s in burn conserve new-model deadline two-claude reserve thursday-behind capacity-astra capacity-floor measured pace-report-only deadline-drain report-only-floor codex-gate codex-explore; do
-  if out="$(python3 -I "$HERE/routing.py" scenario "$HERE/routing-scenarios/$s.json" 2>&1)"; then
-    echo "PASS scenario $s"
-  else
-    echo "FAIL scenario $s"; echo "$out"; fail=1
-  fi
-done
 exit "$fail"

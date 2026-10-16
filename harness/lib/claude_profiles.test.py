@@ -72,22 +72,22 @@ with tempfile.TemporaryDirectory() as temporary:
     cfg = tomllib.loads(policy.read_text())
     ctx = plan_usage.live_ctx(cfg, catalog, readings, None, datetime.now(timezone.utc), {}, {"claude-b": 50, "claude-c": 25})
     assert not ctx["accounts"]["claude:c"]["auto_route"], ctx
-    for route in (routing.route_account, routing.route, routing.provider_account):
-        assert route(ctx, "claude") != "claude:c", (route.__name__, ctx)
+    routes = routing.ask("route", ctx=ctx, provider="claude")
+    assert "claude:c" not in routes.values(), (routes, ctx)
     (profile / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {
         "subscriptionType": "max", "rateLimitTier": "default_claude_max_5x"}}))
     result = subprocess.run([sys.executable, "-I", str(HERE / "usage_claude.py"), "--no-refresh"],
                             env=env, capture_output=True, text=True, check=True)
     readings = [json.loads(line) for line in result.stdout.splitlines()]
     ctx = plan_usage.live_ctx(cfg, catalog, readings, None, datetime.now(timezone.utc), {}, {"claude-b": 50, "claude-c": 25})
-    assert ctx["accounts"]["claude:c"]["auto_route"] and routing.route_account(ctx, "claude") == "claude:c", ctx
+    assert ctx["accounts"]["claude:c"]["auto_route"] and routing.ask("route", ctx=ctx, provider="claude")["under_pace"] == "claude:c", ctx
     account = {"windows": {"week": {"headroom": 93, "window_h": 168, "reset_in": 150, "beta": 0,
                                    "resets_at": "2099-01-01T00:00:00Z", "as_of": "2098-12-28T00:00:00Z"}},
                "age_min": 1, "target_left": 5, "usd_per_week": 25, "extra_usage": False, "spend": False, "hasCredits": False}
     ctx = {"now": datetime(2098, 12, 28, tzinfo=timezone.utc),
            "accounts": {"claude:b": account | {"windows": {"week": account["windows"]["week"] | {"headroom": 2}}},
                         "claude:c": account}, "billing": {"claude": {"standard": "plan", "overflow": "blocked"}}}
-    assert routing.route_account(ctx, "claude") == "claude:c"
+    assert routing.ask("route", ctx=ctx, provider="claude")["under_pace"] == "claude:c"
     import sqlite3
     from usage import record
     db_path = root / "usage.db"

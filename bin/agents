@@ -179,8 +179,8 @@ db = plan_usage.open_db(db_path)
 ctx = plan_usage.live_ctx(cfg, catalog, [r for r in rows if r["provider"] in usable], db, datetime.now(timezone.utc),
                           {k: t for k, t in tiers.items() if k.split(":")[0] in usable}, costs)
 if "codex" in usable:
-    import provider_capacity, routing
-    since = ctx["now"].timestamp() - routing.CAPACITY_MIN * 60
+    import provider_capacity
+    since = ctx["now"].timestamp() - plan_usage.DEFAULTS["capacity_min"] * 60
     ctx["capacity"] = provider_capacity.status(provider_capacity.outcomes(provider_capacity.rollouts(provider_capacity.root(), since), since))
 try:
     result = plan_usage.json_plan(ctx)

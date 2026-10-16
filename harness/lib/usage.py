@@ -281,28 +281,15 @@ def gate_path():
 
 def refusal(db, provider, cfg, catalog, now):
     """Why a new worker on this provider's account could bill money (or its usage is unknown), else None.
-    routing.py decides; this only feeds it."""
-    import math
-    import plan_usage
+    `north pace` decides; this only feeds it."""
     import routing
+    import plan_usage
     rows = [r for r in latest(db) if r["provider"] == provider]
     ctx = plan_usage.live_ctx(cfg, catalog, rows, db, now, cfg.get("tiers", {}))
     if provider not in ctx["accounts"] and local_account(provider):
         provider = f"{provider}:{local_account(provider)}"
-    acct = ctx["accounts"].get(provider)
-    if acct is not None and routing.price(ctx, provider) != math.inf:
-        return None
-    if acct is None:
-        why = f"no usage snapshot for {provider} could be read (`agents usage --refresh` shows why)"
-    elif routing.stale(acct):
-        why = f"{provider}'s usage snapshot is {acct['age_min']:.0f} minutes old even after a refresh"
-    elif routing.billing(ctx, provider, "standard") != "plan":
-        why = f"the catalog bills {provider}'s standard usage as {routing.billing(ctx, provider, 'standard')}"
-    else:
-        live = [f for f in ("hasCredits", "extra_usage", "spend") if acct.get(f)]
-        why = (f"{provider} is at {routing.used(acct):.0f}% of a plan window (ceiling {routing.MONEY_CEILING}%) "
-               f"and {', '.join(live) or 'its overflow'} would bill money past it")
-    return (f"No: a new {provider} worker could spend money: {why}. Unknown or money-billed usage is never chosen "
+    why = routing.ask("money_refusal", ctx=ctx, account=provider)
+    return why and (f"No: a new {provider} worker could spend money: {why}. Unknown or money-billed usage is never chosen "
             "automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or "
             "report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.")
 
@@ -326,8 +313,8 @@ def write_gate(db, providers, pace_locked=False):
         verdicts = json.loads(path.read_text())
     except (OSError, ValueError):
         verdicts = {}
-    import plan_usage
     import routing
+    import plan_usage
     for provider in providers:
         ctx = plan_usage.live_ctx(cfg, catalog, [r for r in latest(db) if r["provider"] == provider], db, now,
                                   cfg.get("tiers", {}))
@@ -335,7 +322,6 @@ def write_gate(db, providers, pace_locked=False):
                               "pace_control": True,
                               "controls": verdicts.get(provider, {}).get("controls", {}),
                               "refusal": refusal(db, provider, cfg, catalog, now),
-                              "pace": routing.pace_reading(ctx, provider),
                               "projections": {(f"claude:{a['id']}" if provider == "claude" else n): [{"window": kind, "used_pct": 100 - w["headroom"],
                                                      "quota_ceiling": min(DEFAULTS["plan_stop"], 100 - a["target_left"]),
                                                      "burn_pct_h": w["beta"], "reset_h": w["reset_in"],
@@ -345,11 +331,7 @@ def write_gate(db, providers, pace_locked=False):
                                                                        if w["beta"] is not None else None)}
                                                     for kind, w in a["windows"].items()]
                                               for n, a in ctx["accounts"].items() if n.split(":", 1)[0] == provider},
-                              "accounts": {n: {"used_pct": routing.used(a),
-                                               "cap_pct": routing.MONEY_CEILING if routing.overflow_money(ctx, n) else DEFAULTS["plan_stop"]}
-                                           for n, a in ctx["accounts"].items() if n.split(":", 1)[0] == provider},
-                              "paces": {n: routing.pace_reading(ctx, provider, n) for n in ctx["accounts"]
-                                        if n.split(":", 1)[0] == provider}}
+                              **routing.ask("gate", ctx=ctx, provider=provider)}
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(verdicts))
@@ -527,8 +509,8 @@ def fast(db, provider, domain, cached=False):
         return 0 if override["fast"] else 1
     import tomllib
     sys.path.insert(0, str(HERE))
-    import plan_usage
     import routing
+    import plan_usage
     if not cached:
         publish(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
     root = HERE.parent
@@ -537,7 +519,7 @@ def fast(db, provider, domain, cached=False):
     rows = [r for r in latest(db) if r["provider"] == provider]
     ctx = plan_usage.live_ctx(cfg, catalog, rows, db, datetime.now(timezone.utc), cfg.get("tiers", {}))
     name = provider if provider in ctx["accounts"] or not local_account(provider) else f"{provider}:{local_account(provider)}"
-    on = routing.fast(ctx, name, ctx["projects"].get(domain or "", {}).get("u", 1.0))
+    on = routing.ask("fast", ctx=ctx, account=name)
     print("on" if on else "off")
     return 0 if on else 1
 

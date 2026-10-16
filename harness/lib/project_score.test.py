@@ -61,7 +61,7 @@ def scenario():
         import routing
         ctx = json.loads((HERE / "routing-scenarios/deadline.json").read_text())
         ctx["boxes"].append(dict(ctx["boxes"][-1], id="m5"))
-        result = routing.plan(ctx)
+        result = routing.ask("plan", ctx=ctx)
         assert len(result["needs"]) == 1, result["needs"]
         decision = result["needs"][0]
         assert "more budget" in decision and "later date / smaller scope" in decision
