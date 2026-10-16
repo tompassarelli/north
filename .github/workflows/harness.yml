@@ -48,6 +48,17 @@ jobs:
           git config --global init.defaultBranch main
           git config --global user.name socrates-ci
           git config --global user.email socrates-ci@example.invalid
+      - name: Allow bubblewrap user namespaces
+        run: |
+          sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --unshare-net --ro-bind / / -- true
       - name: Install automation browser boundary
         working-directory: lib/automation-chrome
         run: |

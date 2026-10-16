@@ -34,5 +34,16 @@ jobs:
           bun-version: 1.3.13
       - name: Sandbox boundary
         run: sudo apt-get install -y --no-install-recommends bubblewrap
+      - name: Allow bubblewrap user namespaces
+        run: |
+          sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          bwrap --unshare-net --ro-bind / / -- true
       - name: Test
         run: cargo test --locked
