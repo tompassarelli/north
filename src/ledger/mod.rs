@@ -77,6 +77,13 @@ CREATE TABLE IF NOT EXISTS gates(
   verification INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 CREATE INDEX IF NOT EXISTS runs_by_session ON runs(session);
+CREATE TABLE IF NOT EXISTS events(
+  event_id INTEGER PRIMARY KEY,
+  session TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  recorded_ms INTEGER NOT NULL
+) STRICT;
 CREATE TABLE IF NOT EXISTS receipts(
   session TEXT NOT NULL,
   receipt TEXT NOT NULL,
@@ -137,6 +144,16 @@ pub struct CheckRun<'a> {
 }
 
 impl Ledger {
+    pub fn record_native_solo(&self, session: &str, reason: &str, command: &str) -> NorthResult<()> {
+        let payload = serde_json::json!({"reason": reason, "command": command});
+        self.with(|conn| {
+            conn.execute(
+                "INSERT INTO events(session, kind, payload, recorded_ms) VALUES(?1, 'native-solo', ?2, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
+                params![session, payload.to_string()],
+            ).map(drop)
+        })
+    }
+
     pub fn open_default() -> NorthResult<Self> {
         let home = std::env::var_os("HOME")
             .filter(|value| !value.is_empty())

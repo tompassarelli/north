@@ -81,3 +81,39 @@ fn blind_stage_guard_replays_original_decisions() {
     replay(include_str!("fixtures/blind_stage.json"), super::blind_stage::decide);
     envelopes_without_literal_git_allow_and_string_input_denies("git add -A", super::blind_stage::decide);
 }
+
+#[test]
+fn native_evidence_requires_batching_across_shell_envelopes() {
+    replay(
+        include_str!("fixtures/native_evidence.json"),
+        super::native_evidence::decide,
+    );
+}
+
+#[test]
+fn native_solo_exception_records_one_reason_command_and_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    let ledger = crate::ledger::Ledger::open(&path).unwrap();
+    let text = "NORTH_NATIVE_SOLO='calibrate parity' bun wisp pad x.pad";
+    let verdict = super::native_evidence::decide_with(&bash(text), |reason, command| {
+        ledger.record_native_solo("nt-hook", reason, command)
+    });
+    assert_eq!(verdict, Verdict::Allow);
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let records: Vec<(String, String, String)> = conn
+        .prepare("SELECT session, kind, payload FROM events")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].0, "nt-hook");
+    assert_eq!(records[0].1, "native-solo");
+    let payload: Value = serde_json::from_str(&records[0].2).unwrap();
+    assert_eq!(
+        payload,
+        json!({"reason":"calibrate parity", "command":text})
+    );
+}

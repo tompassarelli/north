@@ -2,6 +2,7 @@ pub mod launch_critical;
 pub mod desktop_action;
 pub mod tripwire;
 pub mod git_stash;
+pub mod native_evidence;
 pub mod blind_stage;
 pub mod shell_call;
 mod git_invocation;

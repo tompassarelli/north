@@ -64,7 +64,7 @@ may_use = ["fleet", "platform", "foundation"]
 name = "guard"
 paths = ["src/guard/**", "src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["shell", "domain", "platform", "foundation"]
+may_use = ["ledger", "shell", "domain", "platform", "foundation"]
 
 [[module]]
 name = "threads"

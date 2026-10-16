@@ -1,0 +1,233 @@
+{
+  "reasons": [
+    null,
+    "Native evidence runs go through the batch planner: `bun wisp native plan --boxes FILE.tsv --out PLAN.json` then `bun wisp native run PLAN.json --out DIR`. For a run that can't batch, prefix NORTH_NATIVE_SOLO='<reason>'; the reason is recorded in the run ledger.",
+    "The quiet native lease is for timing checks only; the batch planner takes it per timing batch. Use `bun wisp native plan --boxes FILE.tsv --out PLAN.json` then `bun wisp native run PLAN.json --out DIR`, or prefix NORTH_NATIVE_SOLO='<reason>' for a recorded exception."
+  ],
+  "cases": [
+    [
+      "bun wisp pad ts/test/native/pads/x.pad --helper H --out D --map M.w3x",
+      1
+    ],
+    [
+      "wisp pad x.pad",
+      1
+    ],
+    [
+      "env X=1 bun wisp pad x.pad",
+      1
+    ],
+    [
+      "cd /tmp && bun wisp pad x.pad",
+      1
+    ],
+    [
+      "bun /tmp/scripts/nativeCapture.ts run x",
+      1
+    ],
+    [
+      "bun scripts/nativeCapture.ts batch x",
+      1
+    ],
+    [
+      "bun scripts/nativeCaptureBatch.ts x",
+      1
+    ],
+    [
+      "bun wisp native-capture run x",
+      1
+    ],
+    [
+      "bun wisp integrity capture x",
+      1
+    ],
+    [
+      "bun wisp lan soak x",
+      1
+    ],
+    [
+      "bun scripts/nativeKeyboardPad.ts x",
+      1
+    ],
+    [
+      "bun scripts/analogNative.ts x",
+      1
+    ],
+    [
+      "bun scripts/nativePadCut233.ts x",
+      1
+    ],
+    [
+      "NORTH_NATIVE_SOLO= bun wisp pad x",
+      1
+    ],
+    [
+      "NORTH_NATIVE_SOLO=' ' bun wisp pad x",
+      1
+    ],
+    [
+      "NORTH_NATIVE_SOLO=reason true; bun wisp pad x",
+      1
+    ],
+    [
+      "bun wisp native run plan.json --out D",
+      0
+    ],
+    [
+      "bun wisp native plan --boxes boxes.tsv --out plan.json",
+      0
+    ],
+    [
+      "bun wisp pad x --headless",
+      0
+    ],
+    [
+      "bun wisp pad x --dry-run",
+      0
+    ],
+    [
+      "bun wisp pad x --plan",
+      0
+    ],
+    [
+      "bun scripts/analogNative.ts --observe",
+      0
+    ],
+    [
+      "bun scripts/nativeCaptureBatch.ts --plan",
+      0
+    ],
+    [
+      "bun wisp integrity capture --observe",
+      0
+    ],
+    [
+      "bun wisp lan soak --plan",
+      0
+    ],
+    [
+      "bun wisp accept",
+      0
+    ],
+    [
+      "bun wisp lan pool",
+      0
+    ],
+    [
+      "bun wisp lan fresh",
+      0
+    ],
+    [
+      "bun wisp lan status",
+      0
+    ],
+    [
+      "bun wisp lan claim",
+      0
+    ],
+    [
+      "bun wisp lan release",
+      0
+    ],
+    [
+      "bun wisp lan stop",
+      0
+    ],
+    [
+      "echo 'bun wisp pad x'",
+      0
+    ],
+    [
+      "NORTH_NATIVE_SOLO='parity sample' bun wisp pad x",
+      0
+    ],
+    [
+      "env NORTH_NATIVE_SOLO=calibration bun wisp pad x",
+      0
+    ],
+    [
+      "bun scripts/nativeCapture.ts help",
+      0
+    ],
+    [
+      "git status",
+      0
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun wisp native run plan.json",
+      0
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun wisp pad x",
+      2
+    ],
+    [
+      "bun /tmp/machine-capacity.mjs run --class native --quiet -- bun scripts/nativeCapture.ts run x",
+      2
+    ],
+    [
+      "machine-capacity session --class native --quiet -- echo capture",
+      2
+    ],
+    [
+      "bun run wisp pad x",
+      1
+    ],
+    [
+      "bun --cwd /tmp wisp pad x",
+      1
+    ],
+    [
+      "bun scripts/wisp.ts pad x",
+      1
+    ],
+    [
+      "bun /tmp/scripts/wisp.ts native-capture run x",
+      1
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun wisp accept x",
+      0
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun wisp lan soak x",
+      0
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun /tmp/scripts/nativeKeyboardPad.ts x",
+      0
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun scripts/analogNative.ts x",
+      0
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun nativePadCut233.ts x",
+      0
+    ],
+    [
+      "machine-capacity run --class=native --quiet -- bun wisp integrity capture x",
+      2
+    ],
+    [
+      "machine-capacity run --class=native --quiet -- bun wisp native-capture run x",
+      2
+    ],
+    [
+      "machine-capacity run --class=native --quiet -- sleep 30",
+      2
+    ],
+    [
+      "machine-capacity run --class=native --quiet -- bun wisp timing x",
+      2
+    ],
+    [
+      "NORTH_NATIVE_SOLO=timing machine-capacity run --class native --quiet -- bun wisp pad x",
+      0
+    ],
+    [
+      "machine-capacity run --class native -- echo --quiet",
+      0
+    ]
+  ]
+}

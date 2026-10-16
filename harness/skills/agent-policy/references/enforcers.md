@@ -15,6 +15,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No broad transcript archive scans; use convo or a bounded transcript target | `corpus-scan-guard` | Claude, Codex |
 | System configuration operations go through Firn's source-owned policy | `firn-system-policy` | Claude, Codex |
 | No unnamed stash pushes and no stash pop, because every worktree shares the stash | `north-hook` | Claude, Codex |
+| Native evidence uses the batch planner; solo exceptions record their reason in the run ledger, and quiet leases belong to timing batches | `north-hook` | Claude, Codex |
 | No gh write that names a native threads item or quotes its text | `native-item-guard` | Claude, Codex |
 | No bulk Git staging or automatic commit staging; enumerate paths | `north-hook` | Claude, Codex |
 | No recursive grep or find tree searches; use rg or fd | `modern-search-guard` | Claude, Codex |

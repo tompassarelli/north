@@ -147,6 +147,7 @@ impl HookKind {
                 crate::guard::desktop_action::decide,
                 crate::guard::blind_stage::evaluate,
                 crate::guard::git_stash::evaluate,
+                crate::guard::native_evidence::evaluate,
             ],
             Self::PreEdit => &[crate::guard::launch_critical::evaluate],
             Self::PreAgent => &[],
