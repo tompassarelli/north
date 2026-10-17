@@ -20,6 +20,7 @@ fn facts(class: Class) -> Facts {
         unbounded_runs: 0,
         queued_ahead: 0,
         exclusive_waiting: 0,
+        before_drain: false,
         gpu_busy_percent: 0,
         gpu_clients: 0,
         new_clients: 0,

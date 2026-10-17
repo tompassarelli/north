@@ -52,6 +52,8 @@ pub(crate) struct Facts {
     pub(crate) unbounded_runs: u32,
     pub(crate) queued_ahead: u32,
     pub(crate) exclusive_waiting: u32,
+    #[serde(default)]
+    pub(crate) before_drain: bool,
     pub(crate) gpu_busy_percent: u32,
     pub(crate) gpu_clients: u32,
     pub(crate) new_clients: u32,
@@ -182,7 +184,7 @@ fn batch(facts: &Facts) -> Reason {
 }
 
 fn shared(facts: &Facts) -> Reason {
-    if facts.exclusive_waiting > 0 && facts.class == Class::Heavy {
+    if facts.exclusive_waiting > 0 && facts.class == Class::Heavy && !facts.before_drain {
         return Reason::DeferExclusiveQueued;
     }
     if interactive_pressure(facts) {

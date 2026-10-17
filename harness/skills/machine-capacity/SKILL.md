@@ -41,11 +41,11 @@ Choose the smallest sufficient class, because oversized claims queue peers for n
 - Reserve an agent lease before compute-using workers, renew before expiry and release at settlement, because the lease is the only record that frees the allowance; it charges 768 MiB without reserving local CPU.
 - Give worker local commands their own run scopes and persist reservations only for the agent class, because larger classes cannot outlive their wrapper.
 - Keep native sessions foreground until command exit, Ctrl-C or explicit stop, because a detached tree escapes its scope.
-- Keep every descendant inside its scope and supervise the wrapper through terminal `RELEASED`; never detach work or renewal processes, because a forcibly killed wrapper cannot clean up and its allowance stays charged.
+- Keep every descendant inside its scope and supervise the wrapper through terminal `RELEASED`; never detach work or renewal processes, because a forcibly killed wrapper cannot clean up and its allowance stays charged until its scope ends.
 - Keep queued wrappers supervised until they start automatically, because a dropped wrapper drops its queue ticket.
 - Retry a DEFER after a known release or 30 seconds and never busy-poll, because polling adds the load the queue exists to avoid.
-- Treat RUN/RESERVED as permission to continue, and RECLAIMED as expired leases or finished helper scopes, never as permission to kill peers, because peers belong to their owners.
-- Retain allowances while a wrapper or scope is live, including native sessions, because a live scope is real load.
+- Treat RUN/RESERVED as permission to continue, NESTED as a run admitted under the held batch lease it was started from (no lease, scope or queue ticket of its own, bounded by its own timeout), and RECLAIMED as expired leases or finished helper scopes, never as permission to kill peers, because peers belong to their owners.
+- Retain allowances while a wrapper or scope is live and within its deadline, including native sessions, because a live scope is real load; a run lease past its deadline has its scope killed and is reclaimed.
 - Assign exact-scope cleanup to the owner or accountable parent, and leave signaling of peers to them, because only they know what is safe to stop.
 - Respect the spawn gate when committed batch CPUs reach the aggregate limit or protected CPU pressure exceeds 20; queue, use the farm or use cloud workers, because adding local workers then slows everything (thresholds in [admission details](references/admission-details.md)).
 - Expect a heavy run to be charged at least its declared 6 CPUs, so at most three heavy builds share the 20-CPU line.

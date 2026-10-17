@@ -1,104 +1,17 @@
+mod capacity_host;
+
+use capacity_host::{Host, Wrapper};
 use serde_json::Value;
 use std::fs;
-use std::io::{BufRead, BufReader, Read};
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::process::{ChildStdin, Stdio};
 use std::time::{Duration, Instant};
 
 const SYSTEMD_RUN: &str = "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n";
 const SYSTEMCTL: &str = "#!/bin/sh\ncase \" $* \" in *\" show \"*) echo inactive ;; esac\n";
 
-struct Wrapper(Child);
-
-impl Drop for Wrapper {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-impl Wrapper {
-    fn exited(&mut self) -> Option<ExitStatus> {
-        self.0.try_wait().unwrap()
-    }
-
-    fn stderr(&mut self) -> String {
-        let mut text = String::new();
-        self.0.stderr.take().unwrap().read_to_string(&mut text).unwrap();
-        text
-    }
-}
-
-struct Host {
-    scratch: tempfile::TempDir,
-}
-
 impl Host {
-    fn new() -> Self {
-        let scratch = tempfile::Builder::new().prefix("native-quiet-").tempdir().unwrap();
-        let shims = scratch.path().join("bin");
-        fs::create_dir_all(&shims).unwrap();
-        for (name, body) in [("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL)] {
-            fs::write(shims.join(name), body).unwrap();
-            fs::set_permissions(shims.join(name), fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        fs::create_dir_all(scratch.path().join("agent-capacity-v1")).unwrap();
-        fs::write(scratch.path().join("agent-capacity-v1/mode"), "away\n").unwrap();
-        fs::write(scratch.path().join("pressure"), "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
-        fs::write(scratch.path().join("gpu"), "0\n").unwrap();
-        Self { scratch }
-    }
-
-    fn path(&self, name: &str) -> PathBuf {
-        self.scratch.path().join(name)
-    }
-
-    fn helper(&self, arguments: &[&str]) -> Command {
-        let bundle = Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/skills/machine-capacity/scripts/machine-capacity.mjs");
-        let mut command = Command::new("bun");
-        command.arg(bundle).args(arguments);
-        let path = format!("{}:{}", self.path("bin").display(), std::env::var("PATH").unwrap_or_default());
-        for (key, value) in [
-            ("PATH", path),
-            ("XDG_RUNTIME_DIR", self.path("").display().to_string()),
-            ("XDG_STATE_HOME", self.path("state").display().to_string()),
-            ("AGENT_CAPACITY_DB", self.path("capacity.db").display().to_string()),
-            ("AGENT_CAPACITY_USAGE_LOG", self.path("usage.jsonl").display().to_string()),
-            ("AGENT_CAPACITY_CGROUP_ROOT", self.path("cgroup").display().to_string()),
-            ("AGENT_CAPACITY_CPU_PRESSURE", self.path("pressure").display().to_string()),
-            ("AGENT_CAPACITY_GPU_BUSY", self.path("gpu").display().to_string()),
-            ("AGENT_CAPACITY_GPU_CLIENTS", "0".to_owned()),
-            ("AGENT_CAPACITY_CORES", "24".to_owned()),
-            ("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north").to_owned()),
-            ("CAPACITY_WATCHDOG_DIR", self.path("no-watchdog").display().to_string()),
-        ] {
-            command.env(key, value);
-        }
-        command
-    }
-
-    fn leases(&self, class: &str) -> usize {
-        fs::read_dir(self.path("agent-capacity-v1/leases")).map_or(0, |entries| {
-            entries
-                .flatten()
-                .filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json"))
-                .filter_map(|entry| fs::read_to_string(entry.path()).ok())
-                .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
-                .filter(|lease| lease["class"] == class || (class == "quiet" && lease["quiet"] == true))
-                .count()
-        })
-    }
-
-    fn until(&self, what: &str, mut done: impl FnMut(&Self) -> bool) -> Instant {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while !done(self) {
-            assert!(Instant::now() < deadline, "timed out waiting for {what}");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        Instant::now()
-    }
-
     fn native_session(&self, owner: &str, quiet: bool) -> (Wrapper, ChildStdin) {
         let live = self.leases("native");
         let mut child = self
@@ -137,7 +50,7 @@ fn recorded_batch_lease_waits_for_the_native_session_and_starts_within_a_second_
     let recorded = recorded();
     let (native, batch) = (&recorded["native"], &recorded["batch"]);
     let batch_class = batch["class"].as_str().unwrap();
-    let host = Host::new();
+    let host = Host::new("native-quiet-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL)]);
     let (_pool, _pool_stdin) = host.native_session("wisp-lan-pair-0", false);
     let (_session, stdin) = host.native_session(native["owner"].as_str().unwrap(), true);
 
@@ -180,7 +93,7 @@ fn recorded_batch_lease_waits_for_the_native_session_and_starts_within_a_second_
 fn batch_lease_outlasted_by_a_native_session_is_refused_naming_its_owner() {
     let recorded = recorded();
     let native_owner = recorded["native"]["owner"].as_str().unwrap();
-    let host = Host::new();
+    let host = Host::new("native-quiet-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL)]);
     let _session = host.native_session(native_owner, true);
     let mut waiting = host.batch(&recorded["batch"], "2");
     let mut status = None;

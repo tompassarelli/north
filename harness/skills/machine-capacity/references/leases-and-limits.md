@@ -80,13 +80,21 @@ native `session` has no wall-clock deadline.
 The helper implementation owns these thresholds; inspect it
 when changing admission behavior rather than adding a parallel calculator.
 
-Agent leases expire at their reservation deadline. Run leases record the exact
-wrapper PID and Linux process start time, and remain charged while that wrapper
-or its uniquely named scope is live. This covers startup, normal execution,
-and cleanup without a renewal process or an expiring allowance for a live scope.
-Only the foreground wrapper releases a run lease, after stopping the scope;
-a failed stop retains the allowance. A dead wrapper's allowance is reclaimable
-only after its scope is inactive. Unknown systemd state retains the allowance.
+Agent leases expire at their reservation deadline. Run leases record the
+wrapper's host PID (from `/proc/self`, which the host resolves even inside
+run-bounded's PID namespace) and its Linux process start time, and remain
+charged while that wrapper or its uniquely named scope is live and the lease is
+within its deadline. A run lease past its deadline has its scope killed and is
+reclaimed. Only the foreground wrapper releases a run lease, after stopping the
+scope; a failed stop retains the allowance. A dead wrapper's allowance, or one
+whose wrapper identity cannot be resolved, is reclaimable once its scope is
+inactive. Unknown systemd state retains the allowance.
+
+A `run` or `session` started inside a held batch lease (its scope's cgroup, or
+the `AGENT_CAPACITY_LEASE` environment the scope's command inherits) prints
+`NESTED` and runs under that lease's allowance with its own timeout and no
+lease, scope or queue ticket, so a holder's sub-steps never queue behind work
+that waits for the holder.
 Unleased pressure is different: defer heavy work, identify
 the exact process owner with bounded native metadata, and leave signaling to
 that owner or accountable parent.

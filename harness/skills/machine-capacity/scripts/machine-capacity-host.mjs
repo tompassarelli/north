@@ -57,6 +57,7 @@ const modes = new Map([['present', 'attended'], ['away', 'unattended'], ['auto',
 const lockStaleMilliseconds = 2000;
 const runLeaseGraceMilliseconds = 5000;
 const queuePollMilliseconds = 1000;
+const terminationSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 const northCommand = process.env.AGENT_CAPACITY_NORTH ?? 'north';
 
 function fail(message, status = 2) {
@@ -213,13 +214,8 @@ function runtimeRoot() {
 }
 
 function readMode(root) {
-  try {
-    const mode = readFileSync(join(root, 'mode'), 'utf8').trim();
-    return modes.has(mode) ? mode : 'auto';
-  } catch (error) {
-    if (error?.code === 'ENOENT') return 'auto';
-    throw error;
-  }
+  const mode = readText(join(root, 'mode'))?.trim();
+  return modes.has(mode) ? mode : 'auto';
 }
 
 function activeProfile(root) {
@@ -229,9 +225,9 @@ function activeProfile(root) {
 
 // The manager's private socket reports peer pid 0 inside a PID namespace and fails with ENODATA; without XDG_RUNTIME_DIR the client uses the user bus.
 const systemdClientEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'XDG_RUNTIME_DIR' || !process.env.DBUS_SESSION_BUS_ADDRESS));
+const systemctl = (stderr, ...args) => Bun.spawnSync(['systemctl', '--user', ...args], { stdin: 'ignore', stdout: 'pipe', stderr, env: systemdClientEnv() });
 function setSlice(slice, ...properties) {
-  const result = Bun.spawnSync(['systemctl', '--user', 'set-property', '--runtime', slice, ...properties], { stdin: 'ignore', stdout: 'ignore', stderr: 'inherit', env: systemdClientEnv() });
-  return result.exitCode === 0;
+  return systemctl('inherit', 'set-property', '--runtime', slice, ...properties).exitCode === 0;
 }
 
 function applyProfile(profile, cores) {
@@ -286,14 +282,16 @@ function withLock(root, action) {
 }
 
 function processStart(pid) {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    return fields[0] === 'Z' ? null : fields[19];
-  } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return null;
-    throw error;
-  }
+  const stat = readText(`/proc/${pid}/stat`);
+  if (stat === null) return null;
+  const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+  return fields[0] === 'Z' ? null : fields[19];
+}
+
+// /proc/self is the pid the host procfs resolves; process.pid is namespace-local inside run-bounded.
+function wrapperIdentity() {
+  const pid = Number(realpathSync('/proc/self').split('/').at(-1));
+  return { wrapperPid: pid, wrapperStart: processStart(pid) };
 }
 
 function scopeUnit(id) {
@@ -301,13 +299,12 @@ function scopeUnit(id) {
 }
 
 function scopeLive(id) {
-  const result = Bun.spawnSync([
-    'systemctl', '--user', 'show', scopeUnit(id), '--property=ActiveState', '--value',
-  ], { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore', env: systemdClientEnv() });
-  const state = result.stdout.toString().trim();
+  const state = systemctl('ignore', 'show', scopeUnit(id), '--property=ActiveState', '--value').stdout.toString().trim();
   // Unknown manager state must not free a possibly live resource allowance.
   return !['inactive', 'failed'].includes(state);
 }
+
+const killScope = id => systemctl('ignore', 'kill', '--signal=SIGKILL', scopeUnit(id)).exitCode === 0;
 
 function stateRoot() {
   return process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? '/tmp', '.local', 'state');
@@ -608,6 +605,15 @@ function percentile(values, share) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(share * sorted.length) - 1)];
 }
 
+function recentUsage(lines, matches) {
+  return (readText(usageLogPath()) ?? '').split('\n').slice(-lines).flatMap(line => {
+    try {
+      const entry = JSON.parse(line);
+      return matches(entry) ? [entry] : [];
+    } catch { return []; }
+  }).slice(-sizingRuns);
+}
+
 function estimateCommand(command, kind, owner, cores) {
   const db = capacityDatabase();
   try {
@@ -619,12 +625,7 @@ function estimateCommand(command, kind, owner, cores) {
 function sizeFromUsage(command, owner, cores) {
   const estimate = estimateCommand(command, 'moderate', owner, cores);
   const shape = commandShape(command);
-  const gpuRuns = (readText(usageLogPath()) ?? '').split('\n').slice(-2000).flatMap(line => {
-    try {
-      const entry = JSON.parse(line);
-      return entry.shape === shape && entry.wallSeconds > 0 ? [entry] : [];
-    } catch { return []; }
-  }).slice(-sizingRuns);
+  const gpuRuns = recentUsage(2000, entry => entry.shape === shape && entry.wallSeconds > 0);
   const gpuShare = gpuRuns.length >= 3 ? percentile(gpuRuns.map(run => (run.gpuSeconds ?? 0) / run.wallSeconds), 0.5) : 0;
   const resources = {
     cpus: Math.max(1, Math.ceil(estimate.cores.p90)),
@@ -655,15 +656,8 @@ function grantRequest(profile, cores, memoryTotalMiB, requested) {
 function chargeFromUsage(requested, owner, command, cores) {
   const shape = commandShape(command);
   const prefix = ownerPrefix(owner);
-  const runs = (readText(usageLogPath()) ?? '').split('\n').slice(-5000).flatMap(line => {
-    try {
-      const entry = JSON.parse(line);
-      return entry.class === requested.name && entry.shape === shape && typeof entry.owner === 'string'
-        && ownerPrefix(entry.owner) === prefix && entry.wallSeconds > 0 ? [entry] : [];
-    } catch {
-      return [];
-    }
-  }).slice(-sizingRuns);
+  const runs = recentUsage(5000, entry => entry.class === requested.name && entry.shape === shape && typeof entry.owner === 'string'
+    && ownerPrefix(entry.owner) === prefix && entry.wallSeconds > 0);
   const charged = chargedResources(requested.name, cores,
     runs.map(entry => entry.p90Cores ?? entry.peakCores), runs.map(entry => entry.peakMemoryMiB));
   return {
@@ -739,10 +733,12 @@ function readLeases(root, now) {
     } catch {
       fail(`malformed helper-owned lease: ${path}`);
     }
-    const liveRun = lease.kind === 'run' && lease.wrapperStart !== undefined;
-    const expired = liveRun
-      ? processStart(lease.wrapperPid) !== lease.wrapperStart && !scopeLive(lease.id)
-      : !Number.isSafeInteger(lease.expiresAt) || lease.expiresAt <= now;
+    const overdue = Number.isSafeInteger(lease.expiresAt) ? lease.expiresAt <= now : lease.kind !== 'run';
+    const wrapperGone = () => lease.wrapperStart == null
+      ? now - lease.createdAt > runLeaseGraceMilliseconds : processStart(lease.wrapperPid) !== lease.wrapperStart;
+    const expired = lease.kind !== 'run' ? overdue
+      : overdue ? killScope(lease.id) || !scopeLive(lease.id)
+      : wrapperGone() && !scopeLive(lease.id);
     if (expired) {
       unlinkSync(path);
       rmSync(path.replace(/\.json$/, '.usage'), { force: true });
@@ -782,21 +778,17 @@ function cpuAccounting(root, leases, now) {
 }
 
 // Held batch wrappers wait in arrival order; a ticket whose wrapper died is dropped.
-function enqueue(root, className, owner) {
+function enqueue(root, className, owner, timeoutSeconds) {
   ensureState(root);
   const name = `${String(Date.now()).padStart(15, '0')}-${crypto.randomUUID()}.json`;
   writeFileSync(join(root, 'queue', name), `${JSON.stringify({
-    wrapperPid: process.pid, wrapperStart: processStart(process.pid), class: className, owner,
+    ...wrapperIdentity(), class: className, owner, timeoutSeconds,
   })}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   return name;
 }
 
 function dequeue(root, ticket) {
-  try {
-    unlinkSync(join(root, 'queue', ticket));
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-  }
+  rmSync(join(root, 'queue', ticket), { force: true });
 }
 
 function readQueue(root) {
@@ -861,14 +853,16 @@ function decision(root, requested, create, ticket = null) {
     const gpuBusy = recordGpuBusy(root, gpu.gpuBusyPercent, before?.at ?? now);
     const { active, reclaimed } = readLeases(root, now);
     const queue = readQueue(root);
-    // Gpu tickets wait for render slots in their own line, so they hold no CPU work.
-    const queuedAhead = queue.filter(entry => (ticket === null || entry.name < ticket)
-      && (entry.class === 'gpu') === (requested.name === 'gpu')
-      && (!['moderate', 'gpu'].includes(requested.name) || entry.class !== 'exclusive')).length;
+    const runs = active.filter(lease => lease.kind === 'run');
+    const drainEndsAt = Math.max(now, ...runs.filter(lease => batchClass(lease.class)).map(lease => lease.expiresAt));
+    const beforeDrain = seconds => Number.isSafeInteger(seconds) && now + seconds * 1000 + runLeaseGraceMilliseconds <= drainEndsAt;
     const exclusiveWaiting = queue.filter(entry => entry.class === 'exclusive'
       && (requested.name !== 'exclusive' || ticket === null || entry.name < ticket)).length;
+    // Gpu tickets wait for render slots in their own line, so they hold no CPU work.
+    const queuedAhead = queue.filter(entry => (ticket === null || entry.name < ticket)
+      && (entry.class === 'gpu') === (requested.name === 'gpu') && entry.class !== 'exclusive'
+      && (exclusiveWaiting === 0 || entry.class !== 'heavy' || beforeDrain(entry.timeoutSeconds))).length;
     const leased = totals(active);
-    const runs = active.filter(lease => lease.kind === 'run');
     const accounting = cpuAccounting(root, active, now);
     const { unleased, committedBatchCpus, committedNativeCpus } = accounting;
     const signals = readSignals();
@@ -882,7 +876,7 @@ function decision(root, requested, create, ticket = null) {
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
-      queuedAhead, exclusiveWaiting, newClients: requested.newClients ?? Number(requested.name === 'native'), gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
+      queuedAhead, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients ?? Number(requested.name === 'native'), gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
       nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined,
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
@@ -941,10 +935,7 @@ function decision(root, requested, create, ticket = null) {
       createdAt: now,
       expiresAt: create.timeoutSeconds === null ? null : now + create.timeoutSeconds * 1000
         + (create.kind === 'run' ? runLeaseGraceMilliseconds : 0),
-      ...(create.kind === 'run' ? {
-        wrapperPid: process.pid,
-        wrapperStart: processStart(process.pid),
-      } : {}),
+      ...(create.kind === 'run' ? wrapperIdentity() : {}),
     };
     writeFileSync(join(root, 'leases', `${id}.json`), `${JSON.stringify(lease)}\n`, {
       encoding: 'utf8',
@@ -963,7 +954,7 @@ function exactLease(root, id) {
 function changeLease(root, id, owner, timeoutSeconds, settledRun = false) {
   return withLock(root, () => {
     const path = exactLease(root, id);
-    if (!existsSync(path)) fail(`unknown or expired lease: ${id}`, 75);
+    if (!existsSync(path)) return settledRun ? { decision: 'RECLAIMED', lease: id } : fail(`unknown or expired lease: ${id}`, 75);
     const lease = JSON.parse(readFileSync(path, 'utf8'));
     if (lease.owner !== owner) fail(`lease owner mismatch: ${id}`);
     if (lease.kind === 'run' && !settledRun) fail('run leases belong to their foreground wrapper');
@@ -1000,6 +991,8 @@ function status(root) {
     const signals = readSignals();
     const accounting = cpuAccounting(root, active, now);
     const seconds = milliseconds => Math.round(milliseconds / 1000);
+    const draining = active.filter(lease => lease.kind === 'run' && batchClass(lease.class))
+      .map(lease => ({ owner: lease.owner, class: lease.class, remainingSeconds: seconds(lease.expiresAt - now) }));
     return {
       profile,
       mode,
@@ -1031,6 +1024,7 @@ function status(root) {
         owner: ticket.owner ?? null,
         class: ticket.class ?? null,
         waitingSeconds: seconds(now - ticket.queuedAt),
+        ...(ticket.class === 'exclusive' ? { waitingFor: draining } : {}),
       })),
       unleasedHeavy: accounting.unleased,
       reclaimed,
@@ -1062,12 +1056,12 @@ function leaseChange(root, milliseconds) {
 async function admit(root, requested, create) {
   if (!batchClass(requested.name)) return decision(root, requested, create);
   const queuedAt = Date.now();
-  const ticket = enqueue(root, admittedClass(requested), create.owner);
+  const ticket = enqueue(root, admittedClass(requested), create.owner, create.timeoutSeconds);
   const leave = signal => () => {
     dequeue(root, ticket);
     process.exit(128 + ({ SIGHUP: 1, SIGINT: 2, SIGTERM: 15 })[signal]);
   };
-  const handlers = ['SIGINT', 'SIGTERM', 'SIGHUP'].map(signal => [signal, leave(signal)]);
+  const handlers = terminationSignals.map(signal => [signal, leave(signal)]);
   for (const [signal, handler] of handlers) process.on(signal, handler);
   try {
     let reported = null;
@@ -1087,8 +1081,20 @@ async function admit(root, requested, create) {
   }
 }
 
+function nestedParent(root) {
+  const scope = readText('/proc/self/cgroup')?.match(/\/agent-capacity-([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})\.scope(\/|$)/m);
+  const ids = [process.env.AGENT_CAPACITY_LEASE, scope?.slice(1, 6).join('-')];
+  return withLock(root, () => readLeases(root, Date.now()).active
+    .find(lease => lease.kind === 'run' && batchClass(lease.class) && ids.includes(lease.id))?.id ?? null);
+}
+
 async function runScoped(root, requested, owner, timeoutSeconds, command) {
   if (requested.name === 'agent') fail('run --class must be moderate, heavy, exclusive, gpu, critical, tom, or native');
+  const parent = batchClass(requested.name) ? nestedParent(root) : null;
+  if (parent !== null) {
+    print({ decision: 'NESTED', parent, class: requested.name, owner }, 2);
+    return Bun.spawn(['timeout', '--kill-after=5s', `${timeoutSeconds}s`, ...command], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }).exited;
+  }
   // The parent limit and weights must exist before any admitted command executes.
   if (!applyProfile(activeProfile(root).profile, readSignals().cores)) {
     fail('cannot establish aggregate CPU limit and native weight', 75);
@@ -1100,11 +1106,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
   if (admitted.decision !== 'RESERVED') return 75;
   const limits = admitted.scope;
   const unit = scopeUnit(admitted.lease);
-  const stop = () => {
-    Bun.spawnSync(['systemctl', '--user', 'stop', unit], {
-      stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', env: systemdClientEnv(),
-    });
-  };
+  const stop = () => systemctl('ignore', 'stop', unit);
   try {
     const child = Bun.spawn([
       ...(process.env.NORTH_FLEET_SCOPE ? [northCommand, 'session-unit'] : ['systemd-run']), '--user', '--scope', '--quiet', '--collect', '--expand-environment=no', ...(process.env.XDG_RUNTIME_DIR && process.env.DBUS_SESSION_BUS_ADDRESS ? [`--setenv=XDG_RUNTIME_DIR=${process.env.XDG_RUNTIME_DIR}`] : []),
@@ -1116,11 +1118,9 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
       `--property=RuntimeMaxSec=${timeoutSeconds === null ? 'infinity' : `${timeoutSeconds}s`}`,
       '--property=KillMode=control-group',
       '--', ...command,
-    ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: systemdClientEnv() });
+    ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...systemdClientEnv(), AGENT_CAPACITY_LEASE: admitted.lease } });
     const measurement = measureScope(root, admitted.lease, scopeCgroup(requested.name, unit));
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
-    process.once('SIGHUP', stop);
+    for (const signal of terminationSignals) process.once(signal, stop);
     const exitCode = await child.exited;
     const usage = measurement.finish();
     const rusage = child.resourceUsage();
@@ -1155,9 +1155,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
     return exitCode;
   } finally {
     stop();
-    process.removeListener('SIGINT', stop);
-    process.removeListener('SIGTERM', stop);
-    process.removeListener('SIGHUP', stop);
+    for (const signal of terminationSignals) process.removeListener(signal, stop);
     try {
       if (scopeLive(admitted.lease)) throw new Error(`scope still live; retained lease ${admitted.lease}`);
       print(changeLease(root, admitted.lease, owner, null, true), 2);

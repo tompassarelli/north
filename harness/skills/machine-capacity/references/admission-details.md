@@ -38,7 +38,7 @@ Contents:
 ## Queue and spawn gate
 
 - Moderate and heavy work queues in arrival order while declared batch CPUs exceed the core limit or system CPU some avg10 exceeds 30%.
-- Queued exclusive work drains heavy jobs while moderate/update:wisp continue; it starts after batch leases end and blocks new batch work until release, without blocking native clients.
+- Queued exclusive work drains heavy jobs while moderate/update:wisp continue; a heavy job whose deadline ends before every running batch lease's deadline still starts, because it ends before the drain does. The exclusive starts after batch leases end and blocks new batch work until release, without blocking native clients; `status` lists the leases each queued exclusive waits for as `waitingFor`.
 - Spawn gate: no new compute-using worker when committedBatchCpus (each live batch lease at max(reserved, measured cores) plus unleased heavy load, which includes all agent.slice work outside agent-capacity.slice, such as local Codex sessions) reaches aggregateCpuLimit, or protectedCpuSomeAvg10 exceeds 20. Queue, use the farm or use cloud workers instead.
 - Retry a DEFER from probe/reserve/native after a known release or 30 seconds.
 
