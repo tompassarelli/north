@@ -735,14 +735,24 @@ fn first_party_flake(locked: &Value) -> bool {
     )
 }
 
+fn input_node<'a>(nodes: &'a Value, root: &'a str, input: &'a Value, depth: usize) -> Option<&'a str> {
+    if let Some(name) = input.as_str() {
+        return Some(name);
+    }
+    let mut node = root;
+    for step in input.as_array()? {
+        let next = get(get(get(nodes, node), "inputs"), step.as_str()?);
+        node = input_node(nodes, root, next, depth.checked_sub(1)?)?;
+    }
+    Some(node)
+}
+
 fn channel_nixpkgs(text: &str) -> Parsed<Option<String>> {
     let data = parse_json(text)?;
     let nodes = get(&data, "nodes");
-    let Some(name) = get(&data, "root")
-        .as_str()
-        .map(|root| get(get(get(nodes, root), "inputs"), "nixpkgs"))
-        .and_then(Value::as_str)
-    else {
+    let Some(name) = get(&data, "root").as_str().and_then(|root| {
+        input_node(nodes, root, get(get(get(nodes, root), "inputs"), "nixpkgs"), 16)
+    }) else {
         return Ok(None);
     };
     let node = get(nodes, name);

@@ -278,3 +278,22 @@ fn root_channel_nixpkgs_skips_the_cooldown_and_other_nixpkgs_do_not() {
     assert_eq!(names(lock("master", "nixos", "new")), ["nixpkgs", "nixpkgs_2"]);
     assert_eq!(names(lock("nixos-26.05", "fork", "new")), ["nixpkgs", "nixpkgs_2"]);
 }
+
+#[test]
+fn root_nixpkgs_that_follows_a_first_party_input_skips_the_cooldown() {
+    let lock = |owner: &str, rev: &str| {
+        format!(
+            r#"{{"root":"root","nodes":{{"root":{{"inputs":{{"firn":"firn","nixpkgs":["firn","nixpkgs"]}}}},"firn":{{"inputs":{{"nixpkgs":"nixpkgs_2"}},"locked":{{"type":"github","owner":"tompassarelli","repo":"firn","rev":"{rev}","lastModified":2000000000}}}},"nixpkgs_2":{{"locked":{{"type":"github","owner":"{owner}","repo":"nixpkgs","rev":"{rev}","lastModified":2000000000}},"original":{{"type":"github","owner":"{owner}","repo":"nixpkgs","ref":"nixos-26.05"}}}}}}}}"#
+        )
+    };
+    let before = BTreeMap::from([("flake.lock".to_string(), lock("nixos", "old"))]);
+    let names = |after: String| {
+        lock_candidates(&before, &BTreeMap::from([("flake.lock".to_string(), after)]))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(lock("nixos", "new")), Vec::<String>::new());
+    assert_eq!(names(lock("fork", "new")), ["nixpkgs_2"]);
+}
