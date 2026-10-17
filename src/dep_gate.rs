@@ -735,6 +735,29 @@ fn first_party_flake(locked: &Value) -> bool {
     )
 }
 
+fn channel_nixpkgs(text: &str) -> Parsed<Option<String>> {
+    let data = parse_json(text)?;
+    let nodes = get(&data, "nodes");
+    let Some(name) = get(&data, "root")
+        .as_str()
+        .map(|root| get(get(get(nodes, root), "inputs"), "nixpkgs"))
+        .and_then(Value::as_str)
+    else {
+        return Ok(None);
+    };
+    let node = get(nodes, name);
+    let official = |key: &str| {
+        let source = get(node, key);
+        get(source, "type").as_str() == Some("github")
+            && get(source, "owner").as_str().is_some_and(|s| s.eq_ignore_ascii_case("nixos"))
+            && get(source, "repo").as_str() == Some("nixpkgs")
+    };
+    let channel = get(get(node, "original"), "ref")
+        .as_str()
+        .is_some_and(|r| r.starts_with("nixos-"));
+    Ok((official("locked") && official("original") && channel).then(|| name.to_owned()))
+}
+
 fn lock_candidates(
     before: &BTreeMap<String, String>,
     after: &BTreeMap<String, String>,
@@ -754,8 +777,12 @@ fn lock_candidates(
                     .map(|t| locked_nodes(t))
                     .transpose()?
                     .unwrap_or_default();
+                let channel = channel_nixpkgs(text)?;
                 for (name, locked) in locked_nodes(text)? {
-                    if old.get(&name) != Some(&locked) && !first_party_flake(&locked) {
+                    if old.get(&name) != Some(&locked)
+                        && !first_party_flake(&locked)
+                        && channel.as_deref() != Some(name.as_str())
+                    {
                         let version = ["rev", "version", "narHash"]
                             .into_iter()
                             .find_map(|k| locked.get(k))

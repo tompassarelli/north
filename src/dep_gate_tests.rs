@@ -258,3 +258,23 @@ fn publish_times_keep_fractional_seconds_and_timezone_offsets() {
     assert!(Timestamp::parse_publish_time("2026-10-01T12:34:56").is_none());
     assert!(Timestamp::parse_publish_time("2026-13-01T12:34:56+00:00").is_none());
 }
+
+#[test]
+fn root_channel_nixpkgs_skips_the_cooldown_and_other_nixpkgs_do_not() {
+    let lock = |root_ref: &str, owner: &str, rev: &str| {
+        format!(
+            r#"{{"root":"root","nodes":{{"root":{{"inputs":{{"nixpkgs":"nixpkgs_2","tool":"tool"}}}},"nixpkgs_2":{{"locked":{{"type":"github","owner":"{owner}","repo":"nixpkgs","rev":"{rev}","lastModified":2000000000}},"original":{{"type":"github","owner":"{owner}","repo":"nixpkgs","ref":"{root_ref}"}}}},"tool":{{"inputs":{{"nixpkgs":"nixpkgs"}},"locked":{{"type":"github","owner":"other","repo":"tool","rev":"t1","lastModified":1}}}},"nixpkgs":{{"locked":{{"type":"github","owner":"NixOS","repo":"nixpkgs","rev":"{rev}","lastModified":2000000000}},"original":{{"type":"github","owner":"NixOS","repo":"nixpkgs","ref":"nixos-unstable"}}}}}}}}"#
+        )
+    };
+    let before = BTreeMap::from([("flake.lock".to_string(), lock("nixos-26.05", "nixos", "old"))]);
+    let names = |after: String| {
+        lock_candidates(&before, &BTreeMap::from([("flake.lock".to_string(), after)]))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(lock("nixos-26.05", "nixos", "new")), ["nixpkgs"]);
+    assert_eq!(names(lock("master", "nixos", "new")), ["nixpkgs", "nixpkgs_2"]);
+    assert_eq!(names(lock("nixos-26.05", "fork", "new")), ["nixpkgs", "nixpkgs_2"]);
+}

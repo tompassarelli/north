@@ -58,6 +58,6 @@ These run for every provider, because every landing goes through `safe-push`.
 | A new gating bar, hook or policy line carries a Provenance record | `provenance_scan` (`north provenance check`) |
 | Main's CI budget is respected | `ci_budget_scan` |
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
-| A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory | `north dep-gate` |
+| A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory (the root `nixpkgs` locked to a `NixOS/nixpkgs` `nixos-*` channel is exempt, so nightly security inputs land) | `north dep-gate` |
 | No new structural debt in a repo with structure.toml | `code-health gate` |
 | The repository's pre-push checks pass on the rebased lane | pre-push hook and landing train |
