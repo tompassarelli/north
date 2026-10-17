@@ -14,6 +14,7 @@ Contents:
 - Omit `--class` on `run` to size from the usage log: p90 peak cores and memory of the shape's last 20 runs plus 25%, gpu when GPU-busy over a fifth of the run, moderate until three runs exist. The admission line shows `sizing`, with `p75Seconds` from the last 20 exact-signature runs' wall time (null and `uncalibrated` under three).
 - A declared moderate, heavy, native or gpu `run`/`session` is charged, once three runs of its owner's leading letters plus command shape exist, the p90 of per-run p90 cores within 1 and 1.5x the class and p90 peak memory plus 20%. The scope keeps the declared CPUQuota/MemoryHigh; admission and the spawn gate count the charge; `status` shows `cpus` beside `declaredCpus` and `evidenceRuns`.
 - A heavy run is charged and committed at least its declared 6 CPUs, so at most three heavy builds share the 20-CPU line.
+- A running batch lease commits 1.25x the larger of its measured cores and its estimate (heavy: at least its charge), never more than its scope's CPUQuota, so a 1-CPU gpu render commits at most 1 CPU whatever its command family's history estimates; `status` marks a capped lease `cpuBasis: scope-quota`.
 - Agent leases charge 768 MiB without reserving local CPU.
 - Lease lifetimes: batch `session` default 30 minutes, batch maximum one hour, exclusive maximum 15 minutes; only native sessions have no default deadline.
 - Native-only `--memory-gib 1.5` (positive whole-MiB values, memory and CPU admission rules still apply) charges that client 1536 MiB instead of 4096 MiB and applies the same MemoryHigh to that client only; for measured smaller offline clients.
@@ -39,7 +40,7 @@ Contents:
 
 - Moderate and heavy work queues in arrival order while declared batch CPUs exceed the core limit or system CPU some avg10 exceeds 30%.
 - Queued exclusive work drains heavy jobs while moderate/update:wisp continue; a heavy job whose deadline ends before every running batch lease's deadline still starts, because it ends before the drain does. The exclusive starts after batch leases end and blocks new batch work until release, without blocking native clients; `status` lists the leases each queued exclusive waits for as `waitingFor`.
-- Spawn gate: no new compute-using worker when committedBatchCpus (each live batch lease at max(reserved, measured cores) plus unleased heavy load, which includes all agent.slice work outside agent-capacity.slice, such as local Codex sessions) reaches aggregateCpuLimit, or protectedCpuSomeAvg10 exceeds 20. Queue, use the farm or use cloud workers instead.
+- Spawn gate: no new compute-using worker when committedBatchCpus (each live batch lease's commitment plus unleased heavy load, which includes all agent.slice work outside agent-capacity.slice, such as local Codex sessions) reaches aggregateCpuLimit, or protectedCpuSomeAvg10 exceeds 20. Queue, use the farm or use cloud workers instead.
 - Retry a DEFER from probe/reserve/native after a known release or 30 seconds.
 
 ## Watchdog and usage records

@@ -113,3 +113,29 @@ fn lease_whose_wrapper_pid_the_host_cannot_resolve_is_reclaimed_once_its_scope_i
     assert_eq!(status["holding"], json!([]), "{status}");
     assert_eq!(status["reclaimed"], 1, "{status}");
 }
+
+#[test]
+fn gpu_lease_commits_at_most_its_scope_quota() {
+    let host = host();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let stat = fs::read_to_string("/proc/self/stat").unwrap();
+    let start = stat.rsplit_once(") ").unwrap().1.split(' ').nth(19).unwrap().to_owned();
+    fs::create_dir_all(host.path("agent-capacity-v1/leases")).unwrap();
+    for (id, cores) in [("4a1e2b0c-35a1-4c1e-9e0e-8f1d2c3b4a51", 0.96), ("4a1e2b0c-35a1-4c1e-9e0e-8f1d2c3b4a52", 1.01)] {
+        let lease = json!({
+            "schema": "agent-capacity-lease/v1", "id": id, "kind": "run", "class": "gpu", "aggregateSlice": "agent-capacity.slice",
+            "owner": "wisp-verdicts-35", "cpus": 1, "memoryMiB": 2048, "declared": { "cpus": 1, "memoryMiB": 2048 },
+            "estimate": { "cores": { "p50": 6, "p90": 6 } }, "createdAt": now - 60_000, "expiresAt": now + 3_000_000,
+            "wrapperPid": std::process::id(), "wrapperStart": start,
+        });
+        fs::write(host.path(&format!("agent-capacity-v1/leases/{id}.json")), format!("{lease}\n")).unwrap();
+        fs::write(host.path(&format!("agent-capacity-v1/leases/{id}.usage")), json!({ "at": now, "liveCores": cores }).to_string()).unwrap();
+    }
+    let status = host.status();
+    let holding = status["holding"].as_array().unwrap();
+    assert_eq!(holding.len(), 2, "{status}");
+    for holder in holding {
+        assert!(holder["committedCpus"].as_f64().unwrap() <= 1.0, "a gpu lease committed above its 1-CPU scope quota: {holder}");
+    }
+    assert!(status["committedBatchCpus"].as_f64().unwrap() <= 2.0, "{status}");
+}

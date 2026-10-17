@@ -3,7 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/machine-capacity-test.XXXXXX")
-export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db"
+export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$"
 fixture_pids=()
 collector_pids=()
 receipt_fds=()
@@ -13,6 +13,7 @@ cleanup() {
   for fd in "${receipt_fds[@]}"; do exec {fd}<&-; done
   for pid in "${collector_pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
   for pid in "${collector_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+  { systemctl --user stop "agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice" "native-$AGENT_CAPACITY_SUBSLICE.slice"; systemctl --user revert "agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice" "native-$AGENT_CAPACITY_SUBSLICE.slice"; } >/dev/null 2>&1 || true
   rm -rf "${scratch:?}"
 }
 trap cleanup EXIT
@@ -191,12 +192,9 @@ read -r sleeper_pid <"$sleeper_pid_file"
 # Four heavy jobs request 24 CPU ceilings on this 24-core host. The attended
 # fixture admits three (18 of 20 cores) and queues the fourth; the kernel
 # ancestor enforces the shared cap, which keeps four cores for the desktop.
-original_capacity_db=$AGENT_CAPACITY_DB
-original_usage_log=$AGENT_CAPACITY_USAGE_LOG
+original_capacity_db=$AGENT_CAPACITY_DB original_usage_log=$AGENT_CAPACITY_USAGE_LOG
 export AGENT_CAPACITY_DB="$scratch/aggregate.db" AGENT_CAPACITY_USAGE_LOG="$scratch/aggregate-usage.jsonl"
-for sample in 1 2 3; do
-  printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/capacity","shape":"read","class":"heavy","meanCores":4.8,"p90Cores":6,"peakCores":6,"peakMemoryMiB":6826,"wallSeconds":120}\n' "$sample" >>"$AGENT_CAPACITY_USAGE_LOG"
-done
+for sample in 1 2 3; do printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/capacity","shape":"read","class":"heavy","meanCores":4.8,"p90Cores":6,"peakCores":6,"peakMemoryMiB":6826,"wallSeconds":120}\n' "$sample"; done >>"$AGENT_CAPACITY_USAGE_LOG"
 for number in 1 2 3 4; do
   mkfifo "$scratch/group-$number.receipt"
   [[ $number -ne 4 ]] || mkfifo "$scratch/err-4-events"
@@ -224,7 +222,7 @@ for number in 1 2 3; do
   [[ -s "$scratch/group-$number" ]]
   read -r group <"$scratch/group-$number"
   parent=${group%/*}
-  [[ $parent == */agent-capacity.slice ]]
+  [[ $parent == */agent.slice/agent-capacity.slice/agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice ]]
   read -r quota period <"/sys/fs/cgroup$parent/cpu.max"
   [[ $quota != max ]]
   cores=$(getconf _NPROCESSORS_ONLN)
@@ -373,7 +371,7 @@ XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" run \
 fixture_pids+=("$!")
 wait_for "$scratch/native-group"
 read -r group <"$scratch/native-group"
-[[ ${group%/*} == */native.slice ]]
+[[ ${group%/*} == */native.slice/native-$AGENT_CAPACITY_SUBSLICE.slice ]]
 [[ $(cat "/sys/fs/cgroup${group%/*}/cpu.weight") -eq 200 ]]
 [[ ! -e "/sys/fs/cgroup$group/cpu.max" || $(cut -d' ' -f1 "/sys/fs/cgroup$group/cpu.max") == max ]]
 [[ $(cat "/sys/fs/cgroup$group/memory.high") -eq $((4096 * 1024 * 1024)) ]]
@@ -452,6 +450,9 @@ stop_run() {
   [[ $(tail -n 1 "$scratch/$1-err" | jq -r .decision) == RELEASED ]]
 }
 status() { XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" status; }
+# The held moderate fixtures are known 2-core builds, so two of them fill a 4-core host's 3 attended CPUs.
+export AGENT_CAPACITY_DB="$scratch/drain.db" AGENT_CAPACITY_USAGE_LOG="$scratch/drain-usage.jsonl"
+for sample in 1 2 3; do printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/seed","shape":"read","class":"moderate","meanCores":2,"p90Cores":2,"peakCores":2,"peakMemoryMiB":512,"wallSeconds":120}\n' "$sample"; done >>"$AGENT_CAPACITY_USAGE_LOG"
 # An exclusive request passes an earlier batch ticket held by pressure (the
 # recorded file is also the protected slices' reading).
 calm_pressure 90.00
@@ -497,6 +498,7 @@ fixture_pids=()
 for pid in "${collector_pids[@]}"; do wait "$pid"; done
 collector_pids=()
 [[ $(status | jq -c '[.holding, .queued]') == '[[],[]]' ]]
+export AGENT_CAPACITY_DB=$original_capacity_db AGENT_CAPACITY_USAGE_LOG=$original_usage_log
 
 # Mode selects the profile; auto without an away signal is attended.
 mode=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" mode away)
@@ -540,8 +542,6 @@ measured=$(jq -c 'select(.owner == "fixture:/measure")' "$AGENT_CAPACITY_USAGE_L
 [[ $(jq -r '.shape' <<<"$measured") == sh ]]
 [[ $(jq '.meanCores > 1.5 and .meanCores <= 2.1 and .peakCores <= 2.2 and .cpuSeconds > 4' <<<"$measured") == true ]]
 
-original_capacity_db=$AGENT_CAPACITY_DB
-original_usage_log=$AGENT_CAPACITY_USAGE_LOG
 export AGENT_CAPACITY_DB="$scratch/sizing.db" AGENT_CAPACITY_USAGE_LOG="$scratch/sizing-usage.jsonl"
 for sample in 1 2 3; do
   printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/sized","shape":"fixturebuild","class":"moderate","wallSeconds":10,"meanCores":3,"p90Cores":4,"peakCores":4,"peakMemoryMiB":3200,"gpuSeconds":0}\n' "$sample"

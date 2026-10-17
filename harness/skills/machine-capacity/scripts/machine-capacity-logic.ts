@@ -291,13 +291,13 @@ export function diskBusyShare(before: Readonly<Record<string, number>>, after: R
   return wallMilliseconds > 0 && deltas.length > 0 ? Math.min(1, Math.max(...deltas) / wallMilliseconds) : null;
 }
 
-export function runningCpuCommitment(kind: string, measuredCores: number | null, estimateP50: number | null, reserved: number) {
+export const scopeCpuQuota = (kind: string, chargedCpus: number, declaredCpus: number | null): number | null => kind === 'native' ? null : declaredCpus ?? chargedCpus;
+export function runningCpuCommitment(kind: string, measuredCores: number | null, estimateP50: number | null, reserved: number, quota: number | null) {
   const measured = measuredCores !== null && Number.isFinite(measuredCores) && measuredCores >= 0 ? measuredCores : null;
   const predicted = estimateP50 !== null && Number.isFinite(estimateP50) && estimateP50 >= 0 ? estimateP50 : reserved;
-  return {
-    cpus: kind === 'native' && measured !== null ? measured * 1.25 : kind === 'heavy' ? Math.max((measured ?? predicted) * 1.25, reserved) : Math.max(measured ?? 0, predicted) * 1.25,
-    basis: measured === null ? 'estimate-missing-measurement' : kind === 'native' ? 'native-measured' : 'measured-or-estimate',
-  };
+  const cpus = kind === 'native' && measured !== null ? measured * 1.25 : kind === 'heavy' ? Math.max((measured ?? predicted) * 1.25, reserved) : Math.max(measured ?? 0, predicted) * 1.25;
+  return quota !== null && cpus > quota ? { cpus: quota, basis: 'scope-quota' }
+    : { cpus, basis: measured === null ? 'estimate-missing-measurement' : kind === 'native' ? 'native-measured' : 'measured-or-estimate' };
 }
 
 export const sessionProviders = new Set(['claude', 'codex']);

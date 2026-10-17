@@ -30,11 +30,11 @@ const env = {
 function snapshot(protectedPressure: number, overload = false) {
   const now = Date.now();
   writeFileSync(join(scratch, 'pressure'), `some avg10=${protectedPressure} avg60=0 avg300=0 total=0\n`);
-  writeFileSync(join(scratch, 'samples.jsonl'), `${JSON.stringify({ at: new Date(now).toISOString(), intervalSeconds: fixture.unleasedHeavy.windowSeconds, cgroups: [{ cgroup: 'app.slice/app-fixture.scope', cores: fixture.unleasedHeavy.cores }] })}\n`);
+  writeFileSync(join(scratch, 'samples.jsonl'), `${JSON.stringify({ at: new Date(now).toISOString(), intervalSeconds: fixture.unleasedHeavy.windowSeconds, cgroups: [{ cgroup: 'app.slice/app-fixture.scope', cores: overload ? fixture.aggregateCpuLimit : fixture.unleasedHeavy.cores }] })}\n`);
   for (const [index, holder] of fixture.holding.entries()) {
     if (holder.measured === null) continue;
     writeFileSync(join(root, 'leases', `${ids[index]}.usage`), JSON.stringify({
-      ...holder.measured, recentCores: overload && holder.class === 'moderate' ? fixture.aggregateCpuLimit : holder.measured.cores, at: now,
+      ...holder.measured, recentCores: overload && holder.class === 'moderate' ? holder.cpus : holder.measured.cores, at: now,
     }));
   }
   const invoke = (args: string[]) => {
@@ -58,13 +58,13 @@ try {
   const baseline = snapshot(fixture.protectedCpuSomeAvg10);
   const old = fixture.holding.filter((holder: any) => holder.kind === 'run' && holder.class !== 'native').reduce((sum: number, holder: any) => sum + Math.max(holder.cpus, holder.measured?.cores ?? 0), fixture.unleasedHeavy.cores);
   assert.equal(old, 3.69);
-  assert.equal(baseline.status.committedBatchCpus, 4.14);
+  assert.equal(baseline.status.committedBatchCpus, 3.69);
   assert.equal(baseline.probe.reason, 'RUN');
   assert.equal(baseline.denied, false);
   console.log(`Recorded successful baseline: old=${old} new=${baseline.status.committedBatchCpus} limit=${fixture.aggregateCpuLimit}; both admit. Original refusal evidence remains missing.`);
   const reconstruction = fixture.reconstructedRefusal;
   const declared = reconstruction.holding.reduce((sum: number, holder: any) => sum + Math.max(holder.cpus, holder.measuredCores), reconstruction.unleasedHeavyCores);
-  const committed = reconstruction.holding.reduce((sum: number, holder: any) => sum + runningCpuCommitment(holder.class, holder.measuredCores, holder.estimateP50, holder.cpus).cpus, reconstruction.unleasedHeavyCores);
+  const committed = reconstruction.holding.reduce((sum: number, holder: any) => sum + runningCpuCommitment(holder.class, holder.measuredCores, holder.estimateP50, holder.cpus, holder.cpus).cpus, reconstruction.unleasedHeavyCores);
   const fixtureProbe = (charges: number) => {
     const result = Bun.spawnSync([process.execPath, join(here, 'machine-capacity.mjs'), 'fixture',
       '--profile', 'attended', '--class', 'moderate', '--cores', String(reconstruction.cores),
@@ -96,18 +96,18 @@ try {
   assert.equal(fixtureGate(declared), true);
   assert.equal(fixtureGate(committed), true);
   console.log(`Reconstructed 11 Oct refusal: declared=${declared}/${reconstruction.aggregateCpuLimit} fixture=${declaredProbe.decision} gate=REFUSE; estimated=${committed}/${reconstruction.aggregateCpuLimit} fixture=${estimatedProbe.decision} gate=REFUSE; heavies stay committed at their reservation (15 Oct load 129).`);
-  const estimateOverload = reconstruction.holding.reduce((sum: number, holder: any) => sum + runningCpuCommitment(holder.class, 1, 4, holder.cpus).cpus, reconstruction.unleasedHeavyCores);
+  const estimateOverload = reconstruction.holding.reduce((sum: number, holder: any) => sum + runningCpuCommitment(holder.class, 1, 4, holder.cpus, holder.cpus).cpus, reconstruction.unleasedHeavyCores);
   assert.equal(fixtureProbe(estimateOverload).decision, 'DEFER_CPU_CAPACITY');
   assert.equal(fixtureGate(estimateOverload), true);
   console.log(`Synthetic estimate overload: committed=${estimateOverload}/${reconstruction.aggregateCpuLimit}; fixture=DEFER_CPU_CAPACITY gate=REFUSE.`);
   const overloaded = snapshot(0, true);
   assert.equal(overloaded.probe.reason, 'DEFER_CPU_CAPACITY');
   assert.equal(overloaded.denied, true);
-  console.log(`Synthetic measured-use overload: measured=${fixture.aggregateCpuLimit} committed=${overloaded.status.committedBatchCpus}; helper and gate refuse.`);
+  console.log(`Synthetic measured-use overload: moderate at its quota, unleased=${fixture.aggregateCpuLimit} committed=${overloaded.status.committedBatchCpus}; helper and gate refuse.`);
   const protectedLoad = snapshot(25);
   assert.equal(protectedLoad.probe.reason, 'DEFER_INTERACTIVE_PRESSURE');
   assert.equal(protectedLoad.denied, true);
   console.log('Synthetic protected pressure: some avg10=25; helper and gate refuse.');
-  assert.deepEqual(runningCpuCommitment('heavy', null, 6, 6), { cpus: 7.5, basis: 'estimate-missing-measurement' });
-  console.log('No-history heavy floor=7.5.');
+  assert.deepEqual(runningCpuCommitment('heavy', null, 6, 6, 6), { cpus: 6, basis: 'scope-quota' });
+  console.log('No-history heavy commits its 6-CPU scope quota.');
 } finally { rmSync(scratch, { recursive: true }); }

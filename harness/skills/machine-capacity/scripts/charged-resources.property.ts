@@ -28,12 +28,12 @@ for (let trial = 0; trial < 2000; trial += 1) {
     console.error(JSON.stringify({ seed: Bun.argv[3] ?? 0x5eed, trial, kind, cores, runCores, runMemory, charged, expected }));
     process.exit(1);
   }
-  const measured = runCores[0] ?? 0;
-  const native = policy.runningCpuCommitment('native', measured, declared.cpus, declared.cpus);
-  if (native.cpus !== measured * 1.25 || policy.runningCpuCommitment('heavy', measured, 1, declared.cpus).cpus !== Math.max(measured * 1.25, declared.cpus)) {
-    console.error(JSON.stringify({ trial, measured, declared, native, expected: measured * 1.25 }));
+  const measured = runCores[0] ?? 0, quota = policy.scopeCpuQuota(kind, charged.cpus, declared.cpus);
+  const native = policy.runningCpuCommitment('native', measured, declared.cpus, declared.cpus, null);
+  if (native.cpus !== measured * 1.25 || policy.runningCpuCommitment('heavy', measured, 1, declared.cpus, declared.cpus).cpus !== declared.cpus || (quota !== null && policy.runningCpuCommitment(kind, measured, runCores.at(-1) ?? null, charged.cpus, quota).cpus > quota)) {
+    console.error(JSON.stringify({ trial, kind, measured, declared, charged, quota, native }));
     process.exit(1);
   }
 }
 console.log('charged-resources property: 2000 cases PASS');
-console.log('native and heavy commitment property: 2000 cases PASS');
+console.log('commitment property (native measured, quota-bound classes within their scope quota): 2000 cases PASS');

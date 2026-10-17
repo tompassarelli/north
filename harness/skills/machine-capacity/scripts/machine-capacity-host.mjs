@@ -32,7 +32,7 @@ import {
   maximumSeconds,
   sessionSeconds,
   sizedClass,
-  runningCpuCommitment,
+  runningCpuCommitment, scopeCpuQuota,
   chargedResources,
   taskSignature,
   estimateCapacity,
@@ -44,10 +44,13 @@ import {
   sessionFromArgs,
   sessionProviders,
 } from './machine-capacity-logic.ts';
-const aggregateSlice = 'agent-capacity.slice';
+const subslice = process.env.AGENT_CAPACITY_SUBSLICE ? `-${process.env.AGENT_CAPACITY_SUBSLICE}` : '';
+const aggregateSlice = `agent-capacity${subslice}.slice`;
 // Sibling of session.slice (300), app.slice (100) and agent.slice (20): game
 // clients outrank terminals and batch work but never the compositor.
-const nativeSlice = 'native.slice';
+const nativeSlice = `native${subslice}.slice`;
+// systemd nests a-b.slice inside a.slice.
+const slicePath = slice => slice.slice(0, -6).split('-').map((_, index, parts) => `${parts.slice(0, index + 1).join('-')}.slice`).join('/');
 const nativeCpuWeight = 200;
 const gpuSampleMilliseconds = 500;
 const nativeGpuSamples = 10;
@@ -152,7 +155,7 @@ function unleasedAgentPressure() {
   const path = join(userManagerCgroup(), 'agent.slice');
   if (!existsSync(path)) return 0;
   return Math.max(0, ...readdirSync(path, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && entry.name !== aggregateSlice && !/^agent-capacity-.*\.scope$/.test(entry.name))
+    .filter(entry => entry.isDirectory() && entry.name !== slicePath(aggregateSlice).split('/')[1] && !/^agent-capacity-.*\.scope$/.test(entry.name))
     .map(entry => slicePressure(join('agent.slice', entry.name))));
 }
 
@@ -174,8 +177,8 @@ function readSignals() {
       : Math.max(
         parsePsi(join(cgroupRoot, 'system.slice', 'cpu.pressure'), 'some'),
         slicePressure('app.slice'), slicePressure('background.slice'),
-        slicePressure('session.slice'), slicePressure(nativeSlice), unleasedAgentPressure()),
-    protectedCpuSomeAvg10BasisPoints: Math.max(slicePressure('session.slice'), slicePressure(nativeSlice)),
+        slicePressure('session.slice'), slicePressure(slicePath(nativeSlice)), unleasedAgentPressure()),
+    protectedCpuSomeAvg10BasisPoints: Math.max(slicePressure('session.slice'), slicePressure(slicePath(nativeSlice))),
     memoryFullAvg10BasisPoints: parsePsi('/proc/pressure/memory', 'full'),
   };
 }
@@ -521,11 +524,7 @@ function recordGpuBusy(root, busyPercent, firstSampleAt = Date.now()) {
   return gpuBusyObservation(Date.now(), busyPercent, observation.gpuBusySince);
 }
 
-function scopeCgroup(className, unit) {
-  return className === 'native'
-    ? join(userManagerCgroup(), nativeSlice, unit)
-    : join(userManagerCgroup(), 'agent.slice', aggregateSlice, unit);
-}
+const scopeCgroup = (className, unit) => join(userManagerCgroup(), slicePath(leaseSlice(className)), unit);
 
 const usageSampleMilliseconds = 1000;
 const peakWindowMilliseconds = 5000;
@@ -765,7 +764,7 @@ function cpuAccounting(root, leases, now) {
     const usage = readUsage(root, lease.id);
     const fresh = usage !== null && Number.isFinite(usage.at) && now - usage.at <= usageSampleMilliseconds * 3;
     const measured = fresh ? usage.liveCores ?? usage.recentCores ?? null : null;
-    commitments.set(lease.id, runningCpuCommitment(lease.class, measured, lease.estimate?.cores.p50 ?? null, lease.cpus));
+    commitments.set(lease.id, runningCpuCommitment(lease.class, measured, lease.estimate?.cores.p50 ?? null, lease.cpus, scopeCpuQuota(lease.class, lease.cpus, lease.declared?.cpus)));
   }
   const unleased = readUnleased();
   const sum = filter => [...leases].filter(lease => lease.kind === 'run' && filter(lease))
