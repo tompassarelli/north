@@ -173,34 +173,7 @@ impl Session {
                 "private display unavailable; refusing to start client",
             ));
         }
-        let mut command = Command::new("systemd-run");
-        command
-            .args(["--user", "--scope", "--quiet", "--collect", "--unit"])
-            .arg(format!("private-desktop-client-{}", std::process::id()));
-        crate::platform::session_scope::bind(&mut command);
-        for (name, value) in [
-            ("DISPLAY", display.to_owned()),
-            ("WAYLAND_DISPLAY", wayland.to_owned()),
-            ("WAYLAND_SOCKET", String::new()),
-            ("PRIVATE_DESKTOP_RUN", self.run.display().to_string()),
-            (
-                "XDG_RUNTIME_DIR",
-                self.run.join("runtime").display().to_string(),
-            ),
-            (
-                "XAUTHORITY",
-                read_run_value(&self.run, "xauthority").unwrap_or_default(),
-            ),
-        ] {
-            command.arg("--setenv").arg(format!("{name}={value}"));
-        }
-        command
-            .arg("--")
-            .arg("dbus-run-session")
-            .arg("--")
-            .args(&options.command)
-            .process_group(0);
-        self.client = Some(command.spawn()?);
+        self.client = Some(client_command(&self.run, display, wayland, &options.command).spawn()?);
         Ok(())
     }
 
@@ -297,6 +270,35 @@ fn watch_shutdown_signals(stopping: Arc<AtomicBool>) -> io::Result<()> {
         })?;
     ready_receiver.recv().map_err(io::Error::other)??;
     Ok(())
+}
+
+fn client_command(run: &Path, display: &str, wayland: &str, client: &[String]) -> Command {
+    let mut command = Command::new("systemd-run");
+    command
+        .args(["--user", "--scope", "--quiet", "--collect", "--unit"])
+        .arg(format!("private-desktop-client-{}", std::process::id()));
+    crate::platform::session_scope::bind(&mut command);
+    for (name, value) in [
+        ("DISPLAY", display.to_owned()),
+        ("WAYLAND_DISPLAY", wayland.to_owned()),
+        ("PRIVATE_DESKTOP_RUN", run.display().to_string()),
+        ("XDG_RUNTIME_DIR", run.join("runtime").display().to_string()),
+        (
+            "XAUTHORITY",
+            read_run_value(run, "xauthority").unwrap_or_default(),
+        ),
+    ] {
+        command.arg("--setenv").arg(format!("{name}={value}"));
+    }
+    // libwayland treats a set but empty WAYLAND_SOCKET as a bad fd and never reads WAYLAND_DISPLAY.
+    command
+        .env_remove("WAYLAND_SOCKET")
+        .arg("--")
+        .arg("dbus-run-session")
+        .arg("--")
+        .args(client)
+        .process_group(0);
+    command
 }
 
 fn desktop_command(run: &Path, render_node: &Path) -> io::Result<Command> {
@@ -427,5 +429,22 @@ mod tests {
         };
         let error = session.configure_display(&options).unwrap_err();
         assert!(error.to_string().contains("refusing to start clients"));
+    }
+
+    #[test]
+    fn client_command_unsets_wayland_socket_so_clients_reach_the_private_display() {
+        let run = tempfile::tempdir().unwrap();
+        let command = client_command(run.path(), ":11", "wayland-0", &["wlrctl".into()]);
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.contains(&"WAYLAND_DISPLAY=wayland-0".to_owned()));
+        assert!(!args.iter().any(|arg| arg.starts_with("WAYLAND_SOCKET")));
+        assert!(
+            command
+                .get_envs()
+                .any(|(name, value)| name == "WAYLAND_SOCKET" && value.is_none())
+        );
     }
 }
