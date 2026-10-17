@@ -31,7 +31,8 @@ pub const RUNTIME_FLAGS: [&str; 11] = [
     "bypassPermissions",
 ];
 const FIRST_MESSAGE: &str = "Reply with exactly the word OK and nothing else.";
-const SECOND_MESSAGE: &str = "Run exactly this bash command and nothing else: sleep 30";
+// Claude Code refuses a standalone foreground `sleep`, so the long-running task must be some other command.
+const SECOND_MESSAGE: &str = "Run exactly this bash command and nothing else: tail -f /dev/null";
 
 const USAGE: &str = "Usage: north contract-probe --validate FIXTURE.jsonl | --runtime PATH";
 
