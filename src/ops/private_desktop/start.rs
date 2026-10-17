@@ -2,6 +2,7 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -210,7 +211,7 @@ fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
         .arg("private-desktop")
         .arg("start")
         .args(arguments);
-    status_code(command.status()?)
+    Err(command.exec())
 }
 
 fn ensure_tools(arguments: &[String]) -> io::Result<Option<u8>> {
