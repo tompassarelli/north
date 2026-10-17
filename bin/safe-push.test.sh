@@ -1193,8 +1193,8 @@ SAFE_PUSH_TEST_AUTOLAND_STATUS=$'error\tlocal refresh required: Classic effect r
 [ "$case_status" -eq 1 ] || fail 'a stale Classic record did not return as a refusal'
 expect_output 'returned this lane for local Classic record refresh'
 queue_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
-retained_queue_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${queue_tip:0:12}"
-[ "$("$real_git" --git-dir="$real_remote" rev-parse "$retained_queue_branch")" = "$queue_tip" ] || fail 'the stale Classic lane queue ref was dropped'
+handed_back_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${queue_tip:0:12}"
+! "$real_git" --git-dir="$real_remote" rev-parse -q --verify "refs/heads/$handed_back_branch" >/dev/null || fail 'the handed-back Classic lane queue ref was kept on origin'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$autoland_base" ] || fail 'a stale Classic record was landed'
 SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tTrain retested\thttps://example.test/run' run_real_case '' --to main
 expect_status nonzero

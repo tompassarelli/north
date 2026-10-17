@@ -72,13 +72,19 @@ safe_push_help=0
 if [ "${1:-}" = --durable-harness-paths ] && [ "$#" -eq 2 ]; then safe_push_internal=1; fi
 if [ "$#" -eq 1 ] && [[ "$1" = -h || "$1" = --help ]]; then safe_push_help=1; fi
 trap safe_push_exit EXIT
+drop_land_branch() { SAFE_PUSH_ACTIVE=1 git push -q --force-with-lease="refs/heads/$1:$2" origin ":refs/heads/$1"; }
 safe_push_cancel() {
   trap - INT TERM HUP
   [ -z "${safe_push_child:-}" ] || kill -TERM "$safe_push_child" 2>/dev/null || true
+  [ -z "${queue_branch:-}" ] || drop_land_branch "$queue_branch" "$sha" 2>/dev/null || true
   exit 130
 }
 trap safe_push_cancel INT TERM HUP
 original_arguments=("$@")
+if [ "${1:-}" = abandon ]; then
+  safe_push_internal=1; abandoned=$(north land-abandon "${@:2}") || exit $?
+  drop_land_branch "${abandoned%%$'\t'*}" "${abandoned#*$'\t'}" && printf 'safe-push: deleted %s from origin\n' "${abandoned%%$'\t'*}"; exit
+fi
 safe_push_common_dir=""
 
 durable_harness_paths() {
@@ -102,6 +108,7 @@ usage() {
   cat <<'USAGE'
 Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
        safe-push [--dry-run] --tag NAME
+       safe-push abandon [BRANCH]
 
 Check instruction limits and scan secrets, then push the current branch or one tag.
 Repository AGENTS.md: 100 lines.
@@ -126,8 +133,8 @@ Options:
                sets landing.queue = autoland,
                the lane is checked, pushed to claude/land-<lane>-<sha> and
                waits for the Autoland workflow's batched queue to land it;
-               a Classic record refresh handback returns 75 and retains the
-               source lane and queue branch for local repair and requeue;
+               a stop, a refusal or a handback deletes that queue branch, and
+               a Classic record refresh handback returns 75 keeping the lane;
                a BRANCH other than origin's default (farm/*, scratch) skips
                the lock and the queue and runs the hook in its own push
   --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
@@ -137,6 +144,9 @@ Options:
                ~/.local/state/safe-push/direct-landings.tsv
   --tag NAME   push an existing annotated tag after scanning new content
   -h, --help   print this help without inspecting a repository
+  abandon      delete this lane's claude/land-<lane>-<sha>, or BRANCH, from
+               origin once main holds each of its commit subjects or Autoland
+               handed it back; any other branch is refused
 
 On a non-default branch, plain "safe-push" (no --to/--tag) is refused —
 one-branch-main doctrine: origin carries the default branch only. Publish
@@ -189,21 +199,9 @@ plan_push() {
             usage
             exit 0
             ;;
-          --dry-run)
-            [ "$dry" -eq 0 ] || argument_error 'duplicate --dry-run'
-            dry=1
-            shift
-            ;;
-          --keep-lane)
-            [ "$keep_lane" -eq 0 ] || argument_error 'duplicate --keep-lane'
-            keep_lane=1
-            shift
-            ;;
-          --direct)
-            [ "$direct" -eq 0 ] || argument_error 'duplicate --direct'
-            direct=1
-            shift
-            ;;
+          --dry-run) [ "$dry" -eq 0 ] || argument_error 'duplicate --dry-run'; dry=1; shift ;;
+          --keep-lane) [ "$keep_lane" -eq 0 ] || argument_error 'duplicate --keep-lane'; keep_lane=1; shift ;;
+          --direct) [ "$direct" -eq 0 ] || argument_error 'duplicate --direct'; direct=1; shift ;;
           --tag)
             [ "$tag_seen" -eq 0 ] || argument_error 'duplicate --tag'
             [ "$#" -ge 2 ] || argument_error '--tag needs a name'
@@ -1796,13 +1794,14 @@ land_through_autoland() {
   fi
   if [ "$state" = error ] && [ "$description" = 'local refresh required: Classic effect record' ]; then
     safe_push_refusal="Autoland returned this lane for local Classic record refresh: $url"
-    printf 'safe-push: Autoland returned this lane for local Classic record refresh: %s; source and queue branch %s retained; NOT landed.\n' "$url" "$queue_branch" >&2
+    printf 'safe-push: Autoland returned this lane for local Classic record refresh: %s; source lane retained, queue branch %s deleted; NOT landed.\n' "$url" "$queue_branch" >&2
+    drop_land_branch "$queue_branch" "$sha" 2>/dev/null || true
     exit 75
   fi
   if [ "$state" != success ]; then
     safe_push_refusal="Autoland did not land this lane: ${description:-unknown} ${url:-unknown}"
     printf 'safe-push: ✗ Autoland did not land this lane: %s %s; NOT landed.\n' "$description" "$url" >&2
-    SAFE_PUSH_ACTIVE=1 git push -q --force-with-lease="refs/heads/$queue_branch:$sha" origin ":refs/heads/$queue_branch" 2>/dev/null || true
+    drop_land_branch "$queue_branch" "$sha" 2>/dev/null || true
     exit 1
   fi
   landed=${description##* }
