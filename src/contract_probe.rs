@@ -158,8 +158,8 @@ fn check_interrupted_turn(frames: &[StreamFrame], expect: &Expectation, violatio
         violations.push("no result frame".into());
         return;
     };
-    if last.terminal_reason.as_deref() != Some("aborted_tools") {
-        violations.push(format!("final result ended {:?}, not aborted_tools", last.terminal_reason));
+    if !last.terminal_reason.as_deref().is_some_and(|reason| reason.starts_with("aborted")) {
+        violations.push(format!("final result ended {:?}, not aborted", last.terminal_reason));
     }
     if let Some((uuid, _)) = expect.messages.last()
         && !last.user_message_uuids.contains(uuid)
@@ -345,6 +345,11 @@ mod tests {
     #[test]
     fn contract_probe_rejects_a_turn_that_was_not_aborted() {
         assert!(check(&INTERRUPT.replace(r#""aborted_tools""#, r#""completed""#)).is_err());
+    }
+
+    #[test]
+    fn contract_probe_accepts_an_interrupt_that_landed_mid_stream() {
+        assert_eq!(check(&INTERRUPT.replace(r#""aborted_tools""#, r#""aborted_streaming""#)), Ok(()));
     }
 
     #[tokio::test]
