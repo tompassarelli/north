@@ -68,7 +68,7 @@ a rule when its numbers move.
   when the farm queue delays a result.
 - Run always-on Warcraft clients, the offline LAN pool and GPU work on the
   Hetzner box once it exists, and on the vast.ai VM until then. Keep signed-in
-  Definitive clients local unless you move them deliberately.
+  clients local unless you move them deliberately.
 - Rent no other CPU provider: DigitalOcean and similar charge several times
   vast.ai's price for the same cores.
 - Run a job longer than the 45-minute leash (renders, long captures) yourself

@@ -1,6 +1,6 @@
 # Smashcraft stage design
 
-Read this to design, dress or judge a stage's look: backdrop, scenery, set pieces, water, sky, light and fighter contrast, in Classic and Definitive, for any stage art, composition, look issue or new stage.
+Read this to design, dress or judge a stage's look: backdrop, scenery, set pieces, water, sky, light and fighter contrast, with the Classic models, for any stage art, composition, look issue or new stage.
 
 ## References
 
@@ -22,8 +22,8 @@ Read this to design, dress or judge a stage's look: backdrop, scenery, set piece
 
 ## Judging
 
-- Complete Classic and Definitive scenes at both camera extremes with side platforms inside the frame and no clipped edges, and judge near and far match views at 16:9 beside the chosen reference, because the camera moves between them.
+- Complete Classic scenes at both camera extremes with side platforms inside the frame and no clipped edges, and judge near and far match views at 16:9 beside the chosen reference, because the camera moves between them.
 - Accept a look only from captures on Tom's client profile (3.0.0.24268, the VM's account b) as well as the pool, because 3.0.1-only fog, light and water levers fall back silently on his build.
-- Capture Wisp frames, then one native LAN-pool capture, and confirm graphics-mode changes took effect by checking that Classic and Definitive frames differ, because a silent fallback looks identical.
+- Capture Wisp frames, then one native LAN-pool capture, in Classic.
 - Measure below-horizon backdrop-only pixels against the limit in visual-quality.md, inspect grayscale frames at about 320 pixels wide for readable fighters and ledges without large empty fields, and judge composition visually as well, because contrast numbers alone pass empty scenes.
 - Post before and after images beside the reference on the issue, naming the reference and rule each change serves, because review needs the comparison.
