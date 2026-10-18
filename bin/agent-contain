@@ -77,7 +77,7 @@ def plan(table, uid):
         if not cg.startswith(user):
             continue
         rel = cg[len(user):]
-        if rel == "agent.slice" or rel.startswith("agent.slice/"):
+        if rel == "agent.slice" or rel.startswith("agent.slice/") or (rel.startswith("native") and "/agent-capacity-" in rel):
             continue
         parts = rel.split("/")
         pod = next((i for i, p in enumerate(parts) if p.startswith("libpod-") and p.endswith(".scope")), None)

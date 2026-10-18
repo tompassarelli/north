@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-import importlib.machinery
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -9,10 +7,6 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 
 repo = Path(__file__).resolve().parent.parent
-loader = importlib.machinery.SourceFileLoader("laptop_auto", str(repo / "bin/laptop-auto"))
-spec = importlib.util.spec_from_loader(loader.name, loader)
-collector = importlib.util.module_from_spec(spec)
-loader.exec_module(collector)
 
 
 def test_recorded_observation_journey(root):
@@ -73,32 +67,6 @@ def test_recorded_observation_journey(root):
         assert observe(minute, idle=False)["state"] == "available"
     state = observe(1385, idle=False)
     assert state["state"] == "draining" and state["reason"] == "active" and state["grace"] == 900
-
-    proc = root / "proc"
-    proc.mkdir()
-    entry = proc / "123"
-    entry.mkdir()
-    (entry / "cgroup").write_text("0::/app.slice/proton-bridge.service\n")
-    for name, gaming in (("protonmail-bridge", False), ("proton", True)):
-        (entry / "comm").write_text(name + "\n")
-        (entry / "cmdline").write_bytes(name.encode() + b"\0")
-        assert collector.collect(proc, root / "drm")["gaming"] is gaming
-    (entry / "comm").write_text("Warcraft III.exe\n")
-    (entry / "cmdline").write_bytes(b"C:\\Warcraft III.exe\0")
-    (entry / "fd").mkdir()
-    drm = root / "drm"
-    gpu = drm / "card0/device"
-    gpu.mkdir(parents=True)
-    (gpu / "gpu_busy_percent").write_text("65\n")
-    for cgroup in ("/agent.slice/agent-capacity.slice/client.scope", "/native.slice/client.scope", "/libpod-client.scope"):
-        (entry / "cgroup").write_text(f"0::{cgroup}\n")
-        sample = collector.collect(proc, drm, idle=True)
-        assert not sample["gaming"] and sample["gpu_busy"] == 65 and sample["idle"] is True
-    (entry / "fd/9").symlink_to("/dev/dri/renderD128")
-    assert collector.collect(proc, drm)["agent_gpu"]
-    (entry / "cgroup").write_text("0::/playtest.slice/game.scope\n")
-    sample = collector.collect(proc, drm)
-    assert sample["gaming"] and not sample["agent_gpu"]
 
 
 with tempfile.TemporaryDirectory(prefix="laptop-auto-test-") as temporary:

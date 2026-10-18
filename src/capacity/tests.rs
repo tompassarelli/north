@@ -28,6 +28,7 @@ fn facts(class: Class) -> Facts {
         native_waiting: 0,
         quiet_native_runs: 0,
         beside_native: false,
+        gaming: false,
     }
 }
 
@@ -78,4 +79,15 @@ fn unleased_heavy_cpu_reduces_admitted_capacity() {
     assert_eq!(decide(&host), Reason::DeferCpuCapacity);
     host.unleased_heavy_cores = 2.0;
     assert_eq!(decide(&host), Reason::Run);
+}
+
+#[test]
+fn gaming_holds_native_and_heavy_admissions_and_lets_light_work_run() {
+    for class in [Class::Native, Class::Heavy, Class::Exclusive, Class::Gpu] {
+        assert_eq!(decide(&Facts { gaming: true, ..facts(class) }), Reason::DeferGaming, "{class:?}");
+        assert_eq!(decide(&Facts { gaming: false, ..facts(class) }), Reason::Run, "{class:?}");
+    }
+    for class in [Class::Agent, Class::Moderate, Class::Critical, Class::Tom] {
+        assert_eq!(decide(&Facts { gaming: true, ..facts(class) }), Reason::Run, "{class:?}");
+    }
 }

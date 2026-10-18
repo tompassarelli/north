@@ -61,6 +61,8 @@ pub(crate) struct Facts {
     pub(crate) native_waiting: u32,
     pub(crate) quiet_native_runs: u32,
     pub(crate) beside_native: bool,
+    #[serde(default)]
+    pub(crate) gaming: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -83,11 +85,15 @@ pub(crate) enum Reason {
     DeferExclusiveQueued,
     DeferCpuCapacity,
     DeferCpuPressure,
+    DeferGaming,
 }
 
 pub(crate) fn decide(facts: &Facts) -> Reason {
     if invalid(facts) {
         return Reason::Invalid;
+    }
+    if facts.gaming && matches!(facts.class, Class::Native | Class::Heavy | Class::Exclusive | Class::Gpu) {
+        return Reason::DeferGaming;
     }
     if let Some(reason) = memory(facts) {
         return reason;

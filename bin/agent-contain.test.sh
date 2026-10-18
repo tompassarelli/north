@@ -49,7 +49,7 @@ add 200 claude 1 "$lead" "claude"
 add 201 bash 200 "$lead" "bash -c bun test"
 add 202 bun 201 "$lead" "bun test"
 add 300 codex 1 $user/agent.slice/run-p300.scope "codex"
-add 301 bash 300 $user/agent.slice/run-p300.scope "bash -c make"
+add 301 bash 300 $user/agent.slice/run-p300.scope "bash -c make"; add 302 wine 202 "$user/native.slice/agent-capacity-p302.scope" "wine Warcraft.exe"
 add 400 conmon 1 "$pod" "conmon"
 add 401 lua 400 "$pod/container" "lua perf.lua"
 add 500 conmon 1 "$farm" "conmon"
@@ -59,7 +59,7 @@ echo 0 > "$cg$pod/cgroup.freeze"
 echo 0 > "$cg$farm/cgroup.freeze"
 
 plan=$(run --dry-run | awk '{print $1, $2}' | sort | tr '\n' ' ')
-check "a claude child outside agent.slice is moved, a codex child inside it and the CLIs stay, Tom's own shell stays" \
+check "a claude child outside agent.slice is moved, a codex child inside it, a claude child in a native capacity scope and the CLIs stay, Tom's own shell stays" \
   "freeze 400 move 201 move 202 " "$plan"
 
 out=$(run)

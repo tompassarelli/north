@@ -70,6 +70,7 @@ Commands:
   gate [open --session S --question Q --option O... --recommend N --default N --default-after D | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity admission < FACTS.json               Decide one machine-capacity admission
+  capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
   help                                          Show this help
 
 Options:
