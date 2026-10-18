@@ -55,20 +55,20 @@ check "status exits non-zero before playtest is on" "1" "$?"
 out=$(run on)
 check "on confines agents to CCX1 with the memory cap" \
   "1" "$(rg -c '^systemctl --user set-property --runtime agent.slice AllowedCPUs=4-11,16-23 MemoryMax=80G$' "$log")"
-check "on moves Steam and every descendant, never a pool client or Tom's terminal, into playtest.slice" \
-  "1" "$(rg -c 'StartTransientUnit ssa\(sv\)a\(sa\(sv\)\) playtest-[0-9]+-10\.scope fail 2 PIDs au 4 10 11 12 13 Slice s playtest.slice 0$' "$log")"
-check "on pins the game tree to CCX0, agent and pool client threads to CCX1, never Tom's terminal" \
-  "pin 10 0-15:8 pin 11 0-15:8 pin 12 0-15:8 pin 13 0-15:8 pin 20 4-23:16 pin 50 4-23:16 " "$(sort -n -k2 "$tmp/pins.log" | tr '\n' ' ')"
+check "on moves only Warcraft III, never Steam, Battle.net, a pool client or Tom's terminal, into playtest.slice" \
+  "1" "$(rg -c 'StartTransientUnit ssa\(sv\)a\(sa\(sv\)\) playtest-[0-9]+-13\.scope fail 2 PIDs au 1 13 Slice s playtest.slice 0$' "$log")"
+check "on pins Warcraft III to CCX0, agent and pool client threads to CCX1, never Steam, Battle.net or Tom's terminal" \
+  "pin 13 0-15:8 pin 20 4-23:16 pin 50 4-23:16 " "$(sort -n -k2 "$tmp/pins.log" | tr '\n' ' ')"
 check "on reserves CCX0, weights and the memory floor for the game" \
   "1" "$(rg -c '^systemctl --user set-property --runtime playtest.slice AllowedCPUs=0-3,12-15 CPUWeight=1000 IOWeight=1000 MemoryMin=4G MemoryLow=6G$' "$log")"
 
-for pid in 10 11 12 13; do printf '0::%s/playtest.slice/playtest-1-10.scope\n' "$user" > "$proc/$pid/cgroup"; done
-add 40 wine64-preloader 1 "$user/app.slice/app-ghostty-2.scope" "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe"
+printf '0::%s/playtest.slice/playtest-1-13.scope\n' "$user" > "$proc/13/cgroup"
+add 40 "Warcraft III.ex" 12 "$rofi" "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe -launch"
 run on >/dev/null
-check "a second on moves only a stray Battle.net started outside Steam" \
-  "1" "$(rg -c 'PIDs au 1 40 Slice' "$log")"
+check "a second on moves only a Warcraft III started since" \
+  "1" "$(rg -c 'PIDs au 1 40 Slice' "$log")" && printf '0::%s/playtest.slice/playtest-2-40.scope\n' "$user" > "$proc/40/cgroup"
 check "status exits 0 when on and reports the game inside playtest.slice" \
-  "0 playtest on: game CPUs 0-3,12-15, agents CPUs 4-11,16-23; Warcraft III 1/1 in playtest.slice" \
+  "0 playtest on: game CPUs 0-3,12-15, agents CPUs 4-11,16-23; Warcraft III 2/2 in playtest.slice" \
   "$(out=$(run status); echo "$? $out")"
 
 run off >/dev/null

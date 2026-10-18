@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """playtest: reserve laptop capacity for Tom's playtest.
 
-  playtest on [--auto]   move Steam, Battle.net and Warcraft III into playtest.slice on the reserved cores and
+  playtest on [--auto]   move a running Warcraft III into playtest.slice on the reserved cores and
                          confine agent.slice to the rest; returns once the split and the moves are applied
   playtest off           give agent.slice every core again; the game stays where it is
   playtest status        exit 0 when on, print both core sets and where Warcraft III runs
@@ -30,8 +30,8 @@ AGENT_CPUS = os.environ.get("PLAYTEST_AGENT_CPUS") or "4-11,16-23"
 AGENT_MEMORY_MAX = os.environ.get("PLAYTEST_AGENT_MEMORY_MAX") or "80G"
 GAME_SLICE = "playtest.slice"
 GAME_PROPERTIES = [f"AllowedCPUs={GAME_CPUS}", "CPUWeight=1000", "IOWeight=1000", "MemoryMin=4G", "MemoryLow=6G"]
-ROOT_COMMS = {"steam"}
-ROOT_ARGS = re.compile(r"Warcraft III\.exe|Battle\.net\.exe|Battle\.net Launcher\.exe")
+# Never move or pin Steam or Battle.net: a Warcraft III they launch inherits the pin and hangs at a black screen.
+ROOT_ARGS = re.compile(r"Warcraft III\.exe")
 
 
 def env_path(name, default):
@@ -62,7 +62,7 @@ def outside(info):
 
 
 def game_tree(table):
-    roots = {pid for pid, info in table.items() if outside(info) and (info["comm"] in ROOT_COMMS or ROOT_ARGS.search(info["args"]))}
+    roots = {pid for pid, info in table.items() if outside(info) and ROOT_ARGS.search(info["args"])}
     children = {}
     for pid, info in table.items():
         children.setdefault(info["ppid"], []).append(pid)
