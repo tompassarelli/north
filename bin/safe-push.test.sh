@@ -1228,6 +1228,37 @@ SAFE_PUSH_TEST_AUTOLAND_STATUS=$'pending\tAutoland workflow queued\thttps://exam
   SAFE_PUSH_AUTOLAND_WAIT_SECONDS=1 SAFE_PUSH_AUTOLAND_POLL_SECONDS=1 run_real_case '' --to main
 [ "$case_status" -eq 2 ] || fail 'Autoland timeout did not exit 2'
 expect_output 'safe-push: timed out after 1m (run https://example.test/pending)'
+printf 'stopped wait\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'stopped while queued'
+stopped_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
+stopped_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${stopped_tip:0:12}"
+stopped_pid="$scratch/stopped-safe-push.pid"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$$" >%q\nexec %q "$@"\n' "$stopped_pid" "$TARGET" >"$real_fixture/pid-target"
+chmod +x "$real_fixture/pid-target"
+stopped_target="$TARGET"
+TARGET="$real_fixture/pid-target"
+(
+  SAFE_PUSH_TEST_AUTOLAND_STATUS=$'pending\tAutoland workflow queued\thttps://example.test/pending' \
+    SAFE_PUSH_AUTOLAND_WAIT_SECONDS=600 SAFE_PUSH_AUTOLAND_POLL_SECONDS=1 run_real_case '' --to main
+  printf '%s\n' "$case_status" >"$scratch/stopped.status"
+  printf '%s\n' "$case_output" >"$scratch/stopped.out"
+) &
+stopped_case=$!
+stopped_deadline=$((SECONDS + 60))
+until test -s "$stopped_pid" && pgrep -P "$(cat "$stopped_pid")" -f autoland-wait >/dev/null; do
+  [ "$SECONDS" -lt "$stopped_deadline" ] || { pkill -TERM -P "$(cat "$stopped_pid" 2>/dev/null || echo 0)"; kill -TERM "$(cat "$stopped_pid" 2>/dev/null || echo 0)" "$stopped_case" 2>/dev/null; fail 'the stopped lane never reached its Autoland wait'; }
+  sleep 0.05
+done
+stopped_started=$SECONDS
+kill -TERM "$(cat "$stopped_pid")"
+wait "$stopped_case" || true
+TARGET="$stopped_target"
+[ "$((SECONDS - stopped_started))" -lt 20 ] || fail 'a stopped Autoland wait did not end promptly'
+[ "$(cat "$scratch/stopped.status")" = 130 ] || fail "a stopped Autoland wait exited $(cat "$scratch/stopped.status"): $(cat "$scratch/stopped.out")"
+grep -Fq "safe-push: stopped; $stopped_branch stays queued for Autoland" "$scratch/stopped.out" || fail 'a stopped Autoland wait did not say its lane stays queued'
+"$real_git" --git-dir="$real_remote" rev-parse -q --verify "refs/heads/$stopped_branch" >/dev/null || fail 'stopping a queued wait deleted its Autoland queue branch'
+"$real_git" --git-dir="$real_remote" update-ref -d "refs/heads/$stopped_branch"
+printf 'PASS: stopping safe-push after its lane is queued leaves the Autoland queue branch on origin\n'
 run_real_case '' --to main --direct
 expect_status zero
 expect_output '--direct: bypassing'

@@ -76,7 +76,8 @@ drop_land_branch() { SAFE_PUSH_ACTIVE=1 git push -q --force-with-lease="refs/hea
 safe_push_cancel() {
   trap - INT TERM HUP
   [ -z "${safe_push_child:-}" ] || kill -TERM "$safe_push_child" 2>/dev/null || true
-  [ -z "${queue_branch:-}" ] || drop_land_branch "$queue_branch" "$sha" 2>/dev/null || true
+  [ -z "${autoland_reply:-}" ] || rm -f -- "$autoland_reply"
+  [ -z "${queue_branch:-}" ] || printf 'safe-push: stopped; %s stays queued for Autoland once pushed (safe-push abandon withdraws it)\n' "$queue_branch"
   exit 130
 }
 trap safe_push_cancel INT TERM HUP
@@ -1775,16 +1776,22 @@ autoland_gap() {
 }
 
 land_through_autoland() {
-  local lane sha queue_branch line state description url wait_status=0 landed limit="${SAFE_PUSH_AUTOLAND_WAIT_SECONDS:-10800}"
+  local lane sha queue_branch autoland_reply line state description url wait_status=0 landed limit="${SAFE_PUSH_AUTOLAND_WAIT_SECONDS:-10800}"
   rebase_onto_destination "$1"
   lane=$(git symbolic-ref --quiet --short HEAD)
   sha=$(git rev-parse HEAD)
   queue_branch="claude/land-$(printf '%s' "$lane" | tr -c 'A-Za-z0-9._-' '-')-${sha:0:12}"
   echo "safe-push: $to lands through Autoland's one queue — checking and pushing $sha as $queue_branch"
   NORTH_NO_AUTOREAP=1 "$(readlink -f "${BASH_SOURCE[0]}")" --to "$queue_branch" || exit 1
-  line=$("${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}" autoland-wait \
+  autoland_reply=$(mktemp)
+  "${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}" autoland-wait \
     --sha "$sha" --branch "$queue_branch" --destination "$to" \
-    --timeout-seconds "$limit" --poll-seconds "${SAFE_PUSH_AUTOLAND_POLL_SECONDS:-10}" 2>/dev/null) || wait_status=$?
+    --timeout-seconds "$limit" --poll-seconds "${SAFE_PUSH_AUTOLAND_POLL_SECONDS:-10}" >"$autoland_reply" 2>/dev/null &
+  safe_push_child=$!
+  wait "$safe_push_child" || wait_status=$?
+  safe_push_child=""
+  line=$(<"$autoland_reply")
+  rm -f -- "$autoland_reply"
   IFS=$'\t' read -r state description url <<<"$line"
   if [ "$state" = timeout ] || [ "$wait_status" -eq 2 ]; then
     safe_push_timed_out=1
