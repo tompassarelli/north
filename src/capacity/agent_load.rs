@@ -299,8 +299,11 @@ pub(crate) fn gaming_marked(capacity: &Path) -> bool {
 }
 
 pub(crate) fn playtest_on(host: &Host) -> bool {
+    let booted = fs::read_to_string(host.proc.join("stat")).ok().and_then(|stat| {
+        stat.lines().find_map(|line| line.strip_prefix("btime ")).and_then(|value| value.trim().parse::<u64>().ok())
+    });
     fs::read(&host.playtest)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .is_some_and(|state| state["on"] == true)
+        .is_some_and(|state| state["on"] == true && booted.is_none_or(|booted| state["since"].as_u64().is_none_or(|since| since >= booted)))
 }

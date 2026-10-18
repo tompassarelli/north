@@ -170,3 +170,18 @@ fn the_sampler_counts_toms_game_and_never_an_agent_client() {
     let observed = sample(None);
     assert!(observed["gaming"] == true && observed["agent_gpu"] == false);
 }
+
+#[test]
+fn a_playtest_left_on_before_the_last_boot_no_longer_counts_as_gaming() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    fs::create_dir_all(&proc).unwrap();
+    let host = host(root.path(), &proc);
+    fs::write(proc.join("stat"), "cpu  1 2 3\nbtime 1792306000\nprocesses 9\n").unwrap();
+    for (since, on) in [(1792305507, false), (1792306000, true), (1792309000, true)] {
+        fs::write(&host.playtest, serde_json::json!({ "on": true, "since": since }).to_string()).unwrap();
+        assert_eq!(agent_load::playtest_on(&host), on, "{since}");
+    }
+    fs::write(&host.playtest, r#"{"on": false}"#).unwrap();
+    assert!(!agent_load::playtest_on(&host));
+}
