@@ -713,12 +713,12 @@ printf "%s\n" tool_removal_scan >>"$scratch/cases"
 make_real_fixture test-kind
 mkdir -p "$real_repo/src" "$real_repo/tests"
 printf '#[test]\nfn deleted_boundary() {}\nfn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
-printf 'it("kept", () => {})\n' >"$real_repo/tests/boundary.js"
+printf 'it("kept", () => {\n  check()\n})\n' >"$real_repo/tests/boundary.js"
 "$real_git" -C "$real_repo" add src/lib.rs tests/boundary.js
 "$real_git" -C "$real_repo" commit -qm 'existing tests'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 kind_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
-for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js moved moved-js-unannotated renamed; do
+for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js moved moved-js-unannotated renamed retitled-js replaced-js; do
   "$real_git" -C "$real_repo" reset -q --hard "$kind_base"
   trailer=''
   case "$kind_case" in
@@ -740,6 +740,13 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
       ;;
     edited-js)
       printf 'it("kept", async () => {})\n' >"$real_repo/tests/boundary.js"
+      ;;
+    retitled-js)
+      printf 'it("kept, retitled", () => {\n  check()\n})\n' >"$real_repo/tests/boundary.js"
+      ;;
+    replaced-js)
+      printf 'it("replaced", () => {\n  other()\n})\n' >"$real_repo/tests/boundary.js"
+      case_path=tests/boundary.js; case_name=replaced
       ;;
     renamed)
       "$real_git" -C "$real_repo" mv src/lib.rs src/state.rs
@@ -766,7 +773,7 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
   esac
   run_real_case '' --dry-run
   case "$kind_case" in
-    *-annotated|deleted|edited-js|moved|renamed) expect_status zero ;;
+    *-annotated|deleted|edited-js|moved|renamed|retitled-js) expect_status zero ;;
     *)
       expect_status nonzero
       expect_output "safe-push: ✗ $case_path adds test $case_name without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
