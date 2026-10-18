@@ -134,7 +134,7 @@ impl Lane {
 }
 
 #[test]
-fn interrupted_autoland_landing_deletes_its_land_branch() {
+fn interrupted_autoland_landing_keeps_its_queued_land_branch() {
     let lane = Lane::new();
     let mut child = lane
         .safe_push(&["--to", "main"])
@@ -164,7 +164,7 @@ fn interrupted_autoland_landing_deletes_its_land_branch() {
             .success()
     );
     assert_eq!(child.wait().unwrap().code(), Some(130));
-    assert_eq!(lane.land_branches(), Vec::<String>::new());
+    assert_eq!(lane.land_branches().len(), 1);
 }
 
 #[test]
