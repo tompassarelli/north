@@ -781,6 +781,56 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
   esac
 done
 
+make_real_fixture vendored-tree
+mkdir -p "$real_repo/repos/upstream" "$real_repo/vendor/lib"
+printf '{"vendor": "repos/upstream"}\n' >"$real_repo/effect-kit.json"
+printf '{"prefix": "vendor/lib"}\n' >"$real_repo/repos/lib.json"
+printf 'x\n' >"$real_repo/repos/upstream/README"
+printf 'x\n' >"$real_repo/vendor/lib/README"
+"$real_git" -C "$real_repo" add effect-kit.json repos vendor
+"$real_git" -C "$real_repo" commit -qm 'declare vendored trees'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+vendored_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+for vendored_case in kit-tree repo-json-tree both-trees first-party sibling-prefix self-declared; do
+  "$real_git" -C "$real_repo" reset -q --hard "$vendored_base"
+  mkdir -p "$real_repo/repos/upstream/test" "$real_repo/vendor/lib/test" "$real_repo/tests" "$real_repo/repos/upstream-extra/test"
+  case "$vendored_case" in
+    kit-tree) printf '%s("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts" ;;
+    repo-json-tree) printf '%s("library boundary", () => {})\n' it >"$real_repo/vendor/lib/test/Lib.test.ts" ;;
+    both-trees)
+      printf '%s("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts"
+      printf '%s("library boundary", () => {})\n' it >"$real_repo/vendor/lib/test/Lib.test.ts"
+      printf '%s.skip("upstream skipped", () => {})\n' it >>"$real_repo/vendor/lib/test/Lib.test.ts"
+      ;;
+    first-party)
+      printf '%s("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts"
+      printf '%s("first party boundary", () => {})\n' it >"$real_repo/tests/Own.test.ts"
+      case_path=tests/Own.test.ts; case_name='first party boundary'
+      ;;
+    sibling-prefix)
+      printf '%s("sibling boundary", () => {})\n' it >"$real_repo/repos/upstream-extra/test/Own.test.ts"
+      case_path=repos/upstream-extra/test/Own.test.ts; case_name='sibling boundary'
+      ;;
+    self-declared)
+      printf '{"vendor": "repos/upstream", "other": "own"}\n' >"$real_repo/effect-kit.json"
+      printf '{"prefix": "own"}\n' >"$real_repo/repos/own.json"
+      mkdir -p "$real_repo/own"
+      printf '%s("own boundary", () => {})\n' it >"$real_repo/own/Own.test.ts"
+      case_path=own/Own.test.ts; case_name='own boundary'
+      ;;
+  esac
+  "$real_git" -C "$real_repo" add -A .
+  "$real_git" -C "$real_repo" commit -qm "$vendored_case"
+  run_real_case '' --dry-run
+  case "$vendored_case" in
+    *-tree*) expect_status zero ;;
+    *)
+      expect_status nonzero
+      expect_output "safe-push: ✗ $case_path adds test $case_name without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
+      ;;
+  esac
+done
+
 make_real_fixture mutant-record
 "$real_git" -C "$real_repo" commit --allow-empty -qm 'historical claim' -m 'Test-kind: old boundary 3 kills historical-missing'
 "$real_git" -C "$real_repo" push -q origin HEAD:main

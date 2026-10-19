@@ -457,10 +457,22 @@ mutant_marker_re='MUTANT:[[:alnum:]_-]'
 test_path_re='(^|/)tests?/|[._]tests?\.[^/]*$|(^|/)test_[^/]*\.py$'
 skip_marker_re='(^|[^[:alnum:]_])(it|test|describe)\.(skip|only)\(|#\[ignore|pytest\.mark\.(skip|xfail)|unittest\.skip'
 
+vendored_trees() {
+  local base="$1" entry
+  command -v jq >/dev/null 2>&1 || return 0
+  {
+    git show "$base:effect-kit.json" 2>/dev/null | jq -r '.vendor // empty' 2>/dev/null || true
+    while IFS= read -r entry; do
+      case "$entry" in repos/*.json) git show "$base:$entry" 2>/dev/null | jq -r '.prefix // empty' 2>/dev/null || true ;; esac
+    done < <(git ls-tree --name-only "$base" repos/ 2>/dev/null)
+  } | grep -E '^[[:alnum:]_-][[:alnum:]._-]*(/[[:alnum:]_-][[:alnum:]._-]*)*$' || true
+}
+
 test_integrity_scan() {
-  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds trailer name mutant helper
+  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds trailer name mutant helper vendored
   [ "$base" != "$1" ] && [ -n "$base" ] || return 0
   base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
+  vendored=$(vendored_trees "$base")
   git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
   test_kinds=$(git log --format=%B "$base..$head" | sed -n "/^Test-kind:/p")
   helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mutant"
@@ -475,13 +487,17 @@ test_integrity_scan() {
     fi
   done <<<"$test_kinds"
   git diff --unified=2147483647 --no-color --no-ext-diff --no-renames "$base" "$head" \
-    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" awk '
+    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" VENDORED="$vendored" awk '
     function require_kind(name,    key, file) {
       file = path; sub(/^.*\//, "", file); key = file SUBSEP name
       if (removing) { removed[key] = 1; removed_name[name] = 1; return }
       if (retitling) candidate[key] = 1
       if (!(key in added)) { order[++added_count] = key; shown[key] = path }
       added[key] = 1
+    }
+    function in_vendored(file,    i) {
+      for (i = 1; i <= vendored_count; i++) if (file == vendored_tree[i] || index(file, vendored_tree[i] "/") == 1) return 1
+      return 0
     }
     function skeleton(line) { gsub(/"[^"]*"|\047[^\047]*\047/, "\"\"", line); return line }
     function test_names(line,    name, quote, escaped, j, char) {
@@ -502,6 +518,7 @@ test_integrity_scan() {
       }
     }
     BEGIN {
+      vendored_count = split(ENVIRON["VENDORED"], vendored_tree, "\n")
       count = split(ENVIRON["TEST_KINDS"], trailers, "\n")
       for (i = 1; i <= count; i++) {
         trailer = trailers[i]
@@ -510,18 +527,21 @@ test_integrity_scan() {
           justified[substr(trailer, 1, RSTART - 1)] = 1
       }
     }
-    /^diff --git / { header = 1; new_file = 0; deleted_file = 0; rust_test = 0; next }
+    /^diff --git / { header = 1; vendored = 0; new_file = 0; deleted_file = 0; rust_test = 0; next }
     header && /^new file mode / { new_file = 1; next }
     header && /^deleted file mode / { deleted_file = 1; next }
     header && /^--- / { old_path = substr($0, 7); next }
     header && /^\+\+\+ / {
       path = substr($0, 7); header = 0
       if (deleted_file) path = old_path
+      vendored = in_vendored(path)
+      if (vendored) next
       if ((new_file || deleted_file) && path ~ /\.test\.(sh|py|ts)$/) {
         name = path; sub(/^.*\//, "", name); removing = deleted_file; require_kind(name); removing = 0
       }
       next
     }
+    !header && vendored { next }
     !header && path ~ /\.rs$/ && /^[+ ]/ {
       if (/#\[(tokio::)?test\]/) { rust_test = 1; rust_added = /^\+/ }
       if (rust_test && match($0, /(^|[^[:alnum:]_])fn[[:space:]]+[[:alnum:]_]+/)) {
