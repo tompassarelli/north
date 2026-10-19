@@ -17,7 +17,8 @@
     {"id":"program-craftsmanship","kind":"skill","source":"skills/program-craftsmanship/SKILL.md"},
     {"id":"rust-development","kind":"skill","source":"skills/rust-development/SKILL.md"},
     {"id":"verification","kind":"skill","source":"skills/verification/SKILL.md"},
-    {"id":"threejs","kind":"skill","source":"skills/threejs/SKILL.md"}
+    {"id":"threejs","kind":"skill","source":"skills/threejs/SKILL.md"},
+    {"id":"astro","kind":"skill","source":"skills/astro/SKILL.md"}
   ],
   "assets": [
     {"id":"agent-machinery-doctrine","type":"instructions","path":"doctrine.md"},

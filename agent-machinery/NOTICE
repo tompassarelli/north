@@ -21,6 +21,14 @@ upstream statement is preserved as provided; no copyright holder is invented.
 This revision restructures the notes, adds decision rationale, and corrects
 examples. It does not claim the illustrative examples were browser-tested.
 
+Astro skill notes include material adapted from astrolicious/agent-skills,
+revision cb4839f3794189ebf35c55d3ba5d3876dff7acf0, file skills/astro/SKILL.md.
+Source: https://github.com/astrolicious/agent-skills
+That file's frontmatter declares "license: MIT" and names its authors as
+"Astro Team". The revision contains no standalone license file or copyright
+notice; the upstream statement is preserved as provided and no copyright
+holder is invented. This revision rewrites the guide for Astro 7 conventions.
+
 The harness-authoring guides that scripts/refresh-guides.mjs vendors live
 outside this package, at harness/skills/agent-policy/references/guides/ in
 its host repository; their attribution, license texts and NOTICE are kept in

@@ -58,6 +58,24 @@ guides from topic-specific full notes, adds rationale and version assumptions,
 and corrects faulty examples. These remain illustrative fragments, not a claim
 of runtime verification against every Three.js release.
 
+## Astro skill documentation
+
+`skills/astro/` derives from the `astro` skill in astrolicious/agent-skills at
+`cb4839f3794189ebf35c55d3ba5d3876dff7acf0`:
+https://github.com/astrolicious/agent-skills/blob/cb4839f3794189ebf35c55d3ba5d3876dff7acf0/skills/astro/SKILL.md
+
+Its frontmatter states `license: MIT` with `authors: "Astro Team"`. The
+revision contains no standalone license file or copyright notice. Permission is
+grounded in that express statement, as with the Three.js import; preserve the
+source and statement here and in `north:agent-machinery/NOTICE`.
+
+Tom supplied the upstream text on 2026-10-19 and asked for it to be updated to
+current conventions. The import keeps its scope (CLI, project structure,
+configuration, pages, components, adapters) and rewrites it against Astro 7:
+Bun scripts, `src/content.config.ts` loaders, `astro/zod`, the Rust compiler,
+the Fonts API and the v6 and v7 removals, taken from the official upgrade
+guides.
+
 ## Excluded no-license source material
 
 Lines 47-64 of `north:THIRD_PARTY_NOTICES.md` record that `planning`,
