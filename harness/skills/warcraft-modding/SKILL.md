@@ -63,7 +63,7 @@ metadata:
 ## Play and recovery
 
 - Build current main for Tom with `wisp play`, and route experiments through fresh, captures or accept. Confirm the roster, stage thumbnails and gameplay before calling a build ready.
-- Put a landed fix Tom can judge by eye in his hands at once: check his `Maps/00-Smashcraft` for the auto-installed build after each landing and tell him its file name, and run agent native checks alongside his play, never as a gate before it, because on 19 Oct a build with five of his fixes sat installed for an hour while agents chased video proof he could give in 30 seconds.
+- Verify a visual fix yourself with the cheapest evidence that settles it: look at a few native captures or frames with your own vision, not a purpose-built detector, and tell Tom the auto-installed build's file name once it reaches his `Maps/00-Smashcraft`, because Tom supervises five projects and is not the visual tester.
 - Build through `bun wisp map build` with hashed private inputs in smashcraft:build-inputs.json. Add art with `bun wisp inputs add FAMILY DIR` and commit the result; never edit stored inputs in place.
 - Recover clients with `wisp client doctor`, not by hand-driving known failure states. Check `client watch --once` or `client wait CLIENT STATE` before clicking, reading or waiting on a client. Set up through in-map commands, and observe through menu sockets, status files and War3Log, not pointer clicks.
 - Host through the menu socket after the post-login ladder-map scan, so that `-loadfile` keeps imported assets.
