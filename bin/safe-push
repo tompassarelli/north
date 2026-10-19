@@ -93,9 +93,9 @@ durable_harness_paths() {
     north) printf '%s\n' harness/ agent-machinery/ bin/ lib/ ;;
     south) printf '%s\n' agents/ ;;
     firn|nixos-config)
-      printf 'modules/%s/\n' agent-runtime-update agent-slice capacity-watchdog \
-        claude codex codex-runtime job-run job-watch lane-gc model-watch \
-        north-profile plato skill-review-queue socrates-chat worker-ledger
+      printf 'modules/%s/\n' agent-runtime-update agent-slice agents-flow-stall \
+        capacity-watchdog claude codex codex-runtime job-run job-watch lane-gc model-watch \
+        north-profile plato skill-review-queue worker-ledger
       ;;
   esac
 }

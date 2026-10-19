@@ -49,19 +49,15 @@ last_title() { tail -1 "$scratch/published.jsonl" | jq -r .title; }
 state() { laptop status --json | jq -r .state; }
 by() { laptop status --json | jq -r .by; }
 press() { curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer ${2-fixture-action}" "http://127.0.0.1:$serve_port/laptop/$1"; }
-wait_sent() { for _ in $(seq 50); do [[ $(sent) -ge $1 ]] && return 0; sleep 0.1; done; return 1; }
 notify_at() { LAPTOP_NOW=$1 laptop-ntfy notify >/dev/null 2>&1; }
 
 LAPTOP_NOW=2026-10-13T08:00:00Z laptop open >/dev/null
 notify_at 2026-10-13T08:00:30Z
-check "first notify publishes the state once with the publisher token" '[[ $(sent) == 1 ]] && jq -e ".auth and .topic==\"socrates-laptop\" and .title==\"Laptop: available\"" "$scratch/published.jsonl" >/dev/null'
-check "the notification carries Open and Close http buttons to the endpoint with the action token" 'jq -e "(.actions|map(.label)==[\"Open\",\"Close\"]) and (.actions|map(.url)==[\"http://10.77.0.1:2588/laptop/open\",\"http://10.77.0.1:2588/laptop/close\"]) and (.actions|all(.action==\"http\" and .method==\"POST\" and .headers.Authorization==\"Bearer fixture-action\"))" "$scratch/published.jsonl" >/dev/null'
-notify_at 2026-10-13T08:01:00Z
-check "an unchanged state publishes nothing" '[[ $(sent) == 1 ]]'
+check "a state change publishes nothing" '[[ $(sent) == 0 ]]'
 
 out=$(press close)
 check "Close button flips the state to draining attributed to ntfy" '[[ $out == 200 && $(state) == draining && $(by) == ntfy ]]'
-check "a button press publishes the new state with buttons" 'wait_sent 2 && [[ $(last_title) == "Laptop: draining" ]]'
+check "a button press publishes nothing" 'sleep 0.3; [[ $(sent) == 0 ]]'
 out=$(press open)
 check "Open button flips the state back to available" '[[ $out == 200 && $(state) == available && $(by) == ntfy ]]'
 check "bad token is refused and changes nothing" 'before=$(sent); r=$(press close wrong); [[ $r == 401 && $(state) == available && $(sent) == "$before" ]]'
@@ -69,21 +65,15 @@ check "unknown action and GET are refused" '[[ $(press toggle) == 404 && $(curl 
 check "the token never reaches the endpoint log" '! grep -q fixture-action "$scratch/serve.log"'
 
 LAPTOP_NOW=2026-10-13T08:00:00Z laptop close until 10:00 >/dev/null
-notify_at 2026-10-13T08:00:01Z
-before=$(sent)
 notify_at 2026-10-13T14:30:00Z
-check "an unchanged state outside the edge publishes nothing" '[[ $(sent) == "$before" ]]'
+check "outside the window edge nothing is published" '[[ $(sent) == 0 ]]'
 notify_at 2026-10-13T15:05:00Z
-check "the window open edge sends one reminder" '[[ $(sent) == $((before + 1)) && $(last_title) == "Laptop window opens 23:00" ]]'
+check "the window open edge sends one reminder with the publisher token" '[[ $(sent) == 1 && $(last_title) == "Laptop window opens 23:00" ]] && jq -e ".auth and .topic==\"socrates-laptop\"" "$scratch/published.jsonl" >/dev/null'
+check "the reminder carries Open and Close http buttons to the endpoint with the action token" 'jq -e "(.actions|map(.label)==[\"Open\",\"Close\"]) and (.actions|map(.url)==[\"http://10.77.0.1:2588/laptop/open\",\"http://10.77.0.1:2588/laptop/close\"]) and (.actions|all(.action==\"http\" and .method==\"POST\" and .headers.Authorization==\"Bearer fixture-action\"))" "$scratch/published.jsonl" >/dev/null'
 notify_at 2026-10-13T15:20:00Z
-check "the reminder is once a day" '[[ $(sent) == $((before + 1)) ]]'
+check "the reminder is once a day" '[[ $(sent) == 1 ]]'
 notify_at 2026-10-14T15:05:00Z
-check "the next day's edge reminds again" '[[ $(sent) == $((before + 2)) ]]'
-LAPTOP_NOW=2026-10-15T15:05:00Z laptop open >/dev/null
-notify_at 2026-10-15T15:05:30Z
-check "a state change at the edge replaces the reminder" '[[ $(sent) == $((before + 3)) && $(last_title) == "Laptop: available" ]]'
-notify_at 2026-10-15T15:06:00Z
-check "no reminder follows an edge notification" '[[ $(sent) == $((before + 3)) ]]'
+check "the next day's edge reminds again" '[[ $(sent) == 2 ]]'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail == 0 ]]

@@ -11,7 +11,7 @@ since the last success has passed even while the laptop is off; a nexus job when
 is older than its deadline. It alerts once per transition into overdue, again at most every 24 h,
 and sends a recovered note on the next success.
 
-Alerts go through `nexus-alert TOPIC TEXT TITLE`: urgent for overdue, normal for recovered;
+Alerts go through `nexus-alert TOPIC TEXT TITLE` at normal priority for overdue and recovered;
 JOB_WATCH_TOPIC overrides both. JOB_WATCH_HOSTS maps placements to ledger hosts
 (default "laptop=whiterabbit nexus=nexus").
 
@@ -112,7 +112,7 @@ def step(entries, rows, hosts, laptop, state, now):
             reason = overdue(ref, None, e["deadline"], None, now)
         if reason:
             if not prev or now - prev["alerted"] >= REPEAT:
-                alerts.append((e["name"], "urgent", message(e, reason, row, last_ok, laptop, now), f"Nexus: {e['job']} overdue"))
+                alerts.append((e["name"], "normal", message(e, reason, row, last_ok, laptop, now), f"Nexus: {e['job']} overdue"))
                 new[e["name"]] = {"overdue": True, "alerted": now}
             else:
                 new[e["name"]] = prev
@@ -219,12 +219,12 @@ def fixtures():
         return {"peers": {"laptop": {"handshake": now - 60, "online_since": T + 600}}}
 
     return entries, [
-        ("laptop off past a deadline", T, rows(T, T - 7200), off, [("nightly-backup", "urgent")]),
-        ("laptop online, job failing", T + 3600, rows(T + 3600, T - 7200), on(T + 3600), [("sync@laptop", "urgent")]),
+        ("laptop off past a deadline", T, rows(T, T - 7200), off, [("nightly-backup", "normal")]),
+        ("laptop online, job failing", T + 3600, rows(T + 3600, T - 7200), on(T + 3600), [("sync@laptop", "normal")]),
         ("recovered", T + 4500, rows(T + 4500, T + 3900), on(T + 4500), [("nightly-backup", "normal")]),
         ("still overdue next run", T + 5400, rows(T + 5400, T + 3900), on(T + 5400), []),
         ("still overdue a day later", T + 5400 + REPEAT, rows(T + 5400 + REPEAT, T + 3900 + REPEAT), on(T + 5400 + REPEAT),
-         [("sync@laptop", "urgent")]),
+         [("sync@laptop", "normal")]),
     ]
 
 

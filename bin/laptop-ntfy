@@ -2,8 +2,8 @@
 """laptop-ntfy serve|notify|press: phone signals for the laptop availability state.
 
 serve         HTTP endpoint the ntfy Open/Close buttons call: POST /laptop/open or /laptop/close with the action bearer token
-notify        publish the state with Open/Close buttons when it changed, and once a day at the window's open edge
-press VERB    run laptop VERB as the phone would, then notify
+notify        publish the state with Open/Close buttons once a day at the window's open edge
+press VERB    run laptop VERB as the phone would
 
 Environment: LAPTOP_NTFY_URL, LAPTOP_NTFY_TOPIC, LAPTOP_NTFY_TOKEN_FILE (publisher), LAPTOP_NTFY_ACTION_TOKEN_FILE,
 LAPTOP_NTFY_ACTION_URL (what the buttons call), LAPTOP_NTFY_LISTEN (host:port), LAPTOP_NTFY_STATE (directory),
@@ -29,7 +29,6 @@ LISTEN = os.environ.get("LAPTOP_NTFY_LISTEN", "10.77.0.1:2588")
 STATE_DIR = Path(os.environ.get("LAPTOP_NTFY_STATE") or Path.home() / ".local/state/laptop-ntfy")
 WINDOW = Path(os.environ.get("LAPTOP_WINDOW_FILE") or "/etc/placement/laptop-window.json")
 REMINDER_SPAN = timedelta(minutes=30)
-DEDUP_SPAN = timedelta(minutes=10)
 TAGS = {"available": "green_circle", "draining": "orange_circle", "unavailable": "red_circle"}
 
 
@@ -110,32 +109,19 @@ def notify():
     s = json.loads(laptop("status", "--json"))
     tz, opens = window()
     last = load_last()
-    key = f"{s['state']}|{s['since']}"
-    changed = last.get("key") != key
-    if changed:
-        publish(f"Laptop: {s['state']}", describe(s, tz), s["state"])
-        last = {**last, "key": key, "sent": t.isoformat()}
-        print(f"laptop-ntfy: sent {s['state']}")
     if tz and opens:
         h, m = map(int, opens.split(":"))
         edge = t.astimezone(tz).replace(hour=h, minute=m, second=0, microsecond=0)
         today = edge.strftime("%Y-%m-%d")
         if edge <= t < edge + REMINDER_SPAN and last.get("reminded") != today:
-            sent = datetime.fromisoformat(last["sent"]) if last.get("sent") else None
-            if not (sent and t - sent < DEDUP_SPAN):
-                publish(f"Laptop window opens {opens}", f"The laptop is {s['state']} {describe(s, tz)}", s["state"])
-                print("laptop-ntfy: sent window reminder")
+            publish(f"Laptop window opens {opens}", f"The laptop is {s['state']} {describe(s, tz)}", s["state"])
+            print("laptop-ntfy: sent window reminder")
             last["reminded"] = today
     save_last(last)
 
 
 def press(verb):
-    out = laptop(verb, by="ntfy")
-    try:
-        notify()
-    except Exception as e:
-        print(f"laptop-ntfy: notify failed: {e}", file=sys.stderr)
-    return out
+    return laptop(verb, by="ntfy")
 
 
 class Handler(BaseHTTPRequestHandler):
