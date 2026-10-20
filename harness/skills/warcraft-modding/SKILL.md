@@ -81,5 +81,6 @@ metadata:
 - [bot-perception.md](references/bot-perception.md) for CPU observation, history or checksum changes.
 - [effect-in-wisp.md](references/effect-in-wisp.md) for Effect integration.
 - [failure-modes.md](references/failure-modes.md) for unfamiliar build or session symptoms.
+- [hive-workshop.md](references/hive-workshop.md) to publish a map release on Hive Workshop: upload, page text and thread post.
 - [wurst.md](references/wurst.md) for any WurstScript project, compiler, test, object-data or UI work.
 - [lua-performance.md](references/lua-performance.md) for over-ceiling Lua32 tests, a failing `bun wisp perf compare`, per-frame allocation or GC pressure.
