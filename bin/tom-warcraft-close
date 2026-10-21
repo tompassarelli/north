@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Close Tom's Steam launch of Battle.net and Warcraft III completely, so his next Play starts the game.
+set -euo pipefail
+compat=${TOM_WARCRAFT_COMPAT:-$HOME/.local/share/Steam/steamapps/compatdata/3516115571}
+appid=${TOM_WARCRAFT_APPID:-3775098022}
+proc=${TOM_WARCRAFT_PROC:-/proc}
+
+members() {
+  local dir
+  for dir in "$proc"/[0-9]*; do
+    [ -O "$dir" ] || continue
+    if { tr '\0' '\n' <"$dir/environ"; } 2>/dev/null | grep -qxF "STEAM_COMPAT_DATA_PATH=$compat" \
+      || { tr '\0' ' ' <"$dir/cmdline"; } 2>/dev/null | grep -qF "SteamLaunch AppId=$appid "; then
+      echo "${dir##*/}"
+    fi
+  done
+}
+
+signal_all() {
+  local pids
+  pids=$(members)
+  [ -n "$pids" ] || return 1
+  # shellcheck disable=SC2086
+  kill "-$1" $pids 2>/dev/null || true
+}
+
+if [ "${1:-}" = "--list" ]; then members; exit 0; fi
+signal_all TERM || { echo "tom-warcraft-close: nothing running"; exit 0; }
+for _ in $(seq 1 20); do
+  sleep 0.5
+  [ -n "$(members)" ] || break
+done
+signal_all KILL || true
+sleep 1
+left=$(members)
+if [ -n "$left" ]; then
+  echo "tom-warcraft-close: still running: $left" >&2
+  exit 1
+fi
+if command -v playtest >/dev/null; then playtest off >/dev/null 2>&1 || true; fi
+echo "tom-warcraft-close: Battle.net and Warcraft III closed; the next Play starts cleanly"
