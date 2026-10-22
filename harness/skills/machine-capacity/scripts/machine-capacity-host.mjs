@@ -777,11 +777,11 @@ function cpuAccounting(root, leases, now) {
 }
 
 // Held batch wrappers wait in arrival order; a ticket whose wrapper died is dropped.
-function enqueue(root, className, owner, timeoutSeconds) {
+function enqueue(root, className, requestedClass, owner, timeoutSeconds) {
   ensureState(root);
   const name = `${String(Date.now()).padStart(15, '0')}-${crypto.randomUUID()}.json`;
   writeFileSync(join(root, 'queue', name), `${JSON.stringify({
-    ...wrapperIdentity(), class: className, owner, timeoutSeconds,
+    ...wrapperIdentity(), class: className, requestedClass, owner, timeoutSeconds,
   })}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   return name;
 }
@@ -858,9 +858,9 @@ function decision(root, requested, create, ticket = null) {
     const exclusiveWaiting = queue.filter(entry => entry.class === 'exclusive'
       && (requested.name !== 'exclusive' || ticket === null || entry.name < ticket)).length;
     // Gpu tickets wait for render slots in their own line, so they hold no CPU work.
-    const queuedAhead = queue.filter(entry => (ticket === null || entry.name < ticket)
+    const ahead = queue.filter(entry => (ticket === null || entry.name < ticket)
       && (entry.class === 'gpu') === (requested.name === 'gpu') && entry.class !== 'exclusive'
-      && (exclusiveWaiting === 0 || entry.class !== 'heavy' || beforeDrain(entry.timeoutSeconds))).length;
+      && (exclusiveWaiting === 0 || entry.class !== 'heavy' || beforeDrain(entry.timeoutSeconds)));
     const leased = totals(active);
     const accounting = cpuAccounting(root, active, now);
     const { unleased, committedBatchCpus, committedNativeCpus } = accounting;
@@ -869,13 +869,13 @@ function decision(root, requested, create, ticket = null) {
     const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
     const quietOwners = runs.filter(lease => lease.class === 'native' && lease.quiet).map(lease => lease.owner);
     const code = admission({
-      ...signals, ...gpu, profile, class: admittedClass(requested), leasedMemoryMiB: leased.memoryMiB,
+      ...signals, ...gpu, profile, class: admittedClass(requested), gamingClass: requested.name, queuedAheadClasses: ahead.map(entry => entry.requestedClass), leasedMemoryMiB: leased.memoryMiB,
       leasedBatchCpus: round(committedBatchCpus - (unleased?.cores ?? 0)), leasedNativeCpus: committedNativeCpus, unleasedHeavyCores: unleased?.cores ?? 0,
       requestedCpus: granted.cpus, requestedMemoryMiB: granted.memoryMiB,
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
-      queuedAhead, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients ?? Number(requested.name === 'native'), gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
+      queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients ?? Number(requested.name === 'native'), gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
       nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined,
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
@@ -895,7 +895,7 @@ function decision(root, requested, create, ticket = null) {
       ...(requested.sizing ? { sizing: requested.sizing } : {}),
       ...(granted.declared ? { declaredCpus: granted.declared.cpus, declaredMemoryMiB: granted.declared.memoryMiB, evidence: requested.evidence } : {}),
       aggregateCpuLimit: aggregateCpus(profile, signals.cores),
-      queuedAhead,
+      queuedAhead: ahead.length,
       exclusiveWaiting,
       leasedNativeCpus: leased.nativeCpus,
       leasedMemoryMiB: leased.memoryMiB,
@@ -1055,7 +1055,7 @@ function leaseChange(root, milliseconds) {
 async function admit(root, requested, create) {
   if (!batchClass(requested.name)) return decision(root, requested, create);
   const queuedAt = Date.now();
-  const ticket = enqueue(root, admittedClass(requested), create.owner, create.timeoutSeconds);
+  const ticket = enqueue(root, admittedClass(requested), requested.name, create.owner, create.timeoutSeconds);
   const leave = signal => () => {
     dequeue(root, ticket);
     process.exit(128 + ({ SIGHUP: 1, SIGINT: 2, SIGTERM: 15 })[signal]);

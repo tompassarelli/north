@@ -63,6 +63,10 @@ pub(crate) struct Facts {
     pub(crate) beside_native: bool,
     #[serde(default)]
     pub(crate) gaming: bool,
+    #[serde(default)]
+    pub(crate) gaming_class: Option<Class>,
+    #[serde(default)]
+    pub(crate) queued_ahead_classes: Vec<Option<Class>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -92,7 +96,7 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     if invalid(facts) {
         return Reason::Invalid;
     }
-    if facts.gaming && matches!(facts.class, Class::Native | Class::Heavy | Class::Exclusive | Class::Gpu) {
+    if facts.gaming && gaming_deferred(facts.gaming_class.unwrap_or(facts.class)) {
         return Reason::DeferGaming;
     }
     if let Some(reason) = memory(facts) {
@@ -103,6 +107,18 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
         Class::Native => native(facts),
         _ => batch(facts),
     }
+}
+
+fn gaming_deferred(class: Class) -> bool {
+    matches!(class, Class::Native | Class::Heavy | Class::Exclusive | Class::Gpu)
+}
+
+fn queued_ahead(facts: &Facts) -> u32 {
+    if !facts.gaming || gaming_deferred(facts.gaming_class.unwrap_or(facts.class)) {
+        return facts.queued_ahead;
+    }
+    let held = facts.queued_ahead_classes.iter().flatten().filter(|class| gaming_deferred(**class)).count();
+    facts.queued_ahead.saturating_sub(u32::try_from(held).unwrap_or(u32::MAX))
 }
 
 fn invalid(facts: &Facts) -> bool {
@@ -196,7 +212,7 @@ fn shared(facts: &Facts) -> Reason {
     if interactive_pressure(facts) {
         return Reason::DeferInteractivePressure;
     }
-    if facts.queued_ahead > 0 {
+    if queued_ahead(facts) > 0 {
         return Reason::DeferQueued;
     }
     if facts.leased_batch_cpus + facts.unleased_heavy_cores + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {

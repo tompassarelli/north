@@ -29,6 +29,8 @@ fn facts(class: Class) -> Facts {
         quiet_native_runs: 0,
         beside_native: false,
         gaming: false,
+        gaming_class: None,
+        queued_ahead_classes: Vec::new(),
     }
 }
 
@@ -90,4 +92,20 @@ fn gaming_holds_native_and_heavy_admissions_and_lets_light_work_run() {
     for class in [Class::Agent, Class::Moderate, Class::Critical, Class::Tom] {
         assert_eq!(decide(&Facts { gaming: true, ..facts(class) }), Reason::Run, "{class:?}");
     }
+}
+
+#[test]
+fn gaming_holds_a_landing_check_by_the_class_it_asked_for() {
+    let landing = Facts { gaming: true, gaming_class: Some(Class::Heavy), ..facts(Class::Critical) };
+    assert_eq!(decide(&landing), Reason::DeferGaming);
+    assert_eq!(decide(&Facts { gaming: false, ..landing }), Reason::Run);
+}
+
+#[test]
+fn gaming_deferred_tickets_ahead_do_not_queue_light_work_behind_them() {
+    let ahead = |gaming, classes: &[Class]| Facts { gaming, queued_ahead: 2, queued_ahead_classes: classes.iter().copied().map(Some).collect(), ..facts(Class::Moderate) };
+    assert_eq!(decide(&ahead(true, &[Class::Heavy, Class::Gpu])), Reason::Run);
+    assert_eq!(decide(&ahead(true, &[Class::Heavy, Class::Moderate])), Reason::DeferQueued);
+    assert_eq!(decide(&ahead(false, &[Class::Heavy, Class::Gpu])), Reason::DeferQueued);
+    assert_eq!(decide(&ahead(true, &[Class::Critical, Class::Tom])), Reason::DeferQueued);
 }
