@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use rustix::process::{Pid, Signal, kill_process_group, test_kill_process};
 
 use crate::error::{NorthError, NorthResult};
+use crate::platform::session_scope;
 
 use super::model::ProviderName;
 use super::runtime::{HostSpec, binary, new_uuid};
@@ -63,6 +64,9 @@ impl Host {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if let Some(path) = session_scope::login_path(&binary("systemctl")) {
+            command.env("PATH", path);
+        }
         for (key, value) in &spec.env {
             command.env(key, value);
         }
