@@ -1093,7 +1093,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
   const parent = batchClass(requested.name) ? nestedParent(root) : null;
   if (parent !== null) {
     print({ decision: 'NESTED', parent, class: requested.name, owner }, 2);
-    return Bun.spawn(['timeout', '--kill-after=5s', `${timeoutSeconds}s`, ...command], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }).exited;
+    return Bun.spawn([northCommand, 'capacity', 'deadline', exactLease(root, parent), `${timeoutSeconds}`, '--', ...command], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }).exited;
   }
   // The parent limit and weights must exist before any admitted command executes.
   if (!applyProfile(activeProfile(root).profile, readSignals().cores)) {

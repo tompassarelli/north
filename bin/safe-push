@@ -951,7 +951,7 @@ run_land_checks() {
     exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
     stderr_pid=$!
     status=0
-    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" timeout --kill-after=10 "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" bash -euo pipefail -c "$command") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
+    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- bash -euo pipefail -c "$command") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
     safe_push_child=$!
     wait "$safe_push_child" || status=$?
     safe_push_child=""

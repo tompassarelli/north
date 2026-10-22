@@ -57,7 +57,7 @@ shim_main() {
       if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE:-0}" = 1 ]; then rm -f -- "$0"; fi
       return "$status"
       ;;
-    north:autoland-status|north:autoland-wait|north:safe-push-result) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -1817,6 +1817,33 @@ grep -q 'exited 124' "$landing_root/a.out" || fail "missing land check timeout: 
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 flock -n "${landing_state:-$xdg_state}/safe-push/$lock_key.lock" true || fail 'a timed out land check left the landing lock held'
 printf 'PASS: recorded hung land check times out, fails the push and frees the lock\n'
+
+new_landing_origin frozen-check-timeout
+make_landing_clone "$landing_root/a" a.txt
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: touch $landing_root/started; sleep 40"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'check is frozen past its timeout'
+lease_runtime="$landing_root/runtime"
+mkdir -p "$lease_runtime/agent-capacity-v1/leases"
+printf '{"expiresAt":1000,"frozenAt":1000}\n' >"$lease_runtime/agent-capacity-v1/leases/frozen.json"
+XDG_RUNTIME_DIR="$lease_runtime" AGENT_CAPACITY_LEASE=frozen SAFE_PUSH_LAND_CHECK_TIMEOUT=2 run_landing "$landing_root/a" & pid_a=$!
+for i in $(seq 200); do [ -e "$landing_root/started" ] && break; sleep 0.05; done
+[ -e "$landing_root/started" ] || { kill "$pid_a" 2>/dev/null || true; fail 'the frozen land check never started'; }
+sleep 4
+kill -0 "$pid_a" 2>/dev/null || fail "a frozen land check was ended by its wall-clock timeout: $(cat "$landing_root/a.out")"
+printf '{"expiresAt":5000}\n' >"$lease_runtime/agent-capacity-v1/leases/frozen.json"
+sleep 1.6
+kill -0 "$pid_a" 2>/dev/null || fail "a frozen land check ended before its timeout plus the time it was frozen: $(cat "$landing_root/a.out")"
+finished=''
+for i in $(seq 30); do
+  if ! kill -0 "$pid_a" 2>/dev/null; then finished="$i"; break; fi
+  sleep 0.1
+done
+[ -n "$finished" ] || { kill "$pid_a" 2>/dev/null || true; fail 'a thawed land check outlived its timeout plus the time it was frozen'; }
+status_a=0; wait "$pid_a" || status_a=$?
+[ "$status_a" -ne 0 ] || fail 'a timed out frozen land check let the push succeed'
+grep -q 'exited 124' "$landing_root/a.out" || fail "missing frozen land check timeout: $(cat "$landing_root/a.out")"
+printf 'PASS: recorded frozen land check times out only after its timeout plus the time it was frozen\n'
 
 new_landing_origin push-without-movement
 make_landing_clone "$landing_root/a" a.txt

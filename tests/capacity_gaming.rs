@@ -142,6 +142,43 @@ fn at(milliseconds: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_millis(milliseconds)
 }
 
+fn freeze_past_its_timeout(host: &Host, lease: &Value, wrapper: &mut Wrapper) -> u64 {
+    let unit = format!("agent-capacity-{}.scope", lease["id"].as_str().unwrap().replace('-', ""));
+    host.until("the lease scope", |host| host.path(&format!("state/scopes/{unit}")).exists());
+    fs::create_dir_all(host.path(&format!("user-cgroup/agent.slice/agent-capacity.slice/{unit}"))).unwrap();
+    fs::create_dir_all(host.path("proc")).unwrap();
+    fs::write(host.path("proc/stat"), "btime 1\n").unwrap();
+    let pid = lease["wrapperPid"].as_u64().unwrap();
+    std::os::unix::fs::symlink(format!("/proc/{pid}"), host.path(&format!("proc/{pid}"))).unwrap();
+
+    let froze = laptop_auto(host, true);
+    assert!(froze.contains(&format!("froze {{\"{unit}\"}}")), "{froze}");
+    std::thread::sleep(FROZEN);
+    assert!(wrapper.exited().is_none(), "the frozen run was killed by its wall-clock timeout");
+    let thawed = laptop_auto(host, false);
+    assert!(thawed.contains(&format!("thawed {{\"{unit}\"}}")), "{thawed}");
+
+    let paused = only_lease(host)["expiresAt"].as_u64().unwrap() - lease["expiresAt"].as_u64().unwrap();
+    let frozen_for = FROZEN.as_millis() as u64;
+    assert!((frozen_for..frozen_for + 1000).contains(&paused), "paused {paused} ms for a {frozen_for} ms freeze");
+    paused
+}
+
+fn ended_after_its_timeout_plus_the_pause(host: &Host, wrapper: &mut Wrapper, started: u64, paused: u64) -> std::process::ExitStatus {
+    let original_plus_frozen = at(started + WALL_CLOCK_TIMEOUT * 1000 + FROZEN.as_millis() as u64 - 100);
+    std::thread::sleep(original_plus_frozen.duration_since(SystemTime::now()).unwrap_or_default());
+    assert!(wrapper.exited().is_none(), "the run died before its original timeout plus the time it was frozen");
+    let deadline = at(started + WALL_CLOCK_TIMEOUT * 1000 + paused);
+    let mut status = None;
+    host.until("the deadline kill", |_| {
+        status = wrapper.exited();
+        status.is_some()
+    });
+    let late = SystemTime::now().duration_since(deadline).unwrap_or_default();
+    assert!(late < Duration::from_millis(1500), "killed {late:?} after the paused deadline");
+    status.unwrap()
+}
+
 #[test]
 fn a_lease_frozen_while_gaming_outlives_its_timeout_by_the_time_it_spent_frozen() {
     let host = Host::new("capacity-frozen-", &[("systemd-run", &wall_clock_systemd_run()), ("systemctl", SCOPE_SYSTEMCTL)]);
@@ -150,36 +187,28 @@ fn a_lease_frozen_while_gaming_outlives_its_timeout_by_the_time_it_spent_frozen(
     let mut frozen = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
     host.until("the heavy lease", |host| host.leases("heavy") == 1);
     let lease = only_lease(&host);
-    let unit = format!("agent-capacity-{}.scope", lease["id"].as_str().unwrap().replace('-', ""));
-    host.until("the lease scope", |host| host.path(&format!("state/scopes/{unit}")).exists());
-    fs::create_dir_all(host.path(&format!("user-cgroup/agent.slice/agent-capacity.slice/{unit}"))).unwrap();
-    fs::create_dir_all(host.path("proc")).unwrap();
-    fs::write(host.path("proc/stat"), "btime 1\n").unwrap();
-    let wrapper = lease["wrapperPid"].as_u64().unwrap();
-    std::os::unix::fs::symlink(format!("/proc/{wrapper}"), host.path(&format!("proc/{wrapper}"))).unwrap();
-
-    let froze = laptop_auto(&host, true);
-    assert!(froze.contains(&format!("froze {{\"{unit}\"}}")), "{froze}");
-    std::thread::sleep(FROZEN);
-    assert!(frozen.exited().is_none(), "the frozen lease was killed by its wall-clock timeout");
-    let thawed = laptop_auto(&host, false);
-    assert!(thawed.contains(&format!("thawed {{\"{unit}\"}}")), "{thawed}");
-
-    let paused = only_lease(&host)["expiresAt"].as_u64().unwrap() - lease["expiresAt"].as_u64().unwrap();
-    let frozen_for = FROZEN.as_millis() as u64;
-    assert!((frozen_for..frozen_for + 1000).contains(&paused), "paused {paused} ms for a {frozen_for} ms freeze");
-    let created = lease["createdAt"].as_u64().unwrap();
-    let original_plus_frozen = at(created + WALL_CLOCK_TIMEOUT * 1000 + frozen_for - 100);
-    std::thread::sleep(original_plus_frozen.duration_since(SystemTime::now()).unwrap_or_default());
-    assert!(frozen.exited().is_none(), "the lease died before its original timeout plus the time it was frozen");
-    let deadline = at(created + WALL_CLOCK_TIMEOUT * 1000 + paused);
-    let mut status = None;
-    host.until("the deadline kill", |_| {
-        status = frozen.exited();
-        status.is_some()
-    });
-    let late = SystemTime::now().duration_since(deadline).unwrap_or_default();
-    assert!(late < Duration::from_millis(1500), "killed {late:?} after the paused deadline");
-    assert!(!status.unwrap().success());
+    let paused = freeze_past_its_timeout(&host, &lease, &mut frozen);
+    let status = ended_after_its_timeout_plus_the_pause(&host, &mut frozen, lease["createdAt"].as_u64().unwrap(), paused);
+    assert!(!status.success());
     assert_eq!(host.leases("heavy"), 0);
+}
+
+#[test]
+fn a_nested_run_frozen_with_its_parent_outlives_its_timeout_by_the_time_it_spent_frozen() {
+    let host = Host::new("capacity-nested-frozen-", &[("systemd-run", &wall_clock_systemd_run()), ("systemctl", SCOPE_SYSTEMCTL)]);
+    let started = host.path("started");
+    let nested = format!(
+        "exec bun {bundle} run --class heavy --owner fixture:/nested --timeout-seconds {WALL_CLOCK_TIMEOUT} -- sh -c 'touch {started}; exec sleep 60'",
+        bundle = Host::bundle().display(),
+        started = started.display(),
+    );
+    let arguments = ["run", "--class", "heavy", "--owner", "fixture:/parent", "--timeout-seconds", "60", "--", "sh", "-c", &nested];
+    let mut parent = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+    host.until("the nested run", |_| started.exists());
+    let began = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+    assert_eq!(host.leases("heavy"), 1, "the nested run took a lease of its own");
+    let lease = only_lease(&host);
+    let paused = freeze_past_its_timeout(&host, &lease, &mut parent);
+    let status = ended_after_its_timeout_plus_the_pause(&host, &mut parent, began, paused);
+    assert_eq!(status.code(), Some(124), "the nested run did not end at its deadline");
 }
