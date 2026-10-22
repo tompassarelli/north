@@ -14,6 +14,16 @@ fn sleeper() -> Child {
     Command::new("sleep").arg("300").spawn().unwrap()
 }
 
+fn host_pid(child: &Child) -> u32 {
+    let local = child.id().to_string();
+    let children = fs::read_to_string("/proc/thread-self/children").unwrap_or_default();
+    let namespaced = |pid: &u32| {
+        let status = fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
+        status.lines().find_map(|line| line.strip_prefix("NSpid:")).is_some_and(|ids| ids.split_whitespace().last() == Some(local.as_str()))
+    };
+    children.split_whitespace().filter_map(|pid| pid.parse::<u32>().ok()).find(namespaced).unwrap_or(child.id())
+}
+
 fn exited(child: &mut Child) -> bool {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
@@ -122,9 +132,11 @@ fn a_runner_that_dies_leaves_no_client_running() {
     let host = host(root.path(), Path::new("/proc"));
     let (mut runner, mut live_runner) = (sleeper(), sleeper());
     let (mut orphan_client, mut kept_client) = (sleeper(), sleeper());
+    let runner_host = host_pid(&runner);
+    let live_runner_host = host_pid(&live_runner);
     let start = |pid: u32| process_start(&host, pid as i32).unwrap();
-    lease(&host, NATIVE, "native", "native.slice", Some((runner.id(), start(runner.id()))), &[orphan_client.id()]);
-    lease(&host, HEAVY, "heavy", "agent-capacity.slice", Some((live_runner.id(), start(live_runner.id()))), &[kept_client.id()]);
+    lease(&host, NATIVE, "native", "native.slice", Some((runner_host, start(runner_host))), &[orphan_client.id()]);
+    lease(&host, HEAVY, "heavy", "agent-capacity.slice", Some((live_runner_host, start(live_runner_host))), &[kept_client.id()]);
     runner.kill().unwrap();
     runner.wait().unwrap();
 

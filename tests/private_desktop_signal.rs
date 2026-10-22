@@ -36,7 +36,7 @@ fn sigterm_to_private_desktop_start_stops_its_desktop_and_releases_its_lease() {
         .unwrap();
     let caller = lease["owner"].as_str().unwrap().strip_prefix("private-desktop:").unwrap().to_owned();
     let scope = fs::read_dir(host.path("state/scopes")).unwrap().flatten().next().unwrap().path();
-    let desktop = fs::read_to_string(scope).unwrap().trim().to_owned();
+    let desktop = fs::read_to_string(scope).unwrap().split_whitespace().last().unwrap().to_owned();
 
     assert!(Command::new("kill").args(["-TERM", &caller]).status().unwrap().success());
     host.until("the wrapper to exit", |_| wrapper.exited().is_some());

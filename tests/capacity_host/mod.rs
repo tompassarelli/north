@@ -12,13 +12,13 @@ const SCOPE_SYSTEMD_RUN: &str = "#!/bin/sh
 for argument; do case $argument in --unit=*) unit=${argument#--unit=} ;; esac; done
 while [ \"$1\" != -- ]; do shift; done
 shift
-echo $$ >\"$XDG_STATE_HOME/scopes/$unit\"
+read host _ </proc/self/stat; echo \"$$ $host\" >\"$XDG_STATE_HOME/scopes/$unit\"
 ";
 
 pub const SCOPE_SYSTEMCTL: &str = "#!/bin/sh
 case $2 in show) unit=$3 ;; *) eval \"unit=\\${$#}\" ;; esac
-pid=$(cat \"$XDG_STATE_HOME/scopes/$unit\" 2>/dev/null)
-state=$(sed 's/.*) //' \"/proc/$pid/stat\" 2>/dev/null | cut -c1)
+{ read pid host <\"$XDG_STATE_HOME/scopes/$unit\"; } 2>/dev/null
+state=$(sed 's/.*) //' \"/proc/$host/stat\" 2>/dev/null | cut -c1)
 live() { [ -n \"$pid\" ] && [ -n \"$state\" ] && [ \"$state\" != Z ]; }
 case $2 in
 show) if live; then echo active; else echo inactive; fi ;;

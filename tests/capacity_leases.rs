@@ -56,7 +56,7 @@ fn child_lease_of_a_held_lease_runs_nested_while_an_exclusive_waits() {
 fn lease_past_its_timeout_has_its_scope_killed_and_is_released() {
     let host = host();
     let pid = host.path("pid");
-    let script = format!("echo $$ >{}; exec sleep 60", pid.display());
+    let script = format!("read host _ </proc/self/stat; echo $host >{}; exec sleep 60", pid.display());
     let mut overdue = run(&host, "moderate", "fixture:/overdue", "1", &["sh", "-c", &script]);
     host.until("the overdue lease", |host| host.leases("moderate") == 1 && pid.exists());
     let sleeper = fs::read_to_string(&pid).unwrap().trim().to_owned();
@@ -118,6 +118,7 @@ fn lease_whose_wrapper_pid_the_host_cannot_resolve_is_reclaimed_once_its_scope_i
 fn gpu_lease_commits_at_most_its_scope_quota() {
     let host = host();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let wrapper_pid: u32 = fs::canonicalize("/proc/self").unwrap().file_name().unwrap().to_str().unwrap().parse().unwrap();
     let stat = fs::read_to_string("/proc/self/stat").unwrap();
     let start = stat.rsplit_once(") ").unwrap().1.split(' ').nth(19).unwrap().to_owned();
     fs::create_dir_all(host.path("agent-capacity-v1/leases")).unwrap();
@@ -126,7 +127,7 @@ fn gpu_lease_commits_at_most_its_scope_quota() {
             "schema": "agent-capacity-lease/v1", "id": id, "kind": "run", "class": "gpu", "aggregateSlice": "agent-capacity.slice",
             "owner": "wisp-verdicts-35", "cpus": 1, "memoryMiB": 2048, "declared": { "cpus": 1, "memoryMiB": 2048 },
             "estimate": { "cores": { "p50": 6, "p90": 6 } }, "createdAt": now - 60_000, "expiresAt": now + 3_000_000,
-            "wrapperPid": std::process::id(), "wrapperStart": start,
+            "wrapperPid": wrapper_pid, "wrapperStart": start,
         });
         fs::write(host.path(&format!("agent-capacity-v1/leases/{id}.json")), format!("{lease}\n")).unwrap();
         fs::write(host.path(&format!("agent-capacity-v1/leases/{id}.usage")), json!({ "at": now, "liveCores": cores }).to_string()).unwrap();
