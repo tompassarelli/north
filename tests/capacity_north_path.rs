@@ -1,0 +1,37 @@
+mod capacity_host;
+
+use capacity_host::{Host, SCOPE_SYSTEMCTL, scope_systemd_run};
+use std::fs;
+use std::os::unix::fs::symlink;
+use std::path::PathBuf;
+use std::process::Stdio;
+
+fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file())
+}
+
+#[test]
+fn admission_spawns_the_promoted_north_when_path_has_no_north() {
+    let host = Host::new("capacity-north-path-", &[("systemd-run", &scope_systemd_run("\"$@\"")), ("systemctl", SCOPE_SYSTEMCTL)]);
+    for tool in ["bun", "timeout", "env", "sh", "true", "cut", "sed", "cat", "kill", "sleep", "mkdir", "rm", "dirname", "basename"] {
+        if let Some(found) = on_path(tool) {
+            symlink(found, host.path("bin").join(tool)).unwrap();
+        }
+    }
+    let promoted = host.path("home/.local/state/north/current");
+    fs::create_dir_all(&promoted).unwrap();
+    symlink(env!("CARGO_BIN_EXE_north"), promoted.join("north")).unwrap();
+    let mut command = host.command("bun");
+    command
+        .arg(Host::bundle())
+        .args(["run", "--class", "moderate", "--owner", "north-path", "--timeout-seconds", "30", "--", "true"])
+        .env("PATH", host.path("bin"))
+        .env("HOME", host.path("home"))
+        .env_remove("AGENT_CAPACITY_NORTH")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let output = command.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("ENOENT"), "{stderr}");
+}

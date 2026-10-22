@@ -61,7 +61,7 @@ const lockStaleMilliseconds = 2000;
 const runLeaseGraceMilliseconds = 5000;
 const queuePollMilliseconds = 1000;
 const terminationSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-const northCommand = process.env.AGENT_CAPACITY_NORTH ?? 'north';
+const northCommand = process.env.AGENT_CAPACITY_NORTH ?? join(process.env.HOME ?? '', '.local/state/north/current/north');
 
 function fail(message, status = 2) {
   writeFileSync(2, `machine-capacity: ${message}\n`);
