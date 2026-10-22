@@ -5,6 +5,7 @@ use serde_json::json;
 mod admission;
 pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
+mod lease_deadline;
 #[cfg(test)]
 mod agent_load_tests;
 #[cfg(test)]
@@ -16,8 +17,9 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => {}
         Some("laptop-auto") => return laptop_auto::run(&arguments[1..]),
+        Some("deadline") => return lease_deadline::run(&arguments[1..]),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | deadline LEASE_FILE SECONDS -- COMMAND...");
             return 2;
         }
     }

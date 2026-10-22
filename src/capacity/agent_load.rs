@@ -9,6 +9,8 @@ use rustix::process::{Pid, Signal, kill_process};
 use serde::Deserialize;
 use serde_json::json;
 
+use super::lease_deadline;
+
 const WISP_DATA: &str = "/.local/share/wisp/";
 const STEAM_PREFIXES: &str = "/steamapps/compatdata/";
 const MARKER_FRESH_SECONDS: u64 = 120;
@@ -257,11 +259,18 @@ pub(crate) fn enforce(host: &Host, gaming: bool, processes: &[Process]) -> Plan 
     let _ = fs::create_dir_all(&host.capacity);
     let marker = json!({ "gaming": gaming, "at": now_seconds() });
     let _ = write_atomic(&host.capacity.join("gaming.json"), &marker.to_string());
+    let mut paused = BTreeSet::new();
     for (verb, units) in [("stop", &plan.stop), ("freeze", &plan.freeze), ("thaw", &plan.thaw)] {
         for unit in units {
-            let _ = Command::new(&host.systemctl).args(["--user", verb, unit]).status();
+            let done = Command::new(&host.systemctl).args(["--user", verb, unit]).status().is_ok_and(|status| status.success());
+            if done && verb == "freeze" {
+                paused.insert(unit.clone());
+            }
         }
     }
+    let ids = |units: &BTreeSet<String>| leases.iter().filter(|lease| units.contains(&lease.unit())).map(|lease| lease.id.clone()).collect::<BTreeSet<_>>();
+    lease_deadline::pause(&host.capacity, &ids(&paused));
+    lease_deadline::resume(&host.capacity, &ids(&plan.thaw));
     signal_all(&plan.kill);
     let live = leases.iter().map(Lease::unit).collect::<BTreeSet<_>>();
     let still: BTreeSet<String> = if gaming { frozen.union(&plan.freeze).filter(|unit| live.contains(*unit)).cloned().collect() } else { BTreeSet::new() };
