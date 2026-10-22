@@ -4,7 +4,7 @@ use capacity_host::{Host, SCOPE_SYSTEMCTL, Wrapper, scope_systemd_run};
 use serde_json::{Value, json};
 use std::fs;
 use std::process::Stdio;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const ONE_HEAVY_AND_ONE_MODERATE_CORES: &str = "11";
 
@@ -106,4 +106,80 @@ fn only_a_fresh_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket() {
     mark_gaming(&host, true);
     let fresh = probe(&host, "moderate");
     assert_eq!(fresh["reason"], "RUN", "{fresh}");
+}
+
+const WALL_CLOCK_TIMEOUT: u64 = 2;
+const FROZEN: Duration = Duration::from_secs(4);
+
+fn wall_clock_systemd_run() -> String {
+    let runtime_max = "for argument; do case $argument in --property=RuntimeMaxSec=*s) limit=${argument#--property=RuntimeMaxSec=}; (sleep \"${limit%s}\"; kill -KILL $$) >/dev/null 2>&1 & ;; esac; done\n";
+    scope_systemd_run("\"$@\"").replacen("#!/bin/sh\n", &format!("#!/bin/sh\n{runtime_max}"), 1)
+}
+
+fn laptop_auto(host: &Host, gaming: bool) -> String {
+    let since = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    fs::write(host.path("playtest.json"), json!({ "on": gaming, "since": since }).to_string()).unwrap();
+    let output = host
+        .command(env!("CARGO_BIN_EXE_north"))
+        .args(["capacity", "laptop-auto"])
+        .env("AGENT_LOAD_PROC", host.path("proc"))
+        .env("AGENT_LOAD_CGROUP", host.path("user-cgroup"))
+        .env("AGENT_LOAD_DRM", host.path("no-drm"))
+        .env("PLAYTEST_STATE", host.path("playtest.json"))
+        .env("LAPTOP_AUTO_LAPTOP", "true")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn only_lease(host: &Host) -> Value {
+    let entry = fs::read_dir(host.path("agent-capacity-v1/leases")).unwrap().flatten().find(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).unwrap();
+    serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap()
+}
+
+fn at(milliseconds: u64) -> SystemTime {
+    UNIX_EPOCH + Duration::from_millis(milliseconds)
+}
+
+#[test]
+fn a_lease_frozen_while_gaming_outlives_its_timeout_by_the_time_it_spent_frozen() {
+    let host = Host::new("capacity-frozen-", &[("systemd-run", &wall_clock_systemd_run()), ("systemctl", SCOPE_SYSTEMCTL)]);
+    let timeout = WALL_CLOCK_TIMEOUT.to_string();
+    let arguments = ["run", "--class", "heavy", "--owner", "fixture:/frozen", "--timeout-seconds", &timeout, "--", "sleep", "60"];
+    let mut frozen = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+    host.until("the heavy lease", |host| host.leases("heavy") == 1);
+    let lease = only_lease(&host);
+    let unit = format!("agent-capacity-{}.scope", lease["id"].as_str().unwrap().replace('-', ""));
+    host.until("the lease scope", |host| host.path(&format!("state/scopes/{unit}")).exists());
+    fs::create_dir_all(host.path(&format!("user-cgroup/agent.slice/agent-capacity.slice/{unit}"))).unwrap();
+    fs::create_dir_all(host.path("proc")).unwrap();
+    fs::write(host.path("proc/stat"), "btime 1\n").unwrap();
+    let wrapper = lease["wrapperPid"].as_u64().unwrap();
+    std::os::unix::fs::symlink(format!("/proc/{wrapper}"), host.path(&format!("proc/{wrapper}"))).unwrap();
+
+    let froze = laptop_auto(&host, true);
+    assert!(froze.contains(&format!("froze {{\"{unit}\"}}")), "{froze}");
+    std::thread::sleep(FROZEN);
+    assert!(frozen.exited().is_none(), "the frozen lease was killed by its wall-clock timeout");
+    let thawed = laptop_auto(&host, false);
+    assert!(thawed.contains(&format!("thawed {{\"{unit}\"}}")), "{thawed}");
+
+    let paused = only_lease(&host)["expiresAt"].as_u64().unwrap() - lease["expiresAt"].as_u64().unwrap();
+    let frozen_for = FROZEN.as_millis() as u64;
+    assert!((frozen_for..frozen_for + 1000).contains(&paused), "paused {paused} ms for a {frozen_for} ms freeze");
+    let created = lease["createdAt"].as_u64().unwrap();
+    let original_plus_frozen = at(created + WALL_CLOCK_TIMEOUT * 1000 + frozen_for - 100);
+    std::thread::sleep(original_plus_frozen.duration_since(SystemTime::now()).unwrap_or_default());
+    assert!(frozen.exited().is_none(), "the lease died before its original timeout plus the time it was frozen");
+    let deadline = at(created + WALL_CLOCK_TIMEOUT * 1000 + paused);
+    let mut status = None;
+    host.until("the deadline kill", |_| {
+        status = frozen.exited();
+        status.is_some()
+    });
+    let late = SystemTime::now().duration_since(deadline).unwrap_or_default();
+    assert!(late < Duration::from_millis(1500), "killed {late:?} after the paused deadline");
+    assert!(!status.unwrap().success());
+    assert_eq!(host.leases("heavy"), 0);
 }

@@ -55,6 +55,7 @@ const nativeCpuWeight = 200;
 const gpuSampleMilliseconds = 500;
 const nativeGpuSamples = 10;
 const classNames = new Set(['agent', 'native', 'moderate', 'heavy', 'exclusive', 'gpu', 'critical', 'tom']);
+const frozenClasses = new Set(['heavy', 'exclusive', 'gpu']);
 const nativeWaitingMilliseconds = 60000;
 const modes = new Map([['present', 'attended'], ['away', 'unattended'], ['auto', null]]);
 const lockStaleMilliseconds = 2000;
@@ -732,7 +733,7 @@ function readLeases(root, now) {
     } catch {
       fail(`malformed helper-owned lease: ${path}`);
     }
-    const overdue = Number.isSafeInteger(lease.expiresAt) ? lease.expiresAt <= now : lease.kind !== 'run';
+    const overdue = Number.isSafeInteger(lease.expiresAt) ? lease.expiresAt <= now && lease.frozenAt == null : lease.kind !== 'run';
     const wrapperGone = () => lease.wrapperStart == null
       ? now - lease.createdAt > runLeaseGraceMilliseconds : processStart(lease.wrapperPid) !== lease.wrapperStart;
     const expired = lease.kind !== 'run' ? overdue
@@ -1114,9 +1115,8 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
       // A quota-throttled game client stalls for the rest of each period.
       ...(native ? [] : [`--property=CPUQuota=${limits.cpus * 100}%`]),
       `--property=MemoryHigh=${limits.memoryMiB}M`,
-      `--property=RuntimeMaxSec=${timeoutSeconds === null ? 'infinity' : `${timeoutSeconds}s`}`,
       '--property=KillMode=control-group',
-      '--', ...command,
+      ...(frozenClasses.has(requested.name) ? ['--', northCommand, 'capacity', 'deadline', exactLease(root, admitted.lease), `${timeoutSeconds}`, '--'] : [`--property=RuntimeMaxSec=${timeoutSeconds}s`, '--']), ...command,
     ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...systemdClientEnv(), AGENT_CAPACITY_LEASE: admitted.lease } });
     const measurement = measureScope(root, admitted.lease, scopeCgroup(requested.name, unit));
     for (const signal of terminationSignals) process.once(signal, stop);

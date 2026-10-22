@@ -24,6 +24,8 @@ case $2 in
 show) if live; then echo active; else echo inactive; fi ;;
 kill) live && kill -KILL \"$pid\" ;;
 stop) if live; then kill -TERM \"$pid\"; fi ;;
+freeze) live && kill -STOP \"$pid\" ;;
+thaw) live && kill -CONT \"$pid\" ;;
 esac
 ";
 

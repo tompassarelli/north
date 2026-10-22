@@ -85,7 +85,13 @@ wrapper's host PID (from `/proc/self`, which the host resolves even inside
 run-bounded's PID namespace) and its Linux process start time, and remain
 charged while that wrapper or its uniquely named scope is live and the lease is
 within its deadline. A run lease past its deadline has its scope killed and is
-reclaimed. Only the foreground wrapper releases a run lease, after stopping the
+reclaimed. Heavy, exclusive and gpu scopes carry no RuntimeMaxSec, because
+systemd cannot extend a running scope's deadline: they run under
+`north capacity deadline`, which ends the command at its timeout plus the time
+its lease was paused, and laptop-auto records `frozenAt` when it freezes the
+scope and moves `expiresAt` later by the frozen time when it thaws it, so a
+lease frozen while Tom plays is neither timed out nor reaped for that time.
+Only the foreground wrapper releases a run lease, after stopping the
 scope; a failed stop retains the allowance. A dead wrapper's allowance, or one
 whose wrapper identity cannot be resolved, is reclaimable once its scope is
 inactive. Unknown systemd state retains the allowance.
