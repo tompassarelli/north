@@ -18,7 +18,7 @@ pub(crate) fn sample(host: &Host, processes: &[Process], drm: &Path, idle: Optio
         .filter_map(|card| fs::read_to_string(card.path().join("device/gpu_busy_percent")).ok()?.trim().parse::<u8>().ok())
         .filter(|value| *value <= 100)
         .max();
-    json!({ "gaming": agent_load::tom_gaming(processes), "agent_gpu": agent_gpu, "gpu_busy": busy, "idle": idle })
+    json!({ "gaming": agent_load::tom_gaming(processes, busy), "agent_gpu": agent_gpu, "gpu_busy": busy, "idle": idle })
 }
 
 fn uses_gpu(proc: &Path, pid: i32) -> bool {

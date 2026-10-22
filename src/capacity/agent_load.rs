@@ -12,6 +12,7 @@ use serde_json::json;
 const WISP_DATA: &str = "/.local/share/wisp/";
 const STEAM_PREFIXES: &str = "/steamapps/compatdata/";
 const MARKER_FRESH_SECONDS: u64 = 120;
+const GPU_GAMING_PERCENT: u8 = 30;
 const PREFIX_VARIABLES: [&str; 2] = ["STEAM_COMPAT_DATA_PATH", "WINEPREFIX"];
 const KEPT_VARIABLES: [&str; 4] = ["XDG_RUNTIME_DIR", "PRIVATE_DESKTOP_RUN", "STEAM_COMPAT_DATA_PATH", "WINEPREFIX"];
 
@@ -100,6 +101,11 @@ impl Process {
         ["wine", "warcraft iii", "dolphin", "slippi"].iter().any(|word| text.contains(word)) || has_word(&text, "proton")
     }
 
+    fn game_executable(&self) -> bool {
+        let text = format!("{} {}", self.comm, self.executable.rsplit(['/', '\\']).next().unwrap_or_default()).to_lowercase();
+        ["warcraft iii", "dolphin-emu", "slippi"].iter().any(|word| text.contains(word)) || ["war3", "wow", "wowb"].iter().any(|word| has_word(&text, word))
+    }
+
     fn in_unit(&self, unit: &str) -> bool {
         self.segments().any(|part| part == unit)
     }
@@ -110,8 +116,12 @@ fn has_word(text: &str, word: &str) -> bool {
     text.match_indices(word).any(|(at, _)| boundary(text[..at].chars().next_back()) && boundary(text[at + word.len()..].chars().next()))
 }
 
-pub(crate) fn tom_gaming(processes: &[Process]) -> bool {
-    processes.iter().any(|process| process.game_like() && (process.toms() || !process.agent_owned()))
+pub(crate) fn tom_gaming(processes: &[Process], gpu_busy: Option<u8>) -> bool {
+    let loaded = gpu_busy.is_some_and(|busy| busy > GPU_GAMING_PERCENT);
+    processes
+        .iter()
+        .filter(|process| process.toms() || !process.agent_owned())
+        .any(|process| process.game_executable() || (process.game_like() && loaded))
 }
 
 pub(crate) fn processes(host: &Host) -> Vec<Process> {

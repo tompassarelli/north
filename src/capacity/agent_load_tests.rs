@@ -98,7 +98,7 @@ fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
     lease(&host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
 
     let processes = agent_load::processes(&host);
-    assert!(agent_load::tom_gaming(&processes));
+    assert!(agent_load::tom_gaming(&processes, None));
     agent_load::enforce(&host, true, &processes);
 
     assert!(exited(&mut client) && exited(&mut desktop) && exited(&mut leaked), "an agent client or desktop survived gaming");
@@ -184,4 +184,68 @@ fn a_playtest_left_on_before_the_last_boot_no_longer_counts_as_gaming() {
     }
     fs::write(&host.playtest, r#"{"on": false}"#).unwrap();
     assert!(!agent_load::playtest_on(&host));
+}
+
+#[test]
+fn the_battle_net_launcher_alone_is_not_gaming_but_a_game_or_gpu_load_is() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    let drm = root.path().join("drm");
+    fs::create_dir_all(drm.join("card0/device")).unwrap();
+    let prefix = "STEAM_COMPAT_DATA_PATH=/home/tom/.local/share/Steam/steamapps/compatdata/3516115571";
+    let sample = |busy: &str| {
+        fs::write(drm.join("card0/device/gpu_busy_percent"), format!("{busy}\n")).unwrap();
+        super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, None)["gaming"].clone()
+    };
+    fixture(&proc, 200, "wineserver", "/proton/files/bin/wineserver", "app.slice/app-steam-1.scope", &[prefix]);
+    fixture(&proc, 201, "Battle.net.exe", "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe", "app.slice/app-steam-1.scope", &[prefix]);
+    fixture(&proc, 202, "Agent.exe", "C:/ProgramData/Battle.net/Agent/Agent.9824/Agent.exe", "app.slice/app-steam-1.scope", &[prefix]);
+    assert_eq!(sample("2"), false, "launcher alone");
+    assert_eq!(sample("65"), true, "launcher with a busy GPU");
+    fixture(&proc, 203, "WowB.exe", "C:\\Program Files (x86)\\World of Warcraft\\_beta_\\WowB.exe", "app.slice/app-steam-1.scope", &[prefix]);
+    assert_eq!(sample("2"), true, "launcher plus WowB");
+    fs::remove_dir_all(proc.join("203")).unwrap();
+    fixture(&proc, 204, "war3.exe", "C:\\Games\\Warcraft III\\war3.exe", "app.slice/app-steam-1.scope", &[prefix]);
+    assert_eq!(sample("2"), true, "launcher plus war3");
+}
+
+#[test]
+fn a_game_word_in_a_directory_name_is_not_gaming() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    fixture(&proc, 300, "x", "/home/tom/code/wow/target/debug/x", "app.slice/term.scope", &[]);
+    fixture(&proc, 301, "tool", "/home/tom/code/slippi-tools/bin/tool", "app.slice/term.scope", &[]);
+    assert!(!agent_load::tom_gaming(&agent_load::processes(&host), None));
+    fixture(&proc, 302, "WowB.exe", "/home/tom/code/wow/WowB.exe", "app.slice/term.scope", &[]);
+    assert!(agent_load::tom_gaming(&agent_load::processes(&host), None));
+}
+
+#[test]
+fn only_a_gpu_load_above_thirty_percent_makes_a_launcher_gaming() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    let prefix = "STEAM_COMPAT_DATA_PATH=/home/tom/.local/share/Steam/steamapps/compatdata/3516115571";
+    fixture(&proc, 400, "wineserver", "/proton/files/bin/wineserver", "app.slice/app-steam-1.scope", &[prefix]);
+    let processes = agent_load::processes(&host);
+    assert!(!agent_load::tom_gaming(&processes, None));
+    assert!(!agent_load::tom_gaming(&processes, Some(30)));
+    assert!(agent_load::tom_gaming(&processes, Some(31)));
+}
+
+#[test]
+fn an_agent_owned_launcher_is_ignored_and_gaming_still_stops_agent_wine() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    let mut wine = sleeper();
+    let scope = "native.slice/client.scope";
+    fixture(&proc, wine.id(), "wineserver", "/proton/files/bin/wineserver", scope, &[]);
+    fixture(&proc, 500, "Battle.net.exe", "C:\\Battle.net\\Battle.net.exe", scope, &[]);
+    let processes = agent_load::processes(&host);
+    assert!(!agent_load::tom_gaming(&processes, Some(90)));
+    agent_load::enforce(&host, true, &processes);
+    assert!(exited(&mut wine), "an agent wine process survived gaming");
 }
