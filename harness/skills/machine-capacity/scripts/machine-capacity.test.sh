@@ -462,7 +462,7 @@ IFS= read -r event <&"${event_of[early]}"
 held_run exclusive drain drain session
 wait_for "$scratch/drain-ready"
 read -r group <"$scratch/drain-ready"
-[[ $(systemctl --user show "${group##*/}" --property=RuntimeMaxUSec --value) == 15min ]]
+[[ $(systemctl --user show "${group##*/}" --property=RuntimeMaxUSec --value) == infinity && $(xargs -I{} cat /proc/{}/cmdline <"/sys/fs/cgroup$group/cgroup.procs" | tr '\0' ' ') == *'capacity deadline '*' 900 --'* ]]
 calm_pressure 0.00
 IFS= read -r event <&"${event_of[early]}"
 [[ $(jq -r .reason <<<"$event") == DEFER_EXCLUSIVE ]]

@@ -1116,7 +1116,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
       ...(native ? [] : [`--property=CPUQuota=${limits.cpus * 100}%`]),
       `--property=MemoryHigh=${limits.memoryMiB}M`,
       '--property=KillMode=control-group',
-      ...(frozenClasses.has(requested.name) ? ['--', northCommand, 'capacity', 'deadline', exactLease(root, admitted.lease), `${timeoutSeconds}`, '--'] : [`--property=RuntimeMaxSec=${timeoutSeconds}s`, '--']), ...command,
+      ...(frozenClasses.has(requested.name) ? ['--', northCommand, 'capacity', 'deadline', exactLease(root, admitted.lease), `${timeoutSeconds}`, '--'] : [`--property=RuntimeMaxSec=${timeoutSeconds === null ? 'infinity' : `${timeoutSeconds}s`}`, '--']), ...command,
     ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...systemdClientEnv(), AGENT_CAPACITY_LEASE: admitted.lease } });
     const measurement = measureScope(root, admitted.lease, scopeCgroup(requested.name, unit));
     for (const signal of terminationSignals) process.once(signal, stop);
