@@ -2,8 +2,8 @@ use super::git_invocation::words;
 use crate::hook::{HookInput, Verdict};
 use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredocs};
 
-pub(super) const DENIAL: &str = "Native evidence runs go through `bun wisp native submit SPEC`; the runner drains the queue with `bun wisp native drain`. For a run that can't batch, prefix NORTH_NATIVE_SOLO='<reason>'; the reason is recorded in the run ledger.";
-pub(super) const QUIET_DENIAL: &str = "The quiet native lease is for timing checks only; the runner takes it per timing batch. Submit with `bun wisp native submit SPEC`; the runner drains the queue with `bun wisp native drain`, or prefix NORTH_NATIVE_SOLO='<reason>' for a recorded exception.";
+pub(super) const DENIAL: &str = "Native evidence runs go through `bun wisp accept`, which takes its own quiet native lease. For a run that can't use one, prefix NORTH_NATIVE_SOLO='<reason>'; the reason is recorded in the run ledger.";
+pub(super) const QUIET_DENIAL: &str = "The quiet native lease is for timing checks only; `bun wisp accept` takes it per batch. Prefix NORTH_NATIVE_SOLO='<reason>' for a recorded exception.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::hook::authoring_guards_off("north-hook") {
@@ -151,4 +151,29 @@ fn bun_command(mut args: &[String]) -> &[String] {
         }
     }
     args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn denials_name_only_runners_the_quiet_lease_accepts() {
+        for text in [DENIAL, QUIET_DENIAL] {
+            let named: Vec<&str> = text
+                .split('`')
+                .skip(1)
+                .step_by(2)
+                .filter(|span| span.starts_with("bun wisp "))
+                .collect();
+            assert!(!named.is_empty());
+            for span in named {
+                let mut args = ["machine-capacity", "session", "--class", "native", "--quiet", "--"]
+                    .map(str::to_owned)
+                    .to_vec();
+                args.extend(span.split(' ').map(str::to_owned));
+                assert!(!quiet_capture(&args), "{span} is not a runner the guard accepts");
+            }
+        }
+    }
 }
