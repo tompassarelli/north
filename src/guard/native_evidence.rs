@@ -115,6 +115,8 @@ fn quiet_capture(args: &[String]) -> bool {
         && !planner_or_timing(child)
 }
 
+const QUIET_LEASE_COMMANDS: &[&[&str]] = &[&["native", "remote"], &["accept"]];
+
 fn planner_or_timing(args: &[String]) -> bool {
     let index = command(args, &["env", "exec", "command"]);
     let mut args = &args[index..];
@@ -136,9 +138,9 @@ fn planner_or_timing(args: &[String]) -> bool {
     if !matches!(basename(first), "wisp" | "wisp.ts") {
         return false;
     }
-    matches!(&args[1..], [native, run, ..] if native == "native" && run == "run")
-        || matches!(&args[1..], [accept, ..] if accept == "accept")
-        || matches!(&args[1..], [lan, soak, ..] if lan == "lan" && soak == "soak")
+    QUIET_LEASE_COMMANDS
+        .iter()
+        .any(|command| args[1..].iter().map(String::as_str).take(command.len()).eq(command.iter().copied()))
 }
 
 fn bun_command(mut args: &[String]) -> &[String] {
@@ -174,6 +176,15 @@ mod tests {
                 args.extend(span.split(' ').map(str::to_owned));
                 assert!(!quiet_capture(&args), "{span} is not a runner the guard accepts");
             }
+        }
+    }
+
+    #[test]
+    fn quiet_lease_commands_exist_in_wisp() {
+        let wisp: Vec<String> = serde_json::from_str(include_str!("fixtures/wisp_commands.json")).unwrap();
+        for command in QUIET_LEASE_COMMANDS {
+            let name = command.join(" ");
+            assert!(wisp.contains(&name), "{name} is not a wisp command");
         }
     }
 }

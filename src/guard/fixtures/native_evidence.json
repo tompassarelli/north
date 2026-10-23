@@ -154,8 +154,16 @@
       0
     ],
     [
-      "machine-capacity session --class native --quiet -- bun wisp native run plan.json",
+      "machine-capacity session --class native --quiet -- bun wisp native remote --host H -- accept",
       0
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun wisp native submit boxes.tsv",
+      2
+    ],
+    [
+      "machine-capacity session --class native --quiet -- bun wisp native run plan.json",
+      2
     ],
     [
       "machine-capacity session --class native --quiet -- bun wisp pad x",
@@ -191,7 +199,7 @@
     ],
     [
       "machine-capacity session --class native --quiet -- bun wisp lan soak x",
-      0
+      2
     ],
     [
       "machine-capacity session --class native --quiet -- bun /tmp/scripts/nativeKeyboardPad.ts x",
