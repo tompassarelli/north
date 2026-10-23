@@ -56,6 +56,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | No added test skip or focus, or removed test, without a `Test-change:` trailer; claimed mutants have recorded patches | `test_integrity_scan` |
 | Generated records are not mass-rewritten without their declared inputs changing | `generated_rewrite_scan` |
 | A new gating bar, hook or policy line carries a Provenance record | `provenance_scan` (`north provenance check`) |
+| A covered harness landing carries a `Reviewed:` trailer whose patch-id matches its final covered diff | `review_scan` (`north review-gate check`) |
 | Main's CI budget is respected | `ci_budget_scan` |
 | No new Python or script path, Python or script growth, or shell past 80 code lines without a Tom-approved allowlist entry | `run_language_gate` (`north language-gate`) |
 | A new dependency names its reason in a `Dependency:` trailer, and new versions wait out a 7-day cooldown unless `Dependency-Urgent:` cites an advisory (the root `nixpkgs` locked to a `NixOS/nixpkgs` `nixos-*` channel is exempt, so nightly security inputs land) | `north dep-gate` |

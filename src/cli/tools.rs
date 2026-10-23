@@ -1,13 +1,14 @@
 use std::process::ExitCode;
 
 use crate::{
-    autoland_status, capacity, dep_gate, follows_release, issue_box_lint, provenance,
+    autoland_status, capacity, dep_gate, follows_release, issue_box_lint, provenance, review_gate,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Tool {
     Wisp,
     DepGate,
+    ReviewGate,
     AutolandStatus,
     AutolandWait,
     LandAbandon,
@@ -25,6 +26,7 @@ impl Tool {
         Some(match command {
             "wisp" => Self::Wisp,
             "dep-gate" => Self::DepGate,
+            "review-gate" => Self::ReviewGate,
             "autoland-status" => Self::AutolandStatus,
             "autoland-wait" => Self::AutolandWait,
             "land-abandon" => Self::LandAbandon,
@@ -45,6 +47,7 @@ impl Tool {
                 crate::platform::wisp_payoff::run(arguments).map(|()| ExitCode::SUCCESS)
             }),
             Self::DepGate => dep_gate::run,
+            Self::ReviewGate => review_gate::run,
             Self::AutolandStatus => autoland_status::run,
             Self::AutolandWait => autoland_status::wait,
             Self::LandAbandon => autoland_status::abandon,

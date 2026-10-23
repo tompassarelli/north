@@ -54,6 +54,7 @@ Commands:
   config agents [sync|status|on|off|path|inspect|check-hook-paths|check-owners]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
+  review-gate id|check BASE HEAD PATH...         Print or check the reviewed patch-id of covered paths
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
   autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
   land-abandon [BRANCH]                          Name a superseded or handed-back land branch

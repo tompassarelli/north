@@ -559,7 +559,7 @@ fn dependencies(manifest: &str, text: &str) -> Parsed<BTreeSet<Dependency>> {
     Ok(result)
 }
 
-fn trailer_lines(messages: &[String]) -> Vec<&str> {
+pub(crate) fn trailer_lines(messages: &[String]) -> Vec<&str> {
     let paragraphs = Regex::new(r"\n\s*\n").unwrap();
     let separators = Regex::new(r"\r\n|[\n\r\x0b\x0c\x1c-\x1e\u{85}\u{2028}\u{2029}]").unwrap();
     messages

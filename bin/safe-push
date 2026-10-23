@@ -667,6 +667,18 @@ provenance_scan() {
   return 1
 }
 
+review_scan() {
+  local base="${1%%..*}" head="${1##*..}" paths
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  mapfile -t paths < <(durable_harness_paths "$(basename "$(git remote get-url origin 2>/dev/null)" .git)")
+  [ "${#paths[@]}" -gt 0 ] || return 0
+  ! git -C "$(git rev-parse --show-toplevel)" --literal-pathspecs diff --quiet "$(git merge-base "$base" "$head")" "$head" -- "${paths[@]}" || return 0
+  command -v north >/dev/null 2>&1 || { echo "safe-push: north not on PATH; refusing to land covered harness paths without the review gate; NOT pushed."; return 1; }
+  north review-gate check "$base" "$head" "${paths[@]}" && return 0
+  echo "safe-push: ✗ the covered harness diff lacks a review of its final patch-id; NOT pushed."
+  return 1
+}
+
 ci_workflow_triggered() {
   local workflow="$1" filters pattern path
   shift
@@ -1875,6 +1887,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   test_integrity_scan "refs/remotes/origin/$to..HEAD" || exit 1
   generated_rewrite_scan "refs/remotes/origin/$to..HEAD" || exit 1
   provenance_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  [ "$to" != "$(default_branch)" ] || review_scan "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
 fi
 
@@ -2024,6 +2037,7 @@ tool_removal_scan "$scan_range" || exit 1
 test_integrity_scan "$scan_range" || exit 1
 generated_rewrite_scan "$scan_range" || exit 1
 provenance_scan "$scan_range" || exit 1
+[ "$destination_branch" != "$(default_branch)" ] || review_scan "$scan_range" || exit 1
 [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \

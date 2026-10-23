@@ -57,7 +57,7 @@ shim_main() {
       if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE:-0}" = 1 ]; then rm -f -- "$0"; fi
       return "$status"
       ;;
-    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
