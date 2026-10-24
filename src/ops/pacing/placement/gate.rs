@@ -4,7 +4,7 @@
 //! weekly projections never hold a launch; an account is out only when a window is exhausted or burning away.
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
-use super::{credit, facets, field, local, resident, strings};
+use super::{credit, facets, field, local, resident, signed_in, strings};
 use crate::fleet::model::ProviderName;
 use crate::fleet::roster::{Roster, Standing};
 use serde_json::Value;
@@ -36,7 +36,8 @@ pub(crate) enum Target {
 }
 
 /// A `[hosts.NAME]` with an `ssh` destination: the local needs it serves beyond code, each `NEED` for
-/// every repository or `NEED:REPO` for one, its resident cap and its live resident CLIs, None when unreachable.
+/// every repository or `NEED:REPO` for one, its resident cap, its live resident CLIs (None when
+/// unreachable) and the Claude labels signed in there.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Machine {
     pub name: String,
@@ -44,6 +45,7 @@ pub(crate) struct Machine {
     pub serves: Vec<String>,
     pub cap: i64,
     pub live: Option<i64>,
+    pub accounts: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,10 +62,29 @@ pub(crate) struct Decision {
 
 impl Decision {
     pub(crate) fn best_account(&self) -> Option<&Verdict> {
+        self.best_where(|_| true)
+    }
+
+    fn best_where(&self, allowed: impl Fn(&str) -> bool) -> Option<&Verdict> {
         self.verdicts
             .iter()
-            .filter(|v| v.available)
+            .filter(|v| v.available && allowed(v.account.trim_start_matches("claude:")))
             .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.account.cmp(&a.account)))
+    }
+
+    fn sign_in_on_machine(&mut self) {
+        let (Some(machine), Target::Account(account)) = (&self.machine, &self.target) else { return };
+        let (name, account, accounts) = (machine.name.clone(), account.clone(), machine.accounts.clone());
+        if accounts.iter().any(|label| label == account.trim_start_matches("claude:")) {
+            return;
+        }
+        match self.best_where(|label| accounts.iter().any(|there| there == label)).map(|v| v.account.clone()) {
+            Some(other) => {
+                self.machine_lines.push(format!("{name} has no signed-in {account}; {other} there"));
+                self.target = Target::Account(other);
+            }
+            None => self.stay_here(Some(format!("{name} has no signed-in {account}, so here"))),
+        }
     }
 
     pub(crate) fn verdict(&self, account: &str) -> Option<&Verdict> {
@@ -210,7 +231,7 @@ pub(crate) fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = host.get("ssh")?.as_str()?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
-            Some(Machine { serves: strings(host.get("serves")), name, ssh, cap, live: None })
+            Some(Machine { serves: strings(host.get("serves")), name, ssh, cap, live: None, accounts: Vec::new() })
         })
         .collect()
 }
@@ -305,6 +326,7 @@ pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, cred
         Some(_) => {}
         None => decision.stay_here(None),
     }
+    decision.sign_in_on_machine();
     decision
 }
 
@@ -339,7 +361,7 @@ pub(crate) fn probed(cfg: &DocumentMut, fleet_load: &BTreeMap<String, i64>) -> V
         .into_iter()
         .map(|machine| {
             let hosted = fleet_load.get(&machine.name).copied().unwrap_or(0);
-            Machine { live: resident(&machine.name, &machine.ssh).map(|live| live + hosted), ..machine }
+            Machine { live: resident(&machine.name, &machine.ssh).map(|live| live + hosted), accounts: signed_in(&machine.name, &machine.ssh), ..machine }
         })
         .collect()
 }

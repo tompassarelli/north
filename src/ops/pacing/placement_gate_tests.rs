@@ -89,6 +89,9 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         assert_eq!(machines.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), ["near", "far"], "a host without ssh is no machine");
         machines[0].live = near;
         machines[1].live = far;
+        for machine in &mut machines {
+            machine.accounts = vec!["a".into(), "b".into(), "c".into()];
+        }
         machines
     };
     let place = |brief: &str, near, far| {
@@ -124,6 +127,7 @@ fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
     let gate = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
     let mut machines = super::placement::gate::machines(&cfg);
     machines[0].live = Some(0);
+    machines[0].accounts = vec!["c".into()];
     let spent = || (false, "cloud credit: spent".to_owned());
     let camera = "Item: smashcraft#96 (scorecard tool)\nSurface: ts\nVerify: visual\nNeeds: private\n";
     let wisp = "Item: wisp#5 private pool change\nSurface: ts\nNeeds: private\n";
@@ -175,4 +179,26 @@ fn needs_on_separate_lines_place_like_needs_on_one_line() {
     assert_eq!(lines, place(&format!("{head}Needs: code, local-state\n")));
     assert_eq!(lines.0, "claude:c");
     assert_eq!(place(CODE_ONLY).0, "anthropic-cloud");
+}
+
+#[test]
+fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"warcraft\", \"native\"]\n[hosts.laptop]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
+    let at = super::target::seconds(AT).unwrap();
+    let quota = gate(&[
+        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
+        ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
+        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
+    ]);
+    let mut machines = super::placement::gate::machines(&cfg);
+    machines[0].live = Some(0);
+    machines[0].accounts = vec!["a".into(), "c".into()];
+    let switched = decide(WARCRAFT, &cfg, &quota, (false, String::new()), &machines, "laptop", at);
+    assert_eq!((switched.machine.as_ref().map(|m| m.name.as_str()), target(&switched).as_str()), (Some("gex45"), "claude:a"), "{:?}", switched.machine_lines);
+    assert!(switched.machine_lines.contains(&"gex45 has no signed-in claude:b; claude:a there".to_owned()), "{:?}", switched.machine_lines);
+
+    machines[0].accounts = Vec::new();
+    let kept = decide(WARCRAFT, &cfg, &quota, (false, String::new()), &machines, "laptop", at);
+    assert_eq!((kept.machine.as_ref(), target(&kept).as_str()), (None, "claude:b"), "{:?}", kept.machine_lines);
+    assert!(kept.machine_lines.contains(&"gex45 has no signed-in claude:b, so here".to_owned()), "{:?}", kept.machine_lines);
 }

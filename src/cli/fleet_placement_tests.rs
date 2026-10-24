@@ -47,7 +47,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     assert_eq!(Overrides::default().recorded(None), Overrides::default());
 
     let mut remote = decision(Target::Account("claude:a".into()));
-    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(1) });
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()] });
     let launch = Launch { name: "box", account: "a", brief: None, cwd: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
     assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }) });
@@ -55,4 +55,9 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     assert_eq!(kept, Placed { note: Some("local: needs my desktop".into()), machine: None });
     let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None }).unwrap();
     assert_eq!(here, noted(None).unwrap(), "--local on a box placed here records nothing");
+
+    let unsigned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None }, "", &Overrides::default()).unwrap_err();
+    assert!(unsigned.starts_with("far is not signed in to claude:b (signed in there: a, c); launch with --account a, or "), "{unsigned}");
+    let pinned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None }, "", &Overrides { local: Some("x".into()), pin: Some("y".into()) });
+    assert_eq!(pinned.unwrap().machine, None);
 }

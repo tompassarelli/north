@@ -113,7 +113,7 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
     let orchestration = root.join("op/orchestration.toml");
     let policy = fs::read_to_string(&orchestration).unwrap().replace("[placement]\n", "[placement]\norder = [\"far\"]\n");
     fs::write(&orchestration, format!("{policy}[hosts.far]\nresident_cap = 2\nssh = \"tom@far\"\n")).unwrap();
-    fs::write(root.join("hosts.json"), r#"{"far": {"online": true, "live": 1}}"#).unwrap();
+    fs::write(root.join("hosts.json"), r#"{"far": {"online": true, "live": 1, "accounts": ["a"]}}"#).unwrap();
     executable(&root.join("bin/ssh"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do last=$1; shift; done\nshift\nexport RAN_VIA_SSH=\"$last\"\nPATH=\"$PLACEMENT_FIXTURE/bin:$PATH\" exec sh -c \"$*\"\n");
     let path = root.join("private.md");
     fs::write(&path, "Item: galileo#3 private change\nSurface: rust\n").unwrap();

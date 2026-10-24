@@ -155,6 +155,21 @@ pub(in crate::ops::pacing) fn resident(name: &str, destination: &str) -> Option<
     result.ok().filter(|r| r.code == 0).and_then(|r| live_count(&r.out))
 }
 
+pub(in crate::ops::pacing) fn signed_in(name: &str, destination: &str) -> Vec<String> {
+    if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
+        let fixture = load(Path::new(&path));
+        if fixture[name].is_object() {
+            return fixture[name]["accounts"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        }
+    }
+    let listed = process::run("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "north", "fleet", "accounts"], None, 20.0);
+    listed.ok().filter(|r| r.code == 0).map(|r| claude_labels(&r.out)).unwrap_or_default()
+}
+
+fn claude_labels(listing: &str) -> Vec<String> {
+    listing.lines().filter_map(|line| line.strip_prefix("claude\t")).map(|label| label.trim().to_owned()).collect()
+}
+
 /// The live count from `resident_cap.py status`, which prints `HOST: LIVE/CAP resident agent CLIs`.
 fn live_count(status: &str) -> Option<i64> {
     let (_, rest) = status.split_once(':')?;
@@ -167,5 +182,10 @@ mod tests {
     fn the_live_count_is_read_from_the_resident_cap_status_line() {
         assert_eq!(super::live_count("far: 3/24 resident agent CLIs\n"), Some(3));
         assert_eq!(super::live_count("far: no cap\n"), None);
+    }
+
+    #[test]
+    fn a_hosts_roster_is_read_from_its_fleet_accounts_listing() {
+        assert_eq!(super::claude_labels("claude\ta\nclaude\tc\ncodex\tpooled\n"), ["a", "c"]);
     }
 }

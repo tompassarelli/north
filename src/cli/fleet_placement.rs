@@ -96,6 +96,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         _ => {}
     }
     let machine = match (&decision.machine, &overrides.local) {
+        (Some(chosen), None) if !chosen.accounts.iter().any(|label| label == launch.account) => return Err(not_signed_in(decision, chosen, launch.account)),
         (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone() }),
         _ => None,
     };
@@ -106,6 +107,15 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         notes.push(format!("pin: {reason}"));
     }
     Ok(Placed { note: (!notes.is_empty()).then(|| notes.join("; ")), machine })
+}
+
+fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) -> String {
+    let there = if machine.accounts.is_empty() { "none".to_owned() } else { machine.accounts.join(", ") };
+    let instead = match &decision.target {
+        Target::Account(other) if other.trim_start_matches("claude:") != account => format!("launch with --account {}, or ", other.trim_start_matches("claude:")),
+        _ => String::new(),
+    };
+    format!("{} is not signed in to claude:{account} (signed in there: {there}); {instead}keep the box here with --local \"<reason>\"", machine.name)
 }
 
 fn account_refusal(decision: &Decision, account: &str) -> Option<String> {

@@ -14,7 +14,7 @@ mod launch;
 mod survey;
 mod tiers;
 use candidates::admit;
-use hosts::{credit, laptop, resident};
+use hosts::{credit, laptop, resident, signed_in};
 pub(super) use launch::{Probes, spawn};
 pub(super) use tiers::routing_defaults;
 use tiers::tier_for;
