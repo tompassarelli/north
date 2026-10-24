@@ -101,9 +101,9 @@ impl Host {
 
     pub fn terminate(&self) -> NorthResult<()> {
         if let Ok(unit) = fs::read_to_string(self.dir.join("host.scope")) {
-            let status = Command::new(binary("systemctl")).args(["--user", "stop", unit.trim()]).status()?;
-            if !status.success() && status.code() != Some(5) {
-                return Err(NorthError::State(format!("could not stop session scope {}", unit.trim())));
+            let stopped = Command::new(binary("systemctl")).args(["--user", "stop", unit.trim()]).stdin(Stdio::null()).stderr(Stdio::piped()).output()?;
+            if !stopped.status.success() && stopped.status.code() != Some(5) {
+                return Err(NorthError::Refused(format!("could not stop session scope {}: {}", unit.trim(), String::from_utf8_lossy(&stopped.stderr).trim())));
             }
             return Ok(());
         }

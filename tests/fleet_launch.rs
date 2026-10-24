@@ -28,7 +28,7 @@ fn fixture(root: &Path, trace: &str) {
     let setsid = Command::new("sh").args(["-c", "command -v setsid"]).output().unwrap();
     executable(&root.join("bin/setsid"), &format!("#!/bin/sh\nexec {} \"$@\"\n", String::from_utf8_lossy(&setsid.stdout).trim()));
     executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n");
-    executable(&root.join("bin/systemctl"), "#!/bin/sh\n[ \"$1 $2\" = '--user stop' ] && kill -TERM -- \"-$(cat \"$FLEET_LAUNCH_FIXTURE/units/$3\")\" 2>/dev/null\nexit 0\n");
+    executable(&root.join("bin/systemctl"), "#!/bin/sh\n[ \"$1 $2\" = '--user stop' ] || exit 0\nunit=\"$FLEET_LAUNCH_FIXTURE/units/$3\"\n[ -f \"$unit\" ] || { echo \"Failed to stop $3: Unit $3 not loaded.\" >&2; exit 5; }\nkill -TERM -- \"-$(cat \"$unit\")\" 2>/dev/null\nrm -f \"$unit\"\n");
     executable(&root.join("bin/claude"), &format!("#!/bin/sh\nexec {} --trace {trace} \"$@\"\n", support::fake_claude()));
 }
 
@@ -93,4 +93,29 @@ fn a_launch_whose_first_turn_answers_not_logged_in_restarts_once_and_records_it(
     let rows: Vec<Value> = noted.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     assert_eq!(rows.len(), 1, "{noted}");
     assert_eq!((rows[0]["session"].as_str(), rows[0]["account"].as_str()), (Some("narrow"), Some("a")));
+}
+
+#[test]
+fn sending_to_and_forgetting_a_session_whose_scope_is_gone_say_nothing_about_stopping_it() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let launched = launch(root);
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+    let session = root.join(".local/state/north/fleet/narrow");
+    let unit = fs::read_to_string(session.join("host.scope")).unwrap();
+    let pid: i32 = fs::read_to_string(session.join("host.pid")).unwrap().trim().parse().unwrap();
+    let stopped = Command::new(root.join("bin/systemctl")).args(["--user", "stop", unit.trim()]).env("FLEET_LAUNCH_FIXTURE", root).status().unwrap();
+    assert!(stopped.success());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while Path::new(&format!("/proc/{pid}")).exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let sent = north(root, &["fleet", "send", "narrow", "carry on"]);
+    let forgot = north(root, &["fleet", "forget", "narrow"]);
+    for (verb, output) in [("send", &sent), ("forget", &forgot)] {
+        let said = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{verb}: {said}");
+        assert!(!said.contains("Failed to stop"), "{verb}: {said}");
+    }
 }
