@@ -5,6 +5,7 @@ pub mod landings;
 pub mod prompt;
 pub mod receipts;
 mod records;
+pub mod relay;
 mod remote;
 pub mod model;
 pub mod registry;

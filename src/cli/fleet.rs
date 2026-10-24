@@ -20,10 +20,10 @@ use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::fleet_placement::{self, Launch, Overrides, Placed};
-use super::{gate, orders};
+use super::{gate, orders, relay};
 
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
-     | send [--now] NAME TEXT... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
+     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
@@ -96,7 +96,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["tree"] => tree(&fleet),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
-        ["send", rest @ ..] => send(&fleet, rest),
+        [verb @ ("send" | "relay" | "outbox"), rest @ ..] => relay::run(&fleet, verb, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
@@ -115,14 +115,6 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
         "revive" => revive(fleet, name, None, Overrides::default()),
         "show" => show(fleet, name, false),
         "watchdog" => fleet.guard(name),
-        _ => Err(usage()),
-    }
-}
-
-fn send(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    match words {
-        ["--now", name, text @ ..] if !text.is_empty() => fleet.send(name, &text.join(" "), Delivery::Now),
-        [name, text @ ..] if !text.is_empty() => fleet.send(name, &text.join(" "), Delivery::Queued),
         _ => Err(usage()),
     }
 }

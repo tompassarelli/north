@@ -12,6 +12,7 @@ mod fleet_placement;
 mod gate;
 mod ledger;
 mod orders;
+mod relay;
 mod safe_push_result;
 #[cfg(test)]
 mod tests;

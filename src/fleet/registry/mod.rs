@@ -22,12 +22,14 @@ use super::transcript::{StreamTail, current_session_stream_index, ensure_session
 mod follower;
 mod gate_commands;
 mod home;
+mod letters;
 mod parents;
 mod status;
 
 pub use follower::Follower;
 pub use home::roster;
 use home::{home_dir, state_dir};
+pub use letters::Sent;
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const OPEN_POLL: Duration = Duration::from_millis(100);
