@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bun --no-install
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync, readFileSync, realpathSync } from "fs";
-import { tmpdir } from "os";
+import { hostname, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
 export type RetirementFacts = {
@@ -234,7 +234,7 @@ except Exception:
     result["ok"] = False
 print(json.dumps(result))
 `;
-let laptopTrees: LiveTrees, nexusTrees: LiveTrees;
+let laptopTrees: LiveTrees, nexusTrees: LiveTrees, peer: { name: string; trees: LiveTrees };
 function scanTrees(root: string, remote: boolean): LiveTrees {
   const args = remote ? ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "nexus", "python3", "-", "~/code", String(now())] : ["python3", "-", root, String(now())];
   try {
@@ -445,8 +445,10 @@ function localArchiveGuard(main: string, name: string, base: string, branch: str
     const claims = liveClaims();
     if (namedIssues(main, name, base, tip).some(item => claims.has(item))) return "live holder session";
     if (path && sessionIn(path)) return "live session in lane";
-    if (!nexusTrees.ok) return "Nexus liveness unavailable";
-    if (branch && nexusTrees.branches[`${name}:${branch}`]) return `Nexus ${nexusTrees.branches[`${name}:${branch}`]}`;
+    if (branch && git(main, ["rev-parse", "-q", "--verify", `refs/remotes/origin/${branch}`]).ok) {
+      if (!peer.trees.ok) return `${peer.name} liveness unavailable`;
+      if (peer.trees.branches[`${name}:${branch}`]) return `${peer.name} ${peer.trees.branches[`${name}:${branch}`]}`;
+    }
     const repo = originRepo(main);
     if (!repo) return "";
     const pushes = pushedRefs(repo);
@@ -690,8 +692,11 @@ function main(argv: string[]): number {
   stale.notices = [];
   stale.at = new Date(now()).toISOString();
   {
-    laptopTrees = scanTrees(o.root, false);
-    nexusTrees = scanTrees(o.root, true);
+    const local = scanTrees(o.root, false);
+    const onNexus = hostname() === "nexus";
+    laptopTrees = onNexus ? { ok: false, branches: {} } : local;
+    nexusTrees = onNexus ? local : scanTrees(o.root, true);
+    peer = onNexus ? { name: "Laptop", trees: laptopTrees } : { name: "Nexus", trees: nexusTrees };
   }
   const live = o.remote ? [] : liveRoots();
   const c: Counts = { retiredWorktrees: 0, deletedBranches: 0, deletedRemote: 0, kept: 0, unlanded: 0 };
