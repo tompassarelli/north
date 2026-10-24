@@ -3,10 +3,16 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const USAGE: &str = "Usage: north ledger runs [--json] | north ledger summary [--json] | north task landed REF SHA | north task check REF -- CMD...";
+const USAGE: &str = "Usage: north ledger runs [--json] | north ledger summary [--json] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD...";
 
 pub fn run(arguments: &[String]) -> ExitCode {
-    match Ledger::open_default().and_then(|store| dispatch(&store, arguments)) {
+    let outcome = match arguments {
+        [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "claude-runs" => {
+            crate::providers::claude::runs::run(rest).map(|()| ExitCode::SUCCESS)
+        }
+        _ => Ledger::open_default().and_then(|store| dispatch(&store, arguments)),
+    };
+    match outcome {
         Ok(code) => code,
         Err(error) => {
             eprintln!("error: {}", error.user_message());

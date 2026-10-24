@@ -27,8 +27,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.landed_sha | bin/worker-ledger | none yet (north#51 box 2) | unread | |
 | runs.first_commit | none (tally-internal, bin/worker-ledger:110) | none | dropped | 4aecdaf9 |
 | runs.turns | none | none | dropped | 4aecdaf9 |
-| runs.peak_ctx, handoff_fires, handoff_ignored | harness/lib/ledger_context.py | bin/capacity-watchdog:465 | read | |
-| runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | harness/lib/ledger_context.py | bin/threads:1057 context_summary | read | |
+| runs.peak_ctx, handoff_fires, handoff_ignored | src/providers/claude/runs/telemetry.rs (Claude); harness/lib/ledger_context.py (Codex) | bin/capacity-watchdog:465 | read | |
+| runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | src/providers/claude/runs/telemetry.rs (Claude); harness/lib/ledger_context.py (Codex) | bin/threads:1057 context_summary | read | |
 | runs.account, model, effort, fast | bin/threads:902 | bin/threads:1131 delivery_summary | read | |
 | runs.note, report, session, role | bin/threads | `threads show`, role filters | read | |
 | calibration | bin/threads calibrate | bin/threads:1395; harness/lib/calibration.py:23 | read | ac79788c |
@@ -57,7 +57,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | S:operating-point.toml | harness/scripts/policy-replay.py | harness/scripts/agent-config-check.sh:246; bin/skill-prune:17 | read | |
 | S:incidents.jsonl | harness/scripts/incident-mine.py | harness/scripts/agent-config-check.sh:296 | read | |
 | replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | harness/scripts/agent-config-check.sh:201 | read | |
-| harness/model-catalog.toml | hand | harness/lib/usage.py:31; harness/lib/ledger_context.py:138 | read | |
+| harness/model-catalog.toml | hand | harness/lib/usage.py:31; harness/lib/ledger_context.py run_usage; src/providers/claude/runs/telemetry.rs Prices | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
 Claude worker creation (north#35): foreground `SubagentStart` lacks the original prompt, and the child prompt is persisted only after that callback. The supported route is `Agent` with `run_in_background: true`: its `PostToolUse` result has `status=async_launched` and the actual child `agentId`, so `worker-handoff` records the original tool input at launch. `worker-tier-guard` requires this route before any `Follows:` exemption.

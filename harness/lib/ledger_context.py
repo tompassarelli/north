@@ -49,40 +49,25 @@ def hook_fire(r):
     return bool(HANDOFF.match(text))
 
 
-def context_metrics(records, provider, agent=None):
+def context_metrics(records):
     requests = {}
     boundaries = summaries = handoffs = 0
-    fires = []
     for index, r in enumerate(records):
         kind, p = r.get("type"), r.get("payload") or {}
-        if provider == "claude":
-            boundaries += kind == "system" and r.get("subtype") == "compact_boundary"
-            summaries += bool(r.get("isCompactSummary"))
-            if kind in ("user", "system", "attachment") and not r.get("isCompactSummary"):
-                if hook_fire(r):
-                    handoffs += 1
-                    fires.append(index)
-            usage = (r.get("message") or {}).get("usage") if kind == "assistant" else None
-            key = r.get("requestId") or (r.get("message") or {}).get("id") or index
-            if usage is None:
-                continue
-            cache = usage.get("cache_read_input_tokens") or 0
-            total = (usage.get("input_tokens") or 0) + cache + (usage.get("cache_creation_input_tokens") or 0)
-        else:
-            boundaries += kind == "compacted"
-            summaries += kind == "event_msg" and p.get("type") == "context_compacted"
-            if kind == "response_item" and p.get("type") == "message" and p.get("role") in ("user", "developer"):
-                handoffs += hook_fire(r)
-            if kind == "event_msg" and p.get("type") == "user_message":
-                handoffs += hook_fire({"content": p.get("message") or ""})
-            info = p.get("info") if kind == "event_msg" and p.get("type") == "token_count" else None
-            if not info:
-                continue
-            usage = info.get("last_token_usage") or {}
-            key = p.get("request_id") or json.dumps([info.get("total_token_usage"), usage], sort_keys=True)
-            cache = usage.get("cached_input_tokens") or 0
-            # Codex input_tokens already includes cached_input_tokens in its rollout format.
-            total = usage.get("input_tokens") or 0
+        boundaries += kind == "compacted"
+        summaries += kind == "event_msg" and p.get("type") == "context_compacted"
+        if kind == "response_item" and p.get("type") == "message" and p.get("role") in ("user", "developer"):
+            handoffs += hook_fire(r)
+        if kind == "event_msg" and p.get("type") == "user_message":
+            handoffs += hook_fire({"content": p.get("message") or ""})
+        info = p.get("info") if kind == "event_msg" and p.get("type") == "token_count" else None
+        if not info:
+            continue
+        usage = info.get("last_token_usage") or {}
+        key = p.get("request_id") or json.dumps([info.get("total_token_usage"), usage], sort_keys=True)
+        cache = usage.get("cached_input_tokens") or 0
+        # Codex input_tokens already includes cached_input_tokens in its rollout format.
+        total = usage.get("input_tokens") or 0
         timestamp = r.get("timestamp")
         previous = requests.get(key)
         if previous is None:
@@ -97,19 +82,8 @@ def context_metrics(records, provider, agent=None):
             if previous is not None and at - previous > 3600 and total > 0 and cache / total <= .05:
                 misses += 1
             previous = at
-    ignored = 0 if provider == "claude" else None
-    for fire in fires:
-        turns = {}
-        for index, r in enumerate(records[fire + 1:], fire + 1):
-            if r.get("type") != "assistant":
-                continue
-            key = r.get("requestId") or (r.get("message") or {}).get("id") or index
-            if key not in turns and len(turns) == 3:
-                break
-            turns[key] = turns.get(key, "") + record_text(r)
-        ignored += not any(re.match(r"^\s*(?:HANDOFF\s+\S+|(?:Not done|Done):)", text) for text in turns.values())
     return dict(peak_ctx=max((v[1] for v in values), default=0), compactions=max(boundaries, summaries),
-                handoff_fires=handoffs, handoff_ignored=ignored, input_tokens=sum(v[1] for v in values),
+                handoff_fires=handoffs, handoff_ignored=None, input_tokens=sum(v[1] for v in values),
                 cache_read_tokens=sum(v[2] for v in values), idle_gap_misses=misses)
 
 
@@ -135,11 +109,11 @@ def usage_weight(model, inp, write, read, out, prices):
     return inp * rate[0] + write * rate[0] * 1.25 + read * rate[0] * .1 + out * rate[1], True
 
 
-def run_usage(records, provider, catalog=None):
+def run_usage(records, catalog=None):
     import tomllib
     from pathlib import Path
     catalog = catalog if catalog is not None else tomllib.load(open(Path(os.environ.get("LEDGER_CONTEXT_PY", __file__)).resolve().parent.parent / "model-catalog.toml", "rb"))
-    account = account_id(provider)
+    account = account_id("codex")
     prices, unpriced = list_prices(catalog), set()
     model, effort, fast = None, None, 0
     requests, previous = {}, {}
@@ -151,36 +125,20 @@ def run_usage(records, provider, catalog=None):
             model, effort = p.get("model") or model, p.get("effort") or effort
             if "service_tier" in p:
                 fast = int(p["service_tier"] in ("fast", "priority"))
-        message = r.get("message") or {}
-        if provider == "claude":
-            usage = message.get("usage") if r.get("type") == "assistant" else None
-            if usage is None:
-                continue
-            model = message.get("model") or model
-            effort = message.get("effort") or r.get("effort") or effort
-            fast = int(usage.get("speed") == "fast")
-            key = str(r.get("requestId") or message.get("id") or index)
-            inp = usage.get("input_tokens") or 0
-            write = usage.get("cache_creation_input_tokens") or 0
-            read = usage.get("cache_read_input_tokens") or 0
-            out = usage.get("output_tokens") or 0
-        elif provider == "codex":
-            if r.get("type") != "event_msg" or p.get("type") != "token_count" or not p.get("info"):
-                continue
-            info = p["info"]
-            cumulative = info.get("total_token_usage") or {}
-            last = info.get("last_token_usage") or {}
-            key = str(p.get("request_id") or json.dumps([cumulative, last], sort_keys=True))
-            if key in requests:
-                continue
-            usage = {k: max(0, (v or 0) - (previous.get(k) or 0)) for k, v in cumulative.items()}
-            usage.update({k: v for k, v in last.items() if k not in cumulative})
-            previous = cumulative
-            read = usage.get("cached_input_tokens") or 0
-            inp = max(0, (usage.get("input_tokens") or 0) - read)
-            write, out = 0, usage.get("output_tokens") or 0
-        else:
+        if r.get("type") != "event_msg" or p.get("type") != "token_count" or not p.get("info"):
             continue
+        info = p["info"]
+        cumulative = info.get("total_token_usage") or {}
+        last = info.get("last_token_usage") or {}
+        key = str(p.get("request_id") or json.dumps([cumulative, last], sort_keys=True))
+        if key in requests:
+            continue
+        usage = {k: max(0, (v or 0) - (previous.get(k) or 0)) for k, v in cumulative.items()}
+        usage.update({k: v for k, v in last.items() if k not in cumulative})
+        previous = cumulative
+        read = usage.get("cached_input_tokens") or 0
+        inp = max(0, (usage.get("input_tokens") or 0) - read)
+        write, out = 0, usage.get("output_tokens") or 0
         if not r.get("timestamp"):
             continue
         weight, priced = usage_weight(model, inp, write, read, out, prices)
@@ -308,38 +266,3 @@ def delivery_metrics(rows, project=None):
     costs = [sum(r["cost_usd"] for r in g) for g in boxes]
     return dict(done_boxes=len(rows), concurrency=concurrency, median_brief_to_landed_min=statistics.median(durations) if durations else None,
                 median_cost_per_done_usd=statistics.median(costs) if costs else None)
-
-
-if __name__ == "__main__":
-    import functools
-    import tomllib
-    account_id = functools.cache(account_id)
-    catalog = tomllib.load(open(Path(os.environ.get("LEDGER_CONTEXT_PY", __file__)).resolve().parent.parent / "model-catalog.toml", "rb"))
-    for line in sys.stdin:
-        path, agent = line.rstrip("\n").split("\t")
-        rows = []
-        for record in open(path):
-            try:
-                rows.append(json.loads(record))
-            except ValueError:
-                continue
-        try:
-            metadata = json.load(open(Path(path).with_suffix(".meta.json")))
-        except (OSError, ValueError):
-            metadata = None
-        tier = metadata.get("agentType") if isinstance(metadata, dict) else None
-        tier = "" if tier is None or tier is False else tier if isinstance(tier, str) else json.dumps(tier)
-        role = session_role(agent)
-        if not role:
-            continue
-        telemetry = run_usage(rows, "claude", catalog)
-        if metadata is not None:
-            try:
-                operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
-                cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml", "rb"))
-                telemetry["effort"] = metadata.get("effort") or next((r["effort"] for r in [*cfg.get("tiers", {}).values(), *cfg.get("on_request", {}).values()]
-                                                                   if r.get("agent") == metadata.get("agentType") and r.get("model") == telemetry["model"]), telemetry["effort"])
-            except (OSError, ValueError):
-                pass
-        telemetry = dict(context_metrics(rows, "claude", agent if role == "worker" else None), **telemetry, role=role)
-        print(path, agent, role, json.dumps(telemetry), tier, sep="\t")

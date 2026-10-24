@@ -27,7 +27,7 @@ fn recorded_run_history_reaches_the_join_steps_without_argv() {
     let root = scratch.path();
     fs::create_dir_all(root.join("bin")).unwrap();
     let north = root.join("bin/north");
-    fs::write(&north, "#!/bin/sh\nprintf '[]\\n'\n").unwrap();
+    fs::write(&north, format!("#!/bin/sh\n[ \"$1\" = ledger ] && exec {} \"$@\"\nprintf '[]\\n'\n", env!("CARGO_BIN_EXE_north"))).unwrap();
     fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
     ledger(root);
     let insert = format!(

@@ -9,8 +9,12 @@ export AGENTS_ORCHESTRATION=$repo/harness/lib/fixtures/orchestration.toml AGENTS
 cp "$repo/harness/lib/fixtures/worker-ledger-fleet.json" "$FLEET_TEST_SESSIONS"
 sqlite3 "$THREADS_DB" 'create table usage(ts,provider,account,kind,name,used_pct,resets_at,window_min); create table model_events(model,kind,at)'
 mkdir "$scratch/bin"
+WORKER_LEDGER_REAL_NORTH="$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north"
+[ -x "$WORKER_LEDGER_REAL_NORTH" ] || { echo "worker-ledger.test.sh: build north from this tree first; $WORKER_LEDGER_REAL_NORTH is missing" >&2; exit 1; }
+export WORKER_LEDGER_REAL_NORTH
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
+[ "$1 $2" = "ledger claude-runs" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
 [ "$1 $2 $3" = "fleet list --json" ] || exit 1
 cat "$FLEET_TEST_SESSIONS"
 NORTH
@@ -305,12 +309,8 @@ from pathlib import Path
 Path(os.environ["CLAUDE_CONFIG_DIR"]).mkdir(parents=True, exist_ok=True)
 Path(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json").write_text(json.dumps({"cachedUsageUtilization":{"accountUuid":"fixture-secondary"}}))
 assert account_id("claude")=="claude-b"
-claude=[dict(type="assistant",timestamp="2026-10-11T00:05:00Z",requestId="r",message=dict(model="claude-opus-4-6",effort="high",usage=dict(input_tokens=100,cache_creation_input_tokens=100,cache_read_input_tokens=100,output_tokens=100,speed="fast")))]
-telemetry=run_usage(claude+claude,"claude",catalog=catalog)
-assert telemetry["fast"]==1 and len(telemetry["usage_samples"])==1
-assert telemetry["usage_samples"][0]["weight"]==730,telemetry
 codex=[dict(type="session_meta",payload=dict(service_tier="priority")),dict(type="turn_context",payload=dict(model="gpt-6.1-sol",effort="medium")),dict(type="event_msg",timestamp="2026-10-11T00:05:00Z",payload=dict(type="token_count",info=dict(total_token_usage=dict(input_tokens=1000,cached_input_tokens=800,output_tokens=100))))]
-ct=run_usage(codex+codex[2:],"codex",catalog=catalog)
+ct=run_usage(codex+codex[2:],catalog=catalog)
 assert ct["fast"]==1 and len(ct["usage_samples"])==1 and ct["usage_samples"][0]["weight"]==780,ct
 rows=[dict(ts=f"2026-10-11T00:{minute:02d}:00Z",provider="claude",account="b",kind="window",name="weekly_all",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,10),(10,14),(20,20))]
 samples=[dict(agent=agent,account="claude-b",ts=ts,weight=weight) for agent,ts,weight in (("a","2026-10-11T00:05:00Z",730),("b","2026-10-11T00:08:00Z",270),("b","2026-10-11T00:15:00Z",100))]
@@ -343,13 +343,10 @@ claude_active=[s|dict(account="claude-a") for s in active]
 claude_points=allocate_costs(claude_plateau,claude_active,{"claude-a":100})
 assert sum(claude_points.values())==1 and all(claude_points.get(s["agent"],0)>0 for s in claude_active),claude_points
 print('PASS [north#51] Claude integer 84/84/84/85 plateau conserves its step and gives every plateau-only run points')
-priced=catalog|{"models":{"claude:opus-medium":{"model":"claude-opus-5-5","value":{"api":{"input_per_million":4.0,"output_per_million":20.0}}},"claude:haiku":{"model":"claude-haiku-5-5","value":{"api":{"input_per_million":0.1,"output_per_million":0.5}}}}}
-turn=lambda m,t:[dict(type="assistant",timestamp=t,requestId=m,message=dict(model=m,usage=dict(input_tokens=1000,cache_creation_input_tokens=0,cache_read_input_tokens=1000,output_tokens=100)))]
-mixed=[s|dict(agent=m,account="claude-b") for m,t in (("claude-opus-5-5","2026-10-11T00:03:00Z"),("claude-haiku-5-5","2026-10-11T00:04:00Z"),("claude-sonnet-9","2026-10-11T00:13:00Z")) for s in run_usage(turn(m,t),"claude",catalog=priced)["usage_samples"]]
+mixed=[dict(agent=m,account="claude-b",request=m,ts=t,weight=w) for m,t,w in (("claude-opus-5-5","2026-10-11T00:03:00Z",6400.0),("claude-haiku-5-5","2026-10-11T00:04:00Z",160.0),("claude-sonnet-9","2026-10-11T00:13:00Z",1600.0))]
 share=allocate_costs(rows[:2],mixed[:2],{"claude-b":50})
 assert abs(share["claude-opus-5-5"]/share["claude-haiku-5-5"]-40)<1e-9 and abs(sum(share.values())-2)<1e-10,share
-assert run_usage(turn("claude-sonnet-9","2026-10-11T00:13:00Z"),"claude",catalog=priced)["unpriced_models"]==["claude-sonnet-9"] and mixed[2]["weight"]==1600
-print(f"PASS [north#35] Opus and Haiku sharing one interval split plan $ 40:1 by list price (${share['claude-opus-5-5']:.4f} vs ${share['claude-haiku-5-5']:.4f}); an uncatalogued model takes token weight and is flagged")
+print(f"PASS [north#35] Opus and Haiku list-price samples sharing one interval split plan $ 40:1 (${share['claude-opus-5-5']:.4f} vs ${share['claude-haiku-5-5']:.4f})")
 os.environ["THREADS_DB"]=sys.argv[2]
 threads=importlib.machinery.SourceFileLoader("ledger_threads_measure",sys.argv[3]).load_module()
 threads.DB=sys.argv[2]

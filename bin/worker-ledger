@@ -84,7 +84,7 @@ LEDGER_CONTEXT_PY="$(dirname "$(readlink -f "$0")")/../harness/lib/ledger_contex
 export LEDGER_CONTEXT_PY
 
 # Per transcript: whether it made a commit (expects_landing), and whether a push succeeded or a commit of its (by hash or subject)
-# is on a repo's origin/main in $LEDGER_MAIN (landed). Shared by the Claude and Codex readers.
+# is on a repo's origin/main in $LEDGER_MAIN (landed). Shared by the Codex and agy readers.
 export LEDGER_CHECKS_PY='
 import json, os, re
 LAND = re.compile(r"\b(safe-push|git push)\b")
@@ -157,21 +157,6 @@ if [ -n "$facets" ]; then
   exec "$threads" recommend "$facets" "${planner_args[@]}" ${since:+--since "$since"}
 fi
 
-project_roots=$(python3 - "$LEDGER_CONTEXT_PY" <<'PYROOTS'
-import os, sys
-from pathlib import Path
-sys.path.insert(0, str(Path(sys.argv[1]).resolve().parent))
-from claude_profiles import config_dir, profiles
-explicit = os.environ.get("CLAUDE_CONFIG_DIR") or ""
-roots = [(Path(explicit or Path.home() / ".claude"), explicit)]
-roots.extend((config_dir(profile) or Path.home() / ".claude", str(config_dir(profile) or "")) for profile in profiles().values())
-pairs = {}
-for root, config in roots:
-    pairs.setdefault((root / "projects").resolve(), config)
-for root, config in pairs.items():
-    print(f"{root}\t{config}")
-PYROOTS
-) || exit 1
 # Exit 255: the remote ledger is unreachable; ingest skips recorded runs, so send every row to its spool.
 recorded=$("$threads" run-ids) || { [ $? -eq 255 ] || exit 1; }
 known=$("$threads" run-ids --settled) || { [ $? -eq 255 ] || exit 1; }
@@ -184,120 +169,9 @@ for repo in ${LEDGER_REPOS:-"$HOME"/code/*/main}; do
   git -C "$repo" -c maintenance.auto=false -c gc.auto=0 log origin/main --since="$since_git" --format='%H %cI %s' 2>/dev/null
 done >"$LEDGER_MAIN"
 [ "$backfill" -eq 0 ] || known=""
-rows=""
-
-declare -A settled=()
-while IFS= read -r id; do
-  [ -z "$id" ] || settled[$id]=1
-done <<<"$known"
-while IFS=$'\t' read -r projects claude_config; do
-telemetries=$(
-  {
-    if [ -n "$session" ]; then
-      find "$projects" -mindepth 4 -maxdepth 4 -path "*/$session/subagents/agent-*.jsonl" 2>/dev/null
-      find "$projects" -mindepth 2 -maxdepth 2 -name "$session.jsonl" 2>/dev/null
-    else
-      find "$projects" -mindepth 4 -maxdepth 4 -path '*/subagents/agent-*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
-      find "$projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' -newermt "${since:-1 day ago}" 2>/dev/null
-    fi
-    true
-  } | sort | while IFS= read -r f; do
-    id=${f##*/}
-    id=${id%.jsonl}
-    id=${id#agent-}
-    [ -n "${settled[$id]:-}" ] || printf '%s\t%s\n' "$f" "$id"
-  done | CLAUDE_CONFIG_DIR="$claude_config" python3 "$LEDGER_CONTEXT_PY"
-) || exit 1
-while IFS=$'\t' read -r f id role telemetry tier; do
-  [ -n "$role" ] || continue
-  row=$(jq -cRn --arg role "$role" --arg id "$id" --arg tier "$tier" --arg since "$since" --argjson backfill "$(grep -qxF "$id" <<<"$recorded" && echo true || echo false)" '
-    def texts: [(.message.content | if type == "array" then .[] | select(.type == "text") | .text else tostring end)] | join("\n");
-    def ts: sub("\\.[0-9]+Z$"; "Z") | fromdate;
-    [inputs | fromjson? | select(type == "object")] as $lines
-    | [$lines[] | select(.type == "assistant" and .message.usage != null)] as $a
-    | select(($a | length) > 0)
-    | (if $tier != "" then $tier else ($a[-1].attributionAgent // "") end) as $agent
-    | select($role != "worker" or ($agent | startswith("worker")))
-    | [$lines[] | select(.type == "user" or .type == "assistant")] as $m
-    | ($m[-1]) as $last
-    | ($last.type == "assistant" and ($last.message.content | type) == "array"
-        and ([$last.message.content[].type] | index("tool_use") | not)
-        and ($last | texts | length) > 0
-        and (($last | texts | length) > 200 or ($last | texts | test("^\\W*(waiting|i.ll wait|i.ll pick|the test run)"; "i") | not))) as $finished
-    | ([$lines[] | select(.type == "user")][0] | texts) as $brief
-    | ([$a[] | select(.message.content | type == "array" and any(.[]; .type == "text")) | texts] | .[-3:] | max_by(length)) as $report
-    | ($report | .[0:400]) as $head
-    | ($lines | map(.timestamp // empty)) as $times
-    | ($times | last) as $ended
-    | select($ended >= $since)
-    | (if $role != "worker" then ($a[-1].message.model // "unknown")
-       elif ($a[-1].message.model // "" | test("haiku")) then "haiku"
-       else ($agent | ltrimstr("worker") | ltrimstr("-")) | if . == "" then "medium" else . end end) as $tiername
-    | ($brief | [scan("(?i)\\bETA\\b[^0-9\\n]{0,12}([0-9]+(?:\\.[0-9]+)?)\\s*(hours?|hrs?|h|minutes?|mins?|m)\\b")] | first
-       | if . == null then null else (.[0] | tonumber) * (if (.[1] | test("^h")) then 60 else 1 end) end) as $eta
-    | if ($finished | not) and $role == "worker" then
-        {id: $id, session: ($lines[0].sessionId // null), brief: ($brief | .[0:4000]), started: $times[0],
-         tier: $tiername, eta_min: $eta,
-         status: (if (now - ($ended | ts)) < 7200 then "running" else "stale" end)}
-      else {
-        status: (if $finished then "finished" else "active" end),
-        id: $id,
-        session: ($lines[0].sessionId // null),
-        ended: $ended,
-        brief: ($brief | .[0:4000]),
-        started: $times[0],
-        tier: $tiername,
-        eta_min: $eta,
-        actual_min: ((($ended | ts) - ($times[0] | ts)) / 60 | floor),
-        tokens: ([$a | group_by(.requestId // .message.id)[] | .[-1].message.usage.output_tokens // 0] | add),
-        peak_ctx: ($a[-1].message.usage | (.input_tokens // 0) + (.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)),
-        outcome: (if ($head | test("HANDOFF")) then "handoff"
-                  elif ($head | test("^\\W*split:"; "i")) then "split"
-                  elif ($head | test("^\\W*(not|partly|mostly|half) done"; "i")) then "not done"
-                  elif ($head | test("^\\W*blocked"; "i")) then "escalated"
-                  elif ($head | test("^\\W*done\\b"; "i")) then "done"
-                  else "unclear" end),
-        flaws: ([$report | scan("(?i)\\baccepted flaws?:\\s*([0-9]+)")] | first | if . == null then null else (.[0] | tonumber) end),
-        backfill: $backfill,
-        report: ($head | gsub("\\s+"; " ") | .[0:160])
-      } end
-  ' <"$f" 2>/dev/null)
-  [ -n "$row" ] || continue
-  runs=$(python3 -c "$LEDGER_CHECKS_PY"'
-import sys
-calls, steps, staffed, pending, review = {}, [], None, None, None
-for line in open(sys.argv[1]):
-    try:
-        r = json.loads(line)
-    except ValueError:
-        continue
-    staffed = staffed or r.get("timestamp")
-    content = (r.get("message") or {}).get("content")
-    if r.get("type") == "user" and not r.get("isMeta") and (isinstance(content, str) or any(c.get("type") == "text" for c in content or [] if isinstance(c, dict))):
-        review = review or pending
-    if not isinstance(content, list):
-        continue
-    if r.get("type") == "assistant":
-        pending = None if any(c.get("type") == "tool_use" for c in content) else r.get("timestamp") if any(c.get("type") == "text" for c in content) else pending
-    for c in content:
-        if c.get("type") == "tool_use":
-            cmd = (c.get("input") or {}).get("command") if c.get("name") == "Bash" else None
-            calls[c.get("id")] = len(steps)
-            steps.append([cmd, None, c.get("name") in ("Edit", "Write", "MultiEdit")])
-        elif c.get("type") == "tool_result" and c.get("tool_use_id") in calls:
-            steps[calls[c["tool_use_id"]]][1] = 1 if c.get("is_error") else 0
-            body = c.get("content")
-            steps[calls[c["tool_use_id"]]] += [body if isinstance(body, str) else json.dumps(body), r.get("timestamp")]
-print(json.dumps(dict(tally(steps), staffed=utc(staffed), review_requested=utc(review or pending))))' "$f" 2>/dev/null) || runs='{}'
-  row=$(printf '%s\n' "$row" "${runs:-{\}}" "$telemetry" | jq -cs --arg probe "$(case "$f" in "$projects"/-tmp-*) echo 1;; esac)" '
-    .[0] + .[1] + .[2]
-    | if .status == "running" or .status == "stale" then .
-      elif $probe != "" then .role = "probe" elif (.brief // "" | startswith("[routine:")) then .role = "routine" else . end')
-  rows+=$row$'\n'
-done <<<"$telemetries"
-done <<<"$project_roots"
+rows=$(north ledger claude-runs --settled <(printf '%s\n' "$known") --recorded <(printf '%s\n' "$recorded") ${session:+--session "$session"} ${since:+--since "$since"}) || exit 1
 {
-printf '%s' "$rows"
+[ -z "$rows" ] || printf '%s\n' "$rows"
 
 # Join plaintext spawn briefs by parent thread and task path; an encrypted
 # brief leaves Item to the issue refs its commands name.
@@ -306,7 +180,7 @@ import json, os, re, sqlite3, sys, time
 exec(os.environ["LEDGER_CHECKS_PY"])
 from datetime import datetime, timezone
 from pathlib import Path
-exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text().split('if __name__ == "__main__":')[0])
+exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text())
 
 session, since, known, recorded = sys.argv[1:]
 known, recorded = (set(Path(p).read_text().splitlines()) for p in (known, recorded))
@@ -489,7 +363,7 @@ for path in candidates:
                tokens=tokens, role=role, telemetry_only=not role, outcome=outcome, note=None,
                report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
                backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review),
-               **counts, **context_metrics(transcript, "codex"), **run_usage(transcript, "codex"))
+               **counts, **context_metrics(transcript), **run_usage(transcript))
     print(json.dumps(row))
 PY
 
@@ -499,7 +373,7 @@ exec(os.environ["LEDGER_CHECKS_PY"])
 from datetime import datetime, timezone
 from pathlib import Path
 import tomllib
-exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text().split('if __name__ == "__main__":')[0])
+exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text())
 prices = list_prices(tomllib.load(open(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parent.parent / "model-catalog.toml", "rb")))
 
 session, since, known, recorded = sys.argv[1:]
