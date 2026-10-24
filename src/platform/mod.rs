@@ -1,4 +1,5 @@
 pub(crate) mod git;
+pub(crate) mod harness;
 pub(crate) mod wisp_payoff;
 pub(crate) mod github;
 pub(crate) mod host;

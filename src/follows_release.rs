@@ -193,7 +193,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
         .open(state.join("agents/follows-release.lock"))
         .map_err(|e| e.to_string())?;
     lock.lock().map_err(|e| e.to_string())?;
-    let root = crate::agent_catalog::repo_root("north").map_err(|e| e.to_string())?;
+    let root = crate::platform::harness::harness_root()?;
     let listing = threads(&root, &["follow-list"]).map_err(|e| e.to_string())?;
     if !listing.status.success() {
         eprintln!("{}", String::from_utf8_lossy(&listing.stderr).trim());

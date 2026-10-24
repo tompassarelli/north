@@ -4,22 +4,14 @@ use super::{
     grants, process, readout, storage, target,
     window::Window,
 };
-use crate::ops::runtime::layout;
+use crate::platform::harness;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use storage::{load, number, rows, save};
 
 pub(super) fn root() -> PathBuf {
-    if let Some(root) = std::env::var_os("NORTH_HOME") {
-        return root.into();
-    }
-    let binary = std::env::current_exe().unwrap_or_default();
-    if let Some(root) = layout::harness_root(&binary) {
-        return root;
-    }
-    let checkout = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main");
-    layout::checkout_for(&binary, checkout).unwrap_or_else(|skew| {
+    harness::harness_root().unwrap_or_else(|skew| {
         eprintln!("{skew}");
         std::process::exit(1)
     })
