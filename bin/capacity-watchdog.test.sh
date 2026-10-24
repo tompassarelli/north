@@ -99,7 +99,7 @@ assert set(observed)=={'handoff hook silent: silent peak 365k, 0 fires','handoff
 PY
 
 claude_home="$scratch/claude" subagents="$scratch/claude/projects/-srv-repo/lead/subagents"; mkdir -p "$subagents" "$scratch/handoffs" "$scratch/bin"
-printf '#!/usr/bin/env bash\n[ "$1 $2" = "fleet list" ] && printf "%%s\\n" '\''[{"name":"fleet-parent","conversation":"parent","parent":null,"provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"done","conversation":"done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"not-done","conversation":"not-done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"ignored","conversation":"ignored","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"}]'\''\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
+printf '#!/usr/bin/env bash\n[ "$1" = ledger ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"\n[ "$1 $2" = "fleet list" ] && printf "%%s\\n" '\''[{"name":"fleet-parent","conversation":"parent","parent":null,"provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"done","conversation":"done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"not-done","conversation":"not-done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"ignored","conversation":"ignored","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"}]'\''\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
 python3 - "$subagents" <<'PY'
 import json, sys
 from datetime import datetime, timedelta, timezone
@@ -123,7 +123,7 @@ for agent, final in (("done", "Done: scenario green on the fix, red on main."), 
     (d / f"agent-{agent}.meta.json").write_text(json.dumps({"agentType": "worker-high"}))
 PY
 ledger_env=(THREADS_DB="$scratch/fires.db" CLAUDE_CONFIG_DIR="$claude_home" CODEX_CONFIG_DIR="$scratch/none" AGY_CONFIG_DIR="$scratch/none"
-  LEDGER_REPOS="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty" PATH="$scratch/bin:$PATH")
+  LEDGER_REPOS="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty" PATH="$scratch/bin:$PATH" WORKER_LEDGER_REAL_NORTH="$(cd "$(dirname "$target")/.." && realpath "${CARGO_TARGET_DIR:-target}")/debug/north")
 env "${ledger_env[@]}" "$(dirname "$target")/worker-ledger" --since "$(date -u -d '1 day ago' +%FT%TZ)" >/dev/null 2>"$scratch/ledger.err"
 fires=$(env "${ledger_env[@]}" "$target" report --minutes 30 | jq -c '[.flags[] | select(startswith("handoff"))]')
 [ "$fires" = '["handoff ignored: ignored"]' ] \
