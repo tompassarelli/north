@@ -58,6 +58,9 @@ fn strings(item: Option<&Item>) -> Vec<String> {
 pub(crate) fn serving_host(needs: &str) -> Option<String> {
     gate::serving(&sampling::config().ok()?, needs, &local())
 }
+pub(crate) fn local_warcraft_clients() -> Option<u32> {
+    gate::warcraft_clients(&sampling::config().ok()?, &local())
+}
 fn local() -> String {
     crate::platform::host::name()
 }

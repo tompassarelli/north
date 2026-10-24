@@ -23,6 +23,7 @@ fn facts(class: Class) -> Facts {
         before_drain: false,
         gpu_busy_percent: 0,
         gpu_clients: 0,
+        host_warcraft_clients: None,
         new_clients: 0,
         gpu_runs: 0,
         native_waiting: 0,

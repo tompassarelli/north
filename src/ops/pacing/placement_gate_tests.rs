@@ -227,3 +227,11 @@ fn a_box_declares_every_local_need_with_its_repository_as_its_capacity_need() {
     assert_eq!(gate::capacity_need(WARCRAFT).as_deref(), Some("native:smashcraft,warcraft:smashcraft"));
     assert_eq!(gate::capacity_need(CODE_ONLY), None);
 }
+
+#[test]
+fn a_host_entry_names_the_warcraft_client_count_admission_holds_it_to() {
+    let cfg: DocumentMut = "[hosts.gex45]\nresident_cap = 24\nwarcraft_clients = 6\n[hosts.laptop]\nserves = [\"native\"]\n".parse().unwrap();
+    assert_eq!(gate::warcraft_clients(&cfg, "gex45"), Some(6));
+    assert_eq!(gate::warcraft_clients(&cfg, "laptop"), None);
+    assert_eq!(gate::warcraft_clients(&cfg, "elsewhere"), None);
+}

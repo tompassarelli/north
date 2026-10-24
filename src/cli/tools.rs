@@ -62,7 +62,7 @@ impl Tool {
             Self::IssueBoxLint => issue_box_lint::run,
             Self::FollowsRelease => follows_release::run,
             Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments, super::fleet::roster)),
-            Self::Capacity => return ExitCode::from(capacity::run(arguments, crate::ops::pacing::placement::serving_host)),
+            Self::Capacity => return ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients })),
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Runtime => return ExitCode::from(crate::ops::runtime::run(arguments)),
         };

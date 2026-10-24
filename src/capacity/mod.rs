@@ -17,7 +17,12 @@ mod tests;
 
 use admission::Facts;
 
-pub(crate) fn run(arguments: &[String], serving: fn(&str) -> Option<String>) -> u8 {
+pub(crate) struct Host {
+    pub(crate) serving: fn(&str) -> Option<String>,
+    pub(crate) warcraft_clients: fn() -> Option<u32>,
+}
+
+pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => {}
         Some("laptop-auto") => return laptop_auto::run(&arguments[1..]),
@@ -37,8 +42,9 @@ pub(crate) fn run(arguments: &[String], serving: fn(&str) -> Option<String>) -> 
         Ok(mut facts) => {
             facts.gaming |= agent_load::gaming_marked(&agent_load::capacity_root());
             facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
+            facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
             facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
-            let _ = writeln!(std::io::stdout(), "{}", json!(admission::admit(&facts, serving)));
+            let _ = writeln!(std::io::stdout(), "{}", json!(admission::admit(&facts, host.serving)));
             0
         }
         Err(message) => {

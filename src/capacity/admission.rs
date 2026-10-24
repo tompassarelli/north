@@ -56,6 +56,8 @@ pub(crate) struct Facts {
     pub(crate) before_drain: bool,
     pub(crate) gpu_busy_percent: u32,
     pub(crate) gpu_clients: u32,
+    #[serde(default)]
+    pub(crate) host_warcraft_clients: Option<u32>,
     pub(crate) new_clients: u32,
     pub(crate) gpu_runs: u32,
     pub(crate) native_waiting: u32,
@@ -183,11 +185,15 @@ fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
     f64::from(cores - reserved)
 }
 
+fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
+    facts.host_warcraft_clients.or((facts.profile == Profile::Attended).then_some(ATTENDED_GPU_CLIENTS))
+}
+
 fn native(facts: &Facts) -> Reason {
     if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
         return Reason::DeferNativeCpus;
     }
-    if facts.profile == Profile::Attended && facts.gpu_clients.saturating_add(facts.new_clients) > ATTENDED_GPU_CLIENTS {
+    if warcraft_client_cap(facts).is_some_and(|cap| facts.gpu_clients.saturating_add(facts.new_clients) > cap) {
         return Reason::DeferGpuClients;
     }
     if facts.gpu_busy_percent >= GPU_BUSY_PERCENT && facts.gpu_runs == 0 {
@@ -257,8 +263,12 @@ mod tests {
     use super::*;
 
     fn native_with(gpu_clients: u32, new_clients: u32) -> Reason {
+        native_on("attended", None, gpu_clients, new_clients)
+    }
+
+    fn native_on(profile: &str, host_warcraft_clients: Option<u32>, gpu_clients: u32, new_clients: u32) -> Reason {
         let facts: Facts = serde_json::from_value(serde_json::json!({
-            "profile": "attended", "class": "native", "cores": 24, "memoryTotalMiB": 96343.0, "memoryAvailableMiB": 80000.0,
+            "profile": profile, "hostWarcraftClients": host_warcraft_clients, "class": "native", "cores": 24, "memoryTotalMiB": 96343.0, "memoryAvailableMiB": 80000.0,
             "cpuSomeAvg10BasisPoints": 0, "protectedCpuSomeAvg10BasisPoints": 0, "leasedMemoryMiB": 0.0, "leasedBatchCpus": 0.0,
             "leasedNativeCpus": 0.0, "requestedCpus": 2.0, "requestedMemoryMiB": 4096.0, "peerBatchRuns": 0, "peerExclusiveRuns": 0,
             "unboundedRuns": 0, "queuedAhead": 0, "exclusiveWaiting": 0, "gpuBusyPercent": 0, "gpuClients": gpu_clients,
@@ -273,5 +283,14 @@ mod tests {
         assert_eq!(native_with(4, 0), Reason::Run);
         assert_eq!(native_with(3, 2), Reason::DeferGpuClients);
         assert_eq!(native_with(2, 2), Reason::Run);
+    }
+
+    #[test]
+    fn a_host_measured_client_count_replaces_the_attended_four_in_either_profile() {
+        for profile in ["attended", "unattended"] {
+            assert_eq!(native_on(profile, Some(8), 6, 2), Reason::Run, "{profile}");
+            assert_eq!(native_on(profile, Some(8), 7, 2), Reason::DeferGpuClients, "{profile}");
+        }
+        assert_eq!(native_on("unattended", None, 40, 2), Reason::Run);
     }
 }
