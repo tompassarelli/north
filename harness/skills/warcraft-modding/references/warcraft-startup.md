@@ -13,8 +13,8 @@ Alt+Enter recovery is narrower evidence and does not replace the launcher-first
 procedure. Neither observation proves the underlying authentication/menu defect
 fixed.
 
-The successful A sequence is recorded in conversation
-01a0f6b6-0b0f-7942-b6ed-22e8b72fd4cf, 3 October 01:18–01:24 UTC, and
+The successful A sequence is recorded in the conversation south:agents/skills/battlenet-accounts/
+names, 3 October 01:18–01:24 UTC, and
 smashcraft:build/two-client-current-state.md under the 01:32 UTC checkpoint.
 Use the indexed convo CLI to retrieve the exact sequence when needed.
 

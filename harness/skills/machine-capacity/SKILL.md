@@ -54,7 +54,7 @@ Choose the smallest sufficient class, because oversized claims queue peers for n
 
 ## Profiles and pressure
 
-- Attended batch stays within cores minus four and 20% RAM available, and defers while protected-slice CPU some avg10 is at least 10%, because the desktop must stay responsive. Unattended stays within all cores and an 8 GiB available-memory floor, never above a quarter of RAM on small hosts such as nexus.
+- Attended batch stays within cores minus four and 20% RAM available, and defers while protected-slice CPU some avg10 is at least 10%, because the desktop must stay responsive. Unattended stays within all cores and an 8 GiB available-memory floor, never above a quarter of RAM on small hosts.
 - Cap leased memory at 75% RAM in both profiles, so the kernel never has to reclaim from interactive work.
 - Treat memory PSI as diagnostic and system CPU PSI as admission pacing rather than desktop harm, because batch quota throttling inflates both without hurting the desktop.
 - Scale native pairs one at a time and stop adding above protectedCpuSomeAvg10 20, because Warcraft clients are the heaviest steady load.

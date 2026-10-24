@@ -19,7 +19,7 @@ Ask Tom a direction-ambiguity question through the proxy's picker, because that 
 
 ## Feature Bottlenecks page
 
-Tom's Feature Bottlenecks page (https://claude.ai/artifact/XLbQjnoLj1oQU4fHgLhEBt, a Dashboard artifact) is refreshed from a Claude session on its tick, because only a Claude session can write the artifact:
+Tom's Feature Bottlenecks page (a Dashboard artifact whose link is in south:agents/skills/claude-accounts/) is refreshed from a Claude session on its tick, because only a Claude session can write the artifact:
 
 1. Run `bin/iteration-ledger`, then `bin/iteration-ledger-page`.
 2. Upload `features.json`, `stages.json` and `projects.json` from `~/.local/state/agents/iteration-ledger/page/` as assets of the page.

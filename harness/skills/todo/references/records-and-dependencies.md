@@ -27,10 +27,10 @@ id = "store-proposition-boundary"
 title = "Separate proposition identity from assertion identity"
 shape = "project"
 life = "active"
-updated_at = "2026-08-14T11:36:50+08:00"
+updated_at = "2026-08-14T03:36:50Z"
 owners = ["codex:/root"]
 requires = []
-conversation_ids = ["codex:019ffd07-c27b-7943-8a66-553dff2ae98b"]
+conversation_ids = ["codex:<session-uuid>"]
 coordination = ["agent-coord.md#C007"]
 
 [[lane]]

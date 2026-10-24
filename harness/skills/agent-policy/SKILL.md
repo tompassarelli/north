@@ -46,6 +46,12 @@ only that. `references/` keep constraints, rationale, examples, alternatives
 and labeled exploratory ideas; link each from `SKILL.md` with when to read it.
 Update both layers when an adopted rule changes.
 
+Keep a north skill's method public and put Tom-specific facts in a south
+reference the skill points to with `south:<path>`: account letters and logins,
+hosts, plans, prices and credit, his installs and devices, private repository
+names, and session, environment or artifact IDs. North is a public repository,
+and a fact pushed there stays readable in its history after it moves.
+
 ## Change and activate
 
 1. Read owner instructions; edit an owned worktree, never a projection or pin,

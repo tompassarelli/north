@@ -40,13 +40,13 @@ assert.equal(eightGigHeavy.cpus, 4);
 assert.equal(eightGigHeavy.decision, 'RUN');
 console.log(`8 GiB host heavy: clamped to ${eightGigHeavy.memoryMiB} MiB, decision ${eightGigHeavy.decision}.`);
 
-const nexus = { source: 'small-host-capacity brief: nexus has 4 cores and a 5957 MiB memory cap', cores: 4, totalMiB: 7943, availableMiB: 7000 };
+const smallHost = { source: 'small-host-capacity brief: a 4-core host with a 5957 MiB memory cap', cores: 4, totalMiB: 7943, availableMiB: 7000 };
 for (const kind of ['heavy', 'exclusive', 'critical']) {
-  const grant = fixtureOn('unattended', kind, nexus.cores, nexus.totalMiB, nexus.availableMiB);
-  assert.equal(grant.decision, 'RUN', `${nexus.source}: ${kind}`);
-  assert.equal(grant.cpus, nexus.cores);
+  const grant = fixtureOn('unattended', kind, smallHost.cores, smallHost.totalMiB, smallHost.availableMiB);
+  assert.equal(grant.decision, 'RUN', `${smallHost.source}: ${kind}`);
+  assert.equal(grant.cpus, smallHost.cores);
   assert.equal(grant.memoryMiB, 5957);
-  console.log(`Nexus ${kind}: ${grant.cpus} CPUs, ${grant.memoryMiB} MiB, decision ${grant.decision}.`);
+  console.log(`Small host ${kind}: ${grant.cpus} CPUs, ${grant.memoryMiB} MiB, decision ${grant.decision}.`);
 }
 
 // The same idle 8 GiB host admits a moderate request: the floor never exceeds a quarter of RAM.

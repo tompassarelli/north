@@ -5,7 +5,7 @@ shopt -s inherit_errexit
 usage() {
   echo "usage: cloud-sessions.sh list | events SESSION_ID OUT.jsonl | sweep OUT_DIR" >&2
   echo "sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges." >&2
-  echo "Run on the host whose ~/.claude login owns the cloud sessions (Nexus, Proton)." >&2
+  echo "Run on the host whose ~/.claude login owns the cloud sessions (south:agents/skills/claude-accounts/)." >&2
   exit 2
 }
 

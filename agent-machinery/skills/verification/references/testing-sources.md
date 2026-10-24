@@ -324,8 +324,8 @@ nightly cluster, TigerBeetle's 1,000-core fuzzing.
 
 ## Repository reviews (2026-10-11)
 
-- [R1] Test-lean reviews of seven repositories (galileo, smashcraft, wisp, south,
-  proton-triage, the agent CLI and the system configuration), one handoff file per repository. Took:
+- [R1] Test-lean reviews of the seven repositories south:agents/references/test-lean.md
+  lists, one handoff file per repository. Took:
   the PATTERN lines summed into the delete-on-sight counts; the wisp and
   smashcraft "empty file" censuses were refuted by the runner.
 - [R2] `agent-test-failure-research.md` in the same directory, top gaps 1-5.

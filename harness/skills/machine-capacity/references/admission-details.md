@@ -32,7 +32,7 @@ Contents:
 
 - CPU weights: compositor session 300, native 200, app 100, batch agent 20.
 - Attended batch stays within cores minus four and 20% RAM available, and defers while protected-slice CPU some avg10 is at least 10%.
-- Unattended stays within all cores and an 8 GiB available-memory floor, never above a quarter of RAM (small hosts such as nexus).
+- Unattended stays within all cores and an 8 GiB available-memory floor, never above a quarter of RAM (small hosts).
 - Leased memory is capped at 75% RAM in both profiles.
 - swayidle sets `mode away` after 10 minutes idle and `mode present` on input; auto without an away signal is attended. `mode` and `probe` show the active mode and profile.
 

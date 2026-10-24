@@ -48,11 +48,11 @@ metadata:
 
 - Parity: a subsystem's headless check plus the weekly native spot batch meets its native box only when corpus divergence is zero. Keep the automatically recorded covered sessions in smashcraft:ts/test/corpus/, where `bun wisp parity corpus` checks them in Bun and 32-bit Lua on every push. Fix the first divergent frame or field before substituting headless coverage for a native check.
 - Measure native truth only from outside the game: pictures, sound, War3Log and other files the game writes, replays, timing, and map-side Lua instrumentation inside our own map (frame number, checksums, per-frame cost) with stack-trace builds. Align native and Wisp frames by the map's own frame number. A gameplay check passes when native pad output matches headless through `bun wisp pad ... --compare`.
-- Clients: Classic runs on the offline LAN pool at build 3.0.0.24268. Battle.net tests and the updated install that feeds the Classic pool run on signed-in clones A, B, C and D; use whichever hosts soonest.
+- Clients: Classic runs on the offline LAN pool at build 3.0.0.24268. Battle.net tests and the updated install that feeds the Classic pool run on the signed-in clones listed in south:agents/skills/battlenet-accounts/; use whichever hosts soonest.
 - Check the live build with `curl http://us.patch.battle.net:1119/w3/versions` before relying on the build-specific LAN plugin. When the live build leaves 24268, keep pool pairs in solo games until the plugin is checked on the new build. Use integrity maps, not default dev maps, for pad chat setup. [lan-pair-batching.md](references/lan-pair-batching.md) covers pool setup, capacity, pair ownership and issue queues.
-- Native work runs off Tom's machine, on the vast.ai Warcraft VM, through the vast-ai skill's path and pool recipe. Account b is signed in only there.
+- Native work runs off Tom's machine, on the remote Warcraft host south:agents/skills/battlenet-accounts/ names, through that host's skill's path and pool recipe. An account signed in there is signed in nowhere else.
 - Close Tom's Battle.net or Warcraft III, once he approves, only with `~/code/north/main/bin/tom-warcraft-close` and never by killing single processes, because a partial kill leaves Steam's launch half-alive and his next Play does nothing.
-- Never touch Tom's game install, except to bring it to the playtest lobby below; account a is an ordinary clone (clone-a through its launch.sh, which yields to Tom's game) whenever Tom isn't playing; sign it out before his install goes to a playtest lobby.
+- Never touch Tom's game install, except to bring it to the playtest lobby below; south:agents/skills/battlenet-accounts/ says which clone shares his account, when it may run and when to sign it out.
 - Prove a flicker, jitter or other motion fix with at least 10 s of native video at 60 fps or more, counting bad frames by frame diff before and after, with the mouse and with the pad; a screenshot never proves one.
 - A playtest is ready for Tom only when his own Steam, Battle.net and Warcraft III are open and waiting in the custom-game lobby with the RC map selected, Classic graphics and the pad connected; never start the match. Write RC-READY, and relay a playtest to Tom, only after that lobby is confirmed (LOBBY-READY with a screenshot).
 - Lifecycle: start signed-in clients as user services with `bun wisp client start [CLIENT...] --clients-file FILE`, never as shell or background tasks. Manage them with `client status` and `client stop`, and leave them at the menu for the next Battle.net check.
@@ -75,7 +75,7 @@ metadata:
 ## Conditional references
 
 - [warcraft-startup.md](references/warcraft-startup.md) when doctor stops and manual recovery is needed.
-- [accounts-and-login.md](references/accounts-and-login.md) for test sign-in or account questions.
+- south:agents/skills/battlenet-accounts/references/accounts-and-login.md for test sign-in or account questions.
 - [pad-and-input-capture.md](references/pad-and-input-capture.md) for pad batches, pose captures or press-to-screen timing.
 - [lan-discovery.md](references/lan-discovery.md) for pool caps or lobby discovery CPU costs.
 - [renderer-features.md](references/renderer-features.md) for graphics natives.

@@ -67,7 +67,7 @@ a rule when its numbers move.
   runners through `github` first. Move it to vast.ai through `vast-job`
   when the farm queue delays a result.
 - Run always-on Warcraft clients, the offline LAN pool and GPU work on the
-  Hetzner box once it exists, and on the vast.ai VM until then. Keep signed-in
+  hosts south:agents/orchestration.toml names for them. Keep signed-in
   clients local unless you move them deliberately.
 - Rent no other CPU provider: DigitalOcean and similar charge several times
   vast.ai's price for the same cores.
