@@ -19,6 +19,7 @@ use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::fleet_placement::{self, Launch, Overrides, Placed};
+use crate::ops::pacing::placement::logins::{self, Login};
 use super::{gate, orders};
 
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
@@ -142,6 +143,9 @@ fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, overrides: 
         return Err(NorthError::Usage(format!("{name}'s conversation lives on {}, so it revives there; launch a new session to work here", machine.name)));
     }
     let mut placement = None;
+    if record.provider.label() == "claude" {
+        fleet_placement::refuse_shared_login(&record.account)?;
+    }
     if record.provider.label() == "claude" && !record.verification && !fleet.running(&record) {
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
@@ -244,8 +248,18 @@ fn print_branch(fleet: &Fleet, sessions: &[SessionRecord], record: &SessionRecor
 }
 
 fn accounts(fleet: &Fleet) -> NorthResult<()> {
-    for account in fleet.accounts() {
-        println!("{}\t{}", account.provider.label(), account.label);
+    let logins = logins::live();
+    let accounts = fleet.accounts();
+    for account in &accounts {
+        let refusal = logins.iter().find(|login| account.provider.label() == "claude" && login.label == account.label).and_then(Login::refusal);
+        match refusal {
+            Some(refusal) => println!("{}\t{}\trefused: {refusal}", account.provider.label(), account.label),
+            None => println!("{}\t{}", account.provider.label(), account.label),
+        }
+    }
+    let undiscovered = logins.iter().filter(|login| !accounts.iter().any(|account| account.provider.label() == "claude" && account.label == login.label));
+    for (login, refusal) in undiscovered.filter_map(|login| Some((login, login.refusal()?))) {
+        println!("claude\t{}\trefused: {refusal}", login.label);
     }
     Ok(())
 }
@@ -259,8 +273,11 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     Ok(())
 }
 
-/// Placement gates every Claude launch except `--test` sessions, before anything starts.
+/// Placement gates every Claude launch except `--test` sessions, before anything starts; a shared login refuses every one.
 fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides) -> NorthResult<Placed> {
+    if request.provider.label() == "claude" {
+        fleet_placement::refuse_shared_login(&request.account)?;
+    }
     if request.provider.label() != "claude" || request.verification {
         return Ok(Placed::default());
     }

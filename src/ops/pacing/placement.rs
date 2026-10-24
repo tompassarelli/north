@@ -7,6 +7,7 @@ use toml_edit::{DocumentMut, Item};
 
 mod candidates;
 pub(crate) mod gate;
+pub(crate) mod logins;
 mod hosts;
 mod launch;
 mod survey;
@@ -266,6 +267,7 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
     }
     let gate = storage::load(&storage::directory().join("usage-gate.json"));
     let machines = gate::probed(&cfg, &Default::default());
+    let shared = logins::shared(&logins::live());
     for path in &args[1..] {
         let text = if path == "-" {
             use std::io::Read;
@@ -277,7 +279,7 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
         } else {
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
-        let decision = gate::decide(&text, &cfg, &gate, credit(&cfg, at), &machines, &local(), at);
+        let decision = gate::decide(&text, &cfg, &gate, credit(&cfg, at), &machines, &local(), &shared, at);
         for line in decision.verdicts.iter().map(|v| &v.line).chain(&decision.machine_lines) {
             println!("  {line}");
         }

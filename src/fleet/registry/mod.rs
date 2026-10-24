@@ -492,6 +492,6 @@ fn home_dir() -> NorthResult<PathBuf> {
         .ok_or_else(|| NorthError::Configuration("HOME is not set".into()))
 }
 
-fn state_dir(home: &Path) -> PathBuf {
+pub(crate) fn state_dir(home: &Path) -> PathBuf {
     home.join(".local/state/north")
 }

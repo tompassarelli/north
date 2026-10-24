@@ -4,7 +4,7 @@
 //! weekly projections never hold a launch; an account is out only when a window is exhausted or burning away.
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
-use super::{credit, facets, field, local, resident, strings};
+use super::{credit, facets, field, local, logins, resident, strings};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
@@ -260,9 +260,15 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
         .collect()
 }
 
-pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool, String), machines: &[Machine], here: &str, at: f64) -> Decision {
+pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool, String), machines: &[Machine], here: &str, shared: &BTreeMap<String, String>, at: f64) -> Decision {
     let (code_only, surface) = surface(text, cfg);
-    let verdicts: Vec<Verdict> = claude_controls(gate).into_iter().map(|(name, c)| verdict(&name, c, at)).collect();
+    let verdicts: Vec<Verdict> = claude_controls(gate)
+        .into_iter()
+        .map(|(name, c)| match shared.get(&name) {
+            Some(keeper) => Verdict { line: format!("{name} unavailable: logged in to the same Claude account as {keeper}"), account: name, available: false, headroom: 0.0 },
+            None => verdict(&name, c, at),
+        })
+        .collect();
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
     let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves);
     let mut decision = Decision {
@@ -313,7 +319,7 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>) -> Result<Dec
         .and_then(|s| target::seconds(&s))
         .unwrap_or_else(storage::now);
     let gate = load(&storage::directory().join("usage-gate.json"));
-    Ok(decide(text, &cfg, &gate, credit(&cfg, at), &probed(&cfg, fleet_load), &local(), at))
+    Ok(decide(text, &cfg, &gate, credit(&cfg, at), &probed(&cfg, fleet_load), &local(), &logins::shared(&logins::live()), at))
 }
 
 /// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet

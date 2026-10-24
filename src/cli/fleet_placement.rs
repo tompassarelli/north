@@ -8,6 +8,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Machine;
 use crate::fleet::runtime::binary;
 use crate::ops::pacing::placement::gate::{self, Decision, Target};
+use crate::ops::pacing::placement::logins::{self, Login};
 
 const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
 const HANDBACK: &str = "git format-patch origin/main..HEAD --stdout | gzip -9 | base64 -w 76 > /tmp/handback.b64, then one Bash call per 300-line part i of n: echo BEGIN-HANDBACK part i/n; sed -n <first>,<last>p /tmp/handback.b64; echo END-HANDBACK part i/n";
@@ -63,6 +64,13 @@ pub(super) struct Launch<'a> {
 pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthResult<String> {
     let file = system_prompt.map(std::fs::read_to_string).transpose()?.unwrap_or_default();
     Ok(format!("{file}\n{prompt}"))
+}
+
+pub(super) fn refuse_shared_login(account: &str) -> NorthResult<()> {
+    match logins::live().iter().find(|login| login.label == account).and_then(Login::refusal) {
+        Some(refusal) => Err(NorthError::Refused(format!("{refusal}; launch on another --account"))),
+        None => Ok(()),
+    }
 }
 
 /// Runs live placement, prints one verdict line per account and machine, and returns where to run.

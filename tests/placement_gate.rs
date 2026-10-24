@@ -93,7 +93,7 @@ fn fleet_launch_refuses_off_placement_and_records_the_override_reason() {
     let local = launch(root, "kept", CODE_ONLY, &["--account", "a", "--local", "x"]);
     assert!(local.status.success(), "{}", String::from_utf8_lossy(&local.stderr));
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !root.join("prompt").is_file() && Instant::now() < deadline {
+    while !fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box") && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box"));
@@ -143,7 +143,7 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
     let said = launch("far-box");
     assert!(said.contains("placement: target far claude:a") && said.contains("far available: 1/2 resident CLIs"), "{said}");
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !root.join("prompt").is_file() && Instant::now() < deadline {
+    while !fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box") && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box"), "the CLI behind ssh got the prompt: {}", fs::read_to_string(root.join(".local/state/north/fleet/far-box/g1/stderr.log")).unwrap_or_default());
@@ -157,4 +157,28 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
     for name in ["far-box", "kept-box"] {
         north(root, &["fleet", "stop", name]);
     }
+}
+
+#[test]
+fn a_label_logged_in_to_another_labels_account_is_refused_in_accounts_and_launch() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    for label in ["a", "c"] {
+        let login = serde_json::json!({"oauthAccount": {"accountUuid": "0d4b6f2e-shared-login"}});
+        fs::write(root.join(format!(".local/state/north/profiles/claude-{label}/.claude.json")), login.to_string()).unwrap();
+    }
+    let listed = north(root, &["fleet", "accounts"]);
+    let lines = String::from_utf8_lossy(&listed.stdout);
+    assert!(lines.contains("claude\ta\n"), "{lines}");
+    assert!(lines.contains("claude\tc\trefused: claude:c is logged in to the same Claude account as claude:a\n"), "{lines}");
+
+    let pinned = launch(root, "shared", WARCRAFT, &["--account", "c", "--pin", "drain c"]);
+    let said = String::from_utf8_lossy(&pinned.stderr);
+    assert!(!pinned.status.success(), "a label sharing another label's login launched");
+    assert!(said.contains("claude:c is logged in to the same Claude account as claude:a"), "{said}");
+    assert!(!root.join(".local/state/north/fleet/shared").exists(), "the refused launch left a session");
+    let tested = launch(root, "shared-test", WARCRAFT, &["--account", "c", "--test"]);
+    let said = String::from_utf8_lossy(&tested.stderr);
+    assert!(!tested.status.success() && said.contains("claude:c is logged in to the same Claude account as claude:a"), "a --test launch skipped the login check: {said}");
 }

@@ -54,14 +54,14 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         ("no live quota holds", WARCRAFT, &json!({}), credit(), "held: no live Claude quota in usage-gate.json; run pace-control"),
     ];
     for (name, brief, gate, credit, expected) in cases {
-        let decision = decide(brief, &cfg, gate, credit, &[], "here", at);
+        let decision = decide(brief, &cfg, gate, credit, &[], "here", &Default::default(), at);
         assert_eq!(target(&decision), expected, "{name}: {:?}", decision.verdicts);
         assert_eq!(decision.verdicts.len(), gate["claude"]["controls"].as_object().map_or(0, |c| c.len()), "{name}");
     }
-    let decision = decide(WARCRAFT, &cfg, &runaway_c, credit(), &[], "here", at);
+    let decision = decide(WARCRAFT, &cfg, &runaway_c, credit(), &[], "here", &Default::default(), at);
     let c = decision.verdict("claude:c").unwrap();
     assert!(!c.available && c.line.contains("runaway: 5h 42%"), "{}", c.line);
-    let a = decide(WARCRAFT, &cfg, &full_a, credit(), &[], "here", at).verdict("claude:a").cloned().unwrap();
+    let a = decide(WARCRAFT, &cfg, &full_a, credit(), &[], "here", &Default::default(), at).verdict("claude:a").cloned().unwrap();
     assert!(!a.available && a.line.contains("exhausted: 5h 96% >= 95%"), "{}", a.line);
     assert!(decision.verdicts.iter().all(|v| !v.line.contains('\n') && v.line.starts_with(&v.account)));
 
@@ -77,7 +77,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         machines
     };
     let place = |brief: &str, near, far| {
-        let decision = decide(brief, &cfg, &gate, spent(), &probed(near, far), "here", at);
+        let decision = decide(brief, &cfg, &gate, spent(), &probed(near, far), "here", &Default::default(), at);
         let summary = super::placement::gate::summary(&decision);
         (decision.machine.map(|m| m.ssh), decision.machine_lines, summary)
     };
@@ -113,18 +113,46 @@ fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
     let camera = "Item: smashcraft#96 (scorecard tool)\nSurface: ts\nVerify: visual\nNeeds: private\n";
     let wisp = "Item: wisp#5 private pool change\nSurface: ts\nNeeds: private\n";
 
-    let placed = decide(camera, &cfg, &gate, spent(), &machines, "laptop", at);
+    let placed = decide(camera, &cfg, &gate, spent(), &machines, "laptop", &Default::default(), at);
     assert_eq!(placed.machine, None, "{:?}", placed.machine_lines);
     assert_eq!(placed.machine_lines, ["gex45 skipped: needs private"]);
     assert_eq!(super::placement::gate::summary(&placed), "target laptop claude:c (needs private, so local)");
 
-    let mut placed = decide(wisp, &cfg, &gate, spent(), &machines, "laptop", at);
+    let mut placed = decide(wisp, &cfg, &gate, spent(), &machines, "laptop", &Default::default(), at);
     assert_eq!(placed.machine.as_ref().map(|m| m.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
     placed.stay_here(Some("gex45 has no /lane, so here".into()));
     assert_eq!(placed.machine_lines[1..], ["gex45 has no /lane, so here", "laptop skipped: needs private"]);
     assert_eq!(super::placement::gate::summary(&placed), "target unserved: no host serves private for wisp");
 
-    let refused = decide(camera, &cfg, &gate, spent(), &[], "gex45", at);
+    let refused = decide(camera, &cfg, &gate, spent(), &[], "gex45", &Default::default(), at);
     assert_eq!(refused.machine_lines, ["gex45 skipped: needs private"]);
     assert_eq!(super::placement::gate::summary(&refused), "target unserved: no host serves private for smashcraft");
+}
+
+#[test]
+fn a_label_logged_in_to_another_labels_account_is_refused_naming_both() {
+    use super::placement::logins::{logins, shared};
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    let homes = ["a", "b", "c", "d", "e"].map(|label| (label.to_owned(), PathBuf::from(label))).to_vec();
+    let identity = |home: &Path| match home.to_str()? {
+        "a" | "b" => Some("843aa918".to_owned()),
+        "d" | "e" => Some("5d2c0e11".to_owned()),
+        _ => None,
+    };
+    let declared = BTreeMap::from([("843aa918".to_owned(), "b".to_owned())]);
+    let found = logins(homes, identity, &declared);
+    let refused: Vec<String> = found.iter().filter_map(|login| login.refusal()).collect();
+    assert_eq!(refused, ["claude:a is logged in to the same Claude account as claude:b", "claude:e is logged in to the same Claude account as claude:d"]);
+
+    let cfg = "[placement]\n[hosts.here]\nserves = [\"private\"]\n".parse().unwrap();
+    let at = super::target::seconds(AT).unwrap();
+    let gate = gate(&[
+        ("claude:a", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0))),
+        ("claude:b", control((40.0, 1.0, "2026-10-16T16:00:00Z"), (60.0, 1.0))),
+    ]);
+    let decision = decide(PRIVATE, &cfg, &gate, (false, "cloud credit: spent".into()), &[], "here", &shared(&found), at);
+    assert_eq!(target(&decision), "claude:b");
+    let a = decision.verdict("claude:a").unwrap();
+    assert!(!a.available && a.line == "claude:a unavailable: logged in to the same Claude account as claude:b", "{}", a.line);
 }
