@@ -923,10 +923,10 @@ def hold(db, item, r, claim, follows):
 def cmd_ingest(db, a):
     """Read worker-ledger's JSON rows on stdin. A running worker holds its Item; a finished one
     releases it and becomes a run; a stale one (idle 2 h) releases it. Recorded runs are skipped."""
-    added = backfilled = 0
+    added = backfilled = 0; rows = sys.stdin.readlines()
     unlabeled, readouts, unpriced = [], [], set()
     with Tx(db):
-        for line in sys.stdin:
+        for line in rows:
             if not line.strip():
                 continue
             r = json.loads(line)
