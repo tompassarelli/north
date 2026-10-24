@@ -5,6 +5,8 @@
 # below both, other agent types and the main session get nothing.
 set -uo pipefail
 export PATH="/etc/codex/hooks/runtime:$PATH"
+# shellcheck source-path=SCRIPTDIR source=../lib/tree-north.sh
+. "$(dirname "$0")/../lib/tree-north.sh"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/worker-handoff.sh"

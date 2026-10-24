@@ -13,7 +13,9 @@
 # spawn reads its account label, the account it bills.
 set -uo pipefail
 if [ "${1:-}" != --isolated ]; then
-  exec env -i PATH="$PATH" NORTH_PACE_BIN="${NORTH_PACE_BIN:-north}" bash "$0" --isolated
+  # shellcheck source-path=SCRIPTDIR source=../lib/tree-north.sh
+  . "$(dirname "$0")/../lib/tree-north.sh"
+  exec env -i PATH="$PATH" NORTH_PACE_BIN="$NORTH_PACE_BIN" bash "$0" --isolated
 fi
 export PATH="/etc/codex/hooks/runtime:$PATH"
 
@@ -546,13 +548,13 @@ for present in missing stale; do
     : >"$SCRATCH/ssh-calls"; rm -f "$SCRATCH/home/.local/state/threads/snapshot.db.tried"
     reserve_gate 5 "$rule"
     expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "$rule reserve: $present snapshot far below cap warns"
-    [ "$(wc -l <"$SCRATCH/ssh-calls")" -eq 1 ] && check ok "$rule reserve: $present snapshot refresh attempted once" || check bad "$rule reserve: $present snapshot refresh attempted once" "$(cat "$SCRATCH/ssh-calls")"
     reserve_gate 87.999 "$rule"
     if [ "$rule" = account ]; then
     expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "$rule reserve: $present snapshot stops capped admission"
     else
       expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: $present snapshot stops capped admission"
     fi
+    [ "$(wc -l <"$SCRATCH/ssh-calls")" -eq 1 ] && check ok "$rule reserve: $present snapshot refresh attempted once" || check bad "$rule reserve: $present snapshot refresh attempted once" "$(cat "$SCRATCH/ssh-calls")"
   done
 done
 gate null
