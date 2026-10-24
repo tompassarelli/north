@@ -301,7 +301,7 @@ printf '%s' "$rows"
 
 # Join plaintext spawn briefs by parent thread and task path; an encrypted
 # brief leaves Item to the issue refs its commands name.
-python3 - "$session" "$since" "$known" "$recorded" <<'PY'
+python3 - "$session" "$since" <(printf '%s\n' "$known") <(printf '%s\n' "$recorded") <<'PY'
 import json, os, re, sqlite3, sys, time
 exec(os.environ["LEDGER_CHECKS_PY"])
 from datetime import datetime, timezone
@@ -309,7 +309,7 @@ from pathlib import Path
 exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text().split('if __name__ == "__main__":')[0])
 
 session, since, known, recorded = sys.argv[1:]
-known, recorded = set(known.splitlines()), set(recorded.splitlines())
+known, recorded = (set(Path(p).read_text().splitlines()) for p in (known, recorded))
 root = Path(os.environ.get("CODEX_CONFIG_DIR", os.path.expanduser("~/code/north-data/codex-pooled")))
 cutoff = datetime.fromisoformat(since.replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp() if since else time.time() - 86400
 
@@ -493,7 +493,7 @@ for path in candidates:
     print(json.dumps(row))
 PY
 
-python3 - "$session" "$since" "$known" "$recorded" <<'PY'
+python3 - "$session" "$since" <(printf '%s\n' "$known") <(printf '%s\n' "$recorded") <<'PY'
 import json, os, re, sqlite3, sys, time
 exec(os.environ["LEDGER_CHECKS_PY"])
 from datetime import datetime, timezone
@@ -503,7 +503,7 @@ exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text().split('if __name__ == "__
 prices = list_prices(tomllib.load(open(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parent.parent / "model-catalog.toml", "rb")))
 
 session, since, known, recorded = sys.argv[1:]
-known, recorded = set(known.splitlines()), set(recorded.splitlines())
+known, recorded = (set(Path(p).read_text().splitlines()) for p in (known, recorded))
 root = Path(os.environ.get("AGY_CONFIG_DIR", os.path.expanduser("~/.gemini/antigravity-cli")))
 cutoff = datetime.fromisoformat(since.replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp() if since else time.time() - 86400
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
