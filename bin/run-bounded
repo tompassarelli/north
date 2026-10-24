@@ -33,9 +33,8 @@ fi
 
 SYSTEMCTL=/run/current-system/sw/bin/systemctl
 SYSTEMD_RUN=/run/current-system/sw/bin/systemd-run
-UNSHARE=/run/current-system/sw/bin/unshare
 TIMEOUT=/run/current-system/sw/bin/timeout
-for tool in "$SYSTEMCTL" "$SYSTEMD_RUN" "$UNSHARE" "$TIMEOUT"; do
+for tool in "$SYSTEMCTL" "$SYSTEMD_RUN" "$TIMEOUT"; do
   [ -x "$tool" ] || {
     printf 'run-bounded: required owner runtime is unavailable: %s\n' "$tool" >&2
     exit 127
@@ -53,15 +52,28 @@ done
 stamp=${EPOCHREALTIME//[.,]/}
 unit="agent-bounded-${stamp}-${BASHPID}-${RANDOM}"
 
-# The transient scope is the accountable cgroup owner. RuntimeMaxSec and GNU
-# timeout independently bound its life; unshare's PID namespace makes owner
-# death kill every remaining descendant, including a changed process group.
-owner=()
-if [[ -n "${NORTH_FLEET_SCOPE:-}" ]]; then
-  owner=(--property="BindsTo=$NORTH_FLEET_SCOPE" --property="After=$NORTH_FLEET_SCOPE")
+# Bound to the guard scope so wrapper death stops the service; no user namespace, so root files stay root.
+if [[ "${RUN_BOUNDED_STAGE:-}" != serve ]]; then
+  guard=()
+  if [[ -n "${NORTH_FLEET_SCOPE:-}" ]]; then
+    guard=(--property="BindsTo=$NORTH_FLEET_SCOPE" --property="After=$NORTH_FLEET_SCOPE")
+  fi
+  RUN_BOUNDED_STAGE=serve RUN_BOUNDED_UNIT=$unit exec "$SYSTEMD_RUN" --user --scope --quiet --collect \
+    --same-dir "${guard[@]}" --unit="$unit-guard" --slice=agent-bounded.slice \
+    "$0" "$duration" -- "$@"
 fi
-exec "$SYSTEMD_RUN" --user --scope --quiet --collect --same-dir "${owner[@]}" \
+
+unset RUN_BOUNDED_STAGE
+unit=$RUN_BOUNDED_UNIT
+unset RUN_BOUNDED_UNIT
+envs=()
+while IFS= read -r name; do
+  [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+  case "$name" in NOTIFY_SOCKET|INVOCATION_ID|JOURNAL_STREAM|MANAGERPID|SYSTEMD_EXEC_PID|LISTEN_PID|LISTEN_FDS|LISTEN_FDNAMES) continue ;; esac
+  envs+=(-E "$name")
+done < <(compgen -e)
+exec "$SYSTEMD_RUN" --user --pipe --quiet --wait --collect --same-dir "${envs[@]}" \
   --unit="$unit" --slice=agent-bounded.slice \
+  --property="BindsTo=$unit-guard.scope" --property="After=$unit-guard.scope" \
   --property="RuntimeMaxSec=${seconds}s" \
-  "$UNSHARE" --user --map-current-user --pid --fork --kill-child=KILL \
   "$TIMEOUT" --preserve-status --signal=TERM --kill-after=5s "$duration" "$@"

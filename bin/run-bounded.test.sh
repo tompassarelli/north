@@ -42,6 +42,10 @@ for _ in $(seq 1 100); do
 done
 [ ! -e "/proc/$child" ]
 
+[ "$("$run" 10s -- stat -c %U /nix/store)" = root ]
+
+[ "$(NOTIFY_SOCKET=/x LISTEN_FDS=3 "$run" 10s -- env | grep -cE '^(NOTIFY_SOCKET|LISTEN_FDS)=' || true)" = 0 ]
+
 capacity="$repo/harness/skills/machine-capacity/scripts"
 "$capacity/build-machine-capacity" "$scratch/machine-capacity.mjs" >/dev/null
 user_runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
@@ -68,4 +72,4 @@ wait "$bounded" || true
 for _ in $(seq 1 50); do [ "$(holding)" -eq 0 ] && break; sleep 0.1; done
 [ "$(holding)" -eq 0 ]
 
-printf 'run-bounded fixture: PASS (usage rejection, exit status, timed subtree reap, user bus reachable, dead wrapper reclaimed)\n'
+printf 'run-bounded fixture: PASS (usage rejection, exit status, timed subtree reap, root-owned files stay root, user bus reachable, dead wrapper reclaimed)\n'
