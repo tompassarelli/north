@@ -48,7 +48,7 @@ or capacity constraint requires a scoped pause.
 
 ## Offline setup and client costs
 
-- Follow wisp:docs/lan.md with `wisp lan setup --from "<clone>/pfx/drive_c/Program Files (x86)/Warcraft III" --pairs N` for reflinked installs (under 1 s for four pairs).
+- Follow wisp:docs/lan.md with `wisp lan setup --from POOL_SOURCE --pairs N` for reflinked installs (under 1 s for four pairs), where POOL_SOURCE is the host's pinned 3.0.0.24268 tree (its path is in that host's recipe in south), never a signed-in clone, which follows the live build.
 - Start admitted loopback-only pairs through `wisp lan pool --pair K... --pool-profile parity` with sound off.
 - Run `bun wisp pad SCRIPT... --helper H --out DIR --map MAP --pair K...` against `map build --profile integrity` or `map rebuild MAP --profile integrity`.
 - Compare observed setup costs of 70 s from pool start to running pair and 36 s from pad request to match.
