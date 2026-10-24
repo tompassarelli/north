@@ -61,13 +61,13 @@ a rule when its numbers move.
   included. Send code-only Smashcraft and Wisp items to cloud workers ([cloud.md](cloud.md))
   first: 4 cores per run, no cap on runs.
 - Send parallel batch work (balance and CPU fields, suites, soaks) to GitHub
-  runners through `github` first. Move it to vast.ai through `vast-job`
-  when the farm queue delays a result.
+  runners through `github`: the hosted runners and the `farm-big` runners on
+  the host south:agents/orchestration.toml names for them.
 - Run always-on Warcraft clients, the offline LAN pool and GPU work on the
   hosts south:agents/orchestration.toml names for them. Keep signed-in
   clients local unless you move them deliberately.
-- Rent no other CPU provider: DigitalOcean and similar charge several times
-  vast.ai's price for the same cores.
+- Rent no CPU provider for batch work: the farm covers it, and renting is a
+  cost Tom decides.
 - Run a job longer than the 45-minute leash (renders, long captures) yourself
   under a capacity lease, then staff a short worker to use its output.
 

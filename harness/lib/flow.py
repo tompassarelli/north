@@ -32,8 +32,8 @@ CENSUS_REUSE_FIELD = "census-reused"
 REUSE_WINDOW = 20
 CARGO_MANIFESTS = ("Cargo.toml", "src-tauri/Cargo.toml")
 CARGO_PIN = re.compile(r'git\s*=\s*"https://github\.com/([\w.-]+/[\w.-]+?)(?:\.git)?"[^}\n]*?\btag\s*=\s*"([^"]+)"')
-WISP_STATUS = ["ssh", "-F", str(Path.home() / ".local/state/smashcraft/vast-launch-check/ssh_config"), "vast",
-               'su - user -c "cd /dev/shm/f125/ts && PATH=\\$HOME/.bun/bin:\\$PATH bun scripts/wisp.ts lan status"']
+WISP_STATUS = ["bun", "wisp", "lan", "status"]
+WISP_TS = Path.home() / "code/smashcraft/main/ts"
 CALLS = []
 JOBS = {}
 CLAIMS = {}
@@ -253,7 +253,7 @@ def wisp_verdict(pairs, waiting, now):
 
 def wisp_pool():
     try:
-        result = subprocess.run(WISP_STATUS, capture_output=True, text=True, timeout=40, stdin=subprocess.DEVNULL)
+        result = subprocess.run(WISP_STATUS, cwd=WISP_TS, capture_output=True, text=True, timeout=40, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return "error"
     if result.returncode != 0:
