@@ -199,24 +199,7 @@ pub fn lex(text: &str) -> Option<Vec<String>> {
         }
         punctuation = is_punct;
         if c == '\'' || c == '"' {
-            i += 1;
-            while i < chars.len() && chars[i] != c {
-                if c == '"' && chars[i] == '\\' {
-                    i += 1;
-                    if i == chars.len() {
-                        return None;
-                    }
-                    if chars[i] != '\\' && chars[i] != '"' {
-                        buf.push('\\');
-                    }
-                }
-                buf.push(chars[i]);
-                i += 1;
-            }
-            if i == chars.len() {
-                return None;
-            }
-            i += 1;
+            i = read_quoted(&chars, i + 1, c, &mut buf)?;
             started = true;
         } else if c == '\\' {
             i += 1;
@@ -237,6 +220,24 @@ pub fn lex(text: &str) -> Option<Vec<String>> {
     }
     Some(tokens)
 }
+
+fn read_quoted(chars: &[char], mut i: usize, quote: char, buf: &mut String) -> Option<usize> {
+    while i < chars.len() && chars[i] != quote {
+        if quote == '"' && chars[i] == '\\' {
+            i += 1;
+            if i == chars.len() {
+                return None;
+            }
+            if chars[i] != '\\' && chars[i] != '"' {
+                buf.push('\\');
+            }
+        }
+        buf.push(chars[i]);
+        i += 1;
+    }
+    (i < chars.len()).then_some(i + 1)
+}
+
 pub fn tokenize(
     text: &str,
     separators: &str,
