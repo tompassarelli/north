@@ -20,7 +20,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No bulk Git staging or automatic commit staging; enumerate paths | `north-hook` | Claude, Codex |
 | No recursive grep or find tree searches; use rg or fd | `modern-search-guard` | Claude, Codex |
 | No recursive searches of virtual filesystems or repository containers | `resource-safe-search-guard` | Codex |
-| No session-wide kills or unmanaged background child launches | `session-kill-guard` | Claude, Codex |
+| No session-wide kills, user-manager teardown (also inside an ssh remote command) or unmanaged background child launches | `session-kill-guard` | Claude, Codex |
 | No destructive commands, unsafe Git publishing or sensitive outbound transfers | `north-hook` (tripwire) | Claude, Codex |
 | Codex prompts, plans and endings avoid the recorded delivery failures | `codex-behavior-guard` | Codex |
 | A worker at 350k tokens of context lands what passes and hands off the rest | `worker-handoff` | Claude |

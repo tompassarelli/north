@@ -18,7 +18,6 @@ import shellcmd
 TRIGGERS = {
     'clipboard': (['wl-copy hi', 'wl-copy --clear', '/run/current-system/sw/bin/wl-copy hi', 'niri msg action screenshot-window', 'niri msg -j action screenshot-screen', 'wl-paste', 'wl-paste --list-types', 'xclip -o -selection clipboard', 'xsel -o'], ['echo "wl-paste"', 'rg wl-paste socrates', 'agent-capture --screen /tmp/s.png', 'niri msg action focus-window --id 3']),
     'generated-policy': (['sed -i s/a/b/ {cwd}/src/host.nix', 'tee {home}/.claude/CLAUDE.md', 'sd old new {home}/.claude/CLAUDE.md', 'cp /tmp/x {home}/.codex/AGENTS.md', 'mv /tmp/x {home}/.codex/skills/a/SKILL.md'], ['cat {home}/.claude/CLAUDE.md', 'sed -n p {cwd}/src/host.nix', 'sed -i s/a/b/ {cwd}/src/plain.nix', 'cp {home}/.claude/CLAUDE.md /tmp/claude.md', 'agents sync']),
-    'session-kill': (['kill -1', 'kill -9 -1', 'kill -- -1', 'pkill -u tom', 'pkill niri', 'killall -u tom', 'killall niri', 'loginctl terminate-user tom', 'systemctl --user exit', 'systemctl --user restart niri.service', 'nohup bun task', 'setsid bun task', 'disown', 'bun /tmp/task.mjs'], ['kill -1 1234', 'kill -9 1234', 'pkill -u tom scoped', 'systemctl --user restart wob.service', 'run-bounded 30m -- bun /tmp/task.mjs', 'bun task > /tmp/task.log 2>&1']),
     'modern-search': (['grep -rn foo src', "find . -name '*.ts'", 'rgrep foo src', 'grep --recursive -il foo src'], ['grep foo a.ts', 'git grep foo', "find . -maxdepth 1 -name '*.ts'", 'find . -mtime +3 -delete']),
     'resource-safe-search': (['rg TARGET /proc/[0-9]*/cwd', 'rg TARGET /sys', 'rg TARGET {home}/code/proj'], ['rg TARGET /proc/1234/status', 'rg TARGET {cwd}/src', 'find /proc -maxdepth 1 -type d']),
     'corpus-scan': (['rg needle {home}/code/north-data', 'rg needle {home}/code/north-data/accounts', 'grep -R needle {home}/code/north-data', 'find {home}/code/north-data -name rollout-*.jsonl'], ['rg needle {home}/code/north-data/accounts/openai/acct/sessions/2026/08/12', 'rg --max-depth 2 needle {home}/code/north-data', 'convo -x needle']),
@@ -130,7 +129,7 @@ def exercise(name, home, cwd, boundary):
         single = "'" + trigger.replace("'", "'\"'\"'") + "'"
         double = '"' + trigger.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`') + '"'
         for data in [single, double, 'echo ' + single, 'echo ' + double, 'git commit -m ' + single, "cat <<'BODY'\n" + trigger + '\nBODY', 'echo '+trigger]:
-            expected = data in (single, double) and (name == 'native-launch' or (name == 'session-kill' and trigger == 'disown'))
+            expected = data in (single, double) and name == 'native-launch'
             check(guard(data, cwd) == expected, name + ' inert data', data)
             count += 1
         for separator in (';', '&&', '|', '\n', '('):

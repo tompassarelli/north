@@ -11,3 +11,4 @@ mod git_invocation;
 mod git_tests;
 
 pub mod heavy_command;
+pub mod session_kill;

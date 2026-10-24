@@ -89,6 +89,7 @@ enum HookKind {
     SubagentStop,
     SessionStart,
     UserPromptSubmit,
+    SessionKill,
 }
 
 impl HookKind {
@@ -103,6 +104,7 @@ impl HookKind {
             "subagent-stop" => Self::SubagentStop,
             "session-start" => Self::SessionStart,
             "user-prompt-submit" => Self::UserPromptSubmit,
+            "session-kill" => Self::SessionKill,
             _ => return None,
         })
     }
@@ -127,7 +129,7 @@ impl HookKind {
 
     fn event(self) -> &'static str {
         match self {
-            Self::PreBash | Self::PreEdit | Self::PreAgent => "PreToolUse",
+            Self::PreBash | Self::PreEdit | Self::PreAgent | Self::SessionKill => "PreToolUse",
             Self::PostTool => "PostToolUse",
             Self::PermissionRequest => "PermissionRequest",
             Self::Stop => "Stop",
@@ -157,6 +159,7 @@ impl HookKind {
             Self::SubagentStop => &[],
             Self::SessionStart => &[],
             Self::UserPromptSubmit => &[],
+            Self::SessionKill => &[crate::guard::session_kill::evaluate],
         }
     }
 }
@@ -353,7 +356,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
     let kind = match arguments {
         [] => None,
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
-        _ => return Err("Usage: north hook [pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|subagent-stop|user-prompt-submit|permission-request]".into()),
+        _ => return Err("Usage: north hook [pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|subagent-stop|user-prompt-submit|permission-request|session-kill]".into()),
     };
     let _ = process(
         io::stdin().lock(),
