@@ -1,4 +1,5 @@
 use regex::Regex;
+use std::ops::Range;
 use std::sync::LazyLock;
 
 pub fn blank(text: &str) -> String {
@@ -10,7 +11,11 @@ pub fn blank(text: &str) -> String {
 pub(super) fn heredoc(text: &str, start: usize) -> Option<(usize, String, bool)> {
     let re = Regex::new(r#"<<-?[\s\x1c-\x1f]*(['"]?)([\p{L}\p{N}_]+)"#).unwrap();
     for m in re.captures_iter(&text[start..]) {
-        let end = start + m.get(0).unwrap().end();
+        let whole = m.get(0).unwrap();
+        if text[..start + whole.start()].ends_with('<') {
+            continue;
+        }
+        let end = start + whole.end();
         let quote = &m[1];
         if quote.is_empty() || text[end..].starts_with(quote) {
             return Some((end + quote.len(), m[2].to_owned(), !quote.is_empty()));
@@ -24,27 +29,36 @@ pub(super) fn terminator(text: &str, start: usize, delimiter: &str) -> Option<(u
     re.find_at(text, start).map(|m| (m.start(), m.end()))
 }
 
+pub fn heredoc_bodies(text: &str) -> Vec<Range<usize>> {
+    let mut bodies = Vec::new();
+    let mut i = 0;
+    while let Some((end, delimiter, _)) = heredoc(text, i) {
+        let Some(line_end) = text[end..].find('\n').map(|n| end + n + 1) else {
+            break;
+        };
+        match terminator(text, line_end, &delimiter) {
+            Some((start, _)) => {
+                bodies.push(line_end..start);
+                i = start;
+            }
+            None => {
+                bodies.push(line_end..text.len());
+                break;
+            }
+        }
+    }
+    bodies
+}
+
 pub fn strip_heredocs(text: &str) -> String {
     let mut out = String::new();
     let mut i = 0;
-    while i < text.len() {
-        let Some((end, delimiter, _)) = heredoc(text, i) else {
-            out.push_str(&text[i..]);
-            break;
-        };
-        let Some(line_end) = text[end..].find('\n').map(|n| end + n + 1) else {
-            out.push_str(&text[i..]);
-            break;
-        };
-        out.push_str(&text[i..line_end]);
-        if let Some((start, _)) = terminator(text, line_end, &delimiter) {
-            out.push_str(&blank(&text[line_end..start]));
-            i = start;
-        } else {
-            out.push_str(&blank(&text[line_end..]));
-            break;
-        }
+    for body in heredoc_bodies(text) {
+        out.push_str(&text[i..body.start]);
+        out.push_str(&blank(&text[body.clone()]));
+        i = body.end;
     }
+    out.push_str(&text[i..]);
     out
 }
 pub fn strip_heredoc_bodies(command: &str) -> String {

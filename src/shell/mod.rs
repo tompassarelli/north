@@ -6,7 +6,7 @@ mod substitution;
 mod tests;
 
 #[allow(unused_imports)]
-pub use heredoc::{blank, strip_heredoc_bodies, strip_heredocs};
+pub use heredoc::{blank, heredoc_bodies, strip_heredoc_bodies, strip_heredocs};
 #[allow(unused_imports)]
 pub use lexer::{
     SEPARATORS, ShellToken, argv_spans, basename, operator_tokens, shlex_split, tokenize,

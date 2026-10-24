@@ -1,5 +1,8 @@
+mod commands;
+
 use crate::hook::{HookInput, Verdict};
 use crate::shell;
+use commands::{SHELLS, Script, Systemd, kill, killall, pkill, shell_script, ssh};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -8,41 +11,8 @@ const TEARDOWN_PREFIXES: &[&str] = &[
     "else", "!", "{",
 ];
 const LAUNCH_PREFIXES: &[&str] = &["env", "exec", "do", "then", "else", "!", "{"];
-const SESSION_PROCESSES: &[&str] = &["niri", "niri-session"];
-const SESSION_UNITS: &[&str] = &["niri", "niri.service", "graphical-session.target"];
-const LOGINCTL_VERBS: &[&str] = &[
-    "terminate-user",
-    "kill-user",
-    "terminate-session",
-    "kill-session",
-    "terminate-seat",
-];
-const PKILL_VALUE_FLAGS: &[&str] = &[
-    "-u",
-    "-U",
-    "--uid",
-    "--euid",
-    "-g",
-    "-G",
-    "--group",
-    "-s",
-    "--signal",
-    "-P",
-    "--parent",
-    "-t",
-    "--terminal",
-    "-F",
-    "--pidfile",
-    "-d",
-    "--delay",
-    "-o",
-    "-n",
-];
-const SSH_VALUE_FLAGS: &str = "BbcDEeFIiJLlmOoPpQRSWw";
-const SHELLS: &[&str] = &["sh", "bash", "dash", "zsh"];
 const HOST_RESTART: &str = "firn host restart-user-manager";
 
-static SIGNAL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-(?:[0-9]+|[A-Za-z]+)$").unwrap());
 static REDIRECTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d*(?:<>|>>|<<|>|<|&>)").unwrap());
 static TEMPORARY_SCRIPT: LazyLock<Regex> =
@@ -67,7 +37,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub(super) fn decide(command: &str) -> Option<Hit> {
-    teardown(command, None, 0).or_else(|| detached(command))
+    teardown(command, None, 0, &[]).or_else(|| detached(command))
 }
 
 fn reason(hit: &Hit) -> String {
@@ -87,38 +57,77 @@ fn reason(hit: &Hit) -> String {
     }
 }
 
-fn teardown(source: &str, host: Option<&str>, depth: usize) -> Option<Hit> {
+fn teardown(source: &str, host: Option<&str>, depth: usize, stdin: &[String]) -> Option<Hit> {
     if depth > 8 {
         return None;
     }
     let text = shell::strip_heredocs(source);
     for body in shell::shell_substitutions(&text) {
-        if let Some(hit) = teardown(&body, host, depth + 1) {
+        if let Some(hit) = teardown(&body, host, depth + 1, &[]) {
             return Some(hit);
         }
     }
-    segments(&shell::words(&text)?)
+    let mut heredocs = shell::heredoc_bodies(source)
         .into_iter()
-        .find_map(|(segment, _)| {
-            let words = arguments(&segment[shell::command(&segment, TEARDOWN_PREFIXES)..]);
-            command_teardown(&words, host, depth)
-        })
+        .map(|body| source[body].to_owned());
+    let mut previous: Option<(Vec<String>, Vec<String>)> = None;
+    for segment in segments(&tokens(&text)) {
+        let mut input = redirected_input(&segment.words, &mut heredocs);
+        if input.is_empty() {
+            input = match (&previous, segment.piped) {
+                (Some((words, input)), true) => produced(words, input),
+                (_, true) => Vec::new(),
+                (_, false) => stdin.to_vec(),
+            };
+        }
+        let words = arguments(&segment.words[shell::command(&segment.words, TEARDOWN_PREFIXES)..]);
+        if let Some(hit) = command_teardown(&words, host, depth, &input) {
+            return Some(hit);
+        }
+        previous = Some((words, input));
+    }
+    None
 }
 
-fn command_teardown(words: &[String], host: Option<&str>, depth: usize) -> Option<Hit> {
+fn command_teardown(
+    words: &[String],
+    host: Option<&str>,
+    depth: usize,
+    stdin: &[String],
+) -> Option<Hit> {
     let (name, args) = words.split_first()?;
     let shape = match shell::basename(name) {
         "kill" => kill(args),
         "pkill" => pkill(args),
         "killall" => killall(args),
-        "loginctl" => loginctl(args),
-        "systemctl" => systemctl(args),
+        name @ ("loginctl" | "systemctl") => {
+            let call = Systemd::parse(args);
+            let shape = if name == "loginctl" {
+                call.loginctl()
+            } else {
+                call.systemctl()
+            }?;
+            return Some(Hit::Teardown {
+                shape,
+                host: call.host.or(host.map(str::to_owned)),
+            });
+        }
         "ssh" => {
             let (destination, remote) = ssh(args)?;
             let remote_host = destination.rsplit('@').next().unwrap_or(&destination);
-            return teardown(&remote, Some(remote_host), depth + 1);
+            return match remote {
+                Some(remote) => teardown(&remote, Some(remote_host), depth + 1, stdin),
+                None => scripts(stdin, Some(remote_host), depth),
+            };
         }
-        name if SHELLS.contains(&name) => return teardown(shell_script(args)?, host, depth + 1),
+        "eval" => return teardown(&args.join(" "), host, depth + 1, stdin),
+        name if SHELLS.contains(&name) => {
+            return match shell_script(args) {
+                Script::Inline(script) => teardown(script, host, depth + 1, &[]),
+                Script::Stdin => scripts(stdin, host, depth),
+                Script::File => None,
+            };
+        }
         _ => None,
     }?;
     Some(Hit::Teardown {
@@ -127,32 +136,104 @@ fn command_teardown(words: &[String], host: Option<&str>, depth: usize) -> Optio
     })
 }
 
+fn scripts(stdin: &[String], host: Option<&str>, depth: usize) -> Option<Hit> {
+    stdin
+        .iter()
+        .find_map(|script| teardown(script, host, depth + 1, &[]))
+}
+
+fn redirected_input(words: &[String], heredocs: &mut impl Iterator<Item = String>) -> Vec<String> {
+    let mut input = Vec::new();
+    for (index, word) in words.iter().enumerate() {
+        let operator = word.trim_start_matches(|c: char| c.is_ascii_digit());
+        if let Some(string) = operator.strip_prefix("<<<") {
+            input.extend(match string {
+                "" => words.get(index + 1).cloned(),
+                string => Some(string.to_owned()),
+            });
+        } else if operator.starts_with("<<") {
+            input.extend(heredocs.next());
+        }
+    }
+    input
+}
+
+fn produced(words: &[String], stdin: &[String]) -> Vec<String> {
+    let Some((name, args)) = words.split_first() else {
+        return Vec::new();
+    };
+    match shell::basename(name) {
+        "echo" => {
+            let start = args
+                .iter()
+                .take_while(|arg| matches!(arg.as_str(), "-n" | "-e" | "-E" | "-ne" | "-en"))
+                .count();
+            vec![args[start..].join(" ")]
+        }
+        "printf" => args.iter().cloned().chain([args.join(" ")]).collect(),
+        "cat" if args.iter().all(|arg| arg.starts_with('-')) => stdin.to_vec(),
+        _ => Vec::new(),
+    }
+}
+
 fn detached(command: &str) -> Option<Hit> {
-    let tokens = shell::words(&shell::strip_heredocs(command))?;
-    segments(&tokens)
+    segments(&tokens(&shell::strip_heredocs(command)))
         .into_iter()
-        .find_map(|(segment, background)| launch(&segment, background))
+        .find_map(|segment| launch(&segment.words, segment.background))
         .map(Hit::Detached)
 }
 
-fn segments(tokens: &[String]) -> Vec<(Vec<String>, bool)> {
+fn tokens(text: &str) -> Vec<String> {
+    if let Some(tokens) = shell::words(text) {
+        return tokens;
+    }
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let (mut tokens, rest) = (0..lines.len())
+        .rev()
+        .find_map(|complete| {
+            shell::words(&lines[..complete].concat())
+                .map(|tokens| (tokens, lines[complete..].concat()))
+        })
+        .unwrap_or_default();
+    let unquoted = rest.replace(['\'', '"', '\\'], " ");
+    tokens.push(";".into());
+    tokens.extend(shell::words(&unquoted).unwrap_or_default());
+    tokens
+}
+
+struct Segment {
+    words: Vec<String>,
+    background: bool,
+    piped: bool,
+}
+
+fn segments(tokens: &[String]) -> Vec<Segment> {
     let mut out = Vec::new();
-    let mut segment: Vec<String> = Vec::new();
+    let mut words: Vec<String> = Vec::new();
+    let mut piped = false;
     for (index, token) in tokens.iter().enumerate() {
         let redirect = token == "&"
-            && (segment.last().is_some_and(|word| word.ends_with('>'))
+            && (words.last().is_some_and(|word| word.ends_with('>'))
                 || tokens
                     .get(index + 1)
                     .is_some_and(|next| next.starts_with('>')));
-        if token == "&" && !redirect {
-            out.push((std::mem::take(&mut segment), true));
-        } else if shell::is_separator(token) && !redirect {
-            out.push((std::mem::take(&mut segment), false));
+        if shell::is_separator(token) && !redirect {
+            let background = token == "&";
+            out.push(Segment {
+                words: std::mem::take(&mut words),
+                background,
+                piped,
+            });
+            piped = matches!(token.trim_end_matches('\n'), "|" | "|&");
         } else {
-            segment.push(token.clone());
+            words.push(token.clone());
         }
     }
-    out.push((segment, false));
+    out.push(Segment {
+        words,
+        background: false,
+        piped,
+    });
     out
 }
 
@@ -191,152 +272,6 @@ fn arguments(words: &[String]) -> Vec<String> {
         out.push(word.clone());
     }
     out
-}
-
-fn kill(args: &[String]) -> Option<&'static str> {
-    let mut operands = Vec::new();
-    let mut index = 0;
-    let mut options = true;
-    while index < args.len() {
-        let arg = args[index].as_str();
-        if options {
-            match arg {
-                "--" => {
-                    options = false;
-                    index += 1;
-                    continue;
-                }
-                "-l" | "-L" => return None,
-                "-s" | "-n" | "--signal" if index + 1 < args.len() => {
-                    index += 2;
-                    continue;
-                }
-                _ if index == 0 && SIGNAL.is_match(arg) && (arg != "-1" || args.len() > 1) => {
-                    index += 1;
-                    continue;
-                }
-                _ => {}
-            }
-        }
-        operands.push(arg);
-        index += 1;
-    }
-    operands.contains(&"-1").then_some("broadcast kill -1")
-}
-
-fn pkill(args: &[String]) -> Option<&'static str> {
-    let mut user = false;
-    let mut operands = Vec::new();
-    let mut skip = false;
-    for arg in args {
-        if std::mem::take(&mut skip) {
-            continue;
-        }
-        if matches!(arg.as_str(), "-u" | "-U")
-            || arg.starts_with("--uid")
-            || arg.starts_with("--euid")
-        {
-            user = true;
-            skip = PKILL_VALUE_FLAGS.contains(&arg.as_str());
-            continue;
-        }
-        if PKILL_VALUE_FLAGS.contains(&arg.as_str()) {
-            skip = true;
-            continue;
-        }
-        if !arg.starts_with('-') {
-            operands.push(arg.as_str());
-        }
-    }
-    if user && operands.is_empty() {
-        Some("user-wide pkill sweep")
-    } else if operands.iter().any(|o| SESSION_PROCESSES.contains(o)) {
-        Some("compositor kill")
-    } else {
-        None
-    }
-}
-
-fn killall(args: &[String]) -> Option<&'static str> {
-    if args.iter().any(|a| a == "-u" || a == "--user") {
-        Some("user-wide killall sweep")
-    } else if args.iter().any(|a| SESSION_PROCESSES.contains(&a.as_str())) {
-        Some("compositor kill")
-    } else {
-        None
-    }
-}
-
-fn loginctl(args: &[String]) -> Option<&'static str> {
-    let verb = args.iter().find(|a| !a.starts_with('-'))?;
-    LOGINCTL_VERBS
-        .contains(&verb.as_str())
-        .then_some("login-session teardown")
-}
-
-fn systemctl(args: &[String]) -> Option<&'static str> {
-    let user = args.iter().any(|a| a == "--user");
-    let mut positional = args.iter().filter(|a| !a.starts_with('-'));
-    let verb = positional.next()?.as_str();
-    let units: Vec<&str> = positional.map(String::as_str).collect();
-    match verb {
-        "exit" if user => Some("user-manager exit"),
-        "isolate" if units.iter().any(|u| u.starts_with("exit")) => Some("user-manager exit"),
-        "stop" | "kill" | "restart" | "try-restart" | "reload-or-restart" => {
-            if units.iter().any(|u| u.starts_with("user@")) {
-                Some("user-manager teardown")
-            } else if user && units.iter().any(|u| SESSION_UNITS.contains(u)) {
-                Some("compositor teardown")
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
-fn ssh(args: &[String]) -> Option<(String, String)> {
-    let mut destination = None;
-    let mut index = 0;
-    while index < args.len() {
-        let arg = args[index].as_str();
-        index += 1;
-        if arg == "--" {
-            if destination.is_none() {
-                destination = args.get(index).cloned();
-                index += 1;
-            }
-            break;
-        }
-        if let Some(flags) = arg.strip_prefix('-').filter(|flags| !flags.is_empty()) {
-            if let Some(at) = flags.find(|c| SSH_VALUE_FLAGS.contains(c))
-                && at + 1 == flags.len()
-            {
-                index += 1;
-            }
-            continue;
-        }
-        if destination.is_some() {
-            index -= 1;
-            break;
-        }
-        destination = Some(arg.to_owned());
-    }
-    let remote = args.get(index..).filter(|rest| !rest.is_empty())?.join(" ");
-    Some((destination?, remote))
-}
-
-fn shell_script(args: &[String]) -> Option<&str> {
-    let mut iter = args.iter();
-    while let Some(arg) = iter.next() {
-        let Some(flags) = arg.strip_prefix('-').filter(|f| !f.starts_with('-')) else {
-            return None;
-        };
-        if flags.contains('c') {
-            return iter.next().map(String::as_str);
-        }
-    }
-    None
 }
 
 #[cfg(test)]
