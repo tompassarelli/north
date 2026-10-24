@@ -8,13 +8,19 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/follows-release-test.XXXXXX")
 export scratch
 export NORTH_LOCAL=$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north
 trap 'rm -rf "${scratch:?}"' EXIT
+mkdir -p "$scratch/installed"
+cat >"$scratch/installed/north" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$scratch/installed-calls"
+exit 97
+SH
+chmod +x "$scratch/installed/north"
+export PATH=$scratch/installed:$PATH
 export THREADS_DB=$scratch/threads.db XDG_STATE_HOME=$scratch/state
 export SPAWN_CAPACITY_HOME=$scratch/home SPAWN_CAPACITY_STATUS=$scratch/probe.json
 export AGENTS_ORCHESTRATION=$scratch/orchestration.toml
 export FOLLOWS_RELEASE_ROOT=$scratch/code
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
-REAL_NORTH=$(command -v north)
-export REAL_NORTH
 : >"$AGENTS_ORCHESTRATION"
 mkdir -p "$scratch/bin" "$SPAWN_CAPACITY_HOME/.local/state/agents"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$scratch/bin/gitleaks"
@@ -25,10 +31,8 @@ if [ "$1 $2" = "fleet send" ]; then
   if [ -e "$scratch/bin/start-fails" ] && [[ "$*" == *"Staff this queued box now"* ]]; then exit 1; fi
 printf '%s\n' "$*" >>"$scratch/bin/fleet-sends"
   if [[ "$*" == *"Staff this queued box now"* ]]; then printf '%s %s\n' "$(date +%s.%N)" "$*" >>"$scratch/bin/started"; fi
-elif [ "$1" = follows-release ]; then
-exec "$NORTH_LOCAL" "$@"
 else
-exec "$REAL_NORTH" "$@"
+exec "$NORTH_LOCAL" "$@"
 fi
 SH
 chmod +x "$scratch/bin/north"
@@ -43,6 +47,8 @@ git init -q -b main "$container/main"
 git -C "$container/main" commit -q --allow-empty -m base
 git -C "$container/main" remote add origin "$container/remote/north.git"
 git -C "$container/main" push -q -u origin main
+printf '#!/usr/bin/env bash\ndate +%%s.%%N >"%s/landed-at"\n' "$scratch" >"$container/remote/north.git/hooks/post-receive"
+chmod +x "$container/remote/north.git/hooks/post-receive"
 git -C "$container/main" worktree add -q "$container/worktrees/lane" -b lane
 git -C "$container/worktrees/lane" commit -q --allow-empty -m 'Land the predecessor box'
 
@@ -56,10 +62,10 @@ queue() { printf 'Delegation: role=worker budget=0\nItem: north#%s\nFollows: %s\
 
 probe 0
 queue 7 'Land the predecessor box' codex:medium >/dev/null
-landed_at=$(date +%s.%N)
 out=$(cd "$container/worktrees/lane" && SAFE_PUSH_TEST_REAL_NORTH="$NORTH_LOCAL" "$repo/bin/safe-push" --to main && pwd -P 2>&1); status=$?
+landed_at=$(cat "$scratch/landed-at" 2>/dev/null)
 check '[1] safe_push_caller_can_run_pwd_after_landing: Follows box starts on tier within 60 s' \
-  '[ "$status" -eq 0 ] && read -r at _ <"$scratch/bin/started" && awk -v a="$at" -v b="$landed_at" "BEGIN { exit !(a - b < 60) }" && grep -q "fleet send galileo-parent" "$scratch/bin/started" && grep -q "fresh worker at codex:medium" "$scratch/bin/started" && grep -q "box 1 north#7: started" <<<"$out" && grep -q "safe-push: landed [0-9a-f]" <<<"$out" && grep -q "cd $container/main when finished in the lane" <<<"$out" && [ "$(tail -n 1 <<<"$out")" = "$container/worktrees/lane" ]' \
+  '[ ! -e "$scratch/installed-calls" ] && [ "$status" -eq 0 ] && read -r at _ <"$scratch/bin/started" && awk -v a="$at" -v b="$landed_at" "BEGIN { exit !(a - b < 60) }" && grep -q "fleet send galileo-parent" "$scratch/bin/started" && grep -q "fresh worker at codex:medium" "$scratch/bin/started" && grep -q "box 1 north#7: started" <<<"$out" && grep -q "safe-push: landed [0-9a-f]" <<<"$out" && grep -q "cd $container/main when finished in the lane" <<<"$out" && [ "$(tail -n 1 <<<"$out")" = "$container/worktrees/lane" ]' \
   || printf '%s\n' "$out"
 
 probe 8
