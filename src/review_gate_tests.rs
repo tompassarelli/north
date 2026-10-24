@@ -58,7 +58,7 @@ fn a_landing_passes_only_with_the_patch_id_of_its_final_covered_diff() {
         panic!("a covered change after the review passed: {stale:?}");
     };
     assert_ne!(landing, &reviewed);
-    assert_eq!(ids, &[reviewed.clone()]);
+    assert_eq!(ids, std::slice::from_ref(&reviewed));
     let message = refusal(&stale, &moved, "HEAD", &paths).unwrap();
     assert!(message.contains(landing.as_str()) && message.contains(&reviewed), "{message}");
 

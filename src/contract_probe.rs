@@ -187,7 +187,7 @@ pub async fn run(arguments: &[String]) -> NorthResult<u8> {
             Ok(report(validate(&frames, &Expectation::for_fixture(&frames))))
         }
         [mode, path] if mode == "--runtime" => {
-            let (frames, expect) = probe_runtime(&[path.clone()], RUNTIME_DEADLINE).await?;
+            let (frames, expect) = probe_runtime(std::slice::from_ref(path), RUNTIME_DEADLINE).await?;
             Ok(report(validate(&frames, &expect)))
         }
         _ => Err(NorthError::Usage(USAGE.into())),

@@ -634,7 +634,7 @@ fn fixed3(j: &J) -> String {
 
 pub fn main(args: &[String]) -> NorthResult<i32> {
     let valued = ["--runs", "--holdout", "--exclude-session"];
-    let path = args.iter().enumerate().find(|(i, a)| !a.starts_with("--") && !(*i > 0 && valued.contains(&args[i - 1].as_str()))).map(|(_, a)| a);
+    let path = args.iter().enumerate().find(|(i, a)| !(a.starts_with("--") || *i > 0 && valued.contains(&args[i - 1].as_str()))).map(|(_, a)| a);
     let Some(path) = path else {
         eprintln!("usage: north grounding score EVAL.jsonl [--no-b] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]");
         return Ok(2);

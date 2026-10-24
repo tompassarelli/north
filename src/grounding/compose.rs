@@ -203,7 +203,7 @@ fn mentions(hits: &[Hit]) -> Vec<String> {
             }
         }
     }
-    counts.sort_by(|a, b| b.1.cmp(&a.1));
+    counts.sort_by_key(|count| std::cmp::Reverse(count.1));
     let n = 30usize.saturating_sub(placements.len());
     let extra: Vec<_> = counts
         .into_iter()
