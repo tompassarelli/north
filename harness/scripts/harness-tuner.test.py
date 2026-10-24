@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 
 SCRIPT = Path(__file__).resolve().parent / "harness-tuner.py"
@@ -187,7 +188,7 @@ with tempfile.TemporaryDirectory() as tmp:
     usage.record(db, [{"ts": "2026-10-12T00:00:00Z", "provider": "claude", "account": usage.local_account("claude") or "", "kind": "window",
                        "name": "week", "used_pct": 83}])
     db.close()
-    refreshed_out = tmp / "snapshot-refreshed.jsonl"
+    refreshed_out = tmp / "snapshot-refreshed.jsonl"; Path(f"{snapshot}.tried").unlink()
     refreshed = run("replay", scen[0], "--variants", variants / "e1", "--base", base, "--provider", "claude",
                     "--out", refreshed_out, "--cap-week-pct", .2,
                     env=dict(snapshot_env, SNAPSHOT_FIXTURE=str(ledger)))
@@ -202,9 +203,8 @@ with tempfile.TemporaryDirectory() as tmp:
     db = sqlite3.connect(ledger)
     db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
                ("codex-priced", "gpt-6.1-sol medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", 0.125))
-    meter_rows = usage_rows({"rateLimits": {"limitId": "codex", "secondary": {
-        "usedPercent": 4, "windowDurationMins": 10080, "resetsAt": "2099-10-19T00:00:00Z"}}},
-        "22657232", "2026-10-12T17:12:01Z")
+    meter_rows = usage_rows({"rateLimits": {"limitId": "codex", "secondary": {"usedPercent": 4, "windowDurationMins": 10080,
+        "resetsAt": "2099-10-19T00:00:00Z"}}}, "22657232", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600)))
     record(db, meter_rows)
     record(db, [r | {"account": "old-login", "ts": "2020-01-01T00:00:00Z"} for r in meter_rows])
     db.close()
