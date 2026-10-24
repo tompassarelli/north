@@ -202,7 +202,15 @@ pub fn code_header(text: &str, path: &Path, mentions: &[String]) -> String {
         ));
     }
     let mut messages = Vec::new();
-    for c in re(r#"(?:raise\s+\w+\(|die\s+|fail\s+|error\(|Error\(|exit\([^'"`\n]*|print\(|console\.(?:log|error)\(|echo\s+(?:-e\s+)?)\s*f?(?:"([^"\n]{25,200})"|'([^'\n]{25,200})')"#).captures_iter(text){let line=c.get(1).or_else(||c.get(2)).unwrap().as_str().trim().to_owned();if line.contains(char::is_whitespace)&&!messages.contains(&line){messages.push(line);}if messages.len()>=8{break;}}
+    for c in re(r#"(?:raise\s+\w+\(|die\s+|fail\s+|error\(|Error\(|exit\([^'"`\n]*|print\(|console\.(?:log|error)\(|echo\s+(?:-e\s+)?)\s*f?(?:"([^"\n]{25,200})"|'([^'\n]{25,200})')"#).captures_iter(text) {
+        let line = c.get(1).or_else(|| c.get(2)).unwrap().as_str().trim().to_owned();
+        if line.contains(char::is_whitespace) && !messages.contains(&line) {
+            messages.push(line);
+        }
+        if messages.len() >= 8 {
+            break;
+        }
+    }
     prose.extend(messages);
     let mut constants = Vec::new();
     for c in re(r"(?m)^(?:export\s+)?(?:const\s+)?([A-Z][A-Z0-9_]{3,})\s*[:=]([^\n]{0,240})")

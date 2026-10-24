@@ -183,7 +183,18 @@ fn mentions(hits: &[Hit]) -> Vec<String> {
         }
         let text = format!("{}\n{}\n{}", hit.reference, hit.title, hit.text);
         let mut refs = Vec::new();
-        for m in re(r"(?:~/|/)?(?:[\w.@-]+/)+[\w.@-]+(?:#[\w:-]+)?|\b(?:convo:\d+|rule:[\w-]+|[a-z][\w-]*@[0-9a-f]{8,40}|[0-9a-f]{8,40})\b").find_iter(&text){let r=m.as_str().trim_end_matches(['.',',']);if r.chars().all(|c|c.is_ascii_digit()){continue;}if r.contains('/')&&!r.contains(['.','#'])&&!re(r"^(?:[~/]|harness/|agents/|lib/|bin/|docs/|skills/)").is_match(r){continue;}if !refs.contains(&r){refs.push(r);}}
+        for m in re(r"(?:~/|/)?(?:[\w.@-]+/)+[\w.@-]+(?:#[\w:-]+)?|\b(?:convo:\d+|rule:[\w-]+|[a-z][\w-]*@[0-9a-f]{8,40}|[0-9a-f]{8,40})\b").find_iter(&text) {
+            let r = m.as_str().trim_end_matches(['.', ',']);
+            if r.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            if r.contains('/') && !r.contains(['.', '#']) && !re(r"^(?:[~/]|harness/|agents/|lib/|bin/|docs/|skills/)").is_match(r) {
+                continue;
+            }
+            if !refs.contains(&r) {
+                refs.push(r);
+            }
+        }
         for r in refs {
             if let Some((_, n)) = counts.iter_mut().find(|(v, _)| v == r) {
                 *n += 1;
