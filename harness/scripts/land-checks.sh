@@ -27,7 +27,7 @@ mapfile -d '' -t files <"$scratch/matches"
 while IFS= read -r -d '' path; do
   case "$path" in
     bin/*|lib/*|harness/hooks/*|harness/lib/*|harness/scripts/*) enqueue "$path" ;;
-    src/*|Cargo.toml|Cargo.lock|build.rs) enqueue NORTH_PACE_BIN; enqueue debug/north ;;
+    src/*|Cargo.toml|Cargo.lock|build.rs) enqueue NORTH_PACE_BIN; enqueue NORTH_BIN; enqueue debug/north ;;
   esac
 done <"$scratch/changes"
 for ((next = 0; next < ${#queue[@]}; next++)); do
