@@ -7,13 +7,16 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|idle-interrupt|cancel-queued [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|idle-interrupt|cancel-queued|slow-hooks|signed-out-once [ARG...]";
+const SIGNED_OUT: &str = "Not logged in · Please run /login";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Trace {
     Fold,
     IdleInterrupt,
     CancelQueued,
+    SlowHooks,
+    SignedOutOnce,
 }
 
 impl Trace {
@@ -22,6 +25,8 @@ impl Trace {
             "fold" => Some(Self::Fold),
             "idle-interrupt" => Some(Self::IdleInterrupt),
             "cancel-queued" => Some(Self::CancelQueued),
+            "slow-hooks" => Some(Self::SlowHooks),
+            "signed-out-once" => Some(Self::SignedOutOnce),
             _ => None,
         }
     }
@@ -29,6 +34,7 @@ impl Trace {
 
 struct Fake<W: Write> {
     trace: Trace,
+    session: String,
     out: W,
     frames: u64,
     turn: Vec<String>,
@@ -67,6 +73,9 @@ impl<W: Write> Fake<W> {
 
     fn user(&mut self, uuid: &str, message: Value) -> io::Result<bool> {
         self.lifecycle(uuid, "queued")?;
+        if self.trace == Trace::SignedOutOnce && signed_out_first() {
+            return self.refuse(uuid, message);
+        }
         if self.turn.is_empty() {
             self.start(uuid, message)?;
             return Ok(false);
@@ -107,6 +116,21 @@ impl<W: Write> Fake<W> {
             "user_message_uuids": [uuid],
         }))?;
         self.emit(json!({"type": "system", "subtype": "task_started", "task_id": TASK, "tool_use_id": TOOL, "description": "fake tool", "task_type": "local_bash", "is_backgrounded": false}))
+    }
+
+    fn refuse(&mut self, uuid: &str, message: Value) -> io::Result<bool> {
+        self.lifecycle(uuid, "started")?;
+        self.emit(json!({"type": "system", "subtype": "init", "model": "claude-fake", "claude_code_version": "fake"}))?;
+        self.replay(uuid, message)?;
+        self.emit(json!({
+            "type": "assistant",
+            "parent_tool_use_id": null,
+            "message": {"role": "assistant", "content": [{"type": "text", "text": SIGNED_OUT}]},
+            "user_message_uuids": [uuid],
+        }))?;
+        self.emit(json!({"type": "result", "subtype": "success", "is_error": true, "result": SIGNED_OUT, "num_turns": 1, "user_message_uuids": [uuid]}))?;
+        self.lifecycle(uuid, "completed")?;
+        Ok(false)
     }
 
     fn finish(&mut self) -> io::Result<()> {
@@ -175,13 +199,17 @@ impl<W: Write> Fake<W> {
 
     fn emit(&mut self, mut frame: Value) -> io::Result<()> {
         self.frames += 1;
-        frame["session_id"] = json!(SESSION);
+        frame["session_id"] = json!(self.session);
         if frame.get("uuid").is_none() {
             frame["uuid"] = json!(format!("00000000-0000-4000-8000-{:012x}", self.frames));
         }
         writeln!(self.out, "{frame}")?;
         self.out.flush()
     }
+}
+
+fn signed_out_first() -> bool {
+    env::var_os("FAKE_CLAUDE_SIGNED_OUT_MARK").is_some_and(|mark| std::fs::OpenOptions::new().write(true).create_new(true).open(mark).is_ok())
 }
 
 fn main() -> ExitCode {
@@ -195,8 +223,18 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
+    let session = arguments
+        .iter()
+        .position(|argument| argument == "--session-id")
+        .and_then(|index| arguments.get(index + 1))
+        .map_or_else(|| SESSION.to_owned(), String::clone);
+    if trace == Trace::SlowHooks {
+        let hooks = env::var("FAKE_CLAUDE_HOOK_MS").ok().and_then(|ms| ms.parse().ok()).unwrap_or(1500);
+        std::thread::sleep(std::time::Duration::from_millis(hooks));
+    }
     let mut fake = Fake {
         trace,
+        session,
         out: io::stdout().lock(),
         frames: 0,
         turn: Vec::new(),

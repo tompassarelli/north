@@ -1,3 +1,5 @@
+mod support;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -39,7 +41,7 @@ fn fixture(root: &Path) {
     }
     executable(&root.join("bin/setsid"), "#!/bin/sh\nexec \"$@\"\n");
     executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n");
-    executable(&root.join("bin/claude"), "#!/bin/sh\nprintf '%s' \"${RAN_VIA_SSH:-}\" > \"$PLACEMENT_FIXTURE/ran-via\"\nhead -n 1 > \"$PLACEMENT_FIXTURE/prompt\"\nsleep ${CLAUDE_SHIM_SECONDS:-1}\n");
+    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nprintf '%s' \"${{RAN_VIA_SSH:-}}\" > \"$PLACEMENT_FIXTURE/ran-via\"\ntee \"$PLACEMENT_FIXTURE/prompt\" | timeout 20 {} --trace fold \"$@\"\n", support::fake_claude()));
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {
@@ -128,7 +130,6 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
             .env("RESIDENT_CAP_HOST", "here")
             .env("PLACEMENT_HOSTS", root.join("hosts.json"))
             .env("CLAUDE_RUNTIME", root.join("bin/claude"))
-            .env("CLAUDE_SHIM_SECONDS", "20")
             .env("PLACEMENT_FIXTURE", root)
             .env("NORTH_FLEET_SESSION", "")
             .env_remove("NORTH_FLEET_TEST")

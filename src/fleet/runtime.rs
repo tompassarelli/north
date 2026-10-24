@@ -50,6 +50,9 @@ pub trait Runtime: Send + Sync {
     fn question(&self, _frame: &Value) -> Option<Question> {
         None
     }
+    fn signed_out(&self, _frame: &Value) -> bool {
+        false
+    }
 }
 
 #[derive(Clone)]

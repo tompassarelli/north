@@ -1,3 +1,5 @@
+mod support;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -25,7 +27,9 @@ fn fixture(root: &Path) {
     executable(&root.join("bin/setsid"), "#!/bin/sh\nexec \"$@\"\n");
     executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n");
     executable(&root.join("bin/systemctl"), "#!/bin/sh\n[ \"$*\" = '--user show-environment' ] || exit 0\nprintf 'HOME=%s\\nPATH=%s/.nix-profile/bin:/run/wrappers/bin\\n' \"$HOME\" \"$HOME\"\n");
-    executable(&root.join("bin/claude"), "#!/bin/sh\nprintf '%s\\n' \"$PATH\" > \"$SESSION_PATH_FIXTURE/path\"\nread -r line\n");
+    let timeout = Command::new("sh").args(["-c", "command -v timeout"]).output().unwrap();
+    let timeout = String::from_utf8_lossy(&timeout.stdout).trim().to_owned();
+    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nprintf '%s\\n' \"$PATH\" > \"$SESSION_PATH_FIXTURE/path\"\nexec {timeout} 20 {} --trace fold \"$@\"\n", support::fake_claude()));
 }
 
 fn launch(root: &Path) -> Output {

@@ -19,6 +19,7 @@ use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
+mod first_turn;
 mod follower;
 mod gate_commands;
 mod home;
@@ -133,7 +134,7 @@ impl Fleet {
         if let Some(task_ref) = &request.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
-        self.send_text(&record, &self.recent(runtime.as_ref(), &record)?, &request.prompt)?;
+        self.deliver_first_turn(&mut record, &account, &request.prompt)?;
         Ok(record)
     }
 
