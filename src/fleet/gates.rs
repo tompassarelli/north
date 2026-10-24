@@ -351,7 +351,10 @@ mod tests {
         let pending = book.open_gate(&GateRequest { default_after_ms: 90_000, ..request() }, 1_000).unwrap();
         let snapshot = book.gates(0).unwrap();
         let delivered = Mutex::new(Vec::new());
-        let deliver = |session: &str, _: &str| Ok(delivered.lock().unwrap().push(session.to_owned()));
+        let deliver = |session: &str, _: &str| {
+            let _: () = delivered.lock().unwrap().push(session.to_owned());
+            Ok(())
+        };
         let swept = default_overdue(&book, 40_000, deliver).unwrap();
         assert_eq!(swept.iter().map(|(id, outcome)| (*id, outcome.as_ref().map(|closure| closure.by.clone()).ok())).collect::<Vec<_>>(), [(overdue, Some(Answerer::Default))]);
         assert!(book.gate(pending).unwrap().unwrap().is_open(), "a gate whose default is not due stays open");

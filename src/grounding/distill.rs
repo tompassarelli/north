@@ -113,7 +113,7 @@ macro_rules! pattern {
     ($name:ident, $text:expr) => {
         fn $name() -> &'static Regex {
             static RE: OnceLock<Regex> = OnceLock::new();
-            RE.get_or_init(|| re(&$text))
+            RE.get_or_init(|| re($text.as_ref()))
         }
     };
 }
@@ -129,7 +129,7 @@ pattern!(brief_read, format!(r"(?i)^{S}*Read [^\s]*handoffs/([^\s]+) and (follow
 pattern!(skip_message, format!(
     r"(?i)^{S}*(/[a-z-]+{S}*$|/compact|Delegation:|Category:|Parent:|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|Read [^\s]*handoffs/[^\s]*brief)"
 ));
-pattern!(pasted, r"(?s)<pasted_content[^>]*>.*?(</pasted_content>|\z)".to_string());
+pattern!(pasted, r"(?s)<pasted_content[^>]*>.*?(</pasted_content>|\z)");
 pattern!(line_record, format!(r"^{S}*(?:[-*]{S}+)?(DECIDED|APPROVED){B}[:{}]*([^\n\r\u{{2028}}\u{{2029}}]*)$", &S[1..S.len() - 1]));
 pattern!(status_time, format!(r"^([0-9]{{1,2}}):([0-9]{{2}})Z?{B}"));
 pattern!(about_keep, format!(r"(?i)^{W}*why (did|do|does|would|are|were|is) (you|u){B}"));
@@ -157,9 +157,9 @@ pattern!(asked, format!(r"(?i)\?|{B}(approve|approval|should i|want me to|ok to|
 pattern!(override_marker, format!(
     r"(?i){B}(instead|actually|rather|prefer|no longer|not anymore|stop|don'?t|change|reverse|scratch that|forget|wrong){B}"
 ));
-pattern!(word_re, "[a-z0-9][a-z0-9'-]*[a-z0-9]|[a-z0-9]".to_string());
+pattern!(word_re, "[a-z0-9][a-z0-9'-]*[a-z0-9]|[a-z0-9]");
 pattern!(session_re, format!(r"{B}session:([^\s]+)"));
-pattern!(since_re, "^([0-9]+)([hdw])$".to_string());
+pattern!(since_re, "^([0-9]+)([hdw])$");
 
 fn rules() -> [(Kind, &'static Regex); 4] {
     [(Kind::Correction, correction()), (Kind::Decision, decision()), (Kind::Preference, preference()), (Kind::Direction, direction())]
@@ -319,11 +319,10 @@ fn words(text: &str) -> Vec<String> {
 pub fn subjects(text: &str) -> Vec<&'static str> {
     let mut seen = Vec::new();
     for w in words(text) {
-        if let Some(s) = subject_of(&w) {
-            if !seen.contains(&s) {
+        if let Some(s) = subject_of(&w)
+            && !seen.contains(&s) {
                 seen.push(s);
             }
-        }
     }
     seen
 }
@@ -668,7 +667,7 @@ fn load_ledger(ledger: &Path) -> NorthResult<Vec<Row>> {
 
 fn write_ledger(ledger: &Path, rows: &[Row]) -> NorthResult<()> {
     let mut sorted: Vec<&Row> = rows.iter().collect();
-    sorted.sort_by(|a, b| (a.at.clone() + &a.id).cmp(&(b.at.clone() + &b.id)));
+    sorted.sort_by_key(|a| a.at.clone() + &a.id);
     let mut text = String::new();
     for r in sorted {
         text.push_str(&serde_json::to_string(r)?);

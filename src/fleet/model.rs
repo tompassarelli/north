@@ -164,8 +164,8 @@ impl QuotaWindow {
     pub fn spanning(minutes: u64, used_percent: u64) -> Self {
         let label = match minutes {
             0 => "?".to_owned(),
-            _ if minutes % 1440 == 0 => format!("{}d", minutes / 1440),
-            _ if minutes % 60 == 0 => format!("{}h", minutes / 60),
+            _ if minutes.is_multiple_of(1440) => format!("{}d", minutes / 1440),
+            _ if minutes.is_multiple_of(60) => format!("{}h", minutes / 60),
             _ => format!("{minutes}m"),
         };
         Self { label, used_percent }

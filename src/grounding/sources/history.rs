@@ -63,12 +63,9 @@ pub fn transcripts(since: Option<f64>, path: &Path) -> Result<Vec<Doc>> {
             continue;
         }
         let fid = num(&row, "file_id") as i64;
-        if !kinds.contains_key(&fid) {
+        if let std::collections::hash_map::Entry::Vacant(e) = kinds.entry(fid) {
             let first=db.query(&format!("select b.text from msg m join body b on b.id=m.body where m.file_id={fid} and m.role='user' order by m.line limit 1;"))?;
-            kinds.insert(
-                fid,
-                session_kind(first.first().and_then(|r| r["text"].as_str())),
-            );
+            e.insert(session_kind(first.first().and_then(|r| r["text"].as_str())));
         }
         let Some(who) = speaker(&role, kinds[&fid], &text) else {
             continue;

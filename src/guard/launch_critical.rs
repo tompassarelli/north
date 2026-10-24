@@ -552,11 +552,9 @@ impl Policy {
             if words
                 .first()
                 .is_some_and(|s| BLOCK_CLOSE.contains(&s.as_str()))
-            {
-                if let Some((_, saved)) = stack.pop() {
+                && let Some((_, saved)) = stack.pop() {
                     cwds = union(&saved, &cwds);
                 }
-            }
             prev_sep = sep;
         }
         out
@@ -813,9 +811,8 @@ fn cargo_target_paths(text: &str) -> Vec<String> {
     for (segment, _) in shell::shell_segments_sep(text) {
         let words = tokens(&segment);
         let executable = shell::command_index(&words);
-        if !words
-            .get(executable)
-            .is_some_and(|s| basename(s).trim_start_matches('(') == "cargo")
+        if words
+            .get(executable).is_none_or(|s| basename(s).trim_start_matches('(') != "cargo")
         {
             continue;
         }
@@ -1261,8 +1258,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         .is_empty()
         && !raw.contains("apply_patch")
         && !raw.contains("Begin Patch")
-    {
-        if !raw.contains("/code/")
+        && (!raw.contains("/code/")
             || ![
                 "main",
                 "pins",
@@ -1272,11 +1268,10 @@ pub fn evaluate(input: &HookInput) -> Verdict {
                 "--target-dir",
             ]
             .iter()
-            .any(|s| raw.contains(s))
+            .any(|s| raw.contains(s)))
         {
             return Verdict::Allow;
         }
-    }
     let policy = Policy::from_env();
     let Some(reason) = policy.decide(input) else {
         return Verdict::Allow;

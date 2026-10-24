@@ -191,7 +191,7 @@ fn classify(words: &[String]) -> Decision {
 }
 
 fn bun_command(args: &[String], plain: &[&str]) -> Decision {
-    let plain = plain.strip_prefix(&["run"]).unwrap_or(&plain);
+    let plain = plain.strip_prefix(&["run"]).unwrap_or(plain);
     if plain.first() == Some(&"test") {
         return bun_tests(args);
     }

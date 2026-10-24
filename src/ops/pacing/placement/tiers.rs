@@ -10,11 +10,10 @@ pub(in crate::ops::pacing) fn routing_defaults() -> crate::router::policy::Defau
     let mut routes = BTreeMap::new();
     let mut tiers = BTreeMap::new();
     for (key, value) in doc.iter() {
-        if let Some(category) = key.strip_prefix("codex_route_") {
-            if let Some(route) = value["value"].as_str() {
+        if let Some(category) = key.strip_prefix("codex_route_")
+            && let Some(route) = value["value"].as_str() {
                 routes.insert(category.into(), route.into());
             }
-        }
         if let Some(category) = key.strip_prefix("codex_tier_") {
             tiers.insert(category.into(), strings(value.get("value")));
         }
@@ -55,7 +54,7 @@ pub(in crate::ops::pacing) fn tier_for(
             .unwrap_or(f64::INFINITY);
         let success = cfg
             .get("success")
-            .and_then(|s| s.get(&format!("{key}|{category}")))
+            .and_then(|s| s.get(format!("{key}|{category}")))
             .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|n| n as f64)));
         if success.map_or(
             (index == 0 || difficulty >= *lo) && difficulty < hi,
@@ -97,11 +96,10 @@ fn available_bands(full: &[(String, f64)], provider: &str, floor: f64) -> Vec<(S
             pending = Some(*start);
         }
     }
-    if pending.is_some() {
-        if let Some(last) = bands.last_mut() {
+    if pending.is_some()
+        && let Some(last) = bands.last_mut() {
             last.2 = 100.0;
         }
-    }
     bands
         .into_iter()
         .filter(|(_, lo, hi)| hi > lo && *hi > floor)

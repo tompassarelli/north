@@ -66,9 +66,9 @@ impl State<'_> {
         if self.scratch(&pre) {
             return Ok(());
         }
-        return Err(format!(
+        Err(format!(
             "variable expansion inside a recursive-delete target ('{disp}', under '{pre}') — the guard cannot tell what it resolves to. Write the literal path, or guard it: \"${{VAR:?}}\""
-        ));
+        ))
     }
     pub(super) fn rm(&mut self, args: &[String], cwd: &str) -> Result<(), String> {
         self.delete_seen = true;

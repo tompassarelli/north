@@ -74,9 +74,7 @@ fn lint(args: &[String]) -> Result<u8, String> {
                         .unwrap()
                         .is_match(&args[i]))
             {
-                return Ok(usage_error(&format!(
-                    "argument --repo: expected one argument"
-                )));
+                return Ok(usage_error("argument --repo: expected one argument"));
             }
             repos.push(args[i].as_str());
         } else if !positional && args[i] == "--" {

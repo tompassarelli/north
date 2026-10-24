@@ -715,8 +715,7 @@ pub fn run_guard() -> ExitCode {
     let _ = io::copy(&mut io::stdin(), &mut io::sink());
     if read.is_ok()
         && let (Some(home), Ok(cwd)) = (std::env::var_os("HOME"), std::env::current_dir())
-    {
-        if let Ok(Some(denial)) = guard_decision(
+        && let Ok(Some(denial)) = guard_decision(
             &input,
             Path::new(&home),
             &cwd,
@@ -724,7 +723,6 @@ pub fn run_guard() -> ExitCode {
         ) {
             println!("{denial}");
         }
-    }
     ExitCode::SUCCESS
 }
 

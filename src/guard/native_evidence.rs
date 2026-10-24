@@ -45,7 +45,7 @@ pub(super) fn decide_with(
                     let solo = segment[..index]
                         .iter()
                         .filter_map(|word| word.strip_prefix("NORTH_NATIVE_SOLO="))
-                        .last()
+                        .next_back()
                         .filter(|reason| !reason.trim().is_empty());
                     match solo {
                         Some(reason) => exceptions.push(reason.to_owned()),

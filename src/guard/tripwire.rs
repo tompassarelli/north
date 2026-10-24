@@ -227,11 +227,10 @@ impl<'a> State<'a> {
     }
     fn command(&mut self, mut i: usize, end: usize, next: &str) -> Result<(), String> {
         while i < end {
-            if ["for", "select"].contains(&self.tokens[i].as_str()) {
-                if let Some(name) = self.tokens.get(i + 1) {
+            if ["for", "select"].contains(&self.tokens[i].as_str())
+                && let Some(name) = self.tokens.get(i + 1) {
                     self.vars.remove(name);
                 }
-            }
             let word = tripwire_word(&self.tokens[i]).to_owned();
             if word == "_skip_user" {
                 i += 2;

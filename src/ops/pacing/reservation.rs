@@ -190,11 +190,10 @@ pub(super) fn reserve(
     let mut gate = load(path);
     let state_path = directory.join("pace-control.json");
     let mut state = load(&state_path);
-    if let Some(reservation) = request["reservation"].as_array() {
-        if let Some(hold) = account_hold(&gate[provider], provider, account, reservation, at)? {
+    if let Some(reservation) = request["reservation"].as_array()
+        && let Some(hold) = account_hold(&gate[provider], provider, account, reservation, at)? {
             return Ok(Some(hold));
         }
-    }
     if let Some(grant) = grants::find(
         &state,
         account,

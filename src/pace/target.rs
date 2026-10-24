@@ -45,7 +45,7 @@ fn entry(item: &Item) -> Option<Target> {
     let goal = goal.as_float().or_else(|| goal.as_integer().map(|whole| whole as f64))?;
     let utc = by.ends_with('Z') || by.ends_with("+00:00") || by.ends_with("-00:00");
     seconds(&by)?;
-    (utc && goal > 0.0 && goal <= 100.0).then(|| Target { by, spend_to_pct: goal })
+    (utc && goal > 0.0 && goal <= 100.0).then_some(Target { by, spend_to_pct: goal })
 }
 
 pub fn target_for(account: &str, at: f64) -> Result<Option<Target>, String> {

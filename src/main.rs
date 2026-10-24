@@ -43,8 +43,7 @@ fn main() -> std::process::ExitCode {
         let arguments = std::env::args().skip(1).collect::<Vec<_>>();
         arguments
             .first()
-            .is_some_and(|argument| argument == "private-desktop")
-            .then(|| ops::private_desktop::run(&arguments[1..]))
-            .unwrap_or_else(cli::main)
+            .filter(|argument| *argument == "private-desktop")
+            .map_or_else(cli::main, |_| ops::private_desktop::run(&arguments[1..]))
     })
 }

@@ -178,12 +178,11 @@ fn observe_response(id: &str, frame: &Value, transcript: &mut Transcript) {
     if !ours {
         return;
     }
-    if id == open_id(&transcript.name) {
-        if let Some(thread) = frame["result"]["thread"]["id"].as_str() {
+    if id == open_id(&transcript.name)
+        && let Some(thread) = frame["result"]["thread"]["id"].as_str() {
             transcript.conversation = Some(thread.to_owned());
             transcript.status = Status::Idle;
         }
-    }
     if let Some(message) = frame["error"]["message"].as_str() {
         push(transcript, EntryKind::Error, message.to_owned());
     }

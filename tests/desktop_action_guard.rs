@@ -92,13 +92,12 @@ mod guard {
                 .stdin(Stdio::piped())
                 .spawn()
                 .unwrap();
-            let fixture = Self {
+            Self {
                 root,
                 env,
                 child: Some(child),
                 _socket: socket,
-            };
-            fixture
+            }
         }
 
         fn state(&self, value: &Value) {
@@ -232,13 +231,11 @@ mod guard {
         let state_path = f.root.path().join("runtime/desktop-idle.json");
         let start = Instant::now();
         let idle: Value = loop {
-            if let Ok(bytes) = std::fs::read(&state_path) {
-                if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
-                    if value["idle"] == true {
+            if let Ok(bytes) = std::fs::read(&state_path)
+                && let Ok(value) = serde_json::from_slice::<Value>(&bytes)
+                    && value["idle"] == true {
                         break value;
                     }
-                }
-            }
             assert!(
                 start.elapsed() < Duration::from_secs(5),
                 "swayidle callback did not record state"

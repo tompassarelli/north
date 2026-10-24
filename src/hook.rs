@@ -283,14 +283,13 @@ fn guards_off(id: &str, get: &impl Fn(&str) -> Option<String>) -> bool {
     let id = id.strip_suffix(".sh").unwrap_or(id);
     let id = id.strip_suffix(".js").unwrap_or(id);
     let (list, path) = activation_paths(get);
-    if list.is_file() {
-        if let Ok(contents) = std::fs::read(&list) {
+    if list.is_file()
+        && let Ok(contents) = std::fs::read(&list) {
             let wanted = format!("hook {id}");
             return !contents
                 .split(|b| *b == b'\n')
                 .any(|line| line.iter().copied().filter(|b| *b != 0).eq(wanted.bytes()));
         }
-    }
     let Some(data) = std::fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())

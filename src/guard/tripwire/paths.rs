@@ -113,7 +113,7 @@ impl State<'_> {
             .or_else(|| self.lane_reason(p))
     }
     pub(super) fn store_reason(&self, p: &str, code: &str) -> Option<String> {
-        if p.strip_prefix(&code)
+        if p.strip_prefix(code)
             .is_some_and(|s| s.split('/').next().unwrap_or("").ends_with("-data"))
         {
             return Some(format!(
@@ -162,8 +162,8 @@ impl State<'_> {
         None
     }
     pub(super) fn lane_reason(&self, p: &str) -> Option<String> {
-        if let Some(wt) = self.lane(p) {
-            if !self.strong(&wt) && !self.cd_dirs.iter().any(|c| under(c, &wt)) {
+        if let Some(wt) = self.lane(p)
+            && !self.strong(&wt) && !self.cd_dirs.iter().any(|c| under(c, &wt)) {
                 let why = if p == wt {
                     format!("'{p}' is another session's worktree")
                 } else {
@@ -174,7 +174,6 @@ impl State<'_> {
                     "{why} — it may hold in-flight work this session cannot see (several lanes run concurrently here). If it is your lane, cd into it in the same command (cd {wt} && rm -r RELATIVE/PATH); if it has landed: git -C {pre}/main worktree remove {wt}"
                 ));
             }
-        }
         None
     }
     pub(super) fn classify(&self, p: &str) -> Option<(bool, String)> {

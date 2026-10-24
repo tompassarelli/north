@@ -182,17 +182,15 @@ impl Session {
             if stopping.load(Ordering::Relaxed) {
                 return Ok(130);
             }
-            if let Some(client) = self.client.as_mut() {
-                if let Some(status) = client.try_wait()? {
-                    return Ok(status_code(status)?);
+            if let Some(client) = self.client.as_mut()
+                && let Some(status) = client.try_wait()? {
+                    return status_code(status);
                 }
-            }
             for process in [&mut self.desktop, &mut self.vnc] {
-                if let Some(child) = process.as_mut() {
-                    if let Some(status) = child.try_wait()? {
-                        return Ok(status_code(status)?);
+                if let Some(child) = process.as_mut()
+                    && let Some(status) = child.try_wait()? {
+                        return status_code(status);
                     }
-                }
             }
             if self.seconds.is_some_and(|seconds| {
                 self.timer_started

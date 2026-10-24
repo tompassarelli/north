@@ -143,11 +143,10 @@ fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsStri
 }
 
 fn observe_system(frame: &Value, transcript: &mut Transcript) {
-    if frame["subtype"] == "init" {
-        if let Some(session) = frame["session_id"].as_str() {
+    if frame["subtype"] == "init"
+        && let Some(session) = frame["session_id"].as_str() {
             transcript.conversation = Some(session.to_owned());
         }
-    }
 }
 
 fn observe_user(frame: &Value, transcript: &mut Transcript) {

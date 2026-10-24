@@ -48,8 +48,8 @@ fn power(word: &str, args: &[String]) -> Result<(), String> {
 }
 
 fn systemctl(args: &[String]) -> Result<(), String> {
-    if let Some(sub) = args.iter().find(|s| !s.starts_with('-')) {
-        if [
+    if let Some(sub) = args.iter().find(|s| !s.starts_with('-'))
+        && [
             "poweroff",
             "reboot",
             "halt",
@@ -61,7 +61,6 @@ fn systemctl(args: &[String]) -> Result<(), String> {
         {
             return Err(format!("systemctl {sub} — system power ops are manual"));
         }
-    }
     Ok(())
 }
 

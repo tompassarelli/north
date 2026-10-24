@@ -222,12 +222,11 @@ pub fn compose(
         lines.push(format!("Mentions: {}", cut(&entities, 1600)));
     }
     for (name, _) in SLOTS {
-        if let Some((_, items)) = groups.iter().find(|(n, _)| n == name) {
-            if !items.is_empty() {
+        if let Some((_, items)) = groups.iter().find(|(n, _)| n == name)
+            && !items.is_empty() {
                 lines.push(format!("{name}:"));
                 lines.extend(items.iter().map(hit_line));
             }
-        }
     }
     lines.extend_from_slice(extra);
     let more: Vec<_> = rest
@@ -318,12 +317,11 @@ pub fn block(message: &str, tier: &str, now: f64, prior: &str) -> Result<String>
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.0);
-    if let Some(db) = db.as_mut() {
-        if let Ok((h, w)) = retrieve_db(message, db, now, 80, as_of, prior) {
+    if let Some(db) = db.as_mut()
+        && let Ok((h, w)) = retrieve_db(message, db, now, 80, as_of, prior) {
             hits = h;
             words = w;
         }
-    }
     if words.is_empty() {
         words = store::terms(message);
     }

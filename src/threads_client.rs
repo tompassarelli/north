@@ -561,7 +561,7 @@ exit "$(cat "$ROOT/code")"
                 {{"name": "gone", "status": "exited"}}, {{"name": "done", "status": "exited"}}]"#,
             std::process::id(),
         )).unwrap();
-        let mut rig = rig;
+        let rig = rig;
         assert_eq!(call(&rig, &["show", "north#63"], b"").0, 0);
         assert_eq!(call(&rig, &["unowned"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log"), [

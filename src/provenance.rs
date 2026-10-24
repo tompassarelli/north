@@ -290,8 +290,7 @@ fn rule_items(path: &str, text: &str) -> Vec<(usize, usize, String)> {
         if Path::new(path)
             .file_name()
             .is_some_and(|n| n == "AGENTS.md")
-        {
-            if let Some(h) = re!(r"^(#{1,6})\s+(.+)").captures(line) {
+            && let Some(h) = re!(r"^(#{1,6})\s+(.+)").captures(line) {
                 if routers > 0 && h[1].len() <= routers {
                     routers = 0;
                 }
@@ -299,21 +298,18 @@ fn rule_items(path: &str, text: &str) -> Vec<(usize, usize, String)> {
                     routers = h[1].len();
                 }
             }
-        }
         if routers > 0 {
             continue;
         }
         if re!(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)").is_match(line) || policy_line(path, line) {
             items.push((number, number, line.trim().into()));
-        } else if line.starts_with(char::is_whitespace) && !line.trim().is_empty() {
-            if let Some(last) = items.last_mut() {
-                if last.1 == number - 1 {
+        } else if line.starts_with(char::is_whitespace) && !line.trim().is_empty()
+            && let Some(last) = items.last_mut()
+                && last.1 == number - 1 {
                     last.1 = number;
                     last.2.push(' ');
                     last.2.push_str(line.trim());
                 }
-            }
-        }
     }
     items
 }
@@ -651,14 +647,13 @@ fn releases(path: &Path) -> Result<BTreeMap<String, String>, String> {
         for row in rows {
             if let (Some(model), Some(at)) = (row["model"].as_str(), row["at"].as_str()) {
                 let model = model.split_once(':').map_or(model, |(_, m)| m);
-                if let Some(s) = Timestamp::parse_python_datetime(at) {
-                    if result
+                if let Some(s) = Timestamp::parse_python_datetime(at)
+                    && result
                         .get(model)
                         .is_none_or(|old| Timestamp::parse_python_datetime(old).is_none_or(|o| s < o))
                     {
                         result.insert(model.into(), at.into());
                     }
-                }
             }
         }
     }

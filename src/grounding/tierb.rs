@@ -102,8 +102,8 @@ pub fn handoff_hits(words: &[String], deadline: f64) -> Vec<String> {
             .iter()
             .filter(|w| name.to_lowercase().contains(w.as_str()))
             .count() as f64;
-        if name.ends_with(".md") && Timestamp::now().unix_seconds_f64() < deadline {
-            if let Ok(f) = fs::File::open(&path) {
+        if name.ends_with(".md") && Timestamp::now().unix_seconds_f64() < deadline
+            && let Ok(f) = fs::File::open(&path) {
                 let mut text = String::new();
                 let _ = f.take(4096).read_to_string(&mut text);
                 let heads = text
@@ -114,7 +114,6 @@ pub fn handoff_hits(words: &[String], deadline: f64) -> Vec<String> {
                     .to_lowercase();
                 score += 0.5 * words.iter().filter(|w| heads.contains(w.as_str())).count() as f64;
             }
-        }
         if score >= need && path.exists() {
             scored.push((score, mtime(&path), path));
         }

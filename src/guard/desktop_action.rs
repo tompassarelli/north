@@ -320,15 +320,14 @@ fn dangerous(text: &str, inherited: &BTreeMap<String, String>) -> bool {
         };
         let mut assignments = inherited.clone();
         for word in &words[..index] {
-            if let Some((key, value)) = word.split_once('=') {
-                if !key.is_empty()
+            if let Some((key, value)) = word.split_once('=')
+                && !key.is_empty()
                     && key.chars().enumerate().all(|(i, c)| {
                         c.is_ascii_alphabetic() || c == '_' || (i > 0 && c.is_ascii_digit())
                     })
                 {
                     assignments.insert(key.into(), value.into());
                 }
-            }
         }
         let name = word.rsplit('/').next().unwrap_or("");
         let args = &words[index + 1..];
@@ -354,16 +353,13 @@ fn dangerous(text: &str, inherited: &BTreeMap<String, String>) -> bool {
             }
             continue;
         }
-        if ["bash", "sh", "zsh", "dash"].contains(&name) {
-            if let Some(i) = args
+        if ["bash", "sh", "zsh", "dash"].contains(&name)
+            && let Some(i) = args
                 .iter()
                 .position(|arg| arg.starts_with('-') && arg.contains('c') && !arg.starts_with("--"))
-            {
-                if args.get(i + 1).is_some_and(|s| dangerous(s, &assignments)) {
+                && args.get(i + 1).is_some_and(|s| dangerous(s, &assignments)) {
                     return true;
                 }
-            }
-        }
         if name == "eval" && dangerous(&args.join(" "), &assignments) {
             return true;
         }

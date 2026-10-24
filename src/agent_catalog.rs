@@ -719,8 +719,8 @@ fn publish_generation(activation: &Value, root: &Path) -> NorthResult<()> {
     if !generation.is_dir() {
         let temporary = root.join(format!(".gen-{suffix}.tmp-{}", std::process::id()));
         start_clean_generation(&temporary)?;
-        refresh_generation(&temporary, &activation)?;
-        write_json(&temporary.join("activation.json"), &activation)?;
+        refresh_generation(&temporary, activation)?;
+        write_json(&temporary.join("activation.json"), activation)?;
         fs::rename(&temporary, &generation)?;
     }
     atomic_symlink(&root.join("current"), Path::new(&format!("gen-{suffix}")))?;
@@ -1289,11 +1289,10 @@ fn repo_root_in(repo: &str, configured: Option<&str>) -> NorthResult<PathBuf> {
             return Ok(PathBuf::from(path));
         }
     }
-    if repo == "north" {
-        if let Ok(path) = env::var("NORTH_HOME") {
+    if repo == "north"
+        && let Ok(path) = env::var("NORTH_HOME") {
             return Ok(PathBuf::from(path));
         }
-    }
     Ok(home()?.join("code").join(repo).join("main"))
 }
 

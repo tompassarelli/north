@@ -22,11 +22,10 @@ mod sampling_tests;
 mod storage;
 
 pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
-    if let [command, provider] = arguments {
-        if command == "gate" {
+    if let [command, provider] = arguments
+        && command == "gate" {
             return gate(provider);
         }
-    }
     match arguments.first().map(String::as_str) {
         Some("place") => finish(placement::cli(&arguments[1..], roster), "north place"),
         Some("sample") => finish(command::cli(&arguments[1..]), "north pace"),

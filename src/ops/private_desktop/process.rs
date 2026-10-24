@@ -40,10 +40,9 @@ pub(super) fn status_code(status: std::process::ExitStatus) -> io::Result<u8> {
 }
 
 pub(super) fn terminate_group(child: &mut Child) {
-    if let Ok(pid) = i32::try_from(child.id()) {
-        if let Some(group) = Pid::from_raw(pid) {
+    if let Ok(pid) = i32::try_from(child.id())
+        && let Some(group) = Pid::from_raw(pid) {
             let _ = kill_process_group(group, Signal::Term);
         }
-    }
     let _ = child.wait();
 }

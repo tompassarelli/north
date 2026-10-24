@@ -131,11 +131,10 @@ fn validate_hook_command_list<'a>(
 fn collect_hook_commands<'a>(value: &'a Value, commands: &mut Vec<&'a str>) {
     match value {
         Value::Object(object) => {
-            if object.get("type").and_then(Value::as_str) == Some("command") {
-                if let Some(command) = object.get("command").and_then(Value::as_str) {
+            if object.get("type").and_then(Value::as_str) == Some("command")
+                && let Some(command) = object.get("command").and_then(Value::as_str) {
                     commands.push(command);
                 }
-            }
             for child in object.values() {
                 collect_hook_commands(child, commands);
             }
@@ -158,11 +157,10 @@ fn collect_toml_hook_commands<'a>(
     }
     impl<'a> toml_edit::visit::Visit<'a> for Collector<'a> {
         fn visit_table(&mut self, table: &'a toml_edit::Table) {
-            if table.get("type").and_then(toml_edit::Item::as_str) == Some("command") {
-                if let Some(command) = table.get("command").and_then(toml_edit::Item::as_str) {
+            if table.get("type").and_then(toml_edit::Item::as_str) == Some("command")
+                && let Some(command) = table.get("command").and_then(toml_edit::Item::as_str) {
                     self.commands.push(command);
                 }
-            }
             toml_edit::visit::visit_table(self, table);
         }
     }

@@ -137,11 +137,10 @@ fn standing(previous: &Control, wanted: bool, soft: bool, target_kept: bool, at:
     let dwell = limits::state_dwell_seconds();
     let mut held = wanted;
     let mut state_since = previous.state_since.or(previous.at).unwrap_or(at);
-    if let Some(before) = previous.held {
-        if target_kept && held != before && soft && at - state_since < dwell {
+    if let Some(before) = previous.held
+        && target_kept && held != before && soft && at - state_since < dwell {
             held = before;
         }
-    }
     if Some(held) != previous.held {
         state_since = at;
     }

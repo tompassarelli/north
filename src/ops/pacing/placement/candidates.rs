@@ -21,7 +21,7 @@ fn control_of<'a>(gate: &'a Value, provider: &str, name: &str) -> &'a Value {
     }
 }
 
-fn candidate_hold<'a>(control: &'a Value, at: f64) -> &'a str {
+fn candidate_hold(control: &Value, at: f64) -> &str {
     if fresh(control, at) {
         control["held_reason"].as_str().unwrap_or_default()
     } else {
@@ -29,7 +29,7 @@ fn candidate_hold<'a>(control: &'a Value, at: f64) -> &'a str {
     }
 }
 
-fn eligible_hold<'a>(control: &'a Value, at: f64) -> &'a str {
+fn eligible_hold(control: &Value, at: f64) -> &str {
     if fresh(control, at) && control.get("held_reason").is_some() {
         control["held_reason"].as_str().unwrap_or_default()
     } else {
@@ -75,15 +75,14 @@ fn reservation_request(
     let measurable = account["used_pct"].is_number()
         && account["cap_pct"].is_number()
         && request.get("reservation").is_none();
-    if measurable {
-        if let Some(measured) = measured_reservation(candidate, provider, name) {
+    if measurable
+        && let Some(measured) = measured_reservation(candidate, provider, name) {
             for (index, key) in ["expected", "existing"].iter().enumerate() {
                 if measured[*key].is_number() {
                     reserve["reservation"][index] = measured[*key].clone();
                 }
             }
         }
-    }
     if let Some(calibration) = request.get("reservation") {
         reserve["reservation"] = calibration.clone();
     }
