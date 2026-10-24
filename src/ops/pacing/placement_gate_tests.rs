@@ -235,3 +235,25 @@ fn a_host_entry_names_the_warcraft_client_count_admission_holds_it_to() {
     assert_eq!(gate::warcraft_clients(&cfg, "laptop"), None);
     assert_eq!(gate::warcraft_clients(&cfg, "elsewhere"), None);
 }
+
+#[test]
+fn placement_puts_a_label_owned_by_another_machine_only_on_that_machine() {
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"warcraft\", \"native\"]\n[hosts.laptop]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
+    let at = super::target::seconds(AT).unwrap();
+    let quota = gate(&[
+        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
+        ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
+    ]);
+    let found = ["a", "b"].map(|label| (Account { provider: ProviderName::new("claude"), label: label.into(), home: format!("/profiles/claude-{label}").into() }, None));
+    let owned = Roster::distinct(found, &Declared { elsewhere: [("b".to_owned(), vec!["gex45".to_owned()])].into(), ..Declared::default() });
+    let mut machines = super::placement::gate::machines(&cfg);
+    machines[0].live = Some(0);
+    machines[0].accounts = vec!["b".into()];
+
+    let there = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &owned, at), (false, String::new()), &machines, "laptop");
+    assert_eq!((there.machine.as_ref().map(|m| m.name.as_str()), target(&there).as_str()), (Some("gex45"), "claude:b"), "{:?}", there.machine_lines);
+
+    let here = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &owned, at), (false, String::new()), &[], "laptop");
+    assert_eq!((here.machine.as_ref(), target(&here).as_str()), (None, "claude:a"), "{:?}", here.machine_lines);
+    assert!(here.machine_lines.contains(&"claude:b runs only on gex45; claude:a here".to_owned()), "{:?}", here.machine_lines);
+}

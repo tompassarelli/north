@@ -6,7 +6,7 @@ fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
         Some(room) => format!("{account} available: 5h {:.0}% ({room:.0}% headroom)", 95.0 - room),
         None => format!("{account} unavailable: runaway: 5h 42% + 86.0%/h x 2.0h = 214% > 100% before reset"),
     };
-    Verdict { account: account.into(), available: headroom.is_some(), headroom: headroom.unwrap_or(0.0), line }
+    Verdict { account: account.into(), available: headroom.is_some(), headroom: headroom.unwrap_or(0.0), line, owners: Vec::new() }
 }
 
 fn decision(target: Target) -> Decision {
@@ -30,7 +30,7 @@ fn noted(note: Option<&str>) -> Result<Placed, String> {
 fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let cloud = decision(Target::Cloud("cloud credit: unread".into()));
     let local = decision(Target::Account("claude:a".into()));
-    let launch = |account| Launch { name: "box", account, brief: None, cwd: None };
+    let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: None };
     let given = |local: Option<&str>, pin: Option<&str>| Overrides { local: local.map(Into::into), pin: pin.map(Into::into) };
 
     assert_eq!(admit(&local, &launch("a"), "", &Overrides::default()), noted(None));
@@ -48,7 +48,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
 
     let mut remote = decision(Target::Account("claude:a".into()));
     remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()] });
-    let launch = Launch { name: "box", account: "a", brief: None, cwd: None };
+    let launch = Launch { name: "box", account: "a", brief: None, cwd: None, machine: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
     assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
     let kept = admit(&remote, &launch, "", &Overrides { local: Some("needs my desktop".into()), pin: None }).unwrap();
@@ -56,8 +56,8 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None }).unwrap();
     assert_eq!(here, noted(None).unwrap(), "--local on a box placed here records nothing");
 
-    let unsigned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None }, "", &Overrides::default()).unwrap_err();
+    let unsigned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides::default()).unwrap_err();
     assert!(unsigned.starts_with("far is not signed in to claude:b (signed in there: a, c); launch with --account a, or "), "{unsigned}");
-    let pinned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None }, "", &Overrides { local: Some("x".into()), pin: Some("y".into()) });
+    let pinned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides { local: Some("x".into()), pin: Some("y".into()) });
     assert_eq!(pinned.unwrap().machine, None);
 }

@@ -142,7 +142,7 @@ fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, overrides: 
     if record.provider.label() == "claude" && !record.verification && !fleet.running(&record) {
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
-        let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None };
+        let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
         placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &machine_load(fleet)?, &fleet.roster())?.note;
     }
     fleet.revive_placed(name, system_prompt, placement).map(|record| println!("{}", record.name))
@@ -254,7 +254,8 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let (mut request, overrides) = launch_parts(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
     let placed = placed(fleet, &request, &overrides)?;
-    (request.placement, request.machine, request.capacity_need) = (placed.note, placed.machine, placed.need);
+    (request.placement, request.capacity_need) = (placed.note, placed.need);
+    request.machine = placed.machine.or(request.machine);
     let record = fleet.launch(&request)?;
     println!("{}", record.name);
     Ok(())
@@ -266,7 +267,7 @@ fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides) -> Nort
         return Ok(Placed::default());
     }
     let text = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
-    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd) };
+    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()) };
     fleet_placement::check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster())
 }
 
@@ -323,10 +324,7 @@ impl LaunchFlags {
         if prompt.is_empty() {
             return Err(usage());
         }
-        let cwd = match self.cwd {
-            Some(cwd) => std::fs::canonicalize(cwd)?,
-            None => std::env::current_dir()?,
-        };
+        let (cwd, machine) = fleet_placement::working_directory(self.cwd)?;
         let name = match self.name {
             Some(name) => name,
             None => default_name(&provider, &account)?,
@@ -346,7 +344,7 @@ impl LaunchFlags {
             parent: parent(self.parent, caller),
             task_ref: self.task_ref,
             placement: None,
-            machine: None,
+            machine,
             capacity_need: None,
         })
     }

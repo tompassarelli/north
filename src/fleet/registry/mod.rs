@@ -358,7 +358,7 @@ impl Fleet {
     }
 
     fn account(&self, request: &LaunchRequest) -> NorthResult<Account> {
-        self.roster().account(&request.provider, &request.account)
+        self.roster().account(&request.provider, &request.account, request.machine.as_ref().map(|machine| machine.name.as_str()))
     }
 
     fn runtime(&self, record: &SessionRecord) -> NorthResult<Arc<dyn Runtime>> {

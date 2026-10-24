@@ -19,13 +19,20 @@ pub struct Profiles {
 }
 
 pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles) -> Roster {
-    let found: Vec<(Account, Option<String>)> = labelled_homes(&state_root.join("profiles"), PREFIX, ".credentials.json")
+    let mut found: Vec<(Account, Option<String>)> = labelled_homes(&state_root.join("profiles"), PREFIX, ".credentials.json")
         .into_iter()
         .map(|(label, home)| {
             let identity = identity(&home);
             (Account { provider: provider.clone(), label, home }, identity)
         })
         .collect();
+    let owned_elsewhere: Vec<(Account, Option<String>)> = profiles
+        .elsewhere
+        .keys()
+        .filter(|label| !found.iter().any(|(account, _)| &&account.label == label))
+        .map(|label| (Account { provider: provider.clone(), label: label.clone(), home: state_root.join("profiles").join(format!("{PREFIX}{label}")) }, None))
+        .collect();
+    found.extend(owned_elsewhere);
     let holders = profiles
         .homes
         .iter()

@@ -35,11 +35,11 @@ fn a_label_logged_into_another_labels_account_is_omitted_and_its_launch_refused_
     let roster = discover(&claude, state.path(), &Profiles::default());
 
     assert_eq!(labels(&roster), (vec!["a", "c"], vec![("b", "a")]));
-    match roster.account(&claude, "b") {
+    match roster.account(&claude, "b", None) {
         Err(NorthError::Refused(why)) => assert!(why.starts_with("claude:b is logged in to the same account as claude:a"), "{why}"),
         other => panic!("launching the duplicate label was not refused: {other:?}"),
     }
-    assert_eq!(roster.account(&claude, "c").unwrap().label, "c");
+    assert_eq!(roster.account(&claude, "c", None).unwrap().label, "c");
 }
 
 #[test]

@@ -48,6 +48,7 @@ fn north_on(root: &Path, host: &str, args: &[&str]) -> Output {
         .env("RESIDENT_CAP_HOST", host)
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("FLEET_LAUNCH_FIXTURE", root)
+        .env("PLACEMENT_HOSTS", root.join("placement-hosts.json"))
         .env("FAKE_CLAUDE_HOOK_MS", "1500")
         .env("FAKE_CLAUDE_SIGNED_OUT_MARK", root.join("signed-out"))
         .env("NORTH_FLEET_SESSION", "")
@@ -139,6 +140,29 @@ fn a_host_holding_a_copy_of_another_hosts_login_refuses_to_launch_it_naming_the_
     let owner = launch(root);
     north(root, &["fleet", "forget", "narrow"]);
     assert!(owner.status.success(), "{}", String::from_utf8_lossy(&owner.stderr));
+}
+
+#[test]
+fn a_launch_whose_cwd_names_another_machine_runs_there_on_a_label_only_that_machine_owns() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let policy = root.join("op/orchestration.toml");
+    let declared = fs::read_to_string(&policy).unwrap() + "[hosts.far]\nssh = \"far\"\nresident_cap = 4\nserves = []\n[accounts.claude]\nprofiles = { a = { far = {} } }\n";
+    fs::write(&policy, declared).unwrap();
+    fs::write(root.join("placement-hosts.json"), serde_json::json!({"far": {"online": true, "live": 0, "accounts": ["a"]}}).to_string()).unwrap();
+    executable(&root.join("bin/ssh"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec sh -c \"$*\"\n");
+    let checkout = root.join("far-checkout");
+    fs::create_dir_all(&checkout).unwrap();
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+
+    let cwd = format!("far:{}", checkout.display());
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--cwd", &cwd, "--system-prompt", &brief.display().to_string(), "start the box"]);
+    let show = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+    assert_eq!((show["machine"].as_str(), show["status"].as_str()), (Some("far"), Some("working")), "{show}");
 }
 
 #[test]

@@ -26,6 +26,7 @@ pub(crate) struct Verdict {
     pub available: bool,
     pub headroom: f64,
     pub line: String,
+    pub owners: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,6 +87,33 @@ impl Decision {
             }
             None => self.stay_here(Some(format!("{name} has no signed-in {account}, so here"))),
         }
+    }
+
+    fn keep_here_on_local_account(&mut self) {
+        let (None, Target::Account(account)) = (&self.machine, &self.target) else { return };
+        let Some(owners) = self.verdict(account).map(|verdict| verdict.owners.join(" and ")).filter(|owners| !owners.is_empty()) else { return };
+        let account = account.clone();
+        let local: Vec<String> = self.verdicts.iter().filter(|verdict| verdict.owners.is_empty()).map(|verdict| verdict.account.trim_start_matches("claude:").to_owned()).collect();
+        match self.best_where(|label| local.iter().any(|here| here == label)).map(|verdict| verdict.account.clone()) {
+            Some(other) => {
+                self.machine_lines.push(format!("{account} runs only on {owners}; {other} here"));
+                self.target = Target::Account(other);
+            }
+            None => self.target = Target::Held(format!("{account} runs only on {owners}, and no account here is available")),
+        }
+    }
+
+    pub(crate) fn run_on(&mut self, machine: Machine) {
+        let (name, accounts) = (machine.name.clone(), machine.accounts.clone());
+        self.machine_lines.push(format!("{name} named by --cwd"));
+        self.machine = Some(machine);
+        if matches!(self.target, Target::Held(_)) {
+            return;
+        }
+        self.target = match self.best_where(|label| accounts.iter().any(|there| there == label)) {
+            Some(best) => Target::Account(best.account.clone()),
+            None => Target::Held(format!("no available Claude account is signed in on {name}")),
+        };
     }
 
     pub(crate) fn verdict(&self, account: &str) -> Option<&Verdict> {
@@ -165,6 +193,7 @@ pub(crate) fn verdict(account: &str, control: &Value, at: f64) -> Verdict {
         available: true,
         headroom: room,
         line: format!("{account} available: {} ({room:.0}% headroom)", usage(windows)),
+        owners: Vec::new(),
     }
 }
 
@@ -315,14 +344,14 @@ pub(crate) fn verdicts(gate: &Value, roster: &Roster, at: f64) -> Vec<Verdict> {
         .map(|(name, control)| match roster.standing(&claude, name.trim_start_matches("claude:")) {
             Standing::Listed(_) => verdict(&name, control, at),
             Standing::Duplicate(duplicate) => unavailable(&name, duplicate.to_string()),
-            Standing::Foreign(foreign) => unavailable(&name, foreign.to_string()),
+            Standing::Foreign(foreign) => Verdict { owners: foreign.owners.clone(), ..verdict(&name, control, at) },
             Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
         .collect()
 }
 
 fn unavailable(account: &str, reason: String) -> Verdict {
-    Verdict { account: account.into(), available: false, headroom: 0.0, line: format!("{account} unavailable: {reason}") }
+    Verdict { account: account.into(), available: false, headroom: 0.0, line: format!("{account} unavailable: {reason}"), owners: Vec::new() }
 }
 
 pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {
@@ -354,6 +383,7 @@ pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, cred
         None => decision.stay_here(None),
     }
     decision.sign_in_on_machine();
+    decision.keep_here_on_local_account();
     decision
 }
 
@@ -371,14 +401,20 @@ pub(crate) fn summary(decision: &Decision) -> String {
 
 /// The live decision: South's orchestration.toml, the gate pace-control last wrote, the credit and
 /// each machine's load, given the fleet sessions this machine runs there by machine name.
-pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> Result<Decision, String> {
+pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, named: Option<&str>) -> Result<Decision, String> {
     let cfg = sampling::config()?;
     let at = std::env::var("PLACEMENT_NOW")
         .ok()
         .and_then(|s| target::seconds(&s))
         .unwrap_or_else(storage::now);
     let gate = load(&storage::directory().join("usage-gate.json"));
-    Ok(decide(text, &cfg, verdicts(&gate, roster, at), credit(&cfg, at), &probed(&cfg, fleet_load), &local()))
+    let machines = probed(&cfg, fleet_load);
+    let mut decision = decide(text, &cfg, verdicts(&gate, roster, at), credit(&cfg, at), &machines, &local());
+    if let Some(name) = named {
+        let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
+        decision.run_on(machine);
+    }
+    Ok(decision)
 }
 
 /// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet

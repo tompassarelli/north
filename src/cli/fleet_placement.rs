@@ -1,7 +1,7 @@
 //! The placement gate in front of `north fleet launch` and `revive`: a Claude box starts only where
 //! placement puts it, or with the override reason recorded on the session.
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::error::{NorthError, NorthResult};
@@ -59,6 +59,8 @@ pub(super) struct Launch<'a> {
     /// The directory a fresh session starts in, which a machine must also have; None on revive,
     /// which resumes where the session already ran.
     pub cwd: Option<&'a Path>,
+    /// The machine `--cwd HOST:PATH` or the revived record names, which placement must run the box on.
+    pub machine: Option<&'a str>,
 }
 
 /// The brief placement reads: the system prompt file when there is one, then the prompt.
@@ -70,7 +72,7 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
 /// Runs live placement, prints one verdict line per account and machine, and returns where to run.
 /// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
 pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> NorthResult<Placed> {
-    let mut decision = gate::live(text, fleet_load, roster).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
+    let mut decision = gate::live(text, fleet_load, roster, launch.machine).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
     let absent = match (&decision.machine, launch.cwd) {
         (Some(machine), Some(cwd)) if !has_directory(&machine.ssh, cwd) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
         _ => None,
@@ -170,3 +172,13 @@ fn cloud_command(launch: &Launch, credit: &str, surface: &str, text: &str) -> St
 #[cfg(test)]
 #[path = "fleet_placement_tests.rs"]
 mod tests;
+
+/// Where a fresh session starts: `HOST:/PATH` names a `[hosts.HOST]` machine and a directory there,
+/// anything else is a directory here; none is the current directory.
+pub(super) fn working_directory(cwd: Option<PathBuf>) -> NorthResult<(PathBuf, Option<Machine>)> {
+    let Some(cwd) = cwd else { return Ok((std::env::current_dir()?, None)) };
+    let named = cwd.to_str().and_then(|text| text.split_once(':')).filter(|(host, path)| !host.contains('/') && path.starts_with('/'));
+    let Some((host, path)) = named else { return Ok((std::fs::canonicalize(cwd)?, None)) };
+    let machine = crate::ops::pacing::placement::machine(host).ok_or_else(|| NorthError::Usage(format!("--cwd {host}:{path} names no [hosts.{host}] with an ssh destination")))?;
+    Ok((PathBuf::from(path), Some(machine)))
+}

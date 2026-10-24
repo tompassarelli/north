@@ -61,6 +61,10 @@ pub(crate) fn serving_host(needs: &str) -> Option<String> {
 pub(crate) fn local_warcraft_clients() -> Option<u32> {
     gate::warcraft_clients(&sampling::config().ok()?, &local())
 }
+pub(crate) fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
+    let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;
+    Some(crate::fleet::model::Machine { name: machine.name, ssh: machine.ssh })
+}
 fn local() -> String {
     crate::platform::host::name()
 }

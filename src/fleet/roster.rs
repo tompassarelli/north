@@ -96,9 +96,10 @@ impl Roster {
         self.foreign.iter().find(|foreign| matches(&foreign.account)).map_or(Standing::Unknown, Standing::Foreign)
     }
 
-    pub fn account(&self, provider: &ProviderName, label: &str) -> NorthResult<Account> {
+    pub fn account(&self, provider: &ProviderName, label: &str, machine: Option<&str>) -> NorthResult<Account> {
         match self.standing(provider, label) {
             Standing::Listed(account) => Ok(account.clone()),
+            Standing::Foreign(foreign) if machine.is_some_and(|machine| foreign.owners.iter().any(|owner| owner == machine)) => Ok(foreign.account.clone()),
             Standing::Duplicate(duplicate) => Err(NorthError::Refused(format!(
                 "{duplicate}; launch on another --account or log {label} in to its own account"
             ))),
