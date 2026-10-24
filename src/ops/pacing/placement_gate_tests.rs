@@ -24,12 +24,13 @@ fn target(decision: &super::placement::gate::Decision) -> String {
         Target::Cloud(_) => "anthropic-cloud".into(),
         Target::Account(name) => name.clone(),
         Target::Held(why) => format!("held: {why}"),
+        Target::Unserved(why) => format!("unserved: {why}"),
     }
 }
 
 #[test]
 fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_runaway_burn() {
-    let cfg = "[placement]\nprivate_repos = [\"galileo\"]\n".parse().unwrap();
+    let cfg = "[placement]\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let at = super::target::seconds(AT).unwrap();
     let credit = || (true, "cloud credit: unread, expires in 19 days".to_owned());
     let spent = || (false, "cloud credit: spent (read 2026-10-16), expires in 19 days".to_owned());
@@ -53,18 +54,18 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         ("no live quota holds", WARCRAFT, &json!({}), credit(), "held: no live Claude quota in usage-gate.json; run pace-control"),
     ];
     for (name, brief, gate, credit, expected) in cases {
-        let decision = decide(brief, &cfg, gate, credit, &[], at);
+        let decision = decide(brief, &cfg, gate, credit, &[], "here", at);
         assert_eq!(target(&decision), expected, "{name}: {:?}", decision.verdicts);
         assert_eq!(decision.verdicts.len(), gate["claude"]["controls"].as_object().map_or(0, |c| c.len()), "{name}");
     }
-    let decision = decide(WARCRAFT, &cfg, &runaway_c, credit(), &[], at);
+    let decision = decide(WARCRAFT, &cfg, &runaway_c, credit(), &[], "here", at);
     let c = decision.verdict("claude:c").unwrap();
     assert!(!c.available && c.line.contains("runaway: 5h 42%"), "{}", c.line);
-    let a = decide(WARCRAFT, &cfg, &full_a, credit(), &[], at).verdict("claude:a").cloned().unwrap();
+    let a = decide(WARCRAFT, &cfg, &full_a, credit(), &[], "here", at).verdict("claude:a").cloned().unwrap();
     assert!(!a.available && a.line.contains("exhausted: 5h 96% >= 95%"), "{}", a.line);
     assert!(decision.verdicts.iter().all(|v| !v.line.contains('\n') && v.line.starts_with(&v.account)));
 
-    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"near\", \"far\"]\nprivate_repos = [\"galileo\"]\n[hosts.near]\nresident_cap = 2\nssh = \"tom@near\"\n[hosts.far]\nresident_cap = 4\nssh = \"tom@far\"\nserves = [\"private\", \"native\"]\n[hosts.nossh]\nresident_cap = 9\n".parse().unwrap();
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"near\", \"far\"]\nprivate_repos = [\"galileo\"]\n[hosts.near]\nresident_cap = 2\nssh = \"tom@near\"\n[hosts.far]\nresident_cap = 4\nssh = \"tom@far\"\nserves = [\"private\", \"native\"]\n[hosts.nossh]\nresident_cap = 9\n[hosts.here]\nserves = [\"warcraft\", \"native\", \"private:smashcraft\"]\n".parse().unwrap();
     let at = super::target::seconds(AT).unwrap();
     let spent = || (false, "cloud credit: spent".to_owned());
     let gate = gate(&[("claude:a", control((35.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0)))]);
@@ -76,7 +77,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         machines
     };
     let place = |brief: &str, near, far| {
-        let decision = decide(brief, &cfg, &gate, spent(), &probed(near, far), at);
+        let decision = decide(brief, &cfg, &gate, spent(), &probed(near, far), "here", at);
         let summary = super::placement::gate::summary(&decision);
         (decision.machine.map(|m| m.ssh), decision.machine_lines, summary)
     };
@@ -96,7 +97,34 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
     }
     let (_, lines, summary) = place(native, Some(0), None);
     assert_eq!(lines, ["near skipped: needs native", "far unreachable over ssh tom@far"]);
-    assert_eq!(summary, "target claude:a (needs native, so local)");
+    assert_eq!(summary, "target here claude:a (needs native, so local)");
     let (_, _, summary) = place(PRIVATE, Some(0), Some(0));
     assert_eq!(summary, "target near claude:a (galileo is not a public repository, so local)");
+}
+
+#[test]
+fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"private:wisp\"]\n[hosts.laptop]\nserves = [\"private:smashcraft\", \"native\"]\n".parse().unwrap();
+    let at = super::target::seconds(AT).unwrap();
+    let gate = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let mut machines = super::placement::gate::machines(&cfg);
+    machines[0].live = Some(0);
+    let spent = || (false, "cloud credit: spent".to_owned());
+    let camera = "Item: smashcraft#96 (scorecard tool)\nSurface: ts\nVerify: visual\nNeeds: private\n";
+    let wisp = "Item: wisp#5 private pool change\nSurface: ts\nNeeds: private\n";
+
+    let placed = decide(camera, &cfg, &gate, spent(), &machines, "laptop", at);
+    assert_eq!(placed.machine, None, "{:?}", placed.machine_lines);
+    assert_eq!(placed.machine_lines, ["gex45 skipped: needs private"]);
+    assert_eq!(super::placement::gate::summary(&placed), "target laptop claude:c (needs private, so local)");
+
+    let mut placed = decide(wisp, &cfg, &gate, spent(), &machines, "laptop", at);
+    assert_eq!(placed.machine.as_ref().map(|m| m.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
+    placed.stay_here(Some("gex45 has no /lane, so here".into()));
+    assert_eq!(placed.machine_lines[1..], ["gex45 has no /lane, so here", "laptop skipped: needs private"]);
+    assert_eq!(super::placement::gate::summary(&placed), "target unserved: no host serves private for wisp");
+
+    let refused = decide(camera, &cfg, &gate, spent(), &[], "gex45", at);
+    assert_eq!(refused.machine_lines, ["gex45 skipped: needs private"]);
+    assert_eq!(super::placement::gate::summary(&refused), "target unserved: no host serves private for smashcraft");
 }

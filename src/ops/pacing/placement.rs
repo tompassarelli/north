@@ -277,7 +277,7 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
         } else {
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
-        let decision = gate::decide(&text, &cfg, &gate, credit(&cfg, at), &machines, at);
+        let decision = gate::decide(&text, &cfg, &gate, credit(&cfg, at), &machines, &local(), at);
         for line in decision.verdicts.iter().map(|v| &v.line).chain(&decision.machine_lines) {
             println!("  {line}");
         }

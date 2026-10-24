@@ -86,7 +86,7 @@ pub struct Tier {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct HostPolicy {
-    pub resident_cap: u32,
+    pub resident_cap: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(policy.defaults.codex_tier["tooling"], ["codex:sol-high"]);
         assert_eq!(policy.pace.targets["claude:a"].spend_to_pct, 95.0);
         assert_eq!(policy.projects["north"].drain["codex"], "fixture grant");
-        assert_eq!(policy.hosts["host-a"].resident_cap, 24);
+        assert_eq!(policy.hosts["host-a"].resident_cap, Some(24));
         assert_eq!(policy.on_request[0].key, "codex:astra");
     }
 

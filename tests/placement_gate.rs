@@ -25,7 +25,7 @@ fn fixture(root: &Path) {
     fs::create_dir_all(&op).unwrap();
     fs::create_dir_all(&agents).unwrap();
     fs::create_dir_all(root.join("bin")).unwrap();
-    fs::write(op.join("orchestration.toml"), "[placement]\ncloud_credit = \"cloud-credit\"\nprivate_repos = [\"galileo\"]\n").unwrap();
+    fs::write(op.join("orchestration.toml"), "[placement]\ncloud_credit = \"cloud-credit\"\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\"]\n").unwrap();
     fs::write(op.join("costs.toml"), "[[service]]\nid = \"cloud-credit\"\ninitial = 250.0\nexpires = 2026-11-05T07:59:00Z\n").unwrap();
     let gate = serde_json::json!({"claude": {"controls": {
         "claude:a": {"windows": [window("5h", 35.0, 10.0, "2026-10-16T16:00:00Z"), window("week", 40.0, 1.0, "2026-10-20T00:00:00Z")]},
@@ -51,6 +51,7 @@ fn north(root: &Path, args: &[&str]) -> Output {
         .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
         .env("AGENTS_OPERATOR_DIR", root.join("op"))
         .env("PLACEMENT_NOW", NOW)
+        .env("RESIDENT_CAP_HOST", "here")
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("PLACEMENT_FIXTURE", root)
         .env("NORTH_FLEET_SESSION", "")
@@ -124,6 +125,7 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
             .env("AGENTS_ORCHESTRATION", &orchestration)
             .env("AGENTS_OPERATOR_DIR", root.join("op"))
             .env("PLACEMENT_NOW", NOW)
+            .env("RESIDENT_CAP_HOST", "here")
             .env("PLACEMENT_HOSTS", root.join("hosts.json"))
             .env("CLAUDE_RUNTIME", root.join("bin/claude"))
             .env("CLAUDE_SHIM_SECONDS", "20")
@@ -151,7 +153,7 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
     assert!(lines.lines().any(|line| line.starts_with("far-box\t") && line.contains("\tfar:/")), "{lines}");
 
     let said = launch("kept-box");
-    assert!(said.contains("far full: 2/2 resident CLIs") && said.contains("placement: target claude:a"), "a live session on the machine counts against its cap: {said}");
+    assert!(said.contains("far full: 2/2 resident CLIs") && said.contains("placement: target here claude:a"), "a live session on the machine counts against its cap: {said}");
     for name in ["far-box", "kept-box"] {
         north(root, &["fleet", "stop", name]);
     }

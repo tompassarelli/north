@@ -16,6 +16,8 @@ fn decision(target: Target) -> Decision {
         surface: "code-only box on public north".into(),
         verdicts: vec![verdict("claude:a", Some(60.0)), verdict("claude:c", None)],
         machine: None,
+        here: "here".into(),
+        here_lacks: None,
         machine_lines: Vec::new(),
     }
 }

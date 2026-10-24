@@ -69,11 +69,12 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
 /// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
 pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>) -> NorthResult<Placed> {
     let mut decision = gate::live(text, fleet_load).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
-    if let (Some(machine), Some(cwd)) = (&decision.machine, launch.cwd) {
-        if !has_directory(&machine.ssh, cwd) {
-            decision.machine_lines.push(format!("{} has no {}, so here", machine.name, cwd.display()));
-            decision.machine = None;
-        }
+    let absent = match (&decision.machine, launch.cwd) {
+        (Some(machine), Some(cwd)) if !has_directory(&machine.ssh, cwd) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
+        _ => None,
+    };
+    if absent.is_some() {
+        decision.stay_here(absent);
     }
     eprintln!("placement: {}", gate::summary(&decision));
     for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
@@ -88,6 +89,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     let mut notes = Vec::new();
     let elsewhere = matches!(decision.target, Target::Cloud(_)) || decision.machine.is_some();
     match (&decision.target, &overrides.local) {
+        (Target::Unserved(why), _) => return Err(format!("{why}; list it in a holding host's [hosts.NAME] serves")),
         (Target::Cloud(credit), None) => return Err(cloud_command(launch, credit, &decision.surface, text)),
         (_, Some(reason)) if elsewhere => notes.push(format!("local: {reason}")),
         _ => {}

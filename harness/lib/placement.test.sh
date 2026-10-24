@@ -19,6 +19,8 @@ cat >"$scratch/op/orchestration.toml" <<'EOF'
 [placement]
 cloud_credit = "cloud-credit"
 private_repos = ["galileo"]
+[hosts.here]
+serves = ["native"]
 EOF
 cat >"$scratch/op/costs.toml" <<'EOF'
 [[service]]
@@ -41,7 +43,7 @@ gate() {
 }
 plan() {
   AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DIR="$scratch/op" XDG_STATE_HOME="$scratch/state" \
-    PLACEMENT_NOW="$1" "$root/bin/agents" plan --place "$scratch/$2.md"
+    RESIDENT_CAP_HOST=here PLACEMENT_NOW="$1" "$root/bin/agents" plan --place "$scratch/$2.md"
 }
 place() { plan "$1" "$2" | sed -n -E 's/^[^ ][^:]*: target ([^(]*[^ (]).*/\1/p'; }
 verdict() { plan "$1" native | sed -n -E "s/^  ($2 [a-z]+): .*/\1/p"; }
@@ -49,14 +51,14 @@ before=2026-10-13T13:00:00Z after=2026-11-05T08:00:00Z
 
 gate 96 5 10 5
 expect "code-only public box before expiry: anthropic-cloud" anthropic-cloud "$(place $before code-only)"
-expect "code-only after expiry: account with headroom" claude:c "$(place $after code-only)"
-expect "native box stays local" claude:c "$(place $before native)"
-expect "private repository stays local" claude:c "$(place $before private)"
-expect "undeclared surface stays local" claude:c "$(place $before undeclared)"
+expect "code-only after expiry: account with headroom" "here claude:c" "$(place $after code-only)"
+expect "native box stays here" "here claude:c" "$(place $before native)"
+expect "private repository stays here" "here claude:c" "$(place $before private)"
+expect "undeclared surface stays here" "here claude:c" "$(place $before undeclared)"
 expect "claude:a at 96% 5h is unavailable" "claude:a unavailable" "$(verdict $before claude:a)"
 gate 35 10 42 86
 expect "claude:c burning 86%/h with 4h to reset is runaway" "claude:c unavailable" "$(verdict $before claude:c)"
-expect "runaway claude:c places on claude:a, whose pace line never holds" claude:a "$(place $before native)"
+expect "runaway claude:c places on claude:a, whose pace line never holds" "here claude:a" "$(place $before native)"
 gate 99 1 96 1
 expect "every account exhausted: held" "held: every Claude account exhausted or runaway" "$(place $before native)"
 
@@ -65,7 +67,7 @@ line="$(AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DI
 expect "credit line with no readout" "cloud credit: unread, expires in 22 days" "$line"
 printf '{"usd_spent_period": 250.0, "read_at": "2026-10-12T00:00:00Z"}\n' >"$scratch/state/agents/costs/cloud-credit.json"
 gate 35 10 10 5
-expect "credit recorded as spent skips anthropic-cloud for the most headroom" claude:a "$(place $before code-only)"
+expect "credit recorded as spent skips anthropic-cloud for the most headroom" "here claude:a" "$(place $before code-only)"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

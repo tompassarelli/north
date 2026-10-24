@@ -4,7 +4,7 @@
 //! weekly projections never hold a launch; an account is out only when a window is exhausted or burning away.
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
-use super::{credit, facets, field, resident, strings};
+use super::{credit, facets, field, local, resident, strings};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
@@ -30,10 +30,11 @@ pub(crate) enum Target {
     Cloud(String),
     Account(String),
     Held(String),
+    Unserved(String),
 }
 
-/// A `[hosts.NAME]` with an `ssh` destination: the local needs it serves beyond code, its resident cap
-/// and its live resident CLIs, None when unreachable.
+/// A `[hosts.NAME]` with an `ssh` destination: the local needs it serves beyond code, each `NEED` for
+/// every repository or `NEED:REPO` for one, its resident cap and its live resident CLIs, None when unreachable.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Machine {
     pub name: String,
@@ -50,6 +51,8 @@ pub(crate) struct Decision {
     pub surface: String,
     pub verdicts: Vec<Verdict>,
     pub machine: Option<Machine>,
+    pub here: String,
+    pub here_lacks: Option<(String, String)>,
     pub machine_lines: Vec<String>,
 }
 
@@ -63,6 +66,15 @@ impl Decision {
 
     pub(crate) fn verdict(&self, account: &str) -> Option<&Verdict> {
         self.verdicts.iter().find(|v| v.account == account)
+    }
+
+    pub(crate) fn stay_here(&mut self, line: Option<String>) {
+        self.machine = None;
+        self.machine_lines.extend(line);
+        if let Some((need, why)) = self.here_lacks.clone() {
+            self.machine_lines.push(format!("{} skipped: needs {need}", self.here));
+            self.target = Target::Unserved(why);
+        }
     }
 }
 
@@ -202,10 +214,17 @@ pub(crate) fn machines(cfg: &DocumentMut) -> Vec<Machine> {
         .collect()
 }
 
-/// The first machine that serves every local need of the box and is below its cap, with one line per machine.
-fn machine_for(text: &str, machines: &[Machine]) -> (Option<Machine>, Vec<String>) {
+fn covers(serves: &[String], need: &str, repo: &str) -> bool {
+    serves.iter().any(|served| served == need || served.split_once(':') == Some((need, repo)))
+}
+
+/// The first machine that serves every local need of the box and is below its cap, with one line per
+/// machine, and the need here does not serve with why no host serves it.
+fn machine_for(text: &str, machines: &[Machine], here_serves: &[String]) -> (Option<Machine>, Vec<String>, Option<(String, String)>) {
     let declared = !words(text, "Surface").is_empty();
     let needs = local_needs(text);
+    let repo = repository(text);
+    let missing = |serves: &[String]| needs.iter().find(|need| !covers(serves, need, &repo));
     let mut chosen = None;
     let lines = machines
         .iter()
@@ -214,7 +233,7 @@ fn machine_for(text: &str, machines: &[Machine]) -> (Option<Machine>, Vec<String
             if !declared {
                 return format!("{name} skipped: no Surface: declared");
             }
-            if let Some(need) = needs.iter().find(|need| !machine.serves.contains(need)) {
+            if let Some(need) = missing(&machine.serves) {
                 return format!("{name} skipped: needs {need}");
             }
             match machine.live {
@@ -227,7 +246,8 @@ fn machine_for(text: &str, machines: &[Machine]) -> (Option<Machine>, Vec<String
             }
         })
         .collect();
-    (chosen, lines)
+    let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}")));
+    (chosen, lines, here_lacks)
 }
 
 fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
@@ -240,32 +260,47 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
         .collect()
 }
 
-pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool, String), machines: &[Machine], at: f64) -> Decision {
+pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool, String), machines: &[Machine], here: &str, at: f64) -> Decision {
     let (code_only, surface) = surface(text, cfg);
     let verdicts: Vec<Verdict> = claude_controls(gate).into_iter().map(|(name, c)| verdict(&name, c, at)).collect();
-    let (machine, machine_lines) = machine_for(text, machines);
-    let mut decision = Decision { target: Target::Held(String::new()), code_only, surface, verdicts, machine: None, machine_lines };
+    let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
+    let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves);
+    let mut decision = Decision {
+        target: Target::Held(String::new()),
+        code_only,
+        surface,
+        verdicts,
+        machine: None,
+        here: here.into(),
+        here_lacks,
+        machine_lines,
+    };
     decision.target = if code_only && credit.0 {
         Target::Cloud(credit.1)
     } else if let Some(best) = decision.best_account().map(|best| best.account.clone()) {
-        decision.machine = machine;
         Target::Account(best)
     } else if decision.verdicts.is_empty() {
         Target::Held("no live Claude quota in usage-gate.json; run pace-control".into())
     } else {
         Target::Held("every Claude account exhausted or runaway".into())
     };
+    match machine {
+        Some(machine) if matches!(decision.target, Target::Account(_)) => decision.machine = Some(machine),
+        Some(_) => {}
+        None => decision.stay_here(None),
+    }
     decision
 }
 
-/// `target anthropic-cloud (credit; surface)`, `target MACHINE claude:c (surface)`, `target claude:c (surface)`
-/// or `target held: why`.
+/// `target anthropic-cloud (credit; surface)`, `target HOST claude:c (surface)`, `target held: why` or
+/// `target unserved: why`.
 pub(crate) fn summary(decision: &Decision) -> String {
     match (&decision.target, &decision.machine) {
         (Target::Cloud(credit), _) => format!("target anthropic-cloud ({credit}; {})", decision.surface),
         (Target::Account(account), Some(machine)) => format!("target {} {account} ({})", machine.name, decision.surface),
-        (Target::Account(account), None) => format!("target {account} ({})", decision.surface),
+        (Target::Account(account), None) => format!("target {} {account} ({})", decision.here, decision.surface),
         (Target::Held(why), _) => format!("target held: {why}"),
+        (Target::Unserved(why), _) => format!("target unserved: {why}"),
     }
 }
 
@@ -278,7 +313,7 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>) -> Result<Dec
         .and_then(|s| target::seconds(&s))
         .unwrap_or_else(storage::now);
     let gate = load(&storage::directory().join("usage-gate.json"));
-    Ok(decide(text, &cfg, &gate, credit(&cfg, at), &probed(&cfg, fleet_load), at))
+    Ok(decide(text, &cfg, &gate, credit(&cfg, at), &probed(&cfg, fleet_load), &local(), at))
 }
 
 /// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet

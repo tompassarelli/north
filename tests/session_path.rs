@@ -18,7 +18,7 @@ fn fixture(root: &Path) {
     for directory in [&op, &agents, &profile, &root.join("bin")] {
         fs::create_dir_all(directory).unwrap();
     }
-    fs::write(op.join("orchestration.toml"), "[placement]\nprivate_repos = []\n").unwrap();
+    fs::write(op.join("orchestration.toml"), "[placement]\nprivate_repos = []\n[hosts.here]\nserves = [\"warcraft\"]\n").unwrap();
     fs::write(profile.join(".credentials.json"), "{}").unwrap();
     let windows = serde_json::json!([{"window": "5h", "used_pct": 10.0, "burn_pct_h": 1.0, "resets_at": "2026-10-16T16:00:00Z"}]);
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"controls": {"claude:a": {"windows": windows}}}}).to_string()).unwrap();
@@ -41,6 +41,7 @@ fn launch(root: &Path) -> Output {
         .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
         .env("AGENTS_OPERATOR_DIR", root.join("op"))
         .env("PLACEMENT_NOW", "2026-10-16T12:00:00Z")
+        .env("RESIDENT_CAP_HOST", "here")
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("SESSION_PATH_FIXTURE", root)
         .env("NORTH_FLEET_SESSION", "")
