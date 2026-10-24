@@ -1555,7 +1555,7 @@ sync_dependencies() {
     echo "safe-push: $lock changed — bun install --frozen-lockfile in $dir"
     (drop_lock_fd; cd "$dir" && bun install --frozen-lockfile) || return 1
     printf '%s\n' "$want" >"$stamp"
-  done < <(git ls-files -- 'bun.lock' '*/bun.lock')
+  done < <(git -C "$top" ls-files -- 'bun.lock' '*/bun.lock')
 }
 
 # Prints "ok" or the farm URL (else the log path) of the failed check on the
