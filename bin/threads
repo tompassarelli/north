@@ -2212,10 +2212,10 @@ def parser() -> argparse.ArgumentParser:
 
 def refresh_snapshot(dest, force=False, snapshot=SNAPSHOT):
     """Keep a local copy of the remote ledger for reads while the remote is unreachable."""
-    if not force and os.path.exists(snapshot) and time.time() - os.path.getmtime(snapshot) < SNAPSHOT_SECONDS:
-        return
+    if not force and time.time() - max(os.path.getmtime(p) if os.path.exists(p) else 0 for p in (snapshot, f"{snapshot}.tried")) < SNAPSHOT_SECONDS: return
+    Path(f"{snapshot}.tried").touch()
     try:
-        r = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+        r = subprocess.run(ssh_argv("-C", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
                                    "threads snapshot"), capture_output=True, timeout=90)
     except subprocess.TimeoutExpired:
         return

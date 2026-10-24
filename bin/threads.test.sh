@@ -627,9 +627,9 @@ with patch.object(subprocess, "run", bounded):
             assert len(calls) == before + 1, "timed-out write was replayed"
         assert not Path(threads.SPOOL).exists(), "timed-out write was queued for replay"
     snapshot = root / "snapshot"
-    snapshot.write_bytes(b"keep existing snapshot")
+    snapshot.write_bytes(b"keep existing snapshot"); os.utime(snapshot, (0, 0))
     threads.refresh_snapshot("nexus", force=True, snapshot=str(snapshot))
-    assert snapshot.read_bytes() == b"keep existing snapshot"
+    assert snapshot.read_bytes() == b"keep existing snapshot"; threads.refresh_snapshot("nexus", snapshot=str(snapshot))
     try:
         laptop.forward(["close"])
     except SystemExit as error:
