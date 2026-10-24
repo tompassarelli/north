@@ -236,6 +236,10 @@ pub(crate) fn machines(cfg: &DocumentMut) -> Vec<Machine> {
         .collect()
 }
 
+pub(crate) fn serving(cfg: &DocumentMut, need: &str, repo: &str) -> Option<String> {
+    machines(cfg).into_iter().find(|machine| covers(&machine.serves, need, repo)).map(|machine| machine.name)
+}
+
 fn covers(serves: &[String], need: &str, repo: &str) -> bool {
     serves.iter().any(|served| served == need || served.split_once(':') == Some((need, repo)))
 }

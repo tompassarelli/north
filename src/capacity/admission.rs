@@ -67,6 +67,17 @@ pub(crate) struct Facts {
     pub(crate) gaming_class: Option<Class>,
     #[serde(default)]
     pub(crate) queued_ahead_classes: Vec<Option<Class>>,
+    #[serde(default)]
+    pub(crate) run_queue_load: Option<f64>,
+    #[serde(default)]
+    pub(crate) need: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct Admission {
+    pub(crate) reason: Reason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) offload: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -90,6 +101,23 @@ pub(crate) enum Reason {
     DeferCpuCapacity,
     DeferCpuPressure,
     DeferGaming,
+    DeferRunQueue,
+}
+
+pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str, &str) -> Option<String>) -> Admission {
+    let reason = decide(facts);
+    let offload = match (reason, facts.need.as_deref()) {
+        (Reason::DeferRunQueue, Some(need)) => {
+            let (need, repo) = need.split_once(':').unwrap_or((need, ""));
+            serving(need, repo)
+        }
+        _ => None,
+    };
+    Admission { reason, offload }
+}
+
+fn run_queue_overloaded(facts: &Facts) -> bool {
+    matches!(facts.class, Class::Heavy | Class::Exclusive) && facts.run_queue_load.is_some_and(|load| load > f64::from(facts.cores))
 }
 
 pub(crate) fn decide(facts: &Facts) -> Reason {
@@ -101,6 +129,9 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     }
     if let Some(reason) = memory(facts) {
         return reason;
+    }
+    if run_queue_overloaded(facts) {
+        return Reason::DeferRunQueue;
     }
     match facts.class {
         Class::Agent => Reason::Run,

@@ -841,7 +841,7 @@ const admittedClass = requested => requested.landing ? 'critical' : requested.na
 function admission(facts) {
   const result = Bun.spawnSync([northCommand, 'capacity', 'admission'], { stdin: Buffer.from(JSON.stringify(facts)), stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0) fail(`north capacity admission failed: ${result.stderr.toString().trim()}`, 75);
-  return JSON.parse(result.stdout.toString()).reason;
+  return JSON.parse(result.stdout.toString());
 }
 
 function decision(root, requested, create, ticket = null) {
@@ -869,7 +869,7 @@ function decision(root, requested, create, ticket = null) {
     const { mode, profile } = activeProfile(root);
     const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
     const quietOwners = runs.filter(lease => lease.class === 'native' && lease.quiet).map(lease => lease.owner);
-    const code = admission({
+    const { reason: code, ...advice } = admission({
       ...signals, ...gpu, profile, class: admittedClass(requested), gamingClass: requested.name, queuedAheadClasses: ahead.map(entry => entry.requestedClass), leasedMemoryMiB: leased.memoryMiB,
       leasedBatchCpus: round(committedBatchCpus - (unleased?.cores ?? 0)), leasedNativeCpus: committedNativeCpus, unleasedHeavyCores: unleased?.cores ?? 0,
       requestedCpus: granted.cpus, requestedMemoryMiB: granted.memoryMiB,
@@ -910,7 +910,7 @@ function decision(root, requested, create, ticket = null) {
         gpuProcess: after === null ? null : topUnleasedGpuProcess(before, after,
           runs.map(lease => scopeCgroup(lease.class, scopeUnit(lease.id)).slice(cgroupRoot.length))),
       } : {}),
-      ...(code === 'DEFER_NATIVE_QUIET' ? { quietOwners } : {}),
+      ...(code === 'DEFER_NATIVE_QUIET' ? { quietOwners } : {}), ...advice,
       gpuLeases: runs.filter(lease => lease.class === 'gpu').length,
       unleasedHeavyCores: unleased?.cores ?? null,
       committedBatchCpus,
@@ -1209,7 +1209,7 @@ async function main(argv) {
     const memoryTotalMiB = parsePositiveInteger(required(parsed.values, '--memory-total-mib'), '--memory-total-mib');
     const granted = grantRequest(profile, cores, memoryTotalMiB, requested);
     const count = option => parseNonnegativeInteger(parsed.values.get(option) ?? '0', option);
-    const code = admission({
+    const { reason: code } = admission({
       profile, class: requested.name, cores, memoryTotalMiB, requestedCpus: granted.cpus, requestedMemoryMiB: granted.memoryMiB,
       memoryAvailableMiB: parsePositiveInteger(required(parsed.values, '--memory-available-mib'), '--memory-available-mib'),
       protectedCpuSomeAvg10BasisPoints: parseNonnegativeInteger(required(parsed.values, '--protected-cpu-some-avg10-basis-points'), '--protected-cpu-some-avg10-basis-points'),

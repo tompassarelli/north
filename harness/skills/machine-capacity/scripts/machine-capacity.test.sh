@@ -20,7 +20,7 @@ trap cleanup EXIT
 wait_for() { local value; IFS= read -r value <"$1.receipt"; [[ -s "$1" ]]; }
 user_runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 # Live runs read recorded system CPU pressure, so other machine load cannot hold them.
-export AGENT_CAPACITY_CPU_PRESSURE="$scratch/cpu.pressure"
+export AGENT_CAPACITY_CPU_PRESSURE="$scratch/cpu.pressure" AGENT_CAPACITY_LOADAVG=/dev/null
 calm_pressure() { printf 'some avg10=%s avg60=0.00 avg300=0.00 total=0\n' "$1" >"$AGENT_CAPACITY_CPU_PRESSURE"; }
 calm_pressure 0.00
 export AGENT_CAPACITY_GPU_BUSY="$scratch/gpu-busy" AGENT_CAPACITY_GPU_CLIENTS=0 AGENT_CAPACITY_USAGE_LOG="$scratch/usage.jsonl" CAPACITY_WATCHDOG_DIR="$scratch/no-watchdog"

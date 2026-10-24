@@ -1,0 +1,32 @@
+{
+  "source": "north#156: capacity-watchdog sample 2026-10-24T14:40:54.973Z on the laptop, load [34.68, 29.11, 23.93] on 24 threads, 59842 of 96341 MiB available, while admission kept starting heavy steps; hosts are South agents/orchestration.toml placement as read at 2026-10-24T14:50Z",
+  "reconstruction": "Load and memory from the watchdog sample; lease and pressure facts are the quiet values under which every heavy step was admitted, because the watchdog does not capture admission input.",
+  "hosts": "[placement]\norder = [\"gpu-host\", \"anthropic-cloud\", \"ledger-host\", \"laptop\", \"codex-cloud\"]\n\n[hosts.ledger-host]\nresident_cap = 6\n\n[hosts.gpu-host]\nresident_cap = 24\nssh = \"tom@gpu-host\"\nserves = [\"native:wisp\", \"warcraft:wisp\", \"wc3:wisp\", \"client:wisp\", \"private:smashcraft\", \"native:smashcraft\", \"warcraft:smashcraft\", \"wc3:smashcraft\", \"client:smashcraft\"]\n\n[hosts.here]\nserves = [\"private\", \"native\", \"warcraft\", \"wc3\", \"client\", \"sign-ins\", \"local-state\", \"tui\", \"fleet\", \"live\", \"desktop\", \"laptop\"]",
+  "facts": {
+    "profile": "attended",
+    "cores": 24,
+    "runQueueLoad": 34.68,
+    "memoryTotalMiB": 96341.0,
+    "memoryAvailableMiB": 59842.0,
+    "cpuSomeAvg10BasisPoints": 0,
+    "protectedCpuSomeAvg10BasisPoints": 0,
+    "leasedMemoryMiB": 0.0,
+    "leasedBatchCpus": 0.0,
+    "unleasedHeavyCores": 0.0,
+    "leasedNativeCpus": 0.0,
+    "requestedCpus": 6.0,
+    "requestedMemoryMiB": 8192.0,
+    "peerBatchRuns": 0,
+    "peerExclusiveRuns": 0,
+    "unboundedRuns": 0,
+    "queuedAhead": 0,
+    "exclusiveWaiting": 0,
+    "gpuBusyPercent": 0,
+    "gpuClients": 0,
+    "newClients": 0,
+    "gpuRuns": 0,
+    "nativeWaiting": 0,
+    "quietNativeRuns": 0,
+    "besideNative": false
+  }
+}

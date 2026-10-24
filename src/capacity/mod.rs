@@ -17,7 +17,7 @@ mod tests;
 
 use admission::Facts;
 
-pub(crate) fn run(arguments: &[String]) -> u8 {
+pub(crate) fn run(arguments: &[String], serving: fn(&str, &str) -> Option<String>) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => {}
         Some("laptop-auto") => return laptop_auto::run(&arguments[1..]),
@@ -36,7 +36,9 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     match outcome {
         Ok(mut facts) => {
             facts.gaming |= agent_load::gaming_marked(&agent_load::capacity_root());
-            let _ = writeln!(std::io::stdout(), "{}", json!({ "reason": admission::decide(&facts) }));
+            facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
+            facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
+            let _ = writeln!(std::io::stdout(), "{}", json!(admission::admit(&facts, serving)));
             0
         }
         Err(message) => {
@@ -44,4 +46,9 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
             2
         }
     }
+}
+
+fn run_queue_load() -> Option<f64> {
+    let path = std::env::var_os("AGENT_CAPACITY_LOADAVG").unwrap_or_else(|| "/proc/loadavg".into());
+    std::fs::read_to_string(path).ok()?.split_whitespace().next()?.parse().ok()
 }

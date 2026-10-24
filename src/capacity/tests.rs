@@ -1,4 +1,4 @@
-use super::admission::{Class, Facts, Profile, Reason, decide};
+use super::admission::{Admission, Class, Facts, Profile, Reason, admit, decide};
 
 fn facts(class: Class) -> Facts {
     Facts {
@@ -31,7 +31,49 @@ fn facts(class: Class) -> Facts {
         gaming: false,
         gaming_class: None,
         queued_ahead_classes: Vec::new(),
+        run_queue_load: None,
+        need: None,
     }
+}
+
+const OVERLOAD: &str = include_str!("../../harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json");
+
+fn overload(class: &str, need: Option<&str>) -> (Facts, toml_edit::DocumentMut) {
+    let recorded: serde_json::Value = serde_json::from_str(OVERLOAD).unwrap();
+    let mut facts = recorded["facts"].clone();
+    facts["class"] = class.into();
+    facts["need"] = need.into();
+    (serde_json::from_value(facts).unwrap(), recorded["hosts"].as_str().unwrap().parse().unwrap())
+}
+
+fn overload_admission(class: &str, need: Option<&str>) -> Admission {
+    let (facts, hosts) = overload(class, need);
+    admit(&facts, |need, repo| crate::ops::pacing::placement::gate::serving(&hosts, need, repo))
+}
+
+#[test]
+fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_host() {
+    for class in ["heavy", "exclusive"] {
+        let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned) };
+        assert_eq!(overload_admission(class, Some("native:smashcraft")), refused(Some("gpu-host")), "{class}");
+        assert_eq!(overload_admission(class, Some("private:smashcraft")), refused(Some("gpu-host")), "{class}");
+        assert_eq!(overload_admission(class, Some("private:galileo")), refused(None), "{class}");
+        assert_eq!(overload_admission(class, None), refused(None), "{class}");
+    }
+}
+
+#[test]
+fn run_queue_over_thread_count_still_admits_moderate_critical_and_tom() {
+    for class in ["moderate", "critical", "tom"] {
+        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None }, "{class}");
+    }
+}
+
+#[test]
+fn run_queue_at_thread_count_still_admits_heavy() {
+    let (mut facts, _) = overload("heavy", Some("native:smashcraft"));
+    facts.run_queue_load = Some(f64::from(facts.cores));
+    assert_eq!(decide(&facts), Reason::Run);
 }
 
 fn beside(class: Class, quiet_native_runs: u32, beside_native: bool) -> Reason {

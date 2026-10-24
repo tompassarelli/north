@@ -13,7 +13,8 @@ metadata:
 ## Admission
 
 - Resolve the helper at `$(dirname "$(agents path machine-capacity)")/scripts/machine-capacity.mjs` and invoke it with Bun, because every caller must reach the one shared admission state.
-- Admit sustained multi-core or >1 GiB work through the helper, never through worker slots or load average, because idle slots measure neither CPU nor memory and several reasonable commands together exhaust the desktop.
+- Admit sustained multi-core or >1 GiB work through the helper, never through worker slots, because idle slots measure neither CPU nor memory and several reasonable commands together exhaust the desktop.
+- Expect heavy and exclusive admissions to defer with DEFER_RUN_QUEUE while the 1-minute load average exceeds the thread count, naming as `offload` the first `[hosts.NAME]` that serves the box's `AGENT_CAPACITY_NEED`; this is the only use of load average, because load nothing leased accounts for (game clients, perf runs, unadmitted builds) once let admission keep starting heavy steps at 34.7 on 24 threads (north#156). Critical, tom, native, agent and moderate ignore it ([admission details](references/admission-details.md)).
 - Run `machine-capacity estimate -- CMD` before staffing local work, because leases size from it by default.
 - Never set CPUQuota, CPUWeight or AllowedCPUs outside machine-capacity, because uncounted quotas defeat shared admission; `heavy-command-guard` refuses it.
 - Run cargo build, full `bun test` suites, `bun wisp map build` and headless wisp renders (`view`, `headless --render`) through `run`, because `heavy-command-guard` refuses them unwrapped. It routes cargo test, tsc --build and multi-file bun test through admission automatically; cargo check and single test files remain local.
