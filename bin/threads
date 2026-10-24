@@ -2216,7 +2216,7 @@ def refresh_snapshot(dest, force=False, snapshot=SNAPSHOT):
         return
     try:
         r = subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                                   "threads snapshot"), capture_output=True, timeout=20)
+                                   "threads snapshot"), capture_output=True, timeout=90)
     except subprocess.TimeoutExpired:
         return
     if r.returncode != 0 or not r.stdout.startswith(b"SQLite format 3"):
@@ -2245,7 +2245,7 @@ def ssh(dest, args, **io):
     remote = ["env", *remote] if remote else []
     try:
         return subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                                      shlex.join(remote + ["threads", *args])), timeout=20, **io).returncode
+                                      shlex.join(remote + ["threads", *args])), timeout=90, **io).returncode
     except subprocess.TimeoutExpired:
         print(f"NorthThreads: {dest} timed out; remote outcome unknown", file=sys.stderr)
         return 124

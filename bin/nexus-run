@@ -82,14 +82,14 @@ def main():
         ["git", "rev-parse", "--show-toplevel"], text=True).strip())).resolve()
     cwd = args.cwd if args.cwd is not None else str(origin.relative_to(source))
     job = uuid.uuid4().hex
-    remote_home = subprocess.check_output(ssh_argv("-o", "BatchMode=yes", "nexus", "printf %s \"$HOME\""), text=True, timeout=20)
+    remote_home = subprocess.check_output(ssh_argv("-o", "BatchMode=yes", "nexus", "printf %s \"$HOME\""), text=True, timeout=90)
     remote = f"{remote_home}/.cache/nexus-run/{job}"
     output = (args.output_dir or Path.home() / ".cache/nexus-run" / job).resolve()
     output.mkdir(parents=True, exist_ok=True)
     route = shlex.join(ssh_argv("-o", "BatchMode=yes"))
 
     def ssh(*argv, **kwargs):
-        kwargs.setdefault("timeout", 20)
+        kwargs.setdefault("timeout", 90)
         return subprocess.run(ssh_argv("-o", "BatchMode=yes", "nexus", shlex.join(argv)), **kwargs)
 
     def copy(src, dst, **kwargs):

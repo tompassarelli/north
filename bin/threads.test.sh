@@ -615,7 +615,7 @@ def bounded(argv, **kwargs):
     if argv[0] == "ssh":
         bound = kwargs.get("timeout")
         calls.append(bound)
-        assert bound is not None and 0 < bound <= 20, f"unbounded SSH: {argv}"
+        assert bound is not None and 0 < bound <= 90, f"unbounded SSH: {argv}"
         kwargs["timeout"] = min(bound, 0.1)
     return real_run(argv, **kwargs)
 with patch.object(subprocess, "run", bounded):
@@ -643,7 +643,7 @@ with patch.object(subprocess, "run", bounded):
             pass
         else:
             raise AssertionError("nexus timeout succeeded")
-    assert len(calls) == 6
+    assert calls == [90] * 6, calls
     assert time.monotonic() - started < 10
 print("stalled SSH waits fail within their bounds and writes are never replayed")
 PYSTALL
