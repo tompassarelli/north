@@ -1302,7 +1302,7 @@ printf 'stopped wait\n' >>"$real_repo/content.txt"
 stopped_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
 stopped_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${stopped_tip:0:12}"
 stopped_pid="$scratch/stopped-safe-push.pid"
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$$" >%q\nexec %q "$@"\n' "$stopped_pid" "$TARGET" >"$real_fixture/pid-target"
+printf '#!/usr/bin/env bash\nread -r host _ </proc/self/stat\nprintf "%%s %%s\\n" "$$" "$host" >%q\nexec %q "$@"\n' "$stopped_pid" "$TARGET" >"$real_fixture/pid-target"
 chmod +x "$real_fixture/pid-target"
 stopped_target="$TARGET"
 TARGET="$real_fixture/pid-target"
@@ -1314,12 +1314,13 @@ TARGET="$real_fixture/pid-target"
 ) &
 stopped_case=$!
 stopped_deadline=$((SECONDS + 60))
-until test -s "$stopped_pid" && pgrep -P "$(cat "$stopped_pid")" -f autoland-wait >/dev/null; do
-  [ "$SECONDS" -lt "$stopped_deadline" ] || { pkill -TERM -P "$(cat "$stopped_pid" 2>/dev/null || echo 0)"; kill -TERM "$(cat "$stopped_pid" 2>/dev/null || echo 0)" "$stopped_case" 2>/dev/null; fail 'the stopped lane never reached its Autoland wait'; }
+stopped_ns='' stopped_host=''
+until { test -s "$stopped_pid" && read -r stopped_ns stopped_host <"$stopped_pid"; } && pgrep -P "$stopped_host" -f autoland-wait >/dev/null; do
+  [ "$SECONDS" -lt "$stopped_deadline" ] || { kill -TERM ${stopped_ns:+"$stopped_ns"} "$stopped_case" 2>/dev/null; fail 'the stopped lane never reached its Autoland wait'; }
   sleep 0.05
 done
 stopped_started=$SECONDS
-kill -TERM "$(cat "$stopped_pid")"
+kill -TERM "$stopped_ns"
 wait "$stopped_case" || true
 TARGET="$stopped_target"
 [ "$((SECONDS - stopped_started))" -lt 20 ] || fail 'a stopped Autoland wait did not end promptly'
@@ -2495,7 +2496,7 @@ chmod +x "$landing_root/lane/.hooks/pre-push"
 lock_file="$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).lock"
 run_landing "$landing_root/lane" & pid_lane=$!
 wait_for test -s "$landing_root/hook-pid"
-kill -TERM "$(sed -n 's/^pid \([0-9]*\) .*/\1/p' "$lock_file")" 2>/dev/null || true
+kill -TERM "$(awk '/^NSpid:/ { print $NF }' "/proc/$(sed -n 's/^pid \([0-9]*\) .*/\1/p' "$lock_file")/status")" 2>/dev/null || true
 freed=''
 for i in $(seq 30); do
   if flock -n "$lock_file" true; then freed="$i"; break; fi
@@ -2648,7 +2649,7 @@ lane_removed || fail 'landed clean lane was not removed once its caller left'
 lane_branch_removed || fail 'landed clean lane branch was not deleted'
 
 new_lane_container pid-namespace
-lane_runner=(bwrap --dev-bind / / --unshare-pid --die-with-parent --)
+lane_runner=(unshare --user --map-current-user --pid --fork --kill-child=KILL -- timeout 120)
 run_lane
 lane_runner=()
 expect_status zero
