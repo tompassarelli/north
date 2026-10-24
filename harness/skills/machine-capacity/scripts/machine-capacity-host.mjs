@@ -1194,7 +1194,7 @@ async function main(argv) {
       '--leased-cpus', '--leased-native-cpus', '--leased-memory-mib',
       '--peer-batch-runs', '--peer-exclusive-runs', '--unbounded-runs',
       '--memory-gib', '--cpu-some-avg10-basis-points', '--queued-ahead', '--exclusive-waiting',
-      '--gpu-busy-percent', '--gpu-clients', '--new-clients', '--gpu-runs', '--native-waiting', '--quiet-native-runs', '--beside-native',
+      '--gpu-busy-percent', '--gpu-clients', '--new-clients', '--gpu-runs', '--native-waiting', '--quiet-native-runs', '--beside-native', '--run-queue-load',
     ]));
     if (parsed.separator !== argv.length) fail('fixture accepts no command');
     const cores = parsePositiveInteger(required(parsed.values, '--cores'), '--cores');
@@ -1218,7 +1218,7 @@ async function main(argv) {
       peerBatchRuns: count('--peer-batch-runs'), peerExclusiveRuns: count('--peer-exclusive-runs'), unboundedRuns: count('--unbounded-runs'),
       queuedAhead: count('--queued-ahead'), exclusiveWaiting: count('--exclusive-waiting'), gpuBusyPercent: count('--gpu-busy-percent'),
       gpuClients: count('--gpu-clients'), newClients: count('--new-clients'), gpuRuns: count('--gpu-runs'), nativeWaiting: count('--native-waiting'),
-      quietNativeRuns: count('--quiet-native-runs'), besideNative: parsed.values.has('--beside-native'),
+      quietNativeRuns: count('--quiet-native-runs'), besideNative: parsed.values.has('--beside-native'), runQueueLoad: count('--run-queue-load'),
     });
     print({ decision: code, profile, class: requested.name, cpus: granted.cpus, memoryMiB: granted.memoryMiB,
       ...(granted.clamped ? { clamped: granted.clamped } : {}), memoryFullAvg10,
