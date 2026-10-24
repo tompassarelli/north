@@ -110,14 +110,16 @@ pub(in crate::ops::pacing) fn laptop() -> String {
         .and_then(|v| v["state"].as_str().map(str::to_owned))
         .unwrap_or_else(|| "unknown".into())
 }
-pub(in crate::ops::pacing) fn host(name: &str) -> (bool, i64) {
+/// Live resident agent CLIs on host `name`, asked through ssh `destination` unless it is this host;
+/// None when unreachable.
+pub(in crate::ops::pacing) fn resident(name: &str, destination: &str) -> Option<i64> {
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let fixture = load(Path::new(&path));
         if fixture[name].is_object() {
-            return (
-                fixture[name]["online"].as_bool().unwrap_or(false),
-                fixture[name]["live"].as_i64().unwrap_or(0),
-            );
+            return fixture[name]["online"]
+                .as_bool()
+                .unwrap_or(false)
+                .then(|| fixture[name]["live"].as_i64().unwrap_or(0));
         }
     }
     let root = sampling::root();
@@ -140,7 +142,7 @@ pub(in crate::ops::pacing) fn host(name: &str) -> (bool, i64) {
                 "BatchMode=yes",
                 "-o",
                 "ConnectTimeout=5",
-                name,
+                destination,
                 "python3",
                 "-I",
                 "code/north/main/harness/lib/resident_cap.py",
@@ -150,15 +152,20 @@ pub(in crate::ops::pacing) fn host(name: &str) -> (bool, i64) {
             20.0,
         )
     };
-    result
-        .ok()
-        .filter(|r| r.code == 0)
-        .and_then(|r| {
-            r.out
-                .split_once(':')
-                .and_then(|(_, s)| s.split_whitespace().next())
-                .and_then(|s| s.parse().ok())
-                .map(|n| (true, n))
-        })
-        .unwrap_or((false, 0))
+    result.ok().filter(|r| r.code == 0).and_then(|r| live_count(&r.out))
+}
+
+/// The live count from `resident_cap.py status`, which prints `HOST: LIVE/CAP resident agent CLIs`.
+fn live_count(status: &str) -> Option<i64> {
+    let (_, rest) = status.split_once(':')?;
+    rest.split_whitespace().next()?.split('/').next()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_live_count_is_read_from_the_resident_cap_status_line() {
+        assert_eq!(super::live_count("far: 3/24 resident agent CLIs\n"), Some(3));
+        assert_eq!(super::live_count("far: no cap\n"), None);
+    }
 }

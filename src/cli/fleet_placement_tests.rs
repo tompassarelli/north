@@ -1,5 +1,5 @@
 use super::*;
-use crate::ops::pacing::placement::gate::Verdict;
+use crate::ops::pacing::placement::gate::{self as placement, Verdict};
 
 fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
     let line = match headroom {
@@ -10,26 +10,47 @@ fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
 }
 
 fn decision(target: Target) -> Decision {
-    Decision { target, code_only: true, surface: "code-only box on public north".into(), verdicts: vec![verdict("claude:a", Some(60.0)), verdict("claude:c", None)] }
+    Decision {
+        target,
+        code_only: true,
+        surface: "code-only box on public north".into(),
+        verdicts: vec![verdict("claude:a", Some(60.0)), verdict("claude:c", None)],
+        machine: None,
+        machine_lines: Vec::new(),
+    }
+}
+
+fn noted(note: Option<&str>) -> Result<Placed, String> {
+    Ok(Placed { note: note.map(Into::into), machine: None })
 }
 
 #[test]
 fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let cloud = decision(Target::Cloud("cloud credit: unread".into()));
     let local = decision(Target::Account("claude:a".into()));
-    let launch = |account| Launch { name: "box", account, brief: None };
+    let launch = |account| Launch { name: "box", account, brief: None, cwd: None };
     let given = |local: Option<&str>, pin: Option<&str>| Overrides { local: local.map(Into::into), pin: pin.map(Into::into) };
 
-    assert_eq!(admit(&local, &launch("a"), "", &Overrides::default()), Ok(None));
+    assert_eq!(admit(&local, &launch("a"), "", &Overrides::default()), noted(None));
     let refused = admit(&local, &launch("c"), "", &Overrides::default()).unwrap_err();
     assert!(refused.starts_with("claude:c unavailable: runaway") && refused.contains("--account a"), "{refused}");
-    assert_eq!(admit(&local, &launch("c"), "", &given(None, Some("drain c"))), Ok(Some("pin: drain c".into())));
+    assert_eq!(admit(&local, &launch("c"), "", &given(None, Some("drain c"))), noted(Some("pin: drain c")));
     assert!(admit(&cloud, &launch("a"), "", &given(None, Some("drain c"))).unwrap_err().contains("claude --cloud"));
     assert!(admit(&cloud, &launch("c"), "", &given(Some("x"), None)).unwrap_err().contains("--pin"));
-    let both = admit(&cloud, &launch("c"), "", &given(Some("x"), Some("y"))).unwrap();
+    let both = admit(&cloud, &launch("c"), "", &given(Some("x"), Some("y"))).unwrap().note;
     assert_eq!(both.as_deref(), Some("local: x; pin: y"));
 
     assert_eq!(Overrides::default().recorded(both.as_deref()), given(Some("x"), Some("y")));
     assert_eq!(given(Some("new"), None).recorded(both.as_deref()), given(Some("new"), Some("y")));
     assert_eq!(Overrides::default().recorded(None), Overrides::default());
+
+    let mut remote = decision(Target::Account("claude:a".into()));
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(1) });
+    let launch = Launch { name: "box", account: "a", brief: None, cwd: None };
+    let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
+    assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }) });
+    let kept = admit(&remote, &launch, "", &Overrides { local: Some("needs my desktop".into()), pin: None }).unwrap();
+    assert_eq!(kept, Placed { note: Some("local: needs my desktop".into()), machine: None });
+    let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None }).unwrap();
+    assert_eq!(here, noted(None).unwrap(), "--local on a box placed here records nothing");
 }

@@ -320,6 +320,7 @@ mod turn_state {
             parent: None,
             task_ref: None,
             placement: None,
+            machine: None,
         }
     }
 

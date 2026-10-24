@@ -1,11 +1,13 @@
 //! Claude-only launch placement for `north fleet launch`: the cloud credit first for code-only public
-//! work, then the local Claude account with the most headroom. Pace lines and weekly projections
-//! never hold a launch; an account is out only when a window is exhausted or burning away.
+//! work, then the Claude account with the most headroom, run on the first machine in `[placement] order`
+//! that serves every local need of the box and is below its resident cap, else here. Pace lines and
+//! weekly projections never hold a launch; an account is out only when a window is exhausted or burning away.
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
-use super::{credit, facets, field, strings};
+use super::{credit, facets, field, resident, strings};
 use serde_json::Value;
-use toml_edit::DocumentMut;
+use std::collections::BTreeMap;
+use toml_edit::{DocumentMut, Item};
 
 const FIVE_HOUR_CEILING: f64 = 95.0;
 const WEEK_CEILING: f64 = 100.0;
@@ -30,12 +32,25 @@ pub(crate) enum Target {
     Held(String),
 }
 
+/// A `[hosts.NAME]` with an `ssh` destination: the local needs it serves beyond code, its resident cap
+/// and its live resident CLIs, None when unreachable.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Machine {
+    pub name: String,
+    pub ssh: String,
+    pub serves: Vec<String>,
+    pub cap: i64,
+    pub live: Option<i64>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Decision {
     pub target: Target,
     pub code_only: bool,
     pub surface: String,
     pub verdicts: Vec<Verdict>,
+    pub machine: Option<Machine>,
+    pub machine_lines: Vec<String>,
 }
 
 impl Decision {
@@ -131,22 +146,29 @@ fn words(text: &str, key: &str) -> Vec<String> {
         .map(str::to_owned)
         .collect()
 }
+/// The needs that keep a box off code-only targets: local `Needs:` and `Surface:` words, and native
+/// verification.
+fn local_needs(text: &str) -> Vec<String> {
+    let (_, native, needs) = facets(text);
+    let mut local: Vec<String> = words(text, "Surface")
+        .into_iter()
+        .chain(needs)
+        .chain(words(text, "Needs"))
+        .filter(|w| LOCAL_NEEDS.contains(&w.as_str()))
+        .chain(native.then(|| "native".to_owned()))
+        .collect();
+    local.sort();
+    local.dedup();
+    local
+}
 
 /// A box is code-only only when its brief declares a code `Surface:`, needs nothing local and names
 /// a public repository; anything undeclared stays local.
 pub(crate) fn surface(text: &str, cfg: &DocumentMut) -> (bool, String) {
-    let surface = words(text, "Surface");
-    if surface.is_empty() {
+    if words(text, "Surface").is_empty() {
         return (false, "no Surface: declared, so local".into());
     }
-    let (_, native, needs) = facets(text);
-    let local = surface
-        .iter()
-        .chain(needs.iter())
-        .chain(words(text, "Needs").iter())
-        .find(|w| LOCAL_NEEDS.contains(&w.as_str()))
-        .cloned();
-    if let Some(need) = local.or_else(|| native.then(|| "native".to_owned())) {
+    if let Some(need) = local_needs(text).first() {
         return (false, format!("needs {need}, so local"));
     }
     let repo = repository(text);
@@ -163,6 +185,51 @@ pub(crate) fn surface(text: &str, cfg: &DocumentMut) -> (bool, String) {
     (true, format!("code-only box on public {repo}"))
 }
 
+/// Machines in `[placement] order`, then any other `[hosts.NAME]` naming an `ssh` destination, unprobed.
+pub(crate) fn machines(cfg: &DocumentMut) -> Vec<Machine> {
+    let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
+    let order = strings(cfg.get("placement").and_then(|p| p.get("order")));
+    let rest: Vec<String> = hosts.iter().map(|(name, _)| name.to_owned()).filter(|name| !order.contains(name)).collect();
+    order
+        .into_iter()
+        .chain(rest)
+        .filter_map(|name| {
+            let host = hosts.get(&name)?;
+            let ssh = host.get("ssh")?.as_str()?.to_owned();
+            let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
+            Some(Machine { serves: strings(host.get("serves")), name, ssh, cap, live: None })
+        })
+        .collect()
+}
+
+/// The first machine that serves every local need of the box and is below its cap, with one line per machine.
+fn machine_for(text: &str, machines: &[Machine]) -> (Option<Machine>, Vec<String>) {
+    let declared = !words(text, "Surface").is_empty();
+    let needs = local_needs(text);
+    let mut chosen = None;
+    let lines = machines
+        .iter()
+        .map(|machine| {
+            let name = &machine.name;
+            if !declared {
+                return format!("{name} skipped: no Surface: declared");
+            }
+            if let Some(need) = needs.iter().find(|need| !machine.serves.contains(need)) {
+                return format!("{name} skipped: needs {need}");
+            }
+            match machine.live {
+                None => format!("{name} unreachable over ssh {}", machine.ssh),
+                Some(live) if live >= machine.cap => format!("{name} full: {live}/{} resident CLIs", machine.cap),
+                Some(live) => {
+                    chosen.get_or_insert_with(|| machine.clone());
+                    format!("{name} available: {live}/{} resident CLIs", machine.cap)
+                }
+            }
+        })
+        .collect();
+    (chosen, lines)
+}
+
 fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
     gate["claude"]["controls"]
         .as_object()
@@ -173,14 +240,16 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
         .collect()
 }
 
-pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool, String), at: f64) -> Decision {
+pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool, String), machines: &[Machine], at: f64) -> Decision {
     let (code_only, surface) = surface(text, cfg);
     let verdicts: Vec<Verdict> = claude_controls(gate).into_iter().map(|(name, c)| verdict(&name, c, at)).collect();
-    let mut decision = Decision { target: Target::Held(String::new()), code_only, surface, verdicts };
+    let (machine, machine_lines) = machine_for(text, machines);
+    let mut decision = Decision { target: Target::Held(String::new()), code_only, surface, verdicts, machine: None, machine_lines };
     decision.target = if code_only && credit.0 {
         Target::Cloud(credit.1)
-    } else if let Some(best) = decision.best_account() {
-        Target::Account(best.account.clone())
+    } else if let Some(best) = decision.best_account().map(|best| best.account.clone()) {
+        decision.machine = machine;
+        Target::Account(best)
     } else if decision.verdicts.is_empty() {
         Target::Held("no live Claude quota in usage-gate.json; run pace-control".into())
     } else {
@@ -189,22 +258,37 @@ pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool,
     decision
 }
 
-/// `target anthropic-cloud (credit; surface)`, `target claude:c (surface)` or `target held: why`.
+/// `target anthropic-cloud (credit; surface)`, `target MACHINE claude:c (surface)`, `target claude:c (surface)`
+/// or `target held: why`.
 pub(crate) fn summary(decision: &Decision) -> String {
-    match &decision.target {
-        Target::Cloud(credit) => format!("target anthropic-cloud ({credit}; {})", decision.surface),
-        Target::Account(account) => format!("target {account} ({})", decision.surface),
-        Target::Held(why) => format!("target held: {why}"),
+    match (&decision.target, &decision.machine) {
+        (Target::Cloud(credit), _) => format!("target anthropic-cloud ({credit}; {})", decision.surface),
+        (Target::Account(account), Some(machine)) => format!("target {} {account} ({})", machine.name, decision.surface),
+        (Target::Account(account), None) => format!("target {account} ({})", decision.surface),
+        (Target::Held(why), _) => format!("target held: {why}"),
     }
 }
 
-/// The live decision: South's orchestration.toml, the gate pace-control last wrote and the credit.
-pub(crate) fn live(text: &str) -> Result<Decision, String> {
+/// The live decision: South's orchestration.toml, the gate pace-control last wrote, the credit and
+/// each machine's load, given the fleet sessions this machine runs there by machine name.
+pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>) -> Result<Decision, String> {
     let cfg = sampling::config()?;
     let at = std::env::var("PLACEMENT_NOW")
         .ok()
         .and_then(|s| target::seconds(&s))
         .unwrap_or_else(storage::now);
     let gate = load(&storage::directory().join("usage-gate.json"));
-    Ok(decide(text, &cfg, &gate, credit(&cfg, at), at))
+    Ok(decide(text, &cfg, &gate, credit(&cfg, at), &probed(&cfg, fleet_load), at))
+}
+
+/// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet
+/// sessions hosted elsewhere, plus the fleet sessions given by machine name.
+pub(crate) fn probed(cfg: &DocumentMut, fleet_load: &BTreeMap<String, i64>) -> Vec<Machine> {
+    machines(cfg)
+        .into_iter()
+        .map(|machine| {
+            let hosted = fleet_load.get(&machine.name).copied().unwrap_or(0);
+            Machine { live: resident(&machine.name, &machine.ssh).map(|live| live + hosted), ..machine }
+        })
+        .collect()
 }

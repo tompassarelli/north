@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -17,7 +18,7 @@ use crate::ledger::Ledger;
 use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
-use super::fleet_placement::{self, Launch, Overrides};
+use super::fleet_placement::{self, Launch, Overrides, Placed};
 use super::{gate, orders};
 
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
@@ -133,15 +134,19 @@ fn revive_with(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
     revive(fleet, name, system_prompt, overrides)
 }
 
-/// Revive re-runs placement for a stopped Claude session, keeping the reasons its launch recorded.
+/// Revive re-runs placement for a stopped Claude session, keeping the reasons its launch recorded and
+/// the machine its conversation lives on.
 fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, overrides: Overrides) -> NorthResult<()> {
     let record = fleet.session(name)?;
+    if let (Some(machine), Some(_)) = (&record.machine, &overrides.local) {
+        return Err(NorthError::Usage(format!("{name}'s conversation lives on {}, so it revives there; launch a new session to work here", machine.name)));
+    }
     let mut placement = None;
     if record.provider.label() == "claude" && !record.verification && !fleet.running(&record) {
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
-        let launch = Launch { name, account: &record.account, brief: brief.as_deref() };
-        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides)?;
+        let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None };
+        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &machine_load(fleet)?)?.note;
     }
     fleet.revive_placed(name, system_prompt, placement).map(|record| println!("{}", record.name))
 }
@@ -174,7 +179,11 @@ fn list_lines(fleet: &Fleet) -> NorthResult<()> {
 }
 
 fn list_line(record: &SessionRecord, status: Status) -> String {
-    let line = format!("{}\t{}\t{}\t{}\t{}", record.name, record.provider.label(), record.account, status.label(), record.cwd.display());
+    let cwd = match &record.machine {
+        Some(machine) => format!("{}:{}", machine.name, record.cwd.display()),
+        None => record.cwd.display().to_string(),
+    };
+    let line = format!("{}\t{}\t{}\t{}\t{cwd}", record.name, record.provider.label(), record.account, status.label());
     match &record.placement {
         Some(note) => format!("{line}\t{note}"),
         None => line,
@@ -201,6 +210,7 @@ fn session_json(record: &SessionRecord, status: Status) -> Value {
         "created_ms": record.created_ms,
         "host_pid": record.host_pid,
         "placement": record.placement,
+        "machine": record.machine.as_ref().map(|machine| &machine.name),
     })
 }
 
@@ -242,20 +252,32 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let (mut request, overrides) = launch_parts(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
-    request.placement = placed(&request, &overrides)?;
+    let placed = placed(fleet, &request, &overrides)?;
+    (request.placement, request.machine) = (placed.note, placed.machine);
     let record = fleet.launch(&request)?;
     println!("{}", record.name);
     Ok(())
 }
 
 /// Placement gates every Claude launch except `--test` sessions, before anything starts.
-fn placed(request: &LaunchRequest, overrides: &Overrides) -> NorthResult<Option<String>> {
+fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides) -> NorthResult<Placed> {
     if request.provider.label() != "claude" || request.verification {
-        return Ok(None);
+        return Ok(Placed::default());
     }
     let text = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
-    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref() };
-    fleet_placement::check(&launch, &text, overrides)
+    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd) };
+    fleet_placement::check(&launch, &text, overrides, &machine_load(fleet)?)
+}
+
+/// Live fleet sessions per machine they run on, which those machines cannot count themselves.
+fn machine_load(fleet: &Fleet) -> NorthResult<BTreeMap<String, i64>> {
+    let mut load = BTreeMap::new();
+    for record in fleet.sessions()? {
+        if let Some(machine) = record.machine.as_ref().filter(|_| fleet.running(&record)) {
+            *load.entry(machine.name.clone()).or_default() += 1;
+        }
+    }
+    Ok(load)
 }
 
 #[derive(Default)]
@@ -323,6 +345,7 @@ impl LaunchFlags {
             parent: parent(self.parent, caller),
             task_ref: self.task_ref,
             placement: None,
+            machine: None,
         })
     }
 }

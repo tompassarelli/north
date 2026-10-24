@@ -26,6 +26,14 @@ pub struct Account {
     pub home: PathBuf,
 }
 
+/// Another machine a session's provider CLI runs on, reached through `ssh`; the session host and
+/// transcript stay on this one.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Machine {
+    pub name: String,
+    pub ssh: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LaunchRequest {
     pub verification: bool,
@@ -43,6 +51,7 @@ pub struct LaunchRequest {
     pub task_ref: Option<String>,
     /// Why the launch overrode placement (`local: REASON`, `pin: REASON`), shown in `fleet list`.
     pub placement: Option<String>,
+    pub machine: Option<Machine>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -79,6 +88,8 @@ pub struct SessionRecord {
     pub system_prompt_sha: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<Machine>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

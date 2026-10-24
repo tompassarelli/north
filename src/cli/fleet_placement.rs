@@ -1,8 +1,12 @@
 //! The placement gate in front of `north fleet launch` and `revive`: a Claude box starts only where
 //! placement puts it, or with the override reason recorded on the session.
+use std::collections::BTreeMap;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::model::Machine;
+use crate::fleet::runtime::binary;
 use crate::ops::pacing::placement::gate::{self, Decision, Target};
 
 const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
@@ -39,10 +43,20 @@ impl Overrides {
     }
 }
 
+/// Where placement admitted the launch: the override note to record and the machine to run on, if not here.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct Placed {
+    pub note: Option<String>,
+    pub machine: Option<Machine>,
+}
+
 pub(super) struct Launch<'a> {
     pub name: &'a str,
     pub account: &'a str,
     pub brief: Option<&'a Path>,
+    /// The directory a fresh session starts in, which a machine must also have; None on revive,
+    /// which resumes where the session already ran.
+    pub cwd: Option<&'a Path>,
 }
 
 /// The brief placement reads: the system prompt file when there is one, then the prompt.
@@ -51,32 +65,44 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
     Ok(format!("{file}\n{prompt}"))
 }
 
-/// Runs live placement, prints one verdict line per account, and returns the note to record.
-pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides) -> NorthResult<Option<String>> {
-    let decision = gate::live(text).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
+/// Runs live placement, prints one verdict line per account and machine, and returns where to run.
+/// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
+pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>) -> NorthResult<Placed> {
+    let mut decision = gate::live(text, fleet_load).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
+    if let (Some(machine), Some(cwd)) = (&decision.machine, launch.cwd) {
+        if !has_directory(&machine.ssh, cwd) {
+            decision.machine_lines.push(format!("{} has no {}, so here", machine.name, cwd.display()));
+            decision.machine = None;
+        }
+    }
     eprintln!("placement: {}", gate::summary(&decision));
-    for verdict in &decision.verdicts {
-        eprintln!("  {}", verdict.line);
+    for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
+        eprintln!("  {line}");
     }
     admit(&decision, launch, text, overrides).map_err(NorthError::Refused)
 }
 
-/// Ok(note) when the launch may start, Err(refusal with the way forward) otherwise.
-pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Option<String>, String> {
+/// Ok(where) when the launch may start, Err(refusal with the way forward) otherwise. `--local` keeps
+/// the box here instead of the cloud or another machine.
+pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Placed, String> {
     let mut notes = Vec::new();
-    if let Target::Cloud(credit) = &decision.target {
-        let Some(reason) = &overrides.local else {
-            return Err(cloud_command(launch, credit, &decision.surface, text));
-        };
-        notes.push(format!("local: {reason}"));
+    let elsewhere = matches!(decision.target, Target::Cloud(_)) || decision.machine.is_some();
+    match (&decision.target, &overrides.local) {
+        (Target::Cloud(credit), None) => return Err(cloud_command(launch, credit, &decision.surface, text)),
+        (_, Some(reason)) if elsewhere => notes.push(format!("local: {reason}")),
+        _ => {}
     }
+    let machine = match (&decision.machine, &overrides.local) {
+        (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone() }),
+        _ => None,
+    };
     if let Some(refusal) = account_refusal(decision, launch.account) {
         let Some(reason) = &overrides.pin else {
             return Err(refusal);
         };
         notes.push(format!("pin: {reason}"));
     }
-    Ok((!notes.is_empty()).then(|| notes.join("; ")))
+    Ok(Placed { note: (!notes.is_empty()).then(|| notes.join("; ")), machine })
 }
 
 fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
@@ -96,6 +122,17 @@ fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
         None => "no Claude account is available".to_owned(),
     };
     Some(format!("{why}; {instead}, or keep {name} with --account {account} --pin \"<reason>\""))
+}
+
+fn has_directory(ssh: &str, directory: &Path) -> bool {
+    let quoted = format!("'{}'", directory.to_string_lossy().replace('\'', r"'\''"));
+    Command::new(binary("ssh"))
+        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", "test", "-d", &quoted])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 fn cloud_command(launch: &Launch, credit: &str, surface: &str, text: &str) -> String {

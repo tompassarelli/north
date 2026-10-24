@@ -198,6 +198,7 @@ impl LaunchForm {
             parent: self.parent.clone(),
             task_ref: None,
             placement: None,
+            machine: None,
         })
     }
 }

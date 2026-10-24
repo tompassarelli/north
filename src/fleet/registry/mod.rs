@@ -13,6 +13,7 @@ use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
+use super::remote;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
@@ -113,6 +114,7 @@ impl Fleet {
             prompt_mode: request.prompt_mode,
             system_prompt_sha: None,
             placement: request.placement.clone(),
+            machine: request.machine.clone(),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
@@ -283,7 +285,7 @@ impl Fleet {
         let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
-        let spec = runtime.host(account, &request, opening, &instructions)?;
+        let spec = remote::placed(runtime.host(account, &request, opening, &instructions)?, record)?;
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
         if !host.running() {
@@ -471,6 +473,7 @@ fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
         parent: record.parent.clone(),
         task_ref: record.task_ref.clone(),
         placement: record.placement.clone(),
+        machine: record.machine.clone(),
     }
 }
 
