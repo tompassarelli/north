@@ -208,8 +208,8 @@ configure(rate_entry)
 report_path = scratch / "report.db"
 report_db = sqlite3.connect(report_path)
 real_now = datetime.now(timezone.utc)
-sample(real_now - timedelta(minutes=10),10,report_db)
-sample(real_now,12,report_db)
+sample(real_now - timedelta(minutes=10),10,report_db,f"{real_now + timedelta(days=3):%Y-%m-%dT%H:%M:%SZ}")
+sample(real_now,12,report_db,f"{real_now + timedelta(days=3):%Y-%m-%dT%H:%M:%SZ}")
 report_db.close()
 import hashlib
 state_before = usage.burn_state_path().read_bytes()
