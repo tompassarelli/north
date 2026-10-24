@@ -145,7 +145,7 @@ pub(in crate::ops::pacing) fn resident(name: &str, destination: &str) -> Option<
                 destination,
                 "python3",
                 "-I",
-                "code/north/main/harness/lib/resident_cap.py",
+                ".local/state/north/current/tree/harness/lib/resident_cap.py",
                 "status",
             ],
             None,

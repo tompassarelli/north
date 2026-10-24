@@ -73,6 +73,7 @@ Commands:
   capacity admission < FACTS.json               Decide one machine-capacity admission
   capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
   capacity game-reserve on [--auto]|off|status Reserve CPUs for Tom's game, moving it only once it has run 60 s
+  runtime update                                Promote origin/main as this host's north runtime with its own tree
   help                                          Show this help
 
 Options:

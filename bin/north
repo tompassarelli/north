@@ -3,6 +3,8 @@
 set -euo pipefail
 
 north_runtime="$HOME/.local/state/north/current/north"
+own_runtime="$(dirname "$(readlink -f "$0")")/../../north"
+[[ ! -x "$own_runtime" ]] || north_runtime="$own_runtime"
 if [[ ! -x "$north_runtime" ]]; then
   printf 'north: selected runtime is unavailable: %s\n' "$north_runtime" >&2
   exit 127

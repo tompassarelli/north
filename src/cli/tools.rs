@@ -19,6 +19,7 @@ pub(super) enum Tool {
     Pace,
     Capacity,
     SessionUnit,
+    Runtime,
 }
 
 impl Tool {
@@ -37,6 +38,7 @@ impl Tool {
             "pace" => Self::Pace,
             "capacity" => Self::Capacity,
             "session-unit" => Self::SessionUnit,
+            "runtime" => Self::Runtime,
             _ => return None,
         })
     }
@@ -58,6 +60,7 @@ impl Tool {
             Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments)),
             Self::Capacity => return ExitCode::from(capacity::run(arguments)),
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
+            Self::Runtime => return ExitCode::from(crate::ops::runtime::run(arguments)),
         };
         super::in_runtime(async move { Ok(ExitCode::from(run(arguments))) })
     }

@@ -67,19 +67,24 @@ cat >"$dispatch/date" <<'STUB'
 #!/usr/bin/env bash
 case "$1" in +%H) echo 02 ;; +%s) echo 1 ;; esac
 STUB
-cat >"$dispatch/north-runtime-update" <<'STUB'
+cat >"$dispatch/north" <<'STUB'
 #!/usr/bin/env bash
-touch "$TEST_NORTH_READY"
+[[ "$*" == "runtime update" ]] && touch "$TEST_NORTH_READY"
 STUB
 cat >"$dispatch/claude-runtime-update" <<'STUB'
 #!/usr/bin/env bash
 [[ -f "$TEST_NORTH_READY" ]]
 STUB
 for command in codex-runtime-update agy-runtime-update; do
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$dispatch/$command"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit "${TEST_CODEX_STATUS:-0}"' >"$dispatch/$command"
 done
 chmod +x "$dispatch"/*
 PATH="$dispatch:$PATH" XDG_STATE_HOME="$scratch/dispatch-state" TEST_NORTH_READY="$scratch/north-ready" \
   "$dispatch/agent-runtime-update" || fail 'Claude update ran before the probe-capable North runtime update'
+rm -f "$scratch/north-ready"
+if PATH="$dispatch:$PATH" XDG_STATE_HOME="$scratch/dispatch-state" TEST_NORTH_READY="$scratch/north-ready" TEST_CODEX_STATUS=7 \
+  "$dispatch/agent-runtime-update" 2>"$scratch/dispatch.err"; then fail 'a failed runtime update reported success'; fi
+[[ -f "$scratch/north-ready" ]] || fail 'a failed Codex update stopped the North runtime update'
+grep -q 'codex-runtime-update latest (exit 7)' "$scratch/dispatch.err" || fail "failure was not named: $(cat "$scratch/dispatch.err")"
 
 printf 'claude-runtime-update tests passed\n'

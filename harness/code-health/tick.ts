@@ -112,7 +112,6 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
 
 export function defaultEnv(argv: string[]): { env: TickEnv; repos: string[] } {
   const home = homedir();
-  const north = process.env.NORTH_HOME ?? join(home, "code/north/main");
   const reposArg = argv.find((arg) => arg.startsWith("--repos="));
   return {
     repos: reposArg ? reposArg.slice("--repos=".length).split(",").filter(Boolean) : ENROLLED,
@@ -123,7 +122,7 @@ export function defaultEnv(argv: string[]): { env: TickEnv; repos: string[] } {
       codeHealth: (process.env.CODE_HEALTH_BIN ?? "code-health").split(" "),
       north: process.env.CODE_HEALTH_NORTH_BIN ?? "north",
       account: process.env.CODE_HEALTH_ACCOUNT || undefined,
-      template: join(north, "harness/code-health/review-brief.md"),
+      template: join(import.meta.dir, "review-brief.md"),
       dryRun: argv.includes("--dry-run"),
       now: () => new Date(),
     },

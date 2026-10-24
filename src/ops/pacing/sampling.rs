@@ -4,6 +4,7 @@ use super::{
     grants, process, readout, storage, target,
     window::Window,
 };
+use crate::ops::runtime::layout;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -13,15 +14,15 @@ pub(super) fn root() -> PathBuf {
     if let Some(root) = std::env::var_os("NORTH_HOME") {
         return root.into();
     }
-    if let Ok(binary) = std::env::current_exe() {
-        if let Some(root) = binary
-            .ancestors()
-            .find(|root| root.join("harness/lib/usage.py").is_file())
-        {
-            return root.to_owned();
-        }
+    let binary = std::env::current_exe().unwrap_or_default();
+    if let Some(root) = layout::harness_root(&binary) {
+        return root;
     }
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main")
+    let checkout = PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("code/north/main");
+    layout::checkout_for(&binary, checkout).unwrap_or_else(|skew| {
+        eprintln!("{skew}");
+        std::process::exit(1)
+    })
 }
 pub(super) fn policy_path() -> PathBuf {
     std::env::var_os("AGENTS_ORCHESTRATION")
