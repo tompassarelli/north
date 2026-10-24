@@ -22,7 +22,7 @@ pub(crate) struct Host {
     pub(crate) proc: PathBuf,
     pub(crate) cgroup: PathBuf,
     pub(crate) capacity: PathBuf,
-    pub(crate) playtest: PathBuf,
+    pub(crate) game_reserve: PathBuf,
     pub(crate) systemctl: String,
     pub(crate) uid: u32,
 }
@@ -38,7 +38,7 @@ impl Host {
                 PathBuf::from(format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"))
             }),
             capacity: capacity_root(),
-            playtest: var("PLAYTEST_STATE").unwrap_or_else(|| home.join(".local/state/playtest/state.json")),
+            game_reserve: var("GAME_RESERVE_STATE").unwrap_or_else(|| home.join(".local/state/game-reserve/state.json")),
             systemctl: std::env::var("AGENT_LOAD_SYSTEMCTL").unwrap_or_else(|_| "systemctl".into()),
             uid,
         }
@@ -93,7 +93,7 @@ impl Process {
     }
 
     pub(crate) fn toms(&self) -> bool {
-        self.segments().any(|part| part == "playtest.slice")
+        self.segments().any(|part| part == "game-reserve.slice")
             || (!self.wisp_prefix()
                 && PREFIX_VARIABLES.iter().any(|name| self.var(name).is_some_and(|value| value.contains(STEAM_PREFIXES))))
     }
@@ -317,11 +317,11 @@ pub(crate) fn gaming_marked(capacity: &Path) -> bool {
         .is_some_and(|marker| marker.gaming && now_seconds().saturating_sub(marker.at) <= MARKER_FRESH_SECONDS)
 }
 
-pub(crate) fn playtest_on(host: &Host) -> bool {
+pub(crate) fn game_reserve_on(host: &Host) -> bool {
     let booted = fs::read_to_string(host.proc.join("stat")).ok().and_then(|stat| {
         stat.lines().find_map(|line| line.strip_prefix("btime ")).and_then(|value| value.trim().parse::<u64>().ok())
     });
-    fs::read(&host.playtest)
+    fs::read(&host.game_reserve)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .is_some_and(|state| state["on"] == true && booted.is_none_or(|booted| state["since"].as_u64().is_none_or(|since| since >= booted)))

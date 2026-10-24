@@ -9,8 +9,8 @@ state_cache=${FARM_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/laptop-ru
 # The kernel truncates comm to 15 bytes; argv matches would count wrappers that name the exe.
 game=${FARM_RUNNER_GAME:-Warcraft III.ex}
 pool_state=${FARM_RUNNER_POOL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wisp/lan}
-playtest_dir=${FARM_RUNNER_PLAYTEST_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/playtest}
-playtest_idle=${FARM_RUNNER_PLAYTEST_IDLE:-600}
+reserve_dir=${FARM_RUNNER_GAME_RESERVE_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/game-reserve}
+reserve_idle=${FARM_RUNNER_GAME_RESERVE_IDLE:-600}
 here=$(dirname "$(readlink -f "$0")")
 agent_cpus=${FARM_RUNNER_AGENT_CPUS:-4-11,16-23}
 farm_cgroup=${FARM_RUNNER_CGROUP:-/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/agent.slice/agent-capacity.slice/$slice}
@@ -42,15 +42,15 @@ tom_game() {
   return 1
 }
 
-playtest_hook() {
-  local seen=$playtest_dir/game-seen now
+game_reserve_hook() {
+  local seen=$reserve_dir/game-seen now
   now=$(date +%s)
   if tom_game; then
-    mkdir -p "$playtest_dir" && echo "$now" > "$seen"
-    "$here/playtest" on --auto >/dev/null
-  elif jq -e '.on and .auto' "$playtest_dir/state.json" >/dev/null 2>&1 \
-    && [ $((now - $(cat "$seen" 2>/dev/null || echo 0))) -ge "$playtest_idle" ]; then
-    "$here/playtest" off >/dev/null
+    mkdir -p "$reserve_dir" && echo "$now" > "$seen"
+    "${FARM_RUNNER_NORTH:-$here/north}" capacity game-reserve on --auto >/dev/null || echo "farm-runner: game-reserve on failed" >&2
+  elif jq -e '.on and .auto' "$reserve_dir/state.json" >/dev/null 2>&1 \
+    && [ $((now - $(cat "$seen" 2>/dev/null || echo 0))) -ge "$reserve_idle" ]; then
+    "${FARM_RUNNER_NORTH:-$here/north}" capacity game-reserve off >/dev/null || echo "farm-runner: game-reserve off failed" >&2
   fi
 }
 
@@ -97,7 +97,7 @@ case ${1:-} in
       "https://github.com/$owner/$repo" "$(hostname)-$name" <<<"$token"
     ;;
   sync)
-    playtest_hook
+    game_reserve_hook
     if frozen; then
       mapfile -t running < <(containers running)
       [ ${#running[@]} -eq 0 ] || podman pause "${running[@]}" >/dev/null

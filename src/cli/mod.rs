@@ -72,6 +72,7 @@ Commands:
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity admission < FACTS.json               Decide one machine-capacity admission
   capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
+  capacity game-reserve on [--auto]|off|status Reserve CPUs for Tom's game, moving it only once it has run 60 s
   help                                          Show this help
 
 Options:

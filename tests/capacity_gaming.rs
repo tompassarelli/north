@@ -118,14 +118,14 @@ fn wall_clock_systemd_run() -> String {
 
 fn laptop_auto(host: &Host, gaming: bool) -> String {
     let since = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    fs::write(host.path("playtest.json"), json!({ "on": gaming, "since": since }).to_string()).unwrap();
+    fs::write(host.path("game-reserve.json"), json!({ "on": gaming, "since": since }).to_string()).unwrap();
     let output = host
         .command(env!("CARGO_BIN_EXE_north"))
         .args(["capacity", "laptop-auto"])
         .env("AGENT_LOAD_PROC", host.path("proc"))
         .env("AGENT_LOAD_CGROUP", host.path("user-cgroup"))
         .env("AGENT_LOAD_DRM", host.path("no-drm"))
-        .env("PLAYTEST_STATE", host.path("playtest.json"))
+        .env("GAME_RESERVE_STATE", host.path("game-reserve.json"))
         .env("LAPTOP_AUTO_LAPTOP", "true")
         .output()
         .unwrap();

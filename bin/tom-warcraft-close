@@ -37,5 +37,5 @@ if [ -n "$left" ]; then
   echo "tom-warcraft-close: still running: $left" >&2
   exit 1
 fi
-if command -v playtest >/dev/null; then playtest off >/dev/null 2>&1 || true; fi
+"$(dirname "$(readlink -f "$0")")/north" capacity game-reserve off >/dev/null 2>&1 || true
 echo "tom-warcraft-close: Battle.net and Warcraft III closed; the next Play starts cleanly"

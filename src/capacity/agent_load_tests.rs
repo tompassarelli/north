@@ -53,7 +53,7 @@ fn host(root: &Path, proc: &Path) -> Host {
         proc: proc.to_path_buf(),
         cgroup,
         capacity: root.join("capacity"),
-        playtest: root.join("playtest.json"),
+        game_reserve: root.join("game-reserve.json"),
         systemctl: script.display().to_string(),
         uid: rustix::process::getuid().as_raw(),
     }
@@ -178,24 +178,24 @@ fn the_sampler_counts_toms_game_and_never_an_agent_client() {
     fs::create_dir_all(proc.join("123/fd")).unwrap();
     std::os::unix::fs::symlink("/dev/dri/renderD128", proc.join("123/fd/9")).unwrap();
     assert_eq!(sample(None)["agent_gpu"], true);
-    fixture(&proc, 123, "Warcraft III.ex", "C:\\Warcraft III.exe", "playtest.slice/game.scope", &[]);
+    fixture(&proc, 123, "Warcraft III.ex", "C:\\Warcraft III.exe", "game-reserve.slice/game.scope", &[]);
     let observed = sample(None);
     assert!(observed["gaming"] == true && observed["agent_gpu"] == false);
 }
 
 #[test]
-fn a_playtest_left_on_before_the_last_boot_no_longer_counts_as_gaming() {
+fn a_game_reserve_left_on_before_the_last_boot_no_longer_counts_as_gaming() {
     let root = tempfile::tempdir().unwrap();
     let proc = root.path().join("proc");
     fs::create_dir_all(&proc).unwrap();
     let host = host(root.path(), &proc);
     fs::write(proc.join("stat"), "cpu  1 2 3\nbtime 1792306000\nprocesses 9\n").unwrap();
     for (since, on) in [(1792305507, false), (1792306000, true), (1792309000, true)] {
-        fs::write(&host.playtest, serde_json::json!({ "on": true, "since": since }).to_string()).unwrap();
-        assert_eq!(agent_load::playtest_on(&host), on, "{since}");
+        fs::write(&host.game_reserve, serde_json::json!({ "on": true, "since": since }).to_string()).unwrap();
+        assert_eq!(agent_load::game_reserve_on(&host), on, "{since}");
     }
-    fs::write(&host.playtest, r#"{"on": false}"#).unwrap();
-    assert!(!agent_load::playtest_on(&host));
+    fs::write(&host.game_reserve, r#"{"on": false}"#).unwrap();
+    assert!(!agent_load::game_reserve_on(&host));
 }
 
 #[test]

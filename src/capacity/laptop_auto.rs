@@ -58,7 +58,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         println!("{sample}");
         return 0;
     }
-    let gaming = sample["gaming"] == true || agent_load::playtest_on(&host);
+    let gaming = sample["gaming"] == true || agent_load::game_reserve_on(&host);
     let plan = agent_load::enforce(&host, gaming, &processes);
     if plan != agent_load::Plan::default() {
         println!(
