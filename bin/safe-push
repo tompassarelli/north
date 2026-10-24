@@ -353,11 +353,13 @@ check_instruction_limits() {
 }
 
 # Public deny-list: private identity values never reach a public repository.
-# Absent deny-list means no gate; an unknown visibility fails closed.
-denylist="${SAFE_PUSH_DENYLIST:-$HOME/code/south/main/privacy/public-denylist.toml}"
+# An absent deny-list refuses a public push where south exists and warns
+# elsewhere; an unknown visibility fails closed.
+south="${SAFE_PUSH_SOUTH:-$HOME/code/south}"
+denylist="${SAFE_PUSH_DENYLIST:-$south/main/privacy/public-denylist.toml}"
 origin_visibility=""
 resolve_origin_visibility() {
-  [ -f "$denylist" ] && [ -z "$origin_visibility" ] || return 0
+  { [ -f "$denylist" ] || [ -d "$south" ]; } && [ -z "$origin_visibility" ] || return 0
   origin_visibility=$(gh repo view "$1" --json visibility -q .visibility 2>/dev/null) || origin_visibility=""
   [ -n "$origin_visibility" ] || origin_visibility=UNKNOWN
 }
@@ -396,9 +398,16 @@ commit_email_scan() {
 native_ref_re='(^|[^[:alnum:]_])(life|accounts|travel|ops)#[0-9]+'
 
 denylist_scan() {
-  [ -f "$denylist" ] || return 0
+  if [ ! -f "$denylist" ] && [ ! -d "$south" ]; then
+    echo "safe-push: ⚠ no deny-list at $denylist and no south checkout at $south, so private values were not scanned."
+    return 0
+  fi
   resolve_origin_visibility "$origin_url"
   case "$origin_visibility" in PRIVATE|INTERNAL) return 0 ;; esac
+  if [ ! -f "$denylist" ]; then
+    echo "safe-push: ✗ the deny-list $denylist is missing although $south exists, so a $origin_visibility push cannot be scanned for private values; restore it in south; NOT pushed."
+    return 1
+  fi
   local findings
   if findings=$(gitleaks detect --no-banner --redact --verbose --config "$denylist" --log-opts="$1" 2>&1); then
     return 0

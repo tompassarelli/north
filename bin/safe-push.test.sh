@@ -129,6 +129,7 @@ trace="$scratch/trace"
 : >"$trace"
 # The real deny-list must not leak into the suite; cases opt in with a fixture.
 export SAFE_PUSH_DENYLIST="$scratch/absent-denylist.toml"
+export SAFE_PUSH_SOUTH="$scratch/absent-south"
 export THREADS_DB="$scratch/threads.db"
 
 case_output=''
@@ -1480,6 +1481,10 @@ title = "safe-push test deny-list"
 id = "fake-private-term"
 description = "fake private identity term"
 regex = '''zebra-quokka-7731'''
+[[rules]]
+id = "fake-proton-credit"
+description = "fake credit-lane login"
+regex = '''((?i:proton\s+(?:credit|account|login)))'''
 TOML
 real_gitleaks="$(command -v gitleaks)"
 gh_bin="$scratch/gh-bin"
@@ -1520,11 +1525,43 @@ SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PRIVATE
 expect_status zero
 expect_published 'PRIVATE destination push did not publish'
 
+commit_skill_line() {
+  mkdir -p "$real_repo/harness/skills/workers/references"
+  printf '%s\n' "$1" >"$real_repo/harness/skills/workers/references/cloud.md"
+  "$real_git" -C "$real_repo" add harness/skills/workers/references/cloud.md
+  "$real_git" -C "$real_repo" commit -qm 'add skill reference'
+}
+credit_login='Proton'
+make_real_fixture denylist-skill-credit-lane
+commit_skill_line "- Run it on the host whose login is $credit_login account, so the credit pays."
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status nonzero
+expect_output 'fake-proton-credit'
+expect_output 'cloud.md'
+if grep -Fq "$credit_login account" <<<"$case_output"; then fail 'deny-list refusal printed the matched credit-lane text'; fi
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'credit-lane refusal mutated the remote'
+
+make_real_fixture denylist-skill-wine-prefix
+commit_skill_line 'Never run two clients against one mutable Wine or Proton prefix.'
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status zero
+expect_published 'a Wine or Proton prefix line was refused as a credit-lane login'
+
 make_real_fixture denylist-absent
 commit_private_term
 run_denylist_case PUBLIC
 expect_status zero
+expect_output 'private values were not scanned'
 expect_published 'absent deny-list push did not publish'
+
+make_real_fixture denylist-absent-with-south
+commit_private_term
+remote_before="$(real_remote_state)"
+SAFE_PUSH_SOUTH="$scratch" run_denylist_case PUBLIC
+expect_status nonzero
+expect_output 'is missing although'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'absent deny-list with south present published a public push'
 
 # Every outgoing commit's author and committer email must be the pusher's
 # user.email or a safe-push.allowEmail entry; a private address is refused.

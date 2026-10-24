@@ -50,6 +50,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | Repository AGENTS.md and instruction files stay within their limits | `check_instruction_limits` (`agent-instruction-check`) |
 | No secrets in pushed commits | gitleaks secret scan |
 | Private identity values never reach a public repository | `denylist_scan` |
+| Tom-specific facts in a public skill live behind a `south:` pointer | `denylist_scan` (south `privacy/public-denylist.toml` host, account, billing and ID rules; a missing deny-list refuses a public push where south exists) |
 | Author and committer emails match the configured identity | `commit_email_scan` |
 | Branch names and commit messages never name a native threads item | `native_ref_scan` |
 | Core tools stay; other tool removals need `Removes-tool:` | `tool_removal_scan` |
