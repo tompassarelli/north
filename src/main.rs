@@ -26,6 +26,9 @@ mod hook;
 mod guard;
 mod pyjson;
 mod shell;
+mod threads {
+    pub(crate) mod snapshot;
+}
 mod threads_client;
 mod fleet;
 mod ledger;

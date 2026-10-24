@@ -258,15 +258,15 @@ trace = scratch / 'recovery-trace'
 ssh = transport / 'ssh'; ssh.write_text('''#!/usr/bin/env python3
 import os, subprocess, sys
 from pathlib import Path
-assert sys.argv[-1] == 'threads snapshot'
+assert sys.argv[-1] == 'north threads snapshot-pages'
 with open(os.environ['RECOVERY_TRACE'], 'a') as log: log.write('refresh\\n')
 if os.environ.get('BAD_STREAM'):
     sys.stdout.buffer.write(b'SQLite format 3\\0' + b'x' * 600); sys.exit(0)
-r = subprocess.run([os.environ['PUBLIC_THREADS'], 'snapshot'], env=dict(os.environ, THREADS_DB=os.environ['CANONICAL']), capture_output=True)
+r = subprocess.run([os.environ['NORTH_BIN'], 'threads', 'snapshot-pages'], env=dict(os.environ, THREADS_DB=os.environ['CANONICAL']), capture_output=True)
 sys.stdout.buffer.write(r.stdout); sys.exit(r.returncode)
 '''); ssh.chmod(0o755)
 env = dict(os.environ, HOME=str(home), PATH=str(transport)+':'+os.environ['PATH'],
-           PUBLIC_THREADS=str(repo / 'bin/threads'), CANONICAL=str(canonical), RECOVERY_TRACE=str(trace))
+           PUBLIC_THREADS=str(repo / 'bin/threads'), CANONICAL=str(canonical), RECOVERY_TRACE=str(trace), NORTH_BIN=os.environ.get('NORTH_PACE_BIN') or str(repo / 'target/debug/north'))
 env.pop('THREADS_DB', None)
 snapshot = state / 'snapshot.db'
 def corrupt(): snapshot.write_bytes(b'SQLite format 3\0' + b'x' * 600)

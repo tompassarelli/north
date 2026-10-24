@@ -237,12 +237,12 @@ cat >"$scratch/bin/ssh" <<'SH'
 #!/usr/bin/env bash
 case "${!#}" in
   'threads ingest') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$THREADS_BIN" ingest ;;
-  'threads snapshot') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$THREADS_BIN" snapshot ;;
+  'north threads snapshot-pages') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$NORTH_BIN" threads snapshot-pages ;;
   *) exit 97 ;;
 esac
 SH
 chmod +x "$scratch/bin/ssh"
-env -u THREADS_DB HOME="$scratch/usage-home" PATH="$scratch/bin:$PATH" AGENTS_OPERATOR_DIR="$scratch" REMOTE_HOME="$scratch/remote-home" REMOTE_DB="$scratch/remote.db" THREADS_BIN="$repo/bin/threads" python3 -I - "$repo/harness/lib" <<'DB'
+env -u THREADS_DB HOME="$scratch/usage-home" PATH="$scratch/bin:$PATH" NORTH_BIN="${NORTH_PACE_BIN:-$repo/target/debug/north}" AGENTS_OPERATOR_DIR="$scratch" REMOTE_HOME="$scratch/remote-home" REMOTE_DB="$scratch/remote.db" THREADS_BIN="$repo/bin/threads" python3 -I - "$repo/harness/lib" <<'DB'
 import sys,sqlite3
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])

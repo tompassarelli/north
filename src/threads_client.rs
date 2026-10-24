@@ -6,11 +6,12 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::error::NorthResult;
+use crate::error::{NorthError, NorthResult};
+use crate::threads::snapshot;
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -19,11 +20,11 @@ const READS: [&str; 12] = [
 ];
 const UNREACHABLE: i32 = 255;
 const TIMED_OUT: i32 = 124;
-const SNAPSHOT_SECONDS: u64 = 900;
 const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
 
 pub(crate) struct Client {
+    home: PathBuf,
     remote: PathBuf,
     spool: PathBuf,
     snapshot: PathBuf,
@@ -61,6 +62,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
 impl Client {
     fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, threads: Vec<OsString>) -> Self {
         Self {
+            home: home.to_path_buf(),
             remote: home.join(".config/threads/remote"),
             spool: home.join(".local/state/threads/spool"),
             snapshot: home.join(".local/state/threads/snapshot.db"),
@@ -77,6 +79,9 @@ impl Client {
 
     fn main(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
         let first = argv.first().map(String::as_str);
+        if first == Some("snapshot-pages") || first == Some("snapshot-pull") {
+            return self.snapshot_verb(argv, stdin, err);
+        }
         let database = self.var("THREADS_DB").is_some();
         if first == Some("routing-compare") && !database {
             return self.local(argv, Some(&self.snapshot));
@@ -244,24 +249,54 @@ impl Client {
     }
 
     fn refresh_snapshot(&self, dest: &str, force: bool) -> NorthResult<()> {
-        if !force && let Ok(modified) = fs::metadata(&self.snapshot).and_then(|metadata| metadata.modified())
-            && SystemTime::now().duration_since(modified).map_or(true, |age| age.as_secs_f64() < SNAPSHOT_SECONDS as f64)
-        {
-            return Ok(());
+        let _ = snapshot::refresh(&self.pull_argv(dest), &self.snapshot, force, snapshot::PULL_TIMEOUT);
+        Ok(())
+    }
+
+    fn pull_argv(&self, dest: &str) -> Vec<OsString> {
+        self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, snapshot::REMOTE_COMMAND])
+    }
+
+    fn snapshot_verb(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
+        if argv[0] == "snapshot-pages" {
+            if let Some(reason) = self.no_native_reason() {
+                writeln!(err, "NorthThreads: the snapshot holds native items: {reason}")?;
+                return Ok(1);
+            }
+            let database = self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from);
+            return match snapshot::serve(&database, stdin, &mut io::stdout().lock()) {
+                Ok(()) => Ok(0),
+                Err(error) => {
+                    writeln!(err, "NorthThreads: snapshot pages failed: {error}")?;
+                    Ok(1)
+                }
+            };
         }
-        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, "threads snapshot"]);
-        let Some((status, stdout)) = execute(&argv, Input::Inherit, Stdio::piped(), true, SSH_TIMEOUT)? else {
-            return Ok(());
-        };
-        if code_of(status) != 0 || !stdout.starts_with(b"SQLite format 3") {
-            return Ok(());
+        let (mut force, mut path, mut dest) = (false, self.snapshot.clone(), None);
+        let mut rest = argv[1..].iter();
+        while let Some(arg) = rest.next() {
+            match arg.as_str() {
+                "--force" => force = true,
+                "--snapshot" => path = rest.next().map(PathBuf::from).ok_or_else(|| NorthError::Usage("--snapshot needs a path".into()))?,
+                _ if dest.is_none() && !arg.starts_with('-') => dest = Some(arg.clone()),
+                _ => return Err(NorthError::Usage("usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST".into())),
+            }
         }
-        let mut tmp = self.snapshot.clone().into_os_string();
-        tmp.push(format!(".{}.tmp", std::process::id()));
-        let tmp = PathBuf::from(tmp);
-        let result = fs::write(&tmp, &stdout).and_then(|()| fs::rename(&tmp, &self.snapshot));
-        let _ = fs::remove_file(&tmp);
-        Ok(result?)
+        let dest = dest.ok_or_else(|| NorthError::Usage("usage: north threads snapshot-pull [--force] [--snapshot PATH] DEST".into()))?;
+        match snapshot::refresh(&self.pull_argv(&dest), &path, force, snapshot::PULL_TIMEOUT) {
+            Ok(_) => Ok(0),
+            Err(error) => {
+                writeln!(err, "NorthThreads: snapshot pull from {dest} failed: {error}")?;
+                Ok(1)
+            }
+        }
+    }
+
+    fn no_native_reason(&self) -> Option<&'static str> {
+        if self.var("THREADS_NO_NATIVE").is_some() {
+            return Some("THREADS_NO_NATIVE is set (agy)");
+        }
+        self.var("CLAUDE_CODE_REMOTE").is_some().then_some("CLAUDE_CODE_REMOTE is set (cloud worker)")
     }
 
     fn ssh(&self, dest: &str, args: &[String], input: Input, quiet: bool, err: &mut dyn Write) -> NorthResult<i32> {
@@ -269,7 +304,7 @@ impl Client {
         if let Some(actor) = self.var("THREADS_ACTOR") {
             remote.push(format!("THREADS_ACTOR={actor}"));
         }
-        if self.var("THREADS_NO_NATIVE").is_some() || self.var("CLAUDE_CODE_REMOTE").is_some() {
+        if self.no_native_reason().is_some() {
             remote.push("THREADS_NO_NATIVE=1".to_owned());
         }
         let first = args.first().map(String::as_str);
@@ -288,8 +323,8 @@ impl Client {
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
         let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
         let wait = if first == Some("job-run") { self.record_wait } else { SSH_TIMEOUT };
-        match execute(&argv, input, stdout, false, wait)? {
-            Some((status, _)) => Ok(code_of(status)),
+        match execute(&argv, input, stdout, wait)? {
+            Some(status) => Ok(code_of(status)),
             None => {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
                 Ok(TIMED_OUT)
@@ -394,12 +429,9 @@ fn feed(mut child: Child, bytes: Option<Vec<u8>>) -> Child {
     child
 }
 
-fn execute(argv: &[OsString], input: Input, stdout: Stdio, capture: bool, wait: Duration) -> NorthResult<Option<(ExitStatus, Vec<u8>)>> {
+fn execute(argv: &[OsString], input: Input, stdout: Stdio, wait: Duration) -> NorthResult<Option<ExitStatus>> {
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]).stdout(stdout);
-    if capture {
-        command.stderr(Stdio::piped());
-    }
     let bytes = match input {
         Input::Inherit => None,
         Input::Null => {
@@ -416,7 +448,6 @@ fn execute(argv: &[OsString], input: Input, stdout: Stdio, capture: bool, wait: 
         }
     };
     let mut child = feed(command.spawn()?, bytes);
-    let readers = [child.stdout.take().map(drain), child.stderr.take().map(drain)];
     let deadline = Instant::now() + wait;
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -429,16 +460,7 @@ fn execute(argv: &[OsString], input: Input, stdout: Stdio, capture: bool, wait: 
         }
         std::thread::sleep(Duration::from_millis(10));
     };
-    let [stdout, _] = readers.map(|reader| reader.map(|reader| reader.join().unwrap_or_default()).unwrap_or_default());
-    Ok(Some((status, stdout)))
-}
-
-fn drain(mut source: impl Read + Send + 'static) -> std::thread::JoinHandle<Vec<u8>> {
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = source.read_to_end(&mut bytes);
-        bytes
-    })
+    Ok(Some(status))
 }
 
 fn code_of(status: ExitStatus) -> i32 {
@@ -510,7 +532,7 @@ printf '%s\n' "$*" >> "$ROOT/ssh.log"
 [ -f "$ROOT/sleep" ] && exec sleep "$(cat "$ROOT/sleep")"
 case "$last" in
   *ingest) cat >> "$ROOT/ingest.log" ;;
-  "threads snapshot") printf 'SQLite format 3\000rest' ;;
+  "north threads snapshot-pages") cat >/dev/null; cat "$ROOT/pages" ;;
 esac
 exit "$(cat "$ROOT/code")"
 "#;
@@ -523,6 +545,11 @@ exit "$(cat "$ROOT/code")"
         fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
         fs::write(root.join("code"), "0").unwrap();
         fs::write(root.join("fleet.json"), "[]\n").unwrap();
+        let ledger = root.join("ledger.db");
+        rusqlite::Connection::open(&ledger).unwrap().execute_batch("CREATE TABLE t(v); INSERT INTO t VALUES (1);").unwrap();
+        let mut pages = Vec::new();
+        snapshot::serve(&ledger, &mut &snapshot::manifest_bytes(0, &[])[..], &mut pages).unwrap();
+        fs::write(root.join("pages"), pages).unwrap();
         let north = root.join("north");
         fs::write(&north, format!("#!/bin/sh\ncat '{}'\n", root.join("fleet.json").display())).unwrap();
         fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
@@ -566,7 +593,7 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["unowned"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log"), [
             format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 THREADS_ARCHIVES_LOCAL=1 threads show 'north#63'"),
-            format!("{PREFIX} threads snapshot"),
+            format!("{PREFIX} north threads snapshot-pages"),
             format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' threads unowned"),
         ]);
         assert!(fs::read(&rig.client.snapshot).unwrap().starts_with(b"SQLite format 3"));
@@ -593,7 +620,7 @@ exit "$(cat "$ROOT/code")"
             format!("{PREFIX} threads job-run nightly --host laptop"),
             format!("{PREFIX} threads ingest"),
             format!("{PREFIX} threads list"),
-            format!("{PREFIX} threads snapshot"),
+            format!("{PREFIX} north threads snapshot-pages"),
         ]);
         assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
         let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();

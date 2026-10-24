@@ -455,11 +455,11 @@ async function main(argv: string[]) {
     let ledgerError = "";
     try {
       if (!process.env.THREADS_DB && existsSync(join(HOME, ".config/threads/remote"))) {
-        const snapshot = Bun.spawnSync(["threads", "snapshot"], { stderr: "pipe" });
-        if (snapshot.exitCode !== 0 || snapshot.stdout.length === 0) throw new Error(`threads snapshot exit ${snapshot.exitCode}`);
         mkdirSync(DIR, { recursive: true });
         path = join(DIR, "ledger-snapshot.db");
-        writeFileSync(path, snapshot.stdout);
+        const remote = readFileSync(join(HOME, ".config/threads/remote"), "utf8").trim();
+        const pull = Bun.spawnSync([process.env.NORTH_BIN || "north", "threads", "snapshot-pull", "--force", "--snapshot", path, remote], { stderr: "pipe" });
+        if (pull.exitCode !== 0) throw new Error(`threads snapshot-pull exit ${pull.exitCode}`);
       }
       if (existsSync(path)) {
         const db = new Database(path, { readonly: true });

@@ -2119,7 +2119,6 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
     cmd("list", cmd_list, "held issues with owner, time on the clock, ETA and overdue flag")
-    cmd("snapshot", cmd_snapshot, "write a consistent copy of the database to stdout (a proxying laptop's read fallback)")
     cmd("ingest", cmd_ingest, "record worker runs or type=usage readouts from JSON rows on stdin")
     s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
     s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "
@@ -2211,26 +2210,11 @@ def parser() -> argparse.ArgumentParser:
 
 def refresh_snapshot(dest, force=False, snapshot=SNAPSHOT):
     """Keep a local copy of the remote ledger for reads while the remote is unreachable."""
-    if not force and time.time() - max(os.path.getmtime(p) if os.path.exists(p) else 0 for p in (snapshot, f"{snapshot}.tried")) < SNAPSHOT_SECONDS: return
-    Path(f"{snapshot}.tried").touch()
     try:
-        r = subprocess.run(ssh_argv("-C", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                                   "threads snapshot"), capture_output=True, timeout=90)
+        subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", "snapshot-pull", *(["--force"] if force else []), "--snapshot", str(snapshot), dest],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
     except subprocess.TimeoutExpired:
         return
-    if r.returncode != 0 or not r.stdout.startswith(b"SQLite format 3"):
-        return
-    tmp = f"{snapshot}.{os.getpid()}.tmp"
-    try:
-        Path(tmp).write_bytes(r.stdout)
-        with sqlite3.connect(Path(tmp).resolve().as_uri() + "?mode=ro&immutable=1", uri=True) as db:
-            if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
-                return
-        os.replace(tmp, snapshot)
-    except sqlite3.DatabaseError:
-        return
-    finally:
-        Path(tmp).unlink(missing_ok=True)
 
 
 def ssh(dest, args, **io):
@@ -2492,18 +2476,6 @@ def cmd_queue(db, a):
 
 def follows_text(cmd):
     return f"follows {cmd['follows']} on {cmd['tier']}" if isinstance(cmd, dict) else shlex.join(cmd)
-
-
-def cmd_snapshot(db, a):
-    if no_native_reason():
-        raise Refused(f"the snapshot holds native items: {no_native_reason()}")
-    tmp = f"{DB}.snapshot.{os.getpid()}"
-    try:
-        db.execute("VACUUM INTO ?", (tmp,))
-        sys.stdout.buffer.write(Path(tmp).read_bytes())
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
 
 
 def main(argv=None) -> int:

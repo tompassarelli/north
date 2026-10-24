@@ -29,7 +29,7 @@ mkdir -p "$XDG_RUNTIME_DIR" "$SCRATCH/offline-bin"
 mkdir -p "$SCRATCH/bin"
 cat >"$SCRATCH/bin/north" <<'SH'
 #!/usr/bin/env bash
-[[ "$*" == "fleet list --json" ]] || exit 2
+[[ "$*" == "fleet list --json" ]] || { [[ "$1 $2" == "threads snapshot-pull" ]] && exec "$NORTH_PACE_BIN" "$@"; exit 2; }
 cat "$FLEET_JSON"
 SH
 chmod +x "$SCRATCH/bin/north"
@@ -543,7 +543,7 @@ for present in missing stale; do
     touch -d @0 "$SCRATCH/home/.local/state/threads/snapshot.db"
   fi
   for rule in account pace; do
-    : >"$SCRATCH/ssh-calls"
+    : >"$SCRATCH/ssh-calls"; rm -f "$SCRATCH/home/.local/state/threads/snapshot.db.tried"
     reserve_gate 5 "$rule"
     expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "$rule reserve: $present snapshot far below cap warns"
     [ "$(wc -l <"$SCRATCH/ssh-calls")" -eq 1 ] && check ok "$rule reserve: $present snapshot refresh attempted once" || check bad "$rule reserve: $present snapshot refresh attempted once" "$(cat "$SCRATCH/ssh-calls")"

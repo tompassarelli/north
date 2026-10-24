@@ -10,7 +10,7 @@ threads=$repo/bin/threads
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/threads-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export THREADS_DB=$scratch/threads.db GH_TRACE=$scratch/gh.trace PATH=$scratch/bin:$PATH
-export AGENTS_ORCHESTRATION=$scratch/orchestration.toml
+export AGENTS_ORCHESTRATION=$scratch/orchestration.toml NORTH_BIN=${NORTH_PACE_BIN:-$repo/target/debug/north}
 : >"$AGENTS_ORCHESTRATION"
 
 # smashcraft: #1 blocked by open #2, #2 open, #3 open, #4 blocked by closed #5.
@@ -484,7 +484,7 @@ check '[spec] note and new refuse text gitleaks flags and store nothing' \
   '[ "$(grep -c "^rc=1" <<<"$out")" -eq 2 ] && grep -q "gitleaks found a secret" <<<"$out" && ! sqlite3 "$THREADS_DB" "select data from events union all select title from items" | grep -q "$fake_key"'
 
 t claim "$a" --by alice >/dev/null
-out=$(THREADS_NO_NATIVE=1 t list; THREADS_NO_NATIVE=1 t ready; CLAUDE_CODE_REMOTE=true t list; CLAUDE_CODE_REMOTE=true t ready; CLAUDE_CODE_REMOTE=true t show "$a"; THREADS_NO_NATIVE=1 t snapshot)
+out=$(THREADS_NO_NATIVE=1 t list; THREADS_NO_NATIVE=1 t ready; CLAUDE_CODE_REMOTE=true t list; CLAUDE_CODE_REMOTE=true t ready; CLAUDE_CODE_REMOTE=true t show "$a"; THREADS_NO_NATIVE=1 "$NORTH_BIN" threads snapshot-pages </dev/null 2>&1)
 check '[spec] under the agy (THREADS_NO_NATIVE) or cloud (CLAUDE_CODE_REMOTE) signal, list, ready, show and snapshot reveal no native item' \
   '! grep -qE "life#|p a" <<<"$out" && [ "$(grep -c "not readable here" <<<"$out")" -eq 1 ] && t list | grep -q "^life#1"'
 t release "$a" --by alice >/dev/null
@@ -545,6 +545,7 @@ check '[invariant] 40 writers x 25 parallel writes keep all 1000' '[ "$out" = 10
 mkdir -p "$scratch/home/.config/threads" "$scratch/remote"
 echo nexus >"$scratch/home/.config/threads/remote"
 ln -s "$threads" "$scratch/remote/threads"
+ln -s "$NORTH_BIN" "$scratch/remote/north"
 cat >"$scratch/bin/ssh" <<'SSH'
 #!/usr/bin/env bash
 [ -e "$SSH_DOWN" ] && exit 255
@@ -566,9 +567,9 @@ rm "$scratch/down"
 proxied claim wisp#7 --by bob >/dev/null
 : >"$scratch/ssh.trace"
 proxied calibrate --write --goal-row '{"kind":"goal_eta","cell":"wisp","n":1,"value":5,"source":"fixture"}' >/dev/null; goalstatus=$?
-goalsnapshots=$(grep -c '^threads snapshot$' "$scratch/ssh.trace")
+goalsnapshots=$(grep -c '^north threads snapshot-pages$' "$scratch/ssh.trace")
 proxied calibrate --write >/dev/null; calibratestatus=$?
-writesnapshots=$(grep -c '^threads snapshot$' "$scratch/ssh.trace")
+writesnapshots=$(grep -c '^north threads snapshot-pages$' "$scratch/ssh.trace")
 touch "$scratch/down"
 out2=$(proxied list); status2=$?
 check '[integration] remote down: ingest spools and exits 0, a claim fails in one line, a read serves the last snapshot marked STALE; back up: the spool flushes in order; goal rows avoid refresh while other calibration writes refresh' \
@@ -612,7 +613,7 @@ laptop.REMOTE.write_text("nexus")
 real_run = subprocess.run
 calls = []
 def bounded(argv, **kwargs):
-    if argv[0] == "ssh":
+    if argv[0] == "ssh" or argv[1:3] == ["threads", "snapshot-pull"]:
         bound = kwargs.get("timeout")
         calls.append(bound)
         assert bound is not None and 0 < bound <= 90, f"unbounded SSH: {argv}"
@@ -643,7 +644,7 @@ with patch.object(subprocess, "run", bounded):
             pass
         else:
             raise AssertionError("nexus timeout succeeded")
-    assert calls == [90] * 6, calls
+    assert calls == [90] * 7, calls
     assert time.monotonic() - started < 10
 print("stalled SSH waits fail within their bounds and writes are never replayed")
 PYSTALL
@@ -845,13 +846,12 @@ ssh.write_text('''#!/usr/bin/env python3
 import os, subprocess, sys
 if os.environ.get('OFFLINE'): sys.exit(255)
 cmd = sys.argv[-1]
-if cmd == 'threads snapshot':
+if cmd == 'north threads snapshot-pages':
     with open(os.environ['REFRESH_TRACE'], 'a') as trace: trace.write('refresh\\n')
-if cmd == 'threads snapshot' and os.environ.get('BAD_STREAM'):
-    sys.stdout.buffer.write(b'SQLite format 3\\0' + b'x' * 600); sys.exit(0)
-cmd = cmd.replace('threads ', os.environ['PUBLIC_THREADS'] + ' ', 1)
+cmd = cmd.replace('north ', os.environ['NORTH_BIN'] + ' ', 1) if cmd.startswith('north ') else cmd.replace('threads ', os.environ['PUBLIC_THREADS'] + ' ', 1)
 r = subprocess.run(cmd, shell=True, env=dict(os.environ, THREADS_DB=os.environ['CANONICAL']), capture_output=True)
-sys.stdout.buffer.write(r.stdout); sys.stderr.buffer.write(r.stderr); sys.exit(r.returncode)
+out = r.stdout[:-1] + bytes([r.stdout[-1] ^ 1]) if os.environ.get('BAD_STREAM') and cmd.endswith('snapshot-pages') else r.stdout
+sys.stdout.buffer.write(out); sys.stderr.buffer.write(r.stderr); sys.exit(r.returncode)
 ''')
 ssh.chmod(0o755)
 def canonical(name, page_size):
@@ -870,7 +870,7 @@ env.pop('THREADS_DB', None)
 env.pop('XDG_STATE_HOME', None)
 env['REFRESH_TRACE'] = str(scratch / 'integrity-refresh.trace')
 snapshot = state / 'snapshot.db'
-snapshot.write_bytes(subprocess.check_output([str(repo / 'bin/threads'), 'snapshot'], env=dict(env, THREADS_DB=str(old))))
+subprocess.run([os.environ['NORTH_BIN'], 'threads', 'snapshot-pull', '--force', 'fixture'], env=env, check=True); (state / 'snapshot.db.tried').unlink()
 with sqlite3.connect(snapshot) as db:
     db.execute('ALTER TABLE runs DROP COLUMN brief_origin')
 hold = sqlite3.connect(snapshot)
@@ -890,7 +890,7 @@ with sqlite3.connect(snapshot.resolve().as_uri() + '?immutable=1', uri=True) as 
     assert db.execute('PRAGMA quick_check').fetchall() == [('ok',)]
 hold.close()
 print('PASS 1201 recorded: cached fallback and valid replacement preserve snapshot integrity across a held WAL reader')
-before = snapshot.read_bytes(); os.utime(snapshot, (0, 0))
+before = snapshot.read_bytes(); os.utime(snapshot, (0, 0)); (state / 'snapshot.db.tried').unlink(missing_ok=True)
 invalid = run(dict(env, CANONICAL=str(new), BAD_STREAM='1'), 'claim', 'wisp#9', '--by', 'fixture')
 assert invalid.returncode == 0 and snapshot.read_bytes() == before, invalid
 assert not list(state.glob('*.tmp')), 'invalid transport temporary file remains'

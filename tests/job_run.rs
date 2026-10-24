@@ -58,7 +58,7 @@ fn job_run_keeps_the_exit_code_and_spools_the_finish_while_the_ledger_host_is_do
     let delivered: Vec<String> = ssh_log(root).into_iter().filter(|line| line.contains("--finished")).collect();
     assert_eq!(delivered.len(), 2, "{delivered:?}");
     assert!(delivered.iter().any(|line| line.ends_with("--rc 0")) && delivered.iter().any(|line| line.ends_with("--rc 3")), "{delivered:?}");
-    assert!(ssh_log(root).last().is_some_and(|line| line.ends_with("threads snapshot")), "{:?}", ssh_log(root));
+    assert!(ssh_log(root).last().is_some_and(|line| line.ends_with("north threads snapshot-pages")), "{:?}", ssh_log(root));
 }
 
 #[test]
