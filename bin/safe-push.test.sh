@@ -57,7 +57,14 @@ shim_main() {
       if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE:-0}" = 1 ]; then rm -f -- "$0"; fi
       return "$status"
       ;;
-    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:denylist) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:denylist)
+      if [ "${2:-}" = attest ]; then
+        printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ATTEST_TRACE:?}"
+        return "${SAFE_PUSH_TEST_ATTEST_STATUS:-0}"
+      fi
+      exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
+      ;;
+    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -1728,6 +1735,41 @@ SAFE_PUSH_SOUTH="$scratch" run_denylist_case PUBLIC
 expect_status nonzero
 expect_output 'is missing although'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'absent deny-list with south present published a public push'
+
+# A claude/ push to a public Autoland repository asks north to attest its tip
+# from south; a main push does not, and a failed attest leaves the push standing.
+make_real_fixture denylist-attest
+mkdir -p "$real_repo/.github/workflows" "$scratch/attest-south"
+printf 'on: [workflow_dispatch]\n' >"$real_repo/.github/workflows/autoland.yml"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+"$real_git" -C "$real_repo" commit -qm 'Autoland workflow'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+attest_trace="$scratch/attest-trace"
+run_attest_case() {
+  : >"$attest_trace"
+  printf 'clean\n' >>"$real_repo/content.txt"
+  "$real_git" -C "$real_repo" commit -qam 'attested work'
+  SAFE_PUSH_SOUTH="$scratch/attest-south" SAFE_PUSH_DENYLIST="$fixture_denylist" \
+    SAFE_PUSH_TEST_ATTEST_TRACE="$attest_trace" run_denylist_case PUBLIC "$@"
+}
+run_attest_case --to claude/attest-work
+expect_status zero
+grep -Fxq "denylist attest --south $scratch/attest-south --repo real-denylist-attest/remote --branch claude/attest-work" "$attest_trace" \
+  || fail "a claude/ push did not attest its tip: $(cat "$attest_trace")"
+SAFE_PUSH_TEST_ATTEST_STATUS=2 run_attest_case --to claude/attest-retry
+expect_status zero
+expect_output 'the deny-list attest for claude/attest-retry failed (exit 2); the push stands'
+"$real_git" --git-dir="$real_remote" rev-parse -q --verify refs/heads/claude/attest-retry >/dev/null || fail 'a failed attest undid the push'
+run_attest_case --to main --direct
+expect_status zero
+[ ! -s "$attest_trace" ] || fail "a main push attested: $(cat "$attest_trace")"
+: >"$attest_trace"
+printf 'clean\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'unattested work'
+SAFE_PUSH_DENYLIST="$fixture_denylist" SAFE_PUSH_TEST_ATTEST_TRACE="$attest_trace" run_denylist_case PUBLIC --to claude/attest-no-south
+expect_status zero
+[ ! -s "$attest_trace" ] || fail "a push without a south checkout attested: $(cat "$attest_trace")"
+printf 'PASS: claude/ pushes to a public Autoland repository attest their tip\n'
 
 # Every outgoing commit's author and committer email must be the pusher's
 # user.email or a safe-push.allowEmail entry; a private address is refused.

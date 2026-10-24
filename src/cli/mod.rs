@@ -56,7 +56,8 @@ Commands:
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
   review-gate id|check BASE HEAD PATH...         Print or check the reviewed patch-id of covered paths
-  denylist scan --config FILE BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
+  denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
+  denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
   autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
   land-abandon [BRANCH]                          Name a superseded or handed-back land branch

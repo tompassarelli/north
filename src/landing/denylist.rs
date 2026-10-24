@@ -5,16 +5,23 @@ use std::path::{Path, PathBuf};
 
 use crate::platform::{git as platform_git, process};
 
-const USAGE: &str = "usage: north denylist scan --config FILE BASE HEAD [--ref NAME]";
+const USAGE: &str = "usage: north denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]\n       north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
+const SOUTH_DENYLIST: &str = "origin/main:privacy/public-denylist.toml";
 const IGNORE_FILE: &[u8] = b".gitleaksignore";
 const NON_FILE_MODES: [&str; 2] = ["160000", "040000"];
 
 #[derive(Debug, Eq, PartialEq)]
 struct Request {
-    config: String,
+    config: Source,
     base: String,
     head: String,
     ref_name: Option<String>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum Source {
+    Config(String),
+    South(String),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -52,7 +59,8 @@ fn parse(args: &[String]) -> Option<Request> {
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
-            "--config" => config = Some(rest.next()?.clone()),
+            "--config" if config.is_none() => config = Some(Source::Config(rest.next()?.clone())),
+            "--south" if config.is_none() => config = Some(Source::South(rest.next()?.clone())),
             "--ref" => ref_name = Some(rest.next()?.clone()),
             _ => revisions.push(arg.clone()),
         }
@@ -73,7 +81,7 @@ fn git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     })
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     git_bytes(root, args).map(|stdout| String::from_utf8_lossy(&stdout).into_owned())
 }
 
@@ -328,11 +336,39 @@ fn text_segments(root: &Path, request: &Request, commits: &[String], blobs: &BTr
     Ok(segments)
 }
 
+pub(crate) fn south_denylist(south: &Path) -> Result<tempfile::NamedTempFile, String> {
+    let main = south.join("main");
+    git(&main, &["fetch", "-q", "origin", "main"])?;
+    let rules = git_bytes(&main, &["show", SOUTH_DENYLIST])
+        .map_err(|e| format!("the deny-list is missing from {} {SOUTH_DENYLIST}: {e}", main.display()))?;
+    let mut file = tempfile::NamedTempFile::new().map_err(|e| format!("cannot create the deny-list copy: {e}"))?;
+    std::io::Write::write_all(&mut file, &rules).map_err(|e| format!("cannot write the deny-list copy: {e}"))?;
+    Ok(file)
+}
+
+pub(crate) fn scan_range(root: &Path, config: &Path, base: &str, head: &str, ref_name: Option<&str>) -> Result<BTreeSet<String>, String> {
+    let request = Request {
+        config: Source::Config(config.to_string_lossy().into_owned()),
+        base: base.to_owned(),
+        head: head.to_owned(),
+        ref_name: ref_name.map(str::to_owned),
+    };
+    scan(root, &request)
+}
+
 fn scan(root: &Path, request: &Request) -> Result<BTreeSet<String>, String> {
-    let config = std::fs::canonicalize(&request.config)
+    let held;
+    let named = match &request.config {
+        Source::Config(path) => PathBuf::from(path),
+        Source::South(dir) => {
+            held = south_denylist(Path::new(dir))?;
+            held.path().to_path_buf()
+        }
+    };
+    let config = std::fs::canonicalize(&named)
         .ok()
         .filter(|path| path.is_file())
-        .ok_or_else(|| format!("the deny-list {} is missing", request.config))?
+        .ok_or_else(|| format!("the deny-list {} is missing", named.display()))?
         .to_string_lossy()
         .into_owned();
     let head = commit(root, &request.head)?;
@@ -356,6 +392,9 @@ fn scan(root: &Path, request: &Request) -> Result<BTreeSet<String>, String> {
 }
 
 pub fn run(args: &[String]) -> u8 {
+    if args.first().is_some_and(|command| command == "attest") {
+        return super::denylist_attest::run(&args[1..]);
+    }
     let Some(request) = parse(args) else {
         eprintln!("{USAGE}");
         return 2;

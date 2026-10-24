@@ -82,3 +82,33 @@ fn denylist_text_copies_take_a_neutral_name_in_the_same_directory() {
     assert!(is_text(b"plain\ntext"));
     assert!(!is_text(b"bin\0ary"));
 }
+
+#[test]
+fn denylist_scan_takes_a_config_or_a_south_checkout_but_not_both() {
+    let args = |list: &[&str]| list.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let south = parse(&args(&["scan", "--south", "/s", "a", "b", "--ref", "claude/x"])).unwrap();
+    assert_eq!(south.config, Source::South("/s".into()));
+    assert_eq!(south.ref_name.as_deref(), Some("claude/x"));
+    assert_eq!(parse(&args(&["scan", "--config", "/c", "a", "b"])).unwrap().config, Source::Config("/c".into()));
+    assert_eq!(parse(&args(&["scan", "--config", "/c", "--south", "/s", "a", "b"])), None);
+    assert_eq!(parse(&args(&["scan", "a", "b"])), None);
+}
+
+#[test]
+fn denylist_south_rules_come_from_origin_main_not_the_checkout() {
+    let scratch = fixture();
+    let origin = scratch.path();
+    write(origin, "privacy/public-denylist.toml", "stale = true\n");
+    commit_all(origin, "old rules");
+    let south = tempfile::tempdir().unwrap();
+    let main = south.path().join("main");
+    git(south.path(), &["clone", "-q", &origin.to_string_lossy(), "main"]).unwrap();
+    write(origin, "privacy/public-denylist.toml", "fresh = true\n");
+    commit_all(origin, "new rules");
+    let rules = south_denylist(south.path()).unwrap();
+    assert_eq!(std::fs::read_to_string(rules.path()).unwrap(), "fresh = true\n");
+    assert_eq!(std::fs::read_to_string(main.join("privacy/public-denylist.toml")).unwrap(), "stale = true\n");
+    git(origin, &["rm", "-q", "privacy/public-denylist.toml"]).unwrap();
+    commit_all(origin, "drop rules");
+    assert!(south_denylist(south.path()).unwrap_err().contains("missing"));
+}
