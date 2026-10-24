@@ -143,7 +143,13 @@ pub fn settle(book: &dyn GateBook, id: i64, decision: Decision, now_ms: u64, del
     settle_as(book, id, decision, by, None, now_ms, deliver)
 }
 
-pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&str>, caller: Option<&str>, parent: Option<&str>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+pub struct Authority<'a> {
+    pub caller: Option<&'a str>,
+    pub parent: Option<&'a str>,
+}
+
+pub fn answer_gate(book: &dyn GateBook, id: i64, number: usize, note: Option<&str>, authority: Authority<'_>, now_ms: u64, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
+    let Authority { caller, parent } = authority;
     if caller.is_some() && caller != parent {
         return Err(NorthError::Rejected("only Tom or the gate session's parent may answer".into()));
     }

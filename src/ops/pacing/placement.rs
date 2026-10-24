@@ -15,7 +15,7 @@ mod survey;
 mod tiers;
 use candidates::admit;
 use hosts::{credit, laptop, resident, signed_in};
-pub(super) use launch::{Probes, spawn};
+pub(super) use launch::{Probes, Routing, spawn};
 pub(super) use tiers::routing_defaults;
 use tiers::tier_for;
 
@@ -247,9 +247,11 @@ pub(super) fn operation(request: &Value) -> Result<Option<Value>, String> {
                     configured: request["probe"].clone(),
                     observed: request["observations"].clone(),
                 },
-                &local(),
-                &routing_defaults(),
-                &request["account_order"],
+                Routing {
+                    local: &local(),
+                    defaults: &routing_defaults(),
+                    account_order: &request["account_order"],
+                },
             )
         }
         "admit" => admit(request, at)?,

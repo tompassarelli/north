@@ -28,7 +28,7 @@ impl Fleet {
             return self.decide(id, Decision::Option(number));
         }
         let asker = self.record(&gate.request.session)?;
-        gates::answer_gate(self.ledger.as_ref(), id, number, note, caller, asker.parent.as_deref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
+        gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), |session, text| self.send(session, text, Delivery::Now))
     }
 
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {

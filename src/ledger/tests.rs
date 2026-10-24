@@ -98,7 +98,7 @@ fn runs_are_numbered_per_session_and_a_claimed_receipt_stays_claimed_across_a_re
 
 #[test]
 fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strangers() {
-    use crate::fleet::gates::{answer_gate, default_overdue, open};
+    use crate::fleet::gates::{Authority, answer_gate, default_overdue, open};
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     let legacy = super::SCHEMA.replace("answered_by TEXT,", "answered_by TEXT CHECK(answered_by IN ('tom','default')),");
@@ -113,14 +113,14 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strange
         assert!(notice.starts_with("[gate "));
     }).unwrap();
     for caller in ["stranger", "child"] {
-        assert!(answer_gate(&book, id, 1, None, Some(caller), Some("parent"), 200, |_, _| panic!("unauthorized delivery")).is_err());
+        assert!(answer_gate(&book, id, 1, None, Authority { caller: Some(caller), parent: Some("parent") }, 200, |_, _| panic!("unauthorized delivery")).is_err());
         assert!(book.gate(id).unwrap().unwrap().is_open());
     }
     for number in [0, 3] {
-        assert!(answer_gate(&book, id, number, None, Some("parent"), Some("parent"), 200, |_, _| panic!("invalid choice delivery")).is_err());
+        assert!(answer_gate(&book, id, number, None, Authority { caller: Some("parent"), parent: Some("parent") }, 200, |_, _| panic!("invalid choice delivery")).is_err());
     }
     let mut delivered = Vec::new();
-    let closure = answer_gate(&book, id, 1, Some("proceed now"), Some("parent"), Some("parent"), 200, |session, text| {
+    let closure = answer_gate(&book, id, 1, Some("proceed now"), Authority { caller: Some("parent"), parent: Some("parent") }, 200, |session, text| {
         delivered.push((session.to_owned(), text.to_owned()));
         Ok(())
     }).unwrap();
@@ -129,10 +129,10 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strange
     drop(book);
     let book = Ledger::open(&path).unwrap();
     assert_eq!(book.gate(id).unwrap().unwrap().closure, Some(closure));
-    assert!(answer_gate(&book, id, 2, None, Some("parent"), Some("parent"), 300, |_, _| panic!("duplicate delivery")).is_err());
+    assert!(answer_gate(&book, id, 2, None, Authority { caller: Some("parent"), parent: Some("parent") }, 300, |_, _| panic!("duplicate delivery")).is_err());
     assert!(default_overdue(&book, 40_000, |_, _| panic!("late default delivery")).unwrap().is_empty());
     let tom = book.open_gate(&request("root", 30_000), 100).unwrap();
-    let closure = answer_gate(&book, tom, 2, None, None, None, 200, |session, text| {
+    let closure = answer_gate(&book, tom, 2, None, Authority { caller: None, parent: None }, 200, |session, text| {
         assert_eq!(session, "root");
         assert!(text.contains("Tom answered: no"));
         Ok(())

@@ -9,6 +9,12 @@ pub(in crate::ops::pacing) struct Probes {
     pub observed: Value,
 }
 
+pub(in crate::ops::pacing) struct Routing<'a> {
+    pub local: &'a str,
+    pub defaults: &'a crate::router::policy::Defaults,
+    pub account_order: &'a Value,
+}
+
 struct Prepared {
     cfg: DocumentMut,
     probe: Value,
@@ -291,10 +297,9 @@ pub(in crate::ops::pacing) fn spawn(
     cfg: &DocumentMut,
     at: f64,
     probes: Probes,
-    local: &str,
-    defaults: &crate::router::policy::Defaults,
-    account_order: &Value,
+    routing: Routing<'_>,
 ) -> Value {
+    let Routing { local, defaults, account_order } = routing;
     let provider = spawner["provider"].as_str().unwrap_or_default();
     let own = own_account(spawner, provider);
     let tiers = cfg.get("tiers").and_then(Item::as_table_like);

@@ -37,9 +37,11 @@ fn recorded_placement_preserves_account_order_floors_tiers_and_host_restrictions
                 configured: case["probe"].clone(),
                 observed: case["observations"].clone(),
             },
-            case["local"].as_str().unwrap(),
-            &defaults,
-            &account_order,
+            placement::Routing {
+                local: case["local"].as_str().unwrap(),
+                defaults: &defaults,
+                account_order: &account_order,
+            },
         );
         assert_eq!(actual, case["expected"], "{}", case["name"]);
     }
