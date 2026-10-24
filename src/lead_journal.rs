@@ -206,8 +206,14 @@ pub(crate) struct Submitted {
 
 pub(crate) struct LeadJournal {
     file: File,
-    _lock: File,
+    lock: File,
     state: JournalState,
+}
+
+impl Drop for LeadJournal {
+    fn drop(&mut self) {
+        let _ = self.lock.unlock();
+    }
 }
 
 impl LeadJournal {
@@ -233,7 +239,7 @@ impl LeadJournal {
                 .map_err(|error| damaged(format!("unreadable record ({error})")))?;
             state.apply(&entry)?;
         }
-        Ok(Self { file, _lock: lock, state })
+        Ok(Self { file, lock, state })
     }
 
     pub(crate) fn state(&self) -> &JournalState {
@@ -413,7 +419,7 @@ mod tests {
         ], None).unwrap();
         let before = journal.state().clone();
         drop(journal);
-        let journal = reopen(directory.path());
+        let journal = LeadJournal::open(directory.path()).unwrap();
         assert_eq!(journal.state(), &before);
         assert_eq!(state_of(&journal, "pending"), DeliveryState::Pending);
         assert_eq!(state_of(&journal, "accepted"), DeliveryState::HostAccepted);
@@ -442,12 +448,12 @@ mod tests {
         file.write_all(br#"{"seq":99,"type":"HOST","uuid":"pend"#).unwrap();
         drop(file);
 
-        let mut journal = reopen(directory.path());
+        let mut journal = LeadJournal::open(directory.path()).unwrap();
         assert_eq!(journal.state(), &before);
         journal.host("pending", 9).unwrap();
         drop(journal);
 
-        let journal = reopen(directory.path());
+        let journal = LeadJournal::open(directory.path()).unwrap();
         let lines = journal_lines(directory.path());
         assert_eq!(lines[..complete.len()], complete[..]);
         assert_eq!(lines.len(), complete.len() + 1);
@@ -458,26 +464,23 @@ mod tests {
         assert!(fs::read(&path).unwrap().ends_with(b"\n"));
     }
 
-    fn reopen(directory: &Path) -> LeadJournal {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            match LeadJournal::open(directory) {
-                Ok(journal) => return journal,
-                Err(NorthError::Configuration(_)) if std::time::Instant::now() < deadline => {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                Err(error) => panic!("{error:?}"),
-            }
-        }
-    }
-
     #[test]
     fn lead_journal_second_opener_fails_on_flock() {
         let directory = tempfile::tempdir().unwrap();
         let journal = LeadJournal::open(directory.path()).unwrap();
         assert!(LeadJournal::open(directory.path()).is_err());
         drop(journal);
-        reopen(directory.path());
+        assert!(LeadJournal::open(directory.path()).is_ok());
+    }
+
+    #[test]
+    fn lead_journal_reopens_after_drop_while_a_copy_of_its_lock_descriptor_lives() {
+        let directory = tempfile::tempdir().unwrap();
+        let journal = LeadJournal::open(directory.path()).unwrap();
+        let inherited = journal.lock.try_clone().unwrap();
+        drop(journal);
+        assert!(LeadJournal::open(directory.path()).is_ok());
+        drop(inherited);
     }
 
     #[test]
@@ -494,7 +497,7 @@ mod tests {
         assert!(journal.submit("ev:other:g1", "started", 1, json!({}), false).is_err());
         assert_eq!(journal_lines(directory.path()), lines);
         drop(journal);
-        let mut journal = reopen(directory.path());
+        let mut journal = LeadJournal::open(directory.path()).unwrap();
         assert_eq!(journal.submit("ev:started:g1", "x", 1, json!({}), false).unwrap().delivery, original);
         assert_eq!(journal_lines(directory.path()), lines);
     }
@@ -521,7 +524,7 @@ mod tests {
         let mut file = OpenOptions::new().append(true).open(directory.path().join("journal.jsonl")).unwrap();
         file.write_all(format!("{}\n", serde_json::to_string(&replayed).unwrap()).as_bytes()).unwrap();
         drop(file);
-        let journal = reopen(directory.path());
+        let journal = LeadJournal::open(directory.path()).unwrap();
         let mut expected = state;
         expected.seq += 1;
         assert_eq!(journal.state(), &expected);
