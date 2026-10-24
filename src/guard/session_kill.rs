@@ -261,7 +261,7 @@ fn launch(words: &[String], background: bool) -> Option<String> {
 }
 
 fn temporary_script(arg: &str) -> bool {
-    TEMPORARY_SCRIPT.is_match(arg) && !(SCRATCHPAD.is_match(arg) && !arg.contains("/../"))
+    TEMPORARY_SCRIPT.is_match(arg) && (!SCRATCHPAD.is_match(arg) || arg.contains("/../"))
 }
 
 fn arguments(words: &[String]) -> Vec<String> {
