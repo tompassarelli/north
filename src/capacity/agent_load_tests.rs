@@ -158,7 +158,7 @@ fn the_sampler_counts_toms_game_and_never_an_agent_client() {
     let drm = root.path().join("drm");
     fs::create_dir_all(drm.join("card0/device")).unwrap();
     fs::write(drm.join("card0/device/gpu_busy_percent"), "65\n").unwrap();
-    let sample = |idle| super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, idle);
+    let sample = |idle| super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, idle, None);
     for (comm, gaming) in [("protonmail-bridge", false), ("proton", true)] {
         fixture(&proc, 123, comm, comm, "app.slice/proton-bridge.service", &[]);
         assert_eq!(sample(None)["gaming"], gaming, "{comm}");
@@ -208,7 +208,7 @@ fn the_battle_net_launcher_alone_is_not_gaming_but_a_game_or_gpu_load_is() {
     let prefix = "STEAM_COMPAT_DATA_PATH=/home/tom/.local/share/Steam/steamapps/compatdata/3516115571";
     let sample = |busy: &str| {
         fs::write(drm.join("card0/device/gpu_busy_percent"), format!("{busy}\n")).unwrap();
-        super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, None)["gaming"].clone()
+        super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, None, None)["gaming"].clone()
     };
     fixture(&proc, 200, "wineserver", "/proton/files/bin/wineserver", "app.slice/app-steam-1.scope", &[prefix]);
     fixture(&proc, 201, "Battle.net.exe", "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe", "app.slice/app-steam-1.scope", &[prefix]);
@@ -272,4 +272,41 @@ fn laptop_observe_that_never_answers_ends_inside_its_wait_with_a_failure() {
     assert!(begun.elapsed() < Duration::from_secs(3), "{:?}", begun.elapsed());
     assert_eq!(super::laptop_auto::observe(Command::new("sh").args(["-c", "exit 5"]), wait), 5);
     assert_eq!(super::laptop_auto::observe(&mut Command::new("true"), wait), 0);
+}
+
+#[test]
+fn only_a_discharging_system_battery_reports_a_percent() {
+    let root = tempfile::tempdir().unwrap();
+    let supply = |name: &str, fields: &[(&str, &str)]| {
+        fs::create_dir_all(root.path().join(name)).unwrap();
+        for (field, value) in fields {
+            fs::write(root.path().join(name).join(field), format!("{value}\n")).unwrap();
+        }
+    };
+    supply("ACAD", &[("type", "Mains"), ("online", "0")]);
+    supply("hid-trackpad-battery", &[("type", "Battery"), ("scope", "Device"), ("status", "Discharging"), ("capacity", "5")]);
+    supply("BAT1", &[("type", "Battery"), ("status", "Charging"), ("capacity", "27")]);
+    assert_eq!(super::laptop_auto::discharging_percent(root.path()), None);
+    supply("BAT1", &[("status", "Discharging")]);
+    assert_eq!(super::laptop_auto::discharging_percent(root.path()), Some(27));
+    assert_eq!(super::laptop_auto::discharging_percent(&root.path().join("absent")), None);
+}
+
+#[test]
+fn a_low_battery_warns_once_per_discharge() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("capacity/battery-warned");
+    let log = root.path().join("notifications");
+    let warn = |battery| {
+        let mut notify = Command::new("sh");
+        notify.args(["-c", "printf '%s\\n' \"$*\" >> \"$0\"", log.to_str().unwrap()]);
+        super::laptop_auto::warn_battery_once(&marker, battery, &mut notify);
+        fs::read_to_string(&log).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>()
+    };
+    assert!(warn(Some(31)).is_empty());
+    assert_eq!(warn(Some(29)), ["--urgency=critical --app-name=laptop-auto Laptop battery at 29% and discharging Agent placement is draining off the laptop. Plug in AC."]);
+    assert_eq!(warn(Some(20)).len(), 1);
+    assert_eq!(warn(None).len(), 1);
+    assert!(!marker.exists());
+    assert_eq!(warn(Some(28)).len(), 2);
 }

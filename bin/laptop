@@ -7,7 +7,7 @@ drain [until HH:MM] [REASON...]  draining with a 15-minute grace, then unavailab
 toggle                           close when available, else open
 status [--json]                  one line: state, since, until, reason, by, running and queued laptop jobs
 tick                             the window timer: apply window edges and expired words, settle draining
-observe JSON                     apply gaming, GPU and seat-idle observations from laptop-auto
+observe JSON                     apply gaming, GPU, seat-idle and low-battery observations from laptop-auto
 
 A word holds until its `until`, else until the next window edge. Draining becomes unavailable once no laptop job
 is running. Where ~/.config/threads/remote names the ledger host, every command runs there over ssh."""
@@ -239,7 +239,7 @@ def status(args):
 def observe(args):
     try:
         sample = json.loads(args[0]) if len(args) == 1 else None
-        if not isinstance(sample, dict) or any(type(sample.get(k)) is not bool for k in ("gaming", "agent_gpu")):
+        if not isinstance(sample, dict) or any(type(sample.get(k)) is not bool for k in ("gaming", "agent_gpu", "battery_low")):
             raise ValueError()
         if sample.get("idle") is not None and type(sample["idle"]) is not bool:
             raise ValueError()
@@ -247,7 +247,7 @@ def observe(args):
         if gpu is not None and (type(gpu) is not int or not 0 <= gpu <= 100):
             raise ValueError()
     except (ValueError, TypeError):
-        die("observe wants gaming/agent_gpu booleans, idle boolean or null, gpu_busy integer 0..100 or null")
+        die("observe wants gaming/agent_gpu/battery_low booleans, idle boolean or null, gpu_busy integer 0..100 or null")
     t = now()
     path = STATE.with_name(STATE.stem + "-observations.json")
     try:
@@ -262,18 +262,19 @@ def observe(args):
         if active:
             observations[key] = previous.get(key, iso(t))
     gaming = sample["gaming"] or ("gpu" in observations and (t - parse(observations["gpu"])).total_seconds() >= 180)
+    hold = "gaming" if gaming else "battery" if sample["battery_low"] else None
     if not gaming:
         observations["clear"] = previous.get("clear", iso(t))
     s = load()
-    auto = s and (s["by"] == "laptop-auto" or (s["by"] == "laptop tick" and s["reason"] == "drained (active)"))
+    auto = s and (s["by"] == "laptop-auto" or (s["by"] == "laptop tick" and s["reason"] in ("drained (active)", "drained (battery)")))
     edge, target = last_edge(t)
     in_window = target == "available"
     if s and (s["state"] == "available" or auto):
-        if gaming:
-            if s["reason"] != "gaming" or not auto:
-                s = write("unavailable", t, "gaming", "laptop-auto", grace=GRACE["close"])
-        elif auto and s["reason"] == "gaming":
-            if (t - parse(observations["clear"])).total_seconds() >= 600:
+        if hold:
+            if s["reason"] not in (hold, f"drained ({hold})") or not auto:
+                s = write("unavailable" if gaming else "draining", t, hold, "laptop-auto", grace=GRACE["close" if gaming else "drain"])
+        elif auto and s["reason"] in ("gaming", "battery", "drained (battery)"):
+            if s["reason"] != "gaming" or (t - parse(observations["clear"])).total_seconds() >= 600:
                 s = write("available" if in_window else "unavailable", t, "window", "laptop-auto")
         elif in_window and "active" in observations and (t - max(parse(observations["active"]), edge)).total_seconds() >= 300:
             if s["state"] == "available":
@@ -281,7 +282,6 @@ def observe(args):
         elif auto and in_window and "idle" in observations and (t - parse(observations["idle"])).total_seconds() >= DEFAULTS["laptop_idle_reopen_sec"]:
             if s["state"] != "available":
                 s = write("available", t, "idle", "laptop-auto")
-    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(f".tmp{os.getpid()}")
     tmp.write_text(json.dumps(observations) + "\n")
     os.replace(tmp, path)

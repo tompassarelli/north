@@ -125,6 +125,7 @@ fn laptop_auto(host: &Host, gaming: bool) -> String {
         .env("AGENT_LOAD_PROC", host.path("proc"))
         .env("AGENT_LOAD_CGROUP", host.path("user-cgroup"))
         .env("AGENT_LOAD_DRM", host.path("no-drm"))
+        .env("AGENT_LOAD_POWER_SUPPLY", host.path("no-power-supply"))
         .env("GAME_RESERVE_STATE", host.path("game-reserve.json"))
         .env("LAPTOP_AUTO_LAPTOP", "true")
         .output()
