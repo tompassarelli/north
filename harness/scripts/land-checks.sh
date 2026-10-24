@@ -12,39 +12,50 @@ search() {
 git diff --name-only --no-renames -z "$base" "$head" >"$scratch/changes" || {
   printf 'land check: git diff failed\n' >&2; exit 1;
 }
-declare -A seen=()
-selected=()
+declare -A seen=() visited=()
+selected=() queue=()
 add_test() {
   [ -f "$1" ] || return 0
   [ -z "${seen[$1]:-}" ] || return 0
   seen[$1]=1
   selected+=("$1")
 }
+enqueue() { [ -n "${visited[$1]:-}" ] || { visited[$1]=1; queue+=("$1"); }; }
 roots=(bin lib harness/hooks harness/lib harness/scripts)
-search --files -0 "${roots[@]}" -g '*.test.py' -g '*.test.sh'
-mapfile -d '' -t tests <"$scratch/matches"
+search --files -0 "${roots[@]}"
+mapfile -d '' -t files <"$scratch/matches"
 while IFS= read -r -d '' path; do
   case "$path" in
-    bin/*|lib/*|harness/hooks/*|harness/lib/*|harness/scripts/*) ;;
-    *) continue ;;
+    bin/*|lib/*|harness/hooks/*|harness/lib/*|harness/scripts/*) enqueue "$path" ;;
+    src/*|Cargo.toml|Cargo.lock|build.rs) enqueue NORTH_PACE_BIN ;;
   esac
+done <"$scratch/changes"
+for ((next = 0; next < ${#queue[@]}; next++)); do
+  path=${queue[next]}
   stem=${path%.sh}; stem=${stem%.py}; stem=${stem%.ts}; stem=${stem%.mjs}
   stem=${stem%.test}
   for test in "$stem.test.sh" "$stem.test.py"; do
     add_test "$test"
   done
-  [ "${#tests[@]}" -gt 0 ] || continue
-  escaped=${path//./\\.}
-  search -l -0 -e "(^|[^[:alnum:]_.-])${escaped}([^[:alnum:]_.-]|$)" -- "${tests[@]}"
-  while IFS= read -r -d '' test; do add_test "$test"; done <"$scratch/matches"
+  [ "${#files[@]}" -gt 0 ] || continue
+  name=${path##*/}
+  [[ "$name" = *.* || "$path" != */* ]] || { dir=${path%/*}; name=${dir##*/}/$name; }
+  patterns=(-e "(^|[^[:alnum:]_.-])${name//./\\.}([^[:alnum:]_.-]|$)")
   module=${path##*/}; module=${module%.py}
   if [[ "$path" = *.py && "$module" =~ ^[a-zA-Z_][a-zA-Z_0-9]*$ ]]; then
-    imports="(^|[;:])[[:space:]]*(from[[:space:]]+$module[[:space:]]+import\b|import[[:space:]]+([[:alnum:]_.]+([[:space:]]+as[[:space:]]+[[:alnum:]_]+)?[[:space:]]*,[[:space:]]*)*$module([[:space:]]*(,|;|#|$)|[[:space:]]+as[[:space:]]))"
-    search -l -0 -e "$imports" -- "${tests[@]}"
-    while IFS= read -r -d '' test; do add_test "$test"; done <"$scratch/matches"
+    patterns+=(-e "(^|[;:])[[:space:]]*(from[[:space:]]+${module}[[:space:]]+import\b|import[[:space:]]+([[:alnum:]_.]+([[:space:]]+as[[:space:]]+[[:alnum:]_]+)?[[:space:]]*,[[:space:]]*)*${module}([[:space:]]*(,|;|#|$)|[[:space:]]+as[[:space:]]))")
   fi
-done <"$scratch/changes"
-[ ! -x "${CARGO_TARGET_DIR:-target}/debug/north" ] || export NORTH_PACE_BIN="$(realpath "${CARGO_TARGET_DIR:-target}/debug/north")"
+  search -l -0 "${patterns[@]}" -- "${files[@]}"
+  while IFS= read -r -d '' file; do
+    case "$file" in *.test.sh|*.test.py) add_test "$file" ;; esac
+    enqueue "$file"
+  done <"$scratch/matches"
+done
+if [ "${#selected[@]}" -gt 0 ] && [ -f Cargo.toml ]; then
+  ./bin/depbox run -- nix develop -c cargo build --locked --offline --bin north
+fi
+north=${CARGO_TARGET_DIR:-target}/debug/north
+[ ! -x "$north" ] || { NORTH_PACE_BIN=$(realpath "$north"); export NORTH_PACE_BIN; }
 for test in "${selected[@]}"; do
   printf 'land check: %s\n' "$test"
   case "$test" in *.sh) bash "$test" ;; *.py) python3 "$test" ;; esac
