@@ -34,6 +34,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .mode(0o600)
         .open(run.join("lifecycle.lock"))?;
     flock(&lock, FlockOperation::LockExclusive)?;
@@ -57,6 +58,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .mode(0o600)
         .open(port_lock_path)?;
     flock(&port_lock, FlockOperation::LockExclusive)?;
@@ -275,6 +277,7 @@ fn prepare_vnc_environment() -> io::Result<PathBuf> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .mode(0o600)
         .open(cache.join("install.lock"))?;
     flock(&lock, FlockOperation::LockExclusive)?;

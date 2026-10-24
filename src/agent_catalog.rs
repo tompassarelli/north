@@ -1054,6 +1054,7 @@ fn with_lock<T>(operation: impl FnOnce() -> NorthResult<T>) -> NorthResult<T> {
     fs::create_dir_all(&root)?;
     let lock = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
         .open(root.join(".lock"))?;
     flock(&lock, FlockOperation::LockExclusive).map_err(|error| {

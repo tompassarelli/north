@@ -92,7 +92,7 @@ pub fn ensure_session_streams(
 ) -> io::Result<u64> {
     let directory = host_dir.join("g1").join(SESSION_STREAMS);
     fs::create_dir_all(&directory)?;
-    let lock = OpenOptions::new().create(true).read(true).write(true).open(directory.join("index.lock"))?;
+    let lock = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(directory.join("index.lock"))?;
     flock(&lock, FlockOperation::LockExclusive).map_err(io::Error::other)?;
     let source = stream_path(host_dir);
     let source_len = std::fs::metadata(&source).map_or(0, |metadata| metadata.len());
