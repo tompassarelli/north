@@ -4,7 +4,6 @@ use super::*;
 fn timestamps_round_trip_iso() {
     let time = Timestamp::parse("2026-10-15T15:20:00Z").unwrap();
     assert_eq!(time.iso(), "2026-10-15T15:20:00Z");
-    assert_eq!(time.compact(), "20261015T1520Z");
     assert_eq!(Timestamp::parse("2026-10-15T17:20:00.5+02:00").unwrap(), time);
     assert_eq!(Timestamp::parse("2024-02-29T00:00:00Z").unwrap().iso(), "2024-02-29T00:00:00Z");
     assert_eq!(Timestamp::parse("1970-01-01T00:00:00Z").unwrap(), Timestamp::from_unix_seconds(0));

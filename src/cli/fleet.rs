@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Delivery, Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
+use crate::fleet::model::{Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::registry::{self, Fleet, urgent_text};
 use crate::fleet::roster::Roster;

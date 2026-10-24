@@ -22,16 +22,11 @@ const CONTEXT_FILE: &str = "/etc/north/agent-context.json";
 const CONTEXT_KEYS: [(&str, &str); 2] = [("model_context_window", "window"), ("model_auto_compact_token_limit", "autoCompactTokenLimit")];
 const SUBAGENT_DEFAULT: [&str; 2] = ["gpt-6.1-sol", "high"];
 const BURN_WAIT: Duration = Duration::from_secs(10);
-const SLICE: [&str; 7] = ["--user", "--scope", "--quiet", "--slice=agent.slice", "--collect", "--same-dir", "--"];
 const APP_SERVER: [&str; 7] = ["app-server", "--listen", "stdio://", "--enable", "multi_agent_v2", "--enable", "default_mode_request_user_input"];
 
 pub struct AppServer {
     pub argv: Vec<String>,
     pub env: Vec<(String, OsString)>,
-}
-
-pub fn app_server(account_home: &Path) -> NorthResult<AppServer> {
-    server(account_home, contained())
 }
 
 pub fn session_server(account_home: &Path) -> NorthResult<AppServer> {
@@ -56,16 +51,6 @@ fn account_env(home: &Path) -> Vec<(String, OsString)> {
         env.push(("CODEX_SQLITE_HOME".into(), sqlite.into_os_string()));
     }
     env
-}
-
-fn contained() -> Vec<String> {
-    let opted_out = std::env::var_os("NORTH_NO_SLICE").is_some_and(|value| value == "1");
-    let manager = std::env::var_os("XDG_RUNTIME_DIR").is_some_and(|dir| Path::new(&dir).join("systemd/private").exists());
-    let runner = binary("systemd-run");
-    if opted_out || !manager || !runner.is_absolute() {
-        return Vec::new();
-    }
-    std::iter::once(runner.display().to_string()).chain(SLICE.map(str::to_owned)).collect()
 }
 
 fn masked(home: &Path, claude_config: Option<PathBuf>) -> Vec<String> {

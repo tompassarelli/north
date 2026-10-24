@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fmt;
 use std::io;
-use std::process::ExitStatus;
 
 
 #[derive(Debug)]
@@ -15,8 +14,6 @@ pub enum NorthError {
     Rejected(String),
     GateAnswered { id: i64, answer: String, by: String },
     Refused(String),
-    Interrupted,
-    AppServerExit(ExitStatus),
 }
 
 impl NorthError {
@@ -28,7 +25,6 @@ impl NorthError {
             Self::Protocol(message) if message.contains("turn ended as failed") => {
                 "Codex couldn’t complete the request.".into()
             }
-            Self::Interrupted => "Interrupted".into(),
             Self::State(_) => "North couldn’t read the conversation state.".into(),
             _ => self.to_string(),
         }
@@ -48,10 +44,6 @@ impl fmt::Display for NorthError {
             Self::State(message) => write!(formatter, "Incomplete North state: {message}"),
             Self::GateAnswered { id, answer, by } => write!(formatter, "gate {id} was already answered: {} by {by}", answer.split_whitespace().collect::<Vec<_>>().join(" ")),
             Self::Rejected(message) => write!(formatter, "Codex rejected the request: {message}"),
-            Self::Interrupted => write!(formatter, "Codex turn was interrupted"),
-            Self::AppServerExit(status) => {
-                write!(formatter, "Codex app-server exited unexpectedly: {status}")
-            }
         }
     }
 }

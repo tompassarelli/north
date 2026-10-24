@@ -37,14 +37,6 @@ impl Timestamp {
         Self::from_unix_millis(millis.trunc() as i64)
     }
 
-    pub fn whole_seconds(self) -> Self {
-        Self::from_unix_seconds(self.unix_seconds())
-    }
-
-    pub fn plus_seconds(self, seconds: i64) -> Self {
-        Self(self.0 + i128::from(seconds) * NANOS_PER_SECOND)
-    }
-
     pub fn unix_seconds(self) -> i64 {
         self.0.div_euclid(NANOS_PER_SECOND) as i64
     }
@@ -106,11 +98,6 @@ impl Timestamp {
     pub fn local_hour_minute(self) -> String {
         let minutes = (self.unix_seconds() + local_offset_seconds()).div_euclid(60);
         format!("{:02}:{:02}", minutes.div_euclid(60).rem_euclid(24), minutes.rem_euclid(60))
-    }
-
-    pub fn compact(self) -> String {
-        let at = self.moment();
-        format!("{:04}{:02}{:02}T{:02}{:02}Z", at.year(), u8::from(at.month()), at.day(), at.hour(), at.minute())
     }
 
     pub fn day_and_minute(self) -> String {
@@ -196,14 +183,6 @@ impl Timestamp {
             UtcOffset::from_hms(sign * zone[1..3].parse::<i8>().ok()?, sign * zone[4..6].parse::<i8>().ok()?, 0).ok()?
         };
         Some(Self(PrimitiveDateTime::new(date, clock).assume_offset(offset).unix_timestamp_nanos()))
-    }
-
-    pub fn parse_python_isoformat(value: &str) -> Option<Self> {
-        isoformat(value, true)
-    }
-
-    pub fn parse_python_isoformat_seconds(value: &str) -> Option<Self> {
-        isoformat(value, false)
     }
 
     pub fn parse_publish_time(text: &str) -> Option<Self> {
@@ -383,46 +362,6 @@ fn python_clock_nanos(text: &str) -> Option<i128> {
     }
     let micros = c.get(4).map_or(Some(0), |v| fraction_micros(v.as_str()))?;
     Some((i128::from(hour) * 3600 + i128::from(minute) * 60 + i128::from(second)) * NANOS_PER_SECOND + micros * 1000)
-}
-
-fn isoformat(value: &str, fraction: bool) -> Option<Timestamp> {
-    let (clock, rest) = (value.get(..19)?, value.get(19..)?);
-    let number = |text: &str| (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())).then(|| text.parse::<i32>().ok()).flatten();
-    let [year, month, day, hour, minute, second] = [(0, 4), (5, 7), (8, 10), (11, 13), (14, 16), (17, 19)].map(|(from, to)| clock.get(from..to).and_then(number));
-    if [4, 7].iter().any(|index| clock.as_bytes()[*index] != b'-') || clock.as_bytes()[10] != b'T' || [13, 16].iter().any(|index| clock.as_bytes()[*index] != b':') {
-        return None;
-    }
-    let (nanos, zone) = match rest.strip_prefix('.') {
-        Some(tail) if fraction => {
-            let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
-            if digits == 0 {
-                return None;
-            }
-            let scaled = format!("{:0<9}", &tail[..digits.min(9)]);
-            (scaled.parse::<u32>().ok()?, &tail[digits..])
-        }
-        Some(_) => return None,
-        None => (0, rest),
-    };
-    let offset = match zone {
-        "Z" => UtcOffset::UTC,
-        _ => {
-            let sign = match zone.as_bytes().first()? {
-                b'+' => 1,
-                b'-' => -1,
-                _ => return None,
-            };
-            let digits = zone[1..].replace(':', "");
-            if ![4, 6].contains(&digits.len()) {
-                return None;
-            }
-            let parts: Vec<i32> = digits.as_bytes().chunks(2).map(|pair| number(std::str::from_utf8(pair).ok()?)).collect::<Option<_>>()?;
-            UtcOffset::from_hms((sign * parts[0]) as i8, (sign * parts[1]) as i8, (sign * parts.get(2).copied().unwrap_or(0)) as i8).ok()?
-        }
-    };
-    let date = Date::from_calendar_date(year?, Month::try_from(month? as u8).ok()?, day? as u8).ok()?;
-    let time = Time::from_hms_nano(hour? as u8, minute? as u8, second? as u8, nanos).ok()?;
-    Some(Timestamp(OffsetDateTime::new_in_offset(date, time, offset).unix_timestamp_nanos()))
 }
 
 #[cfg(test)]

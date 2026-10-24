@@ -11,12 +11,11 @@ use crate::fleet::turns::{RunRecord, RunSink};
 
 mod books;
 mod gates;
-mod pricing;
+pub(crate) mod pricing;
 mod report;
 mod verdict;
 
 pub use report::{print_runs, print_summary};
-pub use pricing::PriceTable;
 pub use verdict::{check, landed};
 
 const SCHEMA: &str = "

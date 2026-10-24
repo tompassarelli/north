@@ -216,10 +216,6 @@ pub fn encode_interrupt(request_id: &str) -> String {
     control_request(request_id, json!({"subtype": "interrupt"}))
 }
 
-pub fn encode_stop_task(request_id: &str, task_id: &str) -> String {
-    control_request(request_id, json!({"subtype": "stop_task", "task_id": task_id}))
-}
-
 fn control_request(request_id: &str, request: Value) -> String {
     json!({"type": "control_request", "request_id": request_id, "request": request}).to_string()
 }
@@ -388,8 +384,6 @@ mod tests {
             interrupt,
             json!({"type": "control_request", "request_id": "r1", "request": {"subtype": "interrupt"}})
         );
-        let stop: Value = serde_json::from_str(&encode_stop_task("r2", "t9")).unwrap();
-        assert_eq!(stop["request"], json!({"subtype": "stop_task", "task_id": "t9"}));
         let init: Value = serde_json::from_str(&encode_initialize("r3")).unwrap();
         assert_eq!(init["request"]["subtype"], "initialize");
         assert_eq!(init["request_id"], "r3");

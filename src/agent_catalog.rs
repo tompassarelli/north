@@ -20,61 +20,6 @@ const ACTIVATION_SCHEMA: &str = "north.agent-activation/v1";
 const MANAGED_SKILLS_SCHEMA: &str = "north.codex-managed-skills/v1";
 const REVIEW_STALE_DAYS: i64 = 30;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActivationUnit {
-    pub id: String,
-    pub kind: String,
-    pub active: bool,
-    pub description: String,
-    pub source: PathBuf,
-}
-
-pub fn activation_units() -> NorthResult<Vec<ActivationUnit>> {
-    decode_activation_units(&read_current()?)
-}
-
-pub fn toggle_activation_unit(id: &str, active: bool) -> NorthResult<Vec<ActivationUnit>> {
-    let permission = if active { "on" } else { "off" };
-    let activation = with_lock(|| change_permission(id, permission))?;
-    decode_activation_units(&activation)
-}
-
-fn decode_activation_units(activation: &Value) -> NorthResult<Vec<ActivationUnit>> {
-    decode_activation_units_in(activation, env::var("NORTH_REPO_ROOTS").ok().as_deref())
-}
-
-fn decode_activation_units_in(activation: &Value, configured: Option<&str>) -> NorthResult<Vec<ActivationUnit>> {
-    let mut decoded = units(activation)?
-        .iter()
-        .map(|unit| {
-            let kind = string_field(unit, "kind")?.to_owned();
-            Ok(ActivationUnit {
-                id: string_field(unit, "id")?.to_owned(),
-                kind,
-                active: unit.get("active").and_then(Value::as_bool).unwrap_or(false),
-                description: unit
-                    .get("triggerDescription")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-                source: owner_path_in(owner(unit)?, configured)?,
-            })
-        })
-        .collect::<NorthResult<Vec<_>>>()?;
-    let kind_rank = |kind: &str| match kind {
-        "hook" => 0,
-        "module" => 1,
-        "skill" => 2,
-        _ => 3,
-    };
-    decoded.sort_by(|left, right| {
-        kind_rank(&left.kind)
-            .cmp(&kind_rank(&right.kind))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    Ok(decoded)
-}
-
 pub fn run(arguments: &[String]) -> NorthResult<()> {
     let (verb, rest) = arguments
         .split_first()
@@ -1676,41 +1621,6 @@ mod tests {
             fs::read_link(current).expect("current remains"),
             Path::new("gen-current")
         );
-    }
-
-    #[test]
-    fn activation_decoding_preserves_generated_units_and_sorts_by_kind_then_id() {
-        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let roots = json!({"north": manifest}).to_string();
-        for seed in 0..64usize {
-            let mut expected = Vec::new();
-            let mut inputs = Vec::new();
-            for index in 0..(seed % 17 + 1) {
-                let rank = (index + seed) % 4;
-                let kind = ["hook", "module", "skill", "other"][rank];
-                let id = format!("unit-{:03}", (index * 7 + seed) % 19);
-                let active = (index + seed) % 2 == 0;
-                let description = format!("description-{seed}-{index}");
-                inputs.push(json!({"id":id,"kind":kind,"active":active,"triggerDescription":description,"owner":{"repo":"north","path":"agent-machinery/catalog.json"}}));
-                expected.push((rank, id, active, description));
-            }
-            inputs.reverse();
-            expected.sort();
-            let actual =
-                decode_activation_units_in(&json!({"units":inputs}), Some(&roots)).unwrap();
-            for (unit, (rank, id, active, description)) in actual.iter().zip(&expected) {
-                assert_eq!(unit.kind, ["hook", "module", "skill", "other"][*rank]);
-                assert_eq!(
-                    (&unit.id, unit.active, &unit.description),
-                    (id, *active, description)
-                );
-                assert_eq!(
-                    unit.source,
-                    Path::new(&manifest).join("agent-machinery/catalog.json")
-                );
-            }
-            assert_eq!(actual.len(), expected.len());
-        }
     }
 
     #[test]

@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::fleet::books::{Books, Landing, SessionSpend};
+use crate::fleet::model::Delivery;
 use crate::fleet::gates::{ASKED_REPLY, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};
@@ -140,7 +141,7 @@ fn a_deepened_turn_is_tagged_with_its_session_prompt_sha() {
 
 #[test]
 fn every_model_fleet_can_launch_has_a_price() {
-    let prices = crate::ledger::PriceTable::load().unwrap();
+    let prices = crate::ledger::pricing::PriceTable::load().unwrap();
     let launchable: Vec<(String, &str)> = runtimes().providers().into_iter().flat_map(|provider| {
         let runtime = runtimes().get(&provider).unwrap();
         runtime.models().iter().map(move |model| (provider.label().to_owned(), *model)).collect::<Vec<_>>()

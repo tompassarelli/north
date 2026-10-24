@@ -6,16 +6,14 @@ const MAX_DEPTH: usize = 9995;
 
 #[derive(Debug, Clone, Eq)]
 pub struct PyString {
-    pub raw: Option<Vec<u32>>,
     pub codepoints: Vec<u32>,
     text: Option<String>,
 }
 
 impl PyString {
-    fn decoded(codepoints: Vec<u32>, raw: Option<Vec<u32>>) -> Self {
+    fn decoded(codepoints: Vec<u32>) -> Self {
         let text = codepoints.iter().copied().map(char::from_u32).collect();
         Self {
-            raw,
             codepoints,
             text,
         }
@@ -40,7 +38,7 @@ impl PyString {
 
 impl From<&str> for PyString {
     fn from(text: &str) -> Self {
-        Self::decoded(text.chars().map(u32::from).collect(), None)
+        Self::decoded(text.chars().map(u32::from).collect())
     }
 }
 
@@ -367,7 +365,6 @@ impl Reader<'_> {
         Ok(value)
     }
     fn string(&mut self) -> Result<PyString, Error> {
-        let start = self.position;
         if self.peek() != Some(34) {
             return Err(Error);
         }
@@ -378,10 +375,7 @@ impl Reader<'_> {
             self.position += 1;
             match point {
                 34 => {
-                    return Ok(PyString::decoded(
-                        points,
-                        Some(self.input[start..self.position].to_vec()),
-                    ));
+                    return Ok(PyString::decoded(points));
                 }
                 0..=31 => return Err(Error),
                 92 => {
