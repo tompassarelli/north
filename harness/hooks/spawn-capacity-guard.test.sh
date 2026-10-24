@@ -14,8 +14,7 @@
 set -uo pipefail
 if [ "${1:-}" != --isolated ]; then
   # shellcheck source-path=SCRIPTDIR source=../lib/tree-north.sh
-  . "$(dirname "$0")/../lib/tree-north.sh"
-  exec env -i PATH="$PATH" NORTH_PACE_BIN="$NORTH_PACE_BIN" bash "$0" --isolated
+  . "$(dirname "$0")/../lib/tree-north.sh" && exec env -i PATH="$PATH" NORTH_PACE_BIN="$NORTH_PACE_BIN" bash "$0" --isolated
 fi
 export PATH="/etc/codex/hooks/runtime:$PATH"
 
