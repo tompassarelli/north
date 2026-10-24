@@ -22,6 +22,7 @@ pub use substitution::{shell_substitutions, unquoted_mask};
 
 use serde_json::{Value, json};
 
+#[allow(dead_code)] // exercised by tests and the shellcmd_compare example, not the binary
 pub fn rewrite_input(data: &Value, field: &str, value: &str, context: &str) -> Value {
     let mut input = data["tool_input"].clone();
     input[field] = json!(value);

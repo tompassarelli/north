@@ -583,6 +583,7 @@ fn shellcmd_property_fixed_generator_matches_python_reference() {
     );
 }
 
+#[allow(dead_code)] // called only by the shellcmd_compare example
 pub fn compare_reference() {
     let property = property_commands();
     let mut fixtures = Vec::new();
