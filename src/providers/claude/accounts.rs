@@ -15,6 +15,7 @@ const PREFIX: &str = "claude-";
 pub struct Profiles {
     pub keepers: BTreeMap<String, String>,
     pub homes: Vec<(String, PathBuf)>,
+    pub elsewhere: BTreeMap<String, Vec<String>>,
 }
 
 pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles) -> Roster {
@@ -31,7 +32,7 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .filter(|(label, _)| !found.iter().any(|(account, _)| &account.label == label))
         .filter_map(|(label, home)| Some((label.clone(), identity(home)?)))
         .collect();
-    Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders })
+    Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() })
 }
 
 pub fn declared(home: &Path) -> Profiles {
@@ -49,7 +50,13 @@ fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
             Some((label.to_owned(), path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| home.join(rest))))
         })
         .collect();
-    Profiles { keepers, homes }
+    let elsewhere = table("profiles")
+        .filter_map(|(label, hosts)| {
+            let owners: Vec<String> = hosts.as_table_like()?.iter().map(|(host, _)| host.to_owned()).collect();
+            (!owners.is_empty() && !owners.iter().any(|owner| owner == here)).then(|| (label.to_owned(), owners))
+        })
+        .collect();
+    Profiles { keepers, homes, elsewhere }
 }
 
 fn identity(home: &Path) -> Option<String> {

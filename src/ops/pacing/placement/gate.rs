@@ -304,6 +304,7 @@ pub(crate) fn verdicts(gate: &Value, roster: &Roster, at: f64) -> Vec<Verdict> {
         .map(|(name, control)| match roster.standing(&claude, name.trim_start_matches("claude:")) {
             Standing::Listed(_) => verdict(&name, control, at),
             Standing::Duplicate(duplicate) => unavailable(&name, duplicate.to_string()),
+            Standing::Foreign(foreign) => unavailable(&name, foreign.to_string()),
             Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
         .collect()

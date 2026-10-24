@@ -1,5 +1,6 @@
 use serde_json::Value;
 
+use crate::fleet::runtime::CredentialFailure;
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 
 pub(super) fn signals(frame: &Value) -> Vec<TurnSignal> {
@@ -35,13 +36,17 @@ fn call_signal(frame: &Value, conversation: &str) -> Option<TurnSignal> {
     Some(TurnSignal::Call { conversation: conversation.to_owned(), call: message["id"].as_str()?.to_owned(), tokens }).filter(|_| usage.is_object())
 }
 
-pub(super) fn signed_out(frame: &Value) -> bool {
+pub(super) fn credential_failure(frame: &Value) -> Option<CredentialFailure> {
     let text = match frame["type"].as_str() {
         Some("result") => frame["result"].as_str(),
         Some("assistant") => frame["message"]["content"][0]["text"].as_str(),
         _ => None,
     };
-    text.is_some_and(|text| text.starts_with("Not logged in"))
+    match text? {
+        text if text.starts_with("Not logged in") => Some(CredentialFailure::SignedOut),
+        text if text.contains("OAuth session expired") => Some(CredentialFailure::Expired),
+        _ => None,
+    }
 }
 
 fn has_user_message(frame: &Value) -> bool {

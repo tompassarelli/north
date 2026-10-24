@@ -33,6 +33,10 @@ fn fixture(root: &Path, trace: &str) {
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {
+    north_on(root, "here", args)
+}
+
+fn north_on(root: &Path, host: &str, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_north"))
         .args(args)
         .current_dir(root)
@@ -41,7 +45,7 @@ fn north(root: &Path, args: &[&str]) -> Output {
         .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
         .env("AGENTS_OPERATOR_DIR", root.join("op"))
         .env("PLACEMENT_NOW", "2026-10-16T12:00:00Z")
-        .env("RESIDENT_CAP_HOST", "here")
+        .env("RESIDENT_CAP_HOST", host)
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("FLEET_LAUNCH_FIXTURE", root)
         .env("FAKE_CLAUDE_HOOK_MS", "1500")
@@ -54,10 +58,14 @@ fn north(root: &Path, args: &[&str]) -> Output {
 }
 
 fn launch(root: &Path) -> Output {
+    launch_on(root, "here")
+}
+
+fn launch_on(root: &Path, host: &str) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
-    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &brief, "start the box"])
+    north_on(root, host, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &brief, "start the box"])
 }
 
 fn shown(root: &Path) -> Value {
@@ -89,10 +97,48 @@ fn a_launch_whose_first_turn_answers_not_logged_in_restarts_once_and_records_it(
     north(root, &["fleet", "forget", "narrow"]);
     assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
     assert_eq!(show["status"], "working", "{show}");
-    let noted = fs::read_to_string(root.join(".local/state/north/fleet/.signed-out-launches.jsonl")).unwrap_or_default();
+    let noted = fs::read_to_string(root.join(".local/state/north/fleet/.credential-failures.jsonl")).unwrap_or_default();
     let rows: Vec<Value> = noted.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
     assert_eq!(rows.len(), 1, "{noted}");
     assert_eq!((rows[0]["session"].as_str(), rows[0]["account"].as_str()), (Some("narrow"), Some("a")));
+}
+
+#[test]
+fn a_launch_whose_first_turn_answers_oauth_session_expired_is_recorded_and_refused_naming_the_account_without_a_restart() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "oauth-expired");
+    let launched = launch(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    let said = String::from_utf8_lossy(&launched.stderr);
+    assert!(!launched.status.success(), "{said}");
+    assert!(said.contains("narrow on claude:a answered its first turn with 'OAuth session expired'"), "{said}");
+    let noted = fs::read_to_string(root.join(".local/state/north/fleet/.credential-failures.jsonl")).unwrap_or_default();
+    let rows: Vec<Value> = noted.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(rows.len(), 1, "{noted}");
+    assert_eq!((rows[0]["account"].as_str(), rows[0]["failure"].as_str()), (Some("a"), Some("oauth-expired")));
+}
+
+#[test]
+fn a_host_holding_a_copy_of_another_hosts_login_refuses_to_launch_it_naming_the_owner_while_the_owner_launches() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let policy = root.join("op/orchestration.toml");
+    let declared = fs::read_to_string(&policy).unwrap() + "[hosts.copy]\nserves = [\"warcraft\"]\n[accounts.claude]\nprofiles = { a = { here = {} } }\n";
+    fs::write(&policy, declared).unwrap();
+
+    let copy = launch_on(root, "copy");
+    let listed = north_on(root, "copy", &["fleet", "accounts"]);
+    let said = String::from_utf8_lossy(&copy.stderr);
+    assert!(!copy.status.success(), "{said}");
+    assert!(said.contains("claude:a's login belongs to here"), "{said}");
+    assert!(!north_on(root, "copy", &["fleet", "show", "narrow"]).status.success(), "the copy host started a session on a");
+    assert!(!String::from_utf8_lossy(&listed.stdout).contains("claude\ta"), "{}", String::from_utf8_lossy(&listed.stdout));
+
+    let owner = launch(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert!(owner.status.success(), "{}", String::from_utf8_lossy(&owner.stderr));
 }
 
 #[test]

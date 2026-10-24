@@ -26,6 +26,12 @@ pub struct Instructions<'a> {
     pub changed: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CredentialFailure {
+    SignedOut,
+    Expired,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Opening<'a> {
     Fresh(Option<&'a str>),
@@ -50,8 +56,8 @@ pub trait Runtime: Send + Sync {
     fn question(&self, _frame: &Value) -> Option<Question> {
         None
     }
-    fn signed_out(&self, _frame: &Value) -> bool {
-        false
+    fn credential_failure(&self, _frame: &Value) -> Option<CredentialFailure> {
+        None
     }
 }
 

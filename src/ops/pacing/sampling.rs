@@ -49,32 +49,48 @@ fn due_adapters<'a>(prior: &Value, provider: Option<&str>, at: f64) -> Vec<&'a (
         .collect()
 }
 
-fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)]) -> Reads<'a> {
+fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String]) -> Reads<'a> {
+    let commands: Vec<(&str, bool, Vec<String>)> = due
+        .iter()
+        .flat_map(|(p, a)| {
+            let local = root().join(format!("harness/lib/usage_{a}.py")).to_string_lossy().into_owned();
+            let remote = format!(".local/state/north/current/tree/harness/lib/usage_{a}.py");
+            let remotes = owners.iter().filter(|_| *p == "claude").map(move |destination| {
+                (*p, true, ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "python3", "-I", &remote].map(str::to_owned).to_vec())
+            });
+            std::iter::once((*p, false, vec!["python3".to_owned(), "-I".to_owned(), local])).chain(remotes.collect::<Vec<_>>())
+        })
+        .collect();
     std::thread::scope(|scope| {
-        let jobs: Vec<_> = due
+        let jobs: Vec<_> = commands
             .iter()
-            .map(|(p, a)| {
-                let path = root().join(format!("harness/lib/usage_{a}.py"));
-                (
-                    *p,
-                    scope.spawn(move || process::adapter(&path.to_string_lossy())),
-                )
+            .map(|(p, remote, argv)| {
+                let job = scope.spawn(move || {
+                    let args: Vec<&str> = argv[1..].iter().map(String::as_str).collect();
+                    process::adapter(&argv[0], &args)
+                });
+                (*p, *remote, job)
             })
             .collect();
-        jobs.into_iter()
-            .map(|(p, job)| {
-                (
-                    p,
-                    job.join().unwrap_or_else(|_| {
-                        (
-                            Vec::new(),
-                            json!({"code":1,"elapsed_s":0,"throttled":false}),
-                        )
-                    }),
-                )
-            })
-            .collect()
+        let mut reads = Reads::new();
+        for (p, remote, job) in jobs {
+            let (rows, status) = job.join().unwrap_or_else(|_| (Vec::new(), json!({"code":1,"elapsed_s":0,"throttled":false})));
+            let read = reads.entry(p).or_insert_with(|| (Vec::new(), Value::Null));
+            read.0.extend(rows);
+            if !remote {
+                read.1 = status;
+            }
+        }
+        reads
     })
+}
+
+pub(super) fn claude_owners(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<String> {
+    let profiles = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("profiles")).and_then(toml_edit::Item::as_table_like);
+    let mut hosts: Vec<&str> = profiles.into_iter().flat_map(|table| table.iter()).filter_map(|(_, hosts)| hosts.as_table_like()).flat_map(|hosts| hosts.iter().map(|(host, _)| host)).filter(|host| *host != here).collect();
+    hosts.sort_unstable();
+    hosts.dedup();
+    hosts.into_iter().filter_map(|host| cfg.get("hosts")?.get(host)?.get("ssh")?.as_str().map(str::to_owned)).collect()
 }
 
 fn ingest_remote(directory: &std::path::Path, fresh: &[Value], at: f64) -> Result<(), String> {
@@ -265,7 +281,8 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
     let _sampling = storage::lock(&directory, "pace-sampling.lock", None)?;
     let at = storage::now();
     let prior = load(&directory.join("pace-control.json"));
-    let reads = read_adapters(&due_adapters(&prior, provider, at));
+    let owners = config().map(|cfg| claude_owners(&cfg, &crate::platform::host::name())).unwrap_or_default();
+    let reads = read_adapters(&due_adapters(&prior, provider, at), &owners);
     let fresh: Vec<_> = reads.values().flat_map(|(rows, _)| rows.clone()).collect();
     let (db, remote) = readout::open()?;
     readout::record(&db, &fresh)?;

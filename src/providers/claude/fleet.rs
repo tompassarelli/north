@@ -8,7 +8,7 @@ use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
-use crate::fleet::runtime::{CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
+use crate::fleet::runtime::{CAPACITY_NEED_ENV, CredentialFailure, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 use crate::providers::install;
 
 use super::{accounts, quota, turns, user_text};
@@ -123,8 +123,8 @@ impl Runtime for Claude {
         quota::account_quota(frame)
     }
 
-    fn signed_out(&self, frame: &Value) -> bool {
-        turns::signed_out(frame)
+    fn credential_failure(&self, frame: &Value) -> Option<CredentialFailure> {
+        turns::credential_failure(frame)
     }
 }
 

@@ -93,9 +93,9 @@ pub(super) fn send(name: &str, line: &str) -> Result<(), String> {
         Err(format!("Fleet notification failed for {name}"))
     }
 }
-pub(super) fn adapter(path: &str) -> (Vec<Value>, Value) {
+pub(super) fn adapter(program: &str, args: &[&str]) -> (Vec<Value>, Value) {
     let start = Instant::now();
-    let output = run("python3", &["-I", path], None, 45.0).unwrap_or_else(|e| Output {
+    let output = run(program, args, None, 45.0).unwrap_or_else(|e| Output {
         code: 127,
         out: String::new(),
         err: e,

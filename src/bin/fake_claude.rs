@@ -7,8 +7,9 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|idle-interrupt|cancel-queued|slow-hooks|signed-out-once [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|idle-interrupt|cancel-queued|slow-hooks|signed-out-once|oauth-expired [ARG...]";
 const SIGNED_OUT: &str = "Not logged in · Please run /login";
+const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could not be refreshed";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Trace {
@@ -17,6 +18,7 @@ enum Trace {
     CancelQueued,
     SlowHooks,
     SignedOutOnce,
+    OAuthExpired,
 }
 
 impl Trace {
@@ -27,6 +29,7 @@ impl Trace {
             "cancel-queued" => Some(Self::CancelQueued),
             "slow-hooks" => Some(Self::SlowHooks),
             "signed-out-once" => Some(Self::SignedOutOnce),
+            "oauth-expired" => Some(Self::OAuthExpired),
             _ => None,
         }
     }
@@ -74,7 +77,10 @@ impl<W: Write> Fake<W> {
     fn user(&mut self, uuid: &str, message: Value) -> io::Result<bool> {
         self.lifecycle(uuid, "queued")?;
         if self.trace == Trace::SignedOutOnce && signed_out_first() {
-            return self.refuse(uuid, message);
+            return self.refuse(uuid, message, SIGNED_OUT);
+        }
+        if self.trace == Trace::OAuthExpired {
+            return self.refuse(uuid, message, EXPIRED);
         }
         if self.turn.is_empty() {
             self.start(uuid, message)?;
@@ -118,17 +124,17 @@ impl<W: Write> Fake<W> {
         self.emit(json!({"type": "system", "subtype": "task_started", "task_id": TASK, "tool_use_id": TOOL, "description": "fake tool", "task_type": "local_bash", "is_backgrounded": false}))
     }
 
-    fn refuse(&mut self, uuid: &str, message: Value) -> io::Result<bool> {
+    fn refuse(&mut self, uuid: &str, message: Value, text: &str) -> io::Result<bool> {
         self.lifecycle(uuid, "started")?;
         self.emit(json!({"type": "system", "subtype": "init", "model": "claude-fake", "claude_code_version": "fake"}))?;
         self.replay(uuid, message)?;
         self.emit(json!({
             "type": "assistant",
             "parent_tool_use_id": null,
-            "message": {"role": "assistant", "content": [{"type": "text", "text": SIGNED_OUT}]},
+            "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
             "user_message_uuids": [uuid],
         }))?;
-        self.emit(json!({"type": "result", "subtype": "success", "is_error": true, "result": SIGNED_OUT, "num_turns": 1, "user_message_uuids": [uuid]}))?;
+        self.emit(json!({"type": "result", "subtype": "success", "is_error": true, "result": text, "num_turns": 1, "user_message_uuids": [uuid]}))?;
         self.lifecycle(uuid, "completed")?;
         Ok(false)
     }

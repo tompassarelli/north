@@ -245,8 +245,8 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
     for account in &roster.accounts {
         println!("{}\t{}", account.provider.label(), account.label);
     }
-    for duplicate in &roster.duplicates {
-        eprintln!("omitted: {duplicate}");
+    for omitted in roster.omitted() {
+        eprintln!("omitted: {omitted}");
     }
     Ok(())
 }

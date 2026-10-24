@@ -25,3 +25,9 @@ fn recorded_usage_samples_keep_account_controls_and_gate_in_agreement() {
         );
     }
 }
+
+#[test]
+fn claude_usage_is_also_read_through_ssh_on_each_other_host_holding_a_claude_profile() {
+    let cfg = "[hosts.far]\nssh = \"tom@far\"\n[hosts.idle]\nssh = \"tom@idle\"\n[accounts.claude]\nprofiles = { a = { here = {} }, b = { far = {} }, c = { far = {}, here = {} } }\n".parse().unwrap();
+    assert_eq!(sampling::claude_owners(&cfg, "here"), ["tom@far"]);
+}

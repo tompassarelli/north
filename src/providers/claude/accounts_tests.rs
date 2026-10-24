@@ -49,7 +49,7 @@ fn the_declared_label_keeps_its_login_even_from_a_home_outside_the_fleet_profile
     profile(&state, "a", "account-one");
     profile(&state, "c", "account-two");
     login(&home.path().join(".claude-outside"), "account-two");
-    let policy = "[accounts.claude]\nlabels = { a2cd0f1e = \"x\" }\nprofiles = { b = { here = { path = \"~/.claude-outside\" } }, a = { elsewhere = { path = \"/nowhere\" } } }\n";
+    let policy = "[accounts.claude]\nlabels = { a2cd0f1e = \"x\" }\nprofiles = { b = { here = { path = \"~/.claude-outside\" } }, a = { elsewhere = { path = \"/nowhere\" }, here = {} } }\n";
     let mut declared = profiles(&policy.parse().unwrap(), home.path(), "here");
     assert_eq!(declared.homes, [("b".to_owned(), home.path().join(".claude-outside"))]);
 
