@@ -166,10 +166,17 @@ pub fn fixture() -> Fixture {
             root.clone(),
         ),
         (format!("cp /tmp/x.clj {north}/cli/x.clj"), root.clone()),
+        (format!("rsync -a /tmp/x.clj {north}/x"), root.clone()),
+        (format!("scp /tmp/x.clj {north}/x"), root.clone()),
+        ("rsync -a /tmp/x.clj ./x".into(), north.clone()),
         (format!("rm {galileo}/bin/galileo-land-check"), root.clone()),
         (format!("cd {north} && echo x > cli/x.clj"), root.clone()),
     ] {
         cases.push((command.clone(), bash(command, &cwd), true));
+    }
+    for command in ["rsync -a /tmp/x.clj gex45:/tmp/x", "scp /tmp/x.clj tom@gex45:/tmp/x"] {
+        let command = command.to_string();
+        cases.push((command.clone(), bash(command, &north), false));
     }
     let envelope =
         "*** Begin Patch\n*** Update File: code/north/main/cli/x.clj\n@@\n-a\n+b\n*** End Patch";

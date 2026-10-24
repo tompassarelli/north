@@ -34,7 +34,8 @@ const MUTATING_GIT: &[&str] = &[
     "update-ref",
 ];
 const WRITE_COMMANDS: &[&str] = &["tee", "truncate", "install", "patch", "dd", "shred"];
-const COPY_COMMANDS: &[&str] = &["cp", "mv", "rsync", "ln"];
+const COPY_COMMANDS: &[&str] = &["cp", "mv", "rsync", "scp", "ln"];
+const REMOTE_COPY_COMMANDS: &[&str] = &["rsync", "scp"];
 const DESTRUCTIVE_COMMANDS: &[&str] = &["rm", "rmdir", "shred", "unlink"];
 const READ_ONLY_COMMANDS: &[&str] = &[
     "grep", "egrep", "fgrep", "rg", "cat", "head", "tail", "less", "more", "wc", "ls", "echo",
@@ -72,6 +73,11 @@ static SEGMENT_SPLIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\s\x1c-\x1f]*(?:&&|\|\||[;|&\n])[\s\x1c-\x1f]*").unwrap());
 
 type Env = BTreeMap<String, Option<String>>;
+
+fn remote_spec(word: &str) -> bool {
+    word.split_once(':')
+        .is_some_and(|(host, _)| !host.is_empty() && !host.contains('/') && !host.starts_with('.'))
+}
 
 fn tokens(text: &str) -> Vec<String> {
     shell::shlex_split(text).unwrap_or_else(|| {
@@ -1042,6 +1048,9 @@ impl Policy {
                     }
                 }
                 let dest = args.last().unwrap();
+                if REMOTE_COPY_COMMANDS.contains(&base) && remote_spec(dest) {
+                    continue;
+                }
                 if let Some((path, _)) = self.target(dest, env, cwd)
                     && let Some(hit) = self.protected(&path)
                 {
