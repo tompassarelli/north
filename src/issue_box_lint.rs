@@ -47,6 +47,7 @@ fn lint(args: &[String]) -> Result<u8, String> {
     let mut positional = false;
     let mut positional_done = false;
     let mut unknown = Vec::new();
+    let negative_number = Regex::new(r"\A-\d+$|\A-\d*\.\d+$").unwrap();
     while i < args.len() {
         let (key, inline) = args[i]
             .split_once('=')
@@ -70,9 +71,7 @@ fn lint(args: &[String]) -> Result<u8, String> {
             i += 1;
             if i >= args.len()
                 || (args[i].starts_with('-')
-                    && !Regex::new(r"\A-\d+$|\A-\d*\.\d+$")
-                        .unwrap()
-                        .is_match(&args[i]))
+                    && !negative_number.is_match(&args[i]))
             {
                 return Ok(usage_error("argument --repo: expected one argument"));
             }

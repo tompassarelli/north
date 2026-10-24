@@ -350,6 +350,7 @@ options:
 pub(crate) fn run(args: &[String]) -> u8 {
     let mut only = None;
     let mut unknown = Vec::new();
+    let negative_number = Regex::new(r"\A-\d+$|\A-\d*\.\d+$").unwrap();
     let mut i = 0;
     while i < args.len() {
         let (key, inline) = args[i]
@@ -372,9 +373,7 @@ pub(crate) fn run(args: &[String]) -> u8 {
                 if i >= args.len()
                     || (args[i] != "-"
                         && args[i].starts_with('-')
-                        && !Regex::new(r"\A-\d+$|\A-\d*\.\d+$")
-                            .unwrap()
-                            .is_match(&args[i]))
+                        && !negative_number.is_match(&args[i]))
                 {
                     return usage_error("argument --repo-dir: expected one argument");
                 }
