@@ -61,5 +61,8 @@
   ["echo $#; nohup sleep 9 &","deny"],
   ["ssh gex45 'echo $#; systemctl restart user@1000.service'","deny"],
   ["# kill -1","allow"],
-  ["echo ok # kill -1","allow"]
+  ["echo ok # kill -1","allow"],
+  ["cd /tmp # go\nsystemctl restart user@1000.service","deny"],
+  ["echo hi # note\nkill -1","deny"],
+  ["true # x\nssh gex45 systemctl restart user@1000.service","deny"]
 ]

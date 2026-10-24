@@ -21,7 +21,7 @@ fn shellcmd_quotes_heredocs_and_wrappers_preserve_command_boundaries() {
         ),
         (
             "echo '' \"a\\$b\" # ignored\necho ok",
-            vec![vec!["echo", "", "a\\$b", "echo", "ok"]],
+            vec![vec!["echo", "", "a\\$b"], vec!["echo", "ok"]],
         ),
         ("echo foo\\ bar", vec![vec!["echo", "foo bar"]]),
         ("cat <<EOF\nbody\nE", vec![vec!["cat", "<<EOF"], vec!["E"]]),

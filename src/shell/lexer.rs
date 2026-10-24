@@ -187,9 +187,6 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
             while i < chars.len() && chars[i] != '\n' {
                 i += 1;
             }
-            if i < chars.len() {
-                i += 1;
-            }
             punctuation = false;
             continue;
         }
