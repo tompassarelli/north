@@ -15,8 +15,9 @@ use super::run_state::*;
 use super::session::Session;
 
 pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
-    let (options, original) = parse_start(arguments)?;
+    let (mut options, original) = parse_start(arguments)?;
     validate_start(&options)?;
+    options.render_node = resolve_render_node(&options.render_node)?;
     if !inside_capacity()? {
         return run_capacity(&original, options.seconds);
     }
@@ -148,20 +149,19 @@ fn validate_start(options: &StartOptions) -> io::Result<()> {
             "resolution must look like 2560x1440",
         ));
     }
-    if !render_node_path(&options.render_node) || !options.render_node.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!(
-                "GPU render node is unavailable: {}",
-                options.render_node.display()
-            ),
-        ));
-    }
     Ok(())
 }
 
-fn render_node_path(path: &Path) -> bool {
-    path.to_string_lossy().starts_with("/dev/dri/renderD")
+fn resolve_render_node(path: &Path) -> io::Result<PathBuf> {
+    fs::canonicalize(path)
+        .ok()
+        .filter(|node| node.to_string_lossy().starts_with("/dev/dri/renderD"))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("GPU render node is unavailable: {}", path.display()),
+            )
+        })
 }
 
 fn valid_dimension(part: &str) -> bool {
@@ -300,4 +300,18 @@ fn prepare_vnc_environment() -> io::Result<PathBuf> {
 fn startup_script(executable: &Path) -> String {
     let quoted = format!("'{}'", executable.to_string_lossy().replace("'", "'\\''"));
     format!("#!/bin/sh\nexec {quoted} private-desktop record-display\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_render_node;
+
+    #[test]
+    fn render_node_links_resolve_only_to_render_nodes() {
+        let directory = tempfile::tempdir().unwrap();
+        let link = directory.path().join("render");
+        std::os::unix::fs::symlink("/dev/null", &link).unwrap();
+        assert!(resolve_render_node(&link).is_err());
+        assert!(resolve_render_node(&directory.path().join("missing")).is_err());
+    }
 }
