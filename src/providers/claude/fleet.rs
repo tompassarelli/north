@@ -8,7 +8,7 @@ use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript};
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
-use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
+use crate::fleet::runtime::{CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 use crate::providers::install;
 
 use super::{accounts, quota, turns, user_text};
@@ -130,14 +130,16 @@ impl Runtime for Claude {
 
 fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsString)> {
     let cap_ms = (request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS) * 1000).to_string();
-    vec![
+    let mut env = vec![
         ("CLAUDE_CONFIG_DIR".into(), account.home.clone().into()),
         ("DISABLE_AUTOUPDATER".into(), "1".into()),
         ("DISABLE_INSTALLATION_CHECKS".into(), "1".into()),
         ("BASH_DEFAULT_TIMEOUT_MS".into(), cap_ms.clone().into()),
         ("BASH_MAX_TIMEOUT_MS".into(), cap_ms.into()),
         (SESSION_ENV.into(), request.name.clone().into()),
-    ]
+    ];
+    env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
+    env
 }
 
 fn observe_system(frame: &Value, transcript: &mut Transcript) {
@@ -361,6 +363,7 @@ mod launch {
             task_ref: None,
             placement: None,
             machine: None,
+            capacity_need: None,
         };
         let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
         assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);

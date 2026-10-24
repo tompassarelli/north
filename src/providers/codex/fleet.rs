@@ -322,6 +322,7 @@ mod turn_state {
             task_ref: None,
             placement: None,
             machine: None,
+            capacity_need: None,
         }
     }
 

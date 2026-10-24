@@ -236,8 +236,19 @@ pub(crate) fn machines(cfg: &DocumentMut) -> Vec<Machine> {
         .collect()
 }
 
-pub(crate) fn serving(cfg: &DocumentMut, need: &str, repo: &str) -> Option<String> {
-    machines(cfg).into_iter().find(|machine| covers(&machine.serves, need, repo)).map(|machine| machine.name)
+pub(crate) fn serving(cfg: &DocumentMut, needs: &str, here: &str) -> Option<String> {
+    let needs: Vec<(&str, &str)> = needs.split(',').map(|need| need.split_once(':').unwrap_or((need, ""))).collect();
+    machines(cfg)
+        .into_iter()
+        .filter(|machine| machine.name != here)
+        .find(|machine| needs.iter().all(|(need, repo)| covers(&machine.serves, need, repo)))
+        .map(|machine| machine.name)
+}
+
+pub(crate) fn capacity_need(text: &str) -> Option<String> {
+    let repo = repository(text);
+    let needs: Vec<String> = local_needs(text).into_iter().map(|need| if repo.is_empty() { need } else { format!("{need}:{repo}") }).collect();
+    (!needs.is_empty()).then(|| needs.join(","))
 }
 
 fn covers(serves: &[String], need: &str, repo: &str) -> bool {

@@ -104,13 +104,10 @@ pub(crate) enum Reason {
     DeferRunQueue,
 }
 
-pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str, &str) -> Option<String>) -> Admission {
+pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> Admission {
     let reason = decide(facts);
     let offload = match (reason, facts.need.as_deref()) {
-        (Reason::DeferRunQueue, Some(need)) => {
-            let (need, repo) = need.split_once(':').unwrap_or((need, ""));
-            serving(need, repo)
-        }
+        (Reason::DeferRunQueue, Some(needs)) => serving(needs),
         _ => None,
     };
     Admission { reason, offload }

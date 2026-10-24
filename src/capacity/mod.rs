@@ -17,7 +17,7 @@ mod tests;
 
 use admission::Facts;
 
-pub(crate) fn run(arguments: &[String], serving: fn(&str, &str) -> Option<String>) -> u8 {
+pub(crate) fn run(arguments: &[String], serving: fn(&str) -> Option<String>) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => {}
         Some("laptop-auto") => return laptop_auto::run(&arguments[1..]),

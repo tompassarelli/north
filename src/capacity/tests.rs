@@ -48,7 +48,7 @@ fn overload(class: &str, need: Option<&str>) -> (Facts, toml_edit::DocumentMut) 
 
 fn overload_admission(class: &str, need: Option<&str>) -> Admission {
     let (facts, hosts) = overload(class, need);
-    admit(&facts, |need, repo| crate::ops::pacing::placement::gate::serving(&hosts, need, repo))
+    admit(&facts, |needs| crate::ops::pacing::placement::gate::serving(&hosts, needs, "here"))
 }
 
 #[test]
@@ -60,6 +60,15 @@ fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_ho
         assert_eq!(overload_admission(class, Some("private:galileo")), refused(None), "{class}");
         assert_eq!(overload_admission(class, None), refused(None), "{class}");
     }
+}
+
+#[test]
+fn run_queue_offload_names_only_another_host_that_serves_every_need() {
+    let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned) };
+    assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:smashcraft")), refused(Some("gpu-host")));
+    assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:galileo")), refused(None));
+    let (facts, hosts) = overload("heavy", Some("native:smashcraft"));
+    assert_eq!(admit(&facts, |needs| crate::ops::pacing::placement::gate::serving(&hosts, needs, "gpu-host")), refused(None));
 }
 
 #[test]

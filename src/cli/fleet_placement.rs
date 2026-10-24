@@ -49,6 +49,7 @@ impl Overrides {
 pub(super) struct Placed {
     pub note: Option<String>,
     pub machine: Option<Machine>,
+    pub need: Option<String>,
 }
 
 pub(super) struct Launch<'a> {
@@ -106,7 +107,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         };
         notes.push(format!("pin: {reason}"));
     }
-    Ok(Placed { note: (!notes.is_empty()).then(|| notes.join("; ")), machine })
+    Ok(Placed { note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text) })
 }
 
 fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) -> String {

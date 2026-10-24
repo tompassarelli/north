@@ -254,7 +254,7 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let (mut request, overrides) = launch_parts(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
     let placed = placed(fleet, &request, &overrides)?;
-    (request.placement, request.machine) = (placed.note, placed.machine);
+    (request.placement, request.machine, request.capacity_need) = (placed.note, placed.machine, placed.need);
     let record = fleet.launch(&request)?;
     println!("{}", record.name);
     Ok(())
@@ -347,6 +347,7 @@ impl LaunchFlags {
             task_ref: self.task_ref,
             placement: None,
             machine: None,
+            capacity_need: None,
         })
     }
 }

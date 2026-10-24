@@ -55,8 +55,8 @@ fn strings(item: Option<&Item>) -> Vec<String> {
         })
         .unwrap_or_default()
 }
-pub(crate) fn serving_host(need: &str, repo: &str) -> Option<String> {
-    gate::serving(&sampling::config().ok()?, need, repo)
+pub(crate) fn serving_host(needs: &str) -> Option<String> {
+    gate::serving(&sampling::config().ok()?, needs, &local())
 }
 fn local() -> String {
     crate::platform::host::name()

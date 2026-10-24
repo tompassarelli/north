@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 const NOW: &str = "2026-10-16T12:00:00Z";
 const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: code\nDone when: `cargo test` exits 0\n";
 const WARCRAFT: &str = "Item: smashcraft#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
+const NATIVE: &str = "Item: smashcraft#207 remote lag\nSurface: lua\nNeeds: native\n";
 
 fn executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap();
@@ -27,7 +28,7 @@ fn fixture(root: &Path) {
     fs::create_dir_all(&op).unwrap();
     fs::create_dir_all(&agents).unwrap();
     fs::create_dir_all(root.join("bin")).unwrap();
-    fs::write(op.join("orchestration.toml"), "[placement]\ncloud_credit = \"cloud-credit\"\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\"]\n").unwrap();
+    fs::write(op.join("orchestration.toml"), "[placement]\ncloud_credit = \"cloud-credit\"\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\", \"native\"]\n").unwrap();
     fs::write(op.join("costs.toml"), "[[service]]\nid = \"cloud-credit\"\ninitial = 250.0\nexpires = 2026-11-05T07:59:00Z\n").unwrap();
     let gate = serde_json::json!({"claude": {"controls": {
         "claude:a": {"windows": [window("5h", 35.0, 10.0, "2026-10-16T16:00:00Z"), window("week", 40.0, 1.0, "2026-10-20T00:00:00Z")]},
@@ -41,7 +42,7 @@ fn fixture(root: &Path) {
     }
     executable(&root.join("bin/setsid"), "#!/bin/sh\nexec \"$@\"\n");
     executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n");
-    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nprintf '%s' \"${{RAN_VIA_SSH:-}}\" > \"$PLACEMENT_FIXTURE/ran-via\"\ntee \"$PLACEMENT_FIXTURE/prompt\" | timeout 20 {} --trace fold \"$@\"\n", support::fake_claude()));
+    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nprintf '%s' \"${{RAN_VIA_SSH:-}}\" > \"$PLACEMENT_FIXTURE/ran-via\"\nprintf '%s' \"${{AGENT_CAPACITY_NEED:-}}\" > \"$PLACEMENT_FIXTURE/need\"\ntee \"$PLACEMENT_FIXTURE/prompt\" | timeout 20 {} --trace fold \"$@\"\n", support::fake_claude()));
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {
@@ -182,4 +183,19 @@ fn a_label_logged_in_to_another_labels_account_is_omitted_from_accounts_and_refu
     let tested = launch(root, "shared-test", WARCRAFT, &["--account", "c", "--test"]);
     let said = String::from_utf8_lossy(&tested.stderr);
     assert!(!tested.status.success() && said.contains("claude:c is logged in to the same account as claude:a"), "a --test launch skipped the login check: {said}");
+}
+
+#[test]
+fn a_box_that_needs_native_on_smashcraft_starts_with_that_capacity_need() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    let launched = launch(root, "lagged", NATIVE, &["--account", "a"]);
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(fs::read_to_string(root.join("need")).unwrap_or_default(), "native:smashcraft");
+    north(root, &["fleet", "stop", "lagged"]);
 }

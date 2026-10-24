@@ -23,7 +23,7 @@ fn decision(target: Target) -> Decision {
 }
 
 fn noted(note: Option<&str>) -> Result<Placed, String> {
-    Ok(Placed { note: note.map(Into::into), machine: None })
+    Ok(Placed { note: note.map(Into::into), machine: None, need: None })
 }
 
 #[test]
@@ -50,9 +50,9 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()] });
     let launch = Launch { name: "box", account: "a", brief: None, cwd: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
-    assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }) });
+    assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
     let kept = admit(&remote, &launch, "", &Overrides { local: Some("needs my desktop".into()), pin: None }).unwrap();
-    assert_eq!(kept, Placed { note: Some("local: needs my desktop".into()), machine: None });
+    assert_eq!(kept, Placed { note: Some("local: needs my desktop".into()), machine: None, need: None });
     let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None }).unwrap();
     assert_eq!(here, noted(None).unwrap(), "--local on a box placed here records nothing");
 

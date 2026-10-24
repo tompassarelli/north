@@ -52,6 +52,8 @@ pub struct LaunchRequest {
     /// Why the launch overrode placement (`local: REASON`, `pin: REASON`), shown in `fleet list`.
     pub placement: Option<String>,
     pub machine: Option<Machine>,
+    #[serde(default)]
+    pub capacity_need: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -90,6 +92,8 @@ pub struct SessionRecord {
     pub placement: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<Machine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_need: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

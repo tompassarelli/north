@@ -202,3 +202,9 @@ fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
     assert_eq!((kept.machine.as_ref(), target(&kept).as_str()), (None, "claude:b"), "{:?}", kept.machine_lines);
     assert!(kept.machine_lines.contains(&"gex45 has no signed-in claude:b, so here".to_owned()), "{:?}", kept.machine_lines);
 }
+
+#[test]
+fn a_box_declares_every_local_need_with_its_repository_as_its_capacity_need() {
+    assert_eq!(gate::capacity_need(WARCRAFT).as_deref(), Some("native:smashcraft,warcraft:smashcraft"));
+    assert_eq!(gate::capacity_need(CODE_ONLY), None);
+}

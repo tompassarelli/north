@@ -129,6 +129,7 @@ impl Fleet {
             system_prompt_sha: None,
             placement: request.placement.clone(),
             machine: request.machine.clone(),
+            capacity_need: request.capacity_need.clone(),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
@@ -485,6 +486,7 @@ fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
         task_ref: record.task_ref.clone(),
         placement: record.placement.clone(),
         machine: record.machine.clone(),
+        capacity_need: record.capacity_need.clone(),
     }
 }
 
