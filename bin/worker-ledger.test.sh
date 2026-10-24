@@ -22,9 +22,9 @@ printf '%s\n' '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,
 GH
 chmod +x "$scratch/bin/gh"
 export PATH="$scratch/bin:$PATH"
-mkdir -p "$AGY_CONFIG_DIR/log" "$AGY_CONFIG_DIR/brain/0a0a0a0a-0000-4000-8000-000000000001/.system_generated/logs"
+conv=0a0a0a0a-0000-4000-8000-000000000001 && mkdir -p "$AGY_CONFIG_DIR/log" "$AGY_CONFIG_DIR/brain/$conv/.system_generated/logs"
 printf '%s\n' 'I1008 printmode.go:202] Print mode: starting (promptLength=9, model="gemini-3.1-pro-high", conversationID="")' \
-  'I1008 server.go:1278] Created conversation 0a0a0a0a-0000-4000-8000-000000000001' >"$AGY_CONFIG_DIR/log/cli-20261008_000000.log"
+  "I1008 server.go:1278] Created conversation $conv" >"$AGY_CONFIG_DIR/log/cli-20261008_000000.log"
 printf '%s\n' \
   '{"type":"USER_INPUT","status":"DONE","created_at":"2026-10-08T00:00:00Z","content":"<USER_REQUEST>\nItem: wisp#71\nCategory: research\nLens: break it\n</USER_REQUEST>"}' \
   '{"type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-08T00:00:00Z","content":"Accepted flaws: 2","input_tokens":800,"output_tokens":120,"cache_read_tokens":100}' \

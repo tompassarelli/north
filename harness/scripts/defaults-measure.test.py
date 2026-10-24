@@ -94,7 +94,7 @@ class TrainingBoundary(unittest.TestCase):
             training.close()
 
             with sqlite3.connect(path) as db:
-                for i, at in enumerate(("2026-10-12T00:00:00Z", "2026-10-12T08:00:00+08:00",
+                for i, at in enumerate(("2026-10-12T00:00:00Z", "2026-10-12T05:00:00+05:00",
                                         "2026-10-12T00:00:00.000001Z", "2026-10-14T00:00:00Z")):
                     db.execute("INSERT INTO runs SELECT ?, item, ?, tier, category, ?, ?, 10000, eta_min, 'not done',"
                                " spec, scope, surface, verify, role, 0, 0, NULL, 1000 FROM runs WHERE agent = 'synthetic-50'",

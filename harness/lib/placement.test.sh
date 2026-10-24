@@ -17,12 +17,12 @@ expect() {
 mkdir -p "$scratch/op" "$scratch/state/agents/costs"
 cat >"$scratch/op/orchestration.toml" <<'EOF'
 [placement]
-cloud_credit = "claude-a-cloud-credit"
+cloud_credit = "cloud-credit"
 private_repos = ["galileo"]
 EOF
 cat >"$scratch/op/costs.toml" <<'EOF'
 [[service]]
-id = "claude-a-cloud-credit"
+id = "cloud-credit"
 kind = "ai-plan"
 billing = "prepaid"
 initial = 250.0
@@ -63,7 +63,7 @@ expect "every account exhausted: held" "held: every Claude account exhausted or 
 line="$(AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DIR="$scratch/op" XDG_STATE_HOME="$scratch/state" \
   PLACEMENT_NOW=$before "$root/bin/agents" plan --credit)"
 expect "credit line with no readout" "cloud credit: unread, expires in 22 days" "$line"
-printf '{"usd_spent_period": 250.0, "read_at": "2026-10-12T00:00:00Z"}\n' >"$scratch/state/agents/costs/claude-a-cloud-credit.json"
+printf '{"usd_spent_period": 250.0, "read_at": "2026-10-12T00:00:00Z"}\n' >"$scratch/state/agents/costs/cloud-credit.json"
 gate 35 10 10 5
 expect "credit recorded as spent skips anthropic-cloud for the most headroom" claude:a "$(place $before code-only)"
 

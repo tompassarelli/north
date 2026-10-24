@@ -25,8 +25,8 @@ fn fixture(root: &Path) {
     fs::create_dir_all(&op).unwrap();
     fs::create_dir_all(&agents).unwrap();
     fs::create_dir_all(root.join("bin")).unwrap();
-    fs::write(op.join("orchestration.toml"), "[placement]\ncloud_credit = \"claude-a-cloud-credit\"\nprivate_repos = [\"galileo\"]\n").unwrap();
-    fs::write(op.join("costs.toml"), "[[service]]\nid = \"claude-a-cloud-credit\"\ninitial = 250.0\nexpires = 2026-11-05T07:59:00Z\n").unwrap();
+    fs::write(op.join("orchestration.toml"), "[placement]\ncloud_credit = \"cloud-credit\"\nprivate_repos = [\"galileo\"]\n").unwrap();
+    fs::write(op.join("costs.toml"), "[[service]]\nid = \"cloud-credit\"\ninitial = 250.0\nexpires = 2026-11-05T07:59:00Z\n").unwrap();
     let gate = serde_json::json!({"claude": {"controls": {
         "claude:a": {"windows": [window("5h", 35.0, 10.0, "2026-10-16T16:00:00Z"), window("week", 40.0, 1.0, "2026-10-20T00:00:00Z")]},
         "claude:c": {"windows": [window("5h", 42.0, 86.0, "2026-10-16T16:00:00Z"), window("week", 20.0, 1.0, "2026-10-20T00:00:00Z")]},

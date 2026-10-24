@@ -32,35 +32,35 @@ took=$(threads queue take laptop | jq -r .id)
 check '[spec] msg requeued puts a taken job back ahead of later jobs as requeued, and take claims it first' \
   '[ "$took" = "$a" ] && [ "$(qstate "$b")" = queued ] && threads queue msg "$a" done ok >/dev/null'
 
-out=$(at 2026-10-13T20:00:00+08:00 drain; at 2026-10-13T20:00:00+08:00 status --json)
-d=$(field 2026-10-13T20:00:00+08:00 deadline)
+out=$(at 2026-10-13T12:00:00Z drain; at 2026-10-13T12:00:00Z status --json)
+d=$(field 2026-10-13T12:00:00Z deadline)
 check '[spec] drain is draining for 15 minutes from the word, recorded with reason and a ledger note' \
-  '[ "$(field 2026-10-13T20:00:00+08:00 state)" = draining ] && [ "$d" = "$(date -d 2026-10-13T20:15:00+08:00 +%s)" ] && sqlite3 "$THREADS_DB" "select data from events where kind = '"'note'"'" | grep -q "laptop: draining since 20:00"'
+  '[ "$(field 2026-10-13T12:00:00Z state)" = draining ] && [ "$d" = "$(date -d 2026-10-13T12:15:00Z +%s)" ] && sqlite3 "$THREADS_DB" "select data from events where kind = '"'note'"'" | grep -q "laptop: draining since 20:00"'
 
-out=$(at 2026-10-13T20:01:00+08:00 close lid; at 2026-10-13T20:01:00+08:00 status --json)
+out=$(at 2026-10-13T12:01:00Z close lid; at 2026-10-13T12:01:00Z status --json)
 check '[spec] close drains with a 2-minute grace' \
-  '[ "$(field 2026-10-13T20:01:00+08:00 deadline)" = "$(date -d 2026-10-13T20:03:00+08:00 +%s)" ] && [ "$(field 2026-10-13T20:01:00+08:00 reason)" = lid ]'
+  '[ "$(field 2026-10-13T12:01:00Z deadline)" = "$(date -d 2026-10-13T12:03:00Z +%s)" ] && [ "$(field 2026-10-13T12:01:00Z reason)" = lid ]'
 
 c=$(threads queue add laptop - -- echo c)
 held_id=$(threads queue take laptop | jq -r .id)
-out=$(at 2026-10-13T20:05:00+08:00 tick)
-held=$(field 2026-10-13T20:05:00+08:00 state)
+out=$(at 2026-10-13T12:05:00Z tick)
+held=$(field 2026-10-13T12:05:00Z state)
 threads queue msg "$held_id" requeued drained >/dev/null
-out=$(at 2026-10-13T20:06:00+08:00 tick)
+out=$(at 2026-10-13T12:06:00Z tick)
 check '[spec] tick keeps draining while a laptop job runs and settles unavailable once none is left' \
-  '[ "$held" = draining ] && [ "$(field 2026-10-13T20:06:00+08:00 state)" = unavailable ]'
+  '[ "$held" = draining ] && [ "$(field 2026-10-13T12:06:00Z state)" = unavailable ]'
 
-out=$(at 2026-10-13T22:59:00+08:00 tick; at 2026-10-13T23:00:00+08:00 tick)
-opened=$(field 2026-10-13T23:00:00+08:00 state)
-out=$(at 2026-10-14T01:00:00+08:00 close until 03:00 back later; at 2026-10-14T02:59:00+08:00 tick)
-heldword=$(field 2026-10-14T02:59:00+08:00 state)
-out=$(at 2026-10-14T03:00:00+08:00 tick)
-reopened=$(field 2026-10-14T03:00:00+08:00 state)
-out=$(at 2026-10-14T10:00:00+08:00 tick)
+out=$(at 2026-10-13T14:59:00Z tick; at 2026-10-13T15:00:00Z tick)
+opened=$(field 2026-10-13T15:00:00Z state)
+out=$(at 2026-10-13T17:00:00Z close until 03:00 back later; at 2026-10-13T18:59:00Z tick)
+heldword=$(field 2026-10-13T18:59:00Z state)
+out=$(at 2026-10-13T19:00:00Z tick)
+reopened=$(field 2026-10-13T19:00:00Z state)
+out=$(at 2026-10-14T02:00:00Z tick)
 check '[spec] the window opens at 23:00 and drains at 10:00 (UTC+8 here), settling unavailable with nothing running; a word holds until its until, then the window state returns' \
-  '[ "$opened" = available ] && [ "$heldword" = unavailable ] && [ "$reopened" = available ] && sqlite3 "$THREADS_DB" "select data from events where kind = '"'note'"'" | grep -q "laptop: draining since 10:00, window by window" && [ "$(field 2026-10-14T10:00:00+08:00 state)" = unavailable ]'
+  '[ "$opened" = available ] && [ "$heldword" = unavailable ] && [ "$reopened" = available ] && sqlite3 "$THREADS_DB" "select data from events where kind = '"'note'"'" | grep -q "laptop: draining since 10:00, window by window" && [ "$(field 2026-10-14T02:00:00Z state)" = unavailable ]'
 
-out=$(at 2026-10-14T10:00:00+08:00 status)
+out=$(at 2026-10-14T02:00:00Z status)
 check '[spec] status prints one laptop: line with since, reason and running and queued laptop jobs' \
   '[[ "$out" == "laptop: unavailable since 10:00, drained (window) by laptop tick (0 running, 2 queued)" ]]'
 
