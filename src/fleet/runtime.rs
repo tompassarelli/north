@@ -59,6 +59,9 @@ pub trait Runtime: Send + Sync {
     fn credential_failure(&self, _frame: &Value) -> Option<CredentialFailure> {
         None
     }
+    fn caller_conversation(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -79,6 +82,10 @@ impl Runtimes {
 
     pub fn providers(&self) -> Vec<ProviderName> {
         self.0.iter().map(|runtime| runtime.provider()).collect()
+    }
+
+    pub fn caller_conversation(&self) -> Option<String> {
+        self.0.iter().find_map(|runtime| runtime.caller_conversation())
     }
 
     pub fn roster(&self, state_root: &Path, home: &Path) -> Roster {

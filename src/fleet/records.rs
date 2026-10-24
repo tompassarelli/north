@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::NorthResult;
 
@@ -8,12 +9,14 @@ use super::model::SessionRecord;
 const RECORD: &str = "session.json";
 pub const ARCHIVE: &str = ".archive";
 
+static WRITES: AtomicU64 = AtomicU64::new(0);
+
 pub fn read_record(session_dir: &Path) -> NorthResult<SessionRecord> {
     Ok(serde_json::from_str(&fs::read_to_string(session_dir.join(RECORD))?)?)
 }
 
 pub fn write_record(session_dir: &Path, record: &SessionRecord) -> NorthResult<()> {
-    let temporary = session_dir.join(format!("{RECORD}.tmp"));
+    let temporary = session_dir.join(format!("{RECORD}.{}-{}.tmp", std::process::id(), WRITES.fetch_add(1, Ordering::Relaxed)));
     fs::write(&temporary, serde_json::to_vec_pretty(record)?)?;
     fs::rename(temporary, session_dir.join(RECORD))?;
     Ok(())

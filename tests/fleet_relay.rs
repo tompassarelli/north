@@ -36,6 +36,7 @@ impl Hosts {
             .env("FAR_HOME", self.path("far"))
             .env("PATH", path)
             .env_remove("NORTH_FLEET_SESSION")
+            .env_remove("CLAUDE_CODE_SESSION_ID")
             .output()
             .unwrap()
     }

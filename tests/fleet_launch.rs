@@ -37,6 +37,10 @@ fn north(root: &Path, args: &[&str]) -> Output {
 }
 
 fn north_on(root: &Path, host: &str, args: &[&str]) -> Output {
+    north_as(root, host, &[], args)
+}
+
+fn north_as(root: &Path, host: &str, sender: &[(&str, &str)], args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_north"))
         .args(args)
         .current_dir(root)
@@ -53,6 +57,8 @@ fn north_on(root: &Path, host: &str, args: &[&str]) -> Output {
         .env("FAKE_CLAUDE_SIGNED_OUT_MARK", root.join("signed-out"))
         .env("NORTH_FLEET_SESSION", "")
         .env_remove("NORTH_FLEET_TEST")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .envs(sender.iter().copied())
         .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
         .output()
         .unwrap()
@@ -188,4 +194,61 @@ fn sending_to_and_forgetting_a_session_whose_scope_is_gone_say_nothing_about_sto
         assert!(output.status.success(), "{verb}: {said}");
         assert!(!said.contains("Failed to stop"), "{verb}: {said}");
     }
+}
+
+#[test]
+fn a_send_names_its_sender_in_the_receivers_transcript_and_warns_a_second_sender_about_the_first() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let launched = launch(root);
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+
+    let first = north_as(root, "here", &[("CLAUDE_CODE_SESSION_ID", "28c1c1d1")], &["fleet", "send", "narrow", "staff every ready item"]);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut shown = String::new();
+    while !shown.contains("[from 28c1c1d1] staff every ready item") && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        shown = String::from_utf8_lossy(&north(root, &["fleet", "show", "narrow"]).stdout).into_owned();
+    }
+    let second = north_as(root, "here", &[("NORTH_FLEET_SESSION", "proxy")], &["fleet", "send", "narrow", "launch nothing on a"]);
+    let warned = String::from_utf8_lossy(&second.stderr).into_owned();
+    north(root, &["fleet", "forget", "narrow"]);
+
+    assert!(first.status.success() && second.status.success(), "{}{warned}", String::from_utf8_lossy(&first.stderr));
+    assert!(!String::from_utf8_lossy(&first.stderr).contains("also messaged"), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(shown.contains("user: [from 28c1c1d1] staff every ready item"), "{shown}");
+    assert!(warned.contains("28c1c1d1 also messaged narrow 0m ago"), "{warned}");
+}
+
+#[test]
+fn a_letter_relayed_from_another_host_names_its_sender_and_host_and_records_them() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let far = root.join("far");
+    fs::create_dir_all(far.join(".local/state")).unwrap();
+    executable(&root.join("bin/ssh"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nHOME=\"$FAR_HOME\" XDG_STATE_HOME=\"$FAR_HOME/.local/state\" exec sh -c \"$1\"\n");
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
+    let launched = launch(root);
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+
+    let far_home = far.to_str().unwrap();
+    let far_state = format!("{far_home}/.local/state");
+    north_as(root, "here", &[("HOME", far_home), ("XDG_STATE_HOME", &far_state)], &["fleet", "outbox", "take", "--for", "here"]);
+    let posted = north_as(root, "here", &[("HOME", far_home), ("XDG_STATE_HOME", &far_state), ("NORTH_FLEET_SESSION", "wisp-lead")], &["fleet", "send", "narrow", "rolled back"]);
+    let relayed = north_as(root, "here", &[("FAR_HOME", far_home)], &["fleet", "relay", "far"]);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut shown = String::new();
+    while !shown.contains("rolled back") && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        shown = String::from_utf8_lossy(&north(root, &["fleet", "show", "narrow"]).stdout).into_owned();
+    }
+    let record: Value = serde_json::from_slice(&fs::read(root.join(".local/state/north/fleet/narrow/session.json")).unwrap()).unwrap();
+    north(root, &["fleet", "forget", "narrow"]);
+
+    assert!(String::from_utf8_lossy(&posted.stderr).contains("no session named narrow here; posted "), "{}", String::from_utf8_lossy(&posted.stderr));
+    assert!(relayed.status.success(), "{}{}", String::from_utf8_lossy(&relayed.stdout), String::from_utf8_lossy(&relayed.stderr));
+    let host = record["last_sender"]["name"].as_str().and_then(|name| name.strip_prefix("wisp-lead@")).unwrap_or_else(|| panic!("{record}"));
+    assert!(shown.contains(&format!("user: [from wisp-lead@{host}] rolled back")), "{shown}");
 }

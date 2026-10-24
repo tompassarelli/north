@@ -94,6 +94,14 @@ pub struct SessionRecord {
     pub machine: Option<Machine>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capacity_need: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sender: Option<LastSender>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LastSender {
+    pub name: String,
+    pub at_ms: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

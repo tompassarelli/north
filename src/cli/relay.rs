@@ -18,7 +18,8 @@ pub fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> {
 }
 
 fn send(fleet: &Fleet, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
-    match fleet.send_or_post(name, text, delivery)? {
+    let from = signer(fleet, name);
+    match fleet.send_or_post(from.as_deref(), name, text, delivery)? {
         Sent::Here => {}
         Sent::Posted { relay, letter } => {
             let minutes = relay.age.as_secs() / 60;
@@ -26,6 +27,14 @@ fn send(fleet: &Fleet, name: &str, text: &str, delivery: Delivery) -> NorthResul
         }
     }
     Ok(())
+}
+
+pub(super) fn signer(fleet: &Fleet, to: &str) -> Option<String> {
+    let from = fleet.caller()?;
+    if let Some(rival) = fleet.rival(&from, to) {
+        eprintln!("{rival}");
+    }
+    Some(from)
 }
 
 fn relay(fleet: &Fleet, hosts: &[&str]) -> NorthResult<()> {

@@ -25,6 +25,7 @@ mod gate_commands;
 mod home;
 mod letters;
 mod parents;
+mod senders;
 mod status;
 
 pub use follower::Follower;
@@ -130,6 +131,7 @@ impl Fleet {
             placement: request.placement.clone(),
             machine: request.machine.clone(),
             capacity_need: request.capacity_need.clone(),
+            last_sender: None,
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &request.task_ref {
@@ -179,13 +181,6 @@ impl Fleet {
             Delivery::Now if transcript.status != Status::Idle => self.send_urgent(&record, &transcript, text),
             _ => self.send_text(&record, &transcript, text),
         }
-    }
-
-    pub fn ask(&self, name: &str, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
-        let record = self.revive(name, None)?;
-        let asked_from = stream_len(&record.host_dir);
-        self.send(name, question, Delivery::Now)?;
-        await_reply(self.runtime(&record)?.as_ref(), &record, asked_from, question, timeout)
     }
 
     pub fn interrupt(&self, name: &str) -> NorthResult<()> {

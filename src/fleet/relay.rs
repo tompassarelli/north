@@ -23,12 +23,18 @@ pub struct Letter {
     pub text: String,
     pub now: bool,
     pub from: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender: Option<String>,
     pub at_ms: u64,
 }
 
 impl Letter {
     pub fn delivery(&self) -> Delivery {
         if self.now { Delivery::Now } else { Delivery::Queued }
+    }
+
+    pub fn signer(&self) -> String {
+        self.sender.as_ref().map_or_else(|| self.from.clone(), |sender| format!("{sender}@{}", self.from))
     }
 }
 
@@ -55,10 +61,10 @@ impl Outbox {
         (!host.is_empty()).then_some(Relay { host, age })
     }
 
-    pub fn post(&self, to: &str, text: &str, delivery: Delivery) -> NorthResult<Letter> {
+    pub fn post(&self, sender: Option<&str>, to: &str, text: &str, delivery: Delivery) -> NorthResult<Letter> {
         fs::create_dir_all(&self.dir)?;
         let at_ms = now_ms();
-        let letter = Letter { id: format!("{at_ms}-{}", new_uuid()?), to: to.into(), text: text.into(), now: delivery == Delivery::Now, from: hostname(), at_ms };
+        let letter = Letter { id: format!("{at_ms}-{}", new_uuid()?), to: to.into(), text: text.into(), now: delivery == Delivery::Now, from: hostname(), sender: sender.map(str::to_owned), at_ms };
         let staged = self.dir.join(format!(".{}.tmp", letter.id));
         fs::write(&staged, serde_json::to_vec(&letter)?)?;
         fs::rename(staged, self.letter(&letter.id)?)?;
@@ -260,13 +266,13 @@ mod tests {
         assert_eq!(outbox.relay(), None);
         assert!(outbox.take("fleet").unwrap().is_empty());
         assert_eq!(outbox.relay().map(|relay| relay.host), Some("fleet".to_owned()));
-        let posted = outbox.post("proxy", "rolled back", Delivery::Queued).unwrap();
+        let posted = outbox.post(Some("wisp-lead"), "proxy", "rolled back", Delivery::Queued).unwrap();
         let mut received = Vec::new();
         let relayed = relay(&hosts, "fleet", &["far".to_owned()], &BTreeSet::new(), &mut |letter| {
-            received.push((letter.to.clone(), letter.text.clone(), letter.delivery()));
+            received.push((letter.signer(), letter.to.clone(), letter.text.clone(), letter.delivery()));
             Ok(())
         });
-        assert_eq!(received, [("proxy".to_owned(), "rolled back".to_owned(), Delivery::Queued)]);
+        assert_eq!(received, [(format!("wisp-lead@{}", posted.from), "proxy".to_owned(), "rolled back".to_owned(), Delivery::Queued)]);
         assert_eq!(relayed.lines(), [format!("relayed {} from far to proxy", posted.id)]);
         assert!(outbox.take("fleet").unwrap().is_empty(), "a delivered letter is dropped from the host that posted it");
         assert!(outbox.drop(&["../relay".to_owned()]).is_err() && outbox.drop(&[".relay".to_owned()]).is_err(), "a letter id cannot name a path outside the outbox");
@@ -278,7 +284,7 @@ mod tests {
         let seen = root.path().join("seen");
         let hosts = far(root.path());
         let outbox = &hosts.0["far"];
-        let kept = outbox.post("proxy", "rolled back", Delivery::Now).unwrap();
+        let kept = outbox.post(None, "proxy", "rolled back", Delivery::Now).unwrap();
         let mut refused = |_: &Letter| Err(NorthError::Usage("no session named proxy".into()));
         let first = relay(&hosts, "fleet", &["far".to_owned()], &BTreeSet::new(), &mut refused);
         assert_eq!(first.lines(), [format!("undelivered {} from far to proxy: no session named proxy", kept.id)]);
@@ -298,7 +304,7 @@ mod tests {
         let seen = root.path().join("undropped");
         let hosts = far(root.path());
         let outbox = &hosts.0["far"];
-        let posted = outbox.post("proxy", "rolled back", Delivery::Queued).unwrap();
+        let posted = outbox.post(None, "proxy", "rolled back", Delivery::Queued).unwrap();
         let mut deliveries = 0;
         hosts.1.store(true, Ordering::SeqCst);
         let first = relay(&hosts, "fleet", &["far".to_owned()], &entries(&seen), &mut |_| {
@@ -326,7 +332,7 @@ mod tests {
     impl Courier for Slow {
         fn take(&self, host: &str, _: &str) -> NorthResult<Vec<Letter>> {
             std::thread::sleep(self.0);
-            Ok(vec![Letter { id: format!("1-{host}"), to: "proxy".into(), text: host.into(), now: false, from: host.into(), at_ms: 1 }])
+            Ok(vec![Letter { id: format!("1-{host}"), to: "proxy".into(), text: host.into(), now: false, from: host.into(), sender: None, at_ms: 1 }])
         }
 
         fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {

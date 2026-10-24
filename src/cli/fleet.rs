@@ -392,7 +392,8 @@ fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
     if question.is_empty() {
         return Err(usage());
     }
-    match fleet.ask(name, &question.join(" "), Duration::from_secs(timeout))? {
+    let from = relay::signer(fleet, name);
+    match fleet.ask(from.as_deref(), name, &question.join(" "), Duration::from_secs(timeout))? {
         Some(reply) => {
             println!("{reply}");
             Ok(())
