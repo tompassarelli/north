@@ -125,6 +125,9 @@ cleanup_sleeper() {
   owned_sleeper_file=''
 }
 trap 'cleanup_sleeper; rm -rf "${scratch:?}"' EXIT
+live_push_log="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/pushes.tsv"
+live_push_log_size="$(stat -c %s "$live_push_log" 2>/dev/null || echo 0)"
+export XDG_STATE_HOME="$scratch/state"
 trace="$scratch/trace"
 : >"$trace"
 # The real deny-list must not leak into the suite; cases opt in with a fixture.
@@ -1891,7 +1894,7 @@ run_landing() {
       SAFE_PUSH_TEST_TRACE="$dir.trace" \
       SAFE_PUSH_TEST_STATE="$dir.state" \
       SAFE_PUSH_TEST_SCAN_GATE="${landing_gate:+$dir}" \
-      XDG_STATE_HOME="${landing_state:-$xdg_state}" \
+      XDG_STATE_HOME="${landing_state:-${xdg_state:?}}" \
       PATH="${SAFE_PUSH_TEST_PATH:-$real_bin:$PATH}" \
       env --default-signal=INT "$TARGET" --to "${landing_to:-main}"
   ) >"$dir.out" 2>&1
@@ -2468,7 +2471,7 @@ lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 mkdir -p "$xdg_state/safe-push"
 hold_landing_lock
 case_status=0
-SAFE_PUSH_LOCK_HELD="$lock_key" timeout 15 bash -c "$(declare -f run_landing); real_bin='$real_bin' scratch='$scratch' TARGET='$TARGET' run_landing '$landing_root/lane'" || case_status=$?
+SAFE_PUSH_LOCK_HELD="$lock_key" timeout 15 bash -c "$(declare -f run_landing); xdg_state='$xdg_state' real_bin='$real_bin' scratch='$scratch' TARGET='$TARGET' run_landing '$landing_root/lane'" || case_status=$?
 release_landing_lock
 case_output="$(cat "$landing_root/lane.out")"
 expect_status zero
@@ -2480,7 +2483,7 @@ lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 mkdir -p "$xdg_state/safe-push"
 hold_landing_lock
 case_status=0
-timeout 15 bash -c "$(declare -f run_landing); landing_to=farm/x real_bin='$real_bin' scratch='$scratch' TARGET='$TARGET' run_landing '$landing_root/lane'" || case_status=$?
+timeout 15 bash -c "$(declare -f run_landing); landing_to=farm/x xdg_state='$xdg_state' real_bin='$real_bin' scratch='$scratch' TARGET='$TARGET' run_landing '$landing_root/lane'" || case_status=$?
 release_landing_lock
 case_output="$(cat "$landing_root/lane.out")"
 expect_status zero
@@ -2646,5 +2649,11 @@ for i in "${!sections[@]}"; do
   cat "$scratch/section-$((i + 1)).log"
 done
 [ "$status" -eq 0 ] || exit 1
+while IFS=$'\t' read -r _ _ _ oid _; do
+  for git_dir in "$scratch"/*/*.git; do
+    ! "$real_git" --git-dir="$git_dir" cat-file -e "$oid^{commit}" 2>/dev/null \
+      || fail "the suite recorded its fixture push $oid in the live push log $live_push_log"
+  done
+done < <(tail -c "+$((live_push_log_size + 1))" "$live_push_log" 2>/dev/null)
 
 printf 'safe-push tests: PASS (%s planning rows, %s boundary invocations)\n' "$property_rows" "$(wc -l <"$scratch/cases")"
