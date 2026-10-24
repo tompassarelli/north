@@ -159,3 +159,20 @@ fn placement_never_picks_a_label_logged_into_another_labels_account() {
     let b = decision.verdict("claude:b").unwrap();
     assert!(!b.available && b.line.ends_with(&shared.duplicates[0].to_string()), "{}", b.line);
 }
+
+#[test]
+fn needs_on_separate_lines_place_like_needs_on_one_line() {
+    let cfg = "[hosts.here]\nserves = [\"private\", \"local-state\"]\n".parse().unwrap();
+    let at = super::target::seconds(AT).unwrap();
+    let gate = gate(&[("claude:c", control((10.0, 5.0, "2026-10-16T14:00:00Z"), (30.0, 1.0)))]);
+    let credit = || (true, "cloud credit: unread, expires in 19 days".to_owned());
+    let place = |brief: &str| {
+        let decision = decide(brief, &cfg, &gate, credit(), &[], "here", at);
+        (target(&decision), super::placement::gate::summary(&decision))
+    };
+    let head = "Item: north#12 tidy placement\nSurface: rust\n";
+    let lines = place(&format!("{head}Needs: code\nNeeds: local-state\n"));
+    assert_eq!(lines, place(&format!("{head}Needs: code, local-state\n")));
+    assert_eq!(lines.0, "claude:c");
+    assert_eq!(place(CODE_ONLY).0, "anthropic-cloud");
+}

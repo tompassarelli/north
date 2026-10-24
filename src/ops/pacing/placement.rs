@@ -30,8 +30,13 @@ pub(super) fn field<'a>(text: &'a str, key: &str) -> &'a str {
         .unwrap_or_default()
 }
 fn facets(text: &str) -> (String, bool, BTreeSet<String>) {
-    let needs: BTreeSet<_> = field(text, "Needs")
-        .to_lowercase()
+    let needs: BTreeSet<_> = text
+        .lines()
+        .filter_map(|line| line.trim().split_once(':'))
+        .filter(|(k, _)| k.eq_ignore_ascii_case("Needs"))
+        .map(|(_, v)| v.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ")
         .split(|c: char| c.is_whitespace() || c == ',' || c == '|')
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
