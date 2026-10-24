@@ -1738,7 +1738,8 @@ expect_output 'is missing although'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'absent deny-list with south present published a public push'
 
 # A claude/ push to a public Autoland repository asks north to attest its tip
-# from south; a main push does not, and a failed attest leaves the push standing.
+# from south; a main push does not, a failed attest leaves the push standing,
+# and a refusal says the tip needs a reworded push rather than a retry.
 make_real_fixture denylist-attest
 mkdir -p "$real_repo/.github/workflows" "$scratch/attest-south"
 printf 'on: [workflow_dispatch]\n' >"$real_repo/.github/workflows/autoland.yml"
@@ -1753,16 +1754,27 @@ run_attest_case() {
   SAFE_PUSH_SOUTH="$scratch/attest-south" SAFE_PUSH_DENYLIST="$fixture_denylist" \
     SAFE_PUSH_TEST_ATTEST_TRACE="$attest_trace" run_denylist_case PUBLIC "$@"
 }
-run_attest_case --to claude/attest-work
+NORTH_FLEET_SESSION=attest-scratch run_attest_case --to claude/attest-work
 expect_status zero
 grep -Fxq "denylist attest --south $scratch/attest-south --repo real-denylist-attest/remote --branch claude/attest-work" "$attest_trace" \
   || fail "a claude/ push did not attest its tip: $(cat "$attest_trace")"
+expect_output "safe-push: pushed $("$real_git" --git-dir="$real_remote" rev-parse refs/heads/claude/attest-work) to claude/attest-work"
+! grep -q '^safe-push: landed ' <<<"$case_output" || fail 'a push to a scratch branch was reported as landed'
+scratch_row=$(awk -F'\t' '$6 == "attest-scratch"' "$xdg_state/safe-push/pushes.tsv" | tail -n 1)
+[ -n "$scratch_row" ] || fail 'a scratch-branch push recorded no push row'
+[ -z "$(cut -f5 <<<"$scratch_row")" ] || fail "a scratch-branch push recorded a landed sha for fleet: $scratch_row"
+SAFE_PUSH_TEST_ATTEST_STATUS=1 run_attest_case --to claude/attest-refused
+expect_status zero
+expect_output 'the deny-list attester refused claude/attest-refused, so Autoland will not test this tip; reword the deny-listed text and push again'
+! grep -q 'timer retries' <<<"$case_output" || fail 'a refused attest promised a timer retry'
 SAFE_PUSH_TEST_ATTEST_STATUS=2 run_attest_case --to claude/attest-retry
 expect_status zero
 expect_output 'the deny-list attest for claude/attest-retry failed (exit 2); the push stands'
 "$real_git" --git-dir="$real_remote" rev-parse -q --verify refs/heads/claude/attest-retry >/dev/null || fail 'a failed attest undid the push'
-run_attest_case --to main --direct
+NORTH_FLEET_SESSION=attest-main run_attest_case --to main --direct
 expect_status zero
+main_row=$(awk -F'\t' '$6 == "attest-main"' "$xdg_state/safe-push/pushes.tsv" | tail -n 1)
+[ "$(cut -f5 <<<"$main_row")" = "$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)" ] || fail "a main push did not record its landed sha: $main_row"
 [ ! -s "$attest_trace" ] || fail "a main push attested: $(cat "$attest_trace")"
 : >"$attest_trace"
 printf 'clean\n' >>"$real_repo/content.txt"

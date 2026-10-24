@@ -46,6 +46,10 @@ safe_push_terminal() {
     else
       terminal_sha=""
     fi
+    if [ -n "$terminal_sha" ] && [ -n "${safe_push_scratch_branch:-}" ]; then
+      printf 'safe-push: pushed %s to %s\n' "$terminal_sha" "$safe_push_scratch_branch"
+      exit 0
+    fi
     if [ -n "$terminal_sha" ]; then
       local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
       if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result landed "$terminal_sha" '' 0 ''; then exit 0; fi
@@ -406,7 +410,11 @@ denylist_attest() {
   slug=${origin_url%.git}; slug=${slug##*:}
   slug="$(basename "$(dirname "$slug")")/$(basename "$slug")"
   north denylist attest --south "$south" --repo "$slug" --branch "$1" || status=$?
-  [ "$status" -eq 0 ] || echo "safe-push: ⚠ the deny-list attest for $1 failed (exit $status); the push stands and the timer retries."
+  case "$status" in
+    0) ;;
+    1) echo "safe-push: ✗ the deny-list attester refused $1, so Autoland will not test this tip; reword the deny-listed text and push again." ;;
+    *) echo "safe-push: ⚠ the deny-list attest for $1 failed (exit $status); the push stands and the timer retries." ;;
+  esac
 }
 
 native_ref_re='(^|[^[:alnum:]_])(life|accounts|travel|ops)#[0-9]+'
@@ -1940,6 +1948,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   fi
   if [ "$to" != "$(default_branch)" ]; then
     echo "safe-push: $to is not origin's default branch — pushing without the landing lock"
+    safe_push_scratch_branch="$to"
     sync_with_destination
   elif [ -z "$hook" ]; then
     acquire_push_lock "$lock_url"
