@@ -5,6 +5,8 @@
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
+# shellcheck source-path=SCRIPTDIR source=tree-north.sh
+. "$here/tree-north.sh"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/placement-test.XXXXXX")"
 trap 'rm -rf "${scratch:?}"' EXIT
 pass=0 fail=0
@@ -15,6 +17,11 @@ expect() {
 }
 
 mkdir -p "$scratch/op" "$scratch/state/agents/costs"
+for label in a c; do
+  profile="$scratch/home/.local/state/north/profiles/claude-$label"
+  mkdir -p "$profile" && printf '{}\n' >"$profile/.credentials.json"
+  printf '{"oauthAccount": {"accountUuid": "fixture-%s"}}\n' "$label" >"$profile/.claude.json"
+done
 cat >"$scratch/op/orchestration.toml" <<'EOF'
 [placement]
 cloud_credit = "cloud-credit"
@@ -42,7 +49,7 @@ gate() {
     "$@" >"$scratch/state/agents/usage-gate.json"
 }
 plan() {
-  AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DIR="$scratch/op" XDG_STATE_HOME="$scratch/state" \
+  HOME="$scratch/home" AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DIR="$scratch/op" XDG_STATE_HOME="$scratch/state" \
     RESIDENT_CAP_HOST=here PLACEMENT_NOW="$1" "$root/bin/agents" plan --place "$scratch/$2.md"
 }
 place() { plan "$1" "$2" | sed -n -E 's/^[^ ][^:]*: target ([^(]*[^ (]).*/\1/p'; }
@@ -62,7 +69,7 @@ expect "runaway claude:c places on claude:a, whose pace line never holds" "here 
 gate 99 1 96 1
 expect "every account exhausted: held" "held: every Claude account exhausted or runaway" "$(place $before native)"
 
-line="$(AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DIR="$scratch/op" XDG_STATE_HOME="$scratch/state" \
+line="$(HOME="$scratch/home" AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DIR="$scratch/op" XDG_STATE_HOME="$scratch/state" \
   PLACEMENT_NOW=$before "$root/bin/agents" plan --credit)"
 expect "credit line with no readout" "cloud credit: unread, expires in 22 days" "$line"
 printf '{"usd_spent_period": 250.0, "read_at": "2026-10-12T00:00:00Z"}\n' >"$scratch/state/agents/costs/cloud-credit.json"
