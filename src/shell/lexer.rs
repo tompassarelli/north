@@ -56,7 +56,7 @@ pub fn whitespace(c: char) -> bool {
     c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
 }
 
-pub(super) fn assignment(word: &str) -> bool {
+pub fn assignment(word: &str) -> bool {
     let Some((name, _)) = word.split_once('=') else {
         return false;
     };
@@ -172,7 +172,11 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
         search = close;
     }
     text.push_str(&cmd[i..]);
-    let chars: Vec<_> = strip_comments(&text).chars().collect();
+    lex(&strip_comments(&text))
+}
+
+pub fn lex(text: &str) -> Option<Vec<String>> {
+    let chars: Vec<_> = text.chars().collect();
     let mut tokens = Vec::new();
     let mut buf = String::new();
     let mut started = false;

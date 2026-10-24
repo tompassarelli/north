@@ -1,4 +1,5 @@
 mod commands;
+mod lexical;
 
 use crate::hook::{HookInput, Verdict};
 use crate::shell;
@@ -37,7 +38,9 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub(super) fn decide(command: &str) -> Option<Hit> {
-    teardown(command, None, 0, &[]).or_else(|| detached(command))
+    teardown(command, None, 0, &[])
+        .or_else(|| lexical::teardown(command))
+        .or_else(|| detached(command))
 }
 
 fn reason(hit: &Hit) -> String {
@@ -179,7 +182,11 @@ fn produced(words: &[String], stdin: &[String]) -> Vec<String> {
 fn detached(command: &str) -> Option<Hit> {
     segments(&tokens(&shell::strip_heredocs(command)))
         .into_iter()
-        .find_map(|segment| launch(&segment.words, segment.background))
+        .find_map(|segment| {
+            let words = &segment.words[shell::command(&segment.words, LAUNCH_PREFIXES)..];
+            launch(words, segment.background)
+        })
+        .or_else(|| lexical::detached(command))
         .map(Hit::Detached)
 }
 
@@ -237,10 +244,9 @@ fn segments(tokens: &[String]) -> Vec<Segment> {
     out
 }
 
-fn launch(segment: &[String], background: bool) -> Option<String> {
-    let words = &segment[shell::command(segment, LAUNCH_PREFIXES)..];
+fn launch(words: &[String], background: bool) -> Option<String> {
     let (word, args) = match words.split_first() {
-        Some((word, args)) => (Some(shell::basename(word)), args),
+        Some((word, args)) => (Some(shell::basename(word.trim_end_matches('/'))), args),
         None => (None, words),
     };
     match word {

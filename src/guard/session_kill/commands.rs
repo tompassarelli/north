@@ -153,6 +153,14 @@ pub(super) struct Systemd<'a> {
 
 impl<'a> Systemd<'a> {
     pub(super) fn parse(args: &'a [String]) -> Self {
+        Self::with_values(args, SYSTEMD_VALUE_FLAGS)
+    }
+
+    pub(super) fn flat(args: &'a [String]) -> Self {
+        Self::with_values(args, &[])
+    }
+
+    fn with_values(args: &'a [String], value_flags: &[&str]) -> Self {
         let mut call = Systemd {
             user: false,
             host: None,
@@ -160,7 +168,7 @@ impl<'a> Systemd<'a> {
         };
         let mut iter = args.iter().map(String::as_str);
         while let Some(arg) = iter.next() {
-            let value = if SYSTEMD_VALUE_FLAGS.contains(&arg) {
+            let value = if value_flags.contains(&arg) {
                 iter.next()
             } else {
                 None

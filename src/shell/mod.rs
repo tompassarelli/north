@@ -10,8 +10,8 @@ mod tests;
 pub use heredoc::{blank, heredoc_bodies, strip_heredoc_bodies, strip_heredocs};
 #[allow(unused_imports)]
 pub use lexer::{
-    SEPARATORS, ShellToken, argv_spans, basename, operator_tokens, shlex_split, tokenize,
-    whitespace, words,
+    SEPARATORS, ShellToken, argv_spans, assignment, basename, lex, operator_tokens, shlex_split,
+    tokenize, whitespace, words,
 };
 #[allow(unused_imports)]
 pub use segments::{
