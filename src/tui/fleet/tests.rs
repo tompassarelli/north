@@ -38,7 +38,7 @@ impl ActionsFake {
 
 impl SessionActions for ActionsFake {
     fn launch(&self, request: &LaunchRequest) -> NorthResult<()> {
-        self.record(Command::Launch(request.clone()))
+        self.record(Command::Launch(Box::new(request.clone())))
     }
 
     fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {

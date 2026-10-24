@@ -43,7 +43,7 @@ impl Field {
 pub enum FormOutcome {
     Editing,
     Cancelled,
-    Launch(LaunchRequest),
+    Launch(Box<LaunchRequest>),
 }
 
 pub struct LaunchForm {
@@ -160,7 +160,7 @@ impl LaunchForm {
 
     fn submit(&mut self) -> FormOutcome {
         match self.request() {
-            Ok(request) => FormOutcome::Launch(request),
+            Ok(request) => FormOutcome::Launch(Box::new(request)),
             Err(problem) => {
                 self.problem = Some(problem);
                 FormOutcome::Editing

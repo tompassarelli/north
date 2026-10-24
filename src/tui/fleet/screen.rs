@@ -38,7 +38,7 @@ pub enum Notice {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
-    Launch(LaunchRequest),
+    Launch(Box<LaunchRequest>),
     Send { name: String, text: String, delivery: Delivery, deepen: bool },
     Revive(String),
     Interrupt(String),
