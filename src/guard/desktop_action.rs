@@ -80,12 +80,20 @@ fn active() -> bool {
         .is_some_and(|unit| unit["permission"] == "on" && unit["active"] == true)
         && matches.next().is_none()
 }
-fn process(pid: u32) -> Option<(u32, String, String)> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+// run-bounded gives a PID namespace over the host /proc, so getppid() cannot be looked up in /proc.
+fn parent_of_self() -> Option<u32> {
+    Some(stat_fields("/proc/self/stat")?.0)
+}
+fn stat_fields(path: &str) -> Option<(u32, String)> {
+    let stat = std::fs::read_to_string(path).ok()?;
     let fields: Vec<_> = stat.rsplit_once(')')?.1.split_whitespace().collect();
+    Some((fields.get(1)?.parse().ok()?, fields.get(19)?.to_string()))
+}
+fn process(pid: u32) -> Option<(u32, String, String)> {
+    let (parent, started) = stat_fields(&format!("/proc/{pid}/stat"))?;
     Some((
-        fields.get(1)?.parse().ok()?,
-        fields.get(19)?.to_string(),
+        parent,
+        started,
         std::fs::canonicalize(format!("/proc/{pid}/exe"))
             .ok()?
             .file_name()?
@@ -96,9 +104,7 @@ fn process(pid: u32) -> Option<(u32, String, String)> {
 pub fn record_idle(idle: bool) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
-    let mut pid = rustix::process::getppid()
-        .map(|pid| pid.as_raw_nonzero().get() as u32)
-        .unwrap_or(1);
+    let mut pid = parent_of_self().unwrap_or(1);
     while pid > 1 {
         let (parent, started, name) =
             process(pid).ok_or_else(|| std::io::Error::other("cannot read callback ancestry"))?;
