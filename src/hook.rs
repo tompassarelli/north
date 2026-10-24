@@ -72,8 +72,6 @@ impl HookInput {
 pub enum Verdict {
     Allow,
     Deny(String),
-    Ask(String),
-    Context(String),
     Rewrite(Value, String),
     Approve,
 }
@@ -179,7 +177,6 @@ fn permission_decision(behavior: &str, message: Option<String>) -> Value {
 
 pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Value> {
     let mut context = Vec::new();
-    let mut ask = None;
     let mut updated_input = None;
     let mut rewritten = None;
     for guard in guards {
@@ -208,12 +205,6 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
                     ]),
                 )]));
             }
-            Verdict::Ask(reason) => {
-                if ask.is_none() {
-                    ask = Some(reason);
-                }
-            }
-            Verdict::Context(text) => context.push(text),
             Verdict::Rewrite(updated, text) => {
                 let mut data = input.data.clone();
                 data["tool_input"] = updated.clone();
@@ -227,10 +218,6 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
     if let Some(updated) = updated_input {
         output["permissionDecision"] = "allow".into();
         output["updatedInput"] = updated;
-    }
-    if let Some(reason) = ask {
-        output["permissionDecision"] = "ask".into();
-        output["permissionDecisionReason"] = reason.into();
     }
     if !context.is_empty() {
         output["additionalContext"] = context.join("\n").into();
@@ -559,7 +546,7 @@ mod tests {
                 process(
                     bytes.as_slice(),
                     &mut output,
-                    &[|_| Verdict::Context("accepted".into())],
+                    &[|_| Verdict::Deny("accepted".into())],
                     "Stop",
                 )
                 .unwrap();
@@ -595,7 +582,7 @@ mod tests {
         process(
             bytes.as_slice(),
             &mut output,
-            &[|_| Verdict::Context("at limit".into())],
+            &[|_| Verdict::Deny("at limit".into())],
             "Stop",
         )
         .unwrap();
@@ -603,33 +590,9 @@ mod tests {
     }
 
     #[test]
-    fn ask_and_context_survive_allow_but_deny_wins() {
+    fn stop_denial_blocks_verbatim_and_no_guards_say_nothing() {
         let input = HookInput::parse(b"{}").unwrap();
-        let guards: &[Guard] = &[
-            |_| Verdict::Context("first".into()),
-            |_| Verdict::Allow,
-            |_| Verdict::Ask("confirm".into()),
-            |_| Verdict::Context("second".into()),
-        ];
-        assert_eq!(
-            serde_output(evaluate(&input, guards, "PreToolUse")),
-            Some(
-                json!({"hookSpecificOutput":{"hookEventName":"PreToolUse", "permissionDecision":"ask", "permissionDecisionReason":"confirm", "additionalContext":"first\nsecond"}})
-            )
-        );
         assert_eq!(serde_output(evaluate(&input, &[], "Stop")), None);
-        assert_eq!(
-            evaluate(
-                &input,
-                &[
-                    |_| Verdict::Ask("ask".into()),
-                    |_| Verdict::Deny("deny".into())
-                ],
-                "PreToolUse"
-            )
-            .unwrap()["hookSpecificOutput"]["permissionDecision"],
-            "deny"
-        );
         assert_eq!(
             serde_output(evaluate(
                 &input,
