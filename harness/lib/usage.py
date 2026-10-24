@@ -223,8 +223,7 @@ def publish(db, rows):
 
 
 def hosted_claude():
-    host = socket.gethostname()
-    return {label for label, hosts in account_settings("claude").get("profiles", {}).items() if host in hosts}
+    return set(account_settings("claude").get("profiles", {}))
 
 
 def latest(db):
