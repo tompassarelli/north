@@ -10,6 +10,7 @@ use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
 const OBSERVE_WAIT: Duration = Duration::from_secs(40);
+const NOTIFY_WAIT: Duration = Duration::from_secs(5);
 const BATTERY_WARNED: &str = "battery-warned";
 const BATTERY_DRAIN_PERCENT: u8 = 30;
 
@@ -51,7 +52,7 @@ fn battery_low(battery: Option<u8>) -> bool {
     battery.is_some_and(|percent| percent < BATTERY_DRAIN_PERCENT)
 }
 
-pub(crate) fn warn_battery_once(marker: &Path, battery: Option<u8>, notify: &mut Command) {
+pub(crate) fn warn_battery_once(marker: &Path, battery: Option<u8>, notify: &mut Command, limit: Duration) {
     let Some(percent) = battery else {
         let _ = fs::remove_file(marker);
         return;
@@ -61,13 +62,14 @@ pub(crate) fn warn_battery_once(marker: &Path, battery: Option<u8>, notify: &mut
     }
     let title = format!("Laptop battery at {percent}% and discharging");
     let body = "Agent placement is draining off the laptop. Plug in AC.";
-    match notify.args(["--urgency=critical", "--app-name=laptop-auto", &title, body]).status() {
-        Ok(status) if status.success() => {
+    match status_within(notify.args(["--urgency=critical", "--app-name=laptop-auto", &title, body]), limit) {
+        Ok(Some(status)) if status.success() => {
             if let Err(error) = marker.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(marker, format!("{percent}\n"))) {
                 eprintln!("north capacity laptop-auto: {}: {error}", marker.display());
             }
         }
-        Ok(status) => eprintln!("north capacity laptop-auto: battery notification exited {status}; the next tick notifies again"),
+        Ok(Some(status)) => eprintln!("north capacity laptop-auto: battery notification exited {status}; the next tick notifies again"),
+        Ok(None) => eprintln!("north capacity laptop-auto: battery notification gave no answer within {}s; the next tick notifies again", limit.as_secs()),
         Err(error) => eprintln!("north capacity laptop-auto: battery notification: {error}; the next tick notifies again"),
     }
 }
@@ -111,8 +113,6 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         println!("{sample}");
         return 0;
     }
-    let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
-    warn_battery_once(&host.capacity.join(BATTERY_WARNED), battery, &mut Command::new(notify));
     let gaming = sample["gaming"] == true || agent_load::game_reserve_on(&host);
     let plan = agent_load::enforce(&host, gaming, &processes);
     if plan != agent_load::Plan::default() {
@@ -122,7 +122,10 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         );
     }
     let laptop = std::env::var_os("LAPTOP_AUTO_LAPTOP").unwrap_or_else(|| "laptop".into());
-    observe(Command::new(laptop).arg("observe").arg(sample.to_string()), OBSERVE_WAIT)
+    let observed = observe(Command::new(laptop).arg("observe").arg(sample.to_string()), OBSERVE_WAIT);
+    let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
+    warn_battery_once(&host.capacity.join(BATTERY_WARNED), battery, &mut Command::new(notify), NOTIFY_WAIT);
+    observed
 }
 
 pub(crate) fn observe(command: &mut Command, limit: Duration) -> u8 {

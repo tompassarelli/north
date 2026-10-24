@@ -274,7 +274,7 @@ def observe(args):
             if s["reason"] not in (hold, f"drained ({hold})") or not auto:
                 s = write("unavailable" if gaming else "draining", t, hold, "laptop-auto", grace=GRACE["close" if gaming else "drain"])
         elif auto and s["reason"] in ("gaming", "battery", "drained (battery)"):
-            if s["reason"] != "gaming" or (t - parse(observations["clear"])).total_seconds() >= 600:
+            if ((t - parse(observations["clear"])).total_seconds() >= 600) if s["reason"] == "gaming" else sample.get("battery") is None:
                 s = write("available" if in_window else "unavailable", t, "window", "laptop-auto")
         elif in_window and "active" in observations and (t - max(parse(observations["active"]), edge)).total_seconds() >= 300:
             if s["state"] == "available":

@@ -300,7 +300,7 @@ fn a_low_battery_warns_once_per_discharge() {
     let warn = |battery| {
         let mut notify = Command::new("sh");
         notify.args(["-c", "printf '%s\\n' \"$*\" >> \"$0\"", log.to_str().unwrap()]);
-        super::laptop_auto::warn_battery_once(&marker, battery, &mut notify);
+        super::laptop_auto::warn_battery_once(&marker, battery, &mut notify, Duration::from_secs(5));
         fs::read_to_string(&log).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>()
     };
     assert!(warn(Some(31)).is_empty());
@@ -309,4 +309,15 @@ fn a_low_battery_warns_once_per_discharge() {
     assert_eq!(warn(None).len(), 1);
     assert!(!marker.exists());
     assert_eq!(warn(Some(28)).len(), 2);
+}
+
+#[test]
+fn a_battery_notification_that_hangs_or_fails_leaves_no_marker_and_ends_inside_its_wait() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("battery-warned");
+    let begun = Instant::now();
+    super::laptop_auto::warn_battery_once(&marker, Some(20), Command::new("sh").args(["-c", "exec sleep 30"]), Duration::from_millis(300));
+    assert!(begun.elapsed() < Duration::from_secs(3), "{:?}", begun.elapsed());
+    super::laptop_auto::warn_battery_once(&marker, Some(20), &mut Command::new("false"), Duration::from_secs(5));
+    assert!(!marker.exists());
 }

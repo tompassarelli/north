@@ -17,8 +17,9 @@ fn laptop(root: &Path, minute: u32, arguments: &[&str]) -> Value {
     serde_json::from_str(&fs::read_to_string(root.join("laptop.json")).unwrap()).unwrap()
 }
 
-fn observe(root: &Path, minute: u32, battery_low: bool) -> Value {
-    let sample = json!({ "gaming": false, "agent_gpu": false, "idle": true, "gpu_busy": null, "battery_low": battery_low });
+fn observe(root: &Path, minute: u32, battery: Option<u8>) -> Value {
+    let battery_low = battery.is_some_and(|percent| percent < 30);
+    let sample = json!({ "gaming": false, "agent_gpu": false, "idle": true, "gpu_busy": null, "battery": battery, "battery_low": battery_low });
     laptop(root, minute, &["observe", &sample.to_string()])
 }
 
@@ -33,19 +34,20 @@ fn a_low_battery_drains_the_laptop_until_ac_returns_inside_and_outside_the_windo
     fs::write(root.join("window.json"), json!({ "tz": "UTC", "open": "16:00", "close": "18:00" }).to_string()).unwrap();
     laptop(root, 0, &["open"]);
 
-    let drained = observe(root, 1, true);
+    let drained = observe(root, 1, Some(25));
     held(&drained, "draining", "battery");
     assert_eq!(drained["grace"], 900);
-    assert_eq!(observe(root, 2, true)["since"], drained["since"]);
+    assert_eq!(observe(root, 2, Some(25))["since"], drained["since"]);
     held(&laptop(root, 2, &["tick"]), "unavailable", "drained (battery)");
-    held(&observe(root, 40, true), "unavailable", "drained (battery)");
-    held(&observe(root, 41, false), "available", "window");
+    held(&observe(root, 40, Some(25)), "unavailable", "drained (battery)");
+    held(&observe(root, 41, Some(30)), "unavailable", "drained (battery)");
+    held(&observe(root, 42, None), "available", "window");
 
-    held(&observe(root, 50, true), "draining", "battery");
+    held(&observe(root, 50, Some(25)), "draining", "battery");
     laptop(root, 50, &["close", "manual"]);
-    held(&observe(root, 51, false), "draining", "manual");
+    held(&observe(root, 51, None), "draining", "manual");
 
     laptop(root, 52, &["open"]);
-    held(&observe(root, 53, true), "draining", "battery");
-    held(&observe(root, 130, false), "unavailable", "window");
+    held(&observe(root, 53, Some(25)), "draining", "battery");
+    held(&observe(root, 130, None), "unavailable", "window");
 }
