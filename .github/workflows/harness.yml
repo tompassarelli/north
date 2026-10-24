@@ -48,19 +48,23 @@ jobs:
           git config --global init.defaultBranch main
           git config --global user.name socrates-ci
           git config --global user.email socrates-ci@example.invalid
-      - name: Allow bubblewrap user namespaces
+      - name: Allow bubblewrap and unshare user namespaces
         run: |
-          sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+          for tool in bwrap unshare; do
+            sudo tee "/etc/apparmor.d/$tool" >/dev/null <<PROFILE
           abi <abi/4.0>,
           include <tunables/global>
-          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+          profile $tool /usr/bin/$tool flags=(unconfined) {
             userns,
           }
           PROFILE
-          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+            sudo apparmor_parser -r "/etc/apparmor.d/$tool"
+          done
           bwrap --unshare-net --ro-bind / / -- true
+          unshare --user --map-current-user --pid --fork -- true
       - name: Install automation browser boundary
         working-directory: lib/automation-chrome
+        timeout-minutes: 4
         run: |
           bun install --frozen-lockfile
           bunx --no-install playwright-core install --with-deps chromium
@@ -92,16 +96,17 @@ jobs:
           logs="$RUNNER_TEMP/harness-tests"
           mkdir -p "$logs"
           printf '%s\0' "${tests[@]}" | xargs -0 -P "$(nproc)" -I{} bash -c '
-            log="$0/$(printf %s "$1" | tr / _)"
-            case "$1" in *.sh) bash "$1" ;; *.py) python3 "$1" ;; esac >"$log.log" 2>&1
-            echo $? >"$log.status"' "$logs" {}
+            log="$0/$(printf %s "$1" | tr / _)" start=$SECONDS
+            case "$1" in *.sh) timeout -k 10 300 bash "$1" ;; *.py) timeout -k 10 300 python3 "$1" ;; esac >"$log.log" 2>&1
+            status=$?; echo "$status" >"$log.status"
+            printf "%s exit %s after %ss\n" "$1" "$status" "$((SECONDS - start))"' "$logs" {}
           status=0
           for t in "${tests[@]}"; do
             log="$logs/$(printf %s "$t" | tr / _)"
             echo "::group::$t"
             cat "$log.log"
             echo "::endgroup::"
-            [ "$(cat "$log.status")" = 0 ] || { echo "::error::$t failed"; status=1; }
+            case "$(cat "$log.status")" in 0) ;; 124|137) echo "::error::$t timed out after 300 s"; status=1 ;; *) echo "::error::$t failed"; status=1 ;; esac
           done
           exit $status
       - name: Install agent-machinery dependencies
