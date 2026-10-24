@@ -2547,6 +2547,8 @@ new_lane_container() {
   "$real_git" -C "$lane" commit --allow-empty -qm lane-work
 }
 
+lane_runner=()
+
 run_lane() {
   printf "%s\n" run_lane >>"$scratch/cases"
   set +e
@@ -2557,7 +2559,7 @@ run_lane() {
       SAFE_PUSH_TEST_STATE="$lane_container/state" \
       XDG_STATE_HOME="$xdg_state" \
       PATH="$real_bin:$PATH" \
-      "$TARGET" --to main "$@" 2>&1
+      "${lane_runner[@]}" "$TARGET" --to main "$@" 2>&1
     landed=$?
     pwd -P >/dev/null || exit 99
     exit "$landed"
@@ -2599,6 +2601,13 @@ expect_status zero
   || fail 'the push log does not record the session lane-clean landing on main'
 lane_removed || fail 'landed clean lane was not removed once its caller left'
 lane_branch_removed || fail 'landed clean lane branch was not deleted'
+
+new_lane_container pid-namespace
+lane_runner=(bwrap --dev-bind / / --unshare-pid --die-with-parent --)
+run_lane
+lane_runner=()
+expect_status zero
+[ -d "$lane" ] || fail 'a lane landed from inside it under a PID namespace with the host /proc, as run-bounded runs it, was removed under its caller'
 
 new_lane_container keep
 run_lane --keep-lane

@@ -1132,7 +1132,7 @@ cleanup_landed_lane() {
 
 # A caller shell runs pwd after safe-push returns; deleting its cwd turns success into exit 1.
 lane_occupants() {
-  local pid=$PPID
+  local pid=$self_pid
   while [ "$pid" -gt 1 ] 2>/dev/null; do
     ! lane_occupied "$1" "$pid" || printf '%s ' "$pid"
     pid=$(awk '/^PPid:/ { print $2 }' "/proc/$pid/status" 2>/dev/null) || return 0
