@@ -7,7 +7,7 @@ drain [until HH:MM] [REASON...]  draining with a 15-minute grace, then unavailab
 toggle                           close when available, else open
 status [--json]                  one line: state, since, until, reason, by, running and queued laptop jobs
 tick                             the window timer: apply window edges and expired words, settle draining
-observe JSON                     apply gaming, GPU, seat-idle and low-battery observations from laptop-auto
+observe JSON                     apply gaming, GPU, seat-idle, sleep and low-battery observations from laptop-auto
 
 A word holds until its `until`, else until the next window edge. Draining becomes unavailable once no laptop job
 is running. Where ~/.config/threads/remote names the ledger host, every command runs there over ssh."""
@@ -200,7 +200,7 @@ def tick():
     edge, target = last_edge(t)
     expired = s and s.get("until") and parse(s["until"]) <= t
     stale = s is None or (not s.get("until") and edge is not None and parse(s["since"]) < edge)
-    if expired or stale:
+    if (expired or stale) and not (s and s["by"] in ("laptop-auto", "laptop tick") and s["reason"] in ("gaming", "sleep", "battery", "drained (battery)")):
         if target is None:
             target = "unavailable"
         if target == "available":
@@ -239,7 +239,7 @@ def status(args):
 def observe(args):
     try:
         sample = json.loads(args[0]) if len(args) == 1 else None
-        if not isinstance(sample, dict) or any(type(sample.get(k)) is not bool for k in ("gaming", "agent_gpu", "battery_low")):
+        if not isinstance(sample, dict) or any(type(sample.get(k)) is not bool for k in ("gaming", "agent_gpu", "sleeping", "battery_low")):
             raise ValueError()
         if sample.get("idle") is not None and type(sample["idle"]) is not bool:
             raise ValueError()
@@ -247,7 +247,7 @@ def observe(args):
         if gpu is not None and (type(gpu) is not int or not 0 <= gpu <= 100):
             raise ValueError()
     except (ValueError, TypeError):
-        die("observe wants gaming/agent_gpu/battery_low booleans, idle boolean or null, gpu_busy integer 0..100 or null")
+        die("observe wants gaming/agent_gpu/sleeping/battery_low booleans, idle boolean or null, gpu_busy integer 0..100 or null")
     t = now()
     path = STATE.with_name(STATE.stem + "-observations.json")
     try:
@@ -262,20 +262,20 @@ def observe(args):
         if active:
             observations[key] = previous.get(key, iso(t))
     gaming = sample["gaming"] or ("gpu" in observations and (t - parse(observations["gpu"])).total_seconds() >= 180)
-    hold = "gaming" if gaming else "battery" if sample["battery_low"] else None
     if not gaming:
         observations["clear"] = previous.get("clear", iso(t))
     s = load()
+    hold = "gaming" if gaming else "sleep" if sample["sleeping"] and s and (s["state"] == "available" or s["reason"] == "sleep") else "battery" if sample["battery_low"] else None
     auto = s and (s["by"] == "laptop-auto" or (s["by"] == "laptop tick" and s["reason"] in ("drained (active)", "drained (battery)")))
     edge, target = last_edge(t)
     in_window = target == "available"
     if s and (s["state"] == "available" or auto):
         if hold:
             if s["reason"] not in (hold, f"drained ({hold})") or not auto:
-                s = write("unavailable" if gaming else "draining", t, hold, "laptop-auto", grace=GRACE["close" if gaming else "drain"])
-        elif auto and s["reason"] in ("gaming", "battery", "drained (battery)"):
-            if ((t - parse(observations["clear"])).total_seconds() >= 600) if s["reason"] == "gaming" else sample.get("battery") is None:
-                s = write("available" if in_window else "unavailable", t, "window", "laptop-auto")
+                s = write("draining" if hold == "battery" else "unavailable", t, hold, "laptop-auto", parse(s["until"]) if s.get("until") else None, GRACE["drain" if hold == "battery" else "close"])
+        elif auto and s["reason"] in ("gaming", "sleep", "battery", "drained (battery)"):
+            if ((t - parse(observations["clear"])).total_seconds() >= 600) if s["reason"] == "gaming" else s["reason"] == "sleep" or sample.get("battery") is None:
+                s = write("available" if in_window or s.get("until", "") > iso(t) else "unavailable", t, "window", "laptop-auto", parse(s["until"]) if s.get("until", "") > iso(t) else None)
         elif in_window and "active" in observations and (t - max(parse(observations["active"]), edge)).total_seconds() >= 300:
             if s["state"] == "available":
                 s = write("draining", t, "active", "laptop-auto", grace=GRACE["drain"])

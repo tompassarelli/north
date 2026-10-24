@@ -14,7 +14,7 @@ const NOTIFY_WAIT: Duration = Duration::from_secs(5);
 const BATTERY_WARNED: &str = "battery-warned";
 const BATTERY_DRAIN_PERCENT: u8 = 30;
 
-pub(crate) fn sample(host: &Host, processes: &[Process], drm: &Path, idle: Option<bool>, battery: Option<u8>) -> Value {
+pub(crate) fn sample(host: &Host, processes: &[Process], drm: &Path, idle: Option<bool>, sleeping: bool, battery: Option<u8>) -> Value {
     let agent_gpu = processes.iter().filter(|process| process.agent_owned()).any(|process| uses_gpu(&host.proc, process.pid));
     let busy = fs::read_dir(drm)
         .into_iter()
@@ -29,6 +29,7 @@ pub(crate) fn sample(host: &Host, processes: &[Process], drm: &Path, idle: Optio
         "agent_gpu": agent_gpu,
         "gpu_busy": busy,
         "idle": idle,
+        "sleeping": sleeping,
         "battery": battery,
         "battery_low": battery_low(battery),
     })
@@ -82,6 +83,13 @@ fn uses_gpu(proc: &Path, pid: i32) -> bool {
         .any(|fd| fs::read_link(fd.path()).is_ok_and(|target| target.starts_with("/dev/dri/")))
 }
 
+fn preparing_for_sleep() -> bool {
+    Command::new("busctl")
+        .args(["get-property", "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "PreparingForSleep"])
+        .output()
+        .is_ok_and(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "b true")
+}
+
 fn seat_idle() -> Option<bool> {
     let output = Command::new("loginctl")
         .args(["show-session", "auto", "-p", "IdleHint", "-p", "Type", "-p", "Active", "-p", "Remote"])
@@ -108,7 +116,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     let drm = std::env::var_os("AGENT_LOAD_DRM").unwrap_or_else(|| "/sys/class/drm".into());
     let power_supply = std::env::var_os("AGENT_LOAD_POWER_SUPPLY").unwrap_or_else(|| "/sys/class/power_supply".into());
     let battery = discharging_percent(Path::new(&power_supply));
-    let sample = sample(&host, &processes, Path::new(&drm), seat_idle(), battery);
+    let sample = sample(&host, &processes, Path::new(&drm), seat_idle(), preparing_for_sleep(), battery);
     if dry {
         println!("{sample}");
         return 0;

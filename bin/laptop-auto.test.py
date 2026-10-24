@@ -21,8 +21,8 @@ def test_recorded_observation_journey(root):
         assert result.returncode == 0, result.stderr
         return json.loads((root / "laptop.json").read_text())
 
-    def observe(minutes, gaming=False, idle=None, gpu_busy=None, agent_gpu=False, battery_low=False):
-        return run(minutes, "observe", json.dumps({"gaming": gaming, "idle": idle, "gpu_busy": gpu_busy, "agent_gpu": agent_gpu, "battery_low": battery_low}))
+    def observe(minutes, gaming=False, idle=None, gpu_busy=None, agent_gpu=False, battery_low=False, sleeping=False):
+        return run(minutes, "observe", json.dumps({"gaming": gaming, "idle": idle, "gpu_busy": gpu_busy, "agent_gpu": agent_gpu, "battery_low": battery_low, "sleeping": sleeping}))
 
     run(0, "open")
     state = observe(0, gaming=True)

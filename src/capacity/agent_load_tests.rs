@@ -158,7 +158,7 @@ fn the_sampler_counts_toms_game_and_never_an_agent_client() {
     let drm = root.path().join("drm");
     fs::create_dir_all(drm.join("card0/device")).unwrap();
     fs::write(drm.join("card0/device/gpu_busy_percent"), "65\n").unwrap();
-    let sample = |idle| super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, idle, None);
+    let sample = |idle| super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, idle, false, None);
     for (comm, gaming) in [("protonmail-bridge", false), ("proton", true)] {
         fixture(&proc, 123, comm, comm, "app.slice/proton-bridge.service", &[]);
         assert_eq!(sample(None)["gaming"], gaming, "{comm}");
@@ -208,7 +208,7 @@ fn the_battle_net_launcher_alone_is_not_gaming_but_a_game_or_gpu_load_is() {
     let prefix = "STEAM_COMPAT_DATA_PATH=/home/tom/.local/share/Steam/steamapps/compatdata/3516115571";
     let sample = |busy: &str| {
         fs::write(drm.join("card0/device/gpu_busy_percent"), format!("{busy}\n")).unwrap();
-        super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, None, None)["gaming"].clone()
+        super::laptop_auto::sample(&host, &agent_load::processes(&host), &drm, None, false, None)["gaming"].clone()
     };
     fixture(&proc, 200, "wineserver", "/proton/files/bin/wineserver", "app.slice/app-steam-1.scope", &[prefix]);
     fixture(&proc, 201, "Battle.net.exe", "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe", "app.slice/app-steam-1.scope", &[prefix]);
