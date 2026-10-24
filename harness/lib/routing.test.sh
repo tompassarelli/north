@@ -150,53 +150,6 @@ print("PASS live measured: live_ctx from a fixture ledger (run_ok success with e
       "latest successor per model) reaches the measured scenario's plan; without its success map t1 falls back to claude:haiku")
 PY
 
-SCRATCH="$(mktemp -d)"
-trap 'rm -rf -- "$SCRATCH"' EXIT
-AGENTS_ORCHESTRATION="$HERE/fixtures/orchestration.toml" CLAUDE_CONFIG_DIR="$SCRATCH" SPAWN_CAPACITY_HOME="$SCRATCH" \
-python3 -I - "$HERE" <<'PY' || fail=1
-import sys, tomllib
-from datetime import datetime, timedelta, timezone
-sys.path[:0] = [sys.argv[1], f"{sys.argv[1]}/../hooks/lib"]
-import routing, spawn_capacity
-cfg = tomllib.load(open(f"{sys.argv[1]}/fixtures/orchestration.toml", "rb"))
-now = datetime.now(timezone.utc)
-verdicts = {}
-QUALIFYING_BRIEF = ("Category: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\n"
-                    "Done when: `bash t.test.sh`\nETA: 15 min\nFiles: harness/t.sh")
-for name in ("codex", "claude:a", "claude:b"):
-    p = name.split(":", 1)[0]
-    for used in (1, 80, 99):
-        week = {"headroom": 100 - used, "window_h": 168, "reset_in": 80, "beta": 0, "as_of": now.isoformat(),
-                "resets_at": (now + timedelta(hours=80)).isoformat()}
-        acct = {"provider": p, "target_left": 15 if p == "codex" else 5, "usd_per_week": 50, "age_min": 5,
-                "windows": {"week": week}}
-        ctx = {"now": now, "accounts": {name: acct}, "billing": {p: {"standard": "plan", "overflow": "blocked"}},
-               "tiers": [{"key": "codex:sol-high" if p == "codex" else f"{p}:t", "account": name, "rank": 0, "start": 0}], "lease": True, "services": [],
-               "projects": {k: dict(v, u=1.0) for k, v in cfg["projects"].items()}, "pace": cfg["pace"]}
-        m = routing.account_metrics(acct, now)
-        reading = routing.ask("gate", ctx=ctx, provider=p)["paces"][name]
-        for project in cfg["projects"]:
-            box = {"id": "b", "project": project, "category": "tooling", "difficulty": 10, "sensitivity": "private", "brief": QUALIFYING_BRIEF}
-            routed = routing.choose(ctx, box)["tier"] is not None
-            hook = spawn_capacity.pace_hold([f"Item: {project}#1"], {"pace": reading}, p, {"agent_id": "w"})[0] is None
-            assert routed == hook, (name, used, m["state"], project, routed, hook)
-            verdicts[(name, used, m["state"], project)] = routed
-over = {(n, pr): v for (n, u, s, pr), v in verdicts.items() if u == 80 and s == "at or over pace"}
-floor = {(n, pr): v for (n, u, s, pr), v in verdicts.items() if u == 99}
-assert floor == {(n, pr): n == "codex" and pr == "galileo" for n in ("codex", "claude:a", "claude:b")
-                 for pr in ("galileo", "north", "smashcraft", "wisp")}, floor
-# Codex paces to Friday 23:59 ET from the wall-clock window start, so its 80% cell may read under pace; Claude's never does.
-expected = {("codex", "galileo"): True, ("codex", "north"): False, ("codex", "smashcraft"): False, ("codex", "wisp"): False,
-                ("claude:a", "galileo"): True, ("claude:a", "north"): True, ("claude:a", "smashcraft"): True, ("claude:a", "wisp"): True,
-                ("claude:b", "galileo"): False, ("claude:b", "north"): False, ("claude:b", "smashcraft"): False,
-                ("claude:b", "wisp"): False}
-assert {n for n, pr in over} >= {"claude:a", "claude:b"} and over == {k: v for k, v in expected.items() if k in over}, over
-under = [v for (n, u, s, pr), v in verdicts.items() if s == "under pace"]
-assert under and all(under), verdicts
-print(f"PASS pace agreement: routing.choose and spawn_capacity.pace_hold agree on {len(verdicts)} cells of the fixture "
-      "orchestration.toml (enforced or not, under or over pace, at the drain floor, drain-granted live target, ungranted target, no target, passed target)")
-PY
-
 python3 -I - "$HERE" <<'PY' || fail=1
 import sys
 sys.path.insert(0, sys.argv[1])

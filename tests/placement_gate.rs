@@ -85,13 +85,13 @@ fn fleet_launch_refuses_off_placement_and_records_the_override_reason() {
     assert!(!cloud.status.success(), "a code-only public box launched locally without --local");
     assert!(said.contains("ssh -tt nexus 'cd /tmp/cloud && claude --cloud \"$(cat cloudy.md)\"'"), "{said}");
     assert!(said.contains("Add the cloud safety line") && said.contains("--local \"<reason>\""), "{said}");
-    assert!(said.contains("claude:c unavailable: runaway: 5h 42%"), "{said}");
+    assert!(said.contains("claude:c unavailable: burning: 5h 86.0%/h > the 50%/h cap"), "{said}");
     assert!(!root.join(".local/state/north/fleet/cloudy").exists(), "the refused launch left a session");
 
-    let runaway = launch(root, "native", WARCRAFT, &["--account", "c"]);
-    let said = String::from_utf8_lossy(&runaway.stderr);
-    assert!(!runaway.status.success(), "a launch onto a runaway account started without --pin");
-    assert!(said.contains("claude:c unavailable: runaway") && said.contains("--account a"), "{said}");
+    let burning = launch(root, "native", WARCRAFT, &["--account", "c"]);
+    let said = String::from_utf8_lossy(&burning.stderr);
+    assert!(!burning.status.success(), "a launch onto an account over its burn cap started without --pin");
+    assert!(said.contains("claude:c unavailable: burning") && said.contains("--account a"), "{said}");
 
     let local = launch(root, "kept", CODE_ONLY, &["--account", "a", "--local", "x"]);
     assert!(local.status.success(), "{}", String::from_utf8_lossy(&local.stderr));

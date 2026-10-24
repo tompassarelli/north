@@ -292,7 +292,7 @@ pub(super) fn cli(args: &[String], roster: fn() -> NorthResult<Roster>) -> Resul
         } else {
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
-        let decision = gate::decide(&text, &cfg, gate::verdicts(&gate, &roster, at), credit(&cfg, at), &machines, &local());
+        let decision = gate::decide(&text, &cfg, gate::verdicts(&gate, &roster), credit(&cfg, at), &machines, &local());
         for line in decision.verdicts.iter().map(|v| &v.line).chain(&decision.machine_lines) {
             println!("  {line}");
         }

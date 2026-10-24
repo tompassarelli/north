@@ -28,7 +28,7 @@ impl Policy {
     }
 
     fn refusal(&self, account: &str, control: &Control, now: f64) -> Option<String> {
-        refusal(account, control, now, self.target(account, now))
+        refusal(account, control, now)
     }
 }
 
@@ -167,25 +167,26 @@ fn deadline_target_admits_spenddown_and_retains_reset_defaults() {
     };
     let under_line = advance(&previous, with_target(vec![native_week(18.0, 4.83)], Some(5), at));
     assert_eq!(under_line.held, Some(true));
-    assert!(policy.refusal("codex", &under_line, at).unwrap().contains("> 100%"));
+    assert_eq!(policy.refusal("codex", &under_line, at), None);
     let above_line = advance(&previous, Reading { target: target.clone(), ..reading(vec![native_week(24.0, 4.83)], Some(5), at) });
     assert_eq!(above_line.held, Some(true));
     let mut ninety_nine = deadline_window(at);
     ninety_nine.used_pct = 99.0;
     let over = advance(&control, Reading { target: target.clone(), ..reading(vec![ninety_nine], Some(2), at + 60.0) });
     assert_eq!(over.held, Some(true));
-    assert!(policy.refusal("codex", &over, at + 60.0).unwrap().contains("99.0%"));
+    assert_eq!(policy.refusal("codex", &over, at + 60.0), None);
     let claude = step(&previous, vec![deadline_window(at)], Some(2), at);
     assert_eq!(claude.held, Some(true));
-    assert!(policy.refusal("claude:c", &claude, at).unwrap().contains("to reset"));
+    assert_eq!(policy.refusal("claude:c", &claude, at), None);
     assert_eq!(policy.target("codex", at + 34.0 * 3600.0), Ok(None));
     let expired_at = at + 34.0 * 3600.0;
     let mut expired = control.clone();
     expired.at = Some(expired_at);
     expired.windows[0].as_of = Some(stamp(expired_at));
-    assert!(policy.refusal("codex", &expired, expired_at).unwrap().contains("to reset"));
+    assert_eq!(policy.refusal("codex", &expired, expired_at), None);
     policy.write("[pace.codex]\nspend_to_pct=90\nby=\"not-a-time\"\n");
-    assert!(policy.refusal("codex", &control, at).unwrap().contains("invalid"));
+    assert!(policy.target("codex", at).is_err());
+    assert_eq!(policy.refusal("codex", &control, at), None);
 }
 
 #[test]
@@ -251,15 +252,48 @@ fn reset_sample(at: f64, used: f64, burn: f64) -> Vec<Window> {
 }
 
 #[test]
-fn exhausted_week_stays_held_without_a_burn_estimate() {
+fn a_held_week_admits_until_the_provider_exhausts_it() {
     let policy = Policy::with("");
     let at = now();
+    let resets = stamp(at + 12.0 * 3600.0);
     for used in [97.0, 99.0] {
-        let resets = stamp(at + 12.0 * 3600.0);
         let control = step(&Control::default(), vec![week(used, None, 12.0, &resets, at)], Some(0), at);
         assert_eq!(control.held, Some(true));
-        assert!(policy.refusal("claude:a", &control, at).unwrap().contains("week"));
+        assert_eq!(policy.refusal("claude:a", &control, at), None);
     }
+    let control = step(&Control::default(), vec![week(100.0, None, 12.0, &resets, at)], Some(0), at);
+    assert_eq!(policy.refusal("claude:a", &control, at).as_deref(), Some("Hold: claude:a exhausted: provider week 100%."));
+}
+
+#[test]
+fn a_spawn_is_refused_only_at_the_five_hour_stop_or_over_the_burn_cap() {
+    let policy = Policy::with("");
+    let at = now();
+    let five = |used: f64, burn: f64| {
+        window(json!({"window": "5h", "used_pct": used, "burn_pct_h": burn, "reset_h": 4.0, "age_s": 0, "as_of": stamp(at)}))
+    };
+    let held = |used: f64, burn: f64| Control {
+        at: Some(at),
+        held: Some(true),
+        workers: Some(9),
+        allowed_workers: Some(0),
+        windows: vec![five(used, burn), week(60.0, Some(1.0), 100.0, &stamp(at + 100.0 * 3600.0), at)],
+        ..Control::default()
+    };
+    assert_eq!(policy.refusal("claude:b", &held(40.0, 30.0), at), None);
+    assert_eq!(
+        policy.refusal("claude:b", &held(20.0, 70.0), at).as_deref(),
+        Some("Hold: claude:b burning: 5h 70.0%/h > the 50%/h cap that keeps the window two hours.")
+    );
+    assert_eq!(policy.refusal("claude:b", &held(96.0, 1.0), at).as_deref(), Some("Hold: claude:b exhausted: 5h 96% >= 95%."));
+    let other = |name: &str, used: f64| Control {
+        at: Some(at),
+        windows: vec![window(json!({"window": name, "used_pct": used, "burn_pct_h": 80.0, "reset_h": 4.0, "age_s": 0, "as_of": stamp(at)}))],
+        ..Control::default()
+    };
+    assert_eq!(policy.refusal("codex", &other("43200m", 99.0), at), None);
+    assert_eq!(policy.refusal("codex", &other("lim:week", 96.0), at), None);
+    assert_eq!(policy.refusal("codex", &other("lim:week", 100.0), at).as_deref(), Some("Hold: codex exhausted: provider lim:week 100%."));
 }
 
 #[test]

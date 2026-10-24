@@ -24,6 +24,10 @@ pub(super) fn claude_target_left() -> f64 {
     default("pace_target_left_claude")
 }
 
+pub(super) fn five_hour_burn_cap() -> f64 {
+    default("five_hour_burn_cap_pct_h")
+}
+
 pub(super) fn week_average_hours() -> f64 {
     default("week_projection_average_h")
 }

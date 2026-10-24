@@ -162,7 +162,7 @@ def line(result, target):
 
 def gate_width(project, concurrency):
     """(width, note): the measured concurrency while the spawn gate admits this project's spawns (CPU and pressure
-    below the capacity gate's limits and at least one account not pace-held), else 1 (queued behind a lease)."""
+    below the capacity gate's limits and at least one account without a usage refusal), else 1 (queued behind a lease)."""
     hooks = LIB.parent / "hooks/lib"
     if str(hooks) not in sys.path:
         sys.path.insert(0, str(hooks))
@@ -172,10 +172,8 @@ def gate_width(project, concurrency):
     accounts = []
     for provider, tool in (("claude", "Agent"), ("codex", "spawn_agent")):
         verdict = spawn_capacity.usage_verdict({"tool_name": tool})
-        for account, pace in (verdict.get("paces") or {}).items():
-            hold = verdict.get("refusal") or spawn_capacity.pace_hold([f"Item: {project}#0"], {"pace": pace}, provider,
-                                                                      {"agent_id": "goal-eta"})[0]
-            accounts.append((account, hold is None))
+        for account in verdict.get("paces") or {}:
+            accounts.append((account, verdict.get("refusal") is None))
     open_accounts = [a for a, ok in accounts if ok]
     width = max(1, concurrency) if cpu and (open_accounts or not accounts) else 1
     return width, f"gate: cpu {'open' if cpu else 'full'}, accounts open {','.join(open_accounts) or 'none'}"

@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 pub(crate) mod admission;
 pub(crate) mod control;
+pub(crate) mod exhaustion;
 pub(crate) mod limits;
 pub(crate) mod target;
 #[cfg(test)]
@@ -41,10 +42,6 @@ enum Request {
         throttled: bool,
         retry_after: f64,
     },
-    WeekCeiling {
-        window: Window,
-        target: Option<Target>,
-    },
     TargetFor {
         account: String,
         at: f64,
@@ -78,12 +75,7 @@ fn answer(request: Request) -> Result<Value, String> {
             account,
             control,
             now,
-        } => json!(admission::refusal(
-            &account,
-            &control,
-            now,
-            target::target_for(&account, now)
-        )),
+        } => json!(admission::refusal(&account, &control, now)),
         Request::Interval {
             previous,
             elapsed,
@@ -97,7 +89,6 @@ fn answer(request: Request) -> Result<Value, String> {
                 retry_after
             ))
         }
-        Request::WeekCeiling { window, target } => json!(window.ceiling(target.as_ref())),
         Request::TargetFor { account, at } => json!(target::target_for(&account, at)?),
     })
 }

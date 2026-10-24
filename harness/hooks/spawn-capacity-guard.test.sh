@@ -7,10 +7,9 @@
 # decider denies the same way. Fleet task references provide project attribution
 # for the priority headroom rule.
 # A fresh usage-gate.json refusal (firn#12 money gate) denies with its own text.
-# Pace hold: an account at or over its pace line holds a spawn whose project has
-# no open target once now passes its [pace] enforce_from, warns before it, and a stale
-# readout only warns; a root Fleet session is only warned, and a signed-in Claude
-# spawn reads its account label, the account it bills.
+# No pace hold: an account at or over its pace line with no target or drain grant
+# admits the spawn; only the money refusal and the reservation cap hold it, and a
+# signed-in Claude spawn reads its account label, the account it bills.
 set -uo pipefail
 if [ "${1:-}" != --isolated ]; then
   # shellcheck source-path=SCRIPTDIR source=../lib/tree-north.sh
@@ -227,57 +226,10 @@ target = 2999-12-01
 enforce_from = { "claude:b" = "2000-01-01T00:00:00Z", "claude:a" = "2999-01-01T00:00:00Z" }
 TOML
 over='{"account":"claude:b","state":"at or over pace","used_pct":97.0,"pace_pct":56.8,"stale":null}'
-held='Hold: claude:b is at or over its pace line (used 97.0% vs pace 56.8%); firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
-warned="warning only, nothing blocked: ${held#Hold: }"
 pace "$over"
-printf '[{"name":"proxy","conversation":"s","provider":"claude","account":"a","parent":null,"status":"working"}]\n' >"$FLEET_JSON"
-expect_said "$(agent '{"subagent_type":"Explore","prompt":"Find where X is defined"}')" "allow|${warned/firn/this project}" \
-  'enforced pace hold: a root Fleet spawn with no Item is only warned'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19\nFix it."}')" "deny|$held" 'enforced pace hold: at or over pace, no target denies with the exact text'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: north#35"}')" "deny|${held/firn/north}" 'enforced pace hold: a target in the past no longer exempts'
-printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s,"paces":{"claude:a":%s,"claude:b":%s}}}\n' "$(date +%s)" \
-  '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' "${over/claude:b/claude:a}" \
-  '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}' >"$GATE"
-CALL_ENV=(CLAUDE_CONFIG_DIR=$SCRATCH/home)
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|${warned/claude:b/claude:a}" \
-  'a fixture-primary Claude spawn reads claude:a, the account it bills, not the routed claude:b'
-pace "$over"
-CALL_ENV=()
-printf '[{"name":"mu","conversation":"s","task_ref":"galileo#9","status":"working"}]\n' >"$FLEET_JSON"
-expect_said "$(agent "$worker")" 'allow|' 'enforced pace hold: Fleet resolves galileo with a live target and drain grant'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"CASE=URGENT FACT=\"main red blocks every landing\"\nItem: firn#19"}')" 'allow|' 'enforced pace hold: CASE=URGENT passes'
-pace '{"account":"claude:b","state":"under pace","used_pct":40.0,"pace_pct":56.8,"stale":null}'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|' 'enforced pace hold: under pace passes'
-pace '{"account":"claude:a","state":"at or over pace","used_pct":61.0,"pace_pct":24.0,"stale":null}'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: smashcraft#7"}')" \
-  'allow|warning only, nothing blocked: claude:a is at or over its pace line (used 61.0% vs pace 24.0%); smashcraft has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' \
-  'before enforce_from the pace hold only warns'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: hellfire#3"}')" \
-  'allow|warning only, nothing blocked: claude:a is at or over its pace line (used 61.0% vs pace 24.0%); hellfire has an open target (2999-12-01) but no drain grant for claude:a. Queue it, or ask Tom through the proxy for a drain grant.' \
-  'an open target without a drain grant for the account names the missing grant, not a missing deadline'
-pace '{"account":"claude:b","stale":"account claude:b STALE: usage 45 minutes old; run agents usage --refresh"}'
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" 'allow|warning only, nothing blocked: account claude:b STALE: usage 45 minutes old; run agents usage --refresh' \
-  'a stale readout never holds and prints the stale warning'
-pace "$over"
+printf '[{"name":"mu","conversation":"s","task_ref":"firn#19","status":"working"}]\n' >"$FLEET_JSON"
+expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19\nFix it."}')" 'allow|' 'an enforced at-or-over-pace reading with no target or drain grant never holds a spawn'
 printf '[]\n' >"$FLEET_JSON"
-CALL_ENV=(CLAUDE_CODE_ENTRYPOINT=cli)
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "allow|$warned" \
-  "Tom's top-level interactive Claude session is only warned"
-CALL_ENV=()
-printf '{"codex":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "${over//claude:b/codex}" >"$GATE"
-sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
-expect_said '{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Item: firn#19\nFix it."}}' \
-  "deny|${held//claude:b/codex}" 'a Codex spawn at its drain floor is held' "$HERE/codex-behavior-guard.sh"
-printf '[{"name":"galileo","conversation":"019a-galileo-thread","task_ref":"galileo#9","status":"working"},{"name":"smashcraft","conversation":"019a-smashcraft-thread","task_ref":"smashcraft#7","status":"working"}]\n' >"$FLEET_JSON"
-expect_said '{"session_id":"019a-galileo-thread","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Box the land check."}}' \
-  'allow|' "a Fleet session with no Item resolves galileo from its task reference and its drain-granted target admits it" "$HERE/codex-behavior-guard.sh"
-sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2999-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
-expect_said '{"session_id":"019a-smashcraft-thread","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Box the fighter."}}' \
-  'allow|warning only, nothing blocked: codex is at or over its pace line (used 97.0% vs pace 56.8%); smashcraft has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' \
-  "a Fleet session's spawn before enforce_from says the warning blocked nothing" "$HERE/codex-behavior-guard.sh"
-pace "$over"
-sed -i 's/^enforce_from = .*/enforce_from = { "claude:b" = 2000-01-01 }/' "$SCRATCH/orchestration.toml"
-expect_said "$(agent '{"subagent_type":"worker","prompt":"Item: firn#19"}')" "deny|$held" 'a date-only enforce_from holds from that date'
 CALL_ENV=()
 gate null
 
@@ -386,15 +338,12 @@ PY
 CALL_ENV=("THREADS_DB=$SCRATCH/reservation.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
 reserved_worker='{"subagent_type":"worker","model":"opus","effort":"medium","prompt":"Item: firn#19"}'
 reserve_gate() {
-  python3 - "$GATE" "$1" "$2" <<'PY'
+  python3 - "$GATE" "$1" <<'PY'
 import json, sys, time
 from pathlib import Path
-used, rule = float(sys.argv[2]), sys.argv[3]
 row = {"epoch": time.time(), "stale_min": 30, "refusal": None,
-       "pace": {"account": "claude:b", "state": "under pace", "used_pct": 40, "pace_pct": 99, "stale": None}}
-row["accounts" if rule == "account" else "paces"] = {"claude:a":
-    {"used_pct": used, "cap_pct": 88} if rule == "account" else
-    {"account": "claude:a", "state": "under pace", "used_pct": used, "pace_pct": 88, "stale": None}}
+       "pace": {"account": "claude:b", "state": "under pace", "used_pct": 40, "pace_pct": 99, "stale": None},
+       "accounts": {"claude:a": {"used_pct": float(sys.argv[2]), "cap_pct": 88}}}
 Path(sys.argv[1]).write_text(json.dumps({"claude": row}))
 PY
 }
@@ -442,55 +391,33 @@ meter_gate 88.536 1
 expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 88.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 92%.' \
   'monetary overflow measured reserve plus next crossing 92% refuses'
 mv "$SCRATCH/orchestration.before-plan-stop.toml" "$SCRATCH/orchestration.toml"
-for rule in account pace; do
-  reserve_gate 84.535 "$rule"
-  expect_said "$(agent "$reserved_worker")" 'allow|' "$rule reserve: reading plus 32 in flight and next exactly fits"
-  reserve_gate 84.536 "$rule"
-  wanted="Hold: claude:a used 84.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 88%."
-  if [ "$rule" = pace ]; then
-    wanted='Hold: claude:a used 84.536% + reserve 3.36 points (32 in flight) + next 0.105 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
-  fi
-  expect_said "$(agent "$reserved_worker")" "deny|$wanted" "$rule reserve: prospective spend plus existing work crosses cap"
-done
+reserve_gate 84.535
+expect_said "$(agent "$reserved_worker")" 'allow|' "account reserve: reading plus 32 in flight and next exactly fits"
+reserve_gate 84.536
+wanted="Hold: claude:a used 84.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 88%."
+expect_said "$(agent "$reserved_worker")" "deny|$wanted" "account reserve: prospective spend plus existing work crosses cap"
 python3 - "$SCRATCH/reservation.db" <<'PY'
 import sqlite3, sys
 with sqlite3.connect(sys.argv[1]) as db:
     db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
                ("expensive", "high", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .2))
 PY
-for rule in account pace; do
-  reserve_gate 81.495 "$rule"
-  expect_said "$(agent "$reserved_worker")" 'allow|' "$rule reserve: a cheaper prospective worker retains the higher measured in-flight reserve"
-  reserve_gate 81.496 "$rule"
-  wanted="Hold: claude:a used 81.496% + reserve 6.4 points (32 in flight) + next 0.105 points > cap 88%."
-  if [ "$rule" = pace ]; then
-    wanted='Hold: claude:a used 81.496% + reserve 6.4 points (32 in flight) + next 0.105 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
-  fi
-  expect_said "$(agent "$reserved_worker")" "deny|$wanted" "$rule reserve: existing expensive work cannot be priced as the cheaper next worker"
-done
-for rule in account pace; do
-  reserve_gate 81.399 "$rule"
-  expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier uses largest calibrated mean below fallback boundary"
-  reserve_gate 81.4 "$rule"
-  if [ "$rule" = account ]; then
-  expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier refuses at calibrated fallback boundary"
-  else
-    expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unsampled next tier exactly fits calibrated pace boundary"
-  fi
-done
+reserve_gate 81.495
+expect_said "$(agent "$reserved_worker")" 'allow|' "account reserve: a cheaper prospective worker retains the higher measured in-flight reserve"
+reserve_gate 81.496
+wanted="Hold: claude:a used 81.496% + reserve 6.4 points (32 in flight) + next 0.105 points > cap 88%."
+expect_said "$(agent "$reserved_worker")" "deny|$wanted" "account reserve: existing expensive work cannot be priced as the cheaper next worker"
+reserve_gate 81.399
+expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: unsampled next tier uses largest calibrated mean below fallback boundary"
+reserve_gate 81.4
+expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: unsampled next tier refuses at calibrated fallback boundary"
 python3 - "$SCRATCH/reservation.db" <<'PYFIX'
 import sqlite3, sys
 with sqlite3.connect(sys.argv[1]) as db:
     db.execute("DELETE FROM runs")
 PYFIX
-for rule in account pace; do
-  reserve_gate 87.999 "$rule"
-  if [ "$rule" = account ]; then
-  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: unpriced calibration stops capped admission"
-  else
-    expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: unpriced calibration stops capped admission"
-  fi
-done
+reserve_gate 87.999
+expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: unpriced calibration stops capped admission"
 CALL_ENV=("THREADS_DB=$SCRATCH/absent.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
 python3 - "$GATE" <<'PYGATE'
 import json, sys, time
@@ -503,30 +430,16 @@ sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2000-01-01T00:00:00Z" }
 codex_unavailable='{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"model":"gpt-6.1-sol","reasoning_effort":"medium","message":"Item: firn#19"}}'
 unavailable_warning='warning only, nothing blocked: codex reservation unavailable: no ledger-measured points per run.'
 expect_said "${codex_unavailable/Item: firn#19/CASE=URGENT FACT=\\\"main red blocks every landing\\\" Item: firn#19}" "allow|$unavailable_warning" 'unavailable Codex 7% account cap 92% pace 2.56% URGENT admits' "$HERE/codex-behavior-guard.sh"
-expect_said "${codex_unavailable/firn#19/galileo#19}" "allow|$unavailable_warning" 'unavailable Codex above pace admits a drain-granted target' "$HERE/codex-behavior-guard.sh"
-pace_unavailable='codex is at or over its pace line (used 7.0% vs pace 2.6%); firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.'
-expect_said "$codex_unavailable" "deny|Hold: $pace_unavailable" 'unavailable Codex above pace enforces the owning hold' "$HERE/codex-behavior-guard.sh"
-sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2999-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
-expect_said "$codex_unavailable" "allow|$unavailable_warning $pace_unavailable" 'unavailable Codex above pace warns before enforce_from' "$HERE/codex-behavior-guard.sh"
+expect_said "$codex_unavailable" "allow|$unavailable_warning" 'unavailable Codex above pace with no target or grant admits with only the reservation warning' "$HERE/codex-behavior-guard.sh"
 sed -i 's/^enforce_from = .*/enforce_from = { "claude:a" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
-for rule in account pace; do
-  reserve_gate 5 "$rule"
-  expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: missing ledger far below cap warns"
-  reserve_gate 54.999 "$rule"
-  expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default one point per running and new worker allows below boundary"
-  reserve_gate 55 "$rule"
-  if [ "$rule" = account ]; then
-  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default reserve refuses at boundary"
-  else
-    expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: default reserve refuses at boundary"
-  fi
-  reserve_gate 87.999 "$rule"
-  if [ "$rule" = account ]; then
-  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "$rule reserve: missing ledger stops capped admission"
-  else
-    expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: missing ledger stops capped admission"
-  fi
-done
+reserve_gate 5
+expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: missing ledger far below cap warns"
+reserve_gate 54.999
+expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: default one point per running and new worker allows below boundary"
+reserve_gate 55
+expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: default reserve refuses at boundary"
+reserve_gate 87.999
+expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: missing ledger stops capped admission"
 mkdir -p "$SCRATCH/home/.config/threads"
 printf 'fixture-host\n' >"$SCRATCH/home/.config/threads/remote"
 cat >"$SCRATCH/bin/ssh" <<SH
@@ -543,18 +456,12 @@ for present in missing stale; do
     cp "$SCRATCH/initial-reservation.db" "$SCRATCH/home/.local/state/threads/snapshot.db"
     touch -d @0 "$SCRATCH/home/.local/state/threads/snapshot.db"
   fi
-  for rule in account pace; do
-    : >"$SCRATCH/ssh-calls"; rm -f "$SCRATCH/home/.local/state/threads/snapshot.db.tried"
-    reserve_gate 5 "$rule"
-    expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "$rule reserve: $present snapshot far below cap warns"
-    reserve_gate 87.999 "$rule"
-    if [ "$rule" = account ]; then
-    expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "$rule reserve: $present snapshot stops capped admission"
-    else
-      expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 87.999% + reserve 32 points (32 in flight) + next 1 points > pace 88%; firn has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal.' "$rule reserve: $present snapshot stops capped admission"
-    fi
-    [ "$(wc -l <"$SCRATCH/ssh-calls")" -eq 1 ] && check ok "$rule reserve: $present snapshot refresh attempted once" || check bad "$rule reserve: $present snapshot refresh attempted once" "$(cat "$SCRATCH/ssh-calls")"
-  done
+  : >"$SCRATCH/ssh-calls"; rm -f "$SCRATCH/home/.local/state/threads/snapshot.db.tried"
+  reserve_gate 5
+  expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "account reserve: $present snapshot far below cap warns"
+  reserve_gate 87.999
+  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "account reserve: $present snapshot stops capped admission"
+  [ "$(wc -l <"$SCRATCH/ssh-calls")" -eq 1 ] && check ok "account reserve: $present snapshot refresh attempted once" || check bad "account reserve: $present snapshot refresh attempted once" "$(cat "$SCRATCH/ssh-calls")"
 done
 gate null
 expect_said "$(agent "$reserved_worker")" 'allow|' 'uncapped admission retains its empty output with unavailable calibration'

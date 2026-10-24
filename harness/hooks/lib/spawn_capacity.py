@@ -21,14 +21,6 @@ the constraint; it holds an agent lease, which charges memory only.
 Fleet sessions carry their parent link and task reference. A task reference in a
 project below the first in orchestration.toml's [projects] priority order stops at
 (1 - PRIORITY_HEADROOM) of the CPU limit.
-
-Pace hold: usage-gate.json carries routing's pace reading per account. The hold reads the account this session
-bills (the catalog's host-to-account map for the spawned provider, else the routed reading); at or over pace, a
-spawn whose project (brief `Item: repo#N`, else the Fleet session task reference) has no live target with a `drain` grant for the account
-in orchestration.toml (`north pace` op drain, the rule `agents plan` routes by) is held from
-the account's `[pace] enforce_from` time (a date means its UTC midnight) and warned before it, except that an account
-at its drain floor (week headroom at or below its target_left, as `north pace` reads it) holds before it too. Tom's top-level
-interactive Claude session and a spawn with neither an Item nor a Fleet task reference are only warned. A stale readout only warns.
 """
 
 import json
@@ -276,9 +268,6 @@ def usage_verdict(event, grant=None):
     return verdict
 
 
-ITEM = re.compile(r"(?mi)^\W*Item:\s*(?:[\w-]+/)?([\w.-]+)#\d+")
-
-
 def fleet_session(event):
     session = (event or {}).get("session_id")
     if not session:
@@ -369,71 +358,6 @@ def account_reservation(event, verdict, provider, expected, in_flight, existing)
     return None
 
 
-def pace_hold(texts, verdict, provider="claude", event=None, expected=0.0, in_flight=0, existing=None):
-    """(refusal, warning) for a spawn on an account at or over its pace line whose project has no open target with
-    Tom's drain grant for that account (`north pace` op drain). The account holds from its `[pace] enforce_from` time
-    in orchestration.toml and only warns before it or without one."""
-    from datetime import datetime, timezone
-    paces = verdict.get("paces") if isinstance(verdict.get("paces"), dict) else {}
-    pace = paces.get(billed_account(provider)) or verdict.get("pace")
-    if not isinstance(pace, dict):
-        return None, None
-    if pace.get("stale"):
-        return None, NOT_BLOCKED + str(pace["stale"])
-    used, cap = number(pace.get("used_pct")), number(pace.get("pace_pct"))
-    north_lib()
-    from usage import reservation_stop
-    reserved = used is not None and cap is not None and expected > 0 and reservation_stop(used, cap, expected, in_flight, existing)
-    if pace.get("state") != "at or over pace" and not reserved:
-        return None, None
-    if any(re.search(r"\bCASE=URGENT\b", text) for text in texts) or urgent_file_fact(texts):
-        return None, None
-    match = next((m for m in map(ITEM.search, texts) if m), None)
-    project = match.group(1).lower() if match else fleet_domain(event)
-    try:
-        import tomllib
-        with open(orchestration_path(), "rb") as f:
-            cfg = tomllib.load(f)
-    except (OSError, ValueError):
-        return None, None
-    projects = {k.lower(): v for k, v in cfg.get("projects", {}).items() if isinstance(v, dict)}
-    account = str(pace.get("account"))
-    target = projects.get(project, {}).get("target") if project else None
-    missing = "has no approved deadline. Queue it, or ask Tom through the proxy for a dated goal."
-    try:
-        north_lib()
-        import routing
-        opened = routing.ask("drain", project=projects.get(project, {}), account=account, now=datetime.now(timezone.utc)) if project else {}
-        if opened.get("drain_open"):
-            return None, None
-        if opened.get("target_open"):
-            missing = (f"has an open target ({target}) but no drain grant for {account}. Queue it, or ask Tom "
-                       "through the proxy for a drain grant.")
-    except (ImportError, OSError, StopIteration, ValueError, subprocess.SubprocessError):
-        pass
-    line = (f"Hold: {account} is at or over its pace line (used {number(pace.get('used_pct')) or 0:.1f}% vs pace "
-            f"{number(pace.get('pace_pct')) or 0:.1f}%); {project or 'this project'} {missing}")
-    if reserved and pace.get("state") != "at or over pace":
-        line = (f"Hold: {account} used {used:g}% + reserve {(expected if existing is None else existing) * in_flight:g} points "
-                f"({in_flight} in flight) + next {expected:g} points > pace {cap:g}%; "
-                f"{project or 'this project'} {missing}")
-    start = (cfg.get("pace") or {}).get("enforce_from", {}).get(account)
-    try:
-        start = start if isinstance(start, datetime) else datetime.fromisoformat(str(start).replace("Z", "+00:00"))
-        enforced = datetime.now(timezone.utc) >= (start if start.tzinfo else start.replace(tzinfo=timezone.utc))
-    except (ValueError, TypeError):
-        enforced = False
-    proxy = (event or {}).get("tool_name") == "Agent" and not event.get("agent_id") \
-        and os.environ.get("CLAUDE_CODE_ENTRYPOINT") == "cli" and fleet_session(event) is None
-    if pace.get("exhausted") and not enforced:
-        line = (f"Hold: {account} is at its drain floor (used {number(pace.get('used_pct')) or 0:.1f}%); "
-                f"{project or 'this project'} has no drain grant for it. Spawn on another account, or ask Tom through "
-                "the proxy for a drain grant.")
-    if (enforced or pace.get("exhausted")) and project and not proxy:
-        return line, None
-    return None, NOT_BLOCKED + line.removeprefix("Hold: ")
-
-
 def flow_gate(event, texts):
     tool = str(event.get("tool_name") or "")
     tool_input = event.get("tool_input") or {}
@@ -475,43 +399,6 @@ def flow_gate(event, texts):
 def check(event):
     """The refusal text for this spawn, or None to allow it."""
     return evaluate(event)[0]
-
-
-def agents_state():
-    home = os.environ.get("SPAWN_CAPACITY_HOME")
-    return (Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))) / "agents"
-
-
-def refusal_eta(event, reason):
-    north_lib()
-    from datetime import datetime
-    now = time.time()
-    retry = pace_call("interval", previous=0, elapsed=0, throttled=False, retry_after=0)
-    if not reason.startswith("Hold:"):
-        holding = (capacity_probe(("status",)) or {}).get("holding") or []
-        ends = [now + h["remainingSeconds"] for h in holding if isinstance(h, dict) and h.get("kind") == "run"
-                and number(h.get("remainingSeconds")) is not None]
-        return max(now, min(ends)) if ends else now + retry
-    provider = "claude" if event.get("tool_name") == "Agent" else "codex"
-    name = billed_account(provider) or provider
-    try:
-        verdict = json.loads((agents_state() / "usage-gate.json").read_text())[provider]
-        controls = verdict.get("controls") or {}
-        control = controls.get(name) or controls.get(provider) or {}
-        windows = control.get("windows") or (verdict.get("projections") or {}).get(name) or []
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return now + retry
-    sampled = number(control.get("at"))
-    fallback = sampled + retry if sampled is not None and sampled + retry > now else now + retry
-    resets = []
-    for w in windows:
-        try:
-            if (number(w.get("projected_pct")) or 0) > 100 or \
-                    w.get("window") == "week" and w["used_pct"] >= pace_call("week_ceiling", window=w, target=None):
-                resets.append(datetime.fromisoformat(w["resets_at"].replace("Z", "+00:00")).timestamp())
-        except (ValueError, KeyError, TypeError, AttributeError):
-            pass
-    return max(fallback, max(resets)) if resets else fallback
 
 
 def evaluate(event):
@@ -558,13 +445,6 @@ def evaluate_spawn(event):
         if hold:
             log_denial(event, "projection", hold)
             return hold, None
-    for window in ((verdict.get("projections") or {}).get(name, []) if not verdict.get("pace_control") and not grant else []):
-        if not 0 <= window["age_s"] <= 120:
-            return f"Hold: {name} {window['window']} usage is {window['age_s']:.0f}s old after refresh; needs <=120s.", None
-        if window["projected_pct"] is not None and window["projected_pct"] > 100:
-            return (f"Hold: {name} {window['window']} used {window['used_pct']:.1f}% + burn "
-                    f"{window['burn_pct_h']:.2f}%/h x {window['reset_h']:.2f}h to reset = "
-                    f"{window['projected_pct']:.1f}% > 100%."), None
     def admitted(warning=None):
         if verdict.get("pace_control") or grant:
             home = os.environ.get("SPAWN_CAPACITY_HOME")
@@ -583,9 +463,8 @@ def evaluate_spawn(event):
     if unavailable:
         name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
         account = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
-        pace = (verdict.get("paces") or {}).get(name) or verdict.get("pace") or {}
         used, cap = number(account.get("used_pct")), number(account.get("cap_pct"))
-        if cap is not None or number(pace.get("pace_pct")) is not None:
+        if cap is not None:
             hold = f"Hold: {name} reservation unavailable: {unavailable}."
             fallback = existing if existing is not None else DEFAULTS["reservation_fallback_points"]
             in_flight = local_workers(provider)
@@ -600,12 +479,7 @@ def evaluate_spawn(event):
     if hold:
         log_denial(event, "account", hold)
         return hold, None
-    hold, warning = (None, None) if grant else pace_hold(texts, verdict, provider, event, expected, in_flight, existing)
-    if hold:
-        log_denial(event, "pace", hold)
-    if unavailable_warning:
-        warning = unavailable_warning + (" " + warning.removeprefix(NOT_BLOCKED) if warning else "")
-    return (hold, warning) if hold else admitted(warning)
+    return admitted(unavailable_warning)
 
 
 def capacity_refusal(event, texts):

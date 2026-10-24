@@ -139,7 +139,7 @@ per-run ETA for briefs. `threads calibrate` writes a `box` row (walk-forward act
 since a chain mixes providers), applied once it holds `box_calibration_n` (200) chains. Boxes depend on each other
 through `depends on box N` / `after #N` lines and GitHub blockedBy, and are otherwise independent. Width is the
 measured peak of parallel landed workers while the spawn gate admits the project (capacity under its CPU and pressure
-limits, at least one account not pace-held), else 1. A chain ends at its landing, so no landing overhead is added.
+limits, at least one account without a usage refusal), else 1. A chain ends at its landing, so no landing overhead is added.
 Every run appends a `goal_eta` calibration row through `threads calibrate --write --goal-row`; `agents plan --score`
 appends a `goal_actual` row (actual/predicted) once the goal's issues are closed; `agents report` shows the newest of
 each. `agents flow` raises the projected-miss decision only when the newest `goal_eta` prediction for the current

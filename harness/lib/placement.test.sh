@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Claude-only placement through `agents plan --place`: the cloud credit for code-only public boxes
 # until it expires or a readout records it spent, then the Claude account with the most headroom,
-# skipping exhausted and runaway accounts. Pace lines and weekly projections never hold.
+# skipping accounts at the 5h stop or over the 5h burn cap. Pace lines and weekly projections never hold.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
@@ -64,10 +64,10 @@ expect "private repository stays here" "here claude:c" "$(place $before private)
 expect "undeclared surface stays here" "here claude:c" "$(place $before undeclared)"
 expect "claude:a at 96% 5h is unavailable" "claude:a unavailable" "$(verdict $before claude:a)"
 gate 35 10 42 86
-expect "claude:c burning 86%/h with 4h to reset is runaway" "claude:c unavailable" "$(verdict $before claude:c)"
-expect "runaway claude:c places on claude:a, whose pace line never holds" "here claude:a" "$(place $before native)"
+expect "claude:c burning 86%/h is over the 50%/h cap" "claude:c unavailable" "$(verdict $before claude:c)"
+expect "claude:c over the burn cap places on claude:a, whose pace line never holds" "here claude:a" "$(place $before native)"
 gate 99 1 96 1
-expect "every account exhausted: held" "held: every Claude account exhausted or runaway" "$(place $before native)"
+expect "every account exhausted: held" "held: every Claude account exhausted or over its burn cap" "$(place $before native)"
 
 line="$(HOME="$scratch/home" AGENTS_ORCHESTRATION="$scratch/op/orchestration.toml" AGENTS_OPERATOR_DIR="$scratch/op" XDG_STATE_HOME="$scratch/state" \
   PLACEMENT_NOW=$before "$root/bin/agents" plan --credit)"

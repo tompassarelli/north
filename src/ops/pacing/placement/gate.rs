@@ -1,20 +1,18 @@
 //! Claude-only launch placement for `north fleet launch`: the cloud credit first for code-only public
 //! work, then the Claude account with the most headroom, run on the first machine in `[placement] order`
-//! that serves every local need of the box and is below its resident cap, else here. Pace lines and
-//! weekly projections never hold a launch; an account is out when its controller reports it held or over,
-//! a window is exhausted or it is burning away.
+//! that serves every local need of the box and is below its resident cap, else here. Pace lines, weekly
+//! projections and the controller's held or over never hold a launch; an account is out only by the
+//! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
 use super::{credit, facets, field, local, resident, signed_in, strings};
 use crate::fleet::model::ProviderName;
+use crate::pace::exhaustion;
 use crate::fleet::roster::{Roster, Standing};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
 
-const FIVE_HOUR_CEILING: f64 = 95.0;
-const WEEK_CEILING: f64 = 100.0;
-const RUNAWAY_HORIZON_H: f64 = 2.0;
 const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "smashcraft"];
 const LOCAL_NEEDS: [&str; 12] = [
     "warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop",
@@ -130,37 +128,15 @@ impl Decision {
     }
 }
 
-fn hours_to_reset(window: &Value, at: f64) -> f64 {
-    window["resets_at"]
-        .as_str()
-        .and_then(target::seconds)
-        .map(|reset| ((reset - at) / 3600.0).max(0.0))
-        .or_else(|| window["reset_h"].as_f64())
-        .unwrap_or(0.0)
-}
-
-fn window_refusal(window: &Value, at: f64) -> Option<String> {
+fn window_refusal(window: &Value) -> Option<String> {
     let name = window["window"].as_str().unwrap_or("window");
-    let used = window["used_pct"].as_f64()?;
-    let ceiling = if name == "week" { WEEK_CEILING } else { FIVE_HOUR_CEILING };
-    if used >= ceiling {
-        return Some(format!("exhausted: {name} {used:.0}% >= {ceiling:.0}%"));
-    }
-    let burn = window["burn_pct_h"].as_f64().unwrap_or(0.0).max(0.0);
-    let horizon = hours_to_reset(window, at).min(RUNAWAY_HORIZON_H);
-    let projected = used + burn * horizon;
-    (projected > 100.0).then(|| {
-        format!("runaway: {name} {used:.0}% + {burn:.1}%/h x {horizon:.1}h = {projected:.0}% > 100% before reset")
-    })
+    exhaustion::refusal(name, window["used_pct"].as_f64()?, window["burn_pct_h"].as_f64())
 }
 
 fn headroom(windows: &[Value]) -> f64 {
     windows
         .iter()
-        .filter_map(|w| {
-            let used = w["used_pct"].as_f64()?;
-            Some(if w["window"] == "week" { WEEK_CEILING - used } else { FIVE_HOUR_CEILING - used })
-        })
+        .filter_map(|w| exhaustion::headroom(w["window"].as_str()?, w["used_pct"].as_f64()?))
         .min_by(f64::total_cmp)
         .unwrap_or(0.0)
 }
@@ -173,18 +149,12 @@ fn usage(windows: &[Value]) -> String {
         .join(", ")
 }
 
-pub(crate) fn verdict(account: &str, control: &Value, at: f64) -> Verdict {
+pub(crate) fn verdict(account: &str, control: &Value) -> Verdict {
     let windows = rows(&control["windows"]);
-    if control["over"] == true {
-        return unavailable(account, "over: pace controller reports the account over its window".into());
-    }
-    if control["held"] == true {
-        return unavailable(account, "held: pace controller spawn hold".into());
-    }
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
         return unavailable(account, "no live quota sample".into());
     }
-    if let Some(reason) = windows.iter().find_map(|w| window_refusal(w, at)) {
+    if let Some(reason) = windows.iter().find_map(window_refusal) {
         return unavailable(account, reason);
     }
     let room = headroom(windows);
@@ -337,14 +307,14 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
         .collect()
 }
 
-pub(crate) fn verdicts(gate: &Value, roster: &Roster, at: f64) -> Vec<Verdict> {
+pub(crate) fn verdicts(gate: &Value, roster: &Roster) -> Vec<Verdict> {
     let claude = ProviderName::new("claude");
     claude_controls(gate)
         .into_iter()
         .map(|(name, control)| match roster.standing(&claude, name.trim_start_matches("claude:")) {
-            Standing::Listed(_) => verdict(&name, control, at),
+            Standing::Listed(_) => verdict(&name, control),
             Standing::Duplicate(duplicate) => unavailable(&name, duplicate.to_string()),
-            Standing::Foreign(foreign) => Verdict { owners: foreign.owners.clone(), ..verdict(&name, control, at) },
+            Standing::Foreign(foreign) => Verdict { owners: foreign.owners.clone(), ..verdict(&name, control) },
             Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
         .collect()
@@ -375,7 +345,7 @@ pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, cred
     } else if decision.verdicts.is_empty() {
         Target::Held("no live Claude quota in usage-gate.json; run pace-control".into())
     } else {
-        Target::Held("every Claude account exhausted or runaway".into())
+        Target::Held("every Claude account exhausted or over its burn cap".into())
     };
     match machine {
         Some(machine) if matches!(decision.target, Target::Account(_)) => decision.machine = Some(machine),
@@ -409,7 +379,7 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Rost
         .unwrap_or_else(storage::now);
     let gate = load(&storage::directory().join("usage-gate.json"));
     let machines = probed(&cfg, fleet_load);
-    let mut decision = decide(text, &cfg, verdicts(&gate, roster, at), credit(&cfg, at), &machines, &local());
+    let mut decision = decide(text, &cfg, verdicts(&gate, roster), credit(&cfg, at), &machines, &local());
     if let Some(name) = named {
         let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
         decision.run_on(machine);

@@ -4,7 +4,7 @@ use crate::ops::pacing::placement::gate::{self as placement, Verdict};
 fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
     let line = match headroom {
         Some(room) => format!("{account} available: 5h {:.0}% ({room:.0}% headroom)", 95.0 - room),
-        None => format!("{account} unavailable: runaway: 5h 42% + 86.0%/h x 2.0h = 214% > 100% before reset"),
+        None => format!("{account} unavailable: burning: 5h 86.0%/h > the 50%/h cap that keeps the window two hours"),
     };
     Verdict { account: account.into(), available: headroom.is_some(), headroom: headroom.unwrap_or(0.0), line, owners: Vec::new() }
 }
@@ -35,7 +35,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
 
     assert_eq!(admit(&local, &launch("a"), "", &Overrides::default()), noted(None));
     let refused = admit(&local, &launch("c"), "", &Overrides::default()).unwrap_err();
-    assert!(refused.starts_with("claude:c unavailable: runaway") && refused.contains("--account a"), "{refused}");
+    assert!(refused.starts_with("claude:c unavailable: burning") && refused.contains("--account a"), "{refused}");
     assert_eq!(admit(&local, &launch("c"), "", &given(None, Some("drain c"))), noted(Some("pin: drain c")));
     assert!(admit(&cloud, &launch("a"), "", &given(None, Some("drain c"))).unwrap_err().contains("claude --cloud"));
     assert!(admit(&cloud, &launch("c"), "", &given(Some("x"), None)).unwrap_err().contains("--pin"));

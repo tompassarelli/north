@@ -1,4 +1,4 @@
-use super::{admission, control::Control, grants, storage, target};
+use super::{admission, control::Control, grants, storage};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -159,8 +159,7 @@ fn reserve_pooled(
     }
     let control: Control =
         serde_json::from_value(controls[key].clone()).map_err(|e| e.to_string())?;
-    if let Some(reason) = admission::refusal(account, &control, at, target::target_for(account, at))
-    {
+    if let Some(reason) = admission::refusal(account, &control, at) {
         return Ok(Some(reason));
     }
     controls[key]["workers"] = json!(control.workers.unwrap_or(0) + 1);
