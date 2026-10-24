@@ -64,5 +64,16 @@
   ["echo ok # kill -1","allow"],
   ["cd /tmp # go\nsystemctl restart user@1000.service","deny"],
   ["echo hi # note\nkill -1","deny"],
-  ["true # x\nssh gex45 systemctl restart user@1000.service","deny"]
+  ["true # x\nssh gex45 systemctl restart user@1000.service","deny"],
+  ["echo $(true)#; systemctl restart user@1000.service","deny"],
+  ["echo <(true)#; systemctl restart user@1000.service","deny"],
+  ["echo $((1))#; kill -1","deny"],
+  ["a=(1)#; kill -1","deny"],
+  ["echo a\r#; kill -1","deny"],
+  ["(true)#; kill -1","allow"],
+  ["ls # <<EOF\nsystemctl restart user@1000.service\nEOF","deny"],
+  ["echo '<<EOF'\nsystemctl restart user@1000.service\nEOF","deny"],
+  ["ls # it's\n`systemctl restart user@1000.service`","deny"],
+  ["git commit -m \"$(cat <<'EOF'\nSay \"hi\nkill -1\nEOF\n)\"","allow"],
+  ["echo \"$(true # it's\n)\"; kill -1","deny"]
 ]

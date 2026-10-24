@@ -1,3 +1,5 @@
+use super::scan::strip_comments;
+
 pub fn unquoted_mask(text: &str) -> String {
     let mut out: Vec<_> = text.chars().collect();
     let mut quote = None;
@@ -27,7 +29,7 @@ pub fn unquoted_mask(text: &str) -> String {
     out.into_iter().collect()
 }
 pub fn shell_substitutions(text: &str) -> Vec<String> {
-    let chars: Vec<_> = text.chars().collect();
+    let chars: Vec<_> = strip_comments(text).chars().collect();
     let mut bodies = Vec::new();
     let mut quote = None;
     let mut i = 0;

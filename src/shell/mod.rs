@@ -1,5 +1,6 @@
 mod heredoc;
 mod lexer;
+mod scan;
 mod segments;
 mod substitution;
 #[cfg(test)]

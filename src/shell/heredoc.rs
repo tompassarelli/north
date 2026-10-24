@@ -1,3 +1,4 @@
+use super::scan::{Class, classify};
 use regex::Regex;
 use std::ops::Range;
 use std::sync::LazyLock;
@@ -10,9 +11,14 @@ pub fn blank(text: &str) -> String {
 
 pub(super) fn heredoc(text: &str, start: usize) -> Option<(usize, String, bool)> {
     let re = Regex::new(r#"<<-?[\s\x1c-\x1f]*(['"]?)([\p{L}\p{N}_]+)"#).unwrap();
-    for m in re.captures_iter(&text[start..]) {
+    let rest = &text[start..];
+    let classes = classify(rest);
+    for m in re.captures_iter(rest) {
         let whole = m.get(0).unwrap();
-        if text[..start + whole.start()].ends_with('<') {
+        let at = rest[..whole.start()].chars().count();
+        if text[..start + whole.start()].ends_with('<')
+            || classes[at..at + 2] != [Class::Code, Class::Code]
+        {
             continue;
         }
         let end = start + whole.end();

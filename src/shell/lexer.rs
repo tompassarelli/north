@@ -1,4 +1,5 @@
 use super::heredoc::{heredoc, terminator};
+use super::scan::strip_comments;
 
 pub const SEPARATORS: &str = ";&|()\n";
 pub fn shlex_split(text: &str) -> Option<Vec<String>> {
@@ -171,7 +172,7 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
         search = close;
     }
     text.push_str(&cmd[i..]);
-    let chars: Vec<_> = text.chars().collect();
+    let chars: Vec<_> = strip_comments(&text).chars().collect();
     let mut tokens = Vec::new();
     let mut buf = String::new();
     let mut started = false;
@@ -179,17 +180,6 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        if c == '#' && (!started || punctuation) {
-            if started {
-                tokens.push(std::mem::take(&mut buf));
-                started = false;
-            }
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-            punctuation = false;
-            continue;
-        }
         if " \t\r".contains(c) {
             if started {
                 tokens.push(std::mem::take(&mut buf));

@@ -118,5 +118,45 @@
   [
     "bun test test/*.test.ts",
     "route"
+  ],
+  [
+    "echo $(true)#; cargo build",
+    "refuse"
+  ],
+  [
+    "echo <(true)#; cargo build",
+    "refuse"
+  ],
+  [
+    "echo $((1))#; cargo build",
+    "refuse"
+  ],
+  [
+    "a=(1)#; cargo build",
+    "refuse"
+  ],
+  [
+    "echo a\r#; cargo build",
+    "refuse"
+  ],
+  [
+    "(true)#; cargo build",
+    "allow"
+  ],
+  [
+    "ls # <<EOF\ncargo build\nEOF",
+    "refuse"
+  ],
+  [
+    "echo '<<EOF'\ncargo build\nEOF",
+    "refuse"
+  ],
+  [
+    "ls # it's\n$(cargo build)",
+    "refuse"
+  ],
+  [
+    "git commit -m \"$(cat <<'EOF'\nSay \"hi\ncargo build\nEOF\n)\"",
+    "allow"
   ]
 ]
