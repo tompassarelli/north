@@ -23,7 +23,7 @@ pub(crate) fn seconds(text: &str) -> Option<f64> {
     Timestamp::parse_rfc3339(text).map(Timestamp::unix_seconds_f64)
 }
 
-fn policy_path() -> PathBuf {
+pub(crate) fn policy_path() -> PathBuf {
     if let Some(path) = env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
         return path.into();
     }

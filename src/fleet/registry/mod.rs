@@ -14,16 +14,20 @@ use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, Se
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::remote;
+use super::roster::Roster;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
 mod follower;
 mod gate_commands;
+mod home;
 mod parents;
 mod status;
 
 pub use follower::Follower;
+pub use home::roster;
+use home::{home_dir, state_dir};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const OPEN_POLL: Duration = Duration::from_millis(100);
@@ -44,7 +48,10 @@ pub struct Fleet {
 
 impl Fleet {
     pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
-        let home = home_dir()?;
+        Self::at(home_dir()?, runtimes, ledger)
+    }
+
+    pub fn at(home: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
         let state = state_dir(&home);
         let root = state.join("fleet");
         fs::create_dir_all(&root)?;
@@ -59,8 +66,12 @@ impl Fleet {
         StandingOrders::in_state(&self.state)
     }
 
+    pub fn roster(&self) -> Roster {
+        self.runtimes.roster(&self.state, &self.home)
+    }
+
     pub fn accounts(&self) -> Vec<Account> {
-        self.runtimes.accounts(&self.state, &self.home)
+        self.roster().accounts
     }
 
     pub fn providers(&self) -> Vec<ProviderName> {
@@ -343,10 +354,7 @@ impl Fleet {
     }
 
     fn account(&self, request: &LaunchRequest) -> NorthResult<Account> {
-        self.accounts()
-            .into_iter()
-            .find(|account| account.provider == request.provider && account.label == request.account)
-            .ok_or_else(|| NorthError::Usage(format!("no {} account named {}", request.provider.label(), request.account)))
+        self.roster().account(&request.provider, &request.account)
     }
 
     fn runtime(&self, record: &SessionRecord) -> NorthResult<Arc<dyn Runtime>> {
@@ -483,15 +491,4 @@ pub fn urgent_prefixed(text: &str) -> String {
 
 pub fn urgent_text(text: &str) -> Option<&str> {
     text.strip_prefix(URGENT_PREFIX).map(|rest| rest.trim_start_matches('\n'))
-}
-
-fn home_dir() -> NorthResult<PathBuf> {
-    std::env::var_os("HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| NorthError::Configuration("HOME is not set".into()))
-}
-
-pub(crate) fn state_dir(home: &Path) -> PathBuf {
-    home.join(".local/state/north")
 }

@@ -1,4 +1,6 @@
 use super::{admission, control::Control, sampling, storage, target};
+use crate::error::NorthResult;
+use crate::fleet::roster::Roster;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -7,7 +9,6 @@ use toml_edit::{DocumentMut, Item};
 
 mod candidates;
 pub(crate) mod gate;
-pub(crate) mod logins;
 mod hosts;
 mod launch;
 mod survey;
@@ -50,12 +51,7 @@ fn strings(item: Option<&Item>) -> Vec<String> {
         .unwrap_or_default()
 }
 fn local() -> String {
-    std::env::var("RESIDENT_CAP_HOST").unwrap_or_else(|_| {
-        std::fs::read_to_string("/proc/sys/kernel/hostname")
-            .unwrap_or_default()
-            .trim()
-            .into()
-    })
+    crate::platform::host::name()
 }
 fn operator() -> PathBuf {
     std::env::var_os("AGENTS_OPERATOR_DIR")
@@ -252,7 +248,7 @@ pub(super) fn operation(request: &Value) -> Result<Option<Value>, String> {
         _ => return Ok(None),
     }))
 }
-pub(super) fn cli(args: &[String]) -> Result<(), String> {
+pub(super) fn cli(args: &[String], roster: fn() -> NorthResult<Roster>) -> Result<(), String> {
     let cfg = sampling::config()?;
     let at = std::env::var("PLACEMENT_NOW")
         .ok()
@@ -267,7 +263,7 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
     }
     let gate = storage::load(&storage::directory().join("usage-gate.json"));
     let machines = gate::probed(&cfg, &Default::default());
-    let shared = logins::shared(&logins::live());
+    let roster = roster().map_err(|error| error.to_string())?;
     for path in &args[1..] {
         let text = if path == "-" {
             use std::io::Read;
@@ -279,7 +275,7 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
         } else {
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
-        let decision = gate::decide(&text, &cfg, &gate, credit(&cfg, at), &machines, &local(), &shared, at);
+        let decision = gate::decide(&text, &cfg, gate::verdicts(&gate, &roster, at), credit(&cfg, at), &machines, &local());
         for line in decision.verdicts.iter().map(|v| &v.line).chain(&decision.machine_lines) {
             println!("  {line}");
         }

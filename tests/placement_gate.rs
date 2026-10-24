@@ -160,7 +160,7 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
 }
 
 #[test]
-fn a_label_logged_in_to_another_labels_account_is_refused_in_accounts_and_launch() {
+fn a_label_logged_in_to_another_labels_account_is_omitted_from_accounts_and_refused_at_launch() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root);
@@ -170,15 +170,15 @@ fn a_label_logged_in_to_another_labels_account_is_refused_in_accounts_and_launch
     }
     let listed = north(root, &["fleet", "accounts"]);
     let lines = String::from_utf8_lossy(&listed.stdout);
-    assert!(lines.contains("claude\ta\n"), "{lines}");
-    assert!(lines.contains("claude\tc\trefused: claude:c is logged in to the same Claude account as claude:a\n"), "{lines}");
+    assert!(lines.contains("claude\ta\n") && !lines.contains("claude\tc"), "{lines}");
+    assert!(String::from_utf8_lossy(&listed.stderr).contains("omitted: claude:c is logged in to the same account as claude:a"), "{lines}");
 
     let pinned = launch(root, "shared", WARCRAFT, &["--account", "c", "--pin", "drain c"]);
     let said = String::from_utf8_lossy(&pinned.stderr);
     assert!(!pinned.status.success(), "a label sharing another label's login launched");
-    assert!(said.contains("claude:c is logged in to the same Claude account as claude:a"), "{said}");
+    assert!(said.contains("claude:c is logged in to the same account as claude:a"), "{said}");
     assert!(!root.join(".local/state/north/fleet/shared").exists(), "the refused launch left a session");
     let tested = launch(root, "shared-test", WARCRAFT, &["--account", "c", "--test"]);
     let said = String::from_utf8_lossy(&tested.stderr);
-    assert!(!tested.status.success() && said.contains("claude:c is logged in to the same Claude account as claude:a"), "a --test launch skipped the login check: {said}");
+    assert!(!tested.status.success() && said.contains("claude:c is logged in to the same account as claude:a"), "a --test launch skipped the login check: {said}");
 }

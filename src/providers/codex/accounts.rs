@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use crate::fleet::model::{Account, ProviderName};
+use crate::fleet::roster::{Declared, Roster};
 use crate::fleet::runtime::labelled_homes;
 
 const PREFIX: &str = "codex-";
 const POOLED: &str = "pooled";
 
-pub fn discover(provider: &ProviderName, state_root: &Path, home: &Path) -> Vec<Account> {
+pub fn discover(provider: &ProviderName, state_root: &Path, home: &Path) -> Roster {
     let default_home = pooled_home(home);
     let default = default_home
         .join("auth.json")
@@ -15,7 +16,7 @@ pub fn discover(provider: &ProviderName, state_root: &Path, home: &Path) -> Vec<
     let named = labelled_homes(&state_root.join("accounts/openai"), PREFIX, "auth.json")
         .into_iter()
         .map(|(label, home)| Account { provider: provider.clone(), label, home });
-    default.into_iter().chain(named).collect()
+    Roster::distinct(default.into_iter().chain(named).map(|account| (account, None)), &Declared::default())
 }
 
 pub fn pooled_home(home: &Path) -> PathBuf {

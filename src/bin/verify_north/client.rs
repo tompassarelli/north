@@ -45,8 +45,10 @@ impl North {
         let listing = self.run(&["fleet", "accounts"], QUERY_WAIT)?;
         Ok(listing
             .lines()
-            .filter_map(|line| line.split_once('\t'))
-            .map(|(provider, label)| Account { provider: provider.to_owned(), label: label.to_owned() })
+            .filter_map(|line| {
+                let mut fields = line.split('\t');
+                Some(Account { provider: fields.next()?.to_owned(), label: fields.next()?.to_owned() })
+            })
             .collect())
     }
 

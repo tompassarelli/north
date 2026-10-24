@@ -6,6 +6,7 @@ use crate::codex::chat_updates;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::Question;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
+use crate::fleet::roster::Roster;
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
 use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 
@@ -26,7 +27,7 @@ impl Runtime for Codex {
         MODELS
     }
 
-    fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account> {
+    fn roster(&self, state_root: &Path, home: &Path) -> Roster {
         accounts::discover(&self.provider(), state_root, home)
     }
 

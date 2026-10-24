@@ -57,7 +57,7 @@ impl Tool {
             Self::Provenance => provenance::run,
             Self::IssueBoxLint => issue_box_lint::run,
             Self::FollowsRelease => follows_release::run,
-            Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments)),
+            Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments, super::fleet::roster)),
             Self::Capacity => return ExitCode::from(capacity::run(arguments)),
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Runtime => return ExitCode::from(crate::ops::runtime::run(arguments)),

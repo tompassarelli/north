@@ -1,5 +1,8 @@
-use super::placement::gate::{Target, decide};
+use super::placement::gate::{self, Decision, Machine, Target, verdicts};
+use crate::fleet::model::{Account, ProviderName};
+use crate::fleet::roster::{Declared, Roster};
 use serde_json::{Value, json};
+use toml_edit::DocumentMut;
 
 const AT: &str = "2026-10-16T12:00:00Z";
 const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: code\n";
@@ -17,6 +20,18 @@ fn control(five: (f64, f64, &str), week: (f64, f64)) -> Value {
 fn gate(accounts: &[(&str, Value)]) -> Value {
     let controls: serde_json::Map<String, Value> = accounts.iter().map(|(n, c)| ((*n).to_owned(), c.clone())).collect();
     json!({"claude": {"controls": controls}})
+}
+
+fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
+    Roster::distinct(identities.iter().map(|(label, identity)| {
+        let account = Account { provider: ProviderName::new("claude"), label: (*label).into(), home: format!("/profiles/claude-{label}").into() };
+        (account, identity.map(str::to_owned))
+    }), &Declared::default())
+}
+
+fn decide(text: &str, cfg: &DocumentMut, quota: &Value, credit: (bool, String), machines: &[Machine], here: &str, at: f64) -> Decision {
+    let listed = roster(&[("a", None), ("b", None), ("c", None)]);
+    gate::decide(text, cfg, verdicts(quota, &listed, at), credit, machines, here)
 }
 
 fn target(decision: &super::placement::gate::Decision) -> String {
@@ -54,14 +69,14 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         ("no live quota holds", WARCRAFT, &json!({}), credit(), "held: no live Claude quota in usage-gate.json; run pace-control"),
     ];
     for (name, brief, gate, credit, expected) in cases {
-        let decision = decide(brief, &cfg, gate, credit, &[], "here", &Default::default(), at);
+        let decision = decide(brief, &cfg, gate, credit, &[], "here", at);
         assert_eq!(target(&decision), expected, "{name}: {:?}", decision.verdicts);
         assert_eq!(decision.verdicts.len(), gate["claude"]["controls"].as_object().map_or(0, |c| c.len()), "{name}");
     }
-    let decision = decide(WARCRAFT, &cfg, &runaway_c, credit(), &[], "here", &Default::default(), at);
+    let decision = decide(WARCRAFT, &cfg, &runaway_c, credit(), &[], "here", at);
     let c = decision.verdict("claude:c").unwrap();
     assert!(!c.available && c.line.contains("runaway: 5h 42%"), "{}", c.line);
-    let a = decide(WARCRAFT, &cfg, &full_a, credit(), &[], "here", &Default::default(), at).verdict("claude:a").cloned().unwrap();
+    let a = decide(WARCRAFT, &cfg, &full_a, credit(), &[], "here", at).verdict("claude:a").cloned().unwrap();
     assert!(!a.available && a.line.contains("exhausted: 5h 96% >= 95%"), "{}", a.line);
     assert!(decision.verdicts.iter().all(|v| !v.line.contains('\n') && v.line.starts_with(&v.account)));
 
@@ -77,7 +92,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         machines
     };
     let place = |brief: &str, near, far| {
-        let decision = decide(brief, &cfg, &gate, spent(), &probed(near, far), "here", &Default::default(), at);
+        let decision = decide(brief, &cfg, &gate, spent(), &probed(near, far), "here", at);
         let summary = super::placement::gate::summary(&decision);
         (decision.machine.map(|m| m.ssh), decision.machine_lines, summary)
     };
@@ -113,46 +128,34 @@ fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
     let camera = "Item: smashcraft#96 (scorecard tool)\nSurface: ts\nVerify: visual\nNeeds: private\n";
     let wisp = "Item: wisp#5 private pool change\nSurface: ts\nNeeds: private\n";
 
-    let placed = decide(camera, &cfg, &gate, spent(), &machines, "laptop", &Default::default(), at);
+    let placed = decide(camera, &cfg, &gate, spent(), &machines, "laptop", at);
     assert_eq!(placed.machine, None, "{:?}", placed.machine_lines);
     assert_eq!(placed.machine_lines, ["gex45 skipped: needs private"]);
     assert_eq!(super::placement::gate::summary(&placed), "target laptop claude:c (needs private, so local)");
 
-    let mut placed = decide(wisp, &cfg, &gate, spent(), &machines, "laptop", &Default::default(), at);
+    let mut placed = decide(wisp, &cfg, &gate, spent(), &machines, "laptop", at);
     assert_eq!(placed.machine.as_ref().map(|m| m.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
     placed.stay_here(Some("gex45 has no /lane, so here".into()));
     assert_eq!(placed.machine_lines[1..], ["gex45 has no /lane, so here", "laptop skipped: needs private"]);
     assert_eq!(super::placement::gate::summary(&placed), "target unserved: no host serves private for wisp");
 
-    let refused = decide(camera, &cfg, &gate, spent(), &[], "gex45", &Default::default(), at);
+    let refused = decide(camera, &cfg, &gate, spent(), &[], "gex45", at);
     assert_eq!(refused.machine_lines, ["gex45 skipped: needs private"]);
     assert_eq!(super::placement::gate::summary(&refused), "target unserved: no host serves private for smashcraft");
 }
 
 #[test]
-fn a_label_logged_in_to_another_labels_account_is_refused_naming_both() {
-    use super::placement::logins::{logins, shared};
-    use std::collections::BTreeMap;
-    use std::path::{Path, PathBuf};
-    let homes = ["a", "b", "c", "d", "e"].map(|label| (label.to_owned(), PathBuf::from(label))).to_vec();
-    let identity = |home: &Path| match home.to_str()? {
-        "a" | "b" => Some("843aa918".to_owned()),
-        "d" | "e" => Some("5d2c0e11".to_owned()),
-        _ => None,
-    };
-    let declared = BTreeMap::from([("843aa918".to_owned(), "b".to_owned())]);
-    let found = logins(homes, identity, &declared);
-    let refused: Vec<String> = found.iter().filter_map(|login| login.refusal()).collect();
-    assert_eq!(refused, ["claude:a is logged in to the same Claude account as claude:b", "claude:e is logged in to the same Claude account as claude:d"]);
-
-    let cfg = "[placement]\n[hosts.here]\nserves = [\"private\"]\n".parse().unwrap();
+fn placement_never_picks_a_label_logged_into_another_labels_account() {
+    let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let at = super::target::seconds(AT).unwrap();
-    let gate = gate(&[
-        ("claude:a", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0))),
-        ("claude:b", control((40.0, 1.0, "2026-10-16T16:00:00Z"), (60.0, 1.0))),
+    let quota = gate(&[
+        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
+        ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
+        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
     ]);
-    let decision = decide(PRIVATE, &cfg, &gate, (false, "cloud credit: spent".into()), &[], "here", &shared(&found), at);
-    assert_eq!(target(&decision), "claude:b");
-    let a = decision.verdict("claude:a").unwrap();
-    assert!(!a.available && a.line == "claude:a unavailable: logged in to the same Claude account as claude:b", "{}", a.line);
+    let shared = roster(&[("a", Some("one")), ("b", Some("one")), ("c", Some("two"))]);
+    let decision = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &shared, at), (false, String::new()), &[], "here");
+    assert_eq!(target(&decision), "claude:a", "{:?}", decision.verdicts);
+    let b = decision.verdict("claude:b").unwrap();
+    assert!(!b.available && b.line.ends_with(&shared.duplicates[0].to_string()), "{}", b.line);
 }

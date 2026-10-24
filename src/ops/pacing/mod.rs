@@ -1,3 +1,5 @@
+use crate::error::NorthResult;
+use crate::fleet::roster::Roster;
 use crate::pace::{admission, control, target, window};
 use std::io::Write;
 
@@ -19,14 +21,14 @@ mod sampling;
 mod sampling_tests;
 mod storage;
 
-pub(crate) fn run(arguments: &[String]) -> u8 {
+pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
     if let [command, provider] = arguments {
         if command == "gate" {
             return gate(provider);
         }
     }
     match arguments.first().map(String::as_str) {
-        Some("place") => finish(placement::cli(&arguments[1..]), "north place"),
+        Some("place") => finish(placement::cli(&arguments[1..], roster), "north place"),
         Some("sample") => finish(command::cli(&arguments[1..]), "north pace"),
         Some("grant") => finish(command::cli(arguments), "north pace"),
         _ => request(),

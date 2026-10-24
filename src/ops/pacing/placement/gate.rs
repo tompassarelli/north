@@ -4,7 +4,9 @@
 //! weekly projections never hold a launch; an account is out only when a window is exhausted or burning away.
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
-use super::{credit, facets, field, local, logins, resident, strings};
+use super::{credit, facets, field, local, resident, strings};
+use crate::fleet::model::ProviderName;
+use crate::fleet::roster::{Roster, Standing};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
@@ -123,12 +125,11 @@ fn usage(windows: &[Value]) -> String {
 
 pub(crate) fn verdict(account: &str, control: &Value, at: f64) -> Verdict {
     let windows = rows(&control["windows"]);
-    let unavailable = |line: String| Verdict { account: account.into(), available: false, headroom: 0.0, line };
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
-        return unavailable(format!("{account} unavailable: no live quota sample"));
+        return unavailable(account, "no live quota sample".into());
     }
     if let Some(reason) = windows.iter().find_map(|w| window_refusal(w, at)) {
-        return unavailable(format!("{account} unavailable: {reason}"));
+        return unavailable(account, reason);
     }
     let room = headroom(windows);
     Verdict {
@@ -260,15 +261,24 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
         .collect()
 }
 
-pub(crate) fn decide(text: &str, cfg: &DocumentMut, gate: &Value, credit: (bool, String), machines: &[Machine], here: &str, shared: &BTreeMap<String, String>, at: f64) -> Decision {
-    let (code_only, surface) = surface(text, cfg);
-    let verdicts: Vec<Verdict> = claude_controls(gate)
+pub(crate) fn verdicts(gate: &Value, roster: &Roster, at: f64) -> Vec<Verdict> {
+    let claude = ProviderName::new("claude");
+    claude_controls(gate)
         .into_iter()
-        .map(|(name, c)| match shared.get(&name) {
-            Some(keeper) => Verdict { line: format!("{name} unavailable: logged in to the same Claude account as {keeper}"), account: name, available: false, headroom: 0.0 },
-            None => verdict(&name, c, at),
+        .map(|(name, control)| match roster.standing(&claude, name.trim_start_matches("claude:")) {
+            Standing::Listed(_) => verdict(&name, control, at),
+            Standing::Duplicate(duplicate) => unavailable(&name, duplicate.to_string()),
+            Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
-        .collect();
+        .collect()
+}
+
+fn unavailable(account: &str, reason: String) -> Verdict {
+    Verdict { account: account.into(), available: false, headroom: 0.0, line: format!("{account} unavailable: {reason}") }
+}
+
+pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {
+    let (code_only, surface) = surface(text, cfg);
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
     let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves);
     let mut decision = Decision {
@@ -312,14 +322,14 @@ pub(crate) fn summary(decision: &Decision) -> String {
 
 /// The live decision: South's orchestration.toml, the gate pace-control last wrote, the credit and
 /// each machine's load, given the fleet sessions this machine runs there by machine name.
-pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>) -> Result<Decision, String> {
+pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> Result<Decision, String> {
     let cfg = sampling::config()?;
     let at = std::env::var("PLACEMENT_NOW")
         .ok()
         .and_then(|s| target::seconds(&s))
         .unwrap_or_else(storage::now);
     let gate = load(&storage::directory().join("usage-gate.json"));
-    Ok(decide(text, &cfg, &gate, credit(&cfg, at), &probed(&cfg, fleet_load), &local(), &logins::shared(&logins::live()), at))
+    Ok(decide(text, &cfg, verdicts(&gate, roster, at), credit(&cfg, at), &probed(&cfg, fleet_load), &local()))
 }
 
 /// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet

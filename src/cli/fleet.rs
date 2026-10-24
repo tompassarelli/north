@@ -9,7 +9,8 @@ use serde_json::{Value, json};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Delivery, Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
-use crate::fleet::registry::{Fleet, urgent_text};
+use crate::fleet::registry::{self, Fleet, urgent_text};
+use crate::fleet::roster::Roster;
 use crate::fleet::runtime::{Runtimes, SESSION_ENV, new_uuid};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
@@ -19,7 +20,6 @@ use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::fleet_placement::{self, Launch, Overrides, Placed};
-use crate::ops::pacing::placement::logins::{self, Login};
 use super::{gate, orders};
 
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
@@ -55,6 +55,10 @@ fn default_overdue_gates(fleet: &Fleet) {
 
 fn runtimes() -> Runtimes {
     Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex)])
+}
+
+pub(super) fn roster() -> NorthResult<Roster> {
+    registry::roster(&runtimes())
 }
 
 fn open_fleet() -> NorthResult<Fleet> {
@@ -143,14 +147,11 @@ fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, overrides: 
         return Err(NorthError::Usage(format!("{name}'s conversation lives on {}, so it revives there; launch a new session to work here", machine.name)));
     }
     let mut placement = None;
-    if record.provider.label() == "claude" {
-        fleet_placement::refuse_shared_login(&record.account)?;
-    }
     if record.provider.label() == "claude" && !record.verification && !fleet.running(&record) {
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
         let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None };
-        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &machine_load(fleet)?)?.note;
+        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &machine_load(fleet)?, &fleet.roster())?.note;
     }
     fleet.revive_placed(name, system_prompt, placement).map(|record| println!("{}", record.name))
 }
@@ -248,18 +249,12 @@ fn print_branch(fleet: &Fleet, sessions: &[SessionRecord], record: &SessionRecor
 }
 
 fn accounts(fleet: &Fleet) -> NorthResult<()> {
-    let logins = logins::live();
-    let accounts = fleet.accounts();
-    for account in &accounts {
-        let refusal = logins.iter().find(|login| account.provider.label() == "claude" && login.label == account.label).and_then(Login::refusal);
-        match refusal {
-            Some(refusal) => println!("{}\t{}\trefused: {refusal}", account.provider.label(), account.label),
-            None => println!("{}\t{}", account.provider.label(), account.label),
-        }
+    let roster = fleet.roster();
+    for account in &roster.accounts {
+        println!("{}\t{}", account.provider.label(), account.label);
     }
-    let undiscovered = logins.iter().filter(|login| !accounts.iter().any(|account| account.provider.label() == "claude" && account.label == login.label));
-    for (login, refusal) in undiscovered.filter_map(|login| Some((login, login.refusal()?))) {
-        println!("claude\t{}\trefused: {refusal}", login.label);
+    for duplicate in &roster.duplicates {
+        eprintln!("omitted: {duplicate}");
     }
     Ok(())
 }
@@ -273,17 +268,14 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     Ok(())
 }
 
-/// Placement gates every Claude launch except `--test` sessions, before anything starts; a shared login refuses every one.
+/// Placement gates every Claude launch except `--test` sessions, before anything starts.
 fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides) -> NorthResult<Placed> {
-    if request.provider.label() == "claude" {
-        fleet_placement::refuse_shared_login(&request.account)?;
-    }
     if request.provider.label() != "claude" || request.verification {
         return Ok(Placed::default());
     }
     let text = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd) };
-    fleet_placement::check(&launch, &text, overrides, &machine_load(fleet)?)
+    fleet_placement::check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster())
 }
 
 /// Live fleet sessions per machine they run on, which those machines cannot count themselves.

@@ -6,6 +6,7 @@ use serde_json::Value;
 use crate::claude_stream::{encode_interrupt, encode_user_message};
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
+use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{DEFAULT_FOREGROUND_CAP_SECS, HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 use crate::providers::install;
@@ -27,8 +28,8 @@ impl Runtime for Claude {
         MODELS
     }
 
-    fn accounts(&self, state_root: &Path, _home: &Path) -> Vec<Account> {
-        accounts::discover(&self.provider(), state_root)
+    fn roster(&self, state_root: &Path, home: &Path) -> Roster {
+        accounts::discover(&self.provider(), state_root, &accounts::declared(home))
     }
 
     fn assign_conversation(&self) -> NorthResult<Option<String>> {

@@ -9,6 +9,7 @@ use crate::foundation::clock::Timestamp;
 
 use super::gates::Question;
 use super::model::{Account, LaunchRequest, ProviderName, Quota, Transcript};
+use super::roster::Roster;
 use super::turns::TurnSignal;
 
 pub struct HostSpec {
@@ -34,7 +35,7 @@ pub enum Opening<'a> {
 pub trait Runtime: Send + Sync {
     fn provider(&self) -> ProviderName;
     fn models(&self) -> &'static [&'static str];
-    fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account>;
+    fn roster(&self, state_root: &Path, home: &Path) -> Roster;
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec>;
     fn handshake(&self) -> Vec<String>;
@@ -71,8 +72,8 @@ impl Runtimes {
         self.0.iter().map(|runtime| runtime.provider()).collect()
     }
 
-    pub fn accounts(&self, state_root: &Path, home: &Path) -> Vec<Account> {
-        self.0.iter().flat_map(|runtime| runtime.accounts(state_root, home)).collect()
+    pub fn roster(&self, state_root: &Path, home: &Path) -> Roster {
+        self.0.iter().map(|runtime| runtime.roster(state_root, home)).fold(Roster::default(), Roster::merge)
     }
 }
 

@@ -8,6 +8,7 @@ mod records;
 mod remote;
 pub mod model;
 pub mod registry;
+pub mod roster;
 pub mod runtime;
 mod transcript;
 pub mod turns;

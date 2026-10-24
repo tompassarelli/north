@@ -134,6 +134,32 @@ fn a_tui_launch_inherits_its_session_as_parent_only_when_present() {
     assert_eq!(request(None).parent, None);
 }
 
+#[test]
+fn a_tui_launch_on_a_label_logged_into_another_labels_account_is_refused_naming_both() {
+    let home = tempfile::tempdir().unwrap();
+    for label in ["a", "b"] {
+        let profile = home.path().join(format!(".local/state/north/profiles/claude-{label}"));
+        std::fs::create_dir_all(&profile).unwrap();
+        std::fs::write(profile.join(".credentials.json"), "{}").unwrap();
+        std::fs::write(profile.join(".claude.json"), r#"{"oauthAccount": {"accountUuid": "one-login"}}"#).unwrap();
+    }
+    let ledger = Arc::new(crate::ledger::Ledger::open(&home.path().join("ledger.db")).unwrap());
+    let runtimes = crate::fleet::runtime::Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]);
+    let fleet = crate::fleet::registry::Fleet::at(home.path().into(), runtimes, ledger).unwrap();
+    assert_eq!(fleet.accounts().iter().map(|account| account.label.as_str()).collect::<Vec<_>>(), ["a"]);
+
+    let mut form = LaunchForm::new(vec![account("claude", "b")], home.path(), &[], None);
+    form.field = Field::Prompt;
+    form.paste("do the work");
+    let FormOutcome::Launch(request) = form.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) else { panic!("valid launch form did not submit") };
+    let actions: Arc<dyn SessionActions> = Arc::new(fleet);
+    match actions.launch(&request) {
+        Err(crate::error::NorthError::Refused(why)) => assert!(why.starts_with("claude:b is logged in to the same account as claude:a"), "{why}"),
+        other => panic!("a TUI launch on a shared login was not refused: {other:?}"),
+    }
+    assert!(!home.path().join(format!(".local/state/north/fleet/{}", request.name)).exists(), "the refused launch left a session");
+}
+
 fn summary(name: &str, status: Status, last_activity_ms: u64) -> SessionSummary {
     SessionSummary {
         record: serde_json::from_value(serde_json::json!({
