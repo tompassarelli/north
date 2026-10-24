@@ -227,10 +227,10 @@ fn a_game_word_in_a_directory_name_is_not_gaming() {
     let root = tempfile::tempdir().unwrap();
     let proc = root.path().join("proc");
     let host = host(root.path(), &proc);
-    fixture(&proc, 300, "x", "/home/tom/code/wow/target/debug/x", "app.slice/term.scope", &[]);
-    fixture(&proc, 301, "tool", "/home/tom/code/slippi-tools/bin/tool", "app.slice/term.scope", &[]);
+    fixture(&proc, 300, "x", "/src/wow/target/debug/x", "app.slice/term.scope", &[]);
+    fixture(&proc, 301, "tool", "/src/slippi-tools/bin/tool", "app.slice/term.scope", &[]);
     assert!(!agent_load::tom_gaming(&agent_load::processes(&host), None));
-    fixture(&proc, 302, "WowB.exe", "/home/tom/code/wow/WowB.exe", "app.slice/term.scope", &[]);
+    fixture(&proc, 302, "WowB.exe", "/src/wow/WowB.exe", "app.slice/term.scope", &[]);
     assert!(agent_load::tom_gaming(&agent_load::processes(&host), None));
 }
 
