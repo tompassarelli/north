@@ -167,3 +167,15 @@ fn denylist_attest_retries_a_failed_autoland_dispatch_once_without_posting_again
     assert_eq!(forge.posted.borrow().len(), 1);
     assert_eq!(*forge.dispatched.borrow(), vec![("owner/public".into(), "autoland.yml".into(), "claude/clean-work".into())]);
 }
+
+#[test]
+fn denylist_attest_leaves_a_tip_autoland_already_settled_unscanned_and_undispatched() {
+    let fixture = Fixture::new();
+    let failed = fixture.tip("claude/failed-work", "ordinary words\n");
+    let queued = fixture.tip("claude/queued-work", "more words\n");
+    let mut forge = fixture.forge(vec![failed.clone(), queued.clone()]);
+    forge.states = vec![(failed.sha, "autoland".into(), "failure".into()), (queued.sha.clone(), "autoland".into(), "pending".into())];
+    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
+    assert_eq!(forge.posted.borrow().iter().map(|post| post.0.clone()).collect::<Vec<_>>(), vec![queued.sha]);
+    assert_eq!(*forge.dispatched.borrow(), vec![("owner/public".into(), "autoland.yml".into(), "claude/queued-work".into())]);
+}

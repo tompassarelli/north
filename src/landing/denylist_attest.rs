@@ -7,6 +7,7 @@ use crate::platform::github::{BranchTip, CommitStatuses, Gh};
 
 const USAGE: &str = "usage: north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
 const CONTEXT: &str = "denylist";
+const AUTOLAND: &str = "autoland";
 const PREFIX: &str = "claude/";
 const WORKFLOW: &str = "autoland.yml";
 const CLEAN: &str = "deny-list clean";
@@ -22,6 +23,7 @@ struct Request {
 #[derive(Debug, Eq, PartialEq)]
 enum Outcome {
     Skipped,
+    Settled,
     Redispatched,
     Clean,
     Refused(BTreeSet<String>),
@@ -107,6 +109,9 @@ impl<F: CommitStatuses> Attester<'_, F> {
     }
 
     fn attest(&self, repo: &str, tip: &BranchTip) -> Result<Outcome, String> {
+        if self.forge.status_state(repo, &tip.sha, AUTOLAND)?.is_some_and(|state| state != "pending") {
+            return Ok(Outcome::Settled);
+        }
         match self.forge.status_state(repo, &tip.sha, CONTEXT)?.as_deref() {
             Some("success") if !self.dispatched(repo, tip).is_file() => {
                 self.dispatch(repo, tip)?;
@@ -141,6 +146,7 @@ fn report(repo: &str, tip: &BranchTip, outcome: Result<Outcome, String>) -> u8 {
     let place = format!("{repo} {} {}", tip.branch, &tip.sha[..tip.sha.len().min(12)]);
     match outcome {
         Ok(Outcome::Skipped) => println!("denylist: {place}: already attested; skipped"),
+        Ok(Outcome::Settled) => println!("denylist: {place}: Autoland already settled this tip; skipped"),
         Ok(Outcome::Redispatched) => println!("denylist: {place}: attested clean earlier; dispatched Autoland"),
         Ok(Outcome::Clean) => println!("denylist: {place}: clean; posted success and dispatched Autoland"),
         Ok(Outcome::Refused(findings)) => {
