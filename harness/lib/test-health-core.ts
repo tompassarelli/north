@@ -1,5 +1,5 @@
-export const REPOS = ["smashcraft", "wisp", "north", "firn", "south", "padbridge", "smashcraft-client", "proton-triage"] as const;
-export type Repo = (typeof REPOS)[number];
+export const REPOS = ["smashcraft", "wisp", "north", "firn", "south", "padbridge", "smashcraft-client"];
+export type Repo = string;
 
 export type Gate = { workflow: string; name: string; budget_s: number | null; budget_source: string | null; debt_to_s?: number };
 
@@ -14,7 +14,6 @@ export const GATES: Record<Repo, Gate[]> = {
   south: [],
   "padbridge": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
   "smashcraft-client": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
-  "proton-triage": [],
 };
 
 export type Link = { value: number | string | null; href: string | null; source?: string };
@@ -154,7 +153,7 @@ export function parseWispTables(comments: { url: string; body: string }[]): Cens
   };
 }
 
-export function parseProton(md: string, source: string): Census | null {
+export function parseLeanCount(md: string, source: string): Census | null {
   const m = /Test count before \d+, after (\d+)/.exec(md);
   if (!m) return null;
   const src = `${source}: "${m[0]}"`;

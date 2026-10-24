@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from "path";
 import {
   GATES, NO_CENSUS, budgetExcerpt, censusFiles, REPOS, ciRow, days, finished, isTestPath, judge, lastPerDay,
-  parseProton, parseTsv, parseWispTables, renderHtml, runWall, spotCheck, tsvCensus,
+  parseLeanCount, parseTsv, parseWispTables, renderHtml, runWall, spotCheck, tsvCensus,
   type Census, type CensusRow, type Repo, type RepoRow, type Run, type TrendPoint,
 } from "../harness/lib/test-health-core.ts";
 
@@ -25,7 +25,9 @@ const out = opt("--out") ?? join(HOME, ".local/state/agents/test-health.json");
 const html = opt("--html") ?? out.replace(/\.json$/, "") + ".html";
 const fetch = !argv.includes("--no-fetch");
 
-const CHECKOUT: Record<Repo, string> = Object.fromEntries(REPOS.map((r) => [r, join(HOME, "code", r === "firn" ? "nixos-config" : r, "main")])) as any;
+const southRepos = join(HOME, "code/south/main/agents/test-health-repos.json");
+const LEAN_REPOS: Repo[] = existsSync(southRepos) ? JSON.parse(readFileSync(southRepos, "utf8")).lean : [];
+const CHECKOUT: Record<Repo, string> = Object.fromEntries([...REPOS, ...LEAN_REPOS].map((r) => [r, join(HOME, "code", r === "firn" ? "nixos-config" : r, "main")])) as any;
 
 function sh(cmd: string[], cwd?: string): string {
   const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -73,9 +75,9 @@ function census(repo: Repo): Census {
     const body = s && trySh(["gh", "issue", "view", "120", "-R", s, "--json", "comments"]);
     return (body && parseWispTables(JSON.parse(body).comments.map((c: any) => ({ url: c.url, body: c.body })))) || NO_CENSUS;
   }
-  if (repo === "proton-triage") {
-    const f = join(HANDOFFS, "test-lean-proton-triage.md");
-    return (existsSync(f) && parseProton(readFileSync(f, "utf8"), tilde(f))) || NO_CENSUS;
+  if (LEAN_REPOS.includes(repo)) {
+    const f = join(HANDOFFS, `test-lean-${repo}.md`);
+    return (existsSync(f) && parseLeanCount(readFileSync(f, "utf8"), tilde(f))) || NO_CENSUS;
   }
   return tsvCensus(tsvRows(repo), repo) ?? NO_CENSUS;
 }
@@ -99,11 +101,11 @@ function trendFiles(repo: Repo, slugName: string | null): Map<string, { n: numbe
 
 const rows: RepoRow[] = [];
 const pending: Omit<RepoRow, "green" | "reasons" | "spot_check">[] = [];
-for (const repo of REPOS) {
+for (const repo of [...REPOS, ...LEAN_REPOS]) {
   const s = slug(repo);
   const ci = [];
   const dailyWall = new Map<string, { wall: number; url: string }>();
-  for (const gate of GATES[repo]) {
+  for (const gate of GATES[repo] ?? []) {
     const runs = s ? workflowRuns(repo, s, gate.workflow, since) : [];
     const latest = finished(runs)[0];
     for (const r of new Set([latest, ...lastPerDay(runs, dayList).values()].filter(Boolean) as Run[])) r.jobs = runJobs(repo, s!, r.id);
