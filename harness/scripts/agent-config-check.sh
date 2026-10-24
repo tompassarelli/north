@@ -193,7 +193,7 @@ def startup_tokens():
 
 def sweep_row(sha, wanted=None):
     newest = full = None
-    for path in sorted(REPLAY.glob("sweep-*.jsonl")):
+    for path in sorted([*(OPERATOR / "replay").glob("sweep-*.jsonl"), *REPLAY.glob("sweep-*.jsonl")], key=lambda path: path.name):
         for line in path.read_text().splitlines():
             try:
                 row = json.loads(line)
@@ -228,7 +228,7 @@ def regression(point, sha, tokens):
         wanted &= set(point_row["scenarios"])
     row = sweep_row(sha, wanted)
     if row is None:
-        return (f"agents sync: the live policy has no sweep row in {REPLAY}; "
+        return (f"agents sync: the live policy has no sweep row in {OPERATOR / 'replay'} or {REPLAY}; "
                 "run policy-replay.py --sweep with it as a variant"), None
     if row.get("model") != point.get("model"):
         return (f"agents sync: the live policy's sweep row ran on {row.get('model')}, "

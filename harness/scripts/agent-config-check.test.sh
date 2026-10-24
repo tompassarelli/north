@@ -48,7 +48,7 @@ printf '# Policy\n\n## Rules\n\n- Keep it short.\n' >"$op/AGENTS.md"
 sha="$(sha256sum "$op/AGENTS.md" | cut -d' ' -f1)"
 point() { printf 'date = "2026-10-12"\nmodel = "m"\nvariant = "full"\npolicy_sha256 = "p"\nstartup_tokens = %s\nconformance = %s\nn = %s\nevidence = "e"\n' "$1" "${2:-0.8}" "${3:-100}" >"$op/operating-point.toml"; }
 full='{"force-push": [3, 3], "other": [3, 3]}'
-row() { printf '{"variant": "point", "policy_sha256": "p", "model": "m", "conformance": 1.0, "n": 6, "scenarios": {"force-push": [3, 3], "other": [3, 3]}}\n{"variant": "v", "policy_sha256": "%s", "model": "%s", "startup_tokens": 1, "conformance": %s, "n": %s, "scenarios": %s}\n' "$sha" "${3:-m}" "$1" "${2:-100}" "${4:-$full}" >"$replay/sweep-2026-10-12.jsonl"; }
+row() { printf '{"variant": "point", "policy_sha256": "p", "model": "m", "conformance": 1.0, "n": 6, "scenarios": {"force-push": [3, 3], "other": [3, 3]}}\n{"variant": "v", "policy_sha256": "%s", "model": "%s", "startup_tokens": 1, "conformance": %s, "n": %s, "scenarios": %s}\n' "$sha" "${3:-m}" "$1" "${2:-100}" "${4:-$full}" >"$op/replay/sweep-2026-10-12.jsonl"; }
 gate() { OPERATOR="$op" AGENTS_REPLAY_DIR="$replay" policy_gate "$scratch" session >"$scratch/gate.out" 2>&1; }
 expect() {
   local want="$1" pattern="$2" got=pass
@@ -95,7 +95,7 @@ expect pass "session start $tokens tokens"
 printf '{"variant": "v", "policy_sha256": "%s", "model": "m", "startup_tokens": 1, "conformance": 1.0, "n": 2, "scenarios": {"force-push": [1, 1], "other": [1, 1]}}\n' "$sha" >"$replay/sweep-2026-10-19.jsonl"
 printf '{"id": "new-scenario"}\n' >"$op/replay/new-scenario.json"
 expect pass "session start $tokens tokens"
-printf 'ok: policy gate fails without an operating point, without a live sweep row, on a row missing a scenario or trials, on another model, on growth without gain, on a one-sided Fisher drop (42/42 to 35/42, 37/42 to 26/42) and on a 3/3 to 0/3 scenario flip; passes 1.0 vs 0.95 and 37/42 vs 36/42 at n=42 and a project AGENTS.md growth, a later 1-trial row and a scenario the operating point never measured\n'
+printf 'ok: policy gate, reading sweep rows stored with the policy in south and this host'"'"'s own, fails without an operating point, without a live sweep row, on a row missing a scenario or trials, on another model, on growth without gain, on a one-sided Fisher drop (42/42 to 35/42, 37/42 to 26/42) and on a 3/3 to 0/3 scenario flip; passes 1.0 vs 0.95 and 37/42 vs 36/42 at n=42 and a project AGENTS.md growth, a later 1-trial row and a scenario the operating point never measured\n'
 
 python3 - "$repo/scripts" <<'PY'
 import sys

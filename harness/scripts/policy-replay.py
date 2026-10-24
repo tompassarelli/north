@@ -790,8 +790,8 @@ def sweep(args: argparse.Namespace) -> int:
     plan = [(s, f"variant:{name}", t, text) for name, text in policies.items()
             for s in scenarios for t in range(1, args.trials + 1)]
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    out = args.out or STATE / f"sweep-{stamp}.jsonl"
-    runs = run_plan(plan, args.jobs, out.with_name(out.stem + "-runs.jsonl"))
+    out = args.out or operator / "replay" / f"sweep-{stamp}.jsonl"
+    runs = run_plan(plan, args.jobs, STATE / f"{out.stem}-runs.jsonl")
     rows = [variant_row(name, policies[name], startup[name], [r for r in runs if r["arm"] == f"variant:{name}"])
             for name in policies]
     with out.open("a") as fh:
@@ -838,7 +838,7 @@ def main() -> int:
     ap.add_argument("--policy", type=Path, help="policy text (default: the scenario's policy field, relative to its file, else AGENTS.md beside its directory)")
     ap.add_argument("--provider", choices=["claude", "codex"], default="claude",
                     help="codex runs `codex exec` (--model/--effort, default gpt-6.1-sol medium) from its normal home, so the live policy and skill listing load; only --arm full")
-    ap.add_argument("--out", type=Path, help="results jsonl, appended (with --sweep default: sweep-<UTC date>.jsonl in the replay state dir)")
+    ap.add_argument("--out", type=Path, help="results jsonl, appended (with --sweep default: sweep-<UTC date>.jsonl in the scenario directory, shared through south; its runs stay in the replay state dir)")
     ap.add_argument("--model", help="per-run model overriding the scenario's: sonnet, haiku, opus or a full id (codex default gpt-6.1-sol)")
     ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh"], help="per-run effort overriding the scenario's")
     ap.add_argument("--advisor", help="claude only: advisor model passed as `claude -p --advisor MODEL`")
