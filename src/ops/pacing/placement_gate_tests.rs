@@ -58,7 +58,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         ("claude:c", control((42.0, 86.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
     ]);
     let pace_only = gate(&[("claude:c", control((80.0, 9.0, "2026-10-16T14:30:00Z"), (98.0, 0.5)))]);
-    let cases: [(&str, &str, &Value, (bool, String), &str); 8] = [
+    let cases = [
         ("code-only public box with credit", CODE_ONLY, &full_a, credit(), "anthropic-cloud"),
         ("code-only box once the credit is spent", CODE_ONLY, &full_a, spent(), "claude:c"),
         ("Warcraft box stays local", WARCRAFT, &full_a, credit(), "claude:c"),
@@ -100,7 +100,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_r
         (decision.machine.map(|m| m.ssh), decision.machine_lines, summary)
     };
     let native = "Item: smashcraft#9 render\nSurface: lua\nVerify: native\nNeeds: private\n";
-    let cases: [(&str, &str, Option<i64>, Option<i64>, Option<&str>); 6] = [
+    let cases = [
         ("code-only box takes the first machine with room", PRIVATE, Some(0), Some(0), Some("tom@near")),
         ("a full machine is passed over", PRIVATE, Some(2), Some(3), Some("tom@far")),
         ("an unreachable machine is passed over", PRIVATE, None, Some(0), Some("tom@far")),
