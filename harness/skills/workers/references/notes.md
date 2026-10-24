@@ -49,14 +49,11 @@ a rule when its numbers move.
   accepted flaw, so the ledger keeps the useful lenses.
 - Weigh findings by evidence first and reviewer tier second. A finding with a
   failing scenario, test or measurement counts whichever model raised it.
-  Investigate an unevidenced finding from Opus max or xhigh or from Astra
-  xhigh. Have a stronger model check an unevidenced finding from a smaller
-  model (Gemini, Haiku, Codex medium) once before anyone acts on it or
+  Investigate an unevidenced finding from Opus max or xhigh. Have a stronger model check an unevidenced finding from a smaller
+  model (Haiku or Sonnet) once before anyone acts on it or
   dismisses it.
-- When the reviewer must come from another family, use Codex `gpt-6-astra`
-  xhigh while Codex usage remains, then `gpt-6.1-sol` high, then Opus at a
-  different tier. Gemini ([gemini-review.md](gemini-review.md)) is the cheap extra reviewer, for
-  public diffs only.
+- Reviewers are Claude only (Tom's standing order, 2026-10-16): use Opus at a
+  different tier from the author's, or Sonnet for an Opus author.
 
 ## Compute routing (agreed with Tom 2026-10-10)
 
@@ -88,8 +85,8 @@ a rule when its numbers move.
 - Before a playtest's last blocker lands, prebuild its map with the fix applied
   and run the frame-cost compare, so the build cannot fail at playtest time.
 - Before landing a `Spec: judged` cross-module or cross-repo lane, have a
-  reviewer from another model family or tier check the diff for wrong behavior
-  and weakened tests, plus Gemini on public repos. Fix what it finds before
+  fresh Claude reviewer of a different tier check the diff for wrong behavior
+  and weakened tests. Fix what it finds before
   `safe-push`.
 - Before an issue closes, `worker-haiku` reruns each Done when check against
   origin/main and quotes the numbers. Close the issue only when every box

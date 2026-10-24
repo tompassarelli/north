@@ -6,6 +6,10 @@ const PREFIXES: &[&str] = &[
     "sudo", "doas", "command", "env", "exec", "builtin", "nohup", "setsid",
 ];
 pub fn strip_quotes(text: &str) -> String {
+    strip_prefixes(&blank_quotes(text))
+}
+
+pub fn blank_quotes(text: &str) -> String {
     let text: Vec<_> = text.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -35,7 +39,7 @@ pub fn strip_quotes(text: &str) -> String {
             i += 1;
         }
     }
-    strip_prefixes(&out)
+    out
 }
 pub fn is_separator(token: &str) -> bool {
     !token.is_empty() && token.chars().all(|c| SEPARATORS.contains(c))

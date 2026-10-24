@@ -6,9 +6,7 @@ description: >-
   automated tests in any project: picking the cheapest test that protects a
   named guarantee, what earns a test, property, replay and golden tests, test
   tiers and CPU cost, committed records, flaky tests, pruning a suite, landing
-  gates and reuse by input hash; get an extra adversarial review of a public
-  diff or design from another model family, such as Gemini through the
-  Antigravity CLI (`agy`).
+  gates and reuse by input hash.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:
@@ -76,11 +74,3 @@ When a project picks or revisits its test posture, read [domain profiles](refere
 - Call an external tool once per batch, not per file, row, test or branch; fall back per item only for exact diagnostics on failure, because process start dominates small calls.
 - Bound cost in a deterministic unit (instructions, frames, allocations), never wall seconds, because wall time flakes under load; shrink inputs or move work after landing instead of raising a ceiling. Run a timing check once, under an exclusive capacity lease.
 - Quarantine a flake at first sight with its seed, log and an issue; fix or delete it within a week, because a flake hides real failures. Never retry to green, sleep or weaken an expectation.
-
-## Extra review from another model family
-- Use it as an extra reviewer; the worker-staffing policy sets when it runs and how much its findings weigh.
-- Send only public repositories, never extracted game files, private clients, secrets, credentials or private transcripts, because the provider may use and staff-review prompts and outputs.
-- Use the strongest Pro model at its highest effort, checking the model list for a newer one before a design review, because the review is only worth its cost at full strength.
-- Run it headless and sandboxed, never with a permission-skipping flag, so it cannot edit or run commands; relay its findings, never let it edit.
-- Keep the prompt under 100 KB in one argument, else review per file, and ask for findings with a failing scenario, test or measurement each plus `Accepted flaws: N`, so each finding is checkable.
-- On a non-zero exit (auth, quota or model failure) skip the review rather than retrying, because it is extra, not a gate.

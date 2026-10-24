@@ -146,6 +146,7 @@ impl HookKind {
                 crate::guard::launch_critical::evaluate,
                 crate::guard::desktop_action::decide,
                 crate::guard::blind_stage::evaluate,
+                crate::guard::reviewer_cli::evaluate,
                 crate::guard::git_stash::evaluate,
                 crate::guard::native_evidence::evaluate,
                 crate::guard::heavy_command::evaluate,

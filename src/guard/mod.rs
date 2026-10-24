@@ -4,6 +4,7 @@ pub mod tripwire;
 pub mod git_stash;
 pub mod native_evidence;
 pub mod blind_stage;
+pub mod reviewer_cli;
 pub mod shell_call;
 mod git_invocation;
 #[cfg(test)]

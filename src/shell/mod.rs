@@ -14,7 +14,7 @@ pub use lexer::{
 };
 #[allow(unused_imports)]
 pub use segments::{
-    command, command_index, is_separator, segments, shell_segments_sep, strip_prefixes,
+    blank_quotes, command, command_index, is_separator, segments, shell_segments_sep, strip_prefixes,
     strip_quotes, tripwire_tokens, tripwire_word,
 };
 #[allow(unused_imports)]
