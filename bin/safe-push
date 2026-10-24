@@ -408,11 +408,11 @@ denylist_scan() {
     echo "safe-push: ✗ the deny-list $denylist is missing although $south exists, so a $origin_visibility push cannot be scanned for private values; restore it in south; NOT pushed."
     return 1
   fi
-  local findings
-  if findings=$(gitleaks detect --no-banner --redact --verbose --config "$denylist" --log-opts="$1" 2>&1); then
-    return 0
-  fi
+  local findings status=0
+  findings=$(north denylist scan --config "$denylist" "$1" "$2" ${3:+--ref "$3"} 2>&1) || status=$?
+  [ "$status" -ne 0 ] || return 0
   printf '%s\n' "$findings"
+  [ "$status" -eq 1 ] || { echo "safe-push: ✗ the deny-list scan could not run (exit $status), so a $origin_visibility push was not checked for private values; NOT pushed."; return 1; }
   echo "safe-push: ✗ PRIVATE VALUE for a $origin_visibility repository matched the deny-list $denylist — it belongs in south; NOT pushed."
   return 1
 }
@@ -1094,7 +1094,7 @@ cleanup_landed_lane() {
       && git fetch -q "$origin_url" "+${lane_ref}:refs/remotes/origin/$branch" 2>/dev/null \
       && ! git cherry "$tracking" "refs/remotes/origin/$branch" 2>/dev/null | grep -q '^+'; then
     echo "safe-push: origin $branch is fully on $to — deleting it"
-    if SAFE_PUSH_ACTIVE=1 git push -q --force-with-lease="${lane_ref}:${remote_oid}" \
+    if SAFE_PUSH_ACTIVE=1 git push -q --no-follow-tags --force-with-lease="${lane_ref}:${remote_oid}" \
         "$origin_url" ":${lane_ref}"; then
       git update-ref -d "refs/remotes/origin/$branch" 2>/dev/null || true
     else
@@ -1307,9 +1307,9 @@ if [ -n "$tag" ]; then
   if [ "$(git rev-list --count "${tag_scan_revs[@]}")" -gt 0 ]; then
     gitleaks detect --no-banner --redact --log-opts="$tag_scan_range" \
       || { echo "safe-push: ✗ SECRET DETECTED in tag commit history — fix it; NOT pushed."; exit 1; }
-    denylist_scan "$tag_scan_range" || exit 1
     commit_email_scan "${tag_scan_revs[@]}" || exit 1
   fi
+  denylist_scan "$tag_base" "$target" "$tag" || exit 1
 
   git cat-file -p "$tag_oid" > "$tmpd/tag-object.txt"
   # gitleaks CLI drift: 8.19+ uses `dir`, older uses `detect --no-git --source`
@@ -1327,7 +1327,7 @@ if [ -n "$tag" ]; then
     || state_changed 'origin refs changed'
   if [ "$dry" = 1 ]; then echo "safe-push: ✓ clean (--dry-run) — would push tag $tag -> origin"; exit 0; fi
   echo "safe-push: ✓ clean — pushing tag $tag -> origin"
-  SAFE_PUSH_ACTIVE=1 git push "$origin_url" "${tag_oid}:${tag_ref}"
+  SAFE_PUSH_ACTIVE=1 git push --no-follow-tags "$origin_url" "${tag_oid}:${tag_ref}"
   safe_push_published_head="$target"; safe_push_landed_sha="$target"
   exit 0
 fi
@@ -1560,7 +1560,7 @@ check_candidate() {
       && check_instruction_limits "$head" >>"$log" 2>&1 \
       && scan_range_for_native=("$base..$head") && native_ref_scan >>"$log" 2>&1 \
       && gitleaks detect --no-banner --redact --log-opts="$base..$head" >>"$log" 2>&1 \
-      && denylist_scan "$base..$head" >>"$log" 2>&1 \
+      && denylist_scan "$base" "$head" "$to" >>"$log" 2>&1 \
       && commit_email_scan "$base..$head" >>"$log" 2>&1 \
       && (cd "$repo_root" && printf 'refs/heads/%s %s refs/heads/%s %s\n' "$train_branch" "$head" "$to" "$base" \
         | "$hook" origin "$lock_url") 2>&1 | tee -a "$log" >&2; then
@@ -1642,7 +1642,7 @@ run_train() {
       if detail=$(check_candidate "$hook" "$base" "$log" "$cand"); then
         local pushed_at=$EPOCHSECONDS
         if [ "$(remote_destination_snapshot)" = "object:$base" ] \
-            && SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="$destination_ref:$base" \
+            && SAFE_PUSH_ACTIVE=1 git push -q --no-verify --no-follow-tags --force-with-lease="$destination_ref:$base" \
               "$origin_url" "$cand:$destination_ref"; then
           for i in "${group[@]}"; do
             record_push "$pushed_at" "${branches[i]}" "${oids[i]}" "$(trunk_landing "$to" "$cand")" "${sessions[i]}"
@@ -2051,7 +2051,7 @@ provenance_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \
   || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
-denylist_scan "$scan_range" || exit 1
+denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || exit 1
 commit_email_scan "$scan_range" || exit 1
 
 revalidate_repository_state
@@ -2073,7 +2073,7 @@ if [ "$hook_verified" -eq 0 ] && ! sync_dependencies; then
   exit 1
 fi
 pushed_at=$EPOCHSECONDS
-(drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push "${push_flags[@]}" \
+(drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push --no-follow-tags "${push_flags[@]}" \
   "${publication_flags[@]}" \
   "$origin_url" "$publication")
 record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid" \

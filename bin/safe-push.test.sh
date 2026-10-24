@@ -57,7 +57,7 @@ shim_main() {
       if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE:-0}" = 1 ]; then rm -f -- "$0"; fi
       return "$status"
       ;;
-    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:denylist) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -252,8 +252,8 @@ printf 'planning property: %s rows\n' "$property_rows"
 [ ! -s "$trace" ] || fail 'pure planning invoked git or a scanner'
 unset -f git gitleaks
 real_git="$(command -v git)"
-real_north="$(command -v north)"
-[ "$(head -c 2 "${real_north:?}")" != '#!' ] || real_north="$(readlink -f "$HOME/.local/state/north/current/north")"
+real_north="$(cd "$REPO" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north"
+[ -x "$real_north" ] || { echo "safe-push.test.sh: build north from this tree first; $real_north is missing" >&2; exit 1; }
 export SAFE_PUSH_TEST_REAL_NORTH="$real_north"
 new_real_bin() {
   real_bin="$scratch/real-bin${1:-}"
@@ -1280,6 +1280,7 @@ grep -Eq 'safe-push: landed [0-9a-f]{40}$' <<<"$case_output" || fail 'successful
 grep -Fxq follows-release "$runtime_calls" || fail 'follows-release was not invoked through the runtime after PATH lost north'
 printf 'PASS: safe_push_follows_release_uses_runtime_without_path_north\n'
 printf 'PASS: safe_push_landing_emits_terminal_sha\n'
+ln -sf "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/north"
 printf 'timed out lane\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'timed out lane'
 SAFE_PUSH_TEST_AUTOLAND_STATUS=$'pending\tAutoland workflow queued\thttps://example.test/pending' \
@@ -1482,9 +1483,14 @@ id = "fake-private-term"
 description = "fake private identity term"
 regex = '''zebra-quokka-7731'''
 [[rules]]
-id = "fake-proton-credit"
+id = "fake-credit-lane"
 description = "fake credit-lane login"
 regex = '''((?i:proton\s+(?:credit|account|login)))'''
+[[rules]]
+id = "fake-skill-host"
+description = "fake host named in a skill"
+regex = '''quokka-host-42'''
+path = '''^harness/skills/'''
 TOML
 real_gitleaks="$(command -v gitleaks)"
 gh_bin="$scratch/gh-bin"
@@ -1497,7 +1503,7 @@ commit_private_term() {
 }
 run_denylist_case() {
   PATH="$gh_bin:$PATH" SAFE_PUSH_TEST_VISIBILITY="$1" \
-    SAFE_PUSH_TEST_REAL_GITLEAKS="$real_gitleaks" run_real_case ''
+    SAFE_PUSH_TEST_REAL_GITLEAKS="$real_gitleaks" run_real_case '' "${@:2}"
 }
 expect_published() {
   [ "$("$real_git" -C "$real_repo" rev-parse main)" = "$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)" ] \
@@ -1519,6 +1525,163 @@ SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
 expect_status zero
 expect_published 'clean public push did not publish'
 
+commit_clean_change() {
+  printf 'clean\n' >>"$real_repo/content.txt"
+  "$real_git" -C "$real_repo" add content.txt
+  "$real_git" -C "$real_repo" commit -qm "$1"
+}
+expect_denylist_refused() {
+  expect_status nonzero
+  expect_output 'fake-private-term'
+  expect_output "$1"
+  if grep -E "${3:-}" <<<"$case_output" | grep -Fq 'zebra-quokka-7731'; then fail "$2 printed the matched value"; fi
+  [ "$(real_remote_state)" = "$remote_before" ] || fail "$2 mutated the remote"
+}
+rename_into_skills() {
+  printf '%s\n' "$1" >"$real_repo/owner-notes.md"
+  "$real_git" -C "$real_repo" add owner-notes.md
+  "$real_git" -C "$real_repo" commit -qm 'add owner notes'
+  "$real_git" -C "$real_repo" push -q origin HEAD:main
+  mkdir -p "$real_repo/harness/skills"
+  "$real_git" -C "$real_repo" mv owner-notes.md harness/skills/owner-notes.md
+  "$real_git" -C "$real_repo" commit -qm 'move owner notes into skills'
+}
+
+make_real_fixture denylist-message-finding
+commit_clean_change 'Record owner zebra-quokka-7731'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_denylist_refused 'fake-private-term in commit ' 'commit message refusal'
+
+make_real_fixture denylist-message-clean
+commit_clean_change 'Record the owner'
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status zero
+expect_published 'clean commit message push did not publish'
+
+make_real_fixture denylist-branch-finding
+"$real_git" -C "$real_repo" switch -q -c claude/zebra-quokka-7731
+commit_clean_change 'Record the owner'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC --to claude/zebra-quokka-7731
+expect_denylist_refused 'ref name' 'branch name refusal' '^denylist:|PRIVATE VALUE'
+
+make_real_fixture denylist-rename-finding
+rename_into_skills 'owner: zebra-quokka-7731'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_denylist_refused 'harness/skills/owner-notes.md' 'pure rename refusal'
+
+make_real_fixture denylist-rename-skill-host
+rename_into_skills 'host: quokka-host-42'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status nonzero
+expect_output 'fake-skill-host in harness/skills/owner-notes.md'
+if grep -Fq 'quokka-host-42' <<<"$case_output"; then fail 'path-scoped rename refusal printed the matched value'; fi
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'path-scoped rename refusal mutated the remote'
+
+make_real_fixture denylist-two-commit-skill-host
+printf 'host: quokka-host-42\n' >"$real_repo/owner-notes.md"
+"$real_git" -C "$real_repo" add owner-notes.md
+"$real_git" -C "$real_repo" commit -qm 'add owner notes'
+mkdir -p "$real_repo/harness/skills"
+"$real_git" -C "$real_repo" mv owner-notes.md harness/skills/owner-notes.md
+"$real_git" -C "$real_repo" commit -qm 'move owner notes into skills'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status nonzero
+expect_output 'fake-skill-host in harness/skills/owner-notes.md'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'two-commit rename refusal mutated the remote'
+
+make_real_fixture denylist-move-onto-existing-skill
+mkdir -p "$real_repo/harness/skills"
+printf 'clean\n' >"$real_repo/harness/skills/owner-notes.md"
+"$real_git" -C "$real_repo" add harness/skills/owner-notes.md
+"$real_git" -C "$real_repo" commit -qm 'add clean skill notes'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+printf 'host: quokka-host-42\n' >"$real_repo/notes.md"
+"$real_git" -C "$real_repo" add notes.md
+"$real_git" -C "$real_repo" commit -qm 'add notes'
+"$real_git" -C "$real_repo" rm -q harness/skills/owner-notes.md
+"$real_git" -C "$real_repo" commit -qm 'drop skill notes'
+mkdir -p "$real_repo/harness/skills"
+"$real_git" -C "$real_repo" mv notes.md harness/skills/owner-notes.md
+"$real_git" -C "$real_repo" commit -qm 'move notes onto skill notes'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status nonzero
+expect_output 'fake-skill-host in harness/skills/owner-notes.md'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'move onto an existing skill path mutated the remote'
+
+make_real_fixture denylist-file-name
+printf 'clean\n' >"$real_repo/zebra-quokka-7731.md"
+"$real_git" -C "$real_repo" add zebra-quokka-7731.md
+"$real_git" -C "$real_repo" commit -qm 'add notes'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status nonzero
+expect_output 'fake-private-term in file names'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'file name refusal mutated the remote'
+
+make_real_fixture denylist-file-name-renamed-away
+printf 'clean\n' >"$real_repo/zebra-quokka-7731.md"
+"$real_git" -C "$real_repo" add zebra-quokka-7731.md
+"$real_git" -C "$real_repo" commit -qm 'add notes'
+"$real_git" -C "$real_repo" mv zebra-quokka-7731.md notes.md
+"$real_git" -C "$real_repo" commit -qm 'rename notes'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status nonzero
+expect_output 'fake-private-term in file names'
+[ "$(real_remote_state)" = "$remote_before" ] || fail 'renamed-away file name refusal mutated the remote'
+
+make_real_fixture denylist-author-name
+GIT_AUTHOR_NAME='zebra-quokka-7731' commit_clean_change 'Record the owner'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_denylist_refused 'fake-private-term in commit ' 'author name refusal'
+
+make_real_fixture denylist-committed-ignore
+printf 'owner: zebra-quokka-7731\n' >"$real_repo/identity.txt"
+printf 'identity.txt:fake-private-term:1\n' >"$real_repo/.gitleaksignore"
+"$real_git" -C "$real_repo" add identity.txt .gitleaksignore
+"$real_git" -C "$real_repo" commit -qm 'add identity'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_denylist_refused 'fake-private-term in identity.txt' 'committed ignore-file refusal'
+
+make_real_fixture denylist-unnamed-archive
+mkdir -p "$real_fixture/package"
+printf '{"author":"zebra-quokka-7731"}\n' >"$real_fixture/package/package.json"
+tar -czf "$real_repo/pkg-1.0.0.tgz" -C "$real_fixture" package
+"$real_git" -C "$real_repo" add pkg-1.0.0.tgz
+"$real_git" -C "$real_repo" commit -qm 'add package'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_denylist_refused 'fake-private-term in pkg-1.0.0.tgz' 'archive refusal'
+
+make_real_fixture denylist-unit-target-name
+mkdir -p "$real_repo/nix"
+printf 'Description=owner zebra-quokka-7731\n' >"$real_repo/nix/north-fleet.target"
+"$real_git" -C "$real_repo" add nix/north-fleet.target
+"$real_git" -C "$real_repo" commit -qm 'add target unit'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_denylist_refused 'fake-private-term in nix/north-fleet.target' 'archive-like name refusal'
+
+make_real_fixture denylist-tag-annotation
+"$real_git" -C "$real_repo" tag -a release-owner -m 'owner zebra-quokka-7731'
+remote_before="$(real_remote_state)"
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC --tag release-owner
+expect_denylist_refused 'tag annotation' 'tag annotation refusal'
+
+make_real_fixture denylist-rename-clean
+rename_into_skills 'owner: the maintainer'
+SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
+expect_status zero
+expect_published 'pure rename of a clean file did not publish'
+
 make_real_fixture denylist-private
 commit_private_term
 SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PRIVATE
@@ -1537,7 +1700,7 @@ commit_skill_line "- Run it on the host whose login is $credit_login account, so
 remote_before="$(real_remote_state)"
 SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
 expect_status nonzero
-expect_output 'fake-proton-credit'
+expect_output 'fake-credit-lane'
 expect_output 'cloud.md'
 if grep -Fq "$credit_login account" <<<"$case_output"; then fail 'deny-list refusal printed the matched credit-lane text'; fi
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'credit-lane refusal mutated the remote'

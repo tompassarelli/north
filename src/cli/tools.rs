@@ -1,5 +1,6 @@
 use std::process::ExitCode;
 
+use crate::landing::denylist;
 use crate::{
     autoland_status, capacity, dep_gate, follows_release, issue_box_lint, provenance, review_gate,
 };
@@ -9,6 +10,7 @@ pub(super) enum Tool {
     Wisp,
     DepGate,
     ReviewGate,
+    Denylist,
     AutolandStatus,
     AutolandWait,
     LandAbandon,
@@ -28,6 +30,7 @@ impl Tool {
             "wisp" => Self::Wisp,
             "dep-gate" => Self::DepGate,
             "review-gate" => Self::ReviewGate,
+            "denylist" => Self::Denylist,
             "autoland-status" => Self::AutolandStatus,
             "autoland-wait" => Self::AutolandWait,
             "land-abandon" => Self::LandAbandon,
@@ -50,6 +53,7 @@ impl Tool {
             }),
             Self::DepGate => dep_gate::run,
             Self::ReviewGate => review_gate::run,
+            Self::Denylist => denylist::run,
             Self::AutolandStatus => autoland_status::run,
             Self::AutolandWait => autoland_status::wait,
             Self::LandAbandon => autoland_status::abandon,

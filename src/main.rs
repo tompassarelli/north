@@ -4,6 +4,7 @@ mod platform;
 mod cli;
 mod dep_gate;
 mod review_gate;
+mod landing;
 mod autoland_status;
 mod provenance;
 mod follows_release;

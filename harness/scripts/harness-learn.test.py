@@ -21,7 +21,7 @@ class LearningCycle(unittest.TestCase):
             repo, remote, state = root / "repo", root / "origin.git", root / "state"
             env = dict(os.environ, XDG_STATE_HOME=str(root / "xdg"),
                        THREADS_DB=str(root / "threads.db"), LEDGER_HANDOFFS=str(root / "handoffs"),
-                       CODEX_HOME=str(root / "codex"))
+                       CODEX_HOME=str(root / "codex"), PATH=f"{ROOT / os.environ.get('CARGO_TARGET_DIR', 'target') / 'debug'}:{os.environ['PATH']}")
             for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
                 env.pop(key, None)
 
