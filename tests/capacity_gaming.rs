@@ -19,7 +19,7 @@ fn mark_gaming(host: &Host, gaming: bool) {
 
 fn run(host: &Host, class: &str, owner: &str, command: &[&str]) -> Wrapper {
     let arguments = [&["run", "--class", class, "--owner", owner, "--timeout-seconds", "60", "--"][..], command].concat();
-    Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap())
+    Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).spawn().unwrap())
 }
 
 fn probe(host: &Host, class: &str) -> Value {
@@ -33,7 +33,7 @@ fn finished(host: &Host, what: &str, wrapper: &mut Wrapper) {
         status = wrapper.exited();
         status.is_some()
     });
-    assert!(status.unwrap().success(), "{what}: {}", wrapper.stderr());
+    assert!(status.unwrap().success(), "{what}: {}", host.helper_stderr());
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn a_lease_frozen_while_gaming_outlives_its_timeout_by_the_time_it_spent_frozen(
     let host = Host::new("capacity-frozen-", &[("systemd-run", &wall_clock_systemd_run()), ("systemctl", SCOPE_SYSTEMCTL)]);
     let timeout = WALL_CLOCK_TIMEOUT.to_string();
     let arguments = ["run", "--class", "heavy", "--owner", "fixture:/frozen", "--timeout-seconds", &timeout, "--", "sleep", "60"];
-    let mut frozen = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+    let mut frozen = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).spawn().unwrap());
     host.until("the heavy lease", |host| host.leases("heavy") == 1);
     let lease = only_lease(&host);
     let paused = freeze_past_its_timeout(&host, &lease, &mut frozen);
@@ -203,7 +203,7 @@ fn a_nested_run_frozen_with_its_parent_outlives_its_timeout_by_the_time_it_spent
         started = started.display(),
     );
     let arguments = ["run", "--class", "heavy", "--owner", "fixture:/parent", "--timeout-seconds", "60", "--", "sh", "-c", &nested];
-    let mut parent = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+    let mut parent = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).spawn().unwrap());
     host.until("the nested run", |_| started.exists());
     let began = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
     assert_eq!(host.leases("heavy"), 1, "the nested run took a lease of its own");
