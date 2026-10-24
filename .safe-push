@@ -7,6 +7,6 @@
 	check = ** :: CARGO_TARGET_DIR=target nix develop -c cargo run --offline --bin north -- config agents check-owners --north-root "$PWD" --south-root "$HOME/code/south/main" --nixos-root "$HOME/code/nixos-config/main" # hardcoded-repo-path:allow
 	check = src/,tests/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/depbox run -- nix develop -c cargo test --locked --offline
 	check = src/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/depbox run -- nix develop -c cargo clippy --all-targets --locked --offline -- -D warnings
-	check = bin/,lib/,harness/hooks/,harness/lib/,harness/scripts/,src/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh
+	check = bin/,lib/,harness/,src/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh
 	check = flake.nix,flake.lock,rust-toolchain.toml,tests/dev-shell.test.sh :: ./bin/depbox run -- bash tests/dev-shell.test.sh
 	check = "agent-machinery/ :: bash -euc 'cd agent-machinery; depbox run -- bun test; depbox run -- bun run check'"

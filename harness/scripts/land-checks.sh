@@ -24,10 +24,12 @@ enqueue() { [ -n "${visited[$1]:-}" ] || { visited[$1]=1; queue+=("$1"); }; }
 roots=(bin lib harness/hooks harness/lib harness/scripts)
 search --files -0 "${roots[@]}"
 mapfile -d '' -t files <"$scratch/matches"
+search --files -0 --max-depth 1 -g '*.toml' harness
+mapfile -d '' -t -O "${#files[@]}" files <"$scratch/matches"
 while IFS= read -r -d '' path; do
   case "$path" in
-    bin/*|lib/*|harness/hooks/*|harness/lib/*|harness/scripts/*) enqueue "$path" ;;
-    src/*|Cargo.toml|Cargo.lock|build.rs) enqueue NORTH_PACE_BIN; enqueue NORTH_BIN; enqueue debug/north ;;
+    bin/*|lib/*|harness/hooks/*|harness/lib/*|harness/scripts/*|harness/*.toml) enqueue "$path" ;;
+    src/*|Cargo.toml|Cargo.lock|build.rs) enqueue "$path"; enqueue NORTH_PACE_BIN; enqueue NORTH_BIN; enqueue debug/north ;;
   esac
 done <"$scratch/changes"
 for ((next = 0; next < ${#queue[@]}; next++)); do
