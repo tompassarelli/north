@@ -169,8 +169,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert len(tuner.read_rows([reserved])) - 1 == charged
     snapshot_home = tmp / "snapshot-home"
     write(snapshot_home / ".config/threads/remote", "fixture\n")
-    write(fake / "ssh", "#!/bin/sh\n[ -n \"$SNAPSHOT_FIXTURE\" ] && cat \"$SNAPSHOT_FIXTURE\" || exit 1\n").chmod(0o755)
-    snapshot_env = dict(env, HOME=str(snapshot_home), AGENTS_OPERATOR_DIR=str(tmp))
+    write(fake / "ssh", "#!/bin/sh\n[ -n \"$SNAPSHOT_FIXTURE\" ] && THREADS_DB=\"$SNAPSHOT_FIXTURE\" exec \"$NORTH_BIN\" threads snapshot-pages || exit 1\n").chmod(0o755)
+    snapshot_env = dict(env, HOME=str(snapshot_home), AGENTS_OPERATOR_DIR=str(tmp), NORTH_BIN=os.environ.get("NORTH_PACE_BIN") or str(SCRIPT.parents[2] / "target/debug/north"))
     snapshot_env.pop("THREADS_DB", None)
     snapshot_args = ("replay", scen[0], "--variants", variants / "e1", "--base", base, "--provider", "claude",
                      "--out", tmp / "snapshot-refused.jsonl", "--cap-week-pct", 5)
@@ -194,7 +194,7 @@ with tempfile.TemporaryDirectory() as tmp:
                     env=dict(snapshot_env, SNAPSHOT_FIXTURE=str(ledger)))
     assert refreshed_out.exists(), refreshed
     assert refreshed.returncode == 3 and len(tuner.read_rows([refreshed_out])) == 1, refreshed
-    assert snapshot.read_bytes() == ledger.read_bytes() and snapshot.stat().st_mtime > 0
+    assert list(sqlite3.connect(snapshot).iterdump()) == list(sqlite3.connect(ledger).iterdump()) and snapshot.stat().st_mtime > 0
     print("ok: a stale reservation snapshot refreshes through the public SSH snapshot command before admission")
     print("ok: north#50 83%/0.105 points/32 in flight replay reserves 3.36 points, admits 47 runs under delayed readings and ends at 87.935%; 84.63/84.64 cannot reserve a 33rd run")
 
