@@ -70,12 +70,12 @@ printf 'python3 "$(dirname "$0")/lib/decide.py"\n' >harness/hooks/gate.sh; print
 printf 'value = 1\n' >harness/lib/usage.py; printf 'printf "gate test ran\\n"\n' >harness/hooks/gate.test.sh
 printf 'subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace"])\n' >harness/lib/pace_client.py; printf 'import pace_client\n' >harness/hooks/lib/paced.py
 printf 'python3 "$(dirname "$0")/lib/paced.py"\n' >harness/hooks/paced.sh; printf 'printf "paced test ran\\n"\n' >harness/hooks/paced.test.sh
-printf 'fn main() {}\n' >src/main.rs
-git add harness/hooks/gate.sh harness/hooks/lib/decide.py harness/lib/usage.py harness/hooks/gate.test.sh harness/lib/pace_client.py harness/hooks/lib/paced.py harness/hooks/paced.sh harness/hooks/paced.test.sh src/main.rs; git commit -qm 'add hooks over a library and the binary'; base=$(git rev-parse HEAD)
+printf 'fn main() {}\n' >src/main.rs; printf 'north="$(dirname "$0")/../../target/debug/north"; printf "direct test ran\\n"\n' >harness/hooks/direct.test.sh
+git add harness/hooks/gate.sh harness/hooks/lib/decide.py harness/lib/usage.py harness/hooks/gate.test.sh harness/lib/pace_client.py harness/hooks/lib/paced.py harness/hooks/paced.sh harness/hooks/paced.test.sh harness/hooks/direct.test.sh src/main.rs; git commit -qm 'add hooks over a library and the binary'; base=$(git rev-parse HEAD)
 printf 'value = 2\n' >harness/lib/usage.py; git add harness/lib/usage.py; git commit -qm 'change the library a hook reaches'; output=$(SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script"); printf '%s\n' "$output"
 [[ "$output" == *'land check: harness/hooks/gate.test.sh'* && "$output" != *'land check: harness/hooks/paced.test.sh'* ]]
 base=$(git rev-parse HEAD); printf 'fn main() { }\n' >src/main.rs; git add src/main.rs; git commit -qm 'change the binary'; output=$(SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script"); printf '%s\n' "$output"
-[[ "$output" == *'land check: harness/hooks/paced.test.sh'* && "$output" != *'land check: harness/hooks/gate.test.sh'* ]]
+[[ "$output" == *'land check: harness/hooks/paced.test.sh'* && "$output" != *'land check: harness/hooks/gate.test.sh'* && "$output" == *'land check: harness/hooks/direct.test.sh'* ]]
 base=$(git rev-parse HEAD); printf 'exit 1\n' >harness/hooks/gate.test.sh; printf 'value = 3\n' >harness/lib/usage.py; git add harness/lib/usage.py harness/hooks/gate.test.sh; git commit -qm 'change the library while its hook test is red'
 if SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script" >/dev/null 2>&1; then printf 'FAIL: a red hook test reached through a library passed\n' >&2; exit 1; fi
 printf 'PASS: a hook test runs when a library its hook imports or the north binary it calls changes, and a red one fails the check\n'
