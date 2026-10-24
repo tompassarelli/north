@@ -74,3 +74,33 @@ pub(crate) fn run_with_input_within(
         stderr: Vec::new(),
     })
 }
+
+pub(crate) struct Bounded {
+    pub(crate) status: std::process::ExitStatus,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) overflowed: bool,
+}
+
+pub(crate) fn run_bounded<S: AsRef<OsStr>>(program: &str, dir: Option<&Path>, args: &[S], limit: u64) -> std::io::Result<Bounded> {
+    let mut errors = tempfile::tempfile()?;
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(errors.try_clone()?);
+    if let Some(dir) = dir {
+        command.current_dir(dir);
+    }
+    let mut child = command.spawn()?;
+    let mut stdout = Vec::new();
+    let read = match child.stdout.take() {
+        Some(pipe) => pipe.take(limit.saturating_add(1)).read_to_end(&mut stdout).map(|_| ()),
+        None => Ok(()),
+    };
+    let status = child.wait()?;
+    read?;
+    let mut stderr = Vec::new();
+    errors.rewind()?;
+    errors.read_to_end(&mut stderr)?;
+    let overflowed = stdout.len() as u64 > limit;
+    stdout.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    Ok(Bounded { status, stdout, stderr, overflowed })
+}

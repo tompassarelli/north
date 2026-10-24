@@ -5,6 +5,13 @@ use std::path::{Path, PathBuf};
 
 use crate::platform::{git as platform_git, process};
 
+#[path = "denylist_archive.rs"]
+mod archive;
+
+use archive::Unpacker;
+
+type Staged = BTreeMap<PathBuf, BTreeMap<String, String>>;
+
 const USAGE: &str = "usage: north denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]\n       north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
 const SOUTH_DENYLIST: &str = "origin/main:privacy/public-denylist.toml";
 const IGNORE_FILE: &[u8] = b".gitleaksignore";
@@ -178,10 +185,9 @@ fn neutral_name(path: &[u8], oid: &str) -> Vec<u8> {
     }
 }
 
-fn archive_copy(tree: &Path, path: &OsStr, oid: &str, ext: &str) -> PathBuf {
-    let mut name = tree.join(path).into_os_string();
-    name.push(format!(".{}.{ext}", &oid[..oid.len().min(12)]));
-    PathBuf::from(name)
+fn put(file: &Path, bytes: &[u8], path: &[u8]) -> Result<(), String> {
+    let written = file.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(file, bytes));
+    written.map_err(|e| format!("cannot stage {} for the scan: {e}", String::from_utf8_lossy(path)))
 }
 
 fn staged_path(path: &[u8]) -> Result<&OsStr, String> {
@@ -249,33 +255,38 @@ impl Gitleaks<'_> {
         Err(format!("gitleaks dir failed or skipped a file (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim()))
     }
 
+    fn stage(&self, index: usize, staged: &mut Staged, path: &[u8], id: &str, depth: usize, content: &[u8]) -> Result<(), String> {
+        let raw = self.scratch.join(format!("layer-{index}-{depth}-raw"));
+        let text = self.scratch.join(format!("layer-{index}-{depth}-text"));
+        put(&raw.join(staged_path(path)?), content, path)?;
+        staged.entry(raw).or_default();
+        if is_text(content) {
+            let neutral = neutral_name(path, id);
+            put(&text.join(staged_path(&neutral)?), &[b"\n".as_slice(), content].concat(), path)?;
+            staged.entry(text).or_default().insert(String::from_utf8_lossy(&neutral).into_owned(), String::from_utf8_lossy(path).into_owned());
+        }
+        Ok(())
+    }
+
     fn scan_layer(&self, index: usize, layer: &[&Blob], root: &Path) -> Result<Vec<String>, String> {
-        let raw = self.scratch.join(format!("layer-{index}-raw"));
-        let text = self.scratch.join(format!("layer-{index}-text"));
-        let mut text_names = BTreeMap::new();
+        let (mut staged, mut names) = (Staged::new(), Vec::new());
         for blob in layer.iter().filter(|blob| blob.path != IGNORE_FILE) {
-            let path = staged_path(&blob.path)?;
             let content = git_bytes(root, &["cat-file", "blob", &blob.oid])?;
-            let shifted = [b"\n".as_slice(), &content].concat();
-            let mut copies = vec![(raw.join(path), content.as_slice())];
-            if let Some(ext) = archive_extension(&content) {
-                copies.push((archive_copy(&raw, path, &blob.oid, ext), content.as_slice()));
-                if matches!(ext, "gz" | "bz2" | "xz" | "zst") {
-                    copies.push((archive_copy(&text, path, &blob.oid, &format!("tar.{ext}")), content.as_slice()));
-                }
-            }
-            if is_text(&content) {
-                let neutral = neutral_name(&blob.path, &blob.oid);
-                copies.push((text.join(staged_path(&neutral)?), shifted.as_slice()));
-                text_names.insert(String::from_utf8_lossy(&neutral).into_owned(), String::from_utf8_lossy(&blob.path).into_owned());
-            }
-            for (file, bytes) in copies {
-                let written = file.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&file, bytes));
-                written.map_err(|e| format!("cannot stage {} for the scan: {e}", String::from_utf8_lossy(&blob.path)))?;
+            let mut members = Vec::new();
+            Unpacker::new(archive::DEPTH_CAP, archive::BYTE_CAP).members(&blob.path, &content, 0, &mut members)?;
+            self.stage(index, &mut staged, &blob.path, &blob.oid, 0, &content)?;
+            for member in members {
+                let id = format!("{:012}", names.len());
+                self.stage(index, &mut staged, &member.path, &id, member.depth, &member.content)?;
+                names.push(String::from_utf8_lossy(&member.path).into_owned());
             }
         }
         let mut findings = Vec::new();
-        for tree in [&raw, &text] {
+        if !names.is_empty() {
+            let segment = Segment { label: "archive member names".into(), text: names.join("\n") };
+            findings.extend(self.scan_text(&format!("layer-{index}-names"), &[segment])?);
+        }
+        for (tree, text_names) in &staged {
             for found in self.scan_dir(tree, false)? {
                 let staged = found.file.trim_start_matches("./");
                 findings.push(format!("{} in {}", found.rule, text_names.get(staged).map_or(staged, String::as_str)));
@@ -294,8 +305,8 @@ impl Gitleaks<'_> {
         read_report(&report)
     }
 
-    fn scan_text(&self, segments: &[Segment]) -> Result<Vec<String>, String> {
-        let dir = self.scratch.join("text");
+    fn scan_text(&self, name: &str, segments: &[Segment]) -> Result<Vec<String>, String> {
+        let dir = self.scratch.join(name);
         let (text, starts) = document(segments);
         std::fs::create_dir_all(&dir)
             .and_then(|()| std::fs::write(dir.join("segments.txt"), format!("\n{text}")))
@@ -383,7 +394,7 @@ fn scan(root: &Path, request: &Request) -> Result<BTreeSet<String>, String> {
         .and_then(|()| std::fs::write(&ignore, ""))
         .map_err(|e| format!("cannot prepare the scan: {e}"))?;
     let gitleaks = Gitleaks { config: &config, scratch: &work, ignore };
-    let mut findings: BTreeSet<String> = gitleaks.scan_text(&segments)?.into_iter().collect();
+    let mut findings: BTreeSet<String> = gitleaks.scan_text("text", &segments)?.into_iter().collect();
     let files: BTreeSet<Blob> = blobs.into_iter().filter(|blob| blob.file).collect();
     for (index, layer) in layers(&files).iter().enumerate() {
         findings.extend(gitleaks.scan_layer(index, layer, root)?);
