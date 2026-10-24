@@ -44,6 +44,25 @@ fn target(decision: &super::placement::gate::Decision) -> String {
 }
 
 #[test]
+fn launch_placement_never_picks_a_held_or_over_account() {
+    let cfg = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
+    let at = super::target::seconds(AT).unwrap();
+    let flagged = |key: &str| {
+        let mut c = control((10.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0));
+        c[key] = json!(true);
+        c
+    };
+    let open_a = control((60.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0));
+    for key in ["held", "over"] {
+        let quota = gate(&[("claude:a", open_a.clone()), ("claude:c", flagged(key))]);
+        let decision = decide(WARCRAFT, &cfg, &quota, (false, "cloud credit: spent".to_owned()), &[], "here", at);
+        assert_eq!(target(&decision), "claude:a", "{key}");
+        let c = decision.verdict("claude:c").unwrap();
+        assert!(!c.available && c.line.contains(key), "{}", c.line);
+    }
+}
+
+#[test]
 fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_runaway_burn() {
     let cfg = "[placement]\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let at = super::target::seconds(AT).unwrap();

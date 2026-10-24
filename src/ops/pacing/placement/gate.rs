@@ -1,7 +1,8 @@
 //! Claude-only launch placement for `north fleet launch`: the cloud credit first for code-only public
 //! work, then the Claude account with the most headroom, run on the first machine in `[placement] order`
 //! that serves every local need of the box and is below its resident cap, else here. Pace lines and
-//! weekly projections never hold a launch; an account is out only when a window is exhausted or burning away.
+//! weekly projections never hold a launch; an account is out when its controller reports it held or over,
+//! a window is exhausted or it is burning away.
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
 use super::{credit, facets, field, local, resident, signed_in, strings};
@@ -146,6 +147,12 @@ fn usage(windows: &[Value]) -> String {
 
 pub(crate) fn verdict(account: &str, control: &Value, at: f64) -> Verdict {
     let windows = rows(&control["windows"]);
+    if control["over"] == true {
+        return unavailable(account, "over: pace controller reports the account over its window".into());
+    }
+    if control["held"] == true {
+        return unavailable(account, "held: pace controller spawn hold".into());
+    }
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
         return unavailable(account, "no live quota sample".into());
     }

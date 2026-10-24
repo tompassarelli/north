@@ -22,33 +22,37 @@ fn success(output: std::io::Result<Output>) -> Result<bool, String> {
         .map(|out| out.status.success())
         .map_err(|e| e.to_string())
 }
-fn names_issue(message: &str, repo: &str, number: &str) -> bool {
-    static REFERENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^(?:item|closes|close|fixes|fix|refs|ref|part of|issue|for)\b").unwrap());
-    static DIGIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d$").unwrap());
-    let needle = format!("#{number}");
-    message
-        .lines()
-        .enumerate()
-        .filter(|(i, line)| *i == 0 || REFERENCE.is_match(line.trim()))
-        .any(|(_, line)| {
-            line.match_indices(&needle).any(|(i, _)| {
-                let before = &line[..i];
-                let after = &line[i + needle.len()..];
-                (before
-                    .chars()
-                    .next_back()
-                    .is_none_or(|c| !(c.is_alphanumeric() || "_/-".contains(c)))
-                    || before.ends_with(repo))
-                    && after
-                        .chars()
-                        .next()
-                        .is_none_or(|c| !DIGIT.is_match(&c.to_string()))
-            })
-        })
+fn origin_owner(repo: &Path) -> Result<String, String> {
+    let url = text(git(repo, &["remote", "get-url", "origin"]))?;
+    let url = url.trim().trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    let mut parts = url.rsplit(['/', ':']);
+    parts.next();
+    parts
+        .next()
+        .filter(|owner| !owner.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| format!("origin remote {url} names no owner"))
+}
+fn issue_closed(repo: &Path, owner: Option<&str>, name: &str, number: &str) -> Result<bool, String> {
+    let owner = match owner {
+        Some(owner) => owner.to_owned(),
+        None => origin_owner(repo)?,
+    };
+    let out = Command::new("gh")
+        .current_dir(repo)
+        .args(["issue", "view", number, "--repo", &format!("{owner}/{name}")])
+        .args(["--json", "state", "--jq", ".state"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    Ok(out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "CLOSED")
 }
 fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
     static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9a-f]{7,40}$").unwrap());
-    static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:[\w.-]+/)?([\w.-]+)#(\d+)$").unwrap());
+    static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:([\w.-]+)/)?([\w.-]+)#(\d+)$").unwrap());
+    if let Some(c) = ISSUE.captures(follows) {
+        return issue_closed(repo, c.get(1).map(|m| m.as_str()), &c[2], &c[3]);
+    }
     if SHA.is_match(follows) {
         return success(git(
             repo,
@@ -69,9 +73,6 @@ fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
             "refs/remotes/origin/main",
         ],
     ))?;
-    if let Some(c) = ISSUE.captures(follows) {
-        return Ok(log.split('\0').any(|m| names_issue(m.trim(), &c[1], &c[2])));
-    }
     Ok(log
         .split('\0')
         .any(|m| m.trim().split('\n').next() == Some(follows)))
@@ -85,9 +86,12 @@ fn threads(root: &Path, args: &[&str]) -> std::io::Result<Output> {
         .args(args)
         .output()
 }
+fn claude_tier(tier: &str) -> bool {
+    tier.starts_with("worker") || tier.starts_with("claude:")
+}
 fn gate(root: &Path, b: &Value, repo: &Path) -> Result<Option<String>, String> {
     let tier = field(b, "tier");
-    let tool = if tier.starts_with("worker") {
+    let tool = if claude_tier(tier) {
         json!({"tool_name":"Agent","tool_input":{"subagent_type":tier,"description":b["item"],"prompt":b["brief"],"run_in_background":true}})
     } else {
         json!({"tool_name":"spawn_agent","tool_input":{"message":b["brief"]}})
@@ -121,7 +125,7 @@ fn gate(root: &Path, b: &Value, repo: &Path) -> Result<Option<String>, String> {
 }
 fn start(b: &Value) -> Result<bool, String> {
     let tier = field(b, "tier");
-    let route = if tier.starts_with("worker") {
+    let route = if claude_tier(tier) {
         " Call Claude Agent with run_in_background: true."
     } else {
         ""
@@ -334,8 +338,7 @@ follows-release: start each queued Follows box (threads queue follow) once its
 predecessor is on origin/main. safe-push runs it with --repo-dir after a
 landing on the default branch, reading each box's repository from FOLLOWS_RELEASE_ROOT/<repo>/main
 (default ~/code). A Follows naming a SHA waits for that commit, one naming an
-issue ref for a commit whose headline or Item:/Closes/Fixes/Refs line names
-it, and anything else for a commit with that exact subject. A released box
+issue ref for that issue to be closed on GitHub, and anything else for a commit with that exact subject. A released box
 passes the spawn capacity gate and sends a staffing request through
 `north fleet send` to the assigned parent session. A box
 the gate denies, or one released but not started within 5 minutes
