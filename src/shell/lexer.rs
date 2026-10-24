@@ -179,7 +179,7 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        if c == '#' {
+        if c == '#' && (!started || punctuation) {
             if started {
                 tokens.push(std::mem::take(&mut buf));
                 started = false;

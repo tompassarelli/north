@@ -53,5 +53,13 @@
   ["ssh gex45 'eval systemctl restart user@1000'","deny"],
   ["systemctl -H gex45 status user@1000.service","allow"],
   ["loginctl -H gex45 list-sessions","allow"],
-  ["echo systemctl restart user@1000.service |\n  ssh gex45 bash","deny"]
+  ["echo systemctl restart user@1000.service |\n  ssh gex45 bash","deny"],
+  ["echo $#; kill -1","deny"],
+  ["curl -s http://x/#top; kill -1","deny"],
+  ["git log --format=%h#%s; systemctl restart user@1000.service","deny"],
+  ["echo ${#arr[@]}; systemctl restart user@1000.service","deny"],
+  ["echo $#; nohup sleep 9 &","deny"],
+  ["ssh gex45 'echo $#; systemctl restart user@1000.service'","deny"],
+  ["# kill -1","allow"],
+  ["echo ok # kill -1","allow"]
 ]
