@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # job-run [--path DIRS] [--user USER] NAME -- CMD...: record a scheduled job's start and finish in
 # NorthThreads' job_runs (name, host, started, finished, rc), run CMD and exit with its code.
-# Recording never changes the job's result: a failed or slow threads call is only logged.
+# Recording never changes the job's result: the start record runs beside CMD and stops when CMD ends,
+# and the finish record, which writes the whole row, spools when the ledger host is slow.
 #   --path DIRS  prepended to PATH for the threads calls only (python3, ssh, timeout)
 #   --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger
 set -u
@@ -13,7 +14,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --path) record_path=$2; shift 2 ;;
     --user) user=$2; shift 2 ;;
-    -h|--help) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) break ;;
   esac
 done
@@ -21,25 +22,27 @@ done
 name=$1
 shift 2
 
-threads=$(dirname "$(readlink -f "$0")")/threads
+here=$(dirname "$(readlink -f "$0")")
 host=$(hostname 2>/dev/null || cat /proc/sys/kernel/hostname)
 stamp() { local t=$EPOCHREALTIME; TZ=UTC printf '%(%Y-%m-%dT%H:%M:%S)T.%sZ' "${t%.*}" "${t#*.}"; }
 
-record() {
-  local what=$1 cmd
-  shift
-  cmd=(env "PATH=${record_path:+$record_path:}$PATH" timeout 60 python3 "$threads" job-run "$name" --host "$host" "$@")
+recorder() {
+  cmd=(env "PATH=$here:${record_path:+$record_path:}$PATH" timeout 30 "$here/north" threads job-run "$name" --host "$host" "$@")
   if [ -n "$user" ] && [ "$(id -u)" = 0 ]; then
     local home
     home=$(eval echo "~$user")
     cmd=(runuser -u "$user" -- "${cmd[@]:0:2}" "HOME=$home" "USER=$user" "${cmd[@]:2}")
   fi
-  PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" >/dev/null || echo "job-run: recording $name $what failed; the job's result is unaffected" >&2
 }
 
 started=$(stamp)
-record start --started "$started" </dev/null
+recorder --started "$started"
+PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
+starting=$!
 "$@"
 rc=$?
-record finish --started "$started" --finished "$(stamp)" --rc "$rc" </dev/null
+kill "$starting" 2>/dev/null
+recorder --started "$started" --finished "$(stamp)" --rc "$rc"
+PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null || echo "job-run: recording $name finish failed; the job's result is unaffected" >&2
+wait "$starting" 2>/dev/null
 exit "$rc"

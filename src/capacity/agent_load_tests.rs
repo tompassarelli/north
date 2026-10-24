@@ -261,3 +261,15 @@ fn an_agent_owned_launcher_is_ignored_and_gaming_still_stops_agent_wine() {
     agent_load::enforce(&host, true, &processes);
     assert!(exited(&mut wine), "an agent wine process survived gaming");
 }
+
+#[test]
+fn laptop_observe_that_never_answers_ends_inside_its_wait_with_a_failure() {
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+    let wait = Duration::from_millis(300);
+    let begun = Instant::now();
+    assert_eq!(super::laptop_auto::observe(Command::new("sh").args(["-c", "exec sleep 30"]), wait), 1);
+    assert!(begun.elapsed() < Duration::from_secs(3), "{:?}", begun.elapsed());
+    assert_eq!(super::laptop_auto::observe(Command::new("sh").args(["-c", "exit 5"]), wait), 5);
+    assert_eq!(super::laptop_auto::observe(&mut Command::new("true"), wait), 0);
+}

@@ -18,8 +18,10 @@ const READS: [&str; 12] = [
     "replay-staffing", "planner-band", "routing-compare",
 ];
 const UNREACHABLE: i32 = 255;
+const TIMED_OUT: i32 = 124;
 const SNAPSHOT_SECONDS: u64 = 900;
 const SSH_TIMEOUT: Duration = Duration::from_secs(20);
+const RECORD_WAIT: Duration = Duration::from_secs(10);
 
 pub(crate) struct Client {
     remote: PathBuf,
@@ -28,6 +30,7 @@ pub(crate) struct Client {
     env: BTreeMap<String, String>,
     ssh: Vec<OsString>,
     threads: Vec<OsString>,
+    record_wait: Duration,
 }
 
 enum Input {
@@ -64,6 +67,7 @@ impl Client {
             env,
             ssh,
             threads,
+            record_wait: RECORD_WAIT,
         }
     }
 
@@ -121,6 +125,14 @@ impl Client {
                 argv.extend(["--key".to_owned(), key]);
             }
         }
+        if first == Some("job-run") {
+            let code = self.ssh(dest, &argv, Input::Null, false, err)?;
+            if code != UNREACHABLE && code != TIMED_OUT {
+                return Ok(Some(code));
+            }
+            self.spool_argv(&argv)?;
+            return Ok(Some(0));
+        }
         let reachable = self.flush_spool(dest, err)?;
         if first == Some("ingest") {
             let mut data = Vec::new();
@@ -142,18 +154,12 @@ impl Client {
             writeln!(err, "NorthThreads: {dest} unreachable; spooled ingest to {}", path.display())?;
             return Ok(Some(0));
         }
-        if first == Some("job-run") || first == Some("agent-event") {
+        if first == Some("agent-event") {
             let code = if reachable { self.ssh(dest, &argv, Input::Null, false, err)? } else { UNREACHABLE };
             if code != UNREACHABLE {
                 return Ok(Some(code));
             }
-            fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.spool)?;
-            fs::set_permissions(&self.spool, fs::Permissions::from_mode(0o700))?;
-            let path = self.spool.join(format!("{}.argv", spool_stem()));
-            let tmp = path.with_extension("tmp");
-            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?
-                .write_all(python_json(&argv).as_bytes())?;
-            fs::rename(&tmp, &path)?;
+            self.spool_argv(&argv)?;
             return Ok(Some(0));
         }
         let code = if reachable { self.ssh(dest, &argv, Input::Inherit, false, err)? } else { UNREACHABLE };
@@ -163,7 +169,7 @@ impl Client {
             }
             return Ok(Some(code));
         }
-        if code == 124 {
+        if code == TIMED_OUT {
             return Ok(Some(code));
         }
         if code != UNREACHABLE {
@@ -184,6 +190,15 @@ impl Client {
     fn stale_line(&self, dest: &str) -> NorthResult<String> {
         let modified = fs::metadata(&self.snapshot)?.modified()?;
         Ok(format!("STALE: ledger snapshot from {}; {dest} unreachable", Timestamp::from(modified).iso()))
+    }
+
+    fn spool_argv(&self, argv: &[String]) -> NorthResult<()> {
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.spool)?;
+        fs::set_permissions(&self.spool, fs::Permissions::from_mode(0o700))?;
+        let path = self.spool.join(format!("{}.argv", spool_stem()));
+        let tmp = path.with_extension("tmp");
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?.write_all(python_json(argv).as_bytes())?;
+        Ok(fs::rename(&tmp, &path)?)
     }
 
     fn flush_spool(&self, dest: &str, err: &mut dyn Write) -> NorthResult<bool> {
@@ -235,7 +250,7 @@ impl Client {
             return Ok(());
         }
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, "threads snapshot"]);
-        let Some((status, stdout)) = execute(&argv, Input::Inherit, Stdio::piped(), true)? else {
+        let Some((status, stdout)) = execute(&argv, Input::Inherit, Stdio::piped(), true, SSH_TIMEOUT)? else {
             return Ok(());
         };
         if code_of(status) != 0 || !stdout.starts_with(b"SQLite format 3") {
@@ -272,11 +287,12 @@ impl Client {
         let command = remote.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
         let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest, &command]);
         let stdout = if quiet { Stdio::null() } else { Stdio::inherit() };
-        match execute(&argv, input, stdout, false)? {
+        let wait = if first == Some("job-run") { self.record_wait } else { SSH_TIMEOUT };
+        match execute(&argv, input, stdout, false, wait)? {
             Some((status, _)) => Ok(code_of(status)),
             None => {
                 writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
-                Ok(124)
+                Ok(TIMED_OUT)
             }
         }
     }
@@ -378,7 +394,7 @@ fn feed(mut child: Child, bytes: Option<Vec<u8>>) -> Child {
     child
 }
 
-fn execute(argv: &[OsString], input: Input, stdout: Stdio, capture: bool) -> NorthResult<Option<(ExitStatus, Vec<u8>)>> {
+fn execute(argv: &[OsString], input: Input, stdout: Stdio, capture: bool, wait: Duration) -> NorthResult<Option<(ExitStatus, Vec<u8>)>> {
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]).stdout(stdout);
     if capture {
@@ -401,7 +417,7 @@ fn execute(argv: &[OsString], input: Input, stdout: Stdio, capture: bool) -> Nor
     };
     let mut child = feed(command.spawn()?, bytes);
     let readers = [child.stdout.take().map(drain), child.stderr.take().map(drain)];
-    let deadline = Instant::now() + SSH_TIMEOUT;
+    let deadline = Instant::now() + wait;
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
@@ -491,6 +507,7 @@ mod tests {
 
     const FAKE_SSH: &str = r#"for a; do last=$a; done
 printf '%s\n' "$*" >> "$ROOT/ssh.log"
+[ -f "$ROOT/sleep" ] && exec sleep "$(cat "$ROOT/sleep")"
 case "$last" in
   *ingest) cat >> "$ROOT/ingest.log" ;;
   "threads snapshot") printf 'SQLite format 3\000rest' ;;
@@ -581,6 +598,28 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);
         let left: Vec<_> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().file_name()).collect();
         assert_eq!(left, [".lock"]);
+    }
+
+    #[test]
+    fn threads_client_spools_a_job_run_record_the_ledger_host_does_not_answer_in_time_without_flushing_first() {
+        let mut rig = rig(&[]);
+        rig.client.record_wait = Duration::from_millis(300);
+        fs::create_dir_all(&rig.client.spool).unwrap();
+        fs::write(rig.client.spool.join("1-1.argv"), r#"["job-run", "earlier", "--host", "laptop"]"#).unwrap();
+        fs::write(rig.root.join("sleep"), "30").unwrap();
+        let begun = Instant::now();
+        let (code, err) = call(&rig, &["job-run", "fleet-relay", "--host", "laptop", "--started", "s", "--finished", "f", "--rc", "0"], b"");
+        assert!(begun.elapsed() < Duration::from_secs(5), "{:?}", begun.elapsed());
+        assert_eq!((code, err.as_str()), (0, "NorthThreads: ledger-host timed out; remote outcome unknown\n"));
+        assert_eq!(log(&rig, "ssh.log"), [format!("{PREFIX} threads job-run fleet-relay --host laptop --started s --finished f --rc 0")]);
+        let mut packets: Vec<String> = fs::read_dir(&rig.client.spool).unwrap().map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "argv"))
+            .map(|path| fs::read_to_string(path).unwrap()).collect();
+        packets.sort();
+        assert_eq!(packets, [
+            r#"["job-run", "earlier", "--host", "laptop"]"#,
+            r#"["job-run", "fleet-relay", "--host", "laptop", "--started", "s", "--finished", "f", "--rc", "0"]"#,
+        ]);
     }
 
     #[test]

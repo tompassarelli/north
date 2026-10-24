@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
 pub(crate) fn run<S: AsRef<OsStr>>(
@@ -23,6 +23,22 @@ pub(crate) async fn run_killing_on_drop(program: &str, args: &[String]) -> std::
         .kill_on_drop(true)
         .output()
         .await
+}
+
+pub(crate) fn status_within(command: &mut Command, limit: Duration) -> std::io::Result<Option<ExitStatus>> {
+    let mut child = command.spawn()?;
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if started.elapsed() >= limit {
+            let _ = child.kill();
+            child.wait()?;
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 pub(crate) fn run_within(program: &str, args: &[&str], limit: Duration) -> Option<Output> {

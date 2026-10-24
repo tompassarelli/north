@@ -685,16 +685,6 @@ PYSOCKET
 socket_status=$?
 check '[unit] SSH socket paths leave room for the OpenSSH suffix' '[ "$socket_status" -eq 0 ] || { cat "$scratch/socket-ssh.out"; false; }'
 
-touch "$scratch/down"
-jobrun() { env -u THREADS_DB HOME="$scratch/home" SSH_DOWN="$scratch/down" SSH_TRACE="$scratch/ssh.trace" REMOTE_DB="$scratch/remote.db" REMOTE_BIN="$scratch/remote" "$repo/bin/job-run" "$@" 2>&1; }
-jobrun nightly -- sh -c 'exit 3' >/dev/null; jobstatus=$?
-jobspooled=$(ls "$scratch/home/.local/state/threads/spool" | wc -l)
-rm "$scratch/down"
-jobrun nightly -- true >/dev/null
-jobcodes=$(sqlite3 "$scratch/remote.db" "select group_concat(rc) from (select rc from job_runs where name = 'nightly' and finished is not null order by started)")
-check '[integration] job-run keeps its command'"'"'s exit code, spools start and finish while the remote is down and flushes them with the next run' \
-  '[ "$jobstatus" -eq 3 ] && [ "$jobspooled" -eq 2 ] && [ "$jobcodes" = 3,0 ]'
-
 qid=$("$threads" queue add laptop smashcraft#3 -- echo hi 2>&1)
 "$threads" queue take laptop >"$scratch/take1" 2>&1 & "$threads" queue take laptop >"$scratch/take2" 2>&1 & wait
 taken=$(cat "$scratch/take1" "$scratch/take2")

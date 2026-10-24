@@ -97,7 +97,7 @@ impl Outbox {
     }
 }
 
-pub trait Courier {
+pub trait Courier: Sync {
     fn take(&self, host: &str, relay_host: &str) -> NorthResult<Vec<Letter>>;
     fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()>;
 }
@@ -142,8 +142,9 @@ pub struct Relayed {
 
 pub fn relay(courier: &dyn Courier, relay_host: &str, hosts: &[String], undropped: &BTreeSet<String>, deliver: &mut dyn FnMut(&Letter) -> NorthResult<()>) -> Relayed {
     let mut relayed = Relayed::default();
-    for host in hosts {
-        let letters = match courier.take(host, relay_host) {
+    let mut drops = Vec::new();
+    for (host, taken) in hosts.iter().zip(each(hosts, |host| courier.take(host, relay_host))) {
+        let letters = match taken {
             Ok(letters) => letters,
             Err(error) => {
                 relayed.unreachable.push((host.clone(), error.user_message()));
@@ -164,12 +165,24 @@ pub fn relay(courier: &dyn Courier, relay_host: &str, hosts: &[String], undroppe
                 Err(error) => relayed.undelivered.push(Undelivered { host: host.clone(), letter, reason: error.user_message() }),
             }
         }
-        if !dropped.is_empty() && let Err(error) = courier.drop(host, &dropped) {
+        if !dropped.is_empty() {
+            drops.push((host.clone(), dropped));
+        }
+    }
+    for ((host, dropped), outcome) in drops.iter().zip(each(&drops, |(host, ids)| courier.drop(host, ids))) {
+        if let Err(error) = outcome {
             relayed.unreachable.push((host.clone(), format!("delivered {} but could not drop them: {}", dropped.join(" "), error.user_message())));
             relayed.undropped.extend(dropped.iter().map(|id| format!("{host} {id}")));
         }
     }
     relayed
+}
+
+fn each<I: Sync, T: Send>(items: &[I], call: impl Fn(&I) -> NorthResult<T> + Sync) -> Vec<NorthResult<T>> {
+    std::thread::scope(|scope| {
+        let calls: Vec<_> = items.iter().map(|item| scope.spawn(|| call(item))).collect();
+        calls.into_iter().map(|call| call.join().unwrap_or_else(|_| Err(NorthError::Usage("a relay call to a host panicked".into())))).collect()
+    })
 }
 
 impl Relayed {
@@ -215,12 +228,12 @@ fn quote(word: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::collections::BTreeMap;
 
     use super::*;
 
-    struct Hosts(BTreeMap<String, Outbox>, Cell<bool>);
+    struct Hosts(BTreeMap<String, Outbox>, AtomicBool);
 
     impl Courier for Hosts {
         fn take(&self, host: &str, relay_host: &str) -> NorthResult<Vec<Letter>> {
@@ -228,7 +241,7 @@ mod tests {
         }
 
         fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()> {
-            if self.1.get() {
+            if self.1.load(Ordering::SeqCst) {
                 return Err(NorthError::Usage(format!("ssh {host}: no answer within 20s")));
             }
             self.0[host].drop(ids)
@@ -236,7 +249,7 @@ mod tests {
     }
 
     fn far(root: &Path) -> Hosts {
-        Hosts(BTreeMap::from([("far".to_owned(), Outbox::new(root.join("far")))]), Cell::new(false))
+        Hosts(BTreeMap::from([("far".to_owned(), Outbox::new(root.join("far")))]), AtomicBool::new(false))
     }
 
     #[test]
@@ -272,7 +285,7 @@ mod tests {
         assert_eq!(first.newly_undelivered(&seen).unwrap(), [format!("far {}", kept.id)]);
         let again = relay(&hosts, "fleet", &["far".to_owned()], &BTreeSet::new(), &mut refused);
         assert!(again.newly_undelivered(&seen).unwrap().is_empty(), "a letter already reported is not new again");
-        let gone = Hosts(BTreeMap::new(), Cell::new(false));
+        let gone = Hosts(BTreeMap::new(), AtomicBool::new(false));
         assert!(relay(&gone, "fleet", &["far".to_owned()], &BTreeSet::new(), &mut refused).newly_undelivered(&seen).unwrap().is_empty());
         let back = relay(&hosts, "fleet", &["far".to_owned()], &BTreeSet::new(), &mut refused);
         assert!(back.newly_undelivered(&seen).unwrap().is_empty(), "an unreachable host keeps its letters reported");
@@ -287,7 +300,7 @@ mod tests {
         let outbox = &hosts.0["far"];
         let posted = outbox.post("proxy", "rolled back", Delivery::Queued).unwrap();
         let mut deliveries = 0;
-        hosts.1.set(true);
+        hosts.1.store(true, Ordering::SeqCst);
         let first = relay(&hosts, "fleet", &["far".to_owned()], &entries(&seen), &mut |_| {
             deliveries += 1;
             Ok(())
@@ -298,7 +311,7 @@ mod tests {
             Ok(())
         });
         assert!(still.newly_undropped(&seen).unwrap().is_empty(), "a letter already reported undropped is not new again");
-        hosts.1.set(false);
+        hosts.1.store(false, Ordering::SeqCst);
         let second = relay(&hosts, "fleet", &["far".to_owned()], &entries(&seen), &mut |_| {
             deliveries += 1;
             Ok(())
@@ -306,5 +319,30 @@ mod tests {
         assert!(second.newly_undropped(&seen).unwrap().is_empty());
         assert_eq!(deliveries, 1, "a letter delivered once is not delivered again while its drop is retried");
         assert!(outbox.take("fleet").unwrap().is_empty() && entries(&seen).is_empty());
+    }
+
+    struct Slow(Duration);
+
+    impl Courier for Slow {
+        fn take(&self, host: &str, _: &str) -> NorthResult<Vec<Letter>> {
+            std::thread::sleep(self.0);
+            Ok(vec![Letter { id: format!("1-{host}"), to: "proxy".into(), text: host.into(), now: false, from: host.into(), at_ms: 1 }])
+        }
+
+        fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {
+            std::thread::sleep(self.0);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn hosts_that_each_answer_slowly_are_relayed_within_one_wait_for_taking_and_one_for_dropping() {
+        let hosts: Vec<String> = ["nexus", "gex45", "far", "near"].map(str::to_owned).into();
+        let begun = std::time::Instant::now();
+        let relayed = relay(&Slow(Duration::from_millis(400)), "fleet", &hosts, &BTreeSet::new(), &mut |_| Ok(()));
+        assert!(begun.elapsed() < Duration::from_millis(1500), "{:?}", begun.elapsed());
+        let from: Vec<&str> = relayed.delivered.iter().map(|(host, _)| host.as_str()).collect();
+        assert_eq!(from, ["nexus", "gex45", "far", "near"]);
+        assert!(relayed.unreachable.is_empty() && relayed.undropped.is_empty());
     }
 }

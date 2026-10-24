@@ -1,12 +1,15 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use super::agent_load::{self, Host, Process};
+use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
+const OBSERVE_WAIT: Duration = Duration::from_secs(40);
 
 pub(crate) fn sample(host: &Host, processes: &[Process], drm: &Path, idle: Option<bool>) -> Value {
     let agent_gpu = processes.iter().filter(|process| process.agent_owned()).any(|process| uses_gpu(&host.proc, process.pid));
@@ -67,9 +70,17 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         );
     }
     let laptop = std::env::var_os("LAPTOP_AUTO_LAPTOP").unwrap_or_else(|| "laptop".into());
-    match Command::new(laptop).arg("observe").arg(sample.to_string()).status() {
-        Ok(status) if status.success() => 0,
-        Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1),
+    observe(Command::new(laptop).arg("observe").arg(sample.to_string()), OBSERVE_WAIT)
+}
+
+pub(crate) fn observe(command: &mut Command, limit: Duration) -> u8 {
+    match status_within(command, limit) {
+        Ok(Some(status)) if status.success() => 0,
+        Ok(Some(status)) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1),
+        Ok(None) => {
+            eprintln!("north capacity laptop-auto: laptop observe gave no answer within {}s; the next tick observes again", limit.as_secs());
+            1
+        }
         Err(error) => {
             eprintln!("north capacity laptop-auto: laptop observe: {error}");
             1
