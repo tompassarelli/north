@@ -1058,12 +1058,11 @@ def cmd_ingest(db, a):
     if table_exists(db, "usage"):
         operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
         prices = {r["id"]: r["usd_per_week"] for r in tomllib.load(open(operator / "costs.toml", "rb")).get("service", [])}
+        allocations = allocation_intervals([dict(r) for r in db.execute("SELECT * FROM usage")],
+                                          [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)
         with Tx(db):
-            allocations = allocation_intervals([dict(r) for r in db.execute("SELECT * FROM usage")],
-                                              [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)
-            db.execute("DELETE FROM run_costs")
-            db.executemany("INSERT INTO run_costs(account, started, ended, agent, cost_usd) VALUES (?,?,?,?,?)",
-                           [(r["account"], r["started"], r["ended"], r["agent"], r["cost_usd"]) for r in allocations])
+            db.execute("DELETE FROM run_costs"); db.execute("CREATE INDEX IF NOT EXISTS run_costs_agent ON run_costs(agent)")
+            db.executemany("INSERT INTO run_costs(account, started, ended, agent, cost_usd) VALUES (?,?,?,?,?)", [(r["account"], r["started"], r["ended"], r["agent"], r["cost_usd"]) for r in allocations])
             db.execute("UPDATE runs SET cost_usd=(SELECT SUM(cost_usd) FROM run_costs WHERE agent=runs.agent)")
     labeled = [(c, agent) for agent, item in unlabeled if (c := label_category(db, item))]
     with Tx(db):
