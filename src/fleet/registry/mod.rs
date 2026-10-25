@@ -125,7 +125,7 @@ impl Fleet {
             foreground_cap_secs: request.foreground_cap_secs,
             idle_exit_minutes: request.idle_exit_minutes,
             parent: request.parent.clone(),
-            task_ref: request.task_ref.clone(),
+            task_ref: request.task(),
             prompt_mode: request.prompt_mode,
             system_prompt_sha: None,
             placement: request.placement.clone(),
@@ -134,7 +134,7 @@ impl Fleet {
             last_sender: None,
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
-        if let Some(task_ref) = &request.task_ref {
+        if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }
         self.deliver_first_turn(&mut record, &account, &request.prompt)?;

@@ -56,6 +56,20 @@ pub struct LaunchRequest {
     pub capacity_need: Option<String>,
 }
 
+impl LaunchRequest {
+    /// `--task`, else the issue the brief's first `Item:` line starts with (`repo#N` or
+    /// `owner/repo#N`), so a session launched without `--task` still holds its issue.
+    pub fn task(&self) -> Option<String> {
+        self.task_ref.clone().or_else(|| {
+            let line = self.prompt.lines().find_map(|line| line.trim_start().strip_prefix("Item:"))?;
+            let word = line.split_whitespace().next()?.trim_end_matches([':', ',', '.', ';']);
+            let (repo, number) = word.rsplit_once('#')?;
+            let repo_ok = !repo.is_empty() && repo.chars().all(|c| c.is_ascii_alphanumeric() || "/_.-".contains(c));
+            (repo_ok && !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then(|| word.to_owned())
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SessionRecord {
     #[serde(default)]
@@ -217,3 +231,7 @@ impl Transcript {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod tests;
