@@ -23,8 +23,8 @@ fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
     Host { name: name.into(), cap: Some(cap), running: running.map_err(str::to_owned) }
 }
 
-fn account(name: &str, allowed: i64, running: i64, hosts: &[&str], headroom: f64) -> Account {
-    Account { name: name.into(), allowed: Some(allowed), running, hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), headroom, refusal: None }
+fn account(name: &str, allowed: i64, working: i64, hosts: &[&str], headroom: f64) -> Account {
+    Account { name: name.into(), allowed: Some(allowed), working, hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), headroom, refusal: None }
 }
 
 fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
@@ -234,4 +234,17 @@ fn the_laptops_copied_fleet_list_holds_its_sessions_issues_even_when_old() {
     assert_eq!(old.iter().map(|session| session.item.clone()).collect::<Vec<_>>(), [Some(IssueRef::new("smashcraft", 350))]);
     assert_eq!(old[0].account, "claude:a");
     assert!(notes[0].starts_with("whiterabbit fleet list copied 60 min ago"), "{notes:?}");
+}
+
+#[test]
+fn an_idle_session_holds_its_issue_but_takes_no_worker_slot() {
+    let listing = serde_json::json!([
+        {"name": "sc-340", "provider": "claude", "account": "c", "status": "idle", "task_ref": null, "machine": null},
+        {"name": "sc-341", "provider": "claude", "account": "c", "status": "working", "task_ref": null, "machine": null},
+        {"name": "sc-342", "provider": "claude", "account": "b", "status": "starting", "task_ref": null, "machine": null}
+    ]);
+    let sessions: Vec<_> = super::survey::running_sessions(&listing).into_iter().map(|session| (session, "gex45".to_owned())).collect();
+    let (per_account, _, holds) = super::survey::tally(&sessions);
+    assert_eq!(per_account, BTreeMap::from([("claude:b".to_owned(), 1), ("claude:c".to_owned(), 1)]));
+    assert_eq!(holds[&IssueRef::new("smashcraft", 340)], "fleet session sc-340 on gex45");
 }

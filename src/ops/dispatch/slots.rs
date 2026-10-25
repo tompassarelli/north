@@ -1,5 +1,5 @@
 //! Free worker slots: a host has its resident cap minus the sessions it runs, an account its
-//! pace-control allowed_workers minus the sessions it runs, and a pair the smaller of the two.
+//! pace-control allowed_workers minus its working sessions, and a pair the smaller of the two.
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -31,7 +31,7 @@ pub(crate) struct Account {
     /// `provider:label`, as pace-control names it.
     pub name: String,
     pub allowed: Option<i64>,
-    pub running: i64,
+    pub working: i64,
     /// Hosts the account is signed in on.
     pub hosts: Vec<String>,
     pub headroom: f64,
@@ -45,7 +45,7 @@ impl Account {
             return Err(why.clone());
         }
         let allowed = self.allowed.ok_or("no allowed_workers in pace-control.json")?;
-        Ok((allowed - self.running).max(0))
+        Ok((allowed - self.working).max(0))
     }
 
     pub(crate) fn provider(&self) -> &str {
@@ -58,7 +58,7 @@ impl Account {
             Err(why) => format!("0 free: {why}"),
         };
         let allowed = self.allowed.map_or_else(|| "-".to_owned(), |allowed| allowed.to_string());
-        format!("account {}: allowed {allowed}, running {}, {free}; signed in on {}", self.name, self.running, self.hosts.join(", "))
+        format!("account {}: allowed {allowed}, working {}, {free}; signed in on {}", self.name, self.working, self.hosts.join(", "))
     }
 }
 

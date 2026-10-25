@@ -41,6 +41,9 @@ pub(crate) struct Session {
     pub name: String,
     pub account: String,
     pub item: Option<IssueRef>,
+    /// Starting or working, as pace-control counts workers against allowed_workers; an idle session
+    /// still holds its issue.
+    pub working: bool,
     /// The machine it runs on, when the registry that launched it names one.
     pub machine: Option<String>,
 }
@@ -70,6 +73,7 @@ pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
             Session {
                 account: format!("{}:{}", session["provider"].as_str().unwrap_or_default(), session["account"].as_str().unwrap_or_default()),
                 machine: session["machine"].as_str().map(str::to_owned),
+                working: session["status"] != "idle",
                 name,
                 item,
             }
@@ -167,7 +171,7 @@ pub(crate) fn refusal(name: &str, control: &Value, verdict: Option<&gate::Verdic
     }
 }
 
-fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, running: &BTreeMap<String, i64>, at: f64) -> Vec<Account> {
+fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, working: &BTreeMap<String, i64>, at: f64) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
     let verdicts = gate::verdicts(&placement::pace_state("usage-gate.json"), roster);
     pace["accounts"]
@@ -180,7 +184,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, running: &BTreeMap<S
             Account {
                 name: name.clone(),
                 allowed: control["allowed_workers"].as_i64(),
-                running: running.iter().filter(|(session, _)| *session == name || session.split(':').next() == Some(name)).map(|(_, count)| count).sum(),
+                working: working.iter().filter(|(session, _)| *session == name || session.split(':').next() == Some(name)).map(|(_, count)| count).sum(),
                 hosts: account_hosts(cfg, name, here),
                 headroom: verdict.map_or(0.0, |verdict| verdict.headroom),
                 refusal,
@@ -237,12 +241,14 @@ fn cloud(cfg: &DocumentMut, here: &str, at: f64) -> Cloud {
     }
 }
 
-/// Sessions per account and the holds they make, the sessions this registry runs on other
-/// machines, which their resident counts miss.
-fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap<String, i64>, BTreeMap<IssueRef, String>) {
+/// Working sessions per account, the sessions this registry runs on other machines, which their
+/// resident counts miss, and the holds every running session makes.
+pub(crate) fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap<String, i64>, BTreeMap<IssueRef, String>) {
     let (mut per_account, mut elsewhere, mut holds) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
     for (session, registry) in sessions {
-        *per_account.entry(session.account.clone()).or_insert(0) += 1;
+        if session.working {
+            *per_account.entry(session.account.clone()).or_insert(0) += 1;
+        }
         if let Some(machine) = session.machine.as_ref().filter(|machine| *machine != registry) {
             *elsewhere.entry(machine.clone()).or_insert(0) += 1;
         }
@@ -266,7 +272,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     if let Some(name) = &laptop {
         sessions.extend(mirrored(&record::directory(), name, at, &mut notes).into_iter().map(|session| (session, name.clone())));
     }
-    let (per_account, elsewhere, mut holds) = tally(&sessions);
+    let (working, elsewhere, mut holds) = tally(&sessions);
     let (issues, open) = github::open_issues(&mut notes);
     let records = record::read();
     holds.extend(claims(&cfg, &here, &mut notes));
@@ -274,7 +280,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let laptop_running = laptop.as_deref().map_or(0, |name| record::recent_on(&records, name, &open, at));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), laptop_running)).collect();
-    let accounts = accounts(&cfg, roster, &here, &per_account, at);
+    let accounts = accounts(&cfg, roster, &here, &working, at);
     if accounts.is_empty() {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }
