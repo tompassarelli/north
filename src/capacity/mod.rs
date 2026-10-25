@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use serde_json::json;
 
 mod admission;
+mod aperture;
 pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
 mod game_reserve;
@@ -20,6 +21,7 @@ use admission::Facts;
 pub(crate) struct Host {
     pub(crate) serving: fn(&str) -> Option<String>,
     pub(crate) warcraft_clients: fn() -> Option<u32>,
+    pub(crate) bar1_reserve_mib: fn() -> Option<u32>,
 }
 
 pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
@@ -43,6 +45,14 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
             facts.gaming |= agent_load::gaming_marked(&agent_load::capacity_root());
             facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
             facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
+            facts.host_bar1_reserve_mib = facts.host_bar1_reserve_mib.or_else(host.bar1_reserve_mib);
+            if facts.bar1_free_mib.is_none() && !facts.bar1_timed_out && admission::starts_gpu_work(&facts) {
+                match aperture::bar1() {
+                    aperture::Bar1::Free(free) => facts.bar1_free_mib = Some(free),
+                    aperture::Bar1::TimedOut => facts.bar1_timed_out = true,
+                    aperture::Bar1::Unknown => {}
+                }
+            }
             facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
             facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
             let _ = writeln!(std::io::stdout(), "{}", json!(admission::admit(&facts, host.serving)));

@@ -5,6 +5,7 @@ const BATCH_PRESSURE_BASIS_POINTS: u32 = 3000;
 const GPU_BUSY_PERCENT: u32 = 85;
 const ATTENDED_GPU_CLIENTS: u32 = 4;
 const GPU_SLOTS: u32 = 2;
+const BAR1_RESERVE_MIB: u32 = 64;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -58,6 +59,12 @@ pub(crate) struct Facts {
     pub(crate) gpu_clients: u32,
     #[serde(default)]
     pub(crate) host_warcraft_clients: Option<u32>,
+    #[serde(default, rename = "bar1FreeMiB")]
+    pub(crate) bar1_free_mib: Option<f64>,
+    #[serde(default, rename = "bar1TimedOut")]
+    pub(crate) bar1_timed_out: bool,
+    #[serde(default, rename = "hostBar1ReserveMiB")]
+    pub(crate) host_bar1_reserve_mib: Option<u32>,
     pub(crate) new_clients: u32,
     pub(crate) gpu_runs: u32,
     pub(crate) native_waiting: u32,
@@ -81,11 +88,21 @@ pub(crate) struct Facts {
     pub(crate) need: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct Admission {
     pub(crate) reason: Reason,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) offload: Option<String>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub(crate) aperture: Option<Aperture>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub(crate) struct Aperture {
+    #[serde(rename = "bar1FreeMiB")]
+    pub(crate) bar1_free_mib: f64,
+    #[serde(rename = "bar1ReserveMiB")]
+    pub(crate) bar1_reserve_mib: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -98,6 +115,8 @@ pub(crate) enum Reason {
     DeferNativeCpus,
     DeferGpuClients,
     DeferGpuBusy,
+    DeferGpuAperture,
+    DeferGpuApertureTimeout,
     DeferUnboundedPeer,
     DeferExclusive,
     DeferInteractivePressure,
@@ -118,7 +137,26 @@ pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> 
         (Reason::DeferRunQueue, Some(needs)) => serving(needs),
         _ => None,
     };
-    Admission { reason, offload }
+    let aperture = (reason == Reason::DeferGpuAperture)
+        .then(|| facts.bar1_free_mib.map(|bar1_free_mib| Aperture { bar1_free_mib, bar1_reserve_mib: bar1_reserve_mib(facts) }))
+        .flatten();
+    Admission { reason, offload, aperture }
+}
+
+pub(crate) fn starts_gpu_work(facts: &Facts) -> bool {
+    match facts.class {
+        Class::Native => facts.new_clients > 0,
+        Class::Gpu => true,
+        _ => false,
+    }
+}
+
+fn bar1_reserve_mib(facts: &Facts) -> u32 {
+    facts.host_bar1_reserve_mib.unwrap_or(BAR1_RESERVE_MIB)
+}
+
+fn aperture_short(facts: &Facts) -> bool {
+    starts_gpu_work(facts) && facts.bar1_free_mib.is_some_and(|free| free < f64::from(bar1_reserve_mib(facts)))
 }
 
 fn run_queue_overloaded(facts: &Facts) -> bool {
@@ -137,6 +175,12 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     }
     if run_queue_overloaded(facts) {
         return Reason::DeferRunQueue;
+    }
+    if starts_gpu_work(facts) && facts.bar1_timed_out {
+        return Reason::DeferGpuApertureTimeout;
+    }
+    if aperture_short(facts) {
+        return Reason::DeferGpuAperture;
     }
     match facts.class {
         Class::Agent => Reason::Run,

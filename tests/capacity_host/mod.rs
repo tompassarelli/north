@@ -113,6 +113,7 @@ impl Host {
             ("AGENT_CAPACITY_GPU_BUSY", self.path("gpu").display().to_string()),
             ("AGENT_CAPACITY_GPU_CLIENTS", "0".to_owned()),
             ("AGENT_CAPACITY_LOADAVG", self.path("loadavg").display().to_string()),
+            ("AGENT_CAPACITY_NVIDIA_MEMORY", self.path("nvidia-memory").display().to_string()),
             ("AGENT_CAPACITY_CORES", "24".to_owned()),
             ("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north").to_owned()),
             ("CAPACITY_WATCHDOG_DIR", self.path("no-watchdog").display().to_string()),

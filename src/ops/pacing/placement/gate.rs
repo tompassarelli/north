@@ -255,6 +255,10 @@ pub(crate) fn warcraft_clients(cfg: &DocumentMut, here: &str) -> Option<u32> {
     cfg.get("hosts")?.get(here)?.get("warcraft_clients")?.as_integer()?.try_into().ok()
 }
 
+pub(crate) fn bar1_reserve_mib(cfg: &DocumentMut, here: &str) -> Option<u32> {
+    cfg.get("hosts")?.get(here)?.get("bar1_reserve_mib")?.as_integer()?.try_into().ok()
+}
+
 pub(crate) fn capacity_need(text: &str) -> Option<String> {
     let repo = repository(text);
     let needs: Vec<String> = local_needs(text).into_iter().map(|need| if repo.is_empty() { need } else { format!("{need}:{repo}") }).collect();

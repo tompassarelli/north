@@ -239,6 +239,13 @@ fn a_host_entry_names_the_warcraft_client_count_admission_holds_it_to() {
 }
 
 #[test]
+fn a_host_entry_names_the_bar1_reserve_admission_keeps_free() {
+    let cfg: DocumentMut = "[hosts.gex45]\nwarcraft_clients = 6\nbar1_reserve_mib = 96\n[hosts.laptop]\nserves = [\"native\"]\n".parse().unwrap();
+    assert_eq!(gate::bar1_reserve_mib(&cfg, "gex45"), Some(96));
+    assert_eq!(gate::bar1_reserve_mib(&cfg, "laptop"), None);
+}
+
+#[test]
 fn placement_puts_a_label_owned_by_another_machine_only_on_that_machine() {
     let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"warcraft\", \"native\"]\n[hosts.laptop]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let quota = gate(&[

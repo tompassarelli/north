@@ -24,6 +24,9 @@ fn facts(class: Class) -> Facts {
         gpu_busy_percent: 0,
         gpu_clients: 0,
         host_warcraft_clients: None,
+        bar1_free_mib: None,
+        bar1_timed_out: false,
+        host_bar1_reserve_mib: None,
         new_clients: 0,
         gpu_runs: 0,
         native_waiting: 0,
@@ -58,7 +61,7 @@ fn overload_admission(class: &str, need: Option<&str>) -> Admission {
 #[test]
 fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_host() {
     for class in ["heavy", "exclusive"] {
-        let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned) };
+        let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None };
         assert_eq!(overload_admission(class, Some("native:smashcraft")), refused(Some("gpu-host")), "{class}");
         assert_eq!(overload_admission(class, Some("private:smashcraft")), refused(Some("gpu-host")), "{class}");
         assert_eq!(overload_admission(class, Some("private:galileo")), refused(None), "{class}");
@@ -68,7 +71,7 @@ fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_ho
 
 #[test]
 fn run_queue_offload_names_only_another_host_that_serves_every_need() {
-    let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned) };
+    let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None };
     assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:smashcraft")), refused(Some("gpu-host")));
     assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:galileo")), refused(None));
     let (facts, hosts) = overload("heavy", Some("native:smashcraft"));
@@ -78,7 +81,7 @@ fn run_queue_offload_names_only_another_host_that_serves_every_need() {
 #[test]
 fn run_queue_over_thread_count_still_admits_moderate_critical_and_tom() {
     for class in ["moderate", "critical", "tom"] {
-        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None }, "{class}");
+        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None, aperture: None }, "{class}");
     }
 }
 
@@ -185,4 +188,51 @@ fn batch_work_defers_beside_a_live_exclusive_lease() {
     for class in [Class::Moderate, Class::Heavy, Class::Gpu, Class::Critical, Class::Tom] {
         assert_eq!(decide(&Facts { peer_exclusive_runs: 1, ..facts(class) }), Reason::DeferExclusive, "{class:?}");
     }
+}
+
+fn nvidia_memory(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/skills/machine-capacity/scripts").join(name)
+}
+
+fn desktop_pair(bar1_free_mib: Option<f64>) -> Facts {
+    Facts { new_clients: 2, bar1_free_mib, ..facts(Class::Native) }
+}
+
+#[test]
+fn a_full_bar1_aperture_defers_a_new_desktop_pair_and_a_gpu_run() {
+    let free = super::aperture::read(&nvidia_memory("nvidia-memory-bar1-17-free.txt"));
+    assert_eq!(free, Some(17.0));
+    let admission = admit(&desktop_pair(free), |_| None);
+    assert_eq!(admission.reason, Reason::DeferGpuAperture);
+    assert_eq!(serde_json::to_value(&admission).unwrap(), serde_json::json!({ "reason": "DEFER_GPU_APERTURE", "bar1FreeMiB": 17.0, "bar1ReserveMiB": 64 }));
+    assert_eq!(decide(&Facts { bar1_free_mib: free, ..facts(Class::Gpu) }), Reason::DeferGpuAperture);
+    assert_eq!(decide(&Facts { new_clients: 0, ..desktop_pair(free) }), Reason::Run);
+    assert_eq!(decide(&Facts { host_bar1_reserve_mib: Some(16), ..desktop_pair(free) }), Reason::Run);
+}
+
+#[test]
+fn a_bar1_aperture_with_200_mib_free_runs_a_new_desktop_pair() {
+    let free = super::aperture::read(&nvidia_memory("nvidia-memory-bar1-200-free.txt"));
+    assert_eq!(free, Some(200.0));
+    assert_eq!(decide(&desktop_pair(free)), Reason::Run);
+    assert_eq!(decide(&Facts { bar1_free_mib: free, ..facts(Class::Gpu) }), Reason::Run);
+}
+
+#[test]
+fn a_host_without_nvidia_smi_runs_a_new_desktop_pair() {
+    assert_eq!(super::aperture::query("/nonexistent/nvidia-smi", std::time::Duration::from_secs(5)), super::aperture::Bar1::Unknown);
+    let free = None;
+    assert_eq!(super::aperture::read(&nvidia_memory("no-such-nvidia-memory.txt")), None);
+    assert_eq!(super::aperture::parse("GPU 00000000:01:00.0\n    FB Memory Usage\n        Free : 21811 MiB\n"), None);
+    assert_eq!(decide(&desktop_pair(free)), Reason::Run);
+    assert_eq!(decide(&Facts { bar1_free_mib: free, ..facts(Class::Gpu) }), Reason::Run);
+}
+
+#[test]
+fn an_nvidia_smi_that_timed_out_defers_gpu_work_with_its_own_reason() {
+    let hung = Facts { bar1_timed_out: true, ..desktop_pair(None) };
+    assert_eq!(decide(&hung), Reason::DeferGpuApertureTimeout);
+    assert_eq!(serde_json::to_value(admit(&hung, |_| None)).unwrap(), serde_json::json!({ "reason": "DEFER_GPU_APERTURE_TIMEOUT" }));
+    assert_eq!(decide(&Facts { bar1_timed_out: true, ..facts(Class::Gpu) }), Reason::DeferGpuApertureTimeout);
+    assert_eq!(decide(&Facts { new_clients: 0, ..hung }), Reason::Run);
 }

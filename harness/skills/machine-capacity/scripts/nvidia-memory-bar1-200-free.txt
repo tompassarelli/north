@@ -1,0 +1,23 @@
+
+==============NVSMI LOG==============
+
+Timestamp                                              : Sun Oct 26 09:41:12 2026
+Driver Version                                         : 595.71.05
+CUDA Version                                           : 13.2
+
+Attached GPUs                                          : 1
+GPU 00000000:01:00.0
+    FB Memory Usage
+        Total                                          : 24467 MiB
+        Reserved                                       : 446 MiB
+        Used                                           : 1630 MiB
+        Free                                           : 22391 MiB
+    BAR1 Memory Usage
+        Total                                          : 256 MiB
+        Used                                           : 56 MiB
+        Free                                           : 200 MiB
+    Conf Compute Protected Memory Usage
+        Total                                          : 0 MiB
+        Used                                           : 0 MiB
+        Free                                           : 0 MiB
+
