@@ -195,3 +195,11 @@ fn running_sessions_hold_their_task_or_their_named_issue() {
     assert_eq!(items, [Some("smashcraft#256".into()), Some("wisp#21".into()), None]);
     assert_eq!(sessions[2].account, "codex:pooled");
 }
+
+#[test]
+fn a_threads_claim_on_any_hosts_ledger_holds_its_issue() {
+    let listing = "item  owner  clock  eta  flag\nwisp#21  sc-21-a  12m  45m  -\nsmashcraft#9  w4  3m  -  OVERDUE\n";
+    let rows = super::survey::claim_rows(listing, "gex45");
+    assert_eq!(rows, [(IssueRef::new("wisp", 21), "threads claim by sc-21-a on gex45".to_owned()), (IssueRef::new("smashcraft", 9), "threads claim by w4 on gex45".to_owned())]);
+    assert!(super::survey::claim_rows("item  owner  clock  eta  flag\n", "nexus").is_empty());
+}

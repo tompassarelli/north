@@ -160,18 +160,33 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, running: &BTreeMap<S
         .collect()
 }
 
-fn claims(notes: &mut Vec<String>) -> Vec<(IssueRef, String)> {
-    let Some(output) = run_within("threads", &["list"], PROBE).filter(|output| output.status.success()) else {
-        notes.push("threads list unread, so claims are unknown".into());
-        return Vec::new();
-    };
-    String::from_utf8_lossy(&output.stdout)
+/// NorthThreads claims from this host's ledger and every ssh host's, since a host whose ledger is
+/// local records its workers' claims there.
+fn claims(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<(IssueRef, String)> {
+    let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name, Some(machine.ssh)));
+    let mut found = Vec::new();
+    for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
+        let output = match &ssh {
+            None => run_within("threads", &["list"], PROBE),
+            Some(destination) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "threads", "list"], PROBE),
+        };
+        match output.filter(|output| output.status.success()) {
+            Some(output) => found.extend(claim_rows(&String::from_utf8_lossy(&output.stdout), &host)),
+            None => notes.push(format!("{host} threads list unread, so its claims are unknown")),
+        }
+    }
+    found
+}
+
+/// The holders in `threads list` output, whose first line is its header.
+pub(crate) fn claim_rows(listing: &str, host: &str) -> Vec<(IssueRef, String)> {
+    listing
         .lines()
         .skip(1)
         .filter_map(|line| {
             let mut columns = line.split_whitespace();
             let item = IssueRef::parse(columns.next()?)?;
-            Some((item, format!("threads claim by {}", columns.next()?)))
+            Some((item, format!("threads claim by {} on {host}", columns.next()?)))
         })
         .collect()
 }
@@ -218,7 +233,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let (per_account, elsewhere, mut holds) = tally(&sessions);
     let (issues, open) = github::open_issues(&mut notes);
     let records = record::read();
-    holds.extend(claims(&mut notes));
+    holds.extend(claims(&cfg, &here, &mut notes));
     holds.extend(record::holds(&records, at));
     let laptop = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter()).find(|(name, table)| {
         *name != here && table.get("ssh").is_none() && strings(table.get("serves")).iter().any(|need| need == "laptop")
