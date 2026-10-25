@@ -23,7 +23,7 @@ pub(crate) fn session_name(launch: &Launch, at: f64) -> String {
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
 /// a laptop job that runs it there.
 pub(crate) fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> (String, Vec<String>) {
-    let directory = format!("{home}/code/{}", launch.item.repo);
+    let directory = format!("{home}/code/{}/main", launch.item.repo);
     let remote = launch.host != survey.here && survey.laptop.as_deref() != Some(launch.host.as_str());
     let cwd = if remote { format!("{}:{directory}", launch.host) } else { directory };
     let (provider, label) = launch.account.split_once(':').unwrap_or((launch.account.as_str(), "pooled"));
@@ -85,7 +85,7 @@ pub(crate) fn tell_tom(line: &str, dry_run: bool, at: f64) {
     match run_within("nexus-alert", &["normal", line, "north dispatch"], Duration::from_secs(30)) {
         Some(output) if output.status.success() => {
             println!("alerted: {line}");
-            let saved = serde_json::to_vec(&json!({"text": line, "at": at})).map_err(|error| error.to_string());
+            let saved = std::fs::create_dir_all(record::directory()).map_err(|error| error.to_string()).and_then(|()| serde_json::to_vec(&json!({"text": line, "at": at})).map_err(|error| error.to_string()));
             if let Err(why) = saved.and_then(|bytes| std::fs::write(&path, bytes).map_err(|error| error.to_string())) {
                 eprintln!("north dispatch: alert not recorded: {why}");
             }

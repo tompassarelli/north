@@ -191,13 +191,13 @@ fn a_launch_runs_through_fleet_launch_here_over_ssh_or_as_a_laptop_job() {
     };
     let (program, words) = effects::command(&launch("gex45"), "sc-7-d0101", &survey, "/home/tom", "/bin/north");
     assert_eq!(program, "/bin/north");
-    assert_eq!(&words[..12], ["fleet", "launch", "--provider", "claude", "--account", "b", "--name", "sc-7-d0101", "--task", "smashcraft#7", "--cwd", "gex45:/home/tom/code/smashcraft"]);
+    assert_eq!(&words[..12], ["fleet", "launch", "--provider", "claude", "--account", "b", "--name", "sc-7-d0101", "--task", "smashcraft#7", "--cwd", "gex45:/home/tom/code/smashcraft/main"]);
     assert_eq!(&words[12..], ["--local", "why", "Item: smashcraft#7 x\n\nbody"]);
     let (_, here) = effects::command(&launch("nexus"), "n", &survey, "/home/tom", "/bin/north");
-    assert_eq!(here[11], "/home/tom/code/smashcraft");
+    assert_eq!(here[11], "/home/tom/code/smashcraft/main");
     let (program, queued) = effects::command(&launch("whiterabbit"), "n", &survey, "/home/tom", "/bin/north");
     assert_eq!((program.as_str(), &queued[..6]), ("threads", &["queue", "add", "laptop", "smashcraft#7", "--", "north"].map(str::to_owned)[..]));
-    assert_eq!(queued[17], "/home/tom/code/smashcraft");
+    assert_eq!(queued[17], "/home/tom/code/smashcraft/main");
 }
 
 #[test]
