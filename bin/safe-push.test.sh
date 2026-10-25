@@ -1270,6 +1270,27 @@ expect_output "main lands through Autoland's one queue"
 expect_output 'Autoland did not land this lane: Train retested'
 expect_output 'safe-push: refused Autoland did not land this lane: Train retested https://example.test/run'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$autoland_base" ] || fail 'an Autoland repository pushed main directly'
+autoland_lane_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
+autoland_dropped=$autoland_lane_tip
+autoland_other="$scratch/autoland-other"
+"$real_git" clone -q "$real_remote" "$autoland_other"
+"$real_git" -C "$autoland_other" config user.name safe-push-test
+"$real_git" -C "$autoland_other" config user.email safe-push-test@example.invalid
+printf 'queued work\n' >>"$autoland_other/content.txt"
+printf 'elsewhere\n' >"$autoland_other/elsewhere.txt"
+"$real_git" -C "$autoland_other" add content.txt elsewhere.txt
+"$real_git" -C "$autoland_other" commit -qm 'queued work and more from elsewhere'
+"$real_git" -C "$autoland_other" push -q origin HEAD:main
+autoland_moved=$("$real_git" --git-dir="$real_remote" rev-parse main)
+SAFE_PUSH_TEST_AUTOLAND_STATUS=$'success\tAutoland landed fixture\thttps://example.test/success' run_real_case '' --to main
+expect_status nonzero
+grep -Eq "lane commits missing from .*$autoland_dropped.*; NOT pushed\." <<<"$case_output" || fail "the dropped Autoland commit was not named: $case_output"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$autoland_moved" ] || fail 'a refused Autoland lane moved main'
+[ -z "$("$real_git" --git-dir="$real_remote" for-each-ref 'refs/heads/claude/land-*')" ] || fail 'a refused Autoland lane pushed its queue branch'
+"$real_git" -C "$real_repo" reset -q --hard "$autoland_lane_tip"
+"$real_git" --git-dir="$real_remote" update-ref refs/heads/main "$autoland_base"
+"$real_git" -C "$real_repo" fetch -q origin
+printf 'PASS: autoland rebase that drops a lane commit is refused before the queue branch\n'
 printf 'landed by train\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'landed by train'
 test_landed_sha=$("$real_git" -C "$real_repo" rev-parse HEAD)
