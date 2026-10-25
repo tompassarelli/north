@@ -73,4 +73,8 @@ fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_
     let mut roomier = here.clone();
     roomier.verdicts.push(verdict("claude:b", Some(90.0)));
     assert!(admit(&roomier, &launch("c"), "", &Overrides::default()).unwrap_err().contains("placement picks claude:a"));
+    let mut cloud = decision(Target::Cloud("cloud credit: unread".into()));
+    cloud.verdicts = vec![Verdict { owners: vec!["nexus".into()], ..verdict("claude:a", Some(90.0)) }, verdict("claude:b", Some(40.0))];
+    let kept = admit(&cloud, &launch("b"), "", &Overrides { local: Some("reads a local lane".into()), pin: None }).unwrap();
+    assert_eq!(kept.note.as_deref(), Some("local: reads a local lane"), "a box kept here needs no pin beside an account that runs only elsewhere");
 }

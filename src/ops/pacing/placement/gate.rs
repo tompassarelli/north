@@ -65,6 +65,12 @@ impl Decision {
         self.best_where(|_| true)
     }
 
+    /// The roomiest available account that runs here, the one a box kept here launches on.
+    pub(crate) fn best_here(&self) -> Option<&Verdict> {
+        let here: Vec<&str> = self.verdicts.iter().filter(|verdict| verdict.owners.is_empty()).map(|verdict| verdict.account.trim_start_matches("claude:")).collect();
+        self.best_where(|label| here.contains(&label))
+    }
+
     fn best_where(&self, allowed: impl Fn(&str) -> bool) -> Option<&Verdict> {
         self.verdicts
             .iter()

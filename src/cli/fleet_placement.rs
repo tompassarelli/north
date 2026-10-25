@@ -126,7 +126,7 @@ fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
     let chosen = decision.verdict(&name);
     let best = match &decision.target {
         Target::Account(placed) => decision.verdict(placed),
-        _ => decision.best_account(),
+        _ => decision.best_here(),
     };
     if chosen.is_none() && best.is_none() {
         return None;
