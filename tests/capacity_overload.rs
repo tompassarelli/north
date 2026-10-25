@@ -15,6 +15,7 @@ fn first_decision(host: &Host, need: &str) -> Value {
         host.helper(&["run", "--class", "heavy", "--owner", "fixture:/lagged", "--timeout-seconds", "60", "--", "true"])
             .env("AGENT_CAPACITY_LOADAVG", host.path("loadavg"))
             .env("AGENT_CAPACITY_NEED", need)
+            .env("RESIDENT_CAP_HOST", "whiterabbit")
             .env("AGENTS_ORCHESTRATION", host.path("orchestration.toml"))
             .env("AGENTS_OPERATOR_DIR", host.path(""))
             .stdout(Stdio::null())
