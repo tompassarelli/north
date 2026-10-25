@@ -58,7 +58,7 @@ metadata:
 - Lifecycle: start signed-in clients as user services with `bun wisp client start [CLIENT...] --clients-file FILE`, never as shell or background tasks. Manage them with `client status` and `client stop`, and leave them at the menu for the next Battle.net check.
 - Give each signed-in client its own worker for one-client captures; put a client pair under one worker only for sync, netplay and EX checks.
 - Run a build's native spot checks as one batch sharded across every free client, judge once and tick every box it covers; keep tooling reference captures off native lanes.
-- Never attach a debugger, trace, read or write game memory, inject code, or decrypt or dump the game on any client. The private LAN switch and desync debugger under ~/.local/share/wisp-private/ only diagnose our own test clients; their output never decides Wisp or Smashcraft behaviour and their details never enter a repository, issue or doc.
+- Never attach a debugger, trace, read or write game memory, inject code, or decrypt or dump the game on any client. Smashcraft Servers (north:harness/skills/game-ip) is the one exception. The private LAN switch and desync debugger under ~/.local/share/wisp-private/ only diagnose our own test clients; their output never decides Wisp or Smashcraft behaviour and their details never enter a repository, issue or doc.
 - Desync: find the first divergent frame from map-side checksums, replays and War3Log. [native-sessions.md](references/native-sessions.md) covers manual diagnosis. Rerun a native session that a crash, a new desync report or a premature result made invalid.
 
 ## Play and recovery
