@@ -64,6 +64,12 @@ pub(crate) struct Facts {
     pub(crate) quiet_native_runs: u32,
     pub(crate) beside_native: bool,
     #[serde(default)]
+    pub(crate) quiet: bool,
+    #[serde(default)]
+    pub(crate) exclusive_leases: Vec<String>,
+    #[serde(skip)]
+    pub(crate) within_exclusive: bool,
+    #[serde(default)]
     pub(crate) gaming: bool,
     #[serde(default)]
     pub(crate) gaming_class: Option<Class>,
@@ -190,6 +196,9 @@ fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
 }
 
 fn native(facts: &Facts) -> Reason {
+    if facts.quiet && facts.peer_exclusive_runs > u32::from(facts.within_exclusive) {
+        return Reason::DeferExclusive;
+    }
     if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
         return Reason::DeferNativeCpus;
     }

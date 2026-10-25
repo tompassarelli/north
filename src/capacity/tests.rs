@@ -29,6 +29,9 @@ fn facts(class: Class) -> Facts {
         native_waiting: 0,
         quiet_native_runs: 0,
         beside_native: false,
+        quiet: false,
+        exclusive_leases: Vec::new(),
+        within_exclusive: false,
         gaming: false,
         gaming_class: None,
         queued_ahead_classes: Vec::new(),
@@ -160,4 +163,26 @@ fn gaming_deferred_tickets_ahead_do_not_queue_light_work_behind_them() {
     assert_eq!(decide(&ahead(true, &[Class::Heavy, Class::Moderate])), Reason::DeferQueued);
     assert_eq!(decide(&ahead(false, &[Class::Heavy, Class::Gpu])), Reason::DeferQueued);
     assert_eq!(decide(&ahead(true, &[Class::Critical, Class::Tom])), Reason::DeferQueued);
+}
+
+#[test]
+fn quiet_native_timing_run_defers_beside_a_live_exclusive_lease_while_a_client_launch_still_runs() {
+    let beside = |quiet: bool, peer_exclusive_runs: u32| decide(&Facts { quiet, peer_exclusive_runs, ..facts(Class::Native) });
+    assert_eq!(beside(true, 1), Reason::DeferExclusive);
+    assert_eq!(beside(true, 0), Reason::Run);
+    assert_eq!(beside(false, 1), Reason::Run);
+}
+
+#[test]
+fn quiet_native_run_inside_its_own_exclusive_lease_runs_but_not_beside_a_second_exclusive() {
+    let within = |peer_exclusive_runs: u32| decide(&Facts { quiet: true, within_exclusive: true, peer_exclusive_runs, ..facts(Class::Native) });
+    assert_eq!(within(1), Reason::Run);
+    assert_eq!(within(2), Reason::DeferExclusive);
+}
+
+#[test]
+fn batch_work_defers_beside_a_live_exclusive_lease() {
+    for class in [Class::Moderate, Class::Heavy, Class::Gpu, Class::Critical, Class::Tom] {
+        assert_eq!(decide(&Facts { peer_exclusive_runs: 1, ..facts(class) }), Reason::DeferExclusive, "{class:?}");
+    }
 }

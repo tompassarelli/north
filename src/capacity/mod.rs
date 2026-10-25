@@ -44,6 +44,7 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
             facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
             facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
             facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
+            facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
             let _ = writeln!(std::io::stdout(), "{}", json!(admission::admit(&facts, host.serving)));
             0
         }

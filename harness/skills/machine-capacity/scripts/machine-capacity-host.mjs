@@ -162,11 +162,11 @@ function unleasedAgentPressure() {
 
 function readSignals() {
   const fields = new Map();
-  for (const line of readFileSync('/proc/meminfo', 'utf8').split('\n')) {
+  for (const line of readFileSync(process.env.AGENT_CAPACITY_MEMINFO ?? '/proc/meminfo', 'utf8').split('\n')) {
     const match = line.match(/^(MemTotal|MemAvailable):\s+([0-9]+) kB$/);
     if (match) fields.set(match[1], Math.floor(Number(match[2]) / 1024));
   }
-  if (!fields.has('MemTotal') || !fields.has('MemAvailable')) {
+  if (fields.size < 2) {
     fail('cannot read MemTotal and MemAvailable from /proc/meminfo');
   }
   return {
@@ -877,7 +877,7 @@ function decision(root, requested, create, ticket = null) {
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
       queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients ?? Number(requested.name === 'native'), gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
-      nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined,
+      nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined, quiet: requested.quiet === true, exclusiveLeases: runs.filter(lease => lease.class === 'exclusive').map(lease => lease.id),
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
     const result = {
