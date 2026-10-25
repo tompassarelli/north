@@ -228,6 +228,9 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), laptop_running)).collect();
     let accounts = accounts(&cfg, roster, &here, &per_account, at);
+    if accounts.is_empty() {
+        notes.push("pace-control.json names no account, so no slot is free".into());
+    }
     let cloud = cloud(&cfg, &here, at);
     Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, notes })
 }
