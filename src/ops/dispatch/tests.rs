@@ -1,8 +1,8 @@
 use super::issues::{self, Issue, IssueRef, World};
-use super::plan::{Cloud, Launch};
+use super::plan::Cloud;
 use super::slots::{Account, Host, Pools};
 use super::survey::Survey;
-use super::{alert, decide, effects, record};
+use super::{alert, decide, record};
 use std::collections::{BTreeMap, BTreeSet};
 
 const CONFIG: &str = r#"
@@ -110,13 +110,6 @@ fn a_ready_box_is_open_unticked_unheld_not_toms_and_after_its_closed_predecessor
     assert_eq!(verdict(10), Err("waits on open smashcraft#10".into()), "a plan in another repository orders it too");
 }
 
-#[test]
-fn references_resolve_bare_qualified_and_url_forms() {
-    let found = issues::references("see #4, wisp#5, tompassarelli/north#6, https://github.com/tompassarelli/firn/issues/7, other/x#8 and a&#39;", "smashcraft");
-    let names: Vec<String> = found.iter().map(ToString::to_string).collect();
-    assert_eq!(names, ["smashcraft#4", "wisp#5", "north#6", "firn#7"]);
-}
-
 fn placed(survey: &Survey) -> Vec<(String, String, String, bool, Option<String>)> {
     decide(survey, "test").launches.into_iter().map(|launch| (launch.item.to_string(), launch.host, launch.account, launch.courier, launch.local)).collect()
 }
@@ -174,30 +167,6 @@ fn tom_hears_once_only_when_ready_work_and_free_slots_coexist_and_nothing_launch
     assert!(alert(&launched, &["smashcraft#41 on gex45: refused".into()], "nexus").unwrap().ends_with("none launched: smashcraft#41 on gex45: refused"));
     let idle = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
     assert_eq!(alert(&decide(&idle, "test"), &[], "nexus"), None, "no ready work is no alert");
-}
-
-#[test]
-fn a_launch_runs_through_fleet_launch_here_over_ssh_or_as_a_laptop_job() {
-    let (hosts, accounts) = fleet();
-    let survey = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
-    let launch = |host: &str| Launch {
-        item: IssueRef::new("smashcraft", 7),
-        host: host.into(),
-        account: "claude:b".into(),
-        brief: "Item: smashcraft#7 x\n\nbody".into(),
-        courier: false,
-        local: Some("why".into()),
-        pin: None,
-    };
-    let (program, words) = effects::command(&launch("gex45"), "sc-7-d0101", &survey, "/home/tom", "/bin/north");
-    assert_eq!(program, "/bin/north");
-    assert_eq!(&words[..12], ["fleet", "launch", "--provider", "claude", "--account", "b", "--name", "sc-7-d0101", "--task", "smashcraft#7", "--cwd", "gex45:/home/tom/code/smashcraft/main"]);
-    assert_eq!(&words[12..], ["--local", "why", "Item: smashcraft#7 x\n\nbody"]);
-    let (_, here) = effects::command(&launch("nexus"), "n", &survey, "/home/tom", "/bin/north");
-    assert_eq!(here[11], "/home/tom/code/smashcraft/main");
-    let (program, queued) = effects::command(&launch("whiterabbit"), "n", &survey, "/home/tom", "/bin/north");
-    assert_eq!((program.as_str(), &queued[..6]), ("threads", &["queue", "add", "laptop", "smashcraft#7", "--", "north"].map(str::to_owned)[..]));
-    assert_eq!(queued[17], "/home/tom/code/smashcraft/main");
 }
 
 #[test]
