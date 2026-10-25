@@ -17,6 +17,7 @@ use toml_edit::{DocumentMut, Item};
 
 pub(crate) const REPOS: [&str; 2] = ["smashcraft", "wisp"];
 const PACE_FRESH_S: f64 = 15.0 * 60.0;
+const MIRROR_FRESH_S: f64 = 10.0 * 60.0;
 const PROBE: Duration = Duration::from_secs(30);
 const RUNNING: [&str; 3] = ["starting", "working", "idle"];
 static SESSION_ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp)-(\d+)(?:-|$)").expect("session pattern"));
@@ -102,6 +103,26 @@ fn sessions(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<(Sess
         }
     }
     found
+}
+
+/// The laptop's running sessions from the fleet list it copies to `fleet-HOST.json` in `directory`, since
+/// no host here reaches it over ssh; an old copy still holds its issues.
+pub(crate) fn mirrored(directory: &std::path::Path, host: &str, at: f64, notes: &mut Vec<String>) -> Vec<Session> {
+    let path = directory.join(format!("fleet-{host}.json"));
+    let listing = std::fs::read_to_string(&path).map_err(|error| error.to_string()).and_then(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()));
+    let copied = std::fs::metadata(&path).and_then(|meta| meta.modified()).ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+    match listing {
+        Ok(listing) => {
+            if let Some(age) = copied.map(|copied| at - copied.as_secs_f64()).filter(|age| *age > MIRROR_FRESH_S) {
+                notes.push(format!("{host} fleet list copied {:.0} min ago", age / 60.0));
+            }
+            running_sessions(&listing)
+        }
+        Err(why) => {
+            notes.push(format!("{host} fleet list unread: {}: {why}", path.display()));
+            Vec::new()
+        }
+    }
 }
 
 fn host(cfg: &DocumentMut, name: &str, here: &str, hosted_elsewhere: i64, laptop_running: i64) -> Host {
@@ -237,16 +258,19 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let here = crate::platform::host::name();
     let at = placement::now();
     let mut notes = Vec::new();
-    let sessions = sessions(&cfg, &here, &mut notes);
+    let laptop = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter()).find(|(name, table)| {
+        *name != here && table.get("ssh").is_none() && strings(table.get("serves")).iter().any(|need| need == "laptop")
+    });
+    let laptop = laptop.map(|(name, _)| name.to_owned());
+    let mut sessions = sessions(&cfg, &here, &mut notes);
+    if let Some(name) = &laptop {
+        sessions.extend(mirrored(&record::directory(), name, at, &mut notes).into_iter().map(|session| (session, name.clone())));
+    }
     let (per_account, elsewhere, mut holds) = tally(&sessions);
     let (issues, open) = github::open_issues(&mut notes);
     let records = record::read();
     holds.extend(claims(&cfg, &here, &mut notes));
     holds.extend(record::holds(&records, at));
-    let laptop = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter()).find(|(name, table)| {
-        *name != here && table.get("ssh").is_none() && strings(table.get("serves")).iter().any(|need| need == "laptop")
-    });
-    let laptop = laptop.map(|(name, _)| name.to_owned());
     let laptop_running = laptop.as_deref().map_or(0, |name| record::recent_on(&records, name, &open, at));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), laptop_running)).collect();

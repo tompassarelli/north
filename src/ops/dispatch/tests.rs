@@ -219,3 +219,19 @@ fn an_account_placement_never_judged_gets_no_slot() {
     assert!(unjudged.contains("codex has no placement verdict"), "{unjudged}");
     assert!(super::survey::refusal("claude:b", &control, Some(&judged), 1000.0 + 16.0 * 60.0).unwrap().contains("sampled 16 min ago"));
 }
+
+#[test]
+fn the_laptops_copied_fleet_list_holds_its_sessions_issues_even_when_old() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut notes = Vec::new();
+    assert!(super::survey::mirrored(directory.path(), "whiterabbit", 0.0, &mut notes).is_empty());
+    assert!(notes[0].starts_with("whiterabbit fleet list unread"), "{notes:?}");
+    let listing = serde_json::json!([{"name": "fixer", "provider": "claude", "account": "a", "status": "working", "task_ref": "tompassarelli/smashcraft#350", "machine": null}]);
+    std::fs::write(directory.path().join("fleet-whiterabbit.json"), listing.to_string()).unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
+    let mut notes = Vec::new();
+    let old = super::survey::mirrored(directory.path(), "whiterabbit", now + 3600.0, &mut notes);
+    assert_eq!(old.iter().map(|session| session.item.clone()).collect::<Vec<_>>(), [Some(IssueRef::new("smashcraft", 350))]);
+    assert_eq!(old[0].account, "claude:a");
+    assert!(notes[0].starts_with("whiterabbit fleet list copied 60 min ago"), "{notes:?}");
+}
