@@ -115,7 +115,7 @@ fn placed(survey: &Survey) -> Vec<(String, String, String, bool, Option<String>)
 }
 
 #[test]
-fn code_only_boxes_fall_back_from_an_unreachable_cloud_lane_to_a_host_with_a_free_slot() {
+fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_unreachable_or_its_courier_slot_is_full() {
     let (hosts, accounts) = fleet();
     let boxes = vec![issue("smashcraft", 20, "- [ ] a", &[]), issue("smashcraft", 21, "- [ ] b", &[]), issue("smashcraft", 22, "- [ ] c", &[]), issue("smashcraft", 23, "- [ ] d", &[])];
     let unreachable = survey(boxes.clone(), Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
@@ -134,9 +134,15 @@ fn code_only_boxes_fall_back_from_an_unreachable_cloud_lane_to_a_host_with_a_fre
     assert!(last.contains("gex45 has no free slot") && last.contains("whiterabbit takes nothing: laptop unavailable"), "{last}");
 
     let reachable = survey(boxes.clone(), Cloud::Reachable("cloud credit: unread".into()), hosts.clone(), accounts.clone());
-    let couriers = placed(&reachable);
-    assert_eq!(couriers.len(), 1, "one free nexus slot carries one courier: {couriers:?}");
-    assert_eq!((couriers[0].1.as_str(), couriers[0].2.as_str(), couriers[0].3), ("nexus", "claude:a", true));
+    let full = Some("north dispatch: cloud lane open (cloud credit: unread) but nexus has no free slot for its courier".to_owned());
+    assert_eq!(
+        placed(&reachable),
+        [
+            ("smashcraft#20".into(), "nexus".into(), "claude:a".into(), true, Some("north dispatch: courier for the cloud lane (cloud credit: unread)".to_owned())),
+            ("smashcraft#21".into(), "gex45".into(), "claude:b".into(), false, full.clone()),
+            ("smashcraft#22".into(), "gex45".into(), "claude:b".into(), false, full),
+        ]
+    );
 
     let closed = survey(boxes, Cloud::Closed("cloud credit: expired".into()), hosts, accounts);
     assert!(placed(&closed).iter().all(|(_, _, _, courier, local)| !courier && local.is_none()));
@@ -202,4 +208,14 @@ fn a_threads_claim_on_any_hosts_ledger_holds_its_issue() {
     let rows = super::survey::claim_rows(listing, "gex45");
     assert_eq!(rows, [(IssueRef::new("wisp", 21), "threads claim by sc-21-a on gex45".to_owned()), (IssueRef::new("smashcraft", 9), "threads claim by w4 on gex45".to_owned())]);
     assert!(super::survey::claim_rows("item  owner  clock  eta  flag\n", "nexus").is_empty());
+}
+
+#[test]
+fn an_account_placement_never_judged_gets_no_slot() {
+    let control = serde_json::json!({"at": 1000.0, "allowed_workers": 2});
+    let judged = crate::ops::pacing::placement::gate::Verdict { account: "claude:b".into(), available: true, headroom: 40.0, line: "claude:b ok".into(), owners: vec!["gex45".into()] };
+    assert_eq!(super::survey::refusal("claude:b", &control, Some(&judged), 1060.0), None);
+    let unjudged = super::survey::refusal("codex", &control, None, 1060.0).unwrap();
+    assert!(unjudged.contains("codex has no placement verdict"), "{unjudged}");
+    assert!(super::survey::refusal("claude:b", &control, Some(&judged), 1000.0 + 16.0 * 60.0).unwrap().contains("sampled 16 min ago"));
 }

@@ -1,5 +1,5 @@
 //! Where each ready box goes: the cloud lane through a courier on this host when the lane is
-//! reachable here, else the first host in placement order that serves the box and has a free slot.
+//! reachable here and has a free courier slot, else the first host in placement order that serves the box and has a free slot.
 use super::issues::IssueRef;
 use super::slots::{Account, Pools};
 
@@ -87,10 +87,10 @@ pub(crate) fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate]
         match capacity.cloud {
             Cloud::Reachable(credit) => {
                 let here = capacity.here;
-                return match best_account(capacity, pools, here) {
-                    Some(account) => Ok(launch(capacity, pools, ready, here, account, true, Some(format!("north dispatch: courier for the cloud lane ({credit})")))),
-                    None => Err(format!("cloud lane open ({credit}) but {here} has no free slot for its courier")),
-                };
+                match best_account(capacity, pools, here) {
+                    Some(account) => return Ok(launch(capacity, pools, ready, here, account, true, Some(format!("north dispatch: courier for the cloud lane ({credit})")))),
+                    None => local = Some(format!("north dispatch: cloud lane open ({credit}) but {here} has no free slot for its courier")),
+                }
             }
             Cloud::Unreachable(why) => local = Some(format!("north dispatch: cloud lane unreachable from {}: {why}", capacity.here)),
             Cloud::Closed(_) => {}

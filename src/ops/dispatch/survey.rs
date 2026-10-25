@@ -133,6 +133,19 @@ fn account_hosts(cfg: &DocumentMut, account: &str, here: &str) -> Vec<String> {
     }
 }
 
+/// Why dispatch gives an account no slot: a stale pace sample, or a placement verdict that refuses
+/// it or was never made, since placement judges only the accounts the fleet launches.
+pub(crate) fn refusal(name: &str, control: &Value, verdict: Option<&gate::Verdict>, at: f64) -> Option<String> {
+    let age = at - control["at"].as_f64().unwrap_or(0.0);
+    if age > PACE_FRESH_S {
+        return Some(format!("pace-control.json sampled {:.0} min ago", age / 60.0));
+    }
+    match verdict {
+        None => Some(format!("{name} has no placement verdict, so dispatch staffs it nowhere")),
+        Some(verdict) => (!verdict.available).then(|| verdict.line.clone()),
+    }
+}
+
 fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, running: &BTreeMap<String, i64>, at: f64) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
     let verdicts = gate::verdicts(&placement::pace_state("usage-gate.json"), roster);
@@ -142,12 +155,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, running: &BTreeMap<S
         .flatten()
         .map(|(name, control)| {
             let verdict = verdicts.iter().find(|verdict| verdict.account == *name);
-            let age = at - control["at"].as_f64().unwrap_or(0.0);
-            let refusal = if age > PACE_FRESH_S {
-                Some(format!("pace-control.json sampled {:.0} min ago", age / 60.0))
-            } else {
-                verdict.filter(|verdict| !verdict.available).map(|verdict| verdict.line.clone())
-            };
+            let refusal = refusal(name, control, verdict, at);
             Account {
                 name: name.clone(),
                 allowed: control["allowed_workers"].as_i64(),
