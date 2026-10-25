@@ -17,6 +17,16 @@ pub(super) fn find_tool(name: &str) -> io::Result<std::path::PathBuf> {
     ))
 }
 
+pub(super) fn vncdo(run: &std::path::Path, port: &str) -> Command {
+    let mut command = Command::new(run.join("venv/bin/vncdo"));
+    command
+        .arg("-s")
+        .arg(format!("127.0.0.1::{port}"))
+        .arg("-t")
+        .arg("8");
+    command
+}
+
 pub(super) fn checked(command: &mut Command) -> io::Result<u8> {
     status_code(command.status()?)
 }

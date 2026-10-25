@@ -4,7 +4,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use super::process::{checked, find_tool, status_code};
+use super::process::{checked, find_tool, status_code, vncdo};
 use super::run_state::{is_socket, read_run_value, validate_run_dir};
 
 pub(super) fn control(arguments: &[String]) -> io::Result<u8> {
@@ -16,14 +16,7 @@ pub(super) fn control(arguments: &[String]) -> io::Result<u8> {
     }
     let (run, _) = validate_run_dir(&arguments[0])?;
     let port = read_run_value(&run, "port")?;
-    checked(
-        Command::new(run.join("venv/bin/vncdo"))
-            .arg("-s")
-            .arg(format!("127.0.0.1::{port}"))
-            .arg("-t")
-            .arg("8")
-            .args(&arguments[1..]),
-    )
+    checked(vncdo(&run, &port).args(&arguments[1..]))
 }
 
 pub(super) fn type_text(arguments: &[String]) -> io::Result<u8> {

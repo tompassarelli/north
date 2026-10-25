@@ -46,6 +46,7 @@ impl Session {
         self.launch_desktop(options, &stopping)?;
         let (display, wayland) = self.configure_display(options)?;
         self.launch_vnc(port, &display, &wayland, &stopping)?;
+        self.prime_keyboard(port)?;
         flock(port_lock, FlockOperation::Unlock)?;
         self.report_ready(port, &display, &wayland)?;
         self.launch_client(options, &display, &wayland)?;
@@ -126,6 +127,12 @@ impl Session {
                 .spawn()?,
         );
         wait_port(port, self.vnc.as_mut().unwrap(), stopping)
+    }
+
+    // The desktop drops the first key from wayvnc's virtual keyboard, so spend it before any client can take focus.
+    fn prime_keyboard(&self, port: u16) -> io::Result<()> {
+        checked_output(vncdo(&self.run, &port.to_string()).args(["key", "shift"]))?;
+        Ok(())
     }
 
     fn report_ready(&self, port: u16, display: &str, wayland: &str) -> io::Result<()> {
