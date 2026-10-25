@@ -3,8 +3,7 @@ name: game-ip
 description: >-
   Respect Blizzard's and Nintendo's IP in any game-modding or game-feel work
   (Warcraft III, Wisp, Smashcraft, Melee): where engine or game facts may come
-  from, the one allowed in-game change (the opt-in Smashcraft Servers LAN
-  switch), and what to do when a task seems to need the game's internals.
+  from, and what to do when a task seems to need the game's internals.
 grounded: 2026-10-25
 written: 2026-10-25
 metadata:
