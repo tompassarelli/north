@@ -15,11 +15,9 @@ written: 2026-10-15
 3. Add migration, recovery, compatibility or rollout only for an affected boundary, because lifecycle machinery without a consumer is ceremony.
 4. Revise the remaining route when evidence breaks a premise and stop when more prose changes no action, because a stale plan item is not work.
 
-Read [plan outline](references/plan-outline.md) when a durable decision needs a written plan.
-
-## Write a consequential brief
-
 A consequential brief carries the behavior trace (what the current system actually does, observed) and the rationale for the current design (why it is that way), because a brief without them lets the worker re-derive or reverse a decision blind.
+
+Read [plan outline](references/plan-outline.md) when a durable decision needs a written plan.
 
 ## Research prior art
 
@@ -52,10 +50,9 @@ Read [hardening](references/hardening.md) when choosing failure paths, or [ratio
 2. Extrapolate the trend at most 14 days; extend to 30 only when the roadmap names committed volume and two weeks of trend support it; use 7 in maintenance mode, because volume forecasts decay fast.
 3. Staff at payback <= 3 days (1-2 in maintenance mode); 3-7 days only if it also removes the top bottleneck stage, removes flakes or unpredictability, or enables a queued roadmap item; above 7 only if it beats the top feature on cost of delay per duration, else defer, because feature work is the default use of capacity.
 4. Re-profile the loop after each fix and stop optimizing a stage when its share of operator wait is under 25%, its next item no longer beats the top feature, or the gain is a uniform <10% shave crossing no task-switch threshold; fix variance before mean, because the constraint moves and predictability matters more than small mean gains.
-5. Ask the operator only on direction ambiguity (an unclear horizon that flips the decision, or two near-equal items with different directions), because routine sizing is the agent's job.
-6. Size the recurring code-health review the same way: its effort is `C`, the hotspot interest it removes is `S`, the touched area's change rate is `R`, because debt costs only when touched.
+5. Size the recurring code-health review the same way: its effort is `C`, the hotspot interest it removes is `S`, the touched area's change rate is `R`, because debt costs only when touched.
 
-Read [pricing sources](references/pricing.md) when a price is disputed.
+Read [pricing sources](references/pricing.md) when a price is disputed, and [notes](references/notes.md) before asking the operator about one.
 
 ## Steward delivery
 

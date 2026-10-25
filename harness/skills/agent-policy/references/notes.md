@@ -57,10 +57,21 @@ apart, and never hide a binding safety condition in optional notes or promote a
 brainstorm into a mandatory checklist. Split a reference only where different
 questions select different topics, with a short index of read conditions.
 
+Tom-specific facts that belong in a south reference rather than a north skill:
+account letters and logins, hosts, plans, prices and credit, his installs and
+devices, private repository names, and session, environment or artifact IDs.
+A fact pushed to north stays readable in its history after it moves.
+
+Size global policy, AGENTS.md files and skills by measurement, not line caps:
+`agents sync` fails a change only when replay conformance drops or it adds
+startup tokens with no measured gain against south:agents/operating-point.toml.
+Put command detail in CLI help, `help TOPIC` or indexed docs.
+
 ## Validation
 
-Check a positive case and a nearby case that should not activate the rule:
-would the instruction select the right source, action and stopping condition
+Check a matching case and a nearby nonmatching case with the standard
+validator or an existing fixture. Does the rule activate on the matching case
+only, and would the instruction select the right source, action and stopping condition
 without widening scope? Metadata and link checks prove structure; an existing
 behavior fixture proves enforcement; text matching cannot prove judgment.
 
@@ -71,8 +82,9 @@ result and unresolved evidence; it need not become a new artifact.
 
 ## Registration and enforcement
 
-Register the exact owner once; shape validation does not prove the rule
-selects the right action. A hook's catalog support relations and provider
+Register the exact owner once, preserve explicit module membership and hook
+events, and add no aliases; shape validation does not prove the rule selects
+the right action. A hook's catalog support relations and provider
 event wiring belong outside skill prose. A lifecycle wrapper keeps its actual
 event and consumes resolved activity; it does not recompute module closure or
 pretend to be PreToolUse. For executable enforcement changes read
@@ -93,3 +105,15 @@ Inspect status, owner, activity, generation digest and provider activation
 paths from the live client, and resolve them to landed authority, not a lane or
 hand-edited projection. Stop on ambiguous identity or unlanded source.
 Skill-only out-of-store activation needs no NixOS rebuild.
+
+## Landing order across repositories
+
+Three separate rust-port incidents on 2026-10-15 set the order in `SKILL.md`
+step 3. A safe-push caller switch to `north dep-gate` landed (north 9363e8a9)
+while south pointed Firn system policy at unlanded Rust source (south 87f9f5e,
+reverted in 05112fb), and every landing was refused for 13 minutes. A worker
+hand-pointed a live runtime selector at an unlanded build, and a second worker
+then backed out a good landing it took for a rollback. A guard port deleted
+sources in north (de27467a) that south still registered, so `agents sync`
+failed for every session until a 4-step order restored it: the new guard
+beside the old files, promotion, removal of the registration, then deletion.

@@ -41,8 +41,25 @@ a rule when its numbers move.
 - Escalate to the next tier `agents plan` prints only after `Stop: reasoning`:
   a wrong cause or two failed fixes.
 
+## Planner effort
+
+- Staff `planner` at Opus high by default. Tom's hypothesis (2026-10-12) is
+  that high fits about 90% of plans, xhigh the next 8% and `max` the top 2%.
+- Pass `effort: xhigh` or `max` only with evidence from our own data (a high
+  plan for the same issue came back Not done, or `worker-ledger` shows high
+  plans in that category closing worse) or when Tom asks. Name that evidence
+  in the brief, and rank complexity against past planned work in
+  `worker-ledger`, not by feel.
+- Staff it for a plan, not code, when an issue gets its second Not done, a
+  category's last 10 runs fall below 40% closed, or the change is
+  architectural.
+
 ## Review lenses and findings
 
+- Give each adversarial reviewer one lens no other reviewer has, and have each
+  report `Accepted flaws: N`, so the ledger keeps the useful lenses.
+- Price rewrite and maintenance effort at AI cost (10–100x cheaper than a
+  human), and rank findings and alternatives by leverage, not human effort.
 - Lenses: desync or determinism hunter, frame-time profiler, new player at a
   first match, Warcraft engine limits, maintainer six months later, cheapest
   alternative, attacker of the measurement itself. Record which lens found each
@@ -84,10 +101,6 @@ a rule when its numbers move.
   Never cancel an Autoland run: a cancelled bisect half strands its lanes.
 - Before a playtest's last blocker lands, prebuild its map with the fix applied
   and run the frame-cost compare, so the build cannot fail at playtest time.
-- Before landing a `Spec: judged` cross-module or cross-repo lane, have a
-  fresh Claude reviewer of a different tier check the diff for wrong behavior
-  and weakened tests. Fix what it finds before
-  `safe-push`.
 - Before an issue closes, `worker-haiku` reruns each Done when check against
   origin/main and quotes the numbers. Close the issue only when every box
   reproduces.
@@ -99,4 +112,3 @@ a rule when its numbers move.
   reach them at once.
 - A recycled worker writes its handoff at a natural checkpoint. Check the fresh
   worker 5 minutes later for work it is rediscovering.
-- Expect a report at 45 minutes or twice the ETA, whichever comes first.

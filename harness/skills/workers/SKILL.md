@@ -9,11 +9,11 @@ written: 2026-10-15
 
 **Throughput is lost to serialized long waits (farm runs, soaks, renders, landings), not to thinking.** Each tick, cut the longest wait on the critical path: batch ready lanes into one landing, run independent unknown-cause hypotheses in parallel (a `Done: ruled out` with evidence closes one), render 2–4 variants and judge them once, and send code-only work to cloud workers first. While a repository's landing queue grows (`agents flow`), widen its landing path before adding workers, because more lanes only lengthen the queue. Key every generated record, digest and gate only to the inputs it checks, so landing unrelated work never invalidates another lane. Hand Tom the artifact he is waiting for the moment it is usable, and run checks that cannot change it afterwards; only release and landing gates block.
 
-North must be able to run all work on Claude alone or Codex alone for days, so every rule here holds on either provider unless marked Claude-only, and `agents plan` routes everything to the provider with headroom.
+Every rule here holds on any provider unless marked Claude-only, so the provider seam survives a provider switch. Tom has staffed Claude alone since 2026-10-16 (standing order: no Codex subscription for the foreseeable future), and `agents plan` routes each box to the provider and account with headroom.
 
 ## Staff
 
-- The proxy coordinates fleet sessions directly. Set `--parent` when launching a child; `north fleet tree` shows the org. A lead exists only for a multi-session workstream.
+- The proxy coordinates fleet sessions directly. Set `--parent` when launching a child; `north fleet tree` shows the org. A lead exists only for a multi-session workstream. Message a session with `north fleet send NAME TEXT...`, or with `north fleet ask NAME QUESTION...` when you need an answer.
 - Choose provider and fast mode with `agents plan`, which reads the signed-in providers and live `agents usage` headroom, never by hand, because hand choices drained the wrong account. `worker-ledger --recommend '<Category and facet lines>'` picks the tier; `worker-ledger --summary` shows each category's success.
 - For each Done when line, the box's writer names the existing property, replay or golden test that covers it; a new example test needs a one-line reason. The first Done when line of every brief is an oracle: an observation outside the agent naming the artifact or state and the pass condition, and the agent attaches the observed result, because a claimed pass is not evidence.
 - Queue each box that waits on another lane by piping its brief, carrying `Follows: <commit subject, SHA or Item>`, to `threads queue follow <repo#N> --tier <tier> --parent <your Fleet session name>`, so the predecessor's landing starts it instead of someone noticing.
@@ -23,35 +23,25 @@ North must be able to run all work on Claude alone or Codex alone for days, so e
 - Claude-only: call `Agent` workers with `run_in_background: true`, retries and escalations included, so the launch result records the original brief with the actual child identity.
 - Start each retry, escalation or continuation as a fresh worker whose brief carries `Follows: <earlier agent id and tier>` and the failed evidence. Send a running worker only its own task's follow-up, and never revive a finished worker by message, because its context is spent on the old attempt.
 - Workers on native items (life, accounts, travel, ops) report with `threads note REF TEXT`, never issue comments, because those items are private.
-- Staff from the tiers below and set model and effort explicitly on every Codex spawn, because defaults drift. Never use Codex low (except luna-low) or max, Sonnet other than sonnet-high, or Opus low, and use Fable only when Tom names it.
+- Staff from the tiers below. Never use Sonnet other than sonnet-high or Opus low, and use Fable only when Tom names it; Codex tiers are in [codex-sessions.md](references/codex-sessions.md).
 
 | Provider | Tier | Model / invocation |
 | --- | --- | --- |
-| Codex | luna-low | `spawn_agent`, model `gpt-6-luna`, reasoning_effort `low`; mechanical work only (exact edits, lookups, triage, named checks), after Haiku. The unlabeled `gpt-6-luna medium` runs of 1-5 Oct are not outcome evidence |
-| Codex | medium, high | `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` or `high` |
 | Claude | haiku | `worker-haiku`, Haiku 5.5 high |
-| Claude | sonnet-high | `worker-sonnet`, Sonnet 5.5 high; Claude-side middle band (features, tooling, known-cause fixes), before `worker` in the escalation; Sol takes a middle-band box only when `routing.codex_qualifies` passes it |
+| Claude | sonnet-high | `worker-sonnet`, Sonnet 5.5 high; Claude-side middle band (features, tooling, known-cause fixes), before `worker` in the escalation |
 | Claude | medium | `worker`, Opus 5.5 medium |
 | Claude | high, xhigh | `worker-high` or `worker-xhigh`, Opus 5.5 high or xhigh, escalation only |
 
 - Start every Opus-range item at `worker`. Restaff every stop at the same tier with a `Follows:` brief carrying the failed evidence, and escalate one tier only after a second `Stop: reasoning` on the same box, because most stops are brief or capacity faults. Until each arm has 15 runs, send those second reasoning stops in turn to `Arm: escalate`, `Arm: cheap-fix` (same tier, better brief) and `Arm: split`, so the ledger can compare them. When the next tier cannot run here, bring the supervisor one recommendation.
 - Send only mechanical edits and lane mechanics (rebase, regenerate, conflicts) to `worker-haiku`. Policy, skill and documentation prose (`Category: docs-policy`) goes to `worker`, never Haiku, because Tom wants it written carefully. Judged art, bisects, native checks and any job waiting more than 2 minutes on a run go to `worker` or stay with the lead, because Haiku ended its turn mid-run. Run the haiku trial in [notes](references/notes.md).
-
-## Providers and leads
-
-- Mixed-provider mode: Claude implements, and Codex takes only boxes `routing.codex_qualifies` passes, because Codex-lead-split boxes landed 71% (27/38) against 94% (196/209) under Claude leads. A Codex box that stops or is taken over goes to a Claude worker with `Follows:`, never back to Codex. On one provider alone, that provider's leads write, staff and land everything under these rules.
-- Read [codex-sessions.md](references/codex-sessions.md) before launching a Codex Fleet session or writing its brief.
-- Append `LESSON <date> <lead>: <instruction or hook> -> <measured effect> (<evidence ids>)` to `~/.local/state/agents/handoffs/codex-lessons.md` whenever a Codex brief wording, skill or hook measurably changes first-try closure, drift or speed, failures included, so the brief rules keep improving. If a pending line, or one marked `expired` in `codex-lessons-folded.md`, records the same lesson, add `; also <date> <lead> (<evidence ids>)` to it, moving an expired line back. A tool defect is an issue for its owning lead, not a lesson; so is a privacy, safety or data-loss slip, filed the same day as a box for a mechanical check.
-- Read [runtime-incidents.md](references/runtime-incidents.md) when a worker or lead fails to start, dies, stops answering or misreports and `agents-runtime` incident detail is needed.
+- Read [codex-sessions.md](references/codex-sessions.md) before you launch a Codex session, write a Codex brief, route a box to Codex or record a Codex lesson, and [runtime-incidents.md](references/runtime-incidents.md) when a worker or lead fails to start, dies, stops answering or misreports.
 
 ## Review
 
 - Covered harness changes land only with a `Reviewed: <reviewer and verdict>; patch-id <id>` trailer from a fresh reviewer who did not author the change (a Claude reviewer of a different tier from the author), because authors miss their own drift. The reviewer reads the final diff and prints the id from `north review-gate id origin/main HEAD $(safe-push --durable-harness-paths <repository>)` run in the lane; the author copies it into the trailer. safe-push refuses a landing whose covered diff has another id, so an edit after the review needs a new review; a rebase keeps the id unless main changed a line next to the change.
-- Staff `planner` at Opus high by default; Tom's hypothesis (12 Oct) is that high fits about 90% of plans, xhigh the next 8% and `max` the top 2%. Pass `effort: xhigh` or `max` only with evidence from our own data (a high plan for the same issue came back Not done, or `worker-ledger` shows high plans in that category closing worse) or when Tom asks, name that evidence in the brief, and rank complexity against past planned work in `worker-ledger`, not by feel. Staff it for a plan, not code, when an issue gets its second Not done, a category's last 10 runs fall below 40% closed, or the change is architectural.
 - Before staffing a planner's architectural design, have one fresh Claude reviewer of a different tier (Opus for a Sonnet author, Sonnet for an Opus author) try to break it, and revise once, because an author shares its own blind spots.
 - Before landing, an independent review checks the work against Tom's intent and cuts formal machinery the spec does not ask for. Before landing a `Spec: judged` cross-module or cross-repo lane, a fresh Claude reviewer of a different tier checks the diff for wrong behavior and weakened tests; fix what it finds before `safe-push`.
-- Give each adversarial reviewer one lens no other reviewer has, and have each report `Accepted flaws: N`, so the ledger keeps the useful lenses. Weigh each finding by its evidence first and the reviewer's tier second: a failing scenario, test or measurement counts whichever model raised it; investigate an unevidenced finding from a larger model, and have a stronger model check a smaller model's once before anyone acts on it.
-- Price rewrite and maintenance effort at AI cost (10–100x cheaper than a human), and rank findings and alternatives by leverage, not human effort.
+- Read [planner effort](references/notes.md#planner-effort) before staffing `planner`, and [review lenses](references/notes.md#review-lenses-and-findings) before staffing adversarial reviewers or weighing their findings.
 
 ## Placement and cloud
 
@@ -63,12 +53,9 @@ North must be able to run all work on Claude alone or Codex alone for days, so e
 
 - Expect a report at 45 minutes or twice the ETA, whichever is first. Long-running work continues in a fresh fleet session with `Follows:` and the prior session as parent.
 - Run anything that may take over about 45 seconds in the background (Claude `run_in_background`, Codex a background or unified-exec session), because a foreground wait delays every message to you.
-- In an Autoland repository a worker's landing ends when `safe-push --to main` has pushed its `claude/land-*` branch, and it reports `Done: queued <branch>`. Elsewhere a lead runs `safe-push` in the foreground with a 10-minute timeout, and a worker runs it in the background, because worker-wait-guard refuses a foreground landing.
-- Before starting an issue, check `lane-gc --unlanded` and continue an existing branch, because a second lane duplicates work. A lane ends landed, continued under an open issue, or archived; an owner who abandons a lane deletes it the same turn. The hourly `lane-gc` archives landed-elsewhere, superseded and stale-dirty lanes to `archive/<container>/<lane>/<tip>` tags; every other lane shows in its lead's tick as an `OWNED` row, which the lead continues, lands or archives. A lead holding more than 25, or any older than 72 h, gets a supply-alert.
-- Stop your own monitors and background shells when their work ends, and close each Codex worker when its final report arrives, because orphans hold capacity.
+- Land as [notes](references/notes.md#landing-mechanics) describes for Autoland and other repositories. Lane lifecycle and `lane-gc` belong to `repo-safety`; every unlanded lane `lane-gc` keeps shows in its lead's tick as an `OWNED` row, which the lead continues, lands or archives, and a lead holding more than 25, or any older than 72 h, gets a supply-alert.
 - Run at most as many native workers as free client slots (machine-capacity allows 4 Warcraft clients, 2 per pair), and give each a box that fits 45 minutes, because on 19 Oct three native workers queued on slots and five hit leash or context limits mid-run.
 - Tell Tom only what changes his next action: a landed fix (with its build), a result, or a decision; never relay a worker's interim "still waiting", because status chatter buries what he must act on.
-- Decide anything inside Tom's standing direction yourself and say what you chose, because a question he must answer stalls the work; ask only what his policy reserves.
 - File an unproven process idea as an issue and promote it to policy only after a measured result. Finish an issue's last unchecked box before starting new work, and after an hour with no closure start nothing new until an open box closes, because open boxes are the throughput.
 
 ## Reports
@@ -76,5 +63,4 @@ North must be able to run all work on Claude alone or Codex alone for days, so e
 - A worker's last message is its report and the runtime records delivery and completion, so keep no status files, ACK lines or re-pushes, and never resume a worker to check on it.
 - Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`, so the ledger can classify it.
 - Report a fix as landed only after fetching origin and verifying its SHA is an ancestor of `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <branch>`.
-- A worker that finds independent parts, or projects past twice its ETA, reports `Split:` with the parts as boxes, each with a Done when and what it learned. Continue a multi-session workstream by launching child sessions with `--parent NAME`.
-- Use `north fleet send NAME TEXT...` for messages and `north fleet ask NAME QUESTION...` when an answer is needed. The final message is the worker's report; Fleet records delivery and completion.
+- A worker that finds independent parts, or projects past twice its ETA, reports `Split:` with the parts as boxes, each with a Done when and what it learned.

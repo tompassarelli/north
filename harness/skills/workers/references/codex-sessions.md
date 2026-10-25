@@ -1,6 +1,20 @@
 # Codex sessions and briefs
 
-Read this for a Codex Fleet session, when you write a Codex brief, or when north runs on Codex alone.
+Read this for a Codex Fleet session, when you write a Codex brief, route a box to Codex, record a Codex lesson, or when north runs on Codex alone.
+
+## Tiers and routing
+
+- Set model and effort explicitly on every Codex spawn, because defaults drift. Never use Codex low (except luna-low) or max.
+  - luna-low: `spawn_agent`, model `gpt-6-luna`, reasoning_effort `low`; mechanical work only (exact edits, lookups, triage, named checks), after Haiku. The unlabeled `gpt-6-luna medium` runs of 1-5 Oct are not outcome evidence.
+  - medium, high: `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` or `high`. Sol takes a middle-band box only when `routing.codex_qualifies` passes it.
+- Mixed-provider mode: Claude implements, and Codex takes only boxes `routing.codex_qualifies` passes, because Codex-lead-split boxes landed 71% (27/38) against 94% (196/209) under Claude leads. A Codex box that stops or is taken over goes to a Claude worker with `Follows:`, never back to Codex. On one provider alone, that provider's leads write, staff and land everything under the workers rules.
+- Close each Codex worker when its final report arrives, because an orphan holds capacity.
+
+## Lessons
+
+- Append `LESSON <date> <lead>: <instruction or hook> -> <measured effect> (<evidence ids>)` to `~/.local/state/agents/handoffs/codex-lessons.md` whenever a Codex brief wording, skill or hook measurably changes first-try closure, drift or speed, failures included, so the brief rules keep improving.
+- If a pending line, or one marked `expired` in `codex-lessons-folded.md`, records the same lesson, add `; also <date> <lead> (<evidence ids>)` to it, moving an expired line back.
+- A tool defect is an issue for its owning lead, not a lesson; so is a privacy, safety or data-loss slip, filed the same day as a box for a mechanical check.
 
 ## Running a Codex session
 

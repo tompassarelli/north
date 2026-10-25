@@ -23,7 +23,7 @@ metadata:
 5. Resolve ambiguous observations and repair the first actual divergence before another expensive run, because later errors are often consequences.
 6. Reassess at roughly twice the estimate and restart only for observed failure or a supported corrective change, because silence is not deadlock and restarts lose progress.
 
-Read [evidence selection](references/evidence-selection.md) when choosing checks, [pricing and progress](references/pricing-and-progress.md) for delayed runs, and [failure diagnosis](references/failure-diagnosis.md) for a failed check or broken driver.
+Read [evidence selection](references/evidence-selection.md) when choosing checks, [pricing and progress](references/pricing-and-progress.md) for delayed runs, and [failure diagnosis](references/failure-diagnosis.md) for a failed check or broken driver. Read [notes](references/notes.md) when a project picks or revisits its test posture, or when the landing tool refuses a test change or a CI budget.
 
 ## Tests: the burden is on the test
 Iteration speed is everything, so every test names the guarantee it protects, in its title, as a behaviour a person would notice breaking. Keep the cheapest test that protects that guarantee; delete the rest.
@@ -57,16 +57,11 @@ Agents verify every mechanical check themselves on VM pairs and native capture (
 ## Delete on sight (largest first, from seven repository reviews)
 Example matrices re-testing one rule a property should own; our own prose, constants or argv asserted verbatim; one scenario rebuilt per layer or run twice; count pins on fixtures, catalogs or test totals; suites no runner collects; sleeps used as coordination; fakes of our own code; oracles that pass when nothing was checked; source greps and tombstones; single bugs pinned as their own tests; asserts of what the types guarantee; live probes committed as tests; full-width sweeps at the landing gate. Count cases with the runner, never a regex, because regex counts were refuted by runners. Counts per class: [testing sources](references/testing-sources.md).
 
-## Reference grounding
-When a project picks or revisits its test posture, read [domain profiles](references/testing-domains.md), use landing throughput to find 2-3 high-throughput projects in the domain, newer and AI-heavy first, study their test and landing architecture and accepted trade-offs, and record how we could get there; numbers only select.
-
 ## Mutation and landing-tool rules
 - A mutant settles doubt about whether a test is the only one protecting a guarantee; it is not a toll on every deletion.
 - Mutate only in a scratch copy, never the lane, and mark every mutated line `MUTANT:<rule-id>`, because reviewers have committed product mutants; the landing tool refuses an added line with that token.
 - Record the mutant patch in the scratch copy before claiming a kill; the landing tool refuses an empty record and requires the patch to apply to the landing base or head.
 - Product code never branches on a test's literal inputs, because that passes tests while breaking the product.
-- The landing tool refuses an added `skip`, `only`, `#[ignore]` or `xfail` without a `Test-change:` trailer naming the changed requirement, and an added test without a `Test-kind: <name> <kind> kills <mutant>` trailer.
-- A CI budget may name a ceiling after its target; a CI wall median between them lands and is logged as debt. While the median exceeds the ceiling, or the target when none is set, the landing tool refuses a landing unless a speed-up carries `CI-budget: <workflow> <before>s -> <after>s` or, while main is red, every commit names the failing run in `Main-red: <run id>`.
 
 ## Landing fast
 - Reuse every build and test result whose inputs are unchanged, keyed by a content hash of those inputs, and never run one suite twice for one landing, because rerunning unchanged inputs is waste.
