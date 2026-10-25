@@ -124,7 +124,10 @@ fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) ->
 fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
     let name = format!("claude:{account}");
     let chosen = decision.verdict(&name);
-    let best = decision.best_account();
+    let best = match &decision.target {
+        Target::Account(placed) => decision.verdict(placed),
+        _ => decision.best_account(),
+    };
     if chosen.is_none() && best.is_none() {
         return None;
     }

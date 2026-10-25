@@ -265,6 +265,13 @@ pub(crate) fn capacity_need(text: &str) -> Option<String> {
     (!needs.is_empty()).then(|| needs.join(","))
 }
 
+/// The first local need of the box that `[hosts.HOST] serves` does not cover.
+pub(crate) fn lacks(cfg: &DocumentMut, host: &str, text: &str) -> Option<String> {
+    let serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("serves")));
+    let repo = repository(text);
+    local_needs(text).into_iter().find(|need| !covers(&serves, need, &repo))
+}
+
 fn covers(serves: &[String], need: &str, repo: &str) -> bool {
     serves.iter().any(|served| served == need || served.split_once(':') == Some((need, repo)))
 }

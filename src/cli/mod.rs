@@ -68,6 +68,7 @@ Commands:
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   threads ARGV                                  Run a NorthThreads command on the ledger host
   cloud [list|events|sweep|send|wait]            Read, message, wait on and sweep Anthropic cloud sessions
+  dispatch [--dry-run]                          Launch ready smashcraft and wisp boxes on every free worker slot
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   private-desktop [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts

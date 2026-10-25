@@ -64,6 +64,29 @@ pub(crate) fn local_warcraft_clients() -> Option<u32> {
 pub(crate) fn local_bar1_reserve_mib() -> Option<u32> {
     gate::bar1_reserve_mib(&sampling::config().ok()?, &local())
 }
+/// South's orchestration.toml, which placement and `north dispatch` read.
+pub(crate) fn config() -> Result<DocumentMut, String> {
+    sampling::config()
+}
+pub(crate) fn cloud_credit(cfg: &DocumentMut, at: f64) -> (bool, String) {
+    credit(cfg, at)
+}
+pub(crate) fn laptop_state() -> String {
+    laptop()
+}
+pub(crate) fn resident_clis(name: &str, destination: &str) -> Option<i64> {
+    resident(name, destination)
+}
+/// A JSON file pace-control keeps in ~/.local/state/agents, or `{}`.
+pub(crate) fn pace_state(name: &str) -> Value {
+    storage::load(&storage::directory().join(name))
+}
+pub(crate) fn pace_directory() -> PathBuf {
+    storage::directory()
+}
+pub(crate) fn now() -> f64 {
+    storage::now()
+}
 pub(crate) fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;
     Some(crate::fleet::model::Machine { name: machine.name, ssh: machine.ssh })

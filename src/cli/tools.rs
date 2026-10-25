@@ -23,6 +23,7 @@ pub(super) enum Tool {
     SessionUnit,
     Runtime,
     Cloud,
+    Dispatch,
 }
 
 impl Tool {
@@ -44,6 +45,7 @@ impl Tool {
             "session-unit" => Self::SessionUnit,
             "runtime" => Self::Runtime,
             "cloud" => Self::Cloud,
+            "dispatch" => Self::Dispatch,
             _ => return None,
         })
     }
@@ -64,6 +66,7 @@ impl Tool {
             Self::IssueBoxLint => issue_box_lint::run,
             Self::FollowsRelease => follows_release::run,
             Self::Cloud => super::cloud::run,
+            Self::Dispatch => return ExitCode::from(crate::ops::dispatch::run(arguments, super::fleet::roster)),
             Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments, super::fleet::roster)),
             Self::Capacity => return ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_reserve_mib: crate::ops::pacing::placement::local_bar1_reserve_mib })),
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),

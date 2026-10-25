@@ -61,3 +61,16 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let pinned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides { local: Some("x".into()), pin: Some("y".into()) });
     assert_eq!(pinned.unwrap().machine, None);
 }
+
+#[test]
+fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_one_elsewhere() {
+    let mut remote = decision(Target::Account("claude:a".into()));
+    remote.verdicts.push(verdict("claude:b", Some(90.0)));
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(0), accounts: vec!["a".into()] });
+    let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: Some("far") };
+    assert_eq!(admit(&remote, &launch("a"), "", &Overrides::default()).unwrap().note, None);
+    let here = decision(Target::Account("claude:a".into()));
+    let mut roomier = here.clone();
+    roomier.verdicts.push(verdict("claude:b", Some(90.0)));
+    assert!(admit(&roomier, &launch("c"), "", &Overrides::default()).unwrap_err().contains("placement picks claude:a"));
+}
