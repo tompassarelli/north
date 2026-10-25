@@ -34,8 +34,8 @@ pub(crate) struct Launch {
     pub pin: Option<String>,
 }
 
-/// One machine a box may run on, and why it refuses this box: no slots now, needs it does not
-/// serve, or a code-only box on the laptop.
+/// One machine a box may run on, and why it refuses this box: no slots now, or needs it does not
+/// serve.
 pub(crate) struct Candidate {
     pub host: String,
     pub refusal: Option<String>,
@@ -55,20 +55,20 @@ fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str) -> Option
         .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.name.cmp(&a.name)))
 }
 
-/// A pin reason when the chosen account is not the one with the most headroom on the host, which
-/// placement would otherwise pick.
+/// A pin reason when an open account with more headroom runs elsewhere, since placement on the
+/// launching host would pick it over the one signed in where placement order puts the box.
 fn pin(capacity: &Capacity, host: &str, chosen: &Account) -> Option<String> {
     let placed = capacity
         .accounts
         .iter()
-        .filter(|account| account.provider() == chosen.provider() && account.refusal.is_none() && account.hosts.iter().any(|name| name == host))
+        .filter(|account| account.provider() == chosen.provider() && account.refusal.is_none())
         .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.name.cmp(&a.name)))?;
     (placed.name != chosen.name && placed.headroom > chosen.headroom)
-        .then(|| format!("north dispatch: {} has a free worker slot on {host} and {} has none", chosen.name, placed.name))
+        .then(|| format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name))
 }
 
 fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, courier: bool, local: Option<String>) -> Launch {
-    pools.take(host, &account.name);
+    pools.take(host);
     Launch {
         item: ready.item.clone(),
         host: host.into(),

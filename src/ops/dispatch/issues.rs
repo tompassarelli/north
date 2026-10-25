@@ -1,5 +1,5 @@
-//! Which open issues are ready: unticked Done-when boxes, nobody holding them, nothing for Tom to
-//! decide, and every predecessor closed.
+//! Which open issues are ready: unticked Done-when boxes, nobody holding them, no label or newest
+//! report handing them to Tom or the laptop, and every predecessor closed.
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -13,6 +13,9 @@ const ROOT_LABELS: [&str; 1] = ["roadmap"];
 const RUNNING_LABELS: [&str; 1] = ["native:running"];
 const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
 
+static WAITS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:(?:waits?|waiting|blocked|held)\s+(?:on|for|by)|awaiting|needs)\s+(?:Tom\b|the laptop\b)|\bnext step is Tom's\b|\bStop:\s*decision\b").expect("waits pattern")
+});
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"github\.com/([\w.-]+)/([\w.-]+)/issues/(\d+)|(?:([\w.-]+)/)?([A-Za-z][\w.-]*)?#(\d+)").expect("reference pattern")
@@ -50,6 +53,8 @@ pub(crate) struct Issue {
     pub labels: Vec<String>,
     /// GitHub's blocked-by relations that are still open.
     pub open_blockers: Vec<IssueRef>,
+    /// The newest comment, where a worker reports what the box waits on.
+    pub report: String,
 }
 
 impl Issue {
@@ -63,6 +68,15 @@ impl Issue {
 
     pub(crate) fn labelled(&self, names: &[&str]) -> Option<&str> {
         self.labels.iter().map(String::as_str).find(|label| names.contains(label))
+    }
+
+    /// The sentence of the newest report that hands the box to Tom or the laptop, if one does.
+    pub(crate) fn waiting(&self) -> Option<&str> {
+        let negated = |start: usize| ["no longer ", "not ", "n't "].iter().any(|word| self.report[..start].to_lowercase().ends_with(word));
+        let found = WAITS.find_iter(&self.report).find(|found| !negated(found.start()))?;
+        let start = self.report[..found.start()].rfind(['.', '\n']).map_or(0, |end| end + 1);
+        let end = self.report[found.end()..].find(['.', '\n']).map_or(self.report.len(), |end| found.end() + end);
+        Some(self.report[start..end].trim())
     }
 
     /// The rank `threads unowned` staffs by: priority:now, unprioritized, next, later.
@@ -182,6 +196,9 @@ pub(crate) fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     }
     if let Some(holder) = world.holds.get(&reference) {
         return Err(format!("held by {holder}"));
+    }
+    if let Some(sentence) = issue.waiting() {
+        return Err(format!("its newest report waits: {sentence}"));
     }
     let mut waiting = predecessors(issue)?;
     waiting.extend(world.planned.get(&reference).into_iter().flatten().cloned());

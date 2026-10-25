@@ -1,5 +1,5 @@
-//! Free worker slots: a host has its resident cap minus the sessions it runs, an account its
-//! pace-control allowed_workers minus its working sessions, and a pair the smaller of the two.
+//! Free worker slots: a host has its resident cap minus the sessions it runs, and an account the
+//! out-rule keeps out has none; any other account may take every free slot of a host it is signed in on.
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -30,22 +30,16 @@ impl Host {
 pub(crate) struct Account {
     /// `provider:label`, as pace-control names it.
     pub name: String,
-    pub allowed: Option<i64>,
-    pub working: i64,
     /// Hosts the account is signed in on.
     pub hosts: Vec<String>,
     pub headroom: f64,
-    /// Why placement or pace-control keeps the account out, if it does.
+    /// Why the out-rule keeps the account out, if it does.
     pub refusal: Option<String>,
 }
 
 impl Account {
-    pub(crate) fn free(&self) -> Result<i64, String> {
-        if let Some(why) = &self.refusal {
-            return Err(why.clone());
-        }
-        let allowed = self.allowed.ok_or("no allowed_workers in pace-control.json")?;
-        Ok((allowed - self.working).max(0))
+    pub(crate) fn open(&self) -> Result<(), String> {
+        self.refusal.clone().map_or(Ok(()), Err)
     }
 
     pub(crate) fn provider(&self) -> &str {
@@ -53,12 +47,11 @@ impl Account {
     }
 
     pub(crate) fn line(&self) -> String {
-        let free = match self.free() {
-            Ok(free) => format!("{free} free"),
-            Err(why) => format!("0 free: {why}"),
+        let state = match self.open() {
+            Ok(()) => "open".to_owned(),
+            Err(why) => format!("out: {why}"),
         };
-        let allowed = self.allowed.map_or_else(|| "-".to_owned(), |allowed| allowed.to_string());
-        format!("account {}: allowed {allowed}, working {}, {free}; signed in on {}", self.name, self.working, self.hosts.join(", "))
+        format!("account {}: {state}; signed in on {}", self.name, self.hosts.join(", "))
     }
 }
 
@@ -66,7 +59,7 @@ impl Account {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Pools {
     hosts: BTreeMap<String, i64>,
-    accounts: BTreeMap<String, i64>,
+    /// The hosts each open account is signed in on.
     signed_in: BTreeMap<String, Vec<String>>,
 }
 
@@ -74,17 +67,17 @@ impl Pools {
     pub(crate) fn new(hosts: &[Host], accounts: &[Account]) -> Self {
         Self {
             hosts: hosts.iter().map(|host| (host.name.clone(), host.free().unwrap_or(0))).collect(),
-            accounts: accounts.iter().map(|account| (account.name.clone(), account.free().unwrap_or(0))).collect(),
-            signed_in: accounts.iter().map(|account| (account.name.clone(), account.hosts.clone())).collect(),
+            signed_in: accounts.iter().filter(|account| account.open().is_ok()).map(|account| (account.name.clone(), account.hosts.clone())).collect(),
         }
     }
 
-    /// min(host free, account free) when the account is signed in on the host, else 0.
+    fn serves(&self, host: &str, account: &str) -> bool {
+        self.signed_in.get(account).is_some_and(|hosts| hosts.iter().any(|name| name == host))
+    }
+
+    /// The host's free slots when the account is open and signed in there, else 0.
     pub(crate) fn pair(&self, host: &str, account: &str) -> i64 {
-        if !self.signed_in.get(account).is_some_and(|hosts| hosts.iter().any(|name| name == host)) {
-            return 0;
-        }
-        self.hosts.get(host).copied().unwrap_or(0).min(self.accounts.get(account).copied().unwrap_or(0))
+        if self.serves(host, account) { self.host(host) } else { 0 }
     }
 
     pub(crate) fn host(&self, host: &str) -> i64 {
@@ -92,23 +85,12 @@ impl Pools {
     }
 
     pub(crate) fn total(&self) -> i64 {
-        let mut total = 0;
-        let mut accounts = self.accounts.clone();
-        for (host, free) in &self.hosts {
-            let mut left = *free;
-            for (account, room) in accounts.iter_mut() {
-                if self.signed_in[account].iter().any(|name| name == host) {
-                    let take = left.min(*room);
-                    (left, *room, total) = (left - take, *room - take, total + take);
-                }
-            }
-        }
-        total
+        self.hosts.iter().filter(|(host, _)| self.signed_in.keys().any(|account| self.serves(host, account))).map(|(_, free)| free).sum()
     }
 
-    pub(crate) fn take(&mut self, host: &str, account: &str) {
-        for pool in [self.hosts.get_mut(host), self.accounts.get_mut(account)].into_iter().flatten() {
-            *pool = (*pool - 1).max(0);
+    pub(crate) fn take(&mut self, host: &str) {
+        if let Some(free) = self.hosts.get_mut(host) {
+            *free = (*free - 1).max(0);
         }
     }
 }

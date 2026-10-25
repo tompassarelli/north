@@ -1,11 +1,12 @@
-//! The live inputs one dispatch run reads: South's orchestration, pace-control's allowances and
-//! placement's quota verdicts, each host's resident sessions and fleet roster, NorthThreads claims,
-//! the dispatch record and the open issues of the staffed repositories.
+//! The live inputs one dispatch run reads: South's orchestration, pace-control's samples and
+//! placement's quota verdicts, each host's resident sessions, fleet roster and open gates,
+//! NorthThreads claims, the dispatch record and the open issues of the staffed repositories.
 use super::issues::{self, Issue, IssueRef, OWNER};
 use super::plan::Cloud;
 use super::record;
 use super::slots::{Account, Host};
-use crate::fleet::roster::Roster;
+use crate::fleet::model::ProviderName;
+use crate::fleet::roster::{Roster, Standing};
 use crate::ops::pacing::placement::{self, gate};
 use crate::platform::process::run_within;
 use regex::Regex;
@@ -20,7 +21,7 @@ const PACE_FRESH_S: f64 = 15.0 * 60.0;
 const MIRROR_FRESH_S: f64 = 10.0 * 60.0;
 const PROBE: Duration = Duration::from_secs(30);
 const RUNNING: [&str; 3] = ["starting", "working", "idle"];
-static SESSION_ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp)-(\d+)(?:-|$)").expect("session pattern"));
+static SESSION_ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp)-(\d+)[a-z]?(?:-|$)").expect("session pattern"));
 
 pub(crate) struct Survey {
     pub here: String,
@@ -39,11 +40,7 @@ pub(crate) struct Survey {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Session {
     pub name: String,
-    pub account: String,
     pub item: Option<IssueRef>,
-    /// Starting or working, as pace-control counts workers against allowed_workers; an idle session
-    /// still holds its issue.
-    pub working: bool,
     /// The machine it runs on, when the registry that launched it names one.
     pub machine: Option<String>,
 }
@@ -56,6 +53,13 @@ fn host_table<'a>(cfg: &'a DocumentMut, name: &str) -> Option<&'a Item> {
     cfg.get("hosts")?.get(name)
 }
 
+/// The issue a session's name starts with: `sc-277-d1435` holds smashcraft#277.
+fn named_item(name: &str) -> Option<IssueRef> {
+    let found = SESSION_ITEM.captures(name)?;
+    let repo = if found[1].starts_with('s') { "smashcraft" } else { "wisp" };
+    Some(IssueRef::new(repo, found[2].parse().ok()?))
+}
+
 /// The running sessions in one registry's `north fleet list --json`.
 pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
     listing
@@ -65,28 +69,39 @@ pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
         .filter(|session| RUNNING.contains(&session["status"].as_str().unwrap_or_default()))
         .map(|session| {
             let name = session["name"].as_str().unwrap_or_default().to_owned();
-            let item = session["task_ref"].as_str().and_then(IssueRef::parse).or_else(|| {
-                let found = SESSION_ITEM.captures(&name)?;
-                let repo = if found[1].starts_with('s') { "smashcraft" } else { "wisp" };
-                Some(IssueRef::new(repo, found[2].parse().ok()?))
-            });
-            Session {
-                account: format!("{}:{}", session["provider"].as_str().unwrap_or_default(), session["account"].as_str().unwrap_or_default()),
-                machine: session["machine"].as_str().map(str::to_owned),
-                working: session["status"] != "idle",
-                name,
-                item,
-            }
+            let item = session["task_ref"].as_str().and_then(IssueRef::parse).or_else(|| named_item(&name));
+            Session { machine: session["machine"].as_str().map(str::to_owned), name, item }
         })
         .collect()
 }
 
-fn fleet_listing(ssh: Option<&str>) -> Result<Value, String> {
+/// The issues the open gates in one host's `north gate list --json` name, in the question or by
+/// the asking session's name, each with the gate that holds it.
+pub(crate) fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
+    let mut found = Vec::new();
+    for gate in listing.as_array().into_iter().flatten().filter(|gate| gate["closed_ms"].is_null()) {
+        let session = gate["session"].as_str().unwrap_or_default();
+        let repo = named_item(session).map_or_else(String::new, |item| item.repo);
+        let question = gate["question"].as_str().unwrap_or_default();
+        let why = format!("open north gate {} on {host} from {session}, for Tom", gate["id"]);
+        let mut items: Vec<IssueRef> = issues::references(question, &repo).into_iter().filter(|item| !item.repo.is_empty()).chain(named_item(session)).collect();
+        items.sort();
+        items.dedup();
+        found.extend(items.into_iter().map(|item| (item, why.clone())));
+    }
+    found
+}
+
+fn remote_json(ssh: Option<&str>, command: &[&str]) -> Result<Value, String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
     let north = north.to_string_lossy();
     let output = match ssh {
-        None => run_within(&north, &["fleet", "list", "--json"], PROBE),
-        Some(destination) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "north", "fleet", "list", "--json"], PROBE),
+        None => run_within(&north, command, PROBE),
+        Some(destination) => {
+            let mut words = vec!["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "north"];
+            words.extend(command);
+            run_within("ssh", &words, PROBE)
+        }
     };
     let output = output.ok_or("timed out")?;
     if !output.status.success() {
@@ -95,36 +110,35 @@ fn fleet_listing(ssh: Option<&str>) -> Result<Value, String> {
     serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())
 }
 
-/// Running sessions in this host's registry and in every ssh host's, each with the host whose
-/// resident count already includes it.
-fn sessions(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<(Session, String)> {
-    let mut found = Vec::new();
+/// One `north` JSON listing from this host and from every ssh host, each with the host it came from.
+fn listings(cfg: &DocumentMut, here: &str, command: &[&str], notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name, Some(machine.ssh)));
-    for (registry, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
-        match fleet_listing(ssh.as_deref()) {
-            Ok(listing) => found.extend(running_sessions(&listing).into_iter().map(|session| (session, registry.clone()))),
-            Err(why) => notes.push(format!("{registry} fleet list unread: {why}")),
+    let mut found = Vec::new();
+    for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
+        match remote_json(ssh.as_deref(), command) {
+            Ok(listing) => found.push((host, listing)),
+            Err(why) => notes.push(format!("{host} north {} unread: {why}", command[..2].join(" "))),
         }
     }
     found
 }
 
-/// The laptop's running sessions from the fleet list it copies to `fleet-HOST.json` in `directory`, since
-/// no host here reaches it over ssh; an old copy still holds its issues.
-pub(crate) fn mirrored(directory: &std::path::Path, host: &str, at: f64, notes: &mut Vec<String>) -> Vec<Session> {
-    let path = directory.join(format!("fleet-{host}.json"));
+/// A listing the laptop copies to `KIND-HOST.json` in `directory`, since no host here reaches it
+/// over ssh; an old copy still holds its issues.
+pub(crate) fn mirrored(directory: &std::path::Path, kind: &str, host: &str, at: f64, notes: &mut Vec<String>) -> Value {
+    let path = directory.join(format!("{kind}-{host}.json"));
     let listing = std::fs::read_to_string(&path).map_err(|error| error.to_string()).and_then(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()));
     let copied = std::fs::metadata(&path).and_then(|meta| meta.modified()).ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
     match listing {
         Ok(listing) => {
             if let Some(age) = copied.map(|copied| at - copied.as_secs_f64()).filter(|age| *age > MIRROR_FRESH_S) {
-                notes.push(format!("{host} fleet list copied {:.0} min ago", age / 60.0));
+                notes.push(format!("{host} {kind} list copied {:.0} min ago", age / 60.0));
             }
-            running_sessions(&listing)
+            listing
         }
         Err(why) => {
-            notes.push(format!("{host} fleet list unread: {}: {why}", path.display()));
-            Vec::new()
+            notes.push(format!("{host} {kind} list unread: {}: {why}", path.display()));
+            Value::Null
         }
     }
 }
@@ -158,8 +172,8 @@ fn account_hosts(cfg: &DocumentMut, account: &str, here: &str) -> Vec<String> {
     }
 }
 
-/// Why dispatch gives an account no slot: a stale pace sample, or a placement verdict that refuses
-/// it or was never made, since placement judges only the accounts the fleet launches.
+/// Why dispatch gives an account no slot: a stale pace sample, the out-rule as placement's verdict
+/// applies it (`crate::pace::exhaustion`), or no usage sample to judge it by.
 pub(crate) fn refusal(name: &str, control: &Value, verdict: Option<&gate::Verdict>, at: f64) -> Option<String> {
     let age = at - control["at"].as_f64().unwrap_or(0.0);
     if age > PACE_FRESH_S {
@@ -171,23 +185,28 @@ pub(crate) fn refusal(name: &str, control: &Value, verdict: Option<&gate::Verdic
     }
 }
 
-fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, working: &BTreeMap<String, i64>, at: f64) -> Vec<Account> {
+/// The hosts an account runs on: those South signs it in on, less this host when this host's
+/// roster has no login of its own for it.
+pub(crate) fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here: &str) -> Vec<String> {
+    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
+    let own = matches!(roster.standing(&ProviderName::new(provider), label), Standing::Listed(_));
+    account_hosts(cfg, account, here).into_iter().filter(|host| own || host != here).collect()
+}
+
+fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
-    let verdicts = gate::verdicts(&placement::pace_state("usage-gate.json"), roster);
+    let usage = placement::pace_state("usage-gate.json");
     pace["accounts"]
         .as_object()
         .into_iter()
         .flatten()
         .map(|(name, control)| {
-            let verdict = verdicts.iter().find(|verdict| verdict.account == *name);
-            let refusal = refusal(name, control, verdict, at);
+            let verdict = usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:")).map(|usage| gate::verdict(name, usage));
             Account {
                 name: name.clone(),
-                allowed: control["allowed_workers"].as_i64(),
-                working: working.iter().filter(|(session, _)| *session == name || session.split(':').next() == Some(name)).map(|(_, count)| count).sum(),
-                hosts: account_hosts(cfg, name, here),
-                headroom: verdict.map_or(0.0, |verdict| verdict.headroom),
-                refusal,
+                hosts: signed_in(cfg, roster, name, here),
+                headroom: verdict.as_ref().map_or(0.0, |verdict| verdict.headroom),
+                refusal: refusal(name, control, verdict.as_ref(), at),
             }
         })
         .collect()
@@ -241,14 +260,11 @@ fn cloud(cfg: &DocumentMut, here: &str, at: f64) -> Cloud {
     }
 }
 
-/// Working sessions per account, the sessions this registry runs on other machines, which their
-/// resident counts miss, and the holds every running session makes.
-pub(crate) fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap<String, i64>, BTreeMap<IssueRef, String>) {
-    let (mut per_account, mut elsewhere, mut holds) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+/// The sessions this registry runs on other machines, which their resident counts miss, and the
+/// holds every running session makes.
+pub(crate) fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap<IssueRef, String>) {
+    let (mut elsewhere, mut holds) = (BTreeMap::new(), BTreeMap::new());
     for (session, registry) in sessions {
-        if session.working {
-            *per_account.entry(session.account.clone()).or_insert(0) += 1;
-        }
         if let Some(machine) = session.machine.as_ref().filter(|machine| *machine != registry) {
             *elsewhere.entry(machine.clone()).or_insert(0) += 1;
         }
@@ -256,7 +272,14 @@ pub(crate) fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, B
             holds.insert(item.clone(), format!("fleet session {} on {registry}", session.name));
         }
     }
-    (per_account, elsewhere, holds)
+    (elsewhere, holds)
+}
+
+/// The laptop's resident sessions: those its copied fleet list shows, or dispatch's recent launches
+/// there when they are more, since a fresh launch may not show yet.
+pub(crate) fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispatched: i64) -> i64 {
+    let listed = sessions.iter().filter(|(_, host)| host == laptop).count();
+    i64::try_from(listed).unwrap_or(i64::MAX).max(dispatched)
 }
 
 pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
@@ -268,19 +291,23 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
         *name != here && table.get("ssh").is_none() && strings(table.get("serves")).iter().any(|need| need == "laptop")
     });
     let laptop = laptop.map(|(name, _)| name.to_owned());
-    let mut sessions = sessions(&cfg, &here, &mut notes);
+    let mut fleets = listings(&cfg, &here, &["fleet", "list", "--json"], &mut notes);
+    let mut gates = listings(&cfg, &here, &["gate", "list", "--json"], &mut notes);
     if let Some(name) = &laptop {
-        sessions.extend(mirrored(&record::directory(), name, at, &mut notes).into_iter().map(|session| (session, name.clone())));
+        fleets.push((name.clone(), mirrored(&record::directory(), "fleet", name, at, &mut notes)));
+        gates.push((name.clone(), mirrored(&record::directory(), "gates", name, at, &mut notes)));
     }
-    let (working, elsewhere, mut holds) = tally(&sessions);
+    let sessions: Vec<(Session, String)> = fleets.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
+    let (elsewhere, mut holds) = tally(&sessions);
     let (issues, open) = github::open_issues(&mut notes);
     let records = record::read();
     holds.extend(claims(&cfg, &here, &mut notes));
     holds.extend(record::holds(&records, at));
-    let laptop_running = laptop.as_deref().map_or(0, |name| record::recent_on(&records, name, &open, at));
+    holds.extend(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)));
+    let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
-    let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), laptop_running)).collect();
-    let accounts = accounts(&cfg, roster, &here, &working, at);
+    let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
+    let accounts = accounts(&cfg, roster, &here, at);
     if accounts.is_empty() {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }
@@ -291,7 +318,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
 mod github {
     use super::*;
 
-    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } } } } }";
+    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } comments(last: 1) { nodes { body } } } } } }";
 
     pub(crate) type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
 
@@ -310,6 +337,7 @@ mod github {
             body: node["body"].as_str().unwrap_or_default().into(),
             labels: node["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| label["name"].as_str().map(str::to_owned)).collect(),
             open_blockers,
+            report: node["comments"]["nodes"][0]["body"].as_str().unwrap_or_default().into(),
         })
     }
 

@@ -3,6 +3,9 @@ use super::plan::Cloud;
 use super::slots::{Account, Host, Pools};
 use super::survey::Survey;
 use super::{alert, decide, record};
+use crate::fleet::model::{Account as Login, ProviderName};
+use crate::fleet::roster::{Declared, Roster};
+use crate::ops::pacing::placement::gate;
 use std::collections::{BTreeMap, BTreeSet};
 
 const CONFIG: &str = r#"
@@ -17,18 +20,20 @@ resident_cap = 8
 serves = ["native", "warcraft", "sign-ins", "laptop"]
 [placement]
 order = ["gex45", "anthropic-cloud", "nexus", "laptop"]
+[accounts.claude]
+profiles = { a = { nexus = {}, whiterabbit = {} }, b = { gex45 = {} } }
 "#;
 
 fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
     Host { name: name.into(), cap: Some(cap), running: running.map_err(str::to_owned) }
 }
 
-fn account(name: &str, allowed: i64, working: i64, hosts: &[&str], headroom: f64) -> Account {
-    Account { name: name.into(), allowed: Some(allowed), working, hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), headroom, refusal: None }
+fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {
+    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), headroom, refusal: None }
 }
 
 fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
-    Issue { repo: repo.into(), number, title: format!("box {number}"), body: body.into(), labels: labels.iter().map(|label| (*label).to_owned()).collect(), open_blockers: Vec::new() }
+    Issue { repo: repo.into(), number, title: format!("box {number}"), body: body.into(), labels: labels.iter().map(|label| (*label).to_owned()).collect(), ..Issue::default() }
 }
 
 fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Account>) -> Survey {
@@ -48,32 +53,52 @@ fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Acco
 }
 
 fn fleet() -> (Vec<Host>, Vec<Account>) {
-    let hosts = vec![host("gex45", 24, Ok(22)), host("nexus", 6, Ok(1)), host("whiterabbit", 8, Err("laptop unavailable"))];
-    let accounts = vec![account("claude:a", 2, 1, &["nexus", "whiterabbit"], 70.0), account("claude:b", 3, 0, &["gex45"], 40.0), account("claude:c", 1, 1, &["gex45"], 90.0)];
+    let hosts = vec![host("gex45", 24, Ok(22)), host("nexus", 6, Ok(5)), host("whiterabbit", 8, Err("laptop unavailable"))];
+    let out = Account { refusal: Some("claude:c unavailable: exhausted: 5h 96% >= 95%".into()), ..account("claude:c", &["gex45"], 90.0) };
+    let accounts = vec![account("claude:a", &["nexus", "whiterabbit"], 70.0), account("claude:b", &["gex45"], 40.0), out];
     (hosts, accounts)
 }
 
 #[test]
-fn a_pair_has_the_smaller_of_its_hosts_free_cap_and_its_accounts_free_allowance() {
+fn an_open_account_takes_every_free_slot_of_its_hosts_and_an_account_the_out_rule_holds_takes_none() {
     let (hosts, accounts) = fleet();
     let mut pools = Pools::new(&hosts, &accounts);
     assert_eq!(hosts[0].free(), Ok(2));
-    assert_eq!(accounts[1].free(), Ok(3));
-    assert_eq!(pools.pair("gex45", "claude:b"), 2, "min(24 - 22, 3 - 0)");
-    assert_eq!(pools.pair("gex45", "claude:c"), 0, "c runs its one allowed worker already");
-    assert_eq!(pools.pair("nexus", "claude:a"), 1, "min(6 - 1, 2 - 1)");
+    assert_eq!(pools.pair("gex45", "claude:b"), 2, "no pace allowance caps an open account");
+    assert_eq!(pools.pair("gex45", "claude:c"), 0, "the out-rule holds c");
+    assert_eq!(pools.pair("nexus", "claude:a"), 1);
     assert_eq!(pools.pair("nexus", "claude:b"), 0, "b is not signed in on nexus");
     assert_eq!(pools.pair("whiterabbit", "claude:a"), 0, "an unavailable laptop takes nothing");
     assert_eq!(pools.total(), 3);
-    pools.take("gex45", "claude:b");
-    pools.take("gex45", "claude:b");
+    pools.take("gex45");
+    pools.take("gex45");
     assert_eq!((pools.pair("gex45", "claude:b"), pools.total()), (0, 1), "two launches fill gex45's two free slots");
     let full = host("gex45", 4, Ok(9));
     assert_eq!(full.free(), Ok(0), "running past the cap leaves none, never a negative slot");
-    let out = Account { refusal: Some("claude:b unavailable: 5h 96%".into()), ..account("claude:b", 3, 0, &["gex45"], 0.0) };
-    assert_eq!(out.free(), Err("claude:b unavailable: 5h 96%".into()));
-    let unsampled = Account { allowed: None, ..account("codex", 0, 0, &["nexus"], 0.0) };
-    assert!(unsampled.free().is_err());
+    assert_eq!(accounts[2].open(), Err("claude:c unavailable: exhausted: 5h 96% >= 95%".into()));
+}
+
+#[test]
+fn only_the_out_rule_refuses_an_account_never_its_week_projection() {
+    let window = |name: &str, used: f64, burn: f64, projected: f64| serde_json::json!({"window": name, "used_pct": used, "burn_pct_h": burn, "projected_pct": projected});
+    let usage = |five: serde_json::Value, week: serde_json::Value| serde_json::json!({"windows": [five, week]});
+    let control = serde_json::json!({"at": 1000.0, "allowed_workers": 1, "held": true, "over": true});
+    let refused = |usage: serde_json::Value| super::survey::refusal("claude:b", &control, Some(&gate::verdict("claude:b", &usage)), 1060.0);
+    assert_eq!(refused(usage(window("5h", 53.0, 5.9, 61.0), window("week", 61.0, 1.0, 191.0))), None, "a week projected to 191% over 133 h holds nothing");
+    assert!(refused(usage(window("5h", 96.0, 1.0, 99.0), window("week", 10.0, 1.0, 20.0))).unwrap().contains("5h 96% >= 95%"));
+    assert!(refused(usage(window("5h", 10.0, 60.0, 99.0), window("week", 10.0, 1.0, 20.0))).unwrap().contains("burning"));
+    assert!(refused(usage(window("5h", 10.0, 1.0, 20.0), window("week", 100.0, 0.0, 100.0))).unwrap().contains("week 100%"));
+}
+
+#[test]
+fn an_account_runs_only_where_it_is_signed_in_and_here_only_with_a_login_of_its_own() {
+    let cfg = CONFIG.parse().unwrap();
+    let login = |label: &str| (Login { provider: ProviderName::new("claude"), label: label.into(), home: format!("/profiles/claude-{label}").into() }, None);
+    let without_a = Roster::distinct([login("b")], &Declared::default());
+    assert_eq!(super::survey::signed_in(&cfg, &without_a, "claude:a", "nexus"), ["whiterabbit"], "nexus has no login for a");
+    let with_a = Roster::distinct([login("a")], &Declared::default());
+    assert_eq!(super::survey::signed_in(&cfg, &with_a, "claude:a", "nexus"), ["nexus", "whiterabbit"]);
+    assert_eq!(super::survey::signed_in(&cfg, &without_a, "claude:b", "nexus"), ["gex45"]);
 }
 
 #[test]
@@ -130,6 +155,9 @@ fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_u
     );
     let outcome = decide(&unreachable, "test");
     assert_eq!((outcome.ready, outcome.free), (4, 3));
+    let pins: Vec<Option<&str>> = outcome.launches.iter().map(|launch| launch.pin.as_deref()).collect();
+    assert!(pins[0].is_some_and(|pin| pin.contains("claude:a is not signed in")), "{pins:?}");
+    assert_eq!(pins[2], None, "a on nexus is the open account with the most headroom");
     let (_, last) = outcome.skipped.last().unwrap();
     assert!(last.contains("gex45 has no free slot") && last.contains("whiterabbit takes nothing: laptop unavailable"), "{last}");
 
@@ -189,7 +217,7 @@ fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
 }
 
 #[test]
-fn running_sessions_hold_their_task_or_their_named_issue() {
+fn running_and_idle_sessions_hold_their_task_or_their_named_issue() {
     let listing = serde_json::json!([
         {"name": "sc-256-ending", "provider": "claude", "account": "c", "status": "working", "task_ref": null, "machine": null},
         {"name": "fixer", "provider": "claude", "account": "b", "status": "idle", "task_ref": "tompassarelli/wisp#21", "machine": "gex45"},
@@ -199,7 +227,57 @@ fn running_sessions_hold_their_task_or_their_named_issue() {
     let sessions = super::survey::running_sessions(&listing);
     let items: Vec<Option<String>> = sessions.iter().map(|session| session.item.as_ref().map(ToString::to_string)).collect();
     assert_eq!(items, [Some("smashcraft#256".into()), Some("wisp#21".into()), None]);
-    assert_eq!(sessions[2].account, "codex:pooled");
+    let hosted: Vec<_> = sessions.into_iter().map(|session| (session, "nexus".to_owned())).collect();
+    let (elsewhere, holds) = super::survey::tally(&hosted);
+    assert_eq!(holds[&IssueRef::new("wisp", 21)], "fleet session fixer on nexus", "an idle session still holds its issue");
+    assert_eq!(elsewhere, BTreeMap::from([("gex45".to_owned(), 1)]));
+}
+
+#[test]
+fn an_open_gate_on_any_host_holds_each_issue_it_names() {
+    let listing = serde_json::json!([
+        {"id": 28, "session": "sc-342b", "question": "Malfurion's dash attack (#342): which windup?", "closed_ms": null},
+        {"id": 56, "session": "proxy", "question": "smashcraft#2 Hive upload is blocked again; see wisp#39 too", "closed_ms": null},
+        {"id": 27, "session": "sc-293", "question": "Melee parity ledger (smashcraft #293)", "closed_ms": null},
+        {"id": 9, "session": "sc-300", "question": "Answered smashcraft#301?", "closed_ms": 1000}
+    ]);
+    let rows = super::survey::gate_rows(&listing, "whiterabbit");
+    let items: Vec<String> = rows.iter().map(|(item, _)| item.to_string()).collect();
+    assert_eq!(items, ["smashcraft#342", "smashcraft#2", "wisp#39", "smashcraft#293"], "a closed gate holds nothing, and the asking session's name counts");
+    assert_eq!(rows[1].1, "open north gate 56 on whiterabbit from proxy, for Tom");
+}
+
+#[test]
+fn a_box_whose_newest_report_waits_on_tom_or_the_laptop_is_not_ready() {
+    let open = BTreeSet::new();
+    let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
+    let world = World { open: &open, holds: &holds, planned: &planned };
+    let reported = |report: &str| issues::readiness(&Issue { report: report.into(), ..issue("smashcraft", 2, "- [ ] upload", &[]) }, &world);
+    let why = reported("Upload attempt blocked again.\n\nThe fix waits on Tom's decision in laptop gate 56: bridge or unlock. Nothing was uploaded.").unwrap_err();
+    assert_eq!(why, "its newest report waits: The fix waits on Tom's decision in laptop gate 56: bridge or unlock");
+    assert!(reported("Not done: the relay run needs the laptop on home Wi-Fi.").unwrap_err().contains("needs the laptop"));
+    assert!(reported("Agents do not type passwords, so the next step is Tom's: unlock it once.").is_err());
+    assert!(reported("Not done: three judges disagree.\nStop: decision").is_err());
+    assert!(reported("Blocked by Tom's sign-in on the private desktop.").is_err());
+    assert_eq!(reported("The relay run no longer needs the laptop."), Ok(()), "a negated hand-off hands nothing over");
+    assert_eq!(reported("Landed abc123; box 2 is next. Tom asked for a tighter bar (2026-10-25)."), Ok(()), "a report that only mentions Tom hands nothing to him");
+    assert_eq!(reported(""), Ok(()));
+}
+
+#[test]
+fn code_only_boxes_go_to_the_open_laptop_when_the_cloud_lane_and_other_hosts_are_full() {
+    let (mut hosts, accounts) = fleet();
+    hosts[0].running = Ok(24);
+    hosts[1].running = Ok(6);
+    hosts[2].running = Ok(7);
+    let boxes = vec![issue("smashcraft", 50, "- [ ] a", &[]), issue("smashcraft", 51, "- [ ] b", &[])];
+    let open = survey(boxes, Cloud::Reachable("cloud credit: unread".into()), hosts.clone(), accounts.clone());
+    let launched = placed(&open);
+    assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str(), row.2.as_str(), row.3)).collect::<Vec<_>>(), [("smashcraft#50", "whiterabbit", "claude:a", false)]);
+    hosts[2].running = Err("laptop busy".into());
+    let busy = survey(vec![issue("smashcraft", 50, "- [ ] a", &[])], Cloud::Closed(String::new()), hosts, accounts);
+    let outcome = decide(&busy, "test");
+    assert!(outcome.launches.is_empty() && outcome.skipped[0].1.contains("whiterabbit takes nothing: laptop busy"), "{:?}", outcome.skipped);
 }
 
 #[test]
@@ -213,7 +291,7 @@ fn a_threads_claim_on_any_hosts_ledger_holds_its_issue() {
 #[test]
 fn an_account_placement_never_judged_gets_no_slot() {
     let control = serde_json::json!({"at": 1000.0, "allowed_workers": 2});
-    let judged = crate::ops::pacing::placement::gate::Verdict { account: "claude:b".into(), available: true, headroom: 40.0, line: "claude:b ok".into(), owners: vec!["gex45".into()] };
+    let judged = gate::Verdict { account: "claude:b".into(), available: true, headroom: 40.0, line: "claude:b ok".into(), owners: vec!["gex45".into()] };
     assert_eq!(super::survey::refusal("claude:b", &control, Some(&judged), 1060.0), None);
     let unjudged = super::survey::refusal("codex", &control, None, 1060.0).unwrap();
     assert!(unjudged.contains("codex has no placement verdict"), "{unjudged}");
@@ -221,30 +299,22 @@ fn an_account_placement_never_judged_gets_no_slot() {
 }
 
 #[test]
-fn the_laptops_copied_fleet_list_holds_its_sessions_issues_even_when_old() {
+fn the_laptops_copied_lists_hold_their_issues_even_when_old() {
     let directory = tempfile::tempdir().unwrap();
     let mut notes = Vec::new();
-    assert!(super::survey::mirrored(directory.path(), "whiterabbit", 0.0, &mut notes).is_empty());
+    assert!(super::survey::mirrored(directory.path(), "fleet", "whiterabbit", 0.0, &mut notes).is_null());
     assert!(notes[0].starts_with("whiterabbit fleet list unread"), "{notes:?}");
     let listing = serde_json::json!([{"name": "fixer", "provider": "claude", "account": "a", "status": "working", "task_ref": "tompassarelli/smashcraft#350", "machine": null}]);
     std::fs::write(directory.path().join("fleet-whiterabbit.json"), listing.to_string()).unwrap();
+    let gates = serde_json::json!([{"id": 56, "session": "sc-2-hive2", "question": "smashcraft#2 upload", "closed_ms": null}]);
+    std::fs::write(directory.path().join("gates-whiterabbit.json"), gates.to_string()).unwrap();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
     let mut notes = Vec::new();
-    let old = super::survey::mirrored(directory.path(), "whiterabbit", now + 3600.0, &mut notes);
+    let old = super::survey::running_sessions(&super::survey::mirrored(directory.path(), "fleet", "whiterabbit", now + 3600.0, &mut notes));
     assert_eq!(old.iter().map(|session| session.item.clone()).collect::<Vec<_>>(), [Some(IssueRef::new("smashcraft", 350))]);
-    assert_eq!(old[0].account, "claude:a");
+    let hosted: Vec<_> = old.into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
+    assert_eq!((super::survey::laptop_running(&hosted, "whiterabbit", 0), super::survey::laptop_running(&hosted, "whiterabbit", 3)), (1, 3), "the copied list counts the laptop's sessions, and a fresh launch not yet listed still counts");
     assert!(notes[0].starts_with("whiterabbit fleet list copied 60 min ago"), "{notes:?}");
-}
-
-#[test]
-fn an_idle_session_holds_its_issue_but_takes_no_worker_slot() {
-    let listing = serde_json::json!([
-        {"name": "sc-340", "provider": "claude", "account": "c", "status": "idle", "task_ref": null, "machine": null},
-        {"name": "sc-341", "provider": "claude", "account": "c", "status": "working", "task_ref": null, "machine": null},
-        {"name": "sc-342", "provider": "claude", "account": "b", "status": "starting", "task_ref": null, "machine": null}
-    ]);
-    let sessions: Vec<_> = super::survey::running_sessions(&listing).into_iter().map(|session| (session, "gex45".to_owned())).collect();
-    let (per_account, _, holds) = super::survey::tally(&sessions);
-    assert_eq!(per_account, BTreeMap::from([("claude:b".to_owned(), 1), ("claude:c".to_owned(), 1)]));
-    assert_eq!(holds[&IssueRef::new("smashcraft", 340)], "fleet session sc-340 on gex45");
+    let gated = super::survey::gate_rows(&super::survey::mirrored(directory.path(), "gates", "whiterabbit", now, &mut notes), "whiterabbit");
+    assert_eq!(gated[0].0, IssueRef::new("smashcraft", 2));
 }

@@ -1,5 +1,5 @@
 //! `north dispatch`: keep every free worker slot busy with ready work. Each run reads the hosts'
-//! resident sessions, the accounts' allowed workers and the staffed repositories' open issues,
+//! resident sessions, which accounts the out-rule keeps out and the staffed repositories' open issues,
 //! launches each ready box it can place through `north fleet launch`, records the launch, and tells
 //! Tom in one line when ready work and free slots coexist and nothing could launch.
 use crate::error::NorthResult;
@@ -38,7 +38,7 @@ fn ordered(issues: &[Issue]) -> Vec<&Issue> {
 
 /// The machines a box may run on, in `[placement] order` and then the rest, each with why it
 /// refuses this box.
-fn candidates(survey: &Survey, brief: &str, code_only: bool) -> Vec<Candidate> {
+fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
     let order: Vec<String> = survey.cfg.get("placement").and_then(|rules| rules.get("order")).and_then(toml_edit::Item::as_array).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
     let mut hosts: Vec<&slots::Host> = survey.hosts.iter().collect();
     hosts.sort_by_key(|host| order.iter().position(|name| *name == host.name).unwrap_or(order.len()));
@@ -48,7 +48,6 @@ fn candidates(survey: &Survey, brief: &str, code_only: bool) -> Vec<Candidate> {
             let refusal = match (host.free(), gate::lacks(&survey.cfg, &host.name, brief)) {
                 (Err(why), _) => Some(format!("takes nothing: {why}")),
                 (_, Some(need)) => Some(format!("does not serve {need}")),
-                _ if code_only && survey.laptop.as_deref() == Some(host.name.as_str()) => Some("keeps its cores for native and client work".into()),
                 _ => None,
             };
             Candidate { host: host.name.clone(), refusal }
@@ -72,7 +71,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let brief = brief::brief(issue, launched_by);
         let code_only = gate::surface(&brief, &survey.cfg).0;
         let ready = Ready { item: issue.reference(), brief, code_only };
-        match plan::place(&ready, &capacity, &candidates(survey, &ready.brief, code_only), &mut pools) {
+        match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(launch) => outcome.launches.push(launch),
             Err(why) => outcome.skipped.push((ready.item, format!("ready, not placed: {why}"))),
         }
