@@ -2115,6 +2115,49 @@ grep -q 'NOT landed: 1 lane commits missing from origin/main' "$landing_root/a.o
 ! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'an unmoved main was reported as landed'
 printf 'PASS: recorded push that leaves main unmoved is refused as NOT landed\n'
 
+new_landing_origin relanded-lane-rewritten-main
+printf '[ci]\n\tbudget = farm-test.yml 240\n' >"$landing_root/seed/.safe-push"
+"$real_git" -C "$landing_root/seed" add .safe-push
+"$real_git" -C "$landing_root/seed" commit -qm 'main CI budget'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+make_landing_clone "$landing_root/a" a.txt
+printf 'second\n' >"$landing_root/a/b.txt"
+"$real_git" -C "$landing_root/a" add b.txt
+"$real_git" -C "$landing_root/a" commit -qm 'second change from a'
+"$real_git" -C "$landing_root/a" push -q origin HEAD:main
+first_lane_commit=$("$real_git" -C "$landing_root/a" rev-parse HEAD~1)
+cp "$landing_root/a/a.txt" "$landing_root/a/b.txt" "$landing_root/seed/"
+"$real_git" -C "$landing_root/seed" add a.txt b.txt
+"$real_git" -C "$landing_root/seed" commit -qm 'squash of the lane'
+"$real_git" -C "$landing_root/seed" push -q -f "$landing_remote" main
+main_before=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+status_a=0; run_landing "$landing_root/a" || status_a=$?
+[ "$status_a" -ne 0 ] || fail "a relanded lane whose commits the rebase dropped exited 0: $(cat "$landing_root/a.out")"
+! grep -q "ambiguous argument ''" "$landing_root/a.out" || fail "the empty lane range reached git as '': $(cat "$landing_root/a.out")"
+grep -q "lane commits missing from .*: .*$first_lane_commit.*; NOT pushed\." "$landing_root/a.out" || fail "missing dropped-commit refusal: $(cat "$landing_root/a.out")"
+! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'a lane whose commits the rebase dropped was reported as landed'
+[ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$main_before" ] || fail 'the refused relanding moved main'
+printf 'PASS: recorded relanded lane over a rewritten main is refused, not landed\n'
+
+new_landing_origin rebase-drops-commit
+make_landing_clone "$landing_root/a" a.txt
+printf 'second\n' >"$landing_root/a/b.txt"
+"$real_git" -C "$landing_root/a" add b.txt
+"$real_git" -C "$landing_root/a" commit -qm 'second change from a'
+dropped_commit=$("$real_git" -C "$landing_root/a" rev-parse HEAD~1)
+cp "$landing_root/a/a.txt" "$landing_root/seed/a.txt"
+printf 'other\n' >"$landing_root/seed/other.txt"
+"$real_git" -C "$landing_root/seed" add a.txt other.txt
+"$real_git" -C "$landing_root/seed" commit -qm 'a.txt and more from elsewhere'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+main_before=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+status_a=0; run_landing "$landing_root/a" || status_a=$?
+[ "$status_a" -ne 0 ] || fail "a lane whose rebase dropped a commit exited 0: $(cat "$landing_root/a.out")"
+grep -q "lane commits missing from .*: .*$dropped_commit.*; NOT pushed\." "$landing_root/a.out" || fail "the dropped commit was not named: $(cat "$landing_root/a.out")"
+! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'a lane whose rebase dropped a commit was reported as landed'
+[ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$main_before" ] || fail 'the refused lane moved main'
+printf 'PASS: recorded rebase that drops a lane commit is refused naming it\n'
+
 # Concurrent landings from lanes cut at the same base serialize on the
 # per-origin lock; the later one rebases onto the earlier, so both land in
 # order with no non-fast-forward rejection.
