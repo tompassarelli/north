@@ -7,6 +7,7 @@ use crate::{
     threads_client, work_items,
 };
 
+mod cloud;
 mod fleet;
 mod fleet_placement;
 mod gate;
@@ -66,6 +67,7 @@ Commands:
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   threads ARGV                                  Run a NorthThreads command on the ledger host
+  cloud [list|events|sweep|send|wait]            Read, message, wait on and sweep Anthropic cloud sessions
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   private-desktop [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts

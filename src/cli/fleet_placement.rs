@@ -163,7 +163,7 @@ fn cloud_command(launch: &Launch, credit: &str, surface: &str, text: &str) -> St
          ssh nexus 'mkdir -p /tmp/cloud && cat > /tmp/cloud/{name}.md' < {brief}\n  \
          ssh -tt nexus 'cd /tmp/cloud && claude --cloud \"$(cat {name}.md)\"'\n\
          {safety}\nThe brief ends with the handback: {HANDBACK}.\n\
-         Record the printed session_... ID in the box's thread and collect it with cloud-sessions.sh list on Nexus.\n\
+         Record the printed session_... ID in the box's thread and collect it with north cloud wait <id> OUT.jsonl on Nexus.\n\
          To run it here anyway, relaunch with --local \"<reason>\".",
         name = launch.name,
     )
