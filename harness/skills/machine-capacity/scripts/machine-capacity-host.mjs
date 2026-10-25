@@ -58,7 +58,7 @@ const classNames = new Set(['agent', 'native', 'moderate', 'heavy', 'exclusive',
 const frozenClasses = new Set(['heavy', 'exclusive', 'gpu']);
 const nativeWaitingMilliseconds = 60000;
 const modes = new Map([['present', 'attended'], ['away', 'unattended'], ['auto', null]]);
-const lockStaleMilliseconds = 2000;
+const lockPatienceMilliseconds = 60000;
 const runLeaseGraceMilliseconds = 5000;
 const queuePollMilliseconds = 1000;
 const terminationSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
@@ -256,33 +256,20 @@ function ensureState(root) {
 
 function withLock(root, action) {
   ensureState(root);
-  const lock = join(root, 'lock');
-  // Queued wrappers poll the lock, so allow for many short peer holds.
-  for (let attempt = 0; attempt < 400; attempt += 1) {
-    try {
-      mkdirSync(lock, { mode: 0o700 });
-      try {
-        return action();
-      } finally {
-        rmSync(lock, { recursive: true, force: true });
-      }
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      let age = 0;
-      try {
-        age = Date.now() - statSync(lock).mtimeMs;
-      } catch (statError) {
-        // The holder released it between our attempt and this check.
-        if (statError?.code !== 'ENOENT') throw statError;
-      }
-      if (age > lockStaleMilliseconds) {
-        rmSync(lock, { recursive: true, force: true });
-        continue;
-      }
-      Bun.sleepSync(5);
-    }
+  const lock = new Database(join(root, 'admission.lock'));
+  try {
+    lock.exec(`PRAGMA busy_timeout = ${lockPatienceMilliseconds}`);
+    lock.exec('BEGIN EXCLUSIVE');
+  } catch (error) {
+    lock.close();
+    if (error?.code !== 'SQLITE_BUSY') throw error;
+    fail('shared admission lock remained busy', 75);
   }
-  fail('shared admission lock remained busy', 75);
+  try {
+    return action();
+  } finally {
+    lock.close();
+  }
 }
 
 function processStart(pid) {
