@@ -31,10 +31,11 @@ Tom's standing policy for Wisp, Smashcraft, padbridge and every other project th
 
 ## Smashcraft Servers: the one in-game change
 
-Tom approved it on 2026-10-25, weighing W3Champions' years of running the same kind of in-game LAN switch for most active Reforged players without known bans. Patch 3.0 left no outside route to LAN on the live build, and this is the narrowest change that lets players reach Smashcraft's relay. Only three things are allowed:
+Tom approved it on 2026-10-25, weighing W3Champions' years of running the same kind of in-game LAN switch for most active Reforged players without known bans. Patch 3.0 left no outside route to LAN on the live build, and this is the narrowest change that lets players reach Smashcraft's relay. Only four things are allowed:
 
 - The switch: smashcraft-client turns on Warcraft III's LAN network provider in the running game, and only after the player opts in to "Smashcraft Servers", offered beside Battle.net. The opt-in text says Smashcraft changes how Warcraft connects while it runs and that Blizzard has not approved it. Without the opt-in the client never touches the game.
 - The scan: locating the LAN provider on a Warcraft build, done only on our own offline pool clients that hold no Battle.net account, never on a signed-in or player's client.
+- The offline provider write: on a build that has no LAN provider to turn on, writing the missing provider into the running game, and learning what it must do by logging the provider calls that pass through our own code, done only on our own offline test clients that hold no Battle.net account (Tom, 2026-10-25; the logging is the lead's ruling under that decision). No player build and no signed-in client may use it; letting players use it needs a new decision from Tom after it works offline.
 - The test: before any player sees a switch build, it passes end to end on a spare signed-in test account (south:agents/skills/battlenet-accounts/SKILL.md names it), because a broken switch must fail on our account, not a player's.
 
 Everything else stays forbidden, because the exception covers connecting and nothing that touches play:
@@ -44,9 +45,9 @@ Everything else stays forbidden, because the exception covers connecting and not
 - Evading anti-cheat: if the game refuses or detects the switch, it reports unavailable and stops.
 - Touching ranked or ladder play, or switching while the client is in one.
 - Copying W3Champions code; FLO is a reference for behaviour only (external-code skill).
-- Deciding Wisp or Smashcraft behaviour from what the scan or switch shows.
+- Deciding Wisp or Smashcraft behaviour from what the scan, switch or offline provider write shows.
 
-Where it lives: the switch's addresses, offsets, byte patterns and procedure live only in a private repository and ship compiled inside the client. North, Wisp, Smashcraft and smashcraft-client are public, so their code, issues, PRs and docs see only the interface (enable the LAN provider, returning ok or an error), never the internals.
+Where it lives: the switch's addresses, offsets, byte patterns and procedure live only in a private repository and ship compiled inside the client. The offline provider write's internals live in the same private repository and never ship in any client, and its call logs stay private and are never committed. North, Wisp, Smashcraft and smashcraft-client are public, so their code, issues, PRs and docs see only the interface (enable the LAN provider, returning ok or an error), never the internals.
 
 After a Warcraft patch the switch may stop working. It accepts only builds it was checked on, so on a new build Smashcraft Servers reports itself unavailable and Battle.net play is unaffected until a new scan and test admit the build.
 
