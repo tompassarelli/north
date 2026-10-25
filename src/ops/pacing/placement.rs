@@ -10,6 +10,7 @@ use toml_edit::{DocumentMut, Item};
 mod candidates;
 pub(crate) mod gate;
 mod hosts;
+mod inputs;
 mod launch;
 mod survey;
 mod tiers;
@@ -17,6 +18,7 @@ use candidates::admit;
 use hosts::{credit, laptop, resident, signed_in};
 pub(super) use launch::{Probes, Routing, spawn};
 pub(super) use tiers::routing_defaults;
+pub(crate) use inputs::{cloud_credit, config, laptop_state, now, pace_directory, pace_state, resident_clis};
 use tiers::tier_for;
 
 pub(super) fn field<'a>(text: &'a str, key: &str) -> &'a str {
@@ -63,29 +65,6 @@ pub(crate) fn local_warcraft_clients() -> Option<u32> {
 }
 pub(crate) fn local_bar1_reserve_mib() -> Option<u32> {
     gate::bar1_reserve_mib(&sampling::config().ok()?, &local())
-}
-/// South's orchestration.toml, which placement and `north dispatch` read.
-pub(crate) fn config() -> Result<DocumentMut, String> {
-    sampling::config()
-}
-pub(crate) fn cloud_credit(cfg: &DocumentMut, at: f64) -> (bool, String) {
-    credit(cfg, at)
-}
-pub(crate) fn laptop_state() -> String {
-    laptop()
-}
-pub(crate) fn resident_clis(name: &str, destination: &str) -> Option<i64> {
-    resident(name, destination)
-}
-/// A JSON file pace-control keeps in ~/.local/state/agents, or `{}`.
-pub(crate) fn pace_state(name: &str) -> Value {
-    storage::load(&storage::directory().join(name))
-}
-pub(crate) fn pace_directory() -> PathBuf {
-    storage::directory()
-}
-pub(crate) fn now() -> f64 {
-    storage::now()
 }
 pub(crate) fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;
