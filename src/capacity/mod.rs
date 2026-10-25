@@ -9,6 +9,7 @@ pub(crate) mod laptop_auto;
 mod game_reserve;
 mod deadline;
 mod lease_deadline;
+mod pin;
 #[cfg(test)]
 mod agent_load_tests;
 #[cfg(test)]
@@ -30,8 +31,9 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
         Some("laptop-auto") => return laptop_auto::run(&arguments[1..]),
         Some("game-reserve") => return game_reserve::run(&arguments[1..]),
         Some("deadline") => return deadline::run(&arguments[1..]),
+        Some("pin") => return pin::run(&arguments[1..]),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | game-reserve on [--auto]|off|status | deadline LEASE_FILE SECONDS -- COMMAND...");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | game-reserve on [--auto]|off|status | deadline LEASE_FILE SECONDS -- COMMAND... | pin CPU_LIST -- COMMAND...");
             return 2;
         }
     }
