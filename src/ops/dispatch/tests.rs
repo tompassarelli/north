@@ -532,3 +532,13 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 
     assert_eq!(launched.map(|launched| launched.session), Ok("session_01Test".to_owned()));
 }
+
+#[test]
+fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
+    let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into() };
+    let now = 100_000.0;
+    let records = vec![failed("smashcraft#9", now - 3600.0), failed("smashcraft#9", now - 1800.0), failed("wisp#4", now - 300.0)];
+    let holds = record::holds(&records, now);
+    assert!(!holds.contains_key(&IssueRef::new("smashcraft", 9)), "two failed launches are no tries and their brief hold has passed: {holds:?}");
+    assert!(holds[&IssueRef::new("wisp", 4)].starts_with("north dispatch launch sc-9-d0000"), "a fresh failure still holds the box for a few minutes");
+}

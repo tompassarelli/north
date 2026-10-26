@@ -12,6 +12,7 @@ const CLOUD_HOLD_S: f64 = 6.0 * 3600.0;
 const LAPTOP_SHOW_S: f64 = 15.0 * 60.0;
 const RETRY_WINDOW_S: f64 = 24.0 * 3600.0;
 const RETRIES: usize = 2;
+const FAILED_HOLD_S: f64 = 15.0 * 60.0;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub(crate) struct Record {
@@ -27,7 +28,7 @@ pub(crate) struct Record {
 }
 
 fn hold(record: &Record) -> f64 {
-    if record.cloud { CLOUD_HOLD_S } else { HOLD_S }
+    if !record.launched { FAILED_HOLD_S } else if record.cloud { CLOUD_HOLD_S } else { HOLD_S }
 }
 
 pub(crate) fn directory() -> PathBuf {
@@ -61,8 +62,9 @@ pub(crate) fn holds(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
         .into_iter()
         .filter_map(|(item, tried)| {
             let last = tried.iter().max_by(|a, b| a.at.total_cmp(&b.at))?;
-            let reason = if tried.len() >= RETRIES {
-                format!("north dispatch, {} tries in 24 h without closing; the proxy decides the next one", tried.len())
+            let started = tried.iter().filter(|record| record.launched).count();
+            let reason = if started >= RETRIES {
+                format!("north dispatch, {started} tries in 24 h without closing; the proxy decides the next one")
             } else if at - last.at < hold(last) {
                 format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             } else {
