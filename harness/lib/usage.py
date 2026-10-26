@@ -198,8 +198,8 @@ def read_all(remote=True):
 def record(db, rows):
     db.execute(f"CREATE TABLE IF NOT EXISTS usage({', '.join(c + (' REAL' if c in ('used_pct', 'amount') else ' INTEGER' if c == 'window_min' else ' TEXT') for c in COLUMNS)}) STRICT")
     db.execute("CREATE INDEX IF NOT EXISTS usage_latest ON usage(provider, account, kind, name, ts)")
-    db.executemany(f"INSERT INTO usage({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})",
-                   [tuple(r.get(c) for c in COLUMNS) for r in rows])
+    db.executemany(f"INSERT INTO usage({', '.join(COLUMNS)}) SELECT {', '.join('?' * len(COLUMNS))} WHERE NOT EXISTS (SELECT 1 FROM usage WHERE {' AND '.join(c + ' IS ?' for c in COLUMNS[:5])})",
+                   [tuple(r.get(c) for c in COLUMNS + COLUMNS[:5]) for r in rows])
     db.commit()
 
 

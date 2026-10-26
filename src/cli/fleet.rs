@@ -19,10 +19,11 @@ use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::fleet_placement::{self, Launch, Overrides, Placed};
+use super::fleet_list;
 use super::fleet_revive;
 use super::{gate, orders, relay};
 
-const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
+const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
      | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
@@ -92,7 +93,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         [] => tui::fleet::run(fleet),
-        ["list", rest @ ..] => list(&fleet, rest),
+        ["list", rest @ ..] => fleet_list::list(&fleet, rest),
         ["tree"] => tree(&fleet),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
@@ -132,63 +133,11 @@ fn usage() -> NorthError {
     NorthError::Usage(USAGE.into())
 }
 
-fn list(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    match words {
-        [] => list_lines(fleet),
-        ["--json"] => list_json(fleet),
-        _ => Err(usage()),
-    }
-}
-
-fn list_lines(fleet: &Fleet) -> NorthResult<()> {
-    for record in fleet.sessions()? {
-        println!("{}", list_line(&record, fleet.status(&record)));
-    }
-    Ok(())
-}
-
-fn list_line(record: &SessionRecord, status: Status) -> String {
-    let cwd = match &record.machine {
-        Some(machine) => format!("{}:{}", machine.name, record.cwd.display()),
-        None => record.cwd.display().to_string(),
-    };
-    let line = format!("{}\t{}\t{}\t{}\t{cwd}", record.name, record.provider.label(), record.account, status.label());
-    match &record.placement {
-        Some(note) => format!("{line}\t{note}"),
-        None => line,
-    }
-}
-
-fn list_json(fleet: &Fleet) -> NorthResult<()> {
-    let sessions: Vec<Value> = fleet.sessions()?.iter().map(|record| session_json(record, fleet.status(record))).collect();
-    println!("{}", Value::Array(sessions));
-    Ok(())
-}
-
-fn session_json(record: &SessionRecord, status: Status) -> Value {
-    json!({
-        "name": record.name,
-        "provider": record.provider.label(),
-        "account": record.account,
-        "status": status.label(),
-        "parent": record.parent,
-        "cwd": record.cwd,
-        "model": record.model,
-        "effort": record.effort.map(Effort::label),
-        "conversation": record.conversation,
-        "task_ref": record.task_ref,
-        "created_ms": record.created_ms,
-        "host_pid": record.host_pid,
-        "placement": record.placement,
-        "machine": record.machine.as_ref().map(|machine| &machine.name),
-    })
-}
-
 fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     let follower = fleet.follow(name)?;
     let transcript = follower.transcript();
     let entries: Vec<Value> = transcript.entries.iter().map(|entry| json!({"kind": entry.kind.label(), "text": entry.text})).collect();
-    let mut session = session_json(follower.record(), transcript.status);
+    let mut session = fleet_list::session_json(follower.record(), transcript.status);
     session["active_turn"] = json!(transcript.active_turn);
     session["entries"] = Value::Array(entries);
     session["turns"] = transcript.turns.iter().map(turn_json).collect();

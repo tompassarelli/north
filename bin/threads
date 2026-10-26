@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N, open_ledger
 from defaults import DEFAULTS
 import durable_events
-from ledger_context import UNTRACKED, allocation_intervals, box_groups, delivery_metrics
+from ledger_context import COST_WINDOWS, UNTRACKED, allocation_intervals, box_groups, delivery_metrics
 from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
@@ -941,8 +941,8 @@ def cmd_ingest(db, a):
                 existing = None
             if existing:
                 if r.get("backfill") or not worker:
-                    db.execute("UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort) WHERE agent=?",
-                               (r.get("model"), r.get("effort"), r["id"]))
+                    db.execute("UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), tier=coalesce(?, tier) WHERE agent=?",
+                               (r.get("model"), r.get("effort"), r.get("tier"), r["id"]))
                     if not worker:
                         category = f.get("category") or r.get("category")
                         db.execute("UPDATE runs SET ended = ?, category = coalesce(?, category),"
@@ -1036,7 +1036,7 @@ def cmd_ingest(db, a):
         operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
         prices = {r["id"]: r["usd_per_week"] for r in tomllib.load(open(operator / "costs.toml", "rb")).get("service", [])}
         fresh = {(r["account"], r["started"], r["ended"], r["agent"]): r["cost_usd"] for r in allocation_intervals(
-            [dict(r) for r in db.execute("SELECT * FROM usage")], [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)}
+            [dict(r) for r in db.execute(f"SELECT * FROM usage WHERE kind = 'window' AND used_pct IS NOT NULL AND name IN ({', '.join('?' * len(COST_WINDOWS))})", COST_WINDOWS)], [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)}
         with Tx(db):
             db.executemany("DELETE FROM run_costs WHERE (account, started, ended, agent) = (?,?,?,?)", [key for key in db.execute("SELECT account, started, ended, agent FROM run_costs") if tuple(key) not in fresh])
             db.executemany("INSERT INTO run_costs(account, started, ended, agent, cost_usd) VALUES (?,?,?,?,?) ON CONFLICT(account, started, ended, agent) DO UPDATE SET cost_usd = excluded.cost_usd WHERE cost_usd IS NOT excluded.cost_usd", [(*key, usd) for key, usd in fresh.items()])

@@ -271,8 +271,8 @@ sys.path.insert(0,sys.argv[1])
 import usage
 row=lambda account,pct: dict(zip(usage.COLUMNS,["2026-10-15T12:00:00Z","claude",account,"window","session",pct,300,"2026-10-15T15:00:00Z",None,"fixture"]))
 db=sqlite3.connect(":memory:")
-usage.record(db,[row("a",20),row("b",30),row("c",92),dict(row("x",5),provider="codex")])
-assert sorted((r["provider"],r["account"]) for r in usage.latest(db))==[("claude","a"),("claude","b"),("codex","x")], usage.latest(db)
+usage.record(db,[row("a",20),row("b",30),row("c",92),dict(row("x",5),provider="codex")]*2)
+assert sorted((r["provider"],r["account"]) for r in usage.latest(db))==[("claude","a"),("claude","b"),("codex","x")] and db.execute("SELECT count(*) FROM usage").fetchone()[0]==4, usage.latest(db)
 print("PASS hosted accounts: a Claude account with no profile on any host (retired claude:c) is left out of usage and plan, and one whose profile is on another host stays")
 DB
 mkdir -p "$scratch/goal/harness/lib" "$scratch/goal/bin"

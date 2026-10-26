@@ -9,11 +9,16 @@
 //! started, background tasks included, which a CLI waiting on them would otherwise keep alive.
 //! Starting a session first stops any earlier service of the same session, so a revive never runs
 //! two CLIs on one conversation.
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
 
 use super::model::{Machine, SessionRecord};
+use super::records::record_file;
 use super::runtime::{HostSpec, binary};
 
 const RELAY: &str = r#"{ cat; systemctl --user stop --no-block "$0"; } | { "$@"; systemctl --user stop --no-block "$0"; }"#;
@@ -56,6 +61,31 @@ pub fn over_ssh(spec: HostSpec, machine: &Machine) -> HostSpec {
         command,
     ];
     HostSpec { argv: argv.into(), ..spec }
+}
+
+pub fn leave_record(record: &SessionRecord, placed: &Path) {
+    if let Err(error) = mirror_through(&binary("ssh"), record, placed) {
+        eprintln!("north fleet: {}'s record is not on its machine, so that machine's run ledger cannot place its transcript: {}", record.name, error.user_message());
+    }
+}
+
+fn mirror_through(ssh: &Path, record: &SessionRecord, placed: &Path) -> NorthResult<()> {
+    let (Some(machine), Some(conversation)) = (&record.machine, &record.conversation) else { return Ok(()) };
+    let directory = placed.join(conversation);
+    let file = record_file(&directory).to_string_lossy().into_owned();
+    let script = format!("mkdir -p {} && cat > {} && mv {} {}", quote(&directory.to_string_lossy()), quote(&format!("{file}.tmp")), quote(&format!("{file}.tmp")), quote(&file));
+    let mut child = Command::new(ssh)
+        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, "--", &script])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child.stdin.take().ok_or_else(|| NorthError::State("ssh has no input".into()))?.write_all(&serde_json::to_vec_pretty(record)?)?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(NorthError::Rejected(format!("{} refused the record: {}", machine.name, String::from_utf8_lossy(&output.stderr).trim())));
+    }
+    Ok(())
 }
 
 /// The session's unit, named for reading and suffixed with a digest of the launching host and the
@@ -120,5 +150,24 @@ mod tests {
         let run = fs::read_to_string(shims.path().join("run")).unwrap();
         assert!(run.lines().any(|line| line == format!("--unit={unit}")), "{run}");
         assert!(run.lines().any(|line| line == "--property=KillMode=control-group"), "{run}");
+    }
+
+    #[test]
+    fn a_placed_sessions_record_lands_on_its_machine_under_its_conversation() {
+        let scratch = tempfile::tempdir().unwrap();
+        let ssh = scratch.path().join("ssh");
+        fs::write(&ssh, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv\"\nwhile [ \"$1\" != -- ]; do shift; done\nexec sh -c \"$2\"\n").unwrap();
+        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+        let record: SessionRecord = serde_json::from_value(serde_json::json!({
+            "name": "sc-459", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null,
+            "conversation": "it's-a-conversation", "task_ref": "smashcraft#459", "machine": {"name": "far", "ssh": "tom@far"}
+        }))
+        .unwrap();
+        let placed = scratch.path().join("fleet/.placed");
+        mirror_through(&ssh, &record, &placed).unwrap();
+        assert_eq!(super::super::records::read_record(&placed.join("it's-a-conversation")).unwrap(), record);
+        assert!(fs::read_to_string(scratch.path().join("argv")).unwrap().lines().any(|line| line == "tom@far"));
+        mirror_through(&ssh, &SessionRecord { machine: None, ..record }, &scratch.path().join("here")).unwrap();
+        assert!(!scratch.path().join("here").exists(), "a session on this machine needs no copy");
     }
 }

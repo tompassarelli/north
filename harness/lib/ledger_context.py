@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -162,10 +163,10 @@ def same_window(a, b):
 
 
 UNTRACKED = "(untracked)"
+COST_WINDOWS = ("week", "weekly_all", "Gemini Models/weekly")
 
 
 def allocation_intervals(readouts, samples, prices):
-    from collections import defaultdict
     from bisect import bisect_right
     windows, result = defaultdict(dict), []
     by_account = defaultdict(list)
@@ -174,7 +175,7 @@ def allocation_intervals(readouts, samples, prices):
     for account in by_account:
         by_account[account].sort(key=lambda pair: pair[0])
     for row in readouts:
-        if row.get("kind") != "window" or row.get("name") not in ("week", "weekly_all", "Gemini Models/weekly") or row.get("used_pct") is None:
+        if row.get("kind") != "window" or row.get("name") not in COST_WINDOWS or row.get("used_pct") is None:
             continue
         account = row["provider"] + ("-" + row["account"] if row["provider"] == "claude" else "")
         windows[account][row["ts"]] = row
@@ -208,7 +209,6 @@ def allocation_intervals(readouts, samples, prices):
 
 
 def allocate_costs(readouts, samples, prices):
-    from collections import defaultdict
     costs = defaultdict(float)
     for row in allocation_intervals(readouts, samples, prices):
         costs[row["agent"]] += row["cost_usd"]

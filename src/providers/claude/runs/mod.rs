@@ -63,11 +63,16 @@ struct Root {
     account: String,
 }
 
+struct FleetSession {
+    role: &'static str,
+    effort: Option<String>,
+}
+
 struct Ledger {
     policy: Option<DocumentMut>,
     prices: Prices,
     main: MainIndex,
-    roles: HashMap<String, &'static str>,
+    sessions: HashMap<String, FleetSession>,
     now: Timestamp,
 }
 
@@ -76,7 +81,7 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or_else(|| NorthError::Usage("no home directory".into()))?);
     let policy = fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse().ok());
     let main = std::env::var_os("LEDGER_MAIN").and_then(|path| fs::read_to_string(path).ok()).unwrap_or_default();
-    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main: MainIndex::parse(&main), roles: fleet_roles(), now: Timestamp::now() };
+    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main: MainIndex::parse(&main), sessions: fleet_sessions(), now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     let mut out = BufWriter::new(io::stdout().lock());
     for root in roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name()) {
@@ -106,23 +111,24 @@ fn parse(arguments: &[String]) -> NorthResult<Options> {
     Ok(options)
 }
 
-fn fleet_roles() -> HashMap<String, &'static str> {
+fn fleet_sessions() -> HashMap<String, FleetSession> {
     let north = std::env::var("NORTH_BIN").ok().filter(|path| !path.is_empty()).unwrap_or_else(|| "north".into());
-    let Ok(output) = Command::new(north).args(["fleet", "list", "--json"]).output() else { return HashMap::new() };
+    let Ok(output) = Command::new(north).args(["fleet", "list", "--json", "--all"]).output() else { return HashMap::new() };
     let nodes: Vec<Value> = serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success()).unwrap_or_default();
-    let mut roles = HashMap::new();
+    let mut sessions = HashMap::new();
     for node in &nodes {
         let Some(conversation) = node["conversation"].as_str() else { continue };
-        let role = if truthy(&node["parent"]) {
+        let role = if truthy(&node["parent"]) || truthy(&node["task_ref"]) {
             "worker"
         } else if nodes.iter().any(|other| other["parent"] == node["name"]) {
             "parent"
         } else {
             "proxy"
         };
-        roles.entry(conversation.to_owned()).or_insert(role);
+        let effort = node["effort"].as_str().map(str::to_owned);
+        sessions.entry(conversation.to_owned()).or_insert(FleetSession { role, effort });
     }
-    roles
+    sessions
 }
 
 fn roots(home: &Path, explicit: Option<PathBuf>, policy: Option<&DocumentMut>, host: &str) -> Vec<Root> {
@@ -211,22 +217,25 @@ fn transcript_id(path: &Path) -> String {
 
 fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Option<Map<String, Value>> {
     let id = transcript_id(path);
-    let role = *ledger.roles.get(&id)?;
+    let metadata: Option<Value> = fs::read_to_string(path.with_extension("meta.json")).ok().and_then(|text| serde_json::from_str(&text).ok());
+    let session = ledger.sessions.get(&id);
+    let role = match session {
+        Some(session) => session.role,
+        None if metadata.as_ref().and_then(|metadata| metadata["agentType"].as_str()).is_some_and(|agent| agent.starts_with("worker")) => "worker",
+        None => return None,
+    };
     let text = fs::read_to_string(path).ok()?;
     let lines: Vec<Value> = text.lines().filter_map(|line| serde_json::from_str(line).ok()).filter(Value::is_object).collect();
-    let metadata: Option<Value> = fs::read_to_string(path.with_extension("meta.json")).ok().and_then(|text| serde_json::from_str(&text).ok());
-    let tier = match metadata.as_ref().map(|metadata| &metadata["agentType"]) {
-        None | Some(Value::Null | Value::Bool(false)) => String::new(),
-        Some(Value::String(agent)) => agent.clone(),
-        Some(other) => other.to_string(),
-    };
-    let transcript = row::Transcript { lines: &lines, id: &id, role, tier: &tier, since: &options.since, backfill: options.recorded.contains(&id), now: ledger.now };
-    let mut row = row::build(&transcript)?;
-    row.extend(landing::checks(&lines, &ledger.main));
     let mut usage = telemetry::run_usage(&lines, &root.account, &ledger.prices);
     if let Some(metadata) = &metadata {
         usage.insert("effort".into(), effort(ledger.policy.as_ref(), metadata, &usage));
+    } else if let Some(effort) = session.and_then(|session| session.effort.as_ref()) {
+        usage.insert("effort".into(), json!(effort));
     }
+    let tier = if role == "worker" { worker_tier(ledger.policy.as_ref(), metadata.as_ref(), &usage)? } else { String::new() };
+    let transcript = row::Transcript { lines: &lines, id: &id, role, tier: &tier, since: &options.since, backfill: options.recorded.contains(&id), now: ledger.now };
+    let mut row = row::build(&transcript)?;
+    row.extend(landing::checks(&lines, &ledger.main));
     row.extend(telemetry::context_metrics(&lines));
     row.extend(usage);
     row.insert("role".into(), json!(role));
@@ -240,15 +249,37 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     Some(row)
 }
 
+fn worker_tier(policy: Option<&DocumentMut>, metadata: Option<&Value>, usage: &Map<String, Value>) -> Option<String> {
+    let model = usage["model"].as_str().unwrap_or("unknown");
+    let effort = usage["effort"].as_str();
+    let agent = match metadata.map(|metadata| &metadata["agentType"]) {
+        Some(Value::String(agent)) => Some(agent.clone()),
+        Some(other) if truthy(other) => Some(other.to_string()),
+        _ => tiers(policy)
+            .find(|tier| tier.get("model").and_then(Item::as_str) == Some(model) && tier.get("effort").and_then(Item::as_str) == effort)
+            .and_then(|tier| tier.get("agent")?.as_str().map(str::to_owned)),
+    };
+    let Some(agent) = agent else { return Some(format!("{model} {}", effort.unwrap_or("default"))) };
+    let rest = agent.strip_prefix("worker")?;
+    let rest = rest.strip_prefix('-').unwrap_or(rest);
+    Some(if model.contains("haiku") { "haiku" } else if rest.is_empty() { "medium" } else { rest }.to_owned())
+}
+
+fn tiers(policy: Option<&DocumentMut>) -> impl Iterator<Item = &dyn toml_edit::TableLike> {
+    ["tiers", "on_request"]
+        .into_iter()
+        .filter_map(move |key| policy?.get(key)?.as_table_like())
+        .flat_map(|table| table.iter().filter_map(|(_, tier)| tier.as_table_like()))
+}
+
 fn effort(policy: Option<&DocumentMut>, metadata: &Value, usage: &Map<String, Value>) -> Value {
     if truthy(&metadata["effort"]) {
         return metadata["effort"].clone();
     }
     let agent = metadata["agentType"].as_str();
     let model = usage["model"].as_str();
-    let tiers = ["tiers", "on_request"].into_iter().filter_map(|key| policy?.get(key)?.as_table_like()).flat_map(|table| table.iter().map(|(_, tier)| tier));
-    for tier in tiers {
-        if tier.get("agent").and_then(|agent| agent.as_str()) == agent && tier.get("model").and_then(|model| model.as_str()) == model {
+    for tier in tiers(policy) {
+        if tier.get("agent").and_then(Item::as_str) == agent && tier.get("model").and_then(Item::as_str) == model {
             return tier.get("effort").and_then(|effort| effort.as_str()).map_or(Value::Null, Value::from);
         }
     }

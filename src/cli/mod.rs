@@ -9,6 +9,7 @@ use crate::{
 
 mod cloud;
 mod fleet;
+mod fleet_list;
 mod fleet_placement;
 mod fleet_revive;
 mod gate;

@@ -53,3 +53,23 @@ fn cost_allocation_is_indexed_by_agent_so_its_write_lock_stays_short() {
     let indexes = Command::new("sqlite3").arg(&db).arg(".indexes run_costs").output().unwrap();
     assert!(String::from_utf8_lossy(&indexes.stdout).contains("run_costs_agent"));
 }
+
+#[test]
+fn a_backfilled_run_takes_its_reread_role_tier_and_item() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let row = |role: &str, tier: &str, backfill: bool| {
+        format!(
+            r#"{{"id":"sc-459","role":"{role}","tier":"{tier}","backfill":{backfill},"brief":"Item: smashcraft#459 back-air\nCategory: feature","status":"finished","outcome":"done","started":"2026-10-26T11:00:00Z","ended":"2026-10-26T11:05:00Z","actual_min":5}}"#
+        )
+    };
+    for line in [row("proxy", "claude-opus-5-5", false), row("worker", "medium", true)] {
+        let mut ingest = threads(root, "ingest").stdin(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        std::io::Write::write_all(&mut ingest.stdin.take().unwrap(), format!("{line}\n").as_bytes()).unwrap();
+        let output = ingest.wait_with_output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+    let query = "select role, tier, item, category from runs where agent = 'sc-459'";
+    let run = Command::new("sqlite3").arg(root.join("threads.db")).arg(query).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "worker|medium|smashcraft#459|feature");
+}

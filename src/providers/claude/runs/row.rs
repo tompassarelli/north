@@ -72,19 +72,6 @@ fn eta(brief: &str) -> Value {
     })
 }
 
-fn tier_name(role: &str, agent: &str, last: &Value) -> String {
-    let model = last["message"]["model"].as_str();
-    if role != "worker" {
-        return model.unwrap_or("unknown").to_owned();
-    }
-    if model.unwrap_or("").contains("haiku") {
-        return "haiku".to_owned();
-    }
-    let rest = agent.strip_prefix("worker").unwrap_or(agent);
-    let rest = rest.strip_prefix('-').unwrap_or(rest);
-    if rest.is_empty() { "medium".to_owned() } else { rest.to_owned() }
-}
-
 fn tokens(assistant: &[&Value]) -> i64 {
     let mut last: HashMap<String, &Value> = HashMap::new();
     for record in assistant {
@@ -107,11 +94,10 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     let lines = transcript.lines;
     let assistant: Vec<&Value> = lines.iter().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
     let last_usage = assistant.last()?;
-    let attributed = last_usage["attributionAgent"].as_str().filter(|agent| !agent.is_empty()).unwrap_or("");
-    let agent = if transcript.tier.is_empty() { attributed } else { transcript.tier };
-    if transcript.role == "worker" && !agent.starts_with("worker") {
-        return None;
-    }
+    let tier = match transcript.role {
+        "worker" => transcript.tier.to_owned(),
+        _ => last_usage["message"]["model"].as_str().unwrap_or("unknown").to_owned(),
+    };
     let last = lines.iter().rev().find(|line| line["type"] == "user" || line["type"] == "assistant")?;
     let done = finished(last);
     let brief = lines.iter().find(|line| line["type"] == "user").map_or_else(|| "null".to_owned(), texts);
@@ -126,7 +112,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("session".into(), lines[0]["sessionId"].clone());
     row.insert("brief".into(), json!(prefix(&brief, 4000)));
     row.insert("started".into(), started.clone());
-    row.insert("tier".into(), json!(tier_name(transcript.role, agent, last_usage)));
+    row.insert("tier".into(), json!(tier));
     row.insert("eta_min".into(), eta(&brief));
     if !done && transcript.role == "worker" {
         let running = transcript.now.unix_seconds() - seconds(ended)? < RUNNING_SECONDS;

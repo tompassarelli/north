@@ -12,7 +12,7 @@ use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, Effort, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
-use super::records::{ARCHIVE, read_record, write_record};
+use super::records::{ARCHIVE, PLACED, read_record, write_record};
 use super::remote;
 use super::roster::Roster;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
@@ -26,6 +26,7 @@ mod gate_commands;
 mod home;
 mod letters;
 mod parents;
+mod past;
 mod senders;
 mod status;
 #[cfg(test)]
@@ -321,13 +322,14 @@ impl Fleet {
         write_record(&self.root.join(&record.name), record)?;
         self.watch_over(record)?;
         let frames = runtime.open(&record.name, &request, opening, Instructions { text: &instructions, changed })?;
-        if frames.is_empty() {
-            return Ok(());
+        if !frames.is_empty() {
+            let opened_from = stream_len(&host_dir);
+            host.send(&frames)?;
+            record.conversation = Some(await_conversation(runtime.as_ref(), record, opened_from)?);
+            write_record(&self.root.join(&record.name), record)?;
         }
-        let opened_from = stream_len(&host_dir);
-        host.send(&frames)?;
-        record.conversation = Some(await_conversation(runtime.as_ref(), record, opened_from)?);
-        write_record(&self.root.join(&record.name), record)
+        remote::leave_record(record, &self.root.join(PLACED));
+        Ok(())
     }
 
     fn instructions(&self, record: &SessionRecord) -> NorthResult<(String, String)> {
