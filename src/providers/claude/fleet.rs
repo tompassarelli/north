@@ -68,12 +68,7 @@ impl Runtime for Claude {
             Opening::Resume(conversation) => argv.extend(["--resume".into(), conversation.into()]),
             Opening::Fresh(None) => {}
         }
-        if let Some(model) = &request.model {
-            argv.extend(["--model".into(), model.clone()]);
-        }
-        if let Some(effort) = request.effort {
-            argv.extend(["--effort".into(), effort.label().into()]);
-        }
+        argv.extend(session_env::model_args(request));
         if !instructions.is_empty() {
             argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
         }

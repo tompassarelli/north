@@ -25,6 +25,11 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
     env
 }
 
+pub(super) fn model_args(request: &LaunchRequest) -> Vec<String> {
+    let model = request.model.iter().flat_map(|model| ["--model".to_owned(), model.clone()]);
+    model.chain(request.effort.iter().flat_map(|effort| ["--effort".to_owned(), effort.label().to_owned()])).collect()
+}
+
 pub(super) fn inherited_env(account: &Account) -> Vec<String> {
     let mut inherited = vec!["CLAUDE_CODE_CHILD_SESSION".into(), TOKEN_ENV.into()];
     inherited.extend(at_default(account).then(|| CONFIG_ENV.into()));
