@@ -23,6 +23,8 @@ mod record;
 mod slots;
 mod survey;
 #[cfg(test)]
+mod frozen_tests;
+#[cfg(test)]
 mod tests;
 
 const USAGE: &str = "usage: north dispatch [--dry-run]";
@@ -68,6 +70,10 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let world = issues::World { open: &survey.open, holds: &survey.holds, planned: &planned, at: survey.at };
     let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: crate::pace::limits::default("reservation_fallback_points") };
     for issue in ordered(&survey.issues) {
+        if let Some(topic) = crate::platform::frozen_topics::matching(&survey.frozen, &issue.repo, &issue.title) {
+            outcome.skipped.push((issue.reference(), topic.refusal()));
+            continue;
+        }
         if let Err(why) = issues::readiness(issue, &world) {
             outcome.skipped.push((issue.reference(), why));
             continue;

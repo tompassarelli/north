@@ -36,11 +36,11 @@ fn sized(name: &str, hosts: &[&str], plan: f64, room: Room) -> Account {
     Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room, spending: false, refusal: None }
 }
 
-fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
+pub(super) fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
     Issue { repo: repo.into(), number, title: format!("box {number}"), body: body.into(), labels: labels.iter().map(|label| (*label).to_owned()).collect(), ..Issue::default() }
 }
 
-fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Account>) -> Survey {
+pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Account>) -> Survey {
     let open = issues.iter().map(Issue::reference).collect();
     Survey {
         here: "nexus".into(),
@@ -54,11 +54,12 @@ fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Acco
         laptop: Some("whiterabbit".into()),
         cloud_running: 0,
         notes: Vec::new(),
+        frozen: Vec::new(),
         at: 0.0,
     }
 }
 
-fn fleet() -> (Vec<Host>, Vec<Account>) {
+pub(super) fn fleet() -> (Vec<Host>, Vec<Account>) {
     let hosts = vec![host("gex45", 24, Ok(22)), host("nexus", 6, Ok(5)), host("whiterabbit", 8, Err("laptop unavailable"))];
     let out = Account { refusal: Some("claude:c unavailable: exhausted: 5h 96% >= 95%".into()), ..account("claude:c", &["gex45"], 90.0) };
     let accounts = vec![account("claude:a", &["nexus", "whiterabbit"], 70.0), account("claude:b", &["gex45"], 40.0), out];

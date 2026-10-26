@@ -39,6 +39,7 @@ pub(crate) struct Survey {
     /// Cloud sessions dispatch started whose boxes are still open.
     pub cloud_running: i64,
     pub notes: Vec<String>,
+    pub frozen: Vec<crate::platform::frozen_topics::Topic>,
     pub at: f64,
 }
 
@@ -349,7 +350,11 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
-    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, at })
+    let frozen = crate::platform::frozen_topics::load().unwrap_or_else(|why| {
+        notes.push(why);
+        Vec::new()
+    });
+    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, at })
 }
 
 mod github {

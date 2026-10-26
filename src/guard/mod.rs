@@ -3,6 +3,7 @@ pub mod desktop_action;
 pub mod tripwire;
 pub mod git_stash;
 pub mod native_evidence;
+pub mod frozen_topics;
 pub mod issue_labels;
 pub mod blind_stage;
 pub mod reviewer_cli;

@@ -1,6 +1,7 @@
 pub(crate) mod git;
 pub(crate) mod harness;
 pub(crate) mod wisp_payoff;
+pub(crate) mod frozen_topics;
 pub(crate) mod github;
 pub(crate) mod host;
 pub(crate) mod process;
