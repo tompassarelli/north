@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -57,17 +57,28 @@ pub struct LaunchRequest {
 }
 
 impl LaunchRequest {
-    /// `--task`, else the issue the brief's first `Item:` line starts with (`repo#N` or
-    /// `owner/repo#N`), so a session launched without `--task` still holds its issue.
+    /// `--task`, else the issue the first `Item:` line starts with (`repo#N` or `owner/repo#N`),
+    /// in the prompt or else in the `.md` brief at an absolute path the prompt names, so a session
+    /// launched without `--task` still holds its issue.
     pub fn task(&self) -> Option<String> {
-        self.task_ref.clone().or_else(|| {
-            let line = self.prompt.lines().find_map(|line| line.trim_start().strip_prefix("Item:"))?;
-            let word = line.split_whitespace().next()?.trim_end_matches([':', ',', '.', ';']);
-            let (repo, number) = word.rsplit_once('#')?;
-            let repo_ok = !repo.is_empty() && repo.chars().all(|c| c.is_ascii_alphanumeric() || "/_.-".contains(c));
-            (repo_ok && !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then(|| word.to_owned())
+        self.task_ref.clone().or_else(|| first_item_issue(&self.prompt)).or_else(|| {
+            let brief = self
+                .prompt
+                .split_whitespace()
+                .map(|word| word.trim_start_matches(|c: char| "\"'`(<[".contains(c)).trim_end_matches(|c: char| "\"'`)>],;:.".contains(c)))
+                .map(Path::new)
+                .find(|path| path.is_absolute() && path.extension().is_some_and(|ext| ext == "md") && path.is_file())?;
+            first_item_issue(&std::fs::read_to_string(brief).ok()?)
         })
     }
+}
+
+fn first_item_issue(text: &str) -> Option<String> {
+    let line = text.lines().find_map(|line| line.trim_start().strip_prefix("Item:"))?;
+    let word = line.split_whitespace().next()?.trim_end_matches([':', ',', '.', ';']);
+    let (repo, number) = word.rsplit_once('#')?;
+    let repo_ok = !repo.is_empty() && repo.chars().all(|c| c.is_ascii_alphanumeric() || "/_.-".contains(c));
+    (repo_ok && !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then(|| word.to_owned())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
