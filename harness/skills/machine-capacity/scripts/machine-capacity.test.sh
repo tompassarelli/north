@@ -3,7 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/machine-capacity-test.XXXXXX")
-export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$"
+export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$" AGENT_CAPACITY_CORES=24
 fixture_pids=()
 collector_pids=()
 receipt_fds=()
@@ -225,7 +225,7 @@ for number in 1 2 3; do
   [[ $parent == */agent.slice/agent-capacity.slice/agent-capacity-$AGENT_CAPACITY_SUBSLICE.slice ]]
   read -r quota period <"/sys/fs/cgroup$parent/cpu.max"
   [[ $quota != max ]]
-  cores=$(getconf _NPROCESSORS_ONLN)
+  cores=$AGENT_CAPACITY_CORES
   [[ $quota -eq $((period * (cores - 4))) ]]
   read -r quota period <"/sys/fs/cgroup$group/cpu.max"
   [[ $((quota / period)) -eq 6 ]]
