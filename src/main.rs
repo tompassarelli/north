@@ -28,6 +28,8 @@ mod pyjson;
 mod shell;
 mod threads {
     pub(crate) mod snapshot;
+    #[cfg(test)]
+    mod ingest_writes_tests;
 }
 mod threads_client;
 mod fleet;
