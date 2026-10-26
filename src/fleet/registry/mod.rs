@@ -19,6 +19,7 @@ use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
+mod efforts;
 mod first_turn;
 mod follower;
 mod gate_commands;
@@ -110,7 +111,7 @@ impl Fleet {
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
             return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
         }
-        let effort = takes_effort(runtime.as_ref(), request.effort)?;
+        let effort = efforts::taken(runtime.as_ref(), request.effort)?;
         let conversation = runtime.assign_conversation()?;
         fs::create_dir_all(&session_dir)?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
@@ -155,12 +156,7 @@ impl Fleet {
     /// Revive with a fresh placement override note and effort, which the restarted record keeps.
     pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {
         let mut record = self.record(name)?;
-        if effort.is_some() {
-            if session_running(&record) {
-                return Err(NorthError::Usage(format!("{name} is running; stop it before reviving it with --effort")));
-            }
-            record.effort = takes_effort(self.runtime(&record)?.as_ref(), effort)?;
-        }
+        record.effort = efforts::revived(&record, self.runtime(&record)?.as_ref(), session_running(&record), effort)?;
         if system_prompt.is_some() {
             record.system_prompt = system_prompt;
         }
@@ -474,13 +470,6 @@ fn await_conversation(runtime: &dyn Runtime, record: &SessionRecord, offset: u64
             return Err(NorthError::State(format!("{} did not open a conversation", record.name)));
         }
         std::thread::sleep(OPEN_POLL);
-    }
-}
-
-fn takes_effort(runtime: &dyn Runtime, effort: Option<Effort>) -> NorthResult<Option<Effort>> {
-    match effort {
-        Some(_) if !runtime.takes_effort() => Err(NorthError::Usage(format!("{} sessions take no --effort; launch a claude session to set reasoning effort", runtime.provider().label()))),
-        _ => Ok(effort),
     }
 }
 
