@@ -299,6 +299,8 @@ fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
     assert!(holds[&IssueRef::new("wisp", 3)].contains("2 tries in 24 h"));
     let open = BTreeSet::from([IssueRef::new("smashcraft", 1)]);
     assert_eq!(record::recent_on(&records, "gex45", &open, now), 1);
+    let listed_by_now = vec![entry("smashcraft#1", now - 20.0 * 60.0)];
+    assert_eq!(record::recent_on(&listed_by_now, "gex45", &open, now), 0, "a launch old enough to show in the copied fleet list no longer counts on its own");
 }
 
 #[test]

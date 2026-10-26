@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 const HOLD_S: f64 = 2.0 * 3600.0;
 const CLOUD_HOLD_S: f64 = 6.0 * 3600.0;
-const LAPTOP_SESSION_S: f64 = 3.0 * 3600.0;
+const LAPTOP_SHOW_S: f64 = 15.0 * 60.0;
 const RETRY_WINDOW_S: f64 = 24.0 * 3600.0;
 const RETRIES: usize = 2;
 
@@ -76,6 +76,6 @@ pub(crate) fn holds(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
 /// Sessions dispatched to `host` in the last three hours, six for the cloud lane, whose issue is
 /// still open: the laptop and cloud lane counts, since no host here can list their sessions.
 pub(crate) fn recent_on(records: &[Record], host: &str, open: &BTreeSet<IssueRef>, at: f64) -> i64 {
-    let live = |record: &&Record| record.launched && record.host == host && at - record.at < if record.cloud { CLOUD_HOLD_S } else { LAPTOP_SESSION_S };
+    let live = |record: &&Record| record.launched && record.host == host && at - record.at < if record.cloud { CLOUD_HOLD_S } else { LAPTOP_SHOW_S };
     records.iter().filter(live).filter(|record| IssueRef::parse(&record.item).is_some_and(|item| open.contains(&item))).count() as i64
 }
