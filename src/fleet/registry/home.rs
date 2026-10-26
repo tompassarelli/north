@@ -14,7 +14,7 @@ pub(super) fn home_dir() -> NorthResult<PathBuf> {
 
 pub fn roster(runtimes: &Runtimes) -> NorthResult<Roster> {
     let home = home_dir()?;
-    Ok(runtimes.roster(&state_dir(&home), &home))
+    Ok(runtimes.roster(&state_dir(&home), &home, &crate::pace::target::policy_path()))
 }
 
 pub(super) fn state_dir(home: &Path) -> PathBuf {

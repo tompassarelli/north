@@ -28,8 +28,8 @@ impl Runtime for Claude {
         MODELS
     }
 
-    fn roster(&self, state_root: &Path, home: &Path) -> Roster {
-        accounts::discover(&self.provider(), state_root, &accounts::declared(home))
+    fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster {
+        accounts::discover(&self.provider(), state_root, &accounts::declared(policy, home))
     }
 
     fn assign_conversation(&self) -> NorthResult<Option<String>> {

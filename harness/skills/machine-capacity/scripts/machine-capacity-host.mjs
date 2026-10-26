@@ -142,6 +142,7 @@ function parsePsi(path, kind) {
 
 // Tests point this at fixture slices to check which slices count as pressure.
 const cgroupRoot = process.env.AGENT_CAPACITY_CGROUP_ROOT ?? '/sys/fs/cgroup';
+const hostCoreCount = Number(process.env.AGENT_CAPACITY_CORES) || cpus().length;
 
 function userManagerCgroup() {
   return `${cgroupRoot}/user.slice/user-${process.getuid()}.slice/user@${process.getuid()}.service`;
@@ -170,7 +171,7 @@ function readSignals() {
     fail('cannot read MemTotal and MemAvailable from /proc/meminfo');
   }
   return {
-    cores: Number(process.env.AGENT_CAPACITY_CORES) || cpus().length,
+    cores: hostCoreCount,
     memoryTotalMiB: fields.get('MemTotal'),
     memoryAvailableMiB: fields.get('MemAvailable'),
     cpuSomeAvg10BasisPoints: process.env.AGENT_CAPACITY_CPU_PRESSURE
@@ -1162,11 +1163,7 @@ async function main(argv) {
     const kind = parsed.values.get('--class') ?? 'moderate';
     if (!classNames.has(kind)) fail('unknown resource class');
     const owner = parsed.values.has('--owner') ? parseOwner(parsed.values) : undefined;
-    const db = capacityDatabase();
-    let estimate;
-    try { estimate = estimateCapacity(taskSignature(command, process.cwd(), kind), capacityHistory(db), cpus().length,
-      { owner, shape: commandShape(command) }); }
-    finally { db.close(); }
+    const estimate = estimateCommand(command, kind, owner, hostCoreCount);
     if (json) print(estimate);
     else process.stdout.write(`${estimate.signature.family} repo=${estimate.signature.repo ?? 'unknown'} package=${estimate.signature.package ?? 'none'} class=${estimate.class}\n`
       + `cores p50=${estimate.cores.p50} p90=${estimate.cores.p90}; peak memory MiB p50=${estimate.peakMemoryMiB.p50} p90=${estimate.peakMemoryMiB.p90}\n`

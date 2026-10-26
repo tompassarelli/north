@@ -27,7 +27,7 @@ impl Runtime for Codex {
         MODELS
     }
 
-    fn roster(&self, state_root: &Path, home: &Path) -> Roster {
+    fn roster(&self, state_root: &Path, home: &Path, _policy: &Path) -> Roster {
         accounts::discover(&self.provider(), state_root, home)
     }
 

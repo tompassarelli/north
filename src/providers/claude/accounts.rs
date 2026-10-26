@@ -42,8 +42,8 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
     Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() })
 }
 
-pub fn declared(home: &Path) -> Profiles {
-    let policy = std::fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse().ok());
+pub fn declared(policy: &Path, home: &Path) -> Profiles {
+    let policy = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok());
     policy.map(|policy| profiles(&policy, home, &crate::platform::host::name())).unwrap_or_default()
 }
 

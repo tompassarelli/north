@@ -42,7 +42,7 @@ pub enum Opening<'a> {
 pub trait Runtime: Send + Sync {
     fn provider(&self) -> ProviderName;
     fn models(&self) -> &'static [&'static str];
-    fn roster(&self, state_root: &Path, home: &Path) -> Roster;
+    fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster;
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec>;
     fn handshake(&self) -> Vec<String>;
@@ -89,8 +89,8 @@ impl Runtimes {
         self.0.iter().find_map(|runtime| runtime.caller_conversation())
     }
 
-    pub fn roster(&self, state_root: &Path, home: &Path) -> Roster {
-        self.0.iter().map(|runtime| runtime.roster(state_root, home)).fold(Roster::default(), Roster::merge)
+    pub fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster {
+        self.0.iter().map(|runtime| runtime.roster(state_root, home, policy)).fold(Roster::default(), Roster::merge)
     }
 }
 

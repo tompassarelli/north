@@ -27,6 +27,8 @@ mod letters;
 mod parents;
 mod senders;
 mod status;
+#[cfg(test)]
+mod testing;
 
 pub use follower::Follower;
 pub use home::roster;
@@ -46,20 +48,21 @@ pub struct Fleet {
     root: PathBuf,
     state: PathBuf,
     home: PathBuf,
+    policy: PathBuf,
     runtimes: Runtimes,
     ledger: Arc<dyn FleetBooks>,
 }
 
 impl Fleet {
     pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
-        Self::at(home_dir()?, runtimes, ledger)
+        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger)
     }
 
-    pub fn at(home: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
+    fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
         let state = state_dir(&home);
         let root = state.join("fleet");
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, runtimes, ledger })
+        Ok(Self { root, state, home, policy, runtimes, ledger })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
@@ -71,7 +74,7 @@ impl Fleet {
     }
 
     pub fn roster(&self) -> Roster {
-        self.runtimes.roster(&self.state, &self.home)
+        self.runtimes.roster(&self.state, &self.home, &self.policy)
     }
 
     pub fn accounts(&self) -> Vec<Account> {

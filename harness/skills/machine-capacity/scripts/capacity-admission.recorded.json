@@ -14,6 +14,7 @@
     ]
   },
   "profile": "attended",
+  "cores": 24,
   "aggregateCpuLimit": 20,
   "protectedCpuSomeAvg10": 0.03,
   "holding": [

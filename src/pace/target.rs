@@ -27,10 +27,14 @@ pub(crate) fn policy_path() -> PathBuf {
     if let Some(path) = env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
         return path.into();
     }
-    let operator = env::var_os("AGENTS_OPERATOR_DIR").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env::var_os("HOME").unwrap_or_default()).join("code/south/main/agents")
-    });
-    operator.join("orchestration.toml")
+    match env::var_os("AGENTS_OPERATOR_DIR") {
+        Some(operator) => PathBuf::from(operator).join("orchestration.toml"),
+        None => home_policy_path(Path::new(&env::var_os("HOME").unwrap_or_default())),
+    }
+}
+
+pub(crate) fn home_policy_path(home: &Path) -> PathBuf {
+    home.join("code/south/main/agents/orchestration.toml")
 }
 
 fn entry(item: &Item) -> Option<Target> {

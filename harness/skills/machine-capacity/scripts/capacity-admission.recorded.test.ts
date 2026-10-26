@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runningCpuCommitment } from './machine-capacity-logic.ts';
+import { aggregateCpus, runningCpuCommitment } from './machine-capacity-logic.ts';
 
 const here = import.meta.dir;
 const fixture = await Bun.file(join(here, 'capacity-admission.recorded.json')).json();
@@ -10,7 +10,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'capacity-admission-recorded-'));
 const root = join(scratch, 'agent-capacity-v1');
 mkdirSync(join(root, 'leases'), { recursive: true });
 mkdirSync(join(root, 'queue'));
-writeFileSync(join(root, 'mode'), 'present\n');
+writeFileSync(join(root, 'mode'), fixture.profile === 'attended' ? 'present\n' : 'away\n');
 writeFileSync(join(scratch, 'gpu'), '0\n');
 const wrapperStart = readFileSync(`/proc/${process.pid}/stat`, 'utf8').split(') ')[1].split(' ')[19];
 const ids: string[] = [];
@@ -25,7 +25,7 @@ for (const [index, holder] of fixture.holding.entries()) {
 }
 const env = {
   ...process.env, XDG_STATE_HOME: join(scratch, 'state'), AGENT_CAPACITY_DB: join(scratch, 'capacity.db'), XDG_RUNTIME_DIR: scratch, CAPACITY_WATCHDOG_DIR: scratch, AGENT_CAPACITY_CPU_PRESSURE: join(scratch, 'pressure'),
-  AGENT_CAPACITY_GPU_BUSY: join(scratch, 'gpu'), AGENT_CAPACITY_GPU_CLIENTS: '0',
+  AGENT_CAPACITY_GPU_BUSY: join(scratch, 'gpu'), AGENT_CAPACITY_GPU_CLIENTS: '0', AGENT_CAPACITY_CORES: String(fixture.cores),
 };
 function snapshot(protectedPressure: number, overload = false) {
   const now = Date.now();
@@ -44,7 +44,7 @@ function snapshot(protectedPressure: number, overload = false) {
   const status = invoke(['status']);
   const probe = invoke(['probe', '--class', 'moderate']);
   assert.equal(status.committedBatchCpus, probe.committedBatchCpus);
-  assert.equal(status.aggregateCpuLimit, fixture.aggregateCpuLimit);
+  assert.deepEqual([status.profile, status.aggregateCpuLimit, fixture.aggregateCpuLimit], [fixture.profile, aggregateCpus(fixture.profile, fixture.cores), aggregateCpus(fixture.profile, fixture.cores)]);
   writeFileSync(join(scratch, 'status.json'), JSON.stringify(status));
   const gate = Bun.spawnSync(['python3', '-c', `import sys,json;sys.path.insert(0,sys.argv[1]);import spawn_capacity;print(json.dumps(spawn_capacity.check({'tool_name':'spawn_agent','tool_input':{'message':'recorded capacity scenario'}})))`, join(here, '../../../hooks/lib')], {
     env: { ...env, PYTHONDONTWRITEBYTECODE: '1', SPAWN_CAPACITY_STATUS: join(scratch, 'status.json'), SPAWN_CAPACITY_HOME: scratch, AGENTS_ORG_FILE: join(scratch, 'no-org'), AGENTS_ORCHESTRATION: join(scratch, 'no-priority') },
