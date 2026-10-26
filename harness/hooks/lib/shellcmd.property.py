@@ -149,7 +149,7 @@ def exercise(name, home, cwd, boundary):
         database = Path(home) / '.local/state/threads/threads.db'
         database.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(database) as connection:
-            connection.executescript("CREATE TABLE items(title TEXT, body TEXT); CREATE TABLE events(kind TEXT, data TEXT); INSERT INTO items VALUES ('the orange bicycle beside the gate', 'repaint the garden shed blue tomorrow'); INSERT INTO events VALUES ('note', '{\"text\":\"the parcel went to the neighbour; authorization for landing and roles across providers and models account 873492 booking Q7R9Z2 contact native@example.test handle @native\"}');")
+            connection.executescript("CREATE TABLE items(title TEXT, body TEXT); CREATE TABLE events(kind TEXT, data TEXT); INSERT INTO items VALUES ('the orange bicycle beside the gate', 'repaint the garden shed blue tomorrow'); INSERT INTO events VALUES ('note', '{\"text\":\"the parcel went to the neighbour; authorization for landing and roles across providers and models account 873492 booking Q7R9Z2 contact native@example.test handle @native on 2026-10-26\"}');")
         active = Path(home) / 'activation.active'
         active.write_text('hook native-item-guard\n')
         env = dict(os.environ, NORTH_AGENT_ACTIVE=str(active), AGENT_NO_AUTHORING_HOOKS='0')
@@ -170,7 +170,7 @@ def exercise(name, home, cwd, boundary):
         for command in ['gh issue edit 5 --title "Harness landing RBAC: authorized roles across providers and models"',
                         'gh issue comment 5 --body "Harness landing RBAC: authorized roles across providers and models"',
                         'gh issue comment 5 --body "the orange bicycle beside the"',
-                        'gh issue comment 5 --body "ordinary authorization for landing and prose"',
+                        'gh issue comment 5 --body "ordinary authorization for landing and prose"', 'gh issue comment 5 --body "Tom chose this (2026-10-26)"',
                         'gh issue view life#1', 'gh issue view 5 --json title,body']:
             check(not native_entry(command), name + ' adjacent prose/read entry point', command)
             count += 1

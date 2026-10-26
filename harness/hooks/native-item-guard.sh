@@ -106,7 +106,7 @@ def word_shingles(text):
 
 def sensitive_tokens(text):
     return {t for t in re.findall(r"[\w@]+(?:[.+/-][\w@]+)*", text.casefold())
-            if len(t) >= 6 and ("@" in t or any(c.isdigit() for c in t))}
+            if len(t) >= 6 and ("@" in t or any(c.isdigit() for c in t)) and not re.fullmatch(r"\d{4}-\d\d-\d\d", t)}
 
 def native_texts():
     home = os.path.expanduser("~/.local/state/threads")
