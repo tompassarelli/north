@@ -67,6 +67,9 @@ impl Host {
         if let Some(path) = session_scope::login_path(&binary("systemctl")) {
             command.env("PATH", path);
         }
+        for key in &spec.env_remove {
+            command.env_remove(key);
+        }
         for (key, value) in &spec.env {
             command.env(key, value);
         }

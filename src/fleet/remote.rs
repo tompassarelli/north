@@ -99,6 +99,7 @@ mod tests {
             shared: false,
             argv: vec!["sh".into(), "-c".into(), r#"printf '%s|%s|%s' "$PWD" "$NORTH_REMOTE_PROBE" "$1""#.into(), "sh".into(), tricky.into()],
             env: vec![("NORTH_REMOTE_PROBE".into(), tricky.into())],
+            env_remove: Vec::new(),
             cwd: PathBuf::from("/"),
         };
         let remote = over_ssh(spec, &Machine { name: "far".into(), ssh: "tom@far".into() });

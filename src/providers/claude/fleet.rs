@@ -71,6 +71,7 @@ impl Runtime for Claude {
             shared: false,
             argv,
             env: claude_env(account, request),
+            env_remove: session_env::inherited_env(),
             cwd: request.cwd.clone(),
         })
     }

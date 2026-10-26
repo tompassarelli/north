@@ -19,6 +19,10 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
     env
 }
 
+pub(super) fn inherited_env() -> Vec<String> {
+    vec!["CLAUDE_CODE_CHILD_SESSION".into()]
+}
+
 pub(super) fn caller_conversation() -> Option<String> {
     std::env::var(CONVERSATION_ENV).ok().filter(|conversation| !conversation.is_empty())
 }

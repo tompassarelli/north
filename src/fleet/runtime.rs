@@ -17,6 +17,7 @@ pub struct HostSpec {
     pub shared: bool,
     pub argv: Vec<String>,
     pub env: Vec<(String, OsString)>,
+    pub env_remove: Vec<String>,
     pub cwd: PathBuf,
 }
 

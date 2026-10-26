@@ -95,6 +95,31 @@ fn a_launch_returns_once_its_prompt_has_started_the_first_turn_even_behind_slow_
 }
 
 #[test]
+fn a_session_launched_from_a_claude_child_session_does_not_inherit_its_child_marker() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let parent = [("CLAUDE_CODE_CHILD_SESSION", "1")];
+    let launched = north_as(root, "here", &parent, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &brief.display().to_string(), "start the box"]);
+    let host = fs::read_to_string(root.join(".local/state/north/fleet/narrow/host.pid")).unwrap_or_default().trim().to_owned();
+    let children = fs::read_to_string(format!("/proc/{host}/task/{host}/children")).unwrap_or_default();
+    let environs: Vec<(String, String)> = std::iter::once(host.clone())
+        .chain(children.split_whitespace().map(str::to_owned))
+        .map(|pid| (pid.clone(), String::from_utf8_lossy(&fs::read(format!("/proc/{pid}/environ")).unwrap_or_default()).into_owned()))
+        .collect();
+    north(root, &["fleet", "forget", "narrow"]);
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+    assert_eq!(environs.len(), 2, "the session host and its Claude child: {environs:?}");
+    for (pid, environ) in &environs {
+        let variables: Vec<&str> = environ.split('\0').collect();
+        assert!(variables.contains(&"NORTH_FLEET_SESSION=narrow"), "{pid}: {variables:?}");
+        assert!(!variables.iter().any(|variable| variable.starts_with("CLAUDE_CODE_CHILD_SESSION=")), "{pid}: {variables:?}");
+    }
+}
+
+#[test]
 fn a_launch_whose_first_turn_answers_not_logged_in_restarts_once_and_records_it() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();

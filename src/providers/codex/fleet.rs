@@ -42,6 +42,7 @@ impl Runtime for Codex {
             shared: false,
             argv: server.argv,
             env: server.env,
+            env_remove: Vec::new(),
             cwd: std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from),
         })
     }
