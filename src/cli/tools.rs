@@ -21,6 +21,7 @@ pub(super) enum Tool {
     Pace,
     Capacity,
     NexusRam,
+    Reclaim,
     SessionUnit,
     Runtime,
     Cloud,
@@ -44,6 +45,7 @@ impl Tool {
             "pace" => Self::Pace,
             "capacity" => Self::Capacity,
             "nexus-ram" => Self::NexusRam,
+            "reclaim" => Self::Reclaim,
             "session-unit" => Self::SessionUnit,
             "runtime" => Self::Runtime,
             "cloud" => Self::Cloud,
@@ -72,6 +74,7 @@ impl Tool {
             Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments, super::fleet::roster)),
             Self::Capacity => return ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_reserve_mib: crate::ops::pacing::placement::local_bar1_reserve_mib })),
             Self::NexusRam => return ExitCode::from(crate::ops::nexus_ram::run(arguments)),
+            Self::Reclaim => return ExitCode::from(crate::ops::reclaim::run(arguments)),
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Runtime => return ExitCode::from(crate::ops::runtime::run(arguments)),
         };
