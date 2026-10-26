@@ -72,7 +72,7 @@ pub(super) fn readable_path(db: &Connection, scratch: &std::path::Path) -> Resul
 pub(super) fn record(db: &Connection, readings: &[Value]) -> Result<(), String> {
     let transaction = db.unchecked_transaction().map_err(|e| e.to_string())?;
     {
-        let mut insert = transaction.prepare_cached("INSERT INTO usage(ts,provider,account,kind,name,used_pct,window_min,resets_at,amount,source) VALUES (?,?,?,?,?,?,?,?,?,?)").map_err(|e| e.to_string())?;
+        let mut insert = transaction.prepare_cached("INSERT INTO usage(ts,provider,account,kind,name,used_pct,window_min,resets_at,amount,source) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10 WHERE NOT EXISTS (SELECT 1 FROM usage WHERE provider IS ?2 AND account IS ?3 AND kind IS ?4 AND name IS ?5 AND ts IS ?1 AND source IS ?10)").map_err(|e| e.to_string())?;
         for row in readings {
             let values: Vec<_> = COLUMNS
                 .iter()
