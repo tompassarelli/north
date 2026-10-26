@@ -12,6 +12,8 @@ use toml_edit::{DocumentMut, Item};
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::Timestamp;
 
+use super::accounts::{config_file, default_home};
+
 mod landing;
 mod row;
 mod telemetry;
@@ -122,7 +124,7 @@ fn fleet_roles() -> HashMap<String, &'static str> {
 }
 
 fn roots(home: &Path, explicit: Option<PathBuf>, policy: Option<&DocumentMut>, host: &str) -> Vec<Root> {
-    let default = home.join(".claude");
+    let default = default_home(home);
     let mut configs = vec![(explicit.clone().unwrap_or_else(|| default.clone()), explicit)];
     let profiles = claude_policy(policy, "profiles").and_then(|profiles| profiles.as_table_like());
     for (_, hosts) in profiles.into_iter().flat_map(|table| table.iter()) {
@@ -146,7 +148,8 @@ fn claude_policy<'a>(policy: Option<&'a DocumentMut>, key: &str) -> Option<&'a I
 }
 
 fn account(home: &Path, config: Option<&Path>, policy: Option<&DocumentMut>) -> String {
-    let cache: Value = fs::read_to_string(config.unwrap_or(home).join(".claude.json")).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+    let default = default_home(home);
+    let cache: Value = fs::read_to_string(config_file(config.unwrap_or(&default), &default)).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     let uuid = [&cache["oauthAccount"]["accountUuid"], &cache["cachedUsageUtilization"]["accountUuid"]].into_iter().find_map(|uuid| uuid.as_str().filter(|uuid| !uuid.is_empty()));
     let identity = uuid.map(|uuid| format!("{:x}", Sha256::digest(uuid.as_bytes()))[..8].to_owned());
     let label = identity.and_then(|identity| claude_policy(policy, "labels")?.get(&identity)?.as_str().map(str::to_owned));

@@ -1,7 +1,10 @@
+use std::fs;
+
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::telemetry::{Prices, run_usage};
-use super::{CATALOG, DEFAULTS};
+use super::{CATALOG, DEFAULTS, roots};
 
 const PRICED: &str = r#"
 [models."claude:opus-medium"]
@@ -56,4 +59,19 @@ fn the_built_in_catalog_prices_every_claude_model_it_names() {
     for model in ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] {
         assert_eq!(weight(&prices, model).1, json!([]), "{model}");
     }
+}
+
+#[test]
+fn a_root_declared_at_claudes_default_home_takes_its_label_from_the_config_beside_it() {
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join(".claude/projects")).unwrap();
+    fs::create_dir_all(home.path().join("profile/projects")).unwrap();
+    fs::write(home.path().join(".claude.json"), json!({"oauthAccount": {"accountUuid": "account-one"}}).to_string()).unwrap();
+    let identity = &format!("{:x}", Sha256::digest(b"account-one"))[..8];
+    let policy = format!("[accounts.claude]\nlabels = {{ \"{identity}\" = \"a\" }}\nprofiles = {{ a = {{ here = {{ path = \"~/.claude\" }} }} }}\n");
+
+    let roots = roots(home.path(), Some(home.path().join("profile")), Some(&policy.parse().unwrap()), "here");
+
+    let accounts: Vec<&str> = roots.iter().map(|root| root.account.as_str()).collect();
+    assert_eq!(accounts, ["claude", "claude-a"]);
 }

@@ -56,7 +56,26 @@ fn the_declared_label_keeps_its_login_even_from_a_home_outside_the_fleet_profile
     let roster = discover(&ProviderName::new("claude"), &state, &declared);
     assert_eq!(labels(&roster), (vec!["a"], vec![("c", "b")]));
 
-    let two = super::identity(&state.join("profiles/claude-c")).unwrap();
+    let two = super::identity(&state.join("profiles/claude-c"), &declared.default_home).unwrap();
     declared.keepers.insert(two, "c".into());
     assert_eq!(labels(&discover(&ProviderName::new("claude"), &state, &declared)), (vec!["a", "c"], vec![]));
+}
+
+#[test]
+fn a_login_at_a_home_declared_for_this_host_is_listed_there_and_still_refused_as_a_duplicate() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join(".local/state/north");
+    let default = home.path().join(".claude");
+    fs::create_dir_all(&default).unwrap();
+    fs::write(default.join(".credentials.json"), "{}").unwrap();
+    fs::write(home.path().join(".claude.json"), json!({"oauthAccount": {"accountUuid": "account-one"}}).to_string()).unwrap();
+    profile(&state, "a", "account-two");
+    profile(&state, "b", "account-one");
+    let policy = "[accounts.claude]\nprofiles = { a = { here = { path = \"~/.claude\" }, elsewhere = { path = \"/nowhere\" } } }\n";
+    let declared = profiles(&policy.parse().unwrap(), home.path(), "here");
+
+    let roster = discover(&ProviderName::new("claude"), &state, &declared);
+
+    assert_eq!(labels(&roster), (vec!["a"], vec![("b", "a")]));
+    assert_eq!(roster.accounts[0].home, default);
 }

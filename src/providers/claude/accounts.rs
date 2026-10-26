@@ -10,19 +10,28 @@ use crate::fleet::roster::{Declared, Roster};
 use crate::fleet::runtime::labelled_homes;
 
 const PREFIX: &str = "claude-";
+const CREDENTIALS: &str = ".credentials.json";
 
 #[derive(Debug, Default)]
 pub struct Profiles {
     pub keepers: BTreeMap<String, String>,
     pub homes: Vec<(String, PathBuf)>,
     pub elsewhere: BTreeMap<String, Vec<String>>,
+    pub default_home: PathBuf,
 }
 
 pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles) -> Roster {
-    let mut found: Vec<(Account, Option<String>)> = labelled_homes(&state_root.join("profiles"), PREFIX, ".credentials.json")
+    let mut homes: Vec<(String, PathBuf)> = profiles.homes.iter().filter(|(_, home)| home.join(CREDENTIALS).is_file()).cloned().collect();
+    for (label, home) in labelled_homes(&state_root.join("profiles"), PREFIX, CREDENTIALS) {
+        if !homes.iter().any(|(declared, _)| declared == &label) {
+            homes.push((label, home));
+        }
+    }
+    homes.sort();
+    let mut found: Vec<(Account, Option<String>)> = homes
         .into_iter()
         .map(|(label, home)| {
-            let identity = identity(&home);
+            let identity = identity(&home, &profiles.default_home);
             (Account { provider: provider.clone(), label, home }, identity)
         })
         .collect();
@@ -37,14 +46,18 @@ pub fn discover(provider: &ProviderName, state_root: &Path, profiles: &Profiles)
         .homes
         .iter()
         .filter(|(label, _)| !found.iter().any(|(account, _)| &account.label == label))
-        .filter_map(|(label, home)| Some((label.clone(), identity(home)?)))
+        .filter_map(|(label, home)| Some((label.clone(), identity(home, &profiles.default_home)?)))
         .collect();
     Roster::distinct(found, &Declared { keepers: profiles.keepers.clone(), holders, elsewhere: profiles.elsewhere.clone() })
 }
 
 pub fn declared(policy: &Path, home: &Path) -> Profiles {
-    let policy = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok());
-    policy.map(|policy| profiles(&policy, home, &crate::platform::host::name())).unwrap_or_default()
+    let policy = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    profiles(&policy, home, &crate::platform::host::name())
+}
+
+pub(super) fn default_home(home: &Path) -> PathBuf {
+    home.join(".claude")
 }
 
 fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
@@ -63,11 +76,15 @@ fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
             (!owners.is_empty() && !owners.iter().any(|owner| owner == here)).then(|| (label.to_owned(), owners))
         })
         .collect();
-    Profiles { keepers, homes, elsewhere }
+    Profiles { keepers, homes, elsewhere, default_home: default_home(home) }
 }
 
-fn identity(home: &Path) -> Option<String> {
-    let config: Value = serde_json::from_str(&std::fs::read_to_string(home.join(".claude.json")).ok()?).ok()?;
+pub(super) fn config_file(home: &Path, default: &Path) -> PathBuf {
+    if home == default { home.with_file_name(".claude.json") } else { home.join(".claude.json") }
+}
+
+fn identity(home: &Path, default: &Path) -> Option<String> {
+    let config: Value = serde_json::from_str(&std::fs::read_to_string(config_file(home, default)).ok()?).ok()?;
     let uuid = config["oauthAccount"]["accountUuid"].as_str().filter(|uuid| !uuid.is_empty())?;
     Some(format!("{:x}", Sha256::digest(uuid.as_bytes()))[..8].to_owned())
 }
