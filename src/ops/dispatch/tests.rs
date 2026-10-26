@@ -349,3 +349,16 @@ fn the_laptops_copied_lists_hold_their_issues_even_when_old() {
     let gated = super::survey::gate_rows(&super::survey::mirrored(directory.path(), "gates", "whiterabbit", now, &mut notes), "whiterabbit");
     assert_eq!(gated[0].0, IssueRef::new("smashcraft", 2));
 }
+
+#[test]
+fn an_unticked_native_done_when_box_or_native_evidence_label_keeps_a_box_out_of_the_cloud_lane() {
+    let (hosts, accounts) = fleet();
+    let tagged = issue("smashcraft", 50, "- [x] (headless run) checks pass\n- [ ] (native) three cold viewers call it one chop", &[]);
+    let labelled = issue("smashcraft", 51, "- [ ] a", &["evidence:native"]);
+    let landed = issue("smashcraft", 52, "- [x] (native) captured\n- [ ] (headless run) checks pass", &[]);
+    let reachable = survey(vec![tagged, labelled, landed], Cloud::Reachable("cloud credit: unread".into()), hosts, accounts);
+    let launched = placed(&reachable);
+    let couriers: Vec<&str> = launched.iter().filter(|row| row.3).map(|row| row.0.as_str()).collect();
+    assert_eq!(couriers, ["smashcraft#52"], "only the box whose native box is ticked is code-only: {launched:?}");
+    assert!(launched.iter().filter(|row| !row.3).all(|row| row.1 == "gex45"), "native smashcraft boxes go to the host serving native: {launched:?}");
+}

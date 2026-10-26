@@ -3,7 +3,7 @@
 use super::issues::{Issue, OWNER};
 
 const FACETS: [(&str, &str); 5] = [("Category", "feature"), ("Spec", "exact"), ("Scope", "module"), ("Surface", "ts"), ("Verify", "local-test")];
-const NATIVE_LABELS: [&str; 2] = ["needs:native-pair", "needs:native-single"];
+const NATIVE_LABELS: [&str; 3] = ["needs:native-pair", "needs:native-single", "evidence:native"];
 pub(crate) const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
 
 fn declared<'a>(issue: &'a Issue, key: &str) -> Option<&'a str> {
@@ -14,8 +14,17 @@ fn declared<'a>(issue: &'a Issue, key: &str) -> Option<&'a str> {
     })
 }
 
+/// A box needs a native lane when a label says so or an unticked Done-when box is tagged `(native)`.
+fn native(issue: &Issue) -> bool {
+    issue.labelled(&NATIVE_LABELS).is_some()
+        || issue.body.lines().any(|line| {
+            let line = line.trim_start();
+            line.strip_prefix("- [ ]").or_else(|| line.strip_prefix("* [ ]")).is_some_and(|rest| rest.trim_start().starts_with("(native"))
+        })
+}
+
 fn facet(issue: &Issue, key: &str, default: &str) -> String {
-    let native = issue.labelled(&NATIVE_LABELS).is_some();
+    let native = native(issue);
     match (key, declared(issue, key)) {
         (_, Some(value)) => value.to_owned(),
         ("Verify", None) if native => "native".into(),
@@ -29,7 +38,7 @@ pub(crate) fn brief(issue: &Issue, launched_by: &str) -> String {
     let reference = issue.reference();
     let mut head = vec![format!("Item: {reference} {}", issue.title), format!("Repository: {OWNER}/{}", issue.repo)];
     head.extend(FACETS.iter().map(|(key, default)| format!("{key}: {}", facet(issue, key, default))));
-    let needs = declared(issue, "Needs").map(str::to_owned).or_else(|| issue.labelled(&NATIVE_LABELS).map(|_| "native".to_owned()));
+    let needs = declared(issue, "Needs").map(str::to_owned).or_else(|| native(issue).then(|| "native".to_owned()));
     head.extend(needs.map(|needs| format!("Needs: {needs}")));
     head.push(format!(
         "Done when: every Done-when box of {reference} is ticked with its evidence, the change is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA."
