@@ -232,8 +232,8 @@ def latest(db):
     db.row_factory = sqlite3.Row
     hosted = hosted_claude()
     return [dict(r) for r in db.execute(
-        "SELECT * FROM usage u WHERE rowid = (SELECT rowid FROM usage WHERE provider = u.provider AND account = u.account"
-        " AND kind = u.kind AND name = u.name ORDER BY ts DESC, rowid DESC LIMIT 1)"
+        "SELECT * FROM usage WHERE rowid IN (SELECT (SELECT rowid FROM usage WHERE provider = k.provider AND account = k.account"
+        " AND kind = k.kind AND name = k.name ORDER BY ts DESC, rowid DESC LIMIT 1) FROM (SELECT DISTINCT provider, account, kind, name FROM usage) k)"
         " ORDER BY provider, account, kind DESC, window_min, name")
             if r["provider"] != "claude" or not hosted or r["account"] in hosted]
 
