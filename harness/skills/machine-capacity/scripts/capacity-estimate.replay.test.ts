@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { estimateCapacity, estimateDuration, type CapacityRun } from './machine-capacity-logic.ts';
 
 const fixture = process.argv[2] ?? new URL('./capacity-usage.recorded.jsonl', import.meta.url);
-const rows: CapacityRun[] = readFileSync(fixture, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-rows.sort((a, b) => a.at.localeCompare(b.at));
+const recorded: CapacityRun[] = readFileSync(fixture, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+const rows = recorded.filter(run => run.shape !== 'nix develop' && run.shape !== 'nix shell').sort((a, b) => a.at.localeCompare(b.at));
 const cutoff = Date.parse(rows.at(-1)!.at) - 7 * 86400000;
 const earlier: CapacityRun[] = [];
 const scored: { signature: string; level: string; measured: number; estimate: number; error: number; floorPassed: boolean }[] = [];
@@ -31,7 +31,7 @@ for (let index = 0; index < rows.length;) {
 const passed = scored.filter(run => run.error <= 0.3).length;
 const share = scored.length === 0 ? 0 : passed / scored.length;
 console.log(`Recorded replay: ${rows.length} rows; last 7 days ending ${rows.at(-1)!.at}; strictly earlier timestamps only`);
-console.log(`Excluded: missing p90=${missing}; declared defaults=${defaults}; scored=${scored.length}`);
+console.log(`Excluded: nix develop/shell shapes recorded before inner-command shaping=${recorded.length - rows.length}; missing p90=${missing}; declared defaults=${defaults}; scored=${scored.length}`);
 console.log(`Strict ±30% primary: ${passed}/${scored.length} = ${(share * 100).toFixed(2)}%; required >=80%`);
 const report = (label: string, runs: typeof scored, predicate: (run: typeof scored[number]) => boolean) => {
   const count = runs.filter(predicate).length;

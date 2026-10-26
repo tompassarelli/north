@@ -217,6 +217,7 @@ export interface CapacityRun {
 export const estimateRuns = DEFAULTS["capacity_sizing_runs"];
 
 export const ownerPrefix = (owner: string): string => owner.match(/^[A-Za-z]*/)![0];
+const pooledFamily = (family: string) => family === 'other' ? null : family;
 
 export interface CapacityQuery {
   owner?: string | null;
@@ -244,8 +245,7 @@ export function estimateDuration(signature: TaskSignature, history: readonly Cap
 }
 
 export function estimateCapacity(signature: TaskSignature, history: readonly CapacityRun[], cores: number, query: CapacityQuery = {}) {
-  const valid = history.filter(run => Number.isFinite(run.p90Cores) && run.p90Cores !== null && run.p90Cores >= 0)
-    .sort((a, b) => a.at.localeCompare(b.at));
+  const valid = history.filter(run => Number.isFinite(run.p90Cores) && run.p90Cores !== null && run.p90Cores >= 0).sort((a, b) => a.at.localeCompare(b.at));
   const conservativeClass = signature.family === 'native client' ? 'native'
     : ['cargo build', 'cargo test', 'bun test', 'wisp render', 'firn rebuild'].includes(signature.family) ? 'heavy' : null;
   const unseenExpensive = conservativeClass !== null && signature.exact && !valid.some(run => run.signature.exact
@@ -255,7 +255,7 @@ export function estimateCapacity(signature: TaskSignature, history: readonly Cap
     ['owner-shape', (run: CapacityRun) => typeof query.owner === 'string' && typeof query.shape === 'string' && run.owner === query.owner && run.shape === query.shape],
     ['owner-prefix-shape-class', (run: CapacityRun) => typeof query.owner === 'string' && typeof query.shape === 'string' && typeof run.owner === 'string' && ownerPrefix(run.owner) === ownerPrefix(query.owner) && run.shape === query.shape && run.signature.class === signature.class],
     ['family-repo', (run: CapacityRun) => signature.repo !== null && run.signature.family === signature.family && run.signature.repo === signature.repo],
-    ['family', (run: CapacityRun) => run.signature.family === signature.family],
+    ['family', (run: CapacityRun) => run.signature.family === pooledFamily(signature.family)],
   ] as const;
   const duration = estimateDuration(signature, history);
   for (const [matchLevel, matches] of levels) {
