@@ -29,7 +29,7 @@ fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
 }
 
 fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {
-    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), headroom, refusal: None }
+    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), headroom, spending: false, refusal: None }
 }
 
 fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
@@ -156,6 +156,18 @@ fn a_box_whose_only_open_line_waits_on_a_future_time_is_skipped_until_that_time_
 
 fn placed(survey: &Survey) -> Vec<(String, String, String, bool, Option<String>)> {
     decide(survey, "test").launches.into_iter().map(|launch| (launch.item.to_string(), launch.host, launch.account, launch.courier, launch.local)).collect()
+}
+
+#[test]
+fn an_account_with_a_live_spend_target_takes_the_slot_over_one_with_more_headroom() {
+    let hosts = vec![host("gex45", 24, Ok(22))];
+    let spending = Account { spending: true, ..account("claude:c", &["gex45"], 14.0) };
+    let accounts = vec![account("claude:a", &["gex45"], 15.0), spending];
+    let boxes = vec![issue("smashcraft", 20, "- [ ] a", &[]), issue("smashcraft", 21, "- [ ] b", &[])];
+    let unreachable = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
+    let outcome = decide(&unreachable, "test");
+    let chosen: Vec<(&str, Option<&str>)> = outcome.launches.iter().map(|launch| (launch.account.as_str(), launch.pin.as_deref())).collect();
+    assert_eq!(chosen, [("claude:c", None), ("claude:c", None)]);
 }
 
 #[test]

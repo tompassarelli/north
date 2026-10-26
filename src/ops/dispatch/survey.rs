@@ -207,6 +207,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64) -> Vec<Acco
                 name: name.clone(),
                 hosts: signed_in(cfg, roster, name, here),
                 headroom: verdict.as_ref().map_or(0.0, |verdict| verdict.headroom),
+                spending: control["target"]["by"].as_str().and_then(crate::pace::target::seconds).is_some_and(|by| by > at),
                 refusal: refusal(name, control, verdict.as_ref(), at),
             }
         })

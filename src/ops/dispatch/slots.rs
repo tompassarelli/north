@@ -33,6 +33,8 @@ pub(crate) struct Account {
     /// Hosts the account is signed in on.
     pub hosts: Vec<String>,
     pub headroom: f64,
+    /// Whether a pace spend target (`[pace."A"] spend_to_pct` by `by`) is live for the account.
+    pub spending: bool,
     /// Why the out-rule keeps the account out, if it does.
     pub refusal: Option<String>,
 }

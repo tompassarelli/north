@@ -2,6 +2,7 @@
 //! reachable here and has a free courier slot, else the first host in placement order that serves the box and has a free slot.
 use super::issues::IssueRef;
 use super::slots::{Account, Pools};
+use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Cloud {
@@ -47,12 +48,13 @@ pub(crate) struct Capacity<'a> {
     pub accounts: &'a [Account],
 }
 
+/// An account with a live spend target outranks headroom, since Tom set the target to drain it first.
+fn rank(a: &Account, b: &Account) -> Ordering {
+    a.spending.cmp(&b.spending).then(a.headroom.total_cmp(&b.headroom)).then(b.name.cmp(&a.name))
+}
+
 fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str) -> Option<&'a Account> {
-    capacity
-        .accounts
-        .iter()
-        .filter(|account| pools.pair(host, &account.name) > 0)
-        .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.name.cmp(&a.name)))
+    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0).max_by(|a, b| rank(a, b))
 }
 
 /// A pin reason when an open account with more headroom runs elsewhere, since placement on the
@@ -62,8 +64,8 @@ fn pin(capacity: &Capacity, host: &str, chosen: &Account) -> Option<String> {
         .accounts
         .iter()
         .filter(|account| account.provider() == chosen.provider() && account.refusal.is_none())
-        .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.name.cmp(&a.name)))?;
-    (placed.name != chosen.name && placed.headroom > chosen.headroom)
+        .max_by(|a, b| rank(a, b))?;
+    (placed.name != chosen.name && rank(placed, chosen) == Ordering::Greater)
         .then(|| format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name))
 }
 
