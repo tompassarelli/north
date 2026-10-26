@@ -49,6 +49,7 @@ fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Acco
         cloud,
         laptop: Some("whiterabbit".into()),
         notes: Vec::new(),
+        at: 0.0,
     }
 }
 
@@ -120,7 +121,7 @@ fn a_ready_box_is_open_unticked_unheld_not_toms_and_after_its_closed_predecessor
     let open: BTreeSet<IssueRef> = issues.iter().map(Issue::reference).chain([IssueRef::new("north", 190)]).collect();
     let holds = BTreeMap::from([(IssueRef::new("smashcraft", 17), "fleet session sc-17-a on gex45".to_owned())]);
     let planned = issues::planned_predecessors(&issues);
-    let world = World { open: &open, holds: &holds, planned: &planned };
+    let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
     let verdict = |number: usize| issues::readiness(&issues[number], &world);
     assert_eq!(verdict(0), Err("labelled roadmap: its child issues are the boxes".into()));
     assert_eq!(verdict(1), Ok(()), "the first planned box is ready");
@@ -133,6 +134,24 @@ fn a_ready_box_is_open_unticked_unheld_not_toms_and_after_its_closed_predecessor
     assert_eq!(verdict(8), Err("held by fleet session sc-17-a on gex45".into()));
     assert_eq!(verdict(9), Err("waits on open north#190".into()));
     assert_eq!(verdict(10), Err("waits on open smashcraft#10".into()), "a plan in another repository orders it too");
+}
+
+#[test]
+fn a_box_whose_only_open_line_waits_on_a_future_time_is_skipped_until_that_time_passes() {
+    let gated = issue("wisp", 3, "- [x] wired\n- [ ] Autoland refusals over the 7-day window (not before 2026-10-26T05:13Z)", &[]);
+    let mixed = issue("wisp", 4, "- [ ] count (not before 2026-10-26T05:13Z)\n- [ ] measurable now", &[]);
+    let both = issue("wisp", 5, "- [ ] a (not before 2026-10-27T00:00Z)\n- [ ] b (not before 2026-10-26T05:13Z)", &[]);
+    let (open, holds, planned) = (BTreeSet::new(), BTreeMap::new(), BTreeMap::new());
+    let at = |at: f64| World { open: &open, holds: &holds, planned: &planned, at };
+    let marked = 1_792_991_580.0;
+    assert_eq!(issues::readiness(&gated, &at(marked - 60.0)), Err("only open box waits until 2026-10-26T05:13Z".into()));
+    assert_eq!(issues::readiness(&gated, &at(marked)), Ok(()), "the box is staffed once its time has come");
+    assert_eq!(issues::readiness(&mixed, &at(marked - 60.0)), Ok(()), "an ungated open box is work now");
+    assert_eq!(issues::readiness(&both, &at(marked - 60.0)), Err("every open box waits, the first until 2026-10-26T05:13Z".into()));
+    assert_eq!(issues::readiness(&both, &at(marked)), Ok(()));
+    let (hosts, accounts) = fleet();
+    let staffed = |at: f64| placed(&Survey { at, ..survey(vec![gated.clone()], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()) }).len();
+    assert_eq!((staffed(marked - 60.0), staffed(marked + 60.0)), (0, 1));
 }
 
 fn placed(survey: &Survey) -> Vec<(String, String, String, bool, Option<String>)> {
@@ -251,7 +270,7 @@ fn an_open_gate_on_any_host_holds_each_issue_it_names() {
 fn a_box_whose_newest_report_waits_on_tom_or_the_laptop_is_not_ready() {
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
-    let world = World { open: &open, holds: &holds, planned: &planned };
+    let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
     let reported = |report: &str| issues::readiness(&Issue { report: report.into(), ..issue("smashcraft", 2, "- [ ] upload", &[]) }, &world);
     let why = reported("Upload attempt blocked again.\n\nThe fix waits on Tom's decision in laptop gate 56: bridge or unlock. Nothing was uploaded.").unwrap_err();
     assert_eq!(why, "its newest report waits: The fix waits on Tom's decision in laptop gate 56: bridge or unlock");

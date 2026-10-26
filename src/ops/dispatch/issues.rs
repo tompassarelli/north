@@ -17,6 +17,8 @@ static WAITS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:(?:waits?|waiting|blocked|held)\s+(?:on|for|by)|awaiting|needs)\s+(?:Tom\b|the laptop\b)|\bnext step is Tom's\b|\bStop:\s*decision\b").expect("waits pattern")
 });
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
+static NOT_BEFORE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\(not before ((\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})Z)\)").expect("not-before pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"github\.com/([\w.-]+)/([\w.-]+)/issues/(\d+)|(?:([\w.-]+)/)?([A-Za-z][\w.-]*)?#(\d+)").expect("reference pattern")
 });
@@ -66,6 +68,18 @@ impl Issue {
         UNTICKED.find_iter(&self.body).count()
     }
 
+    pub(crate) fn gated_until(&self, at: f64) -> Option<&str> {
+        let mut earliest: Option<(i64, &str)> = None;
+        for line in self.body.lines().filter(|line| UNTICKED.is_match(line)) {
+            let (when, text) = NOT_BEFORE.captures_iter(line).filter_map(|found| Some((not_before(&found)?, found.get(1)?.as_str()))).max()?;
+            if when as f64 <= at {
+                return None;
+            }
+            earliest = Some(earliest.map_or((when, text), |first| first.min((when, text))));
+        }
+        earliest.map(|(_, text)| text)
+    }
+
     pub(crate) fn labelled(&self, names: &[&str]) -> Option<&str> {
         self.labels.iter().map(String::as_str).find(|label| names.contains(label))
     }
@@ -109,6 +123,13 @@ pub(crate) fn references(text: &str, repo: &str) -> Vec<IssueRef> {
             }
         })
         .collect()
+}
+
+fn not_before(found: &regex::Captures) -> Option<i64> {
+    let part = |index: usize| found.get(index)?.as_str().parse::<u8>().ok();
+    let year = found.get(2)?.as_str().parse().ok()?;
+    let date = time::Date::from_calendar_date(year, time::Month::try_from(part(3)?).ok()?, part(4)?).ok()?;
+    Some(date.with_time(time::Time::from_hms(part(5)?, part(6)?, 0).ok()?).assume_utc().unix_timestamp())
 }
 
 fn line_values<'a>(body: &'a str, key: &str) -> impl Iterator<Item = &'a str> {
@@ -177,6 +198,7 @@ pub(crate) struct World<'a> {
     pub open: &'a BTreeSet<IssueRef>,
     pub holds: &'a BTreeMap<IssueRef, String>,
     pub planned: &'a BTreeMap<IssueRef, BTreeSet<IssueRef>>,
+    pub at: f64,
 }
 
 /// Ok when the issue is ready to staff, else why not.
@@ -184,6 +206,10 @@ pub(crate) fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     let reference = issue.reference();
     if issue.unticked() == 0 {
         return Err("no unticked Done-when box".into());
+    }
+    if let Some(until) = issue.gated_until(world.at) {
+        let boxes = if issue.unticked() == 1 { "only open box waits" } else { "every open box waits, the first" };
+        return Err(format!("{boxes} until {until}"));
     }
     if let Some(label) = issue.labelled(&TOM_LABELS) {
         return Err(format!("labelled {label}, so Tom decides"));

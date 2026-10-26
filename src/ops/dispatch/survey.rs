@@ -35,6 +35,7 @@ pub(crate) struct Survey {
     /// The host reached through the laptop job queue, when one serves `laptop`.
     pub laptop: Option<String>,
     pub notes: Vec<String>,
+    pub at: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -312,7 +313,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }
     let cloud = cloud(&cfg, &here, at);
-    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, notes })
+    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, notes, at })
 }
 
 mod github {
