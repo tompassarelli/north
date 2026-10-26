@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -20,6 +19,7 @@ use crate::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::fleet_placement::{self, Launch, Overrides, Placed};
+use super::fleet_revive;
 use super::{gate, orders, relay};
 
 const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
@@ -101,7 +101,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
         [verb, name] => session_verb(&fleet, verb, name),
-        ["revive", name, rest @ ..] => revive_with(&fleet, name, rest),
+        ["revive", name, rest @ ..] => fleet_revive::revive_with(&fleet, name, rest),
         ["show", name, flag] => show_with(&fleet, name, flag),
         _ => Err(usage()),
     }
@@ -112,42 +112,13 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
         "interrupt" => fleet.interrupt(name),
         "stop" => fleet.stop(name),
         "forget" => fleet.forget(name),
-        "revive" => revive(fleet, name, None, None, Overrides::default()),
+        "revive" => fleet_revive::revive(fleet, name, None, None, Overrides::default()),
         "show" => show(fleet, name, false),
         "watchdog" => fleet.guard(name),
         _ => Err(usage()),
     }
 }
 
-fn revive_with(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
-    let (mut system_prompt, mut effort, mut overrides) = (None, None, Overrides::default());
-    for pair in words.chunks(2) {
-        match pair {
-            ["--system-prompt", file] => system_prompt = Some(absolute(file)?),
-            ["--effort", level] => effort = Some(Effort::parse(level)?),
-            [flag, value] if overrides.set(flag, value) => {}
-            _ => return Err(usage()),
-        }
-    }
-    revive(fleet, name, system_prompt, effort, overrides)
-}
-
-/// Revive re-runs placement for a stopped Claude session, keeping the reasons its launch recorded and
-/// the machine its conversation lives on.
-fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides) -> NorthResult<()> {
-    let record = fleet.session(name)?;
-    if let (Some(machine), Some(_)) = (&record.machine, &overrides.local) {
-        return Err(NorthError::Usage(format!("{name}'s conversation lives on {}, so it revives there; launch a new session to work here", machine.name)));
-    }
-    let mut placement = None;
-    if record.provider.label() == "claude" && !record.verification && !fleet.running(&record) {
-        let overrides = overrides.recorded(record.placement.as_deref());
-        let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
-        let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
-        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &machine_load(fleet)?, &fleet.roster())?.note;
-    }
-    fleet.revive_placed(name, system_prompt, placement, effort).map(|record| println!("{}", record.name))
-}
 
 fn show_with(fleet: &Fleet, name: &str, flag: &str) -> NorthResult<()> {
     match flag {
@@ -270,18 +241,7 @@ fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides) -> Nort
     }
     let text = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()) };
-    fleet_placement::check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster())
-}
-
-/// Live fleet sessions per machine they run on, which those machines cannot count themselves.
-fn machine_load(fleet: &Fleet) -> NorthResult<BTreeMap<String, i64>> {
-    let mut load = BTreeMap::new();
-    for record in fleet.sessions()? {
-        if let Some(machine) = record.machine.as_ref().filter(|_| fleet.running(&record)) {
-            *load.entry(machine.name.clone()).or_default() += 1;
-        }
-    }
-    Ok(load)
+    fleet_placement::check(&launch, &text, overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster())
 }
 
 #[derive(Default)]

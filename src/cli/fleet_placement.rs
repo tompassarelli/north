@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Machine;
+use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::binary;
 use crate::ops::dispatch::{cloud_autoland, cloud_branch};
@@ -173,6 +174,17 @@ fn cloud_command(launch: &Launch, credit: &str, surface: &str, text: &str) -> St
          To run it here anyway, relaunch with --local \"<reason>\".",
         name = launch.name,
     )
+}
+
+/// Live fleet sessions per machine they run on, which those machines cannot count themselves.
+pub(super) fn machine_load(fleet: &Fleet) -> NorthResult<BTreeMap<String, i64>> {
+    let mut load = BTreeMap::new();
+    for record in fleet.sessions()? {
+        if let Some(machine) = record.machine.as_ref().filter(|_| fleet.running(&record)) {
+            *load.entry(machine.name.clone()).or_default() += 1;
+        }
+    }
+    Ok(load)
 }
 
 #[cfg(test)]
