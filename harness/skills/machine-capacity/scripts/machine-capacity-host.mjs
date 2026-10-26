@@ -130,7 +130,8 @@ function parseClass(values, cores) {
   if (!Number.isFinite(resources.cpus) || !Number.isFinite(resources.memoryMiB)) {
     fail(`policy rejected resource class: ${name}`);
   }
-  return { name, ...resources, newClients: !values.has('--new-clients') ? Number(name === 'native') : name === 'native' ? parseNonnegativeInteger(values.get('--new-clients'), '--new-clients') : fail('--new-clients declares a native request\'s clients') };
+  const newClients = !values.has('--new-clients') ? Number(name === 'native') : name === 'native' ? parseNonnegativeInteger(values.get('--new-clients'), '--new-clients') : fail('--new-clients declares a native request\'s clients');
+  return { name, ...resources, newClients, ...(values.has('--wait-seconds') ? { waitSeconds: newClients > 0 ? parsePositiveInteger(values.get('--wait-seconds'), '--wait-seconds') : fail('--wait-seconds queues a native client start (--new-clients above 0)') } : {}) };
 }
 
 function parsePsi(path, kind) {
@@ -578,6 +579,7 @@ function measureScope(root, lease, cgroup) {
   };
 }
 
+const known = value => value ?? 'unknown';
 const round = (value, digits = 2) => Math.round(value * 10 ** digits) / 10 ** digits;
 
 function recordUsage(entry) {
@@ -846,9 +848,9 @@ function decision(root, requested, create, ticket = null) {
     const beforeDrain = seconds => Number.isSafeInteger(seconds) && now + seconds * 1000 + runLeaseGraceMilliseconds <= drainEndsAt;
     const exclusiveWaiting = queue.filter(entry => entry.class === 'exclusive'
       && (requested.name !== 'exclusive' || ticket === null || entry.name < ticket)).length;
-    // Gpu tickets wait for render slots in their own line, so they hold no CPU work.
+    // Gpu tickets wait for render slots and native tickets for client slots, each in their own line, so they hold no CPU work.
     const ahead = queue.filter(entry => (ticket === null || entry.name < ticket)
-      && (entry.class === 'gpu') === (requested.name === 'gpu') && entry.class !== 'exclusive'
+      && (entry.class === 'gpu') === (requested.name === 'gpu') && (entry.class === 'native') === (requested.name === 'native') && entry.class !== 'exclusive'
       && (exclusiveWaiting === 0 || entry.class !== 'heavy' || beforeDrain(entry.timeoutSeconds)));
     const leased = totals(active);
     const accounting = cpuAccounting(root, active, now);
@@ -1040,9 +1042,9 @@ function leaseChange(root, milliseconds) {
   });
 }
 
-// Batch work is held in arrival order until admitted, refused only when a quiet native session outlasts its timeout.
+// Batch work, and a native client start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or a quiet native session outlasts its timeout (REFUSED).
 async function admit(root, requested, create) {
-  if (!batchClass(requested.name)) return decision(root, requested, create);
+  if (!batchClass(requested.name) && requested.waitSeconds === undefined) return decision(root, requested, create);
   const queuedAt = Date.now();
   const ticket = enqueue(root, admittedClass(requested), requested.name, create.owner, create.timeoutSeconds);
   const leave = signal => () => {
@@ -1055,7 +1057,7 @@ async function admit(root, requested, create) {
     let reported = null;
     for (;;) {
       const result = { ...decision(root, requested, create, ticket), queuedSeconds: round((Date.now() - queuedAt) / 1000) };
-      if (result.decision === 'RESERVED') return result;
+      if (result.decision === 'RESERVED' || result.queuedSeconds >= (requested.waitSeconds ?? Infinity)) return result;
       if (result.reason === 'DEFER_NATIVE_QUIET' && create.timeoutSeconds !== null && result.queuedSeconds >= create.timeoutSeconds) return { ...result, decision: 'REFUSED' };
       if (result.reason !== reported) {
         print({ ...result, decision: 'QUEUED' }, 2);
@@ -1165,9 +1167,9 @@ async function main(argv) {
     const owner = parsed.values.has('--owner') ? parseOwner(parsed.values) : undefined;
     const estimate = estimateCommand(command, kind, owner, hostCoreCount);
     if (json) print(estimate);
-    else process.stdout.write(`${estimate.signature.family} repo=${estimate.signature.repo ?? 'unknown'} package=${estimate.signature.package ?? 'none'} class=${estimate.class}\n`
+    else process.stdout.write(`${estimate.signature.family} repo=${known(estimate.signature.repo)} package=${estimate.signature.package ?? 'none'} class=${estimate.class}\n`
       + `cores p50=${estimate.cores.p50} p90=${estimate.cores.p90}; peak memory MiB p50=${estimate.peakMemoryMiB.p50} p90=${estimate.peakMemoryMiB.p90}\n`
-      + `I/O read bytes p50=${estimate.ioReadBytes.p50 ?? 'unknown'} p90=${estimate.ioReadBytes.p90 ?? 'unknown'}; write bytes p50=${estimate.ioWriteBytes.p50 ?? 'unknown'} p90=${estimate.ioWriteBytes.p90 ?? 'unknown'}; disk busy share p50=${estimate.diskBusyShare.p50 ?? 'unknown'} p90=${estimate.diskBusyShare.p90 ?? 'unknown'} (${estimate.diskBusyBasis})\n`
+      + `I/O read bytes p50=${known(estimate.ioReadBytes.p50)} p90=${known(estimate.ioReadBytes.p90)}; write bytes p50=${known(estimate.ioWriteBytes.p50)} p90=${known(estimate.ioWriteBytes.p90)}; disk busy share p50=${known(estimate.diskBusyShare.p50)} p90=${known(estimate.diskBusyShare.p90)} (${estimate.diskBusyBasis})\n`
       + `samples=${estimate.sampleCount} match=${estimate.matchLevel} confidence=${estimate.confidence} I/O samples=${estimate.ioSampleCount}\n`);
     return 0;
   }
@@ -1263,16 +1265,11 @@ async function main(argv) {
     const timeoutSeconds = operation === 'renew'
       ? parsePositiveInteger(required(parsed.values, '--timeout-seconds'), '--timeout-seconds', maximumSeconds('agent'))
       : null;
-    print(changeLease(
-      root,
-      required(parsed.values, '--lease'),
-      parseOwner(parsed.values),
-      timeoutSeconds,
-    ));
+    print(changeLease(root, required(parsed.values, '--lease'), parseOwner(parsed.values), timeoutSeconds));
     return 0;
   }
   if (operation === 'run' || operation === 'session') {
-    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--new-clients', '--quiet']), new Set(['--quiet']));
+    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--new-clients', '--quiet', '--wait-seconds']), new Set(['--quiet']));
     const command = argv.slice(parsed.separator + 1);
     if (parsed.separator === argv.length || command.length === 0) fail(`${operation} requires -- COMMAND ARG...`);
     const signals = readSignals();
@@ -1292,7 +1289,7 @@ async function main(argv) {
       : sessionSeconds(requested.name) || null;
     return runScoped(root, requested, owner, timeoutSeconds, command);
   }
-  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--quiet] [--beside-native NATIVE-OWNER]; see machine-capacity');
+  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--wait-seconds N] [--quiet] [--beside-native NATIVE-OWNER]; see machine-capacity');
 }
 
 process.exitCode = await main(Bun.argv.slice(2));

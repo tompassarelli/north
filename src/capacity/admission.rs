@@ -240,6 +240,9 @@ fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
 }
 
 fn native(facts: &Facts) -> Reason {
+    if facts.new_clients > 0 && facts.queued_ahead > 0 {
+        return Reason::DeferQueued;
+    }
     if facts.quiet && facts.peer_exclusive_runs > u32::from(facts.within_exclusive) {
         return Reason::DeferExclusive;
     }

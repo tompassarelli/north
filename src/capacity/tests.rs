@@ -194,6 +194,14 @@ fn nvidia_memory(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/skills/machine-capacity/scripts").join(name)
 }
 
+#[test]
+fn a_native_client_start_waits_behind_an_earlier_native_ticket_while_a_run_on_live_clients_does_not() {
+    let start = |new_clients: u32, queued_ahead: u32| decide(&Facts { new_clients, queued_ahead, ..facts(Class::Native) });
+    assert_eq!(start(1, 1), Reason::DeferQueued);
+    assert_eq!(start(1, 0), Reason::Run);
+    assert_eq!(start(0, 1), Reason::Run);
+}
+
 fn desktop_pair(bar1_free_mib: Option<f64>) -> Facts {
     Facts { new_clients: 2, bar1_free_mib, ..facts(Class::Native) }
 }
