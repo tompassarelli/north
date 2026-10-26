@@ -49,16 +49,17 @@ fn due_adapters<'a>(prior: &Value, provider: Option<&str>, at: f64) -> Vec<&'a (
         .collect()
 }
 
-fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String]) -> Reads<'a> {
+fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String], local: &[&str]) -> Reads<'a> {
     let commands: Vec<(&str, bool, Vec<String>)> = due
         .iter()
         .flat_map(|(p, a)| {
-            let local = root().join(format!("harness/lib/usage_{a}.py")).to_string_lossy().into_owned();
+            let script = root().join(format!("harness/lib/usage_{a}.py")).to_string_lossy().into_owned();
             let remote = format!(".local/state/north/current/tree/harness/lib/usage_{a}.py");
             let remotes = owners.iter().filter(|_| *p == "claude").map(move |destination| {
                 (*p, true, ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "python3", "-I", &remote].map(str::to_owned).to_vec())
             });
-            std::iter::once((*p, false, vec!["python3".to_owned(), "-I".to_owned(), local])).chain(remotes.collect::<Vec<_>>())
+            let own = local.contains(p).then(|| (*p, false, vec!["python3".to_owned(), "-I".to_owned(), script]));
+            own.into_iter().chain(remotes.collect::<Vec<_>>())
         })
         .collect();
     std::thread::scope(|scope| {
@@ -77,12 +78,19 @@ fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String]) -> Reads
             let (rows, status) = job.join().unwrap_or_else(|_| (Vec::new(), json!({"code":1,"elapsed_s":0,"throttled":false})));
             let read = reads.entry(p).or_insert_with(|| (Vec::new(), Value::Null));
             read.0.extend(rows);
-            if !remote {
+            if !remote || read.1.is_null() {
                 read.1 = status;
             }
         }
         reads
     })
+}
+
+pub(super) fn read_here(cfg: &toml_edit::DocumentMut, provider: &str, here: &str) -> bool {
+    let Some(accounts) = cfg.get("accounts").and_then(|accounts| accounts.get(provider)) else {
+        return false;
+    };
+    accounts.get("profiles").and_then(toml_edit::Item::as_table_like).is_none_or(|profiles| profiles.iter().any(|(_, hosts)| hosts.as_table_like().is_some_and(|hosts| hosts.contains_key(here))))
 }
 
 pub(super) fn claude_owners(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<String> {
@@ -145,10 +153,7 @@ fn record_cadence(
 
 fn usage_gate(db: &rusqlite::Connection) -> Result<Value, String> {
     let snapshot = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let path = snapshot.path().join("readout.db");
-    db.execute("VACUUM INTO ?", [path.to_string_lossy().as_ref()])
-        .map_err(|e| e.to_string())?;
-    let database = path.to_string_lossy();
+    let database = readout::readable_path(db, snapshot.path())?;
     let usage = root().join("harness/lib/usage.py");
     let output = process::run_env(
         "python3",
@@ -281,8 +286,11 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
     let _sampling = storage::lock(&directory, "pace-sampling.lock", None)?;
     let at = storage::now();
     let prior = load(&directory.join("pace-control.json"));
-    let owners = config().map(|cfg| claude_owners(&cfg, &crate::platform::host::name())).unwrap_or_default();
-    let reads = read_adapters(&due_adapters(&prior, provider, at), &owners);
+    let here = crate::platform::host::name();
+    let cfg = config().ok();
+    let owners = cfg.as_ref().map(|cfg| claude_owners(cfg, &here)).unwrap_or_default();
+    let local: Vec<&str> = ADAPTERS.iter().map(|(p, _)| *p).filter(|p| cfg.as_ref().is_none_or(|cfg| read_here(cfg, p, &here))).collect();
+    let reads = read_adapters(&due_adapters(&prior, provider, at), &owners, &local);
     let fresh: Vec<_> = reads.values().flat_map(|(rows, _)| rows.clone()).collect();
     let (db, remote) = readout::open()?;
     readout::record(&db, &fresh)?;

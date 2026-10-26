@@ -82,10 +82,10 @@ for provider,target in (("claude",5),("codex",15)):
                     friday=datetime.fromisoformat(m["pace_at"]).astimezone(ZoneInfo("America/New_York"))
                     assert (friday.weekday(),friday.hour,friday.minute)==(4,23,59)
 db=sqlite3.connect(":memory:")
-db.execute("CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, name TEXT, resets_at TEXT, used_pct REAL)")
+db.execute("CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, resets_at TEXT, used_pct REAL)")
 reset="2026-10-17T04:00:00Z"
 rows=[("2026-10-15T06:00:00Z",40),("2026-10-15T09:00:00Z",60),("2026-10-15T12:00:00Z",63)]
-db.executemany("INSERT INTO usage VALUES (?,'codex','a','week',?,?)",[(stamp,reset,pct) for stamp,pct in rows])
+db.executemany("INSERT INTO usage VALUES (?,'codex','a','window','week',?,?)",[(stamp,reset,pct) for stamp,pct in rows])
 r={"ts":rows[-1][0],"provider":"codex","account":"a","name":"week","resets_at":reset,"used_pct":63,"window_min":10080}
 assert plan_usage.beta(db,r,plan_usage.ts(r["ts"]))==1
 r["resets_at"]="2026-10-18T04:00:00Z"

@@ -55,8 +55,19 @@ pub(super) fn open() -> Result<(Connection, bool), String> {
     };
     db.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
-    db.execute_batch("CREATE TABLE IF NOT EXISTS usage(ts TEXT,provider TEXT,account TEXT,kind TEXT,name TEXT,used_pct REAL,window_min INTEGER,resets_at TEXT,amount REAL,source TEXT) STRICT; CREATE INDEX IF NOT EXISTS usage_latest ON usage(provider,account,kind,name,ts);").map_err(|e| e.to_string())?;
+    prepare(&db)?;
     Ok((db, remote))
+}
+pub(super) fn prepare(db: &Connection) -> Result<(), String> {
+    db.execute_batch("CREATE TABLE IF NOT EXISTS usage(ts TEXT,provider TEXT,account TEXT,kind TEXT,name TEXT,used_pct REAL,window_min INTEGER,resets_at TEXT,amount REAL,source TEXT) STRICT; CREATE INDEX IF NOT EXISTS usage_latest ON usage(provider,account,kind,name,ts); PRAGMA analysis_limit=1000; ANALYZE usage;").map_err(|e| e.to_string())
+}
+pub(super) fn readable_path(db: &Connection, scratch: &std::path::Path) -> Result<String, String> {
+    if let Some(path) = db.path().filter(|path| !path.is_empty()) {
+        return Ok(path.to_owned());
+    }
+    let path = scratch.join("readout.db").to_string_lossy().into_owned();
+    db.execute("VACUUM INTO ?", [&path]).map_err(|e| e.to_string())?;
+    Ok(path)
 }
 pub(super) fn record(db: &Connection, readings: &[Value]) -> Result<(), String> {
     let transaction = db.unchecked_transaction().map_err(|e| e.to_string())?;

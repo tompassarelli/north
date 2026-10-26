@@ -31,3 +31,11 @@ fn claude_usage_is_also_read_through_ssh_on_each_other_host_holding_a_claude_pro
     let cfg = "[hosts.far]\nssh = \"tom@far\"\n[hosts.idle]\nssh = \"tom@idle\"\n[accounts.claude]\nprofiles = { a = { here = {} }, b = { far = {} }, c = { far = {}, here = {} } }\n".parse().unwrap();
     assert_eq!(sampling::claude_owners(&cfg, "here"), ["tom@far"]);
 }
+
+#[test]
+fn a_provider_is_read_here_only_when_its_accounts_table_names_this_host_or_names_no_hosts() {
+    let cfg = "[accounts.claude]\nprofiles = { a = { here = {} }, b = { far = {} } }\n[accounts.codex]\ntarget_left = 0\n".parse().unwrap();
+    let read = |provider, host| sampling::read_here(&cfg, provider, host);
+    assert_eq!([read("claude", "here"), read("claude", "far"), read("claude", "idle")], [true, true, false]);
+    assert_eq!([read("codex", "idle"), read("gemini", "here")], [true, false]);
+}

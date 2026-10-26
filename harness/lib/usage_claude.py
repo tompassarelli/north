@@ -103,11 +103,11 @@ def read_profile(directory, argv, now):
         fetched = 0
     if "--no-refresh" not in argv and datetime.now(timezone.utc).timestamp() - fetched > FRESH_S:
         try:
-            env = dict(os.environ)
+            env = dict(os.environ, DISABLE_AUTOUPDATER="1", DISABLE_TELEMETRY="1", DISABLE_ERROR_REPORTING="1")
             env.pop("CLAUDE_CONFIG_DIR", None)
             if directory is not None:
                 env["CLAUDE_CONFIG_DIR"] = str(directory)
-            result = subprocess.run(["claude", "-p", "/usage", "--output-format", "json"], env=env, capture_output=True, timeout=30, check=False)
+            result = subprocess.run(["claude", "-p", "/usage", "--output-format", "json", "--setting-sources", "", "--strict-mcp-config", "--no-session-persistence"], env=env, capture_output=True, timeout=30, check=False)
             if result.returncode:
                 throttled = b"429" in result.stderr or b"rate limit" in result.stderr.lower()
                 print(f"usage_claude: refresh failed code={result.returncode} throttled={throttled}", file=sys.stderr)

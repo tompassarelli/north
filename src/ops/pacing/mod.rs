@@ -15,6 +15,8 @@ mod placement_gate_tests;
 mod placement_tests;
 mod process;
 mod readout;
+#[cfg(test)]
+mod readout_tests;
 mod reservation;
 mod sampling;
 #[cfg(test)]

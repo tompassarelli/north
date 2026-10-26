@@ -83,7 +83,7 @@ def beta(db, r, now):
         return None
     since = max(ts(r["resets_at"]) - timedelta(minutes=r["window_min"]), now - timedelta(hours=3))
     old = db.execute(
-        "SELECT ts, used_pct FROM usage WHERE provider = ? AND account = ? AND name = ? AND resets_at = ?"
+        "SELECT ts, used_pct FROM usage WHERE provider = ? AND account = ? AND kind = 'window' AND name = ? AND resets_at = ?"
         " AND ts >= ? AND ts < ? AND used_pct IS NOT NULL ORDER BY ts LIMIT 1",
         (r["provider"], r["account"], r["name"], r["resets_at"], since.isoformat().replace("+00:00", "Z"), r["ts"])).fetchone()
     hours = (ts(r["ts"]) - ts(old[0])).total_seconds() / 3600 if old else 0
