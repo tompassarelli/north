@@ -26,3 +26,39 @@ fn a_session_launched_without_task_holds_the_issue_its_briefs_first_item_line_na
     assert_eq!(request("Item: north dispatch places almost nothing\nFollows: north#12", None).task(), None, "an Item line naming no issue holds none");
     assert_eq!(request("Item: #342 dash attack", None).task(), None, "a bare #N names no repository");
 }
+
+#[test]
+fn a_session_launched_without_task_holds_the_issue_the_brief_its_prompt_points_at_names() {
+    let directory = tempfile::tempdir().unwrap();
+    let brief = directory.path().join("brief-w63.md");
+    std::fs::write(&brief, "Category: bug\nItem: wisp#63 relay rebuild\nItem: wisp#64\n").unwrap();
+    let request = |prompt: String, task: Option<&str>| LaunchRequest {
+        verification: false,
+        name: "w63-laptop".into(),
+        provider: ProviderName::new("claude"),
+        account: "a".into(),
+        cwd: "/tmp".into(),
+        model: None,
+        prompt,
+        system_prompt: None,
+        foreground_cap_secs: None,
+        prompt_mode: Default::default(),
+        idle_exit_minutes: None,
+        parent: None,
+        task_ref: task.map(str::to_owned),
+        placement: None,
+        machine: None,
+        capacity_need: None,
+    };
+    let brief = brief.display();
+    assert_eq!(request(format!("read and do the box brief at {brief}"), None).task().as_deref(), Some("wisp#63"));
+    assert_eq!(request(format!("Read `{brief}`."), None).task().as_deref(), Some("wisp#63"));
+    assert_eq!(request(format!("read {brief}"), Some("wisp#7")).task().as_deref(), Some("wisp#7"), "--task wins");
+    assert_eq!(request(format!("Item: north#5\nread {brief}"), None).task().as_deref(), Some("north#5"), "an inline Item line wins");
+    assert_eq!(request(format!("read {}/missing.md", directory.path().display()), None).task(), None, "a missing brief holds none");
+    let text = directory.path().join("brief.txt");
+    std::fs::write(&text, "Item: wisp#63\n").unwrap();
+    assert_eq!(request(format!("read {}", text.display()), None).task(), None, "only a .md brief is read");
+    assert_eq!(request("read brief-w63.md".into(), None).task(), None, "a relative path is not read");
+    assert_eq!(request(format!("read ./{}", brief.to_string().trim_start_matches('/')), None).task(), None, "a dot-relative path is not read");
+}
