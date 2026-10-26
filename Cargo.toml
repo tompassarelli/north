@@ -13,7 +13,7 @@ ratatui = "0.30.0"
 regex = "=1.13.1"
 percent-encoding = "2.3.2"
 rusqlite = { version = "0.40.2", features = ["backup", "bundled", "serialize"] }
-rustix = { version = "0.38", features = ["fs", "process", "stdio"] }
+rustix = { version = "0.38", features = ["fs", "process", "pty", "stdio", "termios"] }
 ryu = "=1.0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }

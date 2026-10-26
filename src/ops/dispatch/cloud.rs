@@ -3,11 +3,12 @@
 //! `claude --cloud` started from it.
 use super::issues::OWNER;
 use crate::platform::process::status_within;
+use crate::platform::terminal;
 use regex::Regex;
 use serde_json::{Value, json};
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -92,16 +93,25 @@ pub(crate) fn launch(repo: &str, slug: &str, brief: &str, sources: &Path, home: 
 }
 
 pub(crate) fn run(directory: &Path, program: &str, args: &[String]) -> Result<String, String> {
-    let mut output = tempfile::tempfile().map_err(|error| error.to_string())?;
-    let errors = output.try_clone().map_err(|error| error.to_string())?;
-    let mut command = Command::new(crate::fleet::runtime::binary(program));
-    command.args(args).current_dir(directory).stdin(Stdio::null()).stdout(output.try_clone().map_err(|error| error.to_string())?).stderr(errors);
-    let status = status_within(&mut command, LAUNCH_WAIT).map_err(|error| error.to_string())?;
-    let mut text = String::new();
-    output.rewind().and_then(|()| output.read_to_string(&mut text)).map_err(|error| error.to_string())?;
-    match status {
-        None => Err(format!("did not return within {} s", LAUNCH_WAIT.as_secs())),
-        Some(status) if status.success() => Ok(text),
-        Some(status) => Err(format!("{status}: {}", text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default())),
+    run_from(directory, program, &crate::fleet::runtime::binary(program), args)
+}
+
+pub(crate) fn run_from(directory: &Path, program: &str, path: &Path, args: &[String]) -> Result<String, String> {
+    let mut command = Command::new(path);
+    command.args(args).current_dir(directory);
+    let captured = if program == "claude" { terminal::capture(command, LAUNCH_WAIT) } else { in_file(command) };
+    match captured.map_err(|error| error.to_string())? {
+        (None, _) => Err(format!("did not return within {} s", LAUNCH_WAIT.as_secs())),
+        (Some(status), text) if status.success() => Ok(text),
+        (Some(status), text) => Err(format!("{status}: {}", text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default())),
     }
+}
+
+fn in_file(mut command: Command) -> std::io::Result<(Option<ExitStatus>, String)> {
+    let mut output = tempfile::tempfile()?;
+    command.stdin(Stdio::null()).stdout(output.try_clone()?).stderr(output.try_clone()?);
+    let status = status_within(&mut command, LAUNCH_WAIT)?;
+    let mut text = String::new();
+    output.rewind().and_then(|()| output.read_to_string(&mut text))?;
+    Ok((status, text))
 }

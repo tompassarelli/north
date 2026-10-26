@@ -517,3 +517,18 @@ fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
     let open = BTreeSet::from([IssueRef::new("smashcraft", 7), IssueRef::new("smashcraft", 8)]);
     assert_eq!(record::recent_on(&records, "anthropic-cloud", &open, now), 1);
 }
+
+#[test]
+fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_control_sequences() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(home.path().join(".claude.json"), "{}").unwrap();
+    std::fs::create_dir(home.path().join("wisp")).unwrap();
+    let claude = home.path().join("claude");
+    std::fs::write(&claude, "#!/bin/sh\n[ -t 0 ] && [ -t 1 ] && [ -t 2 ] || exit 1\nprintf '\\033[1mCreated\\033[0m session_01Test\\n'\n").unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut run = |cwd: &std::path::Path, program: &str, args: &[String]| if program == "git" { Ok(String::new()) } else { super::cloud::run_from(cwd, program, &claude, args) };
+    let launched = super::cloud::launch("wisp", "wisp-9-d1200", "brief", home.path(), home.path(), &mut run);
+
+    assert_eq!(launched.map(|launched| launched.session), Ok("session_01Test".to_owned()));
+}
