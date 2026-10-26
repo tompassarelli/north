@@ -27,7 +27,7 @@ pub(super) fn save(path: &Path, value: &Value) -> Result<(), String> {
     let parent = path.parent().ok_or("state file has no parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let mut pending = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
-    serde_json::to_writer(&mut pending, value).map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut pending, &serde_json::to_vec(value).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     pending.as_file().sync_all().map_err(|e| e.to_string())?;
     pending.persist(path).map_err(|e| e.to_string())?;
     Ok(())
