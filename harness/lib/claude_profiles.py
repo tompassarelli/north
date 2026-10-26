@@ -56,7 +56,7 @@ def sync():
     trusted = [project for project, data in projects.items() if data.get("hasTrustDialogAccepted") is True]
     for label, profile in profiles().items():
         directory = config_dir(profile)
-        if directory is None:
+        if directory in (None, source):
             continue
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / ".claude.json"

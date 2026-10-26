@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as temporary:
     policy = root / "orchestration.toml"
     policy.write_text('[accounts.claude]\nlabels = { ' + ', '.join(f'"{key}" = "{label}"' for key, label in hashes.items())
                       + ' }\nplans = { c = "max-5x" }\nauto_route_requires = { c = "max-5x" }\nprofiles = { '
-                      + f'b = {{ "{socket.gethostname()}" = {{}} }}, c = {{ "{socket.gethostname()}" = {{ path = "{profile}" }} }}'
+                      + f'b = {{ "{socket.gethostname()}" = {{ path = "{home}/.claude" }} }}, c = {{ "{socket.gethostname()}" = {{ path = "{profile}" }} }}'
                       + ' }\n')
     env = dict(os.environ, HOME=str(home), AGENTS_ORCHESTRATION=str(policy), PATH=f"{fake}:{os.environ['PATH']}")
     env.pop("CLAUDE_CONFIG_DIR", None)
