@@ -166,8 +166,8 @@ check '[recorded] backfill fills attribution and ETA while preserving worker evi
 # Recommend: tier from first-assignment runs that closed without escalation and landed.
 runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
   local i
-  for i in $(seq 1 "$3"); do row --arg t "$1" --arg b "$2" --arg id "$1$RANDOM$i" '{id:$id,ended:"2026-10-09T00:00:00Z",tier:$t,actual_min:5,outcome:"done",landed:1,brief:$b}'; done
-  for i in $(seq 1 "$4"); do row --arg t "$1" --arg b "$2" --arg id "$1$RANDOM$i" '{id:$id,ended:"2026-10-09T00:00:00Z",tier:$t,actual_min:5,outcome:"not done",landed:0,brief:$b}'; done
+  for i in $(seq 1 "$3"); do row --arg t "$1" --arg b "$2" --arg id "$1-done-$EPOCHREALTIME-$i" '{id:$id,ended:"2026-10-09T00:00:00Z",tier:$t,actual_min:5,outcome:"done",landed:1,brief:$b}'; done
+  for i in $(seq 1 "$4"); do row --arg t "$1" --arg b "$2" --arg id "$1-failed-$EPOCHREALTIME-$i" '{id:$id,ended:"2026-10-09T00:00:00Z",tier:$t,actual_min:5,outcome:"not done",landed:0,brief:$b}'; done
 }
 { runs haiku 'Category: research. Spec: measured.' 5 0; runs medium 'Category: research. Spec: measured. Scope: one-file.' 2 0; } |
   "$threads" ingest 2>/dev/null
