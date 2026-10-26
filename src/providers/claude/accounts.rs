@@ -5,6 +5,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use toml_edit::{DocumentMut, Item};
 
+use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Account, ProviderName};
 use crate::fleet::roster::{Declared, Roster};
 use crate::fleet::runtime::labelled_homes;
@@ -67,8 +68,24 @@ pub fn declared(policy: &Path, home: &Path) -> Profiles {
     profiles(&policy, home, &crate::platform::host::name())
 }
 
+pub fn on_machine(provider: &ProviderName, policy: &Path, home: &Path, label: &str, machine: &str) -> NorthResult<Account> {
+    let policy: DocumentMut = std::fs::read_to_string(policy).ok().and_then(|text| text.parse().ok()).unwrap_or_default();
+    let hosts = policy.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("profiles")).and_then(|profiles| profiles.get(label)).and_then(Item::as_table_like);
+    let owners: Vec<&str> = hosts.into_iter().flat_map(|hosts| hosts.iter().map(|(host, _)| host)).collect();
+    let entry = hosts.and_then(|hosts| hosts.get(machine)).ok_or_else(|| match owners.as_slice() {
+        [] => NorthError::Usage(format!("no {} account named {label} is declared for {machine}", provider.label())),
+        owners => NorthError::Refused(format!("{}:{label} is declared for {}, not {machine}; launch on {} or another --account", provider.label(), owners.join(" and "), owners.join(" or "))),
+    })?;
+    let path = |key: &str| entry.get(key).and_then(Item::as_str).map(|path| expand(home, path));
+    Ok(Account { provider: provider.clone(), label: label.to_owned(), home: path("path").unwrap_or_else(|| default_home(home)), token_file: path("token_file") })
+}
+
 pub(super) fn default_home(home: &Path) -> PathBuf {
     home.join(".claude")
+}
+
+fn expand(home: &Path, path: &str) -> PathBuf {
+    path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| home.join(rest))
 }
 
 fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
@@ -79,7 +96,7 @@ fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
         table("profiles")
             .filter_map(move |(label, hosts)| {
                 let path = hosts.get(here)?.get(key)?.as_str()?;
-                Some((label.to_owned(), path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| home.join(rest))))
+                Some((label.to_owned(), expand(home, path)))
             })
             .collect()
     };

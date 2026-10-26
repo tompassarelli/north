@@ -43,6 +43,9 @@ pub trait Runtime: Send + Sync {
     fn provider(&self) -> ProviderName;
     fn models(&self) -> &'static [&'static str];
     fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster;
+    fn account_on(&self, _home: &Path, _policy: &Path, _label: &str, machine: &str) -> NorthResult<Account> {
+        Err(NorthError::Usage(format!("{} cannot run a session on {machine}", self.provider().label())))
+    }
     fn assign_conversation(&self) -> NorthResult<Option<String>>;
     fn host(&self, account: &Account, request: &LaunchRequest, opening: Opening, instructions: &str) -> NorthResult<HostSpec>;
     fn handshake(&self) -> Vec<String>;
@@ -91,6 +94,13 @@ impl Runtimes {
 
     pub fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster {
         self.0.iter().map(|runtime| runtime.roster(state_root, home, policy)).fold(Roster::default(), Roster::merge)
+    }
+
+    pub fn account(&self, state_root: &Path, home: &Path, policy: &Path, request: &LaunchRequest) -> NorthResult<Account> {
+        match &request.machine {
+            Some(machine) => self.get(&request.provider)?.account_on(home, policy, &request.account, &machine.name),
+            None => self.roster(state_root, home, policy).account(&request.provider, &request.account),
+        }
     }
 }
 

@@ -1,7 +1,8 @@
 //! Runs a session's provider CLI on another machine: the session host here spawns `ssh` instead of
 //! the CLI, so its socket, stream and transcript stay on this machine while the CLI and its tools run
-//! there. The other machine keeps the same home layout, so the working directory, the provider
-//! runtime and the account home are the same paths on both.
+//! there. The other machine keeps the same home layout, so the working directory and the provider
+//! runtime are the same paths on both, while the account is the profile the policy declares for that
+//! machine, which the registry resolves before handing the spec here.
 //!
 //! There the CLI runs as one transient user service per session that relays the ssh input to it.
 //! When the connection closes, or the CLI exits, the service stops and kills every process it

@@ -29,6 +29,8 @@ mod senders;
 mod status;
 #[cfg(test)]
 mod testing;
+#[cfg(test)]
+mod tests;
 
 pub use follower::Follower;
 pub use home::roster;
@@ -356,7 +358,7 @@ impl Fleet {
     }
 
     fn account(&self, request: &LaunchRequest) -> NorthResult<Account> {
-        self.roster().account(&request.provider, &request.account, request.machine.as_ref().map(|machine| machine.name.as_str()))
+        self.runtimes.account(&self.state, &self.home, &self.policy, request)
     }
 
     fn runtime(&self, record: &SessionRecord) -> NorthResult<Arc<dyn Runtime>> {
