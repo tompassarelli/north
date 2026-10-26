@@ -75,3 +75,15 @@ fn a_root_declared_at_claudes_default_home_takes_its_label_from_the_config_besid
     let accounts: Vec<&str> = roots.iter().map(|root| root.account.as_str()).collect();
     assert_eq!(accounts, ["claude", "claude-a"]);
 }
+
+#[test]
+fn a_token_profile_root_without_a_login_takes_the_label_it_is_declared_under_even_as_the_running_config_dir() {
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join("token-home/projects")).unwrap();
+    let policy = "[accounts.claude]\nprofiles = { b = { here = { path = \"~/token-home\", token_file = \"~/token-b\" } } }\n";
+
+    let roots = roots(home.path(), Some(home.path().join("token-home")), Some(&policy.parse().unwrap()), "here");
+
+    let accounts: Vec<&str> = roots.iter().map(|root| root.account.as_str()).collect();
+    assert_eq!(accounts, ["claude-b"]);
+}

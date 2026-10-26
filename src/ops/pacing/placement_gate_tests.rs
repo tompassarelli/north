@@ -23,7 +23,7 @@ fn gate(accounts: &[(&str, Value)]) -> Value {
 
 fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
     Roster::distinct(identities.iter().map(|(label, identity)| {
-        let account = Account { provider: ProviderName::new("claude"), label: (*label).into(), home: format!("/profiles/claude-{label}").into() };
+        let account = Account { provider: ProviderName::new("claude"), label: (*label).into(), home: format!("/profiles/claude-{label}").into(), token_file: None };
         (account, identity.map(str::to_owned))
     }), &Declared::default())
 }
@@ -252,7 +252,7 @@ fn placement_puts_a_label_owned_by_another_machine_only_on_that_machine() {
         ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
         ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
     ]);
-    let found = ["a", "b"].map(|label| (Account { provider: ProviderName::new("claude"), label: label.into(), home: format!("/profiles/claude-{label}").into() }, None));
+    let found = ["a", "b"].map(|label| (Account { provider: ProviderName::new("claude"), label: label.into(), home: format!("/profiles/claude-{label}").into(), token_file: None }, None));
     let owned = Roster::distinct(found, &Declared { elsewhere: [("b".to_owned(), vec!["gex45".to_owned()])].into(), ..Declared::default() });
     let mut machines = super::placement::gate::machines(&cfg);
     machines[0].live = Some(0);

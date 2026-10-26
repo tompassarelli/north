@@ -56,6 +56,8 @@ struct Options {
     recorded: HashSet<String>,
 }
 
+const UNLABELLED: &str = "claude";
+
 struct Root {
     projects: PathBuf,
     account: String,
@@ -125,35 +127,39 @@ fn fleet_roles() -> HashMap<String, &'static str> {
 
 fn roots(home: &Path, explicit: Option<PathBuf>, policy: Option<&DocumentMut>, host: &str) -> Vec<Root> {
     let default = default_home(home);
-    let mut configs = vec![(explicit.clone().unwrap_or_else(|| default.clone()), explicit)];
+    let mut configs = vec![(explicit.clone().unwrap_or_else(|| default.clone()), explicit, None)];
     let profiles = claude_policy(policy, "profiles").and_then(|profiles| profiles.as_table_like());
-    for (_, hosts) in profiles.into_iter().flat_map(|table| table.iter()) {
+    for (label, hosts) in profiles.into_iter().flat_map(|table| table.iter()) {
         let Some(profile) = hosts.get(host) else { continue };
         let path = profile.get("path").and_then(|path| path.as_str()).map(|path| path.strip_prefix("~/").map_or_else(|| PathBuf::from(path), |rest| home.join(rest)));
-        configs.push((path.clone().unwrap_or_else(|| default.clone()), path));
+        let token_label = path.as_ref().and(profile.get("token_file")).map(|_| label);
+        configs.push((path.clone().unwrap_or_else(|| default.clone()), path, token_label));
     }
-    let mut seen = HashSet::new();
-    configs
-        .into_iter()
-        .filter_map(|(root, config)| {
-            let projects = root.join("projects");
-            let projects = fs::canonicalize(&projects).unwrap_or(projects);
-            seen.insert(projects.clone()).then(|| Root { projects, account: account(home, config.as_deref(), policy) })
-        })
-        .collect()
+    let mut roots: Vec<Root> = Vec::new();
+    for (root, config, token_label) in configs {
+        let projects = root.join("projects");
+        let projects = fs::canonicalize(&projects).unwrap_or(projects);
+        let account = account(home, config.as_deref(), policy, token_label);
+        match roots.iter_mut().find(|seen| seen.projects == projects) {
+            Some(seen) if seen.account == UNLABELLED => seen.account = account,
+            Some(_) => {}
+            None => roots.push(Root { projects, account }),
+        }
+    }
+    roots
 }
 
 fn claude_policy<'a>(policy: Option<&'a DocumentMut>, key: &str) -> Option<&'a Item> {
     policy?.get("accounts")?.get("claude")?.get(key)
 }
 
-fn account(home: &Path, config: Option<&Path>, policy: Option<&DocumentMut>) -> String {
+fn account(home: &Path, config: Option<&Path>, policy: Option<&DocumentMut>, token_label: Option<&str>) -> String {
     let default = default_home(home);
     let cache: Value = fs::read_to_string(config_file(config.unwrap_or(&default), &default)).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
     let uuid = [&cache["oauthAccount"]["accountUuid"], &cache["cachedUsageUtilization"]["accountUuid"]].into_iter().find_map(|uuid| uuid.as_str().filter(|uuid| !uuid.is_empty()));
     let identity = uuid.map(|uuid| format!("{:x}", Sha256::digest(uuid.as_bytes()))[..8].to_owned());
-    let label = identity.and_then(|identity| claude_policy(policy, "labels")?.get(&identity)?.as_str().map(str::to_owned));
-    label.map_or_else(|| "claude".to_owned(), |label| format!("claude-{label}"))
+    let label = identity.and_then(|identity| claude_policy(policy, "labels")?.get(&identity)?.as_str().map(str::to_owned)).or_else(|| token_label.map(str::to_owned));
+    label.map_or_else(|| UNLABELLED.to_owned(), |label| format!("claude-{label}"))
 }
 
 fn transcripts(projects: &Path, options: &Options) -> Vec<PathBuf> {

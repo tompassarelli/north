@@ -12,10 +12,10 @@ pub fn discover(provider: &ProviderName, state_root: &Path, home: &Path) -> Rost
     let default = default_home
         .join("auth.json")
         .is_file()
-        .then(|| Account { provider: provider.clone(), label: POOLED.into(), home: default_home.clone() });
+        .then(|| Account { provider: provider.clone(), label: POOLED.into(), home: default_home.clone(), token_file: None });
     let named = labelled_homes(&state_root.join("accounts/openai"), PREFIX, "auth.json")
         .into_iter()
-        .map(|(label, home)| Account { provider: provider.clone(), label, home });
+        .map(|(label, home)| Account { provider: provider.clone(), label, home, token_file: None });
     Roster::distinct(default.into_iter().chain(named).map(|account| (account, None)), &Declared::default())
 }
 

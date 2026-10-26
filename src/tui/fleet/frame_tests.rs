@@ -56,7 +56,7 @@ fn names(screen: &Screen) -> Vec<&str> {
 }
 
 fn account() -> Account {
-    Account { provider: ProviderName::new("claude"), label: "work".into(), home: PathBuf::from("/accounts/work") }
+    Account { provider: ProviderName::new("claude"), label: "work".into(), home: PathBuf::from("/accounts/work"), token_file: None }
 }
 
 fn frame(screen: &mut Screen, transcript: Option<&Transcript>, width: u16, now_ms: u64) -> Vec<String> {

@@ -8,6 +8,8 @@ use super::accounts::default_home;
 
 const CONVERSATION_ENV: &str = "CLAUDE_CODE_SESSION_ID";
 const CONFIG_ENV: &str = "CLAUDE_CONFIG_DIR";
+const TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+const READ_TOKEN: &str = r#"CLAUDE_CODE_OAUTH_TOKEN=$(cat -- "$0") || exit; export CLAUDE_CODE_OAUTH_TOKEN; exec "$@""#;
 
 pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(String, OsString)> {
     let cap_ms = (request.foreground_cap_secs.unwrap_or(DEFAULT_FOREGROUND_CAP_SECS) * 1000).to_string();
@@ -24,9 +26,16 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
 }
 
 pub(super) fn inherited_env(account: &Account) -> Vec<String> {
-    let mut inherited = vec!["CLAUDE_CODE_CHILD_SESSION".into()];
+    let mut inherited = vec!["CLAUDE_CODE_CHILD_SESSION".into(), TOKEN_ENV.into()];
     inherited.extend(at_default(account).then(|| CONFIG_ENV.into()));
     inherited
+}
+
+pub(super) fn with_credential(account: &Account, argv: Vec<String>) -> Vec<String> {
+    match &account.token_file {
+        Some(file) => ["/bin/sh".into(), "-c".into(), READ_TOKEN.into(), file.display().to_string()].into_iter().chain(argv).collect(),
+        None => argv,
+    }
 }
 
 pub(super) fn caller_conversation() -> Option<String> {

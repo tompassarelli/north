@@ -94,7 +94,7 @@ fn only_the_out_rule_refuses_an_account_never_its_week_projection() {
 #[test]
 fn an_account_runs_only_where_it_is_signed_in_and_here_only_with_a_login_of_its_own() {
     let cfg = CONFIG.parse().unwrap();
-    let login = |label: &str| (Login { provider: ProviderName::new("claude"), label: label.into(), home: format!("/profiles/claude-{label}").into() }, None);
+    let login = |label: &str| (Login { provider: ProviderName::new("claude"), label: label.into(), home: format!("/profiles/claude-{label}").into(), token_file: None }, None);
     let without_a = Roster::distinct([login("b")], &Declared::default());
     assert_eq!(super::survey::signed_in(&cfg, &without_a, "claude:a", "nexus"), ["whiterabbit"], "nexus has no login for a");
     let with_a = Roster::distinct([login("a")], &Declared::default());

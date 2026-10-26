@@ -115,7 +115,7 @@ impl SessionDesk for DeskFake {
 }
 
 fn account(provider: &str, label: &str) -> Account {
-    Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label) }
+    Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::from("/accounts").join(label), token_file: None }
 }
 
 #[test]
@@ -451,7 +451,7 @@ fn the_digest_lists_open_gates_first_then_sessions_and_todays_landings() {
 
 #[test]
 fn the_header_wraps_at_account_boundaries_so_every_account_shows() {
-    let account = |provider: &str, label: &str| Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::new() };
+    let account = |provider: &str, label: &str| Account { provider: ProviderName::new(provider), label: label.into(), home: PathBuf::new(), token_file: None };
     let accounts = [
         account("claude", "a"),
         account("claude", "c"),

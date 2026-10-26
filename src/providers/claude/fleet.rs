@@ -69,7 +69,7 @@ impl Runtime for Claude {
         Ok(HostSpec {
             key: request.name.clone(),
             shared: false,
-            argv,
+            argv: session_env::with_credential(account, argv),
             env: claude_env(account, request),
             env_remove: session_env::inherited_env(account),
             cwd: request.cwd.clone(),
