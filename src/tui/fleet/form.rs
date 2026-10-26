@@ -190,6 +190,7 @@ impl LaunchForm {
             account: account.label.clone(),
             cwd: PathBuf::from(directory),
             model: (!model.is_empty()).then_some(model),
+            effort: None,
             prompt,
             system_prompt: None,
             foreground_cap_secs: None,

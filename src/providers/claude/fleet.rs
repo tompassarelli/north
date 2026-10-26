@@ -28,6 +28,10 @@ impl Runtime for Claude {
         MODELS
     }
 
+    fn takes_effort(&self) -> bool {
+        true
+    }
+
     fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster {
         accounts::discover(&self.provider(), state_root, &accounts::declared(policy, home))
     }
@@ -66,6 +70,9 @@ impl Runtime for Claude {
         }
         if let Some(model) = &request.model {
             argv.extend(["--model".into(), model.clone()]);
+        }
+        if let Some(effort) = request.effort {
+            argv.extend(["--effort".into(), effort.label().into()]);
         }
         if !instructions.is_empty() {
             argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);

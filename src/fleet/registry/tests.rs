@@ -29,6 +29,7 @@ fn on_far() -> LaunchRequest {
         account: "a".into(),
         cwd: "/tmp".into(),
         model: None,
+        effort: None,
         prompt: String::new(),
         system_prompt: None,
         foreground_cap_secs: None,

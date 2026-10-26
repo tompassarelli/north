@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::{NorthError, NorthResult};
+
 use super::prompt::PromptMode;
 use super::turns::{Turn, Turns};
 
@@ -36,6 +38,37 @@ pub struct Machine {
     pub ssh: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl Effort {
+    const ALL: [Self; 5] = [Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+
+    pub fn parse(text: &str) -> NorthResult<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|effort| effort.label() == text)
+            .ok_or_else(|| NorthError::Usage(format!("no effort {text}; use one of {}", Self::ALL.map(Self::label).join(", "))))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LaunchRequest {
     pub verification: bool,
@@ -44,6 +77,8 @@ pub struct LaunchRequest {
     pub account: String,
     pub cwd: PathBuf,
     pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<Effort>,
     pub prompt: String,
     pub system_prompt: Option<PathBuf>,
     pub foreground_cap_secs: Option<u64>,
@@ -92,6 +127,8 @@ pub struct SessionRecord {
     pub account: String,
     pub cwd: PathBuf,
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Effort>,
     pub created_ms: u64,
     pub host_pid: Option<u32>,
     pub conversation: Option<String>,
@@ -123,6 +160,30 @@ pub struct SessionRecord {
     pub capacity_need: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_sender: Option<LastSender>,
+}
+
+impl SessionRecord {
+    pub fn relaunch_request(&self) -> LaunchRequest {
+        LaunchRequest {
+            verification: self.verification,
+            name: self.name.clone(),
+            provider: self.provider.clone(),
+            account: self.account.clone(),
+            cwd: self.cwd.clone(),
+            model: self.model.clone(),
+            effort: self.effort,
+            prompt: String::new(),
+            system_prompt: self.system_prompt.clone(),
+            foreground_cap_secs: self.foreground_cap_secs,
+            prompt_mode: self.prompt_mode,
+            idle_exit_minutes: self.idle_exit_minutes,
+            parent: self.parent.clone(),
+            task_ref: self.task_ref.clone(),
+            placement: self.placement.clone(),
+            machine: self.machine.clone(),
+            capacity_need: self.capacity_need.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

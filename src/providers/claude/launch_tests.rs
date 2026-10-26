@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::prompt::PromptMode;
 
 use super::*;
@@ -12,6 +13,7 @@ fn request() -> LaunchRequest {
         account: "a".into(),
         cwd: PathBuf::from("/tmp"),
         model: None,
+        effort: None,
         prompt: String::new(),
         system_prompt: None,
         foreground_cap_secs: None,
@@ -62,4 +64,19 @@ fn a_token_account_reads_its_token_into_the_cli_environment_and_never_into_argv_
     let probe = [&spec.argv[..4], &["sh".into(), "-c".into(), "printf %s \"$CLAUDE_CODE_OAUTH_TOKEN\"".into()]].concat();
     let output = std::process::Command::new(&probe[0]).args(&probe[1..]).env_remove("CLAUDE_CODE_OAUTH_TOKEN").output().unwrap();
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "sk-test-value");
+}
+
+#[test]
+fn a_launch_at_high_effort_runs_claude_at_high_effort_and_its_revive_keeps_it() {
+    let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
+    let request = LaunchRequest { effort: Some(Effort::parse("high").unwrap()), ..request() };
+    let effort = |argv: &[String]| argv.windows(2).any(|pair| pair == ["--effort", "high"]);
+
+    let launched = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
+    let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "effort": request.effort})).unwrap();
+    let revived = Claude.host(&account, &record.relaunch_request(), Opening::Resume("c"), "").unwrap();
+
+    assert!(effort(&launched.argv), "{:?}", launched.argv);
+    assert!(effort(&revived.argv), "{:?}", revived.argv);
+    assert!(Effort::parse("extreme").is_err());
 }
