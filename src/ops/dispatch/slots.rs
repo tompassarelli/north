@@ -32,11 +32,41 @@ pub(crate) struct Account {
     pub name: String,
     /// Hosts the account is signed in on.
     pub hosts: Vec<String>,
-    pub headroom: f64,
+    /// Plan size in Max 5x units (`[accounts.PROVIDER] plans`), which puts every account's percent on one scale.
+    pub plan: f64,
+    pub room: Room,
     /// Whether a pace spend target (`[pace."A"] spend_to_pct` by `by`) is live for the account.
     pub spending: bool,
     /// Why the out-rule keeps the account out, if it does.
     pub refusal: Option<String>,
+}
+
+/// Points an account has left, in its own percent, before the five-hour stop and before the week is exhausted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Room {
+    pub five_hour: f64,
+    pub week: f64,
+    /// Hours until the week resets, when its unspent room is lost.
+    pub week_reset_h: f64,
+}
+
+impl Room {
+    const SOONEST_RESET_H: f64 = 1.0 / 60.0;
+
+    /// Week room in plan units per hour until it resets: the capacity lost each hour it is not spent.
+    pub(crate) fn expiring(&self, plan: f64) -> f64 {
+        self.week * plan / self.week_reset_h.max(Self::SOONEST_RESET_H)
+    }
+
+    pub(crate) fn less(self, points: f64) -> Self {
+        Self { five_hour: self.five_hour - points, week: self.week - points, ..self }
+    }
+
+    /// Whether `points` more leaves both windows short of the point where the out-rule refuses.
+    pub(crate) fn takes(&self, points: f64) -> bool {
+        let after = self.less(points);
+        after.five_hour > 0.0 && after.week > 0.0
+    }
 }
 
 impl Account {
@@ -53,7 +83,16 @@ impl Account {
             Ok(()) => "open".to_owned(),
             Err(why) => format!("out: {why}"),
         };
-        format!("account {}: {state}; signed in on {}", self.name, self.hosts.join(", "))
+        let room = &self.room;
+        format!(
+            "account {}: {state}; plan {} x Max 5x; {:.0} points to the 5h stop, {:.0} left in the week, which resets in {:.0} h; signed in on {}",
+            self.name,
+            self.plan,
+            room.five_hour,
+            room.week,
+            room.week_reset_h,
+            self.hosts.join(", ")
+        )
     }
 }
 
@@ -63,6 +102,8 @@ pub(crate) struct Pools {
     hosts: BTreeMap<String, i64>,
     /// The hosts each open account is signed in on.
     signed_in: BTreeMap<String, Vec<String>>,
+    /// Points of its own percent each account is charged for the boxes planned on it this run.
+    charged: BTreeMap<String, f64>,
 }
 
 impl Pools {
@@ -70,6 +111,7 @@ impl Pools {
         Self {
             hosts: hosts.iter().map(|host| (host.name.clone(), host.free().unwrap_or(0))).collect(),
             signed_in: accounts.iter().filter(|account| account.open().is_ok()).map(|account| (account.name.clone(), account.hosts.clone())).collect(),
+            charged: BTreeMap::new(),
         }
     }
 
@@ -94,5 +136,14 @@ impl Pools {
         if let Some(free) = self.hosts.get_mut(host) {
             *free = (*free - 1).max(0);
         }
+    }
+
+    /// The account's room less what this run has charged it.
+    pub(crate) fn room(&self, account: &Account) -> Room {
+        account.room.less(self.charged.get(&account.name).copied().unwrap_or(0.0))
+    }
+
+    pub(crate) fn charge(&mut self, account: &str, points: f64) {
+        *self.charged.entry(account.into()).or_default() += points;
     }
 }

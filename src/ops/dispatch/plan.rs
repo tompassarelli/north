@@ -46,31 +46,52 @@ pub(crate) struct Capacity<'a> {
     pub here: &'a str,
     pub cloud: &'a Cloud,
     pub accounts: &'a [Account],
+    /// Expected cost of one box in Max 5x points, charged to its account before the next box is ranked.
+    pub charge: f64,
 }
 
-/// An account with a live spend target outranks headroom, since Tom set the target to drain it first.
-fn rank(a: &Account, b: &Account) -> Ordering {
-    a.spending.cmp(&b.spending).then(a.headroom.total_cmp(&b.headroom)).then(b.name.cmp(&a.name))
+impl Capacity<'_> {
+    fn charge(&self, account: &Account) -> f64 {
+        self.charge / account.plan
+    }
+
+    /// Whether the account can take one more box this run without crossing a window's stop.
+    fn takes(&self, pools: &Pools, account: &Account) -> bool {
+        pools.room(account).takes(self.charge(account))
+    }
+}
+
+/// A live spend target first, since Tom set it to drain that account; then the week's room that
+/// expires soonest, in plan units per hour until its reset; then five-hour room in plan units.
+fn rank(pools: &Pools, a: &Account, b: &Account) -> Ordering {
+    let (room_a, room_b) = (pools.room(a), pools.room(b));
+    a.spending
+        .cmp(&b.spending)
+        .then(room_a.expiring(a.plan).total_cmp(&room_b.expiring(b.plan)))
+        .then((room_a.five_hour * a.plan).total_cmp(&(room_b.five_hour * b.plan)))
+        .then(b.name.cmp(&a.name))
 }
 
 fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str) -> Option<&'a Account> {
-    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0).max_by(|a, b| rank(a, b))
+    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.takes(pools, account)).max_by(|a, b| rank(pools, a, b))
 }
 
-/// A pin reason when an open account with more headroom runs elsewhere, since placement on the
+/// A pin reason when an open account that ranks higher runs elsewhere, since placement on the
 /// launching host would pick it over the one signed in where placement order puts the box.
-fn pin(capacity: &Capacity, host: &str, chosen: &Account) -> Option<String> {
+fn pin(capacity: &Capacity, pools: &Pools, host: &str, chosen: &Account) -> Option<String> {
     let placed = capacity
         .accounts
         .iter()
-        .filter(|account| account.provider() == chosen.provider() && account.refusal.is_none())
-        .max_by(|a, b| rank(a, b))?;
-    (placed.name != chosen.name && rank(placed, chosen) == Ordering::Greater)
+        .filter(|account| account.provider() == chosen.provider() && account.refusal.is_none() && capacity.takes(pools, account))
+        .max_by(|a, b| rank(pools, a, b))?;
+    (placed.name != chosen.name && rank(pools, placed, chosen) == Ordering::Greater)
         .then(|| format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name))
 }
 
 fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, courier: bool, local: Option<String>) -> Launch {
+    let pin = pin(capacity, pools, host, account);
     pools.take(host);
+    pools.charge(&account.name, capacity.charge(account));
     Launch {
         item: ready.item.clone(),
         host: host.into(),
@@ -78,7 +99,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
         brief: ready.brief.clone(),
         courier,
         local,
-        pin: pin(capacity, host, account),
+        pin,
     }
 }
 

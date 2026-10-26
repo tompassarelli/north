@@ -1,6 +1,6 @@
 use super::issues::{self, Issue, IssueRef, World};
 use super::plan::Cloud;
-use super::slots::{Account, Host, Pools};
+use super::slots::{Account, Host, Pools, Room};
 use super::survey::Survey;
 use super::{alert, decide, record};
 use crate::fleet::model::{Account as Login, ProviderName};
@@ -29,7 +29,11 @@ fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
 }
 
 fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {
-    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), headroom, spending: false, refusal: None }
+    sized(name, hosts, 1.0, Room { five_hour: headroom, week: headroom, week_reset_h: 100.0 })
+}
+
+fn sized(name: &str, hosts: &[&str], plan: f64, room: Room) -> Account {
+    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room, spending: false, refusal: None }
 }
 
 fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
@@ -158,16 +162,62 @@ fn placed(survey: &Survey) -> Vec<(String, String, String, bool, Option<String>)
     decide(survey, "test").launches.into_iter().map(|launch| (launch.item.to_string(), launch.host, launch.account, launch.courier, launch.local)).collect()
 }
 
-#[test]
-fn an_account_with_a_live_spend_target_takes_the_slot_over_one_with_more_headroom() {
-    let hosts = vec![host("gex45", 24, Ok(22))];
-    let spending = Account { spending: true, ..account("claude:c", &["gex45"], 14.0) };
-    let accounts = vec![account("claude:a", &["gex45"], 15.0), spending];
-    let boxes = vec![issue("smashcraft", 20, "- [ ] a", &[]), issue("smashcraft", 21, "- [ ] b", &[])];
+fn chosen(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> Vec<(String, Option<String>)> {
+    let boxes = (0..boxes).map(|number| issue("smashcraft", 20 + number, "- [ ] a", &[])).collect();
     let unreachable = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
-    let outcome = decide(&unreachable, "test");
-    let chosen: Vec<(&str, Option<&str>)> = outcome.launches.iter().map(|launch| (launch.account.as_str(), launch.pin.as_deref())).collect();
-    assert_eq!(chosen, [("claude:c", None), ("claude:c", None)]);
+    decide(&unreachable, "test").launches.into_iter().map(|launch| (launch.account, launch.pin)).collect()
+}
+
+fn accounts_of(chosen: &[(String, Option<String>)]) -> Vec<&str> {
+    chosen.iter().map(|(account, _)| account.as_str()).collect()
+}
+
+#[test]
+fn an_account_with_a_live_spend_target_takes_the_slot_before_any_whose_room_ranks_higher() {
+    let spending = Account { spending: true, ..sized("claude:c", &["gex45"], 1.0, Room { five_hour: 40.0, week: 9.0, week_reset_h: 70.0 }) };
+    let accounts = vec![sized("claude:a", &["gex45"], 4.0, Room { five_hour: 47.0, week: 13.0, week_reset_h: 60.0 }), spending];
+    assert_eq!(chosen(vec![host("gex45", 24, Ok(22))], accounts, 2), [("claude:c".into(), None), ("claude:c".into(), None)]);
+}
+
+#[test]
+fn plan_size_puts_accounts_on_one_scale_so_a_max_20x_quarter_outranks_a_max_5x_half() {
+    let cfg: toml_edit::DocumentMut = "[accounts.claude]\nplans = { a = \"max-20x\", c = \"max-5x\", p = \"pro\" }".parse().unwrap();
+    let plans: Vec<Result<f64, String>> = ["claude:a", "claude:c", "claude:p"].iter().map(|name| super::survey::plan(&cfg, name)).collect();
+    assert_eq!(plans, [Ok(4.0), Ok(1.0), Ok(0.2)]);
+    assert!(super::survey::plan(&cfg, "claude:b").is_err(), "an account with no plan is named in a note");
+    let room = |week: f64| Room { five_hour: 50.0, week, week_reset_h: 100.0 };
+    let accounts = vec![sized("claude:a", &["gex45"], 4.0, room(25.0)), sized("claude:c", &["gex45"], 1.0, room(50.0))];
+    assert_eq!(accounts_of(&chosen(vec![host("gex45", 24, Ok(23))], accounts, 1)), ["claude:a"], "a quarter of Max 20x is twice half of Max 5x");
+}
+
+#[test]
+fn a_week_that_resets_sooner_is_spent_first_and_five_hour_room_only_breaks_ties() {
+    let at = crate::pace::target::seconds("2026-10-27T00:00:00Z").unwrap();
+    let usage = |five: f64, week: f64, resets: &str| serde_json::json!({"windows": [{"window": "5h", "used_pct": five}, {"window": "week", "used_pct": week, "resets_at": resets, "reset_h": 1.0}]});
+    let later = super::survey::room(&usage(10.0, 50.0, "2026-10-31T04:00:00Z"), at);
+    let sooner = super::survey::room(&usage(80.0, 70.0, "2026-10-27T20:00:00Z"), at);
+    assert_eq!(sooner, Room { five_hour: 15.0, week: 30.0, week_reset_h: 20.0 }, "resets_at, not the sampled reset_h, dates the loss");
+    let accounts = vec![sized("claude:a", &["gex45"], 1.0, later), sized("claude:b", &["gex45"], 1.0, sooner)];
+    assert_eq!(accounts_of(&chosen(vec![host("gex45", 24, Ok(23))], accounts, 1)), ["claude:b"], "30 points lost in 20 h beat 50 points lost in 100 h");
+    let tied = |five: f64| Room { five_hour: five, week: 30.0, week_reset_h: 20.0 };
+    let accounts = vec![sized("claude:a", &["gex45"], 1.0, tied(15.0)), sized("claude:b", &["gex45"], 1.0, tied(40.0))];
+    assert_eq!(accounts_of(&chosen(vec![host("gex45", 24, Ok(23))], accounts, 1)), ["claude:b"]);
+}
+
+#[test]
+fn one_tick_charges_each_launch_to_its_account_so_launches_spread_and_stop_at_the_five_hour_stop() {
+    let room = |five: f64, week: f64| Room { five_hour: five, week, week_reset_h: 100.0 };
+    let accounts = vec![
+        sized("claude:a", &["gex45"], 4.0, room(0.6, 50.0)),
+        sized("claude:b", &["gex45"], 4.0, room(0.6, 50.0)),
+        sized("claude:c", &["gex45"], 1.0, room(1.5, 10.0)),
+    ];
+    let hosts = vec![host("gex45", 24, Ok(0))];
+    assert_eq!(accounts_of(&chosen(hosts.clone(), accounts.clone(), 6)), ["claude:a", "claude:b", "claude:a", "claude:b", "claude:c"]);
+    let boxes = (0..6).map(|number| issue("smashcraft", 20 + number, "- [ ] a", &[])).collect();
+    let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let (_, last) = outcome.skipped.last().unwrap();
+    assert!(last.contains("gex45 has no account with a free worker slot"), "{last}");
 }
 
 #[test]

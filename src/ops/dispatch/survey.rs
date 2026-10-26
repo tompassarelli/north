@@ -4,9 +4,10 @@
 use super::issues::{self, Issue, IssueRef, OWNER};
 use super::plan::Cloud;
 use super::record;
-use super::slots::{Account, Host};
+use super::slots::{Account, Host, Room};
 use crate::fleet::model::ProviderName;
 use crate::fleet::roster::{Roster, Standing};
+use crate::pace::exhaustion;
 use crate::ops::pacing::placement::{self, gate};
 use crate::platform::process::run_within;
 use regex::Regex;
@@ -19,6 +20,7 @@ use toml_edit::{DocumentMut, Item};
 pub(crate) const REPOS: [&str; 2] = ["smashcraft", "wisp"];
 const PACE_FRESH_S: f64 = 15.0 * 60.0;
 const MIRROR_FRESH_S: f64 = 10.0 * 60.0;
+const WEEK_H: f64 = 7.0 * 24.0;
 const PROBE: Duration = Duration::from_secs(30);
 const RUNNING: [&str; 3] = ["starting", "working", "idle"];
 static SESSION_ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp)-(\d+)[a-z]?(?:-|$)").expect("session pattern"));
@@ -194,7 +196,33 @@ pub(crate) fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here:
     account_hosts(cfg, account, here).into_iter().filter(|host| own || host != here).collect()
 }
 
-fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64) -> Vec<Account> {
+/// An account's plan size in Max 5x units from `[accounts.PROVIDER] plans`: `max-Nx` is N/5 and `pro` a fifth.
+pub(crate) fn plan(cfg: &DocumentMut, account: &str) -> Result<f64, String> {
+    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
+    let named = cfg.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|policy| policy.get("plans")).and_then(|plans| plans.get(label)).and_then(Item::as_str);
+    let plan = named.ok_or_else(|| format!("{account} has no [accounts.{provider}] plans entry, so dispatch sizes it as max-5x"))?;
+    let multiple = if plan == "pro" { Some(1.0) } else { plan.strip_prefix("max-").and_then(|rest| rest.strip_suffix('x')).and_then(|times| times.parse::<f64>().ok()) };
+    multiple.filter(|times| *times > 0.0).map(|times| times / 5.0).ok_or_else(|| format!("{account} plan {plan} is neither pro nor max-Nx, so dispatch sizes it as max-5x"))
+}
+
+/// The room a usage-gate control leaves at `at`: its tightest five-hour and week windows, an
+/// unsampled window counting as unused.
+pub(crate) fn room(control: &Value, at: f64) -> Room {
+    let mut room = Room { five_hour: exhaustion::FIVE_HOUR_STOP, week: 100.0, week_reset_h: WEEK_H };
+    for window in control["windows"].as_array().into_iter().flatten() {
+        let (Some(name), Some(used)) = (window["window"].as_str(), window["used_pct"].as_f64()) else { continue };
+        let Some(left) = exhaustion::headroom(name, used) else { continue };
+        if name == "5h" {
+            room.five_hour = room.five_hour.min(left);
+        } else if left <= room.week {
+            let reset = window["resets_at"].as_str().and_then(crate::pace::target::seconds).map(|resets| (resets - at) / 3600.0);
+            room = Room { week: left, week_reset_h: reset.or_else(|| window["reset_h"].as_f64()).unwrap_or(WEEK_H), ..room };
+        }
+    }
+    room
+}
+
+fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
     let usage = placement::pace_state("usage-gate.json");
     pace["accounts"]
@@ -202,11 +230,21 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64) -> Vec<Acco
         .into_iter()
         .flatten()
         .map(|(name, control)| {
-            let verdict = usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:")).map(|usage| gate::verdict(name, usage));
+            let sampled = usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:"));
+            let verdict = sampled.map(|usage| gate::verdict(name, usage));
+            let plan = match sampled.map(|_| plan(cfg, name)) {
+                Some(Ok(plan)) => plan,
+                Some(Err(why)) => {
+                    notes.push(why);
+                    1.0
+                }
+                None => 1.0,
+            };
             Account {
                 name: name.clone(),
                 hosts: signed_in(cfg, roster, name, here),
-                headroom: verdict.as_ref().map_or(0.0, |verdict| verdict.headroom),
+                plan,
+                room: sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at)),
                 spending: control["target"]["by"].as_str().and_then(crate::pace::target::seconds).is_some_and(|by| by > at),
                 refusal: refusal(name, control, verdict.as_ref(), at),
             }
@@ -309,7 +347,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
-    let accounts = accounts(&cfg, roster, &here, at);
+    let accounts = accounts(&cfg, roster, &here, at, &mut notes);
     if accounts.is_empty() {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }

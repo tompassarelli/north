@@ -61,7 +61,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
     let world = issues::World { open: &survey.open, holds: &survey.holds, planned: &planned, at: survey.at };
-    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts };
+    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: crate::pace::limits::default("reservation_fallback_points") };
     for issue in ordered(&survey.issues) {
         if let Err(why) = issues::readiness(issue, &world) {
             outcome.skipped.push((issue.reference(), why));
