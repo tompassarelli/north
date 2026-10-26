@@ -71,7 +71,7 @@ impl Runtime for Claude {
             shared: false,
             argv,
             env: claude_env(account, request),
-            env_remove: session_env::inherited_env(),
+            env_remove: session_env::inherited_env(account),
             cwd: request.cwd.clone(),
         })
     }
@@ -327,35 +327,5 @@ mod turn_state {
     }
 }
 #[cfg(test)]
-mod launch {
-    use std::path::PathBuf;
-
-    use crate::fleet::prompt::PromptMode;
-
-    use super::*;
-
-    #[test]
-    fn the_host_names_its_session_to_the_commands_it_runs() {
-        let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a") };
-        let request = LaunchRequest {
-            verification: false,
-            name: "worker".into(),
-            provider: Claude.provider(),
-            account: "a".into(),
-            cwd: PathBuf::from("/tmp"),
-            model: None,
-            prompt: String::new(),
-            system_prompt: None,
-            foreground_cap_secs: None,
-            prompt_mode: PromptMode::North,
-            idle_exit_minutes: None,
-            parent: None,
-            task_ref: None,
-            placement: None,
-            machine: None,
-            capacity_need: None,
-        };
-        let spec = Claude.host(&account, &request, Opening::Fresh(None), "").unwrap();
-        assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);
-    }
-}
+#[path = "launch_tests.rs"]
+mod launch;
