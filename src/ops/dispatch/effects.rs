@@ -1,12 +1,13 @@
-//! What a dispatch run does to the world: start each placed box through `north fleet launch` (on
-//! the laptop through its job queue), record the attempt, and send Tom's one ntfy line.
-use super::brief;
+//! What a dispatch run does to the world: start each placed box in the cloud lane or through
+//! `north fleet launch` (on the laptop through its job queue), record the attempt, and send Tom's one ntfy line.
+use super::{brief, cloud};
 use super::plan::Launch;
 use super::record::{self, Record};
 use super::survey::Survey;
 use crate::ops::pacing::placement;
 use crate::platform::process::run_within;
 use serde_json::json;
+use std::path::Path;
 use std::time::Duration;
 
 const LAUNCH_WAIT: Duration = Duration::from_secs(180);
@@ -36,7 +37,7 @@ pub(crate) fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, 
             words.extend([flag.to_owned(), reason.clone()]);
         }
     }
-    words.push(if launch.courier { brief::courier(&launch.brief, name) } else { launch.brief.clone() });
+    words.push(launch.brief.clone());
     if survey.laptop.as_deref() == Some(launch.host.as_str()) {
         let mut queued = ["queue", "add", "laptop", &launch.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
         queued.extend(words);
@@ -49,13 +50,11 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
     let at = placement::now();
     let name = session_name(launch, at);
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
-    let north = std::env::current_exe().map_err(|error| error.to_string())?;
-    let (program, words) = command(launch, &name, survey, &home, &north.to_string_lossy());
-    let arguments: Vec<&str> = words.iter().map(String::as_str).collect();
-    let result = match run_within(&program, &arguments, LAUNCH_WAIT) {
-        None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
-        Some(output) if output.status.success() => Ok(name.clone()),
-        Some(output) => Err(String::from_utf8_lossy(&output.stderr).lines().find(|line| !line.trim().is_empty() && !line.starts_with("  ")).unwrap_or("failed").to_owned()),
+    let result = if launch.cloud {
+        let text = brief::cloud(&launch.brief, &launch.item.repo, &cloud::branch(&name));
+        cloud::launch(&launch.item.repo, &name, &text, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run).map(|launched| format!("{name} {} {}", launched.session, launched.branch))
+    } else {
+        fleet_launch(launch, &name, survey, &home)
     };
     let entry = Record {
         at,
@@ -63,12 +62,23 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
         host: launch.host.clone(),
         account: launch.account.clone(),
         name,
-        courier: launch.courier,
+        cloud: launch.cloud,
         launched: result.is_ok(),
-        detail: result.as_ref().err().cloned().unwrap_or_default(),
+        detail: result.clone().unwrap_or_else(|why| why),
     };
     record::append(&entry)?;
     result
+}
+
+fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Result<String, String> {
+    let north = std::env::current_exe().map_err(|error| error.to_string())?;
+    let (program, words) = command(launch, name, survey, home, &north.to_string_lossy());
+    let arguments: Vec<&str> = words.iter().map(String::as_str).collect();
+    match run_within(&program, &arguments, LAUNCH_WAIT) {
+        None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
+        Some(output) if output.status.success() => Ok(name.to_owned()),
+        Some(output) => Err(String::from_utf8_lossy(&output.stderr).lines().find(|line| !line.trim().is_empty() && !line.starts_with("  ")).unwrap_or("failed").to_owned()),
+    }
 }
 
 /// Sends `line` through nexus-alert unless the same line went out in the last six hours.

@@ -36,6 +36,8 @@ pub(crate) struct Survey {
     pub cloud: Cloud,
     /// The host reached through the laptop job queue, when one serves `laptop`.
     pub laptop: Option<String>,
+    /// Cloud sessions dispatch started whose boxes are still open.
+    pub cloud_running: i64,
     pub notes: Vec<String>,
     pub at: f64,
 }
@@ -352,7 +354,8 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }
     let cloud = cloud(&cfg, &here, at);
-    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, notes, at })
+    let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
+    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, at })
 }
 
 mod github {

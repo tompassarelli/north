@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 const HOLD_S: f64 = 2.0 * 3600.0;
+const CLOUD_HOLD_S: f64 = 6.0 * 3600.0;
 const LAPTOP_SESSION_S: f64 = 3.0 * 3600.0;
 const RETRY_WINDOW_S: f64 = 24.0 * 3600.0;
 const RETRIES: usize = 2;
@@ -19,9 +20,14 @@ pub(crate) struct Record {
     pub host: String,
     pub account: String,
     pub name: String,
-    pub courier: bool,
+    #[serde(default)]
+    pub cloud: bool,
     pub launched: bool,
     pub detail: String,
+}
+
+fn hold(record: &Record) -> f64 {
+    if record.cloud { CLOUD_HOLD_S } else { HOLD_S }
 }
 
 pub(crate) fn directory() -> PathBuf {
@@ -57,7 +63,7 @@ pub(crate) fn holds(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
             let last = tried.iter().max_by(|a, b| a.at.total_cmp(&b.at))?;
             let reason = if tried.len() >= RETRIES {
                 format!("north dispatch, {} tries in 24 h without closing; the proxy decides the next one", tried.len())
-            } else if at - last.at < HOLD_S {
+            } else if at - last.at < hold(last) {
                 format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             } else {
                 return None;
@@ -67,9 +73,9 @@ pub(crate) fn holds(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
         .collect()
 }
 
-/// Sessions dispatched to `host` in the last three hours whose issue is still open: the laptop's
-/// count, since no host here can ask the laptop for its resident CLIs.
+/// Sessions dispatched to `host` in the last three hours, six for the cloud lane, whose issue is
+/// still open: the laptop and cloud lane counts, since no host here can list their sessions.
 pub(crate) fn recent_on(records: &[Record], host: &str, open: &BTreeSet<IssueRef>, at: f64) -> i64 {
-    let live = |record: &&Record| record.launched && record.host == host && at - record.at < LAPTOP_SESSION_S;
+    let live = |record: &&Record| record.launched && record.host == host && at - record.at < if record.cloud { CLOUD_HOLD_S } else { LAPTOP_SESSION_S };
     records.iter().filter(live).filter(|record| IssueRef::parse(&record.item).is_some_and(|item| open.contains(&item))).count() as i64
 }

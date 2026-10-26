@@ -10,7 +10,10 @@ use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
 use survey::{REPOS, Survey};
 
+pub(crate) use cloud::{autoland as cloud_autoland, branch as cloud_branch};
+
 mod brief;
+mod cloud;
 mod effects;
 mod issues;
 mod plan;
@@ -57,7 +60,7 @@ fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
 
 /// Every ready box placed on a free slot, or skipped with its reason.
 pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
-    let mut pools = Pools::new(&survey.hosts, &survey.accounts);
+    let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
     let world = issues::World { open: &survey.open, holds: &survey.holds, planned: &planned, at: survey.at };
@@ -116,7 +119,7 @@ fn print_survey(survey: &Survey) {
 fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     let mut failures = Vec::new();
     for launch in &outcome.launches {
-        let verb = if launch.courier { "courier" } else { "launch" };
+        let verb = if launch.cloud { "cloud-launch" } else { "launch" };
         let line = format!("{verb} {} on {} {}", launch.item, launch.host, launch.account);
         if dry_run {
             println!("would {line}{}", launch.local.as_ref().map_or_else(String::new, |why| format!(" ({why})")));
@@ -159,4 +162,14 @@ pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> 
         effects::tell_tom(&line, dry_run, placement::now());
     }
     0
+}
+
+/// `north cloud launch REPO SLUG BRIEF`: starts the brief in the cloud lane from this host's login
+/// and prints the session, the branch it pushes and the checkout it launched from.
+pub(crate) fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path) -> Result<String, String> {
+    let text = std::fs::read_to_string(brief_file).map_err(|error| format!("{}: {error}", brief_file.display()))?;
+    let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
+    let brief = brief::cloud(&text, repo, &cloud::branch(slug));
+    let launched = cloud::launch(repo, slug, &brief, std::path::Path::new(cloud::SOURCES), std::path::Path::new(&home), &mut cloud::run)?;
+    Ok(format!("{} {} {}", launched.session, launched.branch, launched.directory.display()))
 }

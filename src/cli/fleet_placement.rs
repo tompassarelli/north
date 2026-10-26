@@ -8,10 +8,8 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Machine;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::binary;
+use crate::ops::dispatch::{cloud_autoland, cloud_branch};
 use crate::ops::pacing::placement::gate::{self, Decision, Target};
-
-const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
-const HANDBACK: &str = "git format-patch origin/main..HEAD --stdout | gzip -9 | base64 -w 76 > /tmp/handback.b64, then one Bash call per 300-line part i of n: echo BEGIN-HANDBACK part i/n; sed -n <first>,<last>p /tmp/handback.b64; echo END-HANDBACK part i/n";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Overrides {
@@ -156,17 +154,22 @@ fn has_directory(ssh: &str, directory: &Path) -> bool {
 
 fn cloud_command(launch: &Launch, credit: &str, surface: &str, text: &str) -> String {
     let brief = launch.brief.map_or_else(|| "BRIEF.md".to_owned(), |path| path.display().to_string());
-    let safety = if text.contains(SAFETY_LINE) {
-        "The brief carries the cloud safety line.".to_owned()
+    let repo = gate::repository(text);
+    let branch = cloud_branch(launch.name);
+    let landing = if cloud_autoland(&repo) {
+        format!("Autoland lands {branch} once its checks pass, so no courier runs.")
     } else {
-        format!("Add the cloud safety line to the brief first: \"{SAFETY_LINE}\"")
+        format!(
+            "Land it from gex45 or the laptop, never Nexus: once git ls-remote origin {branch} shows it, fetch it into a worktree, rerun the checks, land it with safe-push --to main and delete it with git push origin --delete {branch}. \
+             If the session reports its push refused, collect its handback with north cloud wait <id> OUT.jsonl on Nexus and decode it as cloud.md says."
+        )
     };
     format!(
         "placement sends this box to anthropic-cloud ({credit}; {surface}). Run it on Nexus instead (harness/skills/workers/references/cloud.md):\n  \
          ssh nexus 'mkdir -p /tmp/cloud && cat > /tmp/cloud/{name}.md' < {brief}\n  \
-         ssh -tt nexus 'cd /tmp/cloud && claude --cloud \"$(cat {name}.md)\"'\n\
-         {safety}\nThe brief ends with the handback: {HANDBACK}.\n\
-         Record the printed session_... ID in the box's thread and collect it with north cloud wait <id> OUT.jsonl on Nexus.\n\
+         ssh nexus 'north cloud launch {repo} {name} /tmp/cloud/{name}.md'\n\
+         It launches claude --cloud from /tmp/cloud/src/{repo}, adds the cloud safety line and the steps that push {branch}, and prints the session_... ID; record it in the box's thread.\n\
+         {landing}\n\
          To run it here anyway, relaunch with --local \"<reason>\".",
         name = launch.name,
     )

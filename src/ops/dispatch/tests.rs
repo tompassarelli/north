@@ -52,6 +52,7 @@ fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Acco
         holds: BTreeMap::new(),
         cloud,
         laptop: Some("whiterabbit".into()),
+        cloud_running: 0,
         notes: Vec::new(),
         at: 0.0,
     }
@@ -159,7 +160,7 @@ fn a_box_whose_only_open_line_waits_on_a_future_time_is_skipped_until_that_time_
 }
 
 fn placed(survey: &Survey) -> Vec<(String, String, String, bool, Option<String>)> {
-    decide(survey, "test").launches.into_iter().map(|launch| (launch.item.to_string(), launch.host, launch.account, launch.courier, launch.local)).collect()
+    decide(survey, "test").launches.into_iter().map(|launch| (launch.item.to_string(), launch.host, launch.account, launch.cloud, launch.local)).collect()
 }
 
 fn chosen(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> Vec<(String, Option<String>)> {
@@ -221,7 +222,7 @@ fn one_tick_charges_each_launch_to_its_account_so_launches_spread_and_stop_at_th
 }
 
 #[test]
-fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_unreachable_or_its_courier_slot_is_full() {
+fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_unreachable_or_its_sessions_are_out() {
     let (hosts, accounts) = fleet();
     let boxes = vec![issue("smashcraft", 20, "- [ ] a", &[]), issue("smashcraft", 21, "- [ ] b", &[]), issue("smashcraft", 22, "- [ ] c", &[]), issue("smashcraft", 23, "- [ ] d", &[])];
     let unreachable = survey(boxes.clone(), Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
@@ -242,19 +243,22 @@ fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_u
     let (_, last) = outcome.skipped.last().unwrap();
     assert!(last.contains("gex45 has no free slot") && last.contains("whiterabbit takes nothing: laptop unavailable"), "{last}");
 
-    let reachable = survey(boxes.clone(), Cloud::Reachable("cloud credit: unread".into()), hosts.clone(), accounts.clone());
-    let full = Some("north dispatch: cloud lane open (cloud credit: unread) but nexus has no free slot for its courier".to_owned());
+    let mut reachable = survey(boxes.clone(), Cloud::Reachable("cloud credit: unread".into()), hosts.clone(), accounts.clone());
+    reachable.cloud_running = super::cloud::SESSIONS - 1;
+    let full = Some("north dispatch: cloud lane open (cloud credit: unread) but its 6 sessions are out".to_owned());
     assert_eq!(
         placed(&reachable),
         [
-            ("smashcraft#20".into(), "nexus".into(), "claude:a".into(), true, Some("north dispatch: courier for the cloud lane (cloud credit: unread)".to_owned())),
+            ("smashcraft#20".into(), "anthropic-cloud".into(), "claude login on nexus".into(), true, None),
             ("smashcraft#21".into(), "gex45".into(), "claude:b".into(), false, full.clone()),
-            ("smashcraft#22".into(), "gex45".into(), "claude:b".into(), false, full),
-        ]
+            ("smashcraft#22".into(), "gex45".into(), "claude:b".into(), false, full.clone()),
+            ("smashcraft#23".into(), "nexus".into(), "claude:a".into(), false, full),
+        ],
+        "a cloud launch takes no host slot"
     );
 
     let closed = survey(boxes, Cloud::Closed("cloud credit: expired".into()), hosts, accounts);
-    assert!(placed(&closed).iter().all(|(_, _, _, courier, local)| !courier && local.is_none()));
+    assert!(placed(&closed).iter().all(|(_, _, _, cloud, local)| !cloud && local.is_none()));
 }
 
 #[test]
@@ -286,7 +290,7 @@ fn tom_hears_once_only_when_ready_work_and_free_slots_coexist_and_nothing_launch
 
 #[test]
 fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
-    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), courier: false, launched: true, detail: String::new() };
+    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new() };
     let now = 100_000.0;
     let records = vec![entry("smashcraft#1", now - 600.0), entry("smashcraft#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
     let holds = record::holds(&records, now);
@@ -352,7 +356,8 @@ fn code_only_boxes_go_to_the_open_laptop_when_the_cloud_lane_and_other_hosts_are
     hosts[1].running = Ok(6);
     hosts[2].running = Ok(7);
     let boxes = vec![issue("smashcraft", 50, "- [ ] a", &[]), issue("smashcraft", 51, "- [ ] b", &[])];
-    let open = survey(boxes, Cloud::Reachable("cloud credit: unread".into()), hosts.clone(), accounts.clone());
+    let mut open = survey(boxes, Cloud::Reachable("cloud credit: unread".into()), hosts.clone(), accounts.clone());
+    open.cloud_running = super::cloud::SESSIONS;
     let launched = placed(&open);
     assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str(), row.2.as_str(), row.3)).collect::<Vec<_>>(), [("smashcraft#50", "whiterabbit", "claude:a", false)]);
     hosts[2].running = Err("laptop busy".into());
@@ -422,7 +427,7 @@ fn a_box_launched_on_the_laptop_or_here_is_held_to_that_host_and_a_remote_one_na
         host: host.into(),
         account: "claude:c".into(),
         brief: "brief".into(),
-        courier: false,
+        cloud: false,
         local: local.map(str::to_owned),
         pin: None,
     };
@@ -435,4 +440,78 @@ fn a_box_launched_on_the_laptop_or_here_is_held_to_that_host_and_a_remote_one_na
     assert_eq!(local("nexus", None), (false, Some("north dispatch placed this box on nexus".into())));
     assert_eq!(local("nexus", Some("cloud lane unreachable")), (false, Some("cloud lane unreachable".into())));
     assert_eq!(local("gex45", None), (true, None));
+}
+
+#[test]
+fn an_autoland_cloud_launch_runs_from_its_repo_checkout_with_trust_written_and_a_brief_ending_in_a_land_push() {
+    let home = tempfile::tempdir().unwrap();
+    let config = home.path().join(".claude.json");
+    std::fs::write(&config, r#"{"oauthAccount":{"organizationUuid":"org"},"projects":{"/elsewhere":{"hasTrustDialogAccepted":true}}}"#).unwrap();
+    let box_brief = super::brief::brief(&issue("smashcraft", 60, "- [ ] a\nSurface: rust", &[]), "test");
+    let text = super::brief::cloud(&box_brief, "smashcraft", &super::cloud::branch("sc-60-d1200"));
+    let mut calls: Vec<(String, String, Vec<String>)> = Vec::new();
+    let mut trusted_at_launch = None;
+    let mut run = |cwd: &std::path::Path, program: &str, args: &[String]| -> Result<String, String> {
+        calls.push((cwd.display().to_string(), program.to_owned(), args.to_vec()));
+        if program == "claude" {
+            let written: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+            trusted_at_launch = Some(written["projects"]["/tmp/cloud/src/smashcraft"]["hasTrustDialogAccepted"].clone());
+            return Ok("Created cloud session: https://claude.ai/code/session_01AbcXyz\n".into());
+        }
+        Ok(String::new())
+    };
+    let launched = super::cloud::launch("smashcraft", "sc-60-d1200", &text, std::path::Path::new(super::cloud::SOURCES), home.path(), &mut run).unwrap();
+
+    assert_eq!(launched, super::cloud::Launched { session: "session_01AbcXyz".into(), branch: "claude/land-sc-60-d1200".into(), directory: "/tmp/cloud/src/smashcraft".into() });
+    assert_eq!(trusted_at_launch, Some(serde_json::Value::Bool(true)), "trust is written before claude --cloud starts");
+    let (cwd, program, args) = calls.last().unwrap();
+    assert_eq!((cwd.as_str(), program.as_str(), args[0].as_str(), args[1].as_str()), ("/tmp/cloud/src/smashcraft", "claude", "--cloud", text.as_str()));
+    let git: Vec<String> = calls.iter().filter(|(_, program, _)| program == "git").map(|(_, _, args)| args.join(" ")).collect();
+    let dir = "-C /tmp/cloud/src/smashcraft";
+    assert_eq!(
+        git[git.len() - 4..],
+        [
+            format!("{dir} fetch -q --depth 1 --filter=blob:none origin main"),
+            format!("{dir} sparse-checkout set --no-cone /README.md"),
+            format!("{dir} checkout -q -B main FETCH_HEAD"),
+            format!("{dir} branch -q --set-upstream-to=origin/main main"),
+        ]
+    );
+    let kept: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+    assert_eq!((kept["oauthAccount"]["organizationUuid"].as_str(), kept["projects"]["/elsewhere"]["hasTrustDialogAccepted"].as_bool()), (Some("org"), Some(true)));
+
+    let last = text.rsplit(". Last, ").next().unwrap();
+    assert!(last.starts_with("push with `git push origin HEAD:refs/heads/claude/land-sc-60-d1200`") && last.contains("Done: queued claude/land-sc-60-d1200") && last.contains("no courier runs"), "{last}");
+    assert!(!last.contains("BEGIN-HANDBACK"), "the handback is only the refused-push fallback");
+    for needed in [super::brief::SAFETY_LINE, "git config user.name tompassarelli", "git config user.email 6378995+tompassarelli@users.noreply.github.com", "Claude-Session:", "Co-Authored-By:", "git reset --soft origin/main", "Closes #<number>"] {
+        assert!(text.contains(needed), "{needed}");
+    }
+}
+
+#[test]
+fn a_fresh_launch_checkout_starts_with_init_and_every_refresh_sets_the_public_origin() {
+    let steps = super::cloud::checkout_steps("wisp", std::path::Path::new("/tmp/cloud/src/wisp"), true);
+    assert_eq!(steps[0].join(" "), "init -q /tmp/cloud/src/wisp");
+    assert_eq!(steps[1].join(" "), "-C /tmp/cloud/src/wisp config remote.origin.url https://github.com/tompassarelli/wisp.git");
+    let refreshed = super::cloud::checkout_steps("wisp", std::path::Path::new("/tmp/cloud/src/wisp"), false);
+    assert_eq!(refreshed[..], steps[1..], "a refresh sets the origin too, so a half-made checkout heals");
+}
+
+#[test]
+fn a_north_cloud_brief_pushes_its_land_branch_for_a_courier_and_does_not_close_the_issue() {
+    let text = super::brief::cloud("Item: north#9 x", "north", "claude/land-n9");
+    let last = text.rsplit(". Last, ").next().unwrap();
+    assert!(last.contains("Done: pushed claude/land-n9") && last.contains("a courier off the cloud host lands it through safe-push"), "{last}");
+    assert!(!text.contains("Closes #"));
+}
+
+#[test]
+fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
+    let now = 100_000.0;
+    let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new() };
+    let records = vec![cloud("smashcraft#7", now - 5.0 * 3600.0), cloud("smashcraft#8", now - 7.0 * 3600.0)];
+    let holds = record::holds(&records, now);
+    assert!(holds.contains_key(&IssueRef::new("smashcraft", 7)) && !holds.contains_key(&IssueRef::new("smashcraft", 8)));
+    let open = BTreeSet::from([IssueRef::new("smashcraft", 7), IssueRef::new("smashcraft", 8)]);
+    assert_eq!(record::recent_on(&records, "anthropic-cloud", &open, now), 1);
 }

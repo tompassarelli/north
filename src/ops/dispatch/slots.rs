@@ -104,6 +104,7 @@ pub(crate) struct Pools {
     signed_in: BTreeMap<String, Vec<String>>,
     /// Points of its own percent each account is charged for the boxes planned on it this run.
     charged: BTreeMap<String, f64>,
+    cloud: i64,
 }
 
 impl Pools {
@@ -112,7 +113,18 @@ impl Pools {
             hosts: hosts.iter().map(|host| (host.name.clone(), host.free().unwrap_or(0))).collect(),
             signed_in: accounts.iter().filter(|account| account.open().is_ok()).map(|account| (account.name.clone(), account.hosts.clone())).collect(),
             charged: BTreeMap::new(),
+            cloud: 0,
         }
+    }
+
+    pub(crate) fn with_cloud(self, free: i64) -> Self {
+        Self { cloud: free.max(0), ..self }
+    }
+
+    pub(crate) fn take_cloud(&mut self) -> bool {
+        let free = self.cloud > 0;
+        self.cloud -= i64::from(free);
+        free
     }
 
     fn serves(&self, host: &str, account: &str) -> bool {

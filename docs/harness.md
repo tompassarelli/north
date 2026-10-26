@@ -85,8 +85,8 @@ holds the tier table. In order:
 5. **Launch through Fleet.** Run `north fleet launch --provider claude --account A --parent NAME`
    with the brief as its system prompt. Fleet records the parent link and controls delivery. The
    launcher enforces placement before anything starts: it prints one verdict line per Claude account,
-   refuses a code-only public box with the exact Nexus `claude --cloud` command while the cloud
-   credit lasts, and refuses an account other than the one with the most headroom, naming it.
+   refuses a code-only public box with the exact Nexus `north cloud launch` command while the
+   cloud credit lasts, and refuses an account other than the one with the most headroom, naming it.
    `--local "REASON"` and `--pin "REASON"` override and are recorded on the session and shown in
    `north fleet list`; `north fleet revive` re-checks a stopped session and keeps those reasons.
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;

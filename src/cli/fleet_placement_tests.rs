@@ -37,7 +37,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let refused = admit(&local, &launch("c"), "", &Overrides::default()).unwrap_err();
     assert!(refused.starts_with("claude:c unavailable: burning") && refused.contains("--account a"), "{refused}");
     assert_eq!(admit(&local, &launch("c"), "", &given(None, Some("drain c"))), noted(Some("pin: drain c")));
-    assert!(admit(&cloud, &launch("a"), "", &given(None, Some("drain c"))).unwrap_err().contains("claude --cloud"));
+    assert!(admit(&cloud, &launch("a"), "", &given(None, Some("drain c"))).unwrap_err().contains("north cloud launch"));
     assert!(admit(&cloud, &launch("c"), "", &given(Some("x"), None)).unwrap_err().contains("--pin"));
     let both = admit(&cloud, &launch("c"), "", &given(Some("x"), Some("y"))).unwrap().note;
     assert_eq!(both.as_deref(), Some("local: x; pin: y"));

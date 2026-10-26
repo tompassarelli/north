@@ -57,14 +57,27 @@ pub(crate) fn brief(issue: &Issue, launched_by: &str) -> String {
     )
 }
 
-/// A courier session on the cloud host starts the box in Anthropic's cloud and carries its handback
-/// to main, because the cloud session cannot push.
-pub(crate) fn courier(brief: &str, name: &str) -> String {
-    let (head, _) = brief.split_once("\n\n").unwrap_or((brief, ""));
+pub(crate) const AUTHOR_NAME: &str = "tompassarelli";
+pub(crate) const AUTHOR_EMAIL: &str = "6378995+tompassarelli@users.noreply.github.com";
+pub(crate) const HANDBACK: &str = "git format-patch origin/main..HEAD --stdout | gzip -9 | base64 -w 76 > /tmp/handback.b64, then one Bash call per 300-line part i of n: echo BEGIN-HANDBACK part i/n; sed -n <first>,<last>p /tmp/handback.b64; echo END-HANDBACK part i/n";
+
+/// The brief a cloud session starts from: the box brief, the cloud safety line, and the last steps
+/// that land it by pushing `branch`, with the patch handback only when the push is refused.
+pub(crate) fn cloud(brief: &str, repo: &str, branch: &str) -> String {
+    let (closes, after) = if super::cloud::autoland(repo) {
+        (" and ends with `Closes #<number>`", format!("Report `Done: queued {branch}`; Autoland lands it once its checks pass, and no courier runs."))
+    } else {
+        ("", format!("Report `Done: pushed {branch}`; a courier off the cloud host lands it through safe-push."))
+    };
     format!(
-        "{head}\nCourier: anthropic-cloud\n\nYou are the courier for this box in the cloud credit lane; follow harness/skills/workers/references/cloud.md. \
-         Write the box brief below to /tmp/cloud/{name}.md with the cloud safety line and the handback step, start it from /tmp/cloud with `claude --cloud`, \
-         wait for it with `north cloud wait`, decode the handback, apply it in a worktree, re-author it, and land it through safe-push; then tick and close the issue as its Done when says. \
-         Answer no cloud permission prompt for Tom.\n\nCloud safety line: {SAFETY_LINE}\n\n--- box brief ---\n{brief}"
+        "{brief}\n\nCloud safety line: {SAFETY_LINE} The one push allowed is `git push origin HEAD:refs/heads/{branch}`.\n\n\
+         You run in Anthropic's cloud and land by pushing a branch, so these last steps replace the brief's claim, worktree, safe-push, tick and close steps. \
+         Run the repository's checks as its AGENTS.md names them and fix what fails. \
+         Rebase onto a fresh `git fetch origin main` and rerun the checks if main moved. \
+         Run `git config user.name {AUTHOR_NAME}` and `git config user.email {AUTHOR_EMAIL}`, fold all your work into one commit with `git reset --soft origin/main`, \
+         and commit it with a message that names the Item's issue{closes} and carries no `Claude-Session:` or `Co-Authored-By:` trailer, \
+         because an earlier commit's private email or session URL makes the deny-list refuse the branch. \
+         If the push below is refused, hand the work back instead: {HANDBACK}; then report `Not done:` with the refusal and `Stop: landing`. \
+         Last, push with `git push origin HEAD:refs/heads/{branch}`. {after}"
     )
 }

@@ -173,7 +173,7 @@ pub(crate) fn verdict(account: &str, control: &Value) -> Verdict {
     }
 }
 
-fn repository(text: &str) -> String {
+pub(crate) fn repository(text: &str) -> String {
     let declared = field(text, "Repository");
     let source = if declared.is_empty() {
         field(text, "Item").split('#').next().unwrap_or_default()

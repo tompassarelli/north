@@ -83,8 +83,8 @@ fn fleet_launch_refuses_off_placement_and_records_the_override_reason() {
     let cloud = launch(root, "cloudy", CODE_ONLY, &["--account", "a"]);
     let said = String::from_utf8_lossy(&cloud.stderr);
     assert!(!cloud.status.success(), "a code-only public box launched locally without --local");
-    assert!(said.contains("ssh -tt nexus 'cd /tmp/cloud && claude --cloud \"$(cat cloudy.md)\"'"), "{said}");
-    assert!(said.contains("Add the cloud safety line") && said.contains("--local \"<reason>\""), "{said}");
+    assert!(said.contains("ssh nexus 'north cloud launch north cloudy /tmp/cloud/cloudy.md'"), "{said}");
+    assert!(said.contains("from gex45 or the laptop, never Nexus") && said.contains("safe-push --to main") && said.contains("claude/land-cloudy") && said.contains("--local \"<reason>\""), "{said}");
     assert!(said.contains("claude:c unavailable: burning: 5h 86.0%/h > the 50%/h cap"), "{said}");
     assert!(!root.join(".local/state/north/fleet/cloudy").exists(), "the refused launch left a session");
 

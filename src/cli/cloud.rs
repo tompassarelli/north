@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: north cloud list | events SESSION_ID OUT.jsonl | sweep OUT_DIR | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS]
+const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF | events SESSION_ID OUT.jsonl | sweep OUT_DIR | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS]
+launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout.
 sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
 send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
 wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout).
@@ -24,12 +25,14 @@ pub(super) enum Cloud {
     Sweep(PathBuf),
     Send(String, PathBuf),
     Wait(String, PathBuf, u64, Option<String>),
+    Launch(String, String, PathBuf),
 }
 
 pub(super) fn parse(arguments: &[String]) -> Option<Cloud> {
     let words = arguments.iter().map(String::as_str).collect::<Vec<_>>();
     Some(match words.as_slice() {
         ["list"] => Cloud::List,
+        ["launch", repo, slug, brief] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into()),
         ["events", id, out] => Cloud::Events((*id).to_owned(), out.into()),
         ["sweep", dir] => Cloud::Sweep(dir.into()),
         ["send", id, file] => Cloud::Send((*id).to_owned(), file.into()),
@@ -350,6 +353,7 @@ pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Res
             let _ = writeln!(out, "{} events in {}", events.len(), path.display());
         }
         Cloud::Sweep(dir) => sweep(api, &dir, out)?,
+        Cloud::Launch(..) => return Err("launch starts a session through claude --cloud, not the sessions API".into()),
         Cloud::Send(id, file) => {
             let text = std::fs::read_to_string(&file)
                 .map_err(|error| format!("{}: {error}", file.display()))?;
@@ -382,6 +386,18 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
+    if let Cloud::Launch(repo, slug, brief) = &command {
+        return match crate::ops::dispatch::cloud_launch(repo, slug, brief) {
+            Ok(line) => {
+                println!("{line}");
+                0
+            }
+            Err(error) => {
+                eprintln!("north cloud launch: {error}");
+                1
+            }
+        };
+    }
     let result = credentials().and_then(|curl| {
         execute(
             command,

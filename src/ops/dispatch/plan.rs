@@ -1,6 +1,7 @@
-//! Where each ready box goes: the cloud lane through a courier on this host when the lane is
-//! reachable here and has a free courier slot, else the first host in placement order that serves the box and has a free slot.
+//! Where each ready box goes: the cloud lane when it is reachable here and has a free session,
+//! else the first host in placement order that serves the box and has a free slot.
 use super::issues::IssueRef;
+use super::cloud::{HOST, SESSIONS};
 use super::slots::{Account, Pools};
 use std::cmp::Ordering;
 
@@ -27,8 +28,8 @@ pub(crate) struct Launch {
     pub host: String,
     pub account: String,
     pub brief: String,
-    /// Courier for the cloud lane rather than the worker itself.
-    pub courier: bool,
+    /// Started in the cloud lane from this host rather than through `north fleet launch`.
+    pub cloud: bool,
     /// Why the box runs here instead of the cloud lane, recorded as `--local`.
     pub local: Option<String>,
     /// Why the account is not the one placement would pick, recorded as `--pin`.
@@ -88,7 +89,7 @@ fn pin(capacity: &Capacity, pools: &Pools, host: &str, chosen: &Account) -> Opti
         .then(|| format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name))
 }
 
-fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, courier: bool, local: Option<String>) -> Launch {
+fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, local: Option<String>) -> Launch {
     let pin = pin(capacity, pools, host, account);
     pools.take(host);
     pools.charge(&account.name, capacity.charge(account));
@@ -97,7 +98,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
         host: host.into(),
         account: account.name.clone(),
         brief: ready.brief.clone(),
-        courier,
+        cloud: false,
         local,
         pin,
     }
@@ -109,11 +110,11 @@ pub(crate) fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate]
     if ready.code_only {
         match capacity.cloud {
             Cloud::Reachable(credit) => {
-                let here = capacity.here;
-                match best_account(capacity, pools, here) {
-                    Some(account) => return Ok(launch(capacity, pools, ready, here, account, true, Some(format!("north dispatch: courier for the cloud lane ({credit})")))),
-                    None => local = Some(format!("north dispatch: cloud lane open ({credit}) but {here} has no free slot for its courier")),
+                if pools.take_cloud() {
+                    let account = format!("claude login on {}", capacity.here);
+                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), cloud: true, local: None, pin: None });
                 }
+                local = Some(format!("north dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
             }
             Cloud::Unreachable(why) => local = Some(format!("north dispatch: cloud lane unreachable from {}: {why}", capacity.here)),
             Cloud::Closed(_) => {}
@@ -126,7 +127,7 @@ pub(crate) fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate]
             continue;
         }
         match best_account(capacity, pools, &candidate.host) {
-            Some(account) => return Ok(launch(capacity, pools, ready, &candidate.host, account, false, local)),
+            Some(account) => return Ok(launch(capacity, pools, ready, &candidate.host, account, local)),
             None if pools.host(&candidate.host) == 0 => refused.push(format!("{} has no free slot", candidate.host)),
             None => refused.push(format!("{} has no account with a free worker slot", candidate.host)),
         }
