@@ -79,6 +79,8 @@ Commands:
   capacity admission < FACTS.json               Decide one machine-capacity admission
   capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
   capacity game-reserve on [--auto]|off|status Reserve CPUs for Tom's game, moving it only once it has run 60 s
+  nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
+  nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   help                                          Show this help
 
