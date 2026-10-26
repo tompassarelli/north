@@ -313,6 +313,7 @@ mod turn_state {
             account: "pooled".into(),
             cwd: PathBuf::from("/tmp"),
             model: None,
+            effort: None,
             prompt: String::new(),
             system_prompt: None,
             foreground_cap_secs: None,

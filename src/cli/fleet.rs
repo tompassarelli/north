@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
+use crate::fleet::model::{Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::registry::{self, Fleet, urgent_text};
 use crate::fleet::roster::Roster;
@@ -22,8 +22,8 @@ use crate::tui;
 use super::fleet_placement::{self, Launch, Overrides, Placed};
 use super::{gate, orders, relay};
 
-const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
-     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
+const USAGE: &str = "Usage: north fleet [list [--json] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF] [--local REASON] [--pin REASON] [--test] PROMPT... \
+     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
@@ -112,7 +112,7 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
         "interrupt" => fleet.interrupt(name),
         "stop" => fleet.stop(name),
         "forget" => fleet.forget(name),
-        "revive" => revive(fleet, name, None, Overrides::default()),
+        "revive" => revive(fleet, name, None, None, Overrides::default()),
         "show" => show(fleet, name, false),
         "watchdog" => fleet.guard(name),
         _ => Err(usage()),
@@ -120,20 +120,21 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
 }
 
 fn revive_with(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
-    let (mut system_prompt, mut overrides) = (None, Overrides::default());
+    let (mut system_prompt, mut effort, mut overrides) = (None, None, Overrides::default());
     for pair in words.chunks(2) {
         match pair {
             ["--system-prompt", file] => system_prompt = Some(absolute(file)?),
+            ["--effort", level] => effort = Some(Effort::parse(level)?),
             [flag, value] if overrides.set(flag, value) => {}
             _ => return Err(usage()),
         }
     }
-    revive(fleet, name, system_prompt, overrides)
+    revive(fleet, name, system_prompt, effort, overrides)
 }
 
 /// Revive re-runs placement for a stopped Claude session, keeping the reasons its launch recorded and
 /// the machine its conversation lives on.
-fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, overrides: Overrides) -> NorthResult<()> {
+fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides) -> NorthResult<()> {
     let record = fleet.session(name)?;
     if let (Some(machine), Some(_)) = (&record.machine, &overrides.local) {
         return Err(NorthError::Usage(format!("{name}'s conversation lives on {}, so it revives there; launch a new session to work here", machine.name)));
@@ -145,7 +146,7 @@ fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, overrides: 
         let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
         placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &machine_load(fleet)?, &fleet.roster())?.note;
     }
-    fleet.revive_placed(name, system_prompt, placement).map(|record| println!("{}", record.name))
+    fleet.revive_placed(name, system_prompt, placement, effort).map(|record| println!("{}", record.name))
 }
 
 fn show_with(fleet: &Fleet, name: &str, flag: &str) -> NorthResult<()> {
@@ -202,6 +203,7 @@ fn session_json(record: &SessionRecord, status: Status) -> Value {
         "parent": record.parent,
         "cwd": record.cwd,
         "model": record.model,
+        "effort": record.effort.map(Effort::label),
         "conversation": record.conversation,
         "task_ref": record.task_ref,
         "created_ms": record.created_ms,
@@ -289,6 +291,7 @@ struct LaunchFlags {
     account: Option<String>,
     cwd: Option<PathBuf>,
     model: Option<String>,
+    effort: Option<Effort>,
     name: Option<String>,
     system_prompt: Option<PathBuf>,
     prompt_mode: PromptMode,
@@ -306,6 +309,7 @@ impl LaunchFlags {
             "--account" => self.account = Some(value),
             "--cwd" => self.cwd = Some(PathBuf::from(value)),
             "--model" => self.model = Some(value),
+            "--effort" => self.effort = Some(Effort::parse(&value)?),
             "--name" => self.name = Some(value),
             "--system-prompt" => self.system_prompt = Some(absolute(&value)?),
             "--prompt" => self.prompt_mode = PromptMode::parse(&value).ok_or_else(usage)?,
@@ -336,6 +340,7 @@ impl LaunchFlags {
             account,
             cwd,
             model: self.model,
+            effort: self.effort,
             prompt,
             system_prompt: self.system_prompt,
             foreground_cap_secs: self.foreground_cap_secs,

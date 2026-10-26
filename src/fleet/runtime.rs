@@ -42,6 +42,9 @@ pub enum Opening<'a> {
 pub trait Runtime: Send + Sync {
     fn provider(&self) -> ProviderName;
     fn models(&self) -> &'static [&'static str];
+    fn takes_effort(&self) -> bool {
+        false
+    }
     fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster;
     fn account_on(&self, _home: &Path, _policy: &Path, _label: &str, machine: &str) -> NorthResult<Account> {
         Err(NorthError::Usage(format!("{} cannot run a session on {machine}", self.provider().label())))

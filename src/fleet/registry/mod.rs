@@ -10,7 +10,7 @@ use super::books::{Digest, FleetBooks};
 use super::gates;
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
-use super::model::{Account, ProviderName, Delivery, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
+use super::model::{Account, ProviderName, Delivery, Effort, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, read_record, write_record};
 use super::remote;
@@ -110,6 +110,7 @@ impl Fleet {
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
             return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
         }
+        let effort = takes_effort(runtime.as_ref(), request.effort)?;
         let conversation = runtime.assign_conversation()?;
         fs::create_dir_all(&session_dir)?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
@@ -120,6 +121,7 @@ impl Fleet {
             account: request.account.clone(),
             cwd: request.cwd.clone(),
             model: request.model.clone(),
+            effort,
             created_ms: now_ms(),
             host_pid: None,
             conversation: conversation.clone(),
@@ -147,12 +149,18 @@ impl Fleet {
     }
 
     pub fn revive(&self, name: &str, system_prompt: Option<PathBuf>) -> NorthResult<SessionRecord> {
-        self.revive_placed(name, system_prompt, None)
+        self.revive_placed(name, system_prompt, None, None)
     }
 
-    /// Revive with a fresh placement override note, which the restarted record keeps.
-    pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>) -> NorthResult<SessionRecord> {
+    /// Revive with a fresh placement override note and effort, which the restarted record keeps.
+    pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {
         let mut record = self.record(name)?;
+        if effort.is_some() {
+            if session_running(&record) {
+                return Err(NorthError::Usage(format!("{name} is running; stop it before reviving it with --effort")));
+            }
+            record.effort = takes_effort(self.runtime(&record)?.as_ref(), effort)?;
+        }
         if system_prompt.is_some() {
             record.system_prompt = system_prompt;
         }
@@ -166,7 +174,7 @@ impl Fleet {
             .conversation
             .clone()
             .ok_or_else(|| NorthError::State(format!("{name} never started a conversation")))?;
-        let account = self.account(&relaunch_request(&record))?;
+        let account = self.account(&record.relaunch_request())?;
         self.start(&mut record, &account, Opening::Resume(&conversation))?;
         Ok(record)
     }
@@ -296,7 +304,7 @@ impl Fleet {
 
     fn start(&self, record: &mut SessionRecord, account: &Account, opening: Opening) -> NorthResult<()> {
         let runtime = self.runtime(record)?;
-        let request = relaunch_request(record);
+        let request = record.relaunch_request();
         let (instructions, sha) = self.instructions(record)?;
         let changed = record.system_prompt_sha.as_deref() != Some(sha.as_str());
         record.system_prompt_sha = Some(sha);
@@ -469,24 +477,10 @@ fn await_conversation(runtime: &dyn Runtime, record: &SessionRecord, offset: u64
     }
 }
 
-fn relaunch_request(record: &SessionRecord) -> LaunchRequest {
-    LaunchRequest {
-        verification: record.verification,
-        name: record.name.clone(),
-        provider: record.provider.clone(),
-        account: record.account.clone(),
-        cwd: record.cwd.clone(),
-        model: record.model.clone(),
-        prompt: String::new(),
-        system_prompt: record.system_prompt.clone(),
-        foreground_cap_secs: record.foreground_cap_secs,
-        prompt_mode: record.prompt_mode,
-        idle_exit_minutes: record.idle_exit_minutes,
-        parent: record.parent.clone(),
-        task_ref: record.task_ref.clone(),
-        placement: record.placement.clone(),
-        machine: record.machine.clone(),
-        capacity_need: record.capacity_need.clone(),
+fn takes_effort(runtime: &dyn Runtime, effort: Option<Effort>) -> NorthResult<Option<Effort>> {
+    match effort {
+        Some(_) if !runtime.takes_effort() => Err(NorthError::Usage(format!("{} sessions take no --effort; launch a claude session to set reasoning effort", runtime.provider().label()))),
+        _ => Ok(effort),
     }
 }
 
