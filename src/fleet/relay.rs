@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{NorthError, NorthResult};
 use crate::platform::process::run_within;
 
+use super::gates::GateRequest;
 use super::model::Delivery;
 use super::runtime::{binary, new_uuid, now_ms};
 
@@ -25,6 +26,8 @@ pub struct Letter {
     pub from: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<Box<GateRequest>>,
     pub at_ms: u64,
 }
 
@@ -62,9 +65,17 @@ impl Outbox {
     }
 
     pub fn post(&self, sender: Option<&str>, to: &str, text: &str, delivery: Delivery) -> NorthResult<Letter> {
+        self.stage(sender, to, text, delivery, None)
+    }
+
+    pub fn post_gate(&self, request: &GateRequest) -> NorthResult<Letter> {
+        self.stage(None, &request.session, &request.question, Delivery::Queued, Some(Box::new(request.clone())))
+    }
+
+    fn stage(&self, sender: Option<&str>, to: &str, text: &str, delivery: Delivery, gate: Option<Box<GateRequest>>) -> NorthResult<Letter> {
         fs::create_dir_all(&self.dir)?;
         let at_ms = now_ms();
-        let letter = Letter { id: format!("{at_ms}-{}", new_uuid()?), to: to.into(), text: text.into(), now: delivery == Delivery::Now, from: hostname(), sender: sender.map(str::to_owned), at_ms };
+        let letter = Letter { id: format!("{at_ms}-{}", new_uuid()?), to: to.into(), text: text.into(), now: delivery == Delivery::Now, from: hostname(), sender: sender.map(str::to_owned), gate, at_ms };
         let staged = self.dir.join(format!(".{}.tmp", letter.id));
         fs::write(&staged, serde_json::to_vec(&letter)?)?;
         fs::rename(staged, self.letter(&letter.id)?)?;
@@ -332,7 +343,7 @@ mod tests {
     impl Courier for Slow {
         fn take(&self, host: &str, _: &str) -> NorthResult<Vec<Letter>> {
             std::thread::sleep(self.0);
-            Ok(vec![Letter { id: format!("1-{host}"), to: "proxy".into(), text: host.into(), now: false, from: host.into(), sender: None, at_ms: 1 }])
+            Ok(vec![Letter { id: format!("1-{host}"), to: "proxy".into(), text: host.into(), now: false, from: host.into(), sender: None, gate: None, at_ms: 1 }])
         }
 
         fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {

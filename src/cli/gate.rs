@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{Decision, Gate, GateRequest, due};
-use crate::fleet::registry::Fleet;
+use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
 
 const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) | north gate answer ID N [--note TEXT] | north gate list [--json]";
@@ -39,7 +39,14 @@ fn usage() -> NorthError {
 
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     let request = gate_request(flags)?;
-    println!("{}", fleet.open_gate(&request)?);
+    match fleet.open_or_post_gate(&request)? {
+        Opened::Here(id) => println!("{id}"),
+        Opened::Posted { relay, letter } => {
+            let minutes = relay.age.as_secs() / 60;
+            println!("{}", letter.id);
+            eprintln!("north gate: no session named {} here; posted {} for {}, which last relayed {minutes}m ago; the gate opens there with its own id", request.session, letter.id, relay.host);
+        }
+    }
     Ok(())
 }
 

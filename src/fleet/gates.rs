@@ -1,6 +1,6 @@
 use crate::error::{NorthError, NorthResult};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GateRequest {
     pub verification: bool,
     pub session: String,

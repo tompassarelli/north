@@ -7,10 +7,14 @@ use super::{Fleet, parents};
 
 impl Fleet {
     pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
+        self.open_gate_arming(request, &parents::await_default)
+    }
+
+    pub(super) fn open_gate_arming(&self, request: &GateRequest, arm: &dyn Fn(i64) -> NorthResult<()>) -> NorthResult<i64> {
         let asker = self.record(&request.session)?;
         let request = GateRequest { verification: asker.verification, ..request.clone() };
         let id = gates::open(self.ledger.as_ref(), &request, asker.parent.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))?;
-        parents::await_default(id)?;
+        arm(id)?;
         Ok(id)
     }
 

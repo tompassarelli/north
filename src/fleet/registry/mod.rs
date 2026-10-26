@@ -36,7 +36,7 @@ mod tests;
 pub use follower::Follower;
 pub use home::roster;
 use home::{home_dir, state_dir};
-pub use letters::Sent;
+pub use letters::{Opened, Sent};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const OPEN_POLL: Duration = Duration::from_millis(100);
