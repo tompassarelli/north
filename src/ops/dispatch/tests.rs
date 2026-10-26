@@ -369,11 +369,15 @@ fn code_only_boxes_go_to_the_open_laptop_when_the_cloud_lane_and_other_hosts_are
 }
 
 #[test]
-fn a_threads_claim_on_any_hosts_ledger_holds_its_issue() {
-    let listing = "item  owner  clock  eta  flag\nwisp#21  sc-21-a  12m  45m  -\nsmashcraft#9  w4  3m  -  OVERDUE\n";
-    let rows = super::survey::claim_rows(listing, "gex45");
+fn a_live_threads_claim_on_any_hosts_ledger_holds_its_issue_and_a_stale_one_does_not() {
+    let listing = serde_json::json!([
+        {"item": "wisp#21", "owner": "sc-21-a", "standing": "live"},
+        {"item": "smashcraft#9", "owner": "w4", "standing": "live"},
+        {"item": "smashcraft#10", "owner": "w5", "standing": "stale"},
+    ]);
+    let rows = super::survey::claim_rows(&listing, "gex45");
     assert_eq!(rows, [(IssueRef::new("wisp", 21), "threads claim by sc-21-a on gex45".to_owned()), (IssueRef::new("smashcraft", 9), "threads claim by w4 on gex45".to_owned())]);
-    assert!(super::survey::claim_rows("item  owner  clock  eta  flag\n", "nexus").is_empty());
+    assert!(super::survey::claim_rows(&serde_json::json!([]), "nexus").is_empty());
 }
 
 #[test]

@@ -5,13 +5,13 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/threads-resume-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export HOME=$scratch/home THREADS_DB=$scratch/threads.db FLEET_FILE=$scratch/fleet.json
-export NORTH_AGENT_ACTIVE=$scratch/activation.active NORTH_FLEET_FIXTURE=$FLEET_FILE NORTH_BIN=$scratch/bin/north PATH=$scratch/bin:$PATH
+export NORTH_AGENT_ACTIVE=$scratch/activation.active NORTH_FLEET_FIXTURE=$FLEET_FILE NORTH_BIN=$scratch/bin/north PATH=$scratch/bin:$PATH BUILT_NORTH=${NORTH_PACE_BIN:-$repo/target/debug/north}
 mkdir -p "$scratch/bin" "$HOME/code/smashcraft"
 printf 'hook unlanded-work\n' >"$NORTH_AGENT_ACTIVE"
 ln -s "$repo/bin/threads" "$scratch/bin/threads"
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
-[[ "$*" == "fleet list --json" ]] || exit 2
+[[ "$*" == "fleet list --json" ]] || exec "$BUILT_NORTH" "$@"
 cat "$NORTH_FLEET_FIXTURE"
 NORTH
 chmod +x "$scratch/bin/north"

@@ -30,7 +30,7 @@ fn event_line(ts: &str, kind: &str, actor: &str, data: &Value) -> String {
     }
 }
 pub fn threads(since: Option<f64>, path: &Path, visible_native: bool) -> Result<Vec<Doc>> {
-    let (_, _, native) = threads_config();
+    let native = CATALOG.native.clone();
     let mut db = Sqlite::open(path, true)?;
     db.exec("PRAGMA busy_timeout=2000;")?;
     if path.ends_with("snapshot.db") {
@@ -222,7 +222,7 @@ pub fn github_with(
     since: Option<f64>,
     mut run: impl FnMut(&[String]) -> Result<String>,
 ) -> Result<Vec<Doc>> {
-    let (owner, repos, _) = threads_config();
+    let (owner, repos) = (CATALOG.owner.clone(), CATALOG.repos.clone());
     let mut cursors: Vec<(String, Option<String>)> = repos.into_iter().map(|r| (r, None)).collect();
     let mut docs = Vec::new();
     while !cursors.is_empty() {

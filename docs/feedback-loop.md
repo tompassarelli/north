@@ -35,7 +35,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | run_usage | bin/threads:897 | bin/threads allocation into run_costs | read | |
 | run_costs | bin/threads:987 | bin/threads:989 rolls into runs.cost_usd | read | |
 | usage | harness/lib/usage.py | harness/lib/usage.py:111, routing and the pace gate | read | |
-| claims.eta_min | bin/threads:483 | bin/threads:608 OVERDUE; src/work_items.rs:82 | read | |
+| claims.eta_min | src/threads/claims/ledger.rs take | src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; src/work_items.rs:82 | read | |
 | tier_choice | bin/threads:1431 | bin/threads:1427 incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |

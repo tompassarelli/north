@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::snapshot;
+use crate::threads::{claims, snapshot};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -97,6 +97,13 @@ impl Client {
     }
 
     fn local(&self, argv: &[String], database: Option<&Path>) -> NorthResult<i32> {
+        if argv.first().is_some_and(|verb| claims::verbs::VERBS.contains(&verb.as_str())) {
+            let ledger = database.map(Path::to_path_buf).or_else(|| self.var("THREADS_DB").map(PathBuf::from));
+            let ledger = ledger.unwrap_or_else(|| self.home.join(".local/state/threads/threads.db"));
+            let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
+            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, now: Timestamp::now().unix_seconds() };
+            return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
+        }
         let mut command = Command::new(&self.threads[0]);
         command.args(&self.threads[1..]).args(argv);
         if let Some(database) = database {

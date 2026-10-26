@@ -507,18 +507,15 @@ def forget(db, repo):
 # Commands --------------------------------------------------------------------
 
 
-def cmd_claim(db, a):
-    item = ref(*parse_ref(a.id))
-    with Tx(db):
-        row = db.execute("SELECT owner FROM claims WHERE item = ?", (item,)).fetchone()
-        if row and row["owner"] != a.by:
-            raise Refused(f"{item} is already owned by {row['owner']}")
-        if row:
-            db.execute("UPDATE claims SET since = ?, eta_min = COALESCE(?, eta_min) WHERE item = ?", (now(), a.eta, item))
-        else:
-            db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)", (item, a.by, now(), a.eta))
-        event(db, item, "claim", a.by, eta_min=a.eta)
-    print(f"{a.by} owns {item}")
+def cmd_claims(db, a):
+    """claim and list apply one live-claim rule, kept in Rust behind `north threads`."""
+    if os.environ.get("THREADS_CLAIMS_DELEGATED"):
+        raise Refused("this north predates its own claim and list; run north runtime update")
+    argv = [a.cmd, a.id, "--by", a.by, *(["--eta", str(a.eta)] if a.eta else [])] if a.cmd == "claim" else ["list", *(["--json"] if a.json else [])]
+    env = dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1")
+    code = subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", *argv], env=env).returncode
+    if code:
+        sys.exit(code)
 
 
 def cmd_release(db, a):
@@ -627,26 +624,6 @@ def cmd_ready(db, a):
             if item in claimed or any(b["state"] == "OPEN" for b in i["blockers"] + local):
                 continue
             print(f"{item}\t{i['title']}")
-
-
-def cmd_list(db, a):
-    cached = {r["repo"]: json.loads(r["issues"]) for r in db.execute("SELECT repo, issues FROM gh_cache")}
-    cached.update({ns: open_issues(db, ns) for ns in visible_native()})
-    out = [("item", "owner", "clock", "eta", "flag")]
-    for c in db.execute("SELECT * FROM claims ORDER BY since"):
-        if no_native_reason() and NATIVE_REF.fullmatch(c["item"]):
-            continue
-        repo, number = parse_ref(c["item"])
-        clock = minutes_since(c["since"])
-        flag = "-"
-        if repo in cached and str(number) not in cached[repo]:
-            flag = "CLOSED"
-        elif c["eta_min"] and clock > DEFAULTS["overdue_ratio"] * c["eta_min"]:
-            flag = "OVERDUE"
-        out.append((c["item"], c["owner"], f"{clock}m", f"{c['eta_min']}m" if c["eta_min"] else "-", flag))
-    widths = [max(len(row[i]) for row in out) for i in range(len(out[0]))]
-    for row in out:
-        print("  ".join(v.ljust(w) for v, w in zip(row, widths)).rstrip())
 
 
 # Staffing: unowned and blocked issues -------------------------------------------
@@ -2091,7 +2068,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("id", type=int)
     s.add_argument("--update-json", required=True)
 
-    s = cmd("claim", cmd_claim, "hold an issue; refused when someone else holds it")
+    s = cmd("claim", cmd_claims, "hold an issue; refused while someone else's claim is live, taking over one stale 24 h past its ETA")
     s.add_argument("id")
     s.add_argument("--eta", type=int, help="minutes")
     s = cmd("release", cmd_release, "let go of an issue, or hand it --to someone")
@@ -2118,7 +2095,8 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("show", cmd_show, "issue title, state and blockers, with its owners, handoffs, runs and origin archive restore commands")
     s.add_argument("id")
     cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
-    cmd("list", cmd_list, "held issues with owner, time on the clock, ETA and overdue flag")
+    s = cmd("list", cmd_claims, "held issues with owner, time on the clock, ETA and an OVERDUE or STALE flag; void claims are not shown")
+    s.add_argument("--json", action="store_true")
     cmd("ingest", cmd_ingest, "record worker runs or type=usage readouts from JSON rows on stdin")
     s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
     s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "

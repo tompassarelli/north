@@ -11,6 +11,8 @@ use slots::Pools;
 use survey::{REPOS, Survey};
 
 pub(crate) use cloud::{autoland as cloud_autoland, branch as cloud_branch};
+#[cfg(test)]
+pub(crate) use survey::claim_rows;
 
 mod brief;
 mod cloud;

@@ -17,7 +17,7 @@ bundle() {
       -q '.[] | "#\(.number) \(.title) [\([.labels[].name] | join(","))]"' || echo "(unavailable)"
   done
   echo "## threads list (open)"
-  threads list | grep -v ' CLOSED$' || true
+  threads list || true
   for i in "${!repos[@]}"; do
     dir=$HOME/code/${checkouts[$i]}/main
     echo "## landings last 24h: ${repos[$i]}"

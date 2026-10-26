@@ -260,28 +260,22 @@ fn claims(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<(IssueR
     let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name, Some(machine.ssh)));
     let mut found = Vec::new();
     for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
-        let output = match &ssh {
-            None => run_within("threads", &["list"], PROBE),
-            Some(destination) => run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "threads", "list"], PROBE),
-        };
-        match output.filter(|output| output.status.success()) {
-            Some(output) => found.extend(claim_rows(&String::from_utf8_lossy(&output.stdout), &host)),
-            None => notes.push(format!("{host} threads list unread, so its claims are unknown")),
+        match remote_json(ssh.as_deref(), &["threads", "list", "--json"]) {
+            Ok(listing) => found.extend(claim_rows(&listing, &host)),
+            Err(why) => notes.push(format!("{host} threads list unread, so its claims are unknown: {why}")),
         }
     }
     found
 }
 
-/// The holders in `threads list` output, whose first line is its header.
-pub(crate) fn claim_rows(listing: &str, host: &str) -> Vec<(IssueRef, String)> {
+/// The holders in `threads list --json`: its live claims, the ones `threads claim` refuses on.
+pub(crate) fn claim_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
     listing
-        .lines()
-        .skip(1)
-        .filter_map(|line| {
-            let mut columns = line.split_whitespace();
-            let item = IssueRef::parse(columns.next()?)?;
-            Some((item, format!("threads claim by {} on {host}", columns.next()?)))
-        })
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["standing"] == "live")
+        .filter_map(|row| Some((IssueRef::parse(row["item"].as_str()?)?, format!("threads claim by {} on {host}", row["owner"].as_str()?))))
         .collect()
 }
 

@@ -1,6 +1,7 @@
 use super::*;
 use std::io::Write;
 use store::{Doc, Sqlite, quote};
+use crate::threads::catalog::CATALOG;
 mod history;
 mod issues;
 mod policy;
@@ -61,26 +62,6 @@ fn tracked(repo: &Path, prefix: &str) -> Vec<PathBuf> {
     .filter(|p| !p.is_empty())
     .map(|p| repo.join(p))
     .collect()
-}
-fn threads_config() -> (String, Vec<String>, Vec<String>) {
-    let source = include_str!("../../../bin/threads");
-    let owner = re(r#"(?m)^OWNER = "([^"]+)""#)
-        .captures(source)
-        .map(|c| c[1].to_owned())
-        .unwrap_or_default();
-    let list = |name: &str| {
-        let pattern = format!(r"(?m)^{name} = \[([^\]]*)\]");
-        re(&pattern)
-            .captures(source)
-            .map(|c| {
-                re(r#""([^"]+)""#)
-                    .captures_iter(&c[1])
-                    .map(|m| m[1].to_owned())
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    (owner, list("REPOS"), list("NATIVE"))
 }
 const SOURCES: [(&str, bool, f64, Option<f64>); 9] = [
     ("builds", false, 600.0, Some(90.0)),

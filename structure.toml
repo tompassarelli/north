@@ -88,7 +88,7 @@ may_use = ["domain", "platform", "foundation"]
 name = "grounding"
 paths = ["src/grounding/**"]
 responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["domain", "platform", "foundation"]
+may_use = ["threads", "domain", "platform", "foundation"]
 
 [[module]]
 name = "capacity"

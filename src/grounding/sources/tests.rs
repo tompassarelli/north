@@ -77,7 +77,7 @@ fn github_every_tracked_repo_pages_together_in_one_query_per_page_incrementally_
     };
     let docs = collect(epoch("2026-10-13T00:00:00Z"));
     let later = collect(epoch("2026-10-14T00:00:00Z"));
-    let (owner, repos, _) = threads_config();
+    let (owner, repos) = (CATALOG.owner.clone(), CATALOG.repos.clone());
     assert_eq!(calls[..2].len(), 2);
     assert_eq!(calls.len(), 4);
     assert_eq!(docs.len(), 2 * repos.len());
