@@ -4,8 +4,8 @@
   resident_cap.py gate claude|codex [ARG...]   exit 3 with the Hold line when this launch is refused
   resident_cap.py status                        print this host's live count and cap
 
-A resident CLI is a live claude or codex process associated with an active Fleet session or an unregistered
-top-level interactive one (no claude or codex ancestor). `-p`/`--print`,
+A resident CLI is a live claude or codex process a live Fleet session runs, in any mode, or an unregistered
+top-level interactive one (no claude or codex ancestor). Otherwise `-p`/`--print`,
 `--cloud`, codex exec/review/app-server/mcp-server/cloud and maintenance subcommands are not resident, and an
 org node above the launch with no agent CLI in between is the launch itself, not a peer. The cap is
 `[hosts.<hostname>] resident_cap = N` in orchestration.toml; a host without it is never held. `CASE=URGENT` with a
@@ -108,7 +108,7 @@ def registered_pids(table):
     except (OSError, ValueError, subprocess.SubprocessError):
         return set()
     return {pid for session in sessions if isinstance(session, dict) and session.get("status") != "exited"
-            for pid, info in table.items() if info["ppid"] == session.get("host_pid") and agent_kind(info)}
+            for pid, info in table.items() if info["ppid"] == session.get("host_pid") and info["comm"] in AGENTS}
 
 
 def count(table=None, launcher=None):

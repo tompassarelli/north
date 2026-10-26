@@ -37,7 +37,7 @@ def world(name, registered, unregistered=0, launcher_node=False):
         if i % 2:
             proc(base, agent, shell, "codex", [codex, "-c", 'service_tier="default"', "resume", "--remote", "ws://x"])
         else:
-            proc(base, agent, shell, "claude", [claude, "--session-id", f"s{i}", "--name", f"lead-{i}"])
+            proc(base, agent, shell, "claude", [claude, "-p", "--input-format", "stream-json", "--session-id", f"s{i}"])
         proc(base, agent + 1, agent, "bash", ["/run/current-system/sw/bin/bash", "-c", "rg x"])
         proc(base, agent + 2, agent, "claude", ["ugrep", "-G", "x"])
         nodes.append({"id": f"lead-{i}", "state": "active", "pid": shell})
