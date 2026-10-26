@@ -164,12 +164,16 @@ pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> 
     0
 }
 
-/// `north cloud launch REPO SLUG BRIEF`: starts the brief in the cloud lane from this host's login
-/// and prints the session, the branch it pushes and the checkout it launched from.
-pub(crate) fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path) -> Result<String, String> {
+/// `north cloud launch REPO SLUG BRIEF [--item REPO#N]`: starts the brief in the cloud lane, records it
+/// against the item so dispatch holds it, and prints the session, its branch and the checkout.
+pub(crate) fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path, item: Option<&str>) -> Result<String, String> {
+    let item = item.map(cloud::item).transpose()?;
     let text = std::fs::read_to_string(brief_file).map_err(|error| format!("{}: {error}", brief_file.display()))?;
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let brief = brief::cloud(&text, repo, &cloud::branch(slug));
     let launched = cloud::launch(repo, slug, &brief, std::path::Path::new(cloud::SOURCES), std::path::Path::new(&home), &mut cloud::run)?;
+    if let Some(item) = &item {
+        cloud::hold(item, &launched, &crate::platform::host::name(), &record::directory(), placement::now())?;
+    }
     Ok(format!("{} {} {}", launched.session, launched.branch, launched.directory.display()))
 }

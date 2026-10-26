@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF | events SESSION_ID OUT.jsonl | sweep OUT_DIR | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS]
-launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout.
+const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF [--item REPO#N] | events SESSION_ID OUT.jsonl | sweep OUT_DIR | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS]
+launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north dispatch holds that issue for six hours.
 sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
 send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
 wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout).
@@ -25,14 +25,15 @@ pub(super) enum Cloud {
     Sweep(PathBuf),
     Send(String, PathBuf),
     Wait(String, PathBuf, u64, Option<String>),
-    Launch(String, String, PathBuf),
+    Launch(String, String, PathBuf, Option<String>),
 }
 
 pub(super) fn parse(arguments: &[String]) -> Option<Cloud> {
     let words = arguments.iter().map(String::as_str).collect::<Vec<_>>();
     Some(match words.as_slice() {
         ["list"] => Cloud::List,
-        ["launch", repo, slug, brief] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into()),
+        ["launch", repo, slug, brief] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into(), None),
+        ["launch", repo, slug, brief, "--item", item] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into(), Some((*item).to_owned())),
         ["events", id, out] => Cloud::Events((*id).to_owned(), out.into()),
         ["sweep", dir] => Cloud::Sweep(dir.into()),
         ["send", id, file] => Cloud::Send((*id).to_owned(), file.into()),
@@ -386,8 +387,8 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
-    if let Cloud::Launch(repo, slug, brief) = &command {
-        return match crate::ops::dispatch::cloud_launch(repo, slug, brief) {
+    if let Cloud::Launch(repo, slug, brief, item) = &command {
+        return match crate::ops::dispatch::cloud_launch(repo, slug, brief, item.as_deref()) {
             Ok(line) => {
                 println!("{line}");
                 0

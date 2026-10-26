@@ -342,7 +342,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let sessions: Vec<(Session, String)> = fleets.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let (elsewhere, mut holds) = tally(&sessions);
     let (issues, open) = github::open_issues(&mut notes);
-    let records = record::read();
+    let records = record::read(&record::directory());
     holds.extend(claims(&cfg, &here, &mut notes));
     holds.extend(record::holds(&records, at));
     holds.extend(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)));

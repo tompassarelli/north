@@ -66,7 +66,7 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
         launched: result.is_ok(),
         detail: result.clone().unwrap_or_else(|why| why),
     };
-    record::append(&entry)?;
+    record::append(&record::directory(), &entry)?;
     result
 }
 

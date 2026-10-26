@@ -1,7 +1,8 @@
 //! The cloud credit lane's launch: a tiny checkout of the repository under /tmp/cloud/src, so the
 //! cloud session may push to it, the trust entry the login needs for that folder, and
 //! `claude --cloud` started from it.
-use super::issues::OWNER;
+use super::issues::{IssueRef, OWNER};
+use super::record::{self, Record};
 use crate::platform::process::status_within;
 use crate::platform::terminal;
 use regex::Regex;
@@ -92,6 +93,16 @@ pub(crate) fn launch(repo: &str, slug: &str, brief: &str, sources: &Path, home: 
     Ok(Launched { session, branch: branch(slug), directory })
 }
 
+pub(crate) fn item(text: &str) -> Result<IssueRef, String> {
+    IssueRef::parse(text).filter(|item| item.to_string() == text.to_lowercase()).ok_or_else(|| format!("--item {text} is not REPO#N"))
+}
+
+pub(crate) fn hold(item: &IssueRef, launched: &Launched, here: &str, pace: &Path, at: f64) -> Result<(), String> {
+    let detail = format!("north cloud launch {} {}", launched.session, launched.branch);
+    let entry = Record { at, item: item.to_string(), host: HOST.into(), account: format!("claude login on {here}"), name: launched.session.clone(), cloud: true, launched: true, detail };
+    record::append(pace, &entry)
+}
+
 pub(crate) fn run(directory: &Path, program: &str, args: &[String]) -> Result<String, String> {
     run_from(directory, program, &crate::fleet::runtime::binary(program), args)
 }
@@ -115,3 +126,7 @@ fn in_file(mut command: Command) -> std::io::Result<(Option<ExitStatus>, String)
     output.rewind().and_then(|()| output.read_to_string(&mut text))?;
     Ok((status, text))
 }
+
+#[cfg(test)]
+#[path = "cloud_tests.rs"]
+mod tests;

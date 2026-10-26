@@ -5,7 +5,7 @@ use crate::ops::pacing::placement;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const HOLD_S: f64 = 2.0 * 3600.0;
 const CLOUD_HOLD_S: f64 = 6.0 * 3600.0;
@@ -35,17 +35,17 @@ pub(crate) fn directory() -> PathBuf {
     placement::pace_directory().join("dispatch")
 }
 
-pub(crate) fn read() -> Vec<Record> {
-    std::fs::read_to_string(directory().join("launches.jsonl"))
+pub(crate) fn read(directory: &Path) -> Vec<Record> {
+    std::fs::read_to_string(directory.join("launches.jsonl"))
         .unwrap_or_default()
         .lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect()
 }
 
-pub(crate) fn append(record: &Record) -> Result<(), String> {
-    std::fs::create_dir_all(directory()).map_err(|error| error.to_string())?;
-    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory().join("launches.jsonl")).map_err(|error| error.to_string())?;
+pub(crate) fn append(directory: &Path, record: &Record) -> Result<(), String> {
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(directory.join("launches.jsonl")).map_err(|error| error.to_string())?;
     writeln!(file, "{}", serde_json::to_string(record).map_err(|error| error.to_string())?).map_err(|error| error.to_string())
 }
 
