@@ -42,8 +42,9 @@ fn host(root: &Path, proc: &Path) -> Host {
     fs::write(
         &script,
         format!(
-            "#!/bin/sh\necho \"$*\" >> '{}'\n[ \"$2\" = stop ] && find '{}' -type d -name \"$3\" -exec cat {{}}/cgroup.procs \\; | xargs -r kill\nexit 0\n",
+            "#!/bin/sh\necho \"$*\" >> '{}'\n[ -e '{}/fail-'\"$2\" ] && exit 1\n[ \"$2\" = stop ] && find '{}' -type d -name \"$3\" -exec cat {{}}/cgroup.procs \\; | xargs -r kill\nexit 0\n",
             log.display(),
+            root.display(),
             cgroup.display()
         ),
     )
@@ -320,4 +321,91 @@ fn a_battery_notification_that_hangs_or_fails_leaves_no_marker_and_ends_inside_i
     assert!(begun.elapsed() < Duration::from_secs(3), "{:?}", begun.elapsed());
     super::laptop_auto::warn_battery_once(&marker, Some(20), &mut Command::new("false"), Duration::from_secs(5));
     assert!(!marker.exists());
+}
+
+#[test]
+fn a_busy_admission_lock_leaves_frozen_at_for_the_next_tick_to_bring_in_line_with_the_freeze() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    lease(&host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
+    let heavy_unit = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
+    let frozen_at = || {
+        let lease = fs::read(host.capacity.join("leases").join(format!("{HEAVY}.json"))).unwrap();
+        serde_json::from_slice::<serde_json::Value>(&lease).unwrap()["frozenAt"].as_u64()
+    };
+    let busy = || {
+        let holder = rusqlite::Connection::open(host.capacity.join("admission.lock")).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        holder
+    };
+
+    let holder = busy();
+    agent_load::enforce(&host, true, &[]);
+    drop(holder);
+    assert!(log(root.path()).contains(&format!("--user freeze {heavy_unit}")));
+    assert_eq!(frozen_at(), None, "the pause wrote through a busy lock");
+    agent_load::enforce(&host, true, &[]);
+    assert!(frozen_at().is_some(), "the unit stayed frozen without frozenAt after a tick with the lock free");
+
+    let holder = busy();
+    agent_load::enforce(&host, false, &[]);
+    drop(holder);
+    assert!(log(root.path()).contains(&format!("--user thaw {heavy_unit}")));
+    assert!(frozen_at().is_some(), "the resume wrote through a busy lock");
+    agent_load::enforce(&host, false, &[]);
+    assert_eq!(frozen_at(), None, "the unit stayed thawed with frozenAt after a tick with the lock free");
+}
+
+fn frozen_state(host: &Host) -> (Option<u64>, Vec<String>) {
+    let lease = fs::read(host.capacity.join("leases").join(format!("{HEAVY}.json"))).unwrap();
+    let listed = fs::read(host.capacity.join("gaming-frozen.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+    (serde_json::from_slice::<serde_json::Value>(&lease).unwrap()["frozenAt"].as_u64(), listed)
+}
+
+#[test]
+fn a_failed_freeze_leaves_frozen_at_unset_and_the_next_tick_retries_it() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    lease(&host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
+    let heavy_unit = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
+    let freezes = || log(root.path()).matches(&format!("--user freeze {heavy_unit}")).count();
+
+    fs::write(root.path().join("fail-freeze"), "").unwrap();
+    agent_load::enforce(&host, true, &[]);
+    assert_eq!(freezes(), 1);
+    assert_eq!(frozen_state(&host), (None, Vec::new()), "a refused freeze was recorded as frozen");
+
+    fs::remove_file(root.path().join("fail-freeze")).unwrap();
+    agent_load::enforce(&host, true, &[]);
+    assert_eq!(freezes(), 2, "the refused freeze was not retried");
+    let (frozen_at, listed) = frozen_state(&host);
+    assert!(frozen_at.is_some(), "the retried freeze left frozenAt unset");
+    assert_eq!(listed, [heavy_unit]);
+}
+
+#[test]
+fn a_failed_thaw_keeps_the_unit_frozen_and_charged_until_a_later_thaw_succeeds() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    lease(&host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
+    let heavy_unit = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
+    let thaws = || log(root.path()).matches(&format!("--user thaw {heavy_unit}")).count();
+
+    agent_load::enforce(&host, true, &[]);
+    let (frozen_at, listed) = frozen_state(&host);
+    assert!(frozen_at.is_some());
+    assert_eq!(listed, std::slice::from_ref(&heavy_unit));
+
+    fs::write(root.path().join("fail-thaw"), "").unwrap();
+    agent_load::enforce(&host, false, &[]);
+    assert_eq!(thaws(), 1);
+    assert_eq!(frozen_state(&host), (frozen_at, vec![heavy_unit.clone()]), "a refused thaw dropped the unit or its frozenAt");
+
+    fs::remove_file(root.path().join("fail-thaw")).unwrap();
+    agent_load::enforce(&host, false, &[]);
+    assert_eq!(thaws(), 2, "the refused thaw was not retried");
+    assert_eq!(frozen_state(&host), (None, Vec::new()), "the retried thaw left the unit listed or frozenAt set");
 }

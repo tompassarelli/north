@@ -259,21 +259,28 @@ pub(crate) fn enforce(host: &Host, gaming: bool, processes: &[Process]) -> Plan 
     let _ = fs::create_dir_all(&host.capacity);
     let marker = json!({ "gaming": gaming, "at": now_seconds() });
     let _ = write_atomic(&host.capacity.join("gaming.json"), &marker.to_string());
-    let mut paused = BTreeSet::new();
+    let (mut unfrozen, mut unthawed) = (BTreeSet::new(), BTreeSet::new());
     for (verb, units) in [("stop", &plan.stop), ("freeze", &plan.freeze), ("thaw", &plan.thaw)] {
         for unit in units {
             let done = Command::new(&host.systemctl).args(["--user", verb, unit]).status().is_ok_and(|status| status.success());
-            if done && verb == "freeze" {
-                paused.insert(unit.clone());
+            if !done && verb == "freeze" {
+                unfrozen.insert(unit.clone());
+            }
+            if !done && verb == "thaw" {
+                unthawed.insert(unit.clone());
             }
         }
     }
-    let ids = |units: &BTreeSet<String>| leases.iter().filter(|lease| units.contains(&lease.unit())).map(|lease| lease.id.clone()).collect::<BTreeSet<_>>();
-    lease_deadline::pause(&host.capacity, &ids(&paused));
-    lease_deadline::resume(&host.capacity, &ids(&plan.thaw));
-    signal_all(&plan.kill);
     let live = leases.iter().map(Lease::unit).collect::<BTreeSet<_>>();
-    let still: BTreeSet<String> = if gaming { frozen.union(&plan.freeze).filter(|unit| live.contains(*unit)).cloned().collect() } else { BTreeSet::new() };
+    let still: BTreeSet<String> = if gaming {
+        frozen.union(&plan.freeze).filter(|unit| live.contains(*unit) && !unfrozen.contains(*unit)).cloned().collect()
+    } else {
+        unthawed.into_iter().filter(|unit| live.contains(unit)).collect()
+    };
+    let (held, released): (Vec<&Lease>, Vec<&Lease>) = leases.iter().partition(|lease| still.contains(&lease.unit()));
+    let ids = |leases: Vec<&Lease>| leases.into_iter().map(|lease| lease.id.clone()).collect::<BTreeSet<_>>();
+    lease_deadline::reconcile(&host.capacity, &ids(held), &ids(released));
+    signal_all(&plan.kill);
     let _ = write_atomic(&frozen_path, &serde_json::to_string(&still).unwrap_or_default());
     plan
 }

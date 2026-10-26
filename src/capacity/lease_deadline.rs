@@ -31,6 +31,22 @@ pub(crate) fn resume(capacity: &Path, ids: &BTreeSet<String>) {
     });
 }
 
+pub(crate) fn reconcile(capacity: &Path, frozen: &BTreeSet<String>, thawed: &BTreeSet<String>) {
+    let stale = |ids: &BTreeSet<String>, want_frozen: bool| {
+        ids.iter()
+            .filter(|id| {
+                fs::read(capacity.join("leases").join(format!("{id}.json")))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .is_some_and(|lease| lease["frozenAt"].is_null() == want_frozen)
+            })
+            .cloned()
+            .collect::<BTreeSet<_>>()
+    };
+    pause(capacity, &stale(frozen, true));
+    resume(capacity, &stale(thawed, false));
+}
+
 fn rewrite(capacity: &Path, ids: &BTreeSet<String>, change: impl Fn(&mut Value, u64) -> bool) {
     if ids.is_empty() {
         return;
