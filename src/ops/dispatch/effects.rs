@@ -30,7 +30,8 @@ pub(crate) fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, 
     let mut words: Vec<String> = ["fleet", "launch", "--provider", provider, "--account", label, "--name", name, "--task", &launch.item.to_string(), "--cwd", &cwd]
         .map(str::to_owned)
         .into();
-    for (flag, reason) in [("--local", &launch.local), ("--pin", &launch.pin)] {
+    let held = (!remote && launch.local.is_none()).then(|| format!("north dispatch placed this box on {}", launch.host));
+    for (flag, reason) in [("--local", launch.local.as_ref().or(held.as_ref())), ("--pin", launch.pin.as_ref())] {
         if let Some(reason) = reason {
             words.extend([flag.to_owned(), reason.clone()]);
         }

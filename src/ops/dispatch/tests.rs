@@ -412,3 +412,27 @@ fn an_unticked_native_done_when_box_or_native_evidence_label_keeps_a_box_out_of_
     assert_eq!(couriers, ["smashcraft#52"], "only the box whose native box is ticked is code-only: {launched:?}");
     assert!(launched.iter().filter(|row| !row.3).all(|row| row.1 == "gex45"), "native smashcraft boxes go to the host serving native: {launched:?}");
 }
+
+#[test]
+fn a_box_launched_on_the_laptop_or_here_is_held_to_that_host_and_a_remote_one_names_its_host_in_the_cwd() {
+    let (hosts, accounts) = fleet();
+    let survey = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
+    let launch = |host: &str, local: Option<&str>| super::plan::Launch {
+        item: issue("smashcraft", 7, "- [ ] a", &[]).reference(),
+        host: host.into(),
+        account: "claude:c".into(),
+        brief: "brief".into(),
+        courier: false,
+        local: local.map(str::to_owned),
+        pin: None,
+    };
+    let local = |host: &str, given: Option<&str>| {
+        let (_, words) = super::effects::command(&launch(host, given), "sc-7", &survey, "/home/tom", "north");
+        let at = words.iter().position(|word| word == "--local");
+        (words.iter().any(|word| word.starts_with(&format!("{host}:"))), at.map(|at| words[at + 1].clone()))
+    };
+    assert_eq!(local("whiterabbit", None), (false, Some("north dispatch placed this box on whiterabbit".into())));
+    assert_eq!(local("nexus", None), (false, Some("north dispatch placed this box on nexus".into())));
+    assert_eq!(local("nexus", Some("cloud lane unreachable")), (false, Some("cloud lane unreachable".into())));
+    assert_eq!(local("gex45", None), (true, None));
+}
