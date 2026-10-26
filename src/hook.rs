@@ -149,6 +149,7 @@ impl HookKind {
                 crate::guard::reviewer_cli::evaluate,
                 crate::guard::git_stash::evaluate,
                 crate::guard::native_evidence::evaluate,
+                crate::guard::issue_labels::evaluate,
                 crate::guard::heavy_command::evaluate,
             ],
             Self::PreEdit => &[crate::guard::launch_critical::evaluate],
