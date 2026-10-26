@@ -211,7 +211,11 @@ fn lead_is_live(grant: &Value, nodes: &[Value]) -> bool {
     })
 }
 
-fn recent_history(state: &Value, fresh: &[Value]) -> Vec<Value> {
+pub(super) fn history_window(remote: bool) -> f64 {
+    if remote { 10800.0 } else { 600.0 }
+}
+
+pub(super) fn recent_history(state: &Value, fresh: &[Value], window: f64) -> Vec<Value> {
     rows(&state["history"])
         .iter()
         .chain(fresh.iter())
@@ -219,7 +223,7 @@ fn recent_history(state: &Value, fresh: &[Value]) -> Vec<Value> {
             r["ts"]
                 .as_str()
                 .and_then(target::seconds)
-                .is_some_and(|ts| ts >= storage::now() - 10800.0)
+                .is_some_and(|ts| ts >= storage::now() - window)
         })
         .cloned()
         .collect()
@@ -230,6 +234,7 @@ struct Round<'a> {
     providers: Vec<&'a str>,
     nodes: Vec<Value>,
     fresh: Vec<Value>,
+    remote: bool,
     initial: i64,
     notify: bool,
 }
@@ -263,7 +268,7 @@ fn publish(
         storage::append(&directory.join("pace-control.jsonl"), &raw)?;
     }
     deliveries.retain(|(_, c)| round.notify && c.notify);
-    state["history"] = json!(recent_history(state, &round.fresh));
+    state["history"] = json!(recent_history(state, &round.fresh, history_window(round.remote)));
     save(&directory.join("pace-control.json"), state)?;
     save(&directory.join("usage-gate.json"), gate)?;
     Ok(deliveries)
@@ -304,6 +309,7 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
         providers: reads.keys().copied().collect(),
         nodes: process::fleet(),
         fresh,
+        remote,
         initial,
         notify,
     };

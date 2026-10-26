@@ -39,3 +39,14 @@ fn a_provider_is_read_here_only_when_its_accounts_table_names_this_host_or_names
     assert_eq!([read("claude", "here"), read("claude", "far"), read("claude", "idle")], [true, true, false]);
     assert_eq!([read("codex", "idle"), read("gemini", "here")], [true, false]);
 }
+
+#[test]
+fn the_host_holding_threads_db_keeps_ten_minutes_of_pace_history_and_a_snapshot_host_three_hours() {
+    let at = |minutes_ago: f64| {
+        let ts = crate::foundation::clock::Timestamp::from_unix_seconds_f64(super::storage::now() - minutes_ago * 60.0).iso();
+        json!({"ts": ts, "provider": "claude", "account": "a", "kind": "window", "name": "session", "used_pct": 1})
+    };
+    let state = json!({"history": [at(150.0), at(20.0), at(5.0)]});
+    let kept = |remote| sampling::recent_history(&state, &[at(0.0)], sampling::history_window(remote)).len();
+    assert_eq!((kept(false), kept(true)), (2, 4));
+}
