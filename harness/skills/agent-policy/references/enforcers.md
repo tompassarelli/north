@@ -38,6 +38,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated-policy-guard` | Claude, Codex |
 | New structural debt in a repo with structure.toml is reported after the edit (advisory) | `code-health-edit` | Claude, Codex |
 | Unlanded lanes older than 24 h are surfaced at session start (advisory) | `unlanded-work` | Claude |
+| A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
 
 `prompt-grounding` delivers context rather than enforcing a rule; `north-hook`
 dispatches provider events to the in-process guards above.

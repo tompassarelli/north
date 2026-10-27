@@ -2,6 +2,7 @@ pub mod launch_critical;
 pub mod desktop_action;
 pub mod tripwire;
 pub mod git_stash;
+pub mod handoff_record;
 pub mod native_evidence;
 pub mod frozen_topics;
 pub mod issue_labels;

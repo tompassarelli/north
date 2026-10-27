@@ -73,6 +73,7 @@ pub enum Verdict {
     Allow,
     Deny(String),
     Rewrite(Value, String),
+    Advise(String),
     Approve,
 }
 
@@ -155,7 +156,10 @@ impl HookKind {
                 crate::guard::frozen_topics::evaluate,
                 crate::guard::heavy_command::evaluate,
             ],
-            Self::PreEdit => &[crate::guard::launch_critical::evaluate],
+            Self::PreEdit => &[
+                crate::guard::launch_critical::evaluate,
+                crate::guard::handoff_record::evaluate,
+            ],
             Self::PreAgent => &[],
             Self::PostTool => &[],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
@@ -212,6 +216,7 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
                     ]),
                 )]));
             }
+            Verdict::Advise(text) => context.push(text),
             Verdict::Rewrite(updated, text) => {
                 let mut data = input.data.clone();
                 data["tool_input"] = updated.clone();
