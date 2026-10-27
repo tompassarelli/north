@@ -7,6 +7,8 @@ pub mod frozen_topics;
 pub mod issue_labels;
 pub mod blind_stage;
 pub mod reviewer_cli;
+pub mod gh_write;
+pub mod public_text;
 pub mod shell_call;
 pub mod sops_decrypt;
 mod git_invocation;

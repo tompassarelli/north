@@ -3,7 +3,8 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use crate::platform::{git as platform_git, process};
+use crate::platform::gitleaks::{Finding, Scanner};
+use crate::platform::git as platform_git;
 
 #[path = "denylist_archive.rs"]
 mod archive;
@@ -42,13 +43,6 @@ struct Blob {
     path: Vec<u8>,
     oid: String,
     file: bool,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct Finding {
-    rule: String,
-    file: String,
-    line: usize,
 }
 
 struct Gitleaks<'a> {
@@ -215,46 +209,7 @@ fn locate<'a>(segments: &'a [Segment], starts: &[usize], line: usize) -> Option<
     Some(segments[index].label.as_str())
 }
 
-fn read_report(path: &Path) -> Result<Vec<Finding>, String> {
-    let report = std::fs::read_to_string(path).map_err(|e| format!("cannot read the gitleaks report: {e}"))?;
-    let entries: Vec<serde_json::Value> =
-        serde_json::from_str(&report).map_err(|e| format!("cannot parse the gitleaks report: {e}"))?;
-    entries
-        .iter()
-        .map(|entry| {
-            let rule = entry["RuleID"].as_str().ok_or("a gitleaks finding has no RuleID")?;
-            Ok(Finding {
-                rule: rule.to_owned(),
-                file: entry["File"].as_str().unwrap_or_default().to_owned(),
-                line: entry["StartLine"].as_u64().unwrap_or_default() as usize,
-            })
-        })
-        .collect()
-}
-
 impl Gitleaks<'_> {
-    fn args<'a>(&'a self, mode: &'a str, report: &'a str) -> Vec<&'a OsStr> {
-        let mut args: Vec<&OsStr> = [
-            mode, "--config", self.config, "--redact", "--no-banner", "--exit-code", "0", "--ignore-gitleaks-allow",
-            "--report-format", "json", "--report-path", report, "--log-level", "error", "--max-archive-depth", "8",
-        ]
-        .into_iter()
-        .map(OsStr::new)
-        .collect();
-        args.extend([OsStr::new("--gitleaks-ignore-path"), self.ignore.as_os_str()]);
-        args
-    }
-
-    fn checked(output: Option<std::process::Output>, strict: bool) -> Result<(), String> {
-        let output = output.ok_or("cannot run gitleaks dir")?;
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let skipped = strict && stderr.lines().any(|line| line.contains("ERR"));
-        if output.status.success() && !skipped {
-            return Ok(());
-        }
-        Err(format!("gitleaks dir failed or skipped a file (exit {}): {}", output.status.code().unwrap_or(-1), stderr.trim()))
-    }
-
     fn stage(&self, index: usize, staged: &mut Staged, path: &[u8], id: &str, depth: usize, content: &[u8]) -> Result<(), String> {
         let raw = self.scratch.join(format!("layer-{index}-{depth}-raw"));
         let text = self.scratch.join(format!("layer-{index}-{depth}-text"));
@@ -296,13 +251,7 @@ impl Gitleaks<'_> {
     }
 
     fn scan_dir(&self, tree: &Path, strict: bool) -> Result<Vec<Finding>, String> {
-        std::fs::create_dir_all(tree).map_err(|e| format!("cannot create a scan directory: {e}"))?;
-        let report = tree.with_extension("json");
-        let report_arg = report.to_string_lossy();
-        let mut args = self.args("dir", &report_arg);
-        args.push(OsStr::new("."));
-        Self::checked(process::run("gitleaks", Some(tree), &args).ok(), strict)?;
-        read_report(&report)
+        Scanner { config: self.config, ignore: &self.ignore }.dir(tree, strict)
     }
 
     fn scan_text(&self, name: &str, segments: &[Segment]) -> Result<Vec<String>, String> {

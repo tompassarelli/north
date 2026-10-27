@@ -151,6 +151,7 @@ impl HookKind {
                 crate::guard::native_evidence::evaluate,
                 crate::guard::issue_labels::evaluate,
                 crate::guard::sops_decrypt::evaluate,
+                crate::guard::public_text::evaluate,
                 crate::guard::frozen_topics::evaluate,
                 crate::guard::heavy_command::evaluate,
             ],

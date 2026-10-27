@@ -1,4 +1,5 @@
 pub(crate) mod git;
+pub(crate) mod gitleaks;
 pub(crate) mod harness;
 pub(crate) mod wisp_payoff;
 pub(crate) mod frozen_topics;
