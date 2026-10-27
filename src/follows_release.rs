@@ -47,35 +47,45 @@ fn issue_closed(repo: &Path, owner: Option<&str>, name: &str, number: &str) -> R
         .map_err(|e| e.to_string())?;
     Ok(out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "CLOSED")
 }
-fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
-    static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9a-f]{7,40}$").unwrap());
-    static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:([\w.-]+)/)?([\w.-]+)#(\d+)$").unwrap());
+enum Predecessor<'a> {
+    Issue { owner: Option<&'a str>, name: &'a str, number: &'a str },
+    Sha(&'a str),
+    Subject(&'a str),
+}
+fn predecessor(follows: &str) -> Predecessor<'_> {
+    static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9a-f]{7,40})(?:\s.*)?$").unwrap());
+    static ISSUE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(?:([\w.-]+)/)?([\w.-]+)#(\d+)(?:\s.*)?$").unwrap());
     if let Some(c) = ISSUE.captures(follows) {
-        return issue_closed(repo, c.get(1).map(|m| m.as_str()), &c[2], &c[3]);
+        return Predecessor::Issue {
+            owner: c.get(1).map(|m| m.as_str()),
+            name: c.get(2).unwrap().as_str(),
+            number: c.get(3).unwrap().as_str(),
+        };
     }
-    if SHA.is_match(follows) {
-        return success(git(
-            repo,
-            &[
-                "merge-base",
-                "--is-ancestor",
-                follows,
-                "refs/remotes/origin/main",
-            ],
-        ));
+    if let Some(c) = SHA.captures(follows) {
+        return Predecessor::Sha(c.get(1).unwrap().as_str());
     }
+    Predecessor::Subject(follows)
+}
+fn subject_on_main(repo: &Path, subject: &str) -> Result<bool, String> {
     let log = text(git(
         repo,
-        &[
-            "log",
-            "-n2000",
-            "--format=%B%x00",
-            "refs/remotes/origin/main",
-        ],
+        &["log", "-n2000", "--format=%B%x00", "refs/remotes/origin/main"],
     ))?;
     Ok(log
         .split('\0')
-        .any(|m| m.trim().split('\n').next() == Some(follows)))
+        .any(|m| m.trim().split('\n').next() == Some(subject)))
+}
+fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
+    match predecessor(follows) {
+        Predecessor::Issue { owner, name, number } => issue_closed(repo, owner, name, number),
+        Predecessor::Sha(sha) => success(git(
+            repo,
+            &["merge-base", "--is-ancestor", sha, "refs/remotes/origin/main"],
+        )),
+        Predecessor::Subject(subject) => subject_on_main(repo, subject),
+    }
 }
 fn field<'a>(b: &'a Value, key: &str) -> &'a str {
     b[key].as_str().unwrap_or("")
@@ -338,7 +348,7 @@ follows-release: start each queued Follows box (threads queue follow) once its
 predecessor is on origin/main. safe-push runs it with --repo-dir after a
 landing on the default branch, reading each box's repository from FOLLOWS_RELEASE_ROOT/<repo>/main
 (default ~/code). A Follows naming a SHA waits for that commit, one naming an
-issue ref for that issue to be closed on GitHub, and anything else for a commit with that exact subject. A released box
+issue ref (optionally followed by a note) for that issue to be closed on GitHub, a leading SHA for that commit, and anything else for a commit with that exact subject. A released box
 passes the spawn capacity gate and sends a staffing request through
 `north fleet send` to the assigned parent session. A box
 the gate denies, or one released but not started within 5 minutes

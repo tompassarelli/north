@@ -31,6 +31,28 @@ north follows-release >/dev/null
 check '[7] a follow box whose ref names another repository reads that repository issue, not its own' \
   'grep -qE "^issue view 51 --repo [^ /]+/wisp " "$scratch/gh-calls" && ! grep -qE "^issue view 51 --repo [^ /]+/north " "$scratch/gh-calls" && grep -q "Item: north#22" "$scratch/bin/started"'
 
+queue 23 'north#240 (n240-ledger, worker-ledger recording fix)' claude:opus-medium >/dev/null
+: >"$scratch/bin/started"
+printf 'OPEN\n' >"$scratch/gh-state"
+north follows-release >/dev/null
+note_open=$(grep -c "Item: north#23" "$scratch/bin/started")
+printf 'CLOSED\n' >"$scratch/gh-state"
+north follows-release >/dev/null
+check '[8] a Follows line naming an issue then a note is released once that issue is closed, and not before' \
+  '[ "$note_open" -eq 0 ] && [ "$(grep -c "Item: north#23" "$scratch/bin/started")" -eq 1 ] && grep -qE "^issue view 240 --repo [^ /]+/north " "$scratch/gh-calls"'
+
+: >"$scratch/bin/started"
+queue 24 "$(git -C "$container/main" rev-parse origin/main) the predecessor commit" claude:opus-medium >/dev/null
+north follows-release >/dev/null
+check '[9] a Follows line naming a SHA then a note is released once that commit is on origin/main' \
+  '[ "$(grep -c "Item: north#24" "$scratch/bin/started")" -eq 1 ]'
+
+queue 26 'Unrelated change (#50)' claude:opus-medium >/dev/null
+: >"$scratch/bin/started"
+north follows-release >/dev/null
+check '[10] a Follows line naming the exact subject of a commit on origin/main is released' \
+  '[ "$(grep -c "Item: north#26" "$scratch/bin/started")" -eq 1 ]'
+
 check '[4] no north call in the run fell back to the installed runtime' '[ ! -e "$scratch/installed-calls" ]'
 
 printf 'follows-release: %d passed, %d failed\n' "$pass" "$fail"
