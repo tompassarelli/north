@@ -1,5 +1,6 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { measure } from "./functions";
+import { importsOf } from "./imports";
 
 setDefaultTimeout(30_000);
 
@@ -17,4 +18,15 @@ test("boolean runs count once while mixed operators and separate expressions sta
   const files = cases.map((c, i) => ({ path: `${i}.ts`, text: c.text }));
   const measured = measure({ h: files });
   for (const [i, c] of cases.entries()) expect(measured.get(`h/${i}.ts`)?.map((f) => f.complexity)).toEqual([c.complexity]);
+});
+
+test("use super inside an inline mod resolves to the file, and a super outside reaches the parent module", () => {
+  const files = new Set(["Cargo.toml", "src/lib.rs", "src/link.rs", "src/util.rs"]);
+  const resolver = { exists: (p: string) => files.has(p), crates: [{ name: "app", dir: "" }], all: () => files };
+  const inlineOnly = "pub fn go() {}\n#[cfg(test)]\nmod tests {\n    use super::*;\n}\n";
+  expect([...importsOf("src/link.rs", inlineOnly, resolver)]).toEqual([]);
+  const reachesParent = `${inlineOnly}use super::util::helper;\n`;
+  expect([...importsOf("src/link.rs", reachesParent, resolver)]).toEqual(["src/util.rs"]);
+  const parentRoot = "use super::Shared;\nmod tests {\n    use super::super::Shared;\n}\n";
+  expect([...importsOf("src/link.rs", parentRoot, resolver)]).toEqual(["src/lib.rs"]);
 });

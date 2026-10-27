@@ -89,18 +89,31 @@ function rustFile(root: string, mod: string[], r: Resolver): string | null {
   return null;
 }
 
-function resolveRust(from: string, segs: string[], r: Resolver): string | null {
+function inlineModules(text: string, at: number): string[] {
+  const stack: (string | null)[] = [];
+  const re = /"(?:[^"\\]|\\.)*"|\bmod\s+(\w+)\s*\{|\{|\}/g;
+  for (let m = re.exec(text); m && m.index < at; m = re.exec(text)) {
+    if (m[0] === "}") stack.pop();
+    else if (m[0] === "{") stack.push(null);
+    else if (m[1] !== undefined) stack.push(m[1]);
+  }
+  return stack.filter((x): x is string => x !== null);
+}
+
+function resolveRust(from: string, segs: string[], r: Resolver, inline: string[] = []): string | null {
   const crate = r.crates.find((c) => c.dir === "" || from.startsWith(c.dir + "/"));
   if (!crate) return null;
   const here = rustModule(from, crate);
   let root = here.root;
   let base: string[];
+  let fileDepth = 0;
   let rest = segs;
   if (segs[0] === "crate") { base = []; rest = segs.slice(1); root = crate.dir ? `${crate.dir}/src` : "src"; }
-  else if (segs[0] === "self") { base = here.mod; rest = segs.slice(1); }
+  else if (segs[0] === "self") { base = [...here.mod, ...inline]; fileDepth = here.mod.length; rest = segs.slice(1); }
   else if (segs[0] === "super") {
-    base = [...here.mod];
-    while (rest[0] === "super") { base.pop(); rest = rest.slice(1); }
+    base = [...here.mod, ...inline];
+    fileDepth = here.mod.length;
+    while (rest[0] === "super") { base.pop(); fileDepth = Math.min(fileDepth, base.length); rest = rest.slice(1); }
   } else {
     const other = r.crates.find((c) => c.name === segs[0]);
     if (!other) return null;
@@ -112,7 +125,7 @@ function resolveRust(from: string, segs: string[], r: Resolver): string | null {
     const f = rustFile(root, [...base, ...rest.slice(0, k)], r);
     if (f) return f;
   }
-  return null;
+  return rustFile(root, base.slice(0, fileDepth), r);
 }
 
 function resolveC(from: string, spec: string, r: Resolver): string | null {
@@ -127,7 +140,11 @@ export function importsOf(path: string, text: string, r: Resolver): Set<string> 
   const add = (t: string | null) => { if (t && t !== path) out.add(t); };
   const e = ext(path);
   if (e === "rs") {
-    for (const m of stripComments(text).matchAll(RS_USE)) for (const segs of expandUse(m[1])) add(resolveRust(path, segs, r));
+    const code = stripComments(text);
+    for (const m of code.matchAll(RS_USE)) {
+      const inline = inlineModules(code, m.index);
+      for (const segs of expandUse(m[1])) add(resolveRust(path, segs, r, inline));
+    }
   } else if (e === "c" || e === "h") {
     for (const m of text.matchAll(C_INCLUDE)) add(resolveC(path, m[1], r));
   } else {
