@@ -3,7 +3,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/machine-capacity-test.XXXXXX")
-export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$" AGENT_CAPACITY_CORES=24
+export XDG_STATE_HOME="$scratch/state" AGENT_CAPACITY_DB="$scratch/capacity.db" AGENT_CAPACITY_SUBSLICE="test$$" AGENT_CAPACITY_CORES=24 AGENT_CAPACITY_DISK_FREE_GIB=500
 fixture_pids=()
 collector_pids=()
 receipt_fds=()

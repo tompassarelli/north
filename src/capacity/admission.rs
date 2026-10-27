@@ -100,6 +100,8 @@ pub(crate) struct Facts {
     pub(crate) run_queue_load: Option<f64>,
     #[serde(default)]
     pub(crate) need: Option<String>,
+    #[serde(default, rename = "diskFreeGiB")]
+    pub(crate) disk_free_gib: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -109,6 +111,8 @@ pub(crate) struct Admission {
     pub(crate) offload: Option<String>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub(crate) aperture: Option<Aperture>,
+    #[serde(rename = "diskFreeGiB", skip_serializing_if = "Option::is_none")]
+    pub(crate) disk_free_gib: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -143,6 +147,7 @@ pub(crate) enum Reason {
     DeferCpuPressure,
     DeferGaming,
     DeferRunQueue,
+    DeferDiskFree,
 }
 
 pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> Admission {
@@ -154,7 +159,8 @@ pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> 
     let aperture = (reason == Reason::DeferGpuAperture)
         .then(|| facts.bar1_free_mib.map(|bar1_free_mib| Aperture { bar1_free_mib, bar1_need_mib: bar1_need_mib(facts) }))
         .flatten();
-    Admission { reason, offload, aperture }
+    let disk_free_gib = (reason == Reason::DeferDiskFree).then_some(facts.disk_free_gib).flatten();
+    Admission { reason, offload, aperture, disk_free_gib }
 }
 
 pub(crate) fn starts_gpu_work(facts: &Facts) -> bool {
@@ -204,6 +210,9 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     if let Some(reason) = memory(facts) {
         return reason;
     }
+    if disk_short(facts) {
+        return Reason::DeferDiskFree;
+    }
     if run_queue_overloaded(facts) {
         return Reason::DeferRunQueue;
     }
@@ -246,6 +255,11 @@ fn memory(facts: &Facts) -> Option<Reason> {
     }
     ((facts.leased_memory_mib + facts.requested_memory_mib) * 4.0 > facts.memory_total_mib * 3.0)
         .then_some(Reason::DeferMemoryCapacity)
+}
+
+/// A heavy build is deferred while the root filesystem has less than the floor free; an unread disk admits.
+fn disk_short(facts: &Facts) -> bool {
+    facts.class == Class::Heavy && facts.disk_free_gib.is_some_and(|free| free < default_mib("build_disk_free_gib"))
 }
 
 fn memory_floor_mib(profile: Profile, total: f64) -> f64 {

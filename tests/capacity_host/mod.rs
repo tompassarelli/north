@@ -116,6 +116,7 @@ impl Host {
             ("AGENT_CAPACITY_LOADAVG", self.path("loadavg").display().to_string()),
             ("AGENT_CAPACITY_NVIDIA_MEMORY", self.path("nvidia-memory").display().to_string()),
             ("AGENT_CAPACITY_CORES", "24".to_owned()),
+            ("AGENT_CAPACITY_DISK_FREE_GIB", "500".to_owned()),
             ("AGENT_CAPACITY_MEMINFO", self.path("meminfo").display().to_string()),
             ("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north").to_owned()),
             ("AGENTS_ORCHESTRATION", self.path("orchestration.toml").display().to_string()),

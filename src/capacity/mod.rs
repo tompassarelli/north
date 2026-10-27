@@ -56,6 +56,7 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
         Ok(mut facts) => {
             facts.gaming |= agent_load::gaming_marked(&agent_load::capacity_root());
             facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
+            facts.disk_free_gib = facts.disk_free_gib.or_else(root_disk_free_gib);
             facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
             facts.host_bar1_margin_mib = facts.host_bar1_margin_mib.or_else(host.bar1_margin_mib);
             if facts.bar1_free_mib.is_none() && !facts.bar1_timed_out && admission::starts_gpu_work(&facts) {
@@ -77,6 +78,15 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
             2
         }
     }
+}
+
+fn root_disk_free_gib() -> Option<f64> {
+    if let Some(fixture) = std::env::var("AGENT_CAPACITY_DISK_FREE_GIB").ok().and_then(|gib| gib.parse().ok()) {
+        return Some(fixture);
+    }
+    let root = std::env::var_os("AGENT_CAPACITY_DISK_ROOT").unwrap_or_else(|| "/".into());
+    let stats = rustix::fs::statvfs(std::path::Path::new(&root)).ok()?;
+    Some(stats.f_bavail.saturating_mul(stats.f_frsize) as f64 / f64::from(1u32 << 30))
 }
 
 fn run_queue_load() -> Option<f64> {

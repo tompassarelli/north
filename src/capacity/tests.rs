@@ -43,6 +43,7 @@ fn facts(class: Class) -> Facts {
         queued_ahead_new_clients: Vec::new(),
         run_queue_load: None,
         need: None,
+        disk_free_gib: None,
     }
 }
 
@@ -64,7 +65,7 @@ fn overload_admission(class: &str, need: Option<&str>) -> Admission {
 #[test]
 fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_host() {
     for class in ["heavy", "exclusive"] {
-        let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None };
+        let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None };
         assert_eq!(overload_admission(class, Some("native:smashcraft")), refused(Some("gpu-host")), "{class}");
         assert_eq!(overload_admission(class, Some("private:smashcraft")), refused(Some("gpu-host")), "{class}");
         assert_eq!(overload_admission(class, Some("private:galileo")), refused(None), "{class}");
@@ -74,7 +75,7 @@ fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_ho
 
 #[test]
 fn run_queue_offload_names_only_another_host_that_serves_every_need() {
-    let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None };
+    let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None };
     assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:smashcraft")), refused(Some("gpu-host")));
     assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:galileo")), refused(None));
     let (facts, hosts) = overload("heavy", Some("native:smashcraft"));
@@ -84,7 +85,7 @@ fn run_queue_offload_names_only_another_host_that_serves_every_need() {
 #[test]
 fn run_queue_over_thread_count_still_admits_moderate_critical_and_tom() {
     for class in ["moderate", "critical", "tom"] {
-        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None, aperture: None }, "{class}");
+        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None, aperture: None, disk_free_gib: None }, "{class}");
     }
 }
 
@@ -293,4 +294,13 @@ fn the_warcraft_client_cap_follows_measured_free_bar1_and_vram_under_its_static_
     assert_eq!(cap(&tight), Some(3));
     assert_eq!(decide(&tight), Reason::DeferGpuClients, "2000 MiB of free VRAM fits no client after the 1024 MiB margin");
     assert_eq!(cap(&Facts { profile: Profile::Unattended, ..facts(Class::Native) }), None, "no measure and no static count leave the host uncapped");
+}
+
+#[test]
+fn a_heavy_build_waits_while_the_root_disk_is_under_its_floor_and_names_the_free_space() {
+    let low = Facts { disk_free_gib: Some(9.5), ..facts(Class::Heavy) };
+    assert_eq!(admit(&low, |_| None), Admission { reason: Reason::DeferDiskFree, offload: None, aperture: None, disk_free_gib: Some(9.5) });
+    assert_eq!(decide(&Facts { disk_free_gib: Some(15.0), ..facts(Class::Heavy) }), Reason::Run);
+    assert_eq!(decide(&Facts { disk_free_gib: None, ..facts(Class::Heavy) }), Reason::Run);
+    assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..facts(Class::Agent) }), Reason::Run);
 }
