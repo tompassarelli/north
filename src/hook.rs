@@ -165,7 +165,7 @@ impl HookKind {
                 crate::guard::launch_critical::evaluate,
                 crate::guard::handoff_record::evaluate,
             ],
-            Self::PreAgent => &[],
+            Self::PreAgent => &[crate::guard::worker_tier::evaluate],
             Self::PostTool => &[],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
             Self::Stop => &[],

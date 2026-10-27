@@ -22,6 +22,10 @@ pub mod clipboard;
 pub mod native_item;
 pub mod native_launch;
 pub mod worker_wait;
+pub mod worker_tier;
+mod spawn_state;
+#[cfg(test)]
+mod worker_tier_tests;
 #[cfg(test)]
 mod clipboard_tests;
 #[cfg(test)]

@@ -63,19 +63,20 @@ fn gate(provider: &str) -> u8 {
         }
     }
 }
+pub(crate) fn answer(value: &serde_json::Value) -> Result<serde_json::Value, String> {
+    if let Some(answer) = command::operation(value)? {
+        return Ok(answer);
+    }
+    if let Some(answer) = placement::operation(value)? {
+        return Ok(answer);
+    }
+    if let Some(answer) = crate::router::ops::answer(value) {
+        return answer;
+    }
+    crate::pace::answer_value(value.clone())
+}
 fn request() -> u8 {
-    let outcome = command::input().and_then(|value| {
-        if let Some(answer) = command::operation(&value)? {
-            return Ok(answer);
-        }
-        if let Some(answer) = placement::operation(&value)? {
-            return Ok(answer);
-        }
-        if let Some(answer) = crate::router::ops::answer(&value) {
-            return answer;
-        }
-        crate::pace::answer_value(value)
-    });
+    let outcome = command::input().and_then(|value| answer(&value));
     match outcome {
         Ok(value) => {
             let _ = writeln!(std::io::stdout(), "{value}");

@@ -1,0 +1,1526 @@
+[
+ {
+  "agent": "",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: LOCAL-TEST",
+  "reason": null
+ },
+ {
+  "agent": "Explore",
+  "background": "true",
+  "prompt": "Category: research\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": null
+ },
+ {
+  "agent": "",
+  "background": "true",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "Explore",
+  "background": "missing",
+  "prompt": "Category: feature\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "true",
+  "prompt": "Item: x.\nCategory: Mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": false,
+  "prompt": "Category: feature\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: LOCAL-TEST",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "Explore",
+  "background": false,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "Explore",
+  "background": "true",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: tooling.\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling.\nPayback: stops unpriced boxes; cost ~45 agent-min\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": null,
+  "prompt": "Item: x.\nCategory: harness\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "fork",
+  "background": null,
+  "prompt": "\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "true",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: Mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: mechanical\nPayback: worth it\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": null,
+  "prompt": "Follows: worker run c3 failed.\nCategory: feature\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: research\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "true",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: research\nPayback: worth it\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": "true",
+  "prompt": "Category: ci\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: infra\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: docs-policy\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker",
+  "background": null,
+  "prompt": "Item: x.\nCategory: mechanical\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: infra\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "true",
+  "prompt": "Category: ci\nPayback: worth it\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "",
+  "background": true,
+  "prompt": "Category: mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: enables x; cost 5 min\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": false,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: worth it\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-high",
+  "background": "true",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: ci\nPayback: worth it\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": false,
+  "prompt": "Follows: worker run c3 failed.\nCategory: harness\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: Mechanical\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "Explore",
+  "background": false,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: worth it\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": null,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: enables x; cost 5 min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: tooling\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "",
+  "background": false,
+  "prompt": "Category: Mechanical\nSpec: measured\nScope: module\nSurface: shell\nVerify: LOCAL-TEST",
+  "reason": null
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: research\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\n\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": false,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: docs-policy\nPayback: worth it\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "fork",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\n\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: research\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "true",
+  "prompt": "Category: infra\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": false,
+  "prompt": "Item: x.\nCategory: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\n\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": false,
+  "prompt": "Item: x.\nCategory: tooling.\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: tooling.\nPayback: worth it\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Category: tooling.\nPayback: worth it\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: mechanical\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "fork",
+  "background": "true",
+  "prompt": "Item: x.\nCategory: feature\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: infra\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Category: tooling.\nPayback: enables x; cost 5 min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "",
+  "background": "true",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: harness\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nPayback: enables x; cost 5 min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: LOCAL-TEST",
+  "reason": null
+ },
+ {
+  "agent": "Explore",
+  "background": null,
+  "prompt": "\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": null,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "true",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: Mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: research\nPayback: worth it\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": false,
+  "prompt": "Follows: worker run c3 failed.\nCategory: infra\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "",
+  "background": false,
+  "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": "true",
+  "prompt": "Category: harness\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: infra\nPayback: worth it\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: infra needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-high",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: docs-policy\nPayback: enables x; cost 5 min\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "Explore",
+  "background": "missing",
+  "prompt": "Category: tooling\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: reword  goes to Haiku.\nFollows: worker run c3 failed.\n\nPayback: worth it\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "true",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: Mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "Explore",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: Mechanical\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": null
+ },
+ {
+  "agent": "Explore",
+  "background": null,
+  "prompt": "Follows: worker run c3 failed.\nCategory: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": null
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: feature\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": false,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "fork",
+  "background": "true",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: tooling.\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": false,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: LOCAL-TEST",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: ci\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell\nVerify: LOCAL-TEST",
+  "reason": null
+ },
+ {
+  "agent": "fork",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: feature\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-high",
+  "background": false,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: tooling.\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker",
+  "background": "true",
+  "prompt": "Category: mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "fork",
+  "background": null,
+  "prompt": "Category: feature\nPayback: worth it\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: tooling\nPayback: enables x; cost 5 min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: Mechanical\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: mechanical goes to worker-haiku, not worker-sonnet (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Category: ci\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "Explore",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\n\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: ci\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "fork",
+  "background": true,
+  "prompt": "Item: x.\nCategory: Mechanical\nPayback: worth it\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "true",
+  "prompt": "Item: x.\nCategory: docs-policy\nPayback: worth it\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": false,
+  "prompt": "Category: mechanical\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "fork",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: docs-policy\nPayback: enables x; cost 5 min\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Item: x.\nCategory: feature\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "fork",
+  "background": false,
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling.\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\n\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "fork",
+  "background": false,
+  "prompt": "Category: ci\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": false,
+  "prompt": "Item: x.\nCategory: research\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: ci\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: ci needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\n\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": null,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: infra\nPayback: enables x; cost 5 min\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: infra\nPayback: enables x; cost 5 min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\n\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: infra\nPayback: worth it\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: Mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: mechanical goes to worker-haiku, not worker-xhigh (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: research\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: Mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: feature\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: x.\n\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: x.\nCategory: research\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: tooling.\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: feature\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: x.\nCategory: feature\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: tooling.\nPayback: enables x; cost 5 min\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling.\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": "Category: tooling needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": null,
+  "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: feature\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: feature\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: ci\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: worth it\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": "Category: tooling needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: tooling.\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Category: ci\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: ci\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": false,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: feature\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Category: Mechanical\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: mechanical goes to worker-haiku, not worker-xhigh (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: feature\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: worth it\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: feature\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\n\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: research\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: ci\nPayback: worth it\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: ci\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling.\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: tooling\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: tooling needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: Mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "true",
+  "prompt": "Item: x.\nCategory: harness\nPayback: enables x; cost 5 min\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling\nPayback: enables x; cost 5 min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling.\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: ci\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": false,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: infra\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: Mechanical\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: Mechanical\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: infra\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: infra needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: docs-policy\nPayback: worth it\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Item: x.\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: docs-policy\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\n\nPayback: enables x; cost 5 min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: x.\nCategory: harness\nPayback: worth it\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: harness needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: tooling\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: harness\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling.\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: harness\nPayback: enables x; cost 5 min\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: feature\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: module\nSurface: shell\nVerify: ",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: worth it\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Category: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "worker-high is escalation-only: assign worker first, and escalate only after its reasoning failure, saying so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker",
+  "background": false,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: worth it\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "\nPayback: enables x; cost 5 min\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\n\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": false,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: docs-policy\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: x.\nCategory: infra\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: x.\nCategory: tooling\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Category: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": null,
+  "prompt": "Category: mechanical\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: mechanical\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: Mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Category: harness\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: harness needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: mechanical\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: infra\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: infra\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and documentation prose written carefully by Opus. Haiku keeps only mechanical edits (renames, link fixes, box ticks) under Category: mechanical."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: harness\nPayback: worth it\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: x.\nCategory: feature\nPayback: worth it\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": "worker-xhigh is escalation-only: assign worker first, and escalate only after its reasoning failure, saying so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "true",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: ci\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: mechanical\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: Mechanical\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: research\nPayback: enables x; cost 5 min\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: ci\nPayback: worth it\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: ci needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": false,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: docs-policy\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: worth it\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: tooling needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: mechanical\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": null,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: feature\nPayback: enables x; cost 5 min\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "true",
+  "prompt": "Follows: worker run c3 failed.\nCategory: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: feature\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling.\nPayback: worth it\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: Mechanical\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: feature\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: tooling needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: x.\nCategory: ci\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "worker-xhigh is escalation-only: assign worker first, and escalate only after its reasoning failure, saying so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: enables x; cost 5 min\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: worth it\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: harness\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Category: harness\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "\nPayback: worth it\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: infra\nPayback: worth it\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: infra needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: harness\nPayback: worth it\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": "Category: harness needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Category: infra\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Category: docs-policy\nPayback: enables x; cost 5 min\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: docs-policy\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Category: tooling\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": null,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: feature\nPayback: enables x; cost 5 min\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: Mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: mechanical\nPayback: worth it\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: research\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: tooling.\nPayback: enables x; cost 5 min\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": "worker-xhigh is escalation-only: assign worker first, and escalate only after its reasoning failure, saying so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Item: x.\nCategory: tooling\nPayback: worth it\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: docs-policy\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and documentation prose written carefully by Opus. Haiku keeps only mechanical edits (renames, link fixes, box ticks) under Category: mechanical."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: Mechanical\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling.\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: MEASURED\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: mechanical goes to worker-haiku, not worker (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: research\nPayback: worth it\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: feature\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell",
+  "reason": "Missing Verify: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: Mechanical\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": "Category: mechanical goes to worker-haiku, not worker (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": "missing",
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: feature\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: research\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: docs-policy\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": null
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: docs-policy\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: ci\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": "Category: ci needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Category: tooling\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Category: Mechanical\nPayback: worth it\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": "missing",
+  "prompt": "Category: tooling\nPayback: stops unpriced boxes; cost ~45 agent-min\nItem: tidy. Scope: module.\nSpec: measured\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nCategory: mechanical\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: infra\nPayback: worth it\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: x.\nCategory: infra\nSpec: bogus\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: bogus is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Category: Mechanical\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": "Category: mechanical goes to worker-haiku, not worker-high (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\nCategory: docs-policy\nSpec: measured\nScope: \nSurface: shell\nVerify: local-test",
+  "reason": "Missing Scope: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\n\nSpec: measured\nScope: MODULE\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: docs-policy\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nPayback: enables x; cost 5 min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Category: infra\nPayback: enables x; cost 5 min\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Spec: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Category: tooling.\nPayback: worth it\nSpec: measured\nScope: module\nSurface: \nVerify: local-test",
+  "reason": "Missing Surface: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "codex",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: ci\nPayback: worth it\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Category: ci needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+ },
+ {
+  "agent": "worker-sonnet",
+  "background": "missing",
+  "prompt": "Follows: worker run c3 failed.\nCategory: tooling.\nPayback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days\nSpec: measured\nScope: module\nSurface: bogus\nVerify: local-test",
+  "reason": "Surface: bogus is not a facet value; use one of ts | rust | lua | nix | shell | workflow | docs | assets, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\n\nPayback: worth it\nSpec: measured\nScope: module\nSurface: SHELL\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: x.\nFollows: worker run c3 failed.\nCategory: ci\nPayback: stops unpriced boxes; cost ~45 agent-min\nSpec: measured\nScope: bogus\nSurface: shell\nVerify: local-test",
+  "reason": "Scope: bogus is not a facet value; use one of one-file | module | cross-module | cross-repo, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-haiku",
+  "background": true,
+  "prompt": "Item: reword Category: mechanical goes to Haiku.\nFollows: worker run c3 failed.\n\nItem: check the Scope: section of the brief.\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Missing Category: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning."
+ },
+ {
+  "agent": "worker-high",
+  "background": "missing",
+  "prompt": "Category: ci\nPayback: enables x; cost 5 min\nSpec: measured\nScope: module\nSurface: shell\nVerify: bogus",
+  "reason": "Verify: bogus is not a facet value; use one of none | local-test | farm | native | visual, so worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker-xhigh",
+  "background": true,
+  "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nPayback: enables x; cost 5 min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
+  "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so worker-ledger can group runs by it."
+ }
+]
