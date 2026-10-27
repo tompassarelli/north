@@ -22,10 +22,13 @@ mod issues;
 mod plan;
 mod record;
 mod slots;
+mod stops;
 mod survey;
 mod tier;
 #[cfg(test)]
 mod frozen_tests;
+#[cfg(test)]
+mod stops_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

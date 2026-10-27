@@ -324,6 +324,20 @@ pub(crate) fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispa
     i64::try_from(listed).unwrap_or(i64::MAX).max(dispatched)
 }
 
+/// Marks each open box whose last dispatched session ended its report with `Stop: decision`.
+fn stopped(cfg: &DocumentMut, here: &str, records: &[record::Record], issues: &mut [Issue], notes: &mut Vec<String>) {
+    let launches = super::stops::last_launches(records);
+    let machines = gate::machines(cfg);
+    for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
+        let Some(launch) = launches.get(&issue.reference()) else { continue };
+        let ssh = if launch.host == here { None } else if let Some(machine) = machines.iter().find(|machine| machine.name == launch.host) { Some(machine.ssh.as_str()) } else { continue };
+        match remote_json(ssh, &["fleet", "show", &launch.name, "--json"]) {
+            Ok(session) => issue.stopped = super::stops::stopped_at(&session),
+            Err(why) => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
+        }
+    }
+}
+
 /// What the ledger recommends for each armed category, read with only its Category so the cell is the category.
 fn ledger(notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let mut found = BTreeMap::new();
@@ -357,7 +371,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     let sessions: Vec<(Session, String)> = fleets.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let (elsewhere, mut holds) = tally(&sessions);
-    let (issues, open) = github::open_issues(&mut notes);
+    let (mut issues, open) = github::open_issues(&mut notes);
     let records = record::read(&record::directory());
     holds.extend(claims(&cfg, &here, &mut notes));
     holds.extend(record::holds(&records, at));
@@ -369,6 +383,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     if accounts.is_empty() {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }
+    stopped(&cfg, &here, &records, &mut issues, &mut notes);
     let history = History::new(&records);
     let ledger = ledger(&mut notes);
     let cloud = cloud(&cfg, &here, at);
@@ -383,9 +398,14 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
 mod github {
     use super::*;
 
-    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } comments(last: 1) { nodes { body } } } } } }";
+    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 1) { nodes { body createdAt updatedAt } } } } } }";
 
     pub(crate) type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
+
+    fn touched(node: &Value) -> f64 {
+        let comment = &node["comments"]["nodes"][0];
+        [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| crate::pace::target::seconds(time.as_str()?)).fold(0.0, f64::max)
+    }
 
     pub(crate) fn issue(repo: &str, node: &Value) -> Option<Issue> {
         let open_blockers = node["blockedBy"]["nodes"]
@@ -403,6 +423,8 @@ mod github {
             labels: node["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| label["name"].as_str().map(str::to_owned)).collect(),
             open_blockers,
             report: node["comments"]["nodes"][0]["body"].as_str().unwrap_or_default().into(),
+            touched: touched(node),
+            stopped: None,
         })
     }
 

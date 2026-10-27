@@ -57,6 +57,10 @@ pub(crate) struct Issue {
     pub open_blockers: Vec<IssueRef>,
     /// The newest comment, where a worker reports what the box waits on.
     pub report: String,
+    /// The newest of its body edit and last comment, as unix seconds.
+    pub touched: f64,
+    /// When the last dispatched worker's final report named `Stop: decision`.
+    pub stopped: Option<f64>,
 }
 
 impl Issue {
@@ -222,6 +226,9 @@ pub(crate) fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     }
     if let Some(holder) = world.holds.get(&reference) {
         return Err(format!("held by {holder}"));
+    }
+    if super::stops::awaits_decision(issue) {
+        return Err("last worker stopped for a decision".into());
     }
     if let Some(sentence) = issue.waiting() {
         return Err(format!("its newest report waits: {sentence}"));
