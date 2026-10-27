@@ -37,6 +37,7 @@ pub(crate) struct Launch {
     pub local: Option<String>,
     /// Why the account is not the one placement would pick, recorded as `--pin`.
     pub pin: Option<String>,
+    pub handoff: Option<String>,
 }
 
 /// One machine a box may run on, and why it refuses this box: no slots now, or needs it does not
@@ -105,6 +106,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
         cloud: false,
         local,
         pin,
+        handoff: None,
     }
 }
 
@@ -116,7 +118,7 @@ pub(crate) fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate]
             Cloud::Reachable(credit) => {
                 if pools.take_cloud() {
                     let account = format!("claude login on {}", capacity.here);
-                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None });
+                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None, handoff: None });
                 }
                 local = Some(format!("north dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
             }

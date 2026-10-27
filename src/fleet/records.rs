@@ -44,3 +44,11 @@ pub fn past_records(root: &Path) -> Vec<SessionRecord> {
     records.sort_by_key(|record| record.created_ms);
     records
 }
+
+pub fn host_sessions(root: &Path, host_dir: &Path) -> Vec<SessionRecord> {
+    fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok()).filter(|record| record.host_dir == host_dir).collect()
+}
+
+pub fn parents_live(root: &Path, name: &str) -> bool {
+    fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok()).any(|record| record.parent.as_deref() == Some(name) && !record.stopped)
+}

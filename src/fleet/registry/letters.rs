@@ -67,7 +67,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::fleet::runtime::Runtimes;
+    use crate::fleet::runtimes::Runtimes;
     use crate::fleet::records::write_record;
     use crate::fleet::model::SessionRecord;
 

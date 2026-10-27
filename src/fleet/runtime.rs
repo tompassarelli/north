@@ -1,6 +1,5 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -78,43 +77,11 @@ pub trait Runtime: Send + Sync {
     fn caller_conversation(&self) -> Option<String> {
         None
     }
-}
-
-#[derive(Clone)]
-pub struct Runtimes(Vec<Arc<dyn Runtime>>);
-
-impl Runtimes {
-    pub fn new(runtimes: Vec<Arc<dyn Runtime>>) -> Self {
-        Self(runtimes)
-    }
-
-    pub fn get(&self, provider: &ProviderName) -> NorthResult<Arc<dyn Runtime>> {
-        self.0
-            .iter()
-            .find(|runtime| &runtime.provider() == provider)
-            .cloned()
-            .ok_or_else(|| NorthError::Usage(format!("no runtime for provider {}", provider.label())))
-    }
-
-    pub fn providers(&self) -> Vec<ProviderName> {
-        self.0.iter().map(|runtime| runtime.provider()).collect()
-    }
-
-    pub fn caller_conversation(&self) -> Option<String> {
-        self.0.iter().find_map(|runtime| runtime.caller_conversation())
-    }
-
-    pub fn roster(&self, state_root: &Path, home: &Path, policy: &Path) -> Roster {
-        self.0.iter().map(|runtime| runtime.roster(state_root, home, policy)).fold(Roster::default(), Roster::merge)
-    }
-
-    pub fn account(&self, state_root: &Path, home: &Path, policy: &Path, request: &LaunchRequest) -> NorthResult<Account> {
-        match &request.machine {
-            Some(machine) => self.get(&request.provider)?.account_on(home, policy, &request.account, &machine.name),
-            None => self.roster(state_root, home, policy).account(&request.provider, &request.account),
-        }
+    fn compact(&self) -> Option<String> {
+        None
     }
 }
+
 
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
 pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";

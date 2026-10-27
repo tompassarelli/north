@@ -25,7 +25,7 @@ fn tiers(launches: &[(String, Tier, bool, String)]) -> Vec<(&str, &str)> {
 }
 
 fn haiku_try(item: &str, at: f64) -> Record {
-    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-3-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("worker-haiku".into()), category: Some("mechanical".into()), arm: false }
+    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-3-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("worker-haiku".into()), category: Some("mechanical".into()), arm: false, handoff: None }
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn known_cause_bugs_and_judged_art_start_on_sonnet_mechanical_work_on_haiku_and_
         tiers(&launches),
         [("smashcraft#1", "sonnet-high"), ("smashcraft#2", "sonnet-high"), ("smashcraft#3", "worker-haiku"), ("smashcraft#4", "worker"), ("smashcraft#5", "sonnet-high"), ("smashcraft#6", "worker")]
     );
-    assert!(launches.iter().all(|(_, _, arm, brief)| !arm && !brief.contains("Arm:")), "only tooling and features run as arms");
+    assert!(launches.iter().all(|(_, tier, arm, brief)| !arm && !brief.contains(&format!("Arm: {}", tier.name()))), "only tooling and features run as arms");
     assert!(launches[2].3.contains("Tier: worker-haiku") && launches[2].3.contains("Monitor"), "the Haiku brief says to wait on runs with Monitor");
     assert!(!launches[0].3.contains("Monitor"));
 }
@@ -72,7 +72,7 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
     assert_eq!((evidence.tiers["claude:sonnet-high"], evidence.tiers["claude:opus-medium"], evidence.tiers["claude-sonnet-5-5 medium"]), ((73.0, ARM_RUNS), (66.0, ARM_RUNS), (33.0, 6)));
     let decided = launched(vec![tooling(6), tooling(7)], History::default(), BTreeMap::from([("tooling".to_owned(), evidence.clone())]));
     assert_eq!(tiers(&decided), [("wisp#6", "sonnet-high"), ("wisp#7", "sonnet-high")], "both arms at 15 runs: the ledger's pick, every time");
-    assert!(decided.iter().all(|(_, _, arm, brief)| !arm && !brief.contains("Arm:")));
+    assert!(decided.iter().all(|(_, tier, arm, brief)| !arm && !brief.contains(&format!("Arm: {}", tier.name()))));
     let short = Evidence { tiers: BTreeMap::from([("claude:sonnet-high".to_owned(), (73.0, 15)), ("claude:opus-medium".to_owned(), (66.0, 14))]), ..evidence.clone() };
     assert_eq!(tiers(&launched(vec![tooling(8), tooling(9)], History::default(), BTreeMap::from([("tooling".to_owned(), short)]))), [("wisp#8", "sonnet-high"), ("wisp#9", "worker")]);
     assert_eq!(Evidence::parse(&RECOMMEND.replace("[Category: tooling]", "[all runs]"), "tooling"), Evidence::default(), "a coarser cell is not this category's evidence");
@@ -97,10 +97,29 @@ fn a_launch_runs_its_tiers_model_and_effort_and_an_unnamed_tier_fails_it() {
     assert!(launches[1].contains("--model claude-haiku-5-5 --effort high"), "{}", launches[1]);
     let bare = survey(Vec::new(), Cloud::Closed(String::new()), Vec::new(), Vec::new());
     let bare = super::survey::Survey { cfg: "[hosts.gex45]\n".parse().unwrap(), ..bare };
-    let launch = super::plan::Launch { item: issue("smashcraft", 1, "", &[]).reference(), host: "gex45".into(), account: "claude:b".into(), brief: String::new(), route: route(Tier::Opus), cloud: false, local: None, pin: None };
+    let launch = super::plan::Launch { item: issue("smashcraft", 1, "", &[]).reference(), host: "gex45".into(), account: "claude:b".into(), brief: String::new(), route: route(Tier::Opus), cloud: false, local: None, pin: None, handoff: None };
     assert!(effects::command(&launch, "sc-1", &bare, "/home/tom", "north").unwrap_err().contains("claude:opus-medium"), "a tier orchestration does not name fails the launch, never falls back to the default model");
 }
 
 pub(super) fn route(tier: Tier) -> super::tier::Route {
     super::tier::Route { tier, category: "feature".into(), arm: false, follows: None, why: String::new() }
+}
+
+#[test]
+fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_each_tier_holds_thirty() {
+    let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0) }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: 4.0, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+    let boxes = |category: &str| (1..=3).map(|number| issue("smashcraft", number, &format!("- [ ] a\nCategory: {category}"), &[])).collect::<Vec<_>>();
+    let arms = |survey: &super::survey::Survey| -> Vec<(Option<String>, Option<String>)> {
+        decide(survey, "test").launches.into_iter().map(|launch| (launch.handoff, launch.brief.lines().find_map(|line| line.strip_prefix("Arm: ")).map(str::to_owned))).collect()
+    };
+    let (on, off) = (Some("handoff-350k".to_owned()), Some("no-handoff".to_owned()));
+    let fresh = survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone());
+    assert_eq!(arms(&fresh), [(on.clone(), on.clone()), (off.clone(), off.clone()), (on.clone(), on.clone())], "the handoff arm is the brief's first Arm line, which the ledger records");
+    let record = |handoff: &Option<String>| Record { tier: Some("worker".into()), handoff: handoff.clone(), ..haiku_try("smashcraft#9", 1.0) };
+    let held = |on_runs: usize, off_runs: usize| super::handoff::Arms::new(&[vec![record(&on); on_runs], vec![record(&off); off_runs]].concat());
+    let lagging = super::survey::Survey { handoffs: held(30, 29), ..survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone()) };
+    assert_eq!(arms(&lagging), [(off.clone(), off.clone()), (None, None), (None, None)], "only the arm under 30 runs on that tier still launches");
+    let sonnet = super::survey::Survey { handoffs: held(30, 30), ..survey(boxes("bug-known-cause"), Cloud::Closed(String::new()), hosts, accounts) };
+    assert_eq!(arms(&sonnet)[0], (on.clone(), on), "each tier fills its own arms");
 }

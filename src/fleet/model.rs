@@ -128,6 +128,8 @@ pub struct SessionRecord {
     pub capacity_need: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_sender: Option<LastSender>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff_at: Option<u64>,
 }
 
 impl SessionRecord {

@@ -85,7 +85,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::fleet::runtime::Runtimes;
+    use crate::fleet::runtimes::Runtimes;
 
     fn fleet(home: &std::path::Path) -> Fleet {
         let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());

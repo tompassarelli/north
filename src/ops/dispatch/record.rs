@@ -32,6 +32,8 @@ pub(crate) struct Record {
     pub category: Option<String>,
     #[serde(default)]
     pub arm: bool,
+    #[serde(default)]
+    pub handoff: Option<String>,
 }
 
 fn hold(record: &Record) -> f64 {

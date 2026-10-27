@@ -6,6 +6,7 @@ use super::plan::Cloud;
 use super::record;
 use super::slots::{Account, Host, Room};
 use super::tier::{self, Evidence, History};
+use super::handoff::Arms;
 use crate::fleet::model::ProviderName;
 use crate::fleet::roster::{Roster, Standing};
 use crate::pace::exhaustion;
@@ -43,6 +44,7 @@ pub(crate) struct Survey {
     pub frozen: Vec<crate::platform::frozen_topics::Topic>,
     /// Dispatch's earlier launches by tier, which a Haiku retry and the next arm read.
     pub history: History,
+    pub handoffs: Arms,
     /// `worker-ledger --recommend` for each armed category.
     pub ledger: BTreeMap<String, Evidence>,
     pub at: f64,
@@ -402,6 +404,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     stopped(&cfg, &here, &records, &mut issues, &mut notes);
     let history = History::new(&records);
+    let handoffs = Arms::new(&records);
     let ledger = ledger(&mut notes);
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
@@ -409,7 +412,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, ledger, at })
+    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, at })
 }
 
 mod github {

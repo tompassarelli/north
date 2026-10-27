@@ -20,6 +20,7 @@ pub const STDIN_LINES: usize = 64;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const PARTIAL_LINE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const STDIN_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const REST_TICK: Duration = Duration::from_secs(5);
 pub const STDIN_BLOCKED: &str = r#"{"error":"stdin-blocked"}"#;
 pub const STDIN_CLOSED: &str = r#"{"error":"stdin-closed"}"#;
 pub const INVALID_FRAME: &str = r#"{"error":"invalid-frame"}"#;
@@ -163,9 +164,16 @@ fn is_control(line: &str) -> bool {
         .is_ok_and(|frame| frame.get("type").and_then(|kind| kind.as_str()) == Some("control_request"))
 }
 
+pub enum Rest {
+    Wait,
+    Send(Vec<String>),
+    End,
+}
+
 pub trait FrameWatch: Send {
     fn line(&mut self, line: &[u8]);
     fn in_flight(&self) -> bool;
+    fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest;
     fn close(&mut self);
 }
 
@@ -192,8 +200,9 @@ impl Watcher {
         self.with(true, |watch| watch.in_flight())
     }
 
-    fn in_flight(&self) -> bool {
-        self.with(false, |watch| watch.in_flight())
+    fn rest(&self, idle: Duration, park_after: Option<Duration>) -> Rest {
+        let parked = if park_after.is_some_and(|limit| idle >= limit) { Rest::End } else { Rest::Wait };
+        self.with(parked, |watch| watch.rest(idle, park_after))
     }
 
     fn close(&self) {
@@ -252,9 +261,9 @@ impl SessionHost {
         self.server = Some(tokio::spawn(accept_clients(listener, self.stdin.clone())));
     }
 
-    pub fn park_when_idle(&mut self, limit: Duration) {
-        let parked = exit_when_idle(self.stdin.activity.clone(), self.watcher.clone(), limit, self.child.id());
-        self.parking = Some(tokio::spawn(parked));
+    pub fn rest_when_idle(&mut self, park_after: Option<Duration>) {
+        let resting = rest_when_idle(self.stdin.clone(), self.watcher.clone(), park_after, self.child.id());
+        self.parking = Some(tokio::spawn(resting));
     }
 
     pub async fn wait(self) -> NorthResult<u8> {
@@ -292,18 +301,25 @@ pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Op
     let watcher = watch_for(&config).map(Watcher::new).unwrap_or_default();
     let mut host = SessionHost::spawn_watched(&config, watcher)?;
     host.serve(listener);
-    if let Some(limit) = config.idle_exit {
-        host.park_when_idle(limit);
-    }
+    host.rest_when_idle(config.idle_exit);
     let code = host.wait().await;
     let _ = fs::remove_file(&socket);
     code
 }
 
-async fn exit_when_idle(activity: Activity, watcher: Watcher, limit: Duration, child: Option<u32>) {
-    let tick = (limit / 4).min(Duration::from_secs(5));
-    while watcher.in_flight() || activity.idle_for() < limit {
+async fn rest_when_idle(stdin: StdinQueue, watcher: Watcher, park_after: Option<Duration>, child: Option<u32>) {
+    let tick = park_after.map_or(REST_TICK, |limit| (limit / 4).min(REST_TICK));
+    loop {
         tokio::time::sleep(tick).await;
+        match watcher.rest(stdin.activity.idle_for(), park_after) {
+            Rest::Wait => {}
+            Rest::Send(frames) => {
+                for frame in frames {
+                    stdin.enqueue(frame, None).await;
+                }
+            }
+            Rest::End => break,
+        }
     }
     if let Some(pid) = child.and_then(|pid| i32::try_from(pid).ok()).and_then(rustix::process::Pid::from_raw) {
         let _ = rustix::process::kill_process(pid, rustix::process::Signal::Term);

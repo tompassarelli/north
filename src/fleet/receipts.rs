@@ -98,7 +98,7 @@ pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &Host
     Ok(claimed)
 }
 
-fn is_final(reply: &str) -> bool {
+pub(super) fn is_final(reply: &str) -> bool {
     let opening = reply.trim_start_matches(['*', '#', '`', ' ']);
     FINAL_OPENINGS.iter().any(|word| opening.strip_prefix(word).is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric())))
 }

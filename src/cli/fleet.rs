@@ -10,7 +10,8 @@ use crate::fleet::model::{Effort, Entry, EntryKind, LaunchRequest, ProviderName,
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::registry::{self, Fleet, urgent_text};
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::{Runtimes, SESSION_ENV, new_uuid};
+use crate::fleet::runtime::{SESSION_ENV, new_uuid};
+use crate::fleet::runtimes::Runtimes;
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::fleet::turns::Turn;

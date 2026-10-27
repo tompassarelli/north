@@ -18,6 +18,7 @@ mod brief;
 mod cloud;
 mod effects;
 mod facets;
+mod handoff;
 mod issues;
 mod plan;
 mod record;
@@ -78,6 +79,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let planned = issues::planned_predecessors(&survey.issues);
     let world = issues::World { open: &survey.open, holds: &survey.holds, planned: &planned, at: survey.at };
     let mut history = survey.history.clone();
+    let mut handoffs = survey.handoffs.clone();
     let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: crate::pace::limits::default("reservation_fallback_points") };
     for issue in ordered(&survey.issues) {
         if let Some(topic) = crate::platform::frozen_topics::matching(&survey.frozen, &issue.repo, &issue.title) {
@@ -94,8 +96,12 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         let code_only = gate::surface(&brief, &survey.cfg).0;
         let ready = Ready { item: issue.reference(), brief, code_only, route };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
-            Ok(launch) => {
+            Ok(mut launch) => {
                 history.chose(&launch.route);
+                if let Some(arm) = (!launch.cloud).then(|| handoffs.pick(launch.route.tier)).flatten() {
+                    launch.brief = handoff::armed(&launch.brief, &arm);
+                    launch.handoff = Some(arm);
+                }
                 outcome.launches.push(launch);
             }
             Err(why) => outcome.skipped.push((ready.item, format!("ready, not placed: {why}"))),

@@ -1091,10 +1091,10 @@ GROUPS = ["category", *FACETS]
 
 def group_list(text):
     keys = [k.strip().lower() for k in text.split(",") if k.strip()]
-    bad = [k for k in keys if k not in GROUPS]
+    bad = [k for k in keys if k not in [*GROUPS, "arm"]]
     if bad or not keys:
-        raise Refused(f"--group takes a comma list of {', '.join(GROUPS)}; got {text!r}")
-    return keys
+        raise Refused(f"--group takes a comma list of {', '.join(GROUPS)}, arm; got {text!r}")
+    return [k for k in keys if k != "arm"]
 
 
 def cell_value(r, key):

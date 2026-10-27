@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{NorthError, NorthResult};
 
 use super::super::roster::Roster;
-use super::super::runtime::Runtimes;
+use super::super::runtimes::Runtimes;
 
 pub(super) fn home_dir() -> NorthResult<PathBuf> {
     std::env::var_os("HOME")

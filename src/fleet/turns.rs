@@ -17,6 +17,10 @@ impl Tokens {
         self.input + self.output + self.cache_read + self.cache_write
     }
 
+    pub fn context(self) -> u64 {
+        self.input + self.cache_read + self.cache_write
+    }
+
     fn since(self, earlier: Tokens) -> Tokens {
         Tokens {
             input: self.input.saturating_sub(earlier.input),
@@ -60,6 +64,7 @@ pub enum TurnSignal {
     Prompt { conversation: String, text: String },
     Usage { conversation: String, total: Tokens },
     Call { conversation: String, call: String, tokens: Tokens },
+    Compacted { conversation: String, context: u64 },
     Ended { conversation: String, exit: TurnExit, totals: TurnTotals },
     TaskStarted { conversation: String, task: String },
     TaskEnded { conversation: String, task: String },
@@ -73,6 +78,7 @@ impl TurnSignal {
             | TurnSignal::Prompt { conversation, .. }
             | TurnSignal::Usage { conversation, .. }
             | TurnSignal::Call { conversation, .. }
+            | TurnSignal::Compacted { conversation, .. }
             | TurnSignal::Ended { conversation, .. }
             | TurnSignal::TaskStarted { conversation, .. }
             | TurnSignal::TaskEnded { conversation, .. } => conversation,
@@ -104,6 +110,7 @@ struct Thread {
     model: Option<String>,
     effort: Option<String>,
     total: Tokens,
+    context: u64,
     open: Option<Open>,
     tasks: HashSet<String>,
 }
@@ -143,10 +150,12 @@ impl Turns {
                 thread.total = total;
             }
             TurnSignal::Call { call, tokens, .. } => {
+                thread.context = tokens.context();
                 if let Some(open) = thread.open.as_mut() {
                     open.call_tokens.insert(call, tokens);
                 }
             }
+            TurnSignal::Compacted { context, .. } => thread.context = context,
             TurnSignal::TaskStarted { task, .. } => {
                 thread.tasks.insert(task);
             }
@@ -160,6 +169,10 @@ impl Turns {
 
     pub fn in_flight(&self) -> bool {
         self.threads.values().any(Thread::busy)
+    }
+
+    pub fn context(&self) -> u64 {
+        self.threads.values().map(|thread| thread.context).max().unwrap_or(0)
     }
 
     pub fn live_tokens(&self) -> u64 {

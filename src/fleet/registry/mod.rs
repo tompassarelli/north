@@ -15,7 +15,8 @@ use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{ARCHIVE, PLACED, read_record, write_record};
 use super::remote;
 use super::roster::Roster;
-use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, Runtimes, now_ms};
+use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
+use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
@@ -141,6 +142,7 @@ impl Fleet {
             machine: request.machine.clone(),
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
+            handoff_at: crate::fleet::handoff::threshold(&request.prompt),
         };
         self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
         if let Some(task_ref) = &record.task_ref {

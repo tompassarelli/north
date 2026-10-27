@@ -85,7 +85,7 @@ async fn a_silent_codex_turn_is_never_parked_mid_turn() {
     let watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), root.path().to_path_buf(), root.path().to_path_buf());
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
     let started = Instant::now();
-    host.park_when_idle(Duration::from_secs(1));
+    host.rest_when_idle(Some(Duration::from_secs(1)));
     let code = tokio::time::timeout(Duration::from_secs(20), host.wait()).await.unwrap().unwrap();
     assert_eq!(code, 143, "the host parks by SIGTERM once the turn has ended");
     assert!(started.elapsed() > Duration::from_secs(3), "parked after {:?}, inside the 3 s silent turn", started.elapsed());
@@ -104,7 +104,7 @@ async fn notifications_after_the_turn_do_not_keep_a_codex_host_awake() {
     config.runtime = vec!["sh".into(), "-c".into(), script];
     let watch = TurnWatch::new(Arc::new(Codex), Arc::new(Recorded::default()), Arc::new(Recorded::default()), root.path().to_path_buf(), root.path().to_path_buf());
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
-    host.park_when_idle(Duration::from_secs(1));
+    host.rest_when_idle(Some(Duration::from_secs(1)));
     let parked = tokio::time::timeout(Duration::from_secs(10), host.wait()).await;
     assert_eq!(parked.ok().map(Result::unwrap), Some(143), "an idle host must park despite steady non-turn output");
 }
@@ -242,4 +242,93 @@ fn a_launch_inherits_the_calling_session_as_parent_unless_told_none() {
     assert_eq!(parent(&["--parent", "none"], Some("boss")), None);
     assert_eq!(parent(&["--parent", "lead"], Some("boss")), Some("lead".into()));
     assert_eq!(parent(&[], None), None);
+}
+
+fn seconds(rollover: u64, finished_exit: u64) -> crate::fleet::idle::Policy {
+    crate::fleet::idle::Policy { rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit) }
+}
+
+fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) {
+    let usage = json!({"input_tokens": 1, "output_tokens": 5, "cache_read_input_tokens": context - 1, "cache_creation_input_tokens": 0});
+    let assistant = json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"id": "m1", "content": [{"type": "text", "text": reply}], "usage": usage}});
+    let result = json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false});
+    let stdin = root.join("stdin.jsonl");
+    let script = format!("echo '{assistant}'; echo '{result}'; while read -r line; do echo \"$line\" >> '{}'; done", stdin.display());
+    let config = HostConfig { name: "worker".into(), generation: 1, state_dir: root.join("worker"), socket: None, idle_exit: None, provider: Some("claude".into()), runtime: vec!["sh".into(), "-c".into(), script] };
+    (config, stdin)
+}
+
+fn session_record(root: &Path, parent: Option<&str>) {
+    let session = root.join("worker");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = json!({"name": "worker", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": null, "conversation": "s", "host_dir": session, "parent": parent});
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+}
+
+async fn rest(root: &Path, context: u64, reply: &str, policy: crate::fleet::idle::Policy, park_after: Option<Duration>) -> (u8, String) {
+    let (config, stdin) = claude_turn(root, context, reply);
+    let sink = Arc::new(Recorded::default());
+    let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, root.to_path_buf(), root.join("worker")).idling_by(policy);
+    let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    host.rest_when_idle(park_after);
+    let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
+    (code, std::fs::read_to_string(stdin).unwrap_or_default())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_session_over_200k_is_sent_compact_at_its_rollover_then_parks() {
+    let root = tempfile::tempdir().unwrap();
+    session_record(root.path(), Some("lead"));
+    let (code, stdin) = rest(root.path(), 250_000, "Still waiting on the build.", seconds(1, 60), Some(Duration::from_secs(3))).await;
+    assert_eq!(code, 143);
+    assert_eq!(stdin.lines().filter(|line| line.contains(r#""content":"/compact""#)).count(), 1, "one rollover before parking: {stdin}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_session_under_200k_parks_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    session_record(root.path(), Some("lead"));
+    let (code, stdin) = rest(root.path(), 150_000, "Still waiting on the build.", seconds(5, 60), Some(Duration::from_secs(1))).await;
+    assert_eq!((code, stdin.as_str()), (143, ""));
+    assert!(!crate::fleet::records::read_record(&root.path().join("worker")).unwrap().stopped, "parked, not exited");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finished_worker_exits_at_its_idle_limit_uncompacted_and_marked_exited() {
+    let root = tempfile::tempdir().unwrap();
+    session_record(root.path(), Some("lead"));
+    let (code, stdin) = rest(root.path(), 400_000, "Done: landed abc123.", seconds(1, 60), Some(Duration::from_secs(2))).await;
+    assert_eq!((code, stdin.as_str()), (143, ""));
+    assert!(crate::fleet::records::read_record(&root.path().join("worker")).unwrap().stopped);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finished_root_session_is_not_exited() {
+    let root = tempfile::tempdir().unwrap();
+    session_record(root.path(), None);
+    let (code, _) = rest(root.path(), 100_000, "Done: ticked.", seconds(1, 1), Some(Duration::from_secs(2))).await;
+    assert_eq!(code, 143);
+    assert!(!crate::fleet::records::read_record(&root.path().join("worker")).unwrap().stopped, "a root session parks, never exits");
+}
+
+#[test]
+fn a_worker_on_the_handoff_arm_is_told_to_hand_off_at_its_threshold_and_again_per_further_50k_even_after_a_revive() {
+    let calls = |handoff_at: Option<u64>| {
+        let root = tempfile::tempdir().unwrap();
+        let session = root.path().join("worker");
+        std::fs::create_dir_all(&session).unwrap();
+        let record = json!({"name": "worker", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": null, "conversation": "s", "host_dir": session, "parent": "lead", "handoff_at": handoff_at});
+        std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+        let sink = Arc::new(Recorded::default());
+        let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session);
+        for (id, context) in [("m1", 349_000), ("m2", 360_000), ("m3", 400_000), ("m4", 410_000)] {
+            let usage = json!({"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": context - 1, "cache_creation_input_tokens": 0});
+            watch.line(json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"id": id, "content": [], "usage": usage}}).to_string().as_bytes());
+        }
+        sink.3.lock().unwrap().iter().map(|(_, frame)| frame.clone()).collect::<Vec<_>>()
+    };
+    let nudged = calls(Some(350_000));
+    assert_eq!(nudged.len(), 2, "at 360k and at 410k, not at 400k: {nudged:?}");
+    assert!(nudged[0].contains("Your context is 360k tokens, past the 350k handoff point") && nudged[0].contains("worker.md"), "{}", nudged[0]);
+    assert!(calls(None).is_empty(), "the no-handoff arm and unarmed sessions are never nudged");
 }

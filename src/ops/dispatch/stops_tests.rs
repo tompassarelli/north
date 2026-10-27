@@ -28,7 +28,7 @@ fn a_box_whose_last_session_stopped_for_a_decision_is_skipped_until_the_issue_ch
     assert_eq!(issues::readiness(&box_at(1001.0), &world), Ok(()), "a newer comment or body edit launches it again");
     assert_eq!(issues::readiness(&Issue { stopped: None, ..box_at(0.0) }, &world), Ok(()));
 
-    let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, arm: false };
+    let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, arm: false, handoff: None };
     let records = [launch("smashcraft#587", "sc-587-d0740", 10.0, true), launch("smashcraft#587", "sc-587-d0750", 20.0, true), launch("smashcraft#587", "sc-587-d0800", 30.0, false)];
     assert_eq!(super::stops::last_launches(&records)[&IssueRef::new("smashcraft", 587)].name, "sc-587-d0750", "a failed launch started no session");
 }

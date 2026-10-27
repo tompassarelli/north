@@ -21,6 +21,9 @@ pub(super) fn signals(frame: &Value) -> Vec<TurnSignal> {
             let call = call_signal(frame, &conversation);
             [Some(TurnSignal::Started { conversation }), call].into_iter().flatten().collect()
         }
+        Some("system") if frame["subtype"] == "compact_boundary" => {
+            frame["compact_metadata"]["post_tokens"].as_u64().map(|context| TurnSignal::Compacted { conversation, context }).into_iter().collect()
+        }
         Some("system") if frame["subtype"] == "task_started" => task_signal(frame, |task| TurnSignal::TaskStarted { conversation, task }),
         Some("system") if frame["subtype"] == "task_notification" => task_signal(frame, |task| TurnSignal::TaskEnded { conversation, task }),
         Some("result") => vec![TurnSignal::Ended { conversation, exit: result_exit(frame), totals: result_totals(frame) }],

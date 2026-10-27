@@ -70,6 +70,7 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
         tier: Some(launch.route.tier.name().to_owned()),
         category: Some(launch.route.category.clone()),
         arm: launch.route.arm,
+        handoff: launch.handoff.clone(),
     };
     record::append(&record::directory(), &entry)?;
     result
