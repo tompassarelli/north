@@ -226,9 +226,9 @@ class Tx:
 
 def connect() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB), exist_ok=True)
-    db = sqlite3.connect(DB, timeout=10, isolation_level=None)
+    db = sqlite3.connect(DB, timeout=60, isolation_level=None)
     db.row_factory = sqlite3.Row
-    db.execute("PRAGMA busy_timeout = 10000")
+    db.execute("PRAGMA busy_timeout = 60000")
     if db.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
         db.execute("PRAGMA journal_mode = WAL")
     with Tx(db):

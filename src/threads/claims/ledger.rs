@@ -8,7 +8,7 @@ use serde_json::json;
 use super::{Claim, Issue, Standing};
 use crate::foundation::clock::Timestamp;
 
-const BUSY: Duration = Duration::from_secs(10);
+const BUSY: Duration = Duration::from_secs(60);
 const CLAIMS: &str = "SELECT c.item, c.owner, c.since, c.eta_min, \
     (SELECT max(e.ts) FROM events e WHERE e.item = c.item AND e.actor = c.owner) FROM claims c";
 
