@@ -6,6 +6,7 @@ IFS=: read -ra path_dirs <<<"$PATH"
 for dir in "${path_dirs[@]}"; do pinned+=("$(readlink -f -- "$dir" 2>/dev/null || printf '%s' "$dir")"); done
 PATH=$(IFS=:; printf '%s' "${pinned[*]}")
 export PATH
+unset THREADS_ACTOR
 base=${SAFE_PUSH_LAND_BASE:?}
 head=${SAFE_PUSH_LAND_HEAD:?}
 scratch=$(mktemp -d)
