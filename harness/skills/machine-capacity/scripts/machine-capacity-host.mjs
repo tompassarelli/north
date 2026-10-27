@@ -619,7 +619,7 @@ function sizeFromUsage(command, owner, cores) {
     memoryMiB: Math.max(1, Math.ceil(estimate.peakMemoryMiB.p90 * DEFAULTS["capacity_memory_margin"])),
   };
   return {
-    name: estimate.class === 'native' ? 'native' : sizedClass(gpuShare, resources.cpus, estimate.peakMemoryMiB.p90), ...resources, estimate,
+    name: estimate.class === 'native' ? 'native' : sizedClass(gpuShare, resources.cpus, estimate.peakMemoryMiB.p90), ...resources, estimate, newClients: Number(estimate.class === 'native'), newDesktops: 0,
     sizing: { shape: commandShape(command), runs: estimate.sampleCount, basis: estimate.matchLevel,
       confidence: estimate.confidence, gpuShare: round(gpuShare), p90Cores: estimate.cores.p90, p90MemoryMiB: estimate.peakMemoryMiB.p90,
       p75Seconds: estimate.duration.p75Seconds, durationRuns: estimate.duration.sampleCount, durationBasis: estimate.duration.basis },
@@ -857,13 +857,13 @@ function decision(root, requested, create, ticket = null) {
     const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
     const quietOwners = runs.filter(lease => lease.class === 'native' && lease.quiet).map(lease => lease.owner);
     const { reason: code, ...advice } = admission({
-      ...signals, ...gpu, profile, class: admittedClass(requested), gamingClass: requested.name, queuedAheadClasses: ahead.map(entry => entry.requestedClass), queuedAheadNewClients: ahead.map(entry => entry.newClients), leasedMemoryMiB: leased.memoryMiB,
+      ...signals, ...gpu, profile, class: admittedClass(requested), gamingClass: requested.name, queuedAheadClasses: ahead.map(entry => entry.requestedClass), queuedAheadNewClients: ahead.map(entry => entry.newClients ?? 0), leasedMemoryMiB: leased.memoryMiB,
       leasedBatchCpus: round(committedBatchCpus - (unleased?.cores ?? 0)), leasedNativeCpus: committedNativeCpus, unleasedHeavyCores: unleased?.cores ?? 0,
       requestedCpus: granted.cpus, requestedMemoryMiB: granted.memoryMiB,
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
-      queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients ?? Number(requested.name === 'native'), newDesktops: requested.newDesktops, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
+      queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients, newDesktops: requested.newDesktops, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
       nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined, quiet: requested.quiet === true, exclusiveLeases: runs.filter(lease => lease.class === 'exclusive').map(lease => lease.id),
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
