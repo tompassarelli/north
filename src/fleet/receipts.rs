@@ -40,7 +40,7 @@ impl Report {
         match self.exit {
             TurnExit::Completed if self.landed.is_some() || is_final(reply) => Some((self.receipt(), Delivery::Queued)),
             TurnExit::Completed => None,
-            TurnExit::Failed => Some((format!("{} The turn failed. {}", self.header(), last_lines(lines)), Delivery::Now)),
+            TurnExit::Failed => Some((format!("{} The turn failed. {}", self.header(), last_lines(lines)), Delivery::Queued)),
             TurnExit::Interrupted | TurnExit::Killed => None,
         }
     }
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_turn_is_urgent_and_carries_the_last_five_transcript_lines() {
+    fn a_failed_turn_is_queued_like_any_receipt_and_carries_the_last_five_transcript_lines() {
         let (book, inbox) = (Book::default(), Inbox::default());
         let failed = report(TurnExit::Failed, "ignored");
         assert!(!deliver_report(&book, &inbox, "boss", &Report { reply: None, ..failed.clone() }, &lines(7), 0).unwrap());
@@ -205,7 +205,7 @@ mod tests {
         let posted = inbox.0.into_inner().unwrap();
         assert_eq!(posted.len(), 1);
         let (_, text, delivery) = &posted[0];
-        assert_eq!(*delivery, Delivery::Now);
+        assert_eq!(*delivery, Delivery::Queued);
         assert!(text.starts_with("[from kid · turn 3 · exit failed · landed abc123] The turn failed. Last 5 transcript lines:\ntool: step 3 more\n"), "{text}");
         assert!(text.ends_with("tool: step 7 more"), "{text}");
     }
