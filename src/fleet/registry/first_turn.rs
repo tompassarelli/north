@@ -70,7 +70,7 @@ impl Fleet {
                 let stream = std::fs::read(stream_path(&record.host_dir)).unwrap_or_default();
                 let tail = String::from_utf8_lossy(&stream[stream.len().saturating_sub(3000)..]).into_owned();
                 let files: Vec<String> = std::fs::read_dir(&record.host_dir).map(|entries| entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
-                let processes = std::process::Command::new("sh").args(["-c", "ps -eo pid,ppid,pgid,sid,stat,args | grep -E 'session-host|fake_claude|setsid|systemd-run' | grep -v grep; echo scope=$(cat \"$1/host.scope\"); ls \"$FLEET_LAUNCH_FIXTURE/units\"; for u in \"$FLEET_LAUNCH_FIXTURE\"/units/*; do echo \"$u=$(cat $u)\"; done", "sh"]).arg(&record.host_dir).output().map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default();
+                let processes = std::process::Command::new("sh").args(["-c", "ps -ww -eo pid,ppid,pgid,stat,args | grep -F \"$1\" | grep -v grep; echo SESSION; cat \"$1/session.json\"; echo; echo scope=$(cat \"$1/host.scope\"); ls \"$FLEET_LAUNCH_FIXTURE/units\"; for u in \"$FLEET_LAUNCH_FIXTURE\"/units/*; do echo \"$u=$(cat $u)\"; done", "sh"]).arg(&record.host_dir).output().map(|output| String::from_utf8_lossy(&output.stdout).into_owned()).unwrap_or_default();
                 return Err(NorthError::Refused(format!("PROBE processes:\n{processes}\n{} no first turn in {} s: pid {:?} alive {:?} conversation {:?} prompt {prompt:?} files {files:?} stream {} bytes, tail:\n{tail}", record.name, FIRST_TURN_WAIT.as_secs(), record.host_pid, record.host_pid.map(alive), record.conversation, stream.len())));
             }
             std::thread::sleep(FIRST_TURN_POLL);
