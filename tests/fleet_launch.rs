@@ -349,3 +349,128 @@ fn a_task_launch_starts_on_the_tier_its_briefs_category_earns_and_a_different_mo
     assert_eq!(overridden["model"], "opus", "{overridden}");
     assert!(overridden["placement"].as_str().unwrap_or_default().contains("tier: the cause spans two engines"), "{overridden}");
 }
+
+const SSH_TO_FAR: &str = "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nHOME=\"$FAR_HOME\" XDG_STATE_HOME=\"$FAR_HOME/.local/state\" exec sh -c \"$1\"\n";
+
+fn text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+struct TwoHosts {
+    root: tempfile::TempDir,
+}
+
+impl TwoHosts {
+    fn new() -> Self {
+        let hosts = Self { root: tempfile::tempdir().unwrap() };
+        let (here, far) = (hosts.here(), hosts.far());
+        fixture(here, "idle-interrupt");
+        fs::create_dir_all(far.join(".local/state")).unwrap();
+        fixture(&far, "done");
+        executable(&here.join("bin/ssh"), SSH_TO_FAR);
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), here.join("bin/north")).unwrap();
+        hosts
+    }
+
+    fn here(&self) -> &Path {
+        self.root.path()
+    }
+
+    fn far(&self) -> std::path::PathBuf {
+        self.root.path().join("far")
+    }
+
+    fn relay(&self) -> Output {
+        let far = self.far();
+        north_as(self.here(), "here", &[("FAR_HOME", far.to_str().unwrap())], &["fleet", "relay", "far"])
+    }
+
+    fn launch_boss_here_and_kid_far(&self) {
+        let launched = launch_named(self.here(), "boss", "none");
+        assert!(launched.status.success(), "{}", text(&launched.stderr));
+        let armed = north(&self.far(), &["fleet", "outbox", "take", "--for", "here"]);
+        assert!(armed.status.success(), "{}", text(&armed.stderr));
+        let kid = launch_named(&self.far(), "kid", "boss");
+        assert!(kid.status.success(), "{}", text(&kid.stderr));
+    }
+}
+
+impl Drop for TwoHosts {
+    fn drop(&mut self) {
+        north(self.here(), &["fleet", "forget", "boss"]);
+        north(&self.far(), &["fleet", "forget", "kid"]);
+    }
+}
+
+fn launch_named(root: &Path, name: &str, parent: &str) -> Output {
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", parent, "--system-prompt", &brief.display().to_string(), "start the box"])
+}
+
+#[test]
+fn a_session_launched_on_another_host_for_a_parent_here_delivers_its_final_report_to_that_parent() {
+    let hosts = TwoHosts::new();
+    hosts.launch_boss_here_and_kid_far();
+
+    until("the report in the parent's transcript", || {
+        hosts.relay();
+        text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout).contains("[from kid · turn 1 · exit completed] Done: fake report")
+    });
+    let shown = text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout);
+    assert!(shown.contains("user: [from "), "{shown}");
+    let letters = fs::read_dir(hosts.far().join(".local/state/north/fleet/.outbox")).unwrap().flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).count();
+    assert_eq!(letters, 0, "a relayed report is dropped from the host that posted it");
+}
+
+#[test]
+fn north_fleet_list_and_tree_here_show_a_session_registered_on_another_host_with_its_parent() {
+    let hosts = TwoHosts::new();
+    hosts.launch_boss_here_and_kid_far();
+
+    let relayed = hosts.relay();
+    assert!(relayed.status.success(), "{}{}", text(&relayed.stdout), text(&relayed.stderr));
+    let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
+    let list = text(&north(hosts.here(), &["fleet", "list"]).stdout);
+    let kid = list.lines().find(|line| line.starts_with("kid\t")).unwrap_or_else(|| panic!("{list}"));
+    let columns: Vec<&str> = kid.split('\t').collect();
+    assert_eq!((columns[1], columns[2], columns[5]), ("claude", "a", "boss"), "{kid}");
+    assert!(columns[4].starts_with(&format!("{host}:")), "{kid}");
+    let tree = text(&north(hosts.here(), &["fleet", "tree"]).stdout);
+    let boss = tree.lines().position(|line| line.starts_with("boss ")).unwrap_or_else(|| panic!("{tree}"));
+    assert!(tree.lines().nth(boss + 1).is_some_and(|line| line.starts_with("  kid ") && line.ends_with(&format!("on {host}"))), "{tree}");
+}
+
+#[test]
+fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_and_answered_through_it() {
+    let hosts = TwoHosts::new();
+    hosts.launch_boss_here_and_kid_far();
+    let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
+
+    let opened = north(&hosts.far(), &["gate", "open", "--session", "kid", "--question", "Rent the box?", "--option", "yes", "--option", "no", "--recommend", "1", "--default", "2", "--default-after", "60s"]);
+    assert!(opened.status.success(), "{}", text(&opened.stderr));
+    let id = text(&opened.stdout).trim().to_owned();
+    let label = format!("{host}:{id}");
+
+    until("the gate in this host's gate list", || {
+        hosts.relay();
+        text(&north(hosts.here(), &["gate", "list"]).stdout).contains(&format!("{label}\tkid\tRent the box?\topen"))
+    });
+    until("the parent told of the gate by its qualified id", || {
+        hosts.relay();
+        text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout).contains(&format!("[gate {label} from kid]"))
+    });
+    let far = hosts.far();
+    let answered = north_as(hosts.here(), "here", &[("FAR_HOME", far.to_str().unwrap())], &["gate", "answer", &label, "1"]);
+    assert!(answered.status.success(), "{}", text(&answered.stderr));
+    assert!(text(&answered.stdout).contains("closed by tom: yes"), "{}", text(&answered.stdout));
+    until("the answer in the asking session's transcript", || text(&north(&hosts.far(), &["fleet", "show", "kid"]).stdout).contains("Tom answered: yes"));
+}

@@ -30,6 +30,7 @@ mod parents;
 mod past;
 mod senders;
 mod status;
+mod views;
 #[cfg(test)]
 mod testing;
 #[cfg(test)]
@@ -106,7 +107,7 @@ impl Fleet {
             return Err(NorthError::Usage(format!("a session named {} already exists", request.name)));
         }
         if let Some(parent) = &request.parent {
-            self.record(parent)?;
+            self.record(parent).map(drop).or_else(|error| self.outbox().relay().map_or(Err(error), |_| Ok(())))?;
         }
         let account = self.account(request)?;
         let runtime = self.runtimes.get(&request.provider)?;

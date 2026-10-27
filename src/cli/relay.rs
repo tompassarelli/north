@@ -4,7 +4,7 @@ use crate::fleet::registry::{Fleet, Sent};
 use crate::fleet::relay::Ssh;
 
 const RELAY_USAGE: &str = "Usage: north fleet relay HOST...";
-const OUTBOX_USAGE: &str = "Usage: north fleet outbox take --for HOST | north fleet outbox drop ID...";
+const OUTBOX_USAGE: &str = "Usage: north fleet outbox take --for HOST | north fleet outbox drop ID... | north fleet outbox snapshot";
 const SEND_USAGE: &str = "Usage: north fleet send [--now] NAME TEXT...";
 
 pub fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> {
@@ -56,6 +56,7 @@ fn outbox(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let outbox = fleet.outbox();
     match words {
         ["take", "--for", host] => println!("{}", serde_json::to_string(&outbox.take(host)?)?),
+        ["snapshot"] => println!("{}", serde_json::to_string(&fleet.snapshot()?)?),
         ["drop", ids @ ..] if !ids.is_empty() => outbox.drop(&ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>())?,
         _ => return Err(NorthError::Usage(OUTBOX_USAGE.into())),
     }

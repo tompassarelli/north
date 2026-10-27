@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::{Effort, Entry, EntryKind, LaunchRequest, ProviderName, SessionRecord, Status, Transcript};
+use crate::fleet::model::{Effort, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::registry::{self, Fleet, urgent_text};
 use crate::fleet::roster::Roster;
@@ -24,10 +24,11 @@ use super::fleet_duplicate;
 use super::fleet_list;
 use super::fleet_revive;
 use super::fleet_tier;
+use super::fleet_tree;
 use super::{gate, orders, relay};
 
 const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF [--force-dup REASON]] [--local REASON] [--pin REASON] [--tier-reason REASON] [--test] PROMPT... \
-     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
+     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | outbox snapshot | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
@@ -98,7 +99,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     match words.as_slice() {
         [] => tui::fleet::run(fleet),
         ["list", rest @ ..] => fleet_list::list(&fleet, rest),
-        ["tree"] => tree(&fleet),
+        ["tree"] => fleet_tree::tree(&fleet),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
         [verb @ ("send" | "relay" | "outbox"), rest @ ..] => relay::run(&fleet, verb, rest),
@@ -147,23 +148,6 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     session["turns"] = transcript.turns.iter().map(turn_json).collect();
     println!("{session}");
     Ok(())
-}
-
-fn tree(fleet: &Fleet) -> NorthResult<()> {
-    let sessions = fleet.sessions()?;
-    let known = |name: &String| sessions.iter().any(|record| &record.name == name);
-    for root in sessions.iter().filter(|record| !record.parent.as_ref().is_some_and(known)) {
-        print_branch(fleet, &sessions, root, 0);
-    }
-    Ok(())
-}
-
-fn print_branch(fleet: &Fleet, sessions: &[SessionRecord], record: &SessionRecord, depth: usize) {
-    let status = fleet.status(record);
-    println!("{}{} [{}] {}/{}", "  ".repeat(depth), record.name, status.label(), record.provider.label(), record.account);
-    for child in sessions.iter().filter(|child| child.parent.as_deref() == Some(record.name.as_str())) {
-        print_branch(fleet, sessions, child, depth + 1);
-    }
 }
 
 fn accounts(fleet: &Fleet) -> NorthResult<()> {

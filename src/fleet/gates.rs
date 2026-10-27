@@ -1,5 +1,7 @@
 use crate::error::{NorthError, NorthResult};
 
+use super::remote_view::qualified;
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GateRequest {
     pub verification: bool,
@@ -129,11 +131,12 @@ pub trait GateBook: Send + Sync {
     fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool>;
 }
 
-pub fn open(book: &dyn GateBook, request: &GateRequest, parent: Option<&str>, now_ms: u64, notify: impl FnOnce(&str, &str)) -> NorthResult<i64> {
+pub fn open(book: &dyn GateBook, request: &GateRequest, parent: Option<&str>, host: Option<&str>, now_ms: u64, notify: impl FnOnce(&str, &str)) -> NorthResult<i64> {
     request.validate()?;
     let id = book.open_gate(request, now_ms)?;
     if let Some(parent) = parent {
-        notify(parent, &opened_notice(id, request));
+        let label = host.map_or_else(|| id.to_string(), |host| qualified(host, id));
+        notify(parent, &opened_notice(&label, request));
     }
     Ok(id)
 }
@@ -193,9 +196,9 @@ pub fn default_overdue(book: &dyn GateBook, now_ms: u64, deliver: impl Fn(&str, 
     Ok(settled.filter(|(_, outcome)| !matches!(outcome, Err(NorthError::GateAnswered { .. }))).collect())
 }
 
-fn opened_notice(id: i64, request: &GateRequest) -> String {
+fn opened_notice(label: &str, request: &GateRequest) -> String {
     let default = request.options.get(request.default.saturating_sub(1)).map_or("", String::as_str);
-    format!("[gate {id} from {}] {} (default: {default})", request.session, request.question.replace('\n', " "))
+    format!("[gate {label} from {}] {} (default: {default})", request.session, request.question.replace('\n', " "))
 }
 
 fn answer(gate: &Gate, decision: &Decision) -> NorthResult<String> {
@@ -316,9 +319,9 @@ mod tests {
         let book = Book::default();
         let mut told = Vec::new();
         let asked = GateRequest { question: "Rent the\nGPU box?".into(), ..request() };
-        let id = open(&book, &asked, Some("boss"), 7, |parent, text| told.push((parent.to_owned(), text.to_owned()))).unwrap();
-        open(&book, &request(), None, 8, |_, _| panic!("a session without a parent tells nobody")).unwrap();
-        assert!(open(&book, &GateRequest { options: vec![], ..request() }, Some("boss"), 9, |_, _| panic!("an invalid gate never opens")).is_err());
+        let id = open(&book, &asked, Some("boss"), None, 7, |parent, text| told.push((parent.to_owned(), text.to_owned()))).unwrap();
+        open(&book, &request(), None, None, 8, |_, _| panic!("a session without a parent tells nobody")).unwrap();
+        assert!(open(&book, &GateRequest { options: vec![], ..request() }, Some("boss"), None, 9, |_, _| panic!("an invalid gate never opens")).is_err());
         assert_eq!(told, [("boss".to_owned(), format!("[gate {id} from worker] Rent the GPU box? (default: wait)"))]);
         assert_eq!(book.gate(id).unwrap().unwrap().opened_ms, 7);
     }

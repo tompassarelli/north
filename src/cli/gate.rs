@@ -5,9 +5,10 @@ use serde_json::{Value, json};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::{Fleet, Opened};
+use crate::fleet::relay::Ssh;
 use crate::fleet::runtime::now_ms;
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) | north gate answer ID N [--note TEXT] | north gate list [--json]";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) | north gate answer ID|HOST:ID N [--note TEXT] | north gate list [--json]";
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
@@ -24,6 +25,10 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 
 fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>) -> NorthResult<()> {
     let caller = std::env::var(crate::fleet::runtime::SESSION_ENV).ok().filter(|name| !name.is_empty());
+    if id.contains(':') {
+        println!("{}", fleet.answer_remote_gate(&Ssh, id, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
+        return Ok(());
+    }
     let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number.parse().map_err(|_| usage())?, note, caller.as_deref());
     let closure = match result {
         Err(error @ NorthError::GateAnswered { .. }) => { println!("{}", error.user_message()); return Ok(()); }
@@ -93,6 +98,11 @@ fn list(fleet: &Fleet, json: bool) -> NorthResult<()> {
     for gate in &gates {
         let state = gate.closure.as_ref().map_or_else(|| "open".to_owned(), |closure| format!("closed by {}: {}", closure.by.label(), closure.answer));
         println!("{}\t{}\t{}\t{state}", gate.id, gate.request.session, gate.request.question);
+    }
+    for seen in fleet.remote_views() {
+        for gate in &seen.snapshot.gates {
+            println!("{}\t{}\t{}\topen", seen.qualified(gate), gate.session, gate.question);
+        }
     }
     Ok(())
 }

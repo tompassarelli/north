@@ -61,11 +61,12 @@ pub(crate) fn run_with_input_within(
         None => Stdio::null(),
     };
     let output = tempfile::tempfile().ok()?;
+    let errors = tempfile::tempfile().ok()?;
     let mut child = Command::new(program)
         .args(args)
         .stdin(stdin)
         .stdout(output.try_clone().ok()?)
-        .stderr(Stdio::null())
+        .stderr(errors.try_clone().ok()?)
         .spawn()
         .ok()?;
     let started = Instant::now();
@@ -84,11 +85,11 @@ pub(crate) fn run_with_input_within(
     output.rewind().ok()?;
     let mut stdout = Vec::new();
     output.read_to_end(&mut stdout).ok()?;
-    Some(Output {
-        status,
-        stdout,
-        stderr: Vec::new(),
-    })
+    let mut errors = errors;
+    errors.rewind().ok()?;
+    let mut stderr = Vec::new();
+    errors.read_to_end(&mut stderr).ok()?;
+    Some(Output { status, stdout, stderr })
 }
 
 pub(crate) struct Bounded {

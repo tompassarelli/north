@@ -31,7 +31,10 @@ impl Fleet {
     }
 
     pub(super) fn tell(&self, parent: &str, text: &str, delivery: Delivery) {
-        let told = self.record(parent).and_then(|record| if record.stopped { Ok(()) } else { self.send(parent, text, delivery) });
+        let told = match self.record(parent) {
+            Ok(record) if record.stopped => Ok(()),
+            _ => self.send_or_post(None, parent, text, delivery).map(drop),
+        };
         if let Err(error) = told {
             eprintln!("north fleet: {parent} was not told: {}", error.user_message());
         }
