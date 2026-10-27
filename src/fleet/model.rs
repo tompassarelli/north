@@ -80,7 +80,7 @@ impl LaunchRequest {
     }
 }
 
-fn first_item_issue(text: &str) -> Option<String> {
+pub(crate) fn first_item_issue(text: &str) -> Option<String> {
     let line = text.lines().find_map(|line| line.trim_start().strip_prefix("Item:"))?;
     let word = line.split_whitespace().next()?.trim_end_matches([':', ',', '.', ';']);
     let (repo, number) = word.rsplit_once('#')?;

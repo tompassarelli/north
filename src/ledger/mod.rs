@@ -10,6 +10,7 @@ use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::{RunRecord, RunSink};
 
 mod books;
+mod briefs;
 pub(crate) mod closed;
 mod closed_source;
 mod gates;
@@ -184,6 +185,7 @@ impl Ledger {
         gates::allow_session_answerers(&conn).map_err(sql)?;
         add_missing_column(&conn, "tasks", "landed_ms", "INTEGER").map_err(sql)?;
         conn.execute_batch(LINK_RUNS).map_err(sql)?;
+        briefs::link_by_brief(&conn, None).map_err(sql)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -272,6 +274,7 @@ impl RunSink for Ledger {
                     turn.exit.label(),
                 ],
             )?;
+            briefs::link_by_brief(conn, Some(&run.session))?;
             conn.query_row("SELECT count(*) FROM runs WHERE session = ?1", [&run.session], |row| row.get::<_, i64>(0)).map(|count| u64::try_from(count).unwrap_or(0))
         })
     }

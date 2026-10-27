@@ -194,3 +194,42 @@ fn a_later_landing_without_a_reviewer_keeps_the_recorded_one() {
     let task = &ledger.tasks().unwrap()[0];
     assert_eq!((task.review.as_deref(), task.checks, task.last_check_sha.as_deref()), (Some("reviewer-one"), 2, Some("sha-2")));
 }
+
+fn briefed(session: &str, prompt: &str, task_ref: Option<&str>) -> RunRecord {
+    let mut record = run(session, "claude-opus-5-5", 1, 1);
+    record.turn.prompt = Some(prompt.into());
+    record.task_ref = task_ref.map(str::to_owned);
+    record
+}
+
+#[test]
+fn a_landed_task_links_the_runs_of_a_session_whose_brief_or_task_flag_names_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    ledger.record_run(&briefed("by-flag", "go", Some("north#1"))).unwrap();
+    ledger.record_run(&briefed("by-flag", "more", None)).unwrap();
+    ledger.record_run(&briefed("late-brief", "HOLD-SPAWNS none", None)).unwrap();
+    ledger.record_run(&briefed("late-brief", "Item: north#2 Category: tooling\nDone when: x", None)).unwrap();
+    ledger.record_run(&briefed("late-brief", "ok", None)).unwrap();
+    ledger.record_run(&briefed("no-brief", "Item mentioned: nothing", None)).unwrap();
+    for (task, sha) in [("north#1", "sha-1"), ("north#2", "sha-2"), ("north#3", "sha-3")] {
+        ledger.record_landing(task, sha, 5_000, None, None).unwrap();
+    }
+    assert_eq!(ledger.landing_links(0).unwrap(), (2, 3), "north#3 has no run; the flag and the late brief link theirs");
+    let linked: Vec<Option<String>> = ledger.runs().unwrap().into_iter().map(|run| run.task_ref).collect();
+    let task = |name: &str| Some(name.to_owned());
+    assert_eq!(linked, [task("north#1"), task("north#1"), task("north#2"), task("north#2"), task("north#2"), None]);
+}
+
+#[test]
+fn reopening_the_ledger_links_runs_recorded_before_their_brief_was_read() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    let first = Ledger::open(&path).unwrap();
+    first.record_run(&briefed("old", "Item: north#4", None)).unwrap();
+    first.with(|conn| conn.execute("UPDATE runs SET task_ref = NULL", [])).unwrap();
+    assert_eq!(first.runs().unwrap()[0].task_ref, None);
+    drop(first);
+    let reopened = Ledger::open(&path).unwrap();
+    assert_eq!(reopened.runs().unwrap()[0].task_ref.as_deref(), Some("north#4"));
+}
