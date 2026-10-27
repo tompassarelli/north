@@ -10,7 +10,7 @@ static CHECK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bcargo\s+(?:test|clippy|nextest)\b|\bbun\s+(?:test|run\s+check)\b|\s--check\b|\.test\.sh\b|\bverify-north\b").expect("check pattern"));
 static CAPACITY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\bDEFER_[A-Z_]+|\b(?:wait(?:s|ed|ing)?|queued|held)\b[^.\n]{0,60}\b(?:pairs?|pool|queue|admission|admitted|slots?|GPU|lease)\b|\bin the (?:pool )?queue\b|\busage limit\b|\bhit your limit\b|\brate.?limit|\bhost (?:failure|is down|unreachable)\b|\bconnection (?:refused|reset|timed out)\b",
+        r"(?i)\bDEFER_[A-Z_]+|\b(?:wait(?:s|ed|ing)?|queued|held)\b[^.\n]{0,60}\b(?:pairs?|pool|queue|admission|admitted|slots?|GPU|lease)\b|\bin the (?:pool )?queue\b|\busage limit\b|\bhit your (?:\w+ )?limit\b|\brate.?limit|\bhost (?:failure|is down|unreachable)\b|\bconnection (?:refused|reset|timed out)\b",
     )
     .expect("capacity pattern")
 });

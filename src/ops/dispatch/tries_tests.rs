@@ -22,9 +22,9 @@ fn launch(item: &str, name: &str, at: f64) -> Record {
 fn a_try_whose_session_only_waited_on_admission_does_not_count_toward_the_two_tries_hold() {
     let waited = session(&["Bash wisp lan pool run --pair any -- bun wisp native level-0"], Some("Not done: the level-0 test is still waiting for pair 10."), "completed");
     let deferred = session(&["Bash north capacity run --need native -- wisp lan pool run"], Some("Admission answered DEFER_GPU_CLIENTS for an hour, so nothing ran."), "completed");
-    let limited = session(&[], Some("You've hit your limit · resets 3pm"), "completed");
+    let limited = session(&[], Some("You've hit your session limit · resets 11:50pm (UTC)"), "completed");
     let host_died = session(&[], None, "failed");
-    for (spent_nothing, why) in [(&waited, "still waiting for pair 10"), (&deferred, "DEFER_GPU_CLIENTS"), (&limited, "hit your limit"), (&host_died, "failed before any report")] {
+    for (spent_nothing, why) in [(&waited, "still waiting for pair 10"), (&deferred, "DEFER_GPU_CLIENTS"), (&limited, "hit your session limit"), (&host_died, "failed before any report")] {
         assert!(super::tries::unspent(spent_nothing).is_some_and(|unspent| unspent.contains(why)), "{spent_nothing}");
     }
     let committed = session(&["Bash git -C ~/code/smashcraft/sc-518 commit -m 'Fix the dash'", "Bash safe-push --to main"], Some("Still in the queue."), "completed");
