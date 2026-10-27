@@ -6,6 +6,7 @@ mod dep_gate;
 mod review_gate;
 mod landing;
 mod autoland_status;
+mod land_abandon;
 mod provenance;
 mod follows_release;
 mod pace;

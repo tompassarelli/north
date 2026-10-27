@@ -67,7 +67,7 @@ Commands:
   denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
   autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
-  land-abandon [BRANCH]                          Name a superseded or handed-back land branch
+  land-abandon [BRANCH]                          Delete a superseded or handed-back land branch from origin
   safe-push-result STATUS SHA REASON MINUTES URL  Print safe-push.s terminal result
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
