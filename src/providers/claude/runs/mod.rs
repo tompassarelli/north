@@ -15,6 +15,7 @@ use crate::foundation::clock::Timestamp;
 use super::accounts::{config_file, default_home};
 
 mod landing;
+mod outcome;
 mod row;
 mod telemetry;
 

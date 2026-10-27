@@ -1,0 +1,102 @@
+[
+  {
+    "report": "Done: the public relay issue (wisp#39) is closed with every box ticked. Another session did the work from the laptop. This session didn't run, change or land anything for it.\n\n- **Laptop part, run 01:50–02:01Z:**\n  - 22 underruns against a bar of 30.2. The bar comes from a replay of the trace recorded during the match, which gave 20.01.\n  - The source port changed at 300 s, and that change caused ",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "The Cairne jumping-clips issue (#281) is still closed and needs no more work. The fix is on origin/main as 02865f8e6, and both boxes were checked against it:\n\n- **Jitter check:** passes with no exemptions.\n- **Back-air halberd:** worst reversal is 7.5 units at the tip and 5.2 on the halberd bone, under the 10-unit limit.\n\nThis resume allows new spawns again but brings no new task, so I started not",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "I scored 1 move and wrote it to `/home/tom/.local/share/smashcraft-animation-reference/sc344-j10/scores-23.jsonl`. The batch file named `scores-1.jsonl`, but I used your path instead.\n\n```json\n{\"look\":\"classic\",\"fighter\":\"grom-hellscream\",\"move\":\"dash-attack\",\"judge\":\"judge-344-23-claude\",\"readability\":3,\"weight\":2,\"anticipation\":2,\"followThrough\":3,\"character\":3,\"note\":\"The axe swings in a slow a",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Done: all four landed commits and the victory playback commit are on main, and issue #387 is closed with the evidence.\n\nI checked each commit with `git merge-base --is-ancestor <sha> origin/main` against origin/main `9dc864f31d`, and every check exited 0:\n- **Box 4**, key triggers stay live across menu cycles: `94efe3d34`\n- **Box 6**, random CPU start and centred countdown: `ab6c80a3b`\n- **Box 8**",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Done: the Auto delay issue (#567) is closed. The route's delay limit goes from 6 to 8, and the measured reason is now in the issue and in the design doc. The change landed on origin/main as 130106df45; `git merge-base --is-ancestor` printed \"ancestor\".\n\n- **Cause:** On 2026-10-25 every match moved to one 6-frame rollback budget (b2a84e97be); groups had used 8 before. The route's limit of 6 was set",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Done: north's half of wisp#76 (native client starts wait their turn in arrival order) is on origin/main as 9adec30c9ba1ac77158e0707bf28789437be6eed. `git merge-base --is-ancestor` confirms it, and I sent that SHA to w76-wisp so it can land wisp's half.\n\n- **Complexity fix:** the machine-capacity host script is at complexity 470 (it was 477) and 1295 lines (it was 1298). Moving code into its own mo",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Done: Kael'thas's normals, throws and body retune landed as commit 29ec93f8f, followed by the autoland report commit e684f1ac1. `git merge-base --is-ancestor e684f1ac1 origin/main` returns 0, so both are on main.\n\n**Done-when checks:**\n1. On a clean checkout of origin/main:\n   - `bun wisp ledger --check`: \"496 ledger rows hold and docs/design/melee-parity.md is current\".\n   - `bun wisp shapes --ch",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "The HOLD-SPAWNS notice brings no new work, so nothing changes. The crouch-release vibration fix is landed as 14970d7a3 on origin/main, and #277 is closed with every box ticked.\n\nDone: crouch-release vibration fixed and #277 closed.\nStop: goal met, and the HOLD-SPAWNS notice rules out starting new sessions.",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Split: I changed nothing on Sylvanas' up tilt and landed nothing. The Done-when box stays unticked, and I released the claim on smashcraft#588.\n\nThree takes are already done on branch `claude/sc-588-uptilt` (commits 78cd7c57e4 and 3546a61d13, local only). The issue's own comments record the results:\n- **Rule:** the animation scorecard allows two takes. The proxy granted a third, under Tom's delega",
+    "outcome": "split",
+    "quiet": false
+  },
+  {
+    "report": "Not logged in · Please run /login",
+    "outcome": "idle",
+    "quiet": true
+  },
+  {
+    "report": "Spawning is allowed again, but #324 has nothing left to resume, so I'm not starting anything.\n\nStill open from it:\n- **Scratch branch:** `probe/sc-324-dash` is still on origin and needs deleting by hand.\n- **Your decision:** whether to retune the 10 fighters outside the 45–55% balance band.\n\nStop: #324 is done.",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "The agent hold went on and has lifted again, but this session had nothing running, so it blocked nothing. Medivh's dash attack (#343) is closed and passes all five scorecard lines on main.\n\nDone: nothing new; I started no agents.\n\nNot done: nothing.\n\nStop: the issue is closed and this session has no open work.",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Nothing of mine is running: no cargo build or safe-push, and my lane is gone with its `target/`. The batch (north#186, #244, #187) landed as 44e08051. I'm starting no further builds, so I need no \"your turn\" from proxy-gex45.\n\nStop: batch landed; no work pending.",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "There's nothing to resume: the dash-attack retune (#323) is landed and closed, and I have nothing running.\n\nYour decision on the dash-attack spam follow-up is still open. Spamming dash attack wins 90-97% for Thrall, Chen and Peon against the gate's 45% cap. I recommend a follow-up issue that starts with a balance run showing whether this retune caused it.\n\nStop: done, waiting on that decision.",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Done: the wired part of box 1 on wisp#39 passes. Both gex45 agents had 7 underruns each against a bar of 12, and pressure was 0 the whole time. I didn't tick box 1 or close #39, because the laptop part hasn't passed on #39 yet, and neither have the rebind and packet-capture parts of the same box.\n\n- **Match:** 10 minutes, 01:39:47–01:50:18Z, through 159.89.205.60:7457. Both agents were built from ",
+    "outcome": "done",
+    "quiet": false
+  },
+  {
+    "report": "Not done: box 2 stays unticked and #497 stays open, because the cold read did not clear.\n\n**What ran.** The accept used pair 2 on gex45. The dated native-acceptance map was missing a model, so I rebuilt the map and ran `bun wisp accept --only '497-murloc-*' --pair 2 --map …`. Starting the pool myself with `--owner sc-497-t1245` worked. The key-press capture start works: the frames show idle, then ",
+    "outcome": "not done",
+    "quiet": false
+  },
+  {
+    "report": "Not done: smashcraft#497 is still open, and nothing new landed this session.\n\n**Stop:** two things block the remaining boxes, and one of them needs Tom's decision.\n\n- **Scorecard box:** jab, jab 2, forward tilt and down-angled forward tilt pass scorecard lines 1–4. Line 5 (character) stays at 3 after five Blender takes. Judges name the thin spear crossing his crest, which is how the model is built",
+    "outcome": "not done",
+    "quiet": false
+  },
+  {
+    "report": "Not done: nothing landed. Removing the repair's own overhead can't reach the 8% cut, because the worst frames are mostly the simulation step itself.\n\n**Baseline.** On current main (a1ced53c98) the worst frame is p0 402,800 and p1 416,700 instructions, so 8% means getting p0 to 370,600 and p1 to 383,400. Above those lines are 36 frames on p0 and 9 on p1.\n\n**What those frames are.** I added temporar",
+    "outcome": "not done",
+    "quiet": false
+  },
+  {
+    "report": "Issue 339 (Anub'arak's dash attack) is still open and now waits on issue 358, the dash-attack authoring brief. I started no new round this turn.\n\n- **Scorecard lines 1–4:** ticked on origin/main.\n- **Cold judges:** still failing. All nine judges across the last three judged clips gave follow-through 3, and the other six dash attacks (issues 340–345) fail on the same line. Issue 358 exists to prove",
+    "outcome": "not done",
+    "quiet": false
+  },
+  {
+    "report": "Done: the Shadow Hunter issue (#604) is finished. The weapon trace now flags none of his moves, the change is on origin/main, the box is ticked and the issue is closed.\n\n**Evidence**\n- The landed commit 8b9cb6c0f9 is on main: `git merge-base --is-ancestor 8b9cb6c0f9 origin/main` exited 0.\n- On that tree, `bun tools/animations/weapon-trace.ts --fighter shadow-hunter` exited 0 with \"17 weapon moves ",
+    "outcome": "done",
+    "quiet": false
+  }
+]

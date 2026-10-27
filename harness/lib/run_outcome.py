@@ -1,5 +1,5 @@
 def unjudged(r):
-    return r["outcome"] == "running" or (r["outcome"] == "unclear" and not r["item"])
+    return r["outcome"] in ("running", "idle") or (r["outcome"] == "unclear" and not r["item"])
 
 
 def succeeded(r, followed):

@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS runs(
   eta_min INTEGER,
   tokens INTEGER,
   peak_ctx INTEGER,
-  outcome TEXT NOT NULL CHECK(outcome IN ('done','not done','escalated','handoff','split','unclear','running')),
+  outcome TEXT NOT NULL CHECK(outcome IN ('done','not done','escalated','handoff','split','unclear','running','idle')),
   report TEXT NOT NULL DEFAULT '',
   note TEXT,
   repeats INTEGER,
@@ -268,11 +268,11 @@ def migrate_schema(db):
     db.execute("CREATE TABLE IF NOT EXISTS run_costs(account TEXT NOT NULL, started TEXT NOT NULL, ended TEXT NOT NULL,"
                " agent TEXT NOT NULL, cost_usd REAL NOT NULL, PRIMARY KEY(account, started, ended, agent)) STRICT"); db.execute("CREATE INDEX IF NOT EXISTS run_costs_agent ON run_costs(agent)")
     runs_sql = db.execute("SELECT sql FROM sqlite_master WHERE name = 'runs'").fetchone()[0]
-    if "'running'" not in runs_sql:
+    if "'idle'" not in runs_sql:
         split_sql = (re.sub(r'^CREATE TABLE\s+"?runs"?\s*\(', "CREATE TABLE runs_split(", runs_sql, count=1)
                      .replace("'handoff','unclear'", "'handoff','split','unclear','running'")
-                     .replace("'split','unclear')", "'split','unclear','running')"))
-        if "'running'" not in split_sql:
+                     .replace("'split','unclear')", "'split','unclear','running')").replace("'unclear','running')", "'unclear','running','idle')"))
+        if "'idle'" not in split_sql:
             raise SystemExit("NorthThreads: runs table outcome check has an unexpected form; not migrating")
         db.execute(split_sql)
         db.execute("INSERT INTO runs_split SELECT * FROM runs")
@@ -941,8 +941,8 @@ def cmd_ingest(db, a):
                 existing = None
             if existing:
                 if r.get("backfill") or not worker:
-                    db.execute("UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), tier=coalesce(?, tier) WHERE agent=?",
-                               (r.get("model"), r.get("effort"), r.get("tier"), r["id"]))
+                    db.execute("UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), tier=coalesce(?, tier),"
+                               " outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?", (r.get("model"), r.get("effort"), r.get("tier"), r.get("outcome"), r["id"]))
                     if not worker:
                         category = f.get("category") or r.get("category")
                         db.execute("UPDATE runs SET ended = ?, category = coalesce(?, category),"

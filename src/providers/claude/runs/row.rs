@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
-use super::{int, number, present};
+use super::{int, number, outcome, present};
 use crate::foundation::clock::Timestamp;
 
 static WAITING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(waiting|i.ll wait|i.ll pick|the test run)").unwrap());
@@ -12,15 +12,6 @@ static ETA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b").unwrap());
 static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted flaws?:\s*([0-9]+)").unwrap());
 static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
-static OUTCOMES: LazyLock<[(Regex, &str); 5]> = LazyLock::new(|| {
-    [
-        (Regex::new("HANDOFF").unwrap(), "handoff"),
-        (Regex::new(r"(?i)^\W*split:").unwrap(), "split"),
-        (Regex::new(r"(?i)^\W*(not|partly|mostly|half) done").unwrap(), "not done"),
-        (Regex::new(r"(?i)^\W*blocked").unwrap(), "escalated"),
-        (Regex::new(r"(?i)^\W*done\b").unwrap(), "done"),
-    ]
-});
 const RUNNING_SECONDS: i64 = 7200;
 
 pub(super) struct Transcript<'a> {
@@ -127,9 +118,16 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("actual_min".into(), json!((seconds(ended)? - seconds(started.as_str()?)?).div_euclid(60)));
     row.insert("tokens".into(), json!(tokens(&assistant)));
     row.insert("peak_ctx".into(), json!(int(&usage["input_tokens"]) + int(&usage["cache_read_input_tokens"]) + int(&usage["cache_creation_input_tokens"])));
-    row.insert("outcome".into(), json!(OUTCOMES.iter().find(|(pattern, _)| pattern.is_match(&head)).map_or("unclear", |(_, outcome)| outcome)));
+    row.insert("outcome".into(), json!(outcome::classify(&report, quiet_run(lines))));
     row.insert("flaws".into(), FLAWS.captures(&report).map_or(Value::Null, |found| number(found[1].parse().unwrap_or(0.0))));
     row.insert("backfill".into(), json!(transcript.backfill));
     row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 160)));
     Some(row)
+}
+
+fn quiet_run(lines: &[Value]) -> bool {
+    !lines
+        .iter()
+        .filter(|line| line["type"] == "assistant")
+        .any(|line| line["message"]["content"].as_array().is_some_and(|parts| parts.iter().any(|part| part["type"] == "tool_use")))
 }
