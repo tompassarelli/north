@@ -87,7 +87,7 @@ impl Tool {
             Self::Archives => return ExitCode::from(crate::platform::archive_tags::run(arguments)),
             Self::Dispatch => return ExitCode::from(crate::ops::dispatch::run(arguments, super::fleet::roster)),
             Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments, super::fleet::roster, super::token_usage::read)),
-            Self::Capacity => return ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib })),
+            Self::Capacity => return ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib, offload: crate::ops::land_offload::run })),
             Self::NexusRam => return ExitCode::from(crate::ops::nexus_ram::run(arguments)),
             Self::Reclaim => return ExitCode::from(crate::ops::reclaim::run(arguments)),
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),

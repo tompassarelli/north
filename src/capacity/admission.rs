@@ -270,6 +270,10 @@ pub(crate) fn dispatch_request_mib(class: Class) -> f64 {
     }
 }
 
+pub(crate) fn offload_room() -> (f64, f64) {
+    (default_mib("land_offload_cpus"), default_mib("land_offload_disk_free_gib"))
+}
+
 /// Whether unattended memory headroom defers a request of `requested` MiB now.
 pub(crate) fn memory_short(total: f64, available: f64, requested: f64) -> bool {
     available - requested < memory_floor_mib(Profile::Unattended, total)

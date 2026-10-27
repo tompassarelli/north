@@ -30,7 +30,7 @@ mod issues;
 mod manual;
 #[cfg(test)]
 mod manual_tests;
-mod measure;
+pub(crate) mod measure;
 mod plan;
 mod projects;
 mod record;

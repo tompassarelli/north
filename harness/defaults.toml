@@ -583,3 +583,17 @@ unit = "MiB a dispatched box that runs no test suite asks of its host's memory"
 source = "standard: machine-capacity requests 768 MiB for its agent class"
 fallback = "a host whose total memory cannot admit this class takes no box"
 consumers = ["src/capacity/admission.rs"]
+
+[land_offload_cpus]
+value = 6
+unit = "free cores (cores less the one-minute load) a host needs to take an offloaded land check"
+source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (machine-capacity-logic.ts resourceClass)"
+fallback = "a host below it takes no offloaded land check, which waits for the local host"
+consumers = ["src/capacity/admission.rs"]
+
+[land_offload_disk_free_gib]
+value = 20
+unit = "GiB free on the filesystem of a host's offload slot (~/.cache/land-offload) it needs to take an offloaded land check"
+source = "measured: gex45's root disk hit 100% three times on 2026-10-27 (north#259); Tom set the floor at 20 GB"
+fallback = "a host below it takes no offloaded land check, which waits for the local host"
+consumers = ["src/capacity/admission.rs"]

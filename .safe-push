@@ -1,5 +1,6 @@
 [landing]
 	capacity = bun \"$PWD/harness/skills/machine-capacity/scripts/machine-capacity.mjs\" run --class heavy --owner land-check --timeout-seconds 1800 --
+	offloaded-capacity = bun \"$PWD/harness/skills/machine-capacity/scripts/machine-capacity.mjs\" run --class moderate --owner land-check-offload --timeout-seconds 1800 --
 [ci]
 	budget = cargo.yml 162 600
 	budget = harness.yml 80 600
@@ -10,3 +11,4 @@
 	check = bin/,lib/,harness/,src/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh
 	check = flake.nix,flake.lock,rust-toolchain.toml,tests/dev-shell.test.sh :: ./bin/depbox run -- bash tests/dev-shell.test.sh
 	check = "agent-machinery/ :: bash -euc 'cd agent-machinery; depbox run -- bun test; depbox run -- bun run check'"
+	local-only = "bash -euc 'cd agent-machinery; depbox run -- bun test; depbox run -- bun run check'"

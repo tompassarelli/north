@@ -23,20 +23,29 @@ pub(crate) struct Host {
     pub(crate) serving: fn(&str) -> Option<String>,
     pub(crate) warcraft_clients: fn() -> Option<u32>,
     pub(crate) bar1_margin_mib: fn() -> Option<u32>,
+    pub(crate) offload: fn(&[String]) -> u8,
+}
+
+fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
+    let status = match arguments.first().map(String::as_str) {
+        Some("admission") if arguments.len() == 1 => return None,
+        Some("laptop-auto") => laptop_auto::run(&arguments[1..]),
+        Some("offload") => offload(&arguments[1..]),
+        Some("reap-orphans") if arguments.len() == 1 => agent_load::reap_orphans_run(),
+        Some("game-reserve") => game_reserve::run(&arguments[1..]),
+        Some("deadline") => deadline::run(&arguments[1..]),
+        Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
+        _ => {
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients");
+            2
+        }
+    };
+    Some(status)
 }
 
 pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
-    match arguments.first().map(String::as_str) {
-        Some("admission") if arguments.len() == 1 => {}
-        Some("laptop-auto") => return laptop_auto::run(&arguments[1..]),
-        Some("reap-orphans") if arguments.len() == 1 => return agent_load::reap_orphans_run(),
-        Some("game-reserve") => return game_reserve::run(&arguments[1..]),
-        Some("deadline") => return deadline::run(&arguments[1..]),
-        Some("warcraft-clients") if arguments.len() == 1 => return warcraft::run(),
-        _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients");
-            return 2;
-        }
+    if let Some(status) = route(arguments, host.offload) {
+        return status;
     }
     let mut input = String::new();
     let outcome = std::io::stdin()

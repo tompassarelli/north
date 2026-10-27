@@ -3,7 +3,7 @@
 use crate::platform::process::run_within;
 use std::time::Duration;
 
-const PROBE: &str = "nproc; cat /proc/loadavg /proc/meminfo";
+pub(crate) const PROBE: &str = "nproc; cat /proc/loadavg /proc/meminfo";
 const LIMIT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy, Debug, PartialEq)]

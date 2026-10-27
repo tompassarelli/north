@@ -984,15 +984,13 @@ run_language_gate() {
   }
 }
 
-run_land_checks() {
-  local base="$1" head="$2" entry patterns command status entries root log_dir log
-  local stdout_fd stderr_fd stdout_pid stderr_pid
-  local -a specs=() commands=()
+land_commands=()
+
+land_check_commands() {
+  local base="$1" head="$2" entry patterns command entries
+  local -a specs=()
   local -A seen=()
-  root=$(git rev-parse --show-toplevel)
-  [ "${destination_branch:-${to:-}}" = main ] || return 0
   entries=$(git config --blob "$head:.safe-push" --get-all land.check 2>/dev/null) || return 0
-  sync_dependencies || return 1
   while IFS= read -r entry; do
     if [[ "$entry" != *' :: '* ]]; then
       echo "safe-push: invalid land.check: $entry; NOT pushed." >&2
@@ -1009,10 +1007,48 @@ run_land_checks() {
     fi
     [ -z "${seen[$command]:-}" ] || continue
     seen[$command]=1
-    commands+=("$command")
+    land_commands+=("$command")
   done <<<"$entries"
-  for command in "${commands[@]}"; do
+}
+
+land_check_is_local_only() {
+  git config --blob "$2:.safe-push" --get-all land.local-only 2>/dev/null | grep -qxF -- "$1"
+}
+
+land_offload_host() {
+  local command host
+  [ "${SAFE_PUSH_LAND_OFFLOAD:-1}" = 1 ] || return 1
+  has_land_checks && command -v north >/dev/null 2>&1 || return 1
+  land_commands=()
+  land_check_commands "refs/remotes/origin/${to:-main}" HEAD 2>/dev/null || return 1
+  [ "${#land_commands[@]}" -gt 0 ] || return 1
+  for command in "${land_commands[@]}"; do
+    ! land_check_is_local_only "$command" HEAD || return 1
+  done
+  host=$(north capacity offload choose) || return 1
+  printf '%s\n' "$host"
+}
+
+run_land_checks() {
+  local base="$1" head="$2" command status root log_dir log
+  local stdout_fd stderr_fd stdout_pid stderr_pid
+  root=$(git rev-parse --show-toplevel)
+  [ "${destination_branch:-${to:-}}" = main ] || return 0
+  has_land_checks || return 0
+  sync_dependencies || return 1
+  land_commands=()
+  land_check_commands "$base" "$head" || return 1
+  for command in "${land_commands[@]}"; do
     land_check_root=$root
+    local -a runner=(north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- bash -euo pipefail -c "$command")
+    if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ]; then
+      if land_check_is_local_only "$command" "$head"; then
+        printf 'safe-push: land check %s needs this host, which is in game-reserve; NOT pushed.\n' "$command" >&2
+        return 1
+      fi
+      runner=(north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" -- north capacity offload run --host "$SAFE_PUSH_LAND_OFFLOAD_HOST" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command")
+      printf 'safe-push: offloading to %s while this host is in game-reserve\n' "$SAFE_PUSH_LAND_OFFLOAD_HOST"
+    fi
     log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
     mkdir -p "$log_dir"
     log_dir=$(cd "$log_dir" && pwd -P)
@@ -1024,7 +1060,7 @@ run_land_checks() {
     exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
     stderr_pid=$!
     status=0
-    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- bash -euo pipefail -c "$command") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
+    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" "${runner[@]}") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
     safe_push_child=$!
     wait "$safe_push_child" || status=$?
     safe_push_child=""
@@ -1948,6 +1984,10 @@ lane_tip=$(git rev-parse -q --verify HEAD) || lane_tip=""
 if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] \
     && [ "${SAFE_PUSH_CAPACITY_ADMITTED:-}" != "$(git rev-parse --show-toplevel)" ]; then
   capacity_command=$(git config --blob HEAD:.safe-push --get landing.capacity 2>/dev/null) || capacity_command=''
+  if offloaded_command=$(git config --blob HEAD:.safe-push --get landing.offloaded-capacity 2>/dev/null) && offload_host=$(land_offload_host); then
+    capacity_command=$offloaded_command
+    export SAFE_PUSH_LAND_OFFLOAD_HOST=$offload_host
+  fi
   if [ -n "$capacity_command" ]; then
     capacity_status=0
     SAFE_PUSH_LAND_HEAD=$(git rev-parse HEAD) bash -euo pipefail -c \

@@ -117,6 +117,11 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
 2. runs the checks that the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness scripts
    and agent-machinery), or the pre-push hook when there are none;
+   while this host is in game-reserve and another `[hosts.NAME]` with an `ssh` destination has room
+   (6 free cores, the heavy memory request and 20 GiB of disk), the lane ships there by git bundle
+   (`north capacity offload`), `landing.offloaded-capacity` replaces `landing.capacity` for the light
+   part, each check runs in a persistent slot on that host and its exit status is the verdict; a
+   `land.local-only` check keeps the landing on this host;
 3. refuses the push unless every gate passes, among them a gitleaks secret scan, the dependency gate
    (`north dep-gate BASE HEAD`), a `Provenance:` record for each new
    gating number (`north provenance check`), a `Test-kind:` claim for each new test naming a recorded mutant
