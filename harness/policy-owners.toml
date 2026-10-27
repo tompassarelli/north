@@ -15,7 +15,6 @@ guard = [
   { unit = "resource-safe-search-guard", command = "resource-safe-search-guard.sh", claude_absent = "not ported to Claude yet", codex = ["PreToolUse:^Bash$"] },
   { unit = "session-kill-guard", command = "session-kill-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^Bash$"] },
   { unit = "spawn-capacity-guard", command = "spawn-capacity-guard.sh", claude = ["PreToolUse:Agent"], codex_absent = "binds Claude's Agent tool" },
-  { unit = "worker-tier-guard", command = "worker-tier-guard.sh", claude = ["PreToolUse:Agent"], codex = ["PreToolUse:Agent"] },
   { unit = "prompt-grounding", command = "prompt-grounding.sh", claude = ["UserPromptSubmit:"], codex_absent = "grounds Tom's interactive Claude session; fleet sessions receive their launch context" },
   { unit = "north-hook", command = "north-hook.sh", claude = ["PermissionRequest:Bash","PostToolUse:","PostToolUse:Agent","PostToolUse:Edit|Write|MultiEdit","PostToolUse:RemoteTrigger","PreToolUse:Agent","PreToolUse:Bash","PreToolUse:Edit|Write|MultiEdit","PreToolUse:Edit|Write|MultiEdit|NotebookEdit","SessionStart:","Stop:","SubagentStop:","UserPromptSubmit:"], codex = ["PostToolUse:","PostToolUse:^(Edit|Write|MultiEdit|apply_patch)$","PreToolUse:","PreToolUse:Agent","PreToolUse:^(Bash|exec_command|functions[.]exec_command)$","PreToolUse:^(Edit|Write|MultiEdit|apply_patch)$","PreToolUse:^Bash$","Stop:","UserPromptSubmit:"] },
 ]

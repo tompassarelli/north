@@ -4,3 +4,4 @@ heavy-command-guard.sh
 subagent-teardown.sh
 unlanded-work.sh
 worker-handoff.sh
+worker-tier-guard.sh
