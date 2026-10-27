@@ -1,0 +1,67 @@
+Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
+       safe-push [--dry-run] --tag NAME
+       safe-push abandon [BRANCH | --superseded BRANCH]
+
+Check instruction limits and scan secrets, then push the current branch or one tag.
+Repository AGENTS.md: 100 lines.
+Move longer detail to CLI --help, help TOPIC, or indexed docs.
+
+Options:
+  --dry-run    run all safety checks without pushing
+  --to BRANCH  explicitly publish HEAD to another remote branch: rebases onto
+               origin BRANCH and runs the repo's pre-push hook, then takes the
+               per-origin landing lock only to fetch, rebase and push; a
+               repository whose committed .safe-push sets landing.exact = true
+               instead queues for the lock in arrival order before the hook,
+               and re-runs the hook only when another push moved origin BRANCH;
+               the lock holder lands the lanes queued behind it as one train
+               (origin BRANCH plus each lane cherry-picked in arrival order,
+               one hook run, halves re-run on red) and tells each its verdict;
+               a lane already on origin BRANCH counts as landed; while the
+               open "BRANCH is red" issue is #N, a lane with #N in a commit
+               subject queues ahead of the others, and a holder hands its
+               undecided lanes back behind it before its next check run;
+               when main has .github/workflows/autoland.yml or its .safe-push
+               sets landing.queue = autoland,
+               the lane is checked, pushed to claude/land-<lane>-<sha> and
+               waits for the Autoland workflow's batched queue to land it;
+               a stop, a refusal or a handback deletes that queue branch, and
+               a Classic record refresh handback returns 75 keeping the lane;
+               a BRANCH other than origin's default (farm/*, scratch) skips
+               the lock and the queue and runs the hook in its own push
+  --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
+               keep the lane instead of removing it and its branch, and keep
+               the cargo target its land checks otherwise remove
+  --direct     with --to main in an Autoland repository, push main directly
+               instead of joining the queue; emergencies only, logged in
+               ~/.local/state/safe-push/direct-landings.tsv
+  --tag NAME   push an existing annotated tag after scanning new content
+  -h, --help   print this help without inspecting a repository
+  abandon      delete this lane's claude/land-<lane>-<sha>, or BRANCH, from
+               origin once main holds each of its commits by subject or patch
+               or Autoland handed it back; with --superseded, a claude/* or
+               farm/* BRANCH goes only once each of its commits is on origin by
+               subject or patch, whatever Autoland reported; any other branch
+               is refused
+
+On a non-default branch, plain "safe-push" (no --to/--tag) is refused —
+one-branch-main doctrine: origin carries the default branch only. Publish
+with --to main, or --to another branch as a deliberate escape hatch.
+
+Generated records opt in through committed .safe-push:
+  [generated "path/to/record"]
+      input = path/to/primary-source
+Repeat input for each exact tracked primary file. The base/head inventory union
+counts changed file blobs; private external assets are outside this guarantee.
+Rewriting over half the old rows with fewer than 5% of those files changed is
+refused. Missing enabled input authority is refused; undeclared files pass.
+
+Each running safe-push needs its own output log file; a second one writing to
+the same file is refused.
+
+A landing on origin's default branch runs follows-release, which starts each
+queued Follows box (threads queue follow) whose predecessor is now on it.
+
+A clean lane landed with --to main is removed afterwards (git worktree remove,
+then git branch -d), and its same-named origin branch is deleted when main
+holds all of it.

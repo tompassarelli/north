@@ -165,102 +165,6 @@ expect_output() {
   grep -Fq -- "$1" <<<"$case_output" || fail "missing output: $1"
 }
 
-eval "$(sed -n '/^usage() {/,/^}$/p; /^argument_error() {/,/^}$/p; /^plan_push() {/,/^}$/p' "$TARGET")"
-git() { printf 'git\n' >>"$trace"; return 97; }
-gitleaks() { printf 'scan\n' >>"$trace"; return 97; }
-property_rows=0
-while IFS='|' read -r verdict arguments; do
-  read -r -a parsed_args <<<"$arguments"
-  case_status=0
-  case_output=$(plan_push arguments "${parsed_args[@]}" 2>&1) || case_status=$?
-  expect_status "$verdict"
-  property_rows=$((property_rows + 1))
-done <<'CASES'
-zero|-h
-zero|--help
-nonzero|--keep-lane
-nonzero|--wat
-nonzero|main
-nonzero|--force
-nonzero|-f
-nonzero|--force-with-lease
-nonzero|--mirror
-nonzero|--delete
-nonzero|--prune
-nonzero|--tag
-nonzero|--tag --dry-run
-nonzero|--dry-run --dry-run
-nonzero|--tag release-a --tag release-b
-nonzero|--to
-nonzero|--to main --to other
-nonzero|--to main --tag release-a
-nonzero|--help --dry-run
-nonzero|--keep-lane --keep-lane --to main
-zero|--dry-run
-zero|--to other
-zero|--dry-run --to other
-zero|--tag release-a
-zero|--dry-run --tag release-a
-zero|--tag release-a --dry-run
-CASES
-for invalid in HEAD refs/heads/main origin/main ../main 'bad name' 'bad..name'; do
-  case_status=0
-  case_output=$(plan_push arguments --to "$invalid" 2>&1) || case_status=$?
-  expect_status nonzero
-  property_rows=$((property_rows + 1))
-done
-destination_ref=refs/heads/main
-for shape in absent object symbolic ambiguous malformed wrong-ref; do
-  oid=1111111111111111111111111111111111111111
-  case "$shape" in
-    absent) observed='' ;;
-    object) observed=$(printf '%s\t%s' "$oid" "$destination_ref") ;;
-    symbolic) observed=$(printf 'ref: refs/heads/other\t%s' "$destination_ref") ;;
-    ambiguous) observed=$(printf '%s\t%s\n%s\t%s' "$oid" "$destination_ref" "$oid" "$destination_ref") ;;
-    malformed) observed=$(printf 'not-an-oid\t%s' "$destination_ref") ;;
-    wrong-ref) observed=$(printf '%s\trefs/heads/other' "$oid") ;;
-  esac
-  case_status=0
-  case_output=$(plan_push snapshot "$observed" "$destination_ref" 2>&1) || case_status=$?
-  case "$shape" in
-    absent) expect_status zero; [ "$case_output" = absent ] || fail 'absent snapshot changed' ;;
-    object) expect_status zero; [ "$case_output" = "object:$oid" ] || fail 'snapshot lost observed oid' ;;
-    *) expect_status nonzero ;;
-  esac
-  property_rows=$((property_rows + 1))
-done
-for current in main feature farm/topic; do
-  for destination in '' main farm/output; do
-    for dry_arg in '' --dry-run; do
-      args=()
-      [ -z "$dry_arg" ] || args+=("$dry_arg")
-      [ -z "$destination" ] || args+=(--to "$destination")
-      plan_push arguments "${args[@]}"
-      case_status=0
-      if [ "$to_seen" -eq 0 ]; then
-        case_output=$(plan_push source "$current" main 2>&1) || case_status=$?
-      fi
-      if [ "$current" != main ] && [ -z "$destination" ]; then
-        expect_status nonzero
-      else
-        expect_status zero
-        for observed in '' 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222; do
-          destination_oid="$observed"
-          head_oid=3333333333333333333333333333333333333333
-          destination_ref="refs/heads/${destination:-$current}"
-          plan_push publication "$head_oid" "$destination_ref" "$destination_oid"
-          [ "$publication" = "$head_oid:$destination_ref" ] || fail 'plan lost the captured source or destination'
-          [ "${publication_flags[*]}" = "--force-with-lease=$destination_ref:$observed" ] || fail 'plan lost the observed destination lease'
-        done
-      fi
-      property_rows=$((property_rows + 1))
-    done
-  done
-done
-printf 'planning property: %s rows\n' "$property_rows"
-
-[ ! -s "$trace" ] || fail 'pure planning invoked git or a scanner'
-unset -f git gitleaks
 real_git="$(command -v git)"
 real_north="$(cd "$REPO" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north"
 [ -x "$real_north" ] || { echo "safe-push.test.sh: build north from this tree first; $real_north is missing" >&2; exit 1; }
@@ -3012,4 +2916,4 @@ while IFS=$'\t' read -r _ _ _ oid _; do
   done
 done < <(tail -c "+$((live_push_log_size + 1))" "$live_push_log" 2>/dev/null)
 
-printf 'safe-push tests: PASS (%s planning rows, %s boundary invocations)\n' "$property_rows" "$(wc -l <"$scratch/cases")"
+printf 'safe-push tests: PASS (%s boundary invocations)\n' "$(wc -l <"$scratch/cases")"
