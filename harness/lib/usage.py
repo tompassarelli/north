@@ -279,17 +279,15 @@ def gate_path():
     return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/usage-gate.json"
 
 
-def refusal(db, provider, cfg, catalog, now):
+def refusal(db, provider, cfg, catalog, now, account=None, ctx=None):
     """Why a new worker on this provider's account could bill money (or its usage is unknown), else None.
     `north pace` decides; this only feeds it."""
     import routing
     import plan_usage
-    rows = [r for r in latest(db) if r["provider"] == provider]
-    ctx = plan_usage.live_ctx(cfg, catalog, rows, db, now, cfg.get("tiers", {}))
-    if provider not in ctx["accounts"] and local_account(provider):
-        provider = f"{provider}:{local_account(provider)}"
-    why = routing.ask("money_refusal", ctx=ctx, account=provider)
-    return why and (f"No: a new {provider} worker could spend money: {why}. Unknown or money-billed usage is never chosen "
+    ctx = ctx or plan_usage.live_ctx(cfg, catalog, [r for r in latest(db) if r["provider"] == provider], db, now, cfg.get("tiers", {}))
+    account = account or (f"{provider}:{local_account(provider)}" if provider not in ctx["accounts"] and local_account(provider) else provider)
+    why = routing.ask("money_refusal", ctx=ctx, account=account)
+    return why and (f"No: a new {account} worker could spend money: {why}. Unknown or money-billed usage is never chosen "
             "automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or "
             "report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.")
 
@@ -323,7 +321,8 @@ def write_gate(db, providers, pace_locked=False):
         verdicts[provider] = {"ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "epoch": now.timestamp(), "stale_min": STALE_MIN,
                               "pace_control": True,
                               "controls": verdicts.get(provider, {}).get("controls", {}),
-                              "refusal": refusal(db, provider, cfg, catalog, now),
+                              "refusal": refusal(db, provider, cfg, catalog, now, ctx=ctx),
+                              "refusals": {n: refusal(db, provider, cfg, catalog, now, account=n, ctx=ctx) for n in ctx["accounts"] if n.split(":", 1)[0] == provider},
                               "projections": {(f"claude:{a['id']}" if provider == "claude" else n): [{"window": kind, "used_pct": 100 - w["headroom"],
                                                      "quota_ceiling": min(DEFAULTS["plan_stop"], 100 - a["target_left"]),
                                                      "burn_pct_h": w["beta"], "reset_h": w["reset_in"],

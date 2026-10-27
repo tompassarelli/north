@@ -241,6 +241,7 @@ def usage_verdict(event, grant=None):
     def read():
         try:
             verdict = json.loads((state / "agents/usage-gate.json").read_text())[provider]
+            verdict["refusal"] = (verdict.get("refusals") or {}).get(billed_account(provider), verdict.get("refusal"))
             if grant and verdict.get("refusal") is None:
                 return verdict
             if not 0 <= time.time() - verdict["epoch"] < min(verdict["stale_min"] * 60, 120):
@@ -434,7 +435,6 @@ def evaluate_spawn(event):
     verdict = usage_verdict(event, grant)
     if verdict.get("refusal"):
         return verdict["refusal"], None
-    provider = "claude" if event.get("tool_name") == "Agent" else "codex"
     name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
     if verdict.get("pace_control") and not grant:
         north_lib()

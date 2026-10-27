@@ -56,8 +56,8 @@ printf '%s\n' '{"cachedUsageUtilization":{"accountUuid":"fixture-primary"}}' >"$
 touch -d "@$(date +%s)" "$SCRATCH/home/.claude/projects/p/s/subagents/agent-"{a,b}.jsonl
 GATE="$SCRATCH/home/.local/state/agents/usage-gate.json"
 mkdir -p "${GATE%/*}"
-# gate CLAUDE_REFUSAL: write a fresh money-gate verdict (codex always allowed).
-gate() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":%s},"codex":{"epoch":%s,"stale_min":30,"refusal":null}}\n' "$(date +%s)" "$1" "$(date +%s)" >"$GATE"; }
+# gate CLAUDE_REFUSAL [REFUSALS_JSON]: write a fresh money-gate verdict (codex always allowed).
+gate() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":%s,"refusals":%s},"codex":{"epoch":%s,"stale_min":30,"refusal":null}}\n' "$(date +%s)" "$1" "${2-{\}}" "$(date +%s)" >"$GATE"; }
 gate null
 
 # status LEASED PROTECTED [SYSTEM_PSI]: write the probe fixture (limit 20 CPUs).
@@ -161,17 +161,17 @@ priority = 2
 TOML
 status 17 5
 printf '[{"name":"sc","conversation":"s","task_ref":"smashcraft#7","status":"working"}]\n' >"$FLEET_JSON"
-out="$(call "$HOOK" "$(agent "$worker")")"
-[ "$out" = deny ] && check ok 'a lower-priority domain stops at 80% of the limit' || check bad 'a lower-priority domain stops at 80% of the limit' "$out"
+dodeny "$(agent "$worker")" 'a lower-priority domain stops at 80% of the limit'
 printf '[{"name":"mu","conversation":"s","task_ref":"galileo#9","status":"working"}]\n' >"$FLEET_JSON"
 expect_allow "$(agent "$worker")" 'the first-priority domain keeps the headroom'
 
-status 19 5
-input="$(agent "$worker")"
 status 2 5
 gate '"No: a new claude worker could spend money: test."'
-out="$(call "$HOOK" "$(agent "$worker")")"
-[ "$out" = deny ] && check ok 'fresh money-gate refusal denies' || check bad 'fresh money-gate refusal denies' "$out"
+dodeny "$(agent "$worker")" 'fresh money-gate refusal denies'
+gate '"No: a new claude worker could spend money: no usage snapshot for claude could be read."' '{"claude:a":null}'
+expect_allow "$(agent "$worker")" 'a refusal written by a process with no account does not refuse a session on account a, which is judged on its own entry'
+gate null '{"claude:a":"No: a new claude:a worker could spend money: test."}'
+dodeny "$(agent "$worker")" 'the refusal entry for the session account denies though the shared refusal is null'
 gate null
 
 export THREADS_DB="$SCRATCH/initial-reservation.db" AGENTS_OPERATOR_DIR="$SCRATCH"
