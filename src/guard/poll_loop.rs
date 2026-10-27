@@ -63,13 +63,18 @@ fn waited(source: &str, bound: f64, depth: usize) -> f64 {
         return 0.0;
     };
     let mut scan = Scan::default();
-    let mut segment = Vec::new();
-    for token in tokens {
-        if !shell::is_separator(&token) {
+    let mut segment: Vec<String> = Vec::new();
+    let mut tokens = tokens.into_iter().peekable();
+    while let Some(token) = tokens.next() {
+        let redirect = token == "&"
+            && (segment.last().is_some_and(|word| word.ends_with(['<', '>']))
+                || tokens.peek().is_some_and(|word| word.starts_with('>')));
+        if redirect || !shell::is_separator(&token) {
             segment.push(token);
             continue;
         }
-        let background = token.trim_end_matches('\n').ends_with('&') && !token.ends_with("&&");
+        let operator = token.trim_matches('\n');
+        let background = operator.ends_with('&') && !operator.ends_with("&&") && !operator.ends_with("|&");
         scan.segment(&std::mem::take(&mut segment), bound, depth, background);
         if token.contains('(') {
             scan.groups.push((scan.sleeping, scan.polling));
@@ -117,7 +122,7 @@ impl Scan {
         }
         let (words, limit) = bounded(words, bound);
         let wait = match words.first().map(|word| shell::basename(word)) {
-            Some("sleep") => words[1..].iter().filter_map(|word| seconds(word)).sum::<f64>().min(limit),
+            Some("sleep") => words[1..].iter().map_while(|word| seconds(word)).sum::<f64>().min(limit),
             Some("bash" | "sh") if depth < 8 => nested(words).map_or(0.0, |source| waited(&source, limit, depth + 1)),
             _ => 0.0,
         };
