@@ -58,9 +58,22 @@ pub(crate) fn append(directory: &Path, record: &Record) -> Result<(), String> {
     writeln!(file, "{}", serde_json::to_string(record).map_err(|error| error.to_string())?).map_err(|error| error.to_string())
 }
 
-/// Items launched in the last two hours, whose sessions may not show yet, and items launched twice
-/// in a day without closing, which the proxy decides about.
-pub(crate) fn holds(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
+/// The started local launches of each item launched twice or more in the last day, whose sessions
+/// decide whether those tries count.
+pub(crate) fn contested(records: &[Record], at: f64) -> Vec<&Record> {
+    let mut started: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
+    for record in records.iter().filter(|record| record.launched && !record.cloud && at - record.at < RETRY_WINDOW_S) {
+        if let Some(item) = IssueRef::parse(&record.item) {
+            started.entry(item).or_default().push(record);
+        }
+    }
+    started.into_values().filter(|tried| tried.len() >= RETRIES).flatten().collect()
+}
+
+/// Items launched in the last two hours, whose sessions may not show yet, and items tried twice in a
+/// day without closing, which the proxy decides about. A launch whose session `unspent` names did
+/// no work on the item is no try.
+pub(crate) fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>) -> BTreeMap<IssueRef, String> {
     let mut tries: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
     for record in records.iter().filter(|record| at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
@@ -71,9 +84,12 @@ pub(crate) fn holds(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
         .into_iter()
         .filter_map(|(item, tried)| {
             let last = tried.iter().max_by(|a, b| a.at.total_cmp(&b.at))?;
-            let started = tried.iter().filter(|record| record.launched).count();
-            let reason = if started >= RETRIES {
-                format!("north dispatch, {started} tries in 24 h without closing; the proxy decides the next one")
+            let (counted, spared): (Vec<&Record>, Vec<&Record>) = tried.iter().filter(|record| record.launched).partition(|record| !unspent.contains_key(&record.name));
+            let reason = if counted.len() >= RETRIES {
+                let names: Vec<&str> = counted.iter().map(|record| record.name.as_str()).collect();
+                let spared: Vec<String> = spared.iter().map(|record| format!("{}, which {}", record.name, unspent[&record.name])).collect();
+                let spared = if spared.is_empty() { String::new() } else { format!("; not counted: {}", spared.join("; ")) };
+                format!("north dispatch, {} tries in 24 h without closing ({}){spared}; the proxy decides the next one", counted.len(), names.join(", "))
             } else if at - last.at < hold(last) {
                 format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             } else {
@@ -82,6 +98,20 @@ pub(crate) fn holds(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
             Some((item, reason))
         })
         .collect()
+}
+
+/// Items whose newest launch started a session in the last two hours, six for the cloud lane: the
+/// sessions dispatch holds them for, which may not show in any fleet list yet.
+pub(crate) fn launching(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
+    let mut newest: BTreeMap<IssueRef, &Record> = BTreeMap::new();
+    for record in records {
+        if let Some(item) = IssueRef::parse(&record.item)
+            && newest.get(&item).is_none_or(|seen| seen.at <= record.at)
+        {
+            newest.insert(item, record);
+        }
+    }
+    newest.into_iter().filter(|(_, last)| last.launched && at - last.at < hold(last)).map(|(item, last)| (item, format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0))).collect()
 }
 
 /// Sessions dispatched to `host` in the last three hours, six for the cloud lane, whose issue is

@@ -31,7 +31,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let cloud = decision(Target::Cloud("cloud credit: unread".into()));
     let local = decision(Target::Account("claude:a".into()));
     let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: None };
-    let given = |local: Option<&str>, pin: Option<&str>| Overrides { local: local.map(Into::into), pin: pin.map(Into::into) };
+    let given = |local: Option<&str>, pin: Option<&str>| Overrides { local: local.map(Into::into), pin: pin.map(Into::into), duplicate: None };
 
     assert_eq!(admit(&local, &launch("a"), "", &Overrides::default()), noted(None));
     let refused = admit(&local, &launch("c"), "", &Overrides::default()).unwrap_err();
@@ -51,14 +51,14 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let launch = Launch { name: "box", account: "a", brief: None, cwd: None, machine: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
     assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
-    let kept = admit(&remote, &launch, "", &Overrides { local: Some("needs my desktop".into()), pin: None }).unwrap();
+    let kept = admit(&remote, &launch, "", &Overrides { local: Some("needs my desktop".into()), pin: None, duplicate: None }).unwrap();
     assert_eq!(kept, Placed { note: Some("local: needs my desktop".into()), machine: None, need: None });
-    let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None }).unwrap();
+    let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None, duplicate: None }).unwrap();
     assert_eq!(here, noted(None).unwrap(), "--local on a box placed here records nothing");
 
     let unsigned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides::default()).unwrap_err();
     assert!(unsigned.starts_with("far is not signed in to claude:b (signed in there: a, c); launch with --account a, or "), "{unsigned}");
-    let pinned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides { local: Some("x".into()), pin: Some("y".into()) });
+    let pinned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides { local: Some("x".into()), pin: Some("y".into()), duplicate: None });
     assert_eq!(pinned.unwrap().machine, None);
 }
 
@@ -75,6 +75,6 @@ fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_
     assert!(admit(&roomier, &launch("c"), "", &Overrides::default()).unwrap_err().contains("placement picks claude:a"));
     let mut cloud = decision(Target::Cloud("cloud credit: unread".into()));
     cloud.verdicts = vec![Verdict { owners: vec!["nexus".into()], ..verdict("claude:a", Some(90.0)) }, verdict("claude:b", Some(40.0))];
-    let kept = admit(&cloud, &launch("b"), "", &Overrides { local: Some("reads a local lane".into()), pin: None }).unwrap();
+    let kept = admit(&cloud, &launch("b"), "", &Overrides { local: Some("reads a local lane".into()), pin: None, duplicate: None }).unwrap();
     assert_eq!(kept.note.as_deref(), Some("local: reads a local lane"), "a box kept here needs no pin beside an account that runs only elsewhere");
 }

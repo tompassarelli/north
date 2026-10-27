@@ -12,11 +12,14 @@ const TOM_LABELS: [&str; 3] = ["evidence:tom", "needs:tom", "decision:tom"];
 const ROOT_LABELS: [&str; 1] = ["roadmap"];
 const RUNNING_LABELS: [&str; 1] = ["native:running"];
 const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
+/// Why dispatch skips an open issue with no Done-when box at all, which the triage lead gives one.
+pub(crate) const NEEDS_BOX: &str = "needs a box: no Done-when box";
 
 static WAITS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(?:(?:waits?|waiting|blocked|held)\s+(?:on|for|by)|awaiting|needs)\s+(?:Tom\b|the laptop\b)|\bnext step is Tom's\b|\bStop:\s*decision\b").expect("waits pattern")
 });
 static UNTICKED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
+static ANY_BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[[ xX]\]").expect("any box pattern"));
 static NOT_BEFORE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\(not before ((\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})Z)\)").expect("not-before pattern"));
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
@@ -70,6 +73,11 @@ impl Issue {
 
     pub(crate) fn unticked(&self) -> usize {
         UNTICKED.find_iter(&self.body).count()
+    }
+
+    /// An issue with no box, ticked or not, that no label hands to Tom, its children or a running native job.
+    pub(crate) fn needs_box(&self) -> bool {
+        !ANY_BOX.is_match(&self.body) && [&TOM_LABELS[..], &ROOT_LABELS, &RUNNING_LABELS].iter().all(|names| self.labelled(names).is_none())
     }
 
     pub(crate) fn gated_until(&self, at: f64) -> Option<&str> {
@@ -209,7 +217,7 @@ pub(crate) struct World<'a> {
 pub(crate) fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     let reference = issue.reference();
     if issue.unticked() == 0 {
-        return Err("no unticked Done-when box".into());
+        return Err(if issue.needs_box() { NEEDS_BOX } else { "no unticked Done-when box" }.into());
     }
     if let Some(until) = issue.gated_until(world.at) {
         let boxes = if issue.unticked() == 1 { "only open box waits" } else { "every open box waits, the first" };

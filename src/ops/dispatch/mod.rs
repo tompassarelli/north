@@ -11,6 +11,7 @@ use slots::Pools;
 use survey::{REPOS, Survey};
 
 pub(crate) use cloud::{autoland as cloud_autoland, branch as cloud_branch};
+pub(crate) use fleets::holder as task_holder;
 #[cfg(test)]
 pub(crate) use survey::claim_rows;
 
@@ -18,6 +19,7 @@ mod brief;
 mod cloud;
 mod effects;
 mod facets;
+mod fleets;
 mod handoff;
 mod issues;
 mod plan;
@@ -26,6 +28,7 @@ mod slots;
 mod stops;
 mod survey;
 mod tier;
+mod tries;
 #[cfg(test)]
 mod claim_tests;
 #[cfg(test)]
@@ -36,6 +39,8 @@ mod stops_tests;
 mod tests;
 #[cfg(test)]
 mod tier_tests;
+#[cfg(test)]
+mod tries_tests;
 
 const USAGE: &str = "usage: north dispatch [--dry-run]";
 
@@ -108,6 +113,11 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         }
     }
     outcome
+}
+
+/// The open issues dispatch skipped because they have no Done-when box.
+pub(crate) fn boxless<'a>(survey: &'a Survey, outcome: &Outcome) -> Vec<&'a Issue> {
+    outcome.skipped.iter().filter(|(_, why)| why == issues::NEEDS_BOX).filter_map(|(item, _)| survey.issues.iter().find(|issue| issue.reference() == *item)).collect()
 }
 
 /// The one line Tom gets when ready work and free slots coexist and nothing launched.
@@ -185,6 +195,11 @@ pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> 
     let outcome = decide(&survey, &format!("north dispatch on {}", survey.here));
     for (item, why) in &outcome.skipped {
         println!("skip {item}: {why}");
+    }
+    let boxless = boxless(&survey, &outcome);
+    if !boxless.is_empty() {
+        println!("needs a box: {}", boxless.iter().map(|issue| issue.reference().to_string()).collect::<Vec<_>>().join(", "));
+        effects::ask_for_boxes(&survey.cfg, &boxless, dry_run, placement::now());
     }
     let failures = execute(&survey, &outcome, dry_run);
     if let Some(line) = alert(&outcome, &failures, &survey.here) {

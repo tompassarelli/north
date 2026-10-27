@@ -4,7 +4,7 @@ fn a_claim_by_a_fleet_session_that_no_host_runs_holds_nothing_and_a_hand_made_on
         ("gex45".to_owned(), serde_json::json!([{"name": "sc-9-a", "status": "exited"}, {"name": "sc-10-a", "status": "working"}, {"name": "sc-11-a", "status": "exited"}])),
         ("nexus".to_owned(), serde_json::json!([{"name": "sc-11-a", "status": "idle"}])),
     ];
-    let stopped = super::survey::stopped_names(&fleets);
+    let stopped = super::fleets::stopped_names(&fleets);
     assert_eq!(stopped.iter().map(String::as_str).collect::<Vec<_>>(), ["sc-9-a"]);
     let listing = serde_json::json!([
         {"item": "smashcraft#9", "owner": "sc-9-a", "standing": "live"},

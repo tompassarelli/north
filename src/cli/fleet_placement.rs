@@ -16,14 +16,17 @@ use crate::ops::pacing::placement::gate::{self, Decision, Target};
 pub(super) struct Overrides {
     pub local: Option<String>,
     pub pin: Option<String>,
+    /// Why a `--task` launch runs beside the session or dispatch launch that already holds its item.
+    pub duplicate: Option<String>,
 }
 
 impl Overrides {
-    /// Takes `--local REASON` or `--pin REASON`; false for any other flag.
+    /// Takes `--local REASON`, `--pin REASON` or `--force-dup REASON`; false for any other flag.
     pub fn set(&mut self, flag: &str, value: &str) -> bool {
         let slot = match flag {
             "--local" => &mut self.local,
             "--pin" => &mut self.pin,
+            "--force-dup" => &mut self.duplicate,
             _ => return false,
         };
         *slot = Some(value.to_owned());

@@ -306,7 +306,7 @@ fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
     let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None };
     let now = 100_000.0;
     let records = vec![entry("smashcraft#1", now - 600.0), entry("smashcraft#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
-    let holds = record::holds(&records, now);
+    let holds = record::holds(&records, now, &BTreeMap::new());
     assert!(holds[&IssueRef::new("smashcraft", 1)].starts_with("north dispatch launch sc-1-d0000 on gex45 10 min ago"));
     assert!(!holds.contains_key(&IssueRef::new("smashcraft", 2)), "an old single launch whose session ended frees the box");
     assert!(holds[&IssueRef::new("wisp", 3)].contains("2 tries in 24 h"));
@@ -324,11 +324,11 @@ fn running_and_idle_sessions_hold_their_task_or_their_named_issue() {
         {"name": "sc-9-old", "provider": "claude", "account": "b", "status": "parked", "task_ref": null, "machine": null},
         {"name": "proxy", "provider": "codex", "account": "pooled", "status": "starting", "task_ref": null, "machine": null}
     ]);
-    let sessions = super::survey::running_sessions(&listing);
-    let items: Vec<Option<String>> = sessions.iter().map(|session| session.item.as_ref().map(ToString::to_string)).collect();
-    assert_eq!(items, [Some("smashcraft#256".into()), Some("wisp#21".into()), None]);
+    let sessions = super::fleets::running_sessions(&listing);
+    let items: Vec<Vec<String>> = sessions.iter().map(|session| session.items.iter().map(ToString::to_string).collect()).collect();
+    assert_eq!(items, [vec!["smashcraft#256".to_owned()], vec!["wisp#21".to_owned()], vec![]]);
     let hosted: Vec<_> = sessions.into_iter().map(|session| (session, "nexus".to_owned())).collect();
-    let (elsewhere, holds) = super::survey::tally(&hosted);
+    let (elsewhere, holds) = super::fleets::tally(&hosted);
     assert_eq!(holds[&IssueRef::new("wisp", 21)], "fleet session fixer on nexus", "an idle session still holds its issue");
     assert_eq!(elsewhere, BTreeMap::from([("gex45".to_owned(), 1)]));
 }
@@ -407,7 +407,7 @@ fn an_account_placement_never_judged_gets_no_slot() {
 fn the_laptops_copied_lists_hold_their_issues_even_when_old() {
     let directory = tempfile::tempdir().unwrap();
     let mut notes = Vec::new();
-    assert!(super::survey::mirrored(directory.path(), "fleet", "whiterabbit", 0.0, &mut notes).is_null());
+    assert!(super::fleets::mirrored(directory.path(), "fleet", "whiterabbit", 0.0, &mut notes).is_null());
     assert!(notes[0].starts_with("whiterabbit fleet list unread"), "{notes:?}");
     let listing = serde_json::json!([{"name": "fixer", "provider": "claude", "account": "a", "status": "working", "task_ref": "tompassarelli/smashcraft#350", "machine": null}]);
     std::fs::write(directory.path().join("fleet-whiterabbit.json"), listing.to_string()).unwrap();
@@ -415,12 +415,12 @@ fn the_laptops_copied_lists_hold_their_issues_even_when_old() {
     std::fs::write(directory.path().join("gates-whiterabbit.json"), gates.to_string()).unwrap();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
     let mut notes = Vec::new();
-    let old = super::survey::running_sessions(&super::survey::mirrored(directory.path(), "fleet", "whiterabbit", now + 3600.0, &mut notes));
-    assert_eq!(old.iter().map(|session| session.item.clone()).collect::<Vec<_>>(), [Some(IssueRef::new("smashcraft", 350))]);
+    let old = super::fleets::running_sessions(&super::fleets::mirrored(directory.path(), "fleet", "whiterabbit", now + 3600.0, &mut notes));
+    assert_eq!(old.iter().map(|session| session.items.clone()).collect::<Vec<_>>(), [vec![IssueRef::new("smashcraft", 350)]]);
     let hosted: Vec<_> = old.into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
     assert_eq!((super::survey::laptop_running(&hosted, "whiterabbit", 0), super::survey::laptop_running(&hosted, "whiterabbit", 3)), (1, 3), "the copied list counts the laptop's sessions, and a fresh launch not yet listed still counts");
     assert!(notes[0].starts_with("whiterabbit fleet list copied 60 min ago"), "{notes:?}");
-    let gated = super::survey::gate_rows(&super::survey::mirrored(directory.path(), "gates", "whiterabbit", now, &mut notes), "whiterabbit");
+    let gated = super::survey::gate_rows(&super::fleets::mirrored(directory.path(), "gates", "whiterabbit", now, &mut notes), "whiterabbit");
     assert_eq!(gated[0].0, IssueRef::new("smashcraft", 2));
 }
 
@@ -531,7 +531,7 @@ fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
     let now = 100_000.0;
     let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None };
     let records = vec![cloud("smashcraft#7", now - 5.0 * 3600.0), cloud("smashcraft#8", now - 7.0 * 3600.0)];
-    let holds = record::holds(&records, now);
+    let holds = record::holds(&records, now, &BTreeMap::new());
     assert!(holds.contains_key(&IssueRef::new("smashcraft", 7)) && !holds.contains_key(&IssueRef::new("smashcraft", 8)));
     let open = BTreeSet::from([IssueRef::new("smashcraft", 7), IssueRef::new("smashcraft", 8)]);
     assert_eq!(record::recent_on(&records, "anthropic-cloud", &open, now), 1);
@@ -557,7 +557,7 @@ fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
     let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false, handoff: None };
     let now = 100_000.0;
     let records = vec![failed("smashcraft#9", now - 3600.0), failed("smashcraft#9", now - 1800.0), failed("wisp#4", now - 300.0)];
-    let holds = record::holds(&records, now);
+    let holds = record::holds(&records, now, &BTreeMap::new());
     assert!(!holds.contains_key(&IssueRef::new("smashcraft", 9)), "two failed launches are no tries and their brief hold has passed: {holds:?}");
     assert!(holds[&IssueRef::new("wisp", 4)].starts_with("north dispatch launch sc-9-d0000"), "a fresh failure still holds the box for a few minutes");
 }

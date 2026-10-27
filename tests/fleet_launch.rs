@@ -277,3 +277,34 @@ fn a_letter_relayed_from_another_host_names_its_sender_and_host_and_records_them
     let host = record["last_sender"]["name"].as_str().and_then(|name| name.strip_prefix("wisp-lead@")).unwrap_or_else(|| panic!("{record}"));
     assert!(shown.contains(&format!("user: [from wisp-lead@{host}] rolled back")), "{shown}");
 }
+
+#[test]
+fn a_second_task_launch_on_a_held_item_is_refused_unless_it_says_why_it_runs_beside_the_first() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let brief = brief.display().to_string();
+    let task = |name: &str, extra: &[&str]| {
+        let mut words = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "none", "--task", "smashcraft#4"];
+        words.extend(extra);
+        words.extend(["--system-prompt", &brief, "start the box"]);
+        north(root, &words)
+    };
+
+    let first = task("narrow", &[]);
+    let second = task("beside", &[]);
+    let forced = task("forced", &["--force-dup", "a second judge of the same capture"]);
+    let show = north(root, &["fleet", "show", "forced", "--json"]);
+    for name in ["narrow", "beside", "forced"] {
+        north(root, &["fleet", "forget", name]);
+    }
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let refused = String::from_utf8_lossy(&second.stderr);
+    assert!(!second.status.success(), "{refused}");
+    assert!(refused.contains("smashcraft#4 is held by fleet session narrow on here") && refused.contains("--force-dup"), "{refused}");
+    assert!(forced.status.success(), "{}", String::from_utf8_lossy(&forced.stderr));
+    let show: Value = serde_json::from_slice(&show.stdout).unwrap();
+    assert!(show["placement"].as_str().is_some_and(|note| note.contains("dup: a second judge of the same capture")), "{show}");
+}
