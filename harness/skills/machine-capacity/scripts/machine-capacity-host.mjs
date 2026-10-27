@@ -193,6 +193,12 @@ function gpuBusyPath() {
   return card === undefined ? null : `/sys/class/drm/${card}/device/gpu_busy_percent`;
 }
 
+function northWarcraftClients() {
+  const counted = Bun.spawnSync([northCommand, 'capacity', 'warcraft-clients'], { stdout: 'pipe' });
+  if (counted.exitCode !== 0) fail('north capacity warcraft-clients failed', 75);
+  return counted.stdout.toString();
+}
+
 function readGpu(samples) {
   const path = gpuBusyPath();
   let total = 0;
@@ -200,16 +206,7 @@ function readGpu(samples) {
     if (index > 0) Bun.sleepSync(gpuSampleMilliseconds);
     total += Number(readFileSync(path, 'utf8').trim()) || 0;
   }
-  let clients = 0;
-  if (process.env.AGENT_CAPACITY_GPU_CLIENTS !== undefined) clients = Number(process.env.AGENT_CAPACITY_GPU_CLIENTS);
-  else for (const pid of readdirSync('/proc')) {
-    if (!/^[0-9]+$/.test(pid)) continue;
-    try {
-      if (readFileSync(`/proc/${pid}/comm`, 'utf8').startsWith('Warcraft III')) clients += 1;
-    } catch (error) {
-      if (error?.code !== 'ENOENT' && error?.code !== 'ESRCH') throw error;
-    }
-  }
+  const clients = Number(process.env.AGENT_CAPACITY_GPU_CLIENTS ?? northWarcraftClients());
   return { gpuBusyPercent: path === null ? 0 : Math.round(total / samples), gpuClients: clients };
 }
 
@@ -230,7 +227,7 @@ function activeProfile(root) {
 }
 
 // The manager's private socket reports peer pid 0 inside a PID namespace and fails with ENODATA; without XDG_RUNTIME_DIR the client uses the user bus.
-const systemdClientEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'XDG_RUNTIME_DIR' || !process.env.DBUS_SESSION_BUS_ADDRESS));
+const systemdClientEnv = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([name]) => name !== 'XDG_RUNTIME_DIR' || !process.env.DBUS_SESSION_BUS_ADDRESS)), ...(process.env.DBUS_SESSION_BUS_ADDRESS && { DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid()}/bus` }) });
 const systemctl = (stderr, ...args) => Bun.spawnSync(['systemctl', '--user', ...args], { stdin: 'ignore', stdout: 'pipe', stderr, env: systemdClientEnv() });
 function setSlice(slice, ...properties) {
   return systemctl('inherit', 'set-property', '--runtime', slice, ...properties).exitCode === 0;
@@ -768,11 +765,11 @@ function cpuAccounting(root, leases, now) {
 }
 
 // Held batch wrappers wait in arrival order; a ticket whose wrapper died is dropped.
-function enqueue(root, className, requestedClass, owner, timeoutSeconds) {
+function enqueue(root, className, requestedClass, owner, timeoutSeconds, starts) {
   ensureState(root);
   const name = `${String(Date.now()).padStart(15, '0')}-${crypto.randomUUID()}.json`;
   writeFileSync(join(root, 'queue', name), `${JSON.stringify({
-    ...wrapperIdentity(), class: className, requestedClass, owner, timeoutSeconds,
+    ...wrapperIdentity(), class: className, requestedClass, owner, timeoutSeconds, ...starts,
   })}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   return name;
 }
@@ -860,7 +857,7 @@ function decision(root, requested, create, ticket = null) {
     const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
     const quietOwners = runs.filter(lease => lease.class === 'native' && lease.quiet).map(lease => lease.owner);
     const { reason: code, ...advice } = admission({
-      ...signals, ...gpu, profile, class: admittedClass(requested), gamingClass: requested.name, queuedAheadClasses: ahead.map(entry => entry.requestedClass), leasedMemoryMiB: leased.memoryMiB,
+      ...signals, ...gpu, profile, class: admittedClass(requested), gamingClass: requested.name, queuedAheadClasses: ahead.map(entry => entry.requestedClass), queuedAheadNewClients: ahead.map(entry => entry.newClients), leasedMemoryMiB: leased.memoryMiB,
       leasedBatchCpus: round(committedBatchCpus - (unleased?.cores ?? 0)), leasedNativeCpus: committedNativeCpus, unleasedHeavyCores: unleased?.cores ?? 0,
       requestedCpus: granted.cpus, requestedMemoryMiB: granted.memoryMiB,
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
@@ -1013,7 +1010,7 @@ function status(root) {
         position: index + 1,
         owner: ticket.owner ?? null,
         class: ticket.class ?? null,
-        waitingSeconds: seconds(now - ticket.queuedAt),
+        waitingSeconds: seconds(now - ticket.queuedAt), newClients: ticket.newClients, newDesktops: ticket.newDesktops,
         ...(ticket.class === 'exclusive' ? { waitingFor: draining } : {}),
       })),
       unleasedHeavy: accounting.unleased,
@@ -1046,7 +1043,7 @@ function leaseChange(root, milliseconds) {
 async function admit(root, requested, create) {
   if (!batchClass(requested.name) && requested.waitSeconds === undefined) return decision(root, requested, create);
   const queuedAt = Date.now();
-  const ticket = enqueue(root, admittedClass(requested), requested.name, create.owner, create.timeoutSeconds);
+  const ticket = enqueue(root, admittedClass(requested), requested.name, create.owner, create.timeoutSeconds, { newClients: requested.newClients, newDesktops: requested.newDesktops });
   const leave = signal => () => {
     dequeue(root, ticket);
     process.exit(128 + ({ SIGHUP: 1, SIGINT: 2, SIGTERM: 15 })[signal]);
@@ -1099,7 +1096,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
   const stop = () => systemctl('ignore', 'stop', unit);
   try {
     const child = Bun.spawn([
-      ...(process.env.NORTH_FLEET_SCOPE ? [northCommand, 'session-unit'] : ['systemd-run']), '--user', '--scope', '--quiet', '--collect', '--expand-environment=no', ...(process.env.XDG_RUNTIME_DIR && process.env.DBUS_SESSION_BUS_ADDRESS ? [`--setenv=XDG_RUNTIME_DIR=${process.env.XDG_RUNTIME_DIR}`] : []),
+      ...(process.env.NORTH_FLEET_SCOPE ? [northCommand, 'session-unit'] : ['systemd-run']), '--user', '--scope', '--quiet', '--collect', '--expand-environment=no', ...(process.env.XDG_RUNTIME_DIR && process.env.DBUS_SESSION_BUS_ADDRESS ? [`--setenv=XDG_RUNTIME_DIR=${process.env.XDG_RUNTIME_DIR}`, `--setenv=DBUS_SESSION_BUS_ADDRESS=${process.env.DBUS_SESSION_BUS_ADDRESS}`] : []),
       `--unit=${unit}`,
       `--slice=${leaseSlice(requested.name)}`,
       // A quota-throttled game client stalls for the rest of each period.

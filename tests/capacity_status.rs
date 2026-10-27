@@ -9,6 +9,7 @@ fn capacity_status_writes_json_to_stdout() {
         .arg("status")
         .env("XDG_RUNTIME_DIR", scratch.path())
         .env("XDG_STATE_HOME", scratch.path())
+        .env("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north"))
         .env("AGENT_CAPACITY_DB", scratch.path().join("capacity.db"))
         .env("CAPACITY_WATCHDOG_DIR", scratch.path().join("no-watchdog"))
         .output()

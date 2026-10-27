@@ -565,7 +565,7 @@ consumers = ["src/capacity/admission.rs"]
 [vram_client_mib]
 value = 1310
 unit = "MiB of NVIDIA VRAM one Warcraft client holds with its BlizzardBrowser and error-reporter processes"
-source = "measured: 2026-10-27 on gex45 with 6 clients, nvidia-smi --query-compute-apps showed Warcraft III.exe at 544 to 864 MiB, BlizzardBrowser.exe at 363 to 405 MiB and the error reporter at 41 MiB; FB Used was 7837 MiB, 1306 MiB per client (north#259)"
+source = "measured: 2026-10-27 on the GPU host with 6 clients, nvidia-smi --query-compute-apps showed Warcraft III.exe at 544 to 864 MiB, BlizzardBrowser.exe at 363 to 405 MiB and the error reporter at 41 MiB; FB Used was 7837 MiB, 1306 MiB per client (north#259)"
 fallback = "none; the measured client cap counts free VRAM in these steps"
 consumers = ["src/capacity/admission.rs"]
 

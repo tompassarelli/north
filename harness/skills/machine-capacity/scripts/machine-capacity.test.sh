@@ -23,7 +23,7 @@ user_runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 export AGENT_CAPACITY_CPU_PRESSURE="$scratch/cpu.pressure" AGENT_CAPACITY_LOADAVG=/dev/null AGENT_CAPACITY_NVIDIA_MEMORY=/dev/null
 calm_pressure() { printf 'some avg10=%s avg60=0.00 avg300=0.00 total=0\n' "$1" >"$AGENT_CAPACITY_CPU_PRESSURE"; }
 calm_pressure 0.00
-export AGENT_CAPACITY_GPU_BUSY="$scratch/gpu-busy" AGENT_CAPACITY_GPU_CLIENTS=0 AGENT_CAPACITY_USAGE_LOG="$scratch/usage.jsonl" CAPACITY_WATCHDOG_DIR="$scratch/no-watchdog"
+export AGENT_CAPACITY_GPU_BUSY="$scratch/gpu-busy" AGENT_CAPACITY_GPU_CLIENTS=0 AGENTS_ORCHESTRATION=/dev/null AGENT_CAPACITY_USAGE_LOG="$scratch/usage.jsonl" CAPACITY_WATCHDOG_DIR="$scratch/no-watchdog"
 echo 0 >"$AGENT_CAPACITY_GPU_BUSY"
 
 "$here/build-machine-capacity" "$scratch/machine-capacity.mjs"
