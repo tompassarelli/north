@@ -24,7 +24,7 @@ const NEAR_MISSES: &[&str] = &[
     "kill -9 1234",
     "pkill -u tom scoped",
     "systemctl --user restart wob.service",
-    "run-bounded 30m -- bun /tmp/task.mjs",
+    "north run-bounded 30m -- bun /tmp/task.mjs",
     "bun task > /tmp/task.log 2>&1",
     "kill -9 1234 2>/dev/null &>/dev/null",
     "bun /tmp/claude-1000/proj/session/scratchpad/check.ts",

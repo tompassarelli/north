@@ -65,17 +65,18 @@ expect_allow "$(stop_input "$running")" 'shell whose output no process holds all
 expect_allow "$(stop_input "$(fixture plain "$plain")")" 'no background tasks allows'
 expect_allow "$(stop_input "$SCRATCH/subagents/missing.jsonl")" 'unreadable transcript allows'
 
-mkdir -p "$SCRATCH/bin" && cp "$HERE/../../bin/job-run" "$SCRATCH/bin/"
-printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s/north.log"\n' "$SCRATCH" >"$SCRATCH/bin/north" && chmod +x "$SCRATCH/bin/north"
-env -u XDG_STATE_HOME HOME="$SCRATCH" NORTH_FLEET_SESSION=c-test "$SCRATCH/bin/job-run" --notify soak -- \
+NORTH_BIN="${NORTH_PACE_BIN:-$(cd "$HERE/../.." && realpath "${CARGO_TARGET_DIR:-target}")/debug/north}"
+outbox="$SCRATCH/.local/state/north/fleet/.outbox"
+mkdir -p "$outbox" && printf 'fleet-host\n' >"$outbox/relay"
+env -u XDG_STATE_HOME HOME="$SCRATCH" NORTH_FLEET_SESSION=c-test "$NORTH_BIN" job-run --notify soak -- \
   sh -c "until [ -f '$SCRATCH/release' ]; do sleep 0.1; done" >"$SCRATCH/tasks/bjob0001.output" 2>&1
-job_start="$(printf '%s' "$shell_start" | sed 's/sleep 600/job-run --notify soak -- sh/; s/bshell001/bjob0001/g')"
+job_start="$(printf '%s' "$shell_start" | sed 's/sleep 600/north job-run --notify soak -- sh/; s/bshell001/bjob0001/g')"
 expect_allow "$(stop_input "$(fixture jobrun "$job_start")")" 'a job-run --notify task allows'
-sent() { grep -q '^fleet send c-test job-run: soak exited 0' "$SCRATCH/north.log" 2>/dev/null; }
+sent() { grep -qs 'job-run: soak exited 0' "$outbox"/*.json; }
 sent && check bad 'the job-run job outlives the stop' "sent before release" || check ok 'the job-run job outlives the stop'
 : >"$SCRATCH/release"
 for _ in $(seq 100); do sent && break; sleep 0.1; done
-sent && check ok 'the job-run job sends its exit' || check bad 'the job-run job sends its exit' "$(cat "$SCRATCH/north.log" 2>&1)"
+sent && check ok 'the job-run job sends its exit' || check bad 'the job-run job sends its exit' "$(cat "$outbox"/*.json 2>&1)"
 
 printf 'subagent-teardown: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

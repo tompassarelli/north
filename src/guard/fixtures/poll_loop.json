@@ -47,5 +47,5 @@
   ["echo 'sleep 300; until x; do sleep 9; done'", null, "allow"],
   ["cat <<'EOF'\nsleep 300\nEOF", null, "allow"],
   ["git log --oneline -5 && cargo check", null, "allow"],
-  ["job-run --notify soak -- sleep 900", null, "allow"]
+  ["north job-run --notify soak -- sleep 900", null, "allow"]
 ]

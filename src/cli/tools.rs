@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use crate::landing::{denylist, lane_target, mutant_cli};
+use crate::landing::{denylist, instruction_check, lane_target, mutant_cli};
 use crate::{
     autoland_status, capacity, dep_gate, follows_release, issue_box_lint, land_abandon, provenance,
     review_gate,
@@ -8,7 +8,7 @@ use crate::{
 
 type Run = fn(&[String]) -> u8;
 
-const UNIFORM: [(&str, Run); 20] = [
+const UNIFORM: &[(&str, Run)] = &[
     ("dep-gate", dep_gate::run),
     ("review-gate", review_gate::run),
     ("denylist", denylist::run),
@@ -20,6 +20,9 @@ const UNIFORM: [(&str, Run); 20] = [
     ("provenance", provenance::run),
     ("issue-box-lint", issue_box_lint::run),
     ("follows-release", follows_release::run),
+    ("agent-instruction-check", instruction_check::run),
+    ("job-run", crate::ops::job_run::run),
+    ("run-bounded", crate::ops::run_bounded::run),
     ("cloud", super::cloud::run),
     ("worktree-layout-check", crate::lanes::layout_check),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),

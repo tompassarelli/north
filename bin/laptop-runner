@@ -3,7 +3,8 @@ set -uo pipefail
 
 placement=${LAPTOP_RUNNER_PLACEMENT:-laptop}
 poll=${LAPTOP_RUNNER_POLL:-30}
-"$(dirname "$0")/agent-contain" sweep || true; "$(dirname "$0")/north" private-desktop reap || true
+north=${NORTH_BIN:-$(dirname "$0")/north}
+"$(dirname "$0")/agent-contain" sweep || true; "$north" private-desktop reap || true
 lock="${XDG_RUNTIME_DIR:-/tmp}/laptop-runner.lock"
 exec 9>"$lock"
 flock -n 9 || exit 0
@@ -44,7 +45,7 @@ while where=$(places) && [ -n "$where" ] && job=$(threads queue take "$where") &
   id=$(jq -r .id <<<"$job")
   mapfile -d '' -t cmd < <(jq -j '.cmd[] + "\u0000"' <<<"$job")
   log="$logs/queue-$id.log"
-  setsid job-run "queue-$id" -- "${cmd[@]}" >"$log" 2>&1 &
+  setsid "$north" job-run "queue-$id" -- "${cmd[@]}" >"$log" 2>&1 &
   pid=$!
   stopped=0
   while kill -0 "$pid" 2>/dev/null; do
