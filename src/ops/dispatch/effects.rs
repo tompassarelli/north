@@ -23,7 +23,7 @@ pub(crate) fn session_name(launch: &Launch, at: f64) -> String {
 
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
 /// a laptop job that runs it there.
-pub(crate) fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> (String, Vec<String>) {
+pub(crate) fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> Result<(String, Vec<String>), String> {
     let directory = format!("{home}/code/{}/main", launch.item.repo);
     let remote = launch.host != survey.here && survey.laptop.as_deref() != Some(launch.host.as_str());
     let cwd = if remote { format!("{}:{directory}", launch.host) } else { directory };
@@ -31,6 +31,7 @@ pub(crate) fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, 
     let mut words: Vec<String> = ["fleet", "launch", "--provider", provider, "--account", label, "--name", name, "--task", &launch.item.to_string(), "--cwd", &cwd]
         .map(str::to_owned)
         .into();
+    words.extend(launch.route.tier.invocation(&survey.cfg)?);
     let held = (!remote && launch.local.is_none()).then(|| format!("north dispatch placed this box on {}", launch.host));
     for (flag, reason) in [("--local", launch.local.as_ref().or(held.as_ref())), ("--pin", launch.pin.as_ref())] {
         if let Some(reason) = reason {
@@ -41,9 +42,9 @@ pub(crate) fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, 
     if survey.laptop.as_deref() == Some(launch.host.as_str()) {
         let mut queued = ["queue", "add", "laptop", &launch.item.to_string(), "--", "north"].map(str::to_owned).to_vec();
         queued.extend(words);
-        return ("threads".into(), queued);
+        return Ok(("threads".into(), queued));
     }
-    (north.into(), words)
+    Ok((north.into(), words))
 }
 
 pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
@@ -52,7 +53,8 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let result = if launch.cloud {
         let text = brief::cloud(&launch.brief, &launch.item.repo, &cloud::branch(&name));
-        cloud::launch(&launch.item.repo, &name, &text, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run).map(|launched| format!("{name} {} {}", launched.session, launched.branch))
+        let started = launch.route.tier.invocation(&survey.cfg).and_then(|model| cloud::launch(&launch.item.repo, &name, &text, &model, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run));
+        started.map(|launched| format!("{name} {} {}", launched.session, launched.branch))
     } else {
         fleet_launch(launch, &name, survey, &home)
     };
@@ -65,6 +67,9 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
         cloud: launch.cloud,
         launched: result.is_ok(),
         detail: result.clone().unwrap_or_else(|why| why),
+        tier: Some(launch.route.tier.name().to_owned()),
+        category: Some(launch.route.category.clone()),
+        arm: launch.route.arm,
     };
     record::append(&record::directory(), &entry)?;
     result
@@ -72,7 +77,7 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
 
 fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Result<String, String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
-    let (program, words) = command(launch, name, survey, home, &north.to_string_lossy());
+    let (program, words) = command(launch, name, survey, home, &north.to_string_lossy())?;
     let arguments: Vec<&str> = words.iter().map(String::as_str).collect();
     match run_within(&program, &arguments, LAUNCH_WAIT) {
         None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),

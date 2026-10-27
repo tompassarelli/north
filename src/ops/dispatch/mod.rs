@@ -17,15 +17,19 @@ pub(crate) use survey::claim_rows;
 mod brief;
 mod cloud;
 mod effects;
+mod facets;
 mod issues;
 mod plan;
 mod record;
 mod slots;
 mod survey;
+mod tier;
 #[cfg(test)]
 mod frozen_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tier_tests;
 
 const USAGE: &str = "usage: north dispatch [--dry-run]";
 
@@ -68,6 +72,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
     let world = issues::World { open: &survey.open, holds: &survey.holds, planned: &planned, at: survey.at };
+    let mut history = survey.history.clone();
     let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: crate::pace::limits::default("reservation_fallback_points") };
     for issue in ordered(&survey.issues) {
         if let Some(topic) = crate::platform::frozen_topics::matching(&survey.frozen, &issue.repo, &issue.title) {
@@ -79,11 +84,15 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         outcome.ready += 1;
-        let brief = brief::brief(issue, launched_by);
+        let route = tier::route(issue, &history, &survey.ledger);
+        let brief = brief::brief(issue, launched_by, &route);
         let code_only = gate::surface(&brief, &survey.cfg).0;
-        let ready = Ready { item: issue.reference(), brief, code_only };
+        let ready = Ready { item: issue.reference(), brief, code_only, route };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
-            Ok(launch) => outcome.launches.push(launch),
+            Ok(launch) => {
+                history.chose(&launch.route);
+                outcome.launches.push(launch);
+            }
             Err(why) => outcome.skipped.push((ready.item, format!("ready, not placed: {why}"))),
         }
     }
@@ -128,9 +137,10 @@ fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     let mut failures = Vec::new();
     for launch in &outcome.launches {
         let verb = if launch.cloud { "cloud-launch" } else { "launch" };
-        let line = format!("{verb} {} on {} {}", launch.item, launch.host, launch.account);
+        let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
         if dry_run {
-            println!("would {line}{}", launch.local.as_ref().map_or_else(String::new, |why| format!(" ({why})")));
+            let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
+            println!("would {line} ({why})");
             continue;
         }
         match effects::launch(survey, launch) {
@@ -179,7 +189,7 @@ pub(crate) fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path,
     let text = std::fs::read_to_string(brief_file).map_err(|error| format!("{}: {error}", brief_file.display()))?;
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let brief = brief::cloud(&text, repo, &cloud::branch(slug));
-    let launched = cloud::launch(repo, slug, &brief, std::path::Path::new(cloud::SOURCES), std::path::Path::new(&home), &mut cloud::run)?;
+    let launched = cloud::launch(repo, slug, &brief, &[], std::path::Path::new(cloud::SOURCES), std::path::Path::new(&home), &mut cloud::run)?;
     if let Some(item) = &item {
         cloud::hold(item, &launched, &crate::platform::host::name(), &record::directory(), placement::now())?;
     }

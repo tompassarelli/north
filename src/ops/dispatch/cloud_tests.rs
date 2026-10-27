@@ -10,7 +10,7 @@ fn a_cloud_launch_with_an_item_records_it_so_dispatch_holds_that_issue() {
         Ok(if program == "claude" { "Created cloud session: https://claude.ai/code/session_01AbcXyz\n".into() } else { String::new() })
     };
     let item = super::item("smashcraft#7").unwrap();
-    let launched = super::launch("smashcraft", "sc-7", "brief", Path::new(super::SOURCES), home.path(), &mut run).unwrap();
+    let launched = super::launch("smashcraft", "sc-7", "brief", &[], Path::new(super::SOURCES), home.path(), &mut run).unwrap();
     super::hold(&item, &launched, "nexus", pace.path(), 1_000.0).unwrap();
 
     let holds = record::holds(&record::read(pace.path()), 1_000.0 + 3600.0);

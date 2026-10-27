@@ -22,6 +22,15 @@ serves = ["native", "warcraft", "sign-ins", "laptop"]
 order = ["gex45", "anthropic-cloud", "nexus", "laptop"]
 [accounts.claude]
 profiles = { a = { nexus = {}, whiterabbit = {} }, b = { gex45 = {} } }
+[tiers."claude:haiku"]
+model = "claude-haiku-5-5"
+effort = "high"
+[tiers."claude:sonnet-high"]
+model = "claude-sonnet-5-5"
+effort = "high"
+[tiers."claude:opus-medium"]
+model = "claude-opus-5-5"
+effort = "medium"
 "#;
 
 fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
@@ -55,6 +64,8 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         cloud_running: 0,
         notes: Vec::new(),
         frozen: Vec::new(),
+        history: super::tier::History::default(),
+        ledger: BTreeMap::new(),
         at: 0.0,
     }
 }
@@ -291,7 +302,7 @@ fn tom_hears_once_only_when_ready_work_and_free_slots_coexist_and_nothing_launch
 
 #[test]
 fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
-    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new() };
+    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false };
     let now = 100_000.0;
     let records = vec![entry("smashcraft#1", now - 600.0), entry("smashcraft#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
     let holds = record::holds(&records, now);
@@ -434,12 +445,13 @@ fn a_box_launched_on_the_laptop_or_here_is_held_to_that_host_and_a_remote_one_na
         host: host.into(),
         account: "claude:c".into(),
         brief: "brief".into(),
+        route: super::tier_tests::route(super::tier::Tier::Opus),
         cloud: false,
         local: local.map(str::to_owned),
         pin: None,
     };
     let local = |host: &str, given: Option<&str>| {
-        let (_, words) = super::effects::command(&launch(host, given), "sc-7", &survey, "/home/tom", "north");
+        let (_, words) = super::effects::command(&launch(host, given), "sc-7", &survey, "/home/tom", "north").unwrap();
         let at = words.iter().position(|word| word == "--local");
         (words.iter().any(|word| word.starts_with(&format!("{host}:"))), at.map(|at| words[at + 1].clone()))
     };
@@ -454,7 +466,7 @@ fn an_autoland_cloud_launch_runs_from_its_repo_checkout_with_trust_written_and_a
     let home = tempfile::tempdir().unwrap();
     let config = home.path().join(".claude.json");
     std::fs::write(&config, r#"{"oauthAccount":{"organizationUuid":"org"},"projects":{"/elsewhere":{"hasTrustDialogAccepted":true}}}"#).unwrap();
-    let box_brief = super::brief::brief(&issue("smashcraft", 60, "- [ ] a\nSurface: rust", &[]), "test");
+    let box_brief = super::brief::brief(&issue("smashcraft", 60, "- [ ] a\nSurface: rust", &[]), "test", &super::tier_tests::route(super::tier::Tier::Opus));
     let text = super::brief::cloud(&box_brief, "smashcraft", &super::cloud::branch("sc-60-d1200"));
     let mut calls: Vec<(String, String, Vec<String>)> = Vec::new();
     let mut trusted_at_launch = None;
@@ -467,7 +479,7 @@ fn an_autoland_cloud_launch_runs_from_its_repo_checkout_with_trust_written_and_a
         }
         Ok(String::new())
     };
-    let launched = super::cloud::launch("smashcraft", "sc-60-d1200", &text, std::path::Path::new(super::cloud::SOURCES), home.path(), &mut run).unwrap();
+    let launched = super::cloud::launch("smashcraft", "sc-60-d1200", &text, &[], std::path::Path::new(super::cloud::SOURCES), home.path(), &mut run).unwrap();
 
     assert_eq!(launched, super::cloud::Launched { session: "session_01AbcXyz".into(), branch: "claude/land-sc-60-d1200".into(), directory: "/tmp/cloud/src/smashcraft".into() });
     assert_eq!(trusted_at_launch, Some(serde_json::Value::Bool(true)), "trust is written before claude --cloud starts");
@@ -515,7 +527,7 @@ fn a_north_cloud_brief_pushes_its_land_branch_for_a_courier_and_does_not_close_t
 #[test]
 fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
     let now = 100_000.0;
-    let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new() };
+    let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false };
     let records = vec![cloud("smashcraft#7", now - 5.0 * 3600.0), cloud("smashcraft#8", now - 7.0 * 3600.0)];
     let holds = record::holds(&records, now);
     assert!(holds.contains_key(&IssueRef::new("smashcraft", 7)) && !holds.contains_key(&IssueRef::new("smashcraft", 8)));
@@ -533,14 +545,14 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
     std::fs::write(&claude, "#!/bin/sh\n[ -t 0 ] && [ -t 1 ] && [ -t 2 ] || exit 1\nprintf '\\033[1mCreated\\033[0m session_01Test\\n'\n").unwrap();
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut run = |cwd: &std::path::Path, program: &str, args: &[String]| if program == "git" { Ok(String::new()) } else { super::cloud::run_from(cwd, program, &claude, args) };
-    let launched = super::cloud::launch("wisp", "wisp-9-d1200", "brief", home.path(), home.path(), &mut run);
+    let launched = super::cloud::launch("wisp", "wisp-9-d1200", "brief", &[], home.path(), home.path(), &mut run);
 
     assert_eq!(launched.map(|launched| launched.session), Ok("session_01Test".to_owned()));
 }
 
 #[test]
 fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
-    let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into() };
+    let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false };
     let now = 100_000.0;
     let records = vec![failed("smashcraft#9", now - 3600.0), failed("smashcraft#9", now - 1800.0), failed("wisp#4", now - 300.0)];
     let holds = record::holds(&records, now);

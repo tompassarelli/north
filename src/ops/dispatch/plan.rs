@@ -3,6 +3,7 @@
 use super::issues::IssueRef;
 use super::cloud::{HOST, SESSIONS};
 use super::slots::{Account, Pools};
+use super::tier::Route;
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +21,7 @@ pub(crate) struct Ready {
     pub item: IssueRef,
     pub brief: String,
     pub code_only: bool,
+    pub route: Route,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +30,7 @@ pub(crate) struct Launch {
     pub host: String,
     pub account: String,
     pub brief: String,
+    pub route: Route,
     /// Started in the cloud lane from this host rather than through `north fleet launch`.
     pub cloud: bool,
     /// Why the box runs here instead of the cloud lane, recorded as `--local`.
@@ -98,6 +101,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
         host: host.into(),
         account: account.name.clone(),
         brief: ready.brief.clone(),
+        route: ready.route.clone(),
         cloud: false,
         local,
         pin,
@@ -112,7 +116,7 @@ pub(crate) fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate]
             Cloud::Reachable(credit) => {
                 if pools.take_cloud() {
                     let account = format!("claude login on {}", capacity.here);
-                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), cloud: true, local: None, pin: None });
+                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None });
                 }
                 local = Some(format!("north dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
             }

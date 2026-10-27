@@ -81,14 +81,15 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
-pub(crate) fn launch(repo: &str, slug: &str, brief: &str, sources: &Path, home: &Path, run: &mut Run) -> Result<Launched, String> {
+pub(crate) fn launch(repo: &str, slug: &str, brief: &str, model: &[String], sources: &Path, home: &Path, run: &mut Run) -> Result<Launched, String> {
     let directory = sources.join(repo);
     let fresh = !directory.join(".git").exists();
     for step in checkout_steps(repo, &directory, fresh) {
         run(Path::new("/"), "git", &step).map_err(|why| format!("git {}: {why}", step.join(" ")))?;
     }
     trust(&home.join(".claude.json"), &directory)?;
-    let printed = run(&directory, "claude", &["--cloud".to_owned(), brief.to_owned()]).map_err(|why| format!("claude --cloud: {why}"))?;
+    let arguments: Vec<String> = model.iter().cloned().chain(["--cloud".to_owned(), brief.to_owned()]).collect();
+    let printed = run(&directory, "claude", &arguments).map_err(|why| format!("claude --cloud: {why}"))?;
     let session = SESSION.find(&printed).map(|found| found.as_str().to_owned()).ok_or_else(|| format!("claude --cloud printed no session_ ID: {}", printed.trim()))?;
     Ok(Launched { session, branch: branch(slug), directory })
 }
@@ -99,7 +100,7 @@ pub(crate) fn item(text: &str) -> Result<IssueRef, String> {
 
 pub(crate) fn hold(item: &IssueRef, launched: &Launched, here: &str, pace: &Path, at: f64) -> Result<(), String> {
     let detail = format!("north cloud launch {} {}", launched.session, launched.branch);
-    let entry = Record { at, item: item.to_string(), host: HOST.into(), account: format!("claude login on {here}"), name: launched.session.clone(), cloud: true, launched: true, detail };
+    let entry = Record { at, item: item.to_string(), host: HOST.into(), account: format!("claude login on {here}"), name: launched.session.clone(), cloud: true, launched: true, detail, tier: None, category: None, arm: false };
     record::append(pace, &entry)
 }
 

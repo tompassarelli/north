@@ -5,6 +5,7 @@ use super::issues::{self, Issue, IssueRef, OWNER};
 use super::plan::Cloud;
 use super::record;
 use super::slots::{Account, Host, Room};
+use super::tier::{self, Evidence, History};
 use crate::fleet::model::ProviderName;
 use crate::fleet::roster::{Roster, Standing};
 use crate::pace::exhaustion;
@@ -40,6 +41,10 @@ pub(crate) struct Survey {
     pub cloud_running: i64,
     pub notes: Vec<String>,
     pub frozen: Vec<crate::platform::frozen_topics::Topic>,
+    /// Dispatch's earlier launches by tier, which a Haiku retry and the next arm read.
+    pub history: History,
+    /// `worker-ledger --recommend` for each armed category.
+    pub ledger: BTreeMap<String, Evidence>,
     pub at: f64,
 }
 
@@ -319,6 +324,22 @@ pub(crate) fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispa
     i64::try_from(listed).unwrap_or(i64::MAX).max(dispatched)
 }
 
+/// What the ledger recommends for each armed category, read with only its Category so the cell is the category.
+fn ledger(notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
+    let mut found = BTreeMap::new();
+    for category in tier::ARMED {
+        let facets = format!("Category: {category}");
+        let program = crate::fleet::runtime::binary("worker-ledger");
+        match run_within(&program.to_string_lossy(), &["--recommend", &facets], PROBE) {
+            Some(output) if output.status.success() => {
+                found.insert(category.to_owned(), Evidence::parse(&String::from_utf8_lossy(&output.stdout), category));
+            }
+            _ => notes.push(format!("worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
+        }
+    }
+    found
+}
+
 pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let cfg = placement::config()?;
     let here = crate::platform::host::name();
@@ -348,13 +369,15 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     if accounts.is_empty() {
         notes.push("pace-control.json names no account, so no slot is free".into());
     }
+    let history = History::new(&records);
+    let ledger = ledger(&mut notes);
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
     let frozen = crate::platform::frozen_topics::load().unwrap_or_else(|why| {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, at })
+    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, ledger, at })
 }
 
 mod github {

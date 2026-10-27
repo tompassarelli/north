@@ -25,6 +25,13 @@ pub(crate) struct Record {
     pub cloud: bool,
     pub launched: bool,
     pub detail: String,
+    /// The tier it launched on, its category and whether it ran as an arm of the Sonnet-Opus comparison.
+    #[serde(default)]
+    pub tier: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub arm: bool,
 }
 
 fn hold(record: &Record) -> f64 {

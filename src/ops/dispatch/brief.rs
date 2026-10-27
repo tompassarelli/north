@@ -1,43 +1,21 @@
 //! The brief a dispatched worker starts from: the issue's Item, Category and facets, read from its
 //! body or defaulted, and the generic Done when every dispatched box shares.
 use super::issues::{Issue, OWNER};
+use super::facets::{FACETS, declared, facet, native};
+use super::tier::{Route, Tier};
 
-const FACETS: [(&str, &str); 5] = [("Category", "feature"), ("Spec", "exact"), ("Scope", "module"), ("Surface", "ts"), ("Verify", "local-test")];
-const NATIVE_LABELS: [&str; 3] = ["needs:native-pair", "needs:native-single", "evidence:native"];
+const HAIKU_WAIT: &str = " Run any command that may take over a minute in the background and wait for its exit with Monitor; never end your turn while a run you started is still going.";
 pub(crate) const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
-
-fn declared<'a>(issue: &'a Issue, key: &str) -> Option<&'a str> {
-    issue.body.lines().find_map(|line| {
-        let (name, value) = line.trim().trim_start_matches(['-', '*', ' ']).split_once(':')?;
-        let value = value.trim().trim_matches('`');
-        (name.trim().trim_matches('*').eq_ignore_ascii_case(key) && !value.is_empty()).then_some(value)
-    })
-}
-
-/// A box needs a native lane when a label says so or an unticked Done-when box is tagged `(native)`.
-fn native(issue: &Issue) -> bool {
-    issue.labelled(&NATIVE_LABELS).is_some()
-        || issue.body.lines().any(|line| {
-            let line = line.trim_start();
-            line.strip_prefix("- [ ]").or_else(|| line.strip_prefix("* [ ]")).is_some_and(|rest| rest.trim_start().starts_with("(native"))
-        })
-}
-
-fn facet(issue: &Issue, key: &str, default: &str) -> String {
-    let native = native(issue);
-    match (key, declared(issue, key)) {
-        (_, Some(value)) => value.to_owned(),
-        ("Verify", None) if native => "native".into(),
-        _ => default.into(),
-    }
-}
 
 /// The brief for one ready issue; its first block, before the blank line, is what placement and
 /// routing read.
-pub(crate) fn brief(issue: &Issue, launched_by: &str) -> String {
+pub(crate) fn brief(issue: &Issue, launched_by: &str, route: &Route) -> String {
     let reference = issue.reference();
     let mut head = vec![format!("Item: {reference} {}", issue.title), format!("Repository: {OWNER}/{}", issue.repo)];
-    head.extend(FACETS.iter().map(|(key, default)| format!("{key}: {}", facet(issue, key, default))));
+    head.extend(FACETS.iter().map(|(key, _)| format!("{key}: {}", facet(issue, key))));
+    head.push(format!("Tier: {}", route.tier.name()));
+    head.extend(route.arm.then(|| format!("Arm: {}", route.tier.name())));
+    head.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
     let needs = declared(issue, "Needs").map(str::to_owned).or_else(|| native(issue).then(|| "native".to_owned()));
     head.extend(needs.map(|needs| format!("Needs: {needs}")));
     head.push(format!(
@@ -50,10 +28,11 @@ pub(crate) fn brief(issue: &Issue, launched_by: &str) -> String {
          Read it with `gh issue view {} -R {OWNER}/{}` and work its unticked Done-when boxes; each box's evidence is an observation outside you. \
          Claim it with `threads claim {reference}` first, and stop with `Not done:` if someone else holds it. \
          Load the skills the issue's work needs, edit in a worktree, land through safe-push, tick each box with its evidence and close the issue with the SHA on origin/main. \
-         End with Done:, Not done: or Split:, and Stop: with its reason.",
+         End with Done:, Not done: or Split:, and Stop: with its reason.{}",
         head.join("\n"),
         issue.number,
         issue.repo,
+        if route.tier == Tier::Haiku { HAIKU_WAIT } else { "" },
     )
 }
 
