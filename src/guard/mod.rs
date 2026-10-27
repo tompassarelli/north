@@ -8,6 +8,7 @@ pub mod issue_labels;
 pub mod blind_stage;
 pub mod reviewer_cli;
 pub mod shell_call;
+pub mod sops_decrypt;
 mod git_invocation;
 #[cfg(test)]
 mod git_tests;

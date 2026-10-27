@@ -18,6 +18,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | Native evidence uses the batch planner; solo exceptions record their reason in the run ledger, and quiet leases belong to timing batches | `north-hook` | Claude, Codex |
 | No gh write that names a native threads item or quotes its text | `native-item-guard` | Claude, Codex |
 | No bulk Git staging or automatic commit staging; enumerate paths | `north-hook` | Claude, Codex |
+| Keep secrets out of output: `sops decrypt` or `sops -d` output never reaches the terminal; extract one value into a pipe or send the output to a file | `north-hook` (sops-decrypt) | Claude, Codex |
 | No recursive grep or find tree searches; use rg or fd | `modern-search-guard` | Claude, Codex |
 | No recursive searches of virtual filesystems or repository containers | `resource-safe-search-guard` | Codex |
 | No session-wide kills, user-manager teardown (also inside an ssh remote command) or unmanaged background child launches | `session-kill-guard` | Claude, Codex |
