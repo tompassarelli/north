@@ -12,6 +12,7 @@ use survey::{REPOS, Survey};
 
 pub(crate) use cloud::{autoland as cloud_autoland, branch as cloud_branch};
 pub(crate) use fleets::holder as task_holder;
+pub(crate) use manual::{Ask, Start, begin as start_hand};
 #[cfg(test)]
 pub(crate) use survey::claim_rows;
 
@@ -22,6 +23,9 @@ mod facets;
 mod fleets;
 mod handoff;
 mod issues;
+mod manual;
+#[cfg(test)]
+mod manual_tests;
 mod measure;
 mod plan;
 mod record;

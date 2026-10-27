@@ -66,15 +66,17 @@ impl LaunchRequest {
     /// in the prompt or else in the `.md` brief at an absolute path the prompt names, so a session
     /// launched without `--task` still holds its issue.
     pub fn task(&self) -> Option<String> {
-        self.task_ref.clone().or_else(|| first_item_issue(&self.prompt)).or_else(|| {
-            let brief = self
-                .prompt
-                .split_whitespace()
-                .map(|word| word.trim_start_matches(|c: char| "\"'`(<[".contains(c)).trim_end_matches(|c: char| "\"'`)>],;:.".contains(c)))
-                .map(Path::new)
-                .find(|path| path.is_absolute() && path.extension().is_some_and(|ext| ext == "md") && path.is_file())?;
-            first_item_issue(&std::fs::read_to_string(brief).ok()?)
-        })
+        self.task_ref.clone().or_else(|| first_item_issue(&self.prompt)).or_else(|| first_item_issue(&self.named_brief()?))
+    }
+
+    pub fn named_brief(&self) -> Option<String> {
+        let brief = self
+            .prompt
+            .split_whitespace()
+            .map(|word| word.trim_start_matches(|c: char| "\"'`(<[".contains(c)).trim_end_matches(|c: char| "\"'`)>],;:.".contains(c)))
+            .map(Path::new)
+            .find(|path| path.is_absolute() && path.extension().is_some_and(|ext| ext == "md") && path.is_file())?;
+        std::fs::read_to_string(brief).ok()
     }
 }
 

@@ -75,6 +75,7 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
         category: Some(launch.route.category.clone()),
         arm: launch.route.arm,
         handoff: launch.handoff.clone(),
+        hand: false,
     };
     record::append(&record::directory(), &entry)?;
     result

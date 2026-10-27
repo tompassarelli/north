@@ -34,6 +34,8 @@ pub(crate) struct Record {
     pub arm: bool,
     #[serde(default)]
     pub handoff: Option<String>,
+    #[serde(default)]
+    pub hand: bool,
 }
 
 fn hold(record: &Record) -> f64 {
@@ -62,7 +64,7 @@ pub(crate) fn append(directory: &Path, record: &Record) -> Result<(), String> {
 /// decide whether those tries count.
 pub(crate) fn contested(records: &[Record], at: f64) -> Vec<&Record> {
     let mut started: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
-    for record in records.iter().filter(|record| record.launched && !record.cloud && at - record.at < RETRY_WINDOW_S) {
+    for record in records.iter().filter(|record| record.launched && !record.cloud && !record.hand && at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
             started.entry(item).or_default().push(record);
         }
@@ -75,7 +77,7 @@ pub(crate) fn contested(records: &[Record], at: f64) -> Vec<&Record> {
 /// no work on the item is no try.
 pub(crate) fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>) -> BTreeMap<IssueRef, String> {
     let mut tries: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
-    for record in records.iter().filter(|record| at - record.at < RETRY_WINDOW_S) {
+    for record in records.iter().filter(|record| !record.hand && at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
             tries.entry(item).or_default().push(record);
         }
@@ -104,7 +106,7 @@ pub(crate) fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, Stri
 /// sessions dispatch holds them for, which may not show in any fleet list yet.
 pub(crate) fn launching(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
     let mut newest: BTreeMap<IssueRef, &Record> = BTreeMap::new();
-    for record in records {
+    for record in records.iter().filter(|record| !record.hand) {
         if let Some(item) = IssueRef::parse(&record.item)
             && newest.get(&item).is_none_or(|seen| seen.at <= record.at)
         {
@@ -117,6 +119,6 @@ pub(crate) fn launching(records: &[Record], at: f64) -> BTreeMap<IssueRef, Strin
 /// Sessions dispatched to `host` in the last three hours, six for the cloud lane, whose issue is
 /// still open: the laptop and cloud lane counts, since no host here can list their sessions.
 pub(crate) fn recent_on(records: &[Record], host: &str, open: &BTreeSet<IssueRef>, at: f64) -> i64 {
-    let live = |record: &&Record| record.launched && record.host == host && at - record.at < if record.cloud { CLOUD_HOLD_S } else { LAPTOP_SHOW_S };
+    let live = |record: &&Record| record.launched && !record.hand && record.host == host && at - record.at < if record.cloud { CLOUD_HOLD_S } else { LAPTOP_SHOW_S };
     records.iter().filter(live).filter(|record| IssueRef::parse(&record.item).is_some_and(|item| open.contains(&item))).count() as i64
 }

@@ -21,7 +21,7 @@ fn fixture(root: &Path, trace: &str) {
     for directory in [&op, &agents, &profile, &root.join("bin"), &root.join("units")] {
         fs::create_dir_all(directory).unwrap();
     }
-    fs::write(op.join("orchestration.toml"), "[placement]\nprivate_repos = []\n[hosts.here]\nserves = [\"warcraft\"]\n").unwrap();
+    fs::write(op.join("orchestration.toml"), "[placement]\nprivate_repos = []\n[hosts.here]\nserves = [\"warcraft\"]\n[tiers.\"claude:haiku\"]\nmodel = \"claude-haiku-5-5\"\neffort = \"high\"\n[tiers.\"claude:sonnet-high\"]\nmodel = \"claude-sonnet-5-5\"\neffort = \"high\"\n[tiers.\"claude:opus-medium\"]\nmodel = \"claude-opus-5-5\"\neffort = \"medium\"\n").unwrap();
     fs::write(profile.join(".credentials.json"), "{}").unwrap();
     let windows = serde_json::json!([{"window": "5h", "used_pct": 10.0, "burn_pct_h": 1.0, "resets_at": "2026-10-16T16:00:00Z"}]);
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"controls": {"claude:a": {"windows": windows}}}}).to_string()).unwrap();
@@ -307,4 +307,45 @@ fn a_second_task_launch_on_a_held_item_is_refused_unless_it_says_why_it_runs_bes
     assert!(forced.status.success(), "{}", String::from_utf8_lossy(&forced.stderr));
     let show: Value = serde_json::from_slice(&show.stdout).unwrap();
     assert!(show["placement"].as_str().is_some_and(|note| note.contains("dup: a second judge of the same capture")), "{show}");
+}
+
+fn launch_task(root: &Path, category: &str, extra: &[&str]) -> Output {
+    let brief = root.join("box.md");
+    fs::write(&brief, format!("Item: north#9 tier check\nCategory: {category}\nSurface: lua\nNeeds: warcraft\n")).unwrap();
+    let brief = brief.display().to_string();
+    let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "north#9", "--system-prompt", &brief];
+    args.extend(extra);
+    args.push("start the box");
+    north(root, &args)
+}
+
+#[test]
+fn a_task_launch_starts_on_the_tier_its_briefs_category_earns_and_a_different_model_needs_a_reason() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let started = launch_task(root, "bug-known-cause", &[]);
+    assert!(started.status.success(), "{}", String::from_utf8_lossy(&started.stderr));
+    let known = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert_eq!((known["model"].as_str(), known["effort"].as_str()), (Some("claude-sonnet-5-5"), Some("high")), "{known}");
+    assert!(known.to_string().contains("Tier: sonnet-high"), "{known}");
+
+    let mechanical = launch_task(root, "mechanical", &[]);
+    assert!(mechanical.status.success(), "{}", String::from_utf8_lossy(&mechanical.stderr));
+    let cheap = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert_eq!(cheap["model"], "claude-haiku-5-5", "{cheap}");
+
+    let refused = launch_task(root, "bug-known-cause", &["--model", "opus"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--tier-reason"), "{}", String::from_utf8_lossy(&refused.stderr));
+    assert!(!north(root, &["fleet", "show", "narrow", "--json"]).status.success(), "a refused launch starts no session");
+
+    let allowed = launch_task(root, "bug-known-cause", &["--model", "opus", "--tier-reason", "the cause spans two engines"]);
+    assert!(allowed.status.success(), "{}", String::from_utf8_lossy(&allowed.stderr));
+    let overridden = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert_eq!(overridden["model"], "opus", "{overridden}");
+    assert!(overridden["placement"].as_str().unwrap_or_default().contains("tier: the cause spans two engines"), "{overridden}");
 }

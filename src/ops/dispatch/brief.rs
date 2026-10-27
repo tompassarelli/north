@@ -4,7 +4,7 @@ use super::issues::{Issue, OWNER};
 use super::facets::{FACETS, declared, facet, native};
 use super::tier::{Route, Tier};
 
-const HAIKU_WAIT: &str = " Run any command that may take over a minute in the background and wait for its exit with Monitor; never end your turn while a run you started is still going.";
+pub(crate) const HAIKU_WAIT: &str = " Run any command that may take over a minute in the background and wait for its exit with Monitor; never end your turn while a run you started is still going.";
 pub(crate) const SAFETY_LINE: &str = "Run only build, test, git and file commands inside your clone and /tmp. Never kill, pkill or signal a process, never use sudo, and use no network beyond git clone, git fetch and package installs. If a command is blocked or would need approval, do not retry it or work around it; stop and report `Blocked:` with the command.";
 
 /// The brief for one ready issue; its first block, before the blank line, is what placement and

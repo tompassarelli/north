@@ -39,7 +39,7 @@ impl Tier {
         }
     }
 
-    fn parse(text: &str) -> Option<Self> {
+    pub(crate) fn parse(text: &str) -> Option<Self> {
         [Self::Haiku, Self::Sonnet, Self::Opus].into_iter().find(|tier| tier.key() == text || tier.name() == text)
     }
 
@@ -47,14 +47,23 @@ impl Tier {
         if self == Self::Sonnet { Self::Opus } else { Self::Sonnet }
     }
 
-    /// `--model M --effort E` from the tier's `[tiers]` table in South's orchestration.
-    pub(crate) fn invocation(self, cfg: &DocumentMut) -> Result<Vec<String>, String> {
+    pub(crate) fn model_effort(self, cfg: &DocumentMut) -> Result<(String, String), String> {
         let table = cfg.get("tiers").and_then(|tiers| tiers.get(self.key()));
         let field = |name: &str| table.and_then(|tier| tier.get(name)).and_then(toml_edit::Item::as_str).map(str::to_owned);
-        match (field("model"), field("effort")) {
-            (Some(model), Some(effort)) => Ok(vec!["--model".into(), model, "--effort".into(), effort]),
-            _ => Err(format!("orchestration has no model and effort for [tiers.\"{}\"]", self.key())),
-        }
+        field("model").zip(field("effort")).ok_or_else(|| format!("orchestration has no model and effort for [tiers.\"{}\"]", self.key()))
+    }
+
+    pub(crate) fn invocation(self, cfg: &DocumentMut) -> Result<Vec<String>, String> {
+        self.model_effort(cfg).map(|(model, effort)| vec!["--model".into(), model, "--effort".into(), effort])
+    }
+
+    pub(crate) fn serves(self, model: &str) -> bool {
+        let family = match self {
+            Self::Haiku => "haiku",
+            Self::Sonnet => "sonnet",
+            Self::Opus => "opus",
+        };
+        model.to_lowercase().contains(family)
     }
 }
 
@@ -152,24 +161,27 @@ impl History {
     }
 }
 
-fn art(category: &str, issue: &Issue) -> bool {
-    let judged = facets::facet(issue, "Spec").eq_ignore_ascii_case("judged");
-    let pictured = facets::facet(issue, "Surface").eq_ignore_ascii_case("assets") || facets::facet(issue, "Verify").eq_ignore_ascii_case("visual");
+fn art(category: &str, facet: &dyn Fn(&str) -> String) -> bool {
+    let judged = facet("Spec").eq_ignore_ascii_case("judged");
+    let pictured = facet("Surface").eq_ignore_ascii_case("assets") || facet("Verify").eq_ignore_ascii_case("visual");
     ART.contains(&category) || judged && pictured
 }
 
 pub(crate) fn route(issue: &Issue, history: &History, ledger: &BTreeMap<String, Evidence>) -> Route {
-    let category = facets::facet(issue, "Category").to_lowercase();
-    let item = issue.reference().to_string();
+    route_for(&issue.reference().to_string(), &|key| facets::facet(issue, key), history, ledger)
+}
+
+pub(crate) fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, ledger: &BTreeMap<String, Evidence>) -> Route {
+    let category = facet("Category").to_lowercase();
     let on = |tier: Tier, why: String| Route { tier, category: category.clone(), arm: false, follows: None, why };
-    if art(&category, issue) {
+    if art(&category, facet) {
         return on(Tier::Sonnet, "art goes to sonnet-high".into());
     }
     if category == "bug-known-cause" {
         return on(Tier::Sonnet, "known-cause bugs go to sonnet-high".into());
     }
     if category == "mechanical" {
-        return match history.haiku_try(&item) {
+        return match history.haiku_try(item) {
             Some(name) => Route { follows: Some(format!("{name} (worker-haiku)")), ..on(Tier::Sonnet, format!("retries the Haiku miss {name} on sonnet-high")) },
             None => on(Tier::Haiku, "mechanical work goes to worker-haiku".into()),
         };

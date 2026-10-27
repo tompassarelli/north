@@ -270,15 +270,14 @@ fn unspent(laptop: Option<&str>, records: &[record::Record], at: f64, notes: &mu
     found
 }
 
-/// What the ledger recommends for each armed category, read with only its Category so the cell is the category.
-fn ledger(notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
+pub(crate) fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let mut found = BTreeMap::new();
-    for category in tier::ARMED {
+    for category in categories {
         let facets = format!("Category: {category}");
         let program = crate::fleet::runtime::binary("worker-ledger");
         match run_within(&program.to_string_lossy(), &["--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
-                found.insert(category.to_owned(), Evidence::parse(&String::from_utf8_lossy(&output.stdout), category));
+                found.insert((*category).to_owned(), Evidence::parse(&String::from_utf8_lossy(&output.stdout), category));
             }
             _ => notes.push(format!("worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
         }
@@ -311,7 +310,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
     let history = History::new(&records);
     let handoffs = Arms::new(&records);
-    let ledger = ledger(&mut notes);
+    let ledger = evidence(&tier::ARMED, &mut notes);
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
     let frozen = crate::platform::frozen_topics::load().unwrap_or_else(|why| {

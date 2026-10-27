@@ -6,7 +6,11 @@ pub(crate) const FACETS: [(&str, &str); 5] = [("Category", "feature"), ("Spec", 
 const NATIVE_LABELS: [&str; 3] = ["needs:native-pair", "needs:native-single", "evidence:native"];
 
 pub(crate) fn declared<'a>(issue: &'a Issue, key: &str) -> Option<&'a str> {
-    issue.body.lines().find_map(|line| {
+    declared_in(&issue.body, key)
+}
+
+pub(crate) fn declared_in<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| {
         let (name, value) = line.trim().trim_start_matches(['-', '*', ' ']).split_once(':')?;
         let value = value.trim().trim_matches('`');
         (name.trim().trim_matches('*').eq_ignore_ascii_case(key) && !value.is_empty()).then_some(value)
@@ -22,9 +26,13 @@ pub(crate) fn native(issue: &Issue) -> bool {
         })
 }
 
+pub(crate) fn default(key: &str) -> &'static str {
+    FACETS.iter().find(|(name, _)| *name == key).map_or("", |(_, default)| default)
+}
+
 /// A facet the issue declares, else `native` for Verify on a native box, else the default.
 pub(crate) fn facet(issue: &Issue, key: &str) -> String {
-    let default = FACETS.iter().find(|(name, _)| *name == key).map_or("", |(_, default)| default);
+    let default = default(key);
     match (key, declared(issue, key)) {
         (_, Some(value)) => value.to_owned(),
         ("Verify", None) if native(issue) => "native".into(),

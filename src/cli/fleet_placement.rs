@@ -18,15 +18,16 @@ pub(super) struct Overrides {
     pub pin: Option<String>,
     /// Why a `--task` launch runs beside the session or dispatch launch that already holds its item.
     pub duplicate: Option<String>,
+    pub tier: Option<String>,
 }
 
 impl Overrides {
-    /// Takes `--local REASON`, `--pin REASON` or `--force-dup REASON`; false for any other flag.
     pub fn set(&mut self, flag: &str, value: &str) -> bool {
         let slot = match flag {
             "--local" => &mut self.local,
             "--pin" => &mut self.pin,
             "--force-dup" => &mut self.duplicate,
+            "--tier-reason" => &mut self.tier,
             _ => return false,
         };
         *slot = Some(value.to_owned());
@@ -39,6 +40,7 @@ impl Overrides {
             match part.split_once(": ") {
                 Some(("local", reason)) if self.local.is_none() => self.local = Some(reason.into()),
                 Some(("pin", reason)) if self.pin.is_none() => self.pin = Some(reason.into()),
+                Some(("tier", reason)) if self.tier.is_none() => self.tier = Some(reason.into()),
                 _ => {}
             }
         }
@@ -110,6 +112,9 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
             return Err(refusal);
         };
         notes.push(format!("pin: {reason}"));
+    }
+    if let Some(reason) = &overrides.tier {
+        notes.push(format!("tier: {reason}"));
     }
     Ok(Placed { note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text) })
 }

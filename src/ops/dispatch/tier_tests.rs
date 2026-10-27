@@ -25,7 +25,7 @@ fn tiers(launches: &[(String, Tier, bool, String)]) -> Vec<(&str, &str)> {
 }
 
 fn haiku_try(item: &str, at: f64) -> Record {
-    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-3-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("worker-haiku".into()), category: Some("mechanical".into()), arm: false, handoff: None }
+    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-3-d0900".into(), cloud: false, launched: true, detail: String::new(), tier: Some("worker-haiku".into()), category: Some("mechanical".into()), arm: false, handoff: None, hand: false }
 }
 
 #[test]

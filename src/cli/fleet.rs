@@ -23,9 +23,10 @@ use super::fleet_placement::{self, Launch, Overrides, Placed};
 use super::fleet_duplicate;
 use super::fleet_list;
 use super::fleet_revive;
+use super::fleet_tier;
 use super::{gate, orders, relay};
 
-const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF [--force-dup REASON]] [--local REASON] [--pin REASON] [--test] PROMPT... \
+const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF [--force-dup REASON]] [--local REASON] [--pin REASON] [--tier-reason REASON] [--test] PROMPT... \
      | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
@@ -177,11 +178,13 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 }
 
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    let (mut request, overrides) = launch_parts(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
+    let (mut request, mut overrides) = launch_parts(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
+    let started = fleet_tier::apply(&mut request, &mut overrides)?;
     let placed = placed(fleet, &request, &overrides)?;
     (request.placement, request.capacity_need) = (fleet_duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
     request.machine = placed.machine.or(request.machine);
     let record = fleet.launch(&request)?;
+    fleet_tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())
 }

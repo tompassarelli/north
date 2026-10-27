@@ -14,6 +14,7 @@ mod fleet_duplicate;
 mod fleet_list;
 mod fleet_placement;
 mod fleet_revive;
+mod fleet_tier;
 mod gate;
 mod ledger;
 mod orders;

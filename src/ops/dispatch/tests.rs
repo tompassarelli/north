@@ -296,7 +296,7 @@ fn tom_hears_once_only_when_ready_work_and_free_slots_coexist_and_nothing_launch
 
 #[test]
 fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
-    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None };
+    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let now = 100_000.0;
     let records = vec![entry("smashcraft#1", now - 600.0), entry("smashcraft#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
     let holds = record::holds(&records, now, &BTreeMap::new());
@@ -522,7 +522,7 @@ fn a_north_cloud_brief_pushes_its_land_branch_for_a_courier_and_does_not_close_t
 #[test]
 fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
     let now = 100_000.0;
-    let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None };
+    let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let records = vec![cloud("smashcraft#7", now - 5.0 * 3600.0), cloud("smashcraft#8", now - 7.0 * 3600.0)];
     let holds = record::holds(&records, now, &BTreeMap::new());
     assert!(holds.contains_key(&IssueRef::new("smashcraft", 7)) && !holds.contains_key(&IssueRef::new("smashcraft", 8)));
@@ -547,7 +547,7 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 
 #[test]
 fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
-    let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false, handoff: None };
+    let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let now = 100_000.0;
     let records = vec![failed("smashcraft#9", now - 3600.0), failed("smashcraft#9", now - 1800.0), failed("wisp#4", now - 300.0)];
     let holds = record::holds(&records, now, &BTreeMap::new());

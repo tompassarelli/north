@@ -91,6 +91,10 @@ holds the tier table. In order:
    cloud credit lasts, and refuses an account other than the one with the most headroom, naming it.
    `--local "REASON"` and `--pin "REASON"` override and are recorded on the session and shown in
    `north fleet list`; `north fleet revive` re-checks a stopped session and keeps those reasons.
+   A Claude launch that holds an issue (`--task REF`, or an `Item:` line) also starts on the tier
+   its brief's `Category:` and facets earn, the routing `north dispatch` uses, so leave `--model`
+   and `--effort` off; a `--model` of another family needs `--tier-reason "REASON"`, which is
+   recorded with the other override reasons.
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
    `follows-release` starts it once its predecessor lands on main.
 7. **Record.** Fleet receipts capture delivery and completion. `worker-ledger` records each run's

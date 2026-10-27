@@ -15,7 +15,7 @@ fn session(tools: &[&str], report: Option<&str>, exit: &str) -> Value {
 }
 
 fn launch(item: &str, name: &str, at: f64) -> Record {
-    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None }
+    Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: name.into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false }
 }
 
 #[test]
