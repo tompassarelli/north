@@ -46,6 +46,7 @@ pub(super) enum Tool {
     Tune,
     IncidentMine,
     Archives,
+    CodeHealth,
 }
 
 impl Tool {
@@ -66,6 +67,7 @@ impl Tool {
             "tune" => Self::Tune,
             "incident-mine" => Self::IncidentMine,
             "archives" => Self::Archives,
+            "code-health" => Self::CodeHealth,
             _ => return None,
         })
     }
@@ -89,6 +91,7 @@ impl Tool {
             Self::Tune => ExitCode::from(crate::ops::tune::run(arguments)),
             Self::IncidentMine => ExitCode::from(crate::ops::incident_mine::run(arguments)),
             Self::Archives => ExitCode::from(crate::platform::archive_tags::run(arguments)),
+            Self::CodeHealth => ExitCode::from(crate::code_health::run(arguments)),
         }
     }
 }

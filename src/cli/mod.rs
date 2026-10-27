@@ -59,6 +59,7 @@ Commands:
   wisp payoff [--since YYYY-MM-DD] [--json]      Measure Wisp agreement and native utilization
   health [--dry-run]                             Check harness invariants
   language-gate --repo DIR --base REV --head REV  Check language policy
+  code-health imports                           Resolve the imports of files given as JSON on stdin
   guard language                                PreToolUse language guard
   grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
   work [list|search|show|claim|release|need|unneed|close]  Work items

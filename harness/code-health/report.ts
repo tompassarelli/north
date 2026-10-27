@@ -3,7 +3,7 @@ import { git, lineCount, Snapshot } from "./files";
 import { Fn, measure } from "./functions";
 import { fan, Graph, layerViolation, LayerViolation, moduleGraph, sccs } from "./graph";
 import { allows, Allow, coChange, history, Pair, WINDOW_COMMITS, WINDOW_DAYS } from "./history";
-import { cratesOf, importsOf, Resolver } from "./imports";
+import { importsOf, manifestsOf, Resolver } from "./imports";
 import { repoName } from "./state";
 
 export function inventory(snap: Snapshot, cfg: Config): Map<string, Kind> {
@@ -16,15 +16,14 @@ export function inventory(snap: Snapshot, cfg: Config): Map<string, Kind> {
 }
 
 export function resolverFor(snap: Snapshot): Resolver {
-  return { exists: (p) => snap.has(p), crates: cratesOf(snap.tree.keys(), (p) => snap.text(p)), all: () => snap.tree.keys() };
+  return { exists: { tree: [...snap.tree.keys()] }, manifests: manifestsOf(snap.tree.keys(), (p) => snap.text(p)) };
 }
 
 export function importGraph(snap: Snapshot, hand: string[], resolver = resolverFor(snap)): Graph {
   snap.load(hand);
   const handSet = new Set(hand);
-  const g: Graph = new Map();
-  for (const p of hand) g.set(p, new Set([...importsOf(p, snap.text(p)!, resolver)].filter((t) => handSet.has(t))));
-  return g;
+  const found = importsOf(hand.map((path) => ({ path, text: snap.text(path)! })), resolver);
+  return new Map(hand.map((p) => [p, new Set([...found.get(p)!].filter((t) => handSet.has(t)))]));
 }
 
 export interface Dist { p50: number; p90: number; p99: number; max: number; n: number }

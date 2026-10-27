@@ -97,16 +97,16 @@ export function gate(repo: string, base: string, head: string, override?: string
   });
   const cx = (fs: Fn[] | undefined) => fs?.reduce((s, f) => s + f.complexity, 0);
   for (const c of changed) v.push(...functionDebt(c.path, fns.get(`h/${c.path}`)!, fns.get(`b/${c.path}`) ?? [], thresholdsOf(cfg, c.path)));
-
   const hand = [...headKinds].filter(([, k]) => k === "hand").map(([p]) => p);
   const renamed = new Map<string, string>();
   for (const c of changed) if (c.base && c.base !== c.path) renamed.set(c.base, c.path);
-  const baseResolver = resolverFor(bs);
   const headResolver = resolverFor(hs);
   const added: [string, string][] = [];
+  const baseImports = importsOf(changed.flatMap((c) => (c.base && bs.has(c.base) ? [{ path: c.base, text: bs.text(c.base)! }] : [])), resolverFor(bs));
+  const headImports = importsOf(changed.map((c) => ({ path: c.path, text: hs.text(c.path)! })), headResolver);
   for (const c of changed) {
-    const before = c.base && bs.has(c.base) ? new Set([...importsOf(c.base, bs.text(c.base)!, baseResolver)].map((x) => renamed.get(x) ?? x)) : new Set<string>();
-    for (const to of importsOf(c.path, hs.text(c.path)!, headResolver)) {
+    const before = c.base && bs.has(c.base) ? new Set([...baseImports.get(c.base)!].map((x) => renamed.get(x) ?? x)) : new Set<string>();
+    for (const to of headImports.get(c.path)!) {
       if (before.has(to) || headKinds.get(to) !== "hand") continue;
       added.push([c.path, to]);
       const lv = layerViolation(cfg, c.path, to);

@@ -2,6 +2,7 @@ mod agent_catalog;
 mod capacity;
 mod platform;
 mod cli;
+mod code_health;
 mod dep_gate;
 mod review_gate;
 mod landing;
