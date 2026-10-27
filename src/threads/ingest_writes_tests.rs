@@ -113,8 +113,6 @@ fn threads_incremental_ingest_leaves_runs_and_run_costs_as_a_full_ingest_does() 
     ingest(full.path(), &[first_batch(), second_batch()].concat());
     let incremental = ledger();
     ingest(incremental.path(), &first_batch());
-    let untracked = rows(incremental.path(), "SELECT * FROM run_costs WHERE agent = '(untracked)'");
-    assert_eq!(untracked.len(), 1, "the codex step starts unallocated");
     ingest(incremental.path(), &second_batch());
     ingest(incremental.path(), &[]);
     for sql in ["SELECT * FROM run_costs ORDER BY account, started, ended, agent", "SELECT * FROM runs ORDER BY agent"] {

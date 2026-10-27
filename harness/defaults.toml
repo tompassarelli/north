@@ -238,13 +238,6 @@ source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): Claude acc
 fallback = "orchestration.toml accounts.claude.target_left overrides it"
 consumers = ["harness/lib/plan_usage.py", "src/pace/limits.rs"]
 
-[pace_target_left_codex]
-value = 15
-unit = "percent Codex keeps at Friday 23:59 ET when orchestration.toml sets none"
-source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): drain Codex to about 15% (10-20%) by end of Friday US Eastern"
-fallback = "orchestration.toml accounts.codex.target_left overrides it"
-consumers = ["harness/lib/plan_usage.py"]
-
 [pace_band]
 value = [10, 20]
 unit = "percent left band; a Thursday projection above the top flags drain_behind"

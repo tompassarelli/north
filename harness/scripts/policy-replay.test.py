@@ -229,7 +229,7 @@ with tempfile.TemporaryDirectory() as tmp:
     os.mkfifo(ready)
     ready_fd = os.open(ready, os.O_RDWR | os.O_NONBLOCK)
     tuner = subprocess.Popen([sys.executable, str(SCRIPT.parent / "harness-tuner.py"), "replay", str(scenarios[0]),
-                              "--variants", str(variants), "--base", str(op / "AGENTS.md"), "--provider", "claude",
+                              "--variants", str(variants), "--base", str(op / "AGENTS.md"),
                               "--jobs", "2", "--out", str(tmp / "signal.jsonl")],
                              env=dict(env, GROUP_READY=str(ready)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     groups, pending = [], b""
@@ -263,7 +263,7 @@ with tempfile.TemporaryDirectory() as tmp:
                     break
     print("ok: SIGTERM tuner exits 143 and leaves zero pgrep -g survivors in both registered run groups")
 
-    assert replay.run_check(f"GROUP_EXIT=1 {sys.executable} {group_fixture}", work, 1)
+    assert replay.run_check(f"GROUP_EXIT=1 {sys.executable} {group_fixture}", work, 30)
     group = int(group_file.read_text())
     try:
         survivors = subprocess.run(["pgrep", "-g", str(group)], capture_output=True, text=True)

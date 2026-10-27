@@ -170,10 +170,9 @@ def gate_width(project, concurrency):
     reading = spawn_capacity.capacity()
     cpu = reading is None or (reading[0] < reading[1] and reading[2] <= spawn_capacity.PROTECTED_PRESSURE_LIMIT)
     accounts = []
-    for provider, tool in (("claude", "Agent"), ("codex", "spawn_agent")):
-        verdict = spawn_capacity.usage_verdict({"tool_name": tool})
-        for account in verdict.get("paces") or {}:
-            accounts.append((account, verdict.get("refusal") is None))
+    verdict = spawn_capacity.usage_verdict({"tool_name": "Agent"})
+    for account in verdict.get("paces") or {}:
+        accounts.append((account, verdict.get("refusal") is None))
     open_accounts = [a for a, ok in accounts if ok]
     width = max(1, concurrency) if cpu and (open_accounts or not accounts) else 1
     return width, f"gate: cpu {'open' if cpu else 'full'}, accounts open {','.join(open_accounts) or 'none'}"

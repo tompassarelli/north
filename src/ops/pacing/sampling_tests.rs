@@ -34,10 +34,10 @@ fn claude_usage_is_also_read_through_ssh_on_each_other_host_holding_a_claude_pro
 
 #[test]
 fn a_provider_is_read_here_only_when_its_accounts_table_names_this_host_or_names_no_hosts() {
-    let cfg = "[accounts.claude]\nprofiles = { a = { here = {} }, b = { far = {} } }\n[accounts.codex]\ntarget_left = 0\n".parse().unwrap();
+    let cfg = "[accounts.claude]\nprofiles = { a = { here = {} }, b = { far = {} } }\n[accounts.gemini]\ntarget_left = 0\n".parse().unwrap();
     let read = |provider, host| sampling::read_here(&cfg, provider, host);
     assert_eq!([read("claude", "here"), read("claude", "far"), read("claude", "idle")], [true, true, false]);
-    assert_eq!([read("codex", "idle"), read("gemini", "here")], [true, false]);
+    assert_eq!([read("gemini", "idle"), read("retired", "here")], [true, false]);
 }
 
 #[test]
@@ -62,4 +62,24 @@ fn a_pace_hold_or_resume_reaches_the_phone_without_naming_a_spawn_stop() {
         }
         assert_eq!(line.starts_with("PACE-HELD"), held, "{line}");
     }
+}
+
+#[test]
+fn a_provider_without_an_adapter_is_dropped_from_the_saved_pace_state() {
+    let mut state = json!({
+        "accounts": {"claude:a": {}, "codex": {}},
+        "providers": {"claude": {}, "codex": {}},
+        "history": [{"provider": "claude"}, {"provider": "codex"}],
+        "grants": [{"account": "claude:b"}, {"account": "codex"}],
+    });
+    sampling::prune_retired(&mut state);
+    assert_eq!(
+        state,
+        json!({
+            "accounts": {"claude:a": {}},
+            "providers": {"claude": {}},
+            "history": [{"provider": "claude"}],
+            "grants": [{"account": "claude:b"}],
+        })
+    );
 }

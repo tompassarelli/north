@@ -72,7 +72,7 @@ def reservation_stop(used: float, cap: float, expected: float, in_flight: int, i
 
 
 def ledger_reservation(provider: str, model: str | None, effort: str | None, threads=None, label=None, details=False) -> tuple[float | None, float | None] | dict | None:
-    from plan_usage import RUN_TIERS, accounts_from, costs_by_id, open_db
+    from plan_usage import RUN_TIERS, costs_by_id, open_db
     import importlib.machinery
     import importlib.util
     import statistics
@@ -99,15 +99,6 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
         prices = costs_by_id(tomllib.loads((operator_dir() / "costs.toml").read_text()))
         accounts = [name for name in prices if name == provider or name.startswith(provider + "-")]
         label = local_account(provider) if label is None else label
-        if provider == "codex" and not label:
-            now = datetime.now(timezone.utc)
-            recent = [r for r in latest(db) if datetime.fromisoformat(r["ts"].replace("Z", "+00:00")) >= now - timedelta(days=7)]
-            matched = [a for name, a in accounts_from(recent, db, now).items()
-                       if name.split(":", 1)[0] == "codex"]
-            if len(matched) > 1:
-                raise RuntimeError("harness-tuner: cap reached: ambiguous codex account "
-                                   + ", ".join(sorted(str(a["id"]) for a in matched)))
-            label = matched[0]["id"] if matched else label
         account = provider + "-" + label if provider == "claude" and label else accounts[0] if len(accounts) == 1 else provider
         catalog = tomllib.loads((HERE.parent / "model-catalog.toml").read_text())
         tiers = {RUN_TIERS.get(key, f"{model} {effort}") for key, value in catalog["models"].items()
@@ -222,6 +213,15 @@ def publish(db, rows):
     record(db, rows)
 
 
+def known_providers():
+    """Providers with an account in the catalog; older readings of any other provider are never shown or gated."""
+    import tomllib
+    try:
+        return set(tomllib.loads((HERE.parent / "model-catalog.toml").read_text()).get("accounts", {}))
+    except (OSError, ValueError):
+        return set()
+
+
 def hosted_claude():
     return set(account_settings("claude").get("profiles", {}))
 
@@ -231,11 +231,12 @@ def latest(db):
         return []
     db.row_factory = sqlite3.Row
     hosted = hosted_claude()
+    known = known_providers()
     return [dict(r) for r in db.execute(
         "SELECT * FROM usage WHERE rowid IN (SELECT (SELECT rowid FROM usage WHERE provider = k.provider AND account = k.account"
         " AND kind = k.kind AND name = k.name ORDER BY ts DESC, rowid DESC LIMIT 1) FROM (SELECT DISTINCT provider, account, kind, name FROM usage) k)"
         " ORDER BY provider, account, kind DESC, window_min, name")
-            if r["provider"] != "claude" or not hosted or r["account"] in hosted]
+            if r["provider"] in known and (r["provider"] != "claude" or not hosted or r["account"] in hosted)]
 
 
 def age_min(ts, now):
@@ -312,6 +313,8 @@ def write_gate(db, providers, pace_locked=False):
         verdicts = json.loads(path.read_text())
     except (OSError, ValueError):
         verdicts = {}
+    verdicts = {p: v for p, v in verdicts.items() if p in catalog.get("accounts", {})}
+    providers = [p for p in providers if p in catalog.get("accounts", {})]
     import routing
     import plan_usage
     for provider in providers:
@@ -353,159 +356,10 @@ def notify_promos(db):
         stamp.write_text(line + "\n")
 
 
-def burn_policy(provider, now=None):
-    import math
-    import re
-    import tomllib
-    try:
-        with open(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml", "rb") as source:
-            entry = tomllib.load(source).get("burn", {}).get(provider)
-        if not isinstance(entry, dict):
-            return None
-        until = datetime.fromisoformat(entry["until"].replace("Z", "+00:00"))
-        if not (now or datetime.now(timezone.utc)) < until:
-            return None
-        if provider != "codex" or set(entry) != {"until", "rate"}:
-            return None
-        match = re.fullmatch(r"(\d+(?:\.\d+)?)%/h", entry["rate"])
-        rate = float(match[1]) if match else 0
-        return dict(entry, target=rate) if math.isfinite(rate) and rate > 0 else None
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        return None
-
-
-BURN_WINDOW_SECONDS = 600
-
-
-def burn_state_path():
-    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/burn.json"
-
-
-def burn_state():
-    try:
-        state = json.loads(burn_state_path().read_text())
-        return state if isinstance(state, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def burn_level(entry, state):
-    allowance = state.get("parallel", 2)
-    return allowance if state.get("policy") == entry and type(allowance) is int and allowance >= 2 else 2
-
-
-def burn_override(provider):
-    entry = burn_policy(provider)
-    if entry:
-        return entry | {"parallel": burn_level(entry, burn_state().get(provider, {})),
-                        "model": "gpt-6.1-sol", "effort": "high", "fast": False}
-    return None
-
-
-def burn_decide(allowance, measured, target):
-    if measured is None:
-        return allowance
-    if measured > target * 1.2:
-        return max(allowance - 1, 2)
-    if measured < target:
-        return allowance + 1
-    return allowance
-
-
-def burn_measure(db, provider, now):
-    import math
-    try:
-        rows = [r for r in latest(db) if r["provider"] == provider and r["kind"] == "window"
-                and r["name"] in ("week", "weekly_all") and r["used_pct"] is not None
-                and r["resets_at"] and r["window_min"]]
-        account = local_account(provider)
-        rows = [r for r in rows if r["account"] == account] if account else rows
-        if len(rows) != 1:
-            return None
-        row = rows[0]
-        end = datetime.fromisoformat(row["ts"].replace("Z", "+00:00"))
-        reset = datetime.fromisoformat(row["resets_at"].replace("Z", "+00:00"))
-        if not 0 <= (now - end).total_seconds() <= 240 or reset <= now:
-            return None
-        candidates = []
-        for old in db.execute("SELECT ts, used_pct, resets_at FROM usage WHERE provider = ? AND account = ?"
-                              " AND kind = 'window' AND name = ? AND ts < ? AND used_pct IS NOT NULL",
-                              (provider, row["account"], row["name"], row["ts"])):
-            old_at = datetime.fromisoformat(old["ts"].replace("Z", "+00:00"))
-            old_reset = datetime.fromisoformat(old["resets_at"].replace("Z", "+00:00"))
-            seconds = (end - old_at).total_seconds()
-            if 480 <= seconds <= 720 and abs((reset - old_reset).total_seconds()) <= 60:
-                candidates.append((abs(seconds - BURN_WINDOW_SECONDS), seconds, old_at, old["used_pct"]))
-        if not candidates:
-            return None
-        _, seconds, begin, before = min(candidates)
-        measured = (row["used_pct"] - before) * 3600 / seconds
-        if not math.isfinite(measured) or measured < 0:
-            return None
-        return {"measured": measured, "sample": [row["account"], row["ts"]], "seconds": seconds,
-                "window": f"{row['name']} {seconds / 60:.2f}min snapshot-to-snapshot ending {row['ts']}"}
-    except (ValueError, TypeError, KeyError, OverflowError):
-        return None
-
-
-def burn_step(db, provider, now=None):
-    import fcntl
-    now = now or datetime.now(timezone.utc)
-    entry = burn_policy(provider, now)
-    path = burn_state_path()
-    if not entry and not path.exists():
-        return []
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.with_suffix(".lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        states = burn_state()
-        old = states.get(provider, {})
-        if not entry:
-            if provider not in states:
-                return []
-            del states[provider]
-            lines = [f"burn {provider}: advisory active -> inactive; measured unknown target inactive; window inactive"]
-        else:
-            allowance = burn_level(entry, old)
-            reading = burn_measure(db, provider, now)
-            same_policy = old.get("policy") == entry
-            if reading is None or (same_policy and old.get("sample") == reading["sample"]):
-                return []
-            new = burn_decide(allowance, reading["measured"], entry["target"])
-            if new > allowance and same_policy and now.timestamp() - old.get("at", 0) < BURN_WINDOW_SECONDS:
-                return []
-            states[provider] = {"policy": entry, "parallel": new, "sample": reading["sample"],
-                                "at": now.timestamp() if new != allowance else old.get("at", 0)}
-            lines = []
-            if new != allowance:
-                lines.append(f"burn {provider}: parallel {allowance} -> {new}; measured {reading['measured']:.2f}%/h "
-                             f"target {entry['target']:g}%/h; window {reading['window']}; "
-                             "advisory workers per sub-lead; sole worker ceiling: pace-enforcement per-account allowed_workers")
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(states) + "\n")
-        temporary.replace(path)
-        return lines
-
-
-def burn_report(db, provider, now=None):
-    now = now or datetime.now(timezone.utc)
-    entry = burn_policy(provider, now)
-    reading = burn_measure(db, provider, now) if db is not None else None
-    measured = f"{reading['measured']:.2f}%/h" if reading else "unknown (missing/stale short-window snapshots)"
-    target = f"{entry['target']:g}%/h" if entry else "inactive"
-    window = reading["window"] if reading else "unavailable"
-    allowance = burn_level(entry, burn_state().get(provider, {})) if entry else 2
-    return f"burn {provider}: parallel {allowance} -> {allowance}; measured {measured} target {target}; window {window}; read-only"
-
-
 def fast(db, provider, domain, cached=False):
     """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider while under pace;
     exit 1 printing "off" otherwise. Refreshes the provider's usage first unless
     cached, when a snapshot older than stale_min reads as off."""
-    override = burn_override(provider)
-    if override and (override["fast"] or "target" in override):
-        print("on" if override["fast"] else "off")
-        return 0 if override["fast"] else 1
     import tomllib
     sys.path.insert(0, str(HERE))
     import routing
@@ -576,19 +430,6 @@ def main(argv):
     if "--reservation-json" in argv:
         print(json.dumps(ledger_reservation(**json.load(sys.stdin), details=True)))
         return 0
-    if "--burn" in argv:
-        entry = burn_override(argv[argv.index("--burn") + 1])
-        if entry:
-            print(entry["model"], entry["effort"])
-            return 0
-        return 1
-    if "--burn-report" in argv:
-        try:
-            with sqlite3.connect(Path(DB).resolve().as_uri() + "?mode=ro", uri=True, timeout=10) as db:
-                print(burn_report(db, argv[argv.index("--burn-report") + 1]))
-        except sqlite3.Error:
-            print(burn_report(None, argv[argv.index("--burn-report") + 1]))
-        return 0
     try:
         db = open_readout_db()
     except sqlite3.DatabaseError as error:
@@ -596,16 +437,8 @@ def main(argv):
             print(f"agents usage: {error}", file=sys.stderr)
         return 1
     if "--write-pace-gate" in argv:
-        print(json.dumps(write_gate(db, ("claude", "codex", "gemini"), pace_locked=True)))
+        print(json.dumps(write_gate(db, ("claude", "gemini"), pace_locked=True)))
         return 0
-    if "--burn-step" in argv or "--burn-tick" in argv:
-        option = "--burn-step" if "--burn-step" in argv else "--burn-tick"
-        provider = argv[argv.index(option) + 1]
-        lines = burn_step(db, provider)
-        if lines:
-            print("\n".join(lines))
-        return 0
-
     if "--gate" in argv:
         return subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace", "gate", argv[argv.index("--gate") + 1]]).returncode
     if "--fast" in argv:
@@ -632,7 +465,7 @@ def main(argv):
         age = min(age_min(r["ts"], now) for r in mine)
         windows = [f"{r['name']} {r['used_pct']:.0f}% used, resets in {until(r['resets_at'], now)}"
                    for r in mine if r["kind"] == "window" and r["used_pct"] is not None]
-        reset_name = {"codex": "rateLimitResetCredits", "claude": "cedar_ember"}.get(provider)
+        reset_name = {"claude": "cedar_ember"}.get(provider)
         reset_row = next((r for r in mine if r["name"] == reset_name and r["kind"] in ("billing", "grant")), None)
         reset_kinds = []
         if provider == "claude" and (reset_row is None or reset_row["amount"] is None):
@@ -640,9 +473,7 @@ def main(argv):
             import usage_claude
             reset_kinds = usage_claude.web_rows(account, now.isoformat(), labelled=True)
         if reset_row is not None and reset_row["amount"] is not None:
-            source = ("codex app-server rateLimitResetCredits.availableCount" if provider == "codex"
-                      else reset_row["source"])
-            resets = f"resets={reset_row['amount']:g} ({source})"
+            resets = f"resets={reset_row['amount']:g} ({reset_row['source']})"
         elif reset_kinds:
             kinds = [f"{'full' if r['name'].endswith('/full') else '5h'}={r['amount']:g}"
                      + (f" (expires {r['resets_at']})" if r["resets_at"] else "")
@@ -650,8 +481,7 @@ def main(argv):
             resets = "resets " + " ".join(kinds) + f" ({reset_kinds[0]['source']})"
         else:
             why = ("no web reset reading for this account"
-                   if provider == "claude" else "codex app-server rateLimitResetCredits.availableCount unavailable"
-                   if provider == "codex" else "provider adapter has no reset availability")
+                   if provider == "claude" else "provider adapter has no reset availability")
             resets = f"resets=unknown ({why})"
         billing = [f"{r['name']}={r['amount']:g}" for r in mine if r["kind"] in ("billing", "grant")
                    and r["amount"] is not None and r["name"] not in (reset_name, "plan") and not r["name"].startswith("cedar_ember/")]

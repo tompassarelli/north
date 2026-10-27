@@ -1,8 +1,7 @@
 """worker-ledger's recurring step: threads calibrate --write on the ledger host when the newest calibration row is
 older than calibrate_after_min, defaults-measure --priors recorded as kind prior rows on the host holding the
-Codex rollouts, once a week from Monday 00:00Z, and codex-route-propose at most once an hour, its failure only reported."""
-from datetime import datetime, timedelta, timezone
-import os
+Codex rollouts, once a week from Monday 00:00Z."""
+from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 import sys
@@ -15,29 +14,6 @@ import provider_capacity
 ROOT = Path(__file__).resolve().parents[2]
 THREADS = ROOT / "bin/threads"
 MEASURE = ROOT / "harness/scripts/defaults-measure.py"
-ROUTE_PROPOSE = ROOT / "harness/scripts/codex-route-propose.py"
-
-
-def learn_state():
-    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "agents/learn"
-
-
-def propose_routes(now):
-    mark = learn_state() / "codex-route-propose.last"
-    try:
-        if now - datetime.fromisoformat(mark.read_text().strip()) < timedelta(hours=1):
-            return
-    except (OSError, ValueError):
-        pass
-    mark.parent.mkdir(parents=True, exist_ok=True)
-    mark.write_text(now.isoformat())
-    try:
-        done = subprocess.run([sys.executable, str(ROUTE_PROPOSE), "--state", str(learn_state())],
-                              capture_output=True, text=True, timeout=300)
-        if done.returncode:
-            print(f"recalibrate: codex-route-propose rc={done.returncode} {done.stderr.strip()[-300:]}", file=sys.stderr)
-    except (OSError, subprocess.SubprocessError) as error:
-        print(f"recalibrate: codex-route-propose {error}", file=sys.stderr)
 
 
 def prior_specs(out):
@@ -66,7 +42,6 @@ def main():
             done = subprocess.run([sys.executable, str(THREADS), "record-priors", *specs])
         print(f"recalibrate: priors {' '.join(specs) or done.stderr.strip()[-300:]} rc={done.returncode}", file=sys.stderr)
         code |= done.returncode or not specs
-    propose_routes(now)
     return 1 if code else 0
 
 

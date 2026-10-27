@@ -16,7 +16,7 @@ operator_dir() {
 
 usage() {
   printf 'agents pace grant ACCOUNT MAX-WORKERS --until UTC --for LEAD --reason TEXT [--task NAME --uses N]\n' >&2
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only|codex-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|report|usage [--refresh] [--json] [--gate PROVIDER] [--burn PROVIDER] [--burn-step PROVIDER] [--burn-report PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|report|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]}\n' >&2
 }
 
 plan() {
@@ -71,7 +71,6 @@ if bad:
     AGENTS_PLAN_CATALOG="$catalog" AGENTS_PLAN_LIB="$lib" \
     AGENTS_PLAN_SELF="$(readlink -f "$0")" \
     AGENTS_CLAUDE_BIN="${AGENTS_CLAUDE_BIN:-claude}" \
-    AGENTS_CODEX_BIN="${AGENTS_CODEX_BIN:-codex}" \
     exec python3 -I -c '
 import json, os, sqlite3, subprocess, sys, tomllib
 from pathlib import Path
@@ -113,9 +112,6 @@ def signed_in(name):
             return code == 0 and json.loads(out).get("loggedIn") is True, "claude auth status"
         except ValueError:
             return False, "claude auth status"
-    if name == "codex":
-        code, out = run([os.environ["AGENTS_CODEX_BIN"], "login", "status"])
-        return code == 0 and "Logged in" in out, "codex login status"
     return False, "no sign-in check for this provider"
 
 json_output = os.environ["AGENTS_PLAN_JSON"] == "1"
@@ -178,27 +174,18 @@ except ValueError:
 db = plan_usage.open_db(db_path)
 ctx = plan_usage.live_ctx(cfg, catalog, [r for r in rows if r["provider"] in usable], db, datetime.now(timezone.utc),
                           {k: t for k, t in tiers.items() if k.split(":")[0] in usable}, costs)
-if "codex" in usable:
-    import provider_capacity
-    since = ctx["now"].timestamp() - plan_usage.DEFAULTS["capacity_min"] * 60
-    ctx["capacity"] = provider_capacity.status(provider_capacity.outcomes(provider_capacity.rollouts(provider_capacity.root(), since), since))
 try:
     result = plan_usage.json_plan(ctx)
 except ValueError as e:
     die(str(e))
 unavailable = {p for p, c in result["capacity"].items() if not c["fallback"]}
 avail = [r for r in tiers if r.split(":")[0] in usable and r.split(":")[0] not in unavailable]
-import usage
-burn = usage.burn_override("codex") if "codex" in usable else None
-burn = burn if burn and "target" in burn else None
 
 if json_output:
     snapshot = {"mode": mode, "usable": usable, "bands": resolve_bands(bands_of(tiers), avail), "escalation": avail}
     snapshot.update({k: result[k] for k in ("accounts", "routes", "capacity")})
     snapshot["projects"] = ctx["projects"]
     snapshot["tiers"] = {k: f"{t["model"]} {t["effort"]}" for k, t in tiers.items()}
-    if burn:
-        snapshot["burn"] = {"codex": dict(burn, calibrated=False, advisory=True, worker_ceiling="pace-enforcement per-account allowed_workers")}
     sys.stdout.write(json.dumps(snapshot, allow_nan=False) + "\n")
     sys.exit(0)
 
@@ -217,10 +204,6 @@ for lo, hi, r in resolve_bands(full, avail):
     note = f" (takes {"; ".join(f"{", ".join(v)}: {k}" for k, v in took.items())})" if took else ""
     print(f"  {lo}-{hi} {tiers[r].get("role", r)}: {label(r)}{note}")
 print("escalation: " + ", ".join(label(r) for r in avail) + ", then recommend to Tom")
-if burn:
-    allowance = burn["parallel"]
-    print(f"staffing codex: Sol high, fast off; advisory parallel workers {allowance} per sub-lead "
-          "(uncalibrated recommendation); sole worker ceiling: pace-enforcement per-account allowed_workers; subject to spawn and money gates")
 
 if not ctx["accounts"]:
     print("accounts: no usage snapshot; run `agents usage --refresh`")

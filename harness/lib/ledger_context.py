@@ -202,8 +202,6 @@ def allocation_intervals(readouts, samples, prices):
                 if total:
                     for agent, weight in weights.items():
                         result.append(dict(account=account, started=initial["ts"], ended=after["ts"], agent=agent, cost_usd=cost * weight / total))
-                elif account == "codex":
-                    result.append(dict(account=account, started=initial["ts"], ended=after["ts"], agent=UNTRACKED, cost_usd=cost))
             plateau = after
     return result
 

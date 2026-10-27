@@ -136,8 +136,8 @@ def configure_accounts(accounts, cfg, costs):
         required_plan = settings.get("auto_route_requires", {}).get(label)
         acct["auto_route"] = required_plan is None or acct.get("plan") == required_plan
         acct.update(provider=provider, usd_per_week=prices.get(cost_id, 0.0),
-                    target_left=settings.get("target_left", DEFAULTS["pace_target_left_codex"] if provider == "codex" else DEFAULTS["pace_target_left_claude"]),
-                    band=settings.get("band", DEFAULTS["pace_band"]), thursday=settings.get("thursday", provider == "codex"))
+                    target_left=settings.get("target_left", DEFAULTS["pace_target_left_claude"]),
+                    band=settings.get("band", DEFAULTS["pace_band"]), thursday=settings.get("thursday", False))
 
 
 def run_tier(key, t):

@@ -73,7 +73,7 @@ fn grant_request(arguments: &[String]) -> Result<Value, String> {
     let account = arguments.get(1).ok_or("account required")?;
     if !matches!(
         account.as_str(),
-        "codex" | "claude:a" | "claude:b" | "claude:c"
+        "claude:a" | "claude:b" | "claude:c"
     ) {
         return Err("invalid grant account".into());
     }
@@ -122,7 +122,7 @@ fn sample_options(arguments: &[String]) -> Result<(Option<&str>, i64, bool), Str
 }
 fn provider_option(value: Option<&String>) -> Result<&str, String> {
     let value = value.ok_or("provider required")?;
-    if !matches!(value.as_str(), "claude" | "codex" | "gemini") {
+    if !matches!(value.as_str(), "claude" | "gemini") {
         return Err("invalid provider".into());
     }
     Ok(value.as_str())

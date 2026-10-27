@@ -1,6 +1,6 @@
 use super::*;
 pub fn usage(message: &str) -> bool {
-    re(r"(?i)\b(status report|executive|usage|pace|pacing|burn|quota|limits?|accounts?|claude ?[abc]|claude:[abc]|codex|5h|weekly|week|resets?|capacity|percent)\b|\d+ ?%").is_match(message)
+    re(r"(?i)\b(status report|executive|usage|pace|pacing|burn|quota|limits?|accounts?|claude ?[abc]|claude:[abc]|5h|weekly|week|resets?|capacity|percent)\b|\d+ ?%").is_match(message)
 }
 pub fn org_query(message: &str) -> bool {
     re(r"(?i)\b(leads?|org|status report|executive|who is|staff|staffed|proxy)\b").is_match(message)

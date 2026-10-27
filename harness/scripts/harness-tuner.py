@@ -14,10 +14,8 @@ from pathlib import Path
 import re
 import shutil
 import statistics
-import subprocess
 import sys
 import tempfile
-import time
 import tomllib
 
 HERE = Path(__file__).resolve().parent
@@ -270,14 +268,6 @@ def list_price(row: dict, catalog: dict) -> float | None:
                   + row.get("output_tokens", 0) * api["output_per_million"]) / 1e6, 4)
 
 
-def codex_home(base: Path, policy: str, work: Path, name: str) -> Path:
-    home = work / f"codex-{name}"
-    home.mkdir()
-    for entry in (base.iterdir() if base.is_dir() else []):
-        if entry.name != "AGENTS.md":
-            (home / entry.name).symlink_to(entry)
-    (home / "AGENTS.md").write_text(policy)
-    return home
 
 
 from usage import reservation_stop
@@ -313,17 +303,17 @@ def cmd_replay(args) -> int:
     measurements = []
     if args.cap_week_pct is not None:
         try:
-            estimates = [ledger_reservation(args.provider, args.model or (replay.CODEX_MODEL if args.provider == "codex" else s.get("model", "opus")),
-                                             args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else s.get("effort", "medium"))) for s in scenarios]
+            estimates = [ledger_reservation("claude", args.model or s.get("model", "opus"),
+                                             args.effort or s.get("effort", "medium")) for s in scenarios]
         except RuntimeError as error:
             print(error, file=sys.stderr)
             return 3
         expected_week = max(p for p, _ in estimates) if all(p is not None for p, _ in estimates) else None
         meter = estimates[0][1]
         from usage import ledger_reservation as measured_reservation
-        measurements = [measured_reservation(args.provider,
-                        args.model or (replay.CODEX_MODEL if args.provider == "codex" else s.get("model", "opus")),
-                        args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else s.get("effort", "medium")),
+        measurements = [measured_reservation("claude",
+                        args.model or s.get("model", "opus"),
+                        args.effort or s.get("effort", "medium"),
                         threads=load_threads(), details=True) or {} for s in scenarios]
     starts = [r["seven_day_start_pct"] for r in prior if r.get("seven_day_start_pct") is not None]
     start_week = starts[0] if starts else weeks[0] if weeks else meter
@@ -336,12 +326,8 @@ def cmd_replay(args) -> int:
     measured_usd = [price for price in prices if price is not None]
     jobs = max(1, args.jobs)
     work = Path(tempfile.mkdtemp(prefix="harness-tuner-"))
-    homes = {name: codex_home(replay.CODEX_HOME, text, work, name) for name, text in policies.items()} if args.provider == "codex" else {}
-    version = subprocess.run(["codex", "--version"], capture_output=True, text=True).stdout.strip() if homes else None
 
     def one(scenario: dict, name: str, trial: int) -> dict:
-        if homes:
-            return replay.run_codex(scenario, f"variant:{name}", trial, version, dict(pick, codex_home=homes[name]))
         return replay.run_one(scenario, f"variant:{name}", trial, policies[name], pick)
 
     def capped(in_flight: int = 0, admit: bool = False) -> str | None:
@@ -372,9 +358,9 @@ def cmd_replay(args) -> int:
             running = set()
             while queue or running:
                 if args.cap_week_pct is not None and start_week is not None:
-                    fresh = ledger_reservation(args.provider,
-                            args.model or (replay.CODEX_MODEL if args.provider == "codex" else scenarios[0].get("model", "opus")),
-                            args.effort or (replay.CODEX_EFFORT if args.provider == "codex" else scenarios[0].get("effort", "medium")))[1]
+                    fresh = ledger_reservation("claude",
+                            args.model or scenarios[0].get("model", "opus"),
+                            args.effort or scenarios[0].get("effort", "medium"))[1]
                     if fresh is not None:
                         weeks.append(fresh)
                 stop = stop or capped()
@@ -512,7 +498,6 @@ def main() -> int:
     p.add_argument("scenarios", type=Path, nargs="+")
     p.add_argument("--variants", type=Path, action="append", required=True, help="an apply output dir; repeatable")
     p.add_argument("--base", type=Path, required=True, help="base policy the surfaces are appended to")
-    p.add_argument("--provider", choices=["claude", "codex"], default="codex")
     p.add_argument("--model")
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh"])
     p.add_argument("--trials", type=int, default=3)

@@ -303,7 +303,7 @@ PY
 python3 - "$repo/harness/lib" "$scratch/costs.db" "$repo/bin/threads" <<'PYMEASURE'
 import importlib.machinery,json,os,sqlite3,sys
 sys.path.insert(0,sys.argv[1])
-from ledger_context import UNTRACKED,account_id,allocate_costs,allocation_intervals,delivery_metrics,run_usage
+from ledger_context import account_id,allocate_costs,allocation_intervals,delivery_metrics,run_usage
 catalog={}
 from pathlib import Path
 Path(os.environ["CLAUDE_CONFIG_DIR"]).mkdir(parents=True, exist_ok=True)
@@ -327,17 +327,13 @@ jitter=[row|{"resets_at":"2026-10-15T00:00:01Z"} if row["used_pct"]==14 else row
 assert allocate_costs(jitter,samples,{"claude-b":50})==costs
 fault=allocate_costs(rows,[s|{"account":"claude-a"} for s in samples],{"claude-b":50})
 assert sum(fault.values())!=5
-plateau=[dict(ts=f"2026-10-12T12:{minute:02d}:00Z",provider="codex",kind="window",name="week",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,91),(10,91),(20,91),(30,92),(40,92),(50,93))]
-active=[dict(agent=agent,account="codex",ts=f"2026-10-12T12:{minute:02d}:00Z",weight=weight) for agent,minute,weight in (("plateau-a",5,1),("plateau-b",15,2),("step",25,1))]
-points=allocate_costs(plateau[:4],active,{"codex":100})
+plateau=[dict(ts=f"2026-10-12T12:{minute:02d}:00Z",provider="claude",account="a",kind="window",name="weekly_all",used_pct=used,resets_at="2026-10-15T00:00:00Z") for minute,used in ((0,91),(10,91),(20,91),(30,92),(40,92),(50,93))]
+active=[dict(agent=agent,account="claude-a",ts=f"2026-10-12T12:{minute:02d}:00Z",weight=weight) for agent,minute,weight in (("plateau-a",5,1),("plateau-b",15,2),("step",25,1))]
+points=allocate_costs(plateau[:4],active,{"claude-a":100})
 assert sum(points.values())==1 and all(points.get(s["agent"],0)>0 for s in active),points
-early=allocate_costs(plateau[:4],active[:2],{"codex":100})
+early=allocate_costs(plateau[:4],active[:2],{"claude-a":100})
 assert sum(early.values())==1 and all(early.get(s["agent"],0)>0 for s in active[:2]),early
-unallocated=allocation_intervals(plateau,active,{"codex":100})
-assert sum(r["cost_usd"] for r in unallocated)==2 and sum(r["cost_usd"] for r in unallocated if r["agent"]==UNTRACKED)==1,unallocated
-reset=plateau[:4]+[plateau[4]|dict(used_pct=10),plateau[5]|dict(used_pct=11)]
-assert allocate_costs(reset,active,{"codex":100})==points|{UNTRACKED:1}
-print('PASS [north#51] three-reading Codex plateau gives every active run points, conserves both steps and reports a genuinely unsampled step across resets')
+print('PASS [north#51] three-reading plateau gives every active run points and conserves its step')
 claude_plateau=[r|dict(provider="claude",account="a",name="weekly_all",used_pct=r["used_pct"]-7) for r in plateau[:4]]
 claude_active=[s|dict(account="claude-a") for s in active]
 claude_points=allocate_costs(claude_plateau,claude_active,{"claude-a":100})

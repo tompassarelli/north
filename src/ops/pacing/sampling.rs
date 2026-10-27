@@ -37,7 +37,7 @@ pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
 }
 type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
 
-const ADAPTERS: [(&str, &str); 3] = [("claude", "claude"), ("codex", "codex"), ("gemini", "agy")];
+const ADAPTERS: [(&str, &str); 2] = [("claude", "claude"), ("gemini", "agy")];
 
 fn due_adapters<'a>(prior: &Value, provider: Option<&str>, at: f64) -> Vec<&'a (&'a str, &'a str)> {
     ADAPTERS
@@ -166,17 +166,21 @@ fn usage_gate(db: &rusqlite::Connection) -> Result<Value, String> {
         return Err(format!("usage gate failed: {}", output.err));
     }
     let gate = serde_json::from_str(&output.out).map_err(|e| format!("invalid usage gate: {e}"))?;
-    let burn = process::run_env(
-        "python3",
-        &["-I", &usage.to_string_lossy(), "--burn-step", "codex"],
-        None,
-        15.0,
-        &[("THREADS_DB", &database)],
-    )?;
-    if !burn.out.is_empty() {
-        eprint!("{}", burn.out);
-    }
     Ok(gate)
+}
+
+pub(super) fn prune_retired(state: &mut Value) {
+    let live = |provider: &str| ADAPTERS.iter().any(|(name, _)| *name == provider);
+    for key in ["accounts", "providers"] {
+        if let Some(entries) = state[key].as_object_mut() {
+            entries.retain(|name, _| live(name.split(':').next().unwrap_or_default()));
+        }
+    }
+    for (key, field) in [("history", "provider"), ("grants", "account")] {
+        if let Some(entries) = state[key].as_array_mut() {
+            entries.retain(|entry| entry[field].as_str().is_none_or(|name| live(name.split(':').next().unwrap_or_default())));
+        }
+    }
 }
 
 fn measure(
@@ -192,6 +196,7 @@ fn measure(
             state[key] = json!({});
         }
     }
+    prune_retired(&mut state);
     record_cadence(directory, &mut state, reads, at)?;
     readout::record(db, rows(&state["history"]))?;
     let gate = usage_gate(db)?;

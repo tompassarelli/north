@@ -1,12 +1,10 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::runtime::binary;
-use crate::platform::process::run_within;
 use crate::providers::install;
 
 const AGENT_CONFIG: [&str; 7] = [
@@ -21,7 +19,6 @@ const AGENT_CONFIG: [&str; 7] = [
 const CONTEXT_FILE: &str = "/etc/north/agent-context.json";
 const CONTEXT_KEYS: [(&str, &str); 2] = [("model_context_window", "window"), ("model_auto_compact_token_limit", "autoCompactTokenLimit")];
 const SUBAGENT_DEFAULT: [&str; 2] = ["gpt-6.1-sol", "high"];
-const BURN_WAIT: Duration = Duration::from_secs(10);
 const APP_SERVER: [&str; 7] = ["app-server", "--listen", "stdio://", "--enable", "multi_agent_v2", "--enable", "default_mode_request_user_input"];
 
 pub struct AppServer {
@@ -37,7 +34,7 @@ fn server(account_home: &Path, mut argv: Vec<String>) -> NorthResult<AppServer> 
     let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from);
     argv.extend(masked(&home, std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from)));
     argv.push(install::runtime("codex").display().to_string());
-    for setting in settings(std::fs::read_to_string(CONTEXT_FILE).ok().as_deref(), subagent())? {
+    for setting in settings(std::fs::read_to_string(CONTEXT_FILE).ok().as_deref(), SUBAGENT_DEFAULT.map(str::to_owned))? {
         argv.extend(["-c".to_owned(), setting]);
     }
     argv.extend(APP_SERVER.map(str::to_owned));
@@ -78,19 +75,6 @@ fn context_settings(context: Option<&str>) -> NorthResult<Vec<String>> {
         .map(|(key, field)| declared[field].as_u64().filter(|limit| *limit > 0).map(|limit| format!("{key}={limit}")))
         .collect();
     limits.ok_or_else(|| NorthError::State(format!("{CONTEXT_FILE} declares no valid context limits")))
-}
-
-fn subagent() -> [String; 2] {
-    let burn = run_within(&binary("agents").display().to_string(), &["usage", "--burn", "codex"], BURN_WAIT)
-        .filter(|output| output.status.success())
-        .and_then(|output| burn_choice(&String::from_utf8_lossy(&output.stdout)));
-    burn.unwrap_or(SUBAGENT_DEFAULT.map(str::to_owned))
-}
-
-fn burn_choice(line: &str) -> Option<[String; 2]> {
-    let mut words = line.split_whitespace();
-    let choice = [words.next()?.to_owned(), words.next()?.to_owned()];
-    words.next().is_none().then_some(choice)
 }
 
 #[cfg(test)]

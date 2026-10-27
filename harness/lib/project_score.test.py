@@ -23,13 +23,13 @@ def scenario():
         operator = root / "operator"
         operator.mkdir()
         (operator / "orchestration.toml").write_text('[projects.north]\ntarget = "2020-01-08T00:00:00Z"\nshare = 50\ngoal = ["north#123"]\n')
-        (operator / "costs.toml").write_text('[[service]]\nid = "build"\nkind = "cloud"\nusd_per_week = 12.5\n[[service]]\nid = "codex"\nkind = "ai-plan"\nusd_per_week = 50\n')
+        (operator / "costs.toml").write_text('[[service]]\nid = "build"\nkind = "cloud"\nusd_per_week = 12.5\n[[service]]\nid = "gemini"\nkind = "ai-plan"\nusd_per_week = 50\n')
         db = sqlite3.connect(root / "snapshot.db")
         db.execute("CREATE TABLE runs(item TEXT, ended TEXT, cost_usd REAL)")
         db.execute("INSERT INTO runs VALUES('north#123', '2020-01-07T00:00:00Z', 2.5)")
         db.commit()
         read_at = datetime.now(timezone.utc)
-        usage.record(db, [{"ts": read_at.isoformat(), "provider": "codex", "account": "codex", "kind": "window",
+        usage.record(db, [{"ts": read_at.isoformat(), "provider": "gemini", "account": "gemini", "kind": "window",
                            "name": "week", "used_pct": 20, "window_min": 10080,
                            "resets_at": (read_at + timedelta(days=3)).isoformat()}])
         db.close()
