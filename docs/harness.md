@@ -119,8 +119,9 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
    only it kills, and the CI time budgets in `.safe-push`; it never force-pushes;
 4. pushes to main, removes the clean lane and its branch, and runs `follows-release`.
 
-North's land checks share that capacity scope. Checks without one release the landing lock before
-admission, then requeue and recheck if main moved. Cancellation prints `safe-push: cancelled` and
+North's land checks share that capacity scope and run with the landing lock released; the lock
+covers only the fetch, rebase, scans and push. If main moved during the checks, a lane whose files
+the new commits do not touch rebases and keeps its verdict; any other lane requeues and rechecks. Cancellation prints `safe-push: cancelled` and
 exits 130; a landed receipt names the lane head verified on the destination.
 
 A repository with an Autoland workflow, or `landing.queue = autoland` in its `.safe-push`, instead

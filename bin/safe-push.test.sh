@@ -1997,8 +1997,15 @@ new_landing_origin() {
 
 new_landing_origin deferred-capacity
 landing_state="$landing_root/state"
+printf '1\n2\n3\n4\n5\n' >"$landing_root/seed/shared.txt"
+"$real_git" -C "$landing_root/seed" commit -qam 'five shared lines'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
 make_landing_clone "$landing_root/a" a.txt
+sed -i '1s/.*/a/' "$landing_root/a/shared.txt"
+"$real_git" -C "$landing_root/a" commit -qam 'a edits the first shared line'
 make_landing_clone "$landing_root/b" b.txt
+sed -i '5s/.*/b/' "$landing_root/b/shared.txt"
+"$real_git" -C "$landing_root/b" commit -qam 'b edits the last shared line'
 mkfifo "$landing_root/admission-release" "$landing_root/recheck-release"
 land_command="printf 'DEFER_NATIVE_QUIET\\n'; if [ -e '$landing_root/deferred' ]; then touch '$landing_root/recheck'; read -r _ <'$landing_root/recheck-release'; else touch '$landing_root/deferred'; read -r _ <'$landing_root/admission-release'; fi"
 "$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: $land_command"
@@ -2025,6 +2032,35 @@ status_a=0; wait "$pid_a" || status_a=$?
 [ "$status_a" -eq 0 ] || fail "deferred lane failed after requeue: $(cat "$landing_root/a.out")"
 landing_state=''
 printf 'PASS: recorded deferred admission holds no lock or ticket; ready lane lands first; deferred lane requeues\n'
+
+new_landing_origin admitted-check-unlocked
+make_landing_clone "$landing_root/a" a.txt
+mkfifo "$landing_root/check-release"
+land_command="printf 'DEFER_NATIVE_QUIET\\n'; printf 'run\\n' >>'$landing_root/runs'; read -r _ <'$landing_root/check-release'"
+"$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity env
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: $land_command"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'admitted land check'
+run_landing "$landing_root/a" & pid_a=$!
+wait_for test -s "$landing_root/runs"
+lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+if ! flock -n "${landing_state:-$xdg_state}/safe-push/$lock_key.lock" true; then
+  printf 'go\n' >"$landing_root/check-release"
+  wait "$pid_a" || true
+  fail 'an admitted land check held the landing lock'
+fi
+printf 'other\n' >"$landing_root/seed/other.txt"
+"$real_git" -C "$landing_root/seed" add other.txt
+"$real_git" -C "$landing_root/seed" commit -qm 'disjoint main move'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+printf 'go\n' >"$landing_root/check-release"
+status_a=0; wait "$pid_a" || status_a=$?
+[ "$status_a" -eq 0 ] || fail "admitted lane failed: $(cat "$landing_root/a.out")"
+[ "$(wc -l <"$landing_root/runs")" -eq 1 ] || fail 'a main move touching none of the lane files re-ran its land checks'
+"$real_git" --git-dir="$landing_remote" cat-file -e main:a.txt || fail 'admitted lane did not land'
+"$real_git" --git-dir="$landing_remote" cat-file -e main:other.txt || fail 'admitted lane dropped the disjoint main commit'
+grep -q "keeping the land checks' verdict" "$landing_root/a.out" || fail "missing kept-verdict receipt: $(cat "$landing_root/a.out")"
+printf 'PASS: recorded admitted land check runs unlocked; a disjoint main move keeps its verdict\n'
 
 new_landing_origin main-red-marker
 make_landing_clone "$landing_root/a" a.txt

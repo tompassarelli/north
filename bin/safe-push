@@ -2033,23 +2033,39 @@ capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
 check_instruction_limits "$head_oid"
 generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
+land_attempt=1
 while :; do
   land_base="${destination_oid:-${absent_base:-}}"
   land_locked=0
-  if [ -n "$push_lock_fd" ] && has_land_checks && [ "${SAFE_PUSH_CAPACITY_ADMITTED:-}" != "$repo_root" ]; then
-    land_locked=1
-    release_push_lock
+  if [ -n "$push_lock_fd" ] && has_land_checks; then
+    if [ "$land_attempt" -le 3 ]; then
+      land_locked=1
+      release_push_lock
+    else
+      echo "safe-push: origin $to changed this change's files during 3 land check runs — running them under the landing lock"
+    fi
   fi
   run_land_checks "$land_base" "$head_oid" || exit $?
   [ "$land_locked" -eq 1 ] || break
   acquire_push_lock "$lock_url"
   upstream=$(fetch_destination)
   [ "$upstream" != "$land_base" ] || break
+  if [ -n "$land_base" ] && [ -n "$upstream" ] \
+      && { ! exact_landing "$upstream" || touches_workflows "$land_base" "$head_oid"; } \
+      && git merge-base --is-ancestor "$land_base" "$upstream" 2>/dev/null \
+      && ! touches_same_files "$land_base" "$upstream" "$head_oid"; then
+    echo "safe-push: origin $to's new commits touch none of this change's files — keeping the land checks' verdict"
+    rebase_onto_destination "$upstream"
+    capture_repository_state
+    capture_destination_state
+    break
+  fi
   release_push_lock
-  rebase_onto_destination "$upstream"
+  acquire_push_lock "$lock_url"
+  rebase_onto_destination "$(fetch_destination)"
   capture_repository_state
   capture_destination_state
-  acquire_push_lock "$lock_url"
+  land_attempt=$((land_attempt + 1))
 done
 if [ "$destination_branch" = main ] && has_land_checks; then hook_verified=1; fi
 command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to push without a secret scan"; exit 1; }
