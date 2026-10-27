@@ -1143,7 +1143,7 @@ def cmd_summary(db, a):
         groups.setdefault((*(cell_value(r, k) for k in keys), r["tier"], arm or "-"), []).append(r)
     ok = run_ok(db)
     out = [(*keys, "tier", "arm", "n", "done", "success", "ok", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med",
-            "over_2x_eta", "tokens_med", "no_landing")]
+            "over_2x_eta", "tokens_med", "no_landing", "usd_per_done")]
     for key, rs in sorted(groups.items(), key=lambda kv: (kv[0][:-2], tier_rank(kv[0][-2]), kv[0][-1])):
         done = sum(r["outcome"] == "done" for r in rs)
         timed = [r for r in rs if r["eta_min"]]
@@ -1156,7 +1156,8 @@ def cmd_summary(db, a):
                     f"{ratio:.1f}" if ratio is not None else "-",
                     f"{sum(r['minutes'] > 2 * r['eta_min'] for r in timed)}/{len(timed)}",
                     f"{tok // 1000}k" if tok is not None else "-",
-                    f"{sum(r['expects_landing'] == 1 and r['landed'] == 0 for r in rs)}/{sum(r['expects_landing'] == 1 for r in rs)}"))
+                    f"{sum(r['expects_landing'] == 1 and r['landed'] == 0 for r in rs)}/{sum(r['expects_landing'] == 1 for r in rs)}",
+                    f"{usd:.2f}" if (usd := delivery_metrics(rs)["median_cost_per_done_usd"]) is not None else "-"))
     table(out)
     print()
     context_summary(telemetry_rows)
@@ -1183,7 +1184,6 @@ def cmd_summary(db, a):
         closure(db, rows)
     except Refused as e:
         print(f"NorthThreads: closure table needs GitHub: {e}", file=sys.stderr)
-
 
 
 def delivery_summary(rows):

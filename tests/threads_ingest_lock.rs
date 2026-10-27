@@ -73,3 +73,31 @@ fn a_backfilled_run_takes_its_reread_role_tier_and_item() {
     let run = Command::new("sqlite3").arg(root.join("threads.db")).arg(query).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "worker|medium|smashcraft#459|feature");
 }
+
+#[test]
+fn the_summary_prices_each_tier_and_arm_row_by_its_median_cost_per_done() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let row = |id: &str, arm: &str, item: u32| {
+        format!(
+            r#"{{"id":"{id}","tier":"sonnet-high","backfill":false,"brief":"Item: north#{item}\nCategory: tooling\nArm: {arm}","status":"finished","outcome":"done","landed":1,"started":"2026-10-26T11:00:00Z","staffed":"2026-10-26T11:00:00Z","ended":"2026-10-26T11:05:00Z","landed_at":"2026-10-26T11:06:00Z","actual_min":5}}"#
+        )
+    };
+    let lines = [row("keeps", "no-handoff", 1), row("hands", "handoff-350k", 2), row("bare", "no-handoff", 3)];
+    let mut ingest = threads(root, "ingest").stdin(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    std::io::Write::write_all(&mut ingest.stdin.take().unwrap(), format!("{}\n", lines.join("\n")).as_bytes()).unwrap();
+    let output = ingest.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let costs = "update runs set cost_usd = case agent when 'keeps' then 3.0 when 'hands' then 7.5 else 5.0 end";
+    assert!(Command::new("sqlite3").arg(root.join("threads.db")).arg(costs).status().unwrap().success());
+
+    let summary = threads(root, "summary").output().unwrap();
+    assert!(summary.status.success(), "{}", String::from_utf8_lossy(&summary.stderr));
+    let printed = String::from_utf8_lossy(&summary.stdout);
+    let usd = |arm: &str| {
+        let row = printed.lines().find(|line| line.split_whitespace().any(|word| word == arm)).unwrap_or_else(|| panic!("no {arm} row in\n{printed}"));
+        row.split_whitespace().last().unwrap().to_owned()
+    };
+    assert!(printed.lines().any(|line| line.trim_end().ends_with("no_landing  usd_per_done")), "{printed}");
+    assert_eq!((usd("no-handoff").as_str(), usd("handoff-350k").as_str()), ("4.00", "7.50"), "median of $3 and $5, and the lone $7.50 box\n{printed}");
+}

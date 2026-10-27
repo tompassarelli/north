@@ -80,7 +80,9 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
     assert_eq!(tiers(&decided), [("wisp#6", "sonnet-high"), ("wisp#7", "sonnet-high")], "both arms at 15 runs: the cheaper arm, every time");
     assert!(decided.iter().all(|(_, tier, arm, brief)| !arm && !brief.contains(&format!("Arm: {}", tier.name()))));
     let short = Evidence { tiers: BTreeMap::from([("claude:sonnet-high".to_owned(), (73.0, 15)), ("claude:opus-medium".to_owned(), (66.0, 14))]), ..evidence.clone() };
-    assert_eq!(tiers(&launched(vec![tooling(8), tooling(9)], History::default(), BTreeMap::from([("tooling".to_owned(), short.priced(&closed(&[("sonnet", 5, 3.0), ("opus-medium", 5, 1.0)]), "tooling"))]))), [("wisp#8", "sonnet-high"), ("wisp#9", "worker")]);
+    let alternating = launched(vec![tooling(8), tooling(9)], History::default(), BTreeMap::from([("tooling".to_owned(), short.priced(&closed(&[("sonnet", 5, 3.0), ("opus-medium", 5, 1.0)]), "tooling"))]));
+    assert_eq!(tiers(&alternating), [("wisp#8", "sonnet-high"), ("wisp#9", "worker")]);
+    assert!(alternating.iter().all(|(_, _, _, brief)| brief.contains("sonnet-high 73% of 15, $3.00 per closed box") && brief.contains("worker 66% of 14, $1.00 per closed box")), "an arm launch reason shows both arms' cost per closed box: {alternating:?}");
     assert_eq!(Evidence::parse(&RECOMMEND.replace("[Category: tooling]", "[all runs]"), "tooling"), Evidence::default(), "a coarser cell is not this category's evidence");
     assert_eq!(tiers(&launched(vec![tooling(10), tooling(11)], History::default(), BTreeMap::from([("tooling".to_owned(), evidence)]))), [("wisp#10", "sonnet-high"), ("wisp#11", "worker")], "arms with 15 runs and no closed-box report keep alternating");
 }

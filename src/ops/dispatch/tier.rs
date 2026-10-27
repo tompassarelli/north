@@ -229,10 +229,9 @@ pub(crate) fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &Hi
         return on(Tier::Opus, format!("{category} stays on worker"));
     }
     let evidence = ledger.get(&category).cloned().unwrap_or_default();
-    let (sonnet, opus) = (evidence.runs(Tier::Sonnet), evidence.runs(Tier::Opus));
     if let Some(tier) = evidence.settled() {
         return on(tier, format!("{category} goes to {} by the ledger's cost per closed box ({}; {})", tier.name(), evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus)));
     }
     let tier = history.last_arm.get(&category).map_or(Tier::Sonnet, |last| last.other_arm());
-    Route { arm: true, ..on(tier, format!("{category} arm {} (sonnet-high n {sonnet}, worker n {opus}, {ARM_RUNS} each to decide)", tier.name())) }
+    Route { arm: true, ..on(tier, format!("{category} arm {} ({}; {}; {ARM_RUNS} each to decide)", tier.name(), evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus))) }
 }
