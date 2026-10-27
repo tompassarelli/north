@@ -3,7 +3,7 @@ set -uo pipefail
 
 placement=${LAPTOP_RUNNER_PLACEMENT:-laptop}
 poll=${LAPTOP_RUNNER_POLL:-30}
-"$(dirname "$0")/agent-contain" sweep || true
+"$(dirname "$0")/agent-contain" sweep || true; "$(dirname "$0")/north" private-desktop reap || true
 lock="${XDG_RUNTIME_DIR:-/tmp}/laptop-runner.lock"
 exec 9>"$lock"
 flock -n 9 || exit 0
