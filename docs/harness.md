@@ -38,7 +38,9 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    policy gate in [harness/scripts/agent-config-check.sh](../harness/scripts/agent-config-check.sh),
    then `north config agents sync` builds a new activation generation under
    `~/.local/state/north/agents/` from South's `catalog-config.json` and links each allowed skill into
-   `~/.claude/skills` and `~/.codex/skills`. The generation's instructions and `provider-hooks` reach
+   `~/.claude/skills` and `~/.codex/skills`. It reads north's skills, scripts and hooks from the tree of the
+   runtime `current` names, never from the checkout, so a deferred promotion leaves them in step with the
+   binary; only promotion moves them. The generation's instructions and `provider-hooks` reach
    Claude Code and Codex through links Firn's profile module makes; `agent-config-check.sh` checks
    that wiring.
 

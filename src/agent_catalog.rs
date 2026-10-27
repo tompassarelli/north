@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
 use crate::foundation::clock::{self, Timestamp};
-use crate::platform::git as platform_git;
+use crate::platform::harness;
 
 const ACTIVATION_SCHEMA: &str = "north.agent-activation/v1";
 const MANAGED_SKILLS_SCHEMA: &str = "north.codex-managed-skills/v1";
@@ -1190,13 +1190,8 @@ fn catalog_digest() -> NorthResult<String> {
 }
 
 fn repo_revision(repo: &str) -> NorthResult<String> {
-    let output = platform_git::run(&repo_root(repo)?, &["rev-parse", "HEAD"])?;
-    if !output.status.success() {
-        return configuration(format!("cannot resolve revision for {repo}"));
-    }
-    String::from_utf8(output.stdout)
-        .map(|revision| revision.trim().to_owned())
-        .map_err(|error| NorthError::Configuration(format!("invalid revision for {repo}: {error}")))
+    harness::revision(&repo_root(repo)?)
+        .ok_or_else(|| NorthError::Configuration(format!("cannot resolve revision for {repo}")))
 }
 
 fn operator_catalog_path() -> NorthResult<PathBuf> {
@@ -1235,10 +1230,9 @@ fn repo_root_in(repo: &str, configured: Option<&str>) -> NorthResult<PathBuf> {
             return Ok(PathBuf::from(path));
         }
     }
-    if repo == "north"
-        && let Ok(path) = env::var("NORTH_HOME") {
-            return Ok(PathBuf::from(path));
-        }
+    if repo == "north" {
+        return harness::harness_root().map_err(NorthError::Configuration);
+    }
     Ok(home()?.join("code").join(repo).join("main"))
 }
 
