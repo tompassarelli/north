@@ -162,7 +162,9 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 }
 
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    let (mut request, mut overrides) = launch_parts(&fleet.providers(), words, std::env::var(SESSION_ENV).ok())?;
+    let caller = std::env::var(SESSION_ENV).ok();
+    fleet.admit_launch_from(caller.as_deref())?;
+    let (mut request, mut overrides) = launch_parts(&fleet.providers(), words, caller)?;
     let started = fleet_tier::apply(&mut request, &mut overrides)?;
     let placed = placed(fleet, &request, &overrides)?;
     (request.placement, request.capacity_need) = (fleet_duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);

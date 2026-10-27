@@ -86,3 +86,61 @@ fn a_label_with_no_profile_for_the_named_machine_is_refused_naming_its_owners() 
         other => panic!("a label undeclared for far was placed there: {other:?}"),
     }
 }
+
+fn chain(fleet: &Fleet, links: &[(&str, Option<&str>)]) {
+    for (name, parent) in links {
+        let session = fleet.root.join(name);
+        fs::create_dir_all(&session).unwrap();
+        let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "parent": parent});
+        fs::write(session.join("session.json"), record.to_string()).unwrap();
+    }
+}
+
+fn launch_refusal(fleet: &Fleet, caller: &str) -> Option<String> {
+    match fleet.admit_launch_from(Some(caller)) {
+        Ok(()) => None,
+        Err(NorthError::Refused(why)) => Some(why),
+        Err(other) => panic!("{caller} was refused for the wrong reason: {other:?}"),
+    }
+}
+
+#[test]
+fn a_launch_from_a_session_two_levels_below_the_lead_is_refused_naming_its_depth() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    chain(&fleet, &[("lead", None), ("worker", Some("lead")), ("judge", Some("worker"))]);
+
+    let why = launch_refusal(&fleet, "judge").expect("a session two levels below the lead launched");
+
+    assert!(why.contains("judge is 2 levels below the lead"), "{why}");
+}
+
+#[test]
+fn a_launch_from_the_lead_or_one_level_below_it_is_admitted() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    chain(&fleet, &[("lead", None), ("worker", Some("lead")), ("judge", Some("worker"))]);
+
+    assert_eq!(launch_refusal(&fleet, "lead"), None);
+    assert_eq!(launch_refusal(&fleet, "worker"), None);
+    assert_eq!(launch_refusal(&fleet, "unrecorded"), None);
+}
+
+#[test]
+fn a_session_whose_parent_record_is_gone_still_counts_that_parent_as_a_level() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    chain(&fleet, &[("orphan", Some("forgotten-lead")), ("grandchild", Some("orphan"))]);
+
+    assert_eq!(launch_refusal(&fleet, "orphan"), None);
+    assert!(launch_refusal(&fleet, "grandchild").is_some());
+}
+
+#[test]
+fn a_parent_cycle_is_refused_instead_of_walked_forever() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    chain(&fleet, &[("a", Some("b")), ("b", Some("a"))]);
+
+    assert!(launch_refusal(&fleet, "a").is_some());
+}

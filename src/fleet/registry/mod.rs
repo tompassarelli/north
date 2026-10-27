@@ -20,6 +20,7 @@ use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
+mod depth;
 mod efforts;
 mod first_turn;
 mod follower;
