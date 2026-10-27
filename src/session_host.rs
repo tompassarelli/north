@@ -21,6 +21,7 @@ pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const PARTIAL_LINE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const STDIN_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const REST_TICK: Duration = Duration::from_secs(5);
+const TERM_GRACE: Duration = Duration::from_secs(10);
 pub const STDIN_BLOCKED: &str = r#"{"error":"stdin-blocked"}"#;
 pub const STDIN_CLOSED: &str = r#"{"error":"stdin-closed"}"#;
 pub const INVALID_FRAME: &str = r#"{"error":"invalid-frame"}"#;
@@ -261,6 +262,18 @@ impl SessionHost {
         self.server = Some(tokio::spawn(accept_clients(listener, self.stdin.clone())));
     }
 
+    pub fn end_with_host_signal(&self) {
+        let Some(child) = self.child.id() else { return };
+        let Ok(mut term) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) else { return };
+        tokio::spawn(async move {
+            term.recv().await;
+            let Some(pid) = i32::try_from(child).ok().and_then(rustix::process::Pid::from_raw) else { return };
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::Term);
+            tokio::time::sleep(TERM_GRACE).await;
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::Kill);
+        });
+    }
+
     pub fn rest_when_idle(&mut self, park_after: Option<Duration>) {
         let resting = rest_when_idle(self.stdin.clone(), self.watcher.clone(), park_after, self.child.id());
         self.parking = Some(tokio::spawn(resting));
@@ -301,6 +314,7 @@ pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Op
     let watcher = watch_for(&config).map(Watcher::new).unwrap_or_default();
     let mut host = SessionHost::spawn_watched(&config, watcher)?;
     host.serve(listener);
+    host.end_with_host_signal();
     host.rest_when_idle(config.idle_exit);
     let code = host.wait().await;
     let _ = fs::remove_file(&socket);

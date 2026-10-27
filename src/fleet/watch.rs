@@ -230,5 +230,8 @@ impl FrameWatch for TurnWatch {
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
         }
+        if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) {
+            self.retire();
+        }
     }
 }

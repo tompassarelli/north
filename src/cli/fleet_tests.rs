@@ -311,6 +311,24 @@ async fn a_finished_root_session_is_not_exited() {
     assert!(!crate::fleet::records::read_record(&root.path().join("worker")).unwrap().stopped, "a root session parks, never exits");
 }
 
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_one_parked() {
+    for (reply, stopped) in [("Done: landed abc123.", true), ("Still waiting on the build.", false)] {
+        let root = tempfile::tempdir().unwrap();
+        session_record(root.path(), Some("lead"));
+        let (config, _) = claude_turn(root.path(), 100_000, reply);
+        let sink = Arc::new(Recorded::default());
+        let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, root.path().to_path_buf(), root.path().join("worker"));
+        let host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+        host.end_with_host_signal();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::Term).unwrap();
+        let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
+        assert_eq!(code, 143);
+        assert_eq!(crate::fleet::records::read_record(&root.path().join("worker")).unwrap().stopped, stopped, "{reply}");
+    }
+}
 #[test]
 fn a_worker_on_the_handoff_arm_is_told_to_hand_off_at_its_threshold_and_again_per_further_50k_even_after_a_revive() {
     let calls = |handoff_at: Option<u64>| {
