@@ -91,7 +91,7 @@ impl TurnWatch {
         let Some(parent) = record.parent.as_deref() else { return };
         let (reply, lines) = view.map(|view| (view.reply, view.transcript.entries)).unwrap_or_default();
         let landed = landings::landed_between(record, &push_log(), turn.started_ms, turn.ended_ms);
-        let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply, background: turn.prompt.is_none(), idle: !self.turns.busy(&turn.conversation) };
+        let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply };
         if let Err(error) = deliver_report(self.ledger.as_ref(), self.courier.as_ref(), parent, &report, &lines, now_ms()) {
             eprintln!("north fleet: receipt to {parent} not sent: {}", error.user_message());
         }

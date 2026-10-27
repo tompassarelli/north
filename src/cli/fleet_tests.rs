@@ -168,7 +168,7 @@ fn a_child_delivers_each_finished_turn_in_order_while_its_parent_is_busy() {
     let task = json!({"type": "system", "subtype": "task_started", "session_id": "s", "task_id": "t1"});
     let result = json!({"type": "result", "subtype": "success", "session_id": "s", "is_error": false});
     watch.line(task.to_string().as_bytes());
-    for (turn, report) in [(1, "first"), (2, "second"), (3, "third")] {
+    for (turn, report) in [(1, "Done: first"), (2, "Blocked: second"), (3, "Split: third")] {
         for frame in [user(turn), said(report), result.clone()] {
             watch.line(frame.to_string().as_bytes());
         }
@@ -176,14 +176,14 @@ fn a_child_delivers_each_finished_turn_in_order_while_its_parent_is_busy() {
     watch.line(json!({"type": "system", "subtype": "task_notification", "session_id": "s", "task_id": "t1"}).to_string().as_bytes());
     let posted = sink.1.lock().unwrap();
     assert_eq!(*posted, [
-        ("boss".to_owned(), "[from kid · turn 1 · exit completed] first".to_owned(), Delivery::Queued),
-        ("boss".to_owned(), "[from kid · turn 2 · exit completed] second".to_owned(), Delivery::Queued),
-        ("boss".to_owned(), "[from kid · turn 3 · exit completed] third".to_owned(), Delivery::Queued),
+        ("boss".to_owned(), "[from kid · turn 1 · exit completed] Done: first".to_owned(), Delivery::Queued),
+        ("boss".to_owned(), "[from kid · turn 2 · exit completed] Blocked: second".to_owned(), Delivery::Queued),
+        ("boss".to_owned(), "[from kid · turn 3 · exit completed] Split: third".to_owned(), Delivery::Queued),
     ]);
 }
 
 #[test]
-fn background_progress_and_empty_turns_stay_in_the_ledger_while_reports_reach_the_parent() {
+fn progress_questions_and_empty_turns_stay_in_the_ledger_while_only_final_reports_reach_the_parent() {
     let root = tempfile::tempdir().unwrap();
     let session = root.path().join("kid");
     std::fs::create_dir_all(&session).unwrap();
@@ -200,9 +200,6 @@ fn background_progress_and_empty_turns_stay_in_the_ledger_while_reports_reach_th
     assert_eq!(sink.0.lock().unwrap().len(), 8);
     let posted = sink.1.lock().unwrap();
     assert_eq!(*posted, [
-        ("boss".into(), "[from kid · turn 4 · exit completed] Landed abc1234".into(), Delivery::Queued),
-        ("boss".into(), "[from kid · turn 5 · exit completed] Which target?".into(), Delivery::Queued),
-        ("boss".into(), "[from kid · turn 6 · exit completed] Still waiting on the final monitor".into(), Delivery::Queued),
         ("boss".into(), "[from kid · turn 7 · exit completed] Done: all monitors finished".into(), Delivery::Queued),
     ]);
 }

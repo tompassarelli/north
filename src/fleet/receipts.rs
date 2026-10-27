@@ -10,6 +10,7 @@ use super::turns::TurnExit;
 const REPORT_CHARS: usize = 4_000;
 const LINE_CHARS: usize = 300;
 const LAST_LINES: usize = 5;
+const FINAL_OPENINGS: [&str; 5] = ["Done", "Not done", "Split", "Stop", "Blocked"];
 
 pub trait ReceiptBook: Send + Sync {
     fn claim_receipt(&self, session: &str, key: &str, claimed_ms: u64) -> NorthResult<bool>;
@@ -28,18 +29,17 @@ pub struct Report {
     pub exit: TurnExit,
     pub landed: Option<String>,
     pub reply: Option<String>,
-    pub background: bool,
-    pub idle: bool,
 }
 
 impl Report {
     pub fn notice(&self, lines: &[Entry]) -> Option<(String, Delivery)> {
         let reply = self.reply.as_deref().unwrap_or_default().trim();
-        if reply.is_empty() || (self.exit == TurnExit::Completed && self.background && !self.idle && self.landed.is_none() && !reportable(reply)) {
+        if reply.is_empty() {
             return None;
         }
         match self.exit {
-            TurnExit::Completed => Some((self.receipt(), Delivery::Queued)),
+            TurnExit::Completed if self.landed.is_some() || is_final(reply) => Some((self.receipt(), Delivery::Queued)),
+            TurnExit::Completed => None,
             TurnExit::Failed => Some((format!("{} The turn failed. {}", self.header(), last_lines(lines)), Delivery::Now)),
             TurnExit::Interrupted | TurnExit::Killed => None,
         }
@@ -98,10 +98,9 @@ pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &Host
     Ok(claimed)
 }
 
-fn reportable(text: &str) -> bool {
-    text.contains('?') || text.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| {
-        (7..=40).contains(&word.len()) && word.bytes().all(|byte| byte.is_ascii_hexdigit()) && word.bytes().any(|byte| byte.is_ascii_alphabetic())
-    })
+fn is_final(reply: &str) -> bool {
+    let opening = reply.trim_start_matches(['*', '#', '`', ' ']);
+    FINAL_OPENINGS.iter().any(|word| opening.strip_prefix(word).is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric())))
 }
 
 fn last_lines(lines: &[Entry]) -> String {
@@ -142,7 +141,7 @@ mod tests {
     }
 
     fn report(exit: TurnExit, reply: &str) -> Report {
-        Report { child: "kid".into(), turn: 3, exit, landed: Some("abc123".into()), reply: Some(reply.into()), background: false, idle: true }
+        Report { child: "kid".into(), turn: 3, exit, landed: Some("abc123".into()), reply: Some(reply.into()) }
     }
 
     fn lines(count: usize) -> Vec<Entry> {
@@ -163,19 +162,44 @@ mod tests {
         assert!(deliver_report(&book, &inbox, "boss", &report(TurnExit::Completed, " done: 4 files \n"), &[], 1).unwrap());
         assert!(!deliver_report(&book, &inbox, "boss", &report(TurnExit::Completed, "done again"), &[], 2).unwrap());
         assert!(!deliver_report(&book, &inbox, "boss", &report(TurnExit::Interrupted, "partial"), &[], 3).unwrap());
-        let long = Report { turn: 4, landed: None, ..report(TurnExit::Completed, &"x".repeat(REPORT_CHARS + 1)) };
+        let long = Report { turn: 4, landed: None, ..report(TurnExit::Completed, &format!("Done: {}", "x".repeat(REPORT_CHARS))) };
         deliver_report(&book, &inbox, "boss", &long, &[], 4).unwrap();
         let posted = inbox.0.into_inner().unwrap();
         assert_eq!(posted[0], ("boss".to_owned(), "[from kid · turn 3 · exit completed · landed abc123] done: 4 files".to_owned(), Delivery::Queued));
         assert_eq!(posted.len(), 2);
-        assert!(posted[1].1.starts_with("[from kid · turn 4 · exit completed] xxx"), "{}", posted[1].1);
+        assert!(posted[1].1.starts_with("[from kid · turn 4 · exit completed] Done: xxx"), "{}", posted[1].1);
         assert!(posted[1].1.ends_with("…\n[report truncated; read it all with `north fleet show kid`]"), "{}", posted[1].1);
+    }
+
+    #[test]
+    fn a_progress_turn_stays_out_of_the_parent_while_final_failed_and_landed_turns_are_posted() {
+        let progress = Report { landed: None, ..report(TurnExit::Completed, "Still waiting on the run") };
+        let turns = [
+            (progress.clone(), false),
+            (Report { reply: Some("Which target?".into()), ..progress.clone() }, false),
+            (Report { reply: Some("Landed abc1234".into()), ..progress.clone() }, false),
+            (Report { reply: Some("Donegal is a county".into()), ..progress.clone() }, false),
+            (Report { reply: Some("Stopping to think".into()), ..progress.clone() }, false),
+            (Report { landed: Some("abc1234".into()), ..progress.clone() }, true),
+            (Report { exit: TurnExit::Failed, ..progress.clone() }, true),
+            (Report { reply: Some("Done: 4 files".into()), ..progress.clone() }, true),
+            (Report { reply: Some("Not done: the run failed\nStop: landing".into()), ..progress.clone() }, true),
+            (Report { reply: Some("Split: two parts".into()), ..progress.clone() }, true),
+            (Report { reply: Some("Stop: decision".into()), ..progress.clone() }, true),
+            (Report { reply: Some("Blocked: needs a sign-in".into()), ..progress.clone() }, true),
+            (Report { reply: Some("**Done:** 4 files".into()), ..progress }, true),
+        ];
+        for (n, (report, posted)) in turns.into_iter().enumerate() {
+            let (book, inbox) = (Book::default(), Inbox::default());
+            assert_eq!(deliver_report(&book, &inbox, "boss", &report, &lines(2), n as u64).unwrap(), posted, "{report:?}");
+            assert_eq!(inbox.0.into_inner().unwrap().len(), usize::from(posted), "{report:?}");
+        }
     }
 
     #[test]
     fn a_failed_turn_is_urgent_and_carries_the_last_five_transcript_lines() {
         let (book, inbox) = (Book::default(), Inbox::default());
-        let failed = Report { background: true, idle: false, ..report(TurnExit::Failed, "ignored") };
+        let failed = report(TurnExit::Failed, "ignored");
         assert!(!deliver_report(&book, &inbox, "boss", &Report { reply: None, ..failed.clone() }, &lines(7), 0).unwrap());
         deliver_report(&book, &inbox, "boss", &failed, &lines(7), 1).unwrap();
         let posted = inbox.0.into_inner().unwrap();
