@@ -157,6 +157,7 @@ impl HookKind {
                 crate::guard::sops_decrypt::evaluate,
                 crate::guard::public_text::evaluate,
                 crate::guard::frozen_topics::evaluate,
+                crate::guard::poll_loop::evaluate,
                 crate::guard::heavy_command::evaluate,
                 crate::guard::session_kill::evaluate,
                 crate::guard::clipboard::evaluate,

@@ -173,6 +173,20 @@ impl Value {
     pub fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Number { raw, .. } => raw.parse().ok(),
+            _ => None,
+        }
+    }
 }
 
 impl From<&str> for Value {

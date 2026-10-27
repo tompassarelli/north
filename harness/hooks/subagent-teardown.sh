@@ -5,8 +5,9 @@
 # and never re-notifies later. A task has ended when the transcript holds a
 # TaskStop or a task notification for it; a shell task has also ended when no
 # process holds its output file open; a Monitor has also ended once its
-# timeout has passed. stop_hook_active, an unreadable transcript and malformed
-# input allow.
+# timeout has passed; a `job-run --notify` job detaches from its shell, so it
+# survives the stop and never holds one. stop_hook_active, an unreadable
+# transcript and malformed input allow.
 #
 # Kill-switch: `north config agents off subagent-teardown` or env
 # AGENT_NO_AUTHORING_HOOKS (shared impl: lib/authoring-killswitch.sh).
@@ -146,7 +147,8 @@ names = ", ".join(f"{t} ({v[1] or v[0]})" for t, v in pending.items())
 print(json.dumps({
     "decision": "block",
     "reason": f"You still have background tasks running: {names}. "
-              "Stop each with TaskStop, then finish your report.",
+              "Stop each with TaskStop, then finish your report. "
+              "Long work that must outlive you runs as `job-run --notify NAME -- CMD`.",
 }))
 PYEOF
 

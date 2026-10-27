@@ -20,6 +20,7 @@ mod git_invocation;
 mod git_tests;
 
 pub mod heavy_command;
+pub mod poll_loop;
 pub mod session_kill;
 pub mod clipboard;
 pub mod native_item;
