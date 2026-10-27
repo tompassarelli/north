@@ -302,6 +302,7 @@ def usage(evs: list[dict]) -> dict:
                 "cache_read_tokens": int(u.get("cache_read_input_tokens", 0) or 0),
                 "model_resolved": model or next(iter(ev.get("modelUsage") or {}), None),
                 "cost_api_usd_comparison": round(float(ev.get("total_cost_usd", 0) or 0), 4),
+                "failure": (ev.get("result") or "result is_error with no text") if ev.get("is_error") else None,
             }
     return {}
 
@@ -479,7 +480,9 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
             cmd += ["--max-budget-usd", str(scenario["max_budget_usd"])]
         if advisor:
             cmd += ["--advisor", advisor]
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))}
+        token = Path.home() / ".local/state/north/claude-tokens" / Path(os.environ.get("CLAUDE_CONFIG_DIR", "")).name
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_", "CLAUDE_CODE_SESSION"))} | (
+            {} if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or not token.is_file() else {"CLAUDE_CODE_OAUTH_TOKEN": token.read_text().strip()})
         if not advisor:
             env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] = "1"
         stdout, stderr, code, tag, proc = run_tagged(cmd, cwd, env, scenario.get("timeout_s", 600))
@@ -490,15 +493,12 @@ def run_one(scenario: dict, arm: str, trial: int, policy_text: str, pick: dict |
             row.update({"pass": None, "error": f"no result (exit {code}): {stderr[-300:]}"})
         else:
             row["pass"] = score(scenario, hidden, evs, cwd)
-            row.update(usage(evs))
-            row.update(advisor_usage(evs))
-            row.update(meter(evs))
+            row.update(usage(evs) | advisor_usage(evs) | meter(evs))
             debug = advisor_debug((Path(work) / "debug.log").read_text(errors="replace") if (Path(work) / "debug.log").exists() else "")
-            row["advisor_attached"] = debug["advisor_attached"]
-            row["advisor_model_resolved"] = debug["advisor_model_resolved"] or row["advisor_model_resolved"]
+            row.update(advisor_attached=debug["advisor_attached"], advisor_model_resolved=debug["advisor_model_resolved"] or row["advisor_model_resolved"])
             row.update(usd=row["cost_api_usd_comparison"], usd_basis="total_cost_usd list price: the ledger rate needs weekly readouts bracketing the run")
-            if row["subtype"] != "success":
-                row.update({"pass": None, "error": f"run ended {row['subtype']} before its final answer"})
+            if row["subtype"] != "success" or row["failure"]:
+                row.update({"pass": None, "error": row["failure"] if row["subtype"] == "success" else f"run ended {row['subtype']} before its final answer"})
             elif advisor and not row["advisor_attached"]:
                 row.update({"pass": None, "error": "advisor not attached: the debug log has no [AdvisorTool] Server-side tool enabled line"})
             elif not advisor and row["advisor_attached"]:
