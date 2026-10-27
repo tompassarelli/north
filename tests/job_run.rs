@@ -71,3 +71,38 @@ fn job_run_starts_its_job_and_returns_with_it_while_the_start_record_stalls() {
     assert!(begun.elapsed() < Duration::from_secs(6), "{:?}", begun.elapsed());
     assert!(ssh_log(root).iter().any(|line| line.contains("job-run fleet-relay") && line.ends_with("--rc 4")), "{:?}", ssh_log(root));
 }
+
+fn tool(name: &str) -> std::path::PathBuf {
+    std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("{name} not on PATH"))
+}
+
+#[test]
+fn job_run_records_the_finish_when_the_callers_path_has_no_bash() {
+    let scratch = scratch();
+    let root = scratch.path();
+    let tools = root.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "true"] {
+        symlink(tool(name), tools.join(name)).unwrap();
+    }
+    fs::remove_file(root.join("bin/north")).unwrap();
+    fs::write(
+        root.join("bin/north"),
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(root.join("bin/north"), fs::Permissions::from_mode(0o755)).unwrap();
+    let status = Command::new(tool("bash"))
+        .arg(root.join("bin/job-run"))
+        .args(["checks", "--", "true"])
+        .env("HOME", root)
+        .env("PATH", &tools)
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(0));
+    let log = fs::read_to_string(root.join("north.log")).unwrap_or_default();
+    assert!(log.lines().any(|line| line.contains("job-run checks") && line.contains("--finished") && line.ends_with("--rc 0")), "{log:?}");
+}

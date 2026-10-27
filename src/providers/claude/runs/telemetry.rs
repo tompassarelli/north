@@ -14,6 +14,8 @@ static HANDOFF: LazyLock<Regex> = LazyLock::new(|| {
 static REPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:HANDOFF\s+\S+|(?:Not done|Done):)").unwrap());
 static REMINDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^<system-reminder>\s*").unwrap());
 
+const SYNTHETIC: &str = "<synthetic>";
+
 pub(super) struct Prices {
     rates: HashMap<String, (f64, f64)>,
     by_price: bool,
@@ -194,7 +196,7 @@ pub(super) fn run_usage(records: &[Value], account: &str, prices: &Prices) -> Ma
         if record["type"] != "assistant" || usage.is_null() {
             continue;
         }
-        model = message["model"].as_str().filter(|name| !name.is_empty()).or(model);
+        model = message["model"].as_str().filter(|name| !name.is_empty() && *name != SYNTHETIC).or(model);
         if let Some(value) = [&message["effort"], &record["effort"]].into_iter().find(|value| truthy(value)) {
             effort = value.clone();
         }

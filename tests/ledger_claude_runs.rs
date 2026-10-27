@@ -92,3 +92,30 @@ fn a_fleet_or_worker_subagent_run_is_a_worker_run_on_its_model_and_efforts_tier_
     assert!(by_id("dispatched")["brief"].as_str().unwrap().starts_with("Item: smashcraft#459"));
     assert_eq!((by_id("proxy")["role"].as_str(), by_id("proxy")["tier"].as_str()), (Some("proxy"), Some("claude-opus-5-5")));
 }
+
+#[test]
+fn a_haiku_fleet_worker_at_any_effort_is_tier_haiku_and_a_synthetic_last_message_keeps_the_real_model() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let projects = root.join("home/.claude/projects/-home-tom-code-north-main");
+    transcript_of(&projects.join("quick.jsonl"), "Item: north#244 labels", "claude-haiku-5-5");
+    transcript_of(&projects.join("limited.jsonl"), "Item: north#245 labels", "claude-sonnet-5-5");
+    let synthetic = r#"{"type":"assistant","timestamp":"2026-10-08T00:05:00Z","requestId":"r2","message":{"model":"<synthetic>","usage":{"output_tokens":0,"input_tokens":0},"content":[{"type":"text","text":"API Error: limit reached"}]}}"#;
+    let mut text = fs::read_to_string(projects.join("limited.jsonl")).unwrap();
+    text.push_str(synthetic);
+    text.push('\n');
+    fs::write(projects.join("limited.jsonl"), text).unwrap();
+    let policy = root.join("orchestration.toml");
+    fs::write(
+        &policy,
+        "[tiers.\"claude:haiku\"]\nmodel = \"claude-haiku-5-5\"\neffort = \"low\"\nagent = \"worker-haiku\"\n\
+         [tiers.\"claude:sonnet-high\"]\nmodel = \"claude-sonnet-5-5\"\neffort = \"high\"\nagent = \"worker-sonnet\"\n",
+    )
+    .unwrap();
+    let fleet = r#"[{"name":"n-244","conversation":"quick","parent":"lead","task_ref":"north#244","effort":"medium"},
+        {"name":"n-245","conversation":"limited","parent":"lead","task_ref":"north#245","effort":"high"}]"#;
+    let (rows, _) = claude_runs(root, &fleet.replace('\n', ""), &policy);
+    let by_id = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap_or_else(|| panic!("no row for {id}: {rows:?}"));
+    assert_eq!((by_id("quick")["tier"].as_str(), by_id("quick")["effort"].as_str()), (Some("haiku"), Some("medium")));
+    assert_eq!((by_id("limited")["tier"].as_str(), by_id("limited")["model"].as_str()), (Some("sonnet"), Some("claude-sonnet-5-5")));
+}

@@ -259,7 +259,9 @@ fn worker_tier(policy: Option<&DocumentMut>, metadata: Option<&Value>, usage: &M
             .find(|tier| tier.get("model").and_then(Item::as_str) == Some(model) && tier.get("effort").and_then(Item::as_str) == effort)
             .and_then(|tier| tier.get("agent")?.as_str().map(str::to_owned)),
     };
-    let Some(agent) = agent else { return Some(format!("{model} {}", effort.unwrap_or("default"))) };
+    let Some(agent) = agent else {
+        return Some(if model.contains("haiku") { "haiku".to_owned() } else { format!("{model} {}", effort.unwrap_or("default")) });
+    };
     let rest = agent.strip_prefix("worker")?;
     let rest = rest.strip_prefix('-').unwrap_or(rest);
     Some(if model.contains("haiku") { "haiku" } else if rest.is_empty() { "medium" } else { rest }.to_owned())

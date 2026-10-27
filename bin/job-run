@@ -3,7 +3,7 @@
 # NorthThreads' job_runs (name, host, started, finished, rc), run CMD and exit with its code.
 # Recording never changes the job's result: the start record runs beside CMD and stops when CMD ends,
 # and the finish record, which writes the whole row, spools when the ledger host is slow.
-#   --path DIRS  prepended to PATH for the threads calls only (python3, ssh, timeout)
+#   --path DIRS  prepended to PATH for the threads calls only (python3, ssh, timeout); bash's own directory is appended
 #   --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger
 set -u
 
@@ -27,7 +27,7 @@ host=$(hostname 2>/dev/null || cat /proc/sys/kernel/hostname)
 stamp() { local t=$EPOCHREALTIME; TZ=UTC printf '%(%Y-%m-%dT%H:%M:%S)T.%sZ' "${t%.*}" "${t#*.}"; }
 
 recorder() {
-  cmd=(env "PATH=$here:${record_path:+$record_path:}$PATH" timeout 30 "$here/north" threads job-run "$name" --host "$host" "$@")
+  cmd=(env "PATH=$here:${record_path:+$record_path:}$PATH:${BASH%/*}" timeout 30 "$here/north" threads job-run "$name" --host "$host" "$@")
   if [ -n "$user" ] && [ "$(id -u)" = 0 ]; then
     local home
     home=$(eval echo "~$user")

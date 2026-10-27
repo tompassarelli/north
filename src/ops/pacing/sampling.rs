@@ -1,7 +1,7 @@
 use super::{
     admission,
     control::{self, Control, Reading},
-    grants, process, readout, storage, target,
+    process, readout, storage, target,
     window::Window,
 };
 use crate::platform::harness;
@@ -274,11 +274,11 @@ fn publish(
     Ok(deliveries)
 }
 
-fn deliver_all(deliveries: &[(String, Control)], state: &Value, nodes: &[Value]) {
+fn deliver_all(deliveries: &[(String, Control)]) {
     std::thread::scope(|scope| {
         for (account, control) in deliveries {
             scope.spawn(move || {
-                if let Err(error) = deliver(account, control, state, nodes) {
+                if let Err(error) = deliver(account, control) {
                     eprintln!("pace-control: delivery failed for {account}: {error}");
                 }
             });
@@ -314,7 +314,7 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
         notify,
     };
     let deliveries = publish(&round, &mut state, &mut gate)?;
-    deliver_all(&deliveries, &state, &round.nodes);
+    deliver_all(&deliveries);
     Ok(gate)
 }
 
@@ -353,68 +353,23 @@ fn control_line(account: &str, control: &Control, action: &str) -> String {
     )
 }
 
-fn covered_by_proxy(state: &Value, account: &str, node: &Value, nodes: &[Value]) -> bool {
-    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
-    grants::find(
-        state,
-        account,
-        &node["conversation"],
-        &Value::Null,
-        storage::now(),
-        nodes,
-    )
-    .is_some_and(|g| {
-        g["lead"] == node["name"]
-            && g["authority"] == "proxy"
-            && (provider != "claude" || node["account"] == label)
-    })
-}
-
-pub(super) fn notice_recipients<'a>(
-    account: &str,
-    state: &Value,
-    nodes: &'a [Value],
-) -> Vec<&'a str> {
-    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
-    nodes
-        .iter()
-        .filter(|node| {
-            node["status"] == "working"
-                && node["provider"] == provider
-                && (provider != "claude"
-                    || node["account"]
-                        .as_str()
-                        .is_none_or(|s| s.is_empty() || s == label))
-                && !covered_by_proxy(state, account, node, nodes)
-        })
-        .filter_map(|node| node["name"].as_str())
-        .collect()
-}
-
-fn tell_nodes(account: &str, line: &str, state: &Value, nodes: &[Value]) {
-    for name in notice_recipients(account, state, nodes) {
-        if let Err(error) = process::send(name, line) {
-            eprintln!("pace-control: {error}");
-        }
-    }
-}
-
-pub(super) fn deliver(
-    account: &str,
-    control: &Control,
-    state: &Value,
-    nodes: &[Value],
-) -> Result<(), String> {
+pub(super) fn phone_notice(account: &str, control: &Control) -> (String, String) {
     let action = if control.held == Some(true) {
-        "HOLD-SPAWNS"
+        "PACE-HELD"
     } else {
-        "RESUME-SPAWNS"
+        "PACE-RESUMED"
     };
-    let line = control_line(account, control, action);
-    tell_nodes(account, &line, state, nodes);
+    (
+        format!("Pace: {account} {action}"),
+        control_line(account, control, action),
+    )
+}
+
+pub(super) fn deliver(account: &str, control: &Control) -> Result<(), String> {
+    let (title, line) = phone_notice(account, control);
     let output = process::run(
         &root().join("bin/supply-alert").to_string_lossy(),
-        &["normal", &line, &format!("Pace: {account} {action}")],
+        &["normal", &line, &title],
         None,
         15.0,
     )?;

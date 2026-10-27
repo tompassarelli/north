@@ -52,17 +52,14 @@ fn the_host_holding_threads_db_keeps_ten_minutes_of_pace_history_and_a_snapshot_
 }
 
 #[test]
-fn a_pace_notice_reaches_only_the_working_sessions_of_its_account() {
-    let node = |name: &str, status: &str, account: &str| {
-        json!({"name":name,"provider":"claude","account":account,"status":status,"conversation":name})
-    };
-    let nodes = vec![
-        node("busy", "working", "c"),
-        node("idle", "idle", "c"),
-        node("restarted-done", "parked", "c"),
-        node("restarted-closed", "parked", "c"),
-        node("busy-elsewhere", "working", "a"),
-        node("gone", "exited", "c"),
-    ];
-    assert_eq!(sampling::notice_recipients("claude:c", &json!({}), &nodes), ["busy"]);
+fn a_pace_hold_or_resume_reaches_the_phone_without_naming_a_spawn_stop() {
+    for held in [true, false] {
+        let control = serde_json::from_value(json!({"held": held})).unwrap();
+        let (title, line) = sampling::phone_notice("claude:c", &control);
+        for text in [&title, &line] {
+            assert!(!text.contains("SPAWNS"), "{text}");
+            assert!(text.contains("claude:c"), "{text}");
+        }
+        assert_eq!(line.starts_with("PACE-HELD"), held, "{line}");
+    }
 }
