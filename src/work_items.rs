@@ -43,8 +43,9 @@ struct Cache {
 struct Holder {
     item: String,
     owner: String,
-    clock: i64,
+    clock_min: i64,
     eta_min: Option<i64>,
+    standing: String,
 }
 #[derive(Deserialize, Default)]
 struct Issue {
@@ -117,12 +118,17 @@ fn holder(row: &WorkRow) -> String {
     if row.holder.is_empty() { "No holder".into() } else { format!("{} · {} held / {} ETA", row.holder, row.clock, row.eta) }
 }
 
+/// The holders `threads list --json` reports as live; a void or stale claim holds nothing.
+fn live_holders(listing: &str) -> NorthResult<BTreeMap<String, Holder>> {
+    let holders: Vec<Holder> = serde_json::from_str(listing)?;
+    Ok(holders.into_iter().filter(|holder| holder.standing == "live").map(|holder| (holder.item.clone(), holder)).collect())
+}
+
 async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {
     // Refresh through NorthThreads so its repository map and cache remain the only source.
     command("threads", &["ready".into()]).await?;
     let caches: Vec<Cache> = serde_json::from_value(ledger_rows("SELECT repo, issues FROM gh_cache ORDER BY repo").await?)?;
-    let holders: Vec<Holder> = serde_json::from_value(ledger_rows("SELECT item, owner, max(0,CAST((julianday('now')-julianday(since))*1440 AS INTEGER)) AS clock, eta_min FROM claims").await?)?;
-    let holders: BTreeMap<_, _> = holders.into_iter().map(|holder| (holder.item.clone(), holder)).collect();
+    let holders = live_holders(&command("threads", &["list".into(), "--json".into()]).await?)?;
     let mut issues = BTreeMap::new();
     for cache in &caches {
         let entries: BTreeMap<String, Issue> = serde_json::from_str(&cache.issues)?;
@@ -141,7 +147,7 @@ async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {
         let blocked = issues.get(&reference).is_some_and(|issue| issue.blockers.iter().any(|blocker| blocker.state == "OPEN"));
         WorkRow { title, state, blocked,
             holder: holder.map(|holder| holder.owner.clone()).unwrap_or_default(),
-            clock: holder.map(|holder| format!("{}m", holder.clock)).unwrap_or_default(),
+            clock: holder.map(|holder| format!("{}m", holder.clock_min)).unwrap_or_default(),
             eta: holder.and_then(|holder| holder.eta_min).map(|eta| format!("{eta}m")).unwrap_or_else(|| "?".into()),
             reference,
         }

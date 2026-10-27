@@ -26,5 +26,5 @@ def alive_owners():
     return local_alive_owners() | {owner for owner in relayed if isinstance(owner, str)}
 
 
-def held_claim(claim, live, elapsed):
-    return (claim["owner"] in live or not claim["eta_min"] or elapsed <= 2 * claim["eta_min"])
+def held_claims(listing, live):
+    return {claim["item"]: claim for claim in listing if claim["standing"] == "live" or claim["owner"] in live}

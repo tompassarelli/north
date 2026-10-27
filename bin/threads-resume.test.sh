@@ -65,7 +65,7 @@ grep -q '^1 unlanded worktrees/branches older than 24 h' <<<"$out"
 [ -z "$(AGENT_NO_AUTHORING_HOOKS=1 hook "$repo/harness/hooks/unlanded-work.sh")" ]
 printf 'PASS [integration] source and projected SessionStart list archives, retain the lane note and honor the kill switch\n'
 threads claim smashcraft#10 --by codex:fixture-session --eta 5 >/dev/null
-sqlite3 "$THREADS_DB" "UPDATE claims SET since = '2020-01-01T00:00:00Z'"
+sqlite3 "$THREADS_DB" "UPDATE claims SET since = '2020-01-01T00:00:00Z'; UPDATE events SET ts = '2020-01-01T00:00:00Z'"
 out=$(threads unowned)
 grep -q $'smashcraft#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
 fleet exited

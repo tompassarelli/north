@@ -33,7 +33,7 @@ from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
 from thread_archives import print_archives
-from thread_holders import alive_owners, held_claim, local_alive_owners
+from thread_holders import alive_owners, held_claims, local_alive_owners
 from ssh_transport import ssh_argv
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
@@ -512,10 +512,14 @@ def cmd_claims(db, a):
     if os.environ.get("THREADS_CLAIMS_DELEGATED"):
         raise Refused("this north predates its own claim and list; run north runtime update")
     argv = [a.cmd, a.id, "--by", a.by, *(["--eta", str(a.eta)] if a.eta else [])] if a.cmd == "claim" else ["list", *(["--json"] if a.json else [])]
-    env = dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1")
-    code = subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", *argv], env=env).returncode
-    if code:
+    if code := subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", *argv], env=dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1")).returncode:
         sys.exit(code)
+
+
+def held():
+    run = subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", "list", "--json"], env=dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1"), capture_output=True, text=True)
+    if run.returncode: raise Refused(run.stderr.strip() or "north threads list failed")
+    return held_claims(json.loads(run.stdout), alive_owners())
 
 
 def cmd_release(db, a):
@@ -610,7 +614,7 @@ def cmd_show(db, a):
 
 
 def cmd_ready(db, a):
-    claimed = {r["item"] for r in db.execute("SELECT item FROM claims")}
+    claimed = held()
     for repo in REPOS + visible_native():
         try:
             issues = open_issues(db, repo)
@@ -761,11 +765,7 @@ def comment_block(comments) -> str | None:
 
 
 def cmd_unowned(db, a):
-    claims = {}
-    live = alive_owners()
-    for c in db.execute("SELECT * FROM claims"):
-        if held_claim(c, live, minutes_since(c["since"])):
-            claims[c["item"]] = (c["owner"], c["since"])
+    claims = {item: (c["owner"], c["since"]) for item, c in held().items()}
     blocks = {r["item"]: r["reason"] for r in db.execute("SELECT item, reason FROM blocks")}
     rows, stale = [], []
     for repo in STAFFED:
