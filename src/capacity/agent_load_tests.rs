@@ -50,6 +50,7 @@ fn host(root: &Path, proc: &Path) -> Host {
     )
     .unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::wait_until_executable(&script);
     Host {
         proc: proc.to_path_buf(),
         cgroup,
