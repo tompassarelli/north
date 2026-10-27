@@ -43,6 +43,8 @@ mod wait;
 #[cfg(test)]
 mod claim_tests;
 #[cfg(test)]
+mod order_tests;
+#[cfg(test)]
 mod frozen_tests;
 #[cfg(test)]
 mod stops_tests;
