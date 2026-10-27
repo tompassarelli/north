@@ -86,6 +86,7 @@ Commands:
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
   reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h and held by no process or pool (hourly timer)
   runtime update                                Promote origin/main as this host's north runtime with its own tree
+  runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there
   help                                          Show this help
 
 Options:

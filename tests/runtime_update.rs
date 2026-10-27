@@ -91,13 +91,17 @@ impl Host {
     }
 
     fn update(&self, sync_status: u8, alert_status: u8) -> Output {
+        self.north(&["runtime", "update"], sync_status, alert_status)
+    }
+
+    fn north(&self, args: &[&str], sync_status: u8, alert_status: u8) -> Output {
         let isolated = !self.path("bin/agents").exists();
         let path = match isolated {
             true => self.path("bin").display().to_string(),
             false => format!("{}:{}", self.path("bin").display(), std::env::var("PATH").unwrap()),
         };
         Command::new(env!("CARGO_BIN_EXE_north"))
-            .args(["runtime", "update"])
+            .args(args)
             .env("PATH", path)
             .env("HOME", self.path("home"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -159,4 +163,25 @@ fn a_failed_sync_restores_the_previous_runtime_and_alerts_once_without_the_log()
         assert!(fs::read_to_string(log).unwrap().contains(logged));
         assert_eq!(stderr.contains("rollback alert delivery failed"), alert_status != 0, "{stderr}");
     }
+}
+
+#[test]
+fn a_deploy_ships_the_built_runtime_and_its_store_references_then_promotes_remotely() {
+    let host = Host::new();
+    host.built(&host.target);
+    let glibc = "/nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84";
+    script(&host.runtime(&host.target).join("north"), &format!("# {glibc}/lib/ld-linux-x86-64.so.2\n"));
+    for tool in ["ssh", "rsync"] {
+        script(&host.path("bin").join(tool), &format!("printf '{tool} %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n"));
+    }
+    let output = host.north(&["runtime", "deploy", "far"], 0, 0);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let runtime = host.runtime(&host.target);
+    let expected = [
+        format!("ssh -o BatchMode=yes far nix-store --realise --quiet {glibc}"),
+        format!("rsync -a --mkpath {} {} far:.local/state/north/runtimes/{}/", runtime.join("north").display(), runtime.join("verify-north").display(), host.target),
+        "ssh -o BatchMode=yes far north runtime update".to_owned(),
+    ];
+    assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().collect::<Vec<_>>(), expected);
+    assert!(!host.path("state/north/current").exists());
 }

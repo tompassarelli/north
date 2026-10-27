@@ -12,7 +12,7 @@ pub(super) struct Failure {
     pub(super) message: String,
 }
 
-fn failed(code: u8, message: impl Into<String>) -> Failure {
+pub(super) fn failed(code: u8, message: impl Into<String>) -> Failure {
     Failure { code, message: message.into() }
 }
 
@@ -23,21 +23,14 @@ impl From<std::io::Error> for Failure {
 }
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
-    fs::create_dir_all(layout.runtimes())?;
-    let lock = File::create(layout.state.join("runtime-update.lock"))?;
-    if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err() {
+    let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
         println!("north runtime update already running");
         return Ok(());
-    }
+    };
     let checkout = checkout();
-    git(&checkout, &["fetch", "-q"])?;
-    let target = git(&checkout, &["rev-parse", "--verify", "origin/main^{commit}"])?;
+    let (target, runtime) = built_main(layout, &checkout)?;
     let short = &target[..8];
     let previous = fs::read_link(layout.current()).ok();
-    let runtime = layout.runtime(&target);
-    if !layout::has_programs(&runtime) {
-        build(&checkout, &target, &runtime)?;
-    }
     if !runtime.join(TREE).is_dir() {
         export_tree(&checkout, &target, &runtime)?;
     }
@@ -53,7 +46,23 @@ pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
         .map_err(|error| failed(1, format!("collecting old runtimes: {error}")))
 }
 
-fn checkout() -> PathBuf {
+pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {
+    fs::create_dir_all(layout.runtimes())?;
+    let lock = File::create(layout.state.join("runtime-update.lock"))?;
+    Ok(flock(&lock, operation).is_ok().then_some(lock))
+}
+
+pub(super) fn built_main(layout: &Layout, checkout: &Path) -> Result<(String, PathBuf), Failure> {
+    git(checkout, &["fetch", "-q"])?;
+    let target = git(checkout, &["rev-parse", "--verify", "origin/main^{commit}"])?;
+    let runtime = layout.runtime(&target);
+    if !layout::has_programs(&runtime) {
+        build(checkout, &target, &runtime)?;
+    }
+    Ok((target, runtime))
+}
+
+pub(super) fn checkout() -> PathBuf {
     std::env::var_os("NORTH_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| layout::home().join("code/north/main"))
@@ -69,7 +78,7 @@ fn git<S: AsRef<OsStr>>(checkout: &Path, args: &[S]) -> Result<String, Failure> 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn code(status: ExitStatus) -> u8 {
+pub(super) fn code(status: ExitStatus) -> u8 {
     status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1)
 }
 
