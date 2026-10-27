@@ -1,8 +1,10 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 
 use super::super::prompt::StandingOrders;
+use super::super::records::recorded_names;
 use super::super::roster::Roster;
 use super::super::runtimes::Runtimes;
 
@@ -25,4 +27,13 @@ pub(super) fn state_dir(home: &Path) -> PathBuf {
 /// This host's standing orders, for briefs that start outside a fleet launch.
 pub fn orders_here() -> NorthResult<StandingOrders> {
     Ok(StandingOrders::in_state(&state_dir(&home_dir()?)))
+}
+
+/// The names of every session this host's fleet has run, live or past.
+pub fn recorded_here() -> NorthResult<BTreeSet<String>> {
+    Ok(recorded_names(&fleet_root(&state_dir(&home_dir()?))))
+}
+
+pub(super) fn fleet_root(state: &Path) -> PathBuf {
+    state.join("fleet")
 }

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -51,4 +52,30 @@ pub fn host_sessions(root: &Path, host_dir: &Path) -> Vec<SessionRecord> {
 
 pub fn parents_live(root: &Path, name: &str) -> bool {
     fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok()).any(|record| record.parent.as_deref() == Some(name) && !record.stopped)
+}
+
+pub fn recorded_names(root: &Path) -> BTreeSet<String> {
+    let current = fs::read_dir(root).into_iter().flatten().flatten().filter_map(|entry| read_record(&entry.path()).ok());
+    current.chain(past_records(root)).map(|record| record.name).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(name: &str) -> SessionRecord {
+        serde_json::from_value(serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null})).unwrap()
+    }
+
+    #[test]
+    fn recorded_names_cover_current_archived_and_placed_sessions_only() {
+        let root = tempfile::tempdir().unwrap();
+        for (directory, name) in [("live", "sc-live"), (".archive/gone-1", "sc-gone"), (".placed/abc", "sc-placed")] {
+            let session_dir = root.path().join(directory);
+            fs::create_dir_all(&session_dir).unwrap();
+            write_record(&session_dir, &record(name)).unwrap();
+        }
+        let names: Vec<String> = recorded_names(root.path()).into_iter().collect();
+        assert_eq!(names, ["sc-gone", "sc-live", "sc-placed"]);
+    }
 }

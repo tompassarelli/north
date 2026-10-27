@@ -30,7 +30,8 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
     };
     let proc_root = Path::new("/proc");
     let live = live_sessions(proc_root);
-    for desktop in orphans(desktops(&runtime_root()?, proc_root)?, &live) {
+    let recorded = crate::fleet::registry::recorded_here().map_err(io::Error::other)?;
+    for desktop in orphans(desktops(&runtime_root()?, proc_root)?, &live, &recorded) {
         let verb = if dry_run {
             "would stop"
         } else if Pid::from_raw(desktop.launcher).is_some_and(|pid| kill_process(pid, Signal::Term).is_ok()) {
@@ -82,8 +83,8 @@ pub(super) fn live_sessions(proc_root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
-pub(super) fn orphans(desktops: Vec<Desktop>, live: &BTreeSet<String>) -> Vec<Desktop> {
-    desktops.into_iter().filter(|desktop| !live.contains(&desktop.session)).collect()
+pub(super) fn orphans(desktops: Vec<Desktop>, live: &BTreeSet<String>, recorded: &BTreeSet<String>) -> Vec<Desktop> {
+    desktops.into_iter().filter(|desktop| recorded.contains(&desktop.session) && !live.contains(&desktop.session)).collect()
 }
 
 fn session_of(proc_root: &Path, pid: i32) -> Option<String> {
@@ -116,16 +117,18 @@ mod tests {
     }
 
     #[test]
-    fn a_desktop_whose_fleet_session_cli_has_exited_is_an_orphan_and_others_are_kept() {
+    fn a_desktop_whose_recorded_fleet_session_cli_has_exited_is_an_orphan_and_others_are_kept() {
         let root = tempfile::tempdir().unwrap();
         let (proc_root, runtime) = (root.path().join("proc"), root.path().join("runtime"));
         process(&proc_root, 10, "claude", Some("sc-1"));
         process(&proc_root, 11, "north", Some("sc-1"));
         process(&proc_root, 20, "north", Some("sc-2"));
         process(&proc_root, 30, "north", None);
+        process(&proc_root, 50, "north", Some("sc-away"));
         let kept = desktop(&runtime, "private-desktop.kept", 11);
         let orphan = desktop(&runtime, "private-desktop.orphan", 20);
         desktop(&runtime, "private-desktop.toms", 30);
+        let away = desktop(&runtime, "private-desktop.away", 50);
         desktop(&runtime, "private-desktop.ended", 40);
         fs::create_dir_all(runtime.join("private-desktop.unowned")).unwrap();
 
@@ -133,7 +136,8 @@ mod tests {
         assert_eq!(live, BTreeSet::from(["sc-1".to_owned()]));
         let mut found = desktops(&runtime, &proc_root).unwrap();
         found.sort_by(|left, right| left.run.cmp(&right.run));
-        assert_eq!(found.iter().map(|desktop| &desktop.run).collect::<Vec<_>>(), [&kept, &orphan]);
-        assert_eq!(orphans(found, &live), [Desktop { run: orphan, launcher: 20, session: "sc-2".into() }]);
+        assert_eq!(found.iter().map(|desktop| &desktop.run).collect::<Vec<_>>(), [&away, &kept, &orphan]);
+        let recorded = BTreeSet::from(["sc-1".to_owned(), "sc-2".to_owned()]);
+        assert_eq!(orphans(found, &live, &recorded), [Desktop { run: orphan, launcher: 20, session: "sc-2".into() }]);
     }
 }

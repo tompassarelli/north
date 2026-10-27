@@ -25,7 +25,7 @@ mod first_turn;
 mod follower;
 mod gate_commands;
 mod home;
-pub use home::orders_here;
+pub use home::{orders_here, recorded_here};
 mod letters;
 mod parents;
 mod past;
@@ -39,7 +39,7 @@ mod tests;
 
 pub use follower::Follower;
 pub use home::roster;
-use home::{home_dir, state_dir};
+use home::{fleet_root, home_dir, state_dir};
 pub use letters::{Opened, Sent};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
@@ -67,7 +67,7 @@ impl Fleet {
 
     fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
         let state = state_dir(&home);
-        let root = state.join("fleet");
+        let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
         Ok(Self { root, state, home, policy, runtimes, ledger })
     }
