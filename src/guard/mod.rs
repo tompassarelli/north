@@ -50,3 +50,6 @@ mod search_words;
 mod search_guard_tests;
 #[cfg(test)]
 mod worker_handoff_tests;
+pub mod subagent_teardown;
+#[cfg(test)]
+mod subagent_teardown_tests;

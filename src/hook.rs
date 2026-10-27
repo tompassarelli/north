@@ -172,7 +172,7 @@ impl HookKind {
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::code_health_edit::evaluate],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
             Self::Stop => &[],
-            Self::SubagentStop => &[],
+            Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
             Self::UserPromptSubmit => &[],
             Self::SessionKill => &[crate::guard::session_kill::evaluate],
@@ -208,7 +208,7 @@ pub fn evaluate(input: &HookInput, guards: &[Guard], event: &str) -> Option<Valu
             Verdict::Deny(reason) if event == "PermissionRequest" => {
                 return Some(permission_decision("deny", Some(reason)));
             }
-            Verdict::Deny(reason) if event == "Stop" => {
+            Verdict::Deny(reason) if matches!(event, "Stop" | "SubagentStop") => {
                 return Some(Value::object([
                     ("decision", "block".into()),
                     ("reason", reason.into()),
@@ -620,6 +620,19 @@ mod tests {
                 "Stop"
             )),
             Some(json!({"decision":"block", "reason":"stop\nverbatim"}))
+        );
+    }
+
+    #[test]
+    fn subagent_stop_denial_blocks_at_top_level() {
+        let input = HookInput::parse(b"{}").unwrap();
+        assert_eq!(
+            serde_output(evaluate(
+                &input,
+                &[|_| Verdict::Deny("still running".into())],
+                "SubagentStop"
+            )),
+            Some(json!({"decision":"block", "reason":"still running"}))
         );
     }
 
