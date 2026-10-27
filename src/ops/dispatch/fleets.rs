@@ -16,7 +16,7 @@ use toml_edit::{DocumentMut, Item};
 pub(crate) const PROBE: Duration = Duration::from_secs(30);
 const MIRROR_FRESH_S: f64 = 10.0 * 60.0;
 const RUNNING: [&str; 3] = ["starting", "working", "idle"];
-static SESSION_ITEMS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp)-(\d+[a-z]?(?:-\d+[a-z]?)*)(?:-|$)").expect("session pattern"));
+static SESSION_ITEMS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp|north)-(\d+[a-z]?(?:-\d+[a-z]?)*)(?:-|$)").expect("session pattern"));
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Session {
@@ -30,7 +30,11 @@ pub(crate) struct Session {
 /// `sc-560-562-illidan` holds smashcraft#560 and #562.
 pub(crate) fn named_items(name: &str) -> Vec<IssueRef> {
     let Some(found) = SESSION_ITEMS.captures(name) else { return Vec::new() };
-    let repo = if found[1].starts_with('s') { "smashcraft" } else { "wisp" };
+    let repo = match &found[1] {
+        "sc" | "smashcraft" => "smashcraft",
+        "north" => "north",
+        _ => "wisp",
+    };
     found[2].split('-').filter_map(|number| number.trim_end_matches(|c: char| c.is_ascii_lowercase()).parse().ok()).map(|number| IssueRef::new(repo, number)).collect()
 }
 

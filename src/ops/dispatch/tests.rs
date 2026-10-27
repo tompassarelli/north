@@ -8,7 +8,7 @@ use crate::fleet::roster::{Declared, Roster};
 use crate::ops::pacing::placement::gate;
 use std::collections::{BTreeMap, BTreeSet};
 
-const CONFIG: &str = r#"
+pub(super) const CONFIG: &str = r#"
 [hosts.nexus]
 resident_cap = 6
 [hosts.gex45]
@@ -20,6 +20,24 @@ resident_cap = 8
 serves = ["native", "warcraft", "sign-ins", "laptop"]
 [placement]
 order = ["gex45", "anthropic-cloud", "nexus", "laptop"]
+private_repos = ["galileo"]
+[projects.galileo]
+priority = 2
+repos = ["galileo"]
+[projects.smashcraft]
+priority = 3
+repos = ["smashcraft", "south"]
+dispatch_repos = ["smashcraft"]
+[projects.nexus]
+priority = 5
+repos = ["firn"]
+dispatch_repos = []
+[projects.wisp]
+priority = 4
+repos = ["wisp"]
+[projects.north]
+priority = 1
+repos = ["north"]
 [accounts.claude]
 profiles = { a = { nexus = {}, whiterabbit = {} }, b = { gex45 = {} } }
 [tiers."claude:haiku"]
@@ -58,6 +76,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
     Survey {
         here: "nexus".into(),
         cfg: CONFIG.parse().unwrap(),
+        projects: super::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap(),
         hosts,
         accounts,
         issues,

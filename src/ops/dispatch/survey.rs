@@ -5,6 +5,7 @@ use super::issues::{self, Issue, IssueRef, OWNER};
 use super::plan::Cloud;
 use super::record;
 use super::slots::{Account, Host, PlanSize, Room};
+use super::projects::Projects;
 use super::tier::{self, Evidence, History};
 use super::handoff::Arms;
 use super::fleets::{self, PROBE, Session, remote_json};
@@ -17,7 +18,6 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
-pub(crate) const REPOS: [&str; 2] = ["smashcraft", "wisp"];
 pub(super) const CATALOG: &str = include_str!("../../../harness/model-catalog.toml");
 const PACE_FRESH_S: f64 = 15.0 * 60.0;
 const WEEK_H: f64 = 7.0 * 24.0;
@@ -25,6 +25,7 @@ const WEEK_H: f64 = 7.0 * 24.0;
 pub(crate) struct Survey {
     pub here: String,
     pub cfg: DocumentMut,
+    pub projects: Projects,
     pub hosts: Vec<Host>,
     pub accounts: Vec<Account>,
     pub issues: Vec<Issue>,
@@ -287,6 +288,7 @@ pub(crate) fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap
 
 pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let cfg = placement::config()?;
+    let projects = Projects::read(&cfg)?;
     let here = crate::platform::host::name();
     let at = placement::now();
     let mut notes = Vec::new();
@@ -295,7 +297,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let gates = fleets::everywhere(&cfg, &here, &["gate", "list", "--json"], "gates", at, &mut notes);
     let sessions: Vec<(Session, String)> = fleet_lists.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let (elsewhere, mut holds) = fleets::tally(&sessions);
-    let (mut issues, open) = github::open_issues(&mut notes);
+    let (mut issues, open) = github::open_issues(projects.repos(), &mut notes);
     let records = record::read(&record::directory());
     holds.extend(claims(&cfg, &here, &fleets::stopped_names(&fleet_lists), &mut notes));
     holds.extend(record::holds(&records, at, &unspent(laptop.as_deref(), &records, at, &mut notes)));
@@ -317,7 +319,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, at })
 }
 
 mod github {
@@ -382,9 +384,9 @@ mod github {
     }
 
     /// The staffed repositories' open issues, and every open issue they or their plans wait on.
-    pub(crate) fn open_issues(notes: &mut Vec<String>) -> OpenIssues {
+    pub(crate) fn open_issues(repos: &[String], notes: &mut Vec<String>) -> OpenIssues {
         let mut found = Vec::new();
-        for repo in REPOS {
+        for repo in repos {
             match repository(repo) {
                 Ok(issues) => found.extend(issues),
                 Err(why) => notes.push(format!("{repo} issues unread: {why}")),
@@ -393,7 +395,7 @@ mod github {
         let mut open: BTreeSet<IssueRef> = found.iter().map(Issue::reference).collect();
         let planned = issues::planned_predecessors(&found);
         let named = found.iter().flat_map(|issue| issues::predecessors(issue).unwrap_or_default()).chain(planned.into_values().flatten());
-        let elsewhere: BTreeSet<IssueRef> = named.filter(|reference| !REPOS.contains(&reference.repo.as_str())).collect();
+        let elsewhere: BTreeSet<IssueRef> = named.filter(|reference| !repos.contains(&reference.repo)).collect();
         for reference in elsewhere {
             if still_open(&reference) != Some(false) {
                 open.insert(reference);

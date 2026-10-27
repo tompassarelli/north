@@ -8,7 +8,7 @@ use crate::ops::pacing::placement::{self, gate};
 use issues::{Issue, IssueRef};
 use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
-use survey::{REPOS, Survey};
+use survey::Survey;
 
 pub(crate) use cloud::{autoland as cloud_autoland, branch as cloud_branch};
 pub(crate) use fleets::holder as task_holder;
@@ -28,6 +28,7 @@ mod manual;
 mod manual_tests;
 mod measure;
 mod plan;
+mod projects;
 mod record;
 mod slots;
 mod stops;
@@ -46,6 +47,8 @@ mod tests;
 #[cfg(test)]
 mod plan_size_tests;
 #[cfg(test)]
+mod projects_tests;
+#[cfg(test)]
 mod tier_tests;
 #[cfg(test)]
 mod tries_tests;
@@ -62,9 +65,9 @@ pub(crate) struct Outcome {
     pub free: i64,
 }
 
-fn ordered(issues: &[Issue]) -> Vec<&Issue> {
+fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects) -> Vec<&'a Issue> {
     let mut ordered: Vec<&Issue> = issues.iter().collect();
-    ordered.sort_by_key(|issue| (issue.priority(), REPOS.iter().position(|repo| *repo == issue.repo), issue.number));
+    ordered.sort_by_key(|issue| (issue.priority(), projects.position(&issue.repo), issue.number));
     ordered
 }
 
@@ -101,7 +104,11 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut history = survey.history.clone();
     let mut handoffs = survey.handoffs.clone();
     let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: crate::pace::limits::default("reservation_fallback_points") };
-    for issue in ordered(&survey.issues) {
+    for issue in ordered(&survey.issues, &survey.projects) {
+        if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
+            outcome.skipped.push((issue.reference(), why));
+            continue;
+        }
         if let Some(topic) = crate::platform::frozen_topics::matching(&survey.frozen, &issue.repo, &issue.title) {
             outcome.skipped.push((issue.reference(), topic.refusal()));
             continue;
@@ -113,7 +120,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         outcome.ready += 1;
         let route = tier::route(issue, &history, &survey.ledger);
         let brief = brief::brief(issue, launched_by, &route);
-        let code_only = gate::surface(&brief, &survey.cfg).0;
+        let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
         let ready = Ready { item: issue.reference(), brief, code_only, route };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
