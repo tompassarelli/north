@@ -27,10 +27,22 @@ pub(crate) struct BranchTip {
     pub(crate) sha: String,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum PostError {
+    Forbidden(String),
+    Failed(String),
+}
+
+impl PostError {
+    pub(crate) fn classify(error: String) -> Self {
+        if error.contains("HTTP 403") { Self::Forbidden(error) } else { Self::Failed(error) }
+    }
+}
+
 pub(crate) trait CommitStatuses {
     fn matching_branches(&self, repo: &str, prefix: &str) -> Result<Vec<BranchTip>, String>;
     fn status_state(&self, repo: &str, sha: &str, context: &str) -> Result<Option<String>, String>;
-    fn post_status(&self, repo: &str, sha: &str, context: &str, state: &str, description: &str) -> Result<(), String>;
+    fn post_status(&self, repo: &str, sha: &str, context: &str, state: &str, description: &str) -> Result<(), PostError>;
     fn dispatch_workflow(&self, repo: &str, workflow: &str, branch: &str) -> Result<(), String>;
     fn clone_url(&self, repo: &str) -> String;
 }
@@ -70,12 +82,12 @@ impl CommitStatuses for Gh {
             .find_map(|line| line.split_once('\t').filter(|(held, _)| *held == context).map(|(_, state)| state.to_owned())))
     }
 
-    fn post_status(&self, repo: &str, sha: &str, context: &str, state: &str, description: &str) -> Result<(), String> {
+    fn post_status(&self, repo: &str, sha: &str, context: &str, state: &str, description: &str) -> Result<(), PostError> {
         let endpoint = format!("repos/{repo}/statuses/{sha}");
         let fields = [format!("state={state}"), format!("context={context}"), format!("description={description}")];
         let mut args = owned(&["api", "--method", "POST", &endpoint, "--silent"]);
         fields.into_iter().for_each(|field| args.extend(["-f".to_owned(), field]));
-        succeeded(&args).map(drop)
+        succeeded(&args).map(drop).map_err(PostError::classify)
     }
 
     fn dispatch_workflow(&self, repo: &str, workflow: &str, branch: &str) -> Result<(), String> {

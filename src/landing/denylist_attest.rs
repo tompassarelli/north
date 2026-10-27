@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 
 use super::denylist;
 use crate::platform::git as platform_git;
-use crate::platform::github::{BranchTip, CommitStatuses, Gh};
+use crate::platform::github::{BranchTip, CommitStatuses, Gh, PostError};
 
 const USAGE: &str = "usage: north denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]";
 const CONTEXT: &str = "denylist";
 const AUTOLAND: &str = "autoland";
 const PREFIX: &str = "claude/";
 const WORKFLOW: &str = "autoland.yml";
+const DEFERRED: u8 = 3;
+const TIMER: &str = "nexus denylist-attest timer";
 const CLEAN: &str = "deny-list clean";
 const REFUSED: &str = "deny-list refused: reword and push again";
 
@@ -26,7 +28,8 @@ enum Outcome {
     Settled,
     Redispatched,
     Clean,
-    Refused(BTreeSet<String>),
+    Deferred,
+    Refused { findings: BTreeSet<String>, posted: bool },
 }
 
 struct Attester<'a, F: CommitStatuses> {
@@ -108,6 +111,14 @@ impl<F: CommitStatuses> Attester<'_, F> {
         recorded.map_err(|e| format!("dispatched Autoland but cannot record it at {}: {e}", marker.display()))
     }
 
+    fn post(&self, repo: &str, tip: &BranchTip, state: &str, description: &str) -> Result<bool, String> {
+        match self.forge.post_status(repo, &tip.sha, CONTEXT, state, description) {
+            Ok(()) => Ok(true),
+            Err(PostError::Forbidden(_)) => Ok(false),
+            Err(PostError::Failed(error)) => Err(error),
+        }
+    }
+
     fn attest(&self, repo: &str, tip: &BranchTip) -> Result<Outcome, String> {
         if self.forge.status_state(repo, &tip.sha, AUTOLAND)?.is_some_and(|state| state != "pending") {
             return Ok(Outcome::Settled);
@@ -122,10 +133,12 @@ impl<F: CommitStatuses> Attester<'_, F> {
         }
         let findings = self.scan(repo, tip).map_err(|e| format!("nothing posted: {e}"))?;
         if !findings.is_empty() {
-            self.forge.post_status(repo, &tip.sha, CONTEXT, "failure", REFUSED)?;
-            return Ok(Outcome::Refused(findings));
+            let posted = self.post(repo, tip, "failure", REFUSED)?;
+            return Ok(Outcome::Refused { findings, posted });
         }
-        self.forge.post_status(repo, &tip.sha, CONTEXT, "success", CLEAN)?;
+        if !self.post(repo, tip, "success", CLEAN)? {
+            return Ok(Outcome::Deferred);
+        }
         self.dispatch(repo, tip)?;
         Ok(Outcome::Clean)
     }
@@ -138,8 +151,18 @@ impl<F: CommitStatuses> Attester<'_, F> {
                 return 2;
             }
         };
-        tips.iter().map(|tip| report(repo, tip, self.attest(repo, tip))).max().unwrap_or(0)
+        worst(tips.iter().map(|tip| report(repo, tip, self.attest(repo, tip))))
     }
+}
+
+fn worst(codes: impl Iterator<Item = u8>) -> u8 {
+    let severity = |code: &u8| match *code {
+        0 => 0,
+        DEFERRED => 1,
+        1 => 2,
+        _ => 3,
+    };
+    codes.max_by_key(severity).unwrap_or(0)
 }
 
 fn report(repo: &str, tip: &BranchTip, outcome: Result<Outcome, String>) -> u8 {
@@ -149,9 +172,17 @@ fn report(repo: &str, tip: &BranchTip, outcome: Result<Outcome, String>) -> u8 {
         Ok(Outcome::Settled) => println!("denylist: {place}: Autoland already settled this tip; skipped"),
         Ok(Outcome::Redispatched) => println!("denylist: {place}: attested clean earlier; dispatched Autoland"),
         Ok(Outcome::Clean) => println!("denylist: {place}: clean; posted success and dispatched Autoland"),
-        Ok(Outcome::Refused(findings)) => {
+        Ok(Outcome::Deferred) => {
+            println!("denylist: {place}: clean, but this token cannot post commit statuses; the {TIMER} posts it");
+            return DEFERRED;
+        }
+        Ok(Outcome::Refused { findings, posted }) => {
             findings.iter().for_each(|finding| println!("denylist: {place}: {finding}"));
-            println!("denylist: {place}: refused; posted failure");
+            if posted {
+                println!("denylist: {place}: refused; posted failure");
+            } else {
+                println!("denylist: {place}: refused; this token cannot post commit statuses, so the {TIMER} posts the failure");
+            }
             return 1;
         }
         Err(error) => {
@@ -164,7 +195,7 @@ fn report(repo: &str, tip: &BranchTip, outcome: Result<Outcome, String>) -> u8 {
 
 fn attest_all<F: CommitStatuses>(forge: &F, config: &Path, cache: &Path, request: &Request) -> u8 {
     let attester = Attester { forge, config, cache };
-    request.repos.iter().map(|repo| attester.attest_repo(repo, request.branch.as_deref())).max().unwrap_or(0)
+    worst(request.repos.iter().map(|repo| attester.attest_repo(repo, request.branch.as_deref())))
 }
 
 fn cache_root() -> Option<PathBuf> {

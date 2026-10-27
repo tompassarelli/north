@@ -1881,6 +1881,11 @@ SAFE_PUSH_TEST_ATTEST_STATUS=1 run_attest_case --to claude/attest-refused
 expect_status zero
 expect_output 'the deny-list attester refused claude/attest-refused, so Autoland will not test this tip; reword the deny-listed text and push again'
 ! grep -q 'timer retries' <<<"$case_output" || fail 'a refused attest promised a timer retry'
+SAFE_PUSH_TEST_ATTEST_STATUS=3 run_attest_case --to claude/attest-deferred
+expect_status zero
+expect_output 'the nexus denylist-attest timer posts the status and dispatches Autoland within about five minutes, with nothing for you to run'
+! grep -q 'failed (exit' <<<"$case_output" || fail 'a deferred attest was reported as a failure'
+"$real_git" --git-dir="$real_remote" rev-parse -q --verify refs/heads/claude/attest-deferred >/dev/null || fail 'a deferred attest undid the push'
 SAFE_PUSH_TEST_ATTEST_STATUS=2 run_attest_case --to claude/attest-retry
 expect_status zero
 expect_output 'the deny-list attest for claude/attest-retry failed (exit 2); the push stands'

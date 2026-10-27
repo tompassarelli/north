@@ -421,7 +421,8 @@ denylist_attest() {
   case "$status" in
     0) ;;
     1) echo "safe-push: ✗ the deny-list attester refused $1, so Autoland will not test this tip; reword the deny-listed text and push again." ;;
-    *) echo "safe-push: ⚠ the deny-list attest for $1 failed (exit $status); the push stands and the timer retries." ;;
+    3) echo "safe-push: ✓ the deny-list scan of $1 is clean, but this host's GitHub token cannot post commit statuses; the nexus denylist-attest timer posts the status and dispatches Autoland within about five minutes, with nothing for you to run." ;;
+    *) echo "safe-push: ⚠ the deny-list attest for $1 failed (exit $status); the push stands and the nexus denylist-attest timer retries within about five minutes." ;;
   esac
 }
 

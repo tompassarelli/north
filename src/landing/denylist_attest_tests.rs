@@ -9,6 +9,7 @@ struct Forge {
     tips: Vec<BranchTip>,
     states: Vec<(String, String, String)>,
     refuse_dispatch: Cell<bool>,
+    post_answer: RefCell<Option<PostError>>,
     posted: RefCell<Vec<(String, String, String, String)>>,
     dispatched: RefCell<Vec<(String, String, String)>>,
 }
@@ -22,8 +23,11 @@ impl CommitStatuses for Forge {
         Ok(self.states.iter().find(|(held, named, _)| held == sha && named == context).map(|(_, _, state)| state.clone()))
     }
 
-    fn post_status(&self, repo: &str, sha: &str, context: &str, state: &str, description: &str) -> Result<(), String> {
+    fn post_status(&self, repo: &str, sha: &str, context: &str, state: &str, description: &str) -> Result<(), PostError> {
         assert_eq!(repo, "owner/public");
+        if let Some(error) = self.post_answer.borrow_mut().take() {
+            return Err(error);
+        }
         self.posted.borrow_mut().push((sha.into(), context.into(), state.into(), description.into()));
         Ok(())
     }
@@ -178,4 +182,53 @@ fn denylist_attest_leaves_a_tip_autoland_already_settled_unscanned_and_undispatc
     assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
     assert_eq!(forge.posted.borrow().iter().map(|post| post.0.clone()).collect::<Vec<_>>(), vec![queued.sha]);
     assert_eq!(*forge.dispatched.borrow(), vec![("owner/public".into(), "autoland.yml".into(), "claude/queued-work".into())]);
+}
+
+const FORBIDDEN: &str = "gh api failed: gh: Resource not accessible by personal access token (HTTP 403)";
+
+#[test]
+fn denylist_attest_a_token_that_cannot_post_statuses_defers_a_clean_tip_to_the_timer_with_exit_3() {
+    let fixture = Fixture::new();
+    let clean = fixture.tip("claude/clean-work", "ordinary words\n");
+    let forge = fixture.forge(vec![clean]);
+    *forge.post_answer.borrow_mut() = Some(PostError::classify(FORBIDDEN.into()));
+    assert_eq!(fixture.attest(&forge, "rules.toml", None), DEFERRED);
+    assert!(forge.posted.borrow().is_empty() && forge.dispatched.borrow().is_empty());
+    assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
+    assert_eq!(forge.posted.borrow().len(), 1);
+    assert_eq!(forge.dispatched.borrow().len(), 1);
+}
+
+#[test]
+fn denylist_attest_a_token_that_cannot_post_statuses_still_reports_a_finding_as_refused() {
+    let fixture = Fixture::new();
+    let dirty = fixture.tip("claude/dirty-work", "owner: zebra-quokka-7731\n");
+    let forge = fixture.forge(vec![dirty]);
+    *forge.post_answer.borrow_mut() = Some(PostError::classify(FORBIDDEN.into()));
+    assert_eq!(fixture.attest(&forge, "rules.toml", None), 1);
+    assert!(forge.dispatched.borrow().is_empty());
+}
+
+#[test]
+fn denylist_attest_any_other_post_failure_is_still_exit_2() {
+    let fixture = Fixture::new();
+    let clean = fixture.tip("claude/clean-work", "ordinary words\n");
+    let forge = fixture.forge(vec![clean]);
+    *forge.post_answer.borrow_mut() = Some(PostError::classify("gh api failed: HTTP 502".into()));
+    assert_eq!(fixture.attest(&forge, "rules.toml", None), 2);
+    assert!(forge.dispatched.borrow().is_empty());
+}
+
+#[test]
+fn denylist_attest_only_a_403_is_classified_as_forbidden() {
+    assert!(matches!(PostError::classify(FORBIDDEN.into()), PostError::Forbidden(_)));
+    assert!(matches!(PostError::classify("gh api failed: HTTP 422".into()), PostError::Failed(_)));
+}
+
+#[test]
+fn denylist_attest_deferred_ranks_below_refused_and_failed_across_tips() {
+    assert_eq!(worst([0, DEFERRED, 0].into_iter()), DEFERRED);
+    assert_eq!(worst([DEFERRED, 1].into_iter()), 1);
+    assert_eq!(worst([1, DEFERRED, 2].into_iter()), 2);
+    assert_eq!(worst(std::iter::empty()), 0);
 }
