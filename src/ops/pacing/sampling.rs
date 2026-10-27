@@ -370,22 +370,30 @@ fn covered_by_proxy(state: &Value, account: &str, node: &Value, nodes: &[Value])
     })
 }
 
-fn tell_nodes(account: &str, line: &str, state: &Value, nodes: &[Value]) {
+pub(super) fn notice_recipients<'a>(
+    account: &str,
+    state: &Value,
+    nodes: &'a [Value],
+) -> Vec<&'a str> {
     let (provider, label) = account.split_once(':').unwrap_or((account, ""));
-    for node in nodes {
-        if node["provider"] != provider
-            || node["status"] == "exited"
-            || provider == "claude"
-                && node["account"]
-                    .as_str()
-                    .is_some_and(|s| !s.is_empty() && s != label)
-        {
-            continue;
-        }
-        if covered_by_proxy(state, account, node, nodes) {
-            continue;
-        }
-        if let Err(error) = process::send(node["name"].as_str().unwrap_or_default(), line) {
+    nodes
+        .iter()
+        .filter(|node| {
+            node["status"] == "working"
+                && node["provider"] == provider
+                && (provider != "claude"
+                    || node["account"]
+                        .as_str()
+                        .is_none_or(|s| s.is_empty() || s == label))
+                && !covered_by_proxy(state, account, node, nodes)
+        })
+        .filter_map(|node| node["name"].as_str())
+        .collect()
+}
+
+fn tell_nodes(account: &str, line: &str, state: &Value, nodes: &[Value]) {
+    for name in notice_recipients(account, state, nodes) {
+        if let Err(error) = process::send(name, line) {
             eprintln!("pace-control: {error}");
         }
     }

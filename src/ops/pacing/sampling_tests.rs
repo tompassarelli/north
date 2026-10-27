@@ -50,3 +50,19 @@ fn the_host_holding_threads_db_keeps_ten_minutes_of_pace_history_and_a_snapshot_
     let kept = |remote| sampling::recent_history(&state, &[at(0.0)], sampling::history_window(remote)).len();
     assert_eq!((kept(false), kept(true)), (2, 4));
 }
+
+#[test]
+fn a_pace_notice_reaches_only_the_working_sessions_of_its_account() {
+    let node = |name: &str, status: &str, account: &str| {
+        json!({"name":name,"provider":"claude","account":account,"status":status,"conversation":name})
+    };
+    let nodes = vec![
+        node("busy", "working", "c"),
+        node("idle", "idle", "c"),
+        node("restarted-done", "parked", "c"),
+        node("restarted-closed", "parked", "c"),
+        node("busy-elsewhere", "working", "a"),
+        node("gone", "exited", "c"),
+    ];
+    assert_eq!(sampling::notice_recipients("claude:c", &json!({}), &nodes), ["busy"]);
+}
