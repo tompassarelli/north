@@ -411,3 +411,51 @@ fn language_gate_copies_count_as_new_files() {
     assert!(failures[0].starts_with("copy.py: R1"), "{failures:?}");
     assert!(failures[1].starts_with("copy.sh: R2"), "{failures:?}");
 }
+
+#[test]
+fn language_gate_shell_guard_reads_codex_payloads_directory_changes_and_heredoc_text() {
+    let temporary = tempfile::tempdir().unwrap();
+    let home = temporary.path();
+    fs::create_dir(home.join("code")).unwrap();
+    let repository = repository();
+    let repo = home.join("code/project");
+    fs::rename(repository.path(), &repo).unwrap();
+    write_list(&repo, &[]);
+    let denied = |payload: Value| {
+        guard_decision(payload.to_string().as_bytes(), home, home, false)
+            .unwrap()
+            .is_some()
+    };
+    let write = "printf pass > __review.py";
+    for tool in ["shell", "functions.shell", "shell_command", "functions.shell_command"] {
+        assert!(denied(json!({"tool_name":tool,"tool_input":{"command":["bash","-lc",write],"workdir":repo}})), "{tool} argv");
+        assert!(denied(json!({"tool_name":tool,"tool_input":{"command":write,"workdir":repo}})), "{tool} string");
+    }
+    assert!(denied(json!({"tool_name":"shell","tool_input":{"command":["touch","__review.py"],"workdir":repo}})));
+    assert!(!denied(json!({"tool_name":"shell","tool_input":{"command":["touch","__review.rs"],"workdir":repo}})));
+    for command in [
+        format!("cd {} && {write}", repo.display()),
+        format!("cd ~/code/project && {write}"),
+        format!("cd {}; touch __review.py", repo.display()),
+        "cd ~/code && cd project && touch __review.py".to_string(),
+        "cd ~/code/project/.. && cd project && cp /dev/null __review.py".to_string(),
+        "(cd /tmp); cd ~/code/project && touch __review.py".to_string(),
+    ] {
+        assert!(denied(json!({"tool_name":"Bash","tool_input":{"command":command}})), "{command}");
+    }
+    for command in [
+        format!("cd {} && cd /tmp && {write}", repo.display()),
+        format!("(cd {}); {write}", repo.display()),
+        format!("cd {} && cd .. && touch __review.rs", repo.display()),
+    ] {
+        assert!(!denied(json!({"tool_name":"Bash","tool_input":{"command":command}})), "{command}");
+    }
+    let heredoc = format!("cat <<EOF\n{write}\nEOF");
+    assert!(!denied(json!({"tool_name":"Bash","tool_input":{"command":heredoc,"workdir":repo}})));
+    let quoted = "cat <<'EOF'\ntouch __review.py\nEOF\necho done";
+    assert!(!denied(json!({"tool_name":"Bash","tool_input":{"command":quoted,"workdir":repo}})));
+    let redirected = "cat > __review.py <<EOF\nprint(1)\nEOF";
+    assert!(denied(json!({"tool_name":"Bash","tool_input":{"command":redirected,"workdir":repo}})));
+    let after = "cat <<EOF\nbody\nEOF\ntouch __review.py";
+    assert!(denied(json!({"tool_name":"Bash","tool_input":{"command":after,"workdir":repo}})));
+}

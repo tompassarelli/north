@@ -1,4 +1,4 @@
-use crate::shell::{ShellToken, operator_tokens};
+use crate::shell::{ShellToken, operator_tokens, strip_heredocs};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, VecDeque};
@@ -475,24 +475,41 @@ fn resolve(path: &str, cwd: &Path, home: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
-    let tokens = operator_tokens(command)?;
-    let mut targets = Vec::new();
-    for pair in tokens.windows(2) {
-        if let [ShellToken::Operator(operator), ShellToken::Word(path)] = pair
-            && matches!(operator.as_str(), ">" | ">>")
-        {
-            targets.push((path.clone(), Vec::new()));
-        }
+fn anchored(dir: &Path, path: &str) -> String {
+    if path.starts_with("~/") || path.starts_with("$HOME/") || path.starts_with("${HOME}/") {
+        path.into()
+    } else {
+        dir.join(path).to_string_lossy().into_owned()
     }
+}
+
+fn changed_directory(dir: &Path, operands: &[&str]) -> Option<PathBuf> {
+    match operands.first().copied() {
+        None | Some("~" | "$HOME" | "${HOME}") => Some(PathBuf::from("~/")),
+        Some(target) if target.contains('$') && !target.starts_with("$HOME/") && !target.starts_with("${HOME}/") => None,
+        Some(target) => Some(PathBuf::from(anchored(dir, target))),
+    }
+}
+
+fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
+    let command = strip_heredocs(command);
+    let tokens = operator_tokens(&command)?;
+    let mut targets = Vec::new();
+    let mut dir = cwd.to_path_buf();
+    let mut scopes = Vec::new();
     let mut words = Vec::new();
-    let mut redirect_operand = false;
+    let mut redirect: Option<&str> = None;
     for token in tokens
         .iter()
         .chain(std::iter::once(&ShellToken::Operator(";".into())))
     {
         match token {
-            ShellToken::Word(_) if redirect_operand => redirect_operand = false,
+            ShellToken::Word(word) if redirect.is_some() => {
+                if matches!(redirect, Some(">" | ">>")) {
+                    targets.push((anchored(&dir, word), Vec::new()));
+                }
+                redirect = None;
+            }
             ShellToken::Word(word) => words.push(word.as_str()),
             ShellToken::Operator(operator)
                 if matches!(
@@ -515,9 +532,14 @@ fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
                         .copied()
                         .collect();
                     match name {
+                        "cd" => {
+                            if let Some(next) = changed_directory(&dir, &operands) {
+                                dir = next;
+                            }
+                        }
                         "touch" | "tee" => {
                             for path in operands {
-                                targets.push((path.into(), Vec::new()));
+                                targets.push((anchored(&dir, path), Vec::new()));
                             }
                         }
                         "cp" | "mv" | "install" | "ln" => {
@@ -534,51 +556,79 @@ fn shell_targets(command: &str, cwd: &Path) -> Result<Vec<(String, Vec<u8>)>> {
                                 for source in operands.iter().filter(|source| **source != target) {
                                     if let Some(name) = Path::new(source).file_name() {
                                         targets.push((
-                                            Path::new(target)
-                                                .join(name)
-                                                .to_string_lossy()
-                                                .into_owned(),
-                                            fs::read(cwd.join(source)).unwrap_or_default(),
+                                            anchored(&dir, &Path::new(target).join(name).to_string_lossy()),
+                                            fs::read(dir.join(source)).unwrap_or_default(),
                                         ));
                                     }
                                 }
                             } else if let Some(target) = operands.last() {
-                                if cwd.join(target).is_dir() {
+                                if dir.join(target).is_dir() {
                                     for source in operands.iter().take(operands.len() - 1) {
                                         if let Some(name) = Path::new(source).file_name() {
                                             targets.push((
-                                                Path::new(target)
-                                                    .join(name)
-                                                    .to_string_lossy()
-                                                    .into_owned(),
-                                                fs::read(cwd.join(source)).unwrap_or_default(),
+                                                anchored(&dir, &Path::new(target).join(name).to_string_lossy()),
+                                                fs::read(dir.join(source)).unwrap_or_default(),
                                             ));
                                         }
                                     }
                                 } else {
                                     let content = operands
                                         .first()
-                                        .and_then(|source| fs::read(cwd.join(source)).ok())
+                                        .and_then(|source| fs::read(dir.join(source)).ok())
                                         .unwrap_or_default();
-                                    targets.push(((*target).into(), content));
+                                    targets.push((anchored(&dir, target), content));
                                 }
                             }
                         }
                         _ => {}
                     }
                 }
+                match operator.as_str() {
+                    "(" => scopes.push(dir.clone()),
+                    ")" => {
+                        if let Some(outer) = scopes.pop() {
+                            dir = outer;
+                        }
+                    }
+                    _ => {}
+                }
                 words.clear();
-                redirect_operand = false;
+                redirect = None;
             }
             ShellToken::Operator(operator)
                 if matches!(operator.as_str(), ">" | ">>" | "<" | "<<") =>
             {
-                redirect_operand = true
+                redirect = Some(operator.as_str())
             }
             _ => {}
         }
     }
     Ok(targets)
+}
+
+fn command_text(fields: &Value) -> Option<String> {
+    let command = fields.get("command").or_else(|| fields.get("cmd"))?;
+    if let Some(text) = command.as_str() {
+        return Some(text.into());
+    }
+    let argv: Vec<&str> = command.as_array()?.iter().filter_map(Value::as_str).collect();
+    match argv.as_slice() {
+        [shell, flag, script, ..]
+            if Path::new(shell).file_name().is_some_and(|name| {
+                matches!(name.to_str(), Some("bash" | "sh" | "zsh" | "dash" | "fish"))
+            }) && flag.starts_with('-')
+                && flag.ends_with('c') =>
+        {
+            Some((*script).into())
+        }
+        [] => None,
+        _ => Some(
+            argv.iter()
+                .map(|word| format!("'{}'", word.replace('\'', "'\\''")))
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+    }
 }
 
 fn patch_envelope(value: &Value) -> Option<&str> {
@@ -658,12 +708,8 @@ fn guard_decision(input: &[u8], home: &Path, cwd: &Path, disabled: bool) -> Resu
             }
         }
         "Bash" | "exec_command" | "functions.exec_command" | "shell" | "functions.shell" | "shell_command" | "functions.shell_command" | "local_shell" => {
-            let command = fields
-                .get("command")
-                .and_then(Value::as_str)
-                .or_else(|| fields.get("cmd").and_then(Value::as_str))
-                .ok_or("missing command")?;
-            targets = shell_targets(command, cwd)?;
+            let command = command_text(fields).ok_or("missing command")?;
+            targets = shell_targets(&command, cwd)?;
         }
         _ => return Ok(None),
     }
