@@ -337,12 +337,12 @@ fn a_task_launch_starts_on_the_tier_its_briefs_category_earns_and_a_different_mo
     north(root, &["fleet", "forget", "narrow"]);
     assert_eq!(cheap["model"], "claude-haiku-5-5", "{cheap}");
 
-    let refused = launch_task(root, "bug-known-cause", &["--model", "opus"]);
+    let refused = launch_task(root, "anim", &["--model", "opus"]);
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("--tier-reason"), "{}", String::from_utf8_lossy(&refused.stderr));
     assert!(!north(root, &["fleet", "show", "narrow", "--json"]).status.success(), "a refused launch starts no session");
 
-    let allowed = launch_task(root, "bug-known-cause", &["--model", "opus", "--tier-reason", "the cause spans two engines"]);
+    let allowed = launch_task(root, "anim", &["--model", "opus", "--tier-reason", "the cause spans two engines"]);
     assert!(allowed.status.success(), "{}", String::from_utf8_lossy(&allowed.stderr));
     let overridden = shown(root);
     north(root, &["fleet", "forget", "narrow"]);

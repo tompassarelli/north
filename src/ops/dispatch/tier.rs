@@ -1,16 +1,19 @@
-//! Which worker tier a dispatched box starts on: Sonnet for known-cause bugs and art, Haiku for
-//! mechanical work with its retry on Sonnet, the Sonnet and Opus arms in turn on tooling and
-//! features until the ledger holds 15 runs of each, then the ledger's pick, and Opus for the rest.
+//! Which worker tier a dispatched box starts on: Sonnet for art, Haiku for mechanical work with its
+//! retry on Sonnet, the Sonnet and Opus arms in turn on the armed categories until the ledger holds
+//! 15 runs of each, then the arm with the lower cost per closed box, and Opus for the rest.
 use super::facets;
 use super::issues::Issue;
 use super::record::Record;
+use crate::ledger::closed::ClosedReport;
 use std::collections::BTreeMap;
 use toml_edit::DocumentMut;
 
 /// Runs each arm needs in a category before dispatch routes it by the ledger's pick.
 pub(crate) const ARM_RUNS: usize = 15;
+/// Window of the ledger's closed boxes whose cost per closed box decides an armed category.
+pub(crate) const ARM_WINDOW: &str = "7d";
 /// Categories whose Sonnet and Opus arms dispatch compares.
-pub(crate) const ARMED: [&str; 2] = ["tooling", "feature"];
+pub(crate) const ARMED: [&str; 5] = ["feature", "tooling", "native-check", "balance-tuning", "bug-known-cause"];
 const ART: [&str; 3] = ["anim", "animation", "art"];
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -76,19 +79,19 @@ impl Tier {
     }
 }
 
-/// What the ledger's `--recommend` printed for one category: each tier's success rate and runs
-/// there, and its pick when one passes or has a measured cost.
+/// What the ledger holds for one category: each tier's success rate and runs there from
+/// `--recommend`, and each tier's cost per closed box from `north ledger summary`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Evidence {
     pub tiers: BTreeMap<String, (f64, usize)>,
-    pub pick: Option<String>,
+    pub usd_per_closed: Option<BTreeMap<Tier, f64>>,
 }
 
 impl Evidence {
     /// Reads `worker-ledger --recommend 'Category: NAME'`; a coarser cell than the category counts
     /// as no evidence.
     pub(crate) fn parse(printed: &str, category: &str) -> Self {
-        let Some((head, cell)) = printed.lines().find_map(|line| line.split_once("  cell [")) else { return Self::default() };
+        let Some((_, cell)) = printed.lines().find_map(|line| line.split_once("  cell [")) else { return Self::default() };
         if !cell.to_lowercase().starts_with(&format!("category: {category}]")) {
             return Self::default();
         }
@@ -101,7 +104,20 @@ impl Evidence {
                 Some((label.to_owned(), (rate.parse().ok()?, rest.trim().strip_prefix("of ")?.split_whitespace().next()?.parse().ok()?)))
             })
             .collect();
-        Self { tiers, pick: head.strip_prefix("tier ").map(|pick| pick.trim().to_owned()) }
+        Self { tiers, usd_per_closed: None }
+    }
+
+    /// Adds each tier's cost per closed box in this category from the ledger's closed-box report,
+    /// the figures `north ledger summary` prints; a tier with no closed box has no cost.
+    pub(crate) fn priced(self, report: &ClosedReport, category: &str) -> Self {
+        let mut sums: BTreeMap<Tier, (f64, usize)> = BTreeMap::new();
+        for cell in report.cells.iter().filter(|cell| cell.category == category) {
+            if let Some(tier) = [Tier::Haiku, Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.serves(&cell.tier)) {
+                let sum = sums.entry(tier).or_default();
+                *sum = (sum.0 + cell.usd_per_closed() * cell.closed as f64, sum.1 + cell.closed);
+            }
+        }
+        Self { usd_per_closed: Some(sums.into_iter().map(|(tier, (usd, closed))| (tier, usd / closed as f64)).collect()), ..self }
     }
 
     fn runs(&self, tier: Tier) -> usize {
@@ -112,14 +128,20 @@ impl Evidence {
         self.tiers.get(tier.key()).map_or(0.0, |(rate, _)| *rate)
     }
 
-    /// The arm the ledger favors: its pick when that is an arm, else the arm with the higher
-    /// success rate, Sonnet on a tie since it costs less.
-    fn decided(&self) -> Tier {
-        match self.pick.as_deref().and_then(Tier::parse) {
-            Some(tier @ (Tier::Sonnet | Tier::Opus)) => tier,
-            _ if self.rate(Tier::Opus) > self.rate(Tier::Sonnet) => Tier::Opus,
-            _ => Tier::Sonnet,
-        }
+    fn cost(&self, tier: Tier) -> Option<f64> {
+        self.usd_per_closed.as_ref()?.get(&tier).copied()
+    }
+
+    /// The arm with the lower cost per closed box, Sonnet on a tie. None until the closed-box
+    /// report is read and both arms have a closed box in it, so an arm the window forgot keeps
+    /// running rather than losing by default.
+    fn decided(&self) -> Option<Tier> {
+        Some(if self.cost(Tier::Opus)? < self.cost(Tier::Sonnet)? { Tier::Opus } else { Tier::Sonnet })
+    }
+
+    fn figures(&self, tier: Tier) -> String {
+        let cost = self.cost(tier).map_or_else(|| "no closed box".to_owned(), |usd| format!("${usd:.2} per closed box"));
+        format!("{} {:.0}% of {}, {cost}", tier.name(), self.rate(tier), self.runs(tier))
     }
 }
 
@@ -186,9 +208,6 @@ pub(crate) fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &Hi
     if art(&category, facet) {
         return on(Tier::Sonnet, "art goes to sonnet-high".into());
     }
-    if category == "bug-known-cause" {
-        return on(Tier::Sonnet, "known-cause bugs go to sonnet-high".into());
-    }
     if category == "mechanical" {
         return match history.haiku_try(item) {
             Some(name) => Route { follows: Some(format!("{name} (worker-haiku)")), ..on(Tier::Sonnet, format!("retries the Haiku miss {name} on sonnet-high")) },
@@ -200,10 +219,8 @@ pub(crate) fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &Hi
     }
     let evidence = ledger.get(&category).cloned().unwrap_or_default();
     let (sonnet, opus) = (evidence.runs(Tier::Sonnet), evidence.runs(Tier::Opus));
-    if sonnet >= ARM_RUNS && opus >= ARM_RUNS {
-        let tier = evidence.decided();
-        let pick = evidence.pick.as_deref().unwrap_or("no tier");
-        return on(tier, format!("{category} goes to {} by the ledger, which picks {pick} (sonnet-high n {sonnet}, worker n {opus})", tier.name()));
+    if let Some(tier) = evidence.decided().filter(|_| sonnet >= ARM_RUNS && opus >= ARM_RUNS) {
+        return on(tier, format!("{category} goes to {} by the ledger's cost per closed box ({}; {})", tier.name(), evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus)));
     }
     let tier = history.last_arm.get(&category).map_or(Tier::Sonnet, |last| last.other_arm());
     Route { arm: true, ..on(tier, format!("{category} arm {} (sonnet-high n {sonnet}, worker n {opus}, {ARM_RUNS} each to decide)", tier.name())) }

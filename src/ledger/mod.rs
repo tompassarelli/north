@@ -10,7 +10,7 @@ use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::{RunRecord, RunSink};
 
 mod books;
-mod closed;
+pub(crate) mod closed;
 mod closed_source;
 mod gates;
 pub(crate) mod pricing;

@@ -47,7 +47,7 @@ fn tried(tier: &str, category: &str, arm: bool) -> Record {
 fn a_known_cause_brief_starts_on_sonnet_high_and_a_mechanical_one_on_haiku_with_its_wait_rule() {
     let known = run("bug-known-cause");
     assert_eq!((known.model.as_str(), known.effort.as_deref(), known.route.tier.name()), ("claude-sonnet-5-5", Some("high"), "sonnet-high"));
-    assert!(known.prompt.starts_with("Item: north#9 x\nCategory: bug-known-cause\nSpec: exact\nTier: sonnet-high\n\nDo it."), "{}", known.prompt);
+    assert!(known.prompt.starts_with("Item: north#9 x\nCategory: bug-known-cause\nSpec: exact\nTier: sonnet-high\nArm: sonnet-high\n\nDo it."), "{}", known.prompt);
     let mechanical = run("mechanical");
     assert_eq!((mechanical.model.as_str(), mechanical.route.tier.name()), ("claude-haiku-5-5", "worker-haiku"));
     assert!(mechanical.prompt.contains("Tier: worker-haiku") && mechanical.prompt.ends_with("never end your turn while a run you started is still going."), "{}", mechanical.prompt);
@@ -95,7 +95,7 @@ fn a_brief_without_a_category_is_a_feature_and_a_prompt_without_a_header_gets_on
     assert!(bare.prompt.contains("Category: feature\nTier: sonnet-high\nArm: sonnet-high"), "{}", bare.prompt);
     let ask = Ask { item: "north#9", brief: "Category: bug-known-cause", prompt: "Read /tmp/brief.md and start.", model: None, reason: None };
     let headed = start(&ask, &CFG.parse().unwrap(), &History::default(), &BTreeMap::new(), &|_| Grounds::default()).unwrap();
-    assert_eq!(headed.prompt, "Tier: sonnet-high\n\nRead /tmp/brief.md and start.");
+    assert_eq!(headed.prompt, "Tier: sonnet-high\nArm: sonnet-high\n\nRead /tmp/brief.md and start.");
 }
 
 #[test]

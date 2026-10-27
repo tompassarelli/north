@@ -276,12 +276,14 @@ fn unspent(laptop: Option<&str>, records: &[record::Record], at: f64, notes: &mu
 
 pub(crate) fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let mut found = BTreeMap::new();
+    let closed = crate::ledger::closed_report(tier::ARM_WINDOW).map_err(|why| notes.push(format!("north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message())));
     for category in categories {
         let facets = format!("Category: {category}");
         let program = crate::fleet::runtime::binary("worker-ledger");
         match run_within(&program.to_string_lossy(), &["--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
-                found.insert((*category).to_owned(), Evidence::parse(&String::from_utf8_lossy(&output.stdout), category));
+                let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
+                found.insert((*category).to_owned(), closed.as_ref().map_or(read.clone(), |report| read.priced(report, category)));
             }
             _ => notes.push(format!("worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
         }
