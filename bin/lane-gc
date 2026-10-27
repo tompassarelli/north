@@ -544,7 +544,7 @@ function sweep(container: string, o: Opts, live: string[], c: Counts) {
     const dirty = !st.ok ? "status failed" : st.out ? "dirty" : "";
     const v = landed(main, base, tip);
     const admin = git(path, ["rev-parse", "--path-format=absolute", "--git-dir"]).out;
-    const activity = Math.max(Number(git(main, ["log", "-1", "--format=%ct", tip]).out) * 1000, newestMtime([path, join(admin, "HEAD"), join(admin, "index"), join(admin, "logs/HEAD"), join(common, "logs/refs/heads", branch)]));
+    const activity = Math.max(Number(git(main, ["log", "-1", "--format=%ct", tip]).out) * 1000, newestMtime([path, join(admin, "HEAD"), join(admin, "index"), join(admin, "logs/HEAD"), ...(branch ? [join(common, "logs/refs/heads", branch)] : [])]));
     const age = (now() - activity) / 3600_000;
     const modifiedSince = (hours: number): boolean => {
       const r = command(["find", path, "-type", "f", "-newermt", new Date(now() - hours * 3600_000).toISOString(), "-print", "-quit"]);
