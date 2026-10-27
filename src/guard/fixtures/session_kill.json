@@ -89,5 +89,14 @@
   ["echo ${x:- #}; nohup sleep 1","deny"],
   ["echo ${x:- #}; sleep 1 &","deny"],
   [">/dev/null nohup sleep 1","deny"],
-  ["echo >& nohup x","deny"]
+  ["echo >& nohup x","deny"],
+  ["echo $'it\\'s # x'; systemctl restart user@1000.service","deny"],
+  ["echo $'a\\'<<EOF'\nsystemctl restart user@1000.service\nEOF","deny"],
+  ["echo $'x\\'#'\nsystemctl restart user@1000.service","deny"],
+  ["echo \"${x:-\"a # \"}\"; systemctl restart user@1000.service","deny"],
+  ["echo `systemctl restart user@1000.service`","deny"],
+  ["echo \"`systemctl restart user@1000.service`\"","deny"],
+  ["echo $(case x in x) true;; esac)#; systemctl restart user@1000.service","deny"],
+  ["echo ${x:- #}; systemctl restart user@1000.service","deny"],
+  ["git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\"; cat <<'X'\nit's\nX\nsystemctl restart user@1000.service","deny"]
 ]

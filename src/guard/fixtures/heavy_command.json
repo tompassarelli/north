@@ -158,5 +158,13 @@
   [
     "git commit -m \"$(cat <<'EOF'\nSay \"hi\ncargo build\nEOF\n)\"",
     "allow"
+  ],
+  [
+    "echo `cargo build`",
+    "refuse"
+  ],
+  [
+    "echo \"`cargo build`\"",
+    "refuse"
   ]
 ]
