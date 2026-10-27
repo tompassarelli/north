@@ -140,9 +140,9 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_a
     }
     let (_, lines, summary) = place(native, Some(0), None);
     assert_eq!(lines, ["near skipped: needs native", "far unreachable over ssh tom@far"]);
-    assert_eq!(summary, "target here claude:a (needs native, so local)");
+    assert_eq!(summary, "target here claude:a (needs native, not cloud)");
     let (_, _, summary) = place(PRIVATE, Some(0), Some(0));
-    assert_eq!(summary, "target near claude:a (galileo is not a public repository, so local)");
+    assert_eq!(summary, "target near claude:a (galileo is not a public repository, not cloud)");
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
     let placed = decide(camera, &cfg, &gate, spent(), &machines, "laptop");
     assert_eq!(placed.machine, None, "{:?}", placed.machine_lines);
     assert_eq!(placed.machine_lines, ["gex45 skipped: needs private"]);
-    assert_eq!(super::placement::gate::summary(&placed), "target laptop claude:c (needs private, so local)");
+    assert_eq!(super::placement::gate::summary(&placed), "target laptop claude:c (needs private, not cloud)");
 
     let mut placed = decide(wisp, &cfg, &gate, spent(), &machines, "laptop");
     assert_eq!(placed.machine.as_ref().map(|m| m.name.as_str()), Some("gex45"), "{:?}", placed.machine_lines);
@@ -298,7 +298,7 @@ fn a_box_without_a_surface_leaves_a_host_in_game_reserve_for_one_serving_its_rep
     let listed = roster(&[("c", None)]);
     let placed = |text: &str, gaming: bool| gate::summary(&gate::decide(text, &cfg, verdicts(&quota, &listed), (false, "cloud credit: spent".to_owned()), &machines, "laptop", gaming));
     let smashcraft = "Item: smashcraft#9 Frostbolt startup\n";
-    assert_eq!(placed(smashcraft, false), "target laptop claude:c (no Surface: declared, so local)");
-    assert_eq!(placed(smashcraft, true), "target gex45 claude:c (no Surface: declared, so local)");
-    assert_eq!(placed(UNDECLARED, true), "target laptop claude:c (no Surface: declared, so local)");
+    assert_eq!(placed(smashcraft, false), "target laptop claude:c (no Surface: declared, not cloud)");
+    assert_eq!(placed(smashcraft, true), "target gex45 claude:c (no Surface: declared, not cloud)");
+    assert_eq!(placed(UNDECLARED, true), "target laptop claude:c (no Surface: declared, not cloud)");
 }

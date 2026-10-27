@@ -195,6 +195,10 @@ pub(super) fn machine_load(fleet: &Fleet) -> NorthResult<BTreeMap<String, i64>> 
     Ok(load)
 }
 
+pub(super) fn fleet_load() -> NorthResult<BTreeMap<String, i64>> {
+    machine_load(&super::fleet::open_fleet()?)
+}
+
 #[cfg(test)]
 #[path = "fleet_placement_tests.rs"]
 mod tests;

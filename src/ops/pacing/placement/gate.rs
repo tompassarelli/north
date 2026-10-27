@@ -235,10 +235,10 @@ fn local_needs(text: &str) -> Vec<String> {
 /// a public repository; anything undeclared stays local.
 pub(crate) fn surface(text: &str, cfg: &DocumentMut) -> (bool, String) {
     if words(text, "Surface").is_empty() {
-        return (false, "no Surface: declared, so local".into());
+        return (false, "no Surface: declared, not cloud".into());
     }
     if let Some(need) = local_needs(text).first() {
-        return (false, format!("needs {need}, so local"));
+        return (false, format!("needs {need}, not cloud"));
     }
     let repo = repository(text);
     let rules = cfg.get("placement");
@@ -249,7 +249,7 @@ pub(crate) fn surface(text: &str, cfg: &DocumentMut) -> (bool, String) {
     }
     if repo.is_empty() || private.contains(&repo) || !public.contains(&repo) {
         let name = if repo.is_empty() { "no repository" } else { repo.as_str() };
-        return (false, format!("{name} is not a public repository, so local"));
+        return (false, format!("{name} is not a public repository, not cloud"));
     }
     (true, format!("code-only box on public {repo}"))
 }

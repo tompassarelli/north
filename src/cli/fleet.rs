@@ -67,7 +67,7 @@ pub(super) fn roster() -> NorthResult<Roster> {
     registry::roster(&runtimes())
 }
 
-fn open_fleet() -> NorthResult<Fleet> {
+pub(super) fn open_fleet() -> NorthResult<Fleet> {
     Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli))
 }
 

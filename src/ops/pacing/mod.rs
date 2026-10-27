@@ -1,6 +1,7 @@
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use crate::pace::{admission, control, target, window};
+use std::collections::BTreeMap;
 use std::io::Write;
 
 mod command;
@@ -29,14 +30,20 @@ pub(crate) fn confirm_spawn(request: &serde_json::Value) -> Result<(), String> {
     command::operation(request).map(|_| ())
 }
 
-pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>, token_usage: TokenUsage) -> u8 {
+#[derive(Clone, Copy)]
+pub(crate) struct FleetFacts {
+    pub(crate) roster: fn() -> NorthResult<Roster>,
+    pub(crate) machine_load: fn() -> NorthResult<BTreeMap<String, i64>>,
+}
+
+pub(crate) fn run(arguments: &[String], fleet: FleetFacts, token_usage: TokenUsage) -> u8 {
     sampling::install_token_usage(token_usage);
     if let [command, provider] = arguments
         && command == "gate" {
             return gate(provider);
         }
     match arguments.first().map(String::as_str) {
-        Some("place") => finish(placement::cli(&arguments[1..], roster), "north place"),
+        Some("place") => finish(placement::cli(&arguments[1..], fleet), "north place"),
         Some("sample") => finish(command::cli(&arguments[1..]), "north pace"),
         Some("grant") => finish(command::cli(arguments), "north pace"),
         _ => request(),

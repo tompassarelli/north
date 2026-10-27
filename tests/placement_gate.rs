@@ -154,6 +154,23 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
     let lines = String::from_utf8_lossy(&listed.stdout);
     assert!(lines.lines().any(|line| line.starts_with("far-box\t") && line.contains("\tfar:/")), "{lines}");
 
+    let planned = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["pace", "place", "place", &path.display().to_string()])
+        .current_dir(root)
+        .env("HOME", root)
+        .env("XDG_STATE_HOME", root.join(".local/state"))
+        .env("AGENTS_ORCHESTRATION", &orchestration)
+        .env("AGENTS_OPERATOR_DIR", root.join("op"))
+        .env("PLACEMENT_NOW", NOW)
+        .env("RESIDENT_CAP_HOST", "here")
+        .env("PLACEMENT_HOSTS", root.join("hosts.json"))
+        .env("NORTH_FLEET_SESSION", "")
+        .env_remove("NORTH_FLEET_TEST")
+        .output()
+        .unwrap();
+    let plan = String::from_utf8_lossy(&planned.stdout).into_owned();
+    assert!(plan.contains("far full: 2/2 resident CLIs"), "agents plan --place counts the fleet session hosted on the machine: {plan}{}", String::from_utf8_lossy(&planned.stderr));
+
     let said = launch("kept-box");
     assert!(said.contains("far full: 2/2 resident CLIs") && said.contains("placement: target here claude:a"), "a live session on the machine counts against its cap: {said}");
     for name in ["far-box", "kept-box"] {

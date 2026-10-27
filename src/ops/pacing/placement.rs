@@ -1,6 +1,4 @@
 use super::{admission, control::Control, sampling, storage, target};
-use crate::error::NorthResult;
-use crate::fleet::roster::Roster;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -270,7 +268,7 @@ pub(super) fn operation(request: &Value) -> Result<Option<Value>, String> {
         _ => return Ok(None),
     }))
 }
-pub(super) fn cli(args: &[String], roster: fn() -> NorthResult<Roster>) -> Result<(), String> {
+pub(super) fn cli(args: &[String], fleet: super::FleetFacts) -> Result<(), String> {
     let cfg = sampling::config()?;
     let at = std::env::var("PLACEMENT_NOW")
         .ok()
@@ -284,8 +282,8 @@ pub(super) fn cli(args: &[String], roster: fn() -> NorthResult<Roster>) -> Resul
         return Err("north place place BRIEF... | credit".into());
     }
     let gate = storage::load(&storage::directory().join("usage-gate.json"));
-    let machines = gate::probed(&cfg, &Default::default());
-    let roster = roster().map_err(|error| error.to_string())?;
+    let machines = gate::probed(&cfg, &(fleet.machine_load)().map_err(|error| error.to_string())?);
+    let roster = (fleet.roster)().map_err(|error| error.to_string())?;
     for path in &args[1..] {
         let text = if path == "-" {
             use std::io::Read;
