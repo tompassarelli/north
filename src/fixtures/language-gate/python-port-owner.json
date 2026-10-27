@@ -26,6 +26,8 @@
     {"group":"age","name":"eight days expires without Python edits","date":"2026-10-23T00:00:00+14:00","rule":"R4","field":"created"},
     {"group":"growth","name":"valid port permits existing Python growth","growth":true,"date":"2026-10-15T12:00:00+00:00"},
     {"group":"new","name":"valid port refuses new Python file and guard write","new_path":true,"date":"2026-10-15T12:00:00+00:00","rule":"R1"},
+    {"group":"library","name":"a library gap needs no port record and still permits growth","changes":{"gap":"library","port_owner":null,"port_target":null,"commitment":null,"created":null},"growth":true,"date":"2026-11-30T12:00:00+00:00"},
+    {"group":"library","name":"a library gap still refuses a new Python file","changes":{"gap":"library","port_owner":null,"port_target":null,"commitment":null,"created":null},"new_path":true,"date":"2026-11-30T12:00:00+00:00","rule":"R1"},
     {"group":"approval","name":"standing rule needs no trailer","date":"2026-10-15T12:00:00+00:00"}
   ]
 }

@@ -592,6 +592,11 @@ fn language_gate_valid_python_entries_permit_existing_file_growth() {
 }
 
 #[test]
+fn language_gate_library_python_entries_need_no_rust_port_record() {
+    python_port_cases("library");
+}
+
+#[test]
 fn language_gate_valid_python_entries_never_permit_new_files() {
     python_port_cases("new");
 }

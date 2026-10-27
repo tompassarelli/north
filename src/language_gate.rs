@@ -10,6 +10,8 @@ use std::process::ExitCode;
 use crate::platform::git as platform_git;
 
 const ALLOWLIST: &str = ".language-allowlist.json";
+/// A Python entry whose gap is exactly this is a library that only has a Python interface, so it carries no Rust port record.
+const LIBRARY_GAP: &str = "library";
 const ALTERNATIVE: &str = "write it in Rust under src/ or as a north subcommand";
 const INPUT_LIMIT: u64 = 1024 * 1024;
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -397,7 +399,7 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
         for entry in list
             .entries
             .iter()
-            .filter(|entry| entry.class == Class::Python)
+            .filter(|entry| entry.class == Class::Python && entry.gap.trim() != LIBRARY_GAP)
         {
             if let Some(field) = python_entry_problem(repo, head, date, entry)? {
                 failures.push(format!("{ALLOWLIST}: R4 Python entry {}: missing, invalid or expired {field}; remove the entry or supply a valid Rust port commitment; {ALTERNATIVE}", entry.glob));
