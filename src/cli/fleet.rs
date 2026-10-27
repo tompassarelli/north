@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
+use super::fleet_claims::ThreadsCli;
 use crate::fleet::model::{Effort, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::registry::{self, Fleet, urgent_text};
@@ -67,7 +68,7 @@ pub(super) fn roster() -> NorthResult<Roster> {
 }
 
 fn open_fleet() -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli))
 }
 
 pub fn host_watch(config: &HostConfig) -> Option<Box<dyn FrameWatch>> {

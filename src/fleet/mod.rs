@@ -1,4 +1,5 @@
 pub mod books;
+pub mod claims;
 pub mod effort;
 pub mod gates;
 pub mod handoff;

@@ -10,6 +10,7 @@ use crate::{
 mod cloud;
 mod token_usage;
 mod fleet;
+mod fleet_claims;
 mod fleet_duplicate;
 mod fleet_list;
 mod fleet_placement;

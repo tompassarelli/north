@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::error::{NorthError, NorthResult};
 
 use super::books::{Digest, FleetBooks};
+use super::claims::{self, Claims};
 use super::gates;
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
@@ -59,22 +60,23 @@ pub struct Fleet {
     policy: PathBuf,
     runtimes: Runtimes,
     ledger: Arc<dyn FleetBooks>,
+    claims: Arc<dyn Claims>,
 }
 
 impl Fleet {
-    pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
-        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger)
+    pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>) -> NorthResult<Self> {
+        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger, claims)
     }
 
-    fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>) -> NorthResult<Self> {
+    fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>) -> NorthResult<Self> {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger })
+        Ok(Self { root, state, home, policy, runtimes, ledger, claims })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.root.clone(), host_dir.to_path_buf()))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()))
     }
 
     pub fn orders(&self) -> StandingOrders {
@@ -222,6 +224,7 @@ impl Fleet {
             write_record(&self.root.join(name), &record)?;
             return Err(error);
         }
+        claims::release_for(self.claims.as_ref(), &record);
         Ok(())
     }
 
@@ -334,6 +337,7 @@ impl Fleet {
             write_record(&self.root.join(&record.name), record)?;
         }
         remote::leave_record(record, &self.root.join(PLACED));
+        claims::hold_for(self.claims.as_ref(), record);
         Ok(())
     }
 

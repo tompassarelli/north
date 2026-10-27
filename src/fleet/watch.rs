@@ -8,6 +8,7 @@ use serde_json::Value;
 use crate::session_host::{FrameWatch, Rest};
 
 use super::books::WatchBooks;
+use super::claims::{self, Claims};
 use super::gates::Question;
 use super::handoff;
 use super::idle::{self, Step};
@@ -25,6 +26,7 @@ pub struct TurnWatch {
     runtime: Arc<dyn Runtime>,
     ledger: Arc<dyn WatchBooks>,
     courier: Arc<dyn Courier>,
+    claims: Arc<dyn Claims>,
     root: PathBuf,
     host_dir: PathBuf,
     turns: Turns,
@@ -64,11 +66,12 @@ impl View {
 }
 
 impl TurnWatch {
-    pub fn new(runtime: Arc<dyn Runtime>, ledger: Arc<dyn WatchBooks>, courier: Arc<dyn Courier>, root: PathBuf, host_dir: PathBuf) -> Self {
+    pub fn new(runtime: Arc<dyn Runtime>, ledger: Arc<dyn WatchBooks>, courier: Arc<dyn Courier>, claims: Arc<dyn Claims>, root: PathBuf, host_dir: PathBuf) -> Self {
         Self {
             runtime,
             ledger,
             courier,
+            claims,
             root,
             host_dir,
             turns: Turns::default(),
@@ -232,6 +235,9 @@ impl FrameWatch for TurnWatch {
         }
         if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) {
             self.retire();
+        }
+        for record in host_sessions(&self.root, &self.host_dir) {
+            claims::release_for(self.claims.as_ref(), &record);
         }
     }
 }

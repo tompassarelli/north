@@ -52,6 +52,7 @@ fn north_as(root: &Path, host: &str, sender: &[(&str, &str)], args: &[&str]) -> 
         .env("RESIDENT_CAP_HOST", host)
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("FLEET_LAUNCH_FIXTURE", root)
+        .env("THREADS_DB", root.join("threads.db"))
         .env("PLACEMENT_HOSTS", root.join("placement-hosts.json"))
         .env("FAKE_CLAUDE_HOOK_MS", "1500")
         .env("FAKE_CLAUDE_SIGNED_OUT_MARK", root.join("signed-out"))
@@ -348,6 +349,43 @@ fn a_task_launch_starts_on_the_tier_its_briefs_category_earns_and_a_different_mo
     north(root, &["fleet", "forget", "narrow"]);
     assert_eq!(overridden["model"], "opus", "{overridden}");
     assert!(overridden["placement"].as_str().unwrap_or_default().contains("tier: the cause spans two engines"), "{overridden}");
+}
+
+const FAKE_GH: &str = "#!/bin/sh\ncase \"$*\" in\n  *\"state createdAt\"*) printf '{\"data\":{\"r0\":{\"i4\":{\"state\":\"OPEN\",\"createdAt\":\"2026-01-02T00:00:00Z\"}}}}\\n' ;;\n  *) echo '[]' ;;\nesac\n";
+
+fn held_by_name(root: &Path) -> Vec<String> {
+    let listed = north(root, &["threads", "list", "--json"]);
+    assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
+    let claims: Vec<Value> = serde_json::from_slice(&listed.stdout).unwrap();
+    claims.iter().map(|claim| format!("{} {}", claim["item"].as_str().unwrap(), claim["owner"].as_str().unwrap())).collect()
+}
+
+#[test]
+fn a_task_launch_holds_its_item_in_the_threads_ledger_under_the_session_name_until_the_session_stops() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    executable(&root.join("bin/gh"), FAKE_GH);
+    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
+    let schema = north(root, &["threads", "release", "smashcraft#4", "--by", "setup"]);
+    assert!(String::from_utf8_lossy(&schema.stderr).contains("has no owner"), "{}", String::from_utf8_lossy(&schema.stderr));
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    let brief = brief.display().to_string();
+
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "smashcraft#4", "--system-prompt", &brief, "start the box"]);
+    assert!(launched.status.success() && !String::from_utf8_lossy(&launched.stderr).contains("does not hold"), "{}", String::from_utf8_lossy(&launched.stderr));
+    let held = held_by_name(root);
+    let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "beside", "--parent", "none", "--task", "smashcraft#4", "--system-prompt", &brief, "start the box"]);
+    let stopped = north(root, &["fleet", "stop", "narrow"]);
+    let after = held_by_name(root);
+    north(root, &["fleet", "forget", "narrow"]);
+
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+    assert_eq!(held, ["smashcraft#4 narrow"]);
+    assert!(!refused.status.success() && String::from_utf8_lossy(&refused.stderr).contains("smashcraft#4 is held by"), "{}", String::from_utf8_lossy(&refused.stderr));
+    assert!(stopped.status.success(), "{}", String::from_utf8_lossy(&stopped.stderr));
+    assert!(after.is_empty(), "{after:?}");
 }
 
 const SSH_TO_FAR: &str = "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nHOME=\"$FAR_HOME\" XDG_STATE_HOME=\"$FAR_HOME/.local/state\" exec sh -c \"$1\"\n";

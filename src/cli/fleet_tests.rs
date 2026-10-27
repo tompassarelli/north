@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::model::Delivery;
 use crate::fleet::gates::{ASKED_REPLY, GateRequest};
@@ -82,7 +83,7 @@ async fn a_silent_codex_turn_is_never_parked_mid_turn() {
     let root = tempfile::tempdir().unwrap();
     let config = silent_codex_turn(root.path(), 3);
     let sink = Arc::new(Recorded::default());
-    let watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), root.path().to_path_buf(), root.path().to_path_buf());
+    let watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), root.path().to_path_buf());
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
     let started = Instant::now();
     host.rest_when_idle(Some(Duration::from_secs(1)));
@@ -102,7 +103,7 @@ async fn notifications_after_the_turn_do_not_keep_a_codex_host_awake() {
     );
     let mut config = silent_codex_turn(root.path(), 0);
     config.runtime = vec!["sh".into(), "-c".into(), script];
-    let watch = TurnWatch::new(Arc::new(Codex), Arc::new(Recorded::default()), Arc::new(Recorded::default()), root.path().to_path_buf(), root.path().to_path_buf());
+    let watch = TurnWatch::new(Arc::new(Codex), Arc::new(Recorded::default()), Arc::new(Recorded::default()), Arc::new(Held::default()), root.path().to_path_buf(), root.path().to_path_buf());
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
     host.rest_when_idle(Some(Duration::from_secs(1)));
     let parked = tokio::time::timeout(Duration::from_secs(10), host.wait()).await;
@@ -127,7 +128,7 @@ fn a_deepened_turn_is_tagged_with_its_session_prompt_sha() {
     });
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
-    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session.clone());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session.clone());
     let prompt = crate::fleet::prompt::deepened("fix the parser");
     for frame in [
         json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": "u", "message": {"content": prompt}}),
@@ -137,6 +138,24 @@ fn a_deepened_turn_is_tagged_with_its_session_prompt_sha() {
     }
     let runs = sink.0.lock().unwrap();
     assert_eq!(runs.iter().map(|run| (run.session.as_str(), run.deepen, run.system_prompt_sha.as_deref())).collect::<Vec<_>>(), [("deep", true, Some("abc"))]);
+}
+
+#[test]
+fn a_host_that_ends_releases_the_claim_of_each_session_it_ran_for_a_task() {
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("worker");
+    std::fs::create_dir_all(&host).unwrap();
+    for (name, task) in [("worker", json!("north#9")), ("chat", json!(null))] {
+        let session = root.path().join(name);
+        std::fs::create_dir_all(&session).unwrap();
+        let record = json!({"name": name, "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": null, "conversation": "s", "host_dir": host, "task_ref": task});
+        std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+    }
+    let sink = Arc::new(Recorded::default());
+    let claims = Arc::new(Held::default());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, claims.clone(), root.path().to_path_buf(), host);
+    watch.close();
+    assert_eq!(*claims.0.lock().unwrap(), [("release", "north#9".to_owned(), "worker".to_owned())]);
 }
 
 #[test]
@@ -162,7 +181,7 @@ fn a_child_delivers_each_finished_turn_in_order_while_its_parent_is_busy() {
     });
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
-    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session.clone());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session.clone());
     let user = |turn: u8| json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": format!("u{turn}"), "message": {"content": format!("run step {turn}")}});
     let said = |text: &str| json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": text}]}});
     let task = json!({"type": "system", "subtype": "task_started", "session_id": "s", "task_id": "t1"});
@@ -193,7 +212,7 @@ fn progress_questions_and_empty_turns_stay_in_the_ledger_while_only_final_report
     });
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
-    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session);
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session);
     for frame in include_str!("../fixtures/claude-stream/wake-receipts.jsonl").lines() {
         watch.line(frame.as_bytes());
     }
@@ -216,7 +235,7 @@ fn a_codex_question_opens_a_gate_for_its_session_and_unblocks_the_turn() {
     });
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
-    let mut watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), root.path().to_path_buf(), host.clone());
+    let mut watch = TurnWatch::new(Arc::new(Codex), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), host.clone());
     let asked = |thread: &str, id: u64| json!({"id": id, "method": "item/tool/requestUserInput", "params": {"threadId": thread, "turnId": "t", "itemId": "q",
         "questions": [{"id": "db", "header": "Database", "question": "Which database?", "options": [{"label": "sqlite (Recommended)", "description": ""}, {"label": "postgres", "description": ""}]}]}});
     watch.line(asked("th-1", 4).to_string().as_bytes());
@@ -268,7 +287,7 @@ fn session_record(root: &Path, parent: Option<&str>) {
 async fn rest(root: &Path, context: u64, reply: &str, policy: crate::fleet::idle::Policy, park_after: Option<Duration>) -> (u8, String) {
     let (config, stdin) = claude_turn(root, context, reply);
     let sink = Arc::new(Recorded::default());
-    let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, root.to_path_buf(), root.join("worker")).idling_by(policy);
+    let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, Arc::new(Held::default()), root.to_path_buf(), root.join("worker")).idling_by(policy);
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
     host.rest_when_idle(park_after);
     let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
@@ -319,7 +338,7 @@ async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_o
         session_record(root.path(), Some("lead"));
         let (config, _) = claude_turn(root.path(), 100_000, reply);
         let sink = Arc::new(Recorded::default());
-        let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, root.path().to_path_buf(), root.path().join("worker"));
+        let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker"));
         let host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
         host.end_with_host_signal();
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -338,7 +357,7 @@ fn a_worker_on_the_handoff_arm_is_told_to_hand_off_at_its_threshold_and_again_pe
         let record = json!({"name": "worker", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": null, "conversation": "s", "host_dir": session, "parent": "lead", "handoff_at": handoff_at});
         std::fs::write(session.join("session.json"), record.to_string()).unwrap();
         let sink = Arc::new(Recorded::default());
-        let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), root.path().to_path_buf(), session);
+        let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session);
         for (id, context) in [("m1", 349_000), ("m2", 360_000), ("m3", 400_000), ("m4", 410_000)] {
             let usage = json!({"input_tokens": 1, "output_tokens": 1, "cache_read_input_tokens": context - 1, "cache_creation_input_tokens": 0});
             watch.line(json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"id": id, "content": [], "usage": usage}}).to_string().as_bytes());
