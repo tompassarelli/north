@@ -1,0 +1,339 @@
+{
+ "alerts": {
+  "gdacs": [
+   {
+    "key": "gdacs:FL1001",
+    "source": "gdacs",
+    "title": "Orange flood alert",
+    "url": "https://www.gdacs.org/report.aspx?eventid=1"
+   }
+  ],
+  "travel": [
+   {
+    "country": "freedonia",
+    "key": "travel:adv-fr",
+    "level": 3,
+    "source": "travel",
+    "title": "Freedonia - Level 3: Reconsider Travel",
+    "url": "https://travel.state.gov/freedonia"
+   },
+   {
+    "country": "freedonia",
+    "key": "travel:adv-other",
+    "level": 4,
+    "source": "travel",
+    "title": "Freedonia Travel Advisory",
+    "url": "https://travel.state.gov/other"
+   }
+  ],
+  "usgs": [
+   {
+    "key": "usgs:us1",
+    "source": "usgs",
+    "title": "M 5.2 - 10 km NW of Town",
+    "url": "https://earthquake.usgs.gov/e/us1"
+   }
+  ],
+  "weather": [
+   {
+    "key": "weather:urn:wx:1",
+    "source": "weather",
+    "title": "Severe thunderstorm warning",
+    "url": "https://alerts.example.gov/wx1"
+   }
+  ]
+ },
+ "candidates": {
+  "atom": {
+   "t3": {
+    "title": "Fix typo",
+    "url": "https://example.com/typo"
+   }
+  },
+  "changelog": {},
+  "claude-models": {},
+  "codex": {},
+  "kalshi": {},
+  "manifold": {},
+  "news": {
+   "https://www.anthropic.com/news/policy": {
+    "title": "Policy update Oct 3, 2026",
+    "url": "https://www.anthropic.com/news/policy"
+   }
+  },
+  "polymarket": {},
+  "rss": {
+   "https://example.com/grok-5": {
+    "title": "Meet the new Grok 5",
+    "url": "https://example.com/grok-5"
+   },
+   "https://example.com/results": {
+    "title": "Quarterly <results> for the team",
+    "url": "https://example.com/results"
+   }
+  }
+ },
+ "dates": {
+  "''": null,
+  "'2026-10-18'": "2026-10-18T00:00:00Z",
+  "'2026-10-18T09:30:00'": "2026-10-18T09:30:00Z",
+  "'2026-10-18T09:30:00+02:00'": "2026-10-18T07:30:00Z",
+  "'2026-10-20T15:30:00Z'": "2026-10-20T15:30:00Z",
+  "'Mon, 05 Jan 26 10:00:00 EST'": "2026-01-05T15:00:00Z",
+  "'Oct 12, 2026'": "2026-10-12T00:00:00Z",
+  "'Tue, 20 Oct 2026 15:30:00 GMT'": "2026-10-20T15:30:00Z",
+  "'Wed, 21 Oct 2026 08:00:00 -0700'": "2026-10-21T15:00:00Z",
+  "'garbage'": null,
+  "1798675200000": "2026-12-31T00:00:00Z"
+ },
+ "feeds": {
+  "feed": {
+   "g-1": {
+    "title": "Engine news",
+    "url": "https://example.com/engine"
+   },
+   "http://example.com/plain": {
+    "title": "Plain",
+    "url": "http://example.com/plain"
+   }
+  },
+  "hn": {
+   "101": {
+    "title": "Godot 4.5 released with new rendering",
+    "url": "https://godotengine.org/4-5"
+   },
+   "202": {
+    "title": "Show HN: tiny engine",
+    "url": "https://news.ycombinator.com/item?id=202"
+   }
+  }
+ },
+ "names": {
+  "Anthropic ships Opus 5 and Haiku 4.5": [
+   "anthropic:claude-haiku-4-5",
+   "anthropic:claude-opus-5"
+  ],
+  "Claude Opus 4.5 and claude-sonnet-4-1": [
+   "anthropic:claude-opus-4-5",
+   "anthropic:claude-sonnet-4-1"
+  ],
+  "GPT-4.1 GPT 4.1o": [
+   "openai:gpt-4.1",
+   "openai:gpt-4.1o"
+  ],
+  "Gemini 3 Pro, Grok 4, DeepSeek R2, deepseek-v3.1 flash": [
+   "deepseek:deepseek-r2",
+   "deepseek:deepseek-v3.1-flash",
+   "google:gemini-3-pro",
+   "xai:grok-4"
+  ],
+  "Introducing GPT-6.1 Codex": [
+   "openai:gpt-6.1-codex"
+  ],
+  "gpt 5o and GPT-Sol 7": [
+   "openai:gpt-5o",
+   "openai:gpt-7-sol"
+  ],
+  "nothing here": []
+ },
+ "normalize": {
+  "atom": {
+   "https://example.com/opus-5|anthropic:claude-opus-5": {
+    "at": "2026-10-18T07:30:00Z",
+    "basis": "official preview/expectation wording; not confirmed availability",
+    "kind": "expected",
+    "model": "anthropic:claude-opus-5",
+    "p": null,
+    "title": "Claude Opus 5 expected next week",
+    "url": "https://example.com/opus-5"
+   },
+   "https://github.com/openai/codex/releases/tag/1|openai:gpt-6.1-codex": {
+    "at": "2026-10-19T10:00:00Z",
+    "basis": "explicit official availability/support wording",
+    "kind": "released",
+    "model": "openai:gpt-6.1-codex",
+    "p": null,
+    "title": "Added support for GPT-6.1 Codex",
+    "url": "https://github.com/openai/codex/releases/tag/1"
+   }
+  },
+  "changelog": {
+   "https://example.com/changelog#2.0.9|openai:gpt-5-codex": {
+    "at": null,
+    "basis": "explicit official availability/support wording",
+    "kind": "released",
+    "model": "openai:gpt-5-codex",
+    "p": null,
+    "title": "- Introducing GPT-5 Codex integration",
+    "url": "https://example.com/changelog#2.0.9"
+   },
+   "https://example.com/changelog#2.1.0|anthropic:claude-opus-4-5": {
+    "at": null,
+    "basis": "explicit official availability/support wording",
+    "kind": "released",
+    "model": "anthropic:claude-opus-4-5",
+    "p": null,
+    "title": "- Added support for Claude Opus 4.5 in the picker",
+    "url": "https://example.com/changelog#2.1.0"
+   },
+   "https://example.com/changelog#2.1.0|google:gemini-3-pro": {
+    "at": null,
+    "basis": "official preview/expectation wording; not confirmed availability",
+    "kind": "expected",
+    "model": "google:gemini-3-pro",
+    "p": null,
+    "title": "- Gemini 3 Pro preview is expected in the fast path",
+    "url": "https://example.com/changelog#2.1.0"
+   }
+  },
+  "claude-models": {
+   "claude-fable-2|anthropic:claude-fable-2": {
+    "at": null,
+    "basis": "public model overview availability; first-seen is not a release date",
+    "kind": "released",
+    "model": "anthropic:claude-fable-2",
+    "p": null,
+    "title": "claude-fable-2",
+    "url": "https://example.com/claude-models"
+   },
+   "claude-haiku-3-5|anthropic:claude-haiku-3-5": {
+    "at": null,
+    "basis": "public model overview availability; first-seen is not a release date",
+    "kind": "released",
+    "model": "anthropic:claude-haiku-3-5",
+    "p": null,
+    "title": "claude-haiku-3-5",
+    "url": "https://example.com/claude-models"
+   },
+   "claude-opus-4-1|anthropic:claude-opus-4-1": {
+    "at": null,
+    "basis": "public model overview availability; first-seen is not a release date",
+    "kind": "released",
+    "model": "anthropic:claude-opus-4-1",
+    "p": null,
+    "title": "claude-opus-4-1",
+    "url": "https://example.com/claude-models"
+   },
+   "claude-sonnet-4-5|anthropic:claude-sonnet-4-5": {
+    "at": null,
+    "basis": "public model overview availability; first-seen is not a release date",
+    "kind": "released",
+    "model": "anthropic:claude-sonnet-4-5",
+    "p": null,
+    "title": "claude-sonnet-4-5",
+    "url": "https://example.com/claude-models"
+   }
+  },
+  "codex": {
+   "gpt-6.1-codex|openai:gpt-6.1-codex": {
+    "at": null,
+    "basis": "CLI cache availability; first-seen is not a release date",
+    "kind": "released",
+    "model": "openai:gpt-6.1-codex",
+    "p": null,
+    "title": "gpt-6.1-codex",
+    "url": "https://example.com/codex"
+   },
+   "gpt-6.1|openai:gpt-6.1": {
+    "at": null,
+    "basis": "CLI cache availability; first-seen is not a release date",
+    "kind": "released",
+    "model": "openai:gpt-6.1",
+    "p": null,
+    "title": "gpt-6.1",
+    "url": "https://example.com/codex"
+   }
+  },
+  "kalshi": {
+   "KXGPT-27|openai:gpt-7": {
+    "at": "2027-12-31T00:00:00Z",
+    "basis": "Yes bid/ask midpoint (market inference); market close time, not an announced release date",
+    "kind": "market",
+    "model": "openai:gpt-7",
+    "p": 0.43,
+    "title": "GPT-7 release in 2027",
+    "url": "https://example.com/kalshi"
+   }
+  },
+  "manifold": {
+   "m1|openai:gpt-7": {
+    "at": "2026-12-31T00:00:00Z",
+    "basis": "Manifold probability; market close time, not an announced release date",
+    "kind": "market",
+    "model": "openai:gpt-7",
+    "p": 0.42,
+    "title": "Will GPT-7 be released before 2027?",
+    "url": "https://manifold.markets/a/gpt-7"
+   }
+  },
+  "news": {
+   "https://www.anthropic.com/claude-sonnet-5-1|anthropic:claude-sonnet-5-1": {
+    "at": null,
+    "basis": "explicit official availability/support wording",
+    "kind": "released",
+    "model": "anthropic:claude-sonnet-5-1",
+    "p": null,
+    "title": "Meet Claude Sonnet 5.1",
+    "url": "https://www.anthropic.com/claude-sonnet-5-1"
+   },
+   "https://www.anthropic.com/news/claude-opus-5|anthropic:claude-opus-5": {
+    "at": "2026-10-12T00:00:00Z",
+    "basis": "explicit official availability/support wording",
+    "kind": "released",
+    "model": "anthropic:claude-opus-5",
+    "p": null,
+    "title": "Introducing Claude Opus 5 Oct 12, 2026",
+    "url": "https://www.anthropic.com/news/claude-opus-5"
+   },
+   "https://www.anthropic.com/news/gpt-compare|anthropic:claude-sonnet-5-2": {
+    "at": null,
+    "basis": "official preview/expectation wording; not confirmed availability",
+    "kind": "expected",
+    "model": "anthropic:claude-sonnet-5-2",
+    "p": null,
+    "title": "Anthropic preview of Sonnet 5.2 soon",
+    "url": "https://www.anthropic.com/news/gpt-compare"
+   }
+  },
+  "polymarket": {
+   "p1|openai:gpt-6": {
+    "at": "2026-06-30T00:00:00Z",
+    "basis": "Yes outcome price (market inference); market end time, not an announced release date",
+    "kind": "market",
+    "model": "openai:gpt-6",
+    "p": 0.31,
+    "title": "GPT-6 released by June?",
+    "url": "https://polymarket.com/market/gpt-6-june"
+   },
+   "p2|openai:gpt-6": {
+    "at": "2026-05-31T00:00:00Z",
+    "basis": "Yes outcome price (market inference); market end time, not an announced release date",
+    "kind": "market",
+    "model": "openai:gpt-6",
+    "p": 0.2,
+    "title": "GPT-6 released by May?",
+    "url": "https://polymarket.com/market/gpt-6-may"
+   }
+  },
+  "rss": {
+   "https://example.com/gemini-3|google:gemini-3-pro": {
+    "at": "2026-10-21T15:00:00Z",
+    "basis": "official preview/expectation wording; not confirmed availability",
+    "kind": "expected",
+    "model": "google:gemini-3-pro",
+    "p": null,
+    "title": "Gemini 3 Pro preview coming soon",
+    "url": "https://example.com/gemini-3"
+   },
+   "https://example.com/gpt-6-1|openai:gpt-6.1": {
+    "at": "2026-10-20T15:30:00Z",
+    "basis": "explicit official availability/support wording",
+    "kind": "released",
+    "model": "openai:gpt-6.1",
+    "p": null,
+    "title": "Introducing GPT-6.1",
+    "url": "https://example.com/gpt-6-1"
+   }
+  }
+ }
+}

@@ -1,0 +1,290 @@
+{
+ "GET graphql:search": {
+  "data": {
+   "search": {
+    "nodes": []
+   }
+  }
+ },
+ "GET notifications": [
+  {
+   "id": "n-ci",
+   "last_read_at": null,
+   "subject": {
+    "type": "CheckSuite",
+    "url": null
+   }
+  },
+  {
+   "id": "n-ours",
+   "last_read_at": null,
+   "subject": {
+    "type": "Issue",
+    "url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/550"
+   }
+  },
+  {
+   "id": "n-real",
+   "last_read_at": "2026-10-14T08:00:00Z",
+   "subject": {
+    "type": "Issue",
+    "url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/450"
+   }
+  }
+ ],
+ "GET repos/tompassarelli/smashcraft/issues/422": {
+  "body": "tags",
+  "created_at": "2026-10-01T00:00:00Z",
+  "title": "Kind tags",
+  "user": {
+   "login": "tompassarelli",
+   "type": "User"
+  }
+ },
+ "GET repos/tompassarelli/smashcraft/issues/422/comments": [
+  {
+   "author_association": "NONE",
+   "body": "Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1",
+   "id": 1,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_1",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "AILIFE1",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "NONE",
+   "body": "Same crash here with the build from stormlib.org, happy to send a log.",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3",
+   "id": 3,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_3",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "carol",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "OWNER",
+   "body": "agent update at example.com",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-4",
+   "id": 4,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_4",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "tompassarelli",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "CONTRIBUTOR",
+   "body": "Autoland result",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-5",
+   "id": 5,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_5",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "github-actions[bot]",
+    "type": "Bot"
+   }
+  }
+ ],
+ "GET repos/tompassarelli/smashcraft/issues/450": {
+  "created_at": "2026-10-09T00:00:00Z",
+  "user": {
+   "login": "tompassarelli",
+   "type": "User"
+  }
+ },
+ "GET repos/tompassarelli/smashcraft/issues/450/comments": [
+  {
+   "author_association": "NONE",
+   "body": "OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2",
+   "id": 2,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/450",
+   "node_id": "IC_2",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "515",
+    "type": "User"
+   }
+  }
+ ],
+ "GET repos/tompassarelli/smashcraft/issues/550": {
+  "created_at": "2026-10-14T07:00:00Z",
+  "user": {
+   "login": "tompassarelli",
+   "type": "User"
+  }
+ },
+ "GET repos/tompassarelli/smashcraft/issues/550/comments": [
+  {
+   "author_association": "OWNER",
+   "body": "agent update at example.com",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-4",
+   "id": 4,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_4",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "tompassarelli",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "CONTRIBUTOR",
+   "body": "Autoland result",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-5",
+   "id": 5,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_5",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "github-actions[bot]",
+    "type": "Bot"
+   }
+  }
+ ],
+ "GET repos/tompassarelli/smashcraft/issues/comments": [
+  {
+   "author_association": "NONE",
+   "body": "Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1",
+   "id": 1,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_1",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "AILIFE1",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "NONE",
+   "body": "OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2",
+   "id": 2,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/450",
+   "node_id": "IC_2",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "515",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "NONE",
+   "body": "Same crash here with the build from stormlib.org, happy to send a log.",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3",
+   "id": 3,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_3",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "carol",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "OWNER",
+   "body": "agent update at example.com",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-4",
+   "id": 4,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_4",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "tompassarelli",
+    "type": "User"
+   }
+  },
+  {
+   "author_association": "CONTRIBUTOR",
+   "body": "Autoland result",
+   "created_at": "2026-10-14T09:22:00Z",
+   "html_url": "https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-5",
+   "id": 5,
+   "issue_url": "https://api.github.com/repos/tompassarelli/smashcraft/issues/422",
+   "node_id": "IC_5",
+   "updated_at": "2026-10-14T09:22:00Z",
+   "user": {
+    "login": "github-actions[bot]",
+    "type": "Bot"
+   }
+  }
+ ],
+ "GET search/issues": {
+  "items": [
+   {
+    "author_association": "OWNER",
+    "body": "tags",
+    "created_at": "2026-10-01T00:00:00Z",
+    "html_url": "x",
+    "node_id": "I_422",
+    "number": 422,
+    "repository_url": "https://api.github.com/repos/tompassarelli/smashcraft",
+    "title": "Kind tags",
+    "user": {
+     "login": "tompassarelli",
+     "type": "User"
+    }
+   },
+   {
+    "author_association": "FIRST_TIME_CONTRIBUTOR",
+    "body": "Packaged at newbie-tools.io",
+    "created_at": "2026-10-14T09:21:00Z",
+    "html_url": "https://github.com/tompassarelli/smashcraft/pull/600",
+    "node_id": "PR_600",
+    "number": 600,
+    "pull_request": {},
+    "repository_url": "https://api.github.com/repos/tompassarelli/smashcraft",
+    "title": "Add launcher",
+    "user": {
+     "login": "newbie",
+     "type": "User"
+    }
+   }
+  ]
+ },
+ "GET users/AILIFE1": {
+  "bio": "Creator of Cathedral",
+  "blog": "https://cathedral-ai.com",
+  "created_at": "2026-01-03T15:22:35Z"
+ },
+ "GET users/carol": {
+  "bio": null,
+  "blog": "https://carol.dev",
+  "created_at": "2015-04-01T00:00:00Z"
+ },
+ "GET users/newbie": {
+  "blog": "newbie-tools.io",
+  "created_at": "2026-10-13T00:00:00Z"
+ },
+ "POST graphql:minimize": {
+  "data": {
+   "minimizeComment": {
+    "minimizedComment": {
+     "isMinimized": true
+    }
+   }
+  }
+ }
+}

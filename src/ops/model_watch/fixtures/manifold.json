@@ -1,0 +1,4 @@
+[{"id":"m1","question":"Will GPT-7 be released before 2027?","probability":0.42,"closeTime":1798675200000,"url":"https://manifold.markets/a/gpt-7"},
+{"id":"m2","question":"Will Claude Opus 5 launch by March?","probability":1.5,"closeTime":1798675200000},
+{"id":"m3","question":"Will Gemini 4 be released?","probability":0.3,"isResolved":true},
+{"id":"m4","question":"Will it rain?","probability":0.3}]

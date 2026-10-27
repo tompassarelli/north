@@ -1,0 +1,685 @@
+[
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "valid reading without a label",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "account_label": "work",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "valid reading with a label",
+  "orchestration": "[accounts.claude.labels]\n\"986c0dc9\" = \"work\"\n",
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "orchestration without labels",
+  "orchestration": "[accounts.codex.labels]\n\"x\" = \"y\"\n",
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00.123Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00.123000Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "millisecond read time keeps microseconds",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T11:30:00+02:00\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "offset read time is converted to UTC",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "read time without a zone is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": null, \"expires\": null}, \"five_hour\": {\"count\": 3, \"expires\": \"2026-12-01\"}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 3,
+        "expires": "2026-12-01"
+       },
+       "full": {
+        "count": null,
+        "expires": null
+       }
+      },
+      "resets_available": null,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "null count makes resets_available null",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": -1}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "negative count is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": true}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "boolean count is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 1.0}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "float count is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "missing count key is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 1, \"expires\": \"tomorrow\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "invalid expiry date is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 1, \"expires\": \"20261101\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 1,
+        "expires": "20261101"
+       }
+      },
+      "resets_available": 2,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "compact expiry date is accepted",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 1, \"expires\": \"\"}, \"five_hour\": {\"count\": 0}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 0,
+        "expires": null
+       },
+       "full": {
+        "count": 1,
+        "expires": ""
+       }
+      },
+      "resets_available": 1,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "empty expiry is stored as given",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"not-a-uuid\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "invalid account uuid is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"{123e4567-e89b-12d3-a456-426614174000}\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "e328b651": {
+      "account": "e328b651",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "braced uuid is accepted and hashed as given",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": {\"a\": 1}, \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "windows must be a list",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": 7}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "resets_text must be a string",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "missing resets is refused",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": {
+   "accounts": {
+    "zzzzzzzz": {
+     "account": "zzzzzzzz"
+    }
+   }
+  },
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"error\": \"NEEDS-SIGNIN: claude.ai\"}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "zzzzzzzz": {
+      "account": "zzzzzzzz"
+     }
+    }
+   },
+   "rc": 1,
+   "stderr": "usage-web-read: NEEDS-SIGNIN: claude.ai; previous cache kept",
+   "stdout": ""
+  },
+  "name": "sign-in needed keeps the cache and says so",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"error\": \"boom\"}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "other error reply is a failed read",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 3,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "chrome exit code is a failed read",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "not json",
+  "expected": {
+   "cache_after": null,
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "chrome output that is not json is a failed read",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": {
+   "accounts": {
+    "zzzzzzzz": {
+     "account": "zzzzzzzz",
+     "read_at": "2026-10-01T00:00:00Z"
+    }
+   },
+   "extra": 1
+  },
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     },
+     "zzzzzzzz": {
+      "account": "zzzzzzzz",
+      "read_at": "2026-10-01T00:00:00Z"
+     }
+    },
+    "extra": 1
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "a reading of another account is merged beside the existing one",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": {
+   "accounts": {
+    "986c0dc9": {
+     "account": "986c0dc9",
+     "resets_available": 99
+    }
+   }
+  },
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": {
+    "accounts": {
+     "986c0dc9": {
+      "account": "986c0dc9",
+      "read_at": "2026-10-14T09:30:00Z",
+      "resets": {
+       "five_hour": {
+        "count": 1,
+        "expires": null
+       },
+       "full": {
+        "count": 2,
+        "expires": "2026-11-01"
+       }
+      },
+      "resets_available": 3,
+      "resets_text": "2 resets",
+      "source": "claude.ai settings/usage via Chrome",
+      "windows": [
+       {
+        "name": "weekly",
+        "used": 0.4
+       }
+      ]
+     }
+    }
+   },
+   "rc": 0,
+   "stderr": "",
+   "stdout": "usage-web-read: Claude reset availability cached\n"
+  },
+  "name": "a reading of the same account replaces its entry",
+  "orchestration": null,
+  "raw_cache_before": null
+ },
+ {
+  "cache_before": null,
+  "chrome_rc": 0,
+  "chrome_stdout": "{\"result\": {\"account_uuid\": \"123e4567-e89b-12d3-a456-426614174000\", \"read_at\": \"2026-10-14T09:30:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2026-11-01\"}, \"five_hour\": {\"count\": 1}}, \"windows\": [{\"name\": \"weekly\", \"used\": 0.4}], \"resets_text\": \"2 resets\"}}",
+  "expected": {
+   "cache_after": "<unparseable>",
+   "rc": 1,
+   "stderr": "usage-web-read: Chrome read failed or returned invalid data; previous cache kept",
+   "stdout": ""
+  },
+  "name": "an unreadable existing cache is a failed read and stays untouched",
+  "orchestration": null,
+  "raw_cache_before": "{broken"
+ }
+]

@@ -30,6 +30,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
             )
         }),
         Verb::Command("flow") => flow::run(rest),
+        Verb::Command("news") => crate::ops::model_watch::run(&[vec!["news".to_owned()], rest.to_vec()].concat()),
         Verb::Command(_) => report::run(rest),
         Verb::Script("usage.py") => usage(rest),
         Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),

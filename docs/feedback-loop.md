@@ -44,8 +44,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs io, diskBusyShare | src/capacity/host/run.rs record | src/capacity/host/estimate.rs estimate output | read | |
 | capacity_runs.exitCode | src/capacity/host/run.rs usage_entry | src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | capacity_runs.command, cpuSeconds | src/capacity/host/run.rs usage_entry | none | held for north#17 | |
-| job_runs | bin/threads:1748 | bin/threads:1753 job-runs; bin/job-watch | read | |
-| model_events | bin/model-watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
+| job_runs | bin/threads:1748 | bin/threads:1753 job-runs; src/ops/job_watch/mod.rs | read | |
+| model_events | src/ops/model_watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | src/capacity/host/database.rs record_usage | src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | src/usage/gate.rs | harness/hooks/lib/spawn_capacity.py:280 | read | |
 | spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | src/ops/report/mod.rs jsonl | read | 871718bb |

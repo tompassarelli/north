@@ -32,7 +32,7 @@ impl Verb {
             "usage" => Self::Script("usage.py"),
             "presence" => Self::Script("presence.py"),
             "flow" => Self::Command("flow"),
-            "news" => Self::Script("news.py"),
+            "news" => Self::Command("news"),
             "routines" => Self::Script("routines.py"),
             "report" => Self::Command("report"),
             _ => return None,

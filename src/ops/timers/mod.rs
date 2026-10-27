@@ -19,9 +19,13 @@ pub(crate) enum Timer {
     CodexRuntimeGcroots,
     CrossProjectScan,
     GitMaintenanceNightly,
+    JobWatch,
+    ModelWatch,
+    OutsideWatch,
     SkillPrune,
     SkillReviewQueue,
     SupplyChainScan,
+    UsageWebRead,
 }
 
 impl Timer {
@@ -31,9 +35,13 @@ impl Timer {
             "codex-runtime-gcroots" => Self::CodexRuntimeGcroots,
             "cross-project-scan" => Self::CrossProjectScan,
             "git-maintenance-nightly" => Self::GitMaintenanceNightly,
+            "job-watch" => Self::JobWatch,
+            "model-watch" => Self::ModelWatch,
+            "outside-watch" => Self::OutsideWatch,
             "skill-prune" => Self::SkillPrune,
             "skill-review-queue" => Self::SkillReviewQueue,
             "supply-chain-scan" => Self::SupplyChainScan,
+            "usage-web-read" => Self::UsageWebRead,
             _ => return None,
         })
     }
@@ -44,9 +52,13 @@ impl Timer {
             Self::CodexRuntimeGcroots => gcroots::run(arguments),
             Self::CrossProjectScan => cross_project::run(arguments),
             Self::GitMaintenanceNightly => git_maintenance::run(arguments),
+            Self::JobWatch => crate::ops::job_watch::run(arguments),
+            Self::ModelWatch => crate::ops::model_watch::run(arguments),
+            Self::OutsideWatch => crate::ops::outside_watch::run(arguments),
             Self::SkillPrune => skill_prune::run(arguments),
             Self::SkillReviewQueue => skill_review::run(arguments),
             Self::SupplyChainScan => supply_chain::run(arguments),
+            Self::UsageWebRead => crate::ops::usage_web_read::run(arguments),
         }
     }
 

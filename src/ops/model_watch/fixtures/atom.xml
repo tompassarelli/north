@@ -1,0 +1,5 @@
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Releases</title>
+<entry><id>t1</id><title>Added support for GPT-6.1 Codex</title><link href="https://github.com/openai/codex/releases/tag/1"/><published>2026-10-19T10:00:00Z</published></entry>
+<entry><id>t2</id><title>Claude Opus 5 expected next week</title><link href="https://example.com/opus-5"/><published>2026-10-18T09:30:00+02:00</published></entry>
+<entry><id>t3</id><title>Fix typo</title><link href="https://example.com/typo"/><published>2026-10-17T00:00:00Z</published></entry>
+</feed>

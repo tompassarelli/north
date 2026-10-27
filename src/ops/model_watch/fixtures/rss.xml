@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>News</title>
+<item><title>Introducing GPT-6.1</title><link>https://example.com/gpt-6-1</link><pubDate>Tue, 20 Oct 2026 15:30:00 GMT</pubDate></item>
+<item><title>Gemini 3 Pro preview coming soon</title><link>https://example.com/gemini-3</link><pubDate>Wed, 21 Oct 2026 08:00:00 -0700</pubDate></item>
+<item><title>Quarterly &lt;results&gt; for the team</title><link>https://example.com/results</link></item>
+<item><title>Meet the new Grok 5</title><link>https://example.com/grok-5</link></item>
+</channel></rss>

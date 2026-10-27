@@ -1,0 +1,5 @@
+<rss version="2.0" xmlns:gdacs="http://www.gdacs.org" xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#"><channel>
+<item><title>Orange flood alert</title><link>https://www.gdacs.org/report.aspx?eventid=1</link><gdacs:alertlevel>Orange</gdacs:alertlevel><gdacs:iscurrent>true</gdacs:iscurrent><gdacs:eventtype>FL</gdacs:eventtype><gdacs:eventid>1001</gdacs:eventid><geo:Point><geo:lat>37.9</geo:lat><geo:long>-122.3</geo:long></geo:Point></item>
+<item><title>Green quake</title><link>https://www.gdacs.org/report.aspx?eventid=2</link><gdacs:alertlevel>Green</gdacs:alertlevel><gdacs:iscurrent>true</gdacs:iscurrent><gdacs:eventtype>EQ</gdacs:eventtype><gdacs:eventid>1002</gdacs:eventid><geo:Point><geo:lat>37.9</geo:lat><geo:long>-122.3</geo:long></geo:Point></item>
+<item><title>Old red cyclone</title><link>https://www.gdacs.org/report.aspx?eventid=3</link><gdacs:alertlevel>Red</gdacs:alertlevel><gdacs:iscurrent>false</gdacs:iscurrent><gdacs:eventtype>TC</gdacs:eventtype><gdacs:eventid>1003</gdacs:eventid><geo:Point><geo:lat>37.9</geo:lat><geo:long>-122.3</geo:long></geo:Point></item>
+</channel></rss>

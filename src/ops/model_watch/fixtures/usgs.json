@@ -1,0 +1,3 @@
+{"features":[{"id":"us1","properties":{"mag":5.2,"title":"M 5.2 - 10 km NW of Town","url":"https://earthquake.usgs.gov/e/us1"},"geometry":{"coordinates":[-122.1,37.5,8.0]}},
+{"id":"us2","properties":{"mag":4.0,"title":"M 4.0 - near","url":"https://earthquake.usgs.gov/e/us2"},"geometry":{"coordinates":[-122.1,37.5,8.0]}},
+{"id":"us3","properties":{"mag":6.0,"title":"M 6.0 - far away","url":"https://earthquake.usgs.gov/e/us3"},"geometry":{"coordinates":[10.0,-40.0,8.0]}}]}

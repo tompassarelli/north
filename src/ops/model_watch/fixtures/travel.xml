@@ -1,0 +1,5 @@
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>
+<item><title>Mexico - Level 2: Exercise Increased Caution</title><link>https://travel.state.gov/mexico</link><guid>adv-mx</guid><category domain="Country-Tag">MX</category><category domain="Threat-Level">Level 2: Exercise Increased Caution</category></item>
+<item><title>Freedonia - Level 3: Reconsider Travel</title><link>https://travel.state.gov/freedonia</link><dc:identifier>adv-fr</dc:identifier><category domain="Country-Tag">FR</category></item>
+<item><title>Freedonia Travel Advisory</title><link>https://travel.state.gov/other</link><guid>adv-other</guid><category domain="Country-Tag">Freedonia</category><category domain="Threat-Level">Level 4: Do Not Travel</category></item>
+</channel></rss>

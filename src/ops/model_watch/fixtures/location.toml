@@ -1,0 +1,6 @@
+place = "Testville"
+lat = 37.5
+lon = -122.0
+radius_km = 100
+weather_feed = "https://alerts.example.gov/feed.atom"
+advisory_country = "Freedonia"

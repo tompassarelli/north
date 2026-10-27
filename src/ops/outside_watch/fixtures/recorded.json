@@ -1,0 +1,320 @@
+[
+ {
+  "args": [
+   "status"
+  ],
+  "calls": [],
+  "inbox": "earlier line\n",
+  "label": "status-empty",
+  "log": null,
+  "rc": 0,
+  "state": null,
+  "stderr": "",
+  "stdout": "last run: never\n"
+ },
+ {
+  "args": [
+   "run",
+   "--dry-run",
+   "--days",
+   "7"
+  ],
+  "calls": [
+   [
+    "--paginate",
+    "--slurp",
+    "search/issues?q=user%3Atompassarelli%20updated%3A%3E%3D2026-10-07T09%3A30%3A00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/issues/comments?since=2026-10-07T09:30:00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/pulls/comments?since=2026-10-07T09:30:00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/pulls/600/reviews?per_page=100"
+   ],
+   [
+    "graphql",
+    "-f",
+    "query=query($q: String!) { search(type: DISCUSSION, query: $q, first: 50) { nodes { ... on Discussion {\n  id number url title body createdAt authorAssociation author { login __typename } repository { name }\n  comments(last: 50) { nodes { id url body createdAt authorAssociation author { login __typename }\n    replies(last: 50) { nodes { id url body createdAt authorAssociation author { login __typename } } } } } } } } }",
+    "-f",
+    "q=user:tompassarelli updated:>=2026-10-07T09:30:00Z"
+   ],
+   [
+    "users/AILIFE1"
+   ],
+   [
+    "repos/tompassarelli/smashcraft/issues/422"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+   ],
+   [
+    "users/carol"
+   ],
+   [
+    "repos/tompassarelli/smashcraft/issues/422"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "notifications?per_page=50"
+   ],
+   [
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550/comments?per_page=100"
+   ],
+   [
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
+   ]
+  ],
+  "inbox": "earlier line\n",
+  "label": "dry",
+  "log": null,
+  "rc": 0,
+  "state": null,
+  "stderr": "",
+  "stdout": "EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nSPAM smashcraft#422 AILIFE1: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nEXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nEXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\nsince=2026-10-07T09:30:00Z spam=1 external=3 would mark-read=2\n"
+ },
+ {
+  "args": [
+   "run"
+  ],
+  "calls": [
+   [
+    "--paginate",
+    "--slurp",
+    "search/issues?q=user%3Atompassarelli%20updated%3A%3E%3D2026-10-14T09%3A15%3A00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/issues/comments?since=2026-10-14T09:15:00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/pulls/comments?since=2026-10-14T09:15:00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/pulls/600/reviews?per_page=100"
+   ],
+   [
+    "graphql",
+    "-f",
+    "query=query($q: String!) { search(type: DISCUSSION, query: $q, first: 50) { nodes { ... on Discussion {\n  id number url title body createdAt authorAssociation author { login __typename } repository { name }\n  comments(last: 50) { nodes { id url body createdAt authorAssociation author { login __typename }\n    replies(last: 50) { nodes { id url body createdAt authorAssociation author { login __typename } } } } } } } } }",
+    "-f",
+    "q=user:tompassarelli updated:>=2026-10-14T09:15:00Z"
+   ],
+   [
+    "users/AILIFE1"
+   ],
+   [
+    "repos/tompassarelli/smashcraft/issues/422"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+   ],
+   [
+    "graphql",
+    "-f",
+    "query=mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: SPAM}) { minimizedComment { isMinimized } } }",
+    "-f",
+    "id=IC_1"
+   ],
+   [
+    "user/blocks/AILIFE1"
+   ],
+   [
+    "-X",
+    "PUT",
+    "user/blocks/AILIFE1"
+   ],
+   [
+    "users/carol"
+   ],
+   [
+    "repos/tompassarelli/smashcraft/issues/422"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "notifications?per_page=50"
+   ],
+   [
+    "-X",
+    "PATCH",
+    "notifications/threads/n-ci"
+   ],
+   [
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550/comments?per_page=100"
+   ],
+   [
+    "-X",
+    "PATCH",
+    "notifications/threads/n-ours"
+   ],
+   [
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
+   ]
+  ],
+  "inbox": "earlier line\nOPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nOPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nOPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nOPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n",
+  "label": "live",
+  "log": "2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\n2026-10-14T09:30:00Z OPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n",
+  "rc": 0,
+  "state": {
+   "last_run": "2026-10-14T09:30:00Z",
+   "seen": {
+    "IC_1": "2026-10-14T09:22:00Z",
+    "IC_2": "2026-10-14T09:22:00Z",
+    "IC_3": "2026-10-14T09:22:00Z",
+    "PR_600": "2026-10-14T09:21:00Z"
+   }
+  },
+  "stderr": "",
+  "stdout": "since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n"
+ },
+ {
+  "args": [
+   "run"
+  ],
+  "calls": [
+   [
+    "--paginate",
+    "--slurp",
+    "search/issues?q=user%3Atompassarelli%20updated%3A%3E%3D2026-10-14T09%3A15%3A00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/issues/comments?since=2026-10-14T09:15:00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/pulls/comments?since=2026-10-14T09:15:00Z&per_page=100"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "repos/tompassarelli/smashcraft/pulls/600/reviews?per_page=100"
+   ],
+   [
+    "graphql",
+    "-f",
+    "query=query($q: String!) { search(type: DISCUSSION, query: $q, first: 50) { nodes { ... on Discussion {\n  id number url title body createdAt authorAssociation author { login __typename } repository { name }\n  comments(last: 50) { nodes { id url body createdAt authorAssociation author { login __typename }\n    replies(last: 50) { nodes { id url body createdAt authorAssociation author { login __typename } } } } } } } } }",
+    "-f",
+    "q=user:tompassarelli updated:>=2026-10-14T09:15:00Z"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "notifications?per_page=50"
+   ],
+   [
+    "-X",
+    "PATCH",
+    "notifications/threads/n-ci"
+   ],
+   [
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550/comments?per_page=100"
+   ],
+   [
+    "-X",
+    "PATCH",
+    "notifications/threads/n-ours"
+   ],
+   [
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450"
+   ],
+   [
+    "--paginate",
+    "--slurp",
+    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
+   ]
+  ],
+  "inbox": "earlier line\nOPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nOPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nOPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nOPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n",
+  "label": "again",
+  "log": "2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\n2026-10-14T09:30:00Z OPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n",
+  "rc": 0,
+  "state": {
+   "last_run": "2026-10-14T09:30:00Z",
+   "seen": {
+    "IC_1": "2026-10-14T09:22:00Z",
+    "IC_2": "2026-10-14T09:22:00Z",
+    "IC_3": "2026-10-14T09:22:00Z",
+    "PR_600": "2026-10-14T09:21:00Z"
+   }
+  },
+  "stderr": "",
+  "stdout": "since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n"
+ },
+ {
+  "args": [
+   "status"
+  ],
+  "calls": [],
+  "inbox": "earlier line\nOPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nOPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nOPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nOPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n",
+  "label": "status",
+  "log": "2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\n2026-10-14T09:30:00Z OPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n",
+  "rc": 0,
+  "state": {
+   "last_run": "2026-10-14T09:30:00Z",
+   "seen": {
+    "IC_1": "2026-10-14T09:22:00Z",
+    "IC_2": "2026-10-14T09:22:00Z",
+    "IC_3": "2026-10-14T09:22:00Z",
+    "PR_600": "2026-10-14T09:21:00Z"
+   }
+  },
+  "stderr": "",
+  "stdout": "last run: 2026-10-14T09:30:00Z\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n"
+ }
+]

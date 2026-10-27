@@ -25,7 +25,6 @@ goal_eta -> flow
 goal_eta -> ledger_context
 ledger_context -> defaults
 ledger_context -> usage
-news -> watch_digest
 plan_usage -> calibration
 plan_usage -> defaults
 plan_usage -> run_outcome
@@ -60,7 +59,7 @@ usage_claude -> usage
 `policy_stats` is `harness/scripts/policy_stats.py`. Modules not named on the left import no other
 `harness/lib` module: `billing_digitalocean`, `defaults`, `durable_events`, `laptop_line`,
 `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
-`thread_holders`, `usage_agy`, `usage_codex`, `watch_digest`.
+`thread_holders`, `usage_agy`, `usage_codex`.
 
 ## The cycle
 
@@ -81,8 +80,8 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 
 1. `billing_digitalocean`, `claude_profiles`, `defaults`, `durable_events`, `laptop_line`, `policy_stats`,
    `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
-   `thread_holders`, `usage_agy`, `usage_codex`, `watch_digest`
-2. `calibration`, `ledger_context`, `news`, `presence`, `routing`, `usage_claude`
+   `thread_holders`, `usage_agy`, `usage_codex`
+2. `calibration`, `ledger_context`, `presence`, `routing`, `usage_claude`
 3. `flow`, `plan_usage`, `recalibrate`, `report`
 4. `goal_eta`, `usage`
 5. `project_plan`
@@ -91,10 +90,10 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 ## Python callers outside `harness/lib`
 
 These import the cycle's modules directly and change in the same commit as the module they import:
-`bin/agents`, `bin/threads`, `bin/model-watch`, `bin/usage-web-read`, `bin/worker-ledger`,
+`bin/agents`, `bin/threads`, `bin/worker-ledger`,
 `harness/hooks/lib/codex_behavior.py`, `harness/hooks/lib/spawn_capacity.py`,
 `harness/scripts/codex-route-propose.py`, `harness/scripts/harness-tuner.py`,
-`harness/scripts/policy-replay.py` and `harness/scripts/watch-digest-scenario.py`.
+and `harness/scripts/policy-replay.py`.
 
 ## First port slice
 

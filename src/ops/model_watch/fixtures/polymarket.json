@@ -1,0 +1,4 @@
+{"events":[{"title":"GPT-6 released?","markets":[
+{"id":"p1","question":"GPT-6 released by June?","outcomes":"[\"Yes\", \"No\"]","outcomePrices":"[\"0.31\", \"0.69\"]","endDate":"2026-06-30T00:00:00Z","slug":"gpt-6-june"},
+{"id":"p2","question":"GPT-6 released by May?","outcomes":"[\"No\", \"Yes\"]","outcomePrices":"[\"0.8\", \"0.2\"]","endDate":"2026-05-31T00:00:00Z","slug":"gpt-6-may"},
+{"id":"p3","question":"GPT-6 released?","outcomes":"[\"Yes\"]","outcomePrices":"[]","slug":"bad"}]}]}
