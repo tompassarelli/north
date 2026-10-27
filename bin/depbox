@@ -52,12 +52,32 @@ for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .l
   if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); fi
 done
 
+target=$top/target
+want=
+case "${CARGO_TARGET_DIR:-}" in
+  "$top" | "$top"/* | "$common"/*) ;;
+  /*) want=$CARGO_TARGET_DIR ;;
+esac
+if [ -n "$want" ]; then
+  shared=$(realpath -m "$want")
+  case "$shared" in
+    "$home/.cache/cargo-target" | "$home/.cache/cargo-target/"*) mkdir -p "$shared" || shared= ;;
+    *) shared= ;;
+  esac
+  if [ -n "$shared" ]; then
+    target=$shared
+    args+=(--bind "$shared" "$shared")
+  else
+    printf 'depbox: CARGO_TARGET_DIR %s is not under %s/.cache/cargo-target; building in %s\n' "$want" "$home" "$target" >&2
+  fi
+fi
+
 args+=(--bind "$top" "$top" --ro-bind "$common" "$common")
 args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
 for var in PATH HOME USER LANG TERM NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
 done
-args+=(--setenv CARGO_TARGET_DIR "$top/target")
+args+=(--setenv CARGO_TARGET_DIR "$target")
 args+=(--chdir "$PWD")
 
 exec "$bwrap" "${args[@]}" -- "$@"
