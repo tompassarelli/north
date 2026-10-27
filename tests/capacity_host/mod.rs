@@ -72,6 +72,7 @@ impl Host {
         fs::write(scratch.path().join("agent-capacity-v1/mode"), "away\n").unwrap();
         fs::write(scratch.path().join("pressure"), "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
         fs::write(scratch.path().join("gpu"), "0\n").unwrap();
+        fs::write(scratch.path().join("meminfo"), "MemTotal:       98655232 kB\nMemAvailable:   81920000 kB\n").unwrap();
         fs::write(scratch.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
         Self { scratch }
     }
@@ -115,6 +116,7 @@ impl Host {
             ("AGENT_CAPACITY_LOADAVG", self.path("loadavg").display().to_string()),
             ("AGENT_CAPACITY_NVIDIA_MEMORY", self.path("nvidia-memory").display().to_string()),
             ("AGENT_CAPACITY_CORES", "24".to_owned()),
+            ("AGENT_CAPACITY_MEMINFO", self.path("meminfo").display().to_string()),
             ("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north").to_owned()),
             ("CAPACITY_WATCHDOG_DIR", self.path("no-watchdog").display().to_string()),
         ] {

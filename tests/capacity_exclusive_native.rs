@@ -18,14 +18,12 @@ fn timed(host: &Host, name: &str) -> String {
 }
 
 fn host() -> Host {
-    let host = Host::new("exclusive-native-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL)]);
-    fs::write(host.path("meminfo"), "MemTotal:       98655232 kB\nMemAvailable:   81920000 kB\n").unwrap();
-    host
+    Host::new("exclusive-native-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL)])
 }
 
 fn helper(host: &Host, arguments: &[&str]) -> Wrapper {
     let mut command = host.helper(arguments);
-    command.env("AGENT_CAPACITY_MEMINFO", host.path("meminfo")).stdout(Stdio::null()).stderr(Stdio::piped());
+    command.stdout(Stdio::null()).stderr(Stdio::piped());
     Wrapper(command.spawn().unwrap())
 }
 
