@@ -10,7 +10,6 @@ pub mod receipts;
 pub(crate) mod records;
 pub mod relay;
 mod remote;
-pub mod remote_view;
 pub mod model;
 pub mod registry;
 pub mod roster;

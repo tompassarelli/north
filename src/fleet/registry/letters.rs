@@ -55,9 +55,6 @@ impl Fleet {
             Some(request) => self.open_gate_arming(request, arm).map(drop),
             None => self.send_signed(Some(&letter.signer()), &letter.to, &letter.text, letter.delivery()),
         });
-        for (ssh, snapshot) in &relayed.snapshots {
-            self.remember(ssh, snapshot)?;
-        }
         let mut fresh = relayed.newly_undelivered(&self.root.join(UNDELIVERED))?;
         fresh.extend(relayed.newly_undropped(&undropped)?);
         Ok((relayed, fresh))
@@ -70,8 +67,6 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::fleet::remote_view::Snapshot;
-    use crate::error::NorthError;
     use crate::fleet::runtimes::Runtimes;
     use crate::fleet::records::write_record;
     use crate::fleet::model::SessionRecord;
@@ -90,14 +85,6 @@ mod tests {
 
         fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()> {
             self.0[host].drop(ids)
-        }
-
-        fn snapshot(&self, _: &str) -> NorthResult<Snapshot> {
-            Ok(Snapshot::default())
-        }
-
-        fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
-            Err(NorthError::Usage(format!("ssh {host}: unreachable")))
         }
     }
 

@@ -108,7 +108,7 @@ fn a_parent_answer_survives_reopen_delivers_once_and_blocks_defaults_and_strange
     drop(conn);
     let book = Ledger::open(&path).unwrap();
     assert_eq!(book.gate(1).unwrap().unwrap().closure.unwrap().by, Answerer::Tom);
-    let id = open(&book, &request("child", 30_000), Some("parent"), None, 100, |parent, notice| {
+    let id = open(&book, &request("child", 30_000), Some("parent"), 100, |parent, notice| {
         assert_eq!(parent, "parent");
         assert!(notice.starts_with("[gate "));
     }).unwrap();

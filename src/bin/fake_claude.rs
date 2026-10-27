@@ -7,15 +7,13 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|slow-hooks|signed-out-once|oauth-expired [ARG...]";
-const FINAL_REPORT: &str = "Done: fake report";
+const USAGE: &str = "Usage: fake_claude --trace fold|idle-interrupt|cancel-queued|slow-hooks|signed-out-once|oauth-expired [ARG...]";
 const SIGNED_OUT: &str = "Not logged in · Please run /login";
 const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could not be refreshed";
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Trace {
     Fold,
-    Done,
     IdleInterrupt,
     CancelQueued,
     SlowHooks,
@@ -27,7 +25,6 @@ impl Trace {
     fn parse(name: &str) -> Option<Self> {
         match name {
             "fold" => Some(Self::Fold),
-            "done" => Some(Self::Done),
             "idle-interrupt" => Some(Self::IdleInterrupt),
             "cancel-queued" => Some(Self::CancelQueued),
             "slow-hooks" => Some(Self::SlowHooks),
@@ -97,7 +94,7 @@ impl<W: Write> Fake<W> {
         self.replay(uuid, message)?;
         self.turn.push(uuid.to_string());
         self.emit(json!({"type": "system", "subtype": "task_notification", "task_id": TASK, "tool_use_id": TOOL, "status": "completed", "summary": "fake tool"}))?;
-        self.reply(uuid, "OK")?;
+        self.reply(uuid)?;
         self.finish()?;
         Ok(true)
     }
@@ -114,12 +111,8 @@ impl<W: Write> Fake<W> {
         }))?;
         self.replay(uuid, message)?;
         self.turn.push(uuid.to_string());
-        if self.trace == Trace::Done {
-            self.reply(uuid, FINAL_REPORT)?;
-            return self.finish();
-        }
         if self.trace == Trace::IdleInterrupt {
-            self.reply(uuid, "OK")?;
+            self.reply(uuid)?;
             return self.finish();
         }
         self.emit(json!({
@@ -187,11 +180,11 @@ impl<W: Write> Fake<W> {
         turn.iter().chain(&held).try_for_each(|uuid| self.lifecycle(uuid, "cancelled"))
     }
 
-    fn reply(&mut self, uuid: &str, text: &str) -> io::Result<()> {
+    fn reply(&mut self, uuid: &str) -> io::Result<()> {
         self.emit(json!({
             "type": "assistant",
             "parent_tool_use_id": null,
-            "message": {"role": "assistant", "content": [{"type": "text", "text": text}]},
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "OK"}]},
             "user_message_uuids": [uuid],
         }))
     }

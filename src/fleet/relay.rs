@@ -11,8 +11,7 @@ use crate::platform::process::run_within;
 
 use super::gates::GateRequest;
 use super::model::Delivery;
-use super::remote_view::Snapshot;
-use super::runtime::{SESSION_ENV, binary, new_uuid, now_ms};
+use super::runtime::{binary, new_uuid, now_ms};
 
 const RELAY: &str = "relay";
 const LETTER: &str = "json";
@@ -118,41 +117,28 @@ impl Outbox {
 pub trait Courier: Sync {
     fn take(&self, host: &str, relay_host: &str) -> NorthResult<Vec<Letter>>;
     fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()>;
-    fn snapshot(&self, host: &str) -> NorthResult<Snapshot>;
-    fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String>;
 }
 
 pub struct Ssh;
 
 impl Courier for Ssh {
     fn take(&self, host: &str, relay_host: &str) -> NorthResult<Vec<Letter>> {
-        Ok(serde_json::from_slice(&over_ssh(host, None, &["fleet", "outbox", "take", "--for", relay_host])?)?)
+        Ok(serde_json::from_slice(&outbox_over_ssh(host, &["take".into(), "--for".into(), relay_host.into()])?)?)
     }
 
     fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()> {
-        let words: Vec<&str> = ["fleet", "outbox", "drop"].into_iter().chain(ids.iter().map(String::as_str)).collect();
-        over_ssh(host, None, &words).map(|_| ())
-    }
-
-    fn snapshot(&self, host: &str) -> NorthResult<Snapshot> {
-        Ok(serde_json::from_slice(&over_ssh(host, None, &["fleet", "outbox", "snapshot"])?)?)
-    }
-
-    fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String> {
-        let (id, number) = (id.to_string(), number.to_string());
-        let words: Vec<&str> = ["gate", "answer", id.as_str(), number.as_str()].into_iter().chain(note.into_iter().flat_map(|note| ["--note", note])).collect();
-        Ok(String::from_utf8_lossy(&over_ssh(host, caller, &words)?).trim_end().to_owned())
+        let words: Vec<String> = std::iter::once("drop".to_owned()).chain(ids.iter().cloned()).collect();
+        outbox_over_ssh(host, &words).map(|_| ())
     }
 }
 
-fn over_ssh(host: &str, caller: Option<&str>, words: &[&str]) -> NorthResult<Vec<u8>> {
-    let signed = caller.map(|caller| format!("{SESSION_ENV}={} ", quote(caller))).unwrap_or_default();
-    let command = format!("{signed}north {}", words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
+fn outbox_over_ssh(host: &str, words: &[String]) -> NorthResult<Vec<u8>> {
+    let command = ["north", "fleet", "outbox"].into_iter().map(str::to_owned).chain(words.iter().map(|word| quote(word))).collect::<Vec<_>>().join(" ");
     let ssh = binary("ssh");
     let argv = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "--", &command];
     match run_within(&ssh.to_string_lossy(), &argv, SSH_WAIT) {
         Some(output) if output.status.success() => Ok(output.stdout),
-        Some(output) => Err(NorthError::Usage(format!("ssh {host} {command}: {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()))),
+        Some(output) => Err(NorthError::Usage(format!("ssh {host} {command}: {}", output.status))),
         None => Err(NorthError::Usage(format!("ssh {host} {command}: no answer within {}s", SSH_WAIT.as_secs()))),
     }
 }
@@ -169,13 +155,11 @@ pub struct Relayed {
     pub undelivered: Vec<Undelivered>,
     pub unreachable: Vec<(String, String)>,
     pub undropped: Vec<String>,
-    pub snapshots: Vec<(String, Snapshot)>,
 }
 
 pub fn relay(courier: &dyn Courier, relay_host: &str, hosts: &[String], undropped: &BTreeSet<String>, deliver: &mut dyn FnMut(&Letter) -> NorthResult<()>) -> Relayed {
     let mut relayed = Relayed::default();
     let mut drops = Vec::new();
-    let mut reachable = Vec::new();
     for (host, taken) in hosts.iter().zip(each(hosts, |host| courier.take(host, relay_host))) {
         let letters = match taken {
             Ok(letters) => letters,
@@ -184,7 +168,6 @@ pub fn relay(courier: &dyn Courier, relay_host: &str, hosts: &[String], undroppe
                 continue;
             }
         };
-        reachable.push(host.clone());
         let mut dropped = Vec::new();
         for letter in letters {
             if undropped.contains(&format!("{host} {}", letter.id)) {
@@ -203,20 +186,10 @@ pub fn relay(courier: &dyn Courier, relay_host: &str, hosts: &[String], undroppe
             drops.push((host.clone(), dropped));
         }
     }
-    let (dropped, snapshots) = std::thread::scope(|scope| {
-        let snapshots = scope.spawn(|| each(&reachable, |host| courier.snapshot(host)));
-        (each(&drops, |(host, ids)| courier.drop(host, ids)), snapshots.join().unwrap_or_default())
-    });
-    for ((host, dropped), outcome) in drops.iter().zip(dropped) {
+    for ((host, dropped), outcome) in drops.iter().zip(each(&drops, |(host, ids)| courier.drop(host, ids))) {
         if let Err(error) = outcome {
             relayed.unreachable.push((host.clone(), format!("delivered {} but could not drop them: {}", dropped.join(" "), error.user_message())));
             relayed.undropped.extend(dropped.iter().map(|id| format!("{host} {id}")));
-        }
-    }
-    for (host, outcome) in reachable.into_iter().zip(snapshots) {
-        match outcome {
-            Ok(snapshot) => relayed.snapshots.push((host, snapshot)),
-            Err(error) => relayed.unreachable.push((host, format!("its sessions and gates were not read: {}", error.user_message()))),
         }
     }
     relayed
@@ -289,14 +262,6 @@ mod tests {
                 return Err(NorthError::Usage(format!("ssh {host}: no answer within 20s")));
             }
             self.0[host].drop(ids)
-        }
-
-        fn snapshot(&self, host: &str) -> NorthResult<Snapshot> {
-            Ok(Snapshot { host: host.into(), ..Snapshot::default() })
-        }
-
-        fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
-            Err(NorthError::Usage(format!("ssh {host}: unreachable")))
         }
     }
 
@@ -384,15 +349,6 @@ mod tests {
         fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {
             std::thread::sleep(self.0);
             Ok(())
-        }
-
-        fn snapshot(&self, host: &str) -> NorthResult<Snapshot> {
-            std::thread::sleep(self.0);
-            Ok(Snapshot { host: host.into(), ..Snapshot::default() })
-        }
-
-        fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
-            Err(NorthError::Usage(format!("ssh {host}: unreachable")))
         }
     }
 
