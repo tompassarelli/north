@@ -302,13 +302,6 @@ source = "tom: 2026-10-25 asked that a busy account spend its five-hour window i
 fallback = "without a measured burn only the five-hour 95% stop refuses"
 consumers = ["src/pace/limits.rs"]
 
-[week_projection_average_h]
-value = 24
-unit = "minimum hours the week window's projected burn is averaged over when no pace deadline is set; the week projection uses the lower of the measured burn and week-used / max(this, hours since the week began)"
-source = "tom: proxy 2026-10-15 event 7323 reports claude:a held on a projected 815% week extrapolated from a short burst over six days and asks for a multi-hour average"
-fallback = "the 5h window, stale-usage and weekly-ceiling holds still refuse immediately"
-consumers = ["src/pace/limits.rs"]
-
 [codex_route_tooling]
 value = "codex"
 unit = "engine for tooling boxes: codex or claude"

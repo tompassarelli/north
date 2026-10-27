@@ -73,21 +73,8 @@ impl Window {
         self.resets_at.as_deref().and_then(seconds).map(|reset| reset - WEEK_SECONDS)
     }
 
-    pub fn projection_burn(&self, target: Option<&Target>, at: f64) -> Option<f64> {
-        let burn = self.burn_pct_h?;
-        if target.is_some() || !self.is_week() {
-            return Some(burn);
-        }
-        let Some(start) = self.week_start() else {
-            return Some(burn);
-        };
-        let hours = limits::week_average_hours().max((at - start) / 3600.0);
-        Some(burn.min(self.used_pct / hours))
-    }
-
     pub fn projected(&self, target: Option<&Target>, at: f64) -> Option<f64> {
-        self.projection_burn(target, at)
-            .map(|burn| self.used_pct + burn * self.horizon(target, at))
+        self.burn_pct_h.map(|burn| self.used_pct + burn * self.horizon(target, at))
     }
 
     pub fn below_deadline_line(&self, target: Option<&Target>, at: f64) -> bool {

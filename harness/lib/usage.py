@@ -260,19 +260,18 @@ def burn(db, mine, now):
     n = db.execute("SELECT count(*) FROM usage WHERE provider = ? AND account = ? AND name = ? AND kind = 'window'"
                    " AND abs(julianday(resets_at) - julianday(?)) * 86400 < 120",
                    (r["provider"], r["account"], r["name"], r["resets_at"])).fetchone()[0]
+    count = f"{n} reading{'s' if n != 1 else ''}"
     if n < 2:
-        return f"burn unknown ({n} reading{'s' if n != 1 else ''})"
+        return f"burn unknown ({count})"
     rate = plan_usage.beta(db, r, now)
     if rate is None:
-        return "burn unknown (need two readings in last 3h)"
+        return f"burn unknown (need two readings in last 3h; {count})"
     reset = plan_usage.ts(r["resets_at"])
-    if rate <= 0:
-        return f"burn 0.0%/h, lasts to reset ({until(r['resets_at'], now)})"
-    empty = now + timedelta(hours=max(100 - r["used_pct"], 0) / rate)
+    empty = now + timedelta(hours=max(100 - r["used_pct"], 0) / rate) if rate > 0 else reset
     if empty >= reset:
-        return f"burn {rate:.1f}%/h, lasts to reset ({until(r['resets_at'], now)})"
+        return f"burn {rate:.1f}%/h, lasts to reset ({until(r['resets_at'], now)}; {count})"
     stamp = empty.strftime("%Y-%m-%dT%H:%M:%SZ")
-    return f"burn {rate:.1f}%/h, empty in {until(stamp, now)} ({empty.day} {empty:%b %H:%M}Z)"
+    return f"burn {rate:.1f}%/h, empty in {until(stamp, now)} ({empty.day} {empty:%b %H:%M}Z; {count})"
 
 
 def gate_path():

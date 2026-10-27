@@ -76,21 +76,18 @@ fn reset_week(used: f64, burn: f64, since_start_h: f64, at: f64) -> Window {
 }
 
 #[test]
-fn week_projection_averages_a_burst_over_at_least_a_day() {
-    let policy = Policy::with("");
+fn week_projection_follows_recent_burn_when_it_exceeds_the_week_average() {
     let at = now();
-    near(reset_week(10.0, 4.87, 2.8, at).projected(None, at).unwrap(), 10.0 + 10.0 / 24.0 * 165.2);
-    assert!(reset_week(13.0, 4.36, 3.4, at).projected(None, at).unwrap() > 100.0);
+    near(reset_week(10.0, 4.87, 2.8, at).projected(None, at).unwrap(), 10.0 + 4.87 * 165.2);
     near(reset_week(40.0, 0.5, 48.0, at).projected(None, at).unwrap(), 40.0 + 0.5 * 120.0);
-    near(reset_week(40.0, 2.0, 48.0, at).projected(None, at).unwrap(), 40.0 + 40.0 / 48.0 * 120.0);
+    near(reset_week(40.0, 44.0, 48.0, at).projected(None, at).unwrap(), 40.0 + 44.0 * 120.0);
     let mut five = reset_week(49.0, 18.3, 3.4, at);
     five.window = "5h".into();
     five.reset_h = 2.1;
     near(five.projected(None, at).unwrap(), 49.0 + 18.3 * 2.1);
     let previous = Control { at: Some(at - 60.0), workers: Some(2), allowed_workers: Some(3), held: Some(false), ..Control::default() };
-    let control = advance(&previous, Reading { initial: 3, ..reading(vec![reset_week(10.0, 4.87, 2.8, at)], Some(2), at) });
-    assert!(control.windows[0].projected_pct.unwrap() < 100.0);
-    assert!(!policy.refusal("claude:a", &control, at).unwrap_or_default().contains("week used"));
+    let control = advance(&previous, Reading { initial: 3, ..reading(vec![reset_week(40.0, 44.0, 48.0, at)], Some(2), at) });
+    assert!(control.windows[0].projected_pct.unwrap() > 100.0);
 }
 
 const REPLAY: [[f64; 6]; 59] = [

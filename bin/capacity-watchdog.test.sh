@@ -122,7 +122,7 @@ for agent, final in (("done", "Done: scenario green on the fix, red on main."), 
     (d / f"agent-{agent}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     (d / f"agent-{agent}.meta.json").write_text(json.dumps({"agentType": "worker-high"}))
 PY
-ledger_env=(THREADS_DB="$scratch/fires.db" CLAUDE_CONFIG_DIR="$claude_home" CODEX_CONFIG_DIR="$scratch/none" AGY_CONFIG_DIR="$scratch/none"
+ledger_env=(THREADS_DB="$scratch/fires.db" CLAUDE_CONFIG_DIR="$claude_home" AGENTS_ORCHESTRATION="$scratch/none" CODEX_CONFIG_DIR="$scratch/none" AGY_CONFIG_DIR="$scratch/none"
   LEDGER_REPOS="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty" PATH="$scratch/bin:$PATH" WORKER_LEDGER_REAL_NORTH="$(cd "$(dirname "$target")/.." && realpath "${CARGO_TARGET_DIR:-target}")/debug/north")
 env "${ledger_env[@]}" "$(dirname "$target")/worker-ledger" --since "$(date -u -d '1 day ago' +%FT%TZ)" >/dev/null 2>"$scratch/ledger.err"
 fires=$(env "${ledger_env[@]}" "$target" report --minutes 30 | jq -c '[.flags[] | select(startswith("handoff"))]')

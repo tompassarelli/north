@@ -107,7 +107,7 @@ retired_db = scratch / "retired.db"
 week = lambda provider, account, pct: {"ts": "2026-10-27T10:00:00Z", "provider": provider, "account": account, "kind": "window",
                                        "name": "week", "used_pct": pct, "window_min": 10080, "resets_at": "2099-01-01T00:00:00Z", "source": "fixture"}
 with sqlite3.connect(retired_db) as db:
-    usage.record(db, [week("codex", "main", 40), week("gemini", "main", 10)])
+    usage.record(db, [week("codex", "main", 40), week("gemini", "main", 10), dict(week("gemini", "main", 11), ts="2026-10-27T10:30:00Z")])
 stub = scratch / "north-stub"
 stub.write_text("#!/usr/bin/env python3\nimport json, sys\nprint('null' if json.load(sys.stdin)['op'] == 'money_refusal' else '{}')\n")
 stub.chmod(0o755)
@@ -120,7 +120,7 @@ shown = json.loads(subprocess.run(["python3", "-I", str(here / "usage.py"), "--j
                                   capture_output=True, text=True, timeout=10, check=True).stdout)
 assert [r["provider"] for r in shown] == ["gemini"], shown
 table = subprocess.run(["python3", "-I", str(here / "usage.py")], env=retired_env, capture_output=True, text=True, timeout=10).stdout
-assert "codex" not in table and "gemini main" in table, table
+assert "codex" not in table and "gemini main" in table and "2 readings" in table, table
 gated = json.loads(subprocess.run(["python3", "-I", str(here / "usage.py"), "--write-pace-gate"], env=retired_env,
                                   capture_output=True, text=True, timeout=20, check=True).stdout)
 assert sorted(gated) == ["claude", "gemini"], gated
