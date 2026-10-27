@@ -297,24 +297,5 @@ pub fn github_with(
     Ok(docs)
 }
 pub fn github(since: Option<f64>) -> Result<Vec<Doc>> {
-    github_with(since, |args| {
-        let mut delay = 30.0f64;
-        let mut waited = 0.0;
-        loop {
-            let out = crate::platform::github::run_owned(args)?;
-            if out.status.success() {
-                return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
-            }
-            let err = String::from_utf8_lossy(&out.stderr);
-            if !err.to_lowercase().contains("rate limit") || waited > 65.0 * 60.0 {
-                return Err(format!("gh api graphql: {}", err.trim()).into());
-            }
-            let jitter = Timestamp::now().unix_seconds_f64().fract() * 0.4 + 0.8;
-            let pause = delay * jitter;
-            eprintln!("grounding github: GitHub rate limit, waiting {pause:.0} s");
-            std::thread::sleep(std::time::Duration::from_secs_f64(pause));
-            waited += pause;
-            delay = (delay * 2.0).min(300.0);
-        }
-    })
+    github_with(since, |args| Ok(crate::platform::github::run_patiently(args, "grounding github")?))
 }

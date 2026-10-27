@@ -686,35 +686,6 @@ PYSOCKET
 socket_status=$?
 check '[unit] SSH socket paths leave room for the OpenSSH suffix' '[ "$socket_status" -eq 0 ] || { cat "$scratch/socket-ssh.out"; false; }'
 
-qid=$("$threads" queue add laptop smashcraft#3 -- echo hi 2>&1)
-"$threads" queue take laptop >"$scratch/take1" 2>&1 & "$threads" queue take laptop >"$scratch/take2" 2>&1 & wait
-taken=$(cat "$scratch/take1" "$scratch/take2")
-"$threads" queue msg "$qid" done "said hi" >/dev/null 2>&1; msgstatus=$?
-"$threads" queue msg "$qid" done "again" >/dev/null 2>&1; againstatus=$?
-check '[integration] queue: two concurrent takes claim the one job once; msg records it and comments on its issue; a second msg is refused' \
-  '[ "$(grep -c "\"id\": $qid" <<<"$taken")" -eq 1 ] && [ "$msgstatus" -eq 0 ] && [ "$againstatus" -ne 0 ] && grep -q "^issue comment 3 -R tompassarelli/smashcraft" "$GH_TRACE" && [ "$(sqlite3 "$THREADS_DB" "select state from job_queue where id = $qid")" = done ]'
-
-p1=$("$threads" queue add pool - -- echo p1 2>&1)
-p2=$("$threads" queue add pool - -- echo p2 2>&1)
-nexustook=$("$threads" queue take nexus,pool 2>&1)
-"$threads" job-run "queue-$p1" --host nexus --started 2026-10-12T10:02:00Z >/dev/null 2>&1
-laptoponly=$("$threads" queue take laptop 2>&1)
-laptoptook=$("$threads" queue take laptop,pool 2>&1)
-"$threads" job-run "queue-$p2" --host whiterabbit --started 2026-10-12T10:03:00Z >/dev/null 2>&1
-out=$(t queue)
-check '[recorded] pool: while nexus runs one pooled job the laptop takes the next; a laptop-only take leaves pooled jobs alone' \
-  '[ "$(jq .id <<<"$nexustook")" = "$p1" ] && [ -z "$laptoponly" ] && [ "$(jq .id <<<"$laptoptook")" = "$p2" ] && grep -qE "^$p2 +pool +- +taken +\S+ +[0-9]+m +- +whiterabbit 2026-10-12T10:03:00Z rc=- +echo p2$" <<<"$out" && grep -qE "^$p1 +pool +- +taken .* nexus 2026" <<<"$out"'
-
-d0=$("$threads" queue add dropq - -- echo d0 2>&1)
-"$threads" queue take dropq >/dev/null 2>&1
-d1=$("$threads" queue add dropq smashcraft#3 -- echo d1 2>&1)
-t queue drop "$d1" superseded by hand >/dev/null; dropstatus=$?
-t queue drop "$d1" again >/dev/null; againstatus=$?
-t queue drop "$d0" busy >/dev/null; takenstatus=$?
-dropped=$("$threads" queue take dropq 2>&1)
-check '[recorded] queue drop: a queued job is dropped with its reason as result and a ledger note; dropped and taken jobs are refused' \
-  '[ "$dropstatus" -eq 0 ] && [ "$againstatus" -ne 0 ] && [ "$takenstatus" -ne 0 ] && [ -z "$dropped" ] && [ "$(sqlite3 "$THREADS_DB" "select state || '"'|'"' || result from job_queue where id = $d1")" = "dropped|superseded by hand" ] && [ "$(sqlite3 "$THREADS_DB" "select item || '"'|'"' || json_extract(data, '"'$.text'"') from events where kind = '"'note'"' and json_extract(data, '"'$.job'"') = $d1")" = "smashcraft#3|job $d1 dropped: superseded by hand" ] && [ "$(sqlite3 "$THREADS_DB" "select state from job_queue where id = $d0")" = taken ]'
-
 python3 - "$threads" "$scratch/routing" <<'PYROUTING' >"$scratch/routing.out" 2>&1
 import hashlib, importlib.machinery, importlib.util, os, re, sqlite3, subprocess, sys
 from datetime import datetime, timedelta, timezone

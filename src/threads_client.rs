@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{claims, ingest_lock, snapshot};
+use crate::threads::{claims, ingest_lock, jobs, snapshot};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -92,7 +92,8 @@ impl Client {
         if first == Some("queue") && argv.get(1).map(String::as_str) == Some("follow") {
             let mut brief = Vec::new();
             stdin.read_to_end(&mut brief)?;
-            if let Err(why) = self.vet_follows(argv, &brief) {
+            let vetted = if self.var(jobs::SCHEMA_READY).is_some() { Ok(()) } else { self.vet_follows(argv, &brief) };
+            if let Err(why) = vetted {
                 writeln!(err, "NorthThreads: queue follow: {why}")?;
                 return Ok(1);
             }
@@ -142,12 +143,18 @@ impl Client {
     }
 
     fn local(&self, argv: &[String], database: Option<&Path>, replay: Option<&[u8]>) -> NorthResult<i32> {
-        if argv.first().is_some_and(|verb| claims::verbs::VERBS.contains(&verb.as_str())) {
-            let ledger = database.map(Path::to_path_buf).or_else(|| self.var("THREADS_DB").map(PathBuf::from));
-            let ledger = ledger.unwrap_or_else(|| self.home.join(".local/state/threads/threads.db"));
-            let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
+        let verb = argv.first().map_or("", String::as_str);
+        let ledger = database.map(Path::to_path_buf).or_else(|| self.var("THREADS_DB").map(PathBuf::from));
+        let ledger = ledger.unwrap_or_else(|| self.home.join(".local/state/threads/threads.db"));
+        let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
+        if claims::verbs::VERBS.contains(&verb) {
             let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, now: Timestamp::now().unix_seconds() };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
+        }
+        if jobs::VERBS.contains(&verb) && self.var(jobs::SCHEMA_READY).is_some() {
+            let context = jobs::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &jobs::outside::Live, now: Timestamp::now() };
+            let mut stdin: Box<dyn Read> = replay.map_or_else(|| Box::new(io::stdin()) as Box<dyn Read>, |brief| Box::new(io::Cursor::new(brief.to_vec())));
+            return Ok(jobs::run(argv, &context, &mut stdin, &mut io::stdout().lock(), &mut io::stderr()));
         }
         let mut command = Command::new(&self.threads[0]);
         command.args(&self.threads[1..]).args(argv);
@@ -468,28 +475,10 @@ fn agent_event_checks(argv: &[String]) -> Result<(), String> {
         found
     };
     if let Some(body) = option("--body") {
-        gitleaks_clean(&body)?;
+        crate::threads::jobs::outside::gitleaks_clean(&body)?;
     }
     if option("--key").is_some_and(|key| key.trim().is_empty()) {
         return Err("key must be nonempty text".into());
-    }
-    Ok(())
-}
-
-fn gitleaks_clean(text: &str) -> Result<(), String> {
-    let argv: Vec<OsString> = ["gitleaks", "stdin", "--no-banner", "--redact", "-l", "error"].map(OsString::from).to_vec();
-    let mut command = Command::new(&argv[0]);
-    command.args(&argv[1..]).current_dir("/").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Err("gitleaks is not on PATH; items are scanned for secrets before they are stored".into());
-        }
-        Err(error) => return Err(error.to_string()),
-    };
-    let output = feed(child, Some(text.as_bytes().to_vec())).wait_with_output().map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err("gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored".into());
     }
     Ok(())
 }
@@ -558,7 +547,7 @@ fn spool_stem() -> String {
     format!("{}-{}", Timestamp::now().unix_nanos(), std::process::id())
 }
 
-fn shell_quote(word: &str) -> String {
+pub(crate) fn shell_quote(word: &str) -> String {
     if word.is_empty() {
         return "''".into();
     }
@@ -742,6 +731,20 @@ exit "$(cat "$ROOT/code")"
             assert_eq!(queue(accepted).0, 0, "{accepted}");
         }
         assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.contains("queue follow 'north#9'")).count(), 3);
+    }
+
+    #[test]
+    fn the_ledger_host_stores_a_follows_box_its_sender_vetted_without_vetting_it_against_its_own_checkouts() {
+        let ledger = tempfile::tempdir().unwrap();
+        let database = ledger.path().join("threads.db");
+        rusqlite::Connection::open(&database).unwrap().execute_batch("CREATE TABLE job_queue(id INTEGER PRIMARY KEY, placement TEXT NOT NULL, item TEXT, cmd TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', queued TEXT NOT NULL, taken TEXT, finished TEXT, result TEXT) STRICT").unwrap();
+        let database = database.to_str().unwrap();
+        let rig = rig(&[("THREADS_DB", database), (jobs::SCHEMA_READY, "1"), ("FOLLOWS_RELEASE_ROOT", ledger.path().to_str().unwrap())]);
+        let (code, err) = call(&rig, &["queue", "follow", "north#9", "--tier", "sonnet", "--parent", "p"], b"Item: north#9 x\nFollows: Land the ledger fix\n");
+        assert_eq!((code, err.as_str()), (0, ""));
+        assert!(log(&rig, "ssh.log").is_empty());
+        let stored: String = rusqlite::Connection::open(database).unwrap().query_row("SELECT item || ' ' || placement FROM job_queue", [], |row| row.get(0)).unwrap();
+        assert_eq!(stored, "north#9 follows");
     }
 
     #[test]

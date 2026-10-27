@@ -11,7 +11,7 @@ repo = Path(__file__).resolve().parent.parent
 
 def test_recorded_observation_journey(root):
     env = {**os.environ, "PATH": f"{repo / 'bin'}:{os.environ['PATH']}", "THREADS_DB": str(root / "threads.db"),
-           "LAPTOP_STATE": str(root / "laptop.json"), "LAPTOP_WINDOW_FILE": str(root / "window.json")}
+           "LAPTOP_STATE": str(root / "laptop.json"), "LAPTOP_WINDOW_FILE": str(root / "window.json"), "NORTH_BIN": str((repo / os.environ.get("CARGO_TARGET_DIR", "target")).resolve() / "debug/north")}
     (root / "window.json").write_text(json.dumps({"tz": "UTC", "open": "23:00", "close": "10:00"}))
     start = datetime(2026, 10, 14, 0, 0, tzinfo=timezone.utc)
 

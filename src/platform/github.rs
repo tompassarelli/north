@@ -9,6 +9,30 @@ pub(crate) fn run_owned(args: &[String]) -> std::io::Result<Output> {
     process::run("gh", None, args)
 }
 
+/// Runs gh, waiting out rate-limit refusals: 30 s doubling to 5 min, about 65 min in all, each
+/// wait named on stderr under `who`.
+pub(crate) fn run_patiently(args: &[String], who: &str) -> Result<String, String> {
+    let mut delay = 30.0f64;
+    let mut waited = 0.0;
+    loop {
+        let out = run_owned(args).map_err(|error| error.to_string())?;
+        if out.status.success() {
+            return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+        }
+        let err = String::from_utf8_lossy(&out.stderr);
+        if !err.to_lowercase().contains("rate limit") || waited > 65.0 * 60.0 {
+            let verb = args.iter().take(2).map(String::as_str).collect::<Vec<_>>().join(" ");
+            return Err(format!("gh {verb}: {}", err.trim()));
+        }
+        let jitter = crate::foundation::clock::Timestamp::now().unix_seconds_f64().fract() * 0.4 + 0.8;
+        let pause = delay * jitter;
+        eprintln!("{who}: GitHub rate limit, waiting {pause:.0} s");
+        std::thread::sleep(std::time::Duration::from_secs_f64(pause));
+        waited += pause;
+        delay = (delay * 2.0).min(300.0);
+    }
+}
+
 pub(crate) async fn run_async(args: &[String]) -> std::io::Result<Output> {
     process::run_killing_on_drop("gh", args).await
 }

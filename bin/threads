@@ -2139,49 +2139,6 @@ def parser() -> argparse.ArgumentParser:
             "pick (Claude tiers by rank) and the new pick (every provider, $ per success) from strictly earlier runs, the "
             "cells where they differ with their history, and whether each run's actual tier and outcome agree")
     s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
-    s = cmd("job-run", cmd_job_run, "record a scheduled job's start (no --finished) or finish, keyed by name, host and "
-            "started; written by job-run, spooled while the remote is unreachable")
-    s.add_argument("name")
-    s.add_argument("--host", required=True)
-    s.add_argument("--started", required=True)
-    s.add_argument("--finished")
-    s.add_argument("--rc", type=int)
-    s = cmd("job-runs", cmd_job_runs, "scheduled job runs per name and host: count, failures, unfinished, last start and rc")
-    s.add_argument("--json", action="store_true", help="one object per name and host with first_started, last_ok "
-                   "(finish of the latest successful run), last_started, last_rc and open_since (latest unfinished start)")
-    s = cmd("queue", cmd_queue, "jobs for a placement (laptop, or pool for any runner) that may be asleep: add PLACEMENT "
-            "REF|- -- CMD...; take PLACEMENT[,PLACEMENT...] claims the oldest queued job of those placements and prints it "
-            "as JSON, or nothing; msg ID done|failed TEXT records the result and comments it on the job's issue, and msg ID requeued TEXT "
-            "puts a taken job back at its original position as requeued; drop ID REASON drops a queued or requeued job, recording REASON as its result; no action lists jobs with their wait from queued to taken and their job_runs row (name queue-ID). "
-            "Follows boxes (placement follows): follow REF --tier T --parent NAME queues the brief on stdin, whose `Follows:` "
-            "line names a commit subject, SHA or issue ref; follow-list prints the open ones as JSON; follow-release, "
-            "follow-started and follow-alert ID TEXT (once per box) are follows-release's steps")
-    s.add_argument("--json", action="store_true", help="with no action, one object per job with its latest run's host")
-    q = s.add_subparsers(dest="action")
-    qa = q.add_parser("add")
-    qa.add_argument("placement")
-    qa.add_argument("item", help="issue ref, or - for none")
-    qa.add_argument("cmd", nargs=argparse.REMAINDER)
-    qt = q.add_parser("take")
-    qt.add_argument("placement")
-    qm = q.add_parser("msg")
-    qm.add_argument("id", type=int)
-    qm.add_argument("status", choices=["done", "failed", "requeued"])
-    qm.add_argument("text", nargs="+")
-    qd = q.add_parser("drop")
-    qd.add_argument("id", type=int)
-    qd.add_argument("reason", nargs="+")
-    qf = q.add_parser("follow")
-    qf.add_argument("item")
-    qf.add_argument("--tier", required=True)
-    qf.add_argument("--parent", required=True)
-    qf.add_argument("--repo", help="repository whose origin main the predecessor lands on (default: the item's)")
-    q.add_parser("follow-list")
-    for name in ("follow-release", "follow-started", "follow-alert"):
-        qs = q.add_parser(name)
-        qs.add_argument("id", type=int)
-        if name == "follow-alert":
-            qs.add_argument("text", nargs="+")
     return p
 
 
@@ -2311,148 +2268,17 @@ def proxy(dest, argv) -> int:
     return code
 
 
-def cmd_job_run(db, a):
-    if (a.finished is None) != (a.rc is None):
-        raise Refused("job-run: --finished and --rc go together")
-    with Tx(db):
-        db.execute("INSERT INTO job_runs(name, host, started, finished, rc) VALUES (?,?,?,?,?) ON CONFLICT(name, host,"
-                   " started) DO UPDATE SET finished = excluded.finished, rc = excluded.rc"
-                   " WHERE excluded.finished IS NOT NULL", (a.name, a.host, a.started, a.finished, a.rc))
+RUST_VERBS = ("job-run", "job-runs", "queue")
 
 
-def cmd_job_runs(db, a):
-    if a.json:
-        rows = db.execute("SELECT name, host, min(started) first_started, max(started) last_started,"
-                          " (SELECT max(finished) FROM job_runs j WHERE j.name = r.name AND j.host = r.host AND j.rc = 0) last_ok,"
-                          " (SELECT rc FROM job_runs j WHERE j.name = r.name AND j.host = r.host ORDER BY started DESC LIMIT 1) last_rc,"
-                          " (SELECT max(started) FROM job_runs j WHERE j.name = r.name AND j.host = r.host AND j.finished IS NULL)"
-                          " open_since FROM job_runs r GROUP BY name, host ORDER BY host, name").fetchall()
-        print(json.dumps([dict(r) for r in rows]))
-        return
-    rows = db.execute("SELECT name, host, count(*) n, sum(rc != 0) failed, sum(finished IS NULL) open, max(started) last,"
-                      " (SELECT rc FROM job_runs j WHERE j.name = r.name AND j.host = r.host ORDER BY started DESC LIMIT 1)"
-                      " last_rc FROM job_runs r GROUP BY name, host ORDER BY host, name").fetchall()
-    if rows:
-        table([("name", "host", "runs", "failed", "open", "last_started", "last_rc")]
-              + [(r["name"], r["host"], str(r["n"]), str(r["failed"] or 0), str(r["open"]), r["last"],
-                  "-" if r["last_rc"] is None else str(r["last_rc"])) for r in rows])
-
-
-FOLLOWS_LINE = re.compile(r"(?m)^\W*Follows:[ \t]*`?(.+?)`?[ \t]*$")
-FOLLOW_STEPS = {"follow-release": ("queued", "state = 'taken', taken = ?"),
-                "follow-started": ("taken", "state = 'done', finished = ?"),
-                "follow-alert": ("taken", "result = ?")}
-
-
-def follow_step(db, a):
-    """Move one follows box a step; refused when another releaser got there first, so each step happens once."""
-    state, change = FOLLOW_STEPS[a.action]
-    value = " ".join(a.text) if a.action == "follow-alert" else now()
-    with Tx(db):
-        cur = db.execute(f"UPDATE job_queue SET {change} WHERE id = ? AND placement = 'follows' AND state = ?"
-                         + (" AND result IS NULL" if a.action == "follow-alert" else ""), (value, a.id, state))
-    if cur.rowcount != 1:
-        raise Refused(f"queue {a.action}: box {a.id} is not an open follows box in state {state}")
-
-
-def drop_job(db, job, reason, by):
-    cur = db.execute("UPDATE job_queue SET state = 'dropped', finished = ?, result = ? WHERE id = ? AND state IN ('queued','requeued')",
-                     (now(), reason, job))
-    if cur.rowcount == 1:
-        item = db.execute("SELECT item FROM job_queue WHERE id = ?", (job,)).fetchone()["item"]
-        event(db, item, "note", by, job=job, text=f"job {job} dropped: {reason}")
-    return cur.rowcount == 1
-
-
-def queue_wait(r):
-    end = r["taken"] or (r["finished"] if r["state"] == "dropped" else None)
-    if end is None:
-        return f"{minutes_since(r['queued'])}m"
-    span = datetime.fromisoformat(end.replace("Z", "+00:00")) - datetime.fromisoformat(r["queued"].replace("Z", "+00:00"))
-    return f"{int(span.total_seconds() // 60)}m"
-
-
-def cmd_queue(db, a):
-    """Work for a machine that may be asleep: add queues it, take claims the oldest for a placement, msg records
-    the result and posts it on the job's issue."""
-    if a.action == "follow":
-        brief = sys.stdin.read()
-        m = FOLLOWS_LINE.search(brief)
-        if not m:
-            raise Refused("queue follow: the brief on stdin has no Follows: line")
-        item = ref(*parse_ref(a.item))
-        repo = a.repo or parse_ref(item)[0]
-        box = {"repo": repo, "tier": a.tier, "parent": a.parent, "follows": m.group(1).strip(), "brief": brief}
-        with Tx(db):
-            cur = db.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES ('follows',?,?,?)",
-                             (item, json.dumps(box), now()))
-        print(cur.lastrowid)
-    elif a.action == "follow-list":
-        rows = db.execute("SELECT * FROM job_queue WHERE placement = 'follows' AND state IN ('queued','taken')"
-                          " ORDER BY id").fetchall()
-        print(json.dumps([{"id": r["id"], "item": r["item"], "state": r["state"], "queued": r["queued"],
-                           "taken": r["taken"], "alerted": r["result"], **json.loads(r["cmd"])} for r in rows]))
-    elif a.action in FOLLOW_STEPS:
-        follow_step(db, a)
-    elif a.action == "add":
-        cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
-        if not cmd:
-            raise Refused("queue add: no command after --")
-        item = None if a.item == "-" else ref(*parse_ref(a.item))
-        with Tx(db):
-            cur = db.execute("INSERT INTO job_queue(placement, item, cmd, queued) VALUES (?,?,?,?)",
-                             (a.placement, item, json.dumps(cmd), now()))
-        print(cur.lastrowid)
-    elif a.action == "take":
-        placements = a.placement.split(",")
-        with Tx(db):
-            row = db.execute(f"SELECT * FROM job_queue WHERE placement IN ({','.join('?' * len(placements))})"
-                             " AND state IN ('queued','requeued') ORDER BY id LIMIT 1", placements).fetchone()
-            if row:
-                db.execute("UPDATE job_queue SET state = 'taken', taken = ? WHERE id = ?", (now(), row["id"]))
-        if row:
-            print(json.dumps({"id": row["id"], "placement": row["placement"], "item": row["item"],
-                              "cmd": json.loads(row["cmd"])}))
-    elif a.action == "msg":
-        text = " ".join(a.text)
-        with Tx(db):
-            row = db.execute("SELECT * FROM job_queue WHERE id = ?", (a.id,)).fetchone()
-            if row is None or row["state"] != "taken":
-                raise Refused(f"queue msg: job {a.id} is not taken")
-            if a.status == "requeued":
-                db.execute("UPDATE job_queue SET state = 'requeued', taken = NULL, result = ? WHERE id = ?", (text, a.id))
-            else:
-                db.execute("UPDATE job_queue SET state = ?, finished = ?, result = ? WHERE id = ?",
-                           (a.status, now(), text, a.id))
-            if row["item"] and NATIVE_REF.fullmatch(row["item"]):
-                event(db, row["item"], "note", a.by, text=f"job {a.id} {a.status}: {text}")
-        if row["item"] and not NATIVE_REF.fullmatch(row["item"]):
-            gitleaks_clean(text)
-            repo, number = parse_ref(row["item"])
-            gh("issue", "comment", str(number), "-R", f"{OWNER}/{repo}", "--body", f"Job {a.id} {a.status}:\n\n{text}")
-        print(f"job {a.id} {a.status}")
-    elif a.action == "drop":
-        with Tx(db):
-            row = db.execute("SELECT state FROM job_queue WHERE id = ?", (a.id,)).fetchone()
-            if row is None or not drop_job(db, a.id, " ".join(a.reason), a.by):
-                raise Refused(f"queue drop: job {a.id} is {row['state'] if row else 'unknown'}, not queued")
-        print(f"job {a.id} dropped")
-    elif a.json:
-        rows = db.execute("SELECT q.*, (SELECT host FROM job_runs j WHERE j.name = 'queue-' || q.id ORDER BY started DESC"
-                          " LIMIT 1) host FROM job_queue q ORDER BY id").fetchall()
-        print(json.dumps([{k: r[k] for k in ("id", "placement", "state", "queued", "taken", "finished", "host")} for r in rows]))
-    else:
-        rows = db.execute("SELECT q.*, (SELECT host || ' ' || started || ' rc=' || ifnull(rc, '-') FROM job_runs j WHERE j.name ="
-                          " 'queue-' || q.id ORDER BY started DESC LIMIT 1) run FROM job_queue q ORDER BY id").fetchall()
-        hide = no_native_reason()
-        table([("id", "placement", "item", "state", "queued", "wait", "finished", "job_run", "cmd")]
-              + [(str(r["id"]), r["placement"], "native" if hide and r["item"] and NATIVE_REF.fullmatch(r["item"])
-                  else r["item"] or "-", r["state"], r["queued"], queue_wait(r), r["finished"] or "-", r["run"] or "-",
-                  follows_text(json.loads(r["cmd"]))) for r in rows])
-
-
-def follows_text(cmd):
-    return f"follows {cmd['follows']} on {cmd['tier']}" if isinstance(cmd, dict) else shlex.join(cmd)
+def delegate(argv) -> int:
+    """job-run, job-runs and queue run in Rust behind `north threads`; this file migrates the ledger first while it owns the schema."""
+    if os.environ.get("THREADS_SCHEMA_READY"):
+        raise Refused(f"this north predates its own {argv[0]}; run north runtime update")
+    if DB != SNAPSHOT:
+        connect().close()
+    return subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", *argv],
+                          env=dict(os.environ, THREADS_DB=DB, THREADS_SCHEMA_READY="1")).returncode
 
 
 def main(argv=None) -> int:
@@ -2465,6 +2291,12 @@ def main(argv=None) -> int:
         if code is not None:
             return code
         DB = SNAPSHOT
+    if argv[:1] and argv[0] in RUST_VERBS:
+        try:
+            return delegate(argv)
+        except (Refused, sqlite3.DatabaseError) as e:
+            print(f"NorthThreads: {e}", file=sys.stderr)
+            return 1
     a = parser().parse_args(argv)
     try:
         if DB == SNAPSHOT:

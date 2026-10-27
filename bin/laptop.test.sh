@@ -8,7 +8,7 @@ trap 'rm -rf "${scratch:?}"' EXIT
 mkdir -p "$scratch/bin" "$scratch/run" "$scratch/state"
 export THREADS_DB=$scratch/threads.db LAPTOP_STATE=$scratch/placement/laptop.json
 export LAPTOP_WINDOW_FILE=$scratch/window.json XDG_RUNTIME_DIR=$scratch/run XDG_STATE_HOME=$scratch/state
-export AGENTS_ORCHESTRATION=$scratch/orchestration.toml PATH=$scratch/bin:$repo/bin:$PATH
+export AGENTS_ORCHESTRATION=$scratch/orchestration.toml PATH=$scratch/bin:$repo/bin:$PATH NORTH_BIN=$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north
 : >"$AGENTS_ORCHESTRATION"
 printf '{"tz": "Etc/GMT-8", "open": "23:00", "close": "10:00"}\n' >"$LAPTOP_WINDOW_FILE"
 printf '#!/bin/sh\nexit 1\n' >"$scratch/bin/bun"
