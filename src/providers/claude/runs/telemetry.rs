@@ -16,14 +16,14 @@ static REMINDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^<system-remind
 
 const SYNTHETIC: &str = "<synthetic>";
 
-pub(super) struct Prices {
+pub(crate) struct Prices {
     rates: HashMap<String, (f64, f64)>,
     by_price: bool,
     efforts: Vec<(String, Value)>,
 }
 
 impl Prices {
-    pub(super) fn parse(catalog: &str, defaults: &str) -> Self {
+    pub(crate) fn parse(catalog: &str, defaults: &str) -> Self {
         let catalog: DocumentMut = catalog.parse().expect("harness/model-catalog.toml parses");
         let defaults: DocumentMut = defaults.parse().expect("harness/defaults.toml parses");
         let by_price = defaults.get("plan_meter_weighting").and_then(|entry| entry.get("value")).and_then(|value| value.as_str()) == Some("price");
@@ -41,7 +41,7 @@ impl Prices {
         Self { rates, by_price, efforts }
     }
 
-    fn weight(&self, model: Option<&str>, tokens: [f64; 4]) -> (f64, bool) {
+    pub(crate) fn weight(&self, model: Option<&str>, tokens: [f64; 4]) -> (f64, bool) {
         let [input, write, read, output] = tokens;
         match model.and_then(|model| self.rates.get(model)).filter(|_| self.by_price) {
             Some((rate_in, rate_out)) => (input * rate_in + write * rate_in * 1.25 + read * rate_in * 0.1 + output * rate_out, true),
@@ -52,12 +52,20 @@ impl Prices {
         }
     }
 
-    fn effort(&self, model: Option<&str>) -> Value {
+    pub(crate) fn lists(&self, model: &str) -> bool {
+        self.rates.contains_key(model)
+    }
+
+    pub(crate) fn by_price(&self) -> bool {
+        self.by_price
+    }
+
+    pub(crate) fn effort(&self, model: Option<&str>) -> Value {
         self.efforts.iter().find(|(name, _)| Some(name.as_str()) == model).map_or(Value::Null, |(_, effort)| effort.clone())
     }
 }
 
-pub(super) fn record_text(record: &Value) -> String {
+pub(crate) fn record_text(record: &Value) -> String {
     let body = ["message", "payload", "attachment"].iter().map(|key| &record[*key]).find(|value| truthy(value)).unwrap_or(record);
     let content = ["content", "prompt", "text"].iter().map(|key| &body[*key]).find(|value| truthy(value)).unwrap_or(&Value::Null);
     match content {
@@ -77,7 +85,7 @@ pub(super) fn record_text(record: &Value) -> String {
     }
 }
 
-fn hook_fire(record: &Value) -> bool {
+pub(crate) fn hook_fire(record: &Value) -> bool {
     let text = record_text(record);
     let text = text.trim();
     let text = match serde_json::from_str::<Value>(text) {
@@ -105,10 +113,10 @@ fn request_key(record: &Value, index: usize) -> Key {
         .map_or(Key::Index(index), |value| Key::Text(value.as_str().map_or_else(|| value.to_string(), str::to_owned)))
 }
 
-struct Request {
-    at: Option<String>,
-    total: i64,
-    cache: i64,
+pub(crate) struct Request {
+    pub(crate) at: Option<String>,
+    pub(crate) total: i64,
+    pub(crate) cache: i64,
 }
 
 pub(super) fn context_metrics(records: &[Value]) -> Map<String, Value> {
@@ -156,7 +164,7 @@ pub(super) fn context_metrics(records: &[Value]) -> Map<String, Value> {
     out
 }
 
-fn idle_gap_misses(values: &[&Request]) -> usize {
+pub(crate) fn idle_gap_misses(values: &[&Request]) -> usize {
     let (mut misses, mut previous) = (0, None);
     for value in values {
         let Some(at) = value.at.as_deref().filter(|at| !at.is_empty()).and_then(|at| Timestamp::parse(at).ok()) else { continue };

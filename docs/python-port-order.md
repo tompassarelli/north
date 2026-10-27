@@ -92,7 +92,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 ## Python callers outside `harness/lib`
 
 These import the cycle's modules directly and change in the same commit as the module they import:
-`bin/agents`, `bin/threads`, `bin/model-watch`, `bin/usage-web-read`, `bin/worker-ledger`,
+`bin/agents`, `bin/threads`, `bin/model-watch`, `bin/usage-web-read`,
 `harness/hooks/lib/codex_behavior.py`, `harness/hooks/lib/spawn_capacity.py`,
 `harness/scripts/codex-route-propose.py`, `harness/scripts/harness-tuner.py`,
 `harness/scripts/policy-replay.py` and `harness/scripts/watch-digest-scenario.py`.

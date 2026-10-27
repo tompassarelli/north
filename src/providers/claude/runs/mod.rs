@@ -14,20 +14,20 @@ use crate::foundation::clock::Timestamp;
 
 use super::accounts::{config_file, default_home};
 
-mod landing;
+pub(crate) mod landing;
 mod outcome;
-mod row;
-mod telemetry;
+pub(crate) mod row;
+pub(crate) mod telemetry;
 
 use landing::MainIndex;
 use telemetry::Prices;
 
 const USAGE: &str = "Usage: north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE]";
-const CATALOG: &str = include_str!("../../../../harness/model-catalog.toml");
-const DEFAULTS: &str = include_str!("../../../../harness/defaults.toml");
+pub(crate) const CATALOG: &str = include_str!("../../../../harness/model-catalog.toml");
+pub(crate) const DEFAULTS: &str = include_str!("../../../../harness/defaults.toml");
 const DAY: Duration = Duration::from_secs(86_400);
 
-pub(super) fn truthy(value: &Value) -> bool {
+pub(crate) fn truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
         Value::Bool(flag) => *flag,
@@ -38,15 +38,15 @@ pub(super) fn truthy(value: &Value) -> bool {
     }
 }
 
-pub(super) fn present(value: &Value) -> bool {
+pub(crate) fn present(value: &Value) -> bool {
     !matches!(value, Value::Null | Value::Bool(false))
 }
 
-pub(super) fn int(value: &Value) -> i64 {
+pub(crate) fn int(value: &Value) -> i64 {
     value.as_i64().or_else(|| value.as_f64().map(|number| number as i64)).unwrap_or(0)
 }
 
-pub(super) fn number(value: f64) -> Value {
+pub(crate) fn number(value: f64) -> Value {
     if value.fract() == 0.0 && value.abs() < 9e15 { json!(value as i64) } else { json!(value) }
 }
 
@@ -79,20 +79,34 @@ struct Ledger {
 
 pub fn run(arguments: &[String]) -> NorthResult<()> {
     let options = parse(arguments)?;
+    let main = std::env::var_os("LEDGER_MAIN").and_then(|path| fs::read_to_string(path).ok()).unwrap_or_default();
+    let mut out = BufWriter::new(io::stdout().lock());
+    emit(&options, &main, &mut out)?;
+    Ok(out.flush()?)
+}
+
+pub(crate) fn rows(session: Option<&str>, since: &str, settled: HashSet<String>, recorded: HashSet<String>, main: &str, out: &mut impl Write) -> NorthResult<()> {
+    let options = Options { session: session.map(str::to_owned).filter(|session| !session.is_empty()), since: since.to_owned(), settled, recorded };
+    emit(&options, main, out)
+}
+
+fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<()> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or_else(|| NorthError::Usage("no home directory".into()))?);
     let policy = fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse().ok());
-    let main = std::env::var_os("LEDGER_MAIN").and_then(|path| fs::read_to_string(path).ok()).unwrap_or_default();
-    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main: MainIndex::parse(&main), sessions: fleet_sessions(), now: Timestamp::now() };
+    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main: MainIndex::parse(main), sessions: fleet_sessions(), now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
-    let mut out = BufWriter::new(io::stdout().lock());
     for root in roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name()) {
-        for path in transcripts(&root.projects, &options) {
-            if let Some(row) = record(&ledger, &options, &root, &path) {
+        for path in transcripts(&root.projects, options) {
+            if let Some(row) = record(&ledger, options, &root, &path) {
                 writeln!(out, "{}", Value::Object(row))?;
             }
         }
     }
-    Ok(out.flush()?)
+    Ok(())
+}
+
+pub(crate) fn north_program() -> String {
+    std::env::var("NORTH_BIN").ok().filter(|path| !path.is_empty()).unwrap_or_else(|| "north".into())
 }
 
 fn parse(arguments: &[String]) -> NorthResult<Options> {
@@ -113,7 +127,7 @@ fn parse(arguments: &[String]) -> NorthResult<Options> {
 }
 
 fn fleet_sessions() -> HashMap<String, FleetSession> {
-    let north = std::env::var("NORTH_BIN").ok().filter(|path| !path.is_empty()).unwrap_or_else(|| "north".into());
+    let north = north_program();
     let Ok(output) = Command::new(north).args(["fleet", "list", "--json", "--all"]).output() else { return HashMap::new() };
     let nodes: Vec<Value> = serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success()).unwrap_or_default();
     let mut sessions = HashMap::new();

@@ -5,10 +5,10 @@ Detail behind `SKILL.md`. Read a section only when its question comes up.
 ## Tier and ledger experiments
 
 These rules come from the ledger and are experiments. Recheck
-`worker-ledger --summary` after every 10 new closures in a category, and change
+`north worker-ledger --summary` after every 10 new closures in a category, and change
 a rule when its numbers move.
 
-- `worker-ledger --recommend` uses an 80% measured success
+- `north worker-ledger --recommend` uses an 80% measured success
   threshold. A run counts toward the threshold when it reported Done with
   no later `Follows:` run and, if it committed, its commit landed. The command
   names the cheapest tier that meets the threshold in the finest cell with at least 5
@@ -46,10 +46,10 @@ a rule when its numbers move.
 - Staff `planner` at Opus high by default. Tom's hypothesis (2026-10-12) is
   that high fits about 90% of plans, xhigh the next 8% and `max` the top 2%.
 - Pass `effort: xhigh` or `max` only with evidence from our own data (a high
-  plan for the same issue came back Not done, or `worker-ledger` shows high
+  plan for the same issue came back Not done, or `north worker-ledger` shows high
   plans in that category closing worse) or when Tom asks. Name that evidence
   in the brief, and rank complexity against past planned work in
-  `worker-ledger`, not by feel.
+  `north worker-ledger`, not by feel.
 - Staff it for a plan, not code, when an issue gets its second Not done, a
   category's last 10 runs fall below 40% closed, or the change is
   architectural.
@@ -110,7 +110,7 @@ a rule when its numbers move.
 - The worker-handoff hook nudges an Agent-tool worker between tool calls. A
   fleet worker gets the 350k nudge from its session host only when its brief
   says `Arm: handoff-350k`; north dispatch alternates that arm with
-  `Arm: no-handoff` until `worker-ledger --summary --by arm` can compare them
+  `Arm: no-handoff` until `north worker-ledger --summary --by arm` can compare them
   (north#252). The worker-wait-guard hook keeps workers out of foreground
   waits, so messages reach them at once.
 - A recycled worker writes its handoff at a natural checkpoint. Check the fresh

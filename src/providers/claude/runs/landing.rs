@@ -22,13 +22,13 @@ static GH_ISSUE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static THREADS_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:\S+/)?threads (?:show|claim|release) ").unwrap());
 
-pub(super) struct MainIndex {
+pub(crate) struct MainIndex {
     shas: Vec<(String, String)>,
     subjects: HashMap<String, Vec<(String, String)>>,
 }
 
 impl MainIndex {
-    pub(super) fn parse(text: &str) -> Self {
+    pub(crate) fn parse(text: &str) -> Self {
         let mut shas: Vec<(String, String)> = Vec::new();
         let mut positions: HashMap<String, usize> = HashMap::new();
         let mut subjects: HashMap<String, Vec<(String, String)>> = HashMap::new();
@@ -48,14 +48,14 @@ impl MainIndex {
     }
 }
 
-pub(super) struct Step {
-    command: Option<String>,
-    code: Option<i64>,
-    output: Option<String>,
-    finished: Option<String>,
+pub(crate) struct Step {
+    pub(crate) command: Option<String>,
+    pub(crate) code: Option<i64>,
+    pub(crate) output: Option<String>,
+    pub(crate) finished: Option<String>,
 }
 
-pub(super) fn utc(text: Option<&str>) -> Option<String> {
+pub(crate) fn utc(text: Option<&str>) -> Option<String> {
     text.filter(|text| !text.is_empty()).and_then(|text| Timestamp::parse(text).ok()).map(Timestamp::iso)
 }
 
@@ -102,7 +102,7 @@ pub(super) fn checks(records: &[Value], main: &MainIndex) -> Map<String, Value> 
     out
 }
 
-fn tally(steps: &[Step], main: &MainIndex) -> Map<String, Value> {
+pub(crate) fn tally(steps: &[Step], main: &MainIndex) -> Map<String, Value> {
     let (mut pushed, mut committed, mut first_commit) = (false, false, None);
     let (mut made_shas, mut made_subjects, mut refs) = (Vec::<String>::new(), Vec::<String>::new(), Vec::<String>::new());
     for step in steps {

@@ -8,10 +8,10 @@ use super::{int, number, outcome, present};
 use crate::foundation::clock::Timestamp;
 
 static WAITING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(waiting|i.ll wait|i.ll pick|the test run)").unwrap());
-static ETA: LazyLock<Regex> =
+pub(crate) static ETA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bETA\b[^0-9\n]{0,12}([0-9]+(?:\.[0-9]+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b").unwrap());
-static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted flaws?:\s*([0-9]+)").unwrap());
-static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
+pub(crate) static FLAWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\baccepted flaws?:\s*([0-9]+)").unwrap());
+pub(crate) static SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 const RUNNING_SECONDS: i64 = 7200;
 
 pub(super) struct Transcript<'a> {
@@ -41,7 +41,7 @@ fn texts(record: &Value) -> String {
     }
 }
 
-fn prefix(text: &str, length: usize) -> String {
+pub(crate) fn prefix(text: &str, length: usize) -> String {
     text.chars().take(length).collect()
 }
 
@@ -56,7 +56,7 @@ fn finished(last: &Value) -> bool {
     !parts.iter().any(|part| part["type"] == "tool_use") && length > 0 && (length > 200 || !WAITING.is_match(&text))
 }
 
-fn eta(brief: &str) -> Value {
+pub(crate) fn eta(brief: &str) -> Value {
     ETA.captures(brief).map_or(Value::Null, |found| {
         let amount: f64 = found[1].parse().unwrap_or(0.0);
         number(amount * if found[2].starts_with('h') { 60.0 } else { 1.0 })

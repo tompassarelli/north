@@ -30,7 +30,7 @@ a change lands: [docs/harness.md](docs/harness.md).
 ## Where things live
 
 - [src/](src/): the `north` fleet runtime, terminal screen and authorized host effects.
-- [bin/](bin/): every harness command (`agents`, `threads`, `safe-push`, `worker-ledger` and more).
+- [bin/](bin/): every harness command (`agents`, `threads`, `safe-push` and more).
 - [harness/](harness/): hooks, skills, defaults and policy owners.
 - [agent-machinery/](agent-machinery/): provider-independent doctrine, contracts and skills.
 - [docs/](docs/): the documents below.

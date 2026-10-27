@@ -31,6 +31,7 @@ pub(super) enum Tool {
     Dispatch,
     Tune,
     LandClean,
+    WorkerLedger,
 }
 
 impl Tool {
@@ -59,6 +60,7 @@ impl Tool {
             "dispatch" => Self::Dispatch,
             "tune" => Self::Tune,
             "land-clean" => Self::LandClean,
+            "worker-ledger" => Self::WorkerLedger,
             _ => return None,
         })
     }
@@ -90,6 +92,7 @@ impl Tool {
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Runtime => return ExitCode::from(crate::ops::runtime::run(arguments)),
             Self::Tune => return ExitCode::from(crate::ops::tune::run(arguments)),
+            Self::WorkerLedger => return super::worker_ledger::run(arguments),
         };
         super::in_runtime(async move { Ok(ExitCode::from(run(arguments))) })
     }

@@ -42,7 +42,7 @@ pub(crate) struct Survey {
     /// Dispatch's earlier launches by tier, which a Haiku retry and the next arm read.
     pub history: History,
     pub handoffs: Arms,
-    /// `worker-ledger --recommend` for each armed category.
+    /// `north worker-ledger --recommend` for each armed category.
     pub ledger: BTreeMap<String, Evidence>,
     /// The closed boxes and prior reports each brief grounds its ETA, budget and trace in.
     pub grounds: Ledger,
@@ -279,13 +279,13 @@ pub(crate) fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap
     let closed = crate::ledger::closed_report(tier::ARM_WINDOW).map_err(|why| notes.push(format!("north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message())));
     for category in categories {
         let facets = format!("Category: {category}");
-        let program = crate::fleet::runtime::binary("worker-ledger");
-        match run_within(&program.to_string_lossy(), &["--recommend", &facets], PROBE) {
+        let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
+        match run_within(&north, &["worker-ledger", "--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
                 found.insert((*category).to_owned(), closed.as_ref().map_or(read.clone(), |report| read.priced(report, category)));
             }
-            _ => notes.push(format!("worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
+            _ => notes.push(format!("north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
         }
     }
     found

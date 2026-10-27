@@ -25,6 +25,7 @@ mod safe_push_result;
 #[cfg(test)]
 mod tests;
 mod tools;
+mod worker_ledger;
 
 use tools::Tool;
 

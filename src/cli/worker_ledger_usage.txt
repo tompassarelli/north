@@ -1,0 +1,43 @@
+usage: north worker-ledger [--session ID] [--since DATE] [--backfill]   record finished workers as runs in NorthThreads
+       north worker-ledger --summary [--since DATE] [--by LIST]         per cell x tier: runs against ETA, issues closed, flaws per Lens
+       north worker-ledger --recommend [--planner] 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
+  --session ID  only that session's workers (default: every provider, active in the last day)
+  --since DATE  only workers active on or after DATE (e.g. 2026-10-08)
+  --backfill    also reread recorded runs and fill facets and context telemetry
+  --by LIST     group by a comma list of category, spec, scope, surface, verify, arm (default category)
+Summary measures workers, Fleet parents and proxy by category: peak_ctx_p50/p90,
+compactions/run, handoff_fires, cache_read_share and idle_gap_misses. Leadership has no worker success/ETA cells.
+Claude workers count transcript hook attachments. handoff_ignored counts fires without a HANDOFF message or Done:/Not done: report in the next three assistant turns.
+A running worker whose brief names `Item:` holds that issue until it finishes.
+Each recording run ends with harness/lib/recalibrate.py: `threads calibrate --write` on the ledger host (no
+~/.config/threads/remote) when the newest calibration row is over calibrate_after_min old, and, on the host with the
+Codex rollouts, `defaults-measure.py --priors` recorded as kind prior rows once a week from Monday 00:00Z.
+One adapter per provider reads its local session store into the same rows: Claude Code transcripts, Codex
+rollouts (${CODEX_CONFIG_DIR}) and Gemini print-mode runs of agy (${AGY_CONFIG_DIR:-~/.gemini/antigravity-cli}:
+model from its run log, parent Claude session from its workspace). A Grok adapter is one more block.
+Codex runs take Item, ETA and Category from their launch prompt in the Fleet transcript, then fall back to issue evidence in commits and commands.
+A brief read by the worker in a plaintext tool call also supplies Item, Category and explicit facets; conflicting briefs require a declared Lane matching the working directory or Item matching its recorded Item.
+Category then falls back to the issue labels; its tier comes from the Codex thread store, and a Fleet parent
+(a thread that spawned agents) is measured separately from worker success/ETA cells.
+Each run also records stage times from its transcript and git: staffed (spawned), review requested (first
+report back) and landed (its commit's time on origin/main after its first commit; runs that committed are reread
+for 3 days until it lands).
+The worker-ledger timer runs it every 15 minutes for every provider.
+Briefs carry `Item: <repo#N>`, `Follows: <agent id>`, `Category: <name>`, optional `Arm: escalate|cheap-fix|split`, the facets
+`Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`,
+`Surface: ts|lua|nix|shell|workflow|docs|assets`, `Verify: none|local-test|farm|native|visual`, and for adversarial
+reviewers `Lens: <lens>`; a reviewer report stating `Accepted flaws: N` counts N for its lens.
+A run reporting `Split:` counts in no tier rate; the runs whose `Follows:` names it are its parts.
+A run succeeds when it reports Done (ruled out included) with no later Follows: run, and landed when it made
+a commit (a git commit or push in its transcript), where a commit counts as landed when it, or one with
+its subject (from -m, a -F - heredoc, or its lane's origin/main.. listing), is on origin/main of a repo in
+${LEDGER_REPOS:-~/code/*/main}, whoever pushed it; no_landing counts committed runs that did not land.
+A `[routine:<name>]` brief records role routine and a session run from a /tmp cwd role probe, outside worker cells.
+--recommend uses an 80% measured success threshold over every provider's tiers (orchestration.toml keys); in the finest cell with >= 5 runs,
+backing off Surface, Verify, Scope, then Spec, it picks the passing tier with the lowest measured $ per success, or the cheapest by
+tier order when a passing tier has under 5 priced runs, and prints the rule; a dearer passing tier replaces a cell's last pick only when 15 points better.
+When no tier passes, it picks the sampled tier with the lowest measured $ per success, or prints insufficient evidence when none has measured costs.
+Runs live on Nexus through NorthThreads; the local read-only mirror is ~/.local/state/threads/snapshot.db.
+Summary includes delivery medians by model/effort/fast and project. Costs allocate included weekly
+account spend over readout intervals by each request's list price (model-catalog.toml); a model without
+a price falls back to token weight and is named in threads ingest's output.

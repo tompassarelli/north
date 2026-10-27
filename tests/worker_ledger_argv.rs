@@ -6,9 +6,9 @@ use std::process::{Command, Output};
 const RUNS: u32 = 40_000;
 
 fn ledger(root: &Path) -> Output {
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/worker-ledger");
-    Command::new(script)
-        .args(["--since", "2026-10-08"])
+    Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["worker-ledger", "--since", "2026-10-08"])
+        .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))
         .env("HOME", root)
         .env("XDG_STATE_HOME", root.join("state"))
         .env("THREADS_DB", root.join("threads.db"))
@@ -27,7 +27,7 @@ fn recorded_run_history_reaches_the_join_steps_without_argv() {
     let root = scratch.path();
     fs::create_dir_all(root.join("bin")).unwrap();
     let north = root.join("bin/north");
-    fs::write(&north, format!("#!/bin/sh\n[ \"$1\" = ledger ] && exec {} \"$@\"\nprintf '[]\\n'\n", env!("CARGO_BIN_EXE_north"))).unwrap();
+    fs::write(&north, "#!/bin/sh\nprintf '[]\\n'\n").unwrap();
     fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
     ledger(root);
     let insert = format!(
