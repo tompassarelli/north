@@ -70,11 +70,19 @@ pub(super) fn decide(source: &str, cwd: &Path, leased: bool, depth: usize) -> De
     if depth > 8 {
         return Decision::Allow;
     }
-    let Some(tokens) = shell::words(&shell::strip_heredocs(source)) else {
+    let text = shell::strip_heredocs(source);
+    let Some(tokens) = shell::words(&text) else {
         return Decision::Allow;
     };
     let mut cwd = cwd.to_path_buf();
     let mut result = Decision::Allow;
+    for body in shell::shell_substitutions(&text) {
+        match decide(&body, &cwd, leased, depth + 1) {
+            refused @ Decision::Refuse(_) => return refused,
+            Decision::Route => result = Decision::Route,
+            Decision::Allow => {}
+        }
+    }
     for segment in shell::segments(&tokens) {
         let words = &segment[shell::command(&segment, PREFIXES)..];
         if words.is_empty() {

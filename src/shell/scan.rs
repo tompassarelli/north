@@ -75,6 +75,11 @@ impl Scanner {
                 Class::Quoted,
             );
         }
+        if c == '$' && self.chars.get(i + 1) == Some(&'\'') {
+            self.previous = None;
+            let end = ansi_c_end(&self.chars, i + 2);
+            return self.mark(i..end, Class::Quoted);
+        }
         if c == '"' {
             self.previous = None;
             self.stack.push(Frame::Double);
@@ -117,4 +122,15 @@ impl Scanner {
             _ => self.mark(i..i + 1, Class::Quoted),
         }
     }
+}
+
+fn ansi_c_end(chars: &[char], mut i: usize) -> usize {
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => i += 2,
+            '\'' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    chars.len()
 }

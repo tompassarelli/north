@@ -15,10 +15,12 @@ pub fn blank_quotes(text: &str) -> String {
     let mut i = 0;
     while i < text.len() {
         let c = text[i];
-        if c == '\'' || c == '"' {
-            let mut j = i + 1;
+        let ansi_c = c == '$' && text.get(i + 1) == Some(&'\'');
+        if ansi_c || c == '\'' || c == '"' {
+            let c = if ansi_c { '\'' } else { c };
+            let mut j = i + if ansi_c { 2 } else { 1 };
             while j < text.len() {
-                if c == '"' && text[j] == '\\' && j + 1 < text.len() {
+                if (c == '"' || ansi_c) && text[j] == '\\' && j + 1 < text.len() {
                     j += 2;
                     continue;
                 }

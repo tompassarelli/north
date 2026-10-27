@@ -197,7 +197,10 @@ pub fn lex(text: &str) -> Option<Vec<String>> {
             tokens.push(std::mem::take(&mut buf));
         }
         punctuation = is_punct;
-        if c == '\'' || c == '"' {
+        if c == '$' && chars.get(i + 1) == Some(&'\'') {
+            i = read_ansi_c(&chars, i + 2, &mut buf)?;
+            started = true;
+        } else if c == '\'' || c == '"' {
             i = read_quoted(&chars, i + 1, c, &mut buf)?;
             started = true;
         } else if c == '\\' {
@@ -218,6 +221,17 @@ pub fn lex(text: &str) -> Option<Vec<String>> {
         tokens.push(buf);
     }
     Some(tokens)
+}
+
+fn read_ansi_c(chars: &[char], mut i: usize, buf: &mut String) -> Option<usize> {
+    while i < chars.len() && chars[i] != '\'' {
+        if chars[i] == '\\' {
+            i += 1;
+        }
+        buf.push(*chars.get(i)?);
+        i += 1;
+    }
+    (i < chars.len()).then_some(i + 1)
 }
 
 fn read_quoted(chars: &[char], mut i: usize, quote: char, buf: &mut String) -> Option<usize> {
