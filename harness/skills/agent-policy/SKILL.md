@@ -5,7 +5,7 @@ description: >-
   turn explicit lasting instructions, repeated corrections or demonstrated recurring lessons into scoped policy;
   import third-party skills into the shared catalog; implement or change a command/write guard and its
   identity, activity gate, provider wiring, and deny/pass fixtures; audit or redesign the harness against the
-  authoring guides.
+  authoring guides; review a followed outside source on its monthly cycle.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:
@@ -68,6 +68,8 @@ facts count.
   identity, activity gate, provider wiring or fixtures.
 - [importing.md](references/importing.md): importing a third-party skill;
   licensing goes through `external-code` first.
+- [watching.md](references/watching.md): a followed outside source is due
+  for its monthly review, or a source joins the follow list.
 - [guides.md](references/guides.md): harness redesign or audit. Run
   `bun run check:guides` in `agent-machinery/` first, because guides older than
   90 days are stale.

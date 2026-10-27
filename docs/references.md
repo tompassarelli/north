@@ -68,6 +68,14 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Informed: north#35 box 6, [feedback-loop.md](feedback-loop.md#learned-routing-backtest).
   Outcome: rejected; it routes on prompt text, and the ledger holds no brief text at decision time.
 
+- <a id="pstack"></a>**pstack** (Lauren Tan; `cursor/plugins` under `pstack/`, MIT), https://github.com/cursor/plugins/tree/main/pstack,
+  read at `e5136d8` on 2026-10-15 and at `519d36a` on 2026-10-27. A followed source
+  ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: the 2026-10-15 adoption of artifact-bound verdicts, a verification driver (`verify_north`), the
+  correction ladder, gates with defaults, standing orders and the flat org; the 2026-10-27 review
+  [rationale/watch/2026-10-27-pstack.md](rationale/watch/2026-10-27-pstack.md), north#262, north#263 and north#264.
+  Outcome: adopted as ideas, no code copied; the three 2026-10-27 mechanisms are under test.
+
 ### Statistics
 
 - <a id="wilson-interval"></a>**Wilson score interval** (E. B. Wilson, "Probable Inference, the Law of Succession, and Statistical
