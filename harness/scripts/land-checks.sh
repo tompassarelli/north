@@ -61,7 +61,7 @@ for ((next = 0; next < ${#queue[@]}; next++)); do
   done <"$scratch/matches"
 done
 if [ "${#selected[@]}" -gt 0 ] && [ -f Cargo.toml ]; then
-  ./bin/depbox run -- nix develop -c cargo build --locked --offline --bin north
+  ./bin/depbox run -- nix develop -c env CARGO_INCREMENTAL=0 cargo build --locked --offline --bin north
 fi
 north=${CARGO_TARGET_DIR:-target}/debug/north
 [ ! -x "$north" ] || { NORTH_PACE_BIN=$(realpath "$north"); export NORTH_PACE_BIN; }

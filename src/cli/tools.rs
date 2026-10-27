@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use crate::landing::denylist;
+use crate::landing::{denylist, lane_target};
 use crate::{
     autoland_status, capacity, dep_gate, follows_release, issue_box_lint, land_abandon, provenance,
     review_gate,
@@ -28,6 +28,7 @@ pub(super) enum Tool {
     Cloud,
     Dispatch,
     Tune,
+    LandClean,
 }
 
 impl Tool {
@@ -53,6 +54,7 @@ impl Tool {
             "cloud" => Self::Cloud,
             "dispatch" => Self::Dispatch,
             "tune" => Self::Tune,
+            "land-clean" => Self::LandClean,
             _ => return None,
         })
     }
@@ -68,6 +70,7 @@ impl Tool {
             Self::AutolandStatus => autoland_status::run,
             Self::AutolandWait => autoland_status::wait,
             Self::LandAbandon => land_abandon::abandon,
+            Self::LandClean => lane_target::run,
             Self::SafePushResult => super::safe_push_result::run,
             Self::Provenance => provenance::run,
             Self::IssueBoxLint => issue_box_lint::run,

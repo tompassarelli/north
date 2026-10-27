@@ -67,6 +67,7 @@ safe_push_terminal() {
 safe_push_exit() {
   local status=$?
   if declare -F finish_push >/dev/null; then finish_push; fi
+  [ -z "${land_check_root:-}" ] || release_land_check_build "$land_check_root"
   if [ "${NORTH_NO_AUTOREAP:-0}" = 1 ]; then exit "$status"; fi
   safe_push_terminal "$status"
 }
@@ -142,7 +143,8 @@ Options:
                a BRANCH other than origin's default (farm/*, scratch) skips
                the lock and the queue and runs the hook in its own push
   --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
-               keep the lane instead of removing it and its branch
+               keep the lane instead of removing it and its branch, and keep
+               the cargo target its land checks otherwise remove
   --direct     with --to main in an Autoland repository, push main directly
                instead of joining the queue; emergencies only, logged in
                ~/.local/state/safe-push/direct-landings.tsv
@@ -1009,6 +1011,7 @@ run_land_checks() {
     commands+=("$command")
   done <<<"$entries"
   for command in "${commands[@]}"; do
+    land_check_root=$root
     log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
     mkdir -p "$log_dir"
     log_dir=$(cd "$log_dir" && pwd -P)
@@ -1032,6 +1035,11 @@ run_land_checks() {
     fi
     rm -f -- "$log"
   done
+}
+
+release_land_check_build() {
+  [ "${keep_lane:-0}" -eq 0 ] || return 0
+  north land-clean "$1" || true
 }
 
 reap_log_pipes() {

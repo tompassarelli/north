@@ -544,6 +544,7 @@ printf 'PASS: a fresh north worktree installs agent-machinery before its land ch
 
 make_real_fixture land-check-boundary
 land_home="$real_fixture/home"
+land_clean_trace="$real_fixture/land-clean-trace"
 mkdir -p "$land_home"
 land_remote_before=$(real_remote_state)
 land_command='printf "ran\\n" >> check-runs; printf "PASS before\\n"; printf "FAIL named-land-case\\n" >&2; printf "PASS after\\n"; exit 23'
@@ -554,7 +555,8 @@ land_command='printf "ran\\n" >> check-runs; printf "PASS before\\n"; printf "FA
 printf 'changed\n' >"$real_repo/file.txt"
 "$real_git" -C "$real_repo" add file.txt
 "$real_git" -C "$real_repo" commit -qm 'changed input'
-HOME="$land_home" run_real_case '' --to main
+: >"$land_clean_trace"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case '' --to main
 expect_status nonzero
 land_log=${case_output##*exited 23; log: }
 land_log=${land_log%%; NOT pushed.*}
@@ -567,6 +569,7 @@ while IFS= read -r line; do
 done <"$real_fixture/expected-log"
 [ "$(wc -c <"$land_log")" -eq "$(wc -c <"$real_fixture/expected-log")" ] || fail 'failure log changed output bytes'
 [ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'matching check did not run exactly once'
+grep -Fxq "north <land-clean> <$real_repo>" "$land_clean_trace" || fail 'a failed land check left the lane build output'
 [ "$(real_remote_state)" = "$land_remote_before" ] || fail 'failing land check published'
 "$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
 land_command='printf "PASS stdout\\n"; printf "PASS stderr\\n" >&2'
@@ -578,13 +581,23 @@ unrelated_land_log="$xdg_state/safe-push/unrelated.log"
 printf old >"$stale_land_log"
 printf unrelated >"$unrelated_land_log"
 touch -d '16 days ago' "$stale_land_log" "$unrelated_land_log"
-HOME="$land_home" run_real_case '' --dry-run --to main
+: >"$land_clean_trace"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case '' --dry-run --to main
 expect_status zero
 expect_output "safe-push: land check: $land_command"
 expect_output 'PASS stdout'
 expect_output 'PASS stderr'
 expect_output 'safe-push: ✓ clean (--dry-run)'
 ! grep -Fq 'log:' <<<"$case_output" || fail 'successful check added visible logging output'
+grep -Fxq "north <land-clean> <$real_repo>" "$land_clean_trace" || fail 'a passing land check left the lane build output'
+: >"$land_clean_trace"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case '' --dry-run --to main --keep-lane
+expect_status zero
+! grep -Fq '<land-clean>' "$land_clean_trace" || fail '--keep-lane released the lane build output'
+: >"$land_clean_trace"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case '' --dry-run --to other
+expect_status zero
+! grep -Fq '<land-clean>' "$land_clean_trace" || fail 'a push to a non-main branch released the lane build output'
 land_logs=("$xdg_state/safe-push/land-check-"*.log)
 [ "${#land_logs[@]}" -eq 1 ] && [ "${land_logs[0]}" = "$land_log" ] || fail 'successful check retained a log or removed failure log'
 [ ! -e "$stale_land_log" ] || fail 'old failure log was not pruned'
@@ -611,9 +624,11 @@ expect_output 'safe-push: ✓ clean (--dry-run)'
 "$real_git" -C "$real_repo" add .safe-push
 "$real_git" -C "$real_repo" commit -qm 'unmatched check'
 printf 'uncommitted land.check must not run\n' >>"$real_repo/.safe-push"
-HOME="$land_home" run_real_case '' --dry-run --to main
+: >"$land_clean_trace"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case '' --dry-run --to main
 expect_status zero
 [ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'unmatched or uncommitted check ran'
+! grep -Fq '<land-clean>' "$land_clean_trace" || fail 'a push that ran no land check released the lane build output'
 "$real_git" -C "$real_repo" checkout -- .safe-push
 "$real_git" -C "$real_repo" rm -q .safe-push
 "$real_git" -C "$real_repo" commit -qm 'no land.check'
@@ -2142,6 +2157,26 @@ status_a=0; wait "$pid_a" || status_a=$?
 "$real_git" --git-dir="$landing_remote" cat-file -e main:other.txt || fail 'admitted lane dropped the disjoint main commit'
 grep -q "keeping the land checks' verdict" "$landing_root/a.out" || fail "missing kept-verdict receipt: $(cat "$landing_root/a.out")"
 printf 'PASS: recorded admitted land check runs unlocked; a disjoint main move keeps its verdict\n'
+
+new_landing_origin land-check-retry
+printf '1\n2\n3\n4\n5\n' >"$landing_root/seed/shared.txt"
+"$real_git" -C "$landing_root/seed" commit -qam 'five shared lines'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+make_landing_clone "$landing_root/a" a.txt
+sed -i '1s/.*/a/' "$landing_root/a/shared.txt"
+"$real_git" -C "$landing_root/a" commit -qam 'a edits the first shared line'
+sed -i '5s/.*/s/' "$landing_root/seed/shared.txt"
+"$real_git" -C "$landing_root/seed" commit -qam 'main edits the last shared line'
+land_command="printf 'run\\n' >>'$landing_root/runs'; if [ -e '$landing_root/moved' ]; then ! grep -q '^north <land-clean>' '$landing_root/north-trace'; else touch '$landing_root/moved'; git -C '$landing_root/seed' push -q '$landing_remote' main; fi"
+"$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity env
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt,shared.txt :: $land_command"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'retried land check'
+: >"$landing_root/north-trace"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$landing_root/north-trace" run_landing "$landing_root/a" || fail "retried lane failed: $(cat "$landing_root/a.out")"
+[ "$(wc -l <"$landing_root/runs")" -eq 2 ] || fail 'a main move touching a lane file did not rerun the land checks'
+[ "$(grep -c '^north <land-clean>' "$landing_root/north-trace")" -eq 1 ] || fail 'the lane build output was not released exactly once, after the last land check'
+printf 'PASS: a land check rerun keeps the lane build output until safe-push exits\n'
 
 new_landing_origin main-red-marker
 make_landing_clone "$landing_root/a" a.txt
