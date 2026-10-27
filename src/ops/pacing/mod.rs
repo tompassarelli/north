@@ -23,7 +23,10 @@ mod sampling;
 mod sampling_tests;
 mod storage;
 
-pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
+pub(crate) use sampling::TokenUsage;
+
+pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>, token_usage: TokenUsage) -> u8 {
+    sampling::install_token_usage(token_usage);
     if let [command, provider] = arguments
         && command == "gate" {
             return gate(provider);

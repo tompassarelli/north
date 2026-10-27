@@ -61,7 +61,7 @@ pub(super) fn operation(request: &Value) -> Result<Option<Value>, String> {
 }
 pub(super) fn cli(arguments: &[String]) -> Result<(), String> {
     if arguments.first().is_some_and(|s| s == "grant") {
-        let request = grant_request(arguments)?;
+        let request = grant_request(arguments, &sampling::config()?)?;
         println!("{}", operation(&request)?.ok_or("invalid operation")?);
         return Ok(());
     }
@@ -69,12 +69,17 @@ pub(super) fn cli(arguments: &[String]) -> Result<(), String> {
     sampling::sample(provider, initial, notify)?;
     Ok(())
 }
-fn grant_request(arguments: &[String]) -> Result<Value, String> {
+fn claude_labels(cfg: &toml_edit::DocumentMut) -> Vec<&str> {
+    let claude = cfg.get("accounts").and_then(|accounts| accounts.get("claude"));
+    ["profiles", "plans"]
+        .iter()
+        .filter_map(|key| claude?.get(key)?.as_table_like())
+        .flat_map(|table| table.iter().map(|(label, _)| label))
+        .collect()
+}
+pub(super) fn grant_request(arguments: &[String], cfg: &toml_edit::DocumentMut) -> Result<Value, String> {
     let account = arguments.get(1).ok_or("account required")?;
-    if !matches!(
-        account.as_str(),
-        "claude:a" | "claude:b" | "claude:c"
-    ) {
+    if !account.strip_prefix("claude:").is_some_and(|label| claude_labels(cfg).contains(&label)) {
         return Err("invalid grant account".into());
     }
     let maximum = arguments

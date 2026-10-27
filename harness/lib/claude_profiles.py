@@ -19,34 +19,21 @@ def config_dir(profile):
     return Path(profile["path"]).expanduser() if "path" in profile else None
 
 
-def account_for(directory):
-    import hashlib
-    path = (directory or Path.home()) / ".claude.json"
-    data = json.loads(path.read_text())
-    uuid = (data.get("oauthAccount") or {}).get("accountUuid")
-    return account_label("claude", hashlib.sha256(uuid.encode()).hexdigest()[:8]) if uuid else None
-
-
 def observed_plan(directory):
-    try:
-        credentials = json.loads(((directory or Path.home() / ".claude") / ".credentials.json").read_text())
-        oauth = credentials.get("claudeAiOauth") or {}
-    except (OSError, ValueError):
-        return "unknown"
+    def read(path, key):
+        try:
+            return json.loads(path.read_text()).get(key) or {}
+        except (OSError, ValueError):
+            return {}
+    account = read((directory or Path.home()) / ".claude.json", "oauthAccount")
+    oauth = read((directory or Path.home() / ".claude") / ".credentials.json", "claudeAiOauth")
     return {"default_claude_max_5x": "max-5x", "default_claude_max_20x": "max-20x"}.get(
-        oauth.get("rateLimitTier"), oauth.get("subscriptionType") or "unknown")
+        account.get("organizationRateLimitTier") or oauth.get("rateLimitTier"), oauth.get("subscriptionType") or "unknown")
 
 
-def select(label):
-    profile = profiles().get(label)
-    if profile is None:
-        raise ValueError(f"Claude account {label} has no profile on {socket.gethostname()}")
-    directory = config_dir(profile)
-    if directory is not None and not (directory / ".credentials.json").is_file():
-        raise ValueError(f"Claude account {label} is waiting for sign-in")
-    if account_for(directory) != label:
-        raise ValueError(f"Claude profile for account {label} is not signed in to that account")
-    return directory
+def token_account():
+    directory = Path(os.environ.get("CLAUDE_CONFIG_DIR", ""))
+    return next((label for label, profile in profiles().items() if "token_file" in profile and config_dir(profile) == directory), None)
 
 
 def sync():

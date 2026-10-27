@@ -2,7 +2,7 @@
 //! else the first host in placement order that serves the box and has a free slot.
 use super::issues::IssueRef;
 use super::cloud::{HOST, SESSIONS};
-use super::slots::{Account, Pools};
+use super::slots::{Account, Charge, Pools};
 use super::tier::Route;
 use std::cmp::Ordering;
 
@@ -56,8 +56,8 @@ pub(crate) struct Capacity<'a> {
 }
 
 impl Capacity<'_> {
-    fn charge(&self, account: &Account) -> f64 {
-        self.charge / account.plan
+    fn charge(&self, account: &Account) -> Charge {
+        Charge { five_hour: self.charge / account.plan.five_hour, week: self.charge / account.plan.week }
     }
 
     /// Whether the account can take one more box this run without crossing a window's stop.
@@ -73,7 +73,7 @@ fn rank(pools: &Pools, a: &Account, b: &Account) -> Ordering {
     a.spending
         .cmp(&b.spending)
         .then(room_a.expiring(a.plan).total_cmp(&room_b.expiring(b.plan)))
-        .then((room_a.five_hour * a.plan).total_cmp(&(room_b.five_hour * b.plan)))
+        .then((room_a.five_hour * a.plan.five_hour).total_cmp(&(room_b.five_hour * b.plan.five_hour)))
         .then(b.name.cmp(&a.name))
 }
 

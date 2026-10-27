@@ -83,3 +83,14 @@ fn a_provider_without_an_adapter_is_dropped_from_the_saved_pace_state() {
         })
     );
 }
+
+#[test]
+fn a_token_only_accounts_rows_join_the_claude_read_when_claude_is_due_and_are_dropped_when_it_is_not() {
+    let row = json!({"provider": "claude", "account": "d", "kind": "window", "name": "session", "used_pct": 37});
+    let mut due = sampling::Reads::from([("claude", (vec![json!({"account": "a"})], json!({"code": 0})))]);
+    sampling::merge_token_rows(&mut due, || vec![row.clone()]);
+    assert_eq!(due["claude"].0.iter().map(|row| row["account"].as_str().unwrap()).collect::<Vec<_>>(), ["a", "d"]);
+    let mut idle = sampling::Reads::from([("gemini", (Vec::new(), json!({"code": 0})))]);
+    sampling::merge_token_rows(&mut idle, || unreachable!("no request goes out while claude is not due"));
+    assert!(idle["gemini"].0.is_empty() && !idle.contains_key("claude"));
+}

@@ -40,6 +40,8 @@ mod stops_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod plan_size_tests;
+#[cfg(test)]
 mod tier_tests;
 #[cfg(test)]
 mod tries_tests;

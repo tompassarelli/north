@@ -112,3 +112,15 @@ fn concurrent_reservations_cannot_spend_the_same_remaining_grant_use() {
         1
     );
 }
+
+#[test]
+fn a_grant_names_a_claude_account_orchestration_configures_and_nothing_else() {
+    let cfg = "[accounts.claude]\nplans = { a = \"max-20x\", d = \"max-5x\" }\n[accounts.claude.profiles.c]\nhere = {}\n".parse().unwrap();
+    let request = |account: &str| super::command::grant_request(&["grant".into(), account.into(), "2".into()], &cfg);
+    for account in ["claude:a", "claude:c", "claude:d"] {
+        assert_eq!(request(account).unwrap()["account"], account);
+    }
+    for account in ["claude:", "claude:z", "claude:dd", "claude:../a", "codex"] {
+        assert_eq!(request(account), Err("invalid grant account".into()), "{account}");
+    }
+}

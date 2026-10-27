@@ -85,7 +85,8 @@
 ["accounts"."claude"."plans"]
 "a" = "max-20x"
 "b" = "max-20x"
-"c" = "max-5x"
+"c" = "max-20x"
+"d" = "max-20x"
 
 ["accounts"."claude"."profiles"]
 

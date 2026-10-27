@@ -56,13 +56,13 @@ def local_account(provider):
     if provider != "claude":
         return None
     import hashlib
-    path = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json"
+    from claude_profiles import token_account
     try:
-        cache = json.loads(path.read_text())
+        cache = json.loads((Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json").read_text())
     except (OSError, ValueError):
-        return None
+        cache = {}
     uuid = (cache.get("oauthAccount") or {}).get("accountUuid") or (cache.get("cachedUsageUtilization") or {}).get("accountUuid")
-    return account_label(provider, hashlib.sha256(uuid.encode()).hexdigest()[:8]) if uuid else None
+    return account_label(provider, hashlib.sha256(uuid.encode()).hexdigest()[:8]) if uuid else token_account()
 
 
 def reservation_stop(used: float, cap: float, expected: float, in_flight: int, in_flight_expected=None) -> bool:

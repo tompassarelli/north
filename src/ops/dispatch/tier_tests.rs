@@ -14,7 +14,7 @@ eta 32m (p75 of n=15, cell Category: tooling, tier claude:sonnet-high)";
 
 fn launched(boxes: Vec<super::issues::Issue>, history: History, ledger: BTreeMap<String, Evidence>) -> Vec<(String, Tier, bool, String)> {
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
-    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: 4.0, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
     let mut survey = survey(boxes, Cloud::Closed(String::new()), hosts, accounts);
     (survey.history, survey.ledger) = (history, ledger);
     decide(&survey, "test").launches.into_iter().map(|launch| (launch.item.to_string(), launch.route.tier, launch.route.arm, launch.brief)).collect()
@@ -88,7 +88,7 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
 fn a_launch_runs_its_tiers_model_and_effort_and_an_unnamed_tier_fails_it() {
     let launches = {
         let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
-        let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: 4.0, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+        let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
         let survey = survey(vec![issue("smashcraft", 3, "- [ ] a\nCategory: mechanical", &[]), issue("smashcraft", 1, "- [ ] a\nCategory: tooling", &[])], Cloud::Closed(String::new()), hosts, accounts);
         let outcome = decide(&survey, "test");
         outcome.launches.iter().map(|launch| effects::command(launch, "sc-1", &survey, "/home/tom", "north").unwrap().1.join(" ")).collect::<Vec<_>>()
@@ -108,7 +108,7 @@ pub(super) fn route(tier: Tier) -> super::tier::Route {
 #[test]
 fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_each_tier_holds_thirty() {
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
-    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: 4.0, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
     let boxes = |category: &str| (1..=3).map(|number| issue("smashcraft", number, &format!("- [ ] a\nCategory: {category}"), &[])).collect::<Vec<_>>();
     let arms = |survey: &super::survey::Survey| -> Vec<(Option<String>, Option<String>)> {
         decide(survey, "test").launches.into_iter().map(|launch| (launch.handoff, launch.brief.lines().find_map(|line| line.strip_prefix("Arm: ")).map(str::to_owned))).collect()

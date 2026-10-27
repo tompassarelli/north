@@ -8,6 +8,7 @@ use crate::{
 };
 
 mod cloud;
+mod token_usage;
 mod fleet;
 mod fleet_duplicate;
 mod fleet_list;

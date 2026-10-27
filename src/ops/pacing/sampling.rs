@@ -35,7 +35,7 @@ pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
         .parse()
         .map_err(|e: toml_edit::TomlError| e.to_string())
 }
-type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
+pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
 
 const ADAPTERS: [(&str, &str); 2] = [("claude", "claude"), ("gemini", "agy")];
 
@@ -84,6 +84,24 @@ fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String], local: &
         }
         reads
     })
+}
+
+/// Reads usage rows for the Claude accounts this host holds only a token for; the provider layer supplies it.
+pub(crate) type TokenUsage = fn(&std::path::Path, f64) -> Vec<Value>;
+static TOKEN_USAGE: std::sync::OnceLock<TokenUsage> = std::sync::OnceLock::new();
+
+pub(super) fn install_token_usage(read: TokenUsage) {
+    let _ = TOKEN_USAGE.set(read);
+}
+
+fn token_rows(at: f64) -> Vec<Value> {
+    TOKEN_USAGE.get().map_or_else(Vec::new, |read| read(&policy_path(), at))
+}
+
+pub(super) fn merge_token_rows(reads: &mut Reads, rows: impl FnOnce() -> Vec<Value>) {
+    if let Some(claude) = reads.get_mut("claude") {
+        claude.0.extend(rows());
+    }
 }
 
 pub(super) fn read_here(cfg: &toml_edit::DocumentMut, provider: &str, here: &str) -> bool {
@@ -300,7 +318,10 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
     let cfg = config().ok();
     let owners = cfg.as_ref().map(|cfg| claude_owners(cfg, &here)).unwrap_or_default();
     let local: Vec<&str> = ADAPTERS.iter().map(|(p, _)| *p).filter(|p| cfg.as_ref().is_none_or(|cfg| read_here(cfg, p, &here))).collect();
-    let reads = read_adapters(&due_adapters(&prior, provider, at), &owners, &local);
+    let mut reads = read_adapters(&due_adapters(&prior, provider, at), &owners, &local);
+    if local.contains(&"claude") {
+        merge_token_rows(&mut reads, || token_rows(at));
+    }
     let fresh: Vec<_> = reads.values().flat_map(|(rows, _)| rows.clone()).collect();
     let (db, remote) = readout::open()?;
     readout::record(&db, &fresh)?;

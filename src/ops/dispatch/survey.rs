@@ -4,7 +4,7 @@
 use super::issues::{self, Issue, IssueRef, OWNER};
 use super::plan::Cloud;
 use super::record;
-use super::slots::{Account, Host, Room};
+use super::slots::{Account, Host, PlanSize, Room};
 use super::tier::{self, Evidence, History};
 use super::handoff::Arms;
 use super::fleets::{self, PROBE, Session, remote_json};
@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
 pub(crate) const REPOS: [&str; 2] = ["smashcraft", "wisp"];
+pub(super) const CATALOG: &str = include_str!("../../../harness/model-catalog.toml");
 const PACE_FRESH_S: f64 = 15.0 * 60.0;
 const WEEK_H: f64 = 7.0 * 24.0;
 
@@ -120,13 +121,21 @@ pub(crate) fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here:
     account_hosts(cfg, account, here).into_iter().filter(|host| own || host != here).collect()
 }
 
-/// An account's plan size in Max 5x units from `[accounts.PROVIDER] plans`: `max-Nx` is N/5 and `pro` a fifth.
-pub(crate) fn plan(cfg: &DocumentMut, account: &str) -> Result<f64, String> {
+/// An account's plan size per window in Max 5x units: the five-hour and weekly multipliers of its
+/// `[accounts.PROVIDER] plans` entry in the model catalog, over those of `max-5x`.
+pub(crate) fn plan(cfg: &DocumentMut, catalog: &DocumentMut, account: &str) -> Result<PlanSize, String> {
     let (provider, label) = account.split_once(':').unwrap_or((account, ""));
     let named = cfg.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|policy| policy.get("plans")).and_then(|plans| plans.get(label)).and_then(Item::as_str);
     let plan = named.ok_or_else(|| format!("{account} has no [accounts.{provider}] plans entry, so dispatch sizes it as max-5x"))?;
-    let multiple = if plan == "pro" { Some(1.0) } else { plan.strip_prefix("max-").and_then(|rest| rest.strip_suffix('x')).and_then(|times| times.parse::<f64>().ok()) };
-    multiple.filter(|times| *times > 0.0).map(|times| times / 5.0).ok_or_else(|| format!("{account} plan {plan} is neither pro nor max-Nx, so dispatch sizes it as max-5x"))
+    let plans = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|catalog| catalog.get("plans"));
+    let multiples = |name: &str| {
+        let entry = plans?.get(name)?;
+        let multiple = |key: &str| entry.get(key).and_then(|item| item.as_float().or_else(|| item.as_integer().map(|whole| whole as f64))).filter(|times| *times > 0.0);
+        Some((multiple("five_hour_multiplier")?, multiple("weekly_multiplier")?))
+    };
+    let unit = multiples("max-5x").ok_or_else(|| format!("the model catalog has no {provider} max-5x plan with five_hour_multiplier and weekly_multiplier, so dispatch sizes {account} as max-5x"))?;
+    let (five_hour, week) = multiples(plan).ok_or_else(|| format!("{account} plan {plan} has no five_hour_multiplier and weekly_multiplier in the model catalog, so dispatch sizes it as max-5x"))?;
+    Ok(PlanSize { five_hour: five_hour / unit.0, week: week / unit.1 })
 }
 
 /// The room a usage-gate control leaves at `at`: its tightest five-hour and week windows, an
@@ -149,6 +158,7 @@ pub(crate) fn room(control: &Value, at: f64) -> Room {
 fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
     let usage = placement::pace_state("usage-gate.json");
+    let catalog: DocumentMut = CATALOG.parse().expect("harness/model-catalog.toml parses");
     pace["accounts"]
         .as_object()
         .into_iter()
@@ -156,13 +166,13 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
         .map(|(name, control)| {
             let sampled = usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:"));
             let verdict = sampled.map(|usage| gate::verdict(name, usage));
-            let plan = match sampled.map(|_| plan(cfg, name)) {
+            let plan = match sampled.map(|_| plan(cfg, &catalog, name)) {
                 Some(Ok(plan)) => plan,
                 Some(Err(why)) => {
                     notes.push(why);
-                    1.0
+                    PlanSize { five_hour: 1.0, week: 1.0 }
                 }
-                None => 1.0,
+                None => PlanSize { five_hour: 1.0, week: 1.0 },
             };
             Account {
                 name: name.clone(),

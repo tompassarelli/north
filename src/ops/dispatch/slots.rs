@@ -36,13 +36,27 @@ pub(crate) struct Account {
     pub name: String,
     /// Hosts the account is signed in on.
     pub hosts: Vec<String>,
-    /// Plan size in Max 5x units (`[accounts.PROVIDER] plans`), which puts every account's percent on one scale.
-    pub plan: f64,
+    /// Plan size per window in Max 5x units (`[accounts.PROVIDER] plans`), which puts every account's percent on one scale.
+    pub plan: PlanSize,
     pub room: Room,
     /// Whether a pace spend target (`[pace."A"] spend_to_pct` by `by`) is live for the account.
     pub spending: bool,
     /// Why the out-rule keeps the account out, if it does.
     pub refusal: Option<String>,
+}
+
+/// What a plan holds of each window, in Max 5x units: Max 20x holds four times the five-hour room of Max 5x but only twice its week.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PlanSize {
+    pub five_hour: f64,
+    pub week: f64,
+}
+
+/// Points of an account's own percent a launch takes from each window.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Charge {
+    pub five_hour: f64,
+    pub week: f64,
 }
 
 /// Points an account has left, in its own percent, before the five-hour stop and before the week is exhausted.
@@ -58,17 +72,17 @@ impl Room {
     const SOONEST_RESET_H: f64 = 1.0 / 60.0;
 
     /// Week room in plan units per hour until it resets: the capacity lost each hour it is not spent.
-    pub(crate) fn expiring(&self, plan: f64) -> f64 {
-        self.week * plan / self.week_reset_h.max(Self::SOONEST_RESET_H)
+    pub(crate) fn expiring(&self, plan: PlanSize) -> f64 {
+        self.week * plan.week / self.week_reset_h.max(Self::SOONEST_RESET_H)
     }
 
-    pub(crate) fn less(self, points: f64) -> Self {
-        Self { five_hour: self.five_hour - points, week: self.week - points, ..self }
+    pub(crate) fn less(self, charge: Charge) -> Self {
+        Self { five_hour: self.five_hour - charge.five_hour, week: self.week - charge.week, ..self }
     }
 
-    /// Whether `points` more leaves both windows short of the point where the out-rule refuses.
-    pub(crate) fn takes(&self, points: f64) -> bool {
-        let after = self.less(points);
+    /// Whether `charge` more leaves both windows short of the point where the out-rule refuses.
+    pub(crate) fn takes(&self, charge: Charge) -> bool {
+        let after = self.less(charge);
         after.five_hour > 0.0 && after.week > 0.0
     }
 }
@@ -89,9 +103,10 @@ impl Account {
         };
         let room = &self.room;
         format!(
-            "account {}: {state}; plan {} x Max 5x; {:.0} points to the 5h stop, {:.0} left in the week, which resets in {:.0} h; signed in on {}",
+            "account {}: {state}; plan {} x Max 5x in the 5h window and {} x in the week; {:.0} points to the 5h stop, {:.0} left in the week, which resets in {:.0} h; signed in on {}",
             self.name,
-            self.plan,
+            self.plan.five_hour,
+            self.plan.week,
             room.five_hour,
             room.week,
             room.week_reset_h,
@@ -107,7 +122,7 @@ pub(crate) struct Pools {
     /// The hosts each open account is signed in on.
     signed_in: BTreeMap<String, Vec<String>>,
     /// Points of its own percent each account is charged for the boxes planned on it this run.
-    charged: BTreeMap<String, f64>,
+    charged: BTreeMap<String, Charge>,
     cloud: i64,
 }
 
@@ -156,10 +171,12 @@ impl Pools {
 
     /// The account's room less what this run has charged it.
     pub(crate) fn room(&self, account: &Account) -> Room {
-        account.room.less(self.charged.get(&account.name).copied().unwrap_or(0.0))
+        account.room.less(self.charged.get(&account.name).copied().unwrap_or_default())
     }
 
-    pub(crate) fn charge(&mut self, account: &str, points: f64) {
-        *self.charged.entry(account.into()).or_default() += points;
+    pub(crate) fn charge(&mut self, account: &str, charge: Charge) {
+        let total = self.charged.entry(account.into()).or_default();
+        total.five_hour += charge.five_hour;
+        total.week += charge.week;
     }
 }
