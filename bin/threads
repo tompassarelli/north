@@ -42,7 +42,7 @@ SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
 SNAPSHOT_SECONDS = 900
 READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "replay-staffing", "planner-band", "routing-compare"}
-UNREACHABLE = 255
+UNREACHABLE, RETRY = 255, 75
 
 # Every repository under OWNER whose issues NorthThreads tracks. A ref names the
 # GitHub repository (firn#3); ALIASES lets a checkout's name stand in for it.
@@ -2205,14 +2205,14 @@ def ssh(dest, args, **io):
     remote = ["env", *remote] if remote else []
     try:
         return subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                                      shlex.join(remote + ["threads", *args])), timeout=90, **io).returncode
+                                      shlex.join(remote + [*(["north"] if args[:1] == ["ingest"] else []), "threads", *args])), timeout=90, **io).returncode
     except subprocess.TimeoutExpired:
         print(f"NorthThreads: {dest} timed out; remote outcome unknown", file=sys.stderr)
         return 124
 
 
-def flush_spool(dest) -> bool:
-    """Send spooled ingest batches in order under the spool lock; False while the remote is unreachable."""
+def flush_spool(dest):
+    """Send spooled batches in order under the spool lock: True when empty, False while the remote is unreachable, "busy" while it refuses ingest for its lock."""
     if not os.path.isdir(SPOOL):
         return True
     with open(os.path.join(SPOOL, ".lock"), "w") as lock:
@@ -2229,8 +2229,8 @@ def flush_spool(dest) -> bool:
                     code = ssh(dest, args, stdin=subprocess.DEVNULL, **output)
                 else:
                     code = ssh(dest, ["ingest"], stdin=f)
-            if code == UNREACHABLE:
-                return False
+            if code in (UNREACHABLE, RETRY):
+                return "busy" if code == RETRY else False
             if code != 0:
                 path.rename(path.with_suffix(".failed"))
                 print(f"NorthThreads: remote ingest refused {path}; kept as .failed", file=sys.stderr)
@@ -2265,9 +2265,9 @@ def proxy(dest, argv) -> int:
     reachable = flush_spool(dest)
     if argv[:1] == ["ingest"]:
         data = sys.stdin.buffer.read()
-        if reachable:
+        if reachable is True:
             code = ssh(dest, argv, input=data)
-            if code != UNREACHABLE:
+            if code not in (UNREACHABLE, RETRY):
                 if code == 0 and any(json.loads(line).get("type") == "usage" for line in data.splitlines() if line.strip()):
                     refresh_snapshot(dest, force=True)
                 return code
@@ -2278,7 +2278,7 @@ def proxy(dest, argv) -> int:
         print(f"NorthThreads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
         return 0
     if argv[:1] in (["job-run"], ["agent-event"]):
-        code = ssh(dest, argv, stdin=subprocess.DEVNULL) if reachable else UNREACHABLE
+        code = ssh(dest, argv, stdin=subprocess.DEVNULL) if reachable is True else UNREACHABLE
         if code != UNREACHABLE:
             return code
         os.makedirs(SPOOL, mode=0o700, exist_ok=True)

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{claims, snapshot};
+use crate::threads::{claims, ingest_lock, snapshot};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -22,6 +22,7 @@ const UNREACHABLE: i32 = 255;
 const TIMED_OUT: i32 = 124;
 const SSH_TIMEOUT: Duration = Duration::from_secs(20);
 const RECORD_WAIT: Duration = Duration::from_secs(10);
+const INGEST_WAIT: Duration = Duration::from_secs(5);
 
 pub(crate) struct Client {
     home: PathBuf,
@@ -32,6 +33,14 @@ pub(crate) struct Client {
     ssh: Vec<OsString>,
     threads: Vec<OsString>,
     record_wait: Duration,
+    ingest_wait: Duration,
+}
+
+#[derive(PartialEq)]
+enum Flush {
+    Clear,
+    Busy,
+    Down,
 }
 
 enum Input {
@@ -70,6 +79,7 @@ impl Client {
             ssh,
             threads,
             record_wait: RECORD_WAIT,
+            ingest_wait: INGEST_WAIT,
         }
     }
 
@@ -114,7 +124,21 @@ impl Client {
                 None => self.local(argv, Some(&self.snapshot), replay),
             };
         }
+        if first == Some("ingest") {
+            return self.ingest_locally(argv, stdin, err);
+        }
         self.local(argv, None, replay)
+    }
+
+    fn ingest_locally(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
+        let mut data = Vec::new();
+        stdin.read_to_end(&mut data)?;
+        let ledger = self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from);
+        let Some(_lock) = ingest_lock::acquire(&ledger.with_file_name("ingest.lock"), self.ingest_wait)? else {
+            writeln!(err, "NorthThreads: another ingest holds the ledger; retry")?;
+            return Ok(ingest_lock::RETRY);
+        };
+        self.local(argv, Some(&ledger), Some(&data))
     }
 
     fn local(&self, argv: &[String], database: Option<&Path>, replay: Option<&[u8]>) -> NorthResult<i32> {
@@ -169,13 +193,18 @@ impl Client {
             self.spool_argv(&argv)?;
             return Ok(Some(0));
         }
-        let reachable = self.flush_spool(dest, err)?;
+        let flush = self.flush_spool(dest, err)?;
+        let reachable = flush != Flush::Down;
+        let clear = flush == Flush::Clear;
         if first == Some("ingest") {
             let mut data = Vec::new();
             stdin.read_to_end(&mut data)?;
-            if reachable {
+            let mut state = "unreachable";
+            if clear {
                 let code = self.ssh(dest, &argv, Input::Bytes(data.clone()), false, err)?;
-                if code != UNREACHABLE {
+                if code == ingest_lock::RETRY {
+                    state = "busy";
+                } else if code != UNREACHABLE {
                     if code == 0 && has_usage(&data)? {
                         self.refresh_snapshot(dest, true)?;
                     }
@@ -187,11 +216,11 @@ impl Client {
             let tmp = path.with_extension("tmp");
             fs::write(&tmp, &data)?;
             fs::rename(&tmp, &path)?;
-            writeln!(err, "NorthThreads: {dest} unreachable; spooled ingest to {}", path.display())?;
+            writeln!(err, "NorthThreads: {dest} {state}; spooled ingest to {}", path.display())?;
             return Ok(Some(0));
         }
         if first == Some("agent-event") {
-            let code = if reachable { self.ssh(dest, &argv, Input::Null, false, err)? } else { UNREACHABLE };
+            let code = if clear { self.ssh(dest, &argv, Input::Null, false, err)? } else { UNREACHABLE };
             if code != UNREACHABLE {
                 return Ok(Some(code));
             }
@@ -245,9 +274,9 @@ impl Client {
         Ok(fs::rename(&tmp, &path)?)
     }
 
-    fn flush_spool(&self, dest: &str, err: &mut dyn Write) -> NorthResult<bool> {
+    fn flush_spool(&self, dest: &str, err: &mut dyn Write) -> NorthResult<Flush> {
         if !self.spool.is_dir() {
-            return Ok(true);
+            return Ok(Flush::Clear);
         }
         let lock = File::create(self.spool.join(".lock"))?;
         lock.lock()?;
@@ -272,7 +301,10 @@ impl Client {
                 self.ssh(dest, &["ingest".to_owned()], Input::File(file), false, err)?
             };
             if code == UNREACHABLE {
-                return Ok(false);
+                return Ok(Flush::Down);
+            }
+            if code == ingest_lock::RETRY {
+                return Ok(Flush::Busy);
             }
             if code != 0 {
                 fs::rename(&path, path.with_extension("failed"))?;
@@ -284,7 +316,7 @@ impl Client {
                 _ => {}
             }
         }
-        Ok(true)
+        Ok(Flush::Clear)
     }
 
     fn refresh_snapshot(&self, dest: &str, force: bool) -> NorthResult<()> {
@@ -355,6 +387,9 @@ impl Client {
         }
         if !remote.is_empty() {
             remote.insert(0, "env".to_owned());
+        }
+        if first == Some("ingest") {
+            remote.push("north".to_owned());
         }
         remote.push("threads".to_owned());
         remote.extend(args.iter().cloned());
@@ -570,7 +605,7 @@ mod tests {
 printf '%s\n' "$*" >> "$ROOT/ssh.log"
 [ -f "$ROOT/sleep" ] && exec sleep "$(cat "$ROOT/sleep")"
 case "$last" in
-  *ingest) cat >> "$ROOT/ingest.log" ;;
+  *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
   "north threads snapshot-pages") cat >/dev/null; cat "$ROOT/pages" ;;
 esac
 exit "$(cat "$ROOT/code")"
@@ -657,7 +692,7 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(call(&rig, &["list"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log")[attempts..], [
             format!("{PREFIX} threads job-run nightly --host laptop"),
-            format!("{PREFIX} threads ingest"),
+            format!("{PREFIX} north threads ingest"),
             format!("{PREFIX} threads list"),
             format!("{PREFIX} north threads snapshot-pages"),
         ]);
@@ -724,5 +759,96 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(code, 255);
         assert_eq!(err, "NorthThreads: ledger-host unreachable; the ledger lives there, so nothing was read or recorded\n");
         assert_eq!(log(&rig, "threads.log").len(), 1);
+    }
+
+    fn ledger_host(wait: Duration) -> (tempfile::TempDir, Client) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/threads");
+        let script = format!("echo start >> '{0}/order.log'; sleep 1; '{1}' \"$@\"; code=$?; echo end >> '{0}/order.log'; exit $code", root.display(), real.display());
+        let variables = BTreeMap::from([
+            ("HOME".to_owned(), root.display().to_string()),
+            ("THREADS_DB".to_owned(), root.join("threads.db").display().to_string()),
+        ]);
+        let mut client = Client::new(root, variables, vec!["ssh".into()], vec!["/bin/sh".into(), "-c".into(), script.into(), "threads".into()]);
+        client.ingest_wait = wait;
+        (directory, client)
+    }
+
+    fn batch(id: &str) -> Vec<u8> {
+        format!(
+            "{{\"id\":\"{id}\",\"role\":\"worker\",\"tier\":\"medium\",\"status\":\"finished\",\"outcome\":\"done\",\"started\":\"2026-10-26T11:00:00Z\",\"ended\":\"2026-10-26T11:05:00Z\",\"actual_min\":5,\"brief\":\"Item: smashcraft#459 x\\nCategory: feature\"}}\n"
+        ).into_bytes()
+    }
+
+    fn recorded(root: &Path) -> Vec<String> {
+        let db = rusqlite::Connection::open(root.join("threads.db")).unwrap();
+        let mut statement = db.prepare("SELECT agent FROM runs ORDER BY agent").unwrap();
+        statement.query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect()
+    }
+
+    #[test]
+    fn two_ingests_started_together_run_one_after_the_other_and_each_batch_is_recorded_once() {
+        let (directory, client) = ledger_host(Duration::from_secs(30));
+        let ingest = |id: &'static str| {
+            let client = &client;
+            move || {
+                let mut err = Vec::new();
+                let code = client.main(&["ingest".to_owned()], &mut &batch(id)[..], &mut err).unwrap();
+                (code, String::from_utf8(err).unwrap())
+            }
+        };
+        let (first, second) = std::thread::scope(|scope| {
+            let first = scope.spawn(ingest("one"));
+            let second = scope.spawn(ingest("two"));
+            (first.join().unwrap(), second.join().unwrap())
+        });
+        assert_eq!((first.0, second.0), (0, 0), "{first:?} {second:?}");
+        let order = fs::read_to_string(directory.path().join("order.log")).unwrap();
+        assert_eq!(order.lines().collect::<Vec<_>>(), ["start", "end", "start", "end"]);
+        assert_eq!(recorded(directory.path()), ["one", "two"]);
+    }
+
+    #[test]
+    fn an_ingest_that_cannot_get_the_lock_refuses_with_the_retry_code_and_records_nothing_until_retried() {
+        let (directory, client) = ledger_host(Duration::from_millis(200));
+        let held = ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().unwrap();
+        let mut err = Vec::new();
+        let code = client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut err).unwrap();
+        assert_eq!(code, ingest_lock::RETRY);
+        assert_eq!(String::from_utf8(err).unwrap(), "NorthThreads: another ingest holds the ledger; retry\n");
+        assert!(!directory.path().join("threads.db").exists());
+        drop(held);
+        for _ in 0..2 {
+            assert_eq!(client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut Vec::new()).unwrap(), 0);
+        }
+        assert_eq!(recorded(directory.path()), ["one"]);
+    }
+
+    #[test]
+    fn a_busy_ledger_host_spools_the_batch_keeps_it_queued_and_stays_reachable_for_other_commands() {
+        let rig = rig(&[]);
+        let spooled = || {
+            fs::read_dir(rig.root.join(".local/state/threads/spool")).unwrap()
+                .filter_map(|entry| entry.unwrap().path().extension().map(|extension| extension.to_string_lossy().into_owned()))
+                .collect::<Vec<_>>()
+        };
+        fs::write(rig.root.join("ingest-code"), ingest_lock::RETRY.to_string()).unwrap();
+        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 1}\n");
+        assert_eq!(code, 0);
+        assert!(err.contains("ledger-host busy; spooled ingest to "), "{err}");
+        assert_eq!(spooled(), ["jsonl"]);
+        let (code, err) = call(&rig, &["claim", "north#63"], b"");
+        assert_eq!(code, 0, "a busy ingest lock is not an unreachable host: {err}");
+        assert_eq!(spooled(), ["jsonl"], "a busy batch stays queued, never .failed");
+        let (code, err) = call(&rig, &["ingest"], b"{\"n\": 2}\n");
+        assert_eq!(code, 0);
+        assert!(err.contains("spooled ingest to "), "{err}");
+        assert_eq!(spooled(), ["jsonl", "jsonl"]);
+        fs::remove_file(rig.root.join("ingest-code")).unwrap();
+        assert_eq!(call(&rig, &["ingest"], b"{\"n\": 3}\n").0, 0);
+        assert!(spooled().is_empty());
+        let sent = log(&rig, "ingest.log");
+        assert_eq!(&sent[sent.len() - 3..], ["{\"n\": 1}", "{\"n\": 2}", "{\"n\": 3}"]);
     }
 }

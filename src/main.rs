@@ -31,6 +31,7 @@ mod shell;
 mod threads {
     pub(crate) mod catalog;
     pub(crate) mod claims;
+    pub(crate) mod ingest_lock;
     pub(crate) mod snapshot;
     #[cfg(test)]
     mod ingest_writes_tests;

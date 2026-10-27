@@ -151,7 +151,7 @@ printf 'fixture-host\n' >"$scratch/usage-home/.config/threads/remote"
 cat >"$scratch/bin/ssh" <<'SH'
 #!/usr/bin/env bash
 case "${!#}" in
-  'threads ingest') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$THREADS_BIN" ingest ;;
+  'north threads ingest') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$THREADS_BIN" ingest ;;
   'north threads snapshot-pages') HOME="$REMOTE_HOME" THREADS_DB="$REMOTE_DB" "$NORTH_BIN" threads snapshot-pages ;;
   *) exit 97 ;;
 esac
