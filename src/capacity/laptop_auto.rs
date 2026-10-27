@@ -25,7 +25,7 @@ pub(crate) fn sample(host: &Host, processes: &[Process], drm: &Path, idle: Optio
         .filter(|value| *value <= 100)
         .max();
     json!({
-        "gaming": agent_load::tom_gaming(processes, busy),
+        "gaming": agent_load::tom_gaming(processes, busy, host.match_gpu_percent),
         "agent_gpu": agent_gpu,
         "gpu_busy": busy,
         "idle": idle,

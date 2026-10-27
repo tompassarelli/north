@@ -57,6 +57,7 @@ fn host(root: &Path, proc: &Path) -> Host {
         capacity: root.join("capacity"),
         game_reserve: root.join("game-reserve.json"),
         systemctl: script.display().to_string(),
+        match_gpu_percent: agent_load::MATCH_GPU_PERCENT,
         uid: rustix::process::getuid().as_raw(),
     }
 }
@@ -110,7 +111,7 @@ fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
     lease(&host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
 
     let processes = agent_load::processes(&host);
-    assert!(agent_load::tom_gaming(&processes, None));
+    assert!(agent_load::tom_gaming(&processes, None, agent_load::MATCH_GPU_PERCENT));
     agent_load::enforce(&host, true, &processes);
 
     assert!(exited(&mut client) && exited(&mut desktop) && exited(&mut leaked), "an agent client or desktop survived gaming");
@@ -221,7 +222,8 @@ fn the_battle_net_launcher_alone_is_not_gaming_but_a_game_or_gpu_load_is() {
     assert_eq!(sample("2"), true, "launcher plus WowB");
     fs::remove_dir_all(proc.join("203")).unwrap();
     fixture(&proc, 204, "war3.exe", "C:\\Games\\Warcraft III\\war3.exe", "app.slice/app-steam-1.scope", &[prefix]);
-    assert_eq!(sample("2"), true, "launcher plus war3");
+    assert_eq!(sample("2"), false, "launcher plus war3 in its menu");
+    assert_eq!(sample("65"), true, "launcher plus war3 under load");
 }
 
 #[test]
@@ -231,9 +233,9 @@ fn a_game_word_in_a_directory_name_is_not_gaming() {
     let host = host(root.path(), &proc);
     fixture(&proc, 300, "x", "/src/wow/target/debug/x", "app.slice/term.scope", &[]);
     fixture(&proc, 301, "tool", "/src/slippi-tools/bin/tool", "app.slice/term.scope", &[]);
-    assert!(!agent_load::tom_gaming(&agent_load::processes(&host), None));
+    assert!(!agent_load::tom_gaming(&agent_load::processes(&host), None, agent_load::MATCH_GPU_PERCENT));
     fixture(&proc, 302, "WowB.exe", "/src/wow/WowB.exe", "app.slice/term.scope", &[]);
-    assert!(agent_load::tom_gaming(&agent_load::processes(&host), None));
+    assert!(agent_load::tom_gaming(&agent_load::processes(&host), None, agent_load::MATCH_GPU_PERCENT));
 }
 
 #[test]
@@ -244,9 +246,9 @@ fn only_a_gpu_load_above_thirty_percent_makes_a_launcher_gaming() {
     let prefix = "STEAM_COMPAT_DATA_PATH=/home/tom/.local/share/Steam/steamapps/compatdata/3516115571";
     fixture(&proc, 400, "wineserver", "/proton/files/bin/wineserver", "app.slice/app-steam-1.scope", &[prefix]);
     let processes = agent_load::processes(&host);
-    assert!(!agent_load::tom_gaming(&processes, None));
-    assert!(!agent_load::tom_gaming(&processes, Some(30)));
-    assert!(agent_load::tom_gaming(&processes, Some(31)));
+    assert!(!agent_load::tom_gaming(&processes, None, agent_load::MATCH_GPU_PERCENT));
+    assert!(!agent_load::tom_gaming(&processes, Some(30), agent_load::MATCH_GPU_PERCENT));
+    assert!(agent_load::tom_gaming(&processes, Some(31), agent_load::MATCH_GPU_PERCENT));
 }
 
 #[test]
@@ -259,7 +261,7 @@ fn an_agent_owned_launcher_is_ignored_and_gaming_still_stops_agent_wine() {
     fixture(&proc, wine.id(), "wineserver", "/proton/files/bin/wineserver", scope, &[]);
     fixture(&proc, 500, "Battle.net.exe", "C:\\Battle.net\\Battle.net.exe", scope, &[]);
     let processes = agent_load::processes(&host);
-    assert!(!agent_load::tom_gaming(&processes, Some(90)));
+    assert!(!agent_load::tom_gaming(&processes, Some(90), agent_load::MATCH_GPU_PERCENT));
     agent_load::enforce(&host, true, &processes);
     assert!(exited(&mut wine), "an agent wine process survived gaming");
 }
@@ -409,4 +411,31 @@ fn a_failed_thaw_keeps_the_unit_frozen_and_charged_until_a_later_thaw_succeeds()
     agent_load::enforce(&host, false, &[]);
     assert_eq!(thaws(), 2, "the refused thaw was not retried");
     assert_eq!(frozen_state(&host), (None, Vec::new()), "the retried thaw left the unit listed or frozenAt set");
+}
+
+#[test]
+fn a_warcraft_client_idling_in_its_menu_is_not_gaming_but_one_in_a_match_is() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    let prefix = "STEAM_COMPAT_DATA_PATH=/home/tom/.local/share/Steam/steamapps/compatdata/3516115571";
+    fixture(&proc, 600, "Warcraft III.ex", "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe", "app.slice/app-steam-1.scope", &[prefix]);
+    let processes = agent_load::processes(&host);
+    let gaming = |busy, threshold| agent_load::tom_gaming(&processes, Some(busy), threshold);
+
+    assert!(!gaming(18, agent_load::MATCH_GPU_PERCENT), "laptop menu reading, highest of 16 to 18");
+    assert!(!gaming(25, agent_load::MATCH_GPU_PERCENT) && gaming(26, agent_load::MATCH_GPU_PERCENT), "default threshold edge");
+    assert!(agent_load::tom_gaming(&processes, None, agent_load::MATCH_GPU_PERCENT), "unreadable GPU keeps the presence rule");
+
+    const GEX45_MENU_MAX: u8 = 7;
+    const GEX45_MATCH_MIN: u8 = 18;
+    const GEX45_THRESHOLD: u8 = 12;
+    assert!(!gaming(GEX45_MENU_MAX, GEX45_THRESHOLD), "gex45 settled menu");
+    assert!(gaming(GEX45_MATCH_MIN, GEX45_THRESHOLD), "gex45 solo match, lowest reading");
+}
+
+#[test]
+fn the_match_gpu_threshold_is_a_per_host_setting_with_a_default() {
+    let settings = [None, Some("40"), Some(" 12\n"), Some("junk"), Some("300")];
+    assert_eq!(settings.map(agent_load::match_gpu_percent), [agent_load::MATCH_GPU_PERCENT, 40, 12, agent_load::MATCH_GPU_PERCENT, agent_load::MATCH_GPU_PERCENT]);
 }
