@@ -2,10 +2,13 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-const USAGE: &str = "usage: north land-clean LANE_ROOT";
+const USAGE: &str = "usage: north land-clean LANE_ROOT | --sweep";
 const MIB: u64 = 1 << 20;
 
 pub(crate) fn run(arguments: &[String]) -> u8 {
+    if arguments == ["--sweep"] {
+        return sweep_home_cache();
+    }
     let [lane] = arguments else {
         eprintln!("{USAGE}");
         return 64;
@@ -16,6 +19,14 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         Err(error) => eprintln!("land-clean: could not remove {lane}/target: {error}"),
     }
     0
+}
+
+fn sweep_home_cache() -> u8 {
+    let Some(home) = std::env::var_os("HOME") else {
+        eprintln!("land-clean: cannot sweep: HOME is not set");
+        return 1;
+    };
+    super::shared_target::run_sweep(&Path::new(&home).join(".cache"))
 }
 
 pub(crate) fn release(lane: &Path) -> io::Result<Option<u64>> {

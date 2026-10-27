@@ -69,7 +69,7 @@ Commands:
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
   autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
   land-abandon [BRANCH]                          Delete a superseded or handed-back land branch from origin
-  land-clean LANE_ROOT                           Remove a lane's cargo target after its land checks
+  land-clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
   safe-push-result STATUS SHA REASON MINUTES URL  Print safe-push.s terminal result
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt

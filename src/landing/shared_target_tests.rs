@@ -1,0 +1,89 @@
+use std::collections::HashSet;
+use std::fs::File;
+use std::os::unix::fs::PermissionsExt;
+
+use super::*;
+
+const HOUR: Duration = Duration::from_secs(3600);
+
+fn write(path: &Path, bytes: usize, mode: u32, age: Duration) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, vec![0u8; bytes]).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    File::options().write(true).open(path).unwrap().set_modified(SystemTime::now() - age).unwrap();
+}
+
+fn sweep_now(target: &Path, cap: u64) -> u64 {
+    sweep(target, cap, IDLE, SystemTime::now()).unwrap()
+}
+
+#[test]
+fn an_idle_executable_and_an_idle_incremental_directory_go_but_libraries_stay() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("debug/deps/north-1"), 4096, 0o755, HOUR);
+    write(&target.join("debug/deps/libnorth-1.rlib"), 4096, 0o755, HOUR);
+    write(&target.join("debug/deps/libnorth-1.rmeta"), 4096, 0o644, HOUR);
+    write(&target.join("debug/incremental/north-x/s-1/dep-graph.bin"), 4096, 0o644, HOUR);
+    assert_eq!(sweep_now(&target, 0), 8192);
+    assert!(!target.join("debug/deps/north-1").exists());
+    assert!(!target.join("debug/incremental/north-x").exists());
+    assert!(target.join("debug/deps/libnorth-1.rlib").is_file());
+    assert!(target.join("debug/deps/libnorth-1.rmeta").is_file());
+}
+
+#[test]
+fn an_executable_touched_within_twenty_minutes_stays() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("debug/deps/north-1"), 4096, 0o755, Duration::from_secs(60));
+    assert_eq!(sweep_now(&target, 0), 0);
+    assert!(target.join("debug/deps/north-1").is_file());
+}
+
+#[test]
+fn an_incremental_directory_with_one_fresh_file_stays_whole() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("debug/incremental/north-x/old.bin"), 4096, 0o644, HOUR);
+    write(&target.join("debug/incremental/north-x/new.bin"), 4096, 0o644, Duration::from_secs(30));
+    assert_eq!(sweep_now(&target, 0), 0);
+    assert!(target.join("debug/incremental/north-x/old.bin").is_file());
+}
+
+#[test]
+fn the_sweep_deletes_only_until_the_target_is_back_under_the_cap() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("debug/deps/oldest"), 4096, 0o755, HOUR * 2);
+    write(&target.join("debug/deps/newer"), 4096, 0o755, HOUR);
+    assert_eq!(sweep_now(&target, 1 << 20), 0);
+    assert!(target.join("debug/deps/oldest").is_file());
+    assert_eq!(sweep_now(&target, 4096), 4096);
+    assert!(!target.join("debug/deps/oldest").exists());
+    assert!(target.join("debug/deps/newer").is_file());
+}
+
+#[test]
+fn only_the_cargo_target_caches_are_swept() {
+    let scratch = tempfile::tempdir().unwrap();
+    for name in ["cargo-target", "cargo-target-ci", "cargo-targets", "nix"] {
+        write(&scratch.path().join(name).join("debug/deps/north-1"), 4096, 0o755, HOUR);
+    }
+    let names: Vec<_> = shared_targets(scratch.path())
+        .iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["cargo-target", "cargo-target-ci"]);
+}
+
+#[test]
+fn an_executable_hard_linked_elsewhere_in_the_target_stays_and_counts_once() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("debug/deps/north-1"), 4096, 0o755, HOUR);
+    fs::hard_link(target.join("debug/deps/north-1"), target.join("debug/north")).unwrap();
+    assert_eq!(tree(&target, &mut HashSet::new()).unwrap().0, 4096);
+    assert_eq!(sweep_now(&target, 0), 0);
+    assert!(target.join("debug/deps/north-1").is_file());
+}
