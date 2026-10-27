@@ -77,8 +77,8 @@ fn a_landing_keeps_its_time_and_an_older_ledger_gains_the_column() {
         .execute_batch("CREATE TABLE tasks(task_ref TEXT PRIMARY KEY, category TEXT, sessions TEXT NOT NULL DEFAULT '[]', wall_ms INTEGER, outcome TEXT, landed_sha TEXT, review TEXT, corrections INTEGER NOT NULL DEFAULT 0) STRICT;")
         .unwrap();
     let ledger = Ledger::open(&path).unwrap();
-    assert!(ledger.record_landing("T1", "abc", 50_000, None).unwrap());
-    assert!(!ledger.record_landing("T1", "abc", 60_000, Some(1)).unwrap(), "observing the same landing again keeps its first time");
+    assert!(ledger.record_landing("T1", "abc", 50_000, None, None).unwrap());
+    assert!(!ledger.record_landing("T1", "abc", 60_000, Some(1), None).unwrap(), "observing the same landing again keeps its first time");
     assert_eq!(ledger.landed_since(50_000).unwrap(), [Landing { task_ref: "T1".into(), sha: "abc".into(), wall_ms: None, landed_ms: 50_000 }]);
     assert!(ledger.landed_since(50_001).unwrap().is_empty());
 }
@@ -165,10 +165,32 @@ fn a_landed_task_links_the_runs_of_the_session_it_is_named_for_or_lists() {
     }
     ledger.join_task("north#9", "lane-b").unwrap();
     for (task, sha) in [("lane-a", "sha-a"), ("north#9", "sha-b"), ("ghost", "sha-c")] {
-        ledger.record_landing(task, sha, 5_000, None).unwrap();
+        ledger.record_landing(task, sha, 5_000, None, None).unwrap();
     }
     assert_eq!(ledger.landing_links(0).unwrap(), (2, 3), "the ghost landing has no run; the session-named and session-listed ones do");
     assert_eq!(ledger.landing_links(6_000).unwrap(), (0, 0));
     let linked: Vec<Option<String>> = ledger.runs().unwrap().into_iter().map(|run| run.task_ref).collect();
     assert_eq!(linked, [Some("lane-a".to_owned()), Some("north#9".to_owned()), None]);
+}
+
+#[test]
+fn a_landing_records_its_reviewer_and_one_check_row_and_a_replay_adds_none() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    assert!(ledger.record_landing("north#1", "sha-1", 5_000, None, Some("reviewer-one")).unwrap());
+    assert!(!ledger.record_landing("north#1", "sha-1", 6_000, None, Some("reviewer-one")).unwrap());
+    assert!(ledger.record_landing("north#2", "sha-2", 7_000, None, None).unwrap());
+    let tasks = ledger.tasks().unwrap();
+    let figures: Vec<_> = tasks.iter().map(|task| (task.task_ref.as_str(), task.review.as_deref(), task.checks, task.last_check_exit, task.last_check_sha.as_deref())).collect();
+    assert_eq!(figures, [("north#1", Some("reviewer-one"), 1, Some(0), Some("sha-1")), ("north#2", None, 1, Some(0), Some("sha-2"))]);
+}
+
+#[test]
+fn a_later_landing_without_a_reviewer_keeps_the_recorded_one() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    assert!(ledger.record_landing("north#3", "sha-1", 5_000, None, Some("reviewer-one")).unwrap());
+    assert!(ledger.record_landing("north#3", "sha-2", 6_000, None, None).unwrap());
+    let task = &ledger.tasks().unwrap()[0];
+    assert_eq!((task.review.as_deref(), task.checks, task.last_check_sha.as_deref()), (Some("reviewer-one"), 2, Some("sha-2")));
 }

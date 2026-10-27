@@ -26,7 +26,7 @@ pub fn landed(ledger: &Ledger, repo: &Path, task_ref: &str, revision: &str) -> N
         Some(1) => return Err(NorthError::Refused(format!("{sha} is not on freshly fetched {MAIN}; nothing recorded"))),
         _ => return Err(NorthError::Refused(refusal("git merge-base failed", &ancestry))),
     }
-    ledger.record_landing(task_ref, &sha, u64::try_from(Timestamp::now().unix_millis()).unwrap_or(0), None)?;
+    ledger.record_landing(task_ref, &sha, u64::try_from(Timestamp::now().unix_millis()).unwrap_or(0), None, None)?;
     Ok(sha)
 }
 

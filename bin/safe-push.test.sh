@@ -533,7 +533,7 @@ printf '{\n  "lockfileVersion": 1,\n  "workspaces": {"": {"name": "agent-machine
 "$real_git" -C "$real_repo" add .safe-push agent-machinery
 "$real_git" -C "$real_repo" commit -qm 'agent-machinery project'
 reviewed_id="$(cd "$real_repo" && "$real_north" review-gate id refs/remotes/origin/main HEAD harness/ agent-machinery/ bin/ lib/)"
-"$real_git" -C "$real_repo" commit -q --amend -m 'agent-machinery project' -m "Reviewed: fixture reviewer approves; patch-id $reviewed_id"
+"$real_git" -C "$real_repo" commit -q --amend -m 'agent-machinery project' -m "Reviewed: approves; reviewer: fixture-reviewer; patch-id $reviewed_id"
 cp "$deps_bin/bun" "$real_bin/bun"
 HOME="$land_home" run_real_case '' --dry-run --to main
 rm -f "$real_bin/bun"
@@ -1870,10 +1870,13 @@ SAFE_PUSH_TEST_ATTEST_STATUS=2 run_attest_case --to claude/attest-retry
 expect_status zero
 expect_output 'the deny-list attest for claude/attest-retry failed (exit 2); the push stands'
 "$real_git" --git-dir="$real_remote" rev-parse -q --verify refs/heads/claude/attest-retry >/dev/null || fail 'a failed attest undid the push'
+printf 'reviewed\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'reviewed work' -m "Reviewed: approves; reviewer: fixture-reviewer; patch-id $(printf '0%.0s' $(seq 40))"
 NORTH_FLEET_SESSION=attest-main run_attest_case --to main --direct
 expect_status zero
 main_row=$(awk -F'\t' '$6 == "attest-main"' "$xdg_state/safe-push/pushes.tsv" | tail -n 1)
 [ "$(cut -f5 <<<"$main_row")" = "$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)" ] || fail "a main push did not record its landed sha: $main_row"
+[ "$(cut -f7 <<<"$main_row")" = fixture-reviewer ] || fail "a main push did not record its reviewer: $main_row"
 [ ! -s "$attest_trace" ] || fail "a main push attested: $(cat "$attest_trace")"
 : >"$attest_trace"
 printf 'clean\n' >>"$real_repo/content.txt"

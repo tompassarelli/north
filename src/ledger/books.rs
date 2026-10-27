@@ -6,7 +6,7 @@ use crate::error::NorthResult;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 
 use super::pricing::{PriceTable, TokenUse};
-use super::{LINK_RUNS, Ledger, millis};
+use super::{LANDING_CHECK, LINK_RUNS, Ledger, millis};
 
 impl Books for Ledger {
     fn spend(&self) -> NorthResult<Vec<SessionSpend>> {
@@ -36,15 +36,22 @@ impl Books for Ledger {
         })
     }
 
-    fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>) -> NorthResult<bool> {
+    fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>, review: Option<&str>) -> NorthResult<bool> {
         self.with(|conn| {
             let changed = conn.execute(
-                "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms)
-                 VALUES(?1, 'landed', ?2, ?3, coalesce(?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1), ?4))
-                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, landed_ms = excluded.landed_ms, wall_ms = excluded.wall_ms
+                "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms, review)
+                 VALUES(?1, 'landed', ?2, ?3, coalesce(?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1), ?4), ?5)
+                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, landed_ms = excluded.landed_ms, wall_ms = excluded.wall_ms,
+                   review = coalesce(excluded.review, tasks.review)
                  WHERE tasks.outcome IS NOT 'landed' OR tasks.landed_sha IS NOT excluded.landed_sha",
-                params![task_ref, sha, millis(landed_ms), wall_ms.map(millis)],
+                params![task_ref, sha, millis(landed_ms), wall_ms.map(millis), review],
             )?;
+            if changed == 1 {
+                conn.execute(
+                    "INSERT INTO checks(task_ref, command, cwd, head_sha, exit, ran_ms) VALUES(?1, ?2, '', ?3, 0, ?4)",
+                    params![task_ref, LANDING_CHECK, sha, millis(landed_ms)],
+                )?;
+            }
             conn.execute_batch(LINK_RUNS)?;
             Ok(changed == 1)
         })

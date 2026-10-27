@@ -26,34 +26,34 @@ fn a_landing_passes_only_with_the_patch_id_of_its_final_covered_diff() {
 
     write(root, "docs/notes.md", "notes only\n");
     commit(root, "Change notes only");
-    assert_eq!(verdict(root, &base, "HEAD", &paths), Ok(Verdict::Uncovered));
+    assert_eq!(verdict(root, &base, "HEAD", &paths, None), Ok(Verdict::Uncovered));
 
     std::fs::write(root.join("harness/rule.md"), b"top\na\nb\nc\none\ntwo, reviewed \xe9\nthree\n").unwrap();
     commit(root, "Change the rule");
     let reviewed = patch_id(root, &base, "HEAD", &paths).unwrap().unwrap();
-    let Ok(Verdict::Missing { landing }) = verdict(root, &base, "HEAD", &paths) else {
+    let Ok(Verdict::Missing { landing }) = verdict(root, &base, "HEAD", &paths, None) else {
         panic!("an unreviewed covered change passed");
     };
     assert_eq!(landing, reviewed);
     assert!(refusal(&Verdict::Missing { landing }, &base, "HEAD", &paths).unwrap().contains(&reviewed));
 
     git(root, &["-c", "commit.gpgsign=false", "commit", "--amend", "-qm",
-        &format!("Change the rule\n\nReviewed: fresh reviewer, ACCEPT; patch-id {reviewed}")]).unwrap();
-    assert_eq!(verdict(root, &base, "HEAD", &paths), Ok(Verdict::Reviewed));
+        &format!("Change the rule\n\nReviewed: ACCEPT; reviewer: fresh-reviewer; patch-id {reviewed}")]).unwrap();
+    assert_eq!(verdict(root, &base, "HEAD", &paths, None), Ok(Verdict::Reviewed));
     write(root, "docs/notes.md", "notes after review\n");
     commit(root, "Change notes after the review");
-    assert_eq!(verdict(root, &base, "HEAD", &paths), Ok(Verdict::Reviewed));
+    assert_eq!(verdict(root, &base, "HEAD", &paths, None), Ok(Verdict::Reviewed));
 
     git(root, &["switch", "-q", "main"]).unwrap();
     write(root, "harness/rule.md", "top\na\nb\nc, moved on main\none\ntwo\nthree\n");
     let moved = commit(root, "Move main");
     git(root, &["switch", "-q", "lane"]).unwrap();
     git(root, &["-c", "commit.gpgsign=false", "rebase", "-q", "main"]).unwrap();
-    assert_eq!(verdict(root, &moved, "HEAD", &paths), Ok(Verdict::Reviewed));
+    assert_eq!(verdict(root, &moved, "HEAD", &paths, None), Ok(Verdict::Reviewed));
 
     std::fs::write(root.join("harness/rule.md"), b"top\na\nb\nc, moved on main\none\ntwo, reviewed \xe9\nthree, after the review\n").unwrap();
     commit(root, "Change the rule after the review");
-    let stale = verdict(root, &moved, "HEAD", &paths).unwrap();
+    let stale = verdict(root, &moved, "HEAD", &paths, None).unwrap();
     let Verdict::Stale { landing, reviewed: ids } = &stale else {
         panic!("a covered change after the review passed: {stale:?}");
     };
@@ -74,4 +74,73 @@ fn a_landing_passes_only_with_the_patch_id_of_its_final_covered_diff() {
         assert!(!ids.contains(&id), "a whitespace edit or moved line kept a reviewed id");
         ids.push(id);
     }
+}
+
+#[test]
+fn a_review_by_the_author_session_or_by_nobody_is_refused() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let paths = ["harness/".to_owned()];
+    git(root, &["init", "-q", "-b", "main"]).unwrap();
+    git(root, &["config", "user.name", "fixture"]).unwrap();
+    git(root, &["config", "user.email", "fixture@example.invalid"]).unwrap();
+    write(root, "harness/rule.md", "one\n");
+    let base = commit(root, "base");
+    write(root, "harness/rule.md", "two\n");
+    commit(root, "Change the rule");
+    let id = patch_id(root, &base, "HEAD", &paths).unwrap().unwrap();
+    let amend = |trailer: &str| {
+        git(root, &["-c", "commit.gpgsign=false", "commit", "--amend", "-qm", &format!("Change the rule\n\n{trailer}")]).unwrap();
+    };
+
+    amend(&format!("Reviewed: approve; reviewer: author-lane; patch-id {id}"));
+    let denied = verdict(root, &base, "HEAD", &paths, Some("author-lane")).unwrap();
+    assert_eq!(denied, Verdict::SelfReviewed { reviewer: "author-lane".into() });
+    assert!(refusal(&denied, &base, "HEAD", &paths).unwrap().contains("author-lane"));
+    assert_eq!(verdict(root, &base, "HEAD", &paths, Some("other-lane")), Ok(Verdict::Reviewed));
+    assert_eq!(verdict(root, &base, "HEAD", &paths, None), Ok(Verdict::Reviewed));
+
+    amend(&format!("Reviewed: reviewer session fresh-one approves; patch-id {id}"));
+    assert_eq!(verdict(root, &base, "HEAD", &paths, Some("author-lane")), Ok(Verdict::Reviewed));
+    assert_eq!(reviewers(root, &base, "HEAD").unwrap(), ["fresh-one"]);
+
+    amend(&format!("Reviewed: Opus review, approve; patch-id {id}"));
+    let anonymous = verdict(root, &base, "HEAD", &paths, Some("author-lane")).unwrap();
+    assert_eq!(anonymous, Verdict::Unattributed { landing: id.clone() });
+    assert!(refusal(&anonymous, &base, "HEAD", &paths).unwrap().contains("names no reviewer"));
+    assert!(reviewers(root, &base, "HEAD").unwrap().is_empty());
+
+    amend(&format!("Reviewed: approve; reviewer: author-lane; patch-id {id}\nReviewed: approve; reviewer: fresh-two; patch-id {id}"));
+    assert_eq!(verdict(root, &base, "HEAD", &paths, Some("author-lane")), Ok(Verdict::Reviewed));
+    assert_eq!(reviewers(root, &base, "HEAD").unwrap(), ["author-lane", "fresh-two"]);
+}
+
+#[test]
+fn only_a_named_reviewer_counts_and_the_author_matches_in_any_case() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let paths = ["harness/".to_owned()];
+    git(root, &["init", "-q", "-b", "main"]).unwrap();
+    git(root, &["config", "user.name", "fixture"]).unwrap();
+    git(root, &["config", "user.email", "fixture@example.invalid"]).unwrap();
+    write(root, "harness/rule.md", "one\n");
+    let base = commit(root, "base");
+    write(root, "harness/rule.md", "two\n");
+    commit(root, "Change the rule");
+    let id = patch_id(root, &base, "HEAD", &paths).unwrap().unwrap();
+    for (trailer, reviewer) in [
+        ("Reviewed: fresh reviewer approves", None),
+        ("Reviewed: a reviewer of a different tier approves", None),
+        ("Reviewed: Tom (dictated 2026-10-27)", Some("Tom")),
+        ("Reviewed: approve; Reviewer: Fresh-One", Some("Fresh-One")),
+    ] {
+        git(root, &["-c", "commit.gpgsign=false", "commit", "--amend", "-qm", &format!("Change the rule\n\n{trailer}; patch-id {id}")]).unwrap();
+        assert_eq!(reviews(&range_messages(root, &base, "HEAD").unwrap())[0].reviewer.as_deref(), reviewer, "{trailer}");
+    }
+    let amended = format!("Change the rule\n\nReviewed: approve; reviewer: Author-Lane; patch-id {id}");
+    git(root, &["-c", "commit.gpgsign=false", "commit", "--amend", "-qm", &amended]).unwrap();
+    assert_eq!(
+        verdict(root, &base, "HEAD", &paths, Some("author-lane")),
+        Ok(Verdict::SelfReviewed { reviewer: "Author-Lane".into() })
+    );
 }

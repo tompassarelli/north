@@ -63,7 +63,7 @@ Commands:
   config agents [sync|status|on|off|path|inspect|check-hook-paths|check-owners]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing
-  review-gate id|check BASE HEAD PATH...         Print or check the reviewed patch-id of covered paths
+  review-gate id|check BASE HEAD PATH... | reviewers BASE HEAD  Print or check the reviewed patch-id of covered paths, or list the reviewers
   denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
   denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
   autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result

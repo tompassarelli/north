@@ -328,8 +328,15 @@ record_push() {
   local dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
   local repository="${origin_url##*/}"
   repository="${repository%.git}"
-  mkdir -p "$dir" && printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$repository" "$2" "$3" "$4" "$5" >>"$dir/pushes.tsv" \
+  mkdir -p "$dir" && printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$repository" "$2" "$3" "$4" "$5" "${6:-}" >>"$dir/pushes.tsv" \
     || printf 'safe-push: could not record push timing\n' >&2
+}
+
+landing_reviewers() {
+  local base="${1%%..*}" head="${1##*..}"
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  command -v north >/dev/null 2>&1 || return 0
+  north review-gate reviewers "$base" "$head" 2>/dev/null | paste -sd, - || true
 }
 
 capture_repository_state() {
@@ -1690,7 +1697,7 @@ run_train() {
             && SAFE_PUSH_ACTIVE=1 git push -q --no-verify --no-follow-tags --force-with-lease="$destination_ref:$base" \
               "$origin_url" "$cand:$destination_ref"; then
           for i in "${group[@]}"; do
-            record_push "$pushed_at" "${branches[i]}" "${oids[i]}" "$(trunk_landing "$to" "$cand")" "${sessions[i]}"
+            record_push "$pushed_at" "${branches[i]}" "${oids[i]}" "$(trunk_landing "$to" "$cand")" "${sessions[i]}" "$(landing_reviewers "$base..${oids[i]}")"
             train_verdict "$i" landed "$cand"
           done
         else
@@ -2122,6 +2129,7 @@ test_integrity_scan "$scan_range" || exit 1
 generated_rewrite_scan "$scan_range" || exit 1
 provenance_scan "$scan_range" || exit 1
 [ "$destination_branch" != "$(default_branch)" ] || review_scan "$scan_range" || exit 1
+safe_push_reviewers=$(landing_reviewers "$scan_range")
 [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
 gitleaks detect --no-banner --redact --log-opts="$scan_range" \
@@ -2152,7 +2160,7 @@ pushed_at=$EPOCHSECONDS
   "${publication_flags[@]}" \
   "$origin_url" "$publication")
 record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid" \
-  "$(trunk_landing "$destination_branch" "$head_oid")" "${NORTH_FLEET_SESSION:-}"
+  "$(trunk_landing "$destination_branch" "$head_oid")" "${NORTH_FLEET_SESSION:-}" "${safe_push_reviewers:-}"
 release_push_lock
 if [ "$to_seen" -eq 0 ]; then
   tracking_ref="refs/remotes/origin/$destination_branch"
