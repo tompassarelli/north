@@ -5,11 +5,16 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const NOTE: &str = "the parcel went to the neighbour; authorization for landing and roles across providers and models account 873492 booking Q7R9Z2 contact native@example.test handle @native on 2026-10-26";
+const PUBLIC_NOTE: &str = "laptop drain landed e6a7d3e1 and 9dc30310 on 2026-10-25T02:05:25.455Z, runs 38890506862 and 39131342098, commit 25edcd42 measured 3.3 s; sleep-drain tick ok; tick took 25.455 before sleeping; stamped 2026-10-27T11 ok";
+const KEY_NOTE: &str = "api key 0123456789abcdef0123456789abcdef kept offline";
+const FIRN: &str = "Landed e6a7d3e1 and rebuilt whiterabbit.\n- The journal from the 02:05 sleep shows the dispatcher finished at 02:05:25.455 and Wi-Fi deauthenticated at .456.\nCode landed 2026-10-25 (north 9dc30310, nixos-config d8617e10), deployed to whiterabbit and nexus.";
+const WISP: &str = "Box 3 follow-up: the failed Smashcraft Autoland runs 38890506862 (16 Oct) and 39131342098, 39137573264 (18 Oct) cite TSTL errors; smashcraft 25edcd42 added the rule and cost 3.3 s warm.\nBox 3 interim count (2026-10-24 UTC): 19 failed runs, 4 compile-only, run 39262757517 among them.";
+const NORTH: &str = "Landed 7ced4545 on origin/main (2026-10-27T11:40:03.832Z): the dispatch test passed in 34.51 s with job 39297631190 and commit fd445065.";
 
 fn threads_database(directory: &Path) -> PathBuf {
     let path = directory.join("threads.db");
     let script = format!(
-        "CREATE TABLE items(title TEXT, body TEXT); CREATE TABLE events(kind TEXT, data TEXT); INSERT INTO items VALUES ('the orange bicycle beside the gate', 'repaint the garden shed blue tomorrow'); INSERT INTO events VALUES ('note', '{{\"text\":\"{NOTE}\"}}');"
+        "CREATE TABLE items(title TEXT, body TEXT); CREATE TABLE events(kind TEXT, data TEXT); INSERT INTO items VALUES ('the orange bicycle beside the gate', 'repaint the garden shed blue tomorrow'); INSERT INTO events VALUES ('note', '{{\"text\":\"{NOTE}\"}}'); INSERT INTO events VALUES ('note', '{{\"text\":\"{PUBLIC_NOTE}\"}}'); INSERT INTO events VALUES ('note', '{{\"text\":\"{KEY_NOTE}\"}}');"
     );
     sqlite::execute(&path, Duration::from_secs(1), &script).unwrap();
     path
@@ -86,8 +91,39 @@ fn only_github_writes_are_screened() {
     );
 }
 
+fn public_ids_dates_and_timings_pass_inline_and_from_a_file() {
+    let scratch = tempfile::tempdir().unwrap();
+    let databases = [threads_database(scratch.path())];
+    for (name, text) in [("firn.md", FIRN), ("wisp.md", WISP), ("north.md", NORTH)] {
+        std::fs::write(scratch.path().join(name), text).unwrap();
+        let file = format!("gh issue comment 5 --body-file {name}");
+        assert!(!names_native_item(&comment(text), scratch.path(), &databases), "inline {name}");
+        assert!(!names_native_item(&file, scratch.path(), &databases), "file {name}");
+    }
+}
+
+fn private_tokens_beside_run_ids_and_hex_secrets_are_refused() {
+    let scratch = tempfile::tempdir().unwrap();
+    let databases = [threads_database(scratch.path())];
+    for text in [
+        "runs 38890506862 (account 873492, native@example.test) and 39131342098",
+        "run 2 and 873492",
+        "job 1, 873492",
+        "key 0123456789abcdef0123456789abcdef",
+    ] {
+        std::fs::write(scratch.path().join("hidden.md"), text).unwrap();
+        assert!(names_native_item(&comment(text), scratch.path(), &databases), "inline {text:?}");
+        assert!(
+            names_native_item("gh issue comment 5 --body-file hidden.md", scratch.path(), &databases),
+            "file {text:?}"
+        );
+    }
+}
+
 #[test]
 fn native_item_decisions_hold() {
+    public_ids_dates_and_timings_pass_inline_and_from_a_file();
+    private_tokens_beside_run_ids_and_hex_secrets_are_refused();
     only_github_writes_are_screened();
     native_refs_and_quoted_item_text_are_refused();
     adjacent_prose_and_reads_pass();
