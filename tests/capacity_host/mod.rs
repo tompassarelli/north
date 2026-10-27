@@ -118,6 +118,7 @@ impl Host {
             ("AGENT_CAPACITY_CORES", "24".to_owned()),
             ("AGENT_CAPACITY_MEMINFO", self.path("meminfo").display().to_string()),
             ("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north").to_owned()),
+            ("AGENTS_ORCHESTRATION", self.path("orchestration.toml").display().to_string()),
             ("CAPACITY_WATCHDOG_DIR", self.path("no-watchdog").display().to_string()),
         ] {
             command.env(key, value);
