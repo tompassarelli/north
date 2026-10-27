@@ -32,12 +32,12 @@
     "rule": null
   },
   {
-    "name": "reference allowlisted Python",
+    "name": "reference allowlisted new Python stays refused",
     "path": "gap.py",
     "base": null,
     "head": "import numpy\n",
     "allow": true,
-    "rule": null
+    "rule": "R1"
   },
   {
     "name": "reference new Rust",

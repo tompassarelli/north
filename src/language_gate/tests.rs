@@ -1,5 +1,6 @@
 use super::*;
 use tempfile::TempDir;
+use std::process::Command;
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -28,19 +29,31 @@ fn repository() -> TempDir {
 }
 
 fn commit(repo: &Path, message: &str) -> String {
+    commit_on(repo, message, "2026-10-15T12:00:00+00:00")
+}
+
+fn commit_on(repo: &Path, message: &str, date: &str) -> String {
     git(repo, &["add", "--all"]).unwrap();
-    git(
-        repo,
-        &[
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .env("GIT_AUTHOR_DATE", "2026-10-15T12:00:00+00:00")
+        .env("GIT_COMMITTER_DATE", date)
+        .args([
             "-c",
             "commit.gpgsign=false",
             "commit",
             "-qm",
             message,
             "--allow-empty",
-        ],
-    )
-    .unwrap();
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8(git(repo, &["rev-parse", "HEAD"]).unwrap())
         .unwrap()
         .trim()
@@ -48,7 +61,7 @@ fn commit(repo: &Path, message: &str) -> String {
 }
 
 fn write_list(repo: &Path, patterns: &[(&str, &str)]) {
-    let entries: Vec<_> = patterns.iter().map(|(glob, class)| json!({"glob":glob,"class":class,"gap":"fixture native library gap","provenance":"Tom 2026-10-15: permit this fixture"})).collect();
+    let entries: Vec<_> = patterns.iter().map(|(glob, class)| json!({"glob":glob,"class":class,"gap":"fixture native library gap","provenance":"Tom 2026-10-15: permit this fixture","port_owner":"fixture-port-owner","port_target":"src/ported.rs","commitment":"Rust port by 2026-10-16 18:00","created":"2026-10-15"})).collect();
     fs::write(
         repo.join(ALLOWLIST),
         json!({"ratchet":["script"],"entries": entries}).to_string(),
@@ -232,9 +245,9 @@ fn language_gate_guard_decodes_both_providers_and_fails_open() {
 fn language_gate_allowlist_expansion_requires_a_commit_trailer() {
     let dir = repository();
     let repo = dir.path();
-    write_list(repo, &[("tools/*.py", "python")]);
+    write_list(repo, &[("tools/*.sh", "shell")]);
     let base = commit(repo, "base");
-    write_list(repo, &[("**/*.py", "python")]);
+    write_list(repo, &[("**/*.sh", "shell")]);
     let unapproved = commit(repo, "widen");
     assert!(
         violations(repo, &base, &unapproved)
@@ -244,10 +257,10 @@ fn language_gate_allowlist_expansion_requires_a_commit_trailer() {
     );
     let approved = commit(
         repo,
-        "approval\n\nLanguage-allowlist: Tom 2026-10-15 permit Python fixture libraries",
+        "approval\n\nLanguage-allowlist: Tom 2026-10-15 permit shell fixture libraries",
     );
     assert!(violations(repo, &base, &approved).unwrap().is_empty());
-    write_list(repo, &[("tools/file?.py", "python")]);
+    write_list(repo, &[("tools/file?.sh", "shell")]);
     let narrower = commit(repo, "narrow");
     assert!(violations(repo, &base, &narrower).unwrap().is_empty());
     let broad = Allowlist::parse(br#"{"entries":[{"glob":"**/*.py","class":"python","gap":"library","provenance":"Tom 2026-10-15 yes"}]}"#).unwrap();
@@ -378,20 +391,21 @@ fn language_gate_removing_script_ratchet_requires_approval() {
 fn language_gate_first_push_from_empty_tree_checks_every_commit() {
     let dir = repository();
     let repo = dir.path();
+    write_list(repo, &[]);
     fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
     let rust = commit(repo, "rust");
     assert!(violations(repo, EMPTY_TREE, &rust).unwrap().is_empty());
-    fs::write(repo.join("tool.py"), "print(1)\n").unwrap();
-    let python = commit(repo, "python");
-    let failures = violations(repo, EMPTY_TREE, &python).unwrap();
+    fs::write(repo.join("tool.ts"), "print(1)\n").unwrap();
+    let script = commit(repo, "script");
+    let failures = violations(repo, EMPTY_TREE, &script).unwrap();
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert!(failures[0].contains("R1"), "{failures:?}");
-    write_list(repo, &[("tool.py", "python")]);
+    write_list(repo, &[("tool.ts", "script")]);
     let listed = commit(repo, "list");
     let failures = violations(repo, EMPTY_TREE, &listed).unwrap();
     assert_eq!(failures.len(), 1, "{failures:?}");
     assert!(failures[0].contains("R3"), "{failures:?}");
-    let approved = commit(repo, "approval\n\nLanguage-allowlist: Tom 2026-10-15 numpy has no Rust equivalent");
+    let approved = commit(repo, "approval\n\nLanguage-allowlist: Tom 2026-10-15 permit Script fixture library");
     assert!(violations(repo, EMPTY_TREE, &approved).unwrap().is_empty());
 }
 
@@ -410,4 +424,145 @@ fn language_gate_copies_count_as_new_files() {
     assert_eq!(failures.len(), 2, "{failures:?}");
     assert!(failures[0].starts_with("copy.py: R1"), "{failures:?}");
     assert!(failures[1].starts_with("copy.sh: R2"), "{failures:?}");
+}
+
+#[derive(Deserialize)]
+struct PythonPortFixtures {
+    entry: Value,
+    cases: Vec<PythonPortCase>,
+}
+
+#[derive(Deserialize)]
+struct PythonPortCase {
+    group: String,
+    name: String,
+    date: String,
+    #[serde(default)]
+    changes: serde_json::Map<String, Value>,
+    remove: Option<String>,
+    #[serde(default)]
+    landed: bool,
+    #[serde(default)]
+    growth: bool,
+    #[serde(default)]
+    new_path: bool,
+    rule: Option<String>,
+    field: Option<String>,
+}
+
+fn python_port_cases(group: &str) {
+    let fixtures: PythonPortFixtures = serde_json::from_str(include_str!(
+        "../fixtures/language-gate/python-port-owner.json"
+    ))
+    .unwrap();
+    let mut exercised = false;
+    for case in fixtures.cases.iter().filter(|case| case.group == group) {
+        exercised = true;
+        let home = tempfile::tempdir().unwrap();
+        let repo = home.path().join("code/project");
+        fs::create_dir_all(repo.parent().unwrap()).unwrap();
+        let dir = repository();
+        fs::rename(dir.path(), &repo).unwrap();
+        write_list(&repo, &[]);
+        if !case.new_path {
+            fs::write(repo.join("tool.py"), "print(1)\n").unwrap();
+        }
+        let base = commit(&repo, "base");
+        let mut entry = fixtures.entry.clone();
+        let fields = entry.as_object_mut().unwrap();
+        fields.extend(case.changes.clone());
+        if let Some(field) = &case.remove {
+            fields.remove(field);
+        }
+        fs::write(
+            repo.join(ALLOWLIST),
+            json!({"ratchet":["script"],"entries":[entry]}).to_string(),
+        )
+        .unwrap();
+        if case.landed {
+            fs::create_dir(repo.join("src")).unwrap();
+            fs::write(repo.join("src/ported.rs"), "fn main() {}\n").unwrap();
+        }
+        if case.new_path || case.growth {
+            fs::write(repo.join("tool.py"), "print(1)\nprint(2)\n").unwrap();
+        }
+        let head = commit_on(&repo, "head without approval trailer", &case.date);
+        let failures = violations(&repo, &base, &head).unwrap();
+        if let Some(rule) = &case.rule {
+            assert_eq!(failures.len(), 1, "{}: {failures:?}", case.name);
+            assert!(
+                failures[0].contains(rule) && failures[0].contains("tool.py"),
+                "{}: {failures:?}",
+                case.name
+            );
+            if let Some(field) = &case.field {
+                assert!(failures[0].contains(field), "{}: {failures:?}", case.name);
+            }
+        } else {
+            assert!(failures.is_empty(), "{}: {failures:?}", case.name);
+        }
+        if case.rule.as_deref() == Some("R4") {
+            write_list(&repo, &[]);
+            let removed = commit_on(&repo, "remove expired entry", &case.date);
+            assert!(
+                violations(&repo, &base, &removed).unwrap().is_empty(),
+                "{}",
+                case.name
+            );
+        }
+        if case.new_path {
+            fs::remove_file(repo.join("tool.py")).unwrap();
+            let payload = json!({"tool_name":"Write","tool_input":{"file_path":"tool.py","content":"print(1)\n"}});
+            assert!(
+                guard_decision(payload.to_string().as_bytes(), home.path(), &repo, false)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+    }
+    assert!(exercised, "no Python port fixtures for {group}");
+}
+
+#[test]
+fn language_gate_python_entries_require_a_named_rust_port_and_eta() {
+    python_port_cases("metadata");
+}
+
+#[test]
+fn language_gate_python_entries_expire_when_the_rust_port_lands() {
+    python_port_cases("landed");
+}
+
+#[test]
+fn language_gate_python_entries_expire_after_seven_commit_date_days() {
+    python_port_cases("age");
+}
+
+#[test]
+fn language_gate_valid_python_entries_permit_existing_file_growth() {
+    python_port_cases("growth");
+}
+
+#[test]
+fn language_gate_valid_python_entries_never_permit_new_files() {
+    python_port_cases("new");
+}
+
+#[test]
+fn language_gate_standing_python_approval_preserves_shell_trailers() {
+    python_port_cases("approval");
+    let dir = repository();
+    let repo = dir.path();
+    write_list(repo, &[]);
+    let base = commit(repo, "base");
+    write_list(repo, &[("tool.sh", "shell")]);
+    let head = commit(repo, "shell entry without approval");
+    let failures = violations(repo, &base, &head).unwrap();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].contains("R3"), "{failures:?}");
+    let approved = commit(
+        repo,
+        "approval\n\nLanguage-allowlist: Tom 2026-10-15 permit shell fixture",
+    );
+    assert!(violations(repo, &base, &approved).unwrap().is_empty());
 }

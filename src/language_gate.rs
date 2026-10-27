@@ -58,6 +58,10 @@ struct Entry {
     class: Class,
     gap: String,
     provenance: String,
+    port_owner: Option<String>,
+    port_target: Option<String>,
+    commitment: Option<String>,
+    created: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -301,6 +305,68 @@ fn has_approval(repo: &Path, base: &str, head: &str) -> Result<bool> {
     }))
 }
 
+fn calendar_date(value: &str) -> Option<time::Date> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || !bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+    {
+        return None;
+    }
+    time::Date::from_calendar_date(
+        value[..4].parse().ok()?,
+        time::Month::try_from(value[5..7].parse::<u8>().ok()?).ok()?,
+        value[8..].parse().ok()?,
+    )
+    .ok()
+}
+
+fn python_entry_problem(
+    repo: &Path,
+    head: &str,
+    date: time::Date,
+    entry: &Entry,
+) -> Result<Option<&'static str>> {
+    for (field, value) in [
+        ("port_owner", &entry.port_owner),
+        ("port_target", &entry.port_target),
+        ("commitment", &entry.commitment),
+        ("created", &entry.created),
+    ] {
+        if value.as_ref().is_none_or(|value| value.trim().is_empty()) {
+            return Ok(Some(field));
+        }
+    }
+    let target = entry.port_target.as_deref().unwrap();
+    if !target.ends_with(".rs")
+        || target.contains('\\')
+        || target
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+        || !Path::new(target)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+    {
+        return Ok(Some("port_target (must be a repo-relative Rust path)"));
+    }
+    if blob(repo, head, target)?.is_some() {
+        return Ok(Some("port_target (expired: Rust port already landed)"));
+    }
+    let Some(created) = entry.created.as_deref().and_then(calendar_date) else {
+        return Ok(Some("created (must be YYYY-MM-DD)"));
+    };
+    if (date - created).whole_days() > 7 {
+        return Ok(Some(
+            "created (expired: more than 7 days before head commit)",
+        ));
+    }
+    Ok(None)
+}
+
 fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     let base = if base == EMPTY_TREE {
         EMPTY_TREE.to_string()
@@ -320,11 +386,29 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
     let old_list = revision_allowlist(repo, base)?;
     let list = revision_allowlist(repo, head)?;
     let mut failures = Vec::new();
+    if list
+        .entries
+        .iter()
+        .any(|entry| entry.class == Class::Python)
+    {
+        let date = git(repo, &["show", "-s", "--format=%cs", head])?;
+        let date = calendar_date(String::from_utf8_lossy(&date).trim())
+            .ok_or("invalid head committer date")?;
+        for entry in list
+            .entries
+            .iter()
+            .filter(|entry| entry.class == Class::Python)
+        {
+            if let Some(field) = python_entry_problem(repo, head, date, entry)? {
+                failures.push(format!("{ALLOWLIST}: R4 Python entry {}: missing, invalid or expired {field}; remove the entry or supply a valid Rust port commitment; {ALTERNATIVE}", entry.glob));
+            }
+        }
+    }
     if (old_list.ratchet.contains(&Class::Script) && !list.ratchet.contains(&Class::Script)
         || list
         .entries
         .iter()
-        .any(|entry| !covered_by(entry, &old_list)))
+        .any(|entry| entry.class != Class::Python && !covered_by(entry, &old_list)))
         && !has_approval(repo, base, head)?
     {
         failures.push(format!("{ALLOWLIST}: R3 allowlist gained or widened an entry or removed the script ratchet without Language-allowlist: Tom <date> <quote>; {ALTERNATIVE}"));
@@ -365,11 +449,6 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
         let Some(class) = classify(Path::new(path), &new) else {
             continue;
         };
-        if (class == Class::Script && !list.ratchet.contains(&Class::Script))
-            || list.allows(path, class)
-        {
-            continue;
-        }
         let old = if matches!(status, b'A' | b'C') {
             None
         } else {
@@ -378,15 +457,25 @@ fn violations(repo: &Path, base: &str, head: &str) -> Result<Vec<String>> {
         let old_class = old
             .as_ref()
             .and_then(|content| classify(Path::new(old_path), content));
+        let new_python = class == Class::Python
+            && (matches!(status, b'A' | b'C')
+                || (status == b'R' && old_class != Some(Class::Python)));
+        if (class == Class::Script && !list.ratchet.contains(&Class::Script))
+            || (!new_python && list.allows(path, class))
+        {
+            continue;
+        }
         let rule = if class == Class::Shell {
             let before = old.as_ref().filter(|_| old_class == Some(Class::Shell))
                 .map_or(0, |bytes| shell_code_lines(bytes));
             let after = shell_code_lines(&new);
             (after > 80 && after > before)
                 .then_some("R2 Shell code-line count grew past 80 without an allowlist entry")
-        } else if status == b'A' || (matches!(status, b'R' | b'C') && old_class != Some(class))
+        } else if new_python
+            || status == b'A'
+            || (matches!(status, b'R' | b'C') && old_class != Some(class))
         {
-            Some("R1 new Python or Script path is not allowlisted")
+            Some("R1 new Python path is forbidden or Script path is not allowlisted")
         } else if line_count(&new) > old.as_ref().map_or(0, |bytes| line_count(bytes)) {
             Some("R2 Python or Script line count increased without an allowlist entry")
         } else {
@@ -694,7 +783,7 @@ fn guard_decision(input: &[u8], home: &Path, cwd: &Path, disabled: bool) -> Resu
             .unwrap_or(&path);
         if class == Class::Shell
             || (class == Class::Script && !list.ratchet.contains(&Class::Script))
-            || list.allows(&relative.to_string_lossy(), class)
+            || (class != Class::Python && list.allows(&relative.to_string_lossy(), class))
         {
             continue;
         }
