@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 
 use crate::landing::{denylist, land_actions, land_test_runner, landed_tree, lane_target, mutant_cli, safe_push_tag};
+use crate::ops::timers::{self, Timer};
 use crate::{
     agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
     land_abandon, provenance, review_gate,
@@ -60,6 +61,8 @@ pub(super) enum Tool {
     Archives,
     CodeHealth,
     SecretsProxyExec,
+    NexusRun,
+    Timer(Timer),
 }
 
 impl Tool {
@@ -86,7 +89,8 @@ impl Tool {
             "archives" => Self::Archives,
             "code-health" => Self::CodeHealth,
             "secrets-proxy-exec" => Self::SecretsProxyExec,
-            _ => return None,
+            "nexus-run" => Self::NexusRun,
+            other => return Timer::named(other).map(Self::Timer),
         })
     }
 
@@ -115,6 +119,8 @@ impl Tool {
             Self::Archives => ExitCode::from(crate::platform::archive_tags::run(arguments)),
             Self::CodeHealth => ExitCode::from(crate::code_health::run(arguments)),
             Self::SecretsProxyExec => super::in_runtime(async move { Ok(ExitCode::from(crate::platform::secrets_proxy::run(arguments).await)) }),
+            Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
+            Self::Timer(timer) => ExitCode::from(timer.run(arguments)),
         }
     }
 }

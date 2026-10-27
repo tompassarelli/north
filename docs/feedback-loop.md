@@ -54,7 +54,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | goal-scores.jsonl | harness/lib/project_score.py | src/ops/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | harness/lib/plan_usage.py:79; harness/lib/usage.py:267 | read | |
 | costs/*.json | harness/lib/billing_*.py | harness/lib/usage.py:264 service lines | read | |
-| S:operating-point.toml | harness/scripts/policy-replay.py | harness/scripts/agent-config-check.sh:246; bin/skill-prune:17 | read | |
+| S:operating-point.toml | harness/scripts/policy-replay.py | harness/scripts/agent-config-check.sh:246; src/ops/timers/skill_prune.rs | read | |
 | S:incidents.jsonl | north incident-mine (src/ops/incident_mine) | harness/scripts/agent-config-check.sh:296 | read | |
 | replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | harness/scripts/agent-config-check.sh:201 | read | |
 | harness/model-catalog.toml | hand | harness/lib/usage.py:31; harness/lib/ledger_context.py run_usage; src/providers/claude/runs/telemetry.rs Prices | read | |

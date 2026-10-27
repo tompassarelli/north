@@ -115,6 +115,14 @@ Commands:
   worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   runtime update                                Promote origin/main as this host's north runtime with its own tree
+  supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)
+  codex-runtime-gcroots                         Root the Nix store dependencies of every installed Codex runtime
+  skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines
+  cross-project-scan [--print-bundle]           Daily cross-project overlap scan posted to Plato
+  skill-review-queue                            Open, update or close the Skill review queue issue
+  git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
+  agent-runtime-update [VERSION]                Update the Codex, North, Claude and Agy runtimes
+  nexus-run [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there
   runtime health                                Check that the running binary is the current runtime with its programs and tree
   help                                          Show this help

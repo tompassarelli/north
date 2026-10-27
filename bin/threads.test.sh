@@ -459,7 +459,6 @@ def load(name):
     loader.exec_module(mod)
     return mod
 threads = load("threads")
-nexus = load("nexus-run")
 threads.SPOOL = str(root / "spool")
 threads.SNAPSHOT = str(root / "snapshot")
 real_run = subprocess.run
@@ -483,14 +482,7 @@ with patch.object(subprocess, "run", bounded):
     snapshot.write_bytes(b"keep existing snapshot"); os.utime(snapshot, (0, 0))
     threads.refresh_snapshot("nexus", force=True, snapshot=str(snapshot))
     assert snapshot.read_bytes() == b"keep existing snapshot"; threads.refresh_snapshot("nexus", snapshot=str(snapshot))
-    with patch.object(sys, "argv", ["nexus-run", "--source", str(repo), "--cwd", ".", "--", "true"]):
-        try:
-            nexus.main()
-        except subprocess.TimeoutExpired:
-            pass
-        else:
-            raise AssertionError("nexus timeout succeeded")
-    assert calls == [90] * 6, calls
+    assert calls == [90] * 5, calls
     assert time.monotonic() - started < 10
 print("stalled SSH waits fail within their bounds and writes are never replayed")
 PYSTALL
