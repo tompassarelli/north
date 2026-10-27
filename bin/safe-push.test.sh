@@ -1149,6 +1149,52 @@ for target_case in unsourced unsourced-none unsourced-rationale sourced soft rew
   esac
 done
 
+make_real_fixture policy-sweep
+mkdir -p "$real_repo/agents/replay"
+printf 'Policy\n\n- Keep it short.\n' >"$real_repo/agents/AGENTS.md"
+printf '{"id":"answer-first-line"}\n' >"$real_repo/agents/replay/answer-first-line.json"
+printf '{}\n' >"$real_repo/agents/replay/cleanup.json"
+printf 'notes\n' >"$real_repo/NOTES.md"
+"$real_git" -C "$real_repo" add agents NOTES.md
+"$real_git" -C "$real_repo" commit -qm 'operator policy'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+policy_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
+for policy_case in no-row row row-one-trial row-other-sha row-in-state-only no-policy-change; do
+  "$real_git" -C "$real_repo" reset -q --hard "$policy_base"
+  if [ "$policy_case" = no-policy-change ]; then
+    printf 'more notes\n' >>"$real_repo/NOTES.md"
+  else
+    printf -- '- Ask once.\n' >>"$real_repo/agents/AGENTS.md"
+    policy_sha=$(sha256sum "$real_repo/agents/AGENTS.md" | cut -d' ' -f1)
+    case "$policy_case" in
+      row) printf '{"variant":"base","policy_sha256":"%s","scenarios":{"answer-first-line":[3,3],"cleanup":[2,3]}}\n' "$policy_sha" \
+        >"$real_repo/agents/replay/sweep-2026-10-28.jsonl" ;;
+      row-one-trial) printf '{"variant":"base","policy_sha256":"%s","scenarios":{"answer-first-line":[1,1],"cleanup":[1,1]}}\n' "$policy_sha" \
+        >"$real_repo/agents/replay/sweep-2026-10-28.jsonl" ;;
+      row-other-sha) printf '{"variant":"base","policy_sha256":"%064d","scenarios":{"answer-first-line":[3,3],"cleanup":[3,3]}}\n' 0 \
+        >"$real_repo/agents/replay/sweep-2026-10-28.jsonl" ;;
+      row-in-state-only) mkdir -p "$real_fixture/state-replay"
+        printf '{"variant":"base","policy_sha256":"%s","scenarios":{"answer-first-line":[3,3],"cleanup":[3,3]}}\n' "$policy_sha" \
+        >"$real_fixture/state-replay/sweep-2026-10-28.jsonl" ;;
+    esac
+  fi
+  "$real_git" -C "$real_repo" add -A agents NOTES.md
+  "$real_git" -C "$real_repo" commit -qm "policy sweep case $policy_case" \
+    -m 'Provenance: agents/AGENTS.md: ask once on the policy fixture; origin experiment; pointer agents/replay/sweep-2026-10-28.jsonl plus the fixture sweep; rationale not recorded; revisit 2026-11-01'
+  run_real_case '' --dry-run
+  case "$policy_case" in
+    row | no-policy-change) expect_status zero ;;
+    *)
+      expect_status nonzero
+      expect_output 'makes agents/AGENTS.md'
+      expect_output 'python3 '
+      expect_output 'harness/scripts/policy-replay.py agents/replay/*.json --sweep agents/replay/variants.toml --variant base --trials 3'
+      expect_output 'about 9 minutes and $2 at list price'
+      ;;
+  esac
+done
+printf 'Policy sweep gate: PASS (6 cases: no row, row, one trial, other sha, state-only row, no policy change)\n'
+
 ci_fixture="$scratch/ci-fixture"
 mkdir -p "$ci_fixture"
 ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gh"

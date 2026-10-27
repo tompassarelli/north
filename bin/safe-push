@@ -710,6 +710,27 @@ provenance_scan() {
   return 1
 }
 
+policy_sweep_scan() {
+  local base="${1%%..*}" head="${1##*..}" policy=agents/AGENTS.md trials=3 sha wanted file
+  local -a files=() scenarios=()
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  git cat-file -e "$head:$policy" 2>/dev/null || return 0
+  [ "$(git rev-parse -q --verify "$base:$policy" 2>/dev/null)" != "$(git rev-parse "$head:$policy")" ] || return 0
+  sha=$(git show "$head:$policy" | sha256sum | cut -d' ' -f1)
+  mapfile -t files < <(git ls-tree --name-only "$head" -- agents/replay/ | grep -E '^agents/replay/sweep-[^/]*\.jsonl$' || true)
+  mapfile -t scenarios < <(git ls-tree --name-only "$head" -- agents/replay/ | grep -E '^agents/replay/[^/]*\.json$' || true)
+  wanted=$(for file in "${scenarios[@]}"; do
+    git show "$head:$file" | jq -r --arg stem "$(basename "$file" .json)" '.id // $stem'
+  done | jq -R . | jq -sc .)
+  if [ "${#files[@]}" -gt 0 ] && for file in "${files[@]}"; do git show "$head:$file"; done \
+    | jq -s -e --arg sha "$sha" --argjson wanted "$wanted" --argjson trials "$trials" \
+      'any(.[]; .policy_sha256 == $sha and ((.scenarios // {}) as $s | all($wanted[]; (($s[.] // [0, 0])[1]) >= $trials)))' >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "safe-push: ✗ this change makes agents/AGENTS.md ${sha:0:8} live and the tree has no agents/replay/sweep-*.jsonl row for it with $trials trials on every scenario, so every host's agents sync would refuse it ('the live policy has no sweep row') and roll its runtime update back. Run the sweep in this worktree and commit the row it writes: python3 ${NORTH_HOME:-$HOME/code/north/main}/harness/scripts/policy-replay.py agents/replay/*.json --sweep agents/replay/variants.toml --variant base --trials 3 (about 9 minutes and \$2 at list price: the 2026-10-27 sweeps took 480-567 s and \$1.35-\$2.23 for 42 runs); NOT pushed."
+  return 1
+}
+
 review_scan() {
   local base="${1%%..*}" head="${1##*..}" paths
   [ "$base" != "$1" ] && [ -n "$base" ] || return 0
@@ -2011,6 +2032,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   test_integrity_scan "refs/remotes/origin/$to..HEAD" || exit 1
   generated_rewrite_scan "refs/remotes/origin/$to..HEAD" || exit 1
   provenance_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  policy_sweep_scan "refs/remotes/origin/$to..HEAD" || exit 1
   [ "$to" != "$(default_branch)" ] || review_scan "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
 fi
@@ -2180,6 +2202,7 @@ tool_removal_scan "$scan_range" || exit 1
 test_integrity_scan "$scan_range" || exit 1
 generated_rewrite_scan "$scan_range" || exit 1
 provenance_scan "$scan_range" || exit 1
+policy_sweep_scan "$scan_range" || exit 1
 [ "$destination_branch" != "$(default_branch)" ] || review_scan "$scan_range" || exit 1
 safe_push_reviewers=$(landing_reviewers "$scan_range")
 [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
