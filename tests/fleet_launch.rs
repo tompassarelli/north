@@ -10,17 +10,18 @@ use serde_json::Value;
 const BRIEF: &str = "Item: smashcraft#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
 
 const SYSTEMCTL: &str = r#"#!/bin/sh
+echo "systemctl $* pid $$ at $(date +%s.%N)" >> "$FLEET_LAUNCH_FIXTURE/shim.log"
 [ "$1 $2" = '--user stop' ] || exit 0
 unit="$FLEET_LAUNCH_FIXTURE/units/$3"
-[ -f "$unit" ] || { echo "Failed to stop $3: Unit $3 not loaded." >&2; exit 5; }
+[ -f "$unit" ] || { echo "Failed to stop $3: Unit $3 not loaded." >&2; echo "NOT LOADED $3; units: $(ls "$FLEET_LAUNCH_FIXTURE/units")" >> "$FLEET_LAUNCH_FIXTURE/shim.log"; exit 5; }
 group=$(cat "$unit")
-kill -TERM -- "-$group" 2>/dev/null
+kill -TERM -- "-$group" 2>>"$FLEET_LAUNCH_FIXTURE/shim.log"; echo "TERM group $group rc $? state $(sed 's/.*) //' /proc/$group/stat 2>&1 | cut -c1)" >> "$FLEET_LAUNCH_FIXTURE/shim.log"
 for _ in $(seq 100); do
   state=$(sed 's/.*) //' "/proc/$group/stat" 2>/dev/null | cut -c1)
   if [ -z "$state" ] || [ "$state" = Z ]; then break; fi
   sleep 0.05
 done
-kill -KILL -- "-$group" 2>/dev/null
+kill -KILL -- "-$group" 2>>"$FLEET_LAUNCH_FIXTURE/shim.log"; echo "KILL group $group rc $? state $(sed 's/.*) //' /proc/$group/stat 2>&1 | cut -c1)" >> "$FLEET_LAUNCH_FIXTURE/shim.log"
 rm -f "$unit"
 "#;
 
@@ -42,7 +43,7 @@ fn fixture(root: &Path, trace: &str) {
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"controls": {"claude:a": {"windows": windows}}}}).to_string()).unwrap();
     let setsid = Command::new("sh").args(["-c", "command -v setsid"]).output().unwrap();
     executable(&root.join("bin/setsid"), &format!("#!/bin/sh\nexec {} \"$@\"\n", String::from_utf8_lossy(&setsid.stdout).trim()));
-    executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n");
+    executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\necho \"run $unit pid $$ ppid $PPID pgid $(ps -o pgid= -p $$)\" >> \"$FLEET_LAUNCH_FIXTURE/shim.log\"\nexec \"$@\"\n");
     executable(&root.join("bin/systemctl"), SYSTEMCTL);
     executable(&root.join("bin/claude"), &format!("#!/bin/sh\nexec {} --trace {trace} \"$@\"\n", support::fake_claude()));
 }
@@ -140,9 +141,10 @@ fn a_launch_whose_first_turn_answers_not_logged_in_restarts_once_and_records_it(
     let root = scratch.path();
     fixture(root, "signed-out-once");
     let launched = launch(root);
+    let shim = fs::read_to_string(root.join("shim.log")).unwrap_or_default();
     let show = shown(root);
     north(root, &["fleet", "forget", "narrow"]);
-    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+    assert!(launched.status.success(), "{}\nSHIMLOG:\n{shim}", String::from_utf8_lossy(&launched.stderr));
     assert_eq!(show["status"], "working", "{show}");
     let noted = fs::read_to_string(root.join(".local/state/north/fleet/.credential-failures.jsonl")).unwrap_or_default();
     let rows: Vec<Value> = noted.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
