@@ -9,15 +9,20 @@ pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
 mod game_reserve;
 mod unleased;
+mod native_hold;
 mod deadline;
 mod lease_deadline;
 mod warcraft;
+#[cfg(test)]
+mod admission_tests;
 #[cfg(test)]
 mod agent_load_tests;
 #[cfg(test)]
 mod game_reserve_tests;
 #[cfg(test)]
 mod unleased_tests;
+#[cfg(test)]
+mod native_hold_tests;
 #[cfg(test)]
 mod tests;
 
@@ -40,8 +45,9 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("deadline") => deadline::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
         Some("unleased") if arguments.len() == 1 => unleased::run(),
+        Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | unleased");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | unleased | quiet < LEASES.json");
             2
         }
     };
@@ -76,6 +82,7 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
                     aperture::Bar1::Unknown => {}
                 }
             }
+            facts.derive_native_holds();
             facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
             facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
             let admitted = admission::admit(&facts, host.serving);

@@ -3,6 +3,8 @@ use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 use toml_edit::DocumentMut;
 
+use super::native_hold::{self, LeaseFact, PairLease, PairRefusal, QueueEntry, QuietNative};
+
 const INTERACTIVE_PRESSURE_BASIS_POINTS: u32 = 1000;
 const BATCH_PRESSURE_BASIS_POINTS: u32 = 3000;
 const GPU_BUSY_PERCENT: u32 = 85;
@@ -80,7 +82,24 @@ pub(crate) struct Facts {
     pub(crate) new_desktops: u32,
     pub(crate) gpu_runs: u32,
     pub(crate) native_waiting: u32,
-    pub(crate) quiet_native_runs: u32,
+    #[serde(default)]
+    pub(crate) quiet_native: Vec<QuietNative>,
+    #[serde(default)]
+    pub(crate) alone: bool,
+    #[serde(default)]
+    pub(crate) alone_queued_ahead: u32,
+    #[serde(default)]
+    pub(crate) owner: Option<String>,
+    #[serde(default)]
+    pub(crate) pair: Option<u32>,
+    #[serde(default)]
+    pub(crate) pair_leases: Vec<PairLease>,
+    #[serde(default)]
+    pub(crate) leases: Vec<LeaseFact>,
+    #[serde(default)]
+    pub(crate) queue: Vec<QueueEntry>,
+    #[serde(default)]
+    pub(crate) now: f64,
     pub(crate) beside_native: bool,
     #[serde(default)]
     pub(crate) quiet: bool,
@@ -117,6 +136,10 @@ pub(crate) struct Admission {
     pub(crate) aperture: Option<Aperture>,
     #[serde(rename = "diskFreeGiB", skip_serializing_if = "Option::is_none")]
     pub(crate) disk_free_gib: Option<f64>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub(crate) pair: Option<PairRefusal>,
+    #[serde(rename = "quietOwners", skip_serializing_if = "Vec::is_empty")]
+    pub(crate) quiet_owners: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -153,6 +176,8 @@ pub(crate) enum Reason {
     DeferGameMemory,
     DeferRunQueue,
     DeferDiskFree,
+    DeferNativeAlone,
+    PairHeld,
 }
 
 pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> Admission {
@@ -165,7 +190,22 @@ pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> 
         .then(|| facts.bar1_free_mib.map(|bar1_free_mib| Aperture { bar1_free_mib, bar1_need_mib: bar1_need_mib(facts) }))
         .flatten();
     let disk_free_gib = (reason == Reason::DeferDiskFree).then_some(facts.disk_free_gib).flatten();
-    Admission { reason, offload, aperture, disk_free_gib }
+    let pair = native_hold::pair_refusal(facts.pair, facts.owner.as_deref(), &facts.pair_leases).filter(|_| reason == Reason::PairHeld);
+    let quiet_owners = if reason == Reason::DeferNativeQuiet { native_hold::holding_owners(&facts.quiet_native, quiet_idle_bound()) } else { Vec::new() };
+    Admission { reason, offload, aperture, disk_free_gib, pair, quiet_owners }
+}
+
+pub(crate) fn quiet_idle_bound() -> f64 {
+    default_mib("quiet_idle_seconds")
+}
+
+impl Facts {
+    /// Fills the quiet, pair and alone facts from the raw leases and queue the host passed.
+    pub(crate) fn derive_native_holds(&mut self) {
+        let ticket = self.ticket.as_deref().and_then(|path| path.file_name()).and_then(|name| name.to_str());
+        let derived = native_hold::derive(&self.leases, &self.queue, ticket, self.now);
+        (self.quiet_native, self.pair_leases, self.alone_queued_ahead) = (derived.quiet_native, derived.pair_leases, derived.alone_queued_ahead);
+    }
 }
 
 pub(crate) fn starts_gpu_work(facts: &Facts) -> bool {
@@ -208,6 +248,9 @@ fn run_queue_overloaded(facts: &Facts) -> bool {
 pub(crate) fn decide(facts: &Facts) -> Reason {
     if invalid(facts) {
         return Reason::Invalid;
+    }
+    if native_hold::pair_refusal(facts.pair, facts.owner.as_deref(), &facts.pair_leases).is_some() {
+        return Reason::PairHeld;
     }
     if facts.gaming && gaming_deferred(facts, facts.gaming_class.unwrap_or(facts.class)) {
         return Reason::DeferGaming;
@@ -363,6 +406,9 @@ fn native_queued_ahead(facts: &Facts) -> u32 {
 }
 
 fn native(facts: &Facts) -> Reason {
+    if native_hold::alone_defers(facts.alone, facts.alone_queued_ahead, facts.gpu_clients) {
+        return Reason::DeferNativeAlone;
+    }
     if (facts.new_clients > 0 || facts.new_desktops > 0) && native_queued_ahead(facts) > 0 {
         return Reason::DeferQueued;
     }
@@ -395,7 +441,7 @@ fn batch(facts: &Facts) -> Reason {
     if matches!(facts.class, Class::Critical | Class::Tom) {
         return if interactive_pressure(facts) { Reason::DeferInteractivePressure } else { Reason::Run };
     }
-    if facts.quiet_native_runs > 0 && !facts.beside_native {
+    if !facts.beside_native && facts.quiet_native.iter().any(|lease| lease.holds(quiet_idle_bound())) {
         return Reason::DeferNativeQuiet;
     }
     if facts.class == Class::Gpu {
@@ -435,58 +481,4 @@ fn shared(facts: &Facts) -> Reason {
         return Reason::DeferCpuPressure;
     }
     Reason::Run
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn native_with(gpu_clients: u32, new_clients: u32) -> Reason {
-        native_on("attended", None, gpu_clients, new_clients)
-    }
-
-    fn native_on(profile: &str, host_warcraft_clients: Option<u32>, gpu_clients: u32, new_clients: u32) -> Reason {
-        decide(&native_facts(profile, host_warcraft_clients, gpu_clients, new_clients))
-    }
-
-    fn native_facts(profile: &str, host_warcraft_clients: Option<u32>, gpu_clients: u32, new_clients: u32) -> Facts {
-        serde_json::from_value(serde_json::json!({
-            "profile": profile, "hostWarcraftClients": host_warcraft_clients, "class": "native", "cores": 24, "memoryTotalMiB": 96343.0, "memoryAvailableMiB": 80000.0,
-            "cpuSomeAvg10BasisPoints": 0, "protectedCpuSomeAvg10BasisPoints": 0, "leasedMemoryMiB": 0.0, "leasedBatchCpus": 0.0,
-            "leasedNativeCpus": 0.0, "requestedCpus": 2.0, "requestedMemoryMiB": 4096.0, "peerBatchRuns": 0, "peerExclusiveRuns": 0,
-            "unboundedRuns": 0, "queuedAhead": 0, "exclusiveWaiting": 0, "gpuBusyPercent": 0, "gpuClients": gpu_clients,
-            "newClients": new_clients, "gpuRuns": 0, "nativeWaiting": 0, "quietNativeRuns": 0, "besideNative": false,
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn attended_client_cap_counts_only_the_clients_a_request_starts() {
-        assert_eq!(native_with(4, 0), Reason::Run);
-        assert_eq!(native_with(3, 2), Reason::DeferGpuClients);
-        assert_eq!(native_with(2, 2), Reason::Run);
-    }
-
-    #[test]
-    fn a_queued_native_start_that_cannot_fit_holds_no_place_for_a_smaller_one_behind_it() {
-        let behind = |gpu_clients, queued_ahead_new_clients: &[u32]| {
-            let mut facts = native_facts("attended", None, gpu_clients, 1);
-            facts.queued_ahead = u32::try_from(queued_ahead_new_clients.len()).unwrap();
-            facts.queued_ahead_new_clients = queued_ahead_new_clients.to_vec();
-            decide(&facts)
-        };
-        assert_eq!(behind(3, &[2]), Reason::Run);
-        assert_eq!(behind(3, &[1]), Reason::DeferQueued);
-        assert_eq!(behind(2, &[2]), Reason::DeferQueued);
-        assert_eq!(behind(3, &[2, 1]), Reason::DeferQueued);
-    }
-
-    #[test]
-    fn a_host_measured_client_count_replaces_the_attended_four_in_either_profile() {
-        for profile in ["attended", "unattended"] {
-            assert_eq!(native_on(profile, Some(8), 6, 2), Reason::Run, "{profile}");
-            assert_eq!(native_on(profile, Some(8), 7, 2), Reason::DeferGpuClients, "{profile}");
-        }
-        assert_eq!(native_on("unattended", None, 40, 2), Reason::Run);
-    }
 }

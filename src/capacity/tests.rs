@@ -1,6 +1,7 @@
 use super::admission::{Admission, Class, Facts, Profile, Reason, admit, decide};
+use super::native_hold::QuietNative;
 
-fn facts(class: Class) -> Facts {
+pub(super) fn facts(class: Class) -> Facts {
     Facts {
         profile: Profile::Attended,
         class,
@@ -32,7 +33,15 @@ fn facts(class: Class) -> Facts {
         new_desktops: 0,
         gpu_runs: 0,
         native_waiting: 0,
-        quiet_native_runs: 0,
+        quiet_native: Vec::new(),
+        alone: false,
+        alone_queued_ahead: 0,
+        owner: None,
+        pair: None,
+        pair_leases: Vec::new(),
+        leases: Vec::new(),
+        queue: Vec::new(),
+        now: 0.0,
         beside_native: false,
         quiet: false,
         exclusive_leases: Vec::new(),
@@ -67,7 +76,7 @@ fn overload_admission(class: &str, need: Option<&str>) -> Admission {
 #[test]
 fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_host() {
     for class in ["heavy", "exclusive"] {
-        let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None };
+        let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None, pair: None, quiet_owners: Vec::new() };
         assert_eq!(overload_admission(class, Some("native:smashcraft")), refused(Some("gpu-host")), "{class}");
         assert_eq!(overload_admission(class, Some("private:smashcraft")), refused(Some("gpu-host")), "{class}");
         assert_eq!(overload_admission(class, Some("private:galileo")), refused(None), "{class}");
@@ -77,7 +86,7 @@ fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_ho
 
 #[test]
 fn run_queue_offload_names_only_another_host_that_serves_every_need() {
-    let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None };
+    let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None, pair: None, quiet_owners: Vec::new() };
     assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:smashcraft")), refused(Some("gpu-host")));
     assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:galileo")), refused(None));
     let (facts, hosts) = overload("heavy", Some("native:smashcraft"));
@@ -87,7 +96,7 @@ fn run_queue_offload_names_only_another_host_that_serves_every_need() {
 #[test]
 fn run_queue_over_thread_count_still_admits_moderate_critical_and_tom() {
     for class in ["moderate", "critical", "tom"] {
-        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None, aperture: None, disk_free_gib: None }, "{class}");
+        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None, aperture: None, disk_free_gib: None, pair: None, quiet_owners: Vec::new() }, "{class}");
     }
 }
 
@@ -99,7 +108,8 @@ fn run_queue_at_thread_count_still_admits_heavy() {
 }
 
 fn beside(class: Class, quiet_native_runs: u32, beside_native: bool) -> Reason {
-    decide(&Facts { quiet_native_runs, beside_native, ..facts(class) })
+    let busy = |index: u32| QuietNative { owner: format!("quiet-{index}"), held_seconds: 60.0, idle_seconds: None, run_seconds: None };
+    decide(&Facts { quiet_native: (0..quiet_native_runs).map(busy).collect(), beside_native, ..facts(class) })
 }
 
 #[test]
@@ -301,7 +311,7 @@ fn the_warcraft_client_cap_follows_measured_free_bar1_and_vram_under_its_static_
 #[test]
 fn a_heavy_build_waits_while_the_root_disk_is_under_its_floor_and_names_the_free_space() {
     let low = Facts { disk_free_gib: Some(9.5), ..facts(Class::Heavy) };
-    assert_eq!(admit(&low, |_| None), Admission { reason: Reason::DeferDiskFree, offload: None, aperture: None, disk_free_gib: Some(9.5) });
+    assert_eq!(admit(&low, |_| None), Admission { reason: Reason::DeferDiskFree, offload: None, aperture: None, disk_free_gib: Some(9.5), pair: None, quiet_owners: Vec::new() });
     assert_eq!(decide(&Facts { disk_free_gib: Some(15.0), ..facts(Class::Heavy) }), Reason::Run);
     assert_eq!(decide(&Facts { disk_free_gib: None, ..facts(Class::Heavy) }), Reason::Run);
     assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..facts(Class::Agent) }), Reason::Run);

@@ -125,7 +125,8 @@ function parseClass(values, cores) {
     fail(`policy rejected resource class: ${name}`);
   }
   const count = (option, fallback) => !values.has(option) ? fallback : name === 'native' ? parseNonnegativeInteger(values.get(option), option) : fail(`${option} declares a native request's ${option.slice(6)}`), newClients = count('--new-clients', Number(name === 'native')), newDesktops = count('--new-desktops', 0);
-  return { name, ...resources, newClients, newDesktops, ...(values.has('--wait-seconds') ? { waitSeconds: newClients + newDesktops > 0 ? parsePositiveInteger(values.get('--wait-seconds'), '--wait-seconds') : fail('--wait-seconds queues a native client or desktop start (--new-clients or --new-desktops above 0)') } : {}) };
+  const pair = count('--pair', undefined);
+  return { name, ...resources, newClients, newDesktops, pair, ...(values.has('--wait-seconds') ? { waitSeconds: newClients + newDesktops > 0 ? parsePositiveInteger(values.get('--wait-seconds'), '--wait-seconds') : fail('--wait-seconds queues a native client or desktop start (--new-clients or --new-desktops above 0)') } : {}) };
 }
 
 function parsePsi(path, kind) {
@@ -520,7 +521,7 @@ function measureScope(root, lease, cgroup) {
   const perClient = new Map();
   const recent = [];
   const liveSamples = [];
-  const usage = { cpuSeconds: 0, meanCores: 0, peakCores: 0, recentCores: 0, peakMemoryMiB: 0, memoryMiB: 0, gpuSeconds: 0, ioReadBytes: null, ioWriteBytes: null, ioPressureSomeUsec: null };
+  const usage = { cpuSeconds: 0, meanCores: 0, peakCores: 0, recentCores: 0, lastBusyAt: startedAt, peakMemoryMiB: 0, memoryMiB: 0, gpuSeconds: 0, ioReadBytes: null, ioWriteBytes: null, ioPressureSomeUsec: null };
   let count = 0;
   const sample = () => {
     const now = Date.now();
@@ -538,6 +539,7 @@ function measureScope(root, lease, cgroup) {
     const [then, before] = samples[0];
     if (now - then >= peakWindowMilliseconds / 2) {
       usage.recentCores = (usec - before) / 1000 / (now - then);
+      if (usage.recentCores >= DEFAULTS["quiet_idle_cores"]) usage.lastBusyAt = now;
       usage.peakCores = Math.max(usage.peakCores, usage.recentCores);
       recent.push(usage.recentCores);
     }
@@ -774,7 +776,7 @@ function markNativeWaiting(root, waiting) {
 const admittedClass = requested => requested.landing ? 'critical' : requested.name;
 
 function northJson(subcommand, input, fallback) {
-  const result = Bun.spawnSync([northCommand, 'capacity', subcommand], { stdin: Buffer.from(JSON.stringify(input ?? null)), stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync([northCommand, 'capacity', subcommand], { stdin: Buffer.from(JSON.stringify(input)), stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0 && fallback !== undefined) return fallback;
   if (result.exitCode !== 0) fail(`north capacity ${subcommand} failed: ${result.stderr.toString().trim()}`, 75);
   return JSON.parse(result.stdout.toString());
@@ -807,7 +809,6 @@ function decision(root, requested, create, ticket = null) {
     const signals = readSignals();
     const { mode, profile } = activeProfile(root);
     const granted = grantRequest(profile, signals.cores, signals.memoryTotalMiB, requested);
-    const quietOwners = runs.filter(lease => lease.class === 'native' && lease.quiet).map(lease => lease.owner);
     const { reason: code, ...advice } = admission({
       ...signals, ...gpu, profile, class: admittedClass(requested), gamingClass: requested.name, queuedAheadClasses: ahead.map(entry => entry.requestedClass), queuedAheadNewClients: ahead.map(entry => entry.newClients ?? 0), leasedMemoryMiB: leased.memoryMiB,
       leasedBatchCpus: round(committedBatchCpus - (unleased?.cores ?? 0)), leasedNativeCpus: committedNativeCpus, unleasedHeavyCores: unleased?.cores ?? 0,
@@ -816,11 +817,12 @@ function decision(root, requested, create, ticket = null) {
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
       queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients, newDesktops: requested.newDesktops, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
-      nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined, quiet: requested.quiet === true, exclusiveLeases: runs.filter(lease => lease.class === 'exclusive').map(lease => lease.id), ...(ticket === null ? {} : { ticket: join(root, 'queue', ticket) }),
+      // The north binary before the leases facts requires quietNativeRuns; drop it once that binary is promoted.
+      nativeWaiting: nativeWaiting(root, now), leases: leaseFacts(root, runs), queue, now, quietNativeRuns: 0, alone: requested.alone === true, owner: create?.owner ?? requested.owner ?? null, pair: requested.pair ?? null, besideNative: requested.besideNative !== undefined, quiet: requested.quiet === true, exclusiveLeases: runs.filter(lease => lease.class === 'exclusive').map(lease => lease.id), ...(ticket === null ? {} : { ticket: join(root, 'queue', ticket) }),
     });
-    if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
+    if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN' && code !== 'PAIR_HELD');
     const result = {
-      decision: code === 'RUN' ? (create ? 'RESERVED' : 'RUN') : 'DEFER',
+      decision: code === 'RUN' ? (create ? 'RESERVED' : 'RUN') : code === 'PAIR_HELD' ? 'REFUSED' : 'DEFER',
       reason: code,
       profile,
       mode,
@@ -849,7 +851,7 @@ function decision(root, requested, create, ticket = null) {
         gpuProcess: after === null ? null : topUnleasedGpuProcess(before, after,
           runs.map(lease => scopeCgroup(lease.class, scopeUnit(lease.id)).slice(cgroupRoot.length))),
       } : {}),
-      ...(code === 'DEFER_NATIVE_QUIET' ? { quietOwners } : {}), ...advice,
+      ...advice,
       gpuLeases: runs.filter(lease => lease.class === 'gpu').length,
       unleasedHeavyCores: unleased?.cores ?? null,
       committedBatchCpus,
@@ -864,6 +866,8 @@ function decision(root, requested, create, ticket = null) {
       id,
       kind: create.kind,
       ...(requested.quiet ? { quiet: true } : {}),
+      quietSeconds: requested.quietSeconds,
+      pair: requested.pair,
       class: requested.name,
       aggregateSlice: create.kind === 'run' ? leaseSlice(requested.name) : null,
       owner: create.owner,
@@ -884,6 +888,8 @@ function decision(root, requested, create, ticket = null) {
     return { ...result, lease: id, expiresAt: lease.expiresAt };
   });
 }
+
+const leaseFacts = (root, leases) => leases.map(lease => ({ ...lease, usage: readUsage(root, lease.id) }));
 
 function exactLease(root, id) {
   if (!/^[0-9a-f-]{36}$/.test(id)) fail('invalid lease identity');
@@ -920,6 +926,9 @@ function measuredView(usage) {
   };
 }
 
+// Each quiet native lease with whether it still holds batch work and, if so, the batch jobs waiting behind it.
+const quietStanding = (root, active, now) => new Map(northJson('quiet', { leases: leaseFacts(root, active), queue: readQueue(root), now }).map(entry => [entry.id, entry]));
+
 function status(root) {
   const gpu = readGpu(1);
   return withLock(root, () => {
@@ -930,6 +939,7 @@ function status(root) {
     const signals = readSignals();
     const accounting = cpuAccounting(root, active, now);
     const seconds = milliseconds => Math.round(milliseconds / 1000);
+    const quiet = quietStanding(root, active, now);
     const draining = active.filter(lease => lease.kind === 'run' && batchClass(lease.class))
       .map(lease => ({ owner: lease.owner, class: lease.class, remainingSeconds: seconds(lease.expiresAt - now) }));
     return {
@@ -955,6 +965,8 @@ function status(root) {
         committedCpus: lease.kind === 'run' ? round(accounting.commitments.get(lease.id).cpus) : 0,
         cpuBasis: lease.kind === 'run' ? accounting.commitments.get(lease.id).basis : 'agent-memory-only',
         measured: lease.kind === 'run' ? measuredView(readUsage(root, lease.id)) : null,
+        pair: lease.pair,
+        quiet: quiet.get(lease.id),
         heldSeconds: seconds(now - lease.createdAt),
         remainingSeconds: lease.expiresAt === null ? null : seconds(lease.expiresAt - now),
       })),
@@ -993,9 +1005,9 @@ function leaseChange(root, milliseconds) {
 
 // Batch work, and a native client or desktop start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or a quiet native session outlasts its timeout (REFUSED).
 async function admit(root, requested, create) {
-  if (!batchClass(requested.name) && requested.waitSeconds === undefined) return decision(root, requested, create);
+  if (!batchClass(requested.name) && requested.waitSeconds === undefined && !requested.alone) return decision(root, requested, create);
   const queuedAt = Date.now();
-  const ticket = enqueue(root, admittedClass(requested), requested.name, create.owner, create.timeoutSeconds, { newClients: requested.newClients, newDesktops: requested.newDesktops });
+  const ticket = enqueue(root, admittedClass(requested), requested.name, create.owner, create.timeoutSeconds, { newClients: requested.newClients, newDesktops: requested.newDesktops, ...(requested.alone ? { alone: true } : {}) });
   const leave = signal => () => {
     dequeue(root, ticket);
     process.exit(128 + ({ SIGHUP: 1, SIGINT: 2, SIGTERM: 15 })[signal]);
@@ -1006,7 +1018,7 @@ async function admit(root, requested, create) {
     let reported = null;
     for (;;) {
       const result = { ...decision(root, requested, create, ticket), queuedSeconds: round((Date.now() - queuedAt) / 1000) };
-      if (result.decision === 'RESERVED' || result.queuedSeconds >= (requested.waitSeconds ?? Infinity)) return result;
+      if (result.decision === 'RESERVED' || result.decision === 'REFUSED' || result.queuedSeconds >= (requested.waitSeconds ?? Infinity)) return result;
       if (result.reason === 'DEFER_NATIVE_QUIET' && create.timeoutSeconds !== null && result.queuedSeconds >= create.timeoutSeconds) return { ...result, decision: 'REFUSED' };
       if (result.reason !== reported) {
         print({ ...result, decision: 'QUEUED' }, 2);
@@ -1041,6 +1053,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
   const native = requested.name === 'native';
   const admitted = await admit(root, requested, { kind: 'run', owner, timeoutSeconds });
   print(admitted, 2);
+  if (admitted.reason === 'PAIR_HELD') fail(`refused: pair ${admitted.pair} is held by ${admitted.holder}; free pair: ${admitted.freePair}`, 75);
   if (admitted.decision === 'REFUSED') fail(`refused after ${admitted.queuedSeconds}s: native evidence run ${admitted.quietOwners.join(', ')} is live; retry after it ends`, 75);
   if (admitted.decision !== 'RESERVED') return 75;
   const limits = admitted.scope;
@@ -1056,7 +1069,7 @@ async function runScoped(root, requested, owner, timeoutSeconds, command) {
       `--property=MemoryHigh=${limits.memoryMiB}M`,
       '--property=KillMode=control-group',
       ...(frozenClasses.has(requested.name) ? ['--', northCommand, 'capacity', 'deadline', exactLease(root, admitted.lease), `${timeoutSeconds}`, '--'] : [`--property=RuntimeMaxSec=${timeoutSeconds === null ? 'infinity' : `${timeoutSeconds}s`}`, '--']), ...command,
-    ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...systemdClientEnv(), AGENT_CAPACITY_LEASE: admitted.lease } });
+    ], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit', env: { ...systemdClientEnv(), AGENT_CAPACITY_LEASE: admitted.lease, ...(requested.pair === undefined ? {} : { AGENT_CAPACITY_PAIR: `${requested.pair}` }) } });
     const measurement = measureScope(root, admitted.lease, scopeCgroup(requested.name, unit));
     for (const signal of terminationSignals) process.once(signal, stop);
     const exitCode = await child.exited;
@@ -1183,11 +1196,12 @@ async function main(argv) {
     return 0;
   }
   if (operation === 'probe') {
-    const { values, separator } = parseKeyValues(argv, 1, new Set(['--class', '--memory-gib', '--beside-native', '--new-clients', '--new-desktops']));
+    const { values, separator } = parseKeyValues(argv, 1, new Set(['--class', '--memory-gib', '--beside-native', '--new-clients', '--new-desktops', '--pair', '--owner']));
     if (separator !== argv.length) fail('probe accepts no command');
     const signals = readSignals();
     const besideNative = values.has('--beside-native') ? { besideNative: parseOwner(values, '--beside-native') } : {};
-    const result = decision(root, { ...parseClass(values, signals.cores), ...besideNative }, null);
+    const owner = values.has('--owner') ? { owner: parseOwner(values) } : {};
+    const result = decision(root, { ...parseClass(values, signals.cores), ...besideNative, ...owner }, null);
     print(result);
     return result.decision === 'RUN' ? 0 : 75;
   }
@@ -1218,7 +1232,7 @@ async function main(argv) {
     return 0;
   }
   if (operation === 'run' || operation === 'session') {
-    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--new-clients', '--new-desktops', '--quiet', '--wait-seconds']), new Set(['--quiet']));
+    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--new-clients', '--new-desktops', '--quiet', '--wait-seconds', '--quiet-seconds', '--pair', '--alone']), new Set(['--quiet', '--alone']));
     const command = argv.slice(parsed.separator + 1);
     if (parsed.separator === argv.length || command.length === 0) fail(`${operation} requires -- COMMAND ARG...`);
     const signals = readSignals();
@@ -1230,6 +1244,8 @@ async function main(argv) {
     requested.estimate ??= estimateCommand(command, requested.name, owner, signals.cores);
     if (parsed.values.has('--beside-native')) requested.besideNative = parseOwner(parsed.values, '--beside-native');
     if (parsed.values.has('--quiet')) requested.quiet = requested.name === 'native' || fail('--quiet marks a native evidence session');
+    if (parsed.values.has('--quiet-seconds')) requested.quietSeconds = parsePositiveInteger(parsed.values.get('--quiet-seconds'), '--quiet-seconds');
+    if (parsed.values.has('--alone')) requested.alone = requested.name === 'native' || fail('--alone marks a native request that needs no other Warcraft client');
     if (operation === 'run' && owner === 'land-check' && process.env.SAFE_PUSH_LAND_HEAD && batchClass(requested.name)) requested.landing = true;
     // A session without one takes its class's default deadline; native sessions have none.
     const timeoutSeconds = parsed.values.has('--timeout-seconds') || operation === 'run'
@@ -1238,7 +1254,7 @@ async function main(argv) {
       : sessionSeconds(requested.name) || null;
     return runScoped(root, requested, owner, timeoutSeconds, command);
   }
-  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet] [--beside-native NATIVE-OWNER]; see machine-capacity');
+  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--alone] [--pair K] [--beside-native NATIVE-OWNER]; see machine-capacity');
 }
 
 process.exitCode = await main(Bun.argv.slice(2));

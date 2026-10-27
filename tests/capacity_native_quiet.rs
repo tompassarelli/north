@@ -113,3 +113,56 @@ fn batch_lease_outlasted_by_a_native_session_is_refused_naming_its_owner() {
     assert!(beside.status.success(), "{}", String::from_utf8_lossy(&beside.stderr));
     assert_eq!(host.last_usage()["besideNative"], native_owner);
 }
+
+impl Host {
+    fn quiet_lease(&self) -> String {
+        let leases = fs::read_dir(self.path("agent-capacity-v1/leases")).unwrap();
+        leases
+            .flatten()
+            .filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json"))
+            .find(|entry| serde_json::from_str::<Value>(&fs::read_to_string(entry.path()).unwrap()).unwrap()["quiet"] == true)
+            .map(|entry| entry.path().file_stem().unwrap().to_string_lossy().into_owned())
+            .unwrap()
+    }
+
+    fn measure_quiet_lease(&self, idle_seconds: u64) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        let usage = serde_json::json!({ "at": now, "lastBusyAt": now - idle_seconds * 1000, "recentCores": 0.0, "peakCores": 0.0, "meanCores": 0.0 });
+        fs::write(self.path(&format!("agent-capacity-v1/leases/{}.usage", self.quiet_lease())), usage.to_string()).unwrap();
+    }
+
+    fn probe_moderate(&self) -> Value {
+        serde_json::from_slice(&self.helper(&["probe", "--class", "moderate"]).output().unwrap().stdout).unwrap()
+    }
+}
+
+#[test]
+fn a_quiet_lease_idle_past_its_bound_stops_deferring_batch_work_and_status_names_its_owner_and_how_long_it_deferred_others() {
+    let host = Host::new("native-quiet-", &[("systemd-run", SYSTEMD_RUN), ("systemctl", SYSTEMCTL)]);
+    let (_session, _stdin) = host.native_session("sc-434-t1915", true);
+
+    host.measure_quiet_lease(1);
+    let busy = host.probe_moderate();
+    assert_eq!((busy["reason"].as_str(), &busy["quietOwners"]), (Some("DEFER_NATIVE_QUIET"), &serde_json::json!(["sc-434-t1915"])));
+
+    let mut waiting = host.batch(&serde_json::json!({ "class": "moderate", "owner": "map-build" }), "60");
+    host.until("the batch job to queue", |host| host.queued("moderate") == 1);
+    std::thread::sleep(Duration::from_secs(2));
+    host.measure_quiet_lease(1);
+    let quiet = host.status()["holding"].as_array().unwrap().iter().find_map(|lease| lease.get("quiet").cloned()).unwrap();
+    assert_eq!((quiet["owner"].as_str(), quiet["holding"].as_bool(), quiet["deferring"]["jobs"].as_u64()), (Some("sc-434-t1915"), Some(true), Some(1)), "{quiet}");
+    assert!(quiet["deferring"]["longestWaitingSeconds"].as_u64().unwrap() >= 2, "{quiet}");
+    assert!(waiting.exited().is_none());
+
+    host.measure_quiet_lease(600);
+    let stale = host.probe_moderate();
+    assert_ne!(stale["reason"], "DEFER_NATIVE_QUIET", "{stale}");
+    let mut status = None;
+    host.until("the queued batch job to run past the stale quiet lease", |_| {
+        status = waiting.exited();
+        status.is_some()
+    });
+    assert!(status.unwrap().success());
+    let quiet = host.status()["holding"].as_array().unwrap().iter().find_map(|lease| lease.get("quiet").cloned()).unwrap();
+    assert_eq!((quiet["holding"].as_bool(), &quiet["deferring"]), (Some(false), &Value::Null), "{quiet}");
+}

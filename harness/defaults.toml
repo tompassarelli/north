@@ -612,3 +612,18 @@ unit = "GiB free on the root filesystem below which admission defers a heavy bui
 source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/28 with about 17 sessions building at once while admission counted only CPU and memory (north#259)"
 fallback = "an unreadable disk admits, as before"
 consumers = ["src/capacity/admission.rs"]
+
+[quiet_idle_cores]
+value = 0.25
+unit = "measured cores of a quiet native lease's scope below which its clients count as idle"
+source = "measured: a quiet lease held at 0 measured cores for over 17 minutes while 19 batch jobs from six sessions queued behind it on the GPU host, 2026-10-26 (north#237)"
+fallback = "a lease whose scope is not measured counts as busy"
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-host.mjs"]
+
+[quiet_idle_seconds]
+value = 300
+unit = "seconds a quiet native lease's clients must stay idle before it stops deferring batch work"
+source = "prior: five minutes outlasts a screenshot read or a between-capture pause yet is far under the 17-minute hold that queued 19 jobs on the GPU host, 2026-10-26 (north#237)"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against quiet native leases' measured idle seconds; worker runs are the nearest existing count until quiet leases are counted" }
+fallback = "a lease whose scope is not measured keeps deferring until it ends or passes its declared run length"
+consumers = ["src/capacity/admission.rs"]

@@ -26,7 +26,6 @@
     "newClients": 0,
     "gpuRuns": 0,
     "nativeWaiting": 0,
-    "quietNativeRuns": 0,
     "besideNative": false
   }
 }

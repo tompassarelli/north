@@ -12,7 +12,7 @@ fn heavy_admission(disk_free_gib: f64) -> Value {
         "cpuSomeAvg10BasisPoints": 0, "protectedCpuSomeAvg10BasisPoints": 0, "leasedMemoryMiB": 0.0, "leasedBatchCpus": 0.0,
         "leasedNativeCpus": 0.0, "requestedCpus": 6.0, "requestedMemoryMiB": 8192.0, "peerBatchRuns": 0, "peerExclusiveRuns": 0,
         "unboundedRuns": 0, "queuedAhead": 0, "exclusiveWaiting": 0, "gpuBusyPercent": 0, "gpuClients": 0,
-        "newClients": 0, "newDesktops": 0, "gpuRuns": 0, "nativeWaiting": 0, "quietNativeRuns": 0, "besideNative": false, "diskFreeGiB": disk_free_gib,
+        "newClients": 0, "newDesktops": 0, "gpuRuns": 0, "nativeWaiting": 0, "besideNative": false, "diskFreeGiB": disk_free_gib,
     });
     let mut command = host.command(env!("CARGO_BIN_EXE_north"));
     command
