@@ -40,6 +40,7 @@ fn facts(class: Class) -> Facts {
         gaming: false,
         gaming_class: None,
         queued_ahead_classes: Vec::new(),
+        queued_ahead_new_clients: Vec::new(),
         run_queue_load: None,
         need: None,
     }

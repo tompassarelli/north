@@ -95,6 +95,8 @@ pub(crate) struct Facts {
     #[serde(default)]
     pub(crate) queued_ahead_classes: Vec<Option<Class>>,
     #[serde(default)]
+    pub(crate) queued_ahead_new_clients: Vec<u32>,
+    #[serde(default)]
     pub(crate) run_queue_load: Option<f64>,
     #[serde(default)]
     pub(crate) need: Option<String>,
@@ -298,8 +300,21 @@ pub(crate) fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
     }
 }
 
+fn over_client_cap(facts: &Facts, new_clients: u32) -> bool {
+    warcraft_client_cap(facts).is_some_and(|cap| facts.gpu_clients.saturating_add(new_clients) > cap)
+}
+
+/// Native waiters ahead in line, less those whose own clients would defer as DEFER_GPU_CLIENTS: they hold no place, so a smaller start behind them takes a slot that frees.
+fn native_queued_ahead(facts: &Facts) -> u32 {
+    if facts.queued_ahead_new_clients.is_empty() {
+        return facts.queued_ahead;
+    }
+    let holding = facts.queued_ahead_new_clients.iter().filter(|new_clients| !over_client_cap(facts, **new_clients)).count();
+    u32::try_from(holding).unwrap_or(u32::MAX)
+}
+
 fn native(facts: &Facts) -> Reason {
-    if (facts.new_clients > 0 || facts.new_desktops > 0) && facts.queued_ahead > 0 {
+    if (facts.new_clients > 0 || facts.new_desktops > 0) && native_queued_ahead(facts) > 0 {
         return Reason::DeferQueued;
     }
     if facts.quiet && facts.peer_exclusive_runs > u32::from(facts.within_exclusive) {
@@ -308,7 +323,7 @@ fn native(facts: &Facts) -> Reason {
     if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
         return Reason::DeferNativeCpus;
     }
-    if warcraft_client_cap(facts).is_some_and(|cap| facts.gpu_clients.saturating_add(facts.new_clients) > cap) {
+    if over_client_cap(facts, facts.new_clients) {
         return Reason::DeferGpuClients;
     }
     if facts.gpu_busy_percent >= GPU_BUSY_PERCENT && facts.gpu_runs == 0 {
@@ -382,15 +397,18 @@ mod tests {
     }
 
     fn native_on(profile: &str, host_warcraft_clients: Option<u32>, gpu_clients: u32, new_clients: u32) -> Reason {
-        let facts: Facts = serde_json::from_value(serde_json::json!({
+        decide(&native_facts(profile, host_warcraft_clients, gpu_clients, new_clients))
+    }
+
+    fn native_facts(profile: &str, host_warcraft_clients: Option<u32>, gpu_clients: u32, new_clients: u32) -> Facts {
+        serde_json::from_value(serde_json::json!({
             "profile": profile, "hostWarcraftClients": host_warcraft_clients, "class": "native", "cores": 24, "memoryTotalMiB": 96343.0, "memoryAvailableMiB": 80000.0,
             "cpuSomeAvg10BasisPoints": 0, "protectedCpuSomeAvg10BasisPoints": 0, "leasedMemoryMiB": 0.0, "leasedBatchCpus": 0.0,
             "leasedNativeCpus": 0.0, "requestedCpus": 2.0, "requestedMemoryMiB": 4096.0, "peerBatchRuns": 0, "peerExclusiveRuns": 0,
             "unboundedRuns": 0, "queuedAhead": 0, "exclusiveWaiting": 0, "gpuBusyPercent": 0, "gpuClients": gpu_clients,
             "newClients": new_clients, "gpuRuns": 0, "nativeWaiting": 0, "quietNativeRuns": 0, "besideNative": false,
         }))
-        .unwrap();
-        decide(&facts)
+        .unwrap()
     }
 
     #[test]
@@ -398,6 +416,20 @@ mod tests {
         assert_eq!(native_with(4, 0), Reason::Run);
         assert_eq!(native_with(3, 2), Reason::DeferGpuClients);
         assert_eq!(native_with(2, 2), Reason::Run);
+    }
+
+    #[test]
+    fn a_queued_native_start_that_cannot_fit_holds_no_place_for_a_smaller_one_behind_it() {
+        let behind = |gpu_clients, queued_ahead_new_clients: &[u32]| {
+            let mut facts = native_facts("attended", None, gpu_clients, 1);
+            facts.queued_ahead = u32::try_from(queued_ahead_new_clients.len()).unwrap();
+            facts.queued_ahead_new_clients = queued_ahead_new_clients.to_vec();
+            decide(&facts)
+        };
+        assert_eq!(behind(3, &[2]), Reason::Run);
+        assert_eq!(behind(3, &[1]), Reason::DeferQueued);
+        assert_eq!(behind(2, &[2]), Reason::DeferQueued);
+        assert_eq!(behind(3, &[2, 1]), Reason::DeferQueued);
     }
 
     #[test]
