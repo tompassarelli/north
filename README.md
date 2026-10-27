@@ -44,6 +44,7 @@ Each document has one job:
 - [docs/architecture.md](docs/architecture.md): the `north` app's owning boundaries.
 - [docs/features.md](docs/features.md): what each command does.
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
+- [docs/python-port-order.md](docs/python-port-order.md): the order the remaining Python moves to Rust, from its import cycle.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
 - [docs/rationale/targets.md](docs/rationale/targets.md): why numeric targets gate or not.
 - [AGENTS.md](AGENTS.md): rules for agents working in this repository, including build and check
