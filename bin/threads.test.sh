@@ -527,7 +527,7 @@ check '[property] 1,000 generated native refs and titles: gh refuses every argv 
 
 # 40 processes, each making 25 claims through NorthThreads' own entry point.
 for w in $(seq 1 40); do
-  python3 - "$threads" "$w" <<'PY' >/dev/null &
+  python3 - "$threads" "$w" <<'PY' >/dev/null 2>>"$scratch/writers.err" &
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("threads", sys.argv[1])
 spec = importlib.util.spec_from_loader("threads", loader)
@@ -538,8 +538,8 @@ for n in range(25):
 PY
 done
 wait
-out=$(sqlite3 "$THREADS_DB" "select count(*) from claims where item like 'wisp#%'")
-check '[invariant] 40 writers x 25 parallel writes keep all 1000' '[ "$out" = 1000 ]'
+kept=$(sqlite3 "$THREADS_DB" "select count(*) from claims where item like 'wisp#%'"); out="$kept of 1000 kept; writer errors:"$'\n'"$(sort "$scratch/writers.err" 2>/dev/null | uniq -c | head -5)"
+check '[invariant] 40 writers x 25 parallel writes keep all 1000' '[ "$kept" = 1000 ]'
 
 # The remote ledger over a fake ssh: ingest spools while it is unreachable, then flushes in order.
 mkdir -p "$scratch/home/.config/threads" "$scratch/remote"
