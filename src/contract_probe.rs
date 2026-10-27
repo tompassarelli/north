@@ -13,6 +13,7 @@ use crate::claude_stream::{
     encode_user_message,
 };
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::runtime::Invocation;
 
 pub const INITIALIZE_ID: &str = "init1";
 pub const INTERRUPT_ID: &str = "int1";
@@ -168,7 +169,7 @@ fn check_interrupted_turn(frames: &[StreamFrame], expect: &Expectation, violatio
     }
 }
 
-pub async fn run(arguments: &[String]) -> NorthResult<u8> {
+pub async fn run(arguments: &[String], invocation: impl FnOnce() -> NorthResult<Invocation>) -> NorthResult<u8> {
     let report = |outcome: Result<(), Vec<String>>| match outcome {
         Ok(()) => {
             println!("contract-probe: ok");
@@ -187,21 +188,27 @@ pub async fn run(arguments: &[String]) -> NorthResult<u8> {
             Ok(report(validate(&frames, &Expectation::for_fixture(&frames))))
         }
         [mode, path] if mode == "--runtime" => {
-            let (frames, expect) = probe_runtime(std::slice::from_ref(path), RUNTIME_DEADLINE).await?;
+            let (frames, expect) = probe_runtime(std::slice::from_ref(path), RUNTIME_DEADLINE, &invocation()?).await?;
             Ok(report(validate(&frames, &expect)))
         }
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }
 
-pub async fn probe_runtime(command: &[String], deadline: Duration) -> NorthResult<(Vec<StreamFrame>, Expectation)> {
+pub async fn probe_runtime(command: &[String], deadline: Duration, invocation: &Invocation) -> NorthResult<(Vec<StreamFrame>, Expectation)> {
     let directory = tempfile::tempdir()?;
-    let mut child = Command::new(&command[0])
-        .args(&command[1..])
+    let argv: Vec<&String> = invocation.prefix.iter().chain(command).collect();
+    let mut launch = Command::new(argv[0]);
+    for name in &invocation.env_remove {
+        launch.env_remove(name);
+    }
+    let mut child = launch
+        .args(&argv[1..])
         .args(RUNTIME_FLAGS)
         .current_dir(directory.path())
         .env("DISABLE_AUTOUPDATER", "1")
         .env("DISABLE_INSTALLATION_CHECKS", "1")
+        .envs(invocation.env.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -259,6 +266,15 @@ impl Session {
     async fn until(&mut self, done: impl Fn(&StreamFrame) -> bool) -> NorthResult<()> {
         while let Some(line) = self.output.next_line().await? {
             let frame = decode_frame(&line)?;
+            if let StreamFrame::RateLimit(event) = &frame
+                && event.rate_limit_info.status.as_deref() == Some("rejected")
+            {
+                let info = &event.rate_limit_info;
+                return Err(NorthError::Refused(format!(
+                    "the runtime hit its {} usage limit and cannot answer the probe; retrying at the next pass",
+                    info.rate_limit_type.as_deref().unwrap_or("account")
+                )));
+            }
             let finished = done(&frame);
             self.frames.push(frame);
             if finished {
@@ -358,9 +374,53 @@ mod tests {
         let script = root.path().join("claude");
         fs::write(&script, STUB).unwrap();
         let command = vec!["sh".to_string(), script.display().to_string()];
-        let (frames, expect) = probe_runtime(&command, Duration::from_secs(10)).await.unwrap();
+        let (frames, expect) = probe_runtime(&command, Duration::from_secs(10), &Invocation::default()).await.unwrap();
         assert_eq!(validate(&frames, &expect), Ok(()));
     }
+
+    #[tokio::test]
+    async fn contract_probe_runs_the_runtime_with_the_chosen_account_environment() {
+        let root = tempfile::tempdir().unwrap();
+        let script = root.path().join("claude");
+        fs::write(&script, format!("[ \"$PROBE_ACCOUNT\" = c ] || exit 4\n{STUB}")).unwrap();
+        let command = vec!["sh".to_string(), script.display().to_string()];
+        let invocation = Invocation { env: vec![("PROBE_ACCOUNT".into(), "c".into())], ..Invocation::default() };
+        let (frames, expect) = probe_runtime(&command, Duration::from_secs(10), &invocation).await.unwrap();
+        assert_eq!(validate(&frames, &expect), Ok(()));
+        assert!(probe_runtime(&command, Duration::from_secs(10), &Invocation::default()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn contract_probe_fails_at_once_when_the_runtime_reports_its_usage_limit() {
+        let root = tempfile::tempdir().unwrap();
+        let script = root.path().join("claude");
+        fs::write(&script, LIMITED).unwrap();
+        let command = vec!["sh".to_string(), script.display().to_string()];
+        let started = Instant::now();
+        let error = probe_runtime(&command, Duration::from_secs(30), &Invocation::default()).await.unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        assert!(error.to_string().contains("seven_day usage limit"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn contract_probe_without_a_roomy_account_exits_before_starting_the_runtime() {
+        let refuse = || Err(NorthError::Refused("no Claude account has headroom for the probe; retrying at the next pass".into()));
+        let started = Instant::now();
+        let error = run(&["--runtime".into(), "/nonexistent/claude".into()], refuse).await.unwrap_err();
+        assert_eq!(error.to_string(), "no Claude account has headroom for the probe; retrying at the next pass");
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    const LIMITED: &str = r#"
+while IFS= read -r line; do
+  case "$line" in
+    *'"subtype":"initialize"'*)
+      printf '{"type":"control_response","response":{"subtype":"success","request_id":"init1","response":{"claude_code_version":"9.9.9"}}}\n' ;;
+    *'"type":"user"'*)
+      printf '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"seven_day"}}\n' ;;
+  esac
+done
+"#;
 
     const STUB: &str = r#"
 case " $* " in *" --safe-mode --model haiku "*) ;; *) exit 3 ;; esac

@@ -72,10 +72,7 @@ impl Decision {
     }
 
     fn best_where(&self, allowed: impl Fn(&str) -> bool) -> Option<&Verdict> {
-        self.verdicts
-            .iter()
-            .filter(|v| v.available && allowed(v.account.trim_start_matches("claude:")))
-            .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.account.cmp(&a.account)))
+        roomiest(&self.verdicts, allowed)
     }
 
     fn sign_in_on_machine(&mut self) {
@@ -132,6 +129,24 @@ impl Decision {
             self.target = Target::Unserved(why);
         }
     }
+}
+
+fn roomiest(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool) -> Option<&Verdict> {
+    verdicts
+        .iter()
+        .filter(|v| v.available && allowed(v.account.trim_start_matches("claude:")))
+        .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.account.cmp(&a.account)))
+}
+
+/// The label of the Claude account that runs here with the most headroom in the gate pace-control
+/// last wrote, None when every one is out.
+pub(crate) fn roomiest_here(gate: &Value, roster: &Roster) -> Option<String> {
+    let here: Vec<Verdict> = verdicts(gate, roster).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
+    roomiest(&here, |_| true).map(|best| best.account.trim_start_matches("claude:").to_owned())
+}
+
+pub(crate) fn live_gate() -> Value {
+    load(&storage::directory().join("usage-gate.json"))
 }
 
 fn window_refusal(window: &Value) -> Option<String> {
@@ -394,7 +409,7 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Rost
         .ok()
         .and_then(|s| target::seconds(&s))
         .unwrap_or_else(storage::now);
-    let gate = load(&storage::directory().join("usage-gate.json"));
+    let gate = live_gate();
     let machines = probed(&cfg, fleet_load);
     let mut decision = decide(text, &cfg, verdicts(&gate, roster), credit(&cfg, at), &machines, &local());
     if let Some(name) = named {

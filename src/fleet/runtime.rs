@@ -21,6 +21,15 @@ pub struct HostSpec {
     pub cwd: PathBuf,
 }
 
+/// How to start a provider CLI as one account: argv words that read its credential, the environment
+/// to set and the inherited variables to drop.
+#[derive(Clone, Debug, Default)]
+pub struct Invocation {
+    pub prefix: Vec<String>,
+    pub env: Vec<(String, OsString)>,
+    pub env_remove: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Instructions<'a> {
     pub text: &'a str,

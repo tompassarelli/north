@@ -15,6 +15,7 @@ mod fleet_revive;
 mod gate;
 mod ledger;
 mod orders;
+mod probe_account;
 mod relay;
 mod safe_push_result;
 #[cfg(test)]
@@ -182,7 +183,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments)) }),
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
         Command::ContractProbe(arguments) => in_runtime(async move {
-            contract_probe::run(&arguments).await.map(ExitCode::from)
+            contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)
         }),
         Command::Grounding(arguments) => in_runtime(async move {
             grounding::main(&arguments).map(|code| ExitCode::from(code as u8))

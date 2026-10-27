@@ -265,3 +265,15 @@ fn placement_puts_a_label_owned_by_another_machine_only_on_that_machine() {
     assert_eq!((here.machine.as_ref(), target(&here).as_str()), (None, "claude:a"), "{:?}", here.machine_lines);
     assert!(here.machine_lines.contains(&"claude:b runs only on gex45; claude:a here".to_owned()), "{:?}", here.machine_lines);
 }
+
+#[test]
+fn the_probe_runs_on_the_roomiest_account_and_none_when_every_account_is_out() {
+    let listed = roster(&[("b", None), ("c", None)]);
+    let five = (10.0, 1.0, "2026-10-27T12:00:00Z");
+    let week_out = control(five, (100.0, 0.0));
+    let one_open = gate(&[("claude:b", week_out.clone()), ("claude:c", control(five, (40.0, 1.0)))]);
+    assert_eq!(gate::roomiest_here(&one_open, &listed), Some("c".to_owned()));
+
+    let all_out = gate(&[("claude:b", week_out.clone()), ("claude:c", week_out)]);
+    assert_eq!(gate::roomiest_here(&all_out, &listed), None);
+}
