@@ -144,6 +144,9 @@ impl HookKind {
         match self {
             Self::PreBash => &[
                 crate::guard::tripwire::check,
+                crate::guard::corpus_scan::evaluate,
+                crate::guard::resource_safe_search::evaluate,
+                crate::guard::modern_search::evaluate,
                 crate::guard::launch_critical::evaluate,
                 crate::guard::desktop_action::decide,
                 crate::guard::blind_stage::evaluate,

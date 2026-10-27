@@ -87,7 +87,7 @@ fn tokens(text: &str) -> Vec<String> {
             .collect()
     })
 }
-fn realpath(path: &Path) -> Option<String> {
+pub(super) fn realpath(path: &Path) -> Option<String> {
     if path.as_os_str().as_encoded_bytes().contains(&0) {
         return None;
     }

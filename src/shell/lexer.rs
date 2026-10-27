@@ -66,7 +66,6 @@ pub fn assignment(word: &str) -> bool {
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
-#[allow(dead_code)] // exercised by tests and the shellcmd_compare example, not the binary
 pub fn argv_spans(text: &str) -> Result<Vec<(&'static str, usize, usize)>, &'static str> {
     fn quoted(text: &[char], mut cursor: usize, quote: char) -> Result<usize, &'static str> {
         cursor += 1;
