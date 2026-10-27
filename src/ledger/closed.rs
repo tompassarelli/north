@@ -35,6 +35,11 @@ pub struct Cell {
 }
 
 impl Cell {
+    #[cfg(test)]
+    pub fn priced(tier: &str, category: &str, closed: usize, usd: f64) -> Self {
+        Self { tier: tier.into(), category: category.into(), closed, usd, box_usd: Vec::new(), run_minutes: Vec::new() }
+    }
+
     pub fn usd_per_closed(&self) -> f64 {
         self.usd / self.closed as f64
     }

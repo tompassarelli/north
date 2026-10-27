@@ -86,8 +86,8 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
 }
 
 fn closed(cells: &[(&str, usize, f64)]) -> ClosedReport {
-    let other = Cell { tier: "opus-medium".into(), category: "feature".into(), closed: 1, usd: 0.01 };
-    let cells: Vec<Cell> = cells.iter().map(|(tier, closed, per)| Cell { tier: (*tier).into(), category: "tooling".into(), closed: *closed, usd: per * *closed as f64 }).chain([other]).collect();
+    let other = Cell::priced("opus-medium", "feature", 1, 0.01);
+    let cells: Vec<Cell> = cells.iter().map(|(tier, closed, per)| Cell::priced(tier, "tooling", *closed, per * *closed as f64)).chain([other]).collect();
     ClosedReport { closed: cells.iter().map(|cell| cell.closed).sum(), cells, spend_usd: 0.0, leads_usd: 0.0 }
 }
 
