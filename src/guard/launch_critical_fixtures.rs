@@ -165,6 +165,21 @@ pub fn fixture() -> Fixture {
             format!("sed -i s/a/b/ {galileo}/bin/galileo-land-check"),
             root.clone(),
         ),
+        (
+            format!("perl -i -pe s/a/b/ {north}/cli/x.clj"),
+            root.clone(),
+        ),
+        ("perl -pi.bak -e s/a/b/ cli/x.clj".into(), north.clone()),
+        ("ruby -i -pe s/a/b/ cli/x.clj".into(), north.clone()),
+        ("sed -i s/a/b/ cli/x.clj".into(), north.clone()),
+        (
+            format!("python3 -c \"open('{north}/cli/x.clj','w').write('x')\""),
+            root.clone(),
+        ),
+        (
+            "python3 -c \"import pathlib; pathlib.Path('cli/x.clj').write_text('x')\"".into(),
+            north.clone(),
+        ),
         (format!("cp /tmp/x.clj {north}/cli/x.clj"), root.clone()),
         (format!("rsync -a /tmp/x.clj {north}/x"), root.clone()),
         (format!("scp /tmp/x.clj {north}/x"), root.clone()),
@@ -174,9 +189,26 @@ pub fn fixture() -> Fixture {
     ] {
         cases.push((command.clone(), bash(command, &cwd), true));
     }
-    for command in ["rsync -a /tmp/x.clj gex45:/tmp/x", "scp /tmp/x.clj tom@gex45:/tmp/x"] {
+    for command in [
+        "rsync -a /tmp/x.clj gex45:/tmp/x",
+        "scp /tmp/x.clj tom@gex45:/tmp/x",
+        "perl -ne print cli/x.clj",
+        "ruby -ne print cli/x.clj",
+        "python3 -c \"print(open('cli/x.clj').read())\"",
+        "python3 -c \"open('/tmp/out.txt','w').write('x')\"",
+        "perl -Mstrict -ne print cli/x.clj",
+    ] {
         let command = command.to_string();
         cases.push((command.clone(), bash(command, &north), false));
+    }
+    for command in [
+        "perl -pi -e s/a/b/ src/x.txt",
+        "ruby -i -pe s/a/b/ src/x.txt",
+        "sed -i s/a/b/ src/x.txt",
+        "python3 -c \"open('src/x.txt','w').write('x')\"",
+    ] {
+        let command = command.to_string();
+        cases.push((command.clone(), bash(command, &lane), false));
     }
     let envelope =
         "*** Begin Patch\n*** Update File: code/north/main/cli/x.clj\n@@\n-a\n+b\n*** End Patch";
@@ -196,6 +228,7 @@ pub fn fixture() -> Fixture {
         format!("git -C {property_main} reset --hard HEAD"),
         format!("rm {property_main}/src/main.txt"),
         format!("sed -i s/a/b/ {property_main}/src/main.txt"),
+        format!("perl -pi -e s/a/b/ {property_main}/src/main.txt"),
         format!("cargo test --target-dir {root}/property/target-agent"),
     ] {
         for prefix in ["", "CHECK=1 ", "command ", "sudo ", "env CHECK=1 "] {

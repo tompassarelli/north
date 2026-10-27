@@ -1015,6 +1015,29 @@ impl Policy {
                         return Some(self.deny(arg, &hit, "edit in place"));
                     }
                 }
+            } else if matches!(base, "perl" | "ruby")
+                && words[i + 1..].iter().any(|s| interpreter_flags(s).0)
+            {
+                let scripts = words[i + 1..]
+                    .iter()
+                    .filter(|s| interpreter_flags(s).1)
+                    .count()
+                    .max(1);
+                for arg in args.iter().skip(scripts) {
+                    if let Some((path, _)) = self.target(arg, env, cwd)
+                        && let Some(hit) = self.protected(&path)
+                    {
+                        return Some(self.deny(arg, &hit, "edit in place"));
+                    }
+                }
+            } else if matches!(base, "python" | "python3") {
+                for literal in python_write_targets(&words[i + 1..]) {
+                    if let Some((path, _)) = self.target(&literal, env, cwd)
+                        && let Some(hit) = self.protected(&path)
+                    {
+                        return Some(self.deny(&literal, &hit, "write a file from an inline script"));
+                    }
+                }
             } else if WRITE_COMMANDS.contains(&base) || DESTRUCTIVE_COMMANDS.contains(&base) {
                 for arg in args {
                     let Some((path, scope)) = self.target(arg, env, cwd) else {
@@ -1212,6 +1235,45 @@ impl Policy {
         }
         None
     }
+}
+fn interpreter_flags(word: &str) -> (bool, bool) {
+    let Some(letters) = word.strip_prefix('-').filter(|s| !s.starts_with('-')) else {
+        return (false, false);
+    };
+    for letter in letters.chars() {
+        match letter {
+            'i' => return (true, false),
+            'e' | 'E' => return (false, true),
+            'M' | 'm' | 'I' | 'x' | 'C' | 'F' | 'd' | 'D' | 'r' | 'K' | 'T' => break,
+            _ => {}
+        }
+    }
+    (false, false)
+}
+fn python_write_targets(words: &[String]) -> Vec<String> {
+    static WRITES: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"\.(?:write|writelines|write_text|write_bytes)\s*\(|\bopen\s*\([^()]*,\s*(?:mode\s*=\s*)?['"][rbt]*[wax+]"#).unwrap()
+    });
+    static LITERAL: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"'([^']*)'|"([^"]*)""#).unwrap());
+    let Some(at) = words.iter().position(|s| s == "-c") else {
+        return Vec::new();
+    };
+    let Some(code) = words.get(at + 1).filter(|code| WRITES.is_match(code)) else {
+        return Vec::new();
+    };
+    LITERAL
+        .captures_iter(code)
+        .filter_map(|capture| capture.get(1).or_else(|| capture.get(2)))
+        .map(|literal| literal.as_str().to_owned())
+        .filter(|literal| literal.contains(['/', '.']))
+        .chain(
+            words[at + 2..]
+                .iter()
+                .filter(|s| !s.starts_with('-'))
+                .cloned(),
+        )
+        .collect()
 }
 fn short_letters(args: &[String]) -> Vec<char> {
     args.iter()
