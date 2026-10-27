@@ -1,6 +1,9 @@
 chat-post.sh
 code-health-edit.sh
+corpus-scan-guard.sh
 heavy-command-guard.sh
+modern-search-guard.sh
+resource-safe-search-guard.sh
 subagent-teardown.sh
 unlanded-work.sh
 worker-handoff.sh

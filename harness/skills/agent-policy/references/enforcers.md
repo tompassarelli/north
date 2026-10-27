@@ -12,7 +12,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | --- | --- | --- |
 | No new Python files or Python line growth; shell glue stays at most 80 code lines; write Rust by default | `language-guard` | Claude, Codex |
 | No placeholder model identities in Todo attempts or calibration records | `concrete-model-identity-guard` | Codex |
-| No broad transcript archive scans; use `north convo` or a bounded transcript target | `corpus-scan-guard` | Claude, Codex |
+| No broad transcript archive scans; use `north convo` or a bounded transcript target | `corpus-scan-guard` through `north-hook` | Claude, Codex |
 | System configuration operations go through Firn's source-owned policy | `firn-system-policy` | Claude, Codex |
 | No unnamed stash pushes and no stash pop, because every worktree shares the stash | `north-hook` | Claude, Codex |
 | Native evidence uses the batch planner; solo exceptions record their reason in the run ledger, and quiet leases belong to timing batches | `north-hook` | Claude, Codex |
@@ -20,8 +20,8 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No gh issue, PR or API text that matches the public deny-list, unless the repository is private | `north-hook` (public-text) | Claude, Codex |
 | No bulk Git staging or automatic commit staging; enumerate paths | `north-hook` | Claude, Codex |
 | Keep secrets out of output: `sops decrypt` or `sops -d` output never reaches the terminal; extract one value into a pipe or send the output to a file | `north-hook` (sops-decrypt) | Claude, Codex |
-| No recursive grep or find tree searches; use rg or fd | `modern-search-guard` | Claude, Codex |
-| No recursive searches of virtual filesystems or repository containers | `resource-safe-search-guard` | Codex |
+| No recursive grep or find tree searches; use rg or fd | `modern-search-guard` through `north-hook` | Claude, Codex |
+| No recursive searches of virtual filesystems or repository containers | `resource-safe-search-guard` through `north-hook` | Claude, Codex |
 | No session-wide kills, user-manager teardown (also inside an ssh remote command) or unmanaged background child launches | `session-kill-guard` | Claude, Codex |
 | No destructive commands, unsafe Git publishing or sensitive outbound transfers | `north-hook` (tripwire) | Claude, Codex |
 | Codex prompts, plans and endings avoid the recorded delivery failures | `codex-behavior-guard` | Codex |

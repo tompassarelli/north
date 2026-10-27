@@ -22,7 +22,7 @@ metadata:
 
 ## Bounded search
 
-The `resource-safe-search-guard` hook (Codex only so far) refuses recursive searches of repository containers and `/proc`, `/sys`, `/dev`, `/run`; `modern-search-guard` refuses slow `grep -r`/`find` tree searches.
+The `resource-safe-search-guard` check in `north hook` refuses recursive searches of repository containers and `/proc`, `/sys`, `/dev`, `/run`; the `modern-search-guard` check refuses slow `grep -r`/`find` tree searches.
 
 - Search one exact checkout, subtree, file or bounded data root, because a container holding main, worktrees and pins multiplies one search by every lane.
 - Pass an absolute checkout or subtree operand, since launch context may differ from the tool's working directory and an implicit root may be the container.

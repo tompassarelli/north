@@ -8,9 +8,7 @@ bin/run-bounded.test.sh
 harness/hooks/launch-critical-worktree-guard.test.sh
 harness/hooks/launch-critical-worktree-guard.test.py
 harness/hooks/lead-regrounding.test.sh
-harness/hooks/modern-search-guard.test.sh
 harness/hooks/native-launch-guard.test.sh
-harness/hooks/resource-safe-search-guard.test.sh
 harness/hooks/spawn-capacity-guard.test.sh
 harness/hooks/worker-wait-guard.test.sh
 harness/hooks/session-kill-guard.test.sh

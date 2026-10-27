@@ -18,9 +18,6 @@ import shellcmd
 TRIGGERS = {
     'clipboard': (['wl-copy hi', 'wl-copy --clear', '/run/current-system/sw/bin/wl-copy hi', 'niri msg action screenshot-window', 'niri msg -j action screenshot-screen', 'wl-paste', 'wl-paste --list-types', 'xclip -o -selection clipboard', 'xsel -o'], ['echo "wl-paste"', 'rg wl-paste socrates', 'agent-capture --screen /tmp/s.png', 'niri msg action focus-window --id 3']),
     'generated-policy': (['sed -i s/a/b/ {cwd}/src/host.nix', 'tee {home}/.claude/CLAUDE.md', 'sd old new {home}/.claude/CLAUDE.md', 'cp /tmp/x {home}/.codex/AGENTS.md', 'mv /tmp/x {home}/.codex/skills/a/SKILL.md'], ['cat {home}/.claude/CLAUDE.md', 'sed -n p {cwd}/src/host.nix', 'sed -i s/a/b/ {cwd}/src/plain.nix', 'cp {home}/.claude/CLAUDE.md /tmp/claude.md', 'agents sync']),
-    'modern-search': (['grep -rn foo src', "find . -name '*.ts'", 'rgrep foo src', 'grep --recursive -il foo src'], ['grep foo a.ts', 'git grep foo', "find . -maxdepth 1 -name '*.ts'", 'find . -mtime +3 -delete']),
-    'resource-safe-search': (['rg TARGET /proc/[0-9]*/cwd', 'rg TARGET /sys', 'rg TARGET {home}/code/proj'], ['rg TARGET /proc/1234/status', 'rg TARGET {cwd}/src', 'find /proc -maxdepth 1 -type d']),
-    'corpus-scan': (['rg needle {home}/code/north-data', 'rg needle {home}/code/north-data/accounts', 'grep -R needle {home}/code/north-data', 'find {home}/code/north-data -name rollout-*.jsonl'], ['rg needle {home}/code/north-data/accounts/openai/acct/sessions/2026/08/12', 'rg --max-depth 2 needle {home}/code/north-data', 'convo -x needle']),
     'native-launch': (['wine game.exe', 'wine64 game.exe', 'proton run game.exe', 'steam-run wine game.exe'], ['ls game.exe', 'pgrep -f game.exe', 'bun /opt/machine-capacity.mjs session --class native --owner x -- wine game.exe']),
     'native-item': (['gh issue comment 5 --body life#1', 'gh pr edit 3 --body travel#2'], ['gh issue view 1', 'gh issue comment 5 --body landed', 'threads note life#1 progress']),
 }
@@ -142,8 +139,6 @@ def exercise(name, home, cwd, boundary):
     for command in near_misses:
         check(not guard(command, cwd), name + ' near miss', command)
         count += 1
-    if name == 'modern-search':
-        count += rewrite_scenario(guard, home, cwd)
     if name == 'native-item':
         import sqlite3
         database = Path(home) / '.local/state/threads/threads.db'
@@ -203,70 +198,6 @@ def exercise(name, home, cwd, boundary):
     return count
 
 
-def rewrite_scenario(guard, home, cwd):
-    patterns = Path(cwd) / 'patterns file'
-    source = Path(cwd) / 'source file.json'
-    patterns.write_text('matched\n')
-    source.write_text('{"value":"matched"}\n')
-    active = Path(home) / 'rewrite.active'
-    active.write_text('hook modern-search-guard\n')
-    env = dict(os.environ, NORTH_AGENT_ACTIVE=str(active), AGENT_NO_AUTHORING_HOOKS='0')
-    count = 0
-    for provider in ('claude', 'codex'):
-        for pattern_arg in (shlex.quote(str(patterns)), "<(printf '%s\\n' matched)"):
-            command = 'grep -qFf ' + pattern_arg + ' ' + shlex.quote(str(source))
-            output = guard.output({'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': command}})
-            check(not output, provider + ' allowed grep unchanged', command)
-            count += 1
-        for pattern_arg in ("<(jq -r '.value' " + shlex.quote(str(source)) + ")",
-                            '<(jq -r .value "' + str(source) + '")'):
-            command = 'grep -qFf ' + pattern_arg + ' ' + shlex.quote(str(source))
-            expected = command.replace('grep -qFf', 'rg -qF -f', 1)
-            tool_input = {'command': command, 'timeout': 1000, 'description': 'Search explicit JSON',
-                          'run_in_background': False, 'provider_extra': {'preserve': [1, 2]}}
-            payload = {'hook_event_name': 'PreToolUse', 'tool_name': 'Bash', 'cwd': cwd,
-                       'session_id': provider + '-recorded-native-hook', 'tool_input': tool_input,
-                       'tool_use_id': 'call_probe', 'permission_mode': 'bypassPermissions'}
-            if provider == 'codex':
-                payload['turn_id'] = 'recorded-turn'
-            result = subprocess.run([str(guard.path)], input=json.dumps(payload), text=True,
-                                    capture_output=True, env=env, check=True, timeout=10)
-            output = json.loads(result.stdout)['hookSpecificOutput']
-            check(output['permissionDecision'] == 'allow', provider + ' rewrite decision', payload)
-            check(output['updatedInput'] == dict(tool_input, command=expected),
-                  provider + ' full input preservation', payload)
-            check('modern-search-guard' in output['additionalContext'], provider + ' context', payload)
-            observed = subprocess.run(['bash', '-c', output['updatedInput']['command']], cwd=cwd,
-                                      capture_output=True, timeout=10)
-            check(observed.returncode == 0, provider + ' rewritten execution', payload)
-            count += 1
-            refused = guard.output(dict(payload, tool_input=dict(tool_input,
-                command=command + '; grep -r needle src')))
-            check(refused.get('permissionDecision') == 'deny' and 'updatedInput' not in refused,
-                  provider + ' remaining refusal wins', payload)
-            count += 1
-        for command in ('grep -rn foo .', "grep -qFf <(jq -r .v f) f extra", "grep -rqFf <(jq -r .v f) src",
-                        "grep -qFf <(jq -r .v f) src/*", "grep -qFf <(jq -r .v f) $(echo f)",
-                        "grep -qFf <(jq -r .v f) f # c", "grep -qFf <(jq -r .v f) f > out"):
-            output = guard.output({'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': command}})
-            check(output.get('permissionDecision') == 'deny' and 'updatedInput' not in output,
-                  provider + ' refusal outside rewrite scope', command)
-            count += 1
-        rewrite_payload = json.dumps({'tool_name': 'Bash', 'cwd': cwd,
-                                     'tool_input': {'command': 'grep -qFf patterns file'}})
-        for overrides, body in (({'AGENT_NO_AUTHORING_HOOKS': '1'}, rewrite_payload),
-                                ({'NORTH_AGENT_ACTIVE': str(active) + '.missing',
-                                  'AGENT_NO_AUTHORING_HOOKS': ''}, rewrite_payload),
-                                ({'NORTH_AGENT_PYTHON': '/missing/python'}, rewrite_payload),
-                                ({}, '{"grep":'), ({}, 'grep' + ' ' * 1048576)):
-            result = subprocess.run([str(guard.path)], input=body, text=True,
-                                    capture_output=True, env=dict(env, **overrides),
-                                    check=True, timeout=10)
-            check(not result.stdout, provider + ' unavailable payload/state', overrides)
-            count += 1
-    return count
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--guard', choices=TRIGGERS)
@@ -275,7 +206,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='shellcmd-property-', dir='/tmp') as temporary:
         home = Path(temporary) / 'home'
         cwd = home / 'code/proj/main'
-        for directory in [cwd / 'src', home / 'code/proj/worktrees/lane', home / 'code/north-data/accounts/openai/acct/sessions/2026/08/12']:
+        for directory in [cwd / 'src']:
             directory.mkdir(parents=True)
         env = dict(os.environ)
         try:
