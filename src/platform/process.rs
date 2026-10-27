@@ -56,7 +56,17 @@ pub(crate) fn run_with_input_within(
     run_command_within(command, input, limit)
 }
 
-pub(crate) fn run_command_within(mut command: Command, input: Option<&[u8]>, limit: Duration) -> Option<Output> {
+pub(crate) fn run_command_within(command: Command, input: Option<&[u8]>, limit: Duration) -> Option<Output> {
+    run_prepared(command, input, limit, false)
+}
+
+pub(crate) fn run_group_within(mut command: Command, limit: Duration) -> Option<Output> {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    run_prepared(command, None, limit, true)
+}
+
+fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool) -> Option<Output> {
     let stdin = match input {
         Some(input) => {
             let mut file = tempfile::tempfile().ok()?;
@@ -77,10 +87,13 @@ pub(crate) fn run_command_within(mut command: Command, input: Option<&[u8]>, lim
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait().ok()? {
+            if group {
+                kill(&mut child, group);
+            }
             break status;
         }
         if started.elapsed() >= limit {
-            let _ = child.kill();
+            kill(&mut child, group);
             let _ = child.wait();
             return None;
         }
@@ -95,6 +108,18 @@ pub(crate) fn run_command_within(mut command: Command, input: Option<&[u8]>, lim
     let mut stderr = Vec::new();
     errors.read_to_end(&mut stderr).ok()?;
     Some(Output { status, stdout, stderr })
+}
+
+fn kill(child: &mut std::process::Child, group: bool) {
+    let leader = i32::try_from(child.id()).ok().and_then(rustix::process::Pid::from_raw);
+    match leader {
+        Some(pid) if group => {
+            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::Kill);
+        }
+        _ => {
+            let _ = child.kill();
+        }
+    }
 }
 
 pub(crate) struct Bounded {
