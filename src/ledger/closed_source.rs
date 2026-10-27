@@ -16,6 +16,10 @@ const OWNER: &str = "tompassarelli";
 const ISSUE_LIMIT: &str = "1000";
 
 pub fn window_start(window: &str) -> NorthResult<String> {
+    Ok(Timestamp::from_unix_seconds(Timestamp::now().unix_seconds() - span_seconds(window)?).iso())
+}
+
+fn span_seconds(window: &str) -> NorthResult<i64> {
     let split = window.find(|character: char| !character.is_ascii_digit()).ok_or_else(|| usage(window))?;
     let (count, unit) = window.split_at(split);
     let seconds = match unit {
@@ -23,8 +27,7 @@ pub fn window_start(window: &str) -> NorthResult<String> {
         "d" => 86_400,
         _ => return Err(usage(window)),
     };
-    let span = count.parse::<i64>().map_err(|_| usage(window))? * seconds;
-    Ok(Timestamp::from_unix_seconds(Timestamp::now().unix_seconds() - span).iso())
+    Ok(count.parse::<i64>().map_err(|_| usage(window))? * seconds)
 }
 
 fn usage(window: &str) -> NorthError {
@@ -76,13 +79,17 @@ fn native_namespaces(database: &std::path::Path) -> NorthResult<HashSet<String>>
     Ok(rows.iter().map(|row| text(row, "ns")).collect())
 }
 
-fn native_closed(database: &std::path::Path, since: &str) -> NorthResult<HashSet<String>> {
-    let query = format!("SELECT ns || '#' || number AS item FROM items WHERE state = 'closed' AND closed >= '{}'", since.replace('\'', ""));
+fn native_closed(database: &std::path::Path, since: &str, until: &str) -> NorthResult<HashSet<String>> {
+    let query = format!(
+        "SELECT ns || '#' || number AS item FROM items WHERE state = 'closed' AND closed >= '{}' AND closed < '{}'",
+        since.replace('\'', ""),
+        until.replace('\'', "")
+    );
     Ok(sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?.iter().map(|row| text(row, "item")).collect())
 }
 
-fn github_closed(repo: &str, since: &str) -> NorthResult<HashSet<String>> {
-    let search = format!("closed:>={}", &since[..10]);
+fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashSet<String>> {
+    let search = format!("closed:{}..{}", &since[..10], &until[..10]);
     let repository = format!("{OWNER}/{repo}");
     let issues = github::json(&["issue", "list", "-R", &repository, "--state", "closed", "--search", &search, "--limit", ISSUE_LIMIT, "--json", "number,closedAt"])
         .map_err(|error| NorthError::Configuration(format!("gh issue list {repository}: {}", error.trim())))?;
@@ -90,22 +97,38 @@ fn github_closed(repo: &str, since: &str) -> NorthResult<HashSet<String>> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|issue| issue["closedAt"].as_str().is_some_and(|at| at >= since))
+        .filter(|issue| issue["closedAt"].as_str().is_some_and(|at| at >= since && at < until))
         .filter_map(|issue| Some(format!("{repo}#{}", issue["number"].as_i64()?)))
         .collect())
 }
 
 pub fn closed_report(window: &str) -> NorthResult<ClosedReport> {
-    let since = window_start(window)?;
+    closed_report_between(&window_start(window)?, &Timestamp::now().iso())
+}
+
+/// The closed-box reports of the last `window` and of the `window` before it, both measured from
+/// one clock reading so no box falls in both or in neither.
+pub fn closed_report_and_previous(window: &str) -> NorthResult<(ClosedReport, ClosedReport)> {
+    let [(since, until), (earlier, start)] = adjacent_windows(Timestamp::now(), span_seconds(window)?);
+    Ok((closed_report_between(&since, &until)?, closed_report_between(&earlier, &start)?))
+}
+
+/// The `[since, until)` bounds of the `span` seconds ending `now` and of the span before it.
+pub(crate) fn adjacent_windows(now: Timestamp, span: i64) -> [(String, String); 2] {
+    let at = |back: i64| Timestamp::from_unix_seconds(now.unix_seconds() - back).iso();
+    [(at(span), at(0)), (at(2 * span), at(span))]
+}
+
+fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> {
     let database = threads_database();
-    let runs = spend_runs(&database)?;
+    let runs: Vec<SpendRun> = spend_runs(&database)?.into_iter().filter(|run| run.ended.as_str() < until).collect();
     let native = native_namespaces(&database)?;
-    let mut closed = native_closed(&database, &since)?;
+    let mut closed = native_closed(&database, since, until)?;
     let repos: HashSet<&str> = runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)).collect();
     for repo in repos.iter().filter(|repo| !native.contains(**repo)) {
-        closed.extend(github_closed(repo, &since)?);
+        closed.extend(github_closed(repo, since, until)?);
     }
-    Ok(summarize(&runs, &closed, &since, &PriceTable::load()?))
+    Ok(summarize(&runs, &closed, since, &PriceTable::load()?))
 }
 
 pub fn window_start_ms(window: &str) -> NorthResult<i64> {

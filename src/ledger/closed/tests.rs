@@ -71,3 +71,22 @@ fn no_closed_box_leaves_every_per_closed_figure_empty() {
     let report = summarize(&fixture(), &closed(&[]), "2026-10-27T00:00:00Z", &PriceTable::load().unwrap());
     assert_eq!(report.dashboard("24h"), "cost/closed 24h: all - (0) | leads -/closed");
 }
+
+#[test]
+fn a_quantile_interval_spans_the_order_statistics_around_its_rank_and_stays_inside_the_sample() {
+    let sample = |n: usize| (1..=n).map(|value| value as f64).collect::<Vec<f64>>();
+    assert_eq!(interval(&mut sample(1), 50), (1.0, 1.0));
+    assert_eq!(interval(&mut sample(2), 50), (1.0, 2.0));
+    assert_eq!(interval(&mut sample(20), 50), (5.0, 15.0));
+    assert_eq!(interval(&mut sample(100), 50), (40.0, 60.0));
+    assert_eq!(interval(&mut sample(100), 75), (66.0, 84.0));
+    assert_eq!(interval(&mut [9.0, 1.0, 5.0], 50), (1.0, 9.0), "it sorts first");
+}
+
+#[test]
+fn the_window_and_the_one_before_it_meet_at_one_instant_from_one_clock_reading() {
+    let now = crate::foundation::clock::Timestamp::parse("2026-10-27T06:00:00Z").unwrap();
+    let [(since, until), (earlier, start)] = crate::ledger::closed_source::adjacent_windows(now, 7 * 86_400);
+    assert_eq!((until.as_str(), start.as_str()), (now.iso().as_str(), since.as_str()));
+    assert!(since.starts_with("2026-10-20T06:00:00") && earlier.starts_with("2026-10-13T06:00:00"), "{since} {earlier}");
+}

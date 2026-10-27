@@ -46,18 +46,30 @@ impl Cell {
 }
 
 /// What a closed-box cell says about its next box: the median cost of a closed box and the p75 wall
-/// of a run on one, each with the sample it comes from.
+/// of a run on one, each with the sample it comes from and its 95% order-statistic interval.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Figures {
     pub closed: usize,
     pub median_usd: f64,
+    pub usd_interval: (f64, f64),
     pub runs: usize,
     pub p75_minutes: f64,
+    pub minutes_interval: (f64, f64),
 }
 
 fn percentile(values: &mut [f64], percent: usize) -> f64 {
     values.sort_by(f64::total_cmp);
     values[(values.len() * percent).div_ceil(100).max(1) - 1]
+}
+
+/// The distribution-free 95% interval of a quantile: the sorted sample's values at the 1-based
+/// ranks ⌊n·q − 1.96·√(n·q·(1−q))⌋ and ⌈n·q + 1.96·√(n·q·(1−q))⌉, clamped to the sample.
+fn interval(values: &mut [f64], percent: usize) -> (f64, f64) {
+    values.sort_by(f64::total_cmp);
+    let (n, q) = (values.len() as f64, percent as f64 / 100.0);
+    let spread = 1.96 * (n * q * (1.0 - q)).sqrt();
+    let rank = |at: f64| (at.clamp(1.0, n) as usize) - 1;
+    (values[rank((n * q - spread).floor())], values[rank((n * q + spread).ceil())])
 }
 
 #[derive(Debug, PartialEq)]
@@ -143,8 +155,10 @@ impl ClosedReport {
         (!spends.is_empty() && !walls.is_empty()).then(|| Figures {
             closed: spends.len(),
             median_usd: percentile(&mut spends, 50),
+            usd_interval: interval(&mut spends, 50),
             runs: walls.len(),
             p75_minutes: percentile(&mut walls, 75),
+            minutes_interval: interval(&mut walls, 75),
         })
     }
 

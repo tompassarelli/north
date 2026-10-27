@@ -27,6 +27,7 @@ pub(super) enum Tool {
     Runtime,
     Cloud,
     Dispatch,
+    Tune,
 }
 
 impl Tool {
@@ -51,6 +52,7 @@ impl Tool {
             "runtime" => Self::Runtime,
             "cloud" => Self::Cloud,
             "dispatch" => Self::Dispatch,
+            "tune" => Self::Tune,
             _ => return None,
         })
     }
@@ -78,6 +80,7 @@ impl Tool {
             Self::Reclaim => return ExitCode::from(crate::ops::reclaim::run(arguments)),
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Runtime => return ExitCode::from(crate::ops::runtime::run(arguments)),
+            Self::Tune => return ExitCode::from(crate::ops::tune::run(arguments)),
         };
         super::in_runtime(async move { Ok(ExitCode::from(run(arguments))) })
     }

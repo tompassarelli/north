@@ -139,7 +139,18 @@ impl Evidence {
         Some(if self.cost(Tier::Opus)? < self.cost(Tier::Sonnet)? { Tier::Opus } else { Tier::Sonnet })
     }
 
-    fn figures(&self, tier: Tier) -> String {
+    /// The arm the category routes to once both arms hold `ARM_RUNS` runs and a cost; None while
+    /// the arms still alternate.
+    pub(crate) fn settled(&self) -> Option<Tier> {
+        self.decided().filter(|_| self.runs(Tier::Sonnet) >= ARM_RUNS && self.runs(Tier::Opus) >= ARM_RUNS)
+    }
+
+    /// Both arms' runs behind the decision.
+    pub(crate) fn arm_runs(&self) -> usize {
+        self.runs(Tier::Sonnet) + self.runs(Tier::Opus)
+    }
+
+    pub(crate) fn figures(&self, tier: Tier) -> String {
         let cost = self.cost(tier).map_or_else(|| "no closed box".to_owned(), |usd| format!("${usd:.2} per closed box"));
         format!("{} {:.0}% of {}, {cost}", tier.name(), self.rate(tier), self.runs(tier))
     }
@@ -219,7 +230,7 @@ pub(crate) fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &Hi
     }
     let evidence = ledger.get(&category).cloned().unwrap_or_default();
     let (sonnet, opus) = (evidence.runs(Tier::Sonnet), evidence.runs(Tier::Opus));
-    if let Some(tier) = evidence.decided().filter(|_| sonnet >= ARM_RUNS && opus >= ARM_RUNS) {
+    if let Some(tier) = evidence.settled() {
         return on(tier, format!("{category} goes to {} by the ledger's cost per closed box ({}; {})", tier.name(), evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus)));
     }
     let tier = history.last_arm.get(&category).map_or(Tier::Sonnet, |last| last.other_arm());

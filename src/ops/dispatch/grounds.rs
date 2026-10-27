@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 pub(crate) const REPORT_CHARS: usize = 600;
 /// The closed-box window the ETA and budget are read from.
 pub(crate) const WINDOW: &str = "7d";
-const BUDGET_TIMES: f64 = 2.0;
+pub(crate) const BUDGET_TIMES: f64 = 2.0;
 const UNCALIBRATED: &str = "45 min (uncalibrated)";
 
 /// The ledger as one dispatch run reads it: the closed boxes of the window and each item's last
@@ -55,7 +55,7 @@ impl Grounds {
         match (&self.figures, declared) {
             (Some(figures), declared) => {
                 let aside = declared.map_or_else(String::new, |declared| format!("; the issue declares {declared}"));
-                format!("{:.0} min (p75 of n={} runs, {}{aside})", figures.p75_minutes.ceil(), figures.runs, cell(route))
+                format!("{:.0} min (p75 of n={} runs, {}{aside})", eta_minutes(figures), figures.runs, cell(route))
             }
             (None, Some(declared)) => declared.to_owned(),
             (None, None) => UNCALIBRATED.to_owned(),
@@ -89,6 +89,11 @@ impl Grounds {
         let source = if self.measured() { format!("the ledger's closed boxes of the last {WINDOW}") } else { "unmeasured for this cell".to_owned() };
         format!("Why: {}; the ETA and budget are {source}", route.why)
     }
+}
+
+/// The minutes a brief's ETA gives a box in a cell with these figures.
+pub(crate) fn eta_minutes(figures: &Figures) -> f64 {
+    figures.p75_minutes.ceil()
 }
 
 fn cell(route: &Route) -> String {
