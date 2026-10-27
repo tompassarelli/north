@@ -155,6 +155,11 @@ impl HookKind {
                 crate::guard::public_text::evaluate,
                 crate::guard::frozen_topics::evaluate,
                 crate::guard::heavy_command::evaluate,
+                crate::guard::session_kill::evaluate,
+                crate::guard::clipboard::evaluate,
+                crate::guard::worker_wait::evaluate,
+                crate::guard::native_launch::evaluate,
+                crate::guard::native_item::evaluate,
             ],
             Self::PreEdit => &[
                 crate::guard::launch_critical::evaluate,

@@ -18,3 +18,17 @@ mod git_tests;
 
 pub mod heavy_command;
 pub mod session_kill;
+pub mod clipboard;
+pub mod native_item;
+pub mod native_launch;
+pub mod worker_wait;
+#[cfg(test)]
+mod clipboard_tests;
+#[cfg(test)]
+mod native_item_tests;
+#[cfg(test)]
+mod native_launch_tests;
+#[cfg(test)]
+mod trigger_matrix;
+#[cfg(test)]
+mod worker_wait_tests;
