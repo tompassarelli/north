@@ -123,3 +123,28 @@ fn waking_keeps_an_open_until_word_and_its_expiry() {
     observe(root, 251, json!({ "sleeping": true }));
     held(&observe(root, 280, json!({})), "unavailable", "window");
 }
+
+fn idle_through(root: &Path, minutes: std::ops::Range<u32>, observed: &Value) -> Value {
+    minutes.fold(Value::Null, |_, minute| observe(root, minute, observed.clone()))
+}
+
+#[test]
+fn a_seat_idle_on_power_reopens_the_laptop_after_the_window_closes_it_and_tom_active_or_on_battery_keeps_it_shut() {
+    let root = windowed();
+    let root = root.path();
+    held(&laptop(root, 120, &["tick"]), "unavailable", "drained (window)");
+
+    held(&idle_through(root, 122..152, &json!({})), "unavailable", "drained (window)");
+    held(&observe(root, 152, json!({})), "available", "idle");
+
+    held(&idle_through(root, 153..158, &json!({ "idle": false })), "available", "idle");
+    held(&observe(root, 158, json!({ "idle": false })), "draining", "active");
+    held(&laptop(root, 159, &["tick"]), "unavailable", "drained (active)");
+
+    held(&idle_through(root, 160..200, &json!({ "battery": 80 })), "unavailable", "drained (active)");
+    held(&observe(root, 200, json!({})), "available", "idle");
+
+    laptop(root, 201, &["close", "manual"]);
+    held(&laptop(root, 202, &["tick"]), "unavailable", "drained (manual)");
+    held(&idle_through(root, 203..270, &json!({})), "unavailable", "drained (manual)");
+}

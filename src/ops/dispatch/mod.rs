@@ -22,6 +22,7 @@ mod facets;
 mod fleets;
 mod handoff;
 mod issues;
+mod measure;
 mod plan;
 mod record;
 mod slots;
@@ -29,6 +30,7 @@ mod stops;
 mod survey;
 mod tier;
 mod tries;
+mod wait;
 #[cfg(test)]
 mod claim_tests;
 #[cfg(test)]
@@ -41,6 +43,8 @@ mod tests;
 mod tier_tests;
 #[cfg(test)]
 mod tries_tests;
+#[cfg(test)]
+mod wait_tests;
 
 const USAGE: &str = "usage: north dispatch [--dry-run]";
 
@@ -58,23 +62,28 @@ fn ordered(issues: &[Issue]) -> Vec<&Issue> {
     ordered
 }
 
-/// The machines a box may run on, in `[placement] order` and then the rest, each with why it
-/// refuses this box.
+/// The machines a box may run on, soonest expected start first and in `[placement] order` among
+/// equals, each with why it refuses this box; a host dispatch cannot measure waits no time.
 fn candidates(survey: &Survey, brief: &str) -> Vec<Candidate> {
     let order: Vec<String> = survey.cfg.get("placement").and_then(|rules| rules.get("order")).and_then(toml_edit::Item::as_array).into_iter().flatten().filter_map(|name| name.as_str().map(str::to_owned)).collect();
-    let mut hosts: Vec<&slots::Host> = survey.hosts.iter().collect();
-    hosts.sort_by_key(|host| order.iter().position(|name| *name == host.name).unwrap_or(order.len()));
-    hosts
-        .into_iter()
+    let class = wait::class(brief);
+    let mut ranked: Vec<(f64, usize, Candidate)> = survey
+        .hosts
+        .iter()
         .map(|host| {
-            let refusal = match (host.free(), gate::lacks(&survey.cfg, &host.name, brief)) {
-                (Err(why), _) => Some(format!("takes nothing: {why}")),
-                (_, Some(need)) => Some(format!("does not serve {need}")),
+            let waits = host.measure.as_ref().map_or(Ok(0.0), |measure| wait::wait(class, measure));
+            let refusal = match (host.free(), gate::lacks(&survey.cfg, &host.name, brief), &waits) {
+                (Err(why), _, _) => Some(format!("takes nothing: {why}")),
+                (_, Some(need), _) => Some(format!("does not serve {need}")),
+                (_, _, Err(why)) => Some(why.clone()),
                 _ => None,
             };
-            Candidate { host: host.name.clone(), refusal }
+            let position = order.iter().position(|name| *name == host.name).unwrap_or(order.len());
+            (waits.unwrap_or(f64::INFINITY), position, Candidate { host: host.name.clone(), refusal })
         })
-        .collect()
+        .collect();
+    ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    ranked.into_iter().map(|(_, _, candidate)| candidate).collect()
 }
 
 /// Every ready box placed on a free slot, or skipped with its reason.

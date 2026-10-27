@@ -8,6 +8,8 @@ pub(crate) struct Host {
     pub cap: Option<i64>,
     /// Running resident sessions, or why the host takes nothing now.
     pub running: Result<i64, String>,
+    /// Its live load, when dispatch reaches it.
+    pub measure: Option<super::measure::Measure>,
 }
 
 impl Host {
@@ -18,11 +20,13 @@ impl Host {
     }
 
     pub(crate) fn line(&self) -> String {
-        match (&self.running, self.cap) {
+        let measured = self.measure.map_or_else(String::new, |measure| format!("; load {:.1} on {:.0} cores, {:.0} of {:.0} MiB available", measure.load, measure.cores, measure.memory_available_mib, measure.memory_total_mib));
+        let state = match (&self.running, self.cap) {
             (Err(why), _) => format!("host {}: takes nothing: {why}", self.name),
             (Ok(running), None) => format!("host {}: {running} running, no resident_cap, so 0 free", self.name),
             (Ok(running), Some(cap)) => format!("host {}: {running}/{cap} resident, {} free", self.name, (cap - running).max(0)),
-        }
+        };
+        format!("{state}{measured}")
     }
 }
 

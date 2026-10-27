@@ -205,7 +205,7 @@ pub(crate) fn repository(text: &str) -> String {
     last.trim_end_matches(".git").trim().to_lowercase()
 }
 
-fn words(text: &str, key: &str) -> Vec<String> {
+pub(crate) fn words(text: &str, key: &str) -> Vec<String> {
     field(text, key)
         .to_lowercase()
         .split(|c: char| c.is_whitespace() || c == ',' || c == '|' || c == '/')

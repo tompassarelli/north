@@ -34,7 +34,7 @@ effort = "medium"
 "#;
 
 fn host(name: &str, cap: i64, running: Result<i64, &str>) -> Host {
-    Host { name: name.into(), cap: Some(cap), running: running.map_err(str::to_owned) }
+    Host { name: name.into(), cap: Some(cap), running: running.map_err(str::to_owned), measure: None }
 }
 
 fn account(name: &str, hosts: &[&str], headroom: f64) -> Account {

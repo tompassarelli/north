@@ -266,7 +266,7 @@ def observe(args):
         observations["clear"] = previous.get("clear", iso(t))
     s = load()
     hold = "gaming" if gaming else "sleep" if sample["sleeping"] and s and (s["state"] == "available" or s["reason"] == "sleep") else "battery" if sample["battery_low"] else None
-    auto = s and (s["by"] == "laptop-auto" or (s["by"] == "laptop tick" and s["reason"] in ("drained (active)", "drained (battery)")))
+    auto = s and (s["by"] in ("laptop-auto", "window") or (s["by"] == "laptop tick" and s["reason"] in ("drained (active)", "drained (battery)", "drained (window)")))
     edge, target = last_edge(t)
     in_window = target == "available"
     if s and (s["state"] == "available" or auto):
@@ -276,10 +276,10 @@ def observe(args):
         elif auto and s["reason"] in ("gaming", "sleep", "battery", "drained (battery)"):
             if ((t - parse(observations["clear"])).total_seconds() >= 600) if s["reason"] == "gaming" else s["reason"] == "sleep" or sample.get("battery") is None:
                 s = write("available" if in_window or s.get("until", "") > iso(t) else "unavailable", t, "window", "laptop-auto", parse(s["until"]) if s.get("until", "") > iso(t) else None)
-        elif in_window and "active" in observations and (t - max(parse(observations["active"]), edge)).total_seconds() >= 300:
+        elif (in_window or auto) and "active" in observations and (t - max(parse(observations["active"]), edge or t - timedelta(days=1))).total_seconds() >= 300:
             if s["state"] == "available":
                 s = write("draining", t, "active", "laptop-auto", grace=GRACE["drain"])
-        elif auto and in_window and "idle" in observations and (t - parse(observations["idle"])).total_seconds() >= DEFAULTS["laptop_idle_reopen_sec"]:
+        elif auto and sample.get("battery") is None and "idle" in observations and (t - parse(observations["idle"])).total_seconds() >= DEFAULTS["laptop_idle_reopen_sec"]:
             if s["state"] != "available":
                 s = write("available", t, "idle", "laptop-auto")
     tmp = path.with_suffix(f".tmp{os.getpid()}")

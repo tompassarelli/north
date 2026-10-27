@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use serde_json::json;
 
-mod admission;
+pub(crate) mod admission;
 mod aperture;
 pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
@@ -47,7 +47,9 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
             facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
             facts.host_bar1_margin_mib = facts.host_bar1_margin_mib.or_else(host.bar1_margin_mib);
             if facts.bar1_free_mib.is_none() && !facts.bar1_timed_out && admission::starts_gpu_work(&facts) {
-                match aperture::bar1() {
+                let memory = aperture::memory();
+                facts.vram_free_mib = facts.vram_free_mib.or(memory.vram_free_mib);
+                match memory.bar1 {
                     aperture::Bar1::Free(free) => facts.bar1_free_mib = Some(free),
                     aperture::Bar1::TimedOut => facts.bar1_timed_out = true,
                     aperture::Bar1::Unknown => {}

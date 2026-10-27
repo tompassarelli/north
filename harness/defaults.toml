@@ -568,3 +568,32 @@ source = "prior: covers sampling noise and a second start admitted before the fi
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted starts can be checked against BAR1 Used afterwards" }
 fallback = "bar1_margin_mib in [hosts.NAME] of agents/orchestration.toml replaces it"
 consumers = ["src/capacity/admission.rs"]
+
+[vram_client_mib]
+value = 1310
+unit = "MiB of NVIDIA VRAM one Warcraft client holds with its BlizzardBrowser and error-reporter processes"
+source = "measured: 2026-10-27 on gex45 with 6 clients, nvidia-smi --query-compute-apps showed Warcraft III.exe at 544 to 864 MiB, BlizzardBrowser.exe at 363 to 405 MiB and the error reporter at 41 MiB; FB Used was 7837 MiB, 1306 MiB per client (north#259)"
+fallback = "none; the measured client cap counts free VRAM in these steps"
+consumers = ["src/capacity/admission.rs"]
+
+[vram_margin_mib]
+value = 1024
+unit = "MiB of NVIDIA VRAM the measured client cap keeps free for compositors and the driver"
+source = "prior: about one private desktop's compositor and a sampling margin beside 24 GiB of VRAM"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted client starts can be checked against FB Used afterwards" }
+fallback = "none"
+consumers = ["src/capacity/admission.rs"]
+
+[dispatch_heavy_memory_mib]
+value = 8192
+unit = "MiB a dispatched box verified by a local or native test run asks of its host's memory"
+source = "standard: machine-capacity requests 8192 MiB for its heavy class (cargo test, bun test, wisp render); smashcraft suites measured 5957 MiB on 2026-10-27 (north#259)"
+fallback = "a host whose total memory cannot admit this class takes no test-verified box"
+consumers = ["src/capacity/admission.rs"]
+
+[dispatch_agent_memory_mib]
+value = 768
+unit = "MiB a dispatched box that runs no test suite asks of its host's memory"
+source = "standard: machine-capacity requests 768 MiB for its agent class"
+fallback = "a host whose total memory cannot admit this class takes no box"
+consumers = ["src/capacity/admission.rs"]

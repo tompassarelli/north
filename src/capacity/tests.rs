@@ -26,6 +26,7 @@ fn facts(class: Class) -> Facts {
         host_warcraft_clients: None,
         bar1_free_mib: None,
         bar1_timed_out: false,
+        vram_free_mib: None,
         host_bar1_margin_mib: None,
         new_clients: 0,
         new_desktops: 0,
@@ -195,6 +196,13 @@ fn nvidia_memory(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/skills/machine-capacity/scripts").join(name)
 }
 
+fn bar1_free(path: &std::path::Path) -> Option<f64> {
+    match super::aperture::read_memory(path).bar1 {
+        super::aperture::Bar1::Free(free) => Some(free),
+        _ => None,
+    }
+}
+
 #[test]
 fn a_native_client_start_waits_behind_an_earlier_native_ticket_while_a_run_on_live_clients_does_not() {
     let start = |new_clients: u32, queued_ahead: u32| decide(&Facts { new_clients, queued_ahead, ..facts(Class::Native) });
@@ -215,7 +223,7 @@ fn measured(desktops: u32, clients: u32) -> f64 {
 
 #[test]
 fn a_full_bar1_aperture_defers_a_new_desktop_pair_and_a_gpu_run() {
-    let free = super::aperture::read(&nvidia_memory("nvidia-memory-bar1-17-free.txt"));
+    let free = bar1_free(&nvidia_memory("nvidia-memory-bar1-17-free.txt"));
     assert_eq!(free, Some(17.0));
     let admission = admit(&desktop_pair(free), |_| None);
     assert_eq!(admission.reason, Reason::DeferGpuAperture);
@@ -239,7 +247,7 @@ fn the_aperture_admits_a_request_exactly_when_free_bar1_covers_its_measured_cost
 
 #[test]
 fn a_bar1_aperture_with_200_mib_free_runs_a_new_desktop_with_one_client_but_defers_a_pair() {
-    let free = super::aperture::read(&nvidia_memory("nvidia-memory-bar1-200-free.txt"));
+    let free = bar1_free(&nvidia_memory("nvidia-memory-bar1-200-free.txt"));
     assert_eq!(free, Some(200.0));
     assert_eq!(decide(&Facts { new_clients: 1, new_desktops: 1, ..desktop_pair(free) }), Reason::Run);
     assert_eq!(decide(&desktop_pair(free)), Reason::DeferGpuAperture);
@@ -248,9 +256,9 @@ fn a_bar1_aperture_with_200_mib_free_runs_a_new_desktop_with_one_client_but_defe
 
 #[test]
 fn a_host_without_nvidia_smi_runs_a_new_desktop_pair() {
-    assert_eq!(super::aperture::query("/nonexistent/nvidia-smi", std::time::Duration::from_secs(5)), super::aperture::Bar1::Unknown);
+    assert_eq!(super::aperture::query("/nonexistent/nvidia-smi", std::time::Duration::from_secs(5)).bar1, super::aperture::Bar1::Unknown);
     let free = None;
-    assert_eq!(super::aperture::read(&nvidia_memory("no-such-nvidia-memory.txt")), None);
+    assert_eq!(bar1_free(&nvidia_memory("no-such-nvidia-memory.txt")), None);
     assert_eq!(super::aperture::parse("GPU 00000000:01:00.0\n    FB Memory Usage\n        Free : 21811 MiB\n"), None);
     assert_eq!(decide(&desktop_pair(free)), Reason::Run);
     assert_eq!(decide(&Facts { bar1_free_mib: free, ..facts(Class::Gpu) }), Reason::Run);
@@ -263,4 +271,25 @@ fn an_nvidia_smi_that_timed_out_defers_gpu_work_with_its_own_reason() {
     assert_eq!(serde_json::to_value(admit(&hung, |_| None)).unwrap(), serde_json::json!({ "reason": "DEFER_GPU_APERTURE_TIMEOUT" }));
     assert_eq!(decide(&Facts { bar1_timed_out: true, ..facts(Class::Gpu) }), Reason::DeferGpuApertureTimeout);
     assert_eq!(decide(&Facts { new_clients: 0, new_desktops: 0, ..hung }), Reason::Run);
+}
+
+#[test]
+fn the_warcraft_client_cap_follows_measured_free_bar1_and_vram_under_its_static_ceiling() {
+    let on = |fixture: &str, host_warcraft_clients: Option<u32>, gpu_clients: u32| {
+        let path = nvidia_memory(fixture);
+        let vram_free_mib = super::aperture::read_memory(&path).vram_free_mib;
+        Facts { profile: Profile::Unattended, host_warcraft_clients, gpu_clients, bar1_free_mib: bar1_free(&path), vram_free_mib, ..facts(Class::Native) }
+    };
+    let cap = |facts: &Facts| super::admission::warcraft_client_cap(facts);
+    let rebar = on("nvidia-memory-gex45-rebar.txt", None, 6);
+    assert_eq!((rebar.bar1_free_mib, rebar.vram_free_mib), (Some(29202.0), Some(21051.0)));
+    assert_eq!(cap(&rebar), Some(6 + 15), "VRAM binds a 32 GiB aperture: (21051 - 1024) / 1310 more clients");
+    assert_eq!(cap(&on("nvidia-memory-gex45-rebar.txt", Some(6), 6)), Some(6), "the static count stays the ceiling");
+    let aperture = on("nvidia-memory-bar1-17-free.txt", Some(6), 2);
+    assert_eq!(cap(&aperture), Some(2), "17 MiB of a 256 MiB aperture fits no client beyond the 2 running");
+    assert_eq!(decide(&Facts { new_clients: 1, ..on("nvidia-memory-gex45-rebar.txt", Some(6), 5) }), Reason::Run);
+    let tight = Facts { vram_free_mib: Some(2000.0), new_clients: 1, ..on("nvidia-memory-gex45-rebar.txt", Some(6), 3) };
+    assert_eq!(cap(&tight), Some(3));
+    assert_eq!(decide(&tight), Reason::DeferGpuClients, "2000 MiB of free VRAM fits no client after the 1024 MiB margin");
+    assert_eq!(cap(&Facts { profile: Profile::Unattended, ..facts(Class::Native) }), None, "no measure and no static count leave the host uncapped");
 }

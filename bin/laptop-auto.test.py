@@ -57,7 +57,7 @@ def test_recorded_observation_journey(root):
     observe(94, gpu_busy=75)
     assert observe(100, gpu_busy=75)["state"] == "available"
     run(600, "tick")
-    for minute in range(601, 632):
+    for minute in range(601, 631):
         assert observe(minute, idle=True)["state"] == "unavailable"
     run(1374, "close", "manual")
     for minute in range(1374, 1380):

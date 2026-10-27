@@ -71,6 +71,8 @@ pub(crate) struct Facts {
     pub(crate) bar1_free_mib: Option<f64>,
     #[serde(default, rename = "bar1TimedOut")]
     pub(crate) bar1_timed_out: bool,
+    #[serde(default, rename = "vramFreeMiB")]
+    pub(crate) vram_free_mib: Option<f64>,
     #[serde(default, rename = "hostBar1MarginMiB")]
     pub(crate) host_bar1_margin_mib: Option<u32>,
     pub(crate) new_clients: u32,
@@ -252,6 +254,25 @@ fn memory_floor_mib(profile: Profile, total: f64) -> f64 {
     if total < 32768.0 { share } else { share.max(8192.0).min(total / 4.0) }
 }
 
+/// Whether an unattended host of `total` MiB, idle, admits a request of `requested` MiB.
+pub(crate) fn memory_admits(total: f64, requested: f64) -> bool {
+    !memory_short(total, total, requested) && requested * 4.0 <= total * 3.0
+}
+
+/// The MiB a dispatched box of `class` asks of its host: the heavy request for a test-verified box,
+/// else the agent one.
+pub(crate) fn dispatch_request_mib(class: Class) -> f64 {
+    match class {
+        Class::Heavy => default_mib("dispatch_heavy_memory_mib"),
+        _ => default_mib("dispatch_agent_memory_mib"),
+    }
+}
+
+/// Whether unattended memory headroom defers a request of `requested` MiB now.
+pub(crate) fn memory_short(total: f64, available: f64, requested: f64) -> bool {
+    available - requested < memory_floor_mib(Profile::Unattended, total)
+}
+
 fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
     let reserved = match profile {
         Profile::Attended if cores > 8 => 4,
@@ -262,8 +283,19 @@ fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
     f64::from(cores - reserved)
 }
 
-fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
-    facts.host_warcraft_clients.or((facts.profile == Profile::Attended).then_some(ATTENDED_GPU_CLIENTS))
+/// The Warcraft clients the host takes: its static count as a ceiling, lowered to the clients it
+/// runs plus those its measured free BAR1 and VRAM still fit.
+pub(crate) fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
+    let ceiling = facts.host_warcraft_clients.or((facts.profile == Profile::Attended).then_some(ATTENDED_GPU_CLIENTS));
+    let fits = |free: Option<f64>, reserve: f64, each: f64| free.map(|free| ((free - reserve) / each).floor().max(0.0) as u32);
+    let bar1_margin = facts.host_bar1_margin_mib.map_or_else(|| default_mib("bar1_margin_mib"), f64::from);
+    let bar1 = fits(facts.bar1_free_mib, bar1_margin, default_mib("bar1_client_mib"));
+    let vram = fits(facts.vram_free_mib, default_mib("vram_margin_mib"), default_mib("vram_client_mib"));
+    let measured = bar1.into_iter().chain(vram).min().map(|more| facts.gpu_clients.saturating_add(more));
+    match (ceiling, measured) {
+        (Some(ceiling), Some(measured)) => Some(ceiling.min(measured)),
+        (ceiling, measured) => ceiling.or(measured),
+    }
 }
 
 fn native(facts: &Facts) -> Reason {
