@@ -546,3 +546,25 @@ source = "prior: pace-control.jsonl has 377 legacy admissions without confirmati
 settles_when = { need = 20, count = "count_worker_runs", what = "20 paired reserve-to-confirm samples needed to calibrate the reservation hold; worker runs are the nearest existing count until paired samples are counted" }
 fallback = "late confirmations still charge once and emit grant-late-confirm"
 consumers = ["src/pace/limits.rs"]
+
+[bar1_desktop_mib]
+value = 1
+unit = "MiB of NVIDIA BAR1 aperture one private desktop's labwc compositor and Xwayland hold"
+source = "measured: 2026-10-27 on the GPU host, one throwaway desktop with glxinfo's Xwayland moved BAR1 Used 158, 159, 158 MiB as it started and stopped (north#254)"
+fallback = "none; admission adds this per declared desktop"
+consumers = ["src/capacity/admission.rs"]
+
+[bar1_client_mib]
+value = 113
+unit = "MiB of NVIDIA BAR1 aperture one Warcraft client holds with its BlizzardBrowser GPU processes, and one gpu-class run"
+source = "measured: 2026-10-27 on the GPU host at a 256 MiB aperture, the costliest of three pairs: a capture-classic pair's 2 clients with their BlizzardBrowser and CEF GPU processes moved BAR1 Used 5 to 230 MiB, against 48 and 108 MiB freed by two visual pairs; gpu runs are unmeasured and charged as one client (north#254)"
+fallback = "none; admission adds this per declared client and per gpu run"
+consumers = ["src/capacity/admission.rs"]
+
+[bar1_margin_mib]
+value = 16
+unit = "MiB of NVIDIA BAR1 aperture admission keeps free beyond a request's measured cost"
+source = "prior: covers sampling noise and a second start admitted before the first one's compositor maps its buffers"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted starts can be checked against BAR1 Used afterwards" }
+fallback = "bar1_margin_mib in [hosts.NAME] of agents/orchestration.toml replaces it"
+consumers = ["src/capacity/admission.rs"]

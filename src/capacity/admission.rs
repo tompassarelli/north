@@ -1,11 +1,19 @@
+use std::sync::LazyLock;
+
 use serde::{Deserialize, Serialize};
+use toml_edit::DocumentMut;
 
 const INTERACTIVE_PRESSURE_BASIS_POINTS: u32 = 1000;
 const BATCH_PRESSURE_BASIS_POINTS: u32 = 3000;
 const GPU_BUSY_PERCENT: u32 = 85;
 const ATTENDED_GPU_CLIENTS: u32 = 4;
 const GPU_SLOTS: u32 = 2;
-const BAR1_RESERVE_MIB: u32 = 64;
+
+static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| {
+    include_str!("../../harness/defaults.toml")
+        .parse()
+        .expect("harness/defaults.toml parses")
+});
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -63,9 +71,11 @@ pub(crate) struct Facts {
     pub(crate) bar1_free_mib: Option<f64>,
     #[serde(default, rename = "bar1TimedOut")]
     pub(crate) bar1_timed_out: bool,
-    #[serde(default, rename = "hostBar1ReserveMiB")]
-    pub(crate) host_bar1_reserve_mib: Option<u32>,
+    #[serde(default, rename = "hostBar1MarginMiB")]
+    pub(crate) host_bar1_margin_mib: Option<u32>,
     pub(crate) new_clients: u32,
+    #[serde(default)]
+    pub(crate) new_desktops: u32,
     pub(crate) gpu_runs: u32,
     pub(crate) native_waiting: u32,
     pub(crate) quiet_native_runs: u32,
@@ -101,8 +111,8 @@ pub(crate) struct Admission {
 pub(crate) struct Aperture {
     #[serde(rename = "bar1FreeMiB")]
     pub(crate) bar1_free_mib: f64,
-    #[serde(rename = "bar1ReserveMiB")]
-    pub(crate) bar1_reserve_mib: u32,
+    #[serde(rename = "bar1NeedMiB")]
+    pub(crate) bar1_need_mib: f64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -138,25 +148,42 @@ pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> 
         _ => None,
     };
     let aperture = (reason == Reason::DeferGpuAperture)
-        .then(|| facts.bar1_free_mib.map(|bar1_free_mib| Aperture { bar1_free_mib, bar1_reserve_mib: bar1_reserve_mib(facts) }))
+        .then(|| facts.bar1_free_mib.map(|bar1_free_mib| Aperture { bar1_free_mib, bar1_need_mib: bar1_need_mib(facts) }))
         .flatten();
     Admission { reason, offload, aperture }
 }
 
 pub(crate) fn starts_gpu_work(facts: &Facts) -> bool {
     match facts.class {
-        Class::Native => facts.new_clients > 0,
+        Class::Native => facts.new_clients > 0 || facts.new_desktops > 0,
         Class::Gpu => true,
         _ => false,
     }
 }
 
-fn bar1_reserve_mib(facts: &Facts) -> u32 {
-    facts.host_bar1_reserve_mib.unwrap_or(BAR1_RESERVE_MIB)
+fn bar1_need_mib(facts: &Facts) -> f64 {
+    let clients = match facts.class {
+        Class::Gpu => 1,
+        _ => facts.new_clients,
+    };
+    aperture_need_mib(facts.new_desktops, clients, facts.host_bar1_margin_mib)
+}
+
+pub(crate) fn aperture_need_mib(desktops: u32, clients: u32, host_margin_mib: Option<u32>) -> f64 {
+    let margin = host_margin_mib.map_or_else(|| default_mib("bar1_margin_mib"), f64::from);
+    f64::from(desktops) * default_mib("bar1_desktop_mib") + f64::from(clients) * default_mib("bar1_client_mib") + margin
+}
+
+pub(super) fn default_mib(name: &str) -> f64 {
+    let value = &DEFAULTS[name]["value"];
+    value
+        .as_float()
+        .or_else(|| value.as_integer().map(|whole| whole as f64))
+        .unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
 fn aperture_short(facts: &Facts) -> bool {
-    starts_gpu_work(facts) && facts.bar1_free_mib.is_some_and(|free| free < f64::from(bar1_reserve_mib(facts)))
+    starts_gpu_work(facts) && facts.bar1_free_mib.is_some_and(|free| free < bar1_need_mib(facts))
 }
 
 fn run_queue_overloaded(facts: &Facts) -> bool {
@@ -240,7 +267,7 @@ fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
 }
 
 fn native(facts: &Facts) -> Reason {
-    if facts.new_clients > 0 && facts.queued_ahead > 0 {
+    if (facts.new_clients > 0 || facts.new_desktops > 0) && facts.queued_ahead > 0 {
         return Reason::DeferQueued;
     }
     if facts.quiet && facts.peer_exclusive_runs > u32::from(facts.within_exclusive) {

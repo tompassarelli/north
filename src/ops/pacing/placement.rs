@@ -63,8 +63,8 @@ pub(crate) fn serving_host(needs: &str) -> Option<String> {
 pub(crate) fn local_warcraft_clients() -> Option<u32> {
     gate::warcraft_clients(&sampling::config().ok()?, &local())
 }
-pub(crate) fn local_bar1_reserve_mib() -> Option<u32> {
-    gate::bar1_reserve_mib(&sampling::config().ok()?, &local())
+pub(crate) fn local_bar1_margin_mib() -> Option<u32> {
+    gate::bar1_margin_mib(&sampling::config().ok()?, &local())
 }
 pub(crate) fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;

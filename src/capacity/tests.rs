@@ -26,8 +26,9 @@ fn facts(class: Class) -> Facts {
         host_warcraft_clients: None,
         bar1_free_mib: None,
         bar1_timed_out: false,
-        host_bar1_reserve_mib: None,
+        host_bar1_margin_mib: None,
         new_clients: 0,
+        new_desktops: 0,
         gpu_runs: 0,
         native_waiting: 0,
         quiet_native_runs: 0,
@@ -200,10 +201,16 @@ fn a_native_client_start_waits_behind_an_earlier_native_ticket_while_a_run_on_li
     assert_eq!(start(1, 1), Reason::DeferQueued);
     assert_eq!(start(1, 0), Reason::Run);
     assert_eq!(start(0, 1), Reason::Run);
+    assert_eq!(decide(&Facts { new_clients: 0, new_desktops: 1, queued_ahead: 1, ..facts(Class::Native) }), Reason::DeferQueued);
 }
 
 fn desktop_pair(bar1_free_mib: Option<f64>) -> Facts {
-    Facts { new_clients: 2, bar1_free_mib, ..facts(Class::Native) }
+    Facts { new_clients: 2, new_desktops: 2, bar1_free_mib, ..facts(Class::Native) }
+}
+
+fn measured(desktops: u32, clients: u32) -> f64 {
+    use super::admission::default_mib as default;
+    f64::from(desktops) * default("bar1_desktop_mib") + f64::from(clients) * default("bar1_client_mib") + default("bar1_margin_mib")
 }
 
 #[test]
@@ -212,17 +219,30 @@ fn a_full_bar1_aperture_defers_a_new_desktop_pair_and_a_gpu_run() {
     assert_eq!(free, Some(17.0));
     let admission = admit(&desktop_pair(free), |_| None);
     assert_eq!(admission.reason, Reason::DeferGpuAperture);
-    assert_eq!(serde_json::to_value(&admission).unwrap(), serde_json::json!({ "reason": "DEFER_GPU_APERTURE", "bar1FreeMiB": 17.0, "bar1ReserveMiB": 64 }));
+    assert_eq!(serde_json::to_value(&admission).unwrap(), serde_json::json!({ "reason": "DEFER_GPU_APERTURE", "bar1FreeMiB": 17.0, "bar1NeedMiB": measured(2, 2) }));
     assert_eq!(decide(&Facts { bar1_free_mib: free, ..facts(Class::Gpu) }), Reason::DeferGpuAperture);
-    assert_eq!(decide(&Facts { new_clients: 0, ..desktop_pair(free) }), Reason::Run);
-    assert_eq!(decide(&Facts { host_bar1_reserve_mib: Some(16), ..desktop_pair(free) }), Reason::Run);
+    assert_eq!(decide(&Facts { new_clients: 0, new_desktops: 0, ..desktop_pair(free) }), Reason::Run);
 }
 
 #[test]
-fn a_bar1_aperture_with_200_mib_free_runs_a_new_desktop_pair() {
+fn the_aperture_admits_a_request_exactly_when_free_bar1_covers_its_measured_cost() {
+    for (desktops, clients) in [(1, 0), (0, 1), (1, 1), (2, 2)] {
+        let need = measured(desktops, clients);
+        let start = |free: f64| decide(&Facts { new_desktops: desktops, new_clients: clients, bar1_free_mib: Some(free), ..facts(Class::Native) });
+        assert_eq!(start(need), Reason::Run, "{desktops} desktops, {clients} clients");
+        assert_eq!(start(need - 1.0), Reason::DeferGpuAperture, "{desktops} desktops, {clients} clients");
+    }
+    let pair = |margin: u32, free: f64| decide(&Facts { host_bar1_margin_mib: Some(margin), ..desktop_pair(Some(free)) });
+    assert_eq!(pair(0, measured(2, 2) - super::admission::default_mib("bar1_margin_mib")), Reason::Run);
+    assert_eq!(pair(64, measured(2, 2)), Reason::DeferGpuAperture);
+}
+
+#[test]
+fn a_bar1_aperture_with_200_mib_free_runs_a_new_desktop_with_one_client_but_defers_a_pair() {
     let free = super::aperture::read(&nvidia_memory("nvidia-memory-bar1-200-free.txt"));
     assert_eq!(free, Some(200.0));
-    assert_eq!(decide(&desktop_pair(free)), Reason::Run);
+    assert_eq!(decide(&Facts { new_clients: 1, new_desktops: 1, ..desktop_pair(free) }), Reason::Run);
+    assert_eq!(decide(&desktop_pair(free)), Reason::DeferGpuAperture);
     assert_eq!(decide(&Facts { bar1_free_mib: free, ..facts(Class::Gpu) }), Reason::Run);
 }
 
@@ -242,5 +262,5 @@ fn an_nvidia_smi_that_timed_out_defers_gpu_work_with_its_own_reason() {
     assert_eq!(decide(&hung), Reason::DeferGpuApertureTimeout);
     assert_eq!(serde_json::to_value(admit(&hung, |_| None)).unwrap(), serde_json::json!({ "reason": "DEFER_GPU_APERTURE_TIMEOUT" }));
     assert_eq!(decide(&Facts { bar1_timed_out: true, ..facts(Class::Gpu) }), Reason::DeferGpuApertureTimeout);
-    assert_eq!(decide(&Facts { new_clients: 0, ..hung }), Reason::Run);
+    assert_eq!(decide(&Facts { new_clients: 0, new_desktops: 0, ..hung }), Reason::Run);
 }

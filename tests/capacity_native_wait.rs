@@ -50,3 +50,19 @@ fn a_native_start_that_waits_past_its_seconds_exits_75_with_its_last_deferral() 
     assert_eq!((last["decision"].as_str(), last["reason"].as_str()), (Some("DEFER"), Some("DEFER_GPU_BUSY")));
     assert_eq!(host.queued("native"), 0);
 }
+
+#[test]
+fn a_desktop_start_waits_in_line_without_starting_until_free_bar1_covers_a_desktop() {
+    let host = host();
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/skills/machine-capacity/scripts");
+    fs::write(host.path("bar1"), "    BAR1 Memory Usage\n        Total : 256 MiB\n        Used : 250 MiB\n        Free : 6 MiB\n").unwrap();
+    let started = host.path("compositor-started");
+    let arguments = ["session", "--class", "native", "--new-clients", "0", "--new-desktops", "1", "--wait-seconds", "60", "--owner", "private-desktop:1", "--", "touch", started.to_str().unwrap()];
+    let _desktop = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_NVIDIA_MEMORY", host.path("bar1")).stdout(Stdio::null()).spawn().unwrap());
+    host.until("the desktop to queue on the aperture", |host| host.helper_stderr().contains(r#""decision":"QUEUED","reason":"DEFER_GPU_APERTURE""#));
+    assert_eq!(owners(&host.status()["queued"]), ["private-desktop:1"]);
+    assert!(!started.exists());
+
+    fs::copy(fixtures.join("nvidia-memory-bar1-200-free.txt"), host.path("bar1")).unwrap();
+    host.until("the admitted desktop to start", |_| started.exists());
+}

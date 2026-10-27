@@ -26,6 +26,7 @@ metadata:
 
 - Expect native, heavy, exclusive and gpu admissions to defer with DEFER_GAMING while Tom plays (his own game outside agent scopes, or `north capacity game-reserve on`), and each 30-second laptop-auto tick then to stop every native lease, agent Warcraft client and private desktop and freeze heavy, exclusive and gpu scopes until he stops, because agent GPU and memory load beside his game hard-froze the laptop; the same tick stops the scope of any run lease whose wrapper died, so no client outlives its runner.
 - Declare `--new-clients N` on a native `run`, `session` or `probe`: 1 for a clone or one client (the default), 2 for a pair start, 0 for a run on clients already up, because admission defers only when live Warcraft clients plus N exceed the host's measured `warcraft_clients`, else four when attended.
+- Declare `--new-desktops N` beside it for the private desktops the request starts (2 for a pair whose clients each get a desktop), because admission defers while live BAR1 Free is below the declared desktops and clients at their measured MiB plus a margin.
 
 ## Classes
 

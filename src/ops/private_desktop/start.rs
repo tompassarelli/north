@@ -5,6 +5,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use rustix::fs::{FlockOperation, flock};
 use sha2::{Digest, Sha256};
@@ -14,6 +15,9 @@ use super::process::*;
 use super::run_state::*;
 use super::session::Session;
 
+const ADMISSION_WAIT: Duration = Duration::from_secs(1800);
+const APERTURE_POLL: Duration = Duration::from_secs(2);
+
 pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
     let (mut options, original) = parse_start(arguments)?;
     validate_start(&options)?;
@@ -22,6 +26,9 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
         return run_capacity(&original, options.seconds);
     }
     if let Some(code) = ensure_tools(&original)? {
+        return Ok(code);
+    }
+    if let Some(code) = await_aperture()? {
         return Ok(code);
     }
     let venv = prepare_vnc_environment()?;
@@ -204,8 +211,7 @@ fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
     } else {
         command.arg("session");
     }
-    // The desktop starts no Warcraft client; clients inside it declare their own.
-    command.args(["--class", "native", "--new-clients", "0", "--owner"]);
+    command.args(["--class", "native", "--new-clients", "0", "--new-desktops", "1", "--wait-seconds", &ADMISSION_WAIT.as_secs().to_string(), "--owner"]);
     command.arg(format!("private-desktop:{}", std::process::id()));
     command
         .arg("--")
@@ -214,6 +220,31 @@ fn run_capacity(arguments: &[String], seconds: Option<u64>) -> io::Result<u8> {
         .arg("start")
         .args(arguments);
     Err(command.exec())
+}
+
+fn await_aperture() -> io::Result<Option<u8>> {
+    use crate::capacity::DesktopAperture;
+    let margin = crate::ops::pacing::placement::local_bar1_margin_mib();
+    let deadline = Instant::now() + ADMISSION_WAIT;
+    let mut said = String::new();
+    loop {
+        let mut line = match crate::capacity::desktop_aperture(margin) {
+            DesktopAperture::Fits => return Ok(None),
+            DesktopAperture::Short { free_mib, need_mib } => serde_json::json!({ "reason": "DEFER_GPU_APERTURE", "bar1FreeMiB": free_mib, "bar1NeedMiB": need_mib }),
+            DesktopAperture::TimedOut => serde_json::json!({ "reason": "DEFER_GPU_APERTURE_TIMEOUT" }),
+        };
+        let decision = if Instant::now() < deadline { "QUEUED" } else { "DEFER" };
+        line["decision"] = decision.into();
+        let line = line.to_string();
+        if line != said {
+            eprintln!("{line}");
+            said = line;
+        }
+        if decision == "DEFER" {
+            return Ok(Some(75));
+        }
+        std::thread::sleep(APERTURE_POLL);
+    }
 }
 
 fn ensure_tools(arguments: &[String]) -> io::Result<Option<u8>> {

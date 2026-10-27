@@ -130,8 +130,8 @@ function parseClass(values, cores) {
   if (!Number.isFinite(resources.cpus) || !Number.isFinite(resources.memoryMiB)) {
     fail(`policy rejected resource class: ${name}`);
   }
-  const newClients = !values.has('--new-clients') ? Number(name === 'native') : name === 'native' ? parseNonnegativeInteger(values.get('--new-clients'), '--new-clients') : fail('--new-clients declares a native request\'s clients');
-  return { name, ...resources, newClients, ...(values.has('--wait-seconds') ? { waitSeconds: newClients > 0 ? parsePositiveInteger(values.get('--wait-seconds'), '--wait-seconds') : fail('--wait-seconds queues a native client start (--new-clients above 0)') } : {}) };
+  const count = (option, fallback) => !values.has(option) ? fallback : name === 'native' ? parseNonnegativeInteger(values.get(option), option) : fail(`${option} declares a native request's ${option.slice(6)}`), newClients = count('--new-clients', Number(name === 'native')), newDesktops = count('--new-desktops', 0);
+  return { name, ...resources, newClients, newDesktops, ...(values.has('--wait-seconds') ? { waitSeconds: newClients + newDesktops > 0 ? parsePositiveInteger(values.get('--wait-seconds'), '--wait-seconds') : fail('--wait-seconds queues a native client or desktop start (--new-clients or --new-desktops above 0)') } : {}) };
 }
 
 function parsePsi(path, kind) {
@@ -866,7 +866,7 @@ function decision(root, requested, create, ticket = null) {
       peerBatchRuns: runs.filter(lease => batchClass(lease.class)).length,
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
-      queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients ?? Number(requested.name === 'native'), gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
+      queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients ?? Number(requested.name === 'native'), newDesktops: requested.newDesktops, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
       nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined, quiet: requested.quiet === true, exclusiveLeases: runs.filter(lease => lease.class === 'exclusive').map(lease => lease.id),
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
@@ -1042,7 +1042,7 @@ function leaseChange(root, milliseconds) {
   });
 }
 
-// Batch work, and a native client start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or a quiet native session outlasts its timeout (REFUSED).
+// Batch work, and a native client or desktop start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or a quiet native session outlasts its timeout (REFUSED).
 async function admit(root, requested, create) {
   if (!batchClass(requested.name) && requested.waitSeconds === undefined) return decision(root, requested, create);
   const queuedAt = Date.now();
@@ -1180,7 +1180,7 @@ async function main(argv) {
       '--leased-cpus', '--leased-native-cpus', '--leased-memory-mib',
       '--peer-batch-runs', '--peer-exclusive-runs', '--unbounded-runs',
       '--memory-gib', '--cpu-some-avg10-basis-points', '--queued-ahead', '--exclusive-waiting',
-      '--gpu-busy-percent', '--gpu-clients', '--new-clients', '--gpu-runs', '--native-waiting', '--quiet-native-runs', '--beside-native', '--run-queue-load',
+      '--gpu-busy-percent', '--gpu-clients', '--new-clients', '--new-desktops', '--gpu-runs', '--native-waiting', '--quiet-native-runs', '--beside-native', '--run-queue-load',
     ]));
     if (parsed.separator !== argv.length) fail('fixture accepts no command');
     const cores = parsePositiveInteger(required(parsed.values, '--cores'), '--cores');
@@ -1203,7 +1203,7 @@ async function main(argv) {
       leasedBatchCpus: leasedCpuCeilings, leasedNativeCpus: count('--leased-native-cpus'), cpuSomeAvg10BasisPoints: count('--cpu-some-avg10-basis-points'),
       peerBatchRuns: count('--peer-batch-runs'), peerExclusiveRuns: count('--peer-exclusive-runs'), unboundedRuns: count('--unbounded-runs'),
       queuedAhead: count('--queued-ahead'), exclusiveWaiting: count('--exclusive-waiting'), gpuBusyPercent: count('--gpu-busy-percent'),
-      gpuClients: count('--gpu-clients'), newClients: count('--new-clients'), gpuRuns: count('--gpu-runs'), nativeWaiting: count('--native-waiting'),
+      gpuClients: count('--gpu-clients'), newClients: count('--new-clients'), newDesktops: count('--new-desktops'), gpuRuns: count('--gpu-runs'), nativeWaiting: count('--native-waiting'),
       quietNativeRuns: count('--quiet-native-runs'), besideNative: parsed.values.has('--beside-native'), runQueueLoad: count('--run-queue-load'),
     });
     print({ decision: code, profile, class: requested.name, cpus: granted.cpus, memoryMiB: granted.memoryMiB,
@@ -1234,7 +1234,7 @@ async function main(argv) {
     return 0;
   }
   if (operation === 'probe') {
-    const { values, separator } = parseKeyValues(argv, 1, new Set(['--class', '--memory-gib', '--beside-native', '--new-clients']));
+    const { values, separator } = parseKeyValues(argv, 1, new Set(['--class', '--memory-gib', '--beside-native', '--new-clients', '--new-desktops']));
     if (separator !== argv.length) fail('probe accepts no command');
     const signals = readSignals();
     const besideNative = values.has('--beside-native') ? { besideNative: parseOwner(values, '--beside-native') } : {};
@@ -1269,7 +1269,7 @@ async function main(argv) {
     return 0;
   }
   if (operation === 'run' || operation === 'session') {
-    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--new-clients', '--quiet', '--wait-seconds']), new Set(['--quiet']));
+    const parsed = parseKeyValues(argv, 1, new Set(['--class', '--owner', '--timeout-seconds', '--memory-gib', '--beside-native', '--new-clients', '--new-desktops', '--quiet', '--wait-seconds']), new Set(['--quiet']));
     const command = argv.slice(parsed.separator + 1);
     if (parsed.separator === argv.length || command.length === 0) fail(`${operation} requires -- COMMAND ARG...`);
     const signals = readSignals();
@@ -1289,7 +1289,7 @@ async function main(argv) {
       : sessionSeconds(requested.name) || null;
     return runScoped(root, requested, owner, timeoutSeconds, command);
   }
-  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--wait-seconds N] [--quiet] [--beside-native NATIVE-OWNER]; see machine-capacity');
+  fail('usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet] [--beside-native NATIVE-OWNER]; see machine-capacity');
 }
 
 process.exitCode = await main(Bun.argv.slice(2));
