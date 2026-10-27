@@ -31,6 +31,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("cloud", super::cloud::run),
     ("worktree-layout-check", crate::lanes::layout_check),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
+    ("wt-reap", crate::lanes::wt_reap),
+    ("wt-rescue", crate::lanes::wt_rescue),
     ("mutant", mutant_cli::run),
     ("flow", crate::ops::flow::run),
     ("report", crate::ops::report::run),

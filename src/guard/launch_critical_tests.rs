@@ -2,6 +2,7 @@ use super::*;
 #[path = "launch_critical_fixtures.rs"]
 mod fixtures;
 use fixtures::fixture;
+use patch::excise_sanctioned;
 fn codex_equivalent(payload: &serde_json::Value) -> Option<serde_json::Value> {
     let command = payload["tool_input"]["command"].as_str()?;
     let mut codex = payload.clone();
@@ -156,4 +157,13 @@ fn launch_guard_preserves_recorded_writes_and_allows_lanes() {
         "launch guard: {} ported fixture/property and entry-point decisions passed",
         fixture.cases.len() + entry_cases.len() + 3
     );
+}
+
+#[test]
+fn only_a_north_wt_rescue_segment_is_sanctioned_against_a_main_checkout() {
+    assert_eq!(excise_sanctioned("north wt-rescue ~/code/p/main"), "");
+    assert_eq!(excise_sanctioned("FOO=1 env north wt-rescue ~/code/p/main"), "");
+    assert_eq!(excise_sanctioned("rm -rf main; north wt-rescue --dry-run"), "rm -rf main; ");
+    assert_eq!(excise_sanctioned("wt-rescue ~/code/p/main"), "wt-rescue ~/code/p/main");
+    assert_eq!(excise_sanctioned("north reclaim wt-rescue"), "north reclaim wt-rescue");
 }

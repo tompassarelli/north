@@ -215,16 +215,20 @@ impl Policy {
         out
     }
 }
-pub(super) fn leads_with(segment: &str, name: &str) -> bool {
+pub(super) fn leading_words(segment: &str) -> Vec<String> {
     static ASSIGN_PREFIX: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z_0-9]*=").unwrap());
-    for word in tokens(segment) {
-        if ASSIGN_PREFIX.is_match(&word) || ["env", "exec", "command"].contains(&word.as_str()) {
-            continue;
-        }
-        return basename(&word) == name;
-    }
-    false
+    tokens(segment)
+        .into_iter()
+        .skip_while(|word| ASSIGN_PREFIX.is_match(word) || ["env", "exec", "command"].contains(&word.as_str()))
+        .collect()
+}
+pub(super) fn leads_with(segment: &str, name: &str) -> bool {
+    leading_words(segment).first().is_some_and(|word| basename(word) == name)
+}
+pub(super) fn leads_with_rescue(segment: &str) -> bool {
+    let words = leading_words(segment);
+    words.first().is_some_and(|word| basename(word) == "north") && words.get(1).is_some_and(|word| word == "wt-rescue")
 }
 pub(super) fn shell_c_script(words: &[String], executable: usize) -> Option<&str> {
     let mut i = executable + 1;

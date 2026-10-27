@@ -1,4 +1,4 @@
-use super::shell::{leads_with, resolve};
+use super::shell::{leads_with, leads_with_rescue, resolve};
 use super::{PATCH_BEGIN, PATCH_ENVELOPE, PATCH_HEADER, PATCH_MOVE, Policy, SEGMENT_SPLIT};
 use crate::shell::{basename, strip_heredoc_bodies};
 use regex::Regex;
@@ -9,13 +9,13 @@ pub(super) fn excise_sanctioned(text: &str) -> String {
     let mut index = 0;
     for m in SEGMENT_SPLIT.find_iter(text) {
         let segment = &text[index..m.start()];
-        if !leads_with(segment, "wt-rescue") {
+        if !leads_with_rescue(segment) {
             out.push_str(segment);
         }
         out.push_str(m.as_str());
         index = m.end();
     }
-    if !leads_with(&text[index..], "wt-rescue") {
+    if !leads_with_rescue(&text[index..]) {
         out.push_str(&text[index..]);
     }
     out

@@ -1212,14 +1212,14 @@ report_reap_ready() {
       ready=$((ready + 1))
     fi
   done
-  [ "$ready" -eq 0 ] || printf '%s reap-ready worktrees — run wt-reap\n' "$ready"
+  [ "$ready" -eq 0 ] || printf '%s reap-ready worktrees — run north wt-reap\n' "$ready"
 }
 
 # A landing is the moment spent lanes become collectable, and nothing else ever
 # triggers the sweep — a printed hint accumulated 13 stale trees. Best-effort by
 # construction: the reap can never change safe-push's exit status.
 auto_reap() {
-  local container wt_reap self_dir has_lanes=0 wt
+  local container has_lanes=0 wt
   [ "$(basename "$repo_root")" = main ] || return 0
   container=$(dirname "$repo_root")
   # worktrees/ only: pins/ is externally consumed and is never swept.
@@ -1235,19 +1235,12 @@ auto_reap() {
     return 0
   fi
 
-  # The just-landed repo copy beside this script wins over a stale deployed one.
-  self_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || self_dir=""
-  if [ -n "$self_dir" ] && [ -x "$self_dir/wt-reap" ]; then
-    wt_reap="$self_dir/wt-reap"
-  else
-    wt_reap=$(command -v wt-reap 2>/dev/null) || wt_reap=""
-  fi
-  if [ -z "$wt_reap" ]; then
+  if ! command -v north >/dev/null 2>&1; then
     report_reap_ready
     return 0
   fi
 
-  (cd "$container" && "$wt_reap" 2>&1) | sed 's/^/auto-reap: /' || true
+  (cd "$container" && north wt-reap 2>&1) | sed 's/^/auto-reap: /' || true
   return 0
 }
 

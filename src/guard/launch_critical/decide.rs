@@ -100,7 +100,7 @@ impl Policy {
                     ));
                 }
                 return Some(format!(
-                    "`{what}` targets {target}, the MAIN checkout of {}. Uncommitted state in a main checkout is the human's work-in-progress; an agent never discards it. {}\n\nCompliant moves:\n  git -C {target} status --porcelain   # inspect, do not discard\n  wt-rescue {target}\n  # dirty main? run `wt-rescue` (relocates intact, restores clean)\n  # rare surgery only: `north config agents off launch-critical-worktree-guard` — deliberate\n  # bypass, state why, re-enable after\n{}",
+                    "`{what}` targets {target}, the MAIN checkout of {}. Uncommitted state in a main checkout is the human's work-in-progress; an agent never discards it. {}\n\nCompliant moves:\n  git -C {target} status --porcelain   # inspect, do not discard\n  north wt-rescue {target}\n  # dirty main? run `north wt-rescue` (relocates intact, restores clean)\n  # rare surgery only: `north config agents off launch-critical-worktree-guard` — deliberate\n  # bypass, state why, re-enable after\n{}",
                     hit.project,
                     hit.why,
                     self.worktree_advice(&hit.project)
