@@ -246,6 +246,33 @@ pub(crate) fn plan(observed: &Observed, live: impl Fn(&Lease) -> bool, wrapper_a
     plan
 }
 
+pub(crate) fn reap_orphans(host: &Host, processes: &[Process]) -> Plan {
+    let leases = leases(host);
+    let observed = Observed { gaming: false, processes, leases: &leases, frozen: &BTreeSet::new() };
+    let plan = plan(&observed, |lease| lease.scope_dir(host).is_dir(), |lease| wrapper_alive(host, lease));
+    plan.stop.iter().for_each(|unit| {
+        systemctl_user(host, "stop", unit);
+    });
+    plan
+}
+
+pub(crate) fn reap_orphans_run() -> u8 {
+    let host = Host::from_env();
+    let plan = reap_orphans(&host, &processes(&host));
+    if !plan.stop.is_empty() {
+        println!("agent-load: stopped {:?}", plan.stop);
+    }
+    0
+}
+
+fn wrapper_alive(host: &Host, lease: &Lease) -> bool {
+    lease.wrapper_pid.and_then(|pid| process_start(host, pid)) == lease.wrapper_start
+}
+
+fn systemctl_user(host: &Host, verb: &str, unit: &str) -> bool {
+    Command::new(&host.systemctl).args(["--user", verb, unit]).status().is_ok_and(|status| status.success())
+}
+
 pub(crate) fn enforce(host: &Host, gaming: bool, processes: &[Process]) -> Plan {
     let leases = leases(host);
     let frozen_path = host.capacity.join("gaming-frozen.json");
@@ -254,7 +281,7 @@ pub(crate) fn enforce(host: &Host, gaming: bool, processes: &[Process]) -> Plan 
     let plan = plan(
         &observed,
         |lease| lease.scope_dir(host).is_dir(),
-        |lease| lease.wrapper_pid.and_then(|pid| process_start(host, pid)) == lease.wrapper_start,
+        |lease| wrapper_alive(host, lease),
     );
     let _ = fs::create_dir_all(&host.capacity);
     let marker = json!({ "gaming": gaming, "at": now_seconds() });
@@ -262,7 +289,7 @@ pub(crate) fn enforce(host: &Host, gaming: bool, processes: &[Process]) -> Plan 
     let (mut unfrozen, mut unthawed) = (BTreeSet::new(), BTreeSet::new());
     for (verb, units) in [("stop", &plan.stop), ("freeze", &plan.freeze), ("thaw", &plan.thaw)] {
         for unit in units {
-            let done = Command::new(&host.systemctl).args(["--user", verb, unit]).status().is_ok_and(|status| status.success());
+            let done = systemctl_user(host, verb, unit);
             if !done && verb == "freeze" {
                 unfrozen.insert(unit.clone());
             }

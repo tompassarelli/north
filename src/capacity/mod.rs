@@ -29,11 +29,12 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => {}
         Some("laptop-auto") => return laptop_auto::run(&arguments[1..]),
+        Some("reap-orphans") if arguments.len() == 1 => return agent_load::reap_orphans_run(),
         Some("game-reserve") => return game_reserve::run(&arguments[1..]),
         Some("deadline") => return deadline::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => return warcraft::run(),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | game-reserve on [--auto]|off|status | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients");
             return 2;
         }
     }
