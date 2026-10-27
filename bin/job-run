@@ -31,23 +31,28 @@ host=$(hostname 2>/dev/null || cat /proc/sys/kernel/hostname)
 stamp() { local t=$EPOCHREALTIME; TZ=UTC printf '%(%Y-%m-%dT%H:%M:%S)T.%sZ' "${t%.*}" "${t#*.}"; }
 north_path="PATH=$here:${record_path:+$record_path:}$PATH:${BASH%/*}"
 
-if [ -n "$notify" ] && [ -z "${JOB_RUN_LOG:-}" ]; then
+log=${JOB_RUN_LOG:-}
+unset JOB_RUN_LOG
+if [ -n "$notify" ] && [ -z "$log" ]; then
   logs=${XDG_STATE_HOME:-$HOME/.local/state}/north/jobs
   mkdir -p "$logs" || exit 1
-  log="$logs/$name-$(TZ=UTC printf '%(%Y%m%dT%H%M%S)T')-$$.log"
-  JOB_RUN_LOG=$log setsid -f "$BASH" "$0" "${arguments[@]}" </dev/null >"$log" 2>&1 || exit 1
+  log="$logs/${name//\//_}-$(TZ=UTC printf '%(%Y%m%dT%H%M%S)T')-$$.log"
+  detach=$(PATH=${north_path#PATH=}; command -v setsid) || { echo "job-run: --notify needs setsid" >&2; exit 1; }
+  JOB_RUN_LOG=$log "$detach" -f "$BASH" "$0" "${arguments[@]}" </dev/null >"$log" 2>&1 \
+    || { echo "job-run: could not detach $name; see $log" >&2; exit 1; }
   echo "job-run: $name runs detached with its output in $log; its exit arrives as a fleet message to $notify, so end your turn."
   exit 0
 fi
 
-recorder() {
-  cmd=(env "$north_path" timeout 30 "$here/north" threads job-run "$name" --host "$host" "$@")
+as_user() {
+  cmd=(env "$north_path" "$@")
   if [ -n "$user" ] && [ "$(id -u)" = 0 ]; then
     local home
     home=$(eval echo "~$user")
     cmd=(runuser -u "$user" -- "${cmd[@]:0:2}" "HOME=$home" "USER=$user" "${cmd[@]:2}")
   fi
 }
+recorder() { as_user timeout 30 "$here/north" threads job-run "$name" --host "$host" "$@"; }
 
 started=$(stamp)
 recorder --started "$started"
@@ -60,7 +65,8 @@ recorder --started "$started" --finished "$(stamp)" --rc "$rc"
 PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null || echo "job-run: recording $name finish failed; the job's result is unaffected" >&2
 wait "$starting" 2>/dev/null
 if [ -n "$notify" ]; then
-  env "$north_path" "$here/north" fleet send "$notify" "job-run: $name exited $rc; output in $JOB_RUN_LOG" </dev/null \
+  as_user "$here/north" fleet send "$notify" "job-run: $name exited $rc; output in $log"
+  "${cmd[@]}" </dev/null \
     || echo "job-run: sending $name's exit to $notify failed" >&2
 fi
 exit "$rc"

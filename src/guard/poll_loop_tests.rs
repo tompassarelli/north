@@ -33,3 +33,17 @@ fn a_refusal_names_job_run_notify_and_monitor_and_a_background_loop_passes() {
     assert!(matches!(verdict(&input("until test -f x; do sleep 5; done", None, true)), Verdict::Allow));
     assert!(matches!(verdict(&input("sleep 300", Some(30000), false)), Verdict::Allow));
 }
+
+#[test]
+fn a_codex_exec_call_is_bounded_by_its_timeout_ms() {
+    let call = |timeout: Option<u64>| {
+        let mut tool_input = serde_json::json!({"cmd": "sleep 300"});
+        if let Some(ms) = timeout {
+            tool_input["timeout_ms"] = ms.into();
+        }
+        let payload = serde_json::json!({"tool_name": "exec_command", "tool_input": tool_input});
+        verdict(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
+    };
+    assert!(matches!(call(None), Verdict::Deny(_)));
+    assert!(matches!(call(Some(30000)), Verdict::Allow));
+}

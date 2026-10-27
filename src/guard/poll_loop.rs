@@ -2,7 +2,7 @@ use crate::hook::{HookInput, Verdict};
 use crate::shell;
 
 const LIMIT_SECONDS: f64 = 60.0;
-const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "time"];
+const PREFIXES: &[&str] = &["exec", "command", "env", "nohup", "setsid", "nice", "ionice", "stdbuf", "time"];
 const KEYWORDS: &[&str] = &["do", "then", "else", "{", "(", "!"];
 
 pub fn evaluate(input: &HookInput) -> Verdict {
@@ -44,49 +44,92 @@ fn refusal(wait: f64) -> String {
     )
 }
 
+#[derive(Default)]
+struct Scan {
+    loops: Vec<Loop>,
+    groups: Vec<(f64, f64)>,
+    closed: Option<(f64, f64)>,
+    sleeping: f64,
+    polling: f64,
+}
+
+struct Loop {
+    polls: bool,
+    sleeps: bool,
+}
+
 fn waited(source: &str, bound: f64, depth: usize) -> f64 {
     let Some(tokens) = shell::words(&shell::strip_heredocs(source)) else {
         return 0.0;
     };
-    let mut loops: Vec<bool> = Vec::new();
-    let mut sleeping = 0.0;
-    let mut polling: f64 = 0.0;
-    for segment in shell::segments(&tokens) {
+    let mut scan = Scan::default();
+    let mut segment = Vec::new();
+    for token in tokens {
+        if !shell::is_separator(&token) {
+            segment.push(token);
+            continue;
+        }
+        let background = token.trim_end_matches('\n').ends_with('&') && !token.ends_with("&&");
+        scan.segment(&std::mem::take(&mut segment), bound, depth, background);
+        if token.contains('(') {
+            scan.groups.push((scan.sleeping, scan.polling));
+        }
+        if token.contains(')') {
+            scan.closed = scan.groups.pop();
+        }
+        match scan.closed {
+            Some((sleeping, polling)) if background => (scan.sleeping, scan.polling, scan.closed) = (sleeping, polling, None),
+            Some(_) if !token.contains(')') => scan.closed = None,
+            _ => {}
+        }
+    }
+    scan.segment(&segment, bound, depth, false);
+    if scan.loops.iter().any(|lp| lp.polls && lp.sleeps) {
+        scan.polling = scan.polling.max(bound);
+    }
+    scan.polling.max(scan.sleeping.min(bound))
+}
+
+impl Scan {
+    fn segment(&mut self, segment: &[String], bound: f64, depth: usize, background: bool) {
         let start = segment.iter().take_while(|word| KEYWORDS.contains(&word.as_str())).count();
-        let words = &segment[start..];
+        let mut words = &segment[start..];
         match words.first().map(String::as_str) {
-            Some("while" | "until") => {
-                loops.push(false);
-                continue;
+            Some(keyword @ ("while" | "until" | "for" | "select")) => {
+                self.loops.push(Loop { polls: matches!(keyword, "while" | "until"), sleeps: false });
+                if !matches!(keyword, "while" | "until") {
+                    return;
+                }
+                words = &words[1..];
+                while words.first().is_some_and(|word| word == "!") {
+                    words = &words[1..];
+                }
             }
             Some("done") => {
-                if loops.pop() == Some(true) {
-                    polling = polling.max(bound);
+                if let Some(Loop { polls: true, sleeps: true }) = self.loops.pop()
+                    && !background
+                {
+                    self.polling = self.polling.max(bound);
                 }
-                continue;
+                return;
             }
             _ => {}
         }
         let (words, limit) = bounded(words, bound);
-        let Some(name) = words.first().map(|word| shell::basename(word)) else {
-            continue;
-        };
-        let wait = match name {
-            "sleep" => words[1..].iter().filter_map(|word| seconds(word)).sum::<f64>().min(limit),
-            "bash" | "sh" if depth < 8 => nested(words).map_or(0.0, |source| waited(&source, limit, depth + 1)),
+        let wait = match words.first().map(|word| shell::basename(word)) {
+            Some("sleep") => words[1..].iter().filter_map(|word| seconds(word)).sum::<f64>().min(limit),
+            Some("bash" | "sh") if depth < 8 => nested(words).map_or(0.0, |source| waited(&source, limit, depth + 1)),
             _ => 0.0,
         };
-        match loops.last_mut() {
-            Some(sleeps) if name == "sleep" => *sleeps = true,
-            Some(_) => {}
-            None if name == "sleep" => sleeping += wait,
-            None => polling = polling.max(wait),
+        if background || wait == 0.0 {
+            return;
+        }
+        if self.loops.iter().any(|lp| lp.polls) {
+            self.loops.iter_mut().for_each(|lp| lp.sleeps = true);
+        } else {
+            self.sleeping += wait;
         }
     }
-    if loops.iter().any(|sleeps| *sleeps) {
-        polling = polling.max(bound);
-    }
-    polling.max(sleeping.min(bound))
 }
 
 fn bounded(segment: &[String], bound: f64) -> (&[String], f64) {
@@ -97,21 +140,26 @@ fn bounded(segment: &[String], bound: f64) -> (&[String], f64) {
         match segment.get(index).map(|word| shell::basename(word)) {
             Some("timeout") => {
                 index += 1;
-                while segment.get(index).is_some_and(|word| word.starts_with('-')) {
-                    index += 1;
+                while let Some(word) = segment.get(index).filter(|word| word.starts_with('-')) {
+                    index += if matches!(word.as_str(), "-s" | "-k" | "--signal" | "--kill-after") { 2 } else { 1 };
                 }
                 if let Some(seconds) = segment.get(index).and_then(|word| seconds(word)) {
                     limit = limit.min(seconds);
                     index += 1;
                 }
             }
+            Some(word) if index > 0 && word.parse::<f64>().is_ok() => index += 1,
             _ => return (&segment[index..], limit),
         }
     }
 }
 
 fn nested(words: &[String]) -> Option<String> {
-    let flag = words.iter().skip(1).position(|word| word.starts_with('-') && word[1..].contains('c'))? + 1;
+    let flag = words
+        .iter()
+        .skip(1)
+        .position(|word| word.starts_with('-') && !word.starts_with("--") && word[1..].contains('c'))?
+        + 1;
     words.get(flag + 1).cloned()
 }
 

@@ -130,7 +130,7 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     fs::write(root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n").unwrap();
     fs::set_permissions(root.join("bin/north"), fs::Permissions::from_mode(0o755)).unwrap();
     let release = root.join("release");
-    let job = format!("until [ -f {} ]; do sleep 0.1; done; echo finished; exit 3", release.display());
+    let job = format!("until [ -f {} ]; do sleep 0.1; done; echo \"finished with ${{JOB_RUN_LOG:-no log}} set\"; exit 3", release.display());
     let mut command = Command::new(tool("bash"));
     command
         .arg(root.join("bin/job-run"))
@@ -140,13 +140,24 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
         .env("NORTH_FLEET_SESSION", "c-test")
         .env("PATH", &tools)
         .stdout(std::process::Stdio::piped());
-    let child = {
+    let mut child = {
         let _gate = fork_gate();
         command.spawn().unwrap()
     };
-    let output = child.wait_with_output().unwrap();
-    let said = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(output.status.code(), Some(0), "{said}");
+    let begun = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if begun.elapsed() > Duration::from_secs(10) {
+            child.kill().unwrap();
+            panic!("job-run --notify did not return before its job ended");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut said = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take().unwrap(), &mut said).unwrap();
+    assert_eq!(status.code(), Some(0), "{said}");
     assert!(said.contains("fleet message to c-test"), "{said}");
     fs::write(&release, "").unwrap();
     let log = root.join("north.log");
@@ -161,7 +172,7 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     };
     assert!(sent.starts_with("fleet send c-test job-run: soak exited 3; output in "), "{sent}");
     let job_log = sent.rsplit(' ').next().unwrap();
-    assert!(fs::read_to_string(job_log).unwrap().contains("finished"), "{job_log}");
+    assert!(fs::read_to_string(job_log).unwrap().contains("finished with no log set"), "{job_log}");
     let text = fs::read_to_string(&log).unwrap();
     assert!(text.lines().any(|line| line.contains("job-run soak") && line.ends_with("--rc 3")), "{text:?}");
 }
