@@ -118,6 +118,7 @@ impl Runtimes {
 
 pub const DEFAULT_FOREGROUND_CAP_SECS: u64 = 30;
 pub const SESSION_ENV: &str = "NORTH_FLEET_SESSION";
+pub const ACTOR_ENV: &str = "THREADS_ACTOR";
 pub const CAPACITY_NEED_ENV: &str = "AGENT_CAPACITY_NEED";
 
 pub fn new_uuid() -> NorthResult<String> {

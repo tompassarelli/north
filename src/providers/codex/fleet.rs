@@ -8,7 +8,7 @@ use crate::fleet::gates::Question;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::{Tokens, TurnExit, TurnSignal, TurnTotals};
-use crate::fleet::runtime::{HostSpec, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
+use crate::fleet::runtime::{HostSpec, ACTOR_ENV, Instructions, Opening, Runtime, SESSION_ENV, new_uuid, summarize};
 
 use super::{accounts, launch, questions};
 
@@ -60,7 +60,7 @@ impl Runtime for Codex {
     }
 
     fn open(&self, name: &str, request: &LaunchRequest, opening: Opening, instructions: Instructions) -> NorthResult<Vec<String>> {
-        let mut params = json!({"approvalPolicy": "never", "sandbox": "danger-full-access", "config": {format!("shell_environment_policy.set.{SESSION_ENV}"): name}});
+        let mut params = json!({"approvalPolicy": "never", "sandbox": "danger-full-access", "config": {format!("shell_environment_policy.set.{SESSION_ENV}"): name, format!("shell_environment_policy.set.{ACTOR_ENV}"): name}});
         if let Some(model) = &request.model {
             params["model"] = json!(model);
         }
@@ -340,6 +340,7 @@ mod turn_state {
         for opening in [Opening::Fresh(None), Opening::Resume("th")] {
             let frame: Value = serde_json::from_str(&Codex.open("worker", &request(), opening, Instructions { text: "", changed: false }).unwrap()[0]).unwrap();
             assert_eq!(frame["params"]["config"]["shell_environment_policy.set.NORTH_FLEET_SESSION"], "worker", "{opening:?}");
+            assert_eq!(frame["params"]["config"]["shell_environment_policy.set.THREADS_ACTOR"], "worker", "{opening:?}");
         }
     }
 

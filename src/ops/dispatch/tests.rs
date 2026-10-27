@@ -387,9 +387,9 @@ fn a_live_threads_claim_on_any_hosts_ledger_holds_its_issue_and_a_stale_one_does
         {"item": "smashcraft#9", "owner": "w4", "standing": "live"},
         {"item": "smashcraft#10", "owner": "w5", "standing": "stale"},
     ]);
-    let rows = super::survey::claim_rows(&listing, "gex45");
+    let rows = super::survey::claim_rows(&listing, "gex45", &Default::default());
     assert_eq!(rows, [(IssueRef::new("wisp", 21), "threads claim by sc-21-a on gex45".to_owned()), (IssueRef::new("smashcraft", 9), "threads claim by w4 on gex45".to_owned())]);
-    assert!(super::survey::claim_rows(&serde_json::json!([]), "nexus").is_empty());
+    assert!(super::survey::claim_rows(&serde_json::json!([]), "nexus", &Default::default()).is_empty());
 }
 
 #[test]

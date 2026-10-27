@@ -32,6 +32,7 @@ fn the_host_names_its_session_to_the_commands_it_runs() {
     let account = Account { provider: Claude.provider(), label: "a".into(), home: PathBuf::from("/tmp/claude-a"), token_file: None };
     let spec = Claude.host(&account, &request(), Opening::Fresh(None), "").unwrap();
     assert!(spec.env.contains(&("NORTH_FLEET_SESSION".to_owned(), "worker".into())), "{:?}", spec.env);
+    assert!(spec.env.contains(&("THREADS_ACTOR".to_owned(), "worker".into())), "{:?}", spec.env);
 }
 
 #[test]

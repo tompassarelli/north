@@ -26,6 +26,8 @@ mod stops;
 mod survey;
 mod tier;
 #[cfg(test)]
+mod claim_tests;
+#[cfg(test)]
 mod frozen_tests;
 #[cfg(test)]
 mod stops_tests;

@@ -262,25 +262,42 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
 
 /// NorthThreads claims from this host's ledger and every ssh host's, since a host whose ledger is
 /// local records its workers' claims there.
-fn claims(cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<(IssueRef, String)> {
+fn claims(cfg: &DocumentMut, here: &str, stopped: &BTreeSet<String>, notes: &mut Vec<String>) -> Vec<(IssueRef, String)> {
     let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name, Some(machine.ssh)));
     let mut found = Vec::new();
     for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
         match remote_json(ssh.as_deref(), &["threads", "list", "--json"]) {
-            Ok(listing) => found.extend(claim_rows(&listing, &host)),
+            Ok(listing) => found.extend(claim_rows(&listing, &host, stopped)),
             Err(why) => notes.push(format!("{host} threads list unread, so its claims are unknown: {why}")),
         }
     }
     found
 }
 
-/// The holders in `threads list --json`: its live claims, the ones `threads claim` refuses on.
-pub(crate) fn claim_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
+/// The names of fleet sessions that some listing shows and none shows running: a claim they made
+/// holds nothing, as a session that has stopped cannot be working it.
+pub(crate) fn stopped_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
+    let named = |running: bool| -> BTreeSet<String> {
+        fleets
+            .iter()
+            .flat_map(|(_, listing)| listing.as_array().into_iter().flatten())
+            .filter(|session| RUNNING.contains(&session["status"].as_str().unwrap_or_default()) == running)
+            .filter_map(|session| session["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned))
+            .collect()
+    };
+    let running = named(true);
+    named(false).into_iter().filter(|name| !running.contains(name)).collect()
+}
+
+/// The holders in `threads list --json`: its live claims, the ones `threads claim` refuses on,
+/// less those a stopped fleet session made.
+pub(crate) fn claim_rows(listing: &Value, host: &str, stopped: &BTreeSet<String>) -> Vec<(IssueRef, String)> {
     listing
         .as_array()
         .into_iter()
         .flatten()
         .filter(|row| row["standing"] == "live")
+        .filter(|row| !row["owner"].as_str().is_some_and(|owner| stopped.contains(owner)))
         .filter_map(|row| Some((IssueRef::parse(row["item"].as_str()?)?, format!("threads claim by {} on {host}", row["owner"].as_str()?))))
         .collect()
 }
@@ -373,7 +390,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let (elsewhere, mut holds) = tally(&sessions);
     let (mut issues, open) = github::open_issues(&mut notes);
     let records = record::read(&record::directory());
-    holds.extend(claims(&cfg, &here, &mut notes));
+    holds.extend(claims(&cfg, &here, &stopped_names(&fleets), &mut notes));
     holds.extend(record::holds(&records, at));
     holds.extend(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)));
     let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));

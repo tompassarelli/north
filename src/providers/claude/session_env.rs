@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use crate::fleet::model::{Account, LaunchRequest};
-use crate::fleet::runtime::{CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, Invocation, SESSION_ENV};
+use crate::fleet::runtime::{ACTOR_ENV, CAPACITY_NEED_ENV, DEFAULT_FOREGROUND_CAP_SECS, Invocation, SESSION_ENV};
 
 use super::accounts::default_home;
 
@@ -28,6 +28,7 @@ pub(super) fn claude_env(account: &Account, request: &LaunchRequest) -> Vec<(Str
         ("BASH_DEFAULT_TIMEOUT_MS".into(), cap_ms.clone().into()),
         ("BASH_MAX_TIMEOUT_MS".into(), cap_ms.into()),
         (SESSION_ENV.into(), request.name.clone().into()),
+        (ACTOR_ENV.into(), request.name.clone().into()),
     ]);
     env.extend(request.capacity_need.clone().map(|need| (CAPACITY_NEED_ENV.into(), need.into())));
     env

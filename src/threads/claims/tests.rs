@@ -63,7 +63,7 @@ impl Ledger {
     fn dispatch_holds(&self) -> Vec<String> {
         let (code, listing, _) = self.run(&["list", "--json"]);
         assert_eq!(code, 0);
-        claim_rows(&serde_json::from_str::<Value>(&listing).unwrap(), "nexus").into_iter().map(|(item, _)| item.to_string()).collect()
+        claim_rows(&serde_json::from_str::<Value>(&listing).unwrap(), "nexus", &Default::default()).into_iter().map(|(item, _)| item.to_string()).collect()
     }
 
     fn listed(&self) -> Vec<String> {
