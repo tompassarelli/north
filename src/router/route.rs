@@ -1,5 +1,6 @@
 use super::ctx::{Account, Ctx, Project, UNDER, exhausted, expiry, provider, used};
 use super::moment::{Moment, target_open};
+use crate::pace::exhaustion;
 use serde_json::{Value, json};
 use std::cmp::Ordering;
 
@@ -38,10 +39,12 @@ impl Ctx {
             .is_some_and(|start| self.now >= start)
     }
 
-    pub fn pace_open(&self, name: &str, project: &Project) -> bool {
-        self.account_state(name) == Some(UNDER)
-            || (!self.enforced(name) && !exhausted(self.accounts.get(name)))
-            || drain_open(project, name, self.now)
+    pub fn launch_refusal(&self, name: &str) -> Option<String> {
+        self.accounts
+            .get(name)?
+            .windows
+            .iter()
+            .find_map(|(window, w)| exhaustion::refusal(window, 100.0 - w.headroom, w.burn_pct_h))
     }
 
     fn routable(&self, p: &str) -> impl Iterator<Item = &String> {
@@ -72,17 +75,21 @@ impl Ctx {
     }
 
     pub fn route(&self, p: &str) -> Option<String> {
-        self.route_account(p).or_else(|| {
-            self.routable(p)
-                .filter(|n| !self.enforced(n) && !exhausted(self.accounts.get(*n)))
-                .min_by(|a, b| by_expiry(self, a, b))
-                .cloned()
-        })
+        let rank = |name: &String| {
+            (
+                self.account_state(name) != Some(UNDER),
+                exhausted(self.accounts.get(name)),
+            )
+        };
+        self.routable(p)
+            .filter(|n| self.launch_refusal(n).is_none())
+            .min_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| by_expiry(self, a, b)))
+            .cloned()
     }
 
     pub fn route_label(&self, p: &str) -> String {
         let Some(name) = self.route(p) else {
-            return "none under pace".into();
+            return "none launchable".into();
         };
         if self.account_state(&name) == Some(UNDER) {
             return name;

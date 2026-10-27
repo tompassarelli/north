@@ -1,5 +1,5 @@
 {
- "note": "north#37: after Codex's enforce_from, at or over pace, only galileo (live target, Tom's Codex drain grant) is admitted on Codex; north's target has no grant and asks Tom, wisp's grant outlived its target and waits.",
+ "note": "north#37, north#185: Codex at or over pace after its enforce_from no longer holds a launch while its week has room, so every project is admitted on Codex; galileo's grant (live target, Tom's Codex drain grant) is still named in its warning.",
  "now": "2026-10-15T12:00Z",
  "tiers": [
   {
@@ -191,21 +191,19 @@
   "tiers": {
    "m1": "claude:haiku",
    "f1": "codex:sol-medium",
-   "t1": null,
-   "w1": null
+   "t1": "codex:sol-high",
+   "w1": "codex:sol-high"
   },
-  "needs": [
-   "Blocked: decision for Tom: north projected miss 2026-10-16T15:00:00Z: more budget (rent build/test compute / reconfigure/swap service: $ unmeasured, speedup unmeasured) / later date / smaller scope",
-   "Blocked: decision for Tom: wisp projected miss 2026-10-15T00:00:00Z: more budget (rent build/test compute / reconfigure/swap service: $ unmeasured, speedup unmeasured) / later date / smaller scope"
-  ],
+  "needs": [],
   "warnings": [
-   "account codex at or over pace; admitted, galileo drains it under Tom's grant until 2026-10-16T15:00:00Z"
+   "account codex at or over pace; admitted, galileo drains it under Tom's grant until 2026-10-16T15:00:00Z",
+   "account codex at or over pace; admitted, pace enforced from 2026-10-14T00:00:00+00:00"
   ],
   "routes": {
    "claude:haiku": "claude",
-   "codex:sol-medium": null,
-   "codex:sol-high": null,
-   "codex:sol-xhigh": null,
+   "codex:sol-medium": "codex",
+   "codex:sol-high": "codex",
+   "codex:sol-xhigh": "codex",
    "claude:opus-medium": "claude"
   }
  },

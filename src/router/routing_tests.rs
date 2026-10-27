@@ -113,25 +113,52 @@ fn recorded_scenarios_reach_their_expected_plans() {
         json!({"provider": "claude", "target_left": 5, "usd_per_week": 50, "age_min": 5,
                "windows": {"week": {"headroom": headroom, "window_h": 168, "reset_in": reset_in, "resets_at": resets_at, "as_of": "2026-10-11T12:00Z", "beta": 0}}})
     };
-    let held = ctx(json!({
-        "now": "2026-10-11T12:00Z", "lease": true, "projects": {"north": {"u": 1}},
-        "accounts": {"claude:a": claude(10.0, 20.0, "2026-10-12T08:00Z"), "claude:b": claude(5.0, 10.0, "2026-10-11T22:00Z")},
-        "billing": {"claude": {"standard": "plan", "overflow": "blocked"}},
-        "pace": {"enforce_from": {"claude:a": "2026-10-01T00:00Z", "claude:b": "2026-10-01T00:00Z"}},
-        "tiers": [{"key": "claude:opus-medium", "rank": 0, "start": 0}],
-        "boxes": [{"id": "hold", "project": "north", "category": "feature", "difficulty": 95, "sensitivity": "private"}],
-    }));
-    let plan = held.plan().unwrap();
-    assert_eq!(
+    let over_pace = |week_headroom: f64, five_hour_headroom: Option<f64>| {
+        let mut account = claude(week_headroom, 10.0, "2026-10-11T22:00Z");
+        if let Some(headroom) = five_hour_headroom {
+            account["windows"]["5h"] = json!({"headroom": headroom, "reset_in": 2});
+        }
+        ctx(json!({
+            "now": "2026-10-11T12:00Z", "lease": true, "projects": {"north": {"u": 1}},
+            "accounts": {"claude:b": account},
+            "billing": {"claude": {"standard": "plan", "overflow": "blocked"}},
+            "pace": {"enforce_from": {"claude:b": "2026-10-01T00:00Z"}},
+            "tiers": [{"key": "claude:opus-medium", "rank": 0, "start": 0}],
+            "boxes": [{"id": "hold", "project": "north", "category": "feature", "difficulty": 95, "sensitivity": "private"}],
+        }))
+    };
+    let plan = |held: &Ctx| {
+        let plan = held.plan().unwrap();
         (
-            held.route_account("claude"),
-            held.provider_account("claude")
-        ),
-        (None, "claude:b".to_owned())
+            plan.boxes["hold"].tier.clone(),
+            plan.boxes["hold"].wait.clone(),
+            plan.needs.len(),
+        )
+    };
+    let admitted = over_pace(5.0, None);
+    assert_eq!(admitted.route_account("claude"), None);
+    assert_eq!(admitted.account_state("claude:b"), Some(OVER));
+    assert_eq!(
+        plan(&admitted),
+        (Some("claude:opus-medium".to_owned()), None, 0)
     );
     assert_eq!(
-        (plan.boxes["hold"].wait.as_deref(), plan.needs.len()),
-        (Some("account pace"), 0)
+        plan(&over_pace(5.0, Some(6.0))),
+        (Some("claude:opus-medium".to_owned()), None, 0)
+    );
+    assert_eq!(
+        plan(&over_pace(0.0, None)),
+        (None, Some("account exhausted".to_owned()), 0)
+    );
+    assert_eq!(
+        plan(&over_pace(5.0, Some(5.0))),
+        (None, Some("account exhausted".to_owned()), 0)
+    );
+    assert_eq!(
+        over_pace(5.0, Some(5.0))
+            .launch_refusal("claude:b")
+            .as_deref(),
+        Some("exhausted: 5h 95% >= 95%")
     );
 }
 

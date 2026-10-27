@@ -285,4 +285,34 @@ assert routing.claude_unavailable({"claude:a": {"state": "under pace"}}, [], now
 print(f"PASS claude_session_overflow: {len(cases)} cases cover burn over the 30 min before the newest reading of the newest window (resets within 5 min count as one window), projected from that reading, stale windows and older readings ignored, no readings, target, ceiling and a 429 within 15 min; claude_unavailable when every Claude account is at or over pace or stale, never on a missing reading")
 PY
 
+python3 -I - "$HERE" <<'PY' || fail=1
+import copy, json, sys
+sys.path.insert(0, sys.argv[1])
+import routing
+base = json.load(open(f"{sys.argv[1]}/routing-scenarios/two-claude.json"))
+base["accounts"] = {"claude:a": base["accounts"]["claude:a"]}
+base["tiers"] = [t for t in base["tiers"] if t["key"].startswith("claude:")]
+base["boxes"] = [b for b in base["boxes"] if b["id"] == "t1"]
+base["pace"] = {"enforce_from": {"claude:a": "2026-10-01T00:00Z"}}
+base["billing"]["claude"]["overflow"] = "blocked"
+
+def plan(week=None, five_hour=None):
+    ctx = copy.deepcopy(base)
+    windows = ctx["accounts"]["claude:a"]["windows"]
+    windows["week"]["headroom"] = week if week is not None else windows["week"]["headroom"]
+    windows["5h"]["headroom"] = five_hour if five_hour is not None else windows["5h"]["headroom"]
+    box = routing.ask("plan", ctx=ctx)["boxes"]["t1"]
+    return box.get("tier"), box.get("wait")
+
+state = routing.ask("plan", ctx=base)["accounts"]["claude:a"]["state"]
+assert state == "at or over pace", state
+tier, wait = plan()
+assert tier and tier.startswith("claude:") and wait is None, (tier, wait)
+assert plan(week=5) == (tier, None), plan(week=5)
+assert plan(five_hour=6)[0] == tier
+assert plan(week=0) == (None, "account exhausted"), plan(week=0)
+assert plan(five_hour=5) == (None, "account exhausted"), plan(five_hour=5)
+print("PASS launch rule: an account over its pace line, enforced and without a drain grant, still gets a tier; a 5h window at 95% or a provider week at 100% is the only refusal")
+PY
+
 exit "$fail"

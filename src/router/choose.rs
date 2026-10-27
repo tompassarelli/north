@@ -3,6 +3,7 @@ use super::brief::{
 };
 use super::ctx::{Ctx, Project, Tier, UNDER, WorkBox, account_of, provider, truthy};
 use super::moment::{python_g, python_str};
+use super::route::drain_open;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -212,9 +213,9 @@ impl Ctx {
             .iter()
             .filter(|(_, _, t)| self.admit(t, item, &bands))
             .collect();
-        let open = admitted
-            .iter()
-            .filter(|(p, _, t)| *p != f64::INFINITY && self.pace_open(&account_of(t), project));
+        let open = admitted.iter().filter(|(p, _, t)| {
+            *p != f64::INFINITY && self.launch_refusal(&account_of(t)).is_none()
+        });
         let Some((_, _, tier)) = open.min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)))
         else {
             return self.closed(
@@ -261,7 +262,7 @@ impl Ctx {
                 ..Choice::default()
             },
             None => Choice {
-                wait: Some("account pace".into()),
+                wait: Some("account exhausted".into()),
                 ..Choice::default()
             },
         }
@@ -271,7 +272,7 @@ impl Ctx {
         if self.account_state(name) == Some(UNDER) {
             return None;
         }
-        let why = if self.enforced(name) {
+        let why = if self.enforced(name) && drain_open(project, name, self.now) {
             format!(
                 "{} drains it under Tom's grant until {}",
                 project.name.as_deref().unwrap_or(&item.project),

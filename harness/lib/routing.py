@@ -103,18 +103,13 @@ def drain_open(project, name, now):
     return granted and target_open(project.get("target"), now)
 
 
-def exhausted(acct):
-    """At or past its drain floor: the week window has no more headroom than the account's target_left."""
-    week = (acct or {}).get("windows", {}).get("week")
-    return bool(week) and week["headroom"] <= acct["target_left"]
-
-
-def pace_open(ctx, name, project):
-    """Whether pace admits a spawn of project on account name: under pace, before its enforce_from while above its
-    drain floor, or drained under Tom's grant."""
-    return (account_state(ctx, name) == "under pace"
-            or (not enforced(ctx, name) and not exhausted(ctx["accounts"].get(name)))
-            or drain_open(project, name, ctx["now"]))
+def launch_open(ctx, name):
+    """Whether a launch on account name is admitted: no five-hour window at 95% and no provider week at 100%."""
+    for key, window in ((ctx["accounts"].get(name) or {}).get("windows", {})).items():
+        used = 100 - window["headroom"]
+        if (key == "5h" and used >= 95) or ((key == "week" or key.endswith(":week")) and used >= 100):
+            return False
+    return True
 
 
 def stale(acct):
@@ -365,12 +360,12 @@ def choose(ctx, box, explore_slot=False, *, account_prices=None):
             return {"tier": picked, "explore": True}
     band = bands(ctx, project)
     admitted = [(p, r, t) for p, r, t in priced if admit(ctx, t, box, project, band)]
-    open_ = [x for x in admitted if x[0] != math.inf and (account_prices is not None or pace_open(ctx, account_of(x[2]), project))]
+    open_ = [x for x in admitted if x[0] != math.inf and (account_prices is not None or launch_open(ctx, account_of(x[2])))]
     if not open_:
         if any(p != math.inf for p, _, _ in admitted):
             if project.get("target"):
                 return {"tier": None, "needs": missed_target(project.get("name", box["project"]), project["target"], ctx.get("services"))}
-            return {"tier": None, "wait": "account pace"}
+            return {"tier": None, "wait": "account exhausted"}
         return {"tier": None, "needs": f"Blocked: decision for Tom: no under-pace plan-billed tier admits {box['id']} ({box['project']}, {box['category']} d{box['difficulty']}); bill usage credits for it?"}
     tier = min(open_, key=lambda x: (x[0], x[1]))[2]
     out = {"tier": tier}
@@ -378,7 +373,7 @@ def choose(ctx, box, explore_slot=False, *, account_prices=None):
     if account_prices is None and account_state(ctx, name) != "under pace":
         start = enforce_from(ctx, name)
         why = (f"{project.get('name', box['project'])} drains it under Tom's grant until {project['target']}"
-               if enforced(ctx, name) else f"pace enforced from {start.isoformat() if start else 'unset'}")
+               if enforced(ctx, name) and drain_open(project, name, ctx["now"]) else f"pace enforced from {start.isoformat() if start else 'unset'}")
         out["warn"] = f"account {name} at or over pace; admitted, {why}"
     if (account_prices is None and len(admitted) == 1 and project["u"] >= LATE
             and billing(ctx, name, "fast") != "plan"):

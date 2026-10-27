@@ -97,6 +97,7 @@ pub struct Window {
     pub resets_at: Option<String>,
     pub window_h: Option<f64>,
     pub as_of: Option<String>,
+    pub burn_pct_h: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

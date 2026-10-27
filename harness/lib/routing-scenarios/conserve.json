@@ -1,5 +1,5 @@
 {
- "note": "Claude85% used exceeds its linear pace with24h left; work needing its bands waits. Codex50% used is under pace.",
+ "note": "Claude85% used exceeds its linear pace with24h left, and its week is not exhausted, so work needing its bands is admitted with a warning (north#185). Codex50% is under pace.",
  "now": "2026-10-16T12:00Z",
  "tiers": [
   {
@@ -176,9 +176,9 @@
    "codex": "under pace"
   },
   "tiers": {
-   "n1": null,
-   "d1": null,
-   "t1": null
+   "n1": "claude:opus-medium",
+   "d1": "claude:opus-medium",
+   "t1": "claude:opus-medium"
   },
   "fast": {
    "n1": false,

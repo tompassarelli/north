@@ -1,5 +1,5 @@
 {
- "note": "Thursday Codex18% left projects inside the Friday10-20 band; new implementation waits for pace, fast off.",
+ "note": "Thursday Codex18% left projects inside the Friday10-20 band, and its week is not exhausted, so new implementation is admitted with a warning, fast off (north#185).",
  "now": "2026-10-15T12:00Z",
  "tiers": [
   {
@@ -168,8 +168,8 @@
   },
   "tiers": {
    "m1": "claude:haiku",
-   "f1": null,
-   "t1": null
+   "f1": "codex:sol-medium",
+   "t1": "codex:sol-high"
   },
   "fast": {
    "m1": false,
