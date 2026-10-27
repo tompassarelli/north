@@ -2,8 +2,7 @@ use std::process::ExitCode;
 
 use crate::landing::denylist;
 use crate::{
-    autoland_status, capacity, dep_gate, follows_release, issue_box_lint, land_abandon, provenance,
-    review_gate,
+    autoland_status, capacity, dep_gate, follows_release, issue_box_lint, provenance, review_gate,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,7 +64,7 @@ impl Tool {
             Self::Denylist => denylist::run,
             Self::AutolandStatus => autoland_status::run,
             Self::AutolandWait => autoland_status::wait,
-            Self::LandAbandon => land_abandon::abandon,
+            Self::LandAbandon => autoland_status::abandon,
             Self::SafePushResult => super::safe_push_result::run,
             Self::Provenance => provenance::run,
             Self::IssueBoxLint => issue_box_lint::run,

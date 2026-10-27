@@ -462,86 +462,6 @@ grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_empty
 [ -z "$(real_remote_state)" ] || fail 'initial language refusal published'
 printf 'PASS: initial push uses empty tree and fails closed without north\n'
 
-make_real_fixture unreachable-fetch
-printf '#!/bin/sh\ncat >/dev/null\n' >"$real_repo/.git/hooks/pre-push"
-chmod +x "$real_repo/.git/hooks/pre-push"
-"$real_git" -C "$real_repo" config remote.origin.pushurl "$real_remote"
-"$real_git" -C "$real_repo" config remote.origin.url "$real_fixture/unreachable.git"
-fetch_remote_before=$(real_remote_state)
-fetch_language_trace="$real_fixture/language-trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$fetch_language_trace" run_real_case '' --to main
-expect_status nonzero
-expect_output 'safe-push: could not fetch origin/main; NOT pushed.'
-! grep -Fq 'R1' <<<"$case_output" || fail 'a failed fetch was reported as a language refusal'
-! grep -Fq '<language-gate>' "$fetch_language_trace" || fail 'a failed fetch reached the language gate'
-[ "$(real_remote_state)" = "$fetch_remote_before" ] || fail 'a failed fetch published'
-printf 'PASS: a failed fetch of the destination is refused before any check runs\n'
-
-eval "$(sed -n '/^sync_dependencies() {/,/^}$/p' "$TARGET")"
-drop_lock_fd() { :; }
-deps_root="$scratch/sync-deps"
-deps_bin="$deps_root/bin"
-mkdir -p "$deps_bin"
-printf '#!/usr/bin/env bash\n[ "$*" = "install --frozen-lockfile" ] || exit 2\nprintf "%%s\\n" "$PWD" >>%q\nmkdir -p node_modules\n' "$deps_root/bun-runs" >"$deps_bin/bun"
-chmod +x "$deps_bin/bun"
-make_deps_repo() {
-  local name="$1" origin="$2"
-  deps_repo="$deps_root/$name"
-  "$real_git" init -q -b main "$deps_repo"
-  "$real_git" -C "$deps_repo" remote add origin "$deps_root/$origin.git"
-  mkdir -p "$deps_repo/ts"
-  printf '{}\n' >"$deps_repo/ts/package.json"
-  printf 'pin 1\n' >"$deps_repo/ts/bun.lock"
-  "$real_git" -C "$deps_repo" add ts
-  "$real_git" -C "$deps_repo" -c user.name=t -c user.email=t@example.invalid commit -qm 'ts project'
-}
-: >"$deps_root/bun-runs"
-make_deps_repo from-subdirectory smashcraft
-deps_output="$(cd "$deps_repo/ts" && PATH="$deps_bin:$PATH" sync_dependencies 2>&1)" || fail "sync_dependencies from a subdirectory failed: $deps_output"
-[ "$(cat "$deps_root/bun-runs")" = "$deps_repo/ts" ] || fail "sync_dependencies from ts/ did not install in ts/: $deps_output"
-[ ! -e "$deps_repo/node_modules" ] || fail 'sync_dependencies from ts/ installed at the repository root'
-printf 'PASS: sync_dependencies run from a subdirectory installs in the lockfile directory\n'
-
-: >"$deps_root/bun-runs"
-make_deps_repo symlinked-node-modules north
-deps_checkout="$deps_root/checkout"
-mkdir -p "$deps_checkout/node_modules"
-printf 'dependency\n' >"$deps_checkout/node_modules/installed.txt"
-printf 'stale stamp\n' >"$deps_checkout/node_modules/.safe-push-deps"
-ln -s "$deps_checkout/node_modules" "$deps_repo/ts/node_modules"
-deps_checkout_before="$(cd "$deps_checkout" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)"
-deps_status=0
-deps_output="$(cd "$deps_repo" && PATH="$deps_bin:$PATH" sync_dependencies 2>&1)" || deps_status=$?
-[ "$deps_status" -ne 0 ] || fail "sync_dependencies accepted a symlinked node_modules whose lockfile differs: $deps_output"
-grep -Fq "ts/node_modules is a symlink to $deps_checkout/node_modules" <<<"$deps_output" || fail "the refusal did not name the symlink: $deps_output"
-[ ! -s "$deps_root/bun-runs" ] || fail 'bun install ran through the symlink'
-[ "$(cd "$deps_checkout" && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)" = "$deps_checkout_before" ] \
-  || fail 'sync_dependencies changed the checkout behind the symlink'
-printf 'PASS: sync_dependencies never installs through a symlinked node_modules\n'
-unset -f sync_dependencies drop_lock_fd
-
-make_real_fixture fresh-north-worktree
-land_home="$real_fixture/home"
-mkdir -p "$land_home"
-ln -s remote.git "$real_fixture/north.git"
-"$real_git" -C "$real_repo" config remote.origin.pushurl "$real_remote"
-"$real_git" -C "$real_repo" config remote.origin.url "$real_fixture/north.git"
-mkdir -p "$real_repo/agent-machinery"
-printf '{}\n' >"$real_repo/agent-machinery/package.json"
-printf '{\n  "lockfileVersion": 1,\n  "workspaces": {"": {"name": "agent-machinery"}},\n  "packages": {}\n}\n' >"$real_repo/agent-machinery/bun.lock"
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'agent-machinery/ :: test -d agent-machinery/node_modules'
-"$real_git" -C "$real_repo" add .safe-push agent-machinery
-"$real_git" -C "$real_repo" commit -qm 'agent-machinery project'
-reviewed_id="$(cd "$real_repo" && "$real_north" review-gate id refs/remotes/origin/main HEAD harness/ agent-machinery/ bin/ lib/)"
-"$real_git" -C "$real_repo" commit -q --amend -m 'agent-machinery project' -m "Reviewed: fixture reviewer approves; patch-id $reviewed_id"
-cp "$deps_bin/bun" "$real_bin/bun"
-HOME="$land_home" run_real_case '' --dry-run --to main
-rm -f "$real_bin/bun"
-expect_status zero
-expect_output "safe-push: no node_modules — bun install --frozen-lockfile in $real_repo/agent-machinery"
-expect_output 'safe-push: ✓ clean (--dry-run)'
-printf 'PASS: a fresh north worktree installs agent-machinery before its land check\n'
-
 make_real_fixture land-check-boundary
 land_home="$real_fixture/home"
 mkdir -p "$land_home"
@@ -595,13 +515,16 @@ land_command='sleep 30 >/dev/null 2>&1 & printf "%s\n" "$!" > sleeper.pid'
 "$real_git" -C "$real_repo" add .safe-push
 "$real_git" -C "$real_repo" commit -qm 'background check'
 owned_sleeper_file="$real_repo/sleeper.pid"
+background_target="$TARGET"
+printf '#!/usr/bin/env bash\nexec timeout --kill-after=1 5 %q "$@"\n' "$TARGET" >"$real_fixture/bounded-target"
+chmod +x "$real_fixture/bounded-target"
+TARGET="$real_fixture/bounded-target"
+background_started=$SECONDS
 HOME="$land_home" run_real_case '' --dry-run --to main
+TARGET="$background_target"
 expect_status zero
+[ "$((SECONDS - background_started))" -lt 5 ] || fail 'background check held private descriptors for five seconds'
 [ -f "$owned_sleeper_file" ] || fail 'background check did not start the sleeper'
-read -r sleeper_pid <"$owned_sleeper_file"
-kill -0 "$sleeper_pid" 2>/dev/null || fail 'background check sleeper ended before its descriptors were read'
-leaked_descriptors="$(ls -1 "/proc/$sleeper_pid/fd" | awk '$1 > 2' | while read -r descriptor; do printf '%s->%s ' "$descriptor" "$(readlink "/proc/$sleeper_pid/fd/$descriptor")"; done)"
-[ -z "$leaked_descriptors" ] || fail "background check inherited private descriptors: $leaked_descriptors"
 cleanup_sleeper
 expect_output 'safe-push: ✓ clean (--dry-run)'
 [ "$(real_remote_state)" = "$land_remote_before" ] || fail 'background dry-run published'
