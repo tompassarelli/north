@@ -185,3 +185,20 @@ fn a_deploy_ships_the_built_runtime_and_its_store_references_then_promotes_remot
     assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().collect::<Vec<_>>(), expected);
     assert!(!host.path("state/north/current").exists());
 }
+
+#[test]
+fn a_deploy_with_help_prints_usage_and_with_an_unknown_flag_is_refused_before_any_build_or_ssh() {
+    let host = Host::new();
+    for tool in ["ssh", "rsync"] {
+        script(&host.path("bin").join(tool), &format!("printf '{tool} %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n"));
+    }
+    let help = host.north(&["runtime", "deploy", "--help"], 0, 0);
+    assert_eq!(help.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&help.stdout).starts_with("usage: north runtime update | north runtime deploy HOST..."));
+    let refused = host.north(&["runtime", "deploy", "far", "--bogus"], 0, 0);
+    assert_eq!(refused.status.code(), Some(64));
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("unknown flag --bogus") && stderr.contains("usage: north runtime"), "{stderr}");
+    assert!(!host.path("alerts").exists(), "nothing was shipped");
+    assert!(!host.path("state/north/runtimes").exists(), "nothing was built");
+}
