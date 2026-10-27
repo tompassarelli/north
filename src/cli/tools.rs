@@ -31,6 +31,7 @@ pub(super) enum Tool {
     Dispatch,
     Tune,
     LandClean,
+    Archives,
 }
 
 impl Tool {
@@ -59,6 +60,7 @@ impl Tool {
             "dispatch" => Self::Dispatch,
             "tune" => Self::Tune,
             "land-clean" => Self::LandClean,
+            "archives" => Self::Archives,
             _ => return None,
         })
     }
@@ -82,6 +84,7 @@ impl Tool {
             Self::Cloud => super::cloud::run,
             Self::WorktreeLayoutCheck => crate::lanes::layout_check,
             Self::HardcodedRepoPathCheck => crate::lanes::hardcoded_paths,
+            Self::Archives => return ExitCode::from(crate::platform::archive_tags::run(arguments)),
             Self::Dispatch => return ExitCode::from(crate::ops::dispatch::run(arguments, super::fleet::roster)),
             Self::Pace => return ExitCode::from(crate::ops::pacing::run(arguments, super::fleet::roster, super::token_usage::read)),
             Self::Capacity => return ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib })),

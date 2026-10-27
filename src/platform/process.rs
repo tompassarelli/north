@@ -51,6 +51,12 @@ pub(crate) fn run_with_input_within(
     input: Option<&[u8]>,
     limit: Duration,
 ) -> Option<Output> {
+    let mut command = Command::new(program);
+    command.args(args);
+    run_command_within(command, input, limit)
+}
+
+pub(crate) fn run_command_within(mut command: Command, input: Option<&[u8]>, limit: Duration) -> Option<Output> {
     let stdin = match input {
         Some(input) => {
             let mut file = tempfile::tempfile().ok()?;
@@ -62,8 +68,7 @@ pub(crate) fn run_with_input_within(
     };
     let output = tempfile::tempfile().ok()?;
     let errors = tempfile::tempfile().ok()?;
-    let mut child = Command::new(program)
-        .args(args)
+    let mut child = command
         .stdin(stdin)
         .stdout(output.try_clone().ok()?)
         .stderr(errors.try_clone().ok()?)

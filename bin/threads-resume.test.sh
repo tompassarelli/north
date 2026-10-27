@@ -7,7 +7,7 @@ trap 'rm -rf "${scratch:?}"' EXIT
 export HOME=$scratch/home THREADS_DB=$scratch/threads.db FLEET_FILE=$scratch/fleet.json
 export NORTH_AGENT_ACTIVE=$scratch/activation.active NORTH_FLEET_FIXTURE=$FLEET_FILE NORTH_BIN=$scratch/bin/north PATH=$scratch/bin:$PATH BUILT_NORTH=${NORTH_PACE_BIN:-$repo/target/debug/north}
 mkdir -p "$scratch/bin" "$HOME/code/smashcraft"
-printf 'hook unlanded-work\n' >"$NORTH_AGENT_ACTIVE"
+printf 'hook north-hook\n' >"$NORTH_AGENT_ACTIVE"
 ln -s "$repo/bin/threads" "$scratch/bin/threads"
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
@@ -50,20 +50,15 @@ grep -q 'archived: archive/feature/resume-10' <<<"$out"
 grep -q 'restore: git push origin archive/feature/resume-10:refs/heads/feature/resume-10' <<<"$out"
 ! grep -q 'archive/feature/other-10' <<<"$out"
 printf 'PASS [integration] show fetches only archive tags and prints the correct origin archive and restore command\n'
-hook() { printf '{"session_id":"fixture-session","cwd":"%s"}' "$HOME/code/smashcraft/main" | bash "$1"; }
-out=$(hook "$repo/harness/hooks/unlanded-work.sh")
+hook() { printf '{"session_id":"fixture-session","cwd":"%s"}' "$HOME/code/smashcraft/main" | "$BUILT_NORTH" hook session-start | jq -r '.hookSpecificOutput.additionalContext // empty'; }
+out=$(hook)
 grep -q 'archived: archive/feature/resume-10' <<<"$out"
 grep -q 'git push origin archive/feature/resume-10:refs/heads/feature/resume-10' <<<"$out"
-mkdir -p "$scratch/provider-hooks/lib"
-cp "$repo/harness/hooks/unlanded-work.sh" "$scratch/provider-hooks/"
-cp "$repo/harness/lib/authoring-killswitch.sh" "$repo/harness/lib/north-agent-activation.sh" "$scratch/provider-hooks/lib/"
-out=$(hook "$scratch/provider-hooks/unlanded-work.sh")
-grep -q 'archive/feature/resume-10' <<<"$out"
 printf '48h\tsmashcraft\tfixture\tfeature/resume-10\n' >"$scratch/unlanded.txt"
-out=$(LANE_GC_UNLANDED="$scratch/unlanded.txt" hook "$repo/harness/hooks/unlanded-work.sh")
+out=$(LANE_GC_UNLANDED="$scratch/unlanded.txt" hook)
 grep -q '^1 unlanded worktrees/branches older than 24 h' <<<"$out"
-[ -z "$(AGENT_NO_AUTHORING_HOOKS=1 hook "$repo/harness/hooks/unlanded-work.sh")" ]
-printf 'PASS [integration] source and projected SessionStart list archives, retain the lane note and honor the kill switch\n'
+[ -z "$(AGENT_NO_AUTHORING_HOOKS=1 hook)" ]
+printf 'PASS [integration] the SessionStart hook lists archives, keeps the lane note and honor the kill switch\n'
 threads claim smashcraft#10 --by codex:fixture-session --eta 5 >/dev/null
 sqlite3 "$THREADS_DB" "UPDATE claims SET since = '2020-01-01T00:00:00Z'; UPDATE events SET ts = '2020-01-01T00:00:00Z'"
 out=$(threads unowned)

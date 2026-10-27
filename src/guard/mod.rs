@@ -26,6 +26,9 @@ pub mod worker_tier;
 mod spawn_state;
 #[cfg(test)]
 mod worker_tier_tests;
+pub mod unlanded_work;
+#[cfg(test)]
+mod unlanded_work_tests;
 #[cfg(test)]
 mod clipboard_tests;
 #[cfg(test)]

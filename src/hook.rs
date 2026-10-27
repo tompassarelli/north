@@ -170,7 +170,7 @@ impl HookKind {
             Self::PermissionRequest => &[crate::guard::tripwire::check],
             Self::Stop => &[],
             Self::SubagentStop => &[],
-            Self::SessionStart => &[],
+            Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
             Self::UserPromptSubmit => &[],
             Self::SessionKill => &[crate::guard::session_kill::evaluate],
         }

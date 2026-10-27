@@ -32,7 +32,6 @@ from ledger_context import COST_WINDOWS, UNTRACKED, allocation_intervals, box_gr
 from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
-from thread_archives import print_archives
 from thread_holders import alive_owners, held_claims, local_alive_owners
 from ssh_transport import ssh_argv
 
@@ -610,7 +609,7 @@ def cmd_show(db, a):
             note = f"  note {r['note']}" if r["note"] else ""
             print(f"    {r['ended'][:16]}  {r['agent']} {r['tier']}{follows}  {r['minutes']}m{eta}  {r['outcome']}: {r['report'][:80]}{note}")
     if repo not in NATIVE and not os.environ.get("THREADS_ARCHIVES_LOCAL"):
-        print_archives(repo, number)
+        print(subprocess.run([os.environ.get("NORTH_BIN") or "north", "archives", repo, str(number)], capture_output=True, text=True).stdout, end="")
 
 
 def cmd_ready(db, a):
@@ -2302,7 +2301,7 @@ def proxy(dest, argv) -> int:
         if code == 0 and argv[:1] == ["show"]:
             repo, number = parse_ref(parser().parse_args(argv).id)
             if repo not in NATIVE:
-                print_archives(repo, number)
+                print(subprocess.run([os.environ.get("NORTH_BIN") or "north", "archives", repo, str(number)], capture_output=True, text=True).stdout, end="")
         return code
     if argv[:1] and argv[0] in READS and os.path.exists(SNAPSHOT):
         taken = datetime.fromtimestamp(os.path.getmtime(SNAPSHOT), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

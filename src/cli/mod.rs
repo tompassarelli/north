@@ -74,6 +74,7 @@ Commands:
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
+  archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands
   threads ARGV                                  Run a NorthThreads command on the ledger host
   cloud [list|events|sweep|send|wait]            Read, message, wait on and sweep Anthropic cloud sessions
   dispatch [--dry-run]                          Launch ready smashcraft and wisp boxes on every free worker slot
