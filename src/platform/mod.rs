@@ -8,6 +8,7 @@ pub(crate) mod frozen_topics;
 pub(crate) mod github;
 pub(crate) mod host;
 pub(crate) mod process;
+pub(crate) mod shared_target;
 pub(crate) mod sqlite;
 pub(crate) mod stdio;
 pub(crate) mod terminal;

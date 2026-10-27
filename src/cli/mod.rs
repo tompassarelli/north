@@ -93,7 +93,7 @@ Commands:
   capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
-  reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h and held by no process or pool (hourly timer)
+  reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of north, smashcraft and wisp worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
   worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   runtime update                                Promote origin/main as this host's north runtime with its own tree

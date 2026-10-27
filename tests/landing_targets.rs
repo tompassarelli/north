@@ -45,13 +45,14 @@ fn fake_home(checkout: &Path) -> std::path::PathBuf {
 }
 
 #[test]
-fn sandboxed_checkouts_keep_build_outputs_in_their_own_target_directories() {
+fn sandboxed_checkouts_build_in_the_shared_cargo_target_and_leave_no_lane_target() {
     let depbox = std::env::current_dir().unwrap().join("bin/depbox");
     let scratch = tempfile::tempdir().unwrap();
     for name in ["first", "second"] {
         let checkout = scratch.path().join(name);
         let output = run(&depbox, &checkout, None, METADATA);
-        assert_eq!(target(&output), checkout.join("target").display().to_string());
+        assert_eq!(target(&output), fake_home(&checkout).join(".cache/cargo-target").display().to_string());
+        assert!(!checkout.join("target").exists());
         assert!(output.stderr.is_empty());
     }
 }
@@ -71,7 +72,7 @@ fn a_shared_cargo_target_under_the_cargo_target_cache_receives_the_build_and_the
 }
 
 #[test]
-fn a_cargo_target_outside_the_cargo_target_cache_is_not_bound_or_created_and_the_lane_target_is_used() {
+fn a_cargo_target_outside_the_cargo_target_cache_is_not_bound_or_created_and_the_shared_target_is_used() {
     let depbox = std::env::current_dir().unwrap().join("bin/depbox");
     let scratch = tempfile::tempdir().unwrap();
     let outside = scratch.path().join("outside");
@@ -80,7 +81,7 @@ fn a_cargo_target_outside_the_cargo_target_cache_is_not_bound_or_created_and_the
         let checkout = scratch.path().join(format!("lane{index}"));
         let rejected = home_relative.map_or(outside.clone(), |path| fake_home(&checkout).join(path));
         let output = run(&depbox, &checkout, Some(&rejected), METADATA);
-        assert_eq!(target(&output), checkout.join("target").display().to_string(), "{}", rejected.display());
+        assert_eq!(target(&output), fake_home(&checkout).join(".cache/cargo-target").display().to_string(), "{}", rejected.display());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains(&format!("depbox: CARGO_TARGET_DIR {} is not under", rejected.display())), "{stderr}");
         assert!(!fake_home(&checkout).join(".cache/escape").exists());
@@ -101,20 +102,20 @@ fn a_symlink_inside_the_cargo_target_cache_that_leaves_it_is_not_followed() {
     let link = cache.join("link");
     std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
     let output = run(&depbox, &checkout, Some(&link), METADATA);
-    assert_eq!(target(&output), checkout.join("target").display().to_string());
+    assert_eq!(target(&output), cache.display().to_string());
     assert!(String::from_utf8_lossy(&output.stderr).contains("is not under"));
     assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
 }
 
 #[test]
-fn a_relative_cargo_target_or_one_inside_the_checkout_keeps_the_lane_target_without_a_warning() {
+fn a_relative_cargo_target_or_one_inside_the_checkout_uses_the_shared_target_without_a_warning() {
     let depbox = std::env::current_dir().unwrap().join("bin/depbox");
     let scratch = tempfile::tempdir().unwrap();
     for (name, inside) in [("relative", false), ("inside", true)] {
         let checkout = scratch.path().join(name);
         let value = if inside { checkout.join("custom") } else { Path::new("target").to_owned() };
         let output = run(&depbox, &checkout, Some(&value), METADATA);
-        assert_eq!(target(&output), checkout.join("target").display().to_string(), "{name}");
+        assert_eq!(target(&output), fake_home(&checkout).join(".cache/cargo-target").display().to_string(), "{name}");
         assert!(output.stderr.is_empty(), "{name}");
     }
 }

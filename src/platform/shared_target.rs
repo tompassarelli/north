@@ -30,6 +30,17 @@ pub(crate) fn run_sweep(cache: &Path) -> u8 {
     status
 }
 
+pub(crate) fn sweep_cache(cache: &Path, now: SystemTime) -> io::Result<Vec<(PathBuf, u64)>> {
+    let mut trimmed = Vec::new();
+    for target in shared_targets(cache) {
+        let freed = sweep(&target, CAP_BYTES, IDLE, now)?;
+        if freed > 0 {
+            trimmed.push((target, freed));
+        }
+    }
+    Ok(trimmed)
+}
+
 fn shared_targets(cache: &Path) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(cache) else { return Vec::new() };
     let mut targets: Vec<PathBuf> = entries

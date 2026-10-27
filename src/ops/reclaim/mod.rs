@@ -1,3 +1,4 @@
+mod build_output;
 mod held;
 mod lan_clients;
 mod scratch;
@@ -18,6 +19,8 @@ const KEPT_PAIRS: [u32; 2] = [0, 1];
 pub(super) struct Inputs {
     tmp: PathBuf,
     proc_root: PathBuf,
+    code: PathBuf,
+    cache: PathBuf,
     lan_clients: PathBuf,
     lan_state: PathBuf,
     uid: u32,
@@ -33,6 +36,8 @@ impl Inputs {
         Self {
             tmp: PathBuf::from("/tmp"),
             proc_root: PathBuf::from("/proc"),
+            code: home.join("code"),
+            cache: home.join(".cache"),
             lan_clients: data.join("wisp/lan/clients"),
             lan_state: state.join("wisp/lan"),
             uid: rustix::process::getuid().as_raw(),
@@ -94,6 +99,7 @@ pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Remova
     let held = held::paths(&inputs.proc_root);
     let mut removals = scratch::sweep(inputs, policy, &held)?;
     removals.extend(lan_clients::sweep(inputs, policy, &held)?);
+    removals.extend(build_output::sweep(inputs, policy, &held)?);
     Ok(removals)
 }
 

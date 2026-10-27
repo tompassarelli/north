@@ -26,7 +26,7 @@ fn sweep_home_cache() -> u8 {
         eprintln!("land-clean: cannot sweep: HOME is not set");
         return 1;
     };
-    super::shared_target::run_sweep(&Path::new(&home).join(".cache"))
+    crate::platform::shared_target::run_sweep(&Path::new(&home).join(".cache"))
 }
 
 pub(crate) fn release(lane: &Path) -> io::Result<Option<u64>> {

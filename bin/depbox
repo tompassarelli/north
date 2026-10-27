@@ -52,25 +52,19 @@ for path in .cargo/bin .rustup .gitconfig .config/git .nix-profile .local/bin .l
   if [ -e "$home/$path" ]; then args+=(--ro-bind "$home/$path" "$home/$path"); fi
 done
 
-target=$top/target
-want=
+cache=$home/.cache/cargo-target
+target=$cache
 case "${CARGO_TARGET_DIR:-}" in
   "$top" | "$top"/* | "$common"/*) ;;
-  /*) want=$CARGO_TARGET_DIR ;;
+  /*)
+    want=$(realpath -m "$CARGO_TARGET_DIR")
+    case "$want" in
+      "$cache" | "$cache"/*) target=$want ;;
+      *) printf 'depbox: CARGO_TARGET_DIR %s is not under %s; building in %s\n' "$CARGO_TARGET_DIR" "$cache" "$target" >&2 ;;
+    esac ;;
 esac
-if [ -n "$want" ]; then
-  shared=$(realpath -m "$want")
-  case "$shared" in
-    "$home/.cache/cargo-target" | "$home/.cache/cargo-target/"*) mkdir -p "$shared" || shared= ;;
-    *) shared= ;;
-  esac
-  if [ -n "$shared" ]; then
-    target=$shared
-    args+=(--bind "$shared" "$shared")
-  else
-    printf 'depbox: CARGO_TARGET_DIR %s is not under %s/.cache/cargo-target; building in %s\n' "$want" "$home" "$target" >&2
-  fi
-fi
+mkdir -p "$target"
+args+=(--bind "$target" "$target")
 
 args+=(--bind "$top" "$top" --ro-bind "$common" "$common")
 args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
