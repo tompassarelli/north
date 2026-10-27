@@ -139,9 +139,10 @@ fn roomiest(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool) -> Option<&Ver
 }
 
 /// The label of the Claude account that runs here with the most headroom in the gate pace-control
-/// last wrote, None when every one is out.
+/// last wrote, None when every one is out. The measured burn does not count: a probe of two short
+/// replies cannot drain a window, so only the five-hour stop and an exhausted week rule an account out.
 pub(crate) fn roomiest_here(gate: &Value, roster: &Roster) -> Option<String> {
-    let here: Vec<Verdict> = verdicts(gate, roster).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
+    let here: Vec<Verdict> = standing_verdicts(gate, roster, false).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
     roomiest(&here, |_| true).map(|best| best.account.trim_start_matches("claude:").to_owned())
 }
 
@@ -149,9 +150,10 @@ pub(crate) fn live_gate() -> Value {
     load(&storage::directory().join("usage-gate.json"))
 }
 
-fn window_refusal(window: &Value) -> Option<String> {
+fn window_refusal(window: &Value, burn_counts: bool) -> Option<String> {
     let name = window["window"].as_str().unwrap_or("window");
-    exhaustion::refusal(name, window["used_pct"].as_f64()?, window["burn_pct_h"].as_f64())
+    let burn = window["burn_pct_h"].as_f64().filter(|_| burn_counts);
+    exhaustion::refusal(name, window["used_pct"].as_f64()?, burn)
 }
 
 fn headroom(windows: &[Value]) -> f64 {
@@ -171,11 +173,15 @@ fn usage(windows: &[Value]) -> String {
 }
 
 pub(crate) fn verdict(account: &str, control: &Value) -> Verdict {
+    judged(account, control, true)
+}
+
+fn judged(account: &str, control: &Value, burn_counts: bool) -> Verdict {
     let windows = rows(&control["windows"]);
     if windows.iter().all(|w| w["used_pct"].as_f64().is_none()) {
         return unavailable(account, "no live quota sample".into());
     }
-    if let Some(reason) = windows.iter().find_map(window_refusal) {
+    if let Some(reason) = windows.iter().find_map(|window| window_refusal(window, burn_counts)) {
         return unavailable(account, reason);
     }
     let room = headroom(windows);
@@ -340,13 +346,17 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
 }
 
 pub(crate) fn verdicts(gate: &Value, roster: &Roster) -> Vec<Verdict> {
+    standing_verdicts(gate, roster, true)
+}
+
+fn standing_verdicts(gate: &Value, roster: &Roster, burn_counts: bool) -> Vec<Verdict> {
     let claude = ProviderName::new("claude");
     claude_controls(gate)
         .into_iter()
         .map(|(name, control)| match roster.standing(&claude, name.trim_start_matches("claude:")) {
-            Standing::Listed(_) => verdict(&name, control),
+            Standing::Listed(_) => judged(&name, control, burn_counts),
             Standing::Duplicate(duplicate) => unavailable(&name, duplicate.to_string()),
-            Standing::Foreign(foreign) => Verdict { owners: foreign.owners.clone(), ..verdict(&name, control) },
+            Standing::Foreign(foreign) => Verdict { owners: foreign.owners.clone(), ..judged(&name, control, burn_counts) },
             Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
         .collect()

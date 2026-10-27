@@ -277,3 +277,13 @@ fn the_probe_runs_on_the_roomiest_account_and_none_when_every_account_is_out() {
     let all_out = gate(&[("claude:b", week_out.clone()), ("claude:c", week_out)]);
     assert_eq!(gate::roomiest_here(&all_out, &listed), None);
 }
+
+#[test]
+fn the_probe_runs_on_an_account_whose_burn_refuses_a_launch_but_not_one_whose_week_is_out() {
+    let listed = roster(&[("a", None), ("b", None), ("c", None)]);
+    let burning = control((44.0, 191.0, "2026-10-27T12:00:00Z"), (36.0, 28.0));
+    let week_out = control((3.0, 0.0, "2026-10-27T12:00:00Z"), (100.0, 0.0));
+    let quota = gate(&[("claude:a", week_out.clone()), ("claude:b", week_out), ("claude:c", burning)]);
+    assert_eq!(gate::roomiest_here(&quota, &listed), Some("c".to_owned()));
+    assert!(!verdicts(&quota, &listed).iter().any(|verdict| verdict.available), "a launch is still refused");
+}
