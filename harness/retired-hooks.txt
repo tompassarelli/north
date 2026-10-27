@@ -1,7 +1,9 @@
 chat-post.sh
 clipboard-guard.sh
 code-health-edit.sh
+concrete-model-identity-guard.sh
 corpus-scan-guard.sh
+generated-policy-guard.sh
 heavy-command-guard.sh
 modern-search-guard.sh
 native-item-guard.sh

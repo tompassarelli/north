@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shellcmd
 
 TRIGGERS = {
-    'generated-policy': (['sed -i s/a/b/ {cwd}/src/host.nix', 'tee {home}/.claude/CLAUDE.md', 'sd old new {home}/.claude/CLAUDE.md', 'cp /tmp/x {home}/.codex/AGENTS.md', 'mv /tmp/x {home}/.codex/skills/a/SKILL.md'], ['cat {home}/.claude/CLAUDE.md', 'sed -n p {cwd}/src/host.nix', 'sed -i s/a/b/ {cwd}/src/plain.nix', 'cp {home}/.claude/CLAUDE.md /tmp/claude.md', 'agents sync']),
 }
 
 
@@ -98,9 +97,6 @@ def exercise(name, home, cwd, boundary):
     triggers = [t.format(home=home, cwd=cwd) for t in triggers]
     near_misses = [t.format(home=home, cwd=cwd) for t in near_misses]
     count = 0
-    if name == 'generated-policy':
-        for leaf in ('host.nix', 'host.bnix', 'plain.nix'):
-            Path(cwd, 'src', leaf).touch()
     prefixes = ['', 'CHECK=1 ', 'CHECK="some value" ', 'command ', 'sudo ', 'env CHECK=1 ', 'CHECK=1 command sudo env OTHER=2 ']
     generator = random.Random(20261011)
     for index in range(12):

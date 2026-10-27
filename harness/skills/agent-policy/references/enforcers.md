@@ -11,7 +11,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | Rule | Enforcer | Providers |
 | --- | --- | --- |
 | No new Python files or Python line growth; shell glue stays at most 80 code lines; write Rust by default | `language-guard` | Claude, Codex |
-| No placeholder model identities in Todo attempts or calibration records | `concrete-model-identity-guard` | Codex |
+| No placeholder model identities in Todo attempts or calibration records | `model_identity` in `north-hook` | Claude, Codex |
 | No broad transcript archive scans; use `north convo` or a bounded transcript target | `corpus-scan-guard` through `north-hook` | Claude, Codex |
 | System configuration operations go through Firn's source-owned policy | `firn-system-policy` | Claude, Codex |
 | No unnamed stash pushes and no stash pop, because every worktree shares the stash | `north-hook` | Claude, Codex |
@@ -36,7 +36,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | Claude only: no non-Claude model CLI as a reviewer, per Tom's standing order | `reviewer_cli` in `north-hook` | Claude, Codex |
 | No agent wl-copy or niri screenshot actions, because they replace Tom's pending paste | `clipboard-guard` through `north-hook` | Claude, Codex |
 | No window focus, move, fullscreen, close or typed input on Tom's desktop unless the seat is idle 60 seconds, the private desktop is the target, or a sanctioned tool restores focus | `north-hook` | Claude, Codex |
-| No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated-policy-guard` | Claude, Codex |
+| No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated_policy` in `north-hook` | Claude, Codex |
 | New structural debt in a repo with structure.toml is reported after the edit (advisory) | `north-hook` (code-health-edit) | Claude, Codex |
 | Unlanded lanes older than 24 h are surfaced at session start (advisory) | `north-hook` (unlanded-work) | Claude |
 | A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
