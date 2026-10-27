@@ -9,6 +9,21 @@ use serde_json::Value;
 
 const BRIEF: &str = "Item: smashcraft#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
 
+const SYSTEMCTL: &str = r#"#!/bin/sh
+[ "$1 $2" = '--user stop' ] || exit 0
+unit="$FLEET_LAUNCH_FIXTURE/units/$3"
+[ -f "$unit" ] || { echo "Failed to stop $3: Unit $3 not loaded." >&2; exit 5; }
+group=$(cat "$unit")
+kill -TERM -- "-$group" 2>/dev/null
+for _ in $(seq 100); do
+  state=$(sed 's/.*) //' "/proc/$group/stat" 2>/dev/null | cut -c1)
+  if [ -z "$state" ] || [ "$state" = Z ]; then break; fi
+  sleep 0.05
+done
+kill -KILL -- "-$group" 2>/dev/null
+rm -f "$unit"
+"#;
+
 fn executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -28,7 +43,7 @@ fn fixture(root: &Path, trace: &str) {
     let setsid = Command::new("sh").args(["-c", "command -v setsid"]).output().unwrap();
     executable(&root.join("bin/setsid"), &format!("#!/bin/sh\nexec {} \"$@\"\n", String::from_utf8_lossy(&setsid.stdout).trim()));
     executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n");
-    executable(&root.join("bin/systemctl"), "#!/bin/sh\n[ \"$1 $2\" = '--user stop' ] || exit 0\nunit=\"$FLEET_LAUNCH_FIXTURE/units/$3\"\n[ -f \"$unit\" ] || { echo \"Failed to stop $3: Unit $3 not loaded.\" >&2; exit 5; }\nkill -TERM -- \"-$(cat \"$unit\")\" 2>/dev/null\nrm -f \"$unit\"\n");
+    executable(&root.join("bin/systemctl"), SYSTEMCTL);
     executable(&root.join("bin/claude"), &format!("#!/bin/sh\nexec {} --trace {trace} \"$@\"\n", support::fake_claude()));
 }
 
