@@ -30,6 +30,7 @@ pub mod code_health_edit;
 pub mod unlanded_work;
 #[cfg(test)]
 mod unlanded_work_tests;
+pub mod worker_handoff;
 #[cfg(test)]
 mod clipboard_tests;
 #[cfg(test)]
@@ -47,3 +48,5 @@ pub mod resource_safe_search;
 mod search_words;
 #[cfg(test)]
 mod search_guard_tests;
+#[cfg(test)]
+mod worker_handoff_tests;

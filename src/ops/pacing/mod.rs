@@ -25,6 +25,10 @@ mod storage;
 
 pub(crate) use sampling::TokenUsage;
 
+pub(crate) fn confirm_spawn(request: &serde_json::Value) -> Result<(), String> {
+    command::operation(request).map(|_| ())
+}
+
 pub(crate) fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>, token_usage: TokenUsage) -> u8 {
     sampling::install_token_usage(token_usage);
     if let [command, provider] = arguments

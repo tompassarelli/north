@@ -166,13 +166,16 @@ fn dispatch(command: Command) -> ExitCode {
             Some(value) if guard::desktop_action::record_idle(value == "idle").is_ok() => ExitCode::SUCCESS,
             _ => ExitCode::from(1),
         },
-        Command::Hook(arguments) => match hook::run(&arguments) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(message) => {
-                eprintln!("{message}");
-                ExitCode::from(2)
+        Command::Hook(arguments) => {
+            guard::worker_handoff::install_confirm(crate::ops::pacing::confirm_spawn);
+            match hook::run(&arguments) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(message) => {
+                    eprintln!("{message}");
+                    ExitCode::from(2)
+                }
             }
-        },
+        }
         Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
