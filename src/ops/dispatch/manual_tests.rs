@@ -1,3 +1,4 @@
+use super::grounds::Grounds;
 use super::manual::{Ask, Start, start};
 use super::record::Record;
 use super::tier::{Evidence, History};
@@ -17,7 +18,7 @@ effort = "medium"
 
 fn launch(brief: &str, model: Option<&str>, reason: Option<&str>, history: &History) -> Result<Start, String> {
     let ask = Ask { item: "north#9", brief, prompt: brief, model, reason };
-    start(&ask, &CFG.parse().unwrap(), history, &BTreeMap::<String, Evidence>::new())
+    start(&ask, &CFG.parse().unwrap(), history, &BTreeMap::<String, Evidence>::new(), &|_| Grounds::default())
 }
 
 fn run(category: &str) -> Start {
@@ -93,7 +94,7 @@ fn a_brief_without_a_category_is_a_feature_and_a_prompt_without_a_header_gets_on
     assert_eq!(bare.route.category, "feature");
     assert!(bare.prompt.contains("Category: feature\nTier: sonnet-high\nArm: sonnet-high"), "{}", bare.prompt);
     let ask = Ask { item: "north#9", brief: "Category: bug-known-cause", prompt: "Read /tmp/brief.md and start.", model: None, reason: None };
-    let headed = start(&ask, &CFG.parse().unwrap(), &History::default(), &BTreeMap::new()).unwrap();
+    let headed = start(&ask, &CFG.parse().unwrap(), &History::default(), &BTreeMap::new(), &|_| Grounds::default()).unwrap();
     assert_eq!(headed.prompt, "Tier: sonnet-high\n\nRead /tmp/brief.md and start.");
 }
 

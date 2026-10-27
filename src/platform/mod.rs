@@ -1,3 +1,4 @@
+pub(crate) mod follows;
 pub(crate) mod git;
 pub(crate) mod gitleaks;
 pub(crate) mod harness;

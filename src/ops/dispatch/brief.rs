@@ -2,6 +2,7 @@
 //! body or defaulted, and the generic Done when every dispatched box shares.
 use super::issues::{Issue, OWNER};
 use super::facets::{FACETS, declared, facet, native};
+use super::grounds::Grounds;
 use super::tier::{Route, Tier};
 
 pub(crate) const HAIKU_WAIT: &str = " Run any command that may take over a minute in the background and wait for its exit with Monitor; never end your turn while a run you started is still going.";
@@ -9,7 +10,7 @@ pub(crate) const SAFETY_LINE: &str = "Run only build, test, git and file command
 
 /// The brief for one ready issue; its first block, before the blank line, is what placement and
 /// routing read.
-pub(crate) fn brief(issue: &Issue, launched_by: &str, route: &Route) -> String {
+pub(crate) fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &Grounds) -> String {
     let reference = issue.reference();
     let mut head = vec![format!("Item: {reference} {}", issue.title), format!("Repository: {OWNER}/{}", issue.repo)];
     head.extend(FACETS.iter().map(|(key, _)| format!("{key}: {}", facet(issue, key))));
@@ -21,7 +22,10 @@ pub(crate) fn brief(issue: &Issue, launched_by: &str, route: &Route) -> String {
     head.push(format!(
         "Done when: every Done-when box of {reference} is ticked with its evidence, the change is on origin/main (`git merge-base --is-ancestor SHA origin/main`), and {reference} is closed with the verified SHA."
     ));
-    head.push(format!("ETA: {}", declared(issue, "ETA").unwrap_or("45 min (uncalibrated)")));
+    head.push(format!("ETA: {}", grounds.eta(declared(issue, "ETA"), route)));
+    head.extend(grounds.budget(route));
+    head.extend(grounds.trace());
+    head.push(grounds.rationale(route));
     head.push(format!("Files: as {reference} names them"));
     format!(
         "{}\n\n{launched_by} staffed this box because a worker slot was free and {reference} was ready: open, unticked, unheld and unblocked. \
@@ -41,15 +45,16 @@ pub(crate) const AUTHOR_EMAIL: &str = "6378995+tompassarelli@users.noreply.githu
 pub(crate) const HANDBACK: &str = "git format-patch origin/main..HEAD --stdout | gzip -9 | base64 -w 76 > /tmp/handback.b64, then one Bash call per 300-line part i of n: echo BEGIN-HANDBACK part i/n; sed -n <first>,<last>p /tmp/handback.b64; echo END-HANDBACK part i/n";
 
 /// The brief a cloud session starts from: the box brief, the cloud safety line, and the last steps
-/// that land it by pushing `branch`, with the patch handback only when the push is refused.
-pub(crate) fn cloud(brief: &str, repo: &str, branch: &str) -> String {
+/// that land it by pushing `branch`, with the patch handback only when the push is refused; `orders` are
+/// the standing orders every fleet launch carries.
+pub(crate) fn cloud(brief: &str, repo: &str, branch: &str, orders: &str) -> String {
     let (closes, after) = if super::cloud::autoland(repo) {
         (" and ends with `Closes #<number>`", format!("Report `Done: queued {branch}`; Autoland lands it once its checks pass, and no courier runs."))
     } else {
         ("", format!("Report `Done: pushed {branch}`; a courier off the cloud host lands it through safe-push."))
     };
     format!(
-        "{brief}\n\nCloud safety line: {SAFETY_LINE} The one push allowed is `git push origin HEAD:refs/heads/{branch}`.\n\n\
+        "{brief}\n\nCloud safety line: {SAFETY_LINE} The one push allowed is `git push origin HEAD:refs/heads/{branch}`.\n\nStanding orders, which hold in the cloud too:\n{orders}\n\n\
          You run in Anthropic's cloud and land by pushing a branch, so these last steps replace the brief's claim, worktree, safe-push, tick and close steps. \
          Run the repository's checks as its AGENTS.md names them and fix what fails. \
          Rebase onto a fresh `git fetch origin main` and rerun the checks if main moved. \
@@ -59,4 +64,9 @@ pub(crate) fn cloud(brief: &str, repo: &str, branch: &str) -> String {
          If the push below is refused, hand the work back instead: {HANDBACK}; then report `Not done:` with the refusal and `Stop: landing`. \
          Last, push with `git push origin HEAD:refs/heads/{branch}`. {after}"
     )
+}
+
+/// This host's standing orders as a fleet launch carries them.
+pub(crate) fn standing_orders() -> Result<String, String> {
+    crate::fleet::registry::orders_here().and_then(|orders| orders.read()).map_err(|error| error.to_string())
 }

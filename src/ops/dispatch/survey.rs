@@ -8,6 +8,7 @@ use super::slots::{Account, Host, PlanSize, Room};
 use super::projects::Projects;
 use super::tier::{self, Evidence, History};
 use super::handoff::Arms;
+use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
 use crate::fleet::model::ProviderName;
 use crate::fleet::roster::{Roster, Standing};
@@ -43,6 +44,8 @@ pub(crate) struct Survey {
     pub handoffs: Arms,
     /// `worker-ledger --recommend` for each armed category.
     pub ledger: BTreeMap<String, Evidence>,
+    /// The closed boxes and prior reports each brief grounds its ETA, budget and trace in.
+    pub grounds: Ledger,
     pub at: f64,
 }
 
@@ -313,13 +316,14 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let history = History::new(&records);
     let handoffs = Arms::new(&records);
     let ledger = evidence(&tier::ARMED, &mut notes);
+    let grounds = Ledger::read(&mut notes);
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
     let frozen = crate::platform::frozen_topics::load().unwrap_or_else(|why| {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, at })
 }
 
 mod github {

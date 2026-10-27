@@ -21,6 +21,7 @@ mod cloud;
 mod effects;
 mod facets;
 mod fleets;
+mod grounds;
 mod handoff;
 mod issues;
 mod manual;
@@ -50,6 +51,8 @@ mod plan_size_tests;
 mod projects_tests;
 #[cfg(test)]
 mod tier_tests;
+#[cfg(test)]
+mod grounds_tests;
 #[cfg(test)]
 mod tries_tests;
 #[cfg(test)]
@@ -119,7 +122,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         }
         outcome.ready += 1;
         let route = tier::route(issue, &history, &survey.ledger);
-        let brief = brief::brief(issue, launched_by, &route);
+        let brief = brief::brief(issue, launched_by, &route, &survey.grounds.grounds(&issue.reference().to_string(), &issue.body, &route));
         let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
         let ready = Ready { item: issue.reference(), brief, code_only, route };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
@@ -236,7 +239,7 @@ pub(crate) fn cloud_launch(repo: &str, slug: &str, brief_file: &std::path::Path,
     let item = item.map(cloud::item).transpose()?;
     let text = std::fs::read_to_string(brief_file).map_err(|error| format!("{}: {error}", brief_file.display()))?;
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
-    let brief = brief::cloud(&text, repo, &cloud::branch(slug));
+    let brief = brief::cloud(&text, repo, &cloud::branch(slug), &brief::standing_orders()?);
     let launched = cloud::launch(repo, slug, &brief, &[], std::path::Path::new(cloud::SOURCES), std::path::Path::new(&home), &mut cloud::run)?;
     if let Some(item) = &item {
         cloud::hold(item, &launched, &crate::platform::host::name(), &record::directory(), placement::now())?;

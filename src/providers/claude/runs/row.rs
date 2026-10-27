@@ -111,7 +111,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
         return Some(row);
     }
     let report = report(&assistant)?;
-    let head = prefix(&report, 400);
+    let head = prefix(&report, 600);
     let usage = &last_usage["message"]["usage"];
     row.insert("status".into(), json!(if done { "finished" } else { "active" }));
     row.insert("ended".into(), json!(ended));
@@ -121,7 +121,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("outcome".into(), json!(outcome::classify(&report, quiet_run(lines))));
     row.insert("flaws".into(), FLAWS.captures(&report).map_or(Value::Null, |found| number(found[1].parse().unwrap_or(0.0))));
     row.insert("backfill".into(), json!(transcript.backfill));
-    row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 160)));
+    row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 600)));
     Some(row)
 }
 

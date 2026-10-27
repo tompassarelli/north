@@ -25,6 +25,7 @@ mod first_turn;
 mod follower;
 mod gate_commands;
 mod home;
+pub use home::orders_here;
 mod letters;
 mod parents;
 mod past;

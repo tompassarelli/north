@@ -361,7 +361,7 @@ for path in candidates:
                status="finished" if final else "running" if time.time() - stamp(ended) < 7200 else "stale",
                actual_min=max(0, int((stamp(ended) - stamp(meta["timestamp"])) / 60)),
                tokens=tokens, role=role, telemetry_only=not role, outcome=outcome, note=None,
-               report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
+               report=re.sub(r"\s+", " ", report[:600]), flaws=int(flaws[1]) if flaws else None,
                backfill=meta["id"] in recorded, staffed=utc(staffed), review_requested=utc(review),
                **counts, **context_metrics(transcript), **run_usage(transcript))
     print(json.dumps(row))
@@ -443,7 +443,7 @@ for cid, slug in models.items():
         actual_min=max(0, int((stamp(times[-1]) - stamp(times[0])) / 60)),
         tokens=sum(r.get("output_tokens") or 0 for r in answers),
         peak_ctx=max([(r.get("input_tokens") or 0) + (r.get("cache_read_tokens") or 0) for r in answers] or [0]),
-        outcome=outcome, report=re.sub(r"\s+", " ", head)[:160], flaws=int(flaws[1]) if flaws else None,
+        outcome=outcome, report=re.sub(r"\s+", " ", report[:600]), flaws=int(flaws[1]) if flaws else None,
         backfill=cid in recorded, staffed=utc(times[0]), review_requested=utc(times[-1]) if final else None,
         **tally(tools))))
 PY

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -110,4 +110,24 @@ pub fn closed_report(window: &str) -> NorthResult<ClosedReport> {
 
 pub fn window_start_ms(window: &str) -> NorthResult<i64> {
     Ok(Timestamp::parse(&window_start(window)?)?.unix_millis())
+}
+
+pub const PRIOR_REPORTS: usize = 2;
+
+/// Each item's newest Not done or Stop reports, newest first, as the ledger stored them.
+pub fn prior_reports() -> NorthResult<BTreeMap<String, Vec<String>>> {
+    let rows = sqlite::rows(
+        &threads_database(),
+        Access::ReadOnly,
+        Duration::from_secs(5),
+        "SELECT item, report FROM runs WHERE item IS NOT NULL AND report != '' AND role = 'worker' AND (outcome = 'not done' OR report LIKE '%Stop:%') ORDER BY ended DESC",
+    )?;
+    let mut found: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for row in &rows {
+        let reports = found.entry(text(row, "item")).or_default();
+        if reports.len() < PRIOR_REPORTS {
+            reports.push(text(row, "report"));
+        }
+    }
+    Ok(found)
 }

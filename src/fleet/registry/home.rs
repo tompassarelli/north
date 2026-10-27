@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{NorthError, NorthResult};
 
+use super::super::prompt::StandingOrders;
 use super::super::roster::Roster;
 use super::super::runtimes::Runtimes;
 
@@ -19,4 +20,9 @@ pub fn roster(runtimes: &Runtimes) -> NorthResult<Roster> {
 
 pub(super) fn state_dir(home: &Path) -> PathBuf {
     home.join(".local/state/north")
+}
+
+/// This host's standing orders, for briefs that start outside a fleet launch.
+pub fn orders_here() -> NorthResult<StandingOrders> {
+    Ok(StandingOrders::in_state(&state_dir(&home_dir()?)))
 }

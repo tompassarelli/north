@@ -56,8 +56,11 @@ pub(crate) fn launch(survey: &Survey, launch: &Launch) -> Result<String, String>
     let name = session_name(launch, at);
     let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
     let result = if launch.cloud {
-        let text = brief::cloud(&launch.brief, &launch.item.repo, &cloud::branch(&name));
-        let started = launch.route.tier.invocation(&survey.cfg).and_then(|model| cloud::launch(&launch.item.repo, &name, &text, &model, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run));
+        let started = brief::standing_orders().and_then(|orders| {
+            let text = brief::cloud(&launch.brief, &launch.item.repo, &cloud::branch(&name), &orders);
+            let model = launch.route.tier.invocation(&survey.cfg)?;
+            cloud::launch(&launch.item.repo, &name, &text, &model, Path::new(cloud::SOURCES), Path::new(&home), &mut cloud::run)
+        });
         started.map(|launched| format!("{name} {} {}", launched.session, launched.branch))
     } else {
         fleet_launch(launch, &name, survey, &home)

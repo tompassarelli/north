@@ -6,11 +6,11 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use crate::foundation::clock::Timestamp;
 
+use crate::platform::follows::{Predecessor, predecessor, subject_on_main};
 use crate::platform::git::run as git;
 fn text(output: std::io::Result<Output>) -> Result<String, String> {
     output
@@ -46,36 +46,6 @@ fn issue_closed(repo: &Path, owner: Option<&str>, name: &str, number: &str) -> R
         .output()
         .map_err(|e| e.to_string())?;
     Ok(out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "CLOSED")
-}
-enum Predecessor<'a> {
-    Issue { owner: Option<&'a str>, name: &'a str, number: &'a str },
-    Sha(&'a str),
-    Subject(&'a str),
-}
-fn predecessor(follows: &str) -> Predecessor<'_> {
-    static SHA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9a-f]{7,40})(?:\s.*)?$").unwrap());
-    static ISSUE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^(?:([\w.-]+)/)?([\w.-]+)#(\d+)(?:\s.*)?$").unwrap());
-    if let Some(c) = ISSUE.captures(follows) {
-        return Predecessor::Issue {
-            owner: c.get(1).map(|m| m.as_str()),
-            name: c.get(2).unwrap().as_str(),
-            number: c.get(3).unwrap().as_str(),
-        };
-    }
-    if let Some(c) = SHA.captures(follows) {
-        return Predecessor::Sha(c.get(1).unwrap().as_str());
-    }
-    Predecessor::Subject(follows)
-}
-fn subject_on_main(repo: &Path, subject: &str) -> Result<bool, String> {
-    let log = text(git(
-        repo,
-        &["log", "-n2000", "--format=%B%x00", "refs/remotes/origin/main"],
-    ))?;
-    Ok(log
-        .split('\0')
-        .any(|m| m.trim().split('\n').next() == Some(subject)))
 }
 fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
     match predecessor(follows) {

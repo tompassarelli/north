@@ -79,24 +79,45 @@ impl Client {
 
     fn main(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
         let first = argv.first().map(String::as_str);
+        if first == Some("queue") && argv.get(1).map(String::as_str) == Some("follow") {
+            let mut brief = Vec::new();
+            stdin.read_to_end(&mut brief)?;
+            if let Err(why) = self.vet_follows(argv, &brief) {
+                writeln!(err, "NorthThreads: queue follow: {why}")?;
+                return Ok(1);
+            }
+            return self.route(argv, &mut io::Cursor::new(brief.clone()), err, Some(&brief));
+        }
+        self.route(argv, stdin, err, None)
+    }
+
+    fn vet_follows(&self, argv: &[String], brief: &[u8]) -> Result<(), String> {
+        let Some(follows) = crate::platform::follows::follows_line(&String::from_utf8_lossy(brief)) else { return Ok(()) };
+        let repo = argv.iter().skip_while(|arg| *arg != "--repo").nth(1).map(String::as_str).or_else(|| argv.get(2).and_then(|item| item.split_once('#')).map(|(repo, _)| repo));
+        let root = self.var("FOLLOWS_RELEASE_ROOT").map_or_else(|| self.home.join("code"), PathBuf::from);
+        crate::platform::follows::vet(&follows, repo.map(|repo| root.join(repo).join("main")).as_deref())
+    }
+
+    fn route(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write, replay: Option<&[u8]>) -> NorthResult<i32> {
+        let first = argv.first().map(String::as_str);
         if first == Some("snapshot-pages") || first == Some("snapshot-pull") {
             return self.snapshot_verb(argv, stdin, err);
         }
         let database = self.var("THREADS_DB").is_some();
         if first == Some("routing-compare") && !database {
-            return self.local(argv, Some(&self.snapshot));
+            return self.local(argv, Some(&self.snapshot), replay);
         }
         if !database && self.remote.exists() {
             let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
             return match self.proxy(&dest, argv, stdin, err)? {
                 Some(code) => Ok(code),
-                None => self.local(argv, Some(&self.snapshot)),
+                None => self.local(argv, Some(&self.snapshot), replay),
             };
         }
-        self.local(argv, None)
+        self.local(argv, None, replay)
     }
 
-    fn local(&self, argv: &[String], database: Option<&Path>) -> NorthResult<i32> {
+    fn local(&self, argv: &[String], database: Option<&Path>, replay: Option<&[u8]>) -> NorthResult<i32> {
         if argv.first().is_some_and(|verb| claims::verbs::VERBS.contains(&verb.as_str())) {
             let ledger = database.map(Path::to_path_buf).or_else(|| self.var("THREADS_DB").map(PathBuf::from));
             let ledger = ledger.unwrap_or_else(|| self.home.join(".local/state/threads/threads.db"));
@@ -109,7 +130,10 @@ impl Client {
         if let Some(database) = database {
             command.env("THREADS_DB", database);
         }
-        Ok(code_of(command.status()?))
+        let Some(input) = replay else { return Ok(code_of(command.status()?)) };
+        let mut child = command.stdin(Stdio::piped()).spawn()?;
+        child.stdin.take().ok_or_else(|| io::Error::other("no stdin pipe"))?.write_all(input)?;
+        Ok(code_of(child.wait()?))
     }
 
     fn proxy(&self, dest: &str, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<Option<i32>> {
@@ -174,7 +198,15 @@ impl Client {
             self.spool_argv(&argv)?;
             return Ok(Some(0));
         }
-        let code = if reachable { self.ssh(dest, &argv, Input::Inherit, false, err)? } else { UNREACHABLE };
+        let follow = first == Some("queue") && argv.get(1).map(String::as_str) == Some("follow");
+        let input = if follow {
+            let mut brief = Vec::new();
+            stdin.read_to_end(&mut brief)?;
+            Input::Bytes(brief)
+        } else {
+            Input::Inherit
+        };
+        let code = if reachable { self.ssh(dest, &argv, input, false, err)? } else { UNREACHABLE };
         if first == Some("agent-events") || first == Some("agent-event-state") {
             if code == UNREACHABLE {
                 writeln!(err, "NorthThreads: {dest} unreachable; canonical events unavailable")?;
@@ -654,6 +686,27 @@ exit "$(cat "$ROOT/code")"
             r#"["job-run", "earlier", "--host", "laptop"]"#,
             r#"["job-run", "fleet-relay", "--host", "laptop", "--started", "s", "--finished", "f", "--rc", "0"]"#,
         ]);
+    }
+
+    #[test]
+    fn queue_follow_refuses_a_follows_line_that_names_no_issue_sha_or_landed_subject() {
+        let checkout = tempfile::tempdir().unwrap();
+        let repo = checkout.path().join("north/main");
+        fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| assert!(Command::new("git").arg("-C").arg(&repo).args(args).status().unwrap().success(), "git {args:?}");
+        git(&["init", "-q"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "Land the ledger fix"]);
+        git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        let rig = rig(&[("FOLLOWS_RELEASE_ROOT", checkout.path().to_str().unwrap())]);
+        let queue = |follows: &str| call(&rig, &["queue", "follow", "north#9", "--tier", "sonnet", "--parent", "p"], format!("Item: north#9 x\nFollows: {follows}\n\nDo it.").as_bytes());
+        let (code, err) = queue("the ledger fix");
+        assert_eq!(code, 1);
+        assert!(err.starts_with("NorthThreads: queue follow: Follows: the ledger fix names no issue, SHA or landed subject; use an issue (`repo#N` or `owner/repo#N`), a commit SHA"), "{err}");
+        assert!(log(&rig, "ssh.log").is_empty(), "a refused box reaches no ledger");
+        for accepted in ["north#240 (note)", "0123abc landed it", "Land the ledger fix"] {
+            assert_eq!(queue(accepted).0, 0, "{accepted}");
+        }
+        assert_eq!(log(&rig, "ssh.log").iter().filter(|line| line.contains("queue follow 'north#9'")).count(), 3);
     }
 
     #[test]

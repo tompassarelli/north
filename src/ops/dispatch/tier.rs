@@ -39,6 +39,15 @@ impl Tier {
         }
     }
 
+    /// The word a ledger tier label carries for it.
+    pub(crate) fn family(self) -> &'static str {
+        match self {
+            Self::Haiku => "haiku",
+            Self::Sonnet => "sonnet",
+            Self::Opus => "opus",
+        }
+    }
+
     pub(crate) fn parse(text: &str) -> Option<Self> {
         [Self::Haiku, Self::Sonnet, Self::Opus].into_iter().find(|tier| tier.key() == text || tier.name() == text)
     }

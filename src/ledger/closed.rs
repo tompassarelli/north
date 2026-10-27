@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde_json::{Value, json};
 
+use crate::foundation::clock::Timestamp;
+
 use super::pricing::{Price, PriceTable, TokenUse};
 
 const LEADS: [&str; 2] = ["parent", "proxy"];
@@ -28,12 +30,29 @@ pub struct Cell {
     pub category: String,
     pub closed: usize,
     pub usd: f64,
+    box_usd: Vec<f64>,
+    run_minutes: Vec<f64>,
 }
 
 impl Cell {
     pub fn usd_per_closed(&self) -> f64 {
         self.usd / self.closed as f64
     }
+}
+
+/// What a closed-box cell says about its next box: the median cost of a closed box and the p75 wall
+/// of a run on one, each with the sample it comes from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Figures {
+    pub closed: usize,
+    pub median_usd: f64,
+    pub runs: usize,
+    pub p75_minutes: f64,
+}
+
+fn percentile(values: &mut [f64], percent: usize) -> f64 {
+    values.sort_by(f64::total_cmp);
+    values[(values.len() * percent).div_ceil(100).max(1) - 1]
 }
 
 #[derive(Debug, PartialEq)]
@@ -45,6 +64,11 @@ pub struct ClosedReport {
 }
 
 impl SpendRun {
+    fn minutes(&self) -> Option<f64> {
+        let wall = Timestamp::parse(&self.ended).ok()?.unix_seconds() - Timestamp::parse(&self.started).ok()?.unix_seconds();
+        (wall >= 0).then(|| wall as f64 / 60.0)
+    }
+
     fn usd(&self, prices: &PriceTable) -> f64 {
         let price = self.model.as_deref().and_then(|model| prices.price(model)).or_else(|| prices.price(fallback_model(&self.tier)));
         price.map_or(0.0, |price: Price| {
@@ -82,9 +106,12 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let key = (tier_label(&runs[0].tier), category.to_owned());
-        let cell = cells.entry(key.clone()).or_insert(Cell { tier: key.0, category: key.1, closed: 0, usd: 0.0 });
+        let cell = cells.entry(key.clone()).or_insert(Cell { tier: key.0, category: key.1, closed: 0, usd: 0.0, box_usd: Vec::new(), run_minutes: Vec::new() });
+        let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         cell.closed += 1;
-        cell.usd += runs.iter().map(|run| run.usd(prices)).sum::<f64>();
+        cell.usd += spent;
+        cell.box_usd.push(spent);
+        cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
     }
     let mut cells: Vec<Cell> = cells.into_values().collect();
     cells.sort_by(|a, b| (&a.tier, &a.category).cmp(&(&b.tier, &b.category)));
@@ -100,6 +127,20 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
 impl ClosedReport {
     fn per_closed(&self, usd: f64) -> Option<f64> {
         (self.closed > 0).then(|| usd / self.closed as f64)
+    }
+
+    /// The figures of every cell in `category` whose tier label names `family` (`haiku`, `sonnet` or
+    /// `opus`), pooled; None when no box closed there or no run of it has a wall time.
+    pub fn figures(&self, family: &str, category: &str) -> Option<Figures> {
+        let cells: Vec<&Cell> = self.cells.iter().filter(|cell| cell.category == category && cell.tier.contains(family)).collect();
+        let mut spends: Vec<f64> = cells.iter().flat_map(|cell| cell.box_usd.iter().copied()).collect();
+        let mut walls: Vec<f64> = cells.iter().flat_map(|cell| cell.run_minutes.iter().copied()).collect();
+        (!spends.is_empty() && !walls.is_empty()).then(|| Figures {
+            closed: spends.len(),
+            median_usd: percentile(&mut spends, 50),
+            runs: walls.len(),
+            p75_minutes: percentile(&mut walls, 75),
+        })
     }
 
     pub fn dashboard(&self, window: &str) -> String {

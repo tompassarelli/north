@@ -1,4 +1,7 @@
 use super::brief::HAIKU_WAIT;
+use super::grounds::{self, Grounds};
+use super::issues::{IssueRef, OWNER};
+use crate::platform::github;
 use super::facets;
 use super::record::{self, Record};
 use super::survey;
@@ -26,7 +29,7 @@ pub(crate) struct Start {
     pub routed: bool,
 }
 
-pub(crate) fn start(ask: &Ask, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>) -> Result<Start, String> {
+pub(crate) fn start(ask: &Ask, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>, grounds: &dyn Fn(&Route) -> Grounds) -> Result<Start, String> {
     let declared = |key: &str| facets::declared_in(ask.brief, key).map(str::to_owned);
     let facet = |key: &str| declared(key).unwrap_or_else(|| facets::default(key).to_owned());
     let named = declared("Tier").map(|name| named_tier(&name)).transpose()?;
@@ -51,7 +54,8 @@ pub(crate) fn start(ask: &Ask, cfg: &DocumentMut, history: &History, ledger: &BT
             (given.to_owned(), None, Some(reason.to_owned()))
         }
     };
-    let prompt = if named.is_some() || overridden.is_some() { ask.prompt.to_owned() } else { stamped(ask.prompt, &route, declared("Category").is_none()) };
+    let stamp = (named.is_none() && overridden.is_none()).then(|| declared("Category").is_none());
+    let prompt = stamped(ask.prompt, &route, stamp, overridden.is_none(), &grounds(&route));
     Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some() })
 }
 
@@ -64,16 +68,26 @@ fn named_tier(name: &str) -> Result<(Tier, Option<&'static str>), String> {
     }
 }
 
-fn stamped(prompt: &str, route: &Route, defaulted: bool) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    lines.extend(defaulted.then(|| format!("Category: {}", route.category)));
-    lines.push(format!("Tier: {}", route.tier.name()));
-    lines.extend(route.arm.then(|| format!("Arm: {}", route.tier.name())));
-    lines.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
+fn stamped(prompt: &str, route: &Route, defaulted: Option<bool>, calibrated: bool, grounds: &Grounds) -> String {
     let all: Vec<&str> = prompt.lines().collect();
     let head = all.iter().position(|line| line.trim().is_empty()).unwrap_or(all.len());
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(defaulted) = defaulted {
+        lines.extend(defaulted.then(|| format!("Category: {}", route.category)));
+        lines.push(format!("Tier: {}", route.tier.name()));
+        lines.extend(route.arm.then(|| format!("Arm: {}", route.tier.name())));
+        lines.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
+    }
+    if calibrated && grounds.measured() {
+        let declared = all[..head].iter().any(|line| facets::declared_in(line, "ETA").is_some());
+        lines.push(format!("{}: {}", if declared { "Ledger ETA" } else { "ETA" }, grounds.eta(None, route)));
+        lines.extend(grounds.budget(route));
+    }
+    lines.extend(grounds.trace());
     let header = all[..head].iter().any(|line| line.trim_start().starts_with("Item:") || line.trim_start().starts_with("Category:"));
-    let mut text = if header {
+    let mut text = if lines.is_empty() {
+        prompt.to_owned()
+    } else if header {
         let mut kept: Vec<String> = all[..head].iter().map(|line| (*line).to_owned()).collect();
         kept.extend(lines);
         kept.extend(all[head..].iter().map(|line| (*line).to_owned()));
@@ -81,7 +95,7 @@ fn stamped(prompt: &str, route: &Route, defaulted: bool) -> String {
     } else {
         format!("{}\n\n{prompt}", lines.join("\n"))
     };
-    if route.tier == Tier::Haiku {
+    if defaulted.is_some() && route.tier == Tier::Haiku {
         text.push_str(HAIKU_WAIT);
     }
     text
@@ -117,5 +131,18 @@ pub(crate) fn begin(ask: &Ask) -> Result<Start, String> {
     let history = History::new(&record::read(&record::directory()));
     let category = facets::declared_in(ask.brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase();
     let ledger = if tier::ARMED.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut Vec::new()) } else { BTreeMap::new() };
-    start(ask, &cfg, &history, &ledger)
+    let mut notes = Vec::new();
+    let grounds = grounds::Ledger::read(&mut notes);
+    notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
+    let body = issue_body(ask.item).unwrap_or_else(|why| {
+        eprintln!("north fleet: {} body unread, so its brief carries no Not required lines: {why}", ask.item);
+        String::new()
+    });
+    start(ask, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, &body, route))
+}
+
+fn issue_body(item: &str) -> Result<String, String> {
+    let item = IssueRef::parse(item).ok_or_else(|| format!("{item} names no issue"))?;
+    let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body"])?;
+    Ok(json["body"].as_str().unwrap_or_default().to_owned())
 }

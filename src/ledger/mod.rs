@@ -17,7 +17,10 @@ pub(crate) mod pricing;
 mod report;
 mod verdict;
 
-pub use closed_source::{closed_report, window_start_ms};
+pub use closed::{ClosedReport, Figures};
+#[cfg(test)]
+pub(crate) use closed::{SpendRun, summarize};
+pub use closed_source::{closed_report, prior_reports, window_start_ms};
 pub use report::{print_runs, print_summary};
 pub use verdict::{check, landed};
 

@@ -1,3 +1,4 @@
+use super::grounds::Grounds;
 use super::issues::{self, Issue, IssueRef, World};
 use super::plan::Cloud;
 use super::slots::{Account, Host, PlanSize, Pools, Room};
@@ -7,6 +8,8 @@ use crate::fleet::model::{Account as Login, ProviderName};
 use crate::fleet::roster::{Declared, Roster};
 use crate::ops::pacing::placement::gate;
 use std::collections::{BTreeMap, BTreeSet};
+
+pub(super) const ORDERS: &str = "- Think, don't agree (2026-10-15)\n";
 
 pub(super) const CONFIG: &str = r#"
 [hosts.nexus]
@@ -90,6 +93,7 @@ pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, account
         history: super::tier::History::default(),
         handoffs: super::handoff::Arms::default(),
         ledger: BTreeMap::new(),
+        grounds: super::grounds::Ledger::default(),
         at: 0.0,
     }
 }
@@ -480,8 +484,8 @@ fn an_autoland_cloud_launch_runs_from_its_repo_checkout_with_trust_written_and_a
     let home = tempfile::tempdir().unwrap();
     let config = home.path().join(".claude.json");
     std::fs::write(&config, r#"{"oauthAccount":{"organizationUuid":"org"},"projects":{"/elsewhere":{"hasTrustDialogAccepted":true}}}"#).unwrap();
-    let box_brief = super::brief::brief(&issue("smashcraft", 60, "- [ ] a\nSurface: rust", &[]), "test", &super::tier_tests::route(super::tier::Tier::Opus));
-    let text = super::brief::cloud(&box_brief, "smashcraft", &super::cloud::branch("sc-60-d1200"));
+    let box_brief = super::brief::brief(&issue("smashcraft", 60, "- [ ] a\nSurface: rust", &[]), "test", &super::tier_tests::route(super::tier::Tier::Opus), &Grounds::default());
+    let text = super::brief::cloud(&box_brief, "smashcraft", &super::cloud::branch("sc-60-d1200"), ORDERS);
     let mut calls: Vec<(String, String, Vec<String>)> = Vec::new();
     let mut trusted_at_launch = None;
     let mut run = |cwd: &std::path::Path, program: &str, args: &[String]| -> Result<String, String> {
@@ -532,7 +536,7 @@ fn a_fresh_launch_checkout_starts_with_init_and_every_refresh_sets_the_public_or
 
 #[test]
 fn a_north_cloud_brief_pushes_its_land_branch_for_a_courier_and_does_not_close_the_issue() {
-    let text = super::brief::cloud("Item: north#9 x", "north", "claude/land-n9");
+    let text = super::brief::cloud("Item: north#9 x", "north", "claude/land-n9", ORDERS);
     let last = text.rsplit(". Last, ").next().unwrap();
     assert!(last.contains("Done: pushed claude/land-n9") && last.contains("a courier off the cloud host lands it through safe-push"), "{last}");
     assert!(!text.contains("Closes #"));
