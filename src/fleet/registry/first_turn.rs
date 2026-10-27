@@ -67,7 +67,10 @@ impl Fleet {
                 return Err(NorthError::Refused(format!("{} exited before its first turn started; see north fleet show {}", record.name, record.name)));
             }
             if Instant::now() > deadline {
-                return Err(NorthError::Refused(format!("{} did not start its first turn within {} s; see north fleet show {}", record.name, FIRST_TURN_WAIT.as_secs(), record.name)));
+                let stream = std::fs::read(stream_path(&record.host_dir)).unwrap_or_default();
+                let tail = String::from_utf8_lossy(&stream[stream.len().saturating_sub(3000)..]).into_owned();
+                let files: Vec<String> = std::fs::read_dir(&record.host_dir).map(|entries| entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+                return Err(NorthError::Refused(format!("PROBE {} no first turn in {} s: pid {:?} alive {:?} conversation {:?} prompt {prompt:?} files {files:?} stream {} bytes, tail:\n{tail}", record.name, FIRST_TURN_WAIT.as_secs(), record.host_pid, record.host_pid.map(alive), record.conversation, stream.len())));
             }
             std::thread::sleep(FIRST_TURN_POLL);
         }
