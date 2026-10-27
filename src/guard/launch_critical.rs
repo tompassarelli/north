@@ -1,11 +1,12 @@
 use crate::foundation::clock::Timestamp;
+use crate::guard::paths;
 use crate::hook::{HookInput, Verdict};
 use crate::shell::{self, basename, shell_substitutions, strip_heredoc_bodies, unquoted_mask, whitespace};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 use std::sync::LazyLock;
 
 const ID: &str = "north-hook";
@@ -87,55 +88,11 @@ fn tokens(text: &str) -> Vec<String> {
             .collect()
     })
 }
-pub(super) fn realpath(path: &Path) -> Option<String> {
-    if path.as_os_str().as_encoded_bytes().contains(&0) {
-        return None;
-    }
-    let full = if path.is_absolute() {
-        path.to_owned()
-    } else {
-        std::env::current_dir().ok()?.join(path)
-    };
-    let mut pending = full;
-    let mut links = 0;
-    loop {
-        let components: Vec<_> = pending.components().collect();
-        let mut out = PathBuf::new();
-        let mut restart = None;
-        for (index, part) in components.iter().enumerate() {
-            match part {
-                Component::ParentDir => {
-                    out.pop();
-                }
-                Component::CurDir => {}
-                _ => out.push(part.as_os_str()),
-            }
-            if let Ok(dest) = std::fs::read_link(&out) {
-                links += 1;
-                if links > 40 {
-                    continue;
-                }
-                out.pop();
-                out.push(dest);
-                for rest in &components[index + 1..] {
-                    out.push(rest.as_os_str());
-                }
-                restart = Some(out.clone());
-                break;
-            }
-        }
-        if let Some(next) = restart {
-            pending = next;
-        } else {
-            return Some(out.to_string_lossy().into_owned());
-        }
-    }
-}
 fn resolve(path: &str, cwd: &str) -> Option<String> {
     if path.is_empty() {
         return None;
     }
-    realpath(&Path::new(cwd).join(path))
+    paths::realpath(&Path::new(cwd).join(path))
 }
 
 #[derive(Clone)]
@@ -156,39 +113,18 @@ impl Policy {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{home}/code"));
         Self {
-            root: realpath(Path::new(&named)).unwrap_or(named),
+            root: paths::realpath(Path::new(&named)).unwrap_or(named),
             home,
         }
     }
     fn expanduser(&self, word: &str) -> String {
-        if word == "~" {
-            return self.home.clone();
-        }
-        if let Some(tail) = word.strip_prefix("~/") {
-            return format!("{}/{tail}", self.home);
-        }
-        if let Some(user) = word.strip_prefix('~') {
-            let (name, tail) = user.split_once('/').unwrap_or((user, ""));
-            if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
-                for row in passwd.lines() {
-                    let fields: Vec<_> = row.split(':').collect();
-                    if fields.first() == Some(&name) && fields.len() > 5 {
-                        return if tail.is_empty() {
-                            fields[5].into()
-                        } else {
-                            format!("{}/{tail}", fields[5])
-                        };
-                    }
-                }
-            }
-        }
-        word.into()
+        paths::expanduser(word, &self.home)
     }
     fn parts(&self, path: &str) -> Option<Vec<String>> {
         if path.is_empty() {
             return None;
         }
-        let real = realpath(Path::new(path))?;
+        let real = paths::realpath(Path::new(path))?;
         let rest = if real == self.root {
             ""
         } else {
@@ -593,7 +529,7 @@ fn excise_sanctioned(text: &str) -> String {
     }
     out
 }
-fn patch_targets(envelope: &str) -> Vec<String> {
+pub(crate) fn patch_targets(envelope: &str) -> Vec<String> {
     PATCH_HEADER
         .captures_iter(envelope)
         .chain(PATCH_MOVE.captures_iter(envelope))
@@ -972,7 +908,7 @@ impl Policy {
                             .lines()
                             .filter_map(|line| {
                                 line.strip_prefix("worktree ")
-                                    .and_then(|s| realpath(Path::new(s)))
+                                    .and_then(|s| paths::realpath(Path::new(s)))
                             })
                             .collect();
                         stray = listed.first().is_some_and(|s| s != &path)

@@ -1,4 +1,4 @@
-use super::launch_critical::realpath;
+use super::paths::realpath;
 use super::search_words::{self, Token, expand_home, is_file, join, normpath};
 use crate::hook::{HookInput, Verdict};
 use crate::shell;
