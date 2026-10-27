@@ -128,7 +128,7 @@ fn teardown_decisions_hold() {
     let running = lane.fixture("running", &start);
     assert_eq!(
         lane.stop(&running).as_deref(),
-        Some("You still have background tasks running: bshell001 (Long soak run). Stop each with TaskStop, then finish your report.")
+        Some("You still have background tasks running: bshell001 (Long soak run). Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.")
     );
     assert_eq!(lane.payload(&running, true), None);
     let with = |lane: &Lane, name: &str, extra: String| lane.fixture(name, &format!("{start}\n{extra}"));
@@ -138,7 +138,7 @@ fn teardown_decisions_hold() {
     let live = lane.fixture("monitor", &monitor(&now, json!(600_000)));
     assert_eq!(
         lane.stop(&live).as_deref(),
-        Some("You still have background tasks running: bmon0001 (CI watch). Stop each with TaskStop, then finish your report.")
+        Some("You still have background tasks running: bmon0001 (CI watch). Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.")
     );
     let old = lane.fixture("expired", &monitor("2020-01-01T00:00:00.000Z", json!(600_000)));
     assert_eq!(lane.stop(&old), None);

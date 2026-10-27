@@ -12,8 +12,6 @@ harness/hooks/modern-search-guard.test.sh
 harness/hooks/native-launch-guard.test.sh
 harness/hooks/resource-safe-search-guard.test.sh
 harness/hooks/spawn-capacity-guard.test.sh
-harness/hooks/subagent-teardown.test.sh
-harness/hooks/worker-handoff.test.sh
 harness/hooks/worker-tier-guard.test.sh
 harness/hooks/worker-wait-guard.test.sh
 harness/hooks/session-kill-guard.test.sh

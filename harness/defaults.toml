@@ -103,14 +103,14 @@ value = 45
 unit = "minutes a worker runs before the leash nudge and OVERTIME flag"
 source = "measured: runs.minutes of done worker runs, 7d to 2026-10-12, n=1191, p75 20, p90 40, p95 69, 8.5% over 45"
 fallback = "applies to every worker whatever its ETA"
-consumers = ["harness/hooks/worker-handoff.sh"]
+consumers = ["src/pace/limits.rs"]
 
 [handoff_ctx]
 value = 350000
 unit = "context tokens before a worker of any provider is told to hand off"
 source = "measured: runs.peak_ctx of Claude worker runs (firn#19 telemetry), 14d to 2026-10-12, n=966, p95 315k, p99 412k; done rate 58% under 200k, 18% at 300-350k, 19% at 350-400k, 0% over 400k (n=14); 3 compactions in 966 runs"
 fallback = "a run without usage records reports peak_ctx 0 and is never flagged"
-consumers = ["harness/hooks/worker-handoff.sh", "bin/capacity-watchdog", "src/pace/limits.rs"]
+consumers = ["bin/capacity-watchdog", "src/pace/limits.rs"]
 
 [handoff_arm_ctx]
 value = 150000

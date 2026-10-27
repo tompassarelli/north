@@ -24,6 +24,10 @@ pub(crate) fn handoff_ctx() -> u64 {
     default("handoff_ctx") as u64
 }
 
+pub(crate) fn overtime_min() -> u64 {
+    default("overtime_min") as u64
+}
+
 pub(crate) fn handoff_arm_ctx() -> u64 {
     default("handoff_arm_ctx") as u64
 }

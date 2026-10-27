@@ -158,14 +158,13 @@ def instructions(target):
 
 
 def session_start(fixture):
-    hooks = pathlib.Path(os.environ["AGENT_CONFIG_HOOKS"])
     payload = json.dumps({"hook_event_name": "SessionStart", "source": "startup", "session_id": "budget", "cwd": str(HOME)})
     worst = (0, "")
     env = {k: v for k, v in os.environ.items() if k != "AGENT_NO_AUTHORING_HOOKS"}
     env["CLAUDE_CODE_ENTRYPOINT"] = "cli"
     if fixture:
         env["LANE_GC_UNLANDED"] = os.devnull
-    size = len(subprocess.run(["bash", str(hooks / "unlanded-work.sh")], input=payload, env=env,
+    size = len(subprocess.run([os.environ.get("NORTH_BIN", "north"), "hook", "session-start"], input=payload, env=env,
                               capture_output=True, text=True, timeout=10).stdout)
     return size, "fleet"
 

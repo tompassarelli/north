@@ -63,7 +63,7 @@ pub fn refusal(input: &HookInput) -> Option<String> {
         })
         .collect();
     Some(format!(
-        "You still have background tasks running: {}. Stop each with TaskStop, then finish your report.",
+        "You still have background tasks running: {}. Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.",
         names.join(", ")
     ))
 }

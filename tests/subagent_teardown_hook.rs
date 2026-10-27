@@ -39,7 +39,7 @@ fn subagent_teardown_follows_its_hook_activation() {
     let payload = |active: bool| {
         json!({"hook_event_name":"SubagentStop","stop_hook_active":active,"transcript_path":scratch.path().join("main.jsonl"),"agent_transcript_path":transcript})
     };
-    let blocked = "{\"decision\": \"block\", \"reason\": \"You still have background tasks running: bmon0001 (CI watch). Stop each with TaskStop, then finish your report.\"}\n";
+    let blocked = "{\"decision\": \"block\", \"reason\": \"You still have background tasks running: bmon0001 (CI watch). Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.\"}\n";
     for (activation, disabled, active_flag, expected) in [
         (&active, "", false, blocked),
         (&active, "0", false, blocked),

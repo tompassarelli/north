@@ -50,7 +50,7 @@ fn handoff(input: &HookInput, env: &Env) -> Option<String> {
     let session = data["transcript_path"].as_str()?.strip_suffix(".jsonl")?;
     let transcript = Path::new(session).join("subagents").join(format!("agent-{agent_id}.jsonl"));
     let threshold = crate::pace::limits::handoff_ctx() as i64;
-    let leash = crate::pace::limits::default("overtime_min") as i64;
+    let leash = crate::pace::limits::overtime_min() as i64;
     let tokens = transcript::context_tokens(&transcript);
     let minutes = transcript::started_at(&transcript).map_or(0, |start| ((env.now - start) / 60.0).floor() as i64);
     let (remind, overdue) = (tokens >= threshold, minutes >= leash);

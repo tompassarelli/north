@@ -16,10 +16,6 @@ guard = [
   { unit = "session-kill-guard", command = "session-kill-guard.sh", claude = ["PreToolUse:Bash"], codex = ["PreToolUse:^Bash$"] },
   { unit = "spawn-capacity-guard", command = "spawn-capacity-guard.sh", claude = ["PreToolUse:Agent"], codex_absent = "binds Claude's Agent tool" },
   { unit = "worker-tier-guard", command = "worker-tier-guard.sh", claude = ["PreToolUse:Agent"], codex = ["PreToolUse:Agent"] },
-  { unit = "subagent-teardown", command = "subagent-teardown.sh", claude = ["SubagentStop:"], codex_absent = "binds Claude's SubagentStop event" },
-  { unit = "worker-handoff", command = "worker-handoff.sh", claude = ["PostToolUse:"], codex_absent = "reads Claude worker transcripts" },
   { unit = "prompt-grounding", command = "prompt-grounding.sh", claude = ["UserPromptSubmit:"], codex_absent = "grounds Tom's interactive Claude session; fleet sessions receive their launch context" },
-  { unit = "unlanded-work", command = "unlanded-work.sh", claude = ["SessionStart:"], codex_absent = "not ported to Codex yet" },
-  { unit = "code-health-edit", command = "code-health-edit.sh", claude = ["PostToolUse:Edit|Write|MultiEdit"], codex = ["PostToolUse:^(Edit|Write|MultiEdit|apply_patch)$"] },
   { unit = "north-hook", command = "north-hook.sh", claude = ["PermissionRequest:Bash","PostToolUse:","PostToolUse:Agent","PostToolUse:Edit|Write|MultiEdit","PostToolUse:RemoteTrigger","PreToolUse:Agent","PreToolUse:Bash","PreToolUse:Edit|Write|MultiEdit","PreToolUse:Edit|Write|MultiEdit|NotebookEdit","SessionStart:","Stop:","SubagentStop:","UserPromptSubmit:"], codex = ["PostToolUse:","PostToolUse:^(Edit|Write|MultiEdit|apply_patch)$","PreToolUse:","PreToolUse:Agent","PreToolUse:^(Bash|exec_command|functions[.]exec_command)$","PreToolUse:^(Edit|Write|MultiEdit|apply_patch)$","PreToolUse:^Bash$","Stop:","UserPromptSubmit:"] },
 ]

@@ -25,10 +25,10 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No session-wide kills, user-manager teardown (also inside an ssh remote command) or unmanaged background child launches | `session-kill-guard` | Claude, Codex |
 | No destructive commands, unsafe Git publishing or sensitive outbound transfers | `north-hook` (tripwire) | Claude, Codex |
 | Codex prompts, plans and endings avoid the recorded delivery failures | `codex-behavior-guard` | Codex |
-| A worker at 350k tokens of context lands what passes and hands off the rest | `worker-handoff` | Claude |
+| A worker at 350k tokens of context lands what passes and hands off the rest | `north-hook` (worker-handoff) | Claude |
 | A worker never runs a foreground command that can block past 60 seconds | `worker-wait-guard` | Claude |
 | Worker briefs carry Category, Spec, Scope, Surface and Verify, and tier rules hold | `worker-tier-guard` | Claude, Codex |
-| A subagent does not finish while its background shells or Monitor watches run; a `job-run --notify` job detaches and survives it | `subagent-teardown` | Claude |
+| A subagent does not finish while its background shells or Monitor watches run; a `job-run --notify` job detaches and survives it | `north-hook` (subagent-teardown) | Claude |
 | No new local worker once capacity leases hold the CPU limit or desktop pressure is above 20% | `spawn-capacity-guard` | Claude |
 | Wine, Proton, steam-run or Warcraft .exe launches run inside a machine-capacity native session | `native-launch-guard` | Claude |
 | Rust PreBash routes cargo test, TypeScript builds and multi-file Bun tests through machine-capacity; refuses unleased builds, full suites, renders and CPU throttles | `heavy-command-guard` through `north-hook` | Claude, Codex |
@@ -37,8 +37,8 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No agent wl-copy or niri screenshot actions, because they replace Tom's pending paste | `clipboard-guard` | Claude, Codex |
 | No window focus, move, fullscreen, close or typed input on Tom's desktop unless the seat is idle 60 seconds, the private desktop is the target, or a sanctioned tool restores focus | `north-hook` | Claude, Codex |
 | No hand edits of generated CLAUDE.md, synced Codex files or .nix generated from .gal; edit the source | `generated-policy-guard` | Claude, Codex |
-| New structural debt in a repo with structure.toml is reported after the edit (advisory) | `code-health-edit` | Claude, Codex |
-| Unlanded lanes older than 24 h are surfaced at session start (advisory) | `unlanded-work` | Claude |
+| New structural debt in a repo with structure.toml is reported after the edit (advisory) | `north-hook` (code-health-edit) | Claude, Codex |
+| Unlanded lanes older than 24 h are surfaced at session start (advisory) | `north-hook` (unlanded-work) | Claude |
 | A decision, audit, review or research file written under the handoffs directory draws an advisory before the write: durable records go in the owning repository (advisory) | `handoff_record` through `north-hook` | Claude, Codex |
 
 `prompt-grounding` delivers context rather than enforcing a rule; `north-hook`
