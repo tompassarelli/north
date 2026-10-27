@@ -10,11 +10,14 @@ use crate::fleet::receipts::ReceiptBook;
 use crate::fleet::turns::{RunRecord, RunSink};
 
 mod books;
+mod closed;
+mod closed_source;
 mod gates;
 pub(crate) mod pricing;
 mod report;
 mod verdict;
 
+pub use closed_source::{closed_report, window_start_ms};
 pub use report::{print_runs, print_summary};
 pub use verdict::{check, landed};
 
@@ -90,6 +93,9 @@ CREATE TABLE IF NOT EXISTS receipts(
   PRIMARY KEY(session, receipt)
 ) STRICT;
 ";
+
+const LINK_RUNS: &str = "UPDATE runs SET task_ref = (SELECT t.task_ref FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session) ORDER BY t.task_ref LIMIT 1) \
+     WHERE task_ref IS NULL AND EXISTS (SELECT 1 FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session))";
 
 const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account,prompt_sha,system_prompt_sha,deepen,started_ms,ended_ms,wall_ms,turns,\
      tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit";
@@ -171,6 +177,7 @@ impl Ledger {
         add_missing_column(&conn, "gates", "verification", "INTEGER NOT NULL DEFAULT 0").map_err(sql)?;
         gates::allow_session_answerers(&conn).map_err(sql)?;
         add_missing_column(&conn, "tasks", "landed_ms", "INTEGER").map_err(sql)?;
+        conn.execute_batch(LINK_RUNS).map_err(sql)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -191,6 +198,16 @@ impl Ledger {
                  FROM tasks t ORDER BY t.task_ref",
             )?;
             statement.query_map([], task_from_row)?.collect()
+        })
+    }
+
+    pub fn landing_links(&self, since_ms: i64) -> NorthResult<(i64, i64)> {
+        self.with(|conn| {
+            conn.query_row(
+                "SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM runs r WHERE r.task_ref = t.task_ref)), 0) FROM tasks t WHERE t.outcome = 'landed' AND t.landed_ms >= ?1",
+                [since_ms],
+                |row| Ok((row.get(1)?, row.get(0)?)),
+            )
         })
     }
 

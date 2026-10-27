@@ -155,3 +155,20 @@ fn verification_gates_stay_out_of_toms_decisions_after_the_ledger_reopens() {
     assert!(book.gate(test).unwrap().unwrap().is_open(), "the test parent can still answer its own gate");
     assert!(book.gate(test).unwrap().unwrap().request.verification);
 }
+
+#[test]
+fn a_landed_task_links_the_runs_of_the_session_it_is_named_for_or_lists() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    for session in ["lane-a", "lane-b", "lane-c"] {
+        ledger.record_run(&run(session, "claude-opus-5-5", 1, 1)).unwrap();
+    }
+    ledger.join_task("north#9", "lane-b").unwrap();
+    for (task, sha) in [("lane-a", "sha-a"), ("north#9", "sha-b"), ("ghost", "sha-c")] {
+        ledger.record_landing(task, sha, 5_000, None).unwrap();
+    }
+    assert_eq!(ledger.landing_links(0).unwrap(), (2, 3), "the ghost landing has no run; the session-named and session-listed ones do");
+    assert_eq!(ledger.landing_links(6_000).unwrap(), (0, 0));
+    let linked: Vec<Option<String>> = ledger.runs().unwrap().into_iter().map(|run| run.task_ref).collect();
+    assert_eq!(linked, [Some("lane-a".to_owned()), Some("north#9".to_owned()), None]);
+}
