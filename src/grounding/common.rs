@@ -42,6 +42,18 @@ fn token(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '+' | '_' | '-')
 }
 
+const FILE_EXTENSIONS: &[&str] = &[
+    "md", "markdown", "txt", "json", "toml", "yaml", "yml", "rs", "ts", "tsx", "js", "jsx", "py", "sh", "sql", "lock", "log", "html", "css", "csv", "png", "jpg", "jpeg", "gif", "svg", "pdf", "patch", "diff",
+];
+
+fn file_extension_follows(chars: &[char], i: usize) -> bool {
+    if chars.get(i) != Some(&'.') {
+        return false;
+    }
+    let ext: String = chars[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric()).collect();
+    !word(chars.get(i + 1 + ext.len())) && FILE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
+}
+
 // JS lookaheads (?![0-9a-f]{40,}\b)(?=…\d)(?=…[A-Za-z]) evaluated by hand: the regex crate has no lookaround.
 fn opaque_end(chars: &[char], p: usize) -> Option<usize> {
     let boundary = |i: usize| word(i.checked_sub(1).and_then(|j| chars.get(j))) != word(chars.get(i));
@@ -55,6 +67,9 @@ fn opaque_end(chars: &[char], p: usize) -> Option<usize> {
     let run = chars[p..].iter().take_while(|c| token(**c)).count();
     let tail = &chars[p..p + run];
     if run < 40 || !tail.iter().any(char::is_ascii_digit) || !tail.iter().any(char::is_ascii_alphabetic) {
+        return None;
+    }
+    if file_extension_follows(chars, p + run) {
         return None;
     }
     (40..=run).rev().map(|k| p + k).find(|&end| boundary(end))
@@ -116,5 +131,22 @@ mod tests {
         assert!(out.contains("harness/skills/workers/references/codex-sessions.md"));
         assert!(out.contains("4502d16752b0b5a1c3f9e2d8a7b6c5d4e3f2a1b0"));
         assert!(out.contains("convo:2216789"));
+    }
+
+    #[test]
+    fn redact_keeps_long_digit_bearing_filenames_but_masks_opaque_tokens() {
+        let text = [
+            "see docs/reports/gjoa-2026-10-27-ci-run-38240508386-diagnosis-summary.md",
+            "notes 2026-10-27-long-generated-report-name-r7q9w2e8t5y1u4i0o3p6.txt",
+            "blob Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXcVbNmQwErTy.then",
+            "jwt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9Q8w2E.Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXcVbNmQw.dozjgNryP4J3jVmNHl0w5NXgLa7Kq2Mz9Tb1Vc8Xd6Rf",
+        ]
+        .join("\n");
+        let out = redact(&text);
+        assert!(out.contains("docs/reports/gjoa-2026-10-27-ci-run-38240508386-diagnosis-summary.md"));
+        assert!(out.contains("2026-10-27-long-generated-report-name-r7q9w2e8t5y1u4i0o3p6.txt"));
+        assert!(!out.contains("Zx9Qw8Er7Ty6"));
+        assert!(!out.contains("Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LzXcVbNmQw."));
+        assert!(!out.contains("dozjgNryP4J3"));
     }
 }
