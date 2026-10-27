@@ -232,12 +232,6 @@ pub(crate) fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     if let Some(label) = issue.labelled(&RUNNING_LABELS) {
         return Err(format!("held: labelled {label}"));
     }
-    if let Some(holder) = world.holds.get(&reference) {
-        return Err(format!("held by {holder}"));
-    }
-    if super::stops::awaits_decision(issue) {
-        return Err("last worker stopped for a decision".into());
-    }
     if let Some(sentence) = issue.waiting() {
         return Err(format!("its newest report waits: {sentence}"));
     }
@@ -246,6 +240,12 @@ pub(crate) fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     let open: Vec<String> = waiting.iter().filter(|before| world.open.contains(before)).map(ToString::to_string).collect();
     if !open.is_empty() {
         return Err(format!("waits on open {}", open.join(", ")));
+    }
+    if let Some(holder) = world.holds.get(&reference) {
+        return Err(format!("held by {holder}"));
+    }
+    if super::stops::awaits_decision(issue) {
+        return Err("last worker stopped for a decision".into());
     }
     Ok(())
 }

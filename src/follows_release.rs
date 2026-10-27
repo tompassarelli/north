@@ -87,6 +87,12 @@ fn landed(repo: &Path, follows: &str) -> Result<bool, String> {
         Predecessor::Subject(subject) => subject_on_main(repo, subject),
     }
 }
+fn item_closed(repo: &Path, item: &str) -> Result<bool, String> {
+    match predecessor(item) {
+        Predecessor::Issue { owner, name, number } => issue_closed(repo, owner, name, number),
+        _ => Ok(false),
+    }
+}
 fn field<'a>(b: &'a Value, key: &str) -> &'a str {
     b[key].as_str().unwrap_or("")
 }
@@ -97,7 +103,9 @@ fn threads(root: &Path, args: &[&str]) -> std::io::Result<Output> {
         .output()
 }
 fn claude_tier(tier: &str) -> bool {
-    tier.starts_with("worker") || tier.starts_with("claude:")
+    ["worker", "claude:", "sonnet", "opus", "haiku", "fable"]
+        .iter()
+        .any(|prefix| tier.starts_with(prefix))
 }
 fn gate(root: &Path, b: &Value, repo: &Path) -> Result<Option<String>, String> {
     let tier = field(b, "tier");
@@ -141,8 +149,9 @@ fn start(b: &Value) -> Result<bool, String> {
         ""
     };
     let message = format!(
-        "{}\nStaff this queued box now as a fresh worker at {tier}.{route}",
-        field(b, "brief")
+        "{}\nStaff this queued box now as a fresh worker at {tier}.{route} If you staff it under a worker of your own, run `north threads queue follow-started {}` so it is not sent again.",
+        field(b, "brief"),
+        b["id"]
     );
     let Ok(mut child) = Command::new("north")
         .args(["fleet", "send", field(b, "parent"), &message])
@@ -274,6 +283,16 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
             fetched.insert(repo.clone(), ready);
         }
         if !fetched[&repo] {
+            continue;
+        }
+        if field(b, "state") == "taken" && item_closed(&repo, field(b, "item"))? {
+            if success(threads(&root, &["follow-started", &b["id"].to_string()]))? {
+                println!(
+                    "FOLLOWS box {} {}: its issue is closed, so the box is done",
+                    b["id"],
+                    field(b, "item")
+                );
+            }
             continue;
         }
         if field(b, "state") == "queued" {
@@ -423,3 +442,7 @@ fn usage_error(message: &str) -> u8 {
     );
     2
 }
+
+#[cfg(test)]
+#[path = "follows_release_tests.rs"]
+mod tests;

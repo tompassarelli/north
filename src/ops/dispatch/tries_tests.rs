@@ -89,3 +89,19 @@ fn a_second_launch_on_a_held_item_is_refused_as_is_a_dispatch_launch_on_an_item_
     assert_eq!(issues::readiness(&issue("smashcraft", 430, "- [ ] a", &[]), &world), Err("held by fleet session tom-fix on whiterabbit".into()), "dispatch skips an item a manual --task launch holds");
     assert_eq!(issues::readiness(&issue("smashcraft", 562, "- [ ] b", &[]), &world), Err("held by fleet session sc-560-562-illidan on whiterabbit".into()));
 }
+
+#[test]
+fn a_twice_tried_issue_with_an_open_blocker_waits_on_the_blocker_instead_of_going_to_the_proxy() {
+    let now = 100_000.0;
+    let records = [launch("smashcraft#363", "sc-363-d0900", now - 6.0 * 3600.0), launch("smashcraft#363", "sc-363-d1100", now - 4.0 * 3600.0)];
+    let holds = record::holds(&records, now, &BTreeMap::new());
+    assert!(holds[&IssueRef::new("smashcraft", 363)].contains("2 tries in 24 h"));
+    let blocked = issue("smashcraft", 363, "- [ ] a\nBlocked by #572", &[]);
+    let free = issue("smashcraft", 364, "- [ ] a", &[]);
+    let records = [records.to_vec(), vec![launch("smashcraft#364", "sc-364-d0900", now - 6.0 * 3600.0), launch("smashcraft#364", "sc-364-d1100", now - 4.0 * 3600.0)]].concat();
+    let holds = record::holds(&records, now, &BTreeMap::new());
+    let (open, planned) = (BTreeSet::from([IssueRef::new("smashcraft", 572)]), BTreeMap::new());
+    let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
+    assert_eq!(issues::readiness(&blocked, &world), Err("waits on open smashcraft#572".into()));
+    assert!(issues::readiness(&free, &world).unwrap_err().starts_with("held by north dispatch, 2 tries"), "with no blocker the two-try hold still reaches the proxy");
+}
