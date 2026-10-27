@@ -87,8 +87,7 @@ safe_push_cancel() {
 trap safe_push_cancel INT TERM HUP
 original_arguments=("$@")
 if [ "${1:-}" = abandon ]; then
-  safe_push_internal=1; abandoned=$(north land-abandon "${@:2}") || exit $?
-  drop_land_branch "${abandoned%%$'\t'*}" "${abandoned#*$'\t'}" && printf 'safe-push: deleted %s from origin\n' "${abandoned%%$'\t'*}"; exit
+  safe_push_internal=1; north land-abandon "${@:2}"; exit $?
 fi
 safe_push_common_dir=""
 
@@ -983,6 +982,7 @@ run_land_checks() {
   root=$(git rev-parse --show-toplevel)
   [ "${destination_branch:-${to:-}}" = main ] || return 0
   entries=$(git config --blob "$head:.safe-push" --get-all land.check 2>/dev/null) || return 0
+  sync_dependencies || return 1
   while IFS= read -r entry; do
     if [[ "$entry" != *' :: '* ]]; then
       echo "safe-push: invalid land.check: $entry; NOT pushed." >&2
@@ -1516,7 +1516,7 @@ take_train_result() {
         printf 'safe-push: this lane moved from %s while it waited; only that commit landed, so the lane was kept\n' "$lane_oid" >&2
         exit 1
       fi
-      fetch_destination >/dev/null
+      fetch_destination >/dev/null || true
       release_follows
       safe_push_published_head="$detail"; safe_push_landed_sha="$detail"
       if git reset -q --keep "$detail"; then cleanup_landed_lane || true; fi
@@ -1562,13 +1562,13 @@ collect_train() {
 # worktree whose node_modules were installed for another commit; the checks
 # would then judge the new code against old dependencies. Reinstall each
 # installed Bun project whose package.json or bun.lock no longer matches. In
-# smashcraft and wisp a fresh worktree's top-level projects get their first
-# install too, since their pre-push checks import from node_modules.
+# smashcraft, wisp and north a fresh worktree's top-level projects get their first
+# install too, since their pre-push and land checks import from node_modules.
 sync_dependencies() {
   local lock dir want stamp top first_install=0
   top=$(git rev-parse --show-toplevel)
   case "$(basename "$(git remote get-url origin 2>/dev/null)" .git)" in
-    smashcraft|wisp) first_install=1 ;;
+    smashcraft|wisp|north) first_install=1 ;;
   esac
   while IFS= read -r lock; do
     dir="$top/$(dirname "$lock")"
@@ -1579,10 +1579,14 @@ sync_dependencies() {
     want=$(cat "$dir/bun.lock" "$dir/package.json" 2>/dev/null | sha256sum | cut -c1-16)
     stamp="$dir/node_modules/.safe-push-deps"
     [ "$(cat "$stamp" 2>/dev/null)" != "$want" ] || continue
+    if [ -L "$dir/node_modules" ]; then
+      echo "safe-push: $dir/node_modules is a symlink to $(readlink "$dir/node_modules") and $lock no longer matches it — bun install would rewrite that checkout; replace the symlink with its own install; NOT pushed." >&2
+      return 1
+    fi
     echo "safe-push: $lock changed — bun install --frozen-lockfile in $dir"
     (drop_lock_fd; cd "$dir" && bun install --frozen-lockfile) || return 1
     printf '%s\n' "$want" >"$stamp"
-  done < <(git ls-files -- 'bun.lock' '*/bun.lock')
+  done < <(git -C "$top" ls-files -- 'bun.lock' '*/bun.lock')
 }
 
 # Prints "ok" or the farm URL (else the log path) of the failed check on the
@@ -1626,7 +1630,7 @@ run_train() {
     tickets+=("$i"); roots+=("$root"); branches+=("$branch_name"); oids+=("$oid"); sessions+=("$session")
   done
   n=${#oids[@]}
-  base=$(fetch_destination)
+  base=$(fetch_destination) || exit 1
   [ -n "$base" ] || return 0
   printf 'safe-push: landing train of %s lanes onto origin %s@%s\n' "$n" "$to" "$base"
   capture_repository_state
@@ -1659,7 +1663,7 @@ run_train() {
     group=("${pending[@]}")
     while :; do
       if red_fix_waiting; then break 2; fi
-      base=$(fetch_destination)
+      base=$(fetch_destination) || exit 1
       git switch -q -C "$train_branch" "$base"
       local built=1
       for i in "${group[@]}"; do
@@ -1742,11 +1746,17 @@ rebase_in_progress() {
   return 1
 }
 
-# Fetches origin's destination and prints its tip; nothing when it is absent
-# (a real fetch failure is caught by the destination snapshot later).
+# Fetches origin's destination and prints its tip; nothing when origin has no
+# such branch. A failed fetch of a branch origin has, or of an origin that
+# cannot be asked, is refused by the caller instead of read as an empty base.
 fetch_destination() {
-  local remote_ref="refs/remotes/origin/$to"
-  git fetch -q origin "+refs/heads/$to:$remote_ref" 2>/dev/null || return 0
+  local remote_ref="refs/remotes/origin/$to" status=0
+  if ! git fetch -q origin "+refs/heads/$to:$remote_ref" 2>/dev/null; then
+    git ls-remote --exit-code origin "refs/heads/$to" >/dev/null 2>&1 || status=$?
+    [ "$status" -eq 2 ] && return 0
+    printf 'safe-push: could not fetch origin/%s; NOT pushed.\n' "$to" >&2
+    return 1
+  fi
   git rev-parse -q --verify "${remote_ref}^{commit}" 2>/dev/null || true
 }
 
@@ -1773,7 +1783,9 @@ rebase_onto_destination() {
 }
 
 sync_with_destination() {
-  rebase_onto_destination "$(fetch_destination)"
+  local upstream
+  upstream=$(fetch_destination) || exit 1
+  rebase_onto_destination "$upstream"
 }
 
 # The pre-push hook git would run, resolved as git does (core.hooksPath
@@ -1906,7 +1918,7 @@ land_through_autoland() {
   landed=${description##* }
   printf 'safe-push: ✓ Autoland landed this lane: origin %s is at %s (%s)\n' "$to" "$landed" "$url"
   safe_push_published_head="$landed"; safe_push_landed_sha="$landed"
-  fetch_destination >/dev/null
+  fetch_destination >/dev/null || true
   capture_repository_state
   destination_ref="refs/heads/$to"
   release_follows
@@ -1956,7 +1968,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   hook=$(pre_push_hook)
   if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; fi
   if [ "$to" = "$(default_branch)" ]; then
-    autoland_base=$(fetch_destination)
+    autoland_base=$(fetch_destination) || exit 1
     if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then
       mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
       printf '%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$lock_url" "$(git rev-parse --short HEAD)" \
@@ -1966,7 +1978,8 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
       land_through_autoland "$autoland_base"
     fi
     autoland_gap
-    red_fix=$(red_fix_issue "$(fetch_destination)")
+    red_base=$(fetch_destination) || exit 1
+    red_fix=$(red_fix_issue "$red_base")
   fi
   if [ "$to" != "$(default_branch)" ]; then
     echo "safe-push: $to is not origin's default branch — pushing without the landing lock"
@@ -1977,7 +1990,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     sync_with_destination
   else
     queued=0
-    first_base=$(fetch_destination)
+    first_base=$(fetch_destination) || exit 1
     if exact_landing "${first_base:-HEAD}"; then
       [ -z "$red_fix" ] || echo "safe-push: $to is red (#$red_fix) and this lane names it — queueing it ahead of the other lanes"
       echo "safe-push: exact landing — queueing for the landing lock before the checks, so a lane ahead can't restart them"
@@ -1994,14 +2007,14 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     fi
     attempt=1
     while :; do
-      checked_base=$(fetch_destination)
+      checked_base=$(fetch_destination) || exit 1
       rebase_onto_destination "$checked_base"
       checked_head=$(git rev-parse HEAD)
       run_pre_push_checks "$hook" "$checked_base"
       [ "$queued" -eq 1 ] || acquire_push_lock "$lock_url"
       [ "$(git rev-parse HEAD)" = "$checked_head" ] \
         || { echo "safe-push: HEAD changed while the pre-push checks ran — refusing; NOT pushed." >&2; exit 1; }
-      upstream=$(fetch_destination)
+      upstream=$(fetch_destination) || exit 1
       if [ "$upstream" = "$checked_base" ]; then
         hook_verified=1
         break
@@ -2048,7 +2061,7 @@ while :; do
   run_land_checks "$land_base" "$head_oid" || exit $?
   [ "$land_locked" -eq 1 ] || break
   acquire_push_lock "$lock_url"
-  upstream=$(fetch_destination)
+  upstream=$(fetch_destination) || exit 1
   [ "$upstream" != "$land_base" ] || break
   if [ -n "$land_base" ] && [ -n "$upstream" ] \
       && { ! exact_landing "$upstream" || touches_workflows "$land_base" "$head_oid"; } \
