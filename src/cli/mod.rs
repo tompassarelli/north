@@ -91,6 +91,8 @@ Commands:
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
   reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h and held by no process or pool (hourly timer)
+  worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
+  hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there
   help                                          Show this help

@@ -11,6 +11,7 @@ mod provenance;
 mod follows_release;
 mod pace;
 mod issue_box_lint;
+mod lanes;
 mod grounding;
 mod claude_stream;
 mod language_gate;

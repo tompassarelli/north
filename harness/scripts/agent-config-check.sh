@@ -761,11 +761,11 @@ group vocabulary 'harness/ paths · Socrates names the workforce' "$before"
 # 63 worktrees across FOUR conventions at once, plus seven clones of north at
 # ~/code root and orphaned trees whose gitdir no longer existed — after the
 # layout had been written down and restated repeatedly. This is the detector.
-if [ "$LOCAL" -eq 1 ] && command -v worktree-layout-check >/dev/null 2>&1; then
-  if worktree_layout_out="$(worktree-layout-check 2>&1)"; then
+if [ "$LOCAL" -eq 1 ] && command -v north >/dev/null 2>&1; then
+  if worktree_layout_out="$(north worktree-layout-check 2>&1)"; then
     printf '\u2713 %s\n' "$worktree_layout_out"
   else
-    bad "worktree layout drift — run worktree-layout-check for the list"
+    bad "worktree layout drift — run north worktree-layout-check for the list"
     printf '%s\n' "$worktree_layout_out" >&2
   fi
 fi
