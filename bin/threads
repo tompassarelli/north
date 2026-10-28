@@ -950,138 +950,17 @@ def calibration_runs(db):
             for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome NOT IN ('split','running') AND ended IS NOT NULL")]
 
 
-def planner_items(db):
-    groups = {}
-    runs = [dict(r) for r in db.execute("SELECT * FROM runs ORDER BY coalesce(staffed, started, ended), ended, agent")]
-    by_agent = {r["agent"]: r for r in runs}
-    for r in runs:
-        if r["item"] is not None:
-            groups.setdefault(r["item"], []).append(r)
-    items = []
-    for item, rs in groups.items():
-        first = rs[0]
-        begins = [moment(r.get("staffed") or r.get("started") or r["ended"]) -
-                  (timedelta(minutes=r["minutes"]) if not (r.get("staffed") or r.get("started")) else timedelta()) for r in rs]
-        wall = max(0.0, (max(moment(r["ended"]) for r in rs) - min(begins)).total_seconds() / 60)
-        eta = sum(r["eta_min"] or 0 for r in rs)
-        missing_eta = sum(not r["eta_min"] or r["eta_min"] <= 0 for r in rs)
-        ratio = wall / eta if eta > 0 and not missing_eta else None
-        not_done = sum(r["outcome"] == "not done" for r in rs)
-        stops = sum(bool(re.search(r"\bStop:[ \t]*(?:reasoning|decision)\b", r["report"], re.I)) for r in rs)
-        restaffs = sum(bool(r["follows"] and r["follows"] in by_agent) for r in rs)
-        escalations = sum(r["outcome"] == "escalated" or r.get("arm") == "escalate" or
-                          (r["follows"] in by_agent and tier_key(r["tier"]) in TIER_ORDER and
-                           tier_key(by_agent[r["follows"]]["tier"]) in TIER_ORDER and
-                           tier_rank(r["tier"]) > tier_rank(by_agent[r["follows"]]["tier"])) for r in rs)
-        compactions = sum(r["compactions"] or 0 for r in rs)
-        difficulty = sum(math.log1p(v) for v in (ratio or 0, not_done, restaffs, escalations, compactions))
-        signals = sum((stops >= 2, escalations > 0, ratio is not None and ratio > 2))
-        first_outcome = min(moment(r["ended"]) for r in rs)
-        initial_boxes = [r for r in rs if r.get("staffed") or r.get("started")
-                         if moment(r.get("staffed") or r["started"]) < first_outcome]
-        initial_eta = sum(r["eta_min"] or 0 for r in initial_boxes) if initial_boxes else first["eta_min"]
-        prior_not_done, ancestor, seen = None, first["follows"], set()
-        if ancestor:
-            prior_not_done = 0
-            while ancestor:
-                if ancestor in seen or ancestor not in by_agent or moment(by_agent[ancestor]["ended"]) > min(begins):
-                    prior_not_done = None
-                    break
-                seen.add(ancestor)
-                previous = by_agent[ancestor]
-                prior_not_done += previous["outcome"] == "not done"
-                ancestor = previous["follows"]
-        items.append(dict(item=item, runs=len(rs), wall_min=wall, eta_min=eta, missing_eta=missing_eta, ratio=ratio,
-                          not_done=not_done, stops=stops, restaffs=restaffs, escalations=escalations,
-                          compactions=compactions, difficulty=difficulty, benefit=min(2, signals),
-                          off_rails=not_done >= 2 or escalations > 0 or (ratio is not None and ratio > 2),
-                          category=first["category"], scope=first["scope"], surface=first["surface"], initial_eta=initial_eta, prior_not_done=prior_not_done))
-    return items, len(runs), sum(r["item"] is None for r in runs)
-
-
-def planner_cuts(items):
-    rows = sorted(items, key=lambda r: (r["difficulty"], r["item"]))
-    prefix = [[0, 0, 0]]
-    for r in rows:
-        counts = prefix[-1].copy()
-        counts[r["benefit"]] += 1
-        prefix.append(counts)
-    boundaries = [0] + [i for i in range(1, len(rows)) if rows[i - 1]["difficulty"] < rows[i]["difficulty"]] + [len(rows)]
-    best = None
-    for high in boundaries:
-        for maximum in boundaries:
-            if maximum < high:
-                continue
-            correct = prefix[high][0] + prefix[maximum][1] - prefix[high][1] + prefix[-1][2] - prefix[maximum][2]
-            candidate = (correct, high, maximum)
-            if best is None or candidate > best:
-                best = candidate
-    _, high, maximum = best
-    cut = lambda i: rows[i]["difficulty"] if i < len(rows) else math.inf
-    return cut(high), cut(maximum)
-
-
-def planner_prediction(item, training):
-    def distance(other):
-        value = sum(0 if item[k] is not None and item[k] != "unknown" and item[k] == other[k] else 1
-                    for k in ("category", "scope", "surface"))
-        a, b = item["initial_eta"], other["initial_eta"]
-        gap = abs(math.log(a / b)) if a and b and a > 0 and b > 0 else None
-        prior = 0
-        if item.get("prior_not_done") is not None and other.get("prior_not_done") is not None:
-            prior = abs(item["prior_not_done"] - other["prior_not_done"])
-            prior = prior / (1 + prior)
-        return value + (gap / (1 + gap) if gap is not None else 1) + prior
-    near = sorted(training, key=lambda r: (distance(r), r["item"]))[:max(1, math.ceil(math.sqrt(len(training))))]
-    return sum(r["difficulty"] for r in near) / len(near) if near else 0.0
-
-
-def planner_holdout(items):
-    shuffled = sorted(items, key=lambda r: r["item"])
-    random.Random(54).shuffle(shuffled)
-    n = math.ceil(len(shuffled) / 5)
-    withheld, training = shuffled[:n], shuffled[n:]
-    ranked = sorted(withheld, key=lambda r: (-planner_prediction(r, training), r["item"]))
-    top = ranked[:len(withheld) // 10]
-    trials = sum(r["off_rails"] for r in withheld)
-    hits = sum(r["off_rails"] for r in top)
-    p = sum(math.comb(trials, k) * .1 ** k * .9 ** (trials - k) for k in range(hits, trials + 1))
-    return dict(seed=54, training=len(training), withheld=n, top_decile=len(top), off_rails=trials, hits=hits,
-                rate=hits / trials if trials else 0, p=p,
-                passed=trials > 0 and hits / trials > .1 and p < .05)
-
-
-def planner_band(difficulty, high, maximum):
-    return "high" if difficulty < high else "xhigh" if difficulty < maximum else "max"
+def north_ledger(*argv):
+    try:
+        code = subprocess.run([os.environ.get("NORTH_BIN") or "north", "ledger", *argv], env=dict(os.environ, THREADS_DB=DB)).returncode
+    except OSError as e:
+        raise Refused(f"cannot run north ledger {argv[0]}: {e}")
+    if code:
+        raise Refused(f"north ledger {argv[0]} exited {code}")
 
 
 def cmd_planner_band(db, a):
-    items, runs, no_item = planner_items(db)
-    high, maximum = planner_cuts(items)
-    band = lambda r: planner_band(r["difficulty"], high, maximum)
-    counts = [sum(band(r) == b for r in items) for b in ("high", "xhigh", "max")]
-    print(f"backfill runs={runs} items={len(items)} assigned_runs={runs - no_item}")
-    print(f"no Item runs={no_item}")
-    print("difficulty=sum(log1p(wall/ETA, Not done, restaffs, escalations, compactions)); "
-          "wall=first start to last end; ratio omitted unless all runs have positive ETA")
-    out = [("item", "runs", "wall_min", "ETA", "missing_ETA", "ratio", "Not_done", "Stop", "restaffs", "escalations",
-            "compactions", "difficulty", "band")]
-    for r in sorted(items, key=lambda r: (r["difficulty"], r["item"])):
-        out.append((r["item"], r["runs"], f"{r['wall_min']:.1f}", r["eta_min"], r["missing_eta"],
-                    f"{r['ratio']:.3f}" if r["ratio"] is not None else "-", r["not_done"], r["stops"], r["restaffs"],
-                    r["escalations"], r["compactions"], f"{r['difficulty']:.6f}", band(r)))
-    table([tuple(map(str, row)) for row in out])
-    print("cut rule=minimum item classification errors; benefit classes=0/1/2+ signals "
-          "(2+ reasoning/decision Stops, escalation, wall/ETA>2); ties prefer lower effort")
-    print(f"cut points high=[0,{high:.6f}) xhigh=[{high:.6f},{maximum:.6f}) max=[{maximum:.6f},inf)")
-    shares = [100 * n / len(items) if items else 0 for n in counts]
-    print(f"measured high/xhigh/max={shares[0]:.2f}/{shares[1]:.2f}/{shares[2]:.2f}% "
-          f"items={counts[0]}/{counts[1]}/{counts[2]} prior=90/8/2%")
-    h = planner_holdout(items)
-    print("held-out ranking=nearest sqrt(training n) items by initial category/scope/surface/ETA and observed prior Not dones; training outcomes only")
-    print(f"held-out seed={h['seed']} training={h['training']} items={h['withheld']} top_decile={h['top_decile']} "
-          f"off_rails={h['off_rails']} hits={h['hits']} rate={h['rate']:.2%} chance=10% "
-          f"binomial_p={h['p']:.8g} alpha=0.05 {'PASS' if h['passed'] else 'FAIL'}")
+    north_ledger("planner-band")
 
 
 ROUTING_CAMPAIGN_START = "2026-10-12T12:27:27Z"
@@ -1310,14 +1189,7 @@ def cmd_recommend(db, a):
     if "category" not in asked or asked["category"] not in CATEGORIES:
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
     if a.planner:
-        try:
-            code = subprocess.run([os.environ.get("NORTH_BIN") or "north", "ledger", "recommend", "--planner", a.facets],
-                                  env=dict(os.environ, THREADS_DB=DB)).returncode
-        except OSError as e:
-            raise Refused(f"cannot run north ledger recommend --planner: {e}")
-        if code:
-            raise Refused(f"north ledger recommend --planner exited {code}")
-        return
+        return north_ledger("recommend", "--planner", a.facets)
     asked = {k: v for k, v in asked.items() if k in GROUPS}
     operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
     config = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml")
@@ -1547,7 +1419,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--planner", action="store_true", help="measured planner effort band from nearest past items")
     s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")
     s.add_argument("--since", help="only runs that ended on or after DATE")
-    cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and fixed-seed held-out check")
+    cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and leave-one-out accuracy per input set")
     cmd("routing-compare", cmd_routing_compare, "read-only campaign arms by category: landed items, speed, quality, review minutes and account points")
     s = cmd("calibrate", cmd_calibrate,
             f"predicted against actual per provider: eta (minutes / brief ETA), eta_pred (minutes / recommend's p75 "

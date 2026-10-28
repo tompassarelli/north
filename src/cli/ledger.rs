@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use crate::error::{NorthError, NorthResult};
 use crate::ledger::{self, Ledger};
 
-const USAGE: &str = "Usage: north ledger runs [--json] | north ledger recommend --planner FACETS | north ledger summary [--json] [--since 24h] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD...";
+const USAGE: &str = "Usage: north ledger runs [--json] | north ledger recommend --planner FACETS | north ledger planner-band | north ledger summary [--json] [--since 24h] | north ledger claude-runs --settled FILE --recorded FILE [--session ID] [--since DATE] | north task landed REF SHA | north task check REF -- CMD...";
 
 pub fn run(arguments: &[String]) -> ExitCode {
     let outcome = match arguments {
@@ -12,7 +12,10 @@ pub fn run(arguments: &[String]) -> ExitCode {
             crate::providers::claude::runs::run(rest).map(|()| ExitCode::SUCCESS)
         }
         [ledger, verb, rest @ ..] if ledger == "ledger" && verb == "summary" && rest.iter().any(|word| word == "--since") => closed_summary(rest),
-        [ledger, verb, planner, facets] if ledger == "ledger" && verb == "recommend" && planner == "--planner" => planner_band(facets),
+        [ledger, verb, planner, facets] if ledger == "ledger" && verb == "recommend" && planner == "--planner" => {
+            print_threads_report(|database| ledger::planner::recommend(database, facets))
+        }
+        [ledger, verb] if ledger == "ledger" && verb == "planner-band" => print_threads_report(ledger::planner::band_readout),
         _ => Ledger::open_default().and_then(|store| dispatch(&store, arguments)),
     };
     match outcome {
@@ -67,11 +70,11 @@ fn closed_summary(words: &[String]) -> NorthResult<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn planner_band(facets: &str) -> NorthResult<ExitCode> {
+fn print_threads_report(report: impl FnOnce(&std::path::Path) -> NorthResult<String>) -> NorthResult<ExitCode> {
     let database = match std::env::var_os("THREADS_DB").filter(|value| !value.is_empty()) {
         Some(path) => PathBuf::from(path),
         None => PathBuf::from(std::env::var_os("HOME").ok_or_else(|| NorthError::Configuration("HOME is not set".into()))?).join(".local/state/threads/threads.db"),
     };
-    print!("{}", ledger::planner::recommend(&database, facets)?);
+    print!("{}", report(&database)?);
     Ok(ExitCode::SUCCESS)
 }

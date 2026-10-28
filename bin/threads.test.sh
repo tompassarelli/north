@@ -100,7 +100,7 @@ check '[measurement] ETA p75 uses three fixture durations 5,5,20 and backs off t
   '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^insufficient evidence  "'
 
 python3 - "$threads" "$scratch/planner.db" "$scratch/planner-state" <<'PYBAND' >"$scratch/planner.out" 2>&1
-import hashlib, importlib.machinery, importlib.util, json, math, os, random, re, sqlite3, subprocess, sys
+import hashlib, importlib.machinery, importlib.util, math, os, re, sqlite3, subprocess, sys
 from pathlib import Path
 threads, db_path, state = sys.argv[1:]
 os.environ["THREADS_DB"] = db_path
@@ -121,7 +121,7 @@ for i in range(1, 101):
 for i in range(2):
     db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome) VALUES(?,?,?,?,?,?)",
                (f"no-item-{i}", "medium", "unknown", "2026-10-01T01:00:00Z", 10, "unclear"))
-items, run_n, no_item = mod.planner_items(db)
+db.execute("INSERT INTO runs(agent,item,tier,category,started,ended,minutes,outcome) VALUES('live','north#101','high','feature','2026-10-01T02:00:00Z','',0,'running')")
 db.close()
 env = {**os.environ, "XDG_STATE_HOME": state, "PYTHONDONTWRITEBYTECODE": "1"}
 before = hashlib.sha256(Path(db_path).read_bytes()).digest()
@@ -130,50 +130,27 @@ case_failures = []
 try:
     assert proc.returncode == 0, proc.stderr
     assert hashlib.sha256(Path(db_path).read_bytes()).digest() == before, "readout changed the ledger"
-    c = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    expected = c.execute("SELECT count(*),count(distinct item),sum(item is null) FROM runs").fetchone()
-    observed = re.search(r"backfill runs=(\d+) items=(\d+)", proc.stdout)
-    assert tuple(map(int, observed.groups())) == expected[:2], (proc.stdout, expected)
-    assert f"no Item runs={expected[2]}\n" in proc.stdout and run_n == expected[0] and len(items) == expected[1]
-    last = next(r for r in items if r["item"] == "north#100")
-    assert (last["wall_min"], last["eta_min"], last["not_done"], last["stops"], last["restaffs"], last["escalations"],
-            last["compactions"]) == (60, 20, 2, 2, 1, 1, 4), last
-    assert math.isclose(last["difficulty"], math.log(4) + math.log(3) + 2 * math.log(2) + math.log(5)), last
+    assert "backfill runs=108 items=100 assigned_runs=106\nno Item runs=2\n" in proc.stdout, proc.stdout
+    last = next(line.split() for line in proc.stdout.splitlines() if line.startswith("north#100 "))
+    assert last[1:11] == ["2", "60.0", "20", "0", "3.000", "2", "2", "1", "1", "4"], last
+    assert math.isclose(float(last[11]), math.log(4) + math.log(3) + 2 * math.log(2) + math.log(5), rel_tol=1e-6), last
 except AssertionError as error:
     case_failures.append(str(error))
 else:
     print("backfill ok")
 try:
-    high, maximum = mod.planner_cuts(items)
-    assert math.isclose(high, math.log(4)) and maximum > high
+    cut = re.search(r"cut points high=\[0,([0-9.]+)\) xhigh=\[[0-9.]+,([0-9.]+)\)", proc.stdout)
+    high, maximum = map(float, cut.groups())
+    assert math.isclose(high, math.log(4), rel_tol=1e-6) and maximum > high, proc.stdout
     assert "measured high/xhigh/max=90.00/5.00/5.00% items=90/5/5 prior=90/8/2%" in proc.stdout, proc.stdout
-    assert all((0 if r["difficulty"] < high else 1 if r["difficulty"] < maximum else 2) == r["benefit"] for r in items)
+    assert re.search(r"^always the most common band +none +\d+/100 ", proc.stdout, re.M) and re.search(r"^band vote +category scope surface eta prior repository +\d+/100 ", proc.stdout, re.M), proc.stdout
 except AssertionError as error:
     case_failures.append(str(error))
 else:
     print("cuts ok")
 try:
-    held = mod.planner_holdout(items)
-    assert (held["training"], held["withheld"], held["top_decile"], held["off_rails"], held["hits"]) == (80, 20, 2, 2, 2), held
-    assert math.isclose(held["p"], .01) and held["passed"], held
-    shuffled = sorted(items, key=lambda r: r["item"])
-    random.Random(54).shuffle(shuffled)
-    withheld_ids = {r["item"] for r in shuffled[:20]}
-    changed = [{**r, **({"difficulty": 1e6, "not_done": 900, "ratio": 100, "escalations": 90} if r["item"] in withheld_ids else {})}
-               for r in items]
-    assert mod.planner_holdout(changed) == held, "held-out outcomes leaked into rankings"
-    for r in changed:
-        r["off_rails"] = True
-    failed = mod.planner_holdout(changed)
-    assert (failed["hits"], failed["off_rails"]) == (2, 20) and not failed["passed"] and failed["p"] > .05, failed
-    assert "held-out seed=54 training=80 items=20 top_decile=2 off_rails=2 hits=2 rate=100.00% chance=10% binomial_p=0.01 alpha=0.05 PASS" in proc.stdout
-except AssertionError as error:
-    case_failures.append(str(error))
-else:
-    print("holdout ok")
-try:
     recommendation = subprocess.run([str(Path(threads).with_name("worker-ledger")), "--recommend", "--planner",
-        "Category: feature, Scope: module, Surface: shell, Summed box ETA: 10m, Prior Not dones: 2"],
+        "Item: north#1, Category: feature, Scope: module, Surface: shell, Summed box ETA: 10m, Prior Not dones: 2"],
         env=env, capture_output=True, text=True)
     assert recommendation.returncode == 0, recommendation.stderr
     assert recommendation.stdout.startswith("planner xhigh  "), recommendation.stdout
@@ -191,13 +168,10 @@ else:
 assert not case_failures, case_failures
 PYBAND
 out=$(cat "$scratch/planner.out")
-check '[recorded] planner backfill counts every run and distinct item without ledger writes; realized components include linked Follows runs' \
+check '[recorded] planner-band reaches north ledger planner-band, counts every run and distinct item without ledger writes, skips a running item with an empty end time, and sums linked Follows runs' \
   'grep -qx "backfill ok" <<<"$out"'
-check '[measurement] planner cut points separate known zero/one/multiple payoff signals and print their measured split beside the prior' \
+check '[measurement] planner cut points separate known zero/one/multiple payoff signals and print their measured split beside the prior and the leave-one-out table' \
   'grep -qx "cuts ok" <<<"$out"'
-check '[recorded] planner fixed-seed held-out binomial check keeps withheld outcomes out of ranking and reports a failed chance-level fixture' \
-  'grep -qx "holdout ok" <<<"$out"'
-
 check '[recorded] planner recommendation uses measured bands and prints the realized band and planner-effort shares through worker-ledger' \
   'grep -qx "recommend planner ok" <<<"$out"'
 
