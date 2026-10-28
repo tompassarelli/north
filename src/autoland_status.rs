@@ -270,7 +270,7 @@ fn patch_ids(arguments: &[&str]) -> Option<String> {
     .and_then(|output| String::from_utf8(output.stdout).ok())
 }
 
-fn landed_commit(candidate: &str, destination: &str) -> Option<String> {
+pub fn landed_commit(candidate: &str, destination: &str) -> Option<String> {
     if process::run_within(
         "git",
         &["merge-base", "--is-ancestor", candidate, destination],

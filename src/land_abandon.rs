@@ -1,4 +1,4 @@
-use crate::autoland_status::{git_output, read_gh, status};
+use crate::autoland_status::{git_output, landed_commit, read_gh, status};
 use std::process::{Command, Stdio};
 
 fn lane_land_branch() -> Option<String> {
@@ -20,9 +20,10 @@ fn lane_land_branch() -> Option<String> {
 
 fn superseded(tip: &str, destination: &str) -> Option<bool> {
     let lane = git_output(&[
-        "log",
+        "rev-list",
         "--no-merges",
-        "--format=%s",
+        "--format=%H %s",
+        "--no-commit-header",
         tip,
         &format!("^{destination}"),
     ])?;
@@ -33,23 +34,48 @@ fn superseded(tip: &str, destination: &str) -> Option<bool> {
         "--format=%s",
         &format!("{}..{destination}", base.trim()),
     ])?;
-    Some(
-        lane.lines()
-            .all(|subject| landed.lines().any(|other| other == subject)),
-    )
+    Some(lane.lines().all(|line| {
+        let (sha, subject) = line.split_once(' ').unwrap_or((line, ""));
+        landed.lines().any(|other| other == subject) || landed_commit(sha, destination).is_some()
+    }))
+}
+
+enum Abandon {
+    LandBranch(Option<String>),
+    Superseded(String),
+}
+
+impl Abandon {
+    fn parse(arguments: &[String]) -> Option<Self> {
+        match arguments {
+            [] => Some(Self::LandBranch(lane_land_branch())),
+            [flag, branch] if flag == "--superseded" => Some(Self::Superseded(branch.clone())),
+            [branch] => Some(Self::LandBranch(Some(branch.clone()))),
+            _ => None,
+        }
+    }
+
+    fn branch(self) -> Option<(String, bool)> {
+        match self {
+            Self::LandBranch(branch) => branch
+                .filter(|branch| branch.starts_with("claude/land-"))
+                .map(|branch| (branch, false)),
+            Self::Superseded(branch) => (branch.starts_with("claude/")
+                || branch.starts_with("farm/"))
+            .then_some((branch, true)),
+        }
+    }
 }
 
 pub fn abandon(arguments: &[String]) -> u8 {
-    let branch = match arguments {
-        [] => lane_land_branch(),
-        [branch] => Some(branch.clone()),
-        _ => {
-            eprintln!("Usage: north land-abandon [BRANCH]");
-            return 2;
-        }
+    let Some(request) = Abandon::parse(arguments) else {
+        eprintln!("Usage: north land-abandon [BRANCH | --superseded BRANCH]");
+        return 2;
     };
-    let Some(branch) = branch.filter(|branch| branch.starts_with("claude/land-")) else {
-        eprintln!("safe-push: abandon refuses anything but a claude/land-* branch; NOT deleted.");
+    let Some((branch, only_superseded)) = request.branch() else {
+        eprintln!(
+            "safe-push: abandon refuses anything but a claude/land-* branch (claude/* or farm/* with --superseded); NOT deleted."
+        );
         return 1;
     };
     let head = git_output(&["ls-remote", "--symref", "origin", "HEAD"]).unwrap_or_default();
@@ -75,12 +101,17 @@ pub fn abandon(arguments: &[String]) -> u8 {
     ]);
     let state = status(&tip, &branch, read_gh);
     let verdict = if fetched.is_some() && superseded(&tip, &tracking) == Some(true) {
-        format!("every lane commit's subject is on origin/{destination}")
-    } else if matches!(state.split('\t').next(), Some("error" | "failure")) {
+        format!("every lane commit is on origin/{destination} by subject or patch")
+    } else if !only_superseded && matches!(state.split('\t').next(), Some("error" | "failure")) {
         format!("Autoland handed it back: {}", state.replace('\t', " "))
     } else {
         eprintln!(
-            "safe-push: {branch} is neither superseded on origin/{destination} nor handed back by Autoland; NOT deleted."
+            "safe-push: {branch} is not superseded on origin/{destination}{}; NOT deleted.",
+            if only_superseded {
+                ""
+            } else {
+                " and not handed back by Autoland"
+            }
         );
         return 1;
     };

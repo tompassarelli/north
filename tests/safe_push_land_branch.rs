@@ -293,3 +293,103 @@ fn bare_land_abandon_fails_with_the_push_error_when_origin_refuses_the_delete() 
     assert!(!String::from_utf8_lossy(&output.stdout).contains("deleted"));
     assert_eq!(lane.land_branches(), vec![superseded]);
 }
+
+
+fn push_branch(lane: &Lane, branch: &str, file: &str, content: &str, subject: &str) -> String {
+    git(&lane.repo, &["switch", "-q", "main"]);
+    git(&lane.repo, &["switch", "-qc", "scratch-source"]);
+    fs::write(lane.repo.join(file), content).unwrap();
+    git(&lane.repo, &["add", file]);
+    git(&lane.repo, &["commit", "-qm", subject]);
+    git(
+        &lane.repo,
+        &["push", "-q", "origin", &format!("HEAD:refs/heads/{branch}")],
+    );
+    let tip = git(&lane.repo, &["rev-parse", "HEAD"]);
+    git(&lane.repo, &["switch", "-q", "main"]);
+    git(&lane.repo, &["branch", "-qD", "scratch-source"]);
+    tip
+}
+
+fn origin_has(lane: &Lane, branch: &str) -> bool {
+    !git(
+        &lane.origin,
+        &["for-each-ref", &format!("refs/heads/{branch}")],
+    )
+    .is_empty()
+}
+
+#[test]
+fn abandon_superseded_deletes_a_claude_or_farm_branch_only_when_main_holds_every_commit() {
+    let lane = Lane::new();
+    let by_subject = "claude/effect-upgrade-4.0.2-1";
+    let by_patch = "farm/ll177-perf-split";
+    let unlanded = "claude/voodoo51-base";
+    push_branch(
+        &lane,
+        by_subject,
+        "bump",
+        "4.0.2\n",
+        "Upgrade Effect to 4.0.2",
+    );
+    push_branch(&lane, by_patch, "perf", "split\n", "Split the perf run");
+    push_branch(&lane, unlanded, "extra", "only here\n", "Measure voodoo51");
+    push_branch(&lane, "probe/sc-324-dash", "dash", "x\n", "Probe dash");
+
+    git(&lane.repo, &["switch", "-q", "main"]);
+    fs::write(lane.repo.join("bump"), "4.0.3\n").unwrap();
+    git(&lane.repo, &["add", "bump"]);
+    git(&lane.repo, &["commit", "-qm", "Upgrade Effect to 4.0.2"]);
+    fs::write(lane.repo.join("perf"), "split\n").unwrap();
+    git(&lane.repo, &["add", "perf"]);
+    git(
+        &lane.repo,
+        &["commit", "-qm", "Perf split landed under another name"],
+    );
+    git(&lane.repo, &["push", "-q", "origin", "main"]);
+
+    for refused in [unlanded, "probe/sc-324-dash", "main"] {
+        let output = lane.run(&["abandon", "--superseded", refused]);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{refused}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert!(origin_has(&lane, unlanded));
+    assert!(origin_has(&lane, "probe/sc-324-dash"));
+    assert!(origin_has(&lane, "main"));
+    let plain = lane.run(&["abandon", unlanded]);
+    assert_eq!(plain.status.code(), Some(1));
+    fs::write(
+        lane.root.join("status"),
+        "error\tAutoland workflow failed\thttps://example.test/run\n",
+    )
+    .unwrap();
+    let handed_back = lane.run(&["abandon", "--superseded", unlanded]);
+    assert_eq!(
+        handed_back.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&handed_back.stderr)
+    );
+    assert!(origin_has(&lane, unlanded));
+    fs::write(
+        lane.root.join("status"),
+        "pending\tAutoland workflow queued\thttps://example.test/run\n",
+    )
+    .unwrap();
+
+    for branch in [by_subject, by_patch] {
+        let output = lane.run(&["abandon", "--superseded", branch]);
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{branch}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!origin_has(&lane, branch));
+    }
+    assert!(origin_has(&lane, unlanded));
+}

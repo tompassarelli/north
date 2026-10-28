@@ -113,7 +113,7 @@ usage() {
   cat <<'USAGE'
 Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
        safe-push [--dry-run] --tag NAME
-       safe-push abandon [BRANCH]
+       safe-push abandon [BRANCH | --superseded BRANCH]
 
 Check instruction limits and scan secrets, then push the current branch or one tag.
 Repository AGENTS.md: 100 lines.
@@ -151,8 +151,11 @@ Options:
   --tag NAME   push an existing annotated tag after scanning new content
   -h, --help   print this help without inspecting a repository
   abandon      delete this lane's claude/land-<lane>-<sha>, or BRANCH, from
-               origin once main holds each of its commit subjects or Autoland
-               handed it back; any other branch is refused
+               origin once main holds each of its commits by subject or patch
+               or Autoland handed it back; with --superseded, a claude/* or
+               farm/* BRANCH goes only once each of its commits is on origin by
+               subject or patch, whatever Autoland reported; any other branch
+               is refused
 
 On a non-default branch, plain "safe-push" (no --to/--tag) is refused —
 one-branch-main doctrine: origin carries the default branch only. Publish
