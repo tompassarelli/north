@@ -33,6 +33,21 @@ esac
 common=$(realpath "$(git rev-parse --git-common-dir)")
 uid=$(id -u)
 
+root_shell() {
+  local roots=$home/.local/state/depbox/shell-roots key
+  [ -f "$top/flake.nix" ] && [ -f "$top/flake.lock" ] && command -v nix >/dev/null || return 0
+  key=$(git -C "$top" ls-files -z -- '*.nix' flake.lock 'rust-toolchain*' | (cd "$top" && xargs -0 cat 2>/dev/null) | sha256sum | cut -c1-16)
+  mkdir -p "$roots"
+  find "$roots" -maxdepth 1 \( -type l -o -name '*.lock' \) -mtime +7 -delete
+  find "$roots" -maxdepth 1 -type l -lname /dev/null -mtime +0 -delete
+  if [ ! -e "$roots/$key" ]; then
+    rm -f "$roots/$key" "$roots/$key"-*-link
+    nix print-dev-env "$top" --no-update-lock-file --profile "$roots/$key" >/dev/null || { printf 'depbox: no dev shell to root\n' >&2; ln -sn /dev/null "$roots/$key"; }
+  fi
+  [ "$(readlink "$roots/$key")" = /dev/null ] || touch -h "$roots/$key"*
+}
+root_shell || true
+
 args=(
   --ro-bind / /
   --dev /dev
