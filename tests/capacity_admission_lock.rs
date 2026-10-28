@@ -8,7 +8,7 @@ use std::process::Stdio;
 fn host(first: &str) -> Host {
     let host = Host::new("capacity-admission-lock-", &[]);
     let shim = format!(
-        "#!/bin/sh\necho enter >>{log}\nif mkdir {first_dir} 2>/dev/null; then : >{holding}; {first}; fi\n{north} \"$@\"\nstatus=$?\necho leave >>{log}\nexit $status\n",
+        "#!/bin/sh\ncase \"$2\" in admission) ;; *) exec {north} \"$@\" ;; esac\necho enter >>{log}\nif mkdir {first_dir} 2>/dev/null; then : >{holding}; {first}; fi\n{north} \"$@\"\nstatus=$?\necho leave >>{log}\nexit $status\n",
         log = host.path("admissions").display(),
         first_dir = host.path("first").display(),
         holding = host.path("holding").display(),

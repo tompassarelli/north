@@ -1,13 +1,9 @@
 import {
   appendFileSync,
-  closeSync,
   existsSync,
-  fstatSync,
   mkdirSync,
-  openSync,
   readFileSync,
   readdirSync,
-  readSync,
   realpathSync,
   rmSync,
   statSync,
@@ -41,8 +37,6 @@ import {
   gpuBusyObservation,
   gpuBusyLimitPercent,
   topUnleasedGpuProcess,
-  sessionFromArgs,
-  sessionProviders,
 } from './machine-capacity-logic.ts';
 const subslice = process.env.AGENT_CAPACITY_SUBSLICE ? `-${process.env.AGENT_CAPACITY_SUBSLICE}` : '';
 const aggregateSlice = `agent-capacity${subslice}.slice`;
@@ -661,52 +655,6 @@ function readUsage(root, id) {
   }
 }
 
-const unleasedCoreThreshold = 1;
-const unleasedStaleMilliseconds = 90000;
-const unleasedSkipped = /^(session\.slice|native\.slice|init\.scope|agent\.slice\/agent-capacity\.slice)(\/|$)/;
-
-function lastLine(path) {
-  let fd;
-  try {
-    fd = openSync(path, 'r');
-  } catch {
-    return null;
-  }
-  try {
-    const size = fstatSync(fd).size;
-    const length = Math.min(size, 65536);
-    const buffer = Buffer.alloc(length);
-    readSync(fd, buffer, 0, length, size - length);
-    return buffer.toString('utf8').trimEnd().split('\n').at(-1) ?? null;
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function readUnleased() {
-  const directory = process.env.CAPACITY_WATCHDOG_DIR ?? join(process.env.HOME ?? '', '.local/state/agents/watchdog');
-  try {
-    const sample = JSON.parse(lastLine(join(directory, 'samples.jsonl')) ?? 'null');
-    const now = Number(process.env.AGENT_CAPACITY_NOW ?? Date.now());
-    if (sample === null || now - Date.parse(sample.at) > unleasedStaleMilliseconds) return null;
-    const heavy = sample.cgroups
-      .filter(({ cgroup, cores }) => cores > unleasedCoreThreshold && !unleasedSkipped.test(cgroup)
-        && !sample.cgroups.some(other => other.cgroup.startsWith(`${cgroup}/`)))
-      .map(({ cgroup, cores }) => ({
-        cgroup, cores: round(cores),
-        top: (sample.top ?? []).filter(item => item.cgroup === cgroup).slice(0, 3)
-          .map(({ pid, cores: used, command }) => ({ pid, cores: used, command })),
-      }));
-    const sessions = (sample.top ?? []).filter(item => item.cores >= 0.25
-      && sessionProviders.has((item.command.split(' ')[0] ?? '').split('/').at(-1)))
-      .slice(0, 5).map(({ pid, cores, command }) => ({ pid, session: sessionFromArgs(command.split(' ')), cores, command }));
-    const agentResidual = Math.max(0, (sample.cgroups.find(entry => entry.cgroup === 'agent.slice')?.cores ?? 0) - (sample.cgroups.find(entry => entry.cgroup === 'agent.slice/agent-capacity.slice')?.cores ?? 0) - heavy.filter(({ cgroup }) => cgroup.startsWith('agent.slice/')).reduce((sum, entry) => sum + entry.cores, 0));
-    return { heavy, sessions, agentResidualCores: round(agentResidual), cores: round(heavy.reduce((sum, entry) => sum + entry.cores, 0) + agentResidual), windowSeconds: Math.round(sample.intervalSeconds) };
-  } catch {
-    return null;
-  }
-}
-
 function readLeases(root, now) {
   const directory = join(root, 'leases');
   let reclaimed = 0;
@@ -825,11 +773,15 @@ function markNativeWaiting(root, waiting) {
 
 const admittedClass = requested => requested.landing ? 'critical' : requested.name;
 
-function admission(facts) {
-  const result = Bun.spawnSync([northCommand, 'capacity', 'admission'], { stdin: Buffer.from(JSON.stringify(facts)), stdout: 'pipe', stderr: 'pipe' });
-  if (result.exitCode !== 0) fail(`north capacity admission failed: ${result.stderr.toString().trim()}`, 75);
+function northJson(subcommand, input, fallback) {
+  const result = Bun.spawnSync([northCommand, 'capacity', subcommand], { stdin: Buffer.from(JSON.stringify(input ?? null)), stdout: 'pipe', stderr: 'pipe' });
+  if (result.exitCode !== 0 && fallback !== undefined) return fallback;
+  if (result.exitCode !== 0) fail(`north capacity ${subcommand} failed: ${result.stderr.toString().trim()}`, 75);
   return JSON.parse(result.stdout.toString());
 }
+
+const admission = facts => northJson('admission', facts);
+const readUnleased = () => northJson('unleased', null, null);
 
 function decision(root, requested, create, ticket = null) {
   const before = requested.name === 'native' && !process.env.AGENT_CAPACITY_GPU_BUSY ? takeGpuProcessSample() : null;

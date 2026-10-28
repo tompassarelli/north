@@ -8,6 +8,7 @@ mod aperture;
 pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
 mod game_reserve;
+mod unleased;
 mod deadline;
 mod lease_deadline;
 mod warcraft;
@@ -15,6 +16,8 @@ mod warcraft;
 mod agent_load_tests;
 #[cfg(test)]
 mod game_reserve_tests;
+#[cfg(test)]
+mod unleased_tests;
 #[cfg(test)]
 mod tests;
 
@@ -36,8 +39,9 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("game-reserve") => game_reserve::run(&arguments[1..]),
         Some("deadline") => deadline::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
+        Some("unleased") if arguments.len() == 1 => unleased::run(),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | unleased");
             2
         }
     };

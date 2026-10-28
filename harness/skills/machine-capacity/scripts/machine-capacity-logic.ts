@@ -299,12 +299,3 @@ export function runningCpuCommitment(kind: string, measuredCores: number | null,
   return quota !== null && cpus > quota ? { cpus: quota, basis: 'scope-quota' }
     : { cpus, basis: measured === null ? 'estimate-missing-measurement' : kind === 'native' ? 'native-measured' : 'measured-or-estimate' };
 }
-
-export const sessionProviders = new Set(['claude', 'codex']);
-
-export function sessionFromArgs(args: readonly string[]): string | null {
-  for (let index = 0; index < args.length - 1; index += 1) {
-    if (['--session-id', '--resume', 'resume'].includes(args[index]) && /^[0-9a-f-]{32,36}$/.test(args[index + 1])) return args[index + 1];
-  }
-  return null;
-}
