@@ -3,6 +3,10 @@ use serde_json::Value;
 use std::thread;
 use std::time::Duration;
 
+mod evidence;
+pub(crate) use evidence::{git_output, landed_commit};
+use evidence::{branch_gone_from_origin, landed_by_subject};
+
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
@@ -237,10 +241,12 @@ pub fn wait(arguments: &[String]) -> u8 {
                 ),
             ];
             let _ = process::run_within("git", &fetch, Duration::from_secs(30));
-            landed_commit(
-                candidate,
-                &format!("refs/remotes/origin/{}", options.destination),
-            )
+            let destination = format!("refs/remotes/origin/{}", options.destination);
+            landed_commit(candidate, &destination).or_else(|| {
+                branch_gone_from_origin(&options.branch)
+                    .then(|| landed_by_subject(&options.sha, &destination))
+                    .flatten()
+            })
         },
         |seconds| thread::sleep(Duration::from_secs(seconds)),
     );
@@ -250,64 +256,6 @@ pub fn wait(arguments: &[String]) -> u8 {
     } else {
         0
     }
-}
-
-pub(crate) fn git_output(arguments: &[&str]) -> Option<String> {
-    process::run_within("git", arguments, Duration::from_secs(30))
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-}
-
-fn patch_ids(arguments: &[&str]) -> Option<String> {
-    let patches = git_output(arguments)?;
-    process::run_with_input_within(
-        "git",
-        &["patch-id", "--stable"],
-        Some(patches.as_bytes()),
-        Duration::from_secs(30),
-    )
-    .filter(|output| output.status.success())
-    .and_then(|output| String::from_utf8(output.stdout).ok())
-}
-
-pub fn landed_commit(candidate: &str, destination: &str) -> Option<String> {
-    if process::run_within(
-        "git",
-        &["merge-base", "--is-ancestor", candidate, destination],
-        Duration::from_secs(30),
-    )
-    .is_some_and(|output| output.status.success())
-    {
-        return git_output(&["rev-parse", "--verify", &format!("{candidate}^{{commit}}")])
-            .map(|sha| sha.trim().to_owned());
-    }
-    let base = git_output(&["merge-base", candidate, destination])?;
-    let original = patch_ids(&[
-        "show",
-        "--no-ext-diff",
-        "--no-color",
-        "--binary",
-        "--format=commit %H",
-        candidate,
-    ])?;
-    let patch = original.split_whitespace().next()?;
-    let range = format!("{}..{destination}", base.trim());
-    let landed = patch_ids(&[
-        "log",
-        "--no-ext-diff",
-        "--no-color",
-        "--binary",
-        "--format=commit %H",
-        "-p",
-        "--no-merges",
-        &range,
-    ])?;
-    landed.lines().find_map(|line| {
-        let mut fields = line.split_whitespace();
-        (fields.next()? == patch)
-            .then(|| fields.next().map(str::to_owned))
-            .flatten()
-    })
 }
 
 #[cfg(test)]
