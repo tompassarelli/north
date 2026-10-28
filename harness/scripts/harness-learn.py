@@ -36,32 +36,22 @@ def rows(text):
 
 def collect(args, now):
     proposals, sources = [], []
-    for label, command, suffix in (
-        ("defaults", args.defaults_command, []),
-        ("pace", args.pace_command, ["--propose", "--json"]),
-    ):
-        if not command:
-            sources.append({"source": label, "status": "absent"})
-            continue
+    fresh = {"produced_at": now.isoformat()}
+    reads = [(label, command and (lambda command=command, suffix=suffix: run(shlex.split(command) + suffix, args.repo)), fresh)
+             for label, command, suffix in (("defaults", args.defaults_command, []),
+                                            ("pace", args.pace_command, ["--propose", "--json"]))]
+    reads += [(str(path), path.read_text, {}) for path in dict.fromkeys(sorted((args.state / "proposals").glob("*.jsonl")) + args.proposals)]
+    for label, read, extra in reads:
         try:
-            proposals.extend({"produced_at": now.isoformat(), **row,
-                              "dimension": row.get("dimension") or row.get("report") or label}
-                             for row in rows(run(shlex.split(command) + suffix, args.repo)))
+            if not read:
+                raise FileNotFoundError
+            proposals.extend({**extra, **row, "dimension": row.get("dimension") or row.get("report") or Path(label).stem}
+                             for row in rows(read()))
             sources.append({"source": label, "status": "read"})
         except FileNotFoundError:
             sources.append({"source": label, "status": "absent"})
         except (RuntimeError, ValueError, TypeError) as error:
             sources.append({"source": label, "status": "error", "reason": str(error)})
-    files = sorted((args.state / "proposals").glob("*.jsonl")) + args.proposals
-    for path in dict.fromkeys(files):
-        try:
-            proposals.extend(dict(row, dimension=row.get("dimension") or row.get("report") or path.stem)
-                             for row in rows(path.read_text()))
-            sources.append({"source": str(path), "status": "read"})
-        except FileNotFoundError:
-            sources.append({"source": str(path), "status": "absent"})
-        except (ValueError, TypeError) as error:
-            sources.append({"source": str(path), "status": "error", "reason": str(error)})
     return proposals, sources
 
 
@@ -148,18 +138,20 @@ def land(args, row, now, revert=False):
 
 
 def history(path):
-    active, reverted = {}, {}
+    active, reverted, failed = {}, {}, {}
     if path.exists():
         for cycle in rows(path.read_text()):
             for row in cycle["proposals"]:
                 key = row.get("default")
-                if row["verdict"] == "landed":
+                if row["verdict"] == "failed":
+                    failed[(row.get("action"), key, json.dumps(row["proposed"]))] = stamp(cycle["time"]).date()
+                elif row["verdict"] == "landed":
                     active[key] = row
                 elif row["verdict"] in ("reverted", "kept"):
                     active.pop(key, None)
                     if row["verdict"] == "reverted":
                         reverted[(key, json.dumps(row["proposed"], sort_keys=True))] = max(row["n"], row.get("trial_n", 0))
-    return active, reverted
+    return active, reverted, failed
 
 
 def oriented(row, trial):
@@ -191,7 +183,8 @@ def cycle(args):
     minimum = DEFAULTS["learn_min_n"]
     verdicts, sources = [], []
     try:
-        active, reverted = history(args.state / "cycles.jsonl")
+        active, reverted, failed = history(args.state / "cycles.jsonl")
+        tried = lambda row: failed.get((row["action"], row.get("default"), json.dumps(row.get("proposed")))) == now.date()
         proposals, sources = collect(args, now)
         changed = set()
         for name, trial in active.copy().items():
@@ -212,7 +205,7 @@ def cycle(args):
                     result = dict(row, action="rejudge", trial_sha=trial["sha"], trial_n=trial["n"],
                                   verdict="waited", reason=reason)
                     if verdict == "rejected":
-                        sha, failure = attempt(args, row, now, revert=True)
+                        sha, failure = (None, ("waited", "landing failed today")) if tried(result) else attempt(args, row, now, revert=True)
                         if failure:
                             result["verdict"], result["reason"] = failure
                         else:
@@ -240,6 +233,8 @@ def cycle(args):
                     verdict, reason = "waited", "reverted value needs more evidence"
                 elif row.get("current") == row.get("proposed"):
                     verdict, reason = "waited", "unchanged value"
+                elif tried(result):
+                    verdict, reason = "waited", "landing failed today"
                 else:
                     sha, failure = attempt(args, row, now)
                     if failure:

@@ -101,19 +101,15 @@ class LearningCycle(unittest.TestCase):
             fresh = proposal(since=first[0]["landed_at"], ci_low=-0.05, ci_high=0.15)
             self.assertEqual(execute([fresh], tomorrow)[0]["verdict"], "waited")
             self.assertEqual(command("git", "rev-parse", "origin/main"), landed)
-            loss = dict(fresh, ci_low=-0.3, ci_high=-0.1)
-            reverted = execute([loss], tomorrow)
-            self.assertEqual(reverted[0]["verdict"], "reverted")
+            self.assertEqual(execute([dict(fresh, ci_low=-0.3, ci_high=-0.1)], tomorrow)[0]["verdict"], "reverted")
             revert_sha = command("git", "rev-parse", "origin/main")
             self.assertEqual(command("git", "rev-list", "--count", f"{landed}..{revert_sha}"), "1")
             self.assertEqual(command("git", "rev-parse", f"{revert_sha}^"), landed)
-            restored = tomllib.loads(command("git", "show", f"{revert_sha}:harness/defaults.toml"))
-            self.assertEqual(restored["eta_min_samples"]["value"], current)
+            self.assertEqual(tomllib.loads(command("git", "show", f"{revert_sha}:harness/defaults.toml"))["eta_min_samples"]["value"], current)
             self.assertEqual(execute([proposal(n=49)], tomorrow)[0]["reason"], "reverted value needs more evidence")
             adopted = execute([proposal(n=50)], tomorrow)[0]
             self.assertEqual(adopted["verdict"], "landed")
-            kept = execute([proposal(n=20, since=adopted["landed_at"])], tomorrow)
-            self.assertEqual(kept[0]["verdict"], "kept")
+            self.assertEqual(execute([proposal(n=20, since=adopted["landed_at"])], tomorrow)[0]["verdict"], "kept")
             missing_ci = proposal(dimension="B1", default="eta_coverage", current=0.75, proposed=0.8)
             missing_ci.pop("ci_low")
             self.assertEqual(execute([missing_ci], tomorrow)[0]["verdict"], "waited")
@@ -122,9 +118,8 @@ class LearningCycle(unittest.TestCase):
             self.assertEqual(json.loads(events.read_text().splitlines()[-1])[-1], "LEARN nothing judged")
             source = root / "source.py"
             source.write_text("import json\nprint(json.dumps(" + repr(proposal(eligible=False)) + "))\n")
-            supplied = execute([], tomorrow, ["--defaults-command", f"{sys.executable} {source}",
-                                               "--pace-command", str(root / "missing")])
-            self.assertEqual(supplied[0]["verdict"], "ineligible")
+            self.assertEqual(execute([], tomorrow, ["--defaults-command", f"{sys.executable} {source}",
+                                                    "--pace-command", str(root / "missing")])[0]["verdict"], "ineligible")
             in_sample = proposal(dimension="B1", default="eta_coverage", train_until=today.isoformat())
             self.assertEqual(execute([in_sample], tomorrow)[0]["reason"],
                              "in-sample evidence: evaluation window must start at or after train_until")
@@ -142,13 +137,14 @@ class LearningCycle(unittest.TestCase):
                              current + 1)
             self.assertEqual(execute([standing], tomorrow)[0]["reason"], "reverted value needs more evidence")
             failing = root / "failing-safe-push"
-            failing.write_text("#!/usr/bin/env bash\ngit log -1 --format=%s | grep -q eta_coverage && exit 1\nexec "
+            starts = root / "starts"
+            failing.write_text("#!/usr/bin/env bash\ngit log -1 --format=%s | grep -q eta_coverage && { echo >> " + str(starts) + "; exit 1; }\nexec "
                                + str(ROOT / "bin/safe-push") + ' "$@"\n')
             failing.chmod(0o755)
             before_failure = command("git", "rev-parse", "origin/main")
             partial = execute([proposal(current=current + 1, proposed=current + 3),
                                proposal(dimension="B1", default="eta_coverage", current=registry["eta_coverage"]["value"], proposed=0.8)],
-                              None, ["--safe-push", failing])
+                              today.isoformat(), ["--safe-push", failing])
             self.assertEqual([row["verdict"] for row in partial], ["landed", "failed"])
             self.assertIn("RuntimeError", partial[1]["reason"])
             body = json.loads(events.read_text().splitlines()[-1])[-1]
@@ -157,6 +153,10 @@ class LearningCycle(unittest.TestCase):
             self.assertEqual(command("git", "rev-list", "--count", f"{before_failure}..origin/main"), "1")
             self.assertEqual(execute([proposal(current=current + 1, proposed=current + 3)], tomorrow)[1]["reason"],
                              "knob has an active trial")
+            retry = proposal(dimension="B1", default="eta_coverage", current=registry["eta_coverage"]["value"], proposed=0.8)
+            self.assertEqual(execute([retry], today.isoformat(), ["--safe-push", failing])[1]["reason"], "landing failed today")
+            self.assertEqual(execute([retry], tomorrow, ["--safe-push", failing])[1]["verdict"], "failed")
+            self.assertEqual(len(starts.read_text().splitlines()), 2)
             cycles = len((state / "cycles.jsonl").read_text().splitlines())
             with (state / "cycle.lock").open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
