@@ -58,7 +58,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         eprintln!("NorthThreads: no home directory");
         return 1;
     };
-    let client = Client::new(Path::new(&home), env, vec!["ssh".into()], vec!["threads".into()]);
+    let client = Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()]);
     match client.main(arguments, &mut io::stdin(), &mut io::stderr()) {
         Ok(code) => (code & 0xff) as u8,
         Err(error) => {
@@ -73,10 +73,14 @@ pub(crate) fn refresh_mirrored_snapshot() {
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();
     let Some(home) = env.get("HOME").cloned() else { return };
-    let client = Client::new(Path::new(&home), env, vec!["ssh".into()], vec!["threads".into()]);
+    let client = Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()]);
     if let Ok(destination) = fs::read_to_string(&client.remote) {
         let _ = client.refresh_snapshot(destination.trim(), true);
     }
+}
+
+fn local_threads() -> OsString {
+    crate::platform::harness::harness_root().map_or_else(|_| "threads".into(), |root| root.join("bin/threads").into_os_string())
 }
 
 impl Client {
