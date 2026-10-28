@@ -27,21 +27,33 @@ fn machines() -> Vec<gate::Machine> {
     config().map(|cfg| gate::machines(&cfg)).unwrap_or_default()
 }
 
-fn choose() -> u8 {
+pub(crate) fn in_game_reserve() -> bool {
     let local = agent_load::Host::from_env();
-    if !(agent_load::gaming_marked(&local.capacity) || agent_load::game_reserve_on(&local)) {
+    agent_load::gaming_marked(&local.capacity) || agent_load::game_reserve_on(&local)
+}
+
+pub(crate) fn host_with_room() -> Result<gate::Machine, String> {
+    let here = crate::platform::host::name();
+    let others: Vec<gate::Machine> = machines().into_iter().filter(|machine| machine.name != here).collect();
+    let rooms = others.iter().map(|machine| (machine.name.clone(), room::read(&machine.ssh)));
+    let host = room::first_with_room(rooms).map_err(|refused| {
+        format!("no other host has room: {}", if refused.is_empty() { "none has an ssh destination".to_owned() } else { refused.join("; ") })
+    })?;
+    others.into_iter().find(|machine| machine.name == host).ok_or_else(|| format!("{host} left the host list"))
+}
+
+fn choose() -> u8 {
+    if !in_game_reserve() {
         eprintln!("north capacity offload: this host is not in game-reserve, so the land check runs here");
         return 1;
     }
-    let here = crate::platform::host::name();
-    let others = machines().into_iter().filter(|machine| machine.name != here);
-    match room::first_with_room(others.map(|machine| (machine.name, room::read(&machine.ssh)))) {
-        Ok(host) => {
-            println!("{host}");
+    match host_with_room() {
+        Ok(machine) => {
+            println!("{}", machine.name);
             0
         }
-        Err(refused) => {
-            eprintln!("north capacity offload: no other host has room: {}", if refused.is_empty() { "none has an ssh destination".to_owned() } else { refused.join("; ") });
+        Err(why) => {
+            eprintln!("north capacity offload: {why}");
             1
         }
     }

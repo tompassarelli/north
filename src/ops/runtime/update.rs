@@ -1,6 +1,8 @@
 use super::failure::{Failure, code, failed};
 use super::layout::{self, Layout, PROGRAMS, TREE};
+use super::remote;
 use super::store;
+use crate::ops::land_offload;
 use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
@@ -93,6 +95,9 @@ impl Drop for Lane<'_> {
 }
 
 fn build(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
+    if land_offload::in_game_reserve() {
+        return remote::build(target, runtime);
+    }
     let lane = Lane::add(checkout, target)?;
     let built = layout::home().join(".cache/cargo-target/north");
     let status = Command::new("bun")

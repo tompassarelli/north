@@ -1,5 +1,6 @@
-use super::failure::{Failure, code, failed};
+use super::failure::Failure;
 use super::layout::{Layout, PROGRAMS};
+use super::remote::{run, ssh};
 use super::store::references;
 use super::update::{built_main, checkout, lock};
 use rustix::fs::FlockOperation;
@@ -26,18 +27,4 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     copy.args(["-a", "--mkpath"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
     run(host, "rsync", &mut copy)?;
     run(host, "north runtime update", ssh(host).args(["north", "runtime", "update"]))
-}
-
-fn ssh(host: &str) -> Command {
-    let mut command = Command::new("ssh");
-    command.args(["-o", "BatchMode=yes", host]);
-    command
-}
-
-fn run(host: &str, step: &str, command: &mut Command) -> Result<(), Failure> {
-    let status = command.status()?;
-    if !status.success() {
-        return Err(failed(code(status), format!("{step} on {host} failed: {status}")));
-    }
-    Ok(())
 }

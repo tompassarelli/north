@@ -1,6 +1,7 @@
 mod deploy;
 mod failure;
 pub(crate) mod layout;
+mod remote;
 mod store;
 mod update;
 
