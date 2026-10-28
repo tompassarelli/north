@@ -63,10 +63,10 @@ function issue(): Issue | undefined {
   const issues = JSON.parse(gh("issue", "list", "--state", "open", "--search", '"main is red" in:title', "--json", "number,title,body", "--limit", "100")) as Issue[];
   return issues.find(i => i.title === "main is red");
 }
+export const issueBody = (existing = "Main CI failures and confirmed culprit decisions.\n\n## Done when\n- [ ] The newest Harness and Cargo runs on main are green on a commit after the newest culprit range below: `gh run list --branch main --workflow Harness --limit 1` and the same for Cargo both print success; close this issue with that run's link.", marker: string, body: string): string => `${existing}\n\n${marker}\n${body}`;
 function report(existing: Issue | undefined, marker: string, body: string): void {
-  const content = `${existing?.body ?? "Main CI failures and confirmed culprit decisions."}\n\n${marker}\n${body}`;
   const args = existing ? ["issue", "edit", String(existing.number)] : ["issue", "create", "--title", "main is red"];
-  gh(...args, "--body", content);
+  gh(...args, "--body", issueBody(existing?.body, marker, body));
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body}\n`);
   console.log(body);
 }
