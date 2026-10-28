@@ -135,7 +135,7 @@ covers only the fetch, rebase, scans and push. If main moved during the checks, 
 the new commits do not touch rebases and keeps its verdict; any other lane requeues and rechecks. Cancellation prints `safe-push: cancelled` and
 exits 130; a landed receipt names the lane head verified on the destination.
 
-A repository with an Autoland workflow, or `landing.queue = autoland` in its `.safe-push`, instead
+A repository with `landing.queue = autoland` in its `.safe-push`, or an Autoland workflow and no `landing.queue`, instead
 gets a `claude/land-*` branch that the workflow lands; North has neither. A worker runs `safe-push` in
 the background and reports when it exits; a lead runs it in the foreground.
 It runs the repository's pre-push hook to completion before it opens the push of that branch.

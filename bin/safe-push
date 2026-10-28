@@ -134,8 +134,8 @@ Options:
                open "BRANCH is red" issue is #N, a lane with #N in a commit
                subject queues ahead of the others, and a holder hands its
                undecided lanes back behind it before its next check run;
-               when main has .github/workflows/autoland.yml or its .safe-push
-               sets landing.queue = autoland,
+               when main's .safe-push sets landing.queue = autoland, or sets
+               none and main has .github/workflows/autoland.yml,
                the lane is checked, pushed to claude/land-<lane>-<sha> and
                waits for the Autoland workflow's batched queue to land it;
                a stop, a refusal or a handback deletes that queue branch, and
@@ -1858,14 +1858,17 @@ exact_landing() {
   done
   return 1
 }
-# A repository whose main's committed .safe-push sets landing.queue = autoland
+# A repository whose main's committed .safe-push sets landing.queue = autoland, or
+# sets no landing.queue and has an Autoland workflow,
 # lands every change through its Autoland workflow's one batched queue: the lane
 # is checked and pushed to claude/land-<lane>-<sha> and the `autoland` commit
 # status on that SHA is the verdict. Workflow changes can't land that way.
 autoland_repo() {
+  local queue
   [ -n "$1" ] || return 1
-  [ "$(git config --blob "$1:.safe-push" --get landing.queue 2>/dev/null)" = autoland ] \
-    || git cat-file -e "$1:.github/workflows/autoland.yml" 2>/dev/null
+  queue=$(git config --blob "$1:.safe-push" --get landing.queue 2>/dev/null) || queue=""
+  if [ -n "$queue" ]; then [ "$queue" = autoland ]; return; fi
+  git cat-file -e "$1:.github/workflows/autoland.yml" 2>/dev/null
 }
 autoland_queue() {
   autoland_repo "$1" && ! git diff --name-only "$1...HEAD" -- .github/workflows | grep -q .

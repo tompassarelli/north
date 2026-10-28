@@ -1420,6 +1420,17 @@ SAFE_PUSH_TEST_AUTOLAND_RUNS=0 run_real_case '' --to main
 expect_status zero
 ! printf '%s\n' "$case_output" | grep -q 'waiting for none' || fail 'waited although no train was in flight'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'a workflow lane did not land in the gap'
+printf '[landing]\n\tqueue = lock\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'land under the lock beside an Autoland workflow'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+printf 'locked work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'work for the lock'
+run_real_case '' --to main
+expect_status zero
+! grep -Fq "lands through Autoland" <<<"$case_output" || fail "landing.queue = lock still queued for Autoland: $case_output"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'landing.queue = lock did not push main'
+printf 'PASS: landing.queue = lock lands under the landing lock although main has an Autoland workflow\n'
 rm -f "$real_bin/gh"
 
 make_real_fixture dep-gate
