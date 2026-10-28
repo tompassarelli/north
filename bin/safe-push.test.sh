@@ -1853,8 +1853,8 @@ expect_status zero
 [ ! -s "$attest_trace" ] || fail "a push without a south checkout attested: $(cat "$attest_trace")"
 printf 'PASS: claude/ pushes to a public Autoland repository attest their tip\n'
 
-# Every outgoing commit's author and committer email must be the pusher's
-# user.email or a safe-push.allowEmail entry; a private address is refused.
+# A branch landing runs the email scan before it pushes; its cases live in
+# src/landing/safe_push_guards_tests.rs.
 private_email=someone@private.example
 expect_email_refused() {
   local role="$1" sha
@@ -1865,64 +1865,13 @@ expect_email_refused() {
   [ "$(real_remote_state)" = "$remote_before" ] || fail "private $role email refusal mutated the remote"
 }
 
-make_real_fixture email-author
-GIT_AUTHOR_EMAIL="$private_email" "$real_git" -C "$real_repo" commit --allow-empty -qm 'private author'
-"$real_git" -C "$real_repo" commit --allow-empty -qm 'later clean commit'
-remote_before="$(real_remote_state)"
-run_real_case ''
-sha=$("$real_git" -C "$real_repo" rev-parse --short HEAD~1)
-expect_status nonzero
-expect_output "safe-push: commit $sha author email $private_email is not safe-push-test@example.invalid"
-[ "$(real_remote_state)" = "$remote_before" ] || fail 'private author email refusal mutated the remote'
-
-make_real_fixture email-committer
-GIT_COMMITTER_EMAIL="$private_email" "$real_git" -C "$real_repo" commit --allow-empty -qm 'private committer'
-remote_before="$(real_remote_state)"
-run_real_case ''
-expect_email_refused committer
-
-make_real_fixture email-git-am
-printf 'cloud work\n' >>"$real_repo/content.txt"
-GIT_AUTHOR_NAME=someone GIT_AUTHOR_EMAIL="$private_email" "$real_git" -C "$real_repo" commit -qam 'cloud patch'
-"$real_git" -C "$real_repo" format-patch -q -1 -o "$real_fixture/patches"
-grep -Fxq "From: someone <$private_email>" "$real_fixture"/patches/*.patch || fail 'format-patch lost the private From:'
-"$real_git" -C "$real_repo" reset -q --hard HEAD~1
-"$real_git" -C "$real_repo" am -q "$real_fixture"/patches/*.patch
-remote_before="$(real_remote_state)"
-run_real_case ''
-expect_email_refused author
-
 make_real_fixture email-to-main
 GIT_AUTHOR_EMAIL="$private_email" "$real_git" -C "$real_repo" commit --allow-empty -qm 'private author for main'
 remote_before="$(real_remote_state)"
 run_real_case '' --to main
 expect_email_refused author
 
-make_real_fixture email-allowed
-"$real_git" -C "$real_repo" config --add safe-push.allowEmail bot@allowed.example
-"$real_git" -C "$real_repo" config --add safe-push.allowEmail Release@Allowed.Example
-GIT_AUTHOR_EMAIL=Safe-Push-Test@Example.Invalid "$real_git" -C "$real_repo" commit --allow-empty -qm 'pusher email in another case'
-GIT_AUTHOR_EMAIL=bot@allowed.example GIT_COMMITTER_EMAIL=release@allowed.example \
-  "$real_git" -C "$real_repo" commit --allow-empty -qm 'allowed bot'
-"$real_git" -C "$real_repo" commit --allow-empty -qm 'co-authored' -m "Co-Authored-By: someone <$private_email>"
-run_real_case ''
-expect_status zero
-expect_published 'pusher and allowEmail commits did not publish'
-
-make_real_fixture email-env-identity
-GIT_AUTHOR_EMAIL=ci@env.example GIT_COMMITTER_EMAIL=ci@env.example "$real_git" -C "$real_repo" commit --allow-empty -qm 'env identity'
-GIT_AUTHOR_EMAIL=ci@env.example GIT_COMMITTER_EMAIL=ci@env.example run_real_case ''
-expect_status zero
-expect_published 'a commit by the pushing GIT_AUTHOR_EMAIL/GIT_COMMITTER_EMAIL identity did not publish'
-
-make_real_fixture email-unset
-"$real_git" -C "$real_repo" config user.email ''
-remote_before="$(real_remote_state)"
-run_real_case ''
-expect_status nonzero
-expect_output 'safe-push: ✗ git config user.email is empty'
-[ "$(real_remote_state)" = "$remote_before" ] || fail 'empty user.email refusal mutated the remote'
-printf 'PASS: private author and committer emails are refused before push\n'
+printf 'PASS: a branch landing refuses a private author email before push\n'
 
 # Each race is planted by the gitleaks process after the scan begins. The exact
 # real remote ref set must remain unchanged; a mocked "push was not called" is
