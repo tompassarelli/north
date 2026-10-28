@@ -12,3 +12,6 @@ pub mod route;
 
 #[cfg(test)]
 mod routing_tests;
+
+#[cfg(test)]
+mod money_tests;

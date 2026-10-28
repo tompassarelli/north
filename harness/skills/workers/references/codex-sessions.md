@@ -6,8 +6,8 @@ Read this for a Codex Fleet session, when you write a Codex brief, route a box t
 
 - Set model and effort explicitly on every Codex spawn, because defaults drift. Never use Codex low (except luna-low) or max.
   - luna-low: `spawn_agent`, model `gpt-6-luna`, reasoning_effort `low`; mechanical work only (exact edits, lookups, triage, named checks), after Haiku. The unlabeled `gpt-6-luna medium` runs of 1-5 Oct are not outcome evidence.
-  - medium, high: `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` or `high`. Sol takes a middle-band box only when `routing.codex_qualifies` passes it.
-- Mixed-provider mode: Claude implements, and Codex takes only boxes `routing.codex_qualifies` passes, because Codex-lead-split boxes landed 71% (27/38) against 94% (196/209) under Claude leads. A Codex box that stops or is taken over goes to a Claude worker with `Follows:`, never back to Codex. On one provider alone, that provider's leads write, staff and land everything under the workers rules.
+  - medium, high: `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` or `high`. Sol takes a middle-band box only when `the Codex brief check in src/router/brief.rs` passes it.
+- Mixed-provider mode: Claude implements, and Codex takes only boxes `the Codex brief check in src/router/brief.rs` passes, because Codex-lead-split boxes landed 71% (27/38) against 94% (196/209) under Claude leads. A Codex box that stops or is taken over goes to a Claude worker with `Follows:`, never back to Codex. On one provider alone, that provider's leads write, staff and land everything under the workers rules.
 - Close each Codex worker when its final report arrives, because an orphan holds capacity.
 
 ## Lessons

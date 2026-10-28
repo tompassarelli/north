@@ -173,16 +173,41 @@ fn codex_paces_to_friday_2359_eastern_across_dst() {
         for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
             let at = start.plus_seconds(cutoff.seconds_since(start) * fraction);
             let wanted = 85.0 * fraction;
-            let acct = json!({"provider": "codex", "target_left": 15, "usd_per_week": 50,
-                              "windows": {"week": week(100.0 - wanted - 1.0, reset, &at.iso())}});
-            let ctx = ctx(json!({"now": at.iso(), "accounts": {"codex": acct}}));
-            let m = ctx.metrics(&ctx.accounts["codex"]);
-            assert_eq!(m.pace_at.as_deref(), Some(friday), "{reset}");
-            assert!(
-                (m.pace_pct.unwrap() - wanted).abs() < 1e-9,
-                "{reset} {fraction} {m:?}"
-            );
-            assert_eq!(m.state, OVER);
+            for delta in [-1.0, 0.0, 1.0] {
+                if !(0.0..=100.0).contains(&(wanted + delta)) {
+                    continue;
+                }
+                let acct = json!({"provider": "codex", "target_left": 15, "usd_per_week": 50,
+                                  "windows": {"week": week(100.0 - wanted - delta, reset, &at.iso())}});
+                let ctx = ctx(json!({"now": at.iso(), "accounts": {"codex": acct}}));
+                let m = ctx.metrics(&ctx.accounts["codex"]);
+                assert_eq!(m.pace_at.as_deref(), Some(friday), "{reset}");
+                assert!((m.pace_pct.unwrap() - wanted).abs() < 1e-9, "{reset} {fraction} {m:?}");
+                assert!((m.available_usd - (100.0 - wanted - delta) / 2.0).abs() < 1e-9, "{m:?}");
+                assert_eq!(m.state, if delta < 0.0 { UNDER } else { OVER }, "{reset} {fraction} {delta}");
+            }
+        }
+    }
+}
+
+#[test]
+fn claude_paces_to_its_reset_on_a_five_percent_floor() {
+    let reset = "2026-10-17T04:00:00Z";
+    let start = Moment::parse(reset).unwrap().plus_seconds(-168.0 * 3600.0);
+    for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        let at = start.plus_seconds(168.0 * 3600.0 * fraction);
+        let wanted = 95.0 * fraction;
+        for delta in [-1.0, 0.0, 1.0] {
+            if !(0.0..=100.0).contains(&(wanted + delta)) {
+                continue;
+            }
+            let acct = json!({"provider": "claude", "target_left": 5, "usd_per_week": 50,
+                              "windows": {"week": week(100.0 - wanted - delta, reset, &at.iso())}});
+            let ctx = ctx(json!({"now": at.iso(), "accounts": {"claude": acct}}));
+            let m = ctx.metrics(&ctx.accounts["claude"]);
+            assert!((m.pace_pct.unwrap() - wanted).abs() < 1e-9, "{fraction} {m:?}");
+            assert!((m.available_usd - (100.0 - wanted - delta) / 2.0).abs() < 1e-9, "{m:?}");
+            assert_eq!(m.state, if delta < 0.0 { UNDER } else { OVER }, "{fraction} {delta}");
         }
     }
 }
@@ -366,4 +391,46 @@ fn pace_ops_answer_router_requests_and_leave_pace_ops_alone() {
     assert!(
         matches!(answer(&json!({"op": "plan", "ctx": {}})), Some(Err(error)) if error.contains("now"))
     );
+}
+
+#[test]
+fn a_codex_tier_admits_by_the_brief_category_and_explores_within_the_shape_it_may() {
+    let base = "Item: north#51\nCategory: tooling\nSpec: exact\nScope: module\nSurface: shell\nVerify: local-test\nDone when: `bash t.test.sh`\nETA: 20 min\nFiles: a.sh, b.sh\n";
+    let tier = |key: &str, extra: Value| -> super::ctx::Tier {
+        let mut tier = json!({"key": key, "model": "m", "effort": "high"});
+        tier.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(tier).unwrap()
+    };
+    let item = |category: &str, brief: String| -> super::ctx::WorkBox {
+        serde_json::from_value(json!({"id": "b", "project": "north", "category": category, "difficulty": 50, "sensitivity": "public", "brief": brief})).unwrap()
+    };
+    let (sol_medium, sol_high) = (tier("codex:sol-medium", json!({})), tier("codex:sol-high", json!({})));
+    let admit = ctx(json!({"now": "2026-10-15T12:00Z", "success": {"codex:sol-medium|tooling": 100, "codex:sol-high|tooling": 100}}));
+    let feature = item("tooling", base.replace("tooling", "feature"));
+    assert!(admit.admit(&sol_medium, &feature, &Default::default()));
+    assert!(!admit.admit(&sol_high, &feature, &Default::default()));
+
+    let under = ctx(json!({"now": "2026-10-15T12:00Z", "accounts": {"codex": {
+        "windows": {"week": {"headroom": 90, "window_h": 168, "reset_in": 80, "beta": 0, "as_of": "2026-10-15T12:00Z", "resets_at": "2026-10-17T04:00Z"}},
+        "provider": "codex", "target_left": 15, "usd_per_week": 50, "age_min": 5}}}));
+    assert_eq!(under.account_state("codex"), Some(UNDER));
+    let bug = item("bug-known-cause", base.replace("tooling", "bug-known-cause"));
+    assert!(under.explorable(&sol_medium, &bug));
+    assert!(!under.explorable(&sol_high, &bug));
+    let explored = tier("codex:sol-medium", json!({"class_runs": {"bug-known-cause": 20}}));
+    assert!(!under.explorable(&explored, &bug));
+    let in_ts = item("bug-known-cause", bug.brief.clone().unwrap().replace("shell", "ts"));
+    assert!(!under.explorable(&sol_medium, &in_ts));
+    let research = item("bug-known-cause", bug.brief.clone().unwrap().replace("bug-known-cause", "research"));
+    assert!(!under.explorable(&sol_medium, &research));
+    for category in ["performance", "netcode-determinism", "balance-tuning"] {
+        let facing = item("bug-known-cause", bug.brief.clone().unwrap().replace("bug-known-cause", category));
+        assert!(under.explorable(&sol_high, &facing), "{category}");
+        assert!(!under.explorable(&sol_medium, &facing), "{category}");
+        assert!(!admit.admit(&sol_high, &facing, &Default::default()), "{category}");
+        let visual = item("bug-known-cause", facing.brief.clone().unwrap().replace("Surface: shell", "Surface: assets").replace("Verify: local-test", "Verify: visual"));
+        assert!(under.explorable(&sol_high, &visual), "{category}");
+    }
+    let lua = item("bug-known-cause", bug.brief.clone().unwrap().replace("shell", "lua"));
+    assert!(!under.explorable(&sol_medium, &lua));
 }

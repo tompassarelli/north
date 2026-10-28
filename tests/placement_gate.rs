@@ -46,6 +46,10 @@ fn fixture(root: &Path) {
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {
+    north_at(root, args, NOW)
+}
+
+fn north_at(root: &Path, args: &[&str], now: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_north"))
         .args(args)
         .current_dir(root)
@@ -53,7 +57,7 @@ fn north(root: &Path, args: &[&str]) -> Output {
         .env("XDG_STATE_HOME", root.join(".local/state"))
         .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
         .env("AGENTS_OPERATOR_DIR", root.join("op"))
-        .env("PLACEMENT_NOW", NOW)
+        .env("PLACEMENT_NOW", now)
         .env("RESIDENT_CAP_HOST", "here")
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("PLACEMENT_FIXTURE", root)
@@ -215,4 +219,33 @@ fn a_box_that_needs_native_on_smashcraft_starts_with_that_capacity_need() {
     }
     assert_eq!(fs::read_to_string(root.join("need")).unwrap_or_default(), "native:smashcraft");
     north(root, &["fleet", "stop", "lagged"]);
+}
+
+fn placed_at(root: &Path, now: &str) -> String {
+    fs::write(root.join("code-only.md"), CODE_ONLY).unwrap();
+    let placed = north_at(root, &["pace", "place", "place", &root.join("code-only.md").display().to_string()], now);
+    assert!(placed.status.success(), "{}", String::from_utf8_lossy(&placed.stderr));
+    String::from_utf8_lossy(&placed.stdout).lines().last().unwrap_or_default().to_owned()
+}
+
+#[test]
+fn the_cloud_credit_places_a_code_only_box_until_it_expires_or_a_readout_records_it_spent() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    let credit = |now| String::from_utf8_lossy(&north_at(root, &["pace", "place", "credit"], now).stdout).trim().to_owned();
+
+    assert_eq!(credit(NOW), "cloud credit: unread, expires in 19 days");
+    assert!(placed_at(root, NOW).contains("anthropic-cloud"));
+
+    let expired = "2026-11-05T08:00:00Z";
+    assert_eq!(credit(expired), "cloud credit: expired 2026-11-05T07:59Z");
+    let after = placed_at(root, expired);
+    assert!(!after.contains("anthropic-cloud") && after.contains("target here claude:"), "{after}");
+
+    fs::create_dir_all(root.join(".local/state/agents/costs")).unwrap();
+    fs::write(root.join(".local/state/agents/costs/cloud-credit.json"), r#"{"usd_spent_period": 250.0, "read_at": "2026-10-15T00:00:00Z"}"#).unwrap();
+    assert_eq!(credit(NOW), "cloud credit: spent (read 2026-10-15), expires in 19 days");
+    let spent = placed_at(root, NOW);
+    assert!(!spent.contains("anthropic-cloud") && spent.contains("target here claude:"), "{spent}");
 }

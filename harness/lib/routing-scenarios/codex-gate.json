@@ -1,5 +1,5 @@
 {
- "note": "Codex gate (north#51 B2): measured success admits both engines on every box, so only routing.codex_qualifies and codex_tier_<category> decide. A tooling exact module shell local-test box takes the rank-0 Codex tier; the same box with Surface ts and a bug-known-cause box (codex_route_bug-known-cause is claude) take Claude.",
+ "note": "Codex gate (north#51 B2): measured success admits both engines on every box, so only the Codex brief check in src/router/brief.rs and codex_tier_<category> decide. A tooling exact module shell local-test box takes the rank-0 Codex tier; the same box with Surface ts and a bug-known-cause box (codex_route_bug-known-cause is claude) take Claude.",
  "now": "2026-10-11T17:20Z",
  "tiers": [
   {

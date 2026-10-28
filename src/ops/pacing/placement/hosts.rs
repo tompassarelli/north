@@ -188,4 +188,25 @@ mod tests {
     fn a_hosts_roster_is_read_from_its_fleet_accounts_listing() {
         assert_eq!(super::claude_labels("claude\ta\nclaude\tc\ncodex\tpooled\n"), ["a", "c"]);
     }
+
+    const NOW: f64 = 1_791_896_400.0;
+    const DAY: f64 = 86_400.0;
+
+    #[test]
+    fn the_credit_line_reads_unread_spent_or_what_is_left() {
+        let unread = || (true, "cloud credit: unread, expires in 22 days".to_owned());
+        assert_eq!(super::credit_standing(None, None, 250.0, 22, NOW), unread());
+        assert_eq!(
+            super::credit_standing(Some(250.0), Some(NOW - DAY), 250.0, 22, NOW),
+            (false, "cloud credit: spent (read 2026-10-12), expires in 22 days".to_owned())
+        );
+        assert_eq!(
+            super::credit_standing(Some(100.0), Some(NOW - DAY), 250.0, 22, NOW),
+            (true, "cloud credit: $150.00 left (read 2026-10-12), expires in 22 days".to_owned())
+        );
+        assert_eq!(
+            super::credit_standing(Some(100.0), Some(NOW - 8.0 * DAY), 250.0, 22, NOW),
+            unread()
+        );
+    }
 }

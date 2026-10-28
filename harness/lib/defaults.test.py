@@ -28,7 +28,7 @@ for name, entry in registry.items():
         path = root / consumer
         if not path.exists():
             failures.append(f"{name}: consumer {consumer} missing")
-        elif f'DEFAULTS["{name}"]' not in path.read_text() and not (path.suffix == ".rs" and f'"{name}"' in path.read_text() and any('/harness/defaults.toml")' in module.read_text() for module in {path, *path.parent.glob("*.rs")})):
+        elif f'DEFAULTS["{name}"]' not in path.read_text() and not (path.suffix == ".rs" and any(f'"{key}"' in path.read_text() for key in (name, *(prefix for prefix in ("codex_route_", "codex_tier_") if name.startswith(prefix)))) and any('/harness/defaults.toml")' in module.read_text() for module in {path, *path.parent.glob("*.rs")})):
             failures.append(f"{name}: {consumer} does not read DEFAULTS[\"{name}\"]")
 for failure in failures:
     print(f"FAIL {failure}")
