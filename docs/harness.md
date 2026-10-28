@@ -127,7 +127,7 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
 3. refuses the push unless every gate passes, among them a gitleaks secret scan, the dependency gate
    (`north dep-gate BASE HEAD`), a `Provenance:` record for each new
    gating number (`north provenance check`), a `Test-kind:` claim for each new test naming a recorded mutant
-   only it kills, and the CI time budgets in `.safe-push`; it never force-pushes;
+   only it kills (`north mutant verify` runs the named tests when `.safe-push` sets `mutant.run`), and the CI time budgets in `.safe-push`; it never force-pushes;
 4. pushes to main, removes the clean lane and its branch, and runs `follows-release`.
 
 North's land checks share that capacity scope and run with the landing lock released; the lock

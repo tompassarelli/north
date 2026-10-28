@@ -60,7 +60,7 @@ Example matrices re-testing one rule a property should own; our own prose, const
 ## Mutation and landing-tool rules
 - A mutant settles doubt about whether a test is the only one protecting a guarantee; it is not a toll on every deletion.
 - Mutate only in a scratch copy, never the lane, and mark every mutated line `MUTANT:<rule-id>`, because reviewers have committed product mutants; the landing tool refuses an added line with that token.
-- Record the mutant patch in the scratch copy before claiming a kill; the landing tool refuses an empty record and requires the patch to apply to the landing base or head.
+- Record the mutant patch in the scratch copy before claiming a kill; the landing tool refuses an empty record, requires the patch to apply to the landing base or head and, where the repository configures a mutant runner, runs the claimed test itself and refuses unless it passes on the change and fails on the mutant.
 - Product code never branches on a test's literal inputs, because that passes tests while breaking the product.
 
 ## Landing fast

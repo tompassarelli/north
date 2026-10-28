@@ -37,7 +37,7 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
                     Some(Command::SessionHost(rest.to_vec()))
                 }
                 [gate, rest @ ..] if gate == "dep-gate" => {
-                    Some(Command::Tool(Tool::DepGate, rest.to_vec()))
+                    Some(Command::Tool(Tool::Uniform("dep-gate"), rest.to_vec()))
                 }
                 [probe, rest @ ..] if probe == "contract-probe" => {
                     Some(Command::ContractProbe(rest.to_vec()))

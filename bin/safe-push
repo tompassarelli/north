@@ -512,23 +512,25 @@ vendored_trees() {
 }
 
 test_integrity_scan() {
-  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds trailer name mutant helper vendored
+  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds helper vendored
   [ "$base" != "$1" ] && [ -n "$base" ] || return 0
   base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
   vendored=$(vendored_trees "$base")
   git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
   test_kinds=$(git log --format=%B "$base..$head" | sed -n "/^Test-kind:/p")
   helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mutant"
-  while IFS= read -r trailer; do
-    if [[ "$trailer" =~ ^Test-kind:[[:space:]]+(.+)[[:space:]]+[1-5][[:space:]]+kills[[:space:]]+([^[:space:]]+)[[:space:]]*$ ]]; then
-      name=${BASH_REMATCH[1]}
-      mutant=${BASH_REMATCH[2]}
-      if ! "$helper" check "$mutant" "$base" "$head"; then
-        printf 'safe-push: ✗ Test-kind %s claims mutant %s, which has no recorded non-empty patch; record it with mutant record; NOT pushed.\n' "$name" "$mutant"
+  if north mutant --help >/dev/null 2>&1; then
+    [ -z "$test_kinds" ] || "$helper" verify "$base" "$head" || return 1
+  else
+    echo "safe-push: this host's north runtime has no mutant verify yet (north runtime update adds it); checking only that each claimed mutant is recorded."
+    while IFS= read -r trailer; do
+      if [[ "$trailer" =~ ^Test-kind:[[:space:]]+(.+)[[:space:]]+[1-5][[:space:]]+kills[[:space:]]+([^[:space:]]+)[[:space:]]*$ ]] \
+        && ! "$helper" check "${BASH_REMATCH[2]}" "$base" "$head"; then
+        printf 'safe-push: ✗ Test-kind %s claims mutant %s, which has no recorded non-empty patch; record it with mutant record; NOT pushed.\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
         return 1
       fi
-    fi
-  done <<<"$test_kinds"
+    done <<<"$test_kinds"
+  fi
   git diff --unified=2147483647 --no-color --no-ext-diff --no-renames "$base" "$head" \
     | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" VENDORED="$vendored" awk '
     function require_kind(name,    key, file) {

@@ -64,7 +64,7 @@ shim_main() {
       fi
       exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       ;;
-    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:mutant) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -871,7 +871,7 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
   case "$kind_case" in
     *-annotated)
       printf 'mutated\n' >"$real_repo/content.txt"
-      (cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$REPO/bin/mutant" record "${trailer##* }")
+      (cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$real_north" mutant record "${trailer##* }")
       "$real_git" -C "$real_repo" restore content.txt
       ;;
   esac
@@ -946,7 +946,7 @@ for mutant_case in empty missing real stale new-code shared-clone; do
     printf 'different\n' >"$real_repo/content.txt"
     "$real_git" -C "$real_repo" commit -qam 'different code'
     printf 'mutated\n' >"$real_repo/content.txt"
-    (cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$REPO/bin/mutant" record "$mutant_case")
+    (cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$real_north" mutant record "$mutant_case")
     "$real_git" -C "$real_repo" reset -q --hard "$mutant_base"
   elif [ "$mutant_case" = new-code ]; then
     printf 'new code\n' >"$real_repo/new.txt"
@@ -957,7 +957,7 @@ for mutant_case in empty missing real stale new-code shared-clone; do
     empty)
       sed -i 's/does-not-match/mutated/' "$real_repo/content.txt"
       case_status=0
-      case_output=$(cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$REPO/bin/mutant" record "$mutant_case" 2>&1) || case_status=$?
+      case_output=$(cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$real_north" mutant record "$mutant_case" 2>&1) || case_status=$?
       expect_status nonzero
       [ ! -e "$patch" ] || fail 'no-op sed recorded a patch'
       : >"$patch"
@@ -966,13 +966,13 @@ for mutant_case in empty missing real stale new-code shared-clone; do
       mutant_path=content.txt
       [ "$mutant_case" != new-code ] || mutant_path=new.txt
       printf 'mutated\n' >"$real_repo/$mutant_path"
-      (cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$REPO/bin/mutant" record "$mutant_case")
+      (cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$real_north" mutant record "$mutant_case")
       "$real_git" -C "$real_repo" restore "$mutant_path"
       ;;
     shared-clone)
       "$real_git" clone -q --shared "$real_repo" "$real_fixture/shared-clone"
       printf 'mutated\n' >"$real_fixture/shared-clone/content.txt"
-      (cd "$real_fixture/shared-clone"; XDG_STATE_HOME="$xdg_state" "$REPO/bin/mutant" record "$mutant_case")
+      (cd "$real_fixture/shared-clone"; XDG_STATE_HOME="$xdg_state" "$real_north" mutant record "$mutant_case")
       ;;
   esac
   "$real_git" -C "$real_repo" commit --allow-empty -qm 'mutant evidence' -m "Test-kind: recorded boundary 3 kills $mutant_case"
