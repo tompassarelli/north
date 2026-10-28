@@ -382,3 +382,7 @@ pub fn run(args: &[String]) -> u8 {
 #[cfg(test)]
 #[path = "denylist_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "denylist_publication_tests.rs"]
+mod publication_tests;

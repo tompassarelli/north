@@ -137,6 +137,22 @@ pub(crate) struct Denylist {
     pub(crate) config: Option<PathBuf>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct DenylistVerdict {
+    pub(crate) lines: Vec<String>,
+    pub(crate) refused: bool,
+}
+
+impl DenylistVerdict {
+    fn pass(lines: Vec<String>) -> Self {
+        Self { lines, refused: false }
+    }
+
+    fn refuse(lines: Vec<String>) -> Self {
+        Self { lines, refused: true }
+    }
+}
+
 impl Denylist {
     pub(crate) fn from_env() -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
@@ -146,27 +162,39 @@ impl Denylist {
     }
 
     pub(crate) fn scan(&self, root: &Path, origin_url: &str, base: &str, head: &str, tag: &str) -> Step {
+        let verdict = self.verdict(|| visibility(origin_url), || self.findings(root, base, head, tag));
+        if verdict.refused {
+            cancelled()?;
+        }
+        verdict.lines.iter().for_each(|line| println!("{line}"));
+        if verdict.refused { Err(Refused(1)) } else { Ok(()) }
+    }
+
+    pub(crate) fn verdict(
+        &self,
+        visibility: impl FnOnce() -> String,
+        findings: impl FnOnce() -> Result<BTreeSet<String>, String>,
+    ) -> DenylistVerdict {
         let configured = self.config.as_ref().is_some_and(|config| config.is_file());
         if !configured && !self.south.is_dir() {
             let named = self.config.as_ref().map_or_else(|| format!("{} origin/main", self.south.display()), |config| config.display().to_string());
-            println!(
+            return DenylistVerdict::pass(vec![format!(
                 "safe-push: ⚠ no deny-list at {named} and no south checkout at {}, so private values were not scanned.",
                 self.south.display()
-            );
-            return Ok(());
+            )]);
         }
-        let visibility = visibility(origin_url);
+        let visibility = visibility();
         if matches!(visibility.as_str(), "PRIVATE" | "INTERNAL") {
-            return Ok(());
+            return DenylistVerdict::pass(Vec::new());
         }
         if let Some(config) = self.config.as_ref().filter(|_| !configured) {
-            return Err(refuse(format!(
+            return DenylistVerdict::refuse(vec![format!(
                 "safe-push: ✗ the deny-list {} is missing although {} exists, so a {visibility} push cannot be scanned for private values; restore it in south; NOT pushed.",
                 config.display(),
                 self.south.display()
-            )));
+            )]);
         }
-        self.report(self.findings(root, base, head, tag), &visibility)
+        self.report(findings(), &visibility)
     }
 
     fn findings(&self, root: &Path, base: &str, head: &str, tag: &str) -> Result<BTreeSet<String>, String> {
@@ -179,22 +207,25 @@ impl Denylist {
         }
     }
 
-    fn report(&self, findings: Result<BTreeSet<String>, String>, visibility: &str) -> Step {
-        match findings {
-            Ok(found) if found.is_empty() => return Ok(()),
-            Ok(_) | Err(_) if cancelled().is_err() => return cancelled(),
-            Ok(found) => found.iter().for_each(|finding| println!("denylist: {finding}")),
+    fn report(&self, findings: Result<BTreeSet<String>, String>, visibility: &str) -> DenylistVerdict {
+        let found = match findings {
+            Ok(found) if found.is_empty() => return DenylistVerdict::pass(Vec::new()),
+            Ok(found) => found,
             Err(error) => {
-                println!("denylist: cannot scan: {error}");
-                return Err(refuse(format!(
-                    "safe-push: ✗ the deny-list scan could not run (exit 2), so a {visibility} push was not checked for private values; NOT pushed."
-                )));
+                return DenylistVerdict::refuse(vec![
+                    format!("denylist: cannot scan: {error}"),
+                    format!(
+                        "safe-push: ✗ the deny-list scan could not run (exit 2), so a {visibility} push was not checked for private values; NOT pushed."
+                    ),
+                ]);
             }
-        }
+        };
         let source = self.config.as_ref().map_or_else(|| format!("in {} origin/main", self.south.display()), |config| config.display().to_string());
-        Err(refuse(format!(
+        let mut lines: Vec<String> = found.iter().map(|finding| format!("denylist: {finding}")).collect();
+        lines.push(format!(
             "safe-push: ✗ PRIVATE VALUE for a {visibility} repository matched the deny-list {source} — it belongs in south; NOT pushed."
-        )))
+        ));
+        DenylistVerdict::refuse(lines)
     }
 }
 
