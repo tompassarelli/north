@@ -26,7 +26,7 @@ export function decide(s: Situation): Decision {
   if (s.attempt !== 2) return report("Confirmation budget exhausted; never rerun again");
   const confirmed = s.confirmed.find(j => j.name === job.name);
   if (s.conclusion !== "failure" || confirmed?.conclusion !== "failure" || !confirmed.steps.some(t => t.name === step.name && t.conclusion === "failure")) return report("The original step did not fail again; no confirmed culprit");
-  if (/^(Set up job|Complete job|Post |Install |Checkout |Cache |Activate |Read setup |Toolchain |Run actions\/|Run oven-sh\/)/.test(step.name)) return report("A setup step failed; report infrastructure failure");
+  if (/^(Set up job|Complete job|Post |Install |Checkout |Cache |Activate |Read setup |Toolchain |Run actions\/|Run oven-sh\/)/.test(step.name) || /planted fault$/.test(step.name)) return report(/planted fault$/.test(step.name) ? "A canary failed: a check stopped checking or its planted fault no longer applies; report, never revert" : "A setup step failed; report infrastructure failure");
   if (s.previous?.conclusion !== "success") return report("The previous main run of this workflow was not green");
   if (!s.commits.length) return report("No landed commits after the previous run");
   let parent = s.previous.sha;

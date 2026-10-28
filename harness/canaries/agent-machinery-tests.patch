@@ -1,0 +1,13 @@
+diff --git a/agent-machinery/scripts/project-exposure-profile.mjs b/agent-machinery/scripts/project-exposure-profile.mjs
+index 69bebc34..2ddc943c 100644
+--- a/agent-machinery/scripts/project-exposure-profile.mjs
++++ b/agent-machinery/scripts/project-exposure-profile.mjs
+@@ -118,7 +118,7 @@ export function validateProjectExposureProfile(value) {
+     if (seen.has(entry.mechanism)) throw new Error(`duplicate project exposure lifecycle mechanism: ${entry.mechanism}`);
+     seen.add(entry.mechanism);
+     enumValue(entry.evidence, allowed, `project exposure lifecycle ${entry.mechanism} evidence`);
+-    if (entry.evidence === "explicit-operator-instruction" &&
++    if (false &&
+         !facts.explicitLifecycleActions.includes(entry.mechanism))
+       throw new Error(`project exposure lifecycle ${entry.mechanism} cites absent explicit action ${entry.mechanism}`);
+     if (entry.evidence !== "explicit-operator-instruction" && !present.has(entry.evidence))

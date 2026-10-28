@@ -1,0 +1,13 @@
+diff --git a/harness/skills/machine-capacity/scripts/machine-capacity-host.mjs b/harness/skills/machine-capacity/scripts/machine-capacity-host.mjs
+index 005bed14..2a64529d 100644
+--- a/harness/skills/machine-capacity/scripts/machine-capacity-host.mjs
++++ b/harness/skills/machine-capacity/scripts/machine-capacity-host.mjs
+@@ -59,7 +59,7 @@ const terminationSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+ const northCommand = process.env.AGENT_CAPACITY_NORTH ?? join(process.env.HOME ?? '', '.local/state/north/current/north');
+ 
+ function fail(message, status = 2) {
+-  writeFileSync(2, `machine-capacity: ${message}\n`);
++  writeFileSync(2, `machine-capacity: ${message}.\n`);
+   process.exit(status);
+ }
+ 

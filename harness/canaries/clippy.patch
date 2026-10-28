@@ -1,0 +1,13 @@
+diff --git a/src/shell/lexer.rs b/src/shell/lexer.rs
+index 193d1124..1ba022e6 100644
+--- a/src/shell/lexer.rs
++++ b/src/shell/lexer.rs
+@@ -170,7 +170,7 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
+         i = close;
+         search = close;
+     }
+-    text.push_str(&cmd[i..]);
++    text.push_str(&cmd[i..].to_string());
+     lex(&strip_comments(&text))
+ }
+ 

@@ -1,0 +1,9 @@
+diff --git a/agent-machinery/skills/verification/SKILL.md b/agent-machinery/skills/verification/SKILL.md
+index 2419be13..5f1b73eb 100644
+--- a/agent-machinery/skills/verification/SKILL.md
++++ b/agent-machinery/skills/verification/SKILL.md
+@@ -69,3 +69,4 @@ Example matrices re-testing one rule a property should own; our own prose, const
+ - Call an external tool once per batch, not per file, row, test or branch; fall back per item only for exact diagnostics on failure, because process start dominates small calls.
+ - Bound cost in a deterministic unit (instructions, frames, allocations), never wall seconds, because wall time flakes under load; shrink inputs or move work after landing instead of raising a ceiling. Run a timing check once, under an exclusive capacity lease.
+ - Quarantine a flake at first sight with its seed, log and an issue; fix or delete it within a week, because a flake hides real failures. Never retry to green, sleep or weaken an expectation.
++Notes live in ~/notes.

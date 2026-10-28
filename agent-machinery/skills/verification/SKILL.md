@@ -32,6 +32,7 @@ Iteration speed is everything, so every test names the guarantee it protects, in
 - Tighten only where a bug escaped, extending the property, scenario or reference that should have caught it, because escapes, not fear, buy strictness.
 - Never lower an assertion, threshold or seed count to make a failing change pass, and never retry a flake to green, because right-sizing is not weakening.
 - Delete or merge on sight tests whose title names no guarantee, duplicates, tests of removed features, implementation-detail asserts, stale snapshots and checks that only ever failed when data legitimately moved; name the kept test that still protects the guarantee, or say nobody cares about it, so no guarantee is lost silently.
+- A test that proves a just-built feature or port works (parity against the code it replaces, a check that the new command runs) is landing evidence, not a regression test: cite its run in the commit and commit it only if it is also the cheapest check of a lasting guarantee, because scaffolding outlives the port and freezes the code.
 - Remove the need first: one table over every case, types that rule out bad states, one source of truth generating the rest, because a bug that can't be written needs no test.
 - Keep logic in a pure deterministic core fed time, randomness and peers as inputs; test through the caller's interface and fake only what we don't own, because fakes of our own code drift from it.
 
@@ -48,6 +49,7 @@ Agents verify every mechanical check themselves on VM pairs and native capture (
 - **Edit loop (under ~60 s, local)**: type-check plus the tests of what changed; a worker runs this before pushing.
 - **Landing gate**: tests whose inputs changed, one seeded representative of each sweep family whose guarantee no ordinary test covers, and one seconds-long end-to-end path, fast enough to land changes 1.5x faster than they arrive, because a queue that grows never drains. A new sweep runs after landing unless it earns a gate slot.
 - **After landing**: every sweep, full roster and wide property search on each landed SHA, on runners that exist; bisect a failure, confirm it on the parent, auto-revert the culprit. Check a tier ran before moving work into it, because a tier nobody runs protects nothing.
+- **Canaries**: give each check family the landing gate and CI keep one recorded planted fault that CI applies and that must fail, because a check that silently stops checking still looks green.
 - **Nightly / manual**: soaks, native pairs, cost censuses.
 
 ## Committed records
@@ -55,7 +57,7 @@ Agents verify every mechanical check themselves on VM pairs and native capture (
 - Delete a record no check reads, because it protects nothing.
 
 ## Delete on sight (largest first, from seven repository reviews)
-Example matrices re-testing one rule a property should own; our own prose, constants or argv asserted verbatim; one scenario rebuilt per layer or run twice; count pins on fixtures, catalogs or test totals; suites no runner collects; sleeps used as coordination; fakes of our own code; oracles that pass when nothing was checked; source greps and tombstones; single bugs pinned as their own tests; asserts of what the types guarantee; live probes committed as tests; full-width sweeps at the landing gate. Count cases with the runner, never a regex, because regex counts were refuted by runners. Counts per class: [testing sources](references/testing-sources.md).
+Example matrices re-testing one rule a property should own; our own prose, constants or argv asserted verbatim; one scenario rebuilt per layer or run twice; count pins on fixtures, catalogs or test totals; suites no runner collects; sleeps used as coordination; fakes of our own code; oracles that pass when nothing was checked; source greps and tombstones; single bugs pinned as their own tests; asserts of what the types guarantee; live probes committed as tests; parity checks against code that is deleted or now an exec; full-width sweeps at the landing gate. Count cases with the runner, never a regex, because regex counts were refuted by runners. Counts per class: [testing sources](references/testing-sources.md).
 
 ## Mutation and landing-tool rules
 - A mutant settles doubt about whether a test is the only one protecting a guarantee; it is not a toll on every deletion.

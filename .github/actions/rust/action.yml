@@ -1,0 +1,9 @@
+name: Rust toolchain
+description: The toolchain rust-toolchain.toml pins, with the cargo cache.
+runs:
+  using: composite
+  steps:
+    - name: Toolchain from rust-toolchain.toml
+      shell: bash
+      run: rustup show active-toolchain || rustup toolchain install
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
