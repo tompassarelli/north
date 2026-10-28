@@ -253,7 +253,7 @@ try:
                              env=env, capture_output=True, text=True)
     assert refused.returncode == 2 and refused.stderr.startswith("usage: worker-ledger"), refused
     assert f"cut points high=[0,{high:.6f}) xhigh=[{high:.6f},{maximum:.6f}) max=[{maximum:.6f},inf)" in recommendation.stdout, recommendation.stdout
-    assert recommendation.stdout.splitlines()[-1] == "held-out: 2 of 2 off-rails items in the top decile (100.00%), p=0.01; PASS at alpha 0.05", recommendation.stdout
+    assert all(line in recommendation.stdout for line in ("realized items high/xhigh/max=90.00/5.00/5.00% of 100\n", "planner runs by effort n=0: high=0 (0.00%) xhigh=0 (0.00%) max=0 (0.00%)\n")), recommendation.stdout
     assert hashlib.sha256(Path(db_path).read_bytes()).digest() == before, "planner recommendation changed the ledger"
 except AssertionError as error:
     case_failures.append(str(error))
@@ -269,7 +269,7 @@ check '[measurement] planner cut points separate known zero/one/multiple payoff 
 check '[recorded] planner fixed-seed held-out binomial check keeps withheld outcomes out of ranking and reports a failed chance-level fixture' \
   'grep -qx "holdout ok" <<<"$out"'
 
-check '[recorded] planner recommendation uses measured bands and prints the held-out verdict through worker-ledger' \
+check '[recorded] planner recommendation uses measured bands and prints the realized band and planner-effort shares through worker-ledger' \
   'grep -qx "recommend planner ok" <<<"$out"'
 
 out=$(python3 - "$repo" "$scratch" <<'PYMODE'

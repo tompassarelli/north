@@ -14,6 +14,7 @@ mod briefs;
 pub(crate) mod closed;
 mod closed_source;
 mod gates;
+pub mod planner;
 pub(crate) mod pricing;
 mod report;
 mod verdict;

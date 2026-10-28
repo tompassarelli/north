@@ -1258,26 +1258,6 @@ def planner_band(difficulty, high, maximum):
     return "high" if difficulty < high else "xhigh" if difficulty < maximum else "max"
 
 
-def cmd_planner_recommend(db, a, asked):
-    for key in ("scope", "surface", "initial_eta", "prior_not_done"):
-        if key not in asked:
-            raise Refused("planner needs Scope, Surface, Summed box ETA and Prior Not dones")
-    if asked["initial_eta"] <= 0:
-        raise Refused("Summed box ETA must be positive")
-    items, _, _ = planner_items(db)
-    if not items:
-        raise Refused("planner needs past items")
-    high, maximum = planner_cuts(items)
-    prediction = planner_prediction(asked, items)
-    print(f"planner {planner_band(prediction, high, maximum)}  nearest items n={max(1, math.ceil(math.sqrt(len(items))))}  difficulty={prediction:.6f}")
-    print(f"cut points high=[0,{high:.6f}) xhigh=[{high:.6f},{maximum:.6f}) max=[{maximum:.6f},inf)")
-    missing = sum(r["prior_not_done"] is None for r in items)
-    if asked["prior_not_done"]:
-        print(f"prior Not dones: {asked['prior_not_done']} given; history has no planning-time prior Not dones for {missing} of {len(items)} items, so matching ignores it for those")
-    h = planner_holdout(items)
-    print(f"held-out: {h['hits']} of {h['off_rails']} off-rails items in the top decile ({100 * h['rate']:.2f}%), p={h['p']:.8g}; {'PASS' if h['passed'] else 'FAIL'} at alpha 0.05")
-
-
 def cmd_planner_band(db, a):
     items, runs, no_item = planner_items(db)
     high, maximum = planner_cuts(items)
@@ -1533,7 +1513,14 @@ def cmd_recommend(db, a):
     if "category" not in asked or asked["category"] not in CATEGORIES:
         raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
     if a.planner:
-        return cmd_planner_recommend(db, a, asked)
+        try:
+            code = subprocess.run([os.environ.get("NORTH_BIN") or "north", "ledger", "recommend", "--planner", a.facets],
+                                  env=dict(os.environ, THREADS_DB=DB)).returncode
+        except OSError as e:
+            raise Refused(f"cannot run north ledger recommend --planner: {e}")
+        if code:
+            raise Refused(f"north ledger recommend --planner exited {code}")
+        return
     asked = {k: v for k, v in asked.items() if k in GROUPS}
     operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
     config = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml")
