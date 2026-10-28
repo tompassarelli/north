@@ -425,7 +425,7 @@ fn is_tom_session(first: Option<&(String, i64)>) -> bool {
 }
 
 fn refresh_index() {
-    let Ok(mut child) = Command::new("convo").arg("index").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else {
+    let Ok(mut child) = Command::new("north").args(["convo", "index"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else {
         return;
     };
     let deadline = Instant::now() + Duration::from_secs(600);

@@ -40,13 +40,13 @@ schema. Keep repository paths `repo:path` and runtime/worktree paths
 ## Recall past work with convo
 
 Find past agent work, decisions, commands or session IDs across Claude Code and
-Codex transcripts with the indexed `convo` CLI; the `corpus-scan-guard` hook
+Codex transcripts with the indexed `north convo` CLI; the `corpus-scan-guard` hook
 refuses recursive raw scans of transcript storage, which is too large to sweep.
 
-- Search with `convo <words>` (all words in one message; `-x` for exact strings,
+- Search with `north convo <words>` (all words in one message; `-x` for exact strings,
   ids and error text) and narrow by role, tool, project, session, provider or
-  time; flags are in `convo --help`.
-- Open a hit with `convo show <id> -C 3` or `convo session <id prefix>`, and read
+  time; flags are in `north convo --help`.
+- Open a hit with `north convo show <id> -C 3` or `north convo session <id prefix>`, and read
   a raw transcript only at the path and line `show` printed, so no read sweeps
   the corpus.
 - Treat exit 2 as inconclusive, never as absence, because the index may be busy

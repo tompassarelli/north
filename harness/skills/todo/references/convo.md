@@ -15,7 +15,7 @@
 
 ## Corpus and index
 
-`convo` indexes the canonical `~/code/north-data/accounts` tree, a configured
+`north convo` indexes the canonical `~/code/north-data/accounts` tree, a configured
 `CODEX_HOME` and `NORTH_CODEX_POOLED_HOME`, the default pooled runtime home,
 and Claude Code's `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR/projects`). In a
 Claude projects tree only `<project>/<session>.jsonl` and
@@ -34,9 +34,9 @@ occurrence that passes them is shown. Tool calls
 are indexed as `<tool> <key>=<value>`; tool output, images, developer
 messages and compaction replays are not indexed.
 
-A new schema version gets a new file name. Build it once with `convo index`
+A new schema version gets a new file name. Build it once with `north convo index`
 under a machine-capacity lease (moderate class); it reads every transcript,
-and searches refuse to run without it. `convo index --full` rebuilds from
+and searches refuse to run without it. `north convo index --full` rebuilds from
 scratch. Every ordinary search then runs an incremental pass that stats each
 transcript and reads only appended bytes.
 
@@ -51,12 +51,12 @@ points to `~/code/north-data`, so searching both reads the corpus twice.
 
 ## Compression and resume
 
-`convo compress` rewrites Codex rollouts untouched for 48 hours as
+`north convo compress` rewrites Codex rollouts untouched for 48 hours as
 `.jsonl.zst` (zstd -3, 128 MiB window), skipping files any process holds open
 and sessions the coordinator roster names. It verifies a byte-exact round trip
 before unlinking the source. Claude Code transcripts are never compressed;
 `compress` reports how many it left alone. Search keeps working on archives,
-but `codex resume <uuid>` needs plain JSONL, so run `convo restore <file>`
+but `codex resume <uuid>` needs plain JSONL, so run `north convo restore <file>`
 first. Compression, restore and full rebuilds are maintenance, never
 prerequisites for answering a question.
 
@@ -65,7 +65,7 @@ prerequisites for answering a question.
 A Claude Skill load is a `tool` message with `tool = 'Skill'` and text
 `Skill skill=<name>`. Count loads and sessions over a frozen window straight
 from the index (`sqlite3 -readonly ~/.local/state/convo/index-v4.db` after one
-`convo index`):
+`north convo index`):
 
 ```sql
 SELECT substr(b.text, 13) AS skill, COUNT(*) AS loads,

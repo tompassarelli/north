@@ -46,7 +46,7 @@ Follow the front matter with `Outcome`, `Current state`, `Decisions`, `Next
 actions`, `Verification`, and `Recovery and cleanup`. Required root fields are
 `id`, `title`, `shape`, `life`, `updated_at`, and `owners`. Add dependency,
 conversation, coordination, and lane fields when they exist. Conversation IDs
-are provider/session identifiers recoverable with `convo session <uuid>`.
+are provider/session identifiers recoverable with `north convo session <uuid>`.
 
 The values are an example, not facts to copy. Omit optional fields with no real
 counterpart. Model/forecast metadata is not a prerequisite to a useful record.

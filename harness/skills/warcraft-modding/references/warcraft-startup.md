@@ -16,7 +16,7 @@ fixed.
 The successful A sequence is recorded in the conversation south:agents/skills/battlenet-accounts/
 names, 3 October 01:18–01:24 UTC, and
 smashcraft:build/two-client-current-state.md under the 01:32 UTC checkpoint.
-Use the indexed convo CLI to retrieve the exact sequence when needed.
+Use the indexed `north convo` CLI to retrieve the exact sequence when needed.
 
 Later that day, a primary-display controller trial directly restarted
 Warcraft III.exe after a completed in-game login. This required the owner to

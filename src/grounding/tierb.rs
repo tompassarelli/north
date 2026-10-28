@@ -51,7 +51,7 @@ pub fn tier_b(words: &[String], mut db: Option<&mut store::Sqlite>) -> (Vec<Stri
         args.extend(["-m", "-n", "6", "--json", "-r", "user,assistant"]);
         args.extend(phrase.iter().map(String::as_str));
         let timeout = (deadline - Timestamp::now().unix_seconds_f64()).max(5.0).to_string();
-        let mut timed = vec![timeout.as_str(), "convo"];
+        let mut timed = vec![timeout.as_str(), "north", "convo"];
         timed.extend(args);
         let Ok(out) = command("timeout", &timed) else {
             continue;

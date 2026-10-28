@@ -12,7 +12,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | --- | --- | --- |
 | No new Python files or Python line growth; shell glue stays at most 80 code lines; write Rust by default | `language-guard` | Claude, Codex |
 | No placeholder model identities in Todo attempts or calibration records | `concrete-model-identity-guard` | Codex |
-| No broad transcript archive scans; use convo or a bounded transcript target | `corpus-scan-guard` | Claude, Codex |
+| No broad transcript archive scans; use `north convo` or a bounded transcript target | `corpus-scan-guard` | Claude, Codex |
 | System configuration operations go through Firn's source-owned policy | `firn-system-policy` | Claude, Codex |
 | No unnamed stash pushes and no stash pop, because every worktree shares the stash | `north-hook` | Claude, Codex |
 | Native evidence uses the batch planner; solo exceptions record their reason in the run ledger, and quiet leases belong to timing batches | `north-hook` | Claude, Codex |

@@ -28,5 +28,5 @@ The `resource-safe-search-guard` hook (Codex only so far) refuses recursive sear
 - Pass an absolute checkout or subtree operand, since launch context may differ from the tool's working directory and an implicit root may be the container.
 - Name stdin explicitly when filtering a pipeline (`producer | rg PATTERN -`), so `rg` does not fall back to searching the working directory.
 - Find a process through bounded native metadata (`pgrep`, `ps`, one `/proc/PID` field such as `readlink -e /proc/PID/cwd`), narrowed by PID, command, unit or user, and resolve its cwd before searching its files, because virtual trees expose device streams and links into arbitrary filesystems.
-- Use `convo` for transcript searches (see `todo`), because the transcript corpus is too large to scan.
+- Use `north convo` for transcript searches (see `todo`), because the transcript corpus is too large to scan.
 - When a search shape proves unsafe, amend this rule and its guard together and test the offending shape plus the nearest legitimate bounded one, so the guard blocks only what it should.

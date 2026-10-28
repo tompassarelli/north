@@ -85,10 +85,10 @@ fn convo(role: &str, provider: &str, days: u32) -> Result<Vec<Message>, String> 
     let arguments = [
         "-r", role, "-m", "--since", &format!("{days}d"), "-n", "1000000", "--json", "--full", "--provider", provider,
     ];
-    let output = Command::new("convo").args(arguments).output().map_err(|error| format!("convo: {error}"))?;
+    let output = Command::new("north").arg("convo").args(arguments).output().map_err(|error| format!("north convo: {error}"))?;
     if !matches!(output.status.code(), Some(0 | 1)) {
         return Err(format!(
-            "convo failed ({}): convo {}\n{}",
+            "convo failed ({}): north convo {}\n{}",
             output.status.code().map_or_else(|| "signal".to_owned(), |code| code.to_string()),
             arguments.join(" "),
             String::from_utf8_lossy(&output.stderr)
