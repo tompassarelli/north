@@ -13,7 +13,7 @@ use survey::Survey;
 pub(crate) use cloud::{autoland as cloud_autoland, branch as cloud_branch};
 pub(crate) use fleets::holder as task_holder;
 pub(crate) use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
-pub(crate) use manual::{Ask, Start, begin as start_hand};
+pub(crate) use manual::{Ask, Start, begin as start_hand, tier_reason, unrouted};
 pub(crate) use survey::evidence as arm_evidence;
 pub(crate) use tier::{ARMED, Evidence, Tier};
 #[cfg(test)]
@@ -126,6 +126,10 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         outcome.ready += 1;
+        if facets::category(issue).is_none() {
+            outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", facets::UNCATEGORISED)));
+            continue;
+        }
         let route = tier::route(issue, &history, &survey.ledger);
         let brief = brief::brief(issue, launched_by, &route, &survey.grounds.grounds(&issue.reference().to_string(), &issue.body, &route));
         let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);

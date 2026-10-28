@@ -577,3 +577,36 @@ fn a_message_sent_right_after_reviving_a_parked_session_shows_it_working_at_once
     assert_eq!(at_once, r#""working""#, "a revived session still loading its conversation holds the message it was sent");
     assert!(ran.is_ok(), "the revived session never ran the message");
 }
+
+#[test]
+fn a_launch_that_names_no_issue_is_refused_a_model_without_a_tier_reason_and_runs_it_with_one() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let untasked = |brief: &str, extra: &[&str]| {
+        let path = root.join("box.md");
+        fs::write(&path, brief).unwrap();
+        let path = path.display().to_string();
+        let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &path];
+        args.extend(extra);
+        args.push("start the work");
+        north(root, &args)
+    };
+
+    let refused = untasked("Delegation: role=worker\nCategory: tooling\n", &["--model", "opus"]);
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "{stderr}");
+    assert!(stderr.contains("--model opus") && stderr.contains("Tier-reason:"), "{stderr}");
+    assert!(!north(root, &["fleet", "show", "narrow", "--json"]).status.success(), "a refused launch starts no session");
+
+    let reasoned = untasked("Delegation: role=worker\nCategory: tooling\nTier-reason: a wrong routing rule misplaces every later launch\n", &["--model", "opus"]);
+    assert!(reasoned.status.success(), "{}", String::from_utf8_lossy(&reasoned.stderr));
+    let session = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert_eq!(session["model"], "opus", "{session}");
+    assert!(session["placement"].as_str().unwrap_or_default().contains("tier: a wrong routing rule misplaces every later launch"), "{session}");
+
+    let unnamed = untasked("Delegation: role=worker\n", &[]);
+    assert!(unnamed.status.success(), "a launch that names no model needs no reason: {}", String::from_utf8_lossy(&unnamed.stderr));
+    north(root, &["fleet", "forget", "narrow"]);
+}

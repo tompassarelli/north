@@ -1,14 +1,22 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, LaunchRequest};
-use crate::ops::dispatch::{Ask, Start, start_hand};
+use crate::ops::dispatch::{Ask, Start, start_hand, tier_reason, unrouted};
 
 use super::fleet_placement::{self, Overrides};
 
 pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> NorthResult<Option<Start>> {
-    let Some(item) = request.task().filter(|_| request.provider.label() == "claude" && !request.verification) else { return Ok(None) };
+    if request.provider.label() != "claude" || request.verification {
+        return Ok(None);
+    }
     let mut brief = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     brief.extend(request.named_brief());
-    let ask = Ask { item: &item, brief: &brief, prompt: &request.prompt, model: request.model.as_deref(), reason: overrides.tier.as_deref() };
+    let reason = tier_reason(&brief, overrides.tier.as_deref());
+    let Some(item) = request.task() else {
+        unrouted(request.model.as_deref(), reason.as_deref()).map_err(NorthError::Refused)?;
+        overrides.tier = reason;
+        return Ok(None);
+    };
+    let ask = Ask { item: &item, brief: &brief, prompt: &request.prompt, model: request.model.as_deref(), reason: reason.as_deref() };
     let start = start_hand(&ask).map_err(NorthError::Refused)?;
     request.model = Some(start.model.clone());
     if request.effort.is_none() {

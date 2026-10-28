@@ -71,7 +71,7 @@ pub(super) fn sized(name: &str, hosts: &[&str], plan: PlanSize, room: Room) -> A
 }
 
 pub(super) fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
-    Issue { repo: repo.into(), number, title: format!("box {number}"), body: body.into(), labels: labels.iter().map(|label| (*label).to_owned()).collect(), ..Issue::default() }
+    Issue { repo: repo.into(), number, title: format!("box {number}"), body: format!("{body}\nCategory: feature"), labels: labels.iter().map(|label| (*label).to_owned()).collect(), ..Issue::default() }
 }
 
 pub(super) fn survey(issues: Vec<Issue>, cloud: Cloud, hosts: Vec<Host>, accounts: Vec<Account>) -> Survey {

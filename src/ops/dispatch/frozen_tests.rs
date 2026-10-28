@@ -8,7 +8,7 @@ fn an_open_issue_titled_with_a_frozen_topic_is_skipped_with_the_reason_and_other
     let (hosts, accounts) = fleet();
     let titled = |number: u64, title: &str| Issue { title: title.into(), ..issue("smashcraft", number, "- [ ] a", &[]) };
     let mut frozen = survey(
-        vec![titled(1, "Kobold rope hitbox"), titled(2, "Fix the FORSAKEN PALADIN slam"), titled(3, "Anub'arak scorecard"), Issue { body: "- [ ] a\nkobold is mentioned in passing".into(), ..titled(4, "Roadmap ledger") }],
+        vec![titled(1, "Kobold rope hitbox"), titled(2, "Fix the FORSAKEN PALADIN slam"), titled(3, "Anub'arak scorecard"), Issue { body: "- [ ] a\nCategory: feature\nkobold is mentioned in passing".into(), ..titled(4, "Roadmap ledger") }],
         Cloud::Unreachable("the credit login is on nexus".into()),
         hosts,
         accounts,

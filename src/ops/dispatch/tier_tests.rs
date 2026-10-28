@@ -3,7 +3,7 @@ use super::record::Record;
 use super::tests::{issue, survey};
 use super::tier::{ARM_RUNS, Evidence, History, Tier};
 use crate::ledger::closed::{Cell, ClosedReport};
-use super::{decide, effects, slots};
+use super::{alert, decide, effects, slots};
 use std::collections::BTreeMap;
 
 const RECOMMEND: &str = "tier claude:sonnet-high  cell [Category: tooling]  n 30
@@ -27,6 +27,10 @@ fn launched(boxes: Vec<super::issues::Issue>, history: History, ledger: BTreeMap
 
 fn tiers(launches: &[(String, Tier, bool, String)]) -> Vec<(&str, &str)> {
     launches.iter().map(|(item, tier, _, _)| (item.as_str(), tier.name())).collect()
+}
+
+fn uncategorised(repo: &str, number: u64, body: &str, labels: &[&str]) -> super::issues::Issue {
+    super::issues::Issue { body: body.into(), ..issue(repo, number, "", labels) }
 }
 
 fn haiku_try(item: &str, at: f64) -> Record {
@@ -70,7 +74,7 @@ fn a_mechanical_box_haiku_missed_retries_on_sonnet_following_the_haiku_session()
 fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then_take_the_cheaper_arm() {
     let tooling = |number: u64| issue("wisp", number, "- [ ] a\nCategory: tooling", &[]);
     let launches = launched(vec![tooling(1), tooling(2), tooling(3), issue("wisp", 4, "- [ ] a", &[])], History::default(), BTreeMap::new());
-    assert_eq!(tiers(&launches), [("wisp#1", "sonnet-high"), ("wisp#2", "worker"), ("wisp#3", "sonnet-high"), ("wisp#4", "sonnet-high")], "an undeclared category is a feature, with its own arms");
+    assert_eq!(tiers(&launches), [("wisp#1", "sonnet-high"), ("wisp#2", "worker"), ("wisp#3", "sonnet-high"), ("wisp#4", "sonnet-high")], "a feature box has its own arms");
     assert!(launches.iter().all(|(_, tier, arm, brief)| *arm && brief.contains(&format!("Arm: {}", tier.name()))));
     let last = Record { tier: Some("sonnet-high".into()), category: Some("tooling".into()), arm: true, name: "wisp-1-d0800".into(), item: "wisp#1".into(), ..haiku_try("wisp#1", 50.0) };
     assert_eq!(tiers(&launched(vec![tooling(5)], History::new(&[last]), BTreeMap::new())), [("wisp#5", "worker")], "the next run takes the arm after the recorded one");
@@ -159,4 +163,36 @@ fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_e
     assert_eq!(arms(&lagging), [(off.clone(), off.clone()), (None, None), (None, None)], "only the arm under 30 runs on that tier still launches");
     let sonnet = super::survey::Survey { handoffs: held(30, 30), ..survey(boxes("bug-known-cause"), Cloud::Closed(String::new()), hosts, accounts) };
     assert_eq!(arms(&sonnet)[0], (on.clone(), on), "each tier fills its own arms");
+}
+
+#[test]
+fn a_box_without_a_category_line_takes_one_from_its_labels_and_one_nothing_categorises_is_refused_with_the_reason() {
+    let boxes = vec![
+        uncategorised("north", 1, "- [ ] a", &["enhancement", "priority:now"]),
+        uncategorised("north", 2, "- [ ] a", &["bug"]),
+        uncategorised("north", 3, "- [ ] a", &["priority:next", "category:mechanical"]),
+        uncategorised("north", 4, "- [ ] a\n- Category: bug-known-cause. Spec: measured. Scope: padbridge.", &[]),
+    ];
+    let mut launches = launched(boxes, History::default(), BTreeMap::new());
+    launches.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(tiers(&launches), [("north#1", "sonnet-high"), ("north#2", "worker"), ("north#3", "worker-haiku"), ("north#4", "sonnet-high")]);
+    let headers: Vec<bool> = launches.iter().zip(["feature", "debugging-unknown-cause", "mechanical", "bug-known-cause"]).map(|((_, _, _, brief), category)| brief.contains(&format!("\nCategory: {category}\n"))).collect();
+    assert_eq!(headers, [true; 4], "the brief names the derived category");
+
+    let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+    let blind = survey(vec![uncategorised("north", 5, "- [ ] a", &["priority:now"])], Cloud::Closed(String::new()), hosts, accounts);
+    let outcome = decide(&blind, "test");
+    assert!(outcome.launches.is_empty(), "an item nothing categorises does not launch");
+    assert_eq!(outcome.skipped, [(super::issues::IssueRef::parse("north#5").unwrap(), format!("ready, not placed: {}", super::facets::UNCATEGORISED))]);
+    assert!(alert(&outcome, &[], "nexus").is_some_and(|line| line.contains("north#5 ready, not placed: no category")), "the refusal reaches the alert");
+}
+
+#[test]
+fn a_feature_box_launches_on_worker_after_a_recorded_sonnet_feature_launch_until_both_arms_hold_fifteen_runs() {
+    let feature = |number: u64| issue("smashcraft", number, "- [ ] a\nCategory: feature", &[]);
+    let last = Record { tier: Some("sonnet-high".into()), category: Some("feature".into()), arm: true, name: "sc-1-d0800".into(), item: "smashcraft#1".into(), ..haiku_try("smashcraft#1", 50.0) };
+    let launches = launched(vec![feature(2), feature(3)], History::new(&[last]), BTreeMap::new());
+    assert_eq!(tiers(&launches), [("smashcraft#2", "worker"), ("smashcraft#3", "sonnet-high")]);
+    assert!(launches.iter().all(|(_, tier, arm, brief)| *arm && brief.contains(&format!("Arm: {}", tier.name()))));
 }

@@ -146,3 +146,16 @@ fn issue_body(item: &str) -> Result<String, String> {
     let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body"])?;
     Ok(json["body"].as_str().unwrap_or_default().to_owned())
 }
+
+pub(crate) fn tier_reason(brief: &str, flag: Option<&str>) -> Option<String> {
+    flag.or_else(|| facets::declared_in(brief, "Tier-reason")).map(str::to_owned)
+}
+
+pub(crate) fn unrouted(model: Option<&str>, reason: Option<&str>) -> Result<(), String> {
+    match (model, reason) {
+        (Some(model), None) => Err(format!(
+            "--model {model} names a tier, but the launch names no issue (--task or a first `Item:` line) whose category routing could check it; add a `Tier-reason:` line to the brief header, pass --tier-reason TEXT, or name the issue"
+        )),
+        _ => Ok(()),
+    }
+}

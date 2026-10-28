@@ -59,7 +59,7 @@ mkdir -p "$handoffs"
 before=$(measure)
 lessons_before=$(wc -l < "$lessons" 2>/dev/null || echo 0)
 session=$(north fleet launch --provider claude --account "${SKILL_PRUNE_ACCOUNT:-a}" \
-  --model claude-opus-5-5 --name "skill-prune-$(date +%Y%m%d)" "$brief") || session=""
+  --model claude-opus-5-5 --tier-reason "skill and policy prose goes to Opus, never a cheaper tier" --name "skill-prune-$(date +%Y%m%d)" "$brief") || session=""
 if [[ -n "$session" ]]; then
   out=$(timeout 5400 north fleet show "$session" --follow) || out="session failed: exit $?"
 else
