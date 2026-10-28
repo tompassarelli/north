@@ -126,3 +126,14 @@ fn a_rewritten_gate_keeps_each_providers_controls_and_drops_providers_outside_th
     assert!(rust.get("codex").is_none() && python.get("codex").is_none(), "{rust}");
     same(&python, &rust, "stdout");
 }
+
+#[test]
+fn a_window_with_two_hours_of_samples_projects_a_non_null_burn_and_a_window_with_one_sample_projects_none() {
+    let gate = printed(&Rig::new(None).rust());
+    let windows = gate["claude"]["projections"]["claude:a"].as_array().unwrap();
+    let find = |name: &str| windows.iter().find(|window| window["window"] == name).unwrap();
+    let (week, session) = (find("week"), find("5h"));
+    assert_eq!(week["burn_pct_h"].as_f64(), Some(5.0), "{week}");
+    assert!((week["projected_pct"].as_f64().unwrap() - 230.0).abs() < 1e-6, "{week}");
+    assert!(session["burn_pct_h"].is_null() && session["projected_pct"].is_null(), "{session}");
+}
