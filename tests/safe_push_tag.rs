@@ -294,3 +294,24 @@ fn bin_safe_push_refuses_a_tag_when_the_north_runtime_lacks_safe_push() {
     assert!(stdout.contains("this host's north runtime lacks; run north runtime update; NOT pushed."), "{stdout}");
     assert_eq!(git(&copy.join("remote.git"), &["for-each-ref"]), before, "a stale runtime published the tag");
 }
+
+#[test]
+fn safe_push_tag_scans_an_outgoing_tag_against_an_origin_with_thousands_of_refs() {
+    let fixture = Fixture::new();
+    let repo = fixture.repo();
+    let main = git(&repo, &["rev-parse", "origin/main"]);
+    let refs: String = (0..6000).map(|n| format!("create refs/pull/{n}/head {main}\n")).collect();
+    let mut update = Command::new("git").current_dir(fixture.template.join("remote.git")).args(["update-ref", "--stdin"]).stdin(std::process::Stdio::piped()).spawn().unwrap();
+    std::io::Write::write_all(&mut update.stdin.take().unwrap(), refs.as_bytes()).unwrap();
+    assert!(update.wait().unwrap().success());
+    std::fs::create_dir_all(repo.join("bulk")).unwrap();
+    for n in 0..2000 {
+        std::fs::write(repo.join(format!("bulk/{n}.txt")), format!("{n}\n")).unwrap();
+    }
+    git(&repo, &["add", "bulk"]);
+    git(&repo, &["commit", "-qm", "outgoing objects"]);
+    tag(&repo, "release-bulk", "bulk release");
+    let observed = run(&fixture.copy("bulk"), &["timeout", "120", env!("CARGO_BIN_EXE_north"), "safe-push"], &Case::new(&["--tag", "release-bulk"]));
+    assert_eq!(observed.status, 0, "exit 124 means the scan hung: {observed:#?}");
+    assert!(published(&observed, &fixture, "release-bulk"), "{observed:#?}");
+}

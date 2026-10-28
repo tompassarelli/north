@@ -136,7 +136,8 @@ impl<'a> OriginRefs<'a> {
         }
         let input: String = names.iter().map(|name| format!("{name}^{{commit}}\n")).collect();
         let peeled = feed(self.dir, &["cat-file", "--batch-check=%(objectname)"], &input).ok_or(Refused(1))?;
-        Ok(peeled.lines().filter(|line| !line.contains(' ')).map(str::to_owned).collect())
+        let commits: std::collections::BTreeSet<&str> = peeled.lines().filter(|line| !line.contains(' ')).collect();
+        Ok(commits.into_iter().map(str::to_owned).collect())
     }
 }
 
@@ -195,8 +196,13 @@ fn feed(dir: &Path, args: &[&str], input: &str) -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.take()?.write_all(input.as_bytes()).ok()?;
-    let output = child.wait_with_output().ok()?;
+    let mut stdin = child.stdin.take()?;
+    let output = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || stdin.write_all(input.as_bytes()));
+        let output = child.wait_with_output().ok()?;
+        writer.join().ok()?.ok()?;
+        Some(output)
+    })?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
