@@ -26,11 +26,12 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
             }
             let expected = match args.as_slice() {
                 [] => Some(Command::Fleet(Vec::new())),
-                [help] if ["help", "-h", "--help"].contains(&help.as_str()) => {
-                    Some(Command::Help)
-                }
+                [help] if ["help", "-h", "--help"].contains(&help.as_str()) => Some(Command::Help),
                 [config, agents, rest @ ..] if config == "config" && agents == "agents" => {
                     Some(Command::Agents(rest.to_vec()))
+                }
+                [agents, rest @ ..] if agents == "agents" => {
+                    Some(Command::Tool(Tool::Uniform("agents"), rest.to_vec()))
                 }
                 [work, rest @ ..] if work == "work" => Some(Command::Work(rest.to_vec())),
                 [host, rest @ ..] if host == "session-host" => {

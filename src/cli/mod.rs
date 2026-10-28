@@ -7,6 +7,7 @@ use crate::{
     threads_client, work_items,
 };
 
+mod agents;
 mod cloud;
 mod token_usage;
 mod fleet;
@@ -61,6 +62,7 @@ Commands:
   guard language                                PreToolUse language guard
   grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
   work [list|search|show|claim|release|need|unneed|close]  Work items
+  agents [status|stale|inspect|path|on|off|sync|busy|plan|pace|usage|presence|flow|news|routines|report]  Run the agent catalog, plan, usage and routines commands
   config agents [sync|status|on|off|path|inspect|check-hook-paths|check-owners]  Manage skills and hooks
   session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
   dep-gate BASE HEAD                            Check dependency changes before landing

@@ -7,6 +7,11 @@ use std::path::{Path, PathBuf};
 
 #[path = "catalog/registration_checks.rs"]
 mod registration_checks;
+#[path = "catalog/sync_gate.rs"]
+pub(crate) mod sync_gate;
+#[cfg(test)]
+#[path = "catalog/sync_gate_tests.rs"]
+mod sync_gate_tests;
 
 use rustix::fs::{FlockOperation, flock};
 use serde_json::{Map, Value, json};

@@ -82,7 +82,7 @@ class DurableEvents(unittest.TestCase):
     def test_recorded_store_journey(self):
         with tempfile.TemporaryDirectory(dir=EVIDENCE) as scratch:
             db = Path(scratch) / 'threads.db'
-            env = dict(os.environ, THREADS_DB=str(db), PYTHONDONTWRITEBYTECODE='1')
+            env = dict(os.environ, THREADS_DB=str(db), PYTHONDONTWRITEBYTECODE='1', NORTH_BIN=os.environ.get('NORTH_PACE_BIN', 'north'))
             def run(*args, ok=True, restricted=False):
                 result = subprocess.run([str(ROOT / 'bin/threads'), *args], env=dict(env, THREADS_NO_NATIVE='1') if restricted else env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0 if ok else 1, result.stderr)
@@ -136,7 +136,7 @@ class DurableEvents(unittest.TestCase):
             peer = home / 'bin/ssh'
             peer.write_text('#!/bin/sh\nexit 255\n')
             peer.chmod(0o700)
-            env = dict(os.environ, HOME=str(home), PATH=f'{home}/bin:{os.environ["PATH"]}', PYTHONDONTWRITEBYTECODE='1')
+            env = dict(os.environ, HOME=str(home), PATH=f'{home}/bin:{os.environ["PATH"]}', PYTHONDONTWRITEBYTECODE='1', NORTH_BIN=os.environ.get('NORTH_PACE_BIN', 'north'))
             env.pop('THREADS_DB', None)
             snapshot = home / '.local/state/threads/snapshot.db'
             snapshot.parent.mkdir(parents=True)

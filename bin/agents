@@ -6,7 +6,6 @@
 # `routines` indexes every recurring job from the operator routines dir (south:agents/routines).
 set -uo pipefail
 
-north_bin="${AGENTS_NORTH_BIN:-north}"
 
 operator_dir() {
   if [ -n "${AGENTS_OPERATOR_DIR:-}" ]; then printf '%s\n' "$AGENTS_OPERATOR_DIR"
@@ -20,19 +19,11 @@ usage() {
 }
 
 plan() {
-  if [ "${1:-}" = "--score" ]; then
-    [ $# -eq 2 ] || { usage; exit 2; }
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/project_score.py" "$2" "${AGENTS_ORCHESTRATION:-$(operator_dir)/orchestration.toml}"
-  fi
-  if [ "${1:-}" = "--place" ] || [ "${1:-}" = "--credit" ]; then
-    local verb="${1#--}"
-    shift
-    exec "${NORTH_PACE_BIN:-north}" pace place "$verb" "$@"
-  fi
+  case "${1:-}" in
+    --score|--place|--credit) exec "${NORTH_PACE_BIN:-north}" agents plan "$@" ;;
+  esac
   for arg in "$@"; do
-    if [ "$arg" = "--quote" ]; then
-      exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/project_plan.py" "$@"
-    fi
+    if [ "$arg" = "--quote" ]; then exec "${NORTH_PACE_BIN:-north}" agents plan "$@"; fi
   done
   if command -v update-status >/dev/null; then update-status >&2; fi
   local mode="" at="" json="0"
@@ -285,86 +276,11 @@ for provider, entries in others.items():
 }
 
 case "${1:-}" in
-  status|stale|inspect|path|on|off|sync) ;;
   plan)
     shift
     plan "$@"
     ;;
-  usage)
-    shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/usage.py" "$@"
-    ;;
-  pace)
-    shift
-    exec "${NORTH_PACE_BIN:-north}" pace sample "$@"
-    ;;
-  presence)
-    shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/presence.py" "$@"
-    ;;
-  flow)
-    shift
-    exec north flow "$@"
-    ;;
-  news)
-    shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/news.py" "$@"
-    ;;
-  routines)
-    shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/routines.py" "$@"
-    ;;
-  report)
-    shift
-    exec north report "$@"
-    ;;
   *)
-    usage
-    exit 2
+    exec "${NORTH_PACE_BIN:-north}" agents "$@"
     ;;
 esac
-
-if ! command -v -- "$north_bin" >/dev/null 2>&1; then
-  printf 'agents: North CLI is unavailable: %s\n' "$north_bin" >&2
-  exit 2
-fi
-
-current_main() {
-  local name=$1 dir=$2 behind=0 ahead reason="" fetched=1
-  git -C "$dir" fetch -q origin main 2>/dev/null || { printf 'agents sync: %s fetch failed; using local main\n' "$name" >&2; fetched=0; }
-  if [ "$fetched" -eq 1 ]; then
-    behind=$(git -C "$dir" rev-list --count HEAD..origin/main) || return 1
-    [ "$behind" -eq 0 ] && return 0
-  fi
-  ahead=$(git -C "$dir" rev-list --count origin/main..HEAD 2>/dev/null || echo 0)
-  if [ "$(git -C "$dir" symbolic-ref -q --short HEAD)" != main ]; then reason="checkout is not on main"
-  elif [ "$ahead" -gt 0 ]; then reason="diverged with $ahead local commits"
-  elif [ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]; then reason="uncommitted changes"
-  elif [ "$fetched" -eq 0 ]; then return 0
-  elif ! git -C "$dir" merge -q --ff-only origin/main >/dev/null 2>&1; then reason="git merge --ff-only failed"
-  else return 0
-  fi
-  if [ "$fetched" -eq 0 ]; then printf '%s main refused offline: %s\n' "$name" "$reason" >&2
-  else printf '%s main is behind origin by %s and not fast-forwardable: %s\n' "$name" "$behind" "$reason" >&2
-  fi
-  return 1
-}
-
-if [ "${1:-}" = sync ]; then
-  north_root=$(jq -er '.north // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "${NORTH_HOME:-$HOME/code/north/main}")
-  south_root=$(git -C "$(operator_dir)" rev-parse --show-toplevel 2>/dev/null) || { printf 'agents sync: operator directory is not in a Git checkout\n' >&2; exit 1; }
-  current_main south "$south_root" && current_main north "$north_root" \
-    || { printf 'agents sync: generation not published\n' >&2; exit 1; }
-  (
-    # shellcheck disable=SC1091
-    . "$(dirname "$(readlink -f "$0")")/../harness/scripts/agent-config-check.sh"
-    AGENT_CONFIG_PYTHON="${NORTH_AGENT_PYTHON:-python3}" OPERATOR="${AGENTS_OPERATOR_DIR:-$HOME/code/south/main/agents}" \
-      policy_gate "$(jq -er '."nixos-config" // empty' <<<"${NORTH_REPO_ROOTS:-null}" 2>/dev/null || printf '%s' "$HOME/code/nixos-config/main")" session
-  ) || { printf 'agents sync: generation not published\n' >&2; exit 1; }
-  "$north_bin" config agents "$@" || exit
-  python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/claude_profiles.py" || exit
-  "$(dirname "$(readlink -f "$0")")/effect-kit" scan
-  exit 0
-fi
-
-exec "$north_bin" config agents "$@"

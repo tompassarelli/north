@@ -1,3 +1,4 @@
+pub(crate) mod agents;
 pub(crate) mod convo;
 pub(crate) mod dispatch;
 pub(crate) mod flow;
