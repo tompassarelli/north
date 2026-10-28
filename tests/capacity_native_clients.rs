@@ -61,6 +61,7 @@ fn a_waiter_whose_clients_do_not_fit_lets_a_smaller_start_behind_it_take_the_fre
     let _single = client_start(&host, "pair-single", "1", &["touch", started.to_str().unwrap()]);
     host.until("the single client to start past the wide waiter", |_| started.exists());
     assert_eq!(owners(&host.status()["queued"], "native"), ["pair-wide"]);
+    host.until("the single client to release its lease", |host| host.leases("native") == 0);
 
     fs::remove_dir_all(host.path("proc/100")).unwrap();
     host.until("the wide start to take the freed slot", |host| host.leases("native") == 1);
