@@ -63,7 +63,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let source = store::Source::locate(&home, std::env::var_os("THREADS_DB"));
     let places = Places::from_env();
-    let outcome = store::open(&source, &crate::threads_client::refresh_mirrored_snapshot).and_then(|db| {
+    let outcome = store::open(&source, &crate::threads::client::refresh_mirrored_snapshot).and_then(|db| {
         let now = clock();
         if wants("--write-pace-gate") {
             gate::write(&db, &PACED, &places, now).map(|verdicts| (verdicts.to_string(), 0))
@@ -124,7 +124,7 @@ pub(crate) fn ledger_path(home: &Path, explicit: Option<std::ffi::OsString>) -> 
 }
 
 pub(crate) fn open_ledger(home: &Path, explicit: Option<std::ffi::OsString>) -> Result<Connection, String> {
-    store::open(&store::Source::locate(home, explicit), &crate::threads_client::refresh_mirrored_snapshot)
+    store::open(&store::Source::locate(home, explicit), &crate::threads::client::refresh_mirrored_snapshot)
 }
 
 pub(crate) fn json_readings(db: &Connection, now: Timestamp) -> Result<Vec<serde_json::Value>, String> {

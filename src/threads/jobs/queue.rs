@@ -281,5 +281,5 @@ fn follows_text(cmd: &Value) -> String {
         return format!("follows {} on {}", cmd["follows"].as_str().unwrap_or(""), cmd["tier"].as_str().unwrap_or(""));
     }
     let words = cmd.as_array().unwrap_or(&[]);
-    words.iter().map(|word| crate::threads_client::shell_quote(&word.as_string().map_or_else(String::new, |text| text.lossy().into_owned()))).collect::<Vec<_>>().join(" ")
+    words.iter().map(|word| crate::threads::client::shell_quote(&word.as_string().map_or_else(String::new, |text| text.lossy().into_owned()))).collect::<Vec<_>>().join(" ")
 }

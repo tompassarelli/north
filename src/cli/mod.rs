@@ -3,10 +3,7 @@ use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::session_host;
-use crate::{
-    agent_catalog, contract_probe, grounding, guard, health, hook, language_gate,
-    threads_client, work_items,
-};
+use crate::{agent_catalog, contract_probe, grounding, guard, health, hook, language_gate, work_items};
 
 mod agents;
 mod cloud;
@@ -186,7 +183,7 @@ fn dispatch(command: Command) -> ExitCode {
                 }
             }
         }
-        Command::Threads(arguments) => ExitCode::from(threads_client::run(&arguments)),
+        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments)),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
         Command::Help => in_runtime(async {

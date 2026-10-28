@@ -68,7 +68,7 @@ may_use = ["ledger", "shell", "domain", "platform", "foundation"]
 
 [[module]]
 name = "threads"
-paths = ["src/threads/**", "src/threads_client.rs", "src/work_items.rs"]
+paths = ["src/threads/**", "src/work_items.rs"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
 may_use = ["domain", "platform", "foundation"]
 

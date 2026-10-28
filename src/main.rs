@@ -29,7 +29,6 @@ mod hook;
 mod guard;
 mod shell;
 mod threads;
-mod threads_client;
 mod fleet;
 mod ledger;
 mod providers;
