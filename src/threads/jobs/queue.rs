@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::threads::verb::{Args, Context, Failure, Outcome, event, immediate, integer, is_native_ref, item_ref, open, table, text_or_null};
 use crate::foundation::clock::Timestamp;
-use crate::pyjson::{self, Value};
+use crate::platform::pyjson::{self, Value};
 
 static FOLLOWS_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\W*Follows:[ \t]*`?(.+?)`?[ \t]*$").expect("follows pattern"));
 

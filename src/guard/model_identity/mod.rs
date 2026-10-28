@@ -3,7 +3,7 @@ mod script;
 
 use crate::guard::paths::{basename, dirname, expanduser, join, normpath, realpath};
 use crate::hook::{HookInput, Verdict};
-use crate::pyjson::Value;
+use crate::platform::pyjson::Value;
 use identity::{splitlines, text_invalid};
 use regex::Regex;
 use std::path::Path;

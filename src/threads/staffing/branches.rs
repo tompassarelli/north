@@ -59,7 +59,7 @@ pub(crate) fn lanes(context: &Context, repo: &str, err: &mut dyn Write) -> Resul
         let fields: Vec<String> = names
             .iter()
             .enumerate()
-            .map(|(index, branch)| format!("b{index}: compare(headRef: {}) {{ commits(first: 100) {{ nodes {{ message }} }} }}", crate::pyjson::dumps(&(*branch).into())))
+            .map(|(index, branch)| format!("b{index}: compare(headRef: {}) {{ commits(first: 100) {{ nodes {{ message }} }} }}", crate::platform::pyjson::dumps(&(*branch).into())))
             .collect();
         let query = format!("query=query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ defaultBranchRef {{ {} }} }} }}", fields.join(" "));
         match context.gh(&["api", "graphql", "-f", &query, "-F", &owner, "-F", &name]) {

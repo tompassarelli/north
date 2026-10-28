@@ -17,7 +17,7 @@ use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::fleet::turns::Turn;
 use crate::ledger::Ledger;
-use crate::session_host::{FrameWatch, HostConfig};
+use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
 use super::fleet_placement::{self, Launch, Overrides, Placed};

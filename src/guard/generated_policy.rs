@@ -1,6 +1,6 @@
 use crate::guard::paths::{basename, dirname, expand_home, join, normpath, realpath};
 use crate::hook::{HookInput, Verdict};
-use crate::pyjson::Value;
+use crate::platform::pyjson::Value;
 use crate::shell::{command_index, is_separator, words};
 use regex::Regex;
 use std::path::Path;

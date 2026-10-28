@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::session_host::{FrameWatch, Rest, SentLog};
+use crate::fleet::session_host::{FrameWatch, Rest, SentLog};
 
 use super::books::WatchBooks;
 use super::claims::{self, Claims};

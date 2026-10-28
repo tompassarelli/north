@@ -83,7 +83,7 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
         && input
             .tool_input
             .get("run_in_background")
-            .is_some_and(|value| *value != crate::pyjson::Value::Bool(true));
+            .is_some_and(|value| *value != crate::platform::pyjson::Value::Bool(true));
     brief_refusal(kind, native, foreground, prompt)
 }
 

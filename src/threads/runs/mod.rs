@@ -17,7 +17,7 @@ use self::record::{Ingest, Tally};
 use self::row::{Row, bind, value};
 use super::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 use crate::foundation::clock::Timestamp;
-use crate::pyjson::{self, Value};
+use crate::platform::pyjson::{self, Value};
 use crate::threads::catalog::CATALOG;
 
 pub(crate) const VERBS: [&str; 2] = ["ingest", "run-ids"];

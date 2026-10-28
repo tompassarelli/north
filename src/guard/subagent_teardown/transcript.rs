@@ -1,4 +1,4 @@
-use crate::pyjson::{self, Value};
+use crate::platform::pyjson::{self, Value};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;

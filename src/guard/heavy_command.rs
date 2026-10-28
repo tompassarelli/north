@@ -1,5 +1,5 @@
 use crate::hook::{HookInput, Verdict};
-use crate::{pyjson::Value, shell};
+use crate::{platform::pyjson::Value, shell};
 use std::path::{Path, PathBuf};
 
 const PREFIXES: &[&str] = &[

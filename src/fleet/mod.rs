@@ -17,6 +17,7 @@ pub mod registry;
 pub mod roster;
 pub mod runtime;
 pub mod runtimes;
+pub mod session_host;
 mod transcript;
 pub mod turns;
 mod unaccepted;

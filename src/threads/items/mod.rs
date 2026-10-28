@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use rusqlite::{OptionalExtension, params};
 
 use super::verb::{Args, Context, Failure, Outcome, event, immediate, item_ref, open, report};
-use crate::pyjson::Value;
+use crate::platform::pyjson::Value;
 use crate::threads::catalog::CATALOG;
 
 pub(crate) const VERBS: [&str; 8] = ["release", "need", "unneed", "new", "note", "close", "reopen", "block"];

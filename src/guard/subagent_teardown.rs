@@ -1,7 +1,7 @@
 pub mod transcript;
 
 use crate::hook::{HookInput, Verdict};
-use crate::pyjson::Value;
+use crate::platform::pyjson::Value;
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transcript::{Kind, Task};

@@ -90,7 +90,7 @@ mod tests {
         assert_eq!(decide(&call("Bash", json!({"command": "ls"}))), Verdict::Allow);
         let path = format!("{HANDOFFS}/north-rebuild/pstack-decision.md");
         let output = crate::hook::evaluate(&call("Write", json!({"file_path": path})), &[decide], "PreToolUse").unwrap();
-        let output: serde_json::Value = serde_json::from_str(&crate::pyjson::dumps(&output)).unwrap();
+        let output: serde_json::Value = serde_json::from_str(&crate::platform::pyjson::dumps(&output)).unwrap();
         assert_eq!(output, json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": ADVICE}}));
     }
 }

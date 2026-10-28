@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use rusqlite::params;
 
 use super::verb::{Args, Context, Failure, Outcome, immediate, integer, open, report, table, text_or_null};
-use crate::pyjson::Value;
+use crate::platform::pyjson::Value;
 
 pub(crate) const VERBS: [&str; 3] = ["job-run", "job-runs", "queue"];
 
@@ -75,7 +75,7 @@ fn job_runs(argv: &[String], context: &Context) -> Outcome {
             ]))
         })?;
         let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        return Ok(format!("{}\n", crate::pyjson::dumps(&Value::Array(rows))));
+        return Ok(format!("{}\n", crate::platform::pyjson::dumps(&Value::Array(rows))));
     }
     let mut statement = db.prepare(JOB_RUNS)?;
     let rows = statement.query_map([], |row| {

@@ -13,3 +13,4 @@ pub(crate) mod sqlite;
 pub(crate) mod stdio;
 pub(crate) mod terminal;
 pub(crate) mod session_scope;
+pub(crate) mod pyjson;

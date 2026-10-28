@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value as Json;
 
-use crate::pyjson::{self, Value};
+use crate::platform::pyjson::{self, Value};
 use crate::threads::catalog::CATALOG;
 use crate::threads::verb::{Context, Failure, is_native_ref, item_ref};
 

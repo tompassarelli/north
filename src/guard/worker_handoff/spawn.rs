@@ -1,7 +1,7 @@
 use super::{Env, valid_id};
 use crate::foundation::clock::Timestamp;
 use crate::hook::HookInput;
-use crate::pyjson::{self, Value};
+use crate::platform::pyjson::{self, Value};
 use serde_json::json;
 use std::io::{ErrorKind, Write};
 use std::process::{Command, Stdio};

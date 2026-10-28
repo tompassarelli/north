@@ -631,7 +631,7 @@ impl Policy {
         }
         None
     }
-    fn patch_tool(&self, input: &crate::pyjson::Value, cwd: &str, envelope: Option<&str>) -> Option<String> {
+    fn patch_tool(&self, input: &crate::platform::pyjson::Value, cwd: &str, envelope: Option<&str>) -> Option<String> {
         let explicit: Vec<_> = ["file_path", "path"]
             .iter()
             .filter_map(|key| input[key].as_str().map(str::to_owned))
@@ -653,14 +653,14 @@ impl Policy {
         }
         self.patch_decision(&targets, patch_cwd, &patch_removals(envelope))
     }
-    fn patch_command(&self, command: &crate::pyjson::Value, cwd: &str, stripped: Option<&str>) -> Option<String> {
+    fn patch_command(&self, command: &crate::platform::pyjson::Value, cwd: &str, stripped: Option<&str>) -> Option<String> {
         let (invoked, text) = if let Some(text) = command.as_str() {
             (
                 invokes_apply_patch(stripped.unwrap_or(&strip_heredoc_bodies(text))),
                 text.to_owned(),
             )
         } else if let Some(argv) = command.as_array() {
-            let argv: Vec<_> = argv.iter().map(crate::pyjson::Value::as_str).collect::<Option<_>>()?;
+            let argv: Vec<_> = argv.iter().map(crate::platform::pyjson::Value::as_str).collect::<Option<_>>()?;
             let mut invoked = argv.first().is_some_and(|s| basename(s) == "apply_patch");
             if !invoked
                 && argv

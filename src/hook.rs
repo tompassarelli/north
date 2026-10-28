@@ -1,4 +1,4 @@
-use crate::pyjson::{self, Value};
+use crate::platform::pyjson::{self, Value};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 

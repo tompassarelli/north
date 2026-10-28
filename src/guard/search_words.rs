@@ -209,7 +209,7 @@ pub(super) fn is_dir(path: &str) -> bool {
 }
 
 pub(super) fn bash_call(input: &crate::hook::HookInput) -> Option<(&str, String)> {
-    use crate::pyjson::Value;
+    use crate::platform::pyjson::Value;
     if input.data["tool_name"] != "Bash" {
         return None;
     }

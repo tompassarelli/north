@@ -32,7 +32,7 @@ producer = "harness/skills/machine-capacity/scripts/build-machine-capacity"
 
 [[module]]
 name = "platform"
-paths = ["src/platform/**", "src/pyjson.rs"]
+paths = ["src/platform/**"]
 responsibility = "Adapters for processes, git, GitHub, SQLite, files and ssh."
 may_use = ["foundation"]
 
@@ -50,7 +50,7 @@ may_use = ["foundation"]
 
 [[module]]
 name = "fleet"
-paths = ["src/fleet/**", "src/session_host.rs", "src/lead_journal.rs"]
+paths = ["src/fleet/**", "src/lead_journal.rs"]
 responsibility = "Headless agent sessions: Runtime port, process host, delivery journal, admission, supervision."
 may_use = ["domain", "platform", "foundation"]
 

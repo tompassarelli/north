@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use rusqlite::types::Value as Sql;
 
-use crate::pyjson::{self, Value};
+use crate::platform::pyjson::{self, Value};
 use crate::threads::verb::{Failure, integer};
 
 pub(crate) struct Row(BTreeMap<String, Value>);

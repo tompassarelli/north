@@ -2,8 +2,9 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::session_host;
 use crate::{
-    agent_catalog, contract_probe, grounding, guard, health, hook, language_gate, session_host,
+    agent_catalog, contract_probe, grounding, guard, health, hook, language_gate,
     threads_client, work_items,
 };
 

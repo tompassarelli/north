@@ -1,6 +1,6 @@
 use crate::foundation::clock::Timestamp;
 use crate::hook::{HookInput, Verdict};
-use crate::pyjson;
+use crate::platform::pyjson;
 use crate::shell;
 use serde_json::Value;
 use std::collections::BTreeMap;

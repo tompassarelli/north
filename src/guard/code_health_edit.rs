@@ -1,6 +1,6 @@
 use crate::hook::{HookInput, Verdict};
 use crate::platform::process;
-use crate::pyjson::Value;
+use crate::platform::pyjson::Value;
 use regex::Regex;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;

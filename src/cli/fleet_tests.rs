@@ -10,7 +10,7 @@ use crate::fleet::gates::{ASKED_REPLY, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};
 use crate::fleet::turns::{RunRecord, RunSink, TurnExit};
-use crate::session_host::{SessionHost, Watcher};
+use crate::fleet::session_host::{SessionHost, Watcher};
 
 #[derive(Default)]
 struct Recorded(Mutex<Vec<RunRecord>>, Mutex<Vec<(String, String, Delivery)>>, Mutex<Vec<GateRequest>>, Mutex<Vec<(PathBuf, String)>>);

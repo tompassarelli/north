@@ -958,7 +958,7 @@ mod tests {
             vec![0, 0, 0x11, 0, 0, 0, 0, 0],
         ]);
         let results: Vec<Option<String>> =
-            include_str!("fixtures/pyjson/cpython-3.13.15-dumps.jsonl")
+            include_str!("../fixtures/pyjson/cpython-3.13.15-dumps.jsonl")
                 .lines()
                 .map(|line| serde_json::from_str(line).unwrap())
                 .collect();
