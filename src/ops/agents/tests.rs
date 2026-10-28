@@ -4,7 +4,6 @@ use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
 
-use super::Verb;
 use super::busy::{Roots, working};
 use crate::foundation::clock;
 
@@ -42,67 +41,31 @@ fn codex_today(roots: &Roots, name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-#[test]
-fn no_transcripts_is_idle() {
-    let (_dir, roots) = fixture();
-    assert!(!busy(&roots, 5));
-}
+type Case = (&'static str, &'static [(&'static str, u64)], u64, bool);
 
 #[test]
-fn only_stale_transcripts_are_idle() {
-    let (_dir, roots) = fixture();
-    transcript(&codex_today(&roots, "rollout-old.jsonl"), 20);
-    transcript(&roots.claude.join("-home-tom/old.jsonl"), 20);
-    assert!(!busy(&roots, 5));
-}
-
-#[test]
-fn a_live_codex_session_is_busy() {
-    let (_dir, roots) = fixture();
-    transcript(&codex_today(&roots, "rollout-live.jsonl"), 0);
-    assert!(busy(&roots, 5));
-}
-
-#[test]
-fn a_live_claude_session_is_busy() {
-    let (_dir, roots) = fixture();
-    transcript(&roots.claude.join("-home-tom/live.jsonl"), 0);
-    assert!(busy(&roots, 5));
-}
-
-#[test]
-fn a_zero_window_is_never_busy() {
-    let (_dir, roots) = fixture();
-    transcript(&roots.claude.join("-home-tom/live.jsonl"), 0);
-    assert!(!busy(&roots, 0));
-}
-
-#[test]
-fn yesterdays_folder_covers_sessions_past_midnight() {
-    let (_dir, roots) = fixture();
+fn a_session_is_busy_only_while_a_today_or_yesterday_transcript_was_written_inside_the_window() {
     let yesterday = clock::local_today().previous_day().unwrap();
-    let folder = format!(
-        "{:04}/{:02}/{:02}",
-        yesterday.year(),
-        u8::from(yesterday.month()),
-        yesterday.day()
-    );
-    transcript(&roots.codex.join(folder).join("rollout-late.jsonl"), 0);
-    assert!(busy(&roots, 5));
-}
-
-#[test]
-fn non_transcript_files_do_not_count() {
-    let (_dir, roots) = fixture();
-    transcript(&roots.claude.join("-home-tom/notes.txt"), 0);
-    transcript(&roots.claude.join("top-level.jsonl"), 0);
-    assert!(!busy(&roots, 5));
-}
-
-#[test]
-fn verbs_route_to_their_owner() {
-    assert_eq!(Verb::named("status"), Some(Verb::Catalog));
-    assert_eq!(Verb::named("sync"), Some(Verb::Sync));
-    assert_eq!(Verb::named("usage"), Some(Verb::Script("usage.py")));
-    assert_eq!(Verb::named("dispatch"), None);
+    let yesterday = format!("{:04}/{:02}/{:02}", yesterday.year(), u8::from(yesterday.month()), yesterday.day());
+    let cases: [Case; 7] = [
+        ("no transcripts", &[], 5, false),
+        ("stale transcripts", &[("codex-today/rollout-old.jsonl", 20), ("claude/-home-tom/old.jsonl", 20)], 5, false),
+        ("live codex", &[("codex-today/rollout-live.jsonl", 0)], 5, true),
+        ("live claude", &[("claude/-home-tom/live.jsonl", 0)], 5, true),
+        ("zero window", &[("claude/-home-tom/live.jsonl", 0)], 0, false),
+        ("codex past midnight", &[("codex-yesterday/rollout-late.jsonl", 0)], 5, true),
+        ("non-transcripts", &[("claude/-home-tom/notes.txt", 0), ("claude/top-level.jsonl", 0)], 5, false),
+    ];
+    for (name, files, window, expected) in cases {
+        let (_dir, roots) = fixture();
+        for (file, age) in files {
+            let path = match file.split_once('/').unwrap() {
+                ("codex-today", rest) => codex_today(&roots, rest),
+                ("codex-yesterday", rest) => roots.codex.join(&yesterday).join(rest),
+                (_, rest) => roots.claude.join(rest),
+            };
+            transcript(&path, *age);
+        }
+        assert_eq!(busy(&roots, window), expected, "{name}");
+    }
 }

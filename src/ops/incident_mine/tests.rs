@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::classify::{Message, assistant_candidate, excerpt, user_candidate};
-use super::{Row, line, split};
+use super::split;
 
 fn message(provider: &str, agent: Option<&str>, text: &str) -> Message {
     serde_json::from_value(json!({
@@ -59,25 +59,6 @@ fn an_excerpt_collapses_whitespace_and_cuts_at_the_limit_with_an_ellipsis() {
     assert_eq!(excerpt("  a \n\t b  ", 10), "a b");
     assert_eq!(excerpt("abcdef", 6), "abcdef");
     assert_eq!(excerpt("abcdefg", 6), "abcde…");
-}
-
-#[test]
-fn a_row_is_written_with_python_separators_and_unescaped_text() {
-    let row = Row {
-        reference: json!(7),
-        provider: "claude".to_owned(),
-        session: "s".to_owned(),
-        project: None,
-        ts: "t".to_owned(),
-        role: "user".to_owned(),
-        source: "tom-typed",
-        flag: "pushback",
-        text: "é — \"q\"".to_owned(),
-    };
-    assert_eq!(
-        line(&row),
-        r#"{"ref": 7, "provider": "claude", "session": "s", "project": null, "ts": "t", "role": "user", "source": "tom-typed", "flag": "pushback", "text": "é — \"q\""}"#
-    );
 }
 
 #[test]

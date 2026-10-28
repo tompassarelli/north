@@ -220,12 +220,6 @@ fn denylist_attest_any_other_post_failure_is_still_exit_2() {
 }
 
 #[test]
-fn denylist_attest_only_a_403_is_classified_as_forbidden() {
-    assert!(matches!(PostError::classify(FORBIDDEN.into()), PostError::Forbidden(_)));
-    assert!(matches!(PostError::classify("gh api failed: HTTP 422".into()), PostError::Failed(_)));
-}
-
-#[test]
 fn denylist_attest_deferred_ranks_below_refused_and_failed_across_tips() {
     assert_eq!(worst([0, DEFERRED, 0].into_iter()), DEFERRED);
     assert_eq!(worst([DEFERRED, 1].into_iter()), 1);

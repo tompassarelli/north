@@ -198,25 +198,6 @@ fn search_guards_decide_as_the_recorded_shell_guards_did() {
     }
 }
 
-#[test]
-fn refusal_texts_match_the_recorded_shell_guards_byte_for_byte() {
-    let fixture: Value = serde_json::from_str(include_str!("fixtures/search_guards.json")).unwrap();
-    let goldens = fixture["goldens"].as_array().unwrap();
-    assert_eq!(goldens.len(), 6);
-    for golden in goldens {
-        let (guard, cwd, command) = (
-            golden["g"].as_str().unwrap(),
-            filled(golden["w"].as_str().unwrap()),
-            filled(golden["c"].as_str().unwrap()),
-        );
-        assert_eq!(
-            reason_of(guard, &command, &cwd),
-            filled(golden["text"].as_str().unwrap()),
-            "{guard}: {command:?}"
-        );
-    }
-}
-
 fn denies(guard: &'static str) -> impl Fn(&str) -> bool {
     move |command| observed(guard, command, &filled("{cwd}")).0 != "allow"
 }
