@@ -60,7 +60,7 @@ usage_claude -> usage
 
 `policy_stats` is `harness/scripts/policy_stats.py`. Modules not named on the left import no other
 `harness/lib` module: `billing_digitalocean`, `defaults`, `durable_events`, `laptop_line`,
-`provider_capacity`, `resident_cap`, `routines`, `run_outcome`, `ssh_transport`, `thread_archives`,
+`provider_capacity`, `routines`, `run_outcome`, `ssh_transport`, `thread_archives`,
 `thread_holders`, `usage_agy`, `usage_codex`, `watch_digest`.
 
 ## The cycle
@@ -81,7 +81,7 @@ Moving `missed_target` into a new leaf module beside `defaults` and the three ac
 another removes all five edges and leaves a graph with no cycle. In dependency order the layers are:
 
 1. `billing_digitalocean`, `claude_profiles`, `defaults`, `durable_events`, `laptop_line`, `policy_stats`,
-   `provider_capacity`, `resident_cap`, `routines`, `run_outcome`, `ssh_transport`, `thread_archives`,
+   `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`, `thread_archives`,
    `thread_holders`, `usage_agy`, `usage_codex`, `watch_digest`
 2. `calibration`, `ledger_context`, `news`, `presence`, `routing`, `usage_claude`
 3. `flow`, `plan_usage`, `recalibrate`, `report`

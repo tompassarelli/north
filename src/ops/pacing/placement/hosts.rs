@@ -1,5 +1,5 @@
 use super::super::storage::load;
-use super::super::{process, sampling, storage, target};
+use super::super::{process, storage, target};
 use super::{local, moment, operator, stamp};
 use serde_json::Value;
 use std::path::Path;
@@ -122,36 +122,15 @@ pub(in crate::ops::pacing) fn resident(name: &str, destination: &str) -> Option<
                 .then(|| fixture[name]["live"].as_i64().unwrap_or(0));
         }
     }
-    let root = sampling::root();
-    let result = if name == local() {
-        process::run(
-            "python3",
-            &[
-                "-I",
-                &root.join("harness/lib/resident_cap.py").to_string_lossy(),
-                "status",
-            ],
-            None,
-            20.0,
-        )
-    } else {
-        process::run(
-            "ssh",
-            &[
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "ConnectTimeout=5",
-                destination,
-                "python3",
-                "-I",
-                ".local/state/north/current/tree/harness/lib/resident_cap.py",
-                "status",
-            ],
-            None,
-            20.0,
-        )
-    };
+    if name == local() {
+        return live_count(&crate::ops::resident_cap::status());
+    }
+    let result = process::run(
+        "ssh",
+        &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, ".local/state/north/current/tree/bin/north", "resident-cap", "status"],
+        None,
+        20.0,
+    );
     result.ok().filter(|r| r.code == 0).and_then(|r| live_count(&r.out))
 }
 
@@ -170,7 +149,7 @@ fn claude_labels(listing: &str) -> Vec<String> {
     listing.lines().filter_map(|line| line.strip_prefix("claude\t")).map(|label| label.trim().to_owned()).collect()
 }
 
-/// The live count from `resident_cap.py status`, which prints `HOST: LIVE/CAP resident agent CLIs`.
+/// The live count from `north resident-cap status`, which prints `HOST: LIVE/CAP resident agent CLIs`.
 fn live_count(status: &str) -> Option<i64> {
     let (_, rest) = status.split_once(':')?;
     rest.split_whitespace().next()?.split('/').next()?.parse().ok()

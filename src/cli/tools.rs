@@ -8,7 +8,7 @@ use crate::{
 
 type Run = fn(&[String]) -> u8;
 
-const UNIFORM: [(&str, Run); 17] = [
+const UNIFORM: [(&str, Run); 18] = [
     ("dep-gate", dep_gate::run),
     ("review-gate", review_gate::run),
     ("denylist", denylist::run),
@@ -26,6 +26,7 @@ const UNIFORM: [(&str, Run); 17] = [
     ("mutant", mutant_cli::run),
     ("flow", crate::ops::flow::run),
     ("report", crate::ops::report::run),
+    ("resident-cap", crate::ops::resident_cap::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
