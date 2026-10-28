@@ -333,3 +333,17 @@ fn transcripts_brief_shaped_user_text_is_never_indexed_as_tom_and_toms_own_messa
         5
     );
 }
+#[test]
+fn refresh_lock_held_by_a_starting_refresh_keeps_an_idle_refresh_out_until_released() {
+    let root = tempfile::tempdir().unwrap();
+    let held = refresh_lock(root.path(), false)
+        .unwrap()
+        .expect("first refresh takes the lock");
+    assert_eq!(
+        fs::read_to_string(root.path().join("refresh.lock")).unwrap(),
+        ""
+    );
+    assert!(refresh_lock(root.path(), false).unwrap().is_none());
+    drop(held);
+    assert!(refresh_lock(root.path(), false).unwrap().is_some());
+}

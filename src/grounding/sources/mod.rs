@@ -1,5 +1,5 @@
 use super::*;
-use std::io::Write;
+use rustix::fs::{FlockOperation, flock};
 use store::{Doc, Sqlite, quote};
 use crate::threads::catalog::CATALOG;
 mod history;
@@ -96,35 +96,26 @@ fn iter_docs(name: &str, since: Option<f64>) -> Result<Vec<Doc>> {
         _ => Err(format!("unknown grounding source {name}").into()),
     }
 }
+fn refresh_lock(dir: &Path, wait: bool) -> Result<Option<fs::File>> {
+    fs::create_dir_all(dir)?;
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("refresh.lock"))?;
+    let operation = if wait {
+        FlockOperation::LockExclusive
+    } else {
+        FlockOperation::NonBlockingLockExclusive
+    };
+    match flock(&lock, operation) {
+        Ok(()) => Ok(Some(lock)),
+        Err(rustix::io::Errno::WOULDBLOCK) => Ok(None),
+        Err(e) => Err(std::io::Error::from(e).into()),
+    }
+}
 pub fn refresh(only: &[String], force: bool, wait: bool) -> Result<Value> {
-    fs::create_dir_all(state_dir())?;
-    let lock_path = state_dir().join("refresh.lock");
-    let lock = loop {
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock_path)
-        {
-            Ok(mut f) => {
-                write!(f, "{}", std::process::id())?;
-                break f;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let pid = read(&lock_path).parse::<u32>().unwrap_or(0);
-                let alive = pid != 0
-                    && pid != std::process::id()
-                    && Path::new(&format!("/proc/{pid}")).exists();
-                if !alive {
-                    let _ = fs::remove_file(&lock_path);
-                    continue;
-                }
-                if !wait {
-                    return Ok(json!({"busy":true}));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-            Err(e) => return Err(e.into()),
-        }
+    let Some(lock) = refresh_lock(&state_dir(), wait)? else {
+        return Ok(json!({"busy":true}));
     };
     let result = (|| {
         let mut db = store::open(false)?;
@@ -214,7 +205,6 @@ pub fn refresh(only: &[String], force: bool, wait: bool) -> Result<Value> {
         Ok(Value::Object(counts))
     })();
     drop(lock);
-    let _ = fs::remove_file(lock_path);
     result
 }
 pub fn spawn_refresh_if_stale() {
