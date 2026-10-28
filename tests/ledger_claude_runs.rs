@@ -152,15 +152,17 @@ fn a_quiet_combined_flag_heredoc_commit_and_a_safe_push_landing_line_both_count_
     let sha = "a".repeat(40);
     commit_transcript(&projects.join("heredoc.jsonl"), &[("git add x && git commit -qF - <<'EOF'\nKeep the real subject (north#255)\nEOF", "")]);
     commit_transcript(&projects.join("pushed.jsonl"), &[("git commit -q --amend -F /tmp/message.txt", ""), ("safe-push --to main > /tmp/push.log; tail -3 /tmp/push.log", &format!("safe-push: landed {sha}\n"))]);
-    commit_transcript(&projects.join("reader.jsonl"), &[("rg safe-push src", "src/a.rs")]);
+    commit_transcript(&projects.join("reader.jsonl"), &[("rg safe-push src", "src/a.rs"), ("git log --grep safe-push | head", "")]);
+    commit_transcript(&projects.join("chained.jsonl"), &[("cd lane && NORTH_X=1 safe-push --to main", "refused\n")]);
     let main = root.join("main");
     fs::write(&main, format!("{} 2026-10-08T01:00:00+00:00 Other work\n{} 2026-10-08T02:00:00+00:00 Keep the real subject (north#255)\n", sha, "b".repeat(40))).unwrap();
-    let fleet = r#"[{"name":"h","conversation":"heredoc","parent":"lead"},{"name":"p","conversation":"pushed","parent":"lead"},{"name":"r","conversation":"reader","parent":"lead"}]"#;
+    let fleet = r#"[{"name":"h","conversation":"heredoc","parent":"lead"},{"name":"p","conversation":"pushed","parent":"lead"},{"name":"r","conversation":"reader","parent":"lead"},{"name":"c","conversation":"chained","parent":"lead"}]"#;
     let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main), &[]);
     let by_id = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap_or_else(|| panic!("no row for {id}: {rows:?}"));
     assert_eq!((by_id("heredoc")["landed"].as_i64(), by_id("heredoc")["landed_sha"].as_str()), (Some(1), Some("b".repeat(40).as_str())));
     assert_eq!((by_id("pushed")["landed"].as_i64(), by_id("pushed")["landed_sha"].as_str()), (Some(1), Some(sha.as_str())));
-    assert_eq!((by_id("reader")["landed"].as_i64(), by_id("reader")["expects_landing"].as_i64()), (Some(0), Some(1)));
+    assert_eq!((by_id("reader")["landed"].as_i64(), by_id("reader")["expects_landing"].as_i64()), (Some(0), Some(0)));
+    assert_eq!(by_id("chained")["expects_landing"].as_i64(), Some(1));
 }
 
 #[test]

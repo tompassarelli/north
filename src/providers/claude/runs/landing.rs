@@ -7,7 +7,9 @@ use serde_json::{Map, Value, json};
 use super::truthy;
 use crate::foundation::clock::Timestamp;
 
-static LAND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(safe-push|git push)\b").unwrap());
+static LAND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:(?:sudo|time|nohup|command|timeout\s+\S+)\s+)?(?:\S*/)?(?:safe-push|git(?:\s+-C\s+\S+)?\s+push)\b").unwrap()
+});
 static COMMIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bgit\b[^|;&\n]*?\scommit\b|(?:^|[;&|(\n])\s*\$\{?\w+\}?\s+commit\b").unwrap());
 static SUBJECT: LazyLock<Regex> = LazyLock::new(|| {
