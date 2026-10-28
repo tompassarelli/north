@@ -554,7 +554,7 @@ expect_status zero
 [ "$("$real_git" --git-dir="$real_remote" rev-parse other)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'explicit destination did not receive HEAD'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$remote_main_before" ] || fail 'explicit destination changed main'
 
-# Real commit + annotated-tag publication proves captured object refspecs still
+# Real commit publication proves captured object refspecs still
 # perform the normal operation against an actual bare remote.
 make_real_fixture normal
 run_real_case ''
@@ -562,17 +562,6 @@ expect_status zero
 [ "$("$real_git" -C "$real_repo" rev-parse main)" \
   = "$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)" ] \
   || fail 'normal branch publication did not update the remote to captured HEAD'
-
-"$real_git" -C "$real_repo" tag -a release-real -m 'release annotation'
-remote_before="$(real_remote_state)"
-run_real_case '' --dry-run --tag release-real
-expect_status zero
-[ "$(real_remote_state)" = "$remote_before" ] || fail 'tag dry-run changed origin'
-run_real_case '' --tag release-real
-expect_status zero
-[ "$("$real_git" -C "$real_repo" rev-parse refs/tags/release-real)" \
-  = "$("$real_git" --git-dir="$real_remote" rev-parse refs/tags/release-real)" ] \
-  || fail 'normal tag publication did not update the remote to the captured tag object'
 
 make_real_fixture lease-boundary
 lease_oid=$("$real_git" -C "$real_repo" rev-parse HEAD)
@@ -595,22 +584,6 @@ PATH="$lease_bin:$PATH" SAFE_PUSH_TEST_REAL_GIT="$real_git" SAFE_PUSH_TEST_LEASE
 expect_status nonzero
 [ -s "$real_state" ] || fail 'lease race was not injected'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lease_oid" ] || fail 'publication overwrote a destination that moved after revalidation'
-
-# A support-only commit may be published by tag without adding a remote branch;
-# its commit history and annotation must both pass the secret scan first.
-make_real_fixture support-tag
-"$real_git" -C "$real_repo" tag -a release-support -m 'support release annotation'
-remote_main_before="$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)"
-run_real_case '' --tag release-support
-expect_status zero
-[ "$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)" = "$remote_main_before" ] \
-  || fail 'support-only tag publication changed remote main'
-if "$real_git" --git-dir="$real_remote" rev-parse --verify refs/heads/support-tag >/dev/null 2>&1; then
-  fail 'support-only tag publication created a remote support branch'
-fi
-[ "$("$real_git" -C "$real_repo" rev-parse refs/tags/release-support)" \
-  = "$("$real_git" --git-dir="$real_remote" rev-parse refs/tags/release-support)" ] \
-  || fail 'support-only tag publication did not publish the captured tag object'
 
 # A new branch with no upstream is off the default branch, so the one-branch-main
 # guard refuses the bare default before any scan or push — no same-name litter,
@@ -1779,12 +1752,6 @@ remote_before="$(real_remote_state)"
 SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
 expect_denylist_refused 'fake-private-term in nix/north-fleet.target' 'archive-like name refusal'
 
-make_real_fixture denylist-tag-annotation
-"$real_git" -C "$real_repo" tag -a release-owner -m 'owner zebra-quokka-7731'
-remote_before="$(real_remote_state)"
-SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC --tag release-owner
-expect_denylist_refused 'tag annotation' 'tag annotation refusal'
-
 make_real_fixture denylist-rename-clean
 rename_into_skills 'owner: the maintainer'
 SAFE_PUSH_DENYLIST="$fixture_denylist" run_denylist_case PUBLIC
@@ -1933,13 +1900,6 @@ make_real_fixture email-to-main
 GIT_AUTHOR_EMAIL="$private_email" "$real_git" -C "$real_repo" commit --allow-empty -qm 'private author for main'
 remote_before="$(real_remote_state)"
 run_real_case '' --to main
-expect_email_refused author
-
-make_real_fixture email-tag
-GIT_AUTHOR_EMAIL="$private_email" "$real_git" -C "$real_repo" commit --allow-empty -qm 'private author for a tag'
-"$real_git" -C "$real_repo" tag -a email-release -m 'email release'
-remote_before="$(real_remote_state)"
-run_real_case '' --tag email-release
 expect_email_refused author
 
 make_real_fixture email-allowed

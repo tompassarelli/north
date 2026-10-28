@@ -515,20 +515,28 @@ pub fn run_gate(args: &[String]) -> ExitCode {
         };
         violations(Path::new(repo), base, head)
     })();
+    if report(result) { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+}
+
+pub(crate) fn check(repo: &Path, base: &str, head: &str) -> bool {
+    report(violations(repo, base, head))
+}
+
+fn report(result: Result<Vec<String>>) -> bool {
     match result {
         Ok(failures) if failures.is_empty() => {
             println!("language-gate: passed");
-            ExitCode::SUCCESS
+            true
         }
         Ok(failures) => {
             for failure in failures {
                 println!("{failure}");
             }
-            ExitCode::FAILURE
+            false
         }
         Err(error) => {
             eprintln!("language-gate: {error}");
-            ExitCode::FAILURE
+            false
         }
     }
 }
