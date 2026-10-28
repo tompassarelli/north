@@ -35,7 +35,7 @@ Graphical work runs on a separate hardware-rendered Wayland desktop so Tom's Nir
 ## Isolation
 
 - Keep passwordless VNC bound to `127.0.0.1` and never expose it to a network, because anyone reaching it controls the session.
-- Use the launcher's per-command `dbus-run-session` and never inherit or recreate the normal desktop's D-Bus address, because that would route actions to Tom's session.
+- Use the launcher's per-command `dbus-run-session` and never inherit or recreate the normal desktop's D-Bus address, except automation-chrome's proxy that forwards only org.freedesktop.secrets, because anything else routes actions to Tom's session.
 - Keep VNC port selection serialized until listener readiness and never replace the launcher lock with independent probes or startup sleeps, because concurrent starts otherwise race for one port.
 - Never use `ydotool`, the normal desktop's DISPLAY or X authority, or normal-desktop focus or window targets, because each reaches Tom's desktop.
 - Honor explicit current-display testing inside the identified game window when Tom asks for it, and never substitute streaming for a requested native controller or latency trial, because the trial measures the real path.

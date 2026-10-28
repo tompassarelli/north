@@ -49,6 +49,7 @@ pub(super) enum Tool {
     IncidentMine,
     Archives,
     CodeHealth,
+    SecretsProxyExec,
 }
 
 impl Tool {
@@ -70,6 +71,7 @@ impl Tool {
             "incident-mine" => Self::IncidentMine,
             "archives" => Self::Archives,
             "code-health" => Self::CodeHealth,
+            "secrets-proxy-exec" => Self::SecretsProxyExec,
             _ => return None,
         })
     }
@@ -94,6 +96,7 @@ impl Tool {
             Self::IncidentMine => ExitCode::from(crate::ops::incident_mine::run(arguments)),
             Self::Archives => ExitCode::from(crate::platform::archive_tags::run(arguments)),
             Self::CodeHealth => ExitCode::from(crate::code_health::run(arguments)),
+            Self::SecretsProxyExec => super::in_runtime(async move { Ok(ExitCode::from(crate::platform::secrets_proxy::run(arguments).await)) }),
         }
     }
 }

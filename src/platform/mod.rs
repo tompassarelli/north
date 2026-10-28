@@ -12,5 +12,6 @@ pub(crate) mod shared_target;
 pub(crate) mod sqlite;
 pub(crate) mod stdio;
 pub(crate) mod terminal;
+pub(crate) mod secrets_proxy;
 pub(crate) mod session_scope;
 pub(crate) mod pyjson;
