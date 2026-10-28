@@ -89,7 +89,7 @@ pub(super) fn report(tracker: &mut dyn Tracker, unit: &str, host: &str, line: &s
 
 fn body(unit: &str, host: &str, line: &str) -> String {
     format!(
-        "Category: debugging-unknown-cause\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test\n\n\
+        "Category: debugging-unknown-cause\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: laptop\n\n\
          `north health` on {host} ({line}). Read the failure on {host} with `journalctl --user -u {unit}`.\n\n\
          ## Done when\n- [ ] (headless run) The journal of `{unit}` on {host} ends in `Finished` on its next timer run and `north health` reports no failing unit.\n"
     )

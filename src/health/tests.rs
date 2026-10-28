@@ -252,6 +252,7 @@ fn health_unit_failing_twice_in_a_row_opens_one_issue_and_a_later_failure_update
     assert_eq!(tracker.created.len(), 1);
     assert_eq!(tracker.created[0].0, "Harness unit agents-flow-stall.service keeps failing on whiterabbit");
     assert!(tracker.created[0].1.contains("on whiterabbit ("));
+    assert!(tracker.created[0].1.contains("\nNeeds: laptop\n"), "dispatch places the box on the laptop, whose journal holds the failure");
     assert!(tracker.commented.is_empty());
     assert!(units::judge(unit, Some(&shown("inactive", "success", "run-3")), &mut runs).is_ok());
     tracker.open = Some(7);
