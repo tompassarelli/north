@@ -8,13 +8,13 @@ export AGY_CONFIG_DIR=$scratch/agy FLEET_TEST_SESSIONS=$scratch/fleet-sessions.j
 export AGENTS_ORCHESTRATION=$repo/harness/lib/fixtures/orchestration.toml AGENTS_OPERATOR_DIR=$repo/harness/lib/fixtures
 cp "$repo/harness/lib/fixtures/worker-ledger-fleet.json" "$FLEET_TEST_SESSIONS"
 sqlite3 "$THREADS_DB" 'create table usage(ts,provider,account,kind,name,used_pct,resets_at,window_min); create table model_events(model,kind,at)'
-mkdir "$scratch/bin"
+mkdir "$scratch/bin" && ln -s "$repo/bin/threads" "$scratch/bin/threads"
 WORKER_LEDGER_REAL_NORTH="$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}")/debug/north"
 [ -x "$WORKER_LEDGER_REAL_NORTH" ] || { echo "worker-ledger.test.sh: build north from this tree first; $WORKER_LEDGER_REAL_NORTH is missing" >&2; exit 1; }
 export WORKER_LEDGER_REAL_NORTH
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
-[ "$1 $2" = "ledger claude-runs" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
+[ "$1 $2" = "ledger claude-runs" ] || [ "$1 $2" = "threads ingest" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
 [ "$1 $2 $3" = "fleet list --json" ] || exit 1
 cat "$FLEET_TEST_SESSIONS"
 NORTH

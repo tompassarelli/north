@@ -447,7 +447,7 @@ for cid, slug in models.items():
         backfill=cid in recorded, staffed=utc(times[0]), review_requested=utc(times[-1]) if final else None,
         **tally(tools))))
 PY
-} | "$threads" ingest
+} | north threads ingest
 rc=$?
 python3 "$(dirname "$(readlink -f "$0")")/../harness/lib/recalibrate.py"
 exit "$rc"
