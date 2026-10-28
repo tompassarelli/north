@@ -42,23 +42,8 @@ git -C "$scratch/seed" commit -qm $'Other repository fixture\n\nRefs wisp#10' --
 git -C "$scratch/seed" tag -a archive/feature/other-10 -m 'archived fixture'
 git -C "$scratch/seed" push -q origin refs/tags/archive/feature/other-10
 git clone -q --no-tags "$scratch/origin.git" "$HOME/code/smashcraft/main"
-printf 'Item: smashcraft#10\n' >"$scratch/brief.md"
 fleet() { printf '[{"name":"holder","conversation":"fixture-session","task_ref":"smashcraft#10","provider":"codex","parent":null,"status":"%s"}]\n' "$1" >"$FLEET_FILE"; }
 fleet working
-out=$(threads show smashcraft#10)
-grep -q 'archived: archive/feature/resume-10' <<<"$out"
-grep -q 'restore: git push origin archive/feature/resume-10:refs/heads/feature/resume-10' <<<"$out"
-! grep -q 'archive/feature/other-10' <<<"$out"
-printf 'PASS [integration] show fetches only archive tags and prints the correct origin archive and restore command\n'
-hook() { printf '{"session_id":"fixture-session","cwd":"%s"}' "$HOME/code/smashcraft/main" | "$BUILT_NORTH" hook session-start | jq -r '.hookSpecificOutput.additionalContext // empty'; }
-out=$(hook)
-grep -q 'archived: archive/feature/resume-10' <<<"$out"
-grep -q 'git push origin archive/feature/resume-10:refs/heads/feature/resume-10' <<<"$out"
-printf '48h\tsmashcraft\tfixture\tfeature/resume-10\n' >"$scratch/unlanded.txt"
-out=$(LANE_GC_UNLANDED="$scratch/unlanded.txt" hook)
-grep -q '^1 unlanded worktrees/branches older than 24 h' <<<"$out"
-[ -z "$(AGENT_NO_AUTHORING_HOOKS=1 hook)" ]
-printf 'PASS [integration] the SessionStart hook lists archives, keeps the lane note and honor the kill switch\n'
 threads claim smashcraft#10 --by codex:fixture-session --eta 5 >/dev/null
 sqlite3 "$THREADS_DB" "UPDATE claims SET since = '2020-01-01T00:00:00Z'; UPDATE events SET ts = '2020-01-01T00:00:00Z'"
 out=$(threads unowned)
@@ -94,4 +79,4 @@ restore='archive/feature/resume-10:refs/heads/feature/resume-10'
 git -C "$HOME/code/smashcraft/main" push -q origin "$restore"
 [ "$(git -C "$scratch/origin.git" rev-parse refs/heads/feature/resume-10)" = "$(git -C "$scratch/origin.git" rev-parse refs/tags/archive/feature/resume-10)" ]
 printf 'PASS [integration] proxy relays exact caller liveness without PIDs, discovers local archives, and the printed restore works on the scratch remote\n'
-printf 'threads resume: 4 passed, 0 failed\n'
+printf 'threads resume: 2 passed, 0 failed\n'

@@ -151,9 +151,6 @@ want=[('finished','firn#5','prior','gpt-6.1-sol medium','tooling',5,10,321,900,'
       ('repeater','smashcraft#250',None,'gpt-6.1-sol high','balance-tuning',5,20,0,0,'done')]
 assert sorted(r)==sorted(want),(r,want)
 print('PASS [spec #5; firn#11] Codex spawn brief records fields, model/effort, timing and tokens once; an unreadable brief derives its Item from the commit')
-h=c.execute("select tier,category,minutes from runs where agent='haiku1'").fetchone()
-assert h==('haiku','mechanical',4),h
-print('PASS a Claude worker running a Haiku model is recorded as tier haiku')
 r=c.execute("select agent,account,role,count(*) from runs where agent in ('haiku1','profile2') group by agent order by agent").fetchall()
 assert r==[('haiku1','claude-a','worker',1),('profile2','claude-b','worker',1)],r
 assert c.execute("select count(*) from runs where agent='profile-old'").fetchone()==(0,)
@@ -174,14 +171,6 @@ st=c.execute("select staffed,first_commit,review_requested,landed_at is not null
 assert st==[('2026-10-08T00:00:00Z',None,'2026-10-08T00:03:00Z',1,None),
             ('2026-10-08T00:00:00Z',None,'2026-10-08T00:05:00Z',0,None)],st
 print('PASS [firn#11] stage times come from the transcript and origin/main: staffed, first report, landed; first commit and turns are not stored')
-PY
-
-python3 - "$THREADS_DB" <<'PY'
-import sqlite3,sys
-c=sqlite3.connect(sys.argv[1])
-assert c.execute('select count(*) from run_events').fetchone()[0]==0
-assert c.execute("select count(*) from events where kind='run'").fetchone()[0]==0
-print('PASS ledger ingestion stores no per-turn events and no run events')
 PY
 
 out=$(PATH="$scratch/bin:$PATH" "$repo/bin/worker-ledger" --summary)

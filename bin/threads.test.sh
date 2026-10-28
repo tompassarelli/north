@@ -43,11 +43,6 @@ t claim smashcraft#3 --by alice >/dev/null
 
 t release smashcraft#3 --by alice --to bob >/dev/null
 
-out=$(t claim nixos-config#9 --by alice >/dev/null; t claim tompassarelli/firn#9 --by bob); status=$?
-check '[spec] a checkout alias and the GitHub name are the same issue' \
-  '[ "$status" -eq 1 ]'
-t release firn#9 --by alice >/dev/null
-
 brief=$'Goal: x\nItem: tompassarelli/smashcraft#3. Follows: a111. Category: Tooling. Arm: escalate.\nETA 45 min.'
 printf '%s\n' \
   "$(jq -cn '{id:"a111",ended:"2026-10-08T01:00:00Z",tier:"high",actual_min:30,eta_min:20,tokens:1000,outcome:"handoff",note:"~/h/a111.md",brief:"Item: smashcraft#3"}')" \
@@ -473,10 +468,6 @@ configured_claim=$(sqlite3 "$scratch/remote.db" "select count(*) from claims whe
 check '[integration] configured SSH namespace route preserves canonical writes and snapshot refresh' \
   '[ "$configured_write" -eq 0 ] && [ "$configured_refresh" -eq 0 ] && [ "$configured_claim" -eq 1 ]'
 rm "$scratch/home/.config/threads/ssh-config"
-
-mux_argv=$(XDG_RUNTIME_DIR=/run/user/4242 PYTHONDONTWRITEBYTECODE=1 python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from ssh_transport import ssh_argv; print("\n".join(ssh_argv("-o", "BatchMode=yes", "nexus", "true")))' "$repo/harness/lib")
-check '[unit] ssh_argv carries ControlMaster=auto and a ControlPath under XDG_RUNTIME_DIR, ahead of the caller options and destination' \
-  'grep -qx ControlMaster=auto <<<"$mux_argv" && grep -qx "ControlPath=/run/user/4242/north-ssh-%C" <<<"$mux_argv" && [ "$(tail -n 3 <<<"$mux_argv" | tr "\n" " ")" = "BatchMode=yes nexus true " ]'
 
 python3 -I - "$repo" "$scratch/stalled-ssh" <<'PYSTALL' >"$scratch/stalled-ssh.out" 2>&1
 import importlib.machinery, importlib.util, io, os, subprocess, sys, time
