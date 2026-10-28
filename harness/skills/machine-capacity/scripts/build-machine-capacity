@@ -2,7 +2,14 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-output=${1:-"$here/machine-capacity.mjs"}
+committed="$here/machine-capacity.mjs"
+check=
+if [[ ${1:-} == --check ]]; then
+  check=$(mktemp -d)
+  trap 'rm -rf "${check:?}"' EXIT
+  set -- "$check/machine-capacity.mjs"
+fi
+output=${1:-"$committed"}
 bun=${BUN_PATH:-$(command -v bun || true)}
 [[ -n "$bun" && -x "$bun" ]] || {
   printf 'machine-capacity build: Bun is unavailable\n' >&2
@@ -15,3 +22,7 @@ bun=${BUN_PATH:-$(command -v bun || true)}
   --outfile "$output" \
   --banner '#!/usr/bin/env -S bun --no-install'
 chmod +x "$output"
+[[ -z "$check" ]] || cmp -s "$output" "$committed" || {
+  printf 'machine-capacity build: %s is stale; run build-machine-capacity and commit it\n' "$committed" >&2
+  exit 1
+}

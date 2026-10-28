@@ -602,13 +602,13 @@ consumers = ["src/capacity/admission.rs"]
 [land_offload_disk_free_gib]
 value = 20
 unit = "GiB free on the filesystem of a host's offload slot (~/.cache/land-offload) it needs to take an offloaded land check"
-source = "measured: gex45's root disk hit 100% three times on 2026-10-27 (north#259); Tom set the floor at 20 GB"
+source = "measured: the GPU host's root disk hit 100% three times on 2026-10-27 (north#259); Tom set the floor at 20 GB"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
 consumers = ["src/capacity/admission.rs"]
 
 [build_disk_free_gib]
 value = 15
 unit = "GiB free on the root filesystem below which admission defers a heavy build (cargo build/test/clippy, nix build)"
-source = "measured: gex45's root disk hit 100% four times on 2026-10-27/28 with about 17 sessions building at once while admission counted only CPU and memory (north#259)"
+source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/28 with about 17 sessions building at once while admission counted only CPU and memory (north#259)"
 fallback = "an unreadable disk admits, as before"
 consumers = ["src/capacity/admission.rs"]

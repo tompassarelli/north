@@ -9,6 +9,7 @@
 	check = src/,tests/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/depbox run -- nix develop -c env CARGO_INCREMENTAL=0 cargo test --locked --offline
 	check = src/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/depbox run -- nix develop -c env CARGO_INCREMENTAL=0 cargo clippy --all-targets --locked --offline -- -D warnings
 	check = bin/,lib/,harness/,src/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh
+	check = harness/defaults.toml,harness/skills/machine-capacity/scripts/ :: harness/skills/machine-capacity/scripts/build-machine-capacity --check
 	check = flake.nix,flake.lock,rust-toolchain.toml,tests/dev-shell.test.sh :: ./bin/depbox run -- bash tests/dev-shell.test.sh
 	check = "agent-machinery/ :: bash -euc 'cd agent-machinery; depbox run -- bun test; depbox run -- bun run check'"
 	local-only = "bash -euc 'cd agent-machinery; depbox run -- bun test; depbox run -- bun run check'"
