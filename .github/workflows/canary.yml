@@ -1,0 +1,42 @@
+name: Canary
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Toolchain and cargo cache
+        uses: ./.github/actions/rust
+      - name: cargo test catches its planted fault
+        run: harness/scripts/canary.sh cargo-test
+      - name: clippy catches its planted fault
+        if: ${{ !cancelled() }}
+        run: harness/scripts/canary.sh clippy
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install harness test tools
+        uses: ./.github/actions/harness
+      - name: Shell and Python tests catch their planted fault
+        run: harness/scripts/canary.sh harness-tests
+      - name: Agent-machinery tests catch their planted fault
+        if: ${{ !cancelled() }}
+        run: harness/scripts/canary.sh agent-machinery-tests
+      - name: Agent-machinery check catches its planted fault
+        if: ${{ !cancelled() }}
+        run: harness/scripts/canary.sh agent-machinery-check
+      - name: Machine-capacity build check catches its planted fault
+        if: ${{ !cancelled() }}
+        run: harness/scripts/canary.sh machine-capacity-build

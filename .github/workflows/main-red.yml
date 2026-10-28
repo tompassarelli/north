@@ -1,7 +1,7 @@
 name: Main is red
 on:
   workflow_run:
-    workflows: [Cargo, Harness]
+    workflows: [Cargo, Harness, Canary]
     types: [completed]
     branches: [main]
 permissions:
