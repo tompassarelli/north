@@ -19,22 +19,24 @@ fn transcript_of(path: &Path, text: &str, model: &str) {
 }
 
 fn claude_runs(root: &Path, fleet_json: &str, policy: &Path) -> (Vec<Value>, String) {
-    claude_runs_on(root, fleet_json, policy, None)
+    claude_runs_on(root, fleet_json, policy, None, &[])
 }
 
-fn claude_runs_on(root: &Path, fleet_json: &str, policy: &Path, main: Option<&Path>) -> (Vec<Value>, String) {
+fn claude_runs_on(root: &Path, fleet_json: &str, policy: &Path, main: Option<&Path>, recorded: &[&str]) -> (Vec<Value>, String) {
     let calls = root.join("fleet-calls");
     let fleet = root.join("north");
     fs::write(&fleet, format!("#!/bin/sh\necho \"$@\" >> {}\nprintf '%s' '{fleet_json}'\n", calls.display())).unwrap();
     fs::set_permissions(&fleet, fs::Permissions::from_mode(0o755)).unwrap();
     let empty = root.join("empty");
     fs::write(&empty, "").unwrap();
+    let known = root.join("recorded");
+    fs::write(&known, recorded.join("\n")).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["ledger", "claude-runs", "--since", "2026-10-08"])
         .arg("--settled")
         .arg(&empty)
         .arg("--recorded")
-        .arg(&empty)
+        .arg(&known)
         .env("HOME", root.join("home"))
         .env("NORTH_BIN", &fleet)
         .env("AGENTS_ORCHESTRATION", policy)
@@ -154,9 +156,28 @@ fn a_quiet_combined_flag_heredoc_commit_and_a_safe_push_landing_line_both_count_
     let main = root.join("main");
     fs::write(&main, format!("{} 2026-10-08T01:00:00+00:00 Other work\n{} 2026-10-08T02:00:00+00:00 Keep the real subject (north#255)\n", sha, "b".repeat(40))).unwrap();
     let fleet = r#"[{"name":"h","conversation":"heredoc","parent":"lead"},{"name":"p","conversation":"pushed","parent":"lead"},{"name":"r","conversation":"reader","parent":"lead"}]"#;
-    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main));
+    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main), &[]);
     let by_id = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap_or_else(|| panic!("no row for {id}: {rows:?}"));
     assert_eq!((by_id("heredoc")["landed"].as_i64(), by_id("heredoc")["landed_sha"].as_str()), (Some(1), Some("b".repeat(40).as_str())));
     assert_eq!((by_id("pushed")["landed"].as_i64(), by_id("pushed")["landed_sha"].as_str()), (Some(1), Some(sha.as_str())));
     assert_eq!((by_id("reader")["landed"].as_i64(), by_id("reader")["expects_landing"].as_i64()), (Some(0), Some(1)));
+}
+
+#[test]
+fn a_recorded_worker_now_ending_on_a_notice_is_a_backfill_that_carries_its_landing() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let projects = root.join("home/.claude/projects/-home-tom-code-north-main");
+    let sha = "c".repeat(40);
+    let path = projects.join("parked.jsonl");
+    commit_transcript(&path, &[("git commit -q --amend -F /tmp/message.txt", ""), ("safe-push --to main", &format!("safe-push: landed {sha}\n"))]);
+    let mut text = fs::read_to_string(&path).unwrap();
+    text.push_str(r#"{"type":"user","timestamp":"2026-10-08T00:10:00Z","message":{"content":"[notice] the lane was removed"}}"#);
+    text.push('\n');
+    fs::write(&path, text).unwrap();
+    let main = root.join("main");
+    fs::write(&main, format!("{sha} 2026-10-08T02:00:00+00:00 Other work\n")).unwrap();
+    let fleet = r#"[{"name":"p","conversation":"parked","parent":"lead"}]"#;
+    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main), &["parked"]);
+    assert_eq!((rows[0]["backfill"].as_bool(), rows[0]["landed"].as_i64(), rows[0]["landed_sha"].as_str()), (Some(true), Some(1), Some(sha.as_str())), "{rows:?}");
 }

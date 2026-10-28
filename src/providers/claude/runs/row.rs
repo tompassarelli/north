@@ -108,6 +108,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     if !done && transcript.role == "worker" {
         let running = transcript.now.unix_seconds() - seconds(ended)? < RUNNING_SECONDS;
         row.insert("status".into(), json!(if running { "running" } else { "stale" }));
+        row.insert("backfill".into(), json!(transcript.backfill));
         return Some(row);
     }
     let report = report(&assistant)?;
