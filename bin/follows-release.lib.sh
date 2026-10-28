@@ -10,7 +10,8 @@ cat >"$scratch/installed/north" <<'SH'
 printf '%s\n' "$*" >>"$scratch/installed-calls"
 exit 97
 SH
-chmod +x "$scratch/installed/north"
+cp "$scratch/installed/north" "$scratch/installed/threads"
+chmod +x "$scratch/installed/north" "$scratch/installed/threads"
 export PATH=$scratch/installed:$PATH
 export THREADS_DB=$scratch/threads.db XDG_STATE_HOME=$scratch/state
 export SPAWN_CAPACITY_HOME=$scratch/home SPAWN_CAPACITY_STATUS=$scratch/probe.json
