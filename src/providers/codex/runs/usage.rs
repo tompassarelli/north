@@ -63,8 +63,8 @@ pub(super) fn context_metrics(records: &[Value]) -> Map<String, Value> {
     out
 }
 
-fn fast(tier: &Value) -> Option<bool> {
-    tier.as_str().map(|tier| matches!(tier, "fast" | "priority"))
+fn fast(payload: &Value) -> Option<bool> {
+    payload.get("service_tier").map(|tier| matches!(tier.as_str(), Some("fast" | "priority")))
 }
 
 fn delta(cumulative: &Value, last: &Value, previous: &Value) -> HashMap<String, i64> {
@@ -89,14 +89,14 @@ pub(super) fn run_usage(records: &[Value], prices: &Prices) -> Map<String, Value
     for record in records {
         let payload = &record["payload"];
         if record["type"] == "session_meta"
-            && let Some(flag) = fast(&payload["service_tier"])
+            && let Some(flag) = fast(payload)
         {
             fast_tier = flag;
         }
         if record["type"] == "turn_context" {
             model = payload["model"].as_str().filter(|name| !name.is_empty()).map(str::to_owned).or(model);
             effort = payload["effort"].as_str().filter(|name| !name.is_empty()).map(str::to_owned).or(effort);
-            if let Some(flag) = fast(&payload["service_tier"]) {
+            if let Some(flag) = fast(payload) {
                 fast_tier = flag;
             }
         }

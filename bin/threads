@@ -804,7 +804,7 @@ def cmd_unowned(db, a):
           f"owned={sum(r[4] != 'UNOWNED' and not r[4].startswith('blocked:') for r in now_rows)}")
 
 
-# Runs (fed by worker-ledger) ---------------------------------------------------
+# Runs (fed by north worker-ledger) ---------------------------------------------------
 
 BRIEF_FIELD = {name: re.compile(rf"\b{name}:[ \t]*([^\s`<>]+)") for name in ("Item", "Follows", "Arm")}
 CATEGORY = re.compile(r"\bCategory:[ \t]*([A-Za-z-]+)")
@@ -898,7 +898,7 @@ def hold(db, item, r, claim, follows):
 
 
 def cmd_ingest(db, a):
-    """Read worker-ledger's JSON rows on stdin. A running worker holds its Item; a finished one
+    """Read north worker-ledger's JSON rows on stdin. A running worker holds its Item; a finished one
     releases it and becomes a run; a stale one (idle 2 h) releases it. Recorded runs are skipped."""
     added = backfilled = 0; rows = sys.stdin.readlines()
     unlabeled, readouts, unpriced = [], [], set()
@@ -2033,7 +2033,7 @@ def parser() -> argparse.ArgumentParser:
         prog="threads",
         description=f"Who holds which GitHub issue, handoffs and worker runs. Items are issue refs "
                     f"({', '.join(r + '#N' for r in REPOS)}). Database: {DB}",
-        epilog="A running worker whose brief has `Item: <repo#N>` holds that issue (recorded by worker-ledger); "
+        epilog="A running worker whose brief has `Item: <repo#N>` holds that issue (recorded by north worker-ledger); "
                "claim/release are for humans and lanes. Brief categories: "
                + ", ".join(CATEGORIES) + "; anything else counts as unknown. Facets: "
                + "; ".join(f"{k.capitalize()}: {' | '.join(v)}" for k, v in FACETS.items())
@@ -2098,9 +2098,9 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("list", cmd_claims, "held issues with owner, time on the clock, ETA and an OVERDUE or STALE flag; void claims are not shown")
     s.add_argument("--json", action="store_true")
     cmd("ingest", cmd_ingest, "record worker runs or type=usage readouts from JSON rows on stdin")
-    s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
+    s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for north worker-ledger)")
     s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "
-                   "and whose commit is not yet on origin/main, so worker-ledger rereads them")
+                   "and whose commit is not yet on origin/main, so north worker-ledger rereads them")
     s = cmd("unowned", cmd_unowned, "open smashcraft and wisp issues with an unchecked box: owner, block or UNOWNED, "
             "priority:now first")
     s = cmd("block", cmd_block, "record why an issue cannot be staffed now (shown by unowned); --clear removes it")

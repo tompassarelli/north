@@ -1,4 +1,4 @@
-"""worker-ledger's recurring step: threads calibrate --write on the ledger host when the newest calibration row is
+"""north worker-ledger's recurring step: threads calibrate --write on the ledger host when the newest calibration row is
 older than calibrate_after_min, defaults-measure --priors recorded as kind prior rows on the host holding the
 Codex rollouts, once a week from Monday 00:00Z."""
 from datetime import datetime, timezone

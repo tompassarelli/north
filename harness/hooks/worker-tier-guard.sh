@@ -59,7 +59,7 @@ for facet, values in FACETS.items():
         if m.group(1).lower() not in values:
             reason = (
                 f"{facet}: {m.group(1) or '(empty)'} is not a facet value; use one of {' | '.join(values)}, "
-                "so worker-ledger can group runs by it."
+                "so north worker-ledger can group runs by it."
             )
             break
     if reason:

@@ -148,7 +148,7 @@ fn digits(name: &str) -> HashSet<String> {
 }
 
 fn row(shared: &Shared, walk: &Walk, role: Option<&'static str>) -> Option<Map<String, Value>> {
-    let head = prefix(&walk.report, 400);
+    let head = prefix(&walk.report, 600);
     let steps: Vec<Step> = walk.steps.iter().map(|(command, code, output, finished)| Step { command: Some(command.clone()), code: *code, output: output.clone(), finished: finished.clone() }).collect();
     let mut counts = tally(&steps, shared.main);
     let numbers = digits(walk.name());
@@ -176,7 +176,7 @@ fn row(shared: &Shared, walk: &Walk, role: Option<&'static str>) -> Option<Map<S
     row.insert("telemetry_only".into(), json!(role.is_none()));
     row.insert("outcome".into(), json!(rows::outcome(&walk.report)));
     row.insert("note".into(), Value::Null);
-    row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 160)));
+    row.insert("report".into(), json!(SPACE.replace_all(&head, " ").into_owned()));
     row.insert("flaws".into(), FLAWS.captures(&walk.report).map_or(Value::Null, |found| json!(found[1].parse::<i64>().unwrap_or(0))));
     row.insert("backfill".into(), json!(shared.recorded.contains(&walk.id)));
     row.insert("staffed".into(), json!(utc(walk.staffed.as_deref())));

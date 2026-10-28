@@ -124,7 +124,7 @@ fn row(shared: &Shared, id: &str, slug: &str, steps: &[Value], workspace: &str, 
         Some((model, effort)) if EFFORTS.contains(&effort) => (model, effort),
         _ => (slug, "default"),
     };
-    let head = prefix(&report, 400);
+    let head = prefix(&report, 600);
     let samples = samples(shared, &answers, model);
     let unpriced: Vec<&str> = if shared.prices.by_price() && !shared.prices.lists(model) { vec![model] } else { Vec::new() };
     let mut row = json!({
@@ -146,7 +146,7 @@ fn row(shared: &Shared, id: &str, slug: &str, steps: &[Value], workspace: &str, 
         "tokens": answers.iter().map(|answer| count(answer, "output_tokens")).sum::<i64>(),
         "peak_ctx": answers.iter().map(|answer| count(answer, "input_tokens") + count(answer, "cache_read_tokens")).max().unwrap_or(0),
         "outcome": rows::outcome(&report),
-        "report": prefix(&SPACE.replace_all(&head, " "), 160),
+        "report": SPACE.replace_all(&head, " ").into_owned(),
         "flaws": FLAWS.captures(&report).map_or(Value::Null, |found| json!(found[1].parse::<i64>().unwrap_or(0))),
         "backfill": shared.recorded.contains(id),
         "staffed": utc(Some(first)),
