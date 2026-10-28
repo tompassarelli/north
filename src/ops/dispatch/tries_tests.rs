@@ -38,12 +38,12 @@ fn a_try_whose_session_only_waited_on_admission_does_not_count_toward_the_two_tr
     let records = [launch("smashcraft#518", "sc-518-d0900", now - 6.0 * 3600.0), launch("smashcraft#518", "sc-518-d1100", now - 4.0 * 3600.0), launch("smashcraft#552", "sc-552-d0855", now - 5.0 * 3600.0)];
     let contested: Vec<&str> = record::contested(&records, now).iter().map(|record| record.name.as_str()).collect();
     assert_eq!(contested, ["sc-518-d0900", "sc-518-d1100"], "only an item tried twice needs its sessions read");
-    let both = record::holds(&records, now, &BTreeMap::new());
+    let both = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
     assert_eq!(both[&IssueRef::new("smashcraft", 518)], "north dispatch, 2 tries in 24 h without closing (sc-518-d0900, sc-518-d1100); the proxy decides the next one");
     let unspent = BTreeMap::from([("sc-518-d0900".to_owned(), super::tries::unspent(&waited).unwrap())]);
-    assert!(!record::holds(&records, now, &unspent).contains_key(&IssueRef::new("smashcraft", 518)), "one real try is no hold once its launch is old");
+    assert!(!record::holds(&records, now, &unspent, &BTreeSet::new()).contains_key(&IssueRef::new("smashcraft", 518)), "one real try is no hold once its launch is old");
     let third = [&records[..], &[launch("smashcraft#518", "sc-518-d1300", now - 3.0 * 3600.0)]].concat();
-    let named = &record::holds(&third, now, &unspent)[&IssueRef::new("smashcraft", 518)];
+    let named = &record::holds(&third, now, &unspent, &BTreeSet::new())[&IssueRef::new("smashcraft", 518)];
     assert_eq!(named, "north dispatch, 2 tries in 24 h without closing (sc-518-d1100, sc-518-d1300); not counted: sc-518-d0900, which only waited on capacity: Not done: the level-0 test is still waiting for pair 10; the proxy decides the next one");
 }
 
@@ -78,7 +78,7 @@ fn a_second_launch_on_a_held_item_is_refused_as_is_a_dispatch_launch_on_an_item_
     assert_eq!(held(454, &none), None, "a parked session holds nothing");
     let now = 100_000.0;
     let records = [launch("smashcraft#552", "sc-552-d0855", now - 600.0), Record { launched: false, ..launch("smashcraft#419", "sc-419-d1006", now - 60.0) }];
-    let launching = record::launching(&records, now);
+    let launching = record::launching(&records, now, &BTreeSet::new());
     assert_eq!(held(552, &launching).as_deref(), Some("north dispatch launch sc-552-d0855 on gex45 10 min ago"), "a fresh dispatch launch holds its item before its session shows");
     assert_eq!(held(419, &launching), None, "a failed launch holds nothing");
 
@@ -94,14 +94,36 @@ fn a_second_launch_on_a_held_item_is_refused_as_is_a_dispatch_launch_on_an_item_
 fn a_twice_tried_issue_with_an_open_blocker_waits_on_the_blocker_instead_of_going_to_the_proxy() {
     let now = 100_000.0;
     let records = [launch("smashcraft#363", "sc-363-d0900", now - 6.0 * 3600.0), launch("smashcraft#363", "sc-363-d1100", now - 4.0 * 3600.0)];
-    let holds = record::holds(&records, now, &BTreeMap::new());
+    let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
     assert!(holds[&IssueRef::new("smashcraft", 363)].contains("2 tries in 24 h"));
     let blocked = issue("smashcraft", 363, "- [ ] a\nBlocked by #572", &[]);
     let free = issue("smashcraft", 364, "- [ ] a", &[]);
     let records = [records.to_vec(), vec![launch("smashcraft#364", "sc-364-d0900", now - 6.0 * 3600.0), launch("smashcraft#364", "sc-364-d1100", now - 4.0 * 3600.0)]].concat();
-    let holds = record::holds(&records, now, &BTreeMap::new());
+    let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
     let (open, planned) = (BTreeSet::from([IssueRef::new("smashcraft", 572)]), BTreeMap::new());
     let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
     assert_eq!(issues::readiness(&blocked, &world), Err("waits on open smashcraft#572".into()));
     assert!(issues::readiness(&free, &world).unwrap_err().starts_with("held by north dispatch, 2 tries"), "with no blocker the two-try hold still reaches the proxy");
+}
+
+#[test]
+fn a_launch_holds_its_item_only_until_its_session_exits_or_is_forgotten() {
+    let now = 100_000.0;
+    let records = [launch("north#281", "north-281-d1250", now - 54.0 * 60.0), launch("north#285", "north-285-d1220", now - 84.0 * 60.0), launch("north#290", "north-290-d1300", now - 5.0 * 60.0), launch("north#291", "north-291-d1200", now - 30.0 * 60.0), launch("north#292", "north-292-d1210", now - 40.0 * 60.0)];
+    let listings = vec![("gex45".to_owned(), json!([{"name": "north-281-d1250", "status": "exited"}, {"name": "north-285-d1220", "status": "exited"}, {"name": "north-291-d1200", "status": "working"}]))];
+    let gone = fleets::gone(&listings, &records, now);
+    let holds = record::holds(&records, now, &BTreeMap::new(), &gone);
+    let launching = record::launching(&records, now, &gone);
+    for exited in [281, 285] {
+        let item = IssueRef::new("north", exited);
+        assert!(!holds.contains_key(&item) && !launching.contains_key(&item), "an exited session no longer holds its item: {holds:?}");
+    }
+    let fresh = IssueRef::new("north", 290);
+    assert!(holds.contains_key(&fresh) && launching.contains_key(&fresh), "a launch whose session has not shown yet holds its item");
+    let running = IssueRef::new("north", 291);
+    assert!(holds.contains_key(&running) && launching.contains_key(&running), "a running session's launch still holds its item");
+    let forgotten = IssueRef::new("north", 292);
+    assert!(!holds.contains_key(&forgotten) && !launching.contains_key(&forgotten), "a session no listing shows after the time it needs to show holds nothing");
+    let unread = fleets::gone(&[("gex45".to_owned(), Value::Null)], &records, now);
+    assert!(unread.is_empty(), "an unread listing says nothing about whether a session was forgotten: {unread:?}");
 }

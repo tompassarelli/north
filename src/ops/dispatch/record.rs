@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 const HOLD_S: f64 = 2.0 * 3600.0;
 const CLOUD_HOLD_S: f64 = 6.0 * 3600.0;
-const LAPTOP_SHOW_S: f64 = 15.0 * 60.0;
+pub(crate) const LAPTOP_SHOW_S: f64 = 15.0 * 60.0;
 const RETRY_WINDOW_S: f64 = 24.0 * 3600.0;
 const RETRIES: usize = 2;
 const FAILED_HOLD_S: f64 = 15.0 * 60.0;
@@ -74,8 +74,9 @@ pub(crate) fn contested(records: &[Record], at: f64) -> Vec<&Record> {
 
 /// Items launched in the last two hours, whose sessions may not show yet, and items tried twice in a
 /// day without closing, which the proxy decides about. A launch whose session `unspent` names did
-/// no work on the item is no try.
-pub(crate) fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>) -> BTreeMap<IssueRef, String> {
+/// no work on the item is no try. A launch whose session is in `gone`, exited or forgotten, holds
+/// its item no longer.
+pub(crate) fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, String>, gone: &BTreeSet<String>) -> BTreeMap<IssueRef, String> {
     let mut tries: BTreeMap<IssueRef, Vec<&Record>> = BTreeMap::new();
     for record in records.iter().filter(|record| !record.hand && at - record.at < RETRY_WINDOW_S) {
         if let Some(item) = IssueRef::parse(&record.item) {
@@ -85,14 +86,14 @@ pub(crate) fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, Stri
     tries
         .into_iter()
         .filter_map(|(item, tried)| {
-            let last = tried.iter().max_by(|a, b| a.at.total_cmp(&b.at))?;
+            let last = tried.iter().filter(|record| !gone.contains(&record.name)).max_by(|a, b| a.at.total_cmp(&b.at));
             let (counted, spared): (Vec<&Record>, Vec<&Record>) = tried.iter().filter(|record| record.launched).partition(|record| !unspent.contains_key(&record.name));
             let reason = if counted.len() >= RETRIES {
                 let names: Vec<&str> = counted.iter().map(|record| record.name.as_str()).collect();
                 let spared: Vec<String> = spared.iter().map(|record| format!("{}, which {}", record.name, unspent[&record.name])).collect();
                 let spared = if spared.is_empty() { String::new() } else { format!("; not counted: {}", spared.join("; ")) };
                 format!("north dispatch, {} tries in 24 h without closing ({}){spared}; the proxy decides the next one", counted.len(), names.join(", "))
-            } else if at - last.at < hold(last) {
+            } else if let Some(last) = last.filter(|last| at - last.at < hold(last)) {
                 format!("north dispatch launch {} on {} {:.0} min ago", last.name, last.host, (at - last.at) / 60.0)
             } else {
                 return None;
@@ -103,10 +104,10 @@ pub(crate) fn holds(records: &[Record], at: f64, unspent: &BTreeMap<String, Stri
 }
 
 /// Items whose newest launch started a session in the last two hours, six for the cloud lane: the
-/// sessions dispatch holds them for, which may not show in any fleet list yet.
-pub(crate) fn launching(records: &[Record], at: f64) -> BTreeMap<IssueRef, String> {
+/// sessions dispatch holds them for, which may not show in any fleet list yet, less those in `gone`.
+pub(crate) fn launching(records: &[Record], at: f64, gone: &BTreeSet<String>) -> BTreeMap<IssueRef, String> {
     let mut newest: BTreeMap<IssueRef, &Record> = BTreeMap::new();
-    for record in records.iter().filter(|record| !record.hand) {
+    for record in records.iter().filter(|record| !record.hand && !gone.contains(&record.name)) {
         if let Some(item) = IssueRef::parse(&record.item)
             && newest.get(&item).is_none_or(|seen| seen.at <= record.at)
         {

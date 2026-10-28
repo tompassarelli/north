@@ -2,7 +2,7 @@ use super::grounds::Grounds;
 use super::manual::{Ask, Start, start};
 use super::record::Record;
 use super::tier::{Evidence, History};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const CFG: &str = r#"
 [tiers."claude:haiku"]
@@ -123,7 +123,7 @@ fn a_brief_naming_an_escalation_tier_keeps_it_and_its_effort_and_an_unknown_tier
 fn a_hand_launch_holds_nothing_and_contests_nothing_so_a_restaff_within_two_hours_is_not_refused() {
     let hand = tried("worker-haiku", "mechanical", false);
     let twice = [hand.clone(), Record { at: 2.0, ..hand }];
-    assert!(super::record::holds(&twice, 100.0, &BTreeMap::new()).is_empty());
-    assert!(super::record::launching(&twice, 100.0).is_empty());
+    assert!(super::record::holds(&twice, 100.0, &BTreeMap::new(), &BTreeSet::new()).is_empty());
+    assert!(super::record::launching(&twice, 100.0, &BTreeSet::new()).is_empty());
     assert!(super::record::contested(&twice, 100.0).is_empty());
 }

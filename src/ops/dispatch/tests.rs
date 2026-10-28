@@ -322,7 +322,7 @@ fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
     let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let now = 100_000.0;
     let records = vec![entry("smashcraft#1", now - 600.0), entry("smashcraft#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
-    let holds = record::holds(&records, now, &BTreeMap::new());
+    let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
     assert!(holds[&IssueRef::new("smashcraft", 1)].starts_with("north dispatch launch sc-1-d0000 on gex45 10 min ago"));
     assert!(!holds.contains_key(&IssueRef::new("smashcraft", 2)), "an old single launch whose session ended frees the box");
     assert!(holds[&IssueRef::new("wisp", 3)].contains("2 tries in 24 h"));
@@ -547,7 +547,7 @@ fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
     let now = 100_000.0;
     let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let records = vec![cloud("smashcraft#7", now - 5.0 * 3600.0), cloud("smashcraft#8", now - 7.0 * 3600.0)];
-    let holds = record::holds(&records, now, &BTreeMap::new());
+    let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
     assert!(holds.contains_key(&IssueRef::new("smashcraft", 7)) && !holds.contains_key(&IssueRef::new("smashcraft", 8)));
     let open = BTreeSet::from([IssueRef::new("smashcraft", 7), IssueRef::new("smashcraft", 8)]);
     assert_eq!(record::recent_on(&records, "anthropic-cloud", &open, now), 1);
@@ -574,7 +574,7 @@ fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
     let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let now = 100_000.0;
     let records = vec![failed("smashcraft#9", now - 3600.0), failed("smashcraft#9", now - 1800.0), failed("wisp#4", now - 300.0)];
-    let holds = record::holds(&records, now, &BTreeMap::new());
+    let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
     assert!(!holds.contains_key(&IssueRef::new("smashcraft", 9)), "two failed launches are no tries and their brief hold has passed: {holds:?}");
     assert!(holds[&IssueRef::new("wisp", 4)].starts_with("north dispatch launch sc-9-d0000"), "a fresh failure still holds the box for a few minutes");
 }

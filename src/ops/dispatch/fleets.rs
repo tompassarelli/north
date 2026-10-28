@@ -70,6 +70,15 @@ pub(crate) fn stopped_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
     named(false).into_iter().filter(|name| !running.contains(name)).collect()
 }
 
+/// The names of dispatch launches whose sessions no longer hold their items: sessions some listing
+/// shows and none shows running, and sessions absent from every listing though the listing of the
+/// host they launched on was read and the launch is old enough for it to show.
+pub(crate) fn gone(fleets: &[(String, Value)], records: &[record::Record], at: f64) -> BTreeSet<String> {
+    let listed: BTreeSet<&str> = fleets.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter_map(|session| session["name"].as_str()).collect();
+    let forgotten = records.iter().filter(|launch| launch.launched && !launch.cloud && !launch.hand && at - launch.at >= record::LAPTOP_SHOW_S).filter(|launch| !listed.contains(launch.name.as_str())).filter(|launch| fleets.iter().any(|(host, listing)| *host == launch.host && listing.is_array()));
+    stopped_names(fleets).into_iter().chain(forgotten.map(|launch| launch.name.clone())).collect()
+}
+
 /// The sessions this registry runs on other machines, which their resident counts miss, and the
 /// holds every running session makes.
 pub(crate) fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap<IssueRef, String>) {
@@ -107,7 +116,8 @@ pub(crate) fn holder(task: &str, local: Value, notes: &mut Vec<String>) -> Optio
         Err(why) => notes.push(format!("no placement config, so only this host's sessions count: {why}")),
     }
     let sessions: Vec<(Session, String)> = fleets.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
-    held(&items, &sessions, &record::launching(&record::read(&record::directory()), at))
+    let records = record::read(&record::directory());
+    held(&items, &sessions, &record::launching(&records, at, &gone(&fleets, &records, at)))
 }
 
 pub(crate) fn remote_json(ssh: Option<&str>, command: &[&str]) -> Result<Value, String> {

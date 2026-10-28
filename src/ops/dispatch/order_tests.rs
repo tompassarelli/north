@@ -112,6 +112,10 @@ impl World {
         }
     }
 
+    fn departed(&self, record: &Record) -> bool {
+        self.gex45.get(&record.name) == Some(&"exited") && self.nexus.get(&record.name) != Some(&"idle")
+    }
+
     fn listings(&self) -> Vec<(String, Value)> {
         let rows = |sessions: &BTreeMap<String, &str>| Value::Array(sessions.iter().map(|(name, status)| json!({"name": name, "status": status})).collect());
         vec![("gex45".to_owned(), rows(&self.gex45)), ("nexus".to_owned(), rows(&self.nexus))]
@@ -121,13 +125,17 @@ impl World {
         Value::Array(self.claims.iter().map(|(number, owner, live)| json!({"item": item(*number).to_string(), "owner": owner, "standing": if *live { "live" } else { "released" }})).collect())
     }
 
+    fn gone(&self) -> BTreeSet<String> {
+        fleets::gone(&self.listings(), &self.records, self.at)
+    }
+
     fn holds(&self) -> BTreeMap<IssueRef, String> {
-        record::holds(&self.records, self.at, &self.unspent)
+        record::holds(&self.records, self.at, &self.unspent, &self.gone())
     }
 
     fn all_holds(&self) -> BTreeMap<IssueRef, String> {
         let mut holds = self.holds();
-        for (held, why) in record::launching(&self.records, self.at) {
+        for (held, why) in record::launching(&self.records, self.at, &self.gone()) {
             holds.entry(held).or_insert(why);
         }
         for (host, listing) in self.listings() {
@@ -168,7 +176,7 @@ impl Broken {
 
 fn check_tries(world: &World, trail: &str, broken: &mut Broken) {
     let holds = world.holds();
-    let launching = record::launching(&world.records, world.at);
+    let launching = record::launching(&world.records, world.at, &world.gone());
     for number in 1..=3 {
         let held = item(number);
         let mine: Vec<&Record> = world.records.iter().filter(|record| record.item == held.to_string() && !record.hand).collect();
@@ -176,7 +184,7 @@ fn check_tries(world: &World, trail: &str, broken: &mut Broken) {
         let worked = recent.iter().filter(|record| record.launched && !world.unspent.contains_key(&record.name)).count();
         let reason = holds.get(&held);
 
-        if let Some(fresh) = recent.iter().find(|record| record.launched && world.at - record.at < started_hold(record) && !recent.iter().any(|later| later.at > record.at)) {
+        if let Some(fresh) = recent.iter().find(|record| record.launched && world.at - record.at < started_hold(record) && !world.departed(record) && !recent.iter().any(|later| later.at > record.at && !world.departed(later))) {
             broken.expect("a started launch holds its item for two hours, six in the cloud", reason.is_some(), || format!("{held}: {} launched {} s ago, nothing newer, nothing holds it\n{trail}", fresh.name, world.at - fresh.at));
             broken.expect("a fresh started launch shows in launching", launching.contains_key(&held), || format!("{held}\n{trail}"));
         }
@@ -184,7 +192,7 @@ fn check_tries(world: &World, trail: &str, broken: &mut Broken) {
         broken.expect("two tries that did work in 24 h go to the proxy", worked < 2 || proxied, || format!("{held}: {worked} worked tries, hold {reason:?}\n{trail}"));
         broken.expect("a launch that failed or did no work is no try", worked >= 2 || !proxied, || format!("{held}: {worked} worked tries, hold {reason:?}\n{trail}"));
         if let Some(why) = reason.filter(|_| !proxied) {
-            let newest = recent.iter().max_by(|a, b| a.at.total_cmp(&b.at)).expect("a hold names a launch");
+            let newest = recent.iter().filter(|record| !world.departed(record)).max_by(|a, b| a.at.total_cmp(&b.at)).expect("a hold names a launch");
             broken.expect("a launch holds its item only within its window", world.at - newest.at < started_hold(newest), || format!("{held}: {why}\n{trail}"));
         }
         broken.expect("nothing launched in 24 h holds nothing", !recent.is_empty() || reason.is_none(), || format!("{held}: {reason:?}\n{trail}"));
@@ -200,14 +208,14 @@ fn check_tries(world: &World, trail: &str, broken: &mut Broken) {
     if let Some(name) = world.records.iter().find(|record| record.launched && !record.hand).map(|record| record.name.clone()) {
         spared.insert(name, "waited".into());
     }
-    broken.expect("sparing a session never adds a hold", record::holds(&world.records, world.at, &spared).keys().all(|held| holds.contains_key(held)), || trail.to_owned());
+    broken.expect("sparing a session never adds a hold", record::holds(&world.records, world.at, &spared, &world.gone()).keys().all(|held| holds.contains_key(held)), || trail.to_owned());
 
     let mut turned = world.records.clone();
     turned.reverse();
     let same: BTreeSet<_> = holds.keys().cloned().collect();
-    broken.expect("holds do not depend on the order launches were recorded in", record::holds(&turned, world.at, &world.unspent).keys().cloned().collect::<BTreeSet<_>>() == same, || trail.to_owned());
+    broken.expect("holds do not depend on the order launches were recorded in", record::holds(&turned, world.at, &world.unspent, &world.gone()).keys().cloned().collect::<BTreeSet<_>>() == same, || trail.to_owned());
 
-    let later = record::holds(&world.records, world.at + 25.0 * HOUR, &world.unspent);
+    let later = record::holds(&world.records, world.at + 25.0 * HOUR, &world.unspent, &world.gone());
     broken.expect("a day with no launch frees every item", later.is_empty(), || format!("{later:?}\n{trail}"));
 }
 
