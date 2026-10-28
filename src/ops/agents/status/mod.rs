@@ -108,7 +108,7 @@ fn gather(config: &Config, usable: &[String], catalog: &Value, costs: &Value) ->
     let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
     let explicit = env::var_os("THREADS_DB").filter(|path| !path.is_empty());
     let ledger_path = crate::usage::ledger_path(&home, explicit.clone());
-    let opened = crate::usage::open_ledger(&home, explicit);
+    let opened = crate::usage::open_ledger(&home, explicit, &crate::threads::client::refresh_mirrored_snapshot);
     let open_error = opened.as_ref().err().cloned().unwrap_or_default();
     let connection = opened.ok();
     let now = Timestamp::now();

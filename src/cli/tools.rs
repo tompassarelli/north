@@ -30,7 +30,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("report", crate::ops::report::run),
     ("agents", super::agents::run),
     ("resident-cap", crate::ops::resident_cap::run),
-    ("usage", crate::usage::run),
+    ("usage", super::agents::usage),
     ("convo", crate::ops::convo::run),
 ];
 

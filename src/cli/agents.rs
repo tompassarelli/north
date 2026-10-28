@@ -31,9 +31,13 @@ pub(super) fn run(arguments: &[String]) -> u8 {
         }),
         Verb::Command("flow") => flow::run(rest),
         Verb::Command(_) => report::run(rest),
-        Verb::Script("usage.py") if crate::usage::handles(rest) => crate::usage::run(rest),
+        Verb::Script("usage.py") if crate::usage::handles(rest) => usage(rest),
         Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),
     }
+}
+
+pub(super) fn usage(arguments: &[String]) -> u8 {
+    crate::usage::run(arguments, &crate::threads::client::refresh_mirrored_snapshot)
 }
 
 fn exit(outcome: NorthResult<u8>) -> u8 {
