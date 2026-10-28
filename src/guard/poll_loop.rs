@@ -1,3 +1,6 @@
+use std::path::Path;
+
+use super::poll_loop_measured::{self, MeasuredDuration};
 use crate::hook::{HookInput, Verdict};
 use crate::shell;
 
@@ -23,21 +26,34 @@ fn verdict(input: &HookInput) -> Verdict {
         .iter()
         .find_map(|field| input.tool_input[*field].as_f64())
         .map_or(f64::INFINITY, |ms| ms / 1000.0);
-    match decide(command, bound) {
+    match decide_with(command, bound, &poll_loop_measured::database()) {
         Some(reason) => Verdict::Deny(reason),
         None => Verdict::Allow,
     }
 }
 
-pub(super) fn decide(command: &str, bound: f64) -> Option<String> {
+pub(super) fn decide_with(command: &str, bound: f64, capacity: &Path) -> Option<String> {
     let wait = waited(command, bound, 0);
-    (wait > LIMIT_SECONDS).then(|| refusal(wait))
+    (wait > LIMIT_SECONDS).then(|| refusal(wait, poll_loop_measured::waited_on(command, capacity)))
 }
 
-fn refusal(wait: f64) -> String {
+fn advice(measured: Option<MeasuredDuration>) -> String {
+    let Some(MeasuredDuration { shape, seconds, runs }) = measured else {
+        return String::new();
+    };
+    let verdict = if seconds < LIMIT_SECONDS {
+        "run it in the foreground and wait inline, with no sleep"
+    } else {
+        "end your turn and let `job-run --notify` wake you"
+    };
+    format!("`{shape}` has a measured p75 of {seconds:.0} s over {runs} runs: {verdict}. ")
+}
+
+fn refusal(wait: f64, measured: Option<MeasuredDuration>) -> String {
+    let measured = advice(measured);
     let span = if wait.is_finite() { format!("up to {wait:.0} s") } else { "until its condition holds".into() };
     format!(
-        "No. This call waits {span} in a sleep or poll loop, and every wait over {LIMIT_SECONDS:.0} s holds a full-context request open. \
+        "{measured}No. This call waits {span} in a sleep or poll loop, and every wait over {LIMIT_SECONDS:.0} s holds a full-context request open. \
          For work that ends on its own, run `job-run --notify NAME -- CMD` and end your turn: its exit arrives as a fleet message. \
          To wake on a condition, use Monitor with an until-loop, or run the loop with run_in_background so its exit notifies you. \
          A sleep or a loop bounded by `timeout` at {LIMIT_SECONDS:.0} s or less runs inline."

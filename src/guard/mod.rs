@@ -21,6 +21,7 @@ mod git_tests;
 
 pub mod heavy_command;
 pub mod poll_loop;
+mod poll_loop_measured;
 pub mod session_kill;
 pub mod clipboard;
 pub mod native_item;
