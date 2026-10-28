@@ -154,17 +154,17 @@ fn plain(line: &str) -> String {
     plain
 }
 
-fn parity(fixture: &Fixture, case: &Case) -> Observed {
+fn both_entries(fixture: &Fixture, case: &Case) -> Observed {
     let label = case.arguments.join("_").replace(['-', '/'], "");
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push");
-    let old = run(&fixture.copy(&format!("old{label}")), &[script.to_str().unwrap()], case);
-    let new = run(&fixture.copy(&format!("new{label}")), &[env!("CARGO_BIN_EXE_north"), "safe-push"], case);
-    assert_eq!(old.status, new.status, "exit code differs for {:?}\nold: {old:#?}\nnew: {new:#?}", case.arguments);
-    assert_eq!(old.stdout, new.stdout, "stdout differs for {:?}", case.arguments);
-    assert_eq!(old.stderr, new.stderr, "stderr differs for {:?}", case.arguments);
-    assert_eq!(old.remote, new.remote, "origin differs for {:?}", case.arguments);
-    assert_eq!(old.scratch_refs, new.scratch_refs, "fetched origin refs differ for {:?}", case.arguments);
-    new
+    let entry = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push");
+    let script = run(&fixture.copy(&format!("script{label}")), &[entry.to_str().unwrap()], case);
+    let binary = run(&fixture.copy(&format!("binary{label}")), &[env!("CARGO_BIN_EXE_north"), "safe-push"], case);
+    assert_eq!(script.status, binary.status, "exit code differs for {:?}\nbin/safe-push: {script:#?}\nnorth safe-push: {binary:#?}", case.arguments);
+    assert_eq!(script.stdout, binary.stdout, "stdout differs for {:?}", case.arguments);
+    assert_eq!(script.stderr, binary.stderr, "stderr differs for {:?}", case.arguments);
+    assert_eq!(script.remote, binary.remote, "origin differs for {:?}", case.arguments);
+    assert_eq!(script.scratch_refs, binary.scratch_refs, "fetched origin refs differ for {:?}", case.arguments);
+    binary
 }
 
 fn published(observed: &Observed, fixture: &Fixture, name: &str) -> bool {
@@ -173,25 +173,25 @@ fn published(observed: &Observed, fixture: &Fixture, name: &str) -> bool {
 }
 
 #[test]
-fn safe_push_tag_publishes_like_the_shell_on_clean_fixtures() {
+fn safe_push_tag_publishes_clean_fixtures_through_either_entry() {
     let fixture = Fixture::new();
     tag(&fixture.repo(), "release-outgoing", "release annotation");
     git(&fixture.repo(), &["tag", "-a", "release-published", "-m", "published release", "origin/main"]);
 
-    let cancelled = parity(&fixture, &Case { cancel: Some("scan"), ..Case::new(&["--tag", "release-outgoing"]) });
+    let cancelled = both_entries(&fixture, &Case { cancel: Some("scan"), ..Case::new(&["--tag", "release-outgoing"]) });
     assert_eq!(cancelled.status, 130, "{cancelled:#?}");
     assert!(cancelled.scratch_refs.is_empty() && !published(&cancelled, &fixture, "release-outgoing"), "{cancelled:#?}");
 
-    let pushing = parity(&fixture, &Case { cancel: Some("push"), ..Case::new(&["--tag", "release-outgoing"]) });
+    let pushing = both_entries(&fixture, &Case { cancel: Some("push"), ..Case::new(&["--tag", "release-outgoing"]) });
     assert_eq!(pushing.status, 130, "{pushing:#?}");
     assert!(pushing.scratch_refs.is_empty() && published(&pushing, &fixture, "release-outgoing"), "{pushing:#?}");
 
-    let dry = parity(&fixture, &Case::new(&["--dry-run", "--tag", "release-outgoing"]));
+    let dry = both_entries(&fixture, &Case::new(&["--dry-run", "--tag", "release-outgoing"]));
     assert_eq!(dry.status, 0, "{dry:#?}");
     assert!(dry.stdout.contains("would push tag release-outgoing -> origin"), "{dry:#?}");
     assert!(!published(&dry, &fixture, "release-outgoing"));
 
-    let outgoing = parity(&fixture, &Case::new(&["--tag", "release-outgoing"]));
+    let outgoing = both_entries(&fixture, &Case::new(&["--tag", "release-outgoing"]));
     assert_eq!(outgoing.status, 0, "{outgoing:#?}");
     assert!(published(&outgoing, &fixture, "release-outgoing"), "{outgoing:#?}");
     let main = git(&fixture.repo(), &["rev-parse", "origin/main"]);
@@ -199,7 +199,7 @@ fn safe_push_tag_publishes_like_the_shell_on_clean_fixtures() {
     let heads: Vec<&str> = outgoing.remote.lines().filter_map(|line| line.split_once(' ')).map(|(name, _)| name).filter(|name| name.starts_with("refs/heads/")).collect();
     assert_eq!(heads, ["refs/heads/main", "refs/heads/other"], "tag publication created a remote branch");
 
-    let already = parity(&fixture, &Case::new(&["--tag", "release-published"]));
+    let already = both_entries(&fixture, &Case::new(&["--tag", "release-published"]));
     assert_eq!(already.status, 0, "{already:#?}");
     assert!(published(&already, &fixture, "release-published"));
 
@@ -207,35 +207,35 @@ fn safe_push_tag_publishes_like_the_shell_on_clean_fixtures() {
         environment: &[("SAFE_PUSH_SOUTH", ""), ("SAFE_PUSH_DENYLIST", ""), ("HOME", "/nonexistent-safe-push-home")],
         ..Case::new(&["--dry-run", "--tag", "release-outgoing"])
     };
-    let fallback = parity(&fixture, &fallback);
+    let fallback = both_entries(&fixture, &fallback);
     assert!(fallback.stdout.contains("no south checkout at /nonexistent-safe-push-home/code/south"), "{fallback:#?}");
 
     let private = Case { visibility: "PRIVATE", denylist: true, ..Case::new(&["--tag", "release-outgoing"]) };
-    assert_eq!(parity(&fixture, &private).status, 0);
+    assert_eq!(both_entries(&fixture, &private).status, 0);
 }
 
 #[test]
-fn safe_push_tag_refuses_like_the_shell_before_any_scan() {
+fn safe_push_tag_refuses_before_any_scan_through_either_entry() {
     let fixture = Fixture::new();
     git(&fixture.repo(), &["tag", "release-light"]);
     for arguments in [&["--tag", "missing"][..], &["--tag", "release-light"], &["--wat"], &["--to", "main", "--tag", "x"], &["--help"]] {
-        let observed = parity(&fixture, &Case::new(arguments));
+        let observed = both_entries(&fixture, &Case::new(arguments));
         assert_eq!(observed.status != 0, arguments != ["--help"], "{arguments:?}: {observed:#?}");
     }
     let raw = Case { environment: &[("NORTH_NO_AUTOREAP", "1")], ..Case::new(&["--tag", "--dry-run"]) };
-    assert_eq!(parity(&fixture, &raw).status, 2);
+    assert_eq!(both_entries(&fixture, &raw).status, 2);
     git(&fixture.repo(), &["checkout", "-q", "--detach"]);
     tag(&fixture.repo(), "release-detached", "detached release");
-    let detached = parity(&fixture, &Case::new(&["--tag", "release-detached"]));
+    let detached = both_entries(&fixture, &Case::new(&["--tag", "release-detached"]));
     assert!(detached.stdout.contains("detached HEAD"), "{detached:#?}");
 }
 
 #[test]
-fn safe_push_tag_refuses_like_the_shell_when_a_guard_fails() {
+fn safe_push_tag_refuses_failed_guards_through_either_entry() {
     let fixture = Fixture::new();
     let repo = fixture.repo();
     let refused = |name: &str, case: &Case, expected: &str| {
-        let observed = parity(&fixture, case);
+        let observed = both_entries(&fixture, case);
         assert_eq!(observed.status, 1, "{name}: {observed:#?}");
         assert!(format!("{}{}", observed.stdout, observed.stderr).contains(expected), "{name}: {observed:#?}");
         assert!(!observed.remote.contains("refs/tags/"), "{name} published");
@@ -270,4 +270,27 @@ fn safe_push_tag_refuses_like_the_shell_when_a_guard_fails() {
     git(&repo, &["-c", "user.email=someone@private.example", "commit", "--allow-empty", "-qm", "private author"]);
     tag(&repo, "release-email", "email release");
     refused("email", &Case::new(&["--tag", "release-email"]), "author email someone@private.example is not safe-push-test@example.invalid");
+}
+
+#[test]
+fn bin_safe_push_refuses_a_tag_when_the_north_runtime_lacks_safe_push() {
+    let fixture = Fixture::new();
+    tag(&fixture.repo(), "release-stale", "release annotation");
+    let copy = fixture.copy("stale");
+    let stale = copy.join("stale-bin");
+    std::fs::create_dir_all(&stale).unwrap();
+    std::fs::write(stale.join("north"), "#!/bin/sh\nexit 2\n").unwrap();
+    std::fs::set_permissions(stale.join("north"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let before = git(&copy.join("remote.git"), &["for-each-ref"]);
+    let output = Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push"))
+        .args(["--tag", "release-stale"])
+        .current_dir(copy.join("repo"))
+        .env("PATH", format!("{}:{}", stale.display(), std::env::var("PATH").unwrap_or_default()))
+        .env("XDG_STATE_HOME", copy.join("state"))
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(1), "{stdout}");
+    assert!(stdout.contains("this host's north runtime lacks; run north runtime update; NOT pushed."), "{stdout}");
+    assert_eq!(git(&copy.join("remote.git"), &["for-each-ref"]), before, "a stale runtime published the tag");
 }

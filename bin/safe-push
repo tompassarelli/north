@@ -297,6 +297,11 @@ plan_push() {
 }
 
 plan_push arguments "$@"
+if [ "$tag_seen" -eq 1 ]; then
+  safe_push_internal=1
+  north safe-push --help >/dev/null 2>&1 || { echo "safe-push: tags publish through north safe-push, which this host's north runtime lacks; run north runtime update; NOT pushed."; exit 1; }
+  exec north safe-push "${original_arguments[@]}"
+fi
 
 validate_destination_name() {
   git check-ref-format "refs/heads/$1" >/dev/null 2>&1 \
@@ -1342,8 +1347,6 @@ revalidate_repository_state() {
     || state_changed 'HEAD commit unavailable'
   [ "$current_head_oid" = "$head_oid" ] || state_changed 'HEAD commit changed'
 
-  [ "${1:-branch}" = branch ] || return 0
-
   current_destination_snapshot=$(remote_destination_snapshot) \
     || state_changed 'origin destination became unavailable, symbolic, malformed, or ambiguous'
   [ "$current_destination_snapshot" = "$destination_snapshot" ] \
@@ -1374,82 +1377,8 @@ enforce_one_branch_main() {
   plan_push source "$current" "$default"
 }
 
-if [ "$tag_seen" -eq 0 ] && [ "$to_seen" -eq 0 ]; then enforce_one_branch_main; fi
-
-# --- tag mode: scan the tag object and commit history absent from origin -----------
+if [ "$to_seen" -eq 0 ]; then enforce_one_branch_main; fi
 safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
-if [ -n "$tag" ]; then
-  capture_repository_state
-  tag_ref="refs/tags/$tag"
-  tag_oid=$(git rev-parse -q --verify "$tag_ref" 2>/dev/null) \
-    || { echo "safe-push: no such tag '$tag'"; exit 1; }
-  [ "$(git cat-file -t "$tag_oid" 2>/dev/null)" = tag ] \
-    || { echo "safe-push: tag '$tag' is not annotated — refusing"; exit 1; }
-  target=$(git rev-list -n1 "$tag_oid")
-  command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to push without a secret scan"; exit 1; }
-  tmpd=$(mktemp -d)
-  origin_namespace="refs/safe-push-origin/$$-$RANDOM"
-  cleanup_tag_scan() {
-    local ref
-    while IFS= read -r ref; do git update-ref -d "$ref" || true; done \
-      < <(git for-each-ref --format='%(refname)' "$origin_namespace/")
-    rm -rf "${tmpd:?}"
-  }
-  trap cleanup_tag_scan EXIT
-
-  git fetch -q --no-tags --no-write-fetch-head "$origin_url" \
-    "+refs/*:${origin_namespace}/*"
-  fetched_origin_snapshot=$(
-    git for-each-ref --format='%(objectname) %(refname)' "$origin_namespace/" |
-      while read -r oid ref; do
-        printf '%s\trefs/%s\n' "$oid" "${ref#"$origin_namespace/"}"
-      done | LC_ALL=C sort
-  )
-  origin_snapshot=$(git ls-remote --refs "$origin_url" | LC_ALL=C sort)
-  [ "$origin_snapshot" = "$fetched_origin_snapshot" ] \
-    || state_changed 'origin refs changed while capturing tag scan base'
-
-  tag_scan_revs=("$target")
-  while IFS= read -r ref; do
-    if oid=$(git rev-parse -q --verify "${ref}^{commit}" 2>/dev/null); then
-      tag_scan_revs+=("^$oid")
-    fi
-  done < <(git for-each-ref --format='%(refname)' "$origin_namespace/")
-  tag_scan_range="${tag_scan_revs[*]}"
-  tag_base=$(git rev-list --boundary "${tag_scan_revs[@]}" | sed -n 's/^-//p')
-  tag_base=${tag_base%%$'\n'*}
-  if [ "$(git rev-list --count "${tag_scan_revs[@]}")" -eq 0 ]; then tag_base="$target"; fi
-  run_language_gate "$tag_base" "$target" || exit $?
-  check_instruction_limits "$target"
-  scan_range_for_native=("${tag_scan_revs[@]}")
-  native_ref_scan "$tag" "$(git cat-file -p "$tag_oid")" || exit 1
-  if [ "$(git rev-list --count "${tag_scan_revs[@]}")" -gt 0 ]; then
-    gitleaks detect --no-banner --redact --log-opts="$tag_scan_range" \
-      || { echo "safe-push: ✗ SECRET DETECTED in tag commit history — fix it; NOT pushed."; exit 1; }
-    commit_email_scan "${tag_scan_revs[@]}" || exit 1
-  fi
-  denylist_scan "$tag_base" "$target" "$tag" || exit 1
-
-  git cat-file -p "$tag_oid" > "$tmpd/tag-object.txt"
-  # gitleaks CLI drift: 8.19+ uses `dir`, older uses `detect --no-git --source`
-  gitleaks dir "$tmpd" --no-banner --redact >/dev/null 2>&1 \
-    || gitleaks detect --no-git --source "$tmpd" --no-banner --redact >/dev/null 2>&1 \
-    || { echo "safe-push: ✗ SECRET DETECTED in tag annotation — fix it; NOT pushed."; exit 1; }
-  revalidate_repository_state identity
-  current_tag_oid=$(git rev-parse -q --verify "$tag_ref" 2>/dev/null) \
-    || state_changed 'tag disappeared'
-  [ "$current_tag_oid" = "$tag_oid" ] || state_changed 'tag object changed'
-  current_target=$(git rev-list -n1 "$current_tag_oid")
-  [ "$current_target" = "$target" ] || state_changed 'tag target changed'
-  current_origin_snapshot=$(git ls-remote --refs "$origin_url" | LC_ALL=C sort)
-  [ "$current_origin_snapshot" = "$origin_snapshot" ] \
-    || state_changed 'origin refs changed'
-  if [ "$dry" = 1 ]; then echo "safe-push: ✓ clean (--dry-run) — would push tag $tag -> origin"; exit 0; fi
-  echo "safe-push: ✓ clean — pushing tag $tag -> origin"
-  SAFE_PUSH_ACTIVE=1 git push --no-follow-tags "$origin_url" "${tag_oid}:${tag_ref}"
-  safe_push_published_head="$target"; safe_push_landed_sha="$target"
-  exit 0
-fi
 
 # --- --to landings: serialize per origin, rebase onto the fresh destination -------
 # ~20 workers land on one busy main, so an unserialized landing loses the race to

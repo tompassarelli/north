@@ -312,16 +312,12 @@ missing_north_path="$missing_north_bin:/run/current-system/sw/bin:/usr/bin:/bin"
 language_gh_bin="$scratch/language-gh-bin"
 mkdir -p "$language_gh_bin"
 ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$language_gh_bin/gh"
-for publication_mode in branch tag autoland; do
+for publication_mode in branch autoland; do
   make_real_fixture "language-$publication_mode"
   publication_args=(--to main)
   publication_path="$real_bin:$PATH"
   publication_missing_path="$missing_north_path"
   case "$publication_mode" in
-    tag)
-      "$real_git" -C "$real_repo" tag -a language-release -m 'language release'
-      publication_args=(--tag language-release)
-      ;;
     autoland)
       publication_path="$real_bin:$language_gh_bin:$PATH"
       publication_missing_path="$language_gh_bin:$missing_north_path"
@@ -345,7 +341,7 @@ for publication_mode in branch tag autoland; do
   [ "$(real_remote_state)" = "$remote_before" ] || fail "$publication_mode missing north published"
   ! grep -q '^gitleaks ' "$real_trace" || fail "$publication_mode missing north reached heavy checks"
 done
-printf 'PASS: branch tag and autoland refuse denial and missing north\n'
+printf 'PASS: branch and autoland refuse denial and missing north\n'
 
 make_real_fixture language-initial
 while read -r ref _; do
