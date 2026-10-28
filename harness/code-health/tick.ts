@@ -21,7 +21,7 @@ export type Outcome = { repo: string; result: "quiet" | "held" | "started" | "mi
 
 const shellQuote = (word: string) => (/^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
 
-export const reviewName = (repo: string) => `code-health-review-${repo}`;
+export const reviewName = (repo: string, at: Date) => `code-health-review-${repo}-${at.toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-")}`;
 
 function fleetNames(north: string, cwd: string): Set<string> | null {
   try {
@@ -33,6 +33,7 @@ function fleetNames(north: string, cwd: string): Set<string> | null {
   }
 }
 
+const lockedName = (lock: string): string => { try { return String(JSON.parse(readFileSync(lock, "utf8")).name); } catch { return ""; } };
 function acquire(lock: string, name: string, env: TickEnv): boolean {
   mkdirSync(dirname(lock), { recursive: true });
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -44,9 +45,8 @@ function acquire(lock: string, name: string, env: TickEnv): boolean {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
-    const age = env.now().getTime() - statSync(lock).mtimeMs;
     const names = fleetNames(env.north, env.codeRoot);
-    if (!names || names.has(name) || age < LAUNCH_GRACE_MS) return false;
+    if (!names || names.has(lockedName(lock)) || env.now().getTime() - statSync(lock).mtimeMs < LAUNCH_GRACE_MS) return false;
     rmSync(lock, { force: true });
   }
   return false;
@@ -64,9 +64,8 @@ function fill(template: string, values: Record<string, string>): string {
 export function tickRepo(repo: string, env: TickEnv, print: (line: string) => void): Outcome {
   const checkout = join(env.codeRoot, repo, "main");
   if (!existsSync(checkout)) return { repo, result: "missing", detail: `no checkout at ${checkout}` };
-  const name = reviewName(repo);
-  const state = join(env.stateRoot, repo);
-  const lock = join(state, "review.lock");
+  const name = reviewName(repo, env.now());
+  const state = join(env.stateRoot, repo), lock = join(state, "review.lock");
   if (!acquire(lock, name, env)) return { repo, result: "held", detail: `review lock ${lock}` };
   const release = (detail: string): Outcome => {
     rmSync(lock, { force: true });
