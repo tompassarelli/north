@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 
 use serde_json::json;
 
@@ -73,13 +74,40 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
             }
             facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
             facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
-            let _ = writeln!(std::io::stdout(), "{}", json!(admission::admit(&facts, host.serving)));
+            let admitted = admission::admit(&facts, host.serving);
+            if let Some(ticket) = facts.ticket.as_deref().filter(|_| admitted.reason != admission::Reason::Run) {
+                note_reason(ticket, admitted.reason);
+            }
+            let _ = writeln!(std::io::stdout(), "{}", json!(admitted));
             0
         }
         Err(message) => {
             eprintln!("north capacity: {message}");
             2
         }
+    }
+}
+
+fn note_reason(ticket: &std::path::Path, reason: admission::Reason) {
+    let Some(mut entry) = std::fs::read(ticket).ok().and_then(|bytes| serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&bytes).ok()) else {
+        return;
+    };
+    let reason = json!(reason);
+    if entry.get("reason") == Some(&reason) {
+        return;
+    }
+    entry.insert("reason".to_owned(), reason);
+    let staged = ticket.with_extension("json.tmp");
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&staged)
+        .and_then(|mut file| writeln!(file, "{}", serde_json::Value::Object(entry)))
+        .and_then(|()| std::fs::rename(&staged, ticket));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&staged);
     }
 }
 

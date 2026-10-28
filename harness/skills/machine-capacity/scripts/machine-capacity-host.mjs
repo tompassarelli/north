@@ -864,7 +864,7 @@ function decision(root, requested, create, ticket = null) {
       peerExclusiveRuns: runs.filter(lease => lease.class === 'exclusive').length,
       unboundedRuns: runs.filter(lease => lease.aggregateSlice !== leaseSlice(lease.class)).length,
       queuedAhead: ahead.length, exclusiveWaiting, beforeDrain: beforeDrain(create?.timeoutSeconds), newClients: requested.newClients, newDesktops: requested.newDesktops, gpuRuns: runs.filter(lease => lease.class === 'gpu').length,
-      nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined, quiet: requested.quiet === true, exclusiveLeases: runs.filter(lease => lease.class === 'exclusive').map(lease => lease.id),
+      nativeWaiting: nativeWaiting(root, now), quietNativeRuns: quietOwners.length, besideNative: requested.besideNative !== undefined, quiet: requested.quiet === true, exclusiveLeases: runs.filter(lease => lease.class === 'exclusive').map(lease => lease.id), ...(ticket === null ? {} : { ticket: join(root, 'queue', ticket) }),
     });
     if (requested.name === 'native') markNativeWaiting(root, code !== 'RUN');
     const result = {
@@ -1009,7 +1009,7 @@ function status(root) {
       queued: priorityOrder(readQueue(root)).map((ticket, index) => ({
         position: index + 1,
         owner: ticket.owner ?? null,
-        class: ticket.class ?? null,
+        class: ticket.class ?? null, reason: ticket.reason ?? null,
         waitingSeconds: seconds(now - ticket.queuedAt), newClients: ticket.newClients, newDesktops: ticket.newDesktops,
         ...(ticket.class === 'exclusive' ? { waitingFor: draining } : {}),
       })),

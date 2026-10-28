@@ -45,6 +45,7 @@ fn facts(class: Class) -> Facts {
         run_queue_load: None,
         need: None,
         disk_free_gib: None,
+        ticket: None,
     }
 }
 
@@ -324,4 +325,32 @@ fn game_reserve_frees_light_work_queued_behind_held_tickets_but_not_behind_heavy
     let ahead = |classes: &[Class]| Facts { queued_ahead: 2, queued_ahead_classes: classes.iter().copied().map(Some).collect(), ..reserved(Class::Moderate) };
     assert_eq!(decide(&ahead(&[Class::Native, Class::Exclusive])), Reason::Run);
     assert_eq!(decide(&ahead(&[Class::Heavy, Class::Gpu])), Reason::DeferQueued);
+}
+
+fn gex45_on_2026_10_28(class: Class, disk_free_gib: f64, queued_ahead_classes: &[Class]) -> Facts {
+    Facts {
+        profile: Profile::Unattended,
+        cores: 20,
+        memory_total_mib: 64000.0,
+        memory_available_mib: 54388.0,
+        leased_memory_mib: 5220.0,
+        leased_batch_cpus: 6.0,
+        leased_native_cpus: 1.35,
+        requested_cpus: if class == Class::Heavy { 6.0 } else { 2.0 },
+        requested_memory_mib: if class == Class::Heavy { 8192.0 } else { 2048.0 },
+        peer_batch_runs: 1,
+        queued_ahead: u32::try_from(queued_ahead_classes.len()).unwrap(),
+        queued_ahead_classes: queued_ahead_classes.iter().copied().map(Some).collect(),
+        disk_free_gib: Some(disk_free_gib),
+        ..facts(class)
+    }
+}
+
+#[test]
+fn heavy_builds_held_by_the_disk_floor_do_not_queue_moderate_work_behind_them() {
+    let low = 12.39;
+    assert_eq!(decide(&gex45_on_2026_10_28(Class::Heavy, low, &[])), Reason::DeferDiskFree);
+    assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, low, &[Class::Heavy, Class::Heavy])), Reason::Run);
+    assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, low, &[Class::Heavy, Class::Heavy, Class::Moderate])), Reason::DeferQueued);
+    assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, 20.0, &[Class::Heavy, Class::Heavy])), Reason::DeferQueued);
 }

@@ -104,6 +104,8 @@ pub(crate) struct Facts {
     pub(crate) need: Option<String>,
     #[serde(default, rename = "diskFreeGiB")]
     pub(crate) disk_free_gib: Option<f64>,
+    #[serde(default)]
+    pub(crate) ticket: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -249,11 +251,15 @@ fn game_memory_short(facts: &Facts) -> bool {
         && facts.memory_available_mib - facts.requested_memory_mib < default_mib("game_reserve_headroom_mib")
 }
 
+fn host_holds(facts: &Facts, class: Class) -> bool {
+    (facts.gaming && gaming_deferred(facts, class)) || (class == Class::Heavy && disk_below_floor(facts))
+}
+
 fn queued_ahead(facts: &Facts) -> u32 {
-    if !facts.gaming || gaming_deferred(facts, facts.gaming_class.unwrap_or(facts.class)) {
+    if host_holds(facts, facts.gaming_class.unwrap_or(facts.class)) {
         return facts.queued_ahead;
     }
-    let held = facts.queued_ahead_classes.iter().flatten().filter(|class| gaming_deferred(facts, **class)).count();
+    let held = facts.queued_ahead_classes.iter().flatten().filter(|class| host_holds(facts, **class)).count();
     facts.queued_ahead.saturating_sub(u32::try_from(held).unwrap_or(u32::MAX))
 }
 
@@ -275,7 +281,11 @@ fn memory(facts: &Facts) -> Option<Reason> {
 
 /// A heavy build is deferred while the root filesystem has less than the floor free; an unread disk admits.
 fn disk_short(facts: &Facts) -> bool {
-    facts.class == Class::Heavy && facts.disk_free_gib.is_some_and(|free| free < default_mib("build_disk_free_gib"))
+    facts.class == Class::Heavy && disk_below_floor(facts)
+}
+
+fn disk_below_floor(facts: &Facts) -> bool {
+    facts.disk_free_gib.is_some_and(|free| free < default_mib("build_disk_free_gib"))
 }
 
 fn memory_floor_mib(profile: Profile, total: f64) -> f64 {

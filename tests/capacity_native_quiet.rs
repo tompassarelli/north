@@ -63,6 +63,7 @@ fn recorded_batch_lease_waits_for_the_native_session_and_starts_within_a_second_
     std::thread::sleep(Duration::from_secs(3));
     assert!(waiting.exited().is_none(), "the batch lease ran beside a live native session");
     assert_eq!(host.leases(batch_class), 0);
+    assert_eq!(host.status()["queued"][0]["reason"], "DEFER_NATIVE_QUIET", "a held ticket names why it waits");
 
     drop(stdin);
     let ended = host.until("the quiet native lease to end", |host| host.leases("quiet") == 0);
