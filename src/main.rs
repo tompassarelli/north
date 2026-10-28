@@ -38,13 +38,12 @@ mod threads {
     pub(crate) mod items;
     pub(crate) mod jobs;
     pub(crate) mod outside;
+    pub(crate) mod runs;
     pub(crate) mod snapshot;
     pub(crate) mod staffing;
     pub(crate) mod verb;
     #[cfg(test)]
     mod fake;
-    #[cfg(test)]
-    mod ingest_writes_tests;
 }
 mod threads_client;
 mod fleet;

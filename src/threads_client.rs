@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{board, claims, ingest_lock, items, jobs, outside, snapshot, staffing, verb};
+use crate::threads::{board, claims, ingest_lock, items, jobs, outside, runs, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -136,7 +136,7 @@ impl Client {
                 None => self.local(argv, Some(&self.snapshot), replay),
             };
         }
-        if first == Some("ingest") {
+        if first == Some("ingest") && self.var(verb::SCHEMA_READY).is_none() {
             return self.ingest_locally(argv, stdin, err);
         }
         self.local(argv, None, replay)
@@ -170,6 +170,8 @@ impl Client {
             Some(board::run)
         } else if staffing::VERBS.contains(&verb) {
             Some(staffing::run)
+        } else if runs::VERBS.contains(&verb) {
+            Some(runs::run)
         } else {
             None
         };
@@ -185,7 +187,9 @@ impl Client {
         if let Some(database) = database {
             command.env("THREADS_DB", database);
         }
-        if self.var("NORTH_BIN").is_none() && let Ok(own) = std::env::current_exe() {
+        if let Some(north) = self.var("NORTH_BIN") {
+            command.env("NORTH_BIN", north);
+        } else if let Ok(own) = std::env::current_exe() {
             command.env("NORTH_BIN", own);
         }
         let Some(input) = replay else { return Ok(code_of(command.status()?)) };
@@ -781,9 +785,11 @@ exit "$(cat "$ROOT/code")"
         let root = directory.path();
         let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/threads");
         let script = format!("echo start >> '{0}/order.log'; sleep 1; '{1}' \"$@\"; code=$?; echo end >> '{0}/order.log'; exit $code", root.display(), real.display());
+        let north = std::env::current_exe().unwrap().parent().and_then(Path::parent).unwrap().join("north");
         let variables = BTreeMap::from([
             ("HOME".to_owned(), root.display().to_string()),
             ("THREADS_DB".to_owned(), root.join("threads.db").display().to_string()),
+            ("NORTH_BIN".to_owned(), north.display().to_string()),
         ]);
         let mut client = Client::new(root, variables, vec!["ssh".into()], vec!["/bin/sh".into(), "-c".into(), script.into(), "threads".into()]);
         client.ingest_wait = wait;

@@ -22,6 +22,7 @@ pub(crate) struct Recorded {
     pub refuse: Option<&'static str>,
     /// Answers a call from its joined arguments before `answers` and `reply` are tried.
     pub respond: Option<Respond>,
+    pub prices: Vec<(&'static str, f64)>,
 }
 
 impl Issues for Recorded {
@@ -56,5 +57,9 @@ impl Outside for Recorded {
 
     fn archives(&self, _repo: &str, _number: u64) -> String {
         self.archived.to_owned()
+    }
+
+    fn prices(&self) -> Result<BTreeMap<String, f64>, String> {
+        Ok(self.prices.iter().map(|(service, usd)| ((*service).to_owned(), *usd)).collect())
     }
 }

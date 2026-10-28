@@ -97,7 +97,7 @@ import json, os, sqlite3, subprocess, sys
 hook, scratch, active, commands = sys.argv[1:]
 env = dict(os.environ, HOME=scratch+'/home', THREADS_DB=scratch+'/runs.db',
            NORTH_AGENT_ACTIVE=active, NORTH_AGENT_PYTHON='/etc/codex/hooks/runtime/python3',
-           PATH=commands+':'+os.environ['PATH'])
+           PATH=commands+':'+os.environ['PATH'], NORTH_BIN=os.environ['NORTH_PACE_BIN'])
 env.pop('AGENT_NO_AUTHORING_HOOKS', None)
 brief = 'Delegation: role=worker budget=0\nCategory: bug-known-cause\nSpec: measured\nScope: module\nSurface: shell\nVerify: native\nGoal: preserve exact spacing  and suffix\n' + 'x' * 4200
 payload = dict(session_id='claude-lead', hook_event_name='PostToolUse', tool_name='Agent',

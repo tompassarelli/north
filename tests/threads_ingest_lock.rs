@@ -9,6 +9,7 @@ fn threads(root: &Path, verb: &str) -> Command {
         .arg(verb)
         .env("HOME", root)
         .env("THREADS_DB", root.join("threads.db"))
+        .env("NORTH_BIN", env!("CARGO_BIN_EXE_north"))
         .env("PATH", std::env::var("PATH").unwrap_or_default());
     command
 }

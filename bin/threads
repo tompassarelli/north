@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts
 from calibration import GOAL_KINDS, STALE_DAYS, THIN_N, open_ledger
 from defaults import DEFAULTS
 import durable_events
-from ledger_context import COST_WINDOWS, UNTRACKED, allocation_intervals, box_groups, delivery_metrics
+from ledger_context import UNTRACKED, box_groups, delivery_metrics
 from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
@@ -331,13 +331,6 @@ STAGES = ("staffed", "review_requested", "landed_at")
 CONTEXT = ("role", "peak_ctx", "compactions", "handoff_fires", "handoff_ignored", "input_tokens", "cache_read_tokens", "idle_gap_misses")
 
 
-def event(db, item, kind, actor="", tier="", **data):
-    db.execute(
-        "INSERT INTO events(ts, item, kind, actor, tier, data) VALUES (?,?,?,?,?,?)",
-        (now(), item, kind, actor, tier, json.dumps(data)),
-    )
-
-
 # Issue refs and GitHub ---------------------------------------------------------
 
 REF = re.compile(r"^([\w.-]+(?:/[\w.-]+)?)#(\d+)$")
@@ -537,202 +530,6 @@ LABEL_CATEGORY = [("theme:balance", "balance-tuning"), ("theme:netplay", "netcod
                   ("needs:native-pair", "native-check"), ("needs:native-single", "native-check"),
                   ("native:running", "native-check"), ("documentation", "docs-policy"),
                   ("bug", "bug-known-cause"), ("enhancement", "feature")]
-
-
-def label_category(db, item, cache={}):
-    """Category from the item's GitHub labels by LABEL_CATEGORY, one label listing per repo per ingest."""
-    repo, number = parse_ref(item)
-    if repo in NATIVE:
-        return None
-    if repo not in cache:
-        try:
-            cache[repo] = {i["number"]: {l["name"] for l in i["labels"]} for i in json.loads(gh(
-                "issue", "list", "-R", f"{OWNER}/{repo}", "--state", "all", "--limit", "1000", "--json", "number,labels"))}
-        except (Refused, ValueError, TypeError, KeyError):
-            cache[repo] = {}
-    labels = cache[repo].get(number, set())
-    return next((c for label, c in LABEL_CATEGORY if label in labels), None)
-
-
-def derived_item(f, r):
-    """The brief's Item, else the issue its commits and issue commands name most (encrypted Codex briefs)."""
-    return issue_ref(f.get("item") or r.get("item")) or next(filter(None, map(issue_ref, r.get("refs") or [])), None)
-
-
-def hold(db, item, r, claim, follows):
-    """A running worker holds its brief's issue; taking it from someone else is a handoff."""
-    prev = claim["owner"] if claim else follows
-    if claim:
-        db.execute("UPDATE claims SET owner = ?, since = ?, eta_min = ? WHERE item = ?",
-                   (r["id"], r.get("started") or now(), r.get("eta_min") and round(r["eta_min"]), item))
-    else:
-        db.execute("INSERT INTO claims(item, owner, since, eta_min) VALUES (?,?,?,?)",
-                   (item, r["id"], r.get("started") or now(), r.get("eta_min") and round(r["eta_min"])))
-        event(db, item, "claim", r["id"], r["tier"], eta_min=r.get("eta_min"))
-    if prev and prev != r["id"]:
-        event(db, item, "handoff", r["id"], r["tier"], **{"from": prev, "to": r["id"]})
-
-
-def cmd_ingest(db, a):
-    """Read worker-ledger's JSON rows on stdin. A running worker holds its Item; a finished one
-    releases it and becomes a run; a stale one (idle 2 h) releases it. Recorded runs are skipped."""
-    added = backfilled = 0; rows = sys.stdin.readlines()
-    unlabeled, readouts, unpriced = [], [], set()
-    with Tx(db):
-        for line in rows:
-            if not line.strip():
-                continue
-            r = json.loads(line)
-            if r.get("type") == "usage":
-                readouts.append(r)
-                continue
-            unpriced.update(r.get("unpriced_models") or [])
-            if r.get("account"):
-                db.executemany("INSERT INTO run_usage(agent, request, ts, account, weight) VALUES (?,?,?,?,?)"
-                               " ON CONFLICT(agent, request) DO UPDATE SET ts=excluded.ts, account=excluded.account, weight=excluded.weight",
-                               [(r["id"], sample["request"], sample["ts"], r["account"], sample["weight"])
-                                for sample in r.get("usage_samples") or []])
-                db.execute("UPDATE runs SET account=?, model=coalesce(?, model), effort=coalesce(?, effort), fast=? WHERE agent=?",
-                           (r["account"], r.get("model"), r.get("effort"), r.get("fast", 0), r["id"]))
-            if r.get("telemetry_only"):
-                continue
-            status = r.get("status", "finished")
-            role = r.get("role") or "worker"
-            if role not in ("worker", "parent", "proxy", "routine", "probe"):
-                raise Refused(f"unknown run role {role!r}")
-            worker = role == "worker"
-            f = brief_fields(r.get("brief") or "")
-            existing = db.execute("SELECT category, outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started FROM runs WHERE agent = ?", (r["id"],)).fetchone()
-            if existing:
-                r = dict(r, model=r.get("model") if r.get("model") is not None else existing["model"],
-                         effort=r.get("effort") if r.get("effort") is not None else existing["effort"])
-            original = existing["brief_text"] if existing else None
-            if original is not None:
-                f = brief_fields(original)
-                r = dict(r, brief_text=original, brief_origin=existing["brief_origin"], brief_path=existing["brief_path"], brief_sha256=existing["brief_sha256"], category=f.get("category"))
-                if existing["brief_origin"] == "codex.PostToolUse.spawn_agent" and existing["started"] is not None:
-                    r = dict(r, started=existing["started"])
-            if existing and existing["outcome"] == "running" and status == "finished":
-                db.execute("DELETE FROM runs WHERE agent = ?", (r["id"],))
-                existing = None
-            if existing:
-                if r.get("backfill") or not worker:
-                    db.execute("UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), tier=coalesce(?, tier),"
-                               " outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?", (r.get("model"), r.get("effort"), r.get("tier"), r.get("outcome"), r["id"]))
-                    if not worker:
-                        category = f.get("category") or r.get("category")
-                        db.execute("UPDATE runs SET ended = ?, category = coalesce(?, category),"
-                                   " report = coalesce(?, report), outcome = coalesce(?, outcome) WHERE agent = ?",
-                                   (r["ended"], category if category in CATEGORIES else None,
-                                    r.get("report"), r.get("outcome"), r["id"]))
-                    db.execute("UPDATE runs SET " + ", ".join(f"{k} = ?" if k == "handoff_ignored" and k in r else f"{k} = coalesce(?, {k})" for k in CONTEXT) + " WHERE agent = ?",
-                               (role, *(r.get(k) for k in CONTEXT[1:]), r["id"]))
-                    item = derived_item(f, r) if worker else None
-                    raw = f.get("category") or r.get("category")
-                    if worker and original is None and raw not in CATEGORIES and item and existing["category"] == "unknown":
-                        unlabeled.append((r["id"], item))
-                    if original is not None:
-                        db.execute("UPDATE runs SET category=?,spec=?,scope=?,surface=?,verify=? WHERE agent=?",
-                                   (f.get("category") if f.get("category") in CATEGORIES else "unknown", *(f.get(k) for k in FACETS), r["id"]))
-                    backfilled += db.execute(
-                        "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?),"
-                        " verify = coalesce(verify, ?), lens = coalesce(lens, ?), flaws = coalesce(flaws, ?),"
-                        " expects_landing = coalesce(?, expects_landing),"
-                        " landed = CASE WHEN coalesce(?, landed_sha) IS NOT NULL THEN 1 ELSE coalesce(?, landed) END,"
-                        " landed_sha = coalesce(?, landed_sha),"
-                        " staffed = coalesce(?, staffed),"
-                        " review_requested = coalesce(?, review_requested), landed_at = coalesce(?, landed_at),"
-                        " item = coalesce(?, item, ?), eta_min = coalesce(eta_min, ?),"
-                        " category = CASE category WHEN 'unknown' THEN coalesce(?, category) ELSE category END WHERE agent = ?",
-                        (f.get("spec"), f.get("scope"), f.get("surface"), f.get("verify"), f.get("lens"),
-                         r.get("flaws"), r.get("expects_landing"), r.get("landed_sha"), r.get("landed"), r.get("landed_sha"),
-                         *(r.get(k) for k in STAGES), issue_ref(f.get("item") or r.get("item")) if worker else None, item,
-                         r.get("eta_min") and round(r["eta_min"]),
-                         raw if raw in CATEGORIES else None, r["id"])).rowcount
-                continue
-            item = derived_item(f, r) if worker else None
-            follows = f.get("follows") or r.get("follows")
-            claim = db.execute("SELECT owner FROM claims WHERE item = ?", (item,)).fetchone() if item else None
-            mine = claim is not None and claim["owner"] == r["id"]
-            if status == "running" and worker:
-                if item and not mine:
-                    hold(db, item, r, claim, follows)
-                if r.get("brief_origin") in ("codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent") and isinstance(r.get("brief_text"), str):
-                    db.execute("INSERT INTO runs(agent,item,follows,session,tier,category,started,ended,minutes,eta_min,outcome,"
-                               "spec,scope,surface,verify,staffed,role,model,effort,brief_text,brief_origin,brief_path,brief_sha256)"
-                               " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                               (r["id"], item, follows, r.get("session"), r["tier"], f.get("category", "unknown"),
-                                r.get("started"), "", 0, r.get("eta_min"), "running", *(f.get(k) for k in FACETS),
-                                r.get("staffed"), role, r.get("model"), r.get("effort"), r["brief_text"], r["brief_origin"], r.get("brief_path"), r.get("brief_sha256")))
-                    added += 1
-                continue
-            if mine:
-                db.execute("DELETE FROM claims WHERE item = ?", (item,))
-                event(db, item, "release", r["id"], r["tier"], why=status)
-            if status != "finished" and worker:
-                continue
-            raw = f.get("category") or r.get("category") or "unknown"
-            if raw == "unknown" and item and original is None:
-                unlabeled.append((r["id"], item))
-            category = raw if raw in CATEGORIES else "unknown"
-            prev = None
-            if item and not db.execute(
-                "SELECT 1 FROM events WHERE item = ? AND kind = 'handoff' AND json_extract(data, '$.to') = ?",
-                (item, r["id"]),
-            ).fetchone():
-                p = db.execute("SELECT agent FROM runs WHERE item = ? ORDER BY ended DESC LIMIT 1", (item,)).fetchone()
-                prev = follows or (p["agent"] if p else None)
-            eta = r.get("eta_min")
-            db.execute(
-                """INSERT INTO runs(agent, item, follows, session, tier, category, started, ended, minutes,
-                                    eta_min, tokens, peak_ctx, outcome, report, note, landed, arm,
-                                    spec, scope, surface, verify, lens, flaws, expects_landing,
-                                    staffed, review_requested, landed_at,
-                                    role, compactions, handoff_fires, handoff_ignored, input_tokens, cache_read_tokens, idle_gap_misses)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (r["id"], item, follows, r.get("session"), r["tier"], category, r.get("started"), r["ended"],
-                 r["actual_min"], None if eta is None else round(eta), r.get("tokens"), r.get("peak_ctx"),
-                 r["outcome"], r.get("report") or "", r.get("note"), r.get("landed"),
-                 (f.get("arm") or "").lower() or None, f.get("spec"), f.get("scope"), f.get("surface"),
-                 f.get("verify"), f.get("lens"), r.get("flaws"), r.get("expects_landing"),
-                 *(r.get(k) for k in STAGES), role,
-                 *(r.get(k) for k in CONTEXT[2:])),
-            )
-            db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=? WHERE agent=?",
-                       (r.get("account"), r.get("model"), r.get("effort"), r.get("fast", 0), r.get("landed_sha"), r["id"]))
-            db.execute("UPDATE runs SET brief_text=?, brief_origin=?, brief_path=?, brief_sha256=? WHERE agent=?",
-                       (r.get("brief_text"), r.get("brief_origin"), r.get("brief_path"), r.get("brief_sha256"), r["id"]))
-            if prev and prev != r["id"]:
-                event(db, item, "handoff", r["id"], r["tier"], **{"from": prev, "to": r["id"]})
-            added += 1
-    if readouts:
-        from usage import record
-        record(db, readouts)
-    if table_exists(db, "usage"):
-        operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
-        prices = {r["id"]: r["usd_per_week"] for r in tomllib.load(open(operator / "costs.toml", "rb")).get("service", [])}
-        fresh = {(r["account"], r["started"], r["ended"], r["agent"]): r["cost_usd"] for r in allocation_intervals(
-            [dict(r) for r in db.execute(f"SELECT * FROM usage WHERE kind = 'window' AND used_pct IS NOT NULL AND name IN ({', '.join('?' * len(COST_WINDOWS))})", COST_WINDOWS)], [dict(r) for r in db.execute("SELECT * FROM run_usage")], prices)}
-        with Tx(db):
-            db.executemany("DELETE FROM run_costs WHERE (account, started, ended, agent) = (?,?,?,?)", [key for key in db.execute("SELECT account, started, ended, agent FROM run_costs") if tuple(key) not in fresh])
-            db.executemany("INSERT INTO run_costs(account, started, ended, agent, cost_usd) VALUES (?,?,?,?,?) ON CONFLICT(account, started, ended, agent) DO UPDATE SET cost_usd = excluded.cost_usd WHERE cost_usd IS NOT excluded.cost_usd", [(*key, usd) for key, usd in fresh.items()])
-            db.execute("UPDATE runs SET cost_usd = (SELECT SUM(cost_usd) FROM run_costs WHERE agent = runs.agent) WHERE cost_usd IS NOT (SELECT SUM(cost_usd) FROM run_costs WHERE agent = runs.agent)")
-    labeled = [(c, agent) for agent, item in unlabeled if (c := label_category(db, item))]
-    with Tx(db):
-        db.executemany("UPDATE runs SET category = ? WHERE agent = ?", labeled)
-    print(f"NorthThreads: {added} runs recorded" + (f", {backfilled} backfilled" if backfilled else "") + f" in {DB}"
-          + (f"; token weight for models without a list price: {', '.join(sorted(unpriced))}" if unpriced else ""),
-          file=sys.stderr)
-
-
-LANDING_DAYS = 3
-
-
-def cmd_run_ids(db, a):
-    since = datetime.fromtimestamp(time.time() - LANDING_DAYS * 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    for (agent,) in db.execute('SELECT agent FROM runs' + (' WHERE role = "worker" AND outcome != "running" AND NOT (expects_landing = 1 AND landed_at IS NULL AND'
-                                                           " ended >= ?)" if a.settled else ""), (since,) if a.settled else ()):
-        print(agent)
 
 
 def span(start, end):
@@ -1736,10 +1533,6 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--eta", type=int, help="minutes")
     s = cmd("list", cmd_claims, "held issues with owner, time on the clock, ETA and an OVERDUE or STALE flag; void claims are not shown")
     s.add_argument("--json", action="store_true")
-    cmd("ingest", cmd_ingest, "record worker runs or type=usage readouts from JSON rows on stdin")
-    s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
-    s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "
-                   "and whose commit is not yet on origin/main, so worker-ledger rereads them")
     s = cmd("summary", cmd_summary, "runs by category (or --group facets) and tier: success, minutes against ETA, "
             "working (staffed to first report) and waiting (first report to its commit on origin/main) medians, "
             "and accepted flaws per reviewer Lens")
@@ -1902,7 +1695,7 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block")
+RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "run-ids")
 
 
 def delegate(argv) -> int:

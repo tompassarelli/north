@@ -58,60 +58,6 @@ check '[spec] runs take Item, Follows, Category and Arm from the brief; a new ag
   'grep -q "a222 xhigh follows a111  50m/45m ETA  done" <<<"$out" && grep -q "handoff  a111 -> a222" <<<"$out" && grep -q "note ~/h/a111.md" <<<"$out" && grep -qE "^tooling +xhigh +escalate +1 +1 +100%" <<<"$out"'
 
 row() { jq -cn "$@"; }
-row '{id:"a333",status:"running",model:"gpt-6.1-sol",effort:"medium",tier:"medium",started:"2026-10-08T03:00:00.511000Z",staffed:"2026-10-08T03:00:00.511000Z",eta_min:30,brief:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_text:"Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell",brief_origin:"codex.PostToolUse.spawn_agent",brief_path:"/durable/original.txt",brief_sha256:"exact-original-hash"}' |
-  "$threads" ingest 2>/dev/null
-check 'creation row retains original brief while running and remains unsettled' \
-  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || coalesce(verify, '"'unknown'"') from runs where agent='"'a333'"'")" = "running|tooling|unknown" ] && ! t run-ids --settled | grep -qx a333'
-check 'native creation records supplied model and effort' \
-  '[ "$(sqlite3 "$THREADS_DB" "select model,effort from runs where agent='"'a333'"'")" = "gpt-6.1-sol|medium" ]'
-out=$(t list)
-check '[spec] a running worker whose brief has Item: holds the issue with no claim command' \
-  'grep -qE "^smashcraft#4 +a333 .* 30m" <<<"$out"'
-row '{id:"a333",status:"finished",started:"2026-10-08T03:00:00.512Z",ended:"2026-10-08T03:10:00Z",tier:"medium",actual_min:10,outcome:"running"}' | "$threads" ingest 2>/dev/null
-check 'partial collector replacement retains observed creation model and effort' \
-  '[ "$(sqlite3 "$THREADS_DB" "select model,effort from runs where agent='"'a333'"'")" = "gpt-6.1-sol|medium" ]'
-row --arg s "$(date -u -d '45 minutes ago' +%Y-%m-%dT%H:%M:%S.000Z)" \
-  '{id:"a444",status:"running",tier:"high",started:$s,eta_min:20,brief:"Item: smashcraft#2"}' | "$threads" ingest 2>/dev/null
-out=$(t list)
-check '[spec] the clock runs from when the worker started, and past 2x ETA it is overdue' \
-  'grep -qE "^smashcraft#2 +a444 +4[56]m +20m +OVERDUE" <<<"$out"'
-row '{id:"a333",status:"finished",started:"2026-10-08T03:00:00.512Z",model:"gpt-6-sol",effort:"high",ended:"2026-10-08T03:15:00Z",tier:"medium",actual_min:15,outcome:"running"}' | "$threads" ingest 2>/dev/null
-check 'partial replacement accepts explicit observed model and effort' \
-  '[ "$(sqlite3 "$THREADS_DB" "select model,effort from runs where agent='"'a333'"'")" = "gpt-6-sol|high" ]'
-row '{id:"a333",status:"finished",started:"2026-10-08T03:00:00.512Z",ended:"2026-10-08T03:20:00Z",tier:"medium",actual_min:20,tokens:1,outcome:"done",staffed:"2026-10-08T02:59:59Z",brief:"Item: smashcraft#4\nVerify: native"}' |
-  "$threads" ingest 2>/dev/null
-
-check 'terminal replacement retains the latest observed model and effort' \
-  '[ "$(sqlite3 "$THREADS_DB" "select model,effort from runs where agent='"'a333'"'")" = "gpt-6-sol|high" ]'
-
-check 'completion promotes the creation row once and preserves the original brief facets' \
-  '[ "$(sqlite3 "$THREADS_DB" "select outcome || '"'|'"' || category || '"'|'"' || coalesce(verify, '"'unknown'"') || '"'|'"' || brief_origin || '"'|'"' || brief_path || '"'|'"' || brief_sha256 from runs where agent='"'a333'"'")" = "done|tooling|unknown|codex.PostToolUse.spawn_agent|/durable/original.txt|exact-original-hash" ] && t run-ids --settled | grep -qx a333'
-
-check 'completion retains exact native creation started and collector assignment staffed' \
-  '[ "$(sqlite3 "$THREADS_DB" "select started,staffed from runs where agent='"'a333'"'")" = "2026-10-08T03:00:00.511000Z|2026-10-08T02:59:59Z" ]'
-
-row '{id:"a333",backfill:true,status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: feature\nSpec: exact\nScope: cross-repo\nSurface: ts\nVerify: native"}' | "$threads" ingest 2>/dev/null
-check 'later backfill preserves the creation metadata including an absent original facet' \
-  '[ "$(sqlite3 "$THREADS_DB" "select category || '"'|'"' || spec || '"'|'"' || scope || '"'|'"' || surface || '"'|'"' || coalesce(verify, '"'unknown'"') from runs where agent='"'a333'"'")" = "tooling|measured|module|shell|unknown" ]'
-
-check 'absent backfill retains the latest observed model and effort' \
-  '[ "$(sqlite3 "$THREADS_DB" "select model,effort from runs where agent='"'a333'"'")" = "gpt-6-sol|high" ]'
-row '{id:"a333",backfill:true,status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",model:"gpt-6.1-sol",effort:"low",actual_min:20,outcome:"done"}' | "$threads" ingest 2>/dev/null
-row '{id:"a333",backfill:true,status:"finished",ended:"2026-10-08T03:20:00Z",tier:"medium",actual_min:20,outcome:"done",model:null,effort:null}' | "$threads" ingest 2>/dev/null
-check 'explicit backfill observations win and later null observations retain them' \
-  '[ "$(sqlite3 "$THREADS_DB" "select model,effort from runs where agent='"'a333'"'")" = "gpt-6.1-sol|low" ]'
-row '{id:"a333-unknown",status:"running",tier:"gpt-6.1-sol medium",brief_text:"Goal: unknown observations",brief_origin:"codex.PostToolUse.spawn_agent"}' | "$threads" ingest 2>/dev/null
-row '{id:"a333-unknown",status:"finished",started:"2026-10-08T03:00:00.512Z",ended:"2026-10-08T03:20:00Z",tier:"gpt-6.1-sol medium",actual_min:20,outcome:"running"}' | "$threads" ingest 2>/dev/null
-check 'unknown native creation started accepts the collector timestamp' \
-  '[ "$(sqlite3 "$THREADS_DB" "select started from runs where agent='"'a333-unknown'"'")" = "2026-10-08T03:00:00.512Z" ]'
-row '{id:"a333-unknown",backfill:true,status:"finished",ended:"2026-10-08T03:20:00Z",tier:"gpt-6.1-sol medium",actual_min:20,outcome:"running"}' | "$threads" ingest 2>/dev/null
-check 'unknown creation observations remain null through replacement and backfill despite supplied tier' \
-  '[ "$(sqlite3 "$THREADS_DB" "select model is null,effort is null from runs where agent='"'a333-unknown'"'")" = "1|1" ]'
-
-row '{id:"a333-claude",status:"running",tier:"medium",started:"2026-10-08T03:00:00.511000Z",brief_text:"Goal: Claude creation",brief_origin:"claude.PostToolUse.Agent"}' | "$threads" ingest 2>/dev/null
-row '{id:"a333-claude",status:"finished",tier:"medium",started:"2026-10-08T03:00:00.512Z",ended:"2026-10-08T03:20:00Z",actual_min:20,outcome:"running"}' | "$threads" ingest 2>/dev/null
-check 'Claude lifecycle retains collector started behavior' \
-  '[ "$(sqlite3 "$THREADS_DB" "select started from runs where agent='"'a333-claude'"'")" = "2026-10-08T03:00:00.512Z" ]'
 
 # smashcraft#5 is closed (not in the open set): a medium run, then a high one after it.
 { row '{id:"b1",ended:"2026-10-08T04:00:00Z",tier:"medium",actual_min:10,tokens:3000,outcome:"not done",brief:"Item: smashcraft#5 Category: bug-known-cause"}'
@@ -131,18 +77,6 @@ check '[spec] closure groups by the first run: issues, closed, runs and tokens p
 out=$(t summary)
 check '[recorded] a Split run and its 3 parts show parts closure and an Arm: split row' \
   'grep -qE "^feature +1 +3 +67% +60 +40$" <<<"$out" && grep -qE "^feature +medium +split +3 +2 +66%" <<<"$out" && ! grep -qE "^feature +medium +- " <<<"$out"'
-
-row '{id:"attribution",landed:1,landed_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"done",report:"Done: attributed work."}' | "$threads" ingest 2>/dev/null
-row '{id:"attribution",backfill:true,landed:0,item:"wisp#71",category:"tooling",eta_min:25,ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"not done",report:"Not done: later worker evidence."}' | "$threads" ingest 2>/dev/null
-worker_attribution=$(sqlite3 "$THREADS_DB" "select item,category,eta_min,landed,landed_sha,outcome,report from runs where agent='attribution'")
-row '{id:"nonworker-attribution",role:"parent",ended:"2026-10-08T06:40:00Z",tier:"medium",actual_min:25,outcome:"unclear",report:"Running: initial evidence.",category:"unknown"}' | "$threads" ingest 2>/dev/null
-row '{id:"nonworker-attribution",role:"parent",ended:"2026-10-08T07:00:00Z",outcome:"done",report:"Done: current explicit evidence.",category:"tooling",compactions:2}' | "$threads" ingest 2>/dev/null
-nonworker_updated=$(sqlite3 "$THREADS_DB" "select ended,category,role,compactions,outcome,report from runs where agent='nonworker-attribution'")
-row '{id:"nonworker-attribution",role:"parent",ended:"2026-10-08T07:20:00Z"}' | "$threads" ingest 2>/dev/null
-nonworker_preserved=$(sqlite3 "$THREADS_DB" "select ended,category,role,compactions,outcome,report from runs where agent='nonworker-attribution'")
-out=$(printf '%s\n' "$worker_attribution" "$nonworker_updated" "$nonworker_preserved")
-check '[recorded] backfill fills attribution and ETA while preserving worker evidence; nonworker reports follow supplied evidence and preserve absent fields' \
-  '[ "$worker_attribution" = "wisp#71|tooling|25|1|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|done|Done: attributed work." ] && [ "$nonworker_updated" = "2026-10-08T07:00:00Z|tooling|parent|2|done|Done: current explicit evidence." ] && [ "$nonworker_preserved" = "2026-10-08T07:20:00Z|tooling|parent|2|done|Done: current explicit evidence." ]'
 
 # Recommend: tier from first-assignment runs that closed without escalation and landed.
 runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL

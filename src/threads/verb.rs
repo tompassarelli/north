@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use regex::Regex;
-use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, ToSql, TransactionBehavior, params};
 
 use crate::foundation::clock::Timestamp;
 use crate::pyjson::Value;
@@ -30,6 +30,8 @@ pub(crate) trait Outside: Issues {
     fn alive_owners(&self) -> BTreeSet<String>;
     /// The archive tags naming an issue, with their restore commands, as `show` prints them.
     fn archives(&self, repo: &str, number: u64) -> String;
+    /// Each service's dollars per week from the operator's costs.toml.
+    fn prices(&self) -> Result<BTreeMap<String, f64>, String>;
 }
 
 pub(crate) struct Context<'a> {
@@ -159,7 +161,12 @@ pub(crate) fn is_native_ref(item: &str) -> bool {
 
 /// One ledger event, its data as Python's `json.dumps` writes it.
 pub(crate) fn event(db: &Connection, item: Option<&str>, kind: &str, actor: &str, data: Value, now: Timestamp) -> rusqlite::Result<usize> {
-    db.execute("INSERT INTO events(ts, item, kind, actor, tier, data) VALUES (?1, ?2, ?3, ?4, '', ?5)", params![now.iso(), item, kind, actor, crate::pyjson::dumps(&data)])
+    event_as(db, item, kind, &actor, &"", data, now)
+}
+
+/// One ledger event by an actor of a tier, as a worker run records it.
+pub(crate) fn event_as(db: &Connection, item: Option<&str>, kind: &str, actor: &dyn ToSql, tier: &dyn ToSql, data: Value, now: Timestamp) -> rusqlite::Result<usize> {
+    db.execute("INSERT INTO events(ts, item, kind, actor, tier, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![now.iso(), item, kind, actor, tier, crate::pyjson::dumps(&data)])
 }
 
 pub(crate) fn integer(value: i64) -> Value {

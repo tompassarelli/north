@@ -14,7 +14,7 @@ WORKER_LEDGER_REAL_NORTH="$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}"
 export WORKER_LEDGER_REAL_NORTH
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
-[ "$1 $2" = "ledger claude-runs" ] || [ "$1 $2" = "threads ingest" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
+[ "$1 $2" = "ledger claude-runs" ] || [ "$1 $2" = "threads ingest" ] || [ "$1 $2" = "threads run-ids" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
 [ "$1 $2 $3" = "fleet list --json" ] || exit 1
 cat "$FLEET_TEST_SESSIONS"
 NORTH
@@ -347,33 +347,29 @@ os.environ["THREADS_DB"]=sys.argv[2]
 threads=importlib.machinery.SourceFileLoader("ledger_threads_measure",sys.argv[3]).load_module()
 threads.DB=sys.argv[2]
 db=threads.connect()
-import io
-sys.stdin=io.StringIO("".join(json.dumps(row|dict(type="usage"))+"\n" for row in rows))
-threads.cmd_ingest(db,None)
+import subprocess
+def ingest(rows):
+ subprocess.run([sys.argv[3],"ingest"],input=rows,text=True,check=True,capture_output=True)
+ingest("".join(json.dumps(row|dict(type="usage"))+"\n" for row in rows))
 assert db.execute("SELECT COUNT(*) FROM usage").fetchone()[0]==3
 records=[]
 for agent in ("a","b"):
  records.append(dict(id=agent,account="claude-b",model="claude-opus-4-6",effort="high",fast=int(agent=="a"),usage_samples=[{k:v for k,v in sample.items() if k not in ("agent","account")} | {"request":str(n)} for n,sample in enumerate(samples) if sample["agent"]==agent],tier="high",actual_min=20,started="2026-10-11T00:00:00Z",ended="2026-10-11T00:20:00Z",outcome="done",landed=1,staffed="2026-10-11T00:00:00Z",landed_at="2026-10-11T00:20:00Z",brief="Item: north#2" if agent=="a" else "Item: wisp#3"))
-sys.stdin=io.StringIO("".join(json.dumps(r)+"\n" for r in records))
 running=records[1]|dict(status="running")
-sys.stdin=io.StringIO(json.dumps(records[0])+"\n"+json.dumps(running)+"\n")
-threads.cmd_ingest(db,None)
+ingest(json.dumps(records[0])+"\n"+json.dumps(running)+"\n")
 assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]==1
 assert abs(db.execute("SELECT SUM(cost_usd) FROM run_costs").fetchone()[0]-5)<1e-10
-sys.stdin=io.StringIO(json.dumps(records[1])+"\n")
-threads.cmd_ingest(db,None)
+ingest(json.dumps(records[1])+"\n")
 assert abs(db.execute("SELECT SUM(cost_usd) FROM runs").fetchone()[0]-5)<1e-10
 assert db.execute("SELECT fast,COUNT(*) FROM runs GROUP BY fast").fetchall()[0][0]==0
 metrics=delivery_metrics(db.execute("SELECT * FROM runs"),"north")
 assert metrics==dict(done_boxes=1,concurrency=1,median_brief_to_landed_min=20,median_cost_per_done_usd=1.46),metrics
 retried=[dict(dict(r),agent="a0",outcome="not done",landed=0,cost_usd=0.54,staffed="2026-10-10T23:40:00Z",started="2026-10-10T23:40:00Z",ended="2026-10-10T23:55:00Z",landed_at=None) for r in db.execute("SELECT * FROM runs WHERE agent='a'")]
 assert delivery_metrics([*map(dict,db.execute("SELECT * FROM runs")),*retried],"north")["median_cost_per_done_usd"]==2.0
-sys.stdin=io.StringIO("".join(json.dumps(r)+"\n" for r in records))
-threads.cmd_ingest(db,None)
+ingest("".join(json.dumps(r)+"\n" for r in records))
 assert db.execute("SELECT COUNT(*) FROM run_usage").fetchone()[0]==3
 prior=dict(db.execute("SELECT * FROM runs WHERE agent='a'").fetchone())
-sys.stdin=io.StringIO(json.dumps(records[0]|dict(telemetry_only=True, role=None, actual_min=999, outcome="unclear", fast=0))+"\n")
-threads.cmd_ingest(db,None)
+ingest(json.dumps(records[0]|dict(telemetry_only=True, role=None, actual_min=999, outcome="unclear", fast=0))+"\n")
 after=dict(db.execute("SELECT * FROM runs WHERE agent='a'").fetchone())
 assert after["fast"]==0 and all(after[k]==prior[k] for k in ("role","outcome","minutes","landed_at"))
 print("PASS measured interval cost $5.00: all allocated to tracked runs, a zero-cost interval does not shrink later shares; a box's $ includes its failed attempt; fixture-secondary account claude-b; fast 0/1; replay idempotent; project delivery 20 min/$1.46")

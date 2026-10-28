@@ -187,6 +187,11 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn float(value: f64) -> Self {
+        let text = float_output(value);
+        Self::Number { raw: text.clone(), output: text }
+    }
 }
 
 impl From<&str> for Value {
