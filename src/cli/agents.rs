@@ -31,6 +31,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
         }),
         Verb::Command("flow") => flow::run(rest),
         Verb::Command(_) => report::run(rest),
+        Verb::Script("usage.py") if crate::usage::handles(rest) => crate::usage::run(rest),
         Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),
     }
 }

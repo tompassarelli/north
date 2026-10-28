@@ -68,6 +68,17 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     }
 }
 
+pub(crate) fn refresh_mirrored_snapshot() {
+    let env: BTreeMap<String, String> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    let Some(home) = env.get("HOME").cloned() else { return };
+    let client = Client::new(Path::new(&home), env, vec!["ssh".into()], vec!["threads".into()]);
+    if let Ok(destination) = fs::read_to_string(&client.remote) {
+        let _ = client.refresh_snapshot(destination.trim(), true);
+    }
+}
+
 impl Client {
     fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, threads: Vec<OsString>) -> Self {
         Self {

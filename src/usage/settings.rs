@@ -28,3 +28,29 @@ pub(super) fn stale_minutes() -> f64 {
 fn keys(table: Option<&toml_edit::Item>) -> BTreeSet<String> {
     table.and_then(toml_edit::Item::as_table_like).map(|table| table.iter().map(|(name, _)| name.to_owned()).collect()).unwrap_or_default()
 }
+
+pub(super) fn plan_text(policy: &Path, provider: &str, account: Option<&str>, observed: Option<&str>) -> String {
+    let declared = || {
+        let document: DocumentMut = fs::read_to_string(policy).ok()?.parse().ok()?;
+        let plans = document.get("accounts")?.get(provider)?.get("plans")?.as_table_like()?;
+        plans.get(account?)?.as_str().map(str::to_owned)
+    };
+    let Some(key) = observed.filter(|key| !key.is_empty()).map(str::to_owned).or_else(declared) else {
+        return String::new();
+    };
+    let catalog: DocumentMut = CATALOG.parse().expect("harness/model-catalog.toml parses");
+    let plan = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|account| account.get("plans")).and_then(|plans| plans.get(&key));
+    let named = plan.and_then(|plan| Some((plan.get("name")?.as_str()?.to_owned(), plan.get("monthly_price")?.clone())));
+    match named {
+        Some((name, price)) => {
+            let price = price.as_integer().map_or_else(|| price.as_float().map_or_else(|| price.as_str().unwrap_or("?").to_owned(), |float| format!("{float:?}")), |integer| integer.to_string());
+            format!(" | plan {name} ${price}/month")
+        }
+        None => format!(" | plan {key}"),
+    }
+}
+
+pub(super) fn services(operator: &Path) -> Option<Vec<toml_edit::Table>> {
+    let document: DocumentMut = fs::read_to_string(operator.join("costs.toml")).ok()?.parse().ok()?;
+    Some(document.get("service").and_then(toml_edit::Item::as_array_of_tables).map(|tables| tables.iter().cloned().collect()).unwrap_or_default())
+}

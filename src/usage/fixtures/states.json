@@ -37,5 +37,29 @@
       ["2020-10-28T07:01:00Z", "claude", "d", "window", "session", 49.0, 300, null, null, "tie on ts: the later rowid wins"],
       ["2999-01-01T00:00:00Z", "gemini", "tom", "window", "day", 0.0, 1440, null, null, "gemini ignores the claude profile filter"]
     ]
+  },
+  {
+    "name": "four accounts with burn, web resets, plans, billing and a stale reading",
+    "orchestration": "[accounts.claude]\nplans = { a = \"max-20x\", c = \"max-5x\" }\n[accounts.claude.profiles.a]\nhere = {}\n[accounts.claude.profiles.b]\nhere = {}\n[accounts.claude.profiles.c]\nhere = {}\n",
+    "web": {"accounts": {"x": {"account_label": "a", "valid_until": "2026-10-29T00:00:00Z", "read_at": "2026-10-28T11:00:00Z", "resets": {"full": {"count": 2, "expires": "2026-11-01T00:00:00Z"}, "five_hour": {"count": 3}}}}},
+    "rows": [
+      ["2026-10-28T09:30:00Z", "claude", "a", "window", "weekly_all", 40.0, 10080, "2026-10-30T00:00:00Z", null, "headers"],
+      ["2026-10-28T10:30:00Z", "claude", "a", "window", "weekly_all", 44.0, 10080, "2026-10-30T00:00:00Z", null, "headers"],
+      ["2026-10-28T11:30:00Z", "claude", "a", "window", "weekly_all", 50.0, 10080, "2026-10-30T00:00:00Z", null, "headers"],
+      ["2026-10-28T11:30:00Z", "claude", "a", "window", "session", 12.5, 300, "2026-10-28T14:00:00Z", null, "headers"],
+      ["2026-10-28T09:20:00Z", "claude", "b", "window", "weekly_all", 10.0, 10080, "2026-10-30T06:00:00Z", null, "headers"],
+      ["2026-10-28T11:20:00Z", "claude", "b", "window", "weekly_all", 11.0, 10080, "2026-10-30T06:00:00Z", null, "headers"],
+      ["2026-10-28T11:20:00Z", "claude", "b", "grant", "cedar_ember", null, null, null, 1.0, "web: usage page"],
+      ["2026-10-28T11:20:00Z", "claude", "b", "billing", "plan", null, null, null, 1.0, "max-20x"],
+      ["2026-10-28T11:20:00Z", "claude", "b", "billing", "extra_usage", 0.0, null, null, 0.0, "headers"],
+      ["2026-10-28T09:00:00Z", "claude", "c", "window", "weekly_all", 100.0, 10080, "2026-10-31T00:00:00Z", null, "headers"],
+      ["2026-10-28T09:00:00Z", "claude", "c", "window", "session", 2.5, 300, "2026-10-28T10:00:00Z", null, "headers"],
+      ["2026-10-28T09:00:00Z", "claude", "c", "window", "extra", 0.5, 300, null, null, "headers"],
+      ["2026-10-28T11:59:00Z", "gemini", "tom", "window", "day", 80.5, 1440, "2026-10-29T00:00:00Z", null, "gemini"],
+      ["2026-10-28T11:00:00Z", "gemini", "tom", "window", "week", 30.0, 10080, "2026-11-01T00:00:00Z", null, "gemini"],
+      ["2026-10-28T11:59:00Z", "gemini", "tom", "window", "week", 33.0, 10080, "2026-11-01T00:00:00Z", null, "gemini"],
+      ["2026-10-28T11:59:00Z", "gemini", "tom", "billing", "credit", null, null, null, 1234567.0, "gemini"],
+      ["2026-10-28T11:59:00Z", "gemini", "tom", "billing", "tiny", null, null, null, 1e-05, "gemini"]
+    ]
   }
 ]

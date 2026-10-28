@@ -25,6 +25,10 @@ impl Timestamp {
         Self(i128::from(seconds) * NANOS_PER_SECOND)
     }
 
+    pub fn from_unix_nanos(nanos: i128) -> Self {
+        Self(nanos)
+    }
+
     pub fn from_unix_millis(millis: i64) -> Self {
         Self(i128::from(millis) * NANOS_PER_MILLI)
     }

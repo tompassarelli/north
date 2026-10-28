@@ -1,32 +1,69 @@
-//! `north usage --json`: the latest reading of each account window in the threads ledger's usage table,
-//! each with whether it is older than `usage_stale_min`, printed as `agents usage --json` prints it.
+//! `north usage`: the latest reading of each account window in the threads ledger's usage table, as the
+//! `agents usage` table (with the plan, reset and burn columns and the cost lines) or, with `--json`,
+//! the same rows with whether each is older than `usage_stale_min`.
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
 use crate::foundation::clock::Timestamp;
 
+mod burn;
+mod costs;
+mod py;
 mod render;
 mod settings;
 mod store;
+mod table;
 #[cfg(test)]
 mod tests;
+mod web;
 
-const USAGE: &str = "usage: north usage --json";
+const USAGE: &str = "usage: north usage [--json]";
+
+pub(crate) struct Places {
+    pub policy: PathBuf,
+    pub operator: PathBuf,
+    pub state: PathBuf,
+}
+
+impl Places {
+    fn from_env() -> Self {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+        let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+        Self {
+            policy: crate::pace::target::policy_path(),
+            operator: set("AGENTS_OPERATOR_DIR").unwrap_or_else(|| home.join("code/south/main/agents")),
+            state: set("XDG_STATE_HOME").unwrap_or_else(|| home.join(".local/state")),
+        }
+    }
+}
+
+pub(crate) fn handles(arguments: &[String]) -> bool {
+    arguments.iter().all(|argument| argument == "--json" || argument == "--local")
+}
 
 pub(crate) fn run(arguments: &[String]) -> u8 {
-    if arguments != ["--json"] {
+    if !handles(arguments) {
         eprintln!("{USAGE}");
         return 2;
     }
-    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let json = arguments.iter().any(|argument| argument == "--json");
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let source = store::Source::locate(&home, std::env::var_os("THREADS_DB"));
-    let outcome = store::open(&source).and_then(|db| report(&db, &crate::pace::target::policy_path(), Timestamp::now()));
+    let places = Places::from_env();
+    let outcome = store::open(&source, &crate::threads_client::refresh_mirrored_snapshot).and_then(|db| {
+        let now = Timestamp::now();
+        if json { report(&db, &places.policy, now).map(|text| (text, 0)) } else { table::render(&db, &places, now) }
+    });
     match outcome {
-        Ok(text) => {
+        Ok((text, code)) => {
             println!("{text}");
-            0
+            code
+        }
+        Err(error) if error.starts_with("NorthThreads:") => {
+            eprintln!("{error}");
+            1
         }
         Err(error) => {
             eprintln!("agents usage: {error}");
@@ -36,17 +73,19 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
 }
 
 fn report(db: &Connection, policy: &Path, now: Timestamp) -> Result<String, String> {
-    let shown = Shown { known: settings::known_providers(), hosted: settings::hosted_claude(policy) };
-    let stale_after = settings::stale_minutes();
-    let rows = store::latest(db)?
+    let rows = readings(db, policy)?
         .into_iter()
-        .filter(|row| shown.admits(row.text("provider"), row.text("account")))
         .map(|row| {
-            let stale = row.age_minutes(now)?.is_none_or(|age| age == 0.0 || age > stale_after);
+            let stale = row.age_minutes(now)?.is_none_or(|age| age == 0.0 || age > settings::stale_minutes());
             Ok(render::object(row, stale))
         })
         .collect::<Result<Vec<_>, String>>()?;
     Ok(format!("[{}]", rows.join(", ")))
+}
+
+fn readings(db: &Connection, policy: &Path) -> Result<Vec<store::Row>, String> {
+    let shown = Shown { known: settings::known_providers(), hosted: settings::hosted_claude(policy) };
+    Ok(store::latest(db)?.into_iter().filter(|row| shown.admits(row.text("provider"), row.text("account"))).collect())
 }
 
 struct Shown {

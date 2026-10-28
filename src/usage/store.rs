@@ -33,7 +33,7 @@ impl Source {
     }
 }
 
-pub(super) fn open(source: &Source) -> Result<Connection, String> {
+pub(super) fn open(source: &Source, refresh: &dyn Fn()) -> Result<Connection, String> {
     let fail = |error: rusqlite::Error| error.to_string();
     if !source.path.exists() {
         return Connection::open_in_memory().map_err(fail);
@@ -41,12 +41,23 @@ pub(super) fn open(source: &Source) -> Result<Connection, String> {
     if !source.snapshot {
         return Connection::open_with_flags(&source.path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(fail);
     }
-    let immutable = source.path.file_name().is_some_and(|name| name == "snapshot.db");
-    let uri = format!("file:{}?mode=ro{}", source.path.display(), if immutable { "&immutable=1" } else { "" });
+    match snapshot_copy(&source.path) {
+        Ok(copy) => Ok(copy),
+        Err(_) => {
+            refresh();
+            snapshot_copy(&source.path).map_err(|error| format!("NorthThreads: snapshot still unreadable after one refresh: {error}"))
+        }
+    }
+}
+
+fn snapshot_copy(path: &Path) -> Result<Connection, String> {
+    let fail = |error: rusqlite::Error| error.to_string();
+    let immutable = path.file_name().is_some_and(|name| name == "snapshot.db");
+    let uri = format!("file:{}?mode=ro{}", path.display(), if immutable { "&immutable=1" } else { "" });
     let ledger = Connection::open_with_flags(uri, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI).map_err(fail)?;
     let verdict: String = ledger.query_row("PRAGMA quick_check", [], |row| row.get(0)).map_err(fail)?;
     if verdict != "ok" {
-        return Err("NorthThreads: snapshot integrity check failed".into());
+        return Err("snapshot integrity check failed".into());
     }
     let mut memory = Connection::open_in_memory().map_err(fail)?;
     rusqlite::backup::Backup::new(&ledger, &mut memory).and_then(|backup| backup.run_to_completion(64, std::time::Duration::ZERO, None)).map_err(fail)?;
@@ -70,6 +81,14 @@ impl Row {
     pub(super) fn text(&self, column: &str) -> Option<&str> {
         match &self.0[COLUMNS.iter().position(|name| *name == column)?] {
             Value::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    pub(super) fn number(&self, column: &str) -> Option<f64> {
+        match &self.0[COLUMNS.iter().position(|name| *name == column)?] {
+            Value::Real(number) => Some(*number),
+            Value::Integer(number) => Some(*number as f64),
             _ => None,
         }
     }
