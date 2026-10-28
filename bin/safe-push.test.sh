@@ -1487,8 +1487,16 @@ TARGET="$stopped_target"
 [ "$(cat "$scratch/stopped.status")" = 130 ] || fail "a stopped Autoland wait exited $(cat "$scratch/stopped.status"): $(cat "$scratch/stopped.out")"
 grep -Fq "safe-push: stopped; $stopped_branch stays queued for Autoland" "$scratch/stopped.out" || fail 'a stopped Autoland wait did not say its lane stays queued'
 "$real_git" --git-dir="$real_remote" rev-parse -q --verify "refs/heads/$stopped_branch" >/dev/null || fail 'stopping a queued wait deleted its Autoland queue branch'
-"$real_git" --git-dir="$real_remote" update-ref -d "refs/heads/$stopped_branch"
 printf 'PASS: stopping safe-push after its lane is queued leaves the Autoland queue branch on origin\n'
+resumed_main=$("$real_git" --git-dir="$real_remote" rev-parse main)
+SAFE_PUSH_TEST_AUTOLAND_STATUS="$(printf 'success\tAutoland landed %s\thttps://example.test/resumed' "$stopped_tip")" run_real_case '' --to main
+expect_status zero
+expect_output "safe-push: Autoland already queues $stopped_tip as $stopped_branch — waiting on it without checking or pushing again"
+! grep -Fq 'checking and pushing' <<<"$case_output" || fail "a rerun on a queued commit checked and pushed it again: $case_output"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$stopped_tip" ] || fail 'a resumed Autoland wait did not end on the landed commit'
+"$real_git" --git-dir="$real_remote" update-ref -d "refs/heads/$stopped_branch" 2>/dev/null || true
+"$real_git" --git-dir="$real_remote" update-ref refs/heads/main "$resumed_main"
+printf 'PASS: rerunning safe-push on a commit Autoland already queues waits on it without re-checking or re-pushing\n'
 run_real_case '' --to main --direct
 expect_status zero
 expect_output '--direct: bypassing'
