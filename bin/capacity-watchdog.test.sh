@@ -7,8 +7,9 @@
 set -uo pipefail
 target="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/capacity-watchdog"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/capacity-watchdog-test.XXXXXX")"
-fake=""
-fixture_scope=""
+export NORTH_BIN="$(cd "$(dirname "$target")/.." && realpath -m "${CARGO_TARGET_DIR:-target}")/debug/north"
+mkdir -p "$scratch/shim" && ln -s "$NORTH_BIN" "$scratch/shim/north" && export PATH="$scratch/shim:$PATH"
+fake="" fixture_scope=""
 trap '[ -z "$fake" ] || kill "$fake" 2>/dev/null; [ -z "$fixture_scope" ] || systemctl --user stop "$fixture_scope" 2>/dev/null; rm -rf "${scratch:?}"' EXIT
 pass=0 fail=0
 check() { if [ "$1" = ok ]; then pass=$((pass + 1)); printf 'PASS  %s\n' "$2"; else fail=$((fail + 1)); printf 'FAIL  %s\n      %s\n' "$2" "${3:-}"; fi; }
@@ -65,8 +66,7 @@ assert 0 < sample['memAvailableMiB'] <= sample['memTotalMiB']
 PY
 systemctl --user stop "$fixture_scope" 2>/dev/null || true
 wait "$launcher" 2>/dev/null || true
-fake=""
-fixture_scope=""
+fake="" fixture_scope=""
 grep -q "git-maintenance-terminated: SIGTERM git repack" "$scratch/state/incidents.md" 2>/dev/null \
   && check ok 'termination is logged to incidents.md' || check bad 'termination logged' "$(cat "$scratch/state/incidents.md" 2>/dev/null)"
 
@@ -123,7 +123,7 @@ for agent, final in (("done", "Done: scenario green on the fix, red on main."), 
     (d / f"agent-{agent}.meta.json").write_text(json.dumps({"agentType": "worker-high"}))
 PY
 ledger_env=(THREADS_DB="$scratch/fires.db" CLAUDE_CONFIG_DIR="$claude_home" AGENTS_ORCHESTRATION="$scratch/none" CODEX_CONFIG_DIR="$scratch/none" AGY_CONFIG_DIR="$scratch/none"
-  LEDGER_REPOS="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty" PATH="$scratch/bin:$PATH" WORKER_LEDGER_REAL_NORTH="$(cd "$(dirname "$target")/.." && realpath "${CARGO_TARGET_DIR:-target}")/debug/north")
+  LEDGER_REPOS="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty" PATH="$scratch/bin:$PATH" WORKER_LEDGER_REAL_NORTH="$NORTH_BIN")
 env "${ledger_env[@]}" "$(dirname "$target")/worker-ledger" --since "$(date -u -d '1 day ago' +%FT%TZ)" >/dev/null 2>"$scratch/ledger.err"
 fires=$(env "${ledger_env[@]}" "$target" report --minutes 30 | jq -c '[.flags[] | select(startswith("handoff"))]')
 [ "$fires" = '["handoff ignored: ignored"]' ] \
