@@ -27,7 +27,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 - <a id="harness-learning"></a>**Harness Learning Enables Generalizable Test-Time Adaptation** (Zhang et al., arXiv 2609.35738),
   https://arxiv.org/abs/2609.35738, accessed 2026-10-12.
-  Informed: the held-out confirmation set and `holdout_from` items on
+  Informed: the held-out confirmation set item on
   [north#38](https://github.com/tompassarelli/north/issues/38#issuecomment-6123155497), the review-stage evidence
   and contribution items on [north#26](https://github.com/tompassarelli/north/issues/26#issuecomment-6123158084),
   and the change-manifest item on

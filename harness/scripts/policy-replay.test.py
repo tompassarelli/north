@@ -18,7 +18,6 @@ startup_tokens = 5213
 conformance = 0.5
 n = 4
 evidence = "e"
-holdout_from = "2026-10-13"
 weak_scenarios = ["b"]
 # audit note kept by promote
 """
@@ -73,10 +72,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert promoted.returncode == 0, promoted.stderr
     text = (op / "operating-point.toml").read_text()
     point = tomllib.loads(text)
-    assert point["holdout_from"] == "2026-10-13" and point["weak_scenarios"] == ["b"], point
+    assert point["weak_scenarios"] == ["b"] and "holdout_from" not in point, point
     assert "# audit note kept by promote" in text, text
     assert point["conformance"] == 1.0 and point["policy_sha256"] == cand["policy_sha256"] and "scenarios" not in point, point
-    print("ok: promote refuses a significant conformance drop, then updates the point keeping holdout_from, weak_scenarios and comments")
+    print("ok: promote refuses a significant conformance drop, then updates the point keeping weak_scenarios and comments, with no holdout_from key")
 
     def cand(name, conformance, n, scenarios):
         path = tmp / f"{name}.toml"
