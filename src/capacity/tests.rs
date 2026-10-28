@@ -39,6 +39,7 @@ fn facts(class: Class) -> Facts {
         within_exclusive: false,
         gaming: false,
         gaming_class: None,
+        game_reserve_agent_cpus: None,
         queued_ahead_classes: Vec::new(),
         queued_ahead_new_clients: Vec::new(),
         run_queue_load: None,
@@ -303,4 +304,24 @@ fn a_heavy_build_waits_while_the_root_disk_is_under_its_floor_and_names_the_free
     assert_eq!(decide(&Facts { disk_free_gib: Some(15.0), ..facts(Class::Heavy) }), Reason::Run);
     assert_eq!(decide(&Facts { disk_free_gib: None, ..facts(Class::Heavy) }), Reason::Run);
     assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..facts(Class::Agent) }), Reason::Run);
+}
+
+fn reserved(class: Class) -> Facts {
+    let (requested_cpus, requested_memory_mib) = if class == Class::Heavy { (6.0, 8192.0) } else { (2.0, 2048.0) };
+    Facts { gaming: true, game_reserve_agent_cpus: Some(16), requested_cpus, requested_memory_mib, ..facts(class) }
+}
+
+#[test]
+fn game_reserve_counts_batch_cpus_against_the_agent_cpus_only() {
+    let busy = Facts { leased_batch_cpus: 12.0, ..reserved(Class::Heavy) };
+    assert_eq!(decide(&busy), Reason::DeferCpuCapacity);
+    assert_eq!(decide(&Facts { leased_batch_cpus: 10.0, ..busy.clone() }), Reason::Run);
+    assert_eq!(decide(&Facts { gaming: false, game_reserve_agent_cpus: None, ..busy }), Reason::Run);
+}
+
+#[test]
+fn game_reserve_frees_light_work_queued_behind_held_tickets_but_not_behind_heavy_ones_it_admits() {
+    let ahead = |classes: &[Class]| Facts { queued_ahead: 2, queued_ahead_classes: classes.iter().copied().map(Some).collect(), ..reserved(Class::Moderate) };
+    assert_eq!(decide(&ahead(&[Class::Native, Class::Exclusive])), Reason::Run);
+    assert_eq!(decide(&ahead(&[Class::Heavy, Class::Gpu])), Reason::DeferQueued);
 }

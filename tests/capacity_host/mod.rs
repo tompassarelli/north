@@ -121,6 +121,7 @@ impl Host {
             ("AGENT_CAPACITY_NORTH", env!("CARGO_BIN_EXE_north").to_owned()),
             ("AGENTS_ORCHESTRATION", self.path("orchestration.toml").display().to_string()),
             ("CAPACITY_WATCHDOG_DIR", self.path("no-watchdog").display().to_string()),
+            ("GAME_RESERVE_STATE", self.path("game-reserve.json").display().to_string()),
         ] {
             command.env(key, value);
         }

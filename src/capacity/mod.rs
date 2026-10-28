@@ -54,7 +54,10 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
         .and_then(|_| serde_json::from_str::<Facts>(&input).map_err(|error| error.to_string()));
     match outcome {
         Ok(mut facts) => {
-            facts.gaming |= agent_load::gaming_marked(&agent_load::capacity_root());
+            if facts.game_reserve_agent_cpus.is_none() && agent_load::game_reserve_on(&agent_load::Host::from_env()) {
+                facts.game_reserve_agent_cpus = Some(game_reserve::Settings::from_env().agent_cpu_count());
+            }
+            facts.gaming |= facts.game_reserve_agent_cpus.is_some() || agent_load::gaming_marked(&agent_load::capacity_root());
             facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
             facts.disk_free_gib = facts.disk_free_gib.or_else(root_disk_free_gib);
             facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);

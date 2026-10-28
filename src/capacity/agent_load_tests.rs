@@ -112,7 +112,7 @@ fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
 
     let processes = agent_load::processes(&host);
     assert!(agent_load::tom_gaming(&processes, None, agent_load::MATCH_GPU_PERCENT));
-    agent_load::enforce(&host, true, &processes);
+    agent_load::enforce(&host, true, false, &processes);
 
     assert!(exited(&mut client) && exited(&mut desktop) && exited(&mut leaked), "an agent client or desktop survived gaming");
     assert!(tom.try_wait().unwrap().is_none(), "Tom's game was signalled");
@@ -121,7 +121,7 @@ fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
     assert!(!log(root.path()).contains(&format!("stop {heavy_unit}")));
     assert!(gaming_marked(&host.capacity));
 
-    agent_load::enforce(&host, false, &agent_load::processes(&host));
+    agent_load::enforce(&host, false, false, &agent_load::processes(&host));
     assert!(log(root.path()).contains(&format!("--user thaw {heavy_unit}")));
     assert!(!gaming_marked(&host.capacity));
     assert!(tom.try_wait().unwrap().is_none(), "Tom's game was signalled after gaming ended");
@@ -143,7 +143,7 @@ fn a_runner_that_dies_leaves_no_client_running() {
     runner.kill().unwrap();
     runner.wait().unwrap();
 
-    agent_load::enforce(&host, false, &[]);
+    agent_load::enforce(&host, false, false, &[]);
 
     assert!(exited(&mut orphan_client), "a client outlived its runner");
     assert!(kept_client.try_wait().unwrap().is_none(), "a client whose runner lives was stopped");
@@ -262,7 +262,7 @@ fn an_agent_owned_launcher_is_ignored_and_gaming_still_stops_agent_wine() {
     fixture(&proc, 500, "Battle.net.exe", "C:\\Battle.net\\Battle.net.exe", scope, &[]);
     let processes = agent_load::processes(&host);
     assert!(!agent_load::tom_gaming(&processes, Some(90), agent_load::MATCH_GPU_PERCENT));
-    agent_load::enforce(&host, true, &processes);
+    agent_load::enforce(&host, true, false, &processes);
     assert!(exited(&mut wine), "an agent wine process survived gaming");
 }
 
@@ -344,19 +344,19 @@ fn a_busy_admission_lock_leaves_frozen_at_for_the_next_tick_to_bring_in_line_wit
     };
 
     let holder = busy();
-    agent_load::enforce(&host, true, &[]);
+    agent_load::enforce(&host, true, false, &[]);
     drop(holder);
     assert!(log(root.path()).contains(&format!("--user freeze {heavy_unit}")));
     assert_eq!(frozen_at(), None, "the pause wrote through a busy lock");
-    agent_load::enforce(&host, true, &[]);
+    agent_load::enforce(&host, true, false, &[]);
     assert!(frozen_at().is_some(), "the unit stayed frozen without frozenAt after a tick with the lock free");
 
     let holder = busy();
-    agent_load::enforce(&host, false, &[]);
+    agent_load::enforce(&host, false, false, &[]);
     drop(holder);
     assert!(log(root.path()).contains(&format!("--user thaw {heavy_unit}")));
     assert!(frozen_at().is_some(), "the resume wrote through a busy lock");
-    agent_load::enforce(&host, false, &[]);
+    agent_load::enforce(&host, false, false, &[]);
     assert_eq!(frozen_at(), None, "the unit stayed thawed with frozenAt after a tick with the lock free");
 }
 
@@ -376,12 +376,12 @@ fn a_failed_freeze_leaves_frozen_at_unset_and_the_next_tick_retries_it() {
     let freezes = || log(root.path()).matches(&format!("--user freeze {heavy_unit}")).count();
 
     fs::write(root.path().join("fail-freeze"), "").unwrap();
-    agent_load::enforce(&host, true, &[]);
+    agent_load::enforce(&host, true, false, &[]);
     assert_eq!(freezes(), 1);
     assert_eq!(frozen_state(&host), (None, Vec::new()), "a refused freeze was recorded as frozen");
 
     fs::remove_file(root.path().join("fail-freeze")).unwrap();
-    agent_load::enforce(&host, true, &[]);
+    agent_load::enforce(&host, true, false, &[]);
     assert_eq!(freezes(), 2, "the refused freeze was not retried");
     let (frozen_at, listed) = frozen_state(&host);
     assert!(frozen_at.is_some(), "the retried freeze left frozenAt unset");
@@ -397,18 +397,18 @@ fn a_failed_thaw_keeps_the_unit_frozen_and_charged_until_a_later_thaw_succeeds()
     let heavy_unit = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
     let thaws = || log(root.path()).matches(&format!("--user thaw {heavy_unit}")).count();
 
-    agent_load::enforce(&host, true, &[]);
+    agent_load::enforce(&host, true, false, &[]);
     let (frozen_at, listed) = frozen_state(&host);
     assert!(frozen_at.is_some());
     assert_eq!(listed, std::slice::from_ref(&heavy_unit));
 
     fs::write(root.path().join("fail-thaw"), "").unwrap();
-    agent_load::enforce(&host, false, &[]);
+    agent_load::enforce(&host, false, false, &[]);
     assert_eq!(thaws(), 1);
     assert_eq!(frozen_state(&host), (frozen_at, vec![heavy_unit.clone()]), "a refused thaw dropped the unit or its frozenAt");
 
     fs::remove_file(root.path().join("fail-thaw")).unwrap();
-    agent_load::enforce(&host, false, &[]);
+    agent_load::enforce(&host, false, false, &[]);
     assert_eq!(thaws(), 2, "the refused thaw was not retried");
     assert_eq!(frozen_state(&host), (None, Vec::new()), "the retried thaw left the unit listed or frozenAt set");
 }
@@ -438,4 +438,32 @@ fn a_warcraft_client_idling_in_its_menu_is_not_gaming_but_one_in_a_match_is() {
 fn the_match_gpu_threshold_is_a_per_host_setting_with_a_default() {
     let settings = [None, Some("40"), Some(" 12\n"), Some("junk"), Some("300")];
     assert_eq!(settings.map(agent_load::match_gpu_percent), [agent_load::MATCH_GPU_PERCENT, 40, 12, agent_load::MATCH_GPU_PERCENT, agent_load::MATCH_GPU_PERCENT]);
+}
+
+#[test]
+fn game_reserve_leaves_heavy_scopes_running_on_agent_cpus_and_still_freezes_gpu_and_exclusive() {
+    let root = tempfile::tempdir().unwrap();
+    let proc = root.path().join("proc");
+    let host = host(root.path(), &proc);
+    let (gpu, exclusive) = ("6a1e0c2e-0000-4000-8000-000000000001", "6a1e0c2e-0000-4000-8000-000000000002");
+    lease(&host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
+    lease(&host, gpu, "gpu", "agent-capacity.slice", None, &[]);
+    lease(&host, exclusive, "exclusive", "agent-capacity.slice", None, &[]);
+    let unit = |id: &str| format!("agent-capacity-{}.scope", id.replace('-', ""));
+
+    agent_load::enforce(&host, true, false, &[]);
+    assert!(log(root.path()).contains(&format!("--user freeze {}", unit(HEAVY))), "gaming outside a reserve left heavy running");
+
+    agent_load::enforce(&host, true, true, &[]);
+    assert!(log(root.path()).contains(&format!("--user thaw {}", unit(HEAVY))), "a heavy scope frozen before the reserve stayed frozen");
+    let (heavy_frozen_at, mut listed) = frozen_state(&host);
+    listed.sort();
+    let mut held = vec![unit(gpu), unit(exclusive)];
+    held.sort();
+    assert_eq!((heavy_frozen_at, listed), (None, held));
+
+    agent_load::enforce(&host, true, true, &[]);
+    assert_eq!(log(root.path()).matches(&format!("--user freeze {}", unit(HEAVY))).count(), 1, "the reserve froze heavy again");
+    assert!(log(root.path()).contains(&format!("--user freeze {}", unit(gpu))));
+    assert!(log(root.path()).contains(&format!("--user freeze {}", unit(exclusive))));
 }

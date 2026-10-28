@@ -121,8 +121,9 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         println!("{sample}");
         return 0;
     }
-    let gaming = sample["gaming"] == true || agent_load::game_reserve_on(&host);
-    let plan = agent_load::enforce(&host, gaming, &processes);
+    let game_reserve = agent_load::game_reserve_on(&host);
+    let gaming = sample["gaming"] == true || game_reserve;
+    let plan = agent_load::enforce(&host, gaming, game_reserve, &processes);
     if plan != agent_load::Plan::default() {
         println!(
             "agent-load: gaming={gaming} stopped {:?} froze {:?} thawed {:?} killed {:?}",

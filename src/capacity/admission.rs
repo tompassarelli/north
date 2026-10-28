@@ -93,6 +93,8 @@ pub(crate) struct Facts {
     #[serde(default)]
     pub(crate) gaming_class: Option<Class>,
     #[serde(default)]
+    pub(crate) game_reserve_agent_cpus: Option<u32>,
+    #[serde(default)]
     pub(crate) queued_ahead_classes: Vec<Option<Class>>,
     #[serde(default)]
     pub(crate) queued_ahead_new_clients: Vec<u32>,
@@ -146,6 +148,7 @@ pub(crate) enum Reason {
     DeferCpuCapacity,
     DeferCpuPressure,
     DeferGaming,
+    DeferGameMemory,
     DeferRunQueue,
     DeferDiskFree,
 }
@@ -204,8 +207,11 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     if invalid(facts) {
         return Reason::Invalid;
     }
-    if facts.gaming && gaming_deferred(facts.gaming_class.unwrap_or(facts.class)) {
+    if facts.gaming && gaming_deferred(facts, facts.gaming_class.unwrap_or(facts.class)) {
         return Reason::DeferGaming;
+    }
+    if game_memory_short(facts) {
+        return Reason::DeferGameMemory;
     }
     if let Some(reason) = memory(facts) {
         return reason;
@@ -229,15 +235,25 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     }
 }
 
-fn gaming_deferred(class: Class) -> bool {
-    matches!(class, Class::Native | Class::Heavy | Class::Exclusive | Class::Gpu)
+fn gaming_deferred(facts: &Facts, class: Class) -> bool {
+    match class {
+        Class::Native | Class::Exclusive | Class::Gpu => true,
+        Class::Heavy => facts.game_reserve_agent_cpus.is_none(),
+        _ => false,
+    }
+}
+
+fn game_memory_short(facts: &Facts) -> bool {
+    facts.game_reserve_agent_cpus.is_some()
+        && facts.class != Class::Agent
+        && facts.memory_available_mib - facts.requested_memory_mib < default_mib("game_reserve_headroom_mib")
 }
 
 fn queued_ahead(facts: &Facts) -> u32 {
-    if !facts.gaming || gaming_deferred(facts.gaming_class.unwrap_or(facts.class)) {
+    if !facts.gaming || gaming_deferred(facts, facts.gaming_class.unwrap_or(facts.class)) {
         return facts.queued_ahead;
     }
-    let held = facts.queued_ahead_classes.iter().flatten().filter(|class| gaming_deferred(**class)).count();
+    let held = facts.queued_ahead_classes.iter().flatten().filter(|class| gaming_deferred(facts, **class)).count();
     facts.queued_ahead.saturating_sub(u32::try_from(held).unwrap_or(u32::MAX))
 }
 
@@ -291,6 +307,11 @@ pub(crate) fn offload_room() -> (f64, f64) {
 /// Whether unattended memory headroom defers a request of `requested` MiB now.
 pub(crate) fn memory_short(total: f64, available: f64, requested: f64) -> bool {
     available - requested < memory_floor_mib(Profile::Unattended, total)
+}
+
+fn batch_cpus(facts: &Facts) -> f64 {
+    let all = aggregate_cpus(facts.profile, facts.cores);
+    facts.game_reserve_agent_cpus.map_or(all, |agent| all.min(f64::from(agent)))
 }
 
 fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
@@ -397,7 +418,7 @@ fn shared(facts: &Facts) -> Reason {
     if queued_ahead(facts) > 0 {
         return Reason::DeferQueued;
     }
-    if facts.leased_batch_cpus + facts.unleased_heavy_cores + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
+    if facts.leased_batch_cpus + facts.unleased_heavy_cores + facts.requested_cpus > batch_cpus(facts) {
         return Reason::DeferCpuCapacity;
     }
     if facts.cpu_some_avg10_basis_points > BATCH_PRESSURE_BASIS_POINTS {

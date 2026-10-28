@@ -231,6 +231,7 @@ pub(crate) struct Plan {
 
 pub(crate) struct Observed<'a> {
     pub(crate) gaming: bool,
+    pub(crate) game_reserve: bool,
     pub(crate) processes: &'a [Process],
     pub(crate) leases: &'a [Lease],
     pub(crate) frozen: &'a BTreeSet<String>,
@@ -244,8 +245,8 @@ pub(crate) fn plan(observed: &Observed, live: impl Fn(&Lease) -> bool, wrapper_a
         let orphan = lease.wrapper_start.is_some() && !wrapper_alive(lease);
         if !vetoed && (orphan || (observed.gaming && lease.class == "native")) {
             plan.stop.insert(unit);
-        } else if observed.gaming && ["heavy", "exclusive", "gpu"].contains(&lease.class.as_str()) && !observed.frozen.contains(&unit) {
-            plan.freeze.insert(unit);
+        } else if observed.gaming {
+            plan.hold_while_gaming(observed, lease, unit);
         }
     }
     if observed.gaming {
@@ -262,9 +263,29 @@ pub(crate) fn plan(observed: &Observed, live: impl Fn(&Lease) -> bool, wrapper_a
     plan
 }
 
+impl Plan {
+    fn hold_while_gaming(&mut self, observed: &Observed, lease: &Lease, unit: String) {
+        let held = frozen_while_gaming(&lease.class, observed.game_reserve);
+        let frozen = observed.frozen.contains(&unit);
+        if held && !frozen {
+            self.freeze.insert(unit);
+        } else if !held && frozen {
+            self.thaw.insert(unit);
+        }
+    }
+}
+
+fn frozen_while_gaming(class: &str, game_reserve: bool) -> bool {
+    match class {
+        "exclusive" | "gpu" => true,
+        "heavy" => !game_reserve,
+        _ => false,
+    }
+}
+
 pub(crate) fn reap_orphans(host: &Host, processes: &[Process]) -> Plan {
     let leases = leases(host);
-    let observed = Observed { gaming: false, processes, leases: &leases, frozen: &BTreeSet::new() };
+    let observed = Observed { gaming: false, game_reserve: false, processes, leases: &leases, frozen: &BTreeSet::new() };
     let plan = plan(&observed, |lease| lease.scope_dir(host).is_dir(), |lease| wrapper_alive(host, lease));
     plan.stop.iter().for_each(|unit| {
         systemctl_user(host, "stop", unit);
@@ -289,11 +310,11 @@ fn systemctl_user(host: &Host, verb: &str, unit: &str) -> bool {
     Command::new(&host.systemctl).args(["--user", verb, unit]).status().is_ok_and(|status| status.success())
 }
 
-pub(crate) fn enforce(host: &Host, gaming: bool, processes: &[Process]) -> Plan {
+pub(crate) fn enforce(host: &Host, gaming: bool, game_reserve: bool, processes: &[Process]) -> Plan {
     let leases = leases(host);
     let frozen_path = host.capacity.join("gaming-frozen.json");
     let frozen: BTreeSet<String> = fs::read(&frozen_path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-    let observed = Observed { gaming, processes, leases: &leases, frozen: &frozen };
+    let observed = Observed { gaming, game_reserve, processes, leases: &leases, frozen: &frozen };
     let plan = plan(
         &observed,
         |lease| lease.scope_dir(host).is_dir(),
@@ -316,7 +337,7 @@ pub(crate) fn enforce(host: &Host, gaming: bool, processes: &[Process]) -> Plan 
     }
     let live = leases.iter().map(Lease::unit).collect::<BTreeSet<_>>();
     let still: BTreeSet<String> = if gaming {
-        frozen.union(&plan.freeze).filter(|unit| live.contains(*unit) && !unfrozen.contains(*unit)).cloned().collect()
+        frozen.union(&plan.freeze).filter(|unit| live.contains(*unit) && !unfrozen.contains(*unit) && (!plan.thaw.contains(*unit) || unthawed.contains(*unit))).cloned().collect()
     } else {
         unthawed.into_iter().filter(|unit| live.contains(unit)).collect()
     };

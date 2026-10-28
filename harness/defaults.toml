@@ -570,6 +570,14 @@ settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity 
 fallback = "none"
 consumers = ["src/capacity/admission.rs"]
 
+[game_reserve_headroom_mib]
+value = 24576
+unit = "MiB of measured available memory batch admission leaves the game and desktop while game reserve is on"
+source = "prior: on the 94 GiB laptop the game slice reserves 6 GiB (MemoryLow) and Warcraft III under Proton, the compositor, browser and terminals hold about 12 GiB more; 24 GiB keeps that with a margin above the attended 19 GiB floor (Tom asked for batch beside his game, 2026-10-28)"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes admitted during game reserve whose game frame time or memory pressure can be checked afterwards" }
+fallback = "none; a batch request that leaves less defers with DEFER_GAME_MEMORY"
+consumers = ["src/capacity/admission.rs"]
+
 [dispatch_heavy_memory_mib]
 value = 8192
 unit = "MiB a dispatched box verified by a local or native test run asks of its host's memory"

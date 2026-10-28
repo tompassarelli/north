@@ -117,8 +117,16 @@ fn wall_clock_systemd_run() -> String {
 }
 
 fn laptop_auto(host: &Host, gaming: bool) -> String {
-    let since = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    fs::write(host.path("game-reserve.json"), json!({ "on": gaming, "since": since }).to_string()).unwrap();
+    let game = host.path("proc/999999");
+    if gaming {
+        fs::create_dir_all(&game).unwrap();
+        fs::write(game.join("stat"), "999999 (Warcraft III.ex) S 1 999999 999999 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 4242 0 0\n").unwrap();
+        fs::write(game.join("cgroup"), "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-steam-1.scope\n").unwrap();
+        fs::write(game.join("cmdline"), "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe\0").unwrap();
+    } else {
+        let _ = fs::remove_dir_all(&game);
+    }
+    fs::write(host.path("game-reserve.json"), json!({ "on": false }).to_string()).unwrap();
     let output = host
         .command(env!("CARGO_BIN_EXE_north"))
         .args(["capacity", "laptop-auto"])

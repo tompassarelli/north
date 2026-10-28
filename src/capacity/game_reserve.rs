@@ -42,6 +42,10 @@ impl Settings {
         }
     }
 
+    pub(crate) fn agent_cpu_count(&self) -> u32 {
+        u32::try_from(cpu_set(&self.agent_cpus).len()).unwrap_or(u32::MAX)
+    }
+
     fn game_properties(&self) -> Vec<String> {
         [format!("AllowedCPUs={}", self.game_cpus), "CPUWeight=1000".into(), "IOWeight=1000".into(), "MemoryMin=4G".into(), "MemoryLow=6G".into()]
             .into()
