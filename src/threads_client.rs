@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{claims, ingest_lock, jobs, snapshot};
+use crate::threads::{claims, ingest_lock, items, jobs, outside, snapshot, verb};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -92,7 +92,7 @@ impl Client {
         if first == Some("queue") && argv.get(1).map(String::as_str) == Some("follow") {
             let mut brief = Vec::new();
             stdin.read_to_end(&mut brief)?;
-            let vetted = if self.var(jobs::SCHEMA_READY).is_some() { Ok(()) } else { self.vet_follows(argv, &brief) };
+            let vetted = if self.var(verb::SCHEMA_READY).is_some() { Ok(()) } else { self.vet_follows(argv, &brief) };
             if let Err(why) = vetted {
                 writeln!(err, "NorthThreads: queue follow: {why}")?;
                 return Ok(1);
@@ -151,15 +151,20 @@ impl Client {
             let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, now: Timestamp::now().unix_seconds() };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
         }
-        if jobs::VERBS.contains(&verb) && self.var(jobs::SCHEMA_READY).is_some() {
-            let context = jobs::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &jobs::outside::Live, now: Timestamp::now() };
+        let ported: Option<verb::Verb> =
+            if jobs::VERBS.contains(&verb) { Some(jobs::run) } else if items::VERBS.contains(&verb) { Some(items::run) } else { None };
+        if let Some(run) = ported.filter(|_| self.var(verb::SCHEMA_READY).is_some()) {
+            let context = verb::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &outside::Live, now: Timestamp::now() };
             let mut stdin: Box<dyn Read> = replay.map_or_else(|| Box::new(io::stdin()) as Box<dyn Read>, |brief| Box::new(io::Cursor::new(brief.to_vec())));
-            return Ok(jobs::run(argv, &context, &mut stdin, &mut io::stdout().lock(), &mut io::stderr()));
+            return Ok(run(argv, &context, &mut stdin, &mut io::stdout().lock(), &mut io::stderr()));
         }
         let mut command = Command::new(&self.threads[0]);
         command.args(&self.threads[1..]).args(argv);
         if let Some(database) = database {
             command.env("THREADS_DB", database);
+        }
+        if self.var("NORTH_BIN").is_none() && let Ok(own) = std::env::current_exe() {
+            command.env("NORTH_BIN", own);
         }
         let Some(input) = replay else { return Ok(code_of(command.status()?)) };
         let mut child = command.stdin(Stdio::piped()).spawn()?;
@@ -475,7 +480,7 @@ fn agent_event_checks(argv: &[String]) -> Result<(), String> {
         found
     };
     if let Some(body) = option("--body") {
-        crate::threads::jobs::outside::gitleaks_clean(&body)?;
+        outside::gitleaks_clean(&body)?;
     }
     if option("--key").is_some_and(|key| key.trim().is_empty()) {
         return Err("key must be nonempty text".into());
@@ -739,7 +744,7 @@ exit "$(cat "$ROOT/code")"
         let database = ledger.path().join("threads.db");
         rusqlite::Connection::open(&database).unwrap().execute_batch("CREATE TABLE job_queue(id INTEGER PRIMARY KEY, placement TEXT NOT NULL, item TEXT, cmd TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', queued TEXT NOT NULL, taken TEXT, finished TEXT, result TEXT) STRICT").unwrap();
         let database = database.to_str().unwrap();
-        let rig = rig(&[("THREADS_DB", database), (jobs::SCHEMA_READY, "1"), ("FOLLOWS_RELEASE_ROOT", ledger.path().to_str().unwrap())]);
+        let rig = rig(&[("THREADS_DB", database), (verb::SCHEMA_READY, "1"), ("FOLLOWS_RELEASE_ROOT", ledger.path().to_str().unwrap())]);
         let (code, err) = call(&rig, &["queue", "follow", "north#9", "--tier", "sonnet", "--parent", "p"], b"Item: north#9 x\nFollows: Land the ledger fix\n");
         assert_eq!((code, err.as_str()), (0, ""));
         assert!(log(&rig, "ssh.log").is_empty());

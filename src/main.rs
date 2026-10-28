@@ -32,8 +32,13 @@ mod threads {
     pub(crate) mod catalog;
     pub(crate) mod claims;
     pub(crate) mod ingest_lock;
+    pub(crate) mod items;
     pub(crate) mod jobs;
+    pub(crate) mod outside;
     pub(crate) mod snapshot;
+    pub(crate) mod verb;
+    #[cfg(test)]
+    mod fake;
     #[cfg(test)]
     mod ingest_writes_tests;
 }

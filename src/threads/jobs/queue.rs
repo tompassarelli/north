@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
-use super::{Args, Context, Failure, Outcome, event, immediate, integer, is_native_ref, item_ref, names_native, open, table, text_or_null};
+use crate::threads::verb::{Args, Context, Failure, Outcome, event, immediate, integer, is_native_ref, item_ref, open, table, text_or_null};
 use crate::foundation::clock::Timestamp;
 use crate::pyjson::{self, Value};
 
@@ -204,11 +204,8 @@ fn msg(argv: &[String], context: &Context, by: &str) -> Outcome {
     if let Some(item) = item.filter(|item| !is_native_ref(item)) {
         context.outside.scan(&text)?;
         let (repo, number) = item_ref(item, context)?;
-        let body = format!("Job {id} {status}:\n\n{text}");
-        if names_native(&body) {
-            return Err(Failure::Refused("a gh argument names a native item; native items never reach GitHub".into()));
-        }
-        context.outside.comment(&repo, number, &body)?;
+        let (number, full) = (number.to_string(), format!("{}/{repo}", crate::threads::catalog::CATALOG.owner));
+        context.gh(&["issue", "comment", &number, "-R", &full, "--body", &format!("Job {id} {status}:\n\n{text}")])?;
     }
     Ok(format!("job {id} {status}\n"))
 }

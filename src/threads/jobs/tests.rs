@@ -1,35 +1,16 @@
-use std::cell::RefCell;
 use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use super::{Context, Outside, run};
+use super::run;
+use crate::threads::fake::Recorded;
+use crate::threads::verb::Context;
 use crate::foundation::clock::Timestamp;
 
 const SCHEMA: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;
 CREATE TABLE job_runs(name TEXT NOT NULL, host TEXT NOT NULL, started TEXT NOT NULL, finished TEXT, rc INTEGER, PRIMARY KEY(name, host, started)) STRICT;
 CREATE TABLE job_queue(id INTEGER PRIMARY KEY, placement TEXT NOT NULL CHECK(length(placement) > 0), item TEXT, cmd TEXT NOT NULL CHECK(json_valid(cmd)), state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','taken','done','failed','dropped','requeued')), queued TEXT NOT NULL, taken TEXT, finished TEXT, result TEXT) STRICT;";
 const NOW: &str = "2026-10-27T12:00:00Z";
-
-#[derive(Default)]
-struct Recorded {
-    comments: RefCell<Vec<String>>,
-    secret: Option<&'static str>,
-}
-
-impl Outside for Recorded {
-    fn scan(&self, text: &str) -> Result<(), String> {
-        match self.secret {
-            Some(secret) if text.contains(secret) => Err("gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored".into()),
-            _ => Ok(()),
-        }
-    }
-
-    fn comment(&self, repo: &str, number: u64, body: &str) -> Result<(), String> {
-        self.comments.borrow_mut().push(format!("{repo}#{number} {body}"));
-        Ok(())
-    }
-}
 
 struct Ledger {
     _directory: tempfile::TempDir,
@@ -104,7 +85,7 @@ fn two_concurrent_takes_claim_the_one_job_once_and_its_result_is_commented_on_it
     assert_eq!(rig.out(&format!("queue msg {id} done said hi")), format!("job {id} done\n"));
     let (code, _, err) = rig.run(&format!("queue msg {id} done again"));
     assert_eq!((code, err), (1, format!("NorthThreads: queue msg: job {id} is not taken\n")));
-    assert_eq!(*rig.outside.comments.borrow(), [format!("smashcraft#3 Job {id} done:\n\nsaid hi")]);
+    assert_eq!(*rig.outside.calls.borrow(), [["issue", "comment", "3", "-R", "tompassarelli/smashcraft", "--body", format!("Job {id} done:\n\nsaid hi").as_str()].map(str::to_owned).to_vec()]);
     assert_eq!(rig.sql(&format!("SELECT state || '|' || result FROM job_queue WHERE id = {id}")), "done|said hi");
 }
 
@@ -167,7 +148,7 @@ fn a_requeued_job_goes_back_to_its_place_and_a_native_job_result_is_a_ledger_not
     assert!(rig.out("queue take laptop").starts_with(&format!("{{\"id\": {first},")));
     assert_eq!(rig.sql(&format!("SELECT state FROM job_queue WHERE id = {second}")), "queued");
     rig.out(&format!("queue msg {first} failed -- rc=1"));
-    assert!(rig.outside.comments.borrow().is_empty());
+    assert!(rig.outside.calls.borrow().is_empty());
     assert_eq!(
         rig.sql("SELECT group_concat(item || '|' || data, ';') FROM events"),
         format!("ops#4|{{\"text\": \"job {first} requeued: rc=143\"}};ops#4|{{\"text\": \"job {first} failed: rc=1\"}}")
@@ -183,7 +164,7 @@ fn a_secret_in_a_result_is_never_posted_and_native_items_are_hidden_from_callers
     rig.out("queue take laptop");
     let (code, _, err) = rig.run(&format!("queue msg {id} done token ghp_x"));
     assert_eq!((code, err.as_str()), (1, "NorthThreads: gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored\n"));
-    assert!(rig.outside.comments.borrow().is_empty());
+    assert!(rig.outside.calls.borrow().is_empty());
     rig.no_native = Some("THREADS_NO_NATIVE is set (agy)");
     assert!(rig.out("queue").lines().nth(2).unwrap().starts_with("2   laptop     native  queued"), "{}", rig.out("queue"));
     assert_eq!(rig.run("queue add laptop life#2 -- true"), (1, String::new(), "NorthThreads: native items are not readable here: THREADS_NO_NATIVE is set (agy)\n".into()));

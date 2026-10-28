@@ -1,19 +1,16 @@
-//! The ledger's outside effects: gitleaks before text is stored or posted, gh for issue comments.
+//! The ledger's outside effects: gitleaks before text is stored or posted, and gh.
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
-use crate::threads::catalog::CATALOG;
-
 pub(crate) struct Live;
 
-impl super::Outside for Live {
+impl super::verb::Outside for Live {
     fn scan(&self, text: &str) -> Result<(), String> {
         gitleaks_clean(text)
     }
 
-    fn comment(&self, repo: &str, number: u64, body: &str) -> Result<(), String> {
-        let args = ["issue", "comment", &number.to_string(), "-R", &format!("{}/{repo}", CATALOG.owner), "--body", body].map(str::to_owned);
-        crate::platform::github::run_patiently(&args, "NorthThreads").map(drop)
+    fn gh(&self, args: &[String]) -> Result<String, String> {
+        crate::platform::github::run_patiently(args, "NorthThreads")
     }
 }
 

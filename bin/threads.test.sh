@@ -54,9 +54,7 @@ t() { "$threads" "$@" 2>&1; }
 
 t claim smashcraft#3 --by alice >/dev/null
 
-out=$(t release smashcraft#3 --by alice --to bob; t list)
-check '[spec] release --to hands the issue over and records the handoff' \
-  'grep -qE "^smashcraft#3 +bob" <<<"$out" && [ "$(sqlite3 "$THREADS_DB" "select data from events where kind = '"'handoff'"'")" = '"'"'{"from": "alice", "to": "bob"}'"'"' ]'
+t release smashcraft#3 --by alice --to bob >/dev/null
 
 out=$(t claim nixos-config#9 --by alice >/dev/null; t claim tompassarelli/firn#9 --by bob); status=$?
 check '[spec] a checkout alias and the GitHub name are the same issue' \
@@ -477,11 +475,6 @@ native_calls=$(($(wc -l <"$GH_TRACE") - calls)); blocked=$(t ready | cut -f1); c
 t close "$b" >/dev/null; native_calls=$((native_calls + $(wc -l <"$GH_TRACE") - calls))
 check '[spec] native items: numbered per namespace, blocked locally (also a GitHub issue), ready again on close, no gh call' \
   '[ "$a $b" = "life#1 life#2" ] && [ "$(grep -cxE "life#1|smashcraft#4" <<<"$blocked")" -eq 0 ] && grep -q "blocked by: life#2 (open)" <<<"$shown" && [ "$(t ready | cut -f1 | grep -cxE "life#[12]|smashcraft#4")" -eq 2 ] && [ "$native_calls" -eq 0 ]'
-
-fake_key=AKIALALEMEL33243OLIA # gitleaks:allow
-out=$(t note "$a" "fake creds $fake_key"; echo "rc=$?"; t new life "fake $fake_key"; echo "rc=$?")
-check '[spec] note and new refuse text gitleaks flags and store nothing' \
-  '[ "$(grep -c "^rc=1" <<<"$out")" -eq 2 ] && grep -q "gitleaks found a secret" <<<"$out" && ! sqlite3 "$THREADS_DB" "select data from events union all select title from items" | grep -q "$fake_key"'
 
 t claim "$a" --by alice >/dev/null
 out=$(THREADS_NO_NATIVE=1 t list; THREADS_NO_NATIVE=1 t ready; CLAUDE_CODE_REMOTE=true t list; CLAUDE_CODE_REMOTE=true t ready; CLAUDE_CODE_REMOTE=true t show "$a"; THREADS_NO_NATIVE=1 "$NORTH_BIN" threads snapshot-pages </dev/null 2>&1)

@@ -498,11 +498,6 @@ def one_issue(db, repo: str, number: int) -> dict:
     return {"title": issue["title"], "state": issue["state"], "blockers": blockers(issue) + local_blockers(db, ref(repo, number))}
 
 
-def forget(db, repo):
-    with Tx(db):
-        db.execute("DELETE FROM gh_cache WHERE repo = ?", (repo,))
-
-
 # Commands --------------------------------------------------------------------
 
 
@@ -519,55 +514,6 @@ def held():
     run = subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", "list", "--json"], env=dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1"), capture_output=True, text=True)
     if run.returncode: raise Refused(run.stderr.strip() or "north threads list failed")
     return held_claims(json.loads(run.stdout), alive_owners())
-
-
-def cmd_release(db, a):
-    item = ref(*parse_ref(a.id))
-    with Tx(db):
-        row = db.execute("SELECT owner FROM claims WHERE item = ?", (item,)).fetchone()
-        if not row:
-            raise Refused(f"{item} has no owner")
-        if a.to:
-            db.execute("UPDATE claims SET owner = ?, since = ? WHERE item = ?", (a.to, now(), item))
-            event(db, item, "handoff", a.by, **{"from": row["owner"], "to": a.to})
-        else:
-            db.execute("DELETE FROM claims WHERE item = ?", (item,))
-            event(db, item, "release", a.by, owner=row["owner"])
-    print(f"{item} handed from {row['owner']} to {a.to}" if a.to else f"{item} released by {row['owner']}")
-
-
-def dependency(db, a, method):
-    repo, number = parse_ref(a.id)
-    brepo, bnumber = parse_ref(a.other)
-    if repo in NATIVE or brepo in NATIVE:
-        item, needs = ref(repo, number), ref(brepo, bnumber)
-        with Tx(db):
-            if method == "POST":
-                db.execute("INSERT OR IGNORE INTO item_needs(item, needs) VALUES (?,?)", (item, needs))
-            else:
-                db.execute("DELETE FROM item_needs WHERE item = ? AND needs = ?", (item, needs))
-            event(db, item, "need" if method == "POST" else "unneed", a.by, needs=needs)
-        return "locally"
-    blocker_id = gh("api", f"repos/{OWNER}/{brepo}/issues/{bnumber}", "--jq", ".id").strip()
-    path = f"repos/{OWNER}/{repo}/issues/{number}/dependencies/blocked_by"
-    if method == "POST":
-        gh("api", "-X", "POST", path, "-F", f"issue_id={blocker_id}")
-    else:
-        gh("api", "-X", "DELETE", f"{path}/{blocker_id}")
-    forget(db, repo)
-    with Tx(db):
-        event(db, ref(repo, number), "need" if method == "POST" else "unneed", a.by, needs=ref(brepo, bnumber))
-    return "on GitHub"
-
-
-def cmd_need(db, a):
-    where = dependency(db, a, "POST")
-    print(f"{a.id} is blocked by {a.other} {where}")
-
-
-def cmd_unneed(db, a):
-    dependency(db, a, "DELETE")
-    print(f"{a.id} is no longer blocked by {a.other}")
 
 
 def cmd_show(db, a):
@@ -635,68 +581,6 @@ STAFFED = ["smashcraft", "wisp"]
 PRIORITIES = ["priority:now", "-", "priority:next", "priority:later"]
 BOX = re.compile(r"^\s*[-*] \[ \]", re.M)
 BLOCK_DAYS = 7
-
-
-def native_ref(text):
-    ns, number = parse_ref(text)
-    if ns not in NATIVE:
-        raise Refused(f"{text} is a GitHub issue; only {', '.join(NATIVE)} items are native")
-    return ns, number
-
-
-def cmd_new(db, a):
-    if a.ns not in NATIVE:
-        raise Refused(f"{a.ns} is not a native namespace ({', '.join(NATIVE)})")
-    body = sys.stdin.read().strip() if a.body == "-" else (a.body or "")
-    gitleaks_clean(f"{a.title}\n{body}")
-    with Tx(db):
-        number = db.execute("SELECT coalesce(max(number), 0) + 1 FROM items WHERE ns = ?", (a.ns,)).fetchone()[0]
-        db.execute("INSERT INTO items(ns, number, title, body, created, due) VALUES (?,?,?,?,?,?)",
-                   (a.ns, number, a.title, body, now(), a.due))
-        event(db, ref(a.ns, number), "capture", a.by)
-    print(ref(a.ns, number))
-
-
-def cmd_note(db, a):
-    ns, number = native_ref(a.id)
-    native_item(db, ns, number)
-    gitleaks_clean(" ".join(a.text))
-    with Tx(db):
-        event(db, ref(ns, number), "note", a.by, text=" ".join(a.text))
-    print(f"noted on {ref(ns, number)}")
-
-
-def set_state(db, a, state):
-    ns, number = native_ref(a.id)
-    native_item(db, ns, number)
-    with Tx(db):
-        db.execute("UPDATE items SET state = ?, closed = ? WHERE ns = ? AND number = ?",
-                   (state, now() if state == "closed" else None, ns, number))
-        event(db, ref(ns, number), "close" if state == "closed" else "reopen", a.by)
-    print(f"{ref(ns, number)} {state}")
-
-
-def cmd_close(db, a):
-    set_state(db, a, "closed")
-
-
-def cmd_reopen(db, a):
-    set_state(db, a, "open")
-
-
-def cmd_block(db, a):
-    item = ref(*parse_ref(a.id))
-    reason = " ".join(a.reason).strip()
-    with Tx(db):
-        if a.clear:
-            db.execute("DELETE FROM blocks WHERE item = ?", (item,))
-            event(db, item, "note", a.by, unblock=True)
-        else:
-            if not reason:
-                raise Refused("block needs a reason")
-            db.execute("INSERT OR REPLACE INTO blocks(item, reason, since, by) VALUES (?,?,?,?)", (item, reason, now(), a.by))
-            event(db, item, "note", a.by, block=reason)
-    print(f"{item} unblocked" if a.clear else f"{item} blocked: {reason}")
 
 
 COMMIT_REF = re.compile(r"^(?:item|closes|close|fixes|fix|refs|ref|part of|issue|for)\b", re.I)
@@ -2070,27 +1954,6 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("claim", cmd_claims, "hold an issue; refused while someone else's claim is live, taking over one stale 24 h past its ETA")
     s.add_argument("id")
     s.add_argument("--eta", type=int, help="minutes")
-    s = cmd("release", cmd_release, "let go of an issue, or hand it --to someone")
-    s.add_argument("id")
-    s.add_argument("--to")
-    s = cmd("new", cmd_new, f"capture a native item in NS ({', '.join(NATIVE)}); prints its ref")
-    s.add_argument("ns")
-    s.add_argument("title")
-    s.add_argument("--due")
-    s.add_argument("--body", help="item text, or - to read it from stdin")
-    s = cmd("note", cmd_note, "add a note to a native item")
-    s.add_argument("id")
-    s.add_argument("text", nargs="+")
-    s = cmd("close", cmd_close, "close a native item")
-    s.add_argument("id")
-    s = cmd("reopen", cmd_reopen, "reopen a native item")
-    s.add_argument("id")
-    s = cmd("need", cmd_need, "ID is blocked by OTHER: on GitHub, or locally when either is a native item")
-    s.add_argument("id")
-    s.add_argument("other")
-    s = cmd("unneed", cmd_unneed, "remove ID's blocked-by OTHER (GitHub, or locally for native items)")
-    s.add_argument("id")
-    s.add_argument("other")
     s = cmd("show", cmd_show, "issue title, state and blockers, with its owners, handoffs, runs and origin archive restore commands")
     s.add_argument("id")
     cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
@@ -2102,10 +1965,6 @@ def parser() -> argparse.ArgumentParser:
                    "and whose commit is not yet on origin/main, so worker-ledger rereads them")
     s = cmd("unowned", cmd_unowned, "open smashcraft and wisp issues with an unchecked box: owner, block or UNOWNED, "
             "priority:now first")
-    s = cmd("block", cmd_block, "record why an issue cannot be staffed now (shown by unowned); --clear removes it")
-    s.add_argument("id")
-    s.add_argument("reason", nargs="*")
-    s.add_argument("--clear", action="store_true")
     s = cmd("summary", cmd_summary, "runs by category (or --group facets) and tier: success, minutes against ETA, "
             "working (staffed to first report) and waiting (first report to its commit on origin/main) medians, "
             "and accepted flaws per reviewer Lens")
@@ -2268,11 +2127,11 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("job-run", "job-runs", "queue")
+RUST_VERBS = ("job-run", "job-runs", "queue", "release", "need", "unneed", "new", "note", "close", "reopen", "block")
 
 
 def delegate(argv) -> int:
-    """job-run, job-runs and queue run in Rust behind `north threads`; this file migrates the ledger first while it owns the schema."""
+    """These verbs run in Rust behind `north threads`; this file migrates the ledger first while it owns the schema."""
     if os.environ.get("THREADS_SCHEMA_READY"):
         raise Refused(f"this north predates its own {argv[0]}; run north runtime update")
     if DB != SNAPSHOT:

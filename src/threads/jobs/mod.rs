@@ -1,64 +1,17 @@
 //! `north threads job-run`, `job-runs` and `queue`: scheduled job runs, and the queue of jobs for
-//! machines that may be asleep, in the ledger bin/threads has migrated.
-pub(crate) mod outside;
+//! machines that may be asleep.
 mod queue;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::path::Path;
-use std::sync::LazyLock;
-use std::time::Duration;
 
-use regex::Regex;
-use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
+use rusqlite::params;
 
-use crate::foundation::clock::Timestamp;
+use super::verb::{Args, Context, Failure, Outcome, immediate, integer, open, report, table, text_or_null};
 use crate::pyjson::Value;
-use crate::threads::catalog::CATALOG;
 
 pub(crate) const VERBS: [&str; 3] = ["job-run", "job-runs", "queue"];
-/// Set by bin/threads once it has migrated THREADS_DB, which it owns until its migrations move here.
-pub(crate) const SCHEMA_READY: &str = "THREADS_SCHEMA_READY";
-const BUSY: Duration = Duration::from_secs(60);
-
-static NATIVE_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!(r"\b(?:{})#\d+\b", CATALOG.native.join("|"))).expect("native ref pattern"));
-
-/// What a queue result touches outside the ledger.
-pub(crate) trait Outside {
-    /// Refuses text holding a secret.
-    fn scan(&self, text: &str) -> Result<(), String>;
-    fn comment(&self, repo: &str, number: u64, body: &str) -> Result<(), String>;
-}
-
-pub(crate) struct Context<'a> {
-    pub database: &'a Path,
-    pub actor: String,
-    /// Why native items are hidden from this caller, when they are.
-    pub no_native: Option<&'static str>,
-    pub outside: &'a dyn Outside,
-    pub now: Timestamp,
-}
-
-pub(crate) enum Failure {
-    Usage(String),
-    Refused(String),
-}
-
-impl From<String> for Failure {
-    fn from(why: String) -> Self {
-        Self::Refused(why)
-    }
-}
-
-impl From<rusqlite::Error> for Failure {
-    fn from(error: rusqlite::Error) -> Self {
-        Self::Refused(error.to_string())
-    }
-}
-
-type Outcome = Result<String, Failure>;
 
 /// Runs one verb, printing its result to `out` and a refusal to `err`; returns the exit code.
 pub(crate) fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -67,102 +20,9 @@ pub(crate) fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out:
         "job-runs" => job_runs(&argv[1..], context),
         _ => queue::run(&argv[1..], context, stdin),
     };
-    match result {
-        Ok(text) => i32::from(write!(out, "{text}").is_err()),
-        Err(Failure::Usage(why)) => {
-            let _ = writeln!(err, "NorthThreads: {}: {why}", argv[0]);
-            2
-        }
-        Err(Failure::Refused(why)) => {
-            let _ = writeln!(err, "NorthThreads: {why}");
-            1
-        }
-    }
+    report(&argv[0], result, out, err)
 }
 
-/// Options and positional words, the way argparse reads them.
-pub(crate) struct Args {
-    pub positional: Vec<String>,
-    pub options: BTreeMap<String, String>,
-}
-
-impl Args {
-    pub(crate) fn parse(argv: &[String], valued: &[&str], switches: &[&str]) -> Result<Self, Failure> {
-        let mut parsed = Self { positional: Vec::new(), options: BTreeMap::new() };
-        let mut rest = argv.iter();
-        while let Some(arg) = rest.next() {
-            let (flag, inline) = arg.split_once('=').map_or((arg.as_str(), None), |(flag, value)| (flag, Some(value.to_owned())));
-            if valued.contains(&flag) || flag == "--by" {
-                let value = inline.or_else(|| rest.next().cloned()).ok_or_else(|| Failure::Usage(format!("{flag} needs a value")))?;
-                parsed.options.insert(flag.to_owned(), value);
-            } else if switches.contains(&arg.as_str()) {
-                parsed.options.insert(arg.clone(), String::new());
-            } else if arg.starts_with('-') && arg.len() > 1 {
-                return Err(Failure::Usage(format!("unknown option {arg}")));
-            } else {
-                parsed.positional.push(arg.clone());
-            }
-        }
-        Ok(parsed)
-    }
-
-    pub(crate) fn get(&self, flag: &str) -> Option<&str> {
-        self.options.get(flag).map(String::as_str)
-    }
-
-    pub(crate) fn has(&self, flag: &str) -> bool {
-        self.options.contains_key(flag)
-    }
-}
-
-pub(crate) fn open(path: &Path, write: bool) -> Result<Connection, Failure> {
-    let access = if write { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
-    let failed = |error: rusqlite::Error| Failure::Refused(format!("ledger {}: {error}", path.display()));
-    let db = Connection::open_with_flags(path, access | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(failed)?;
-    db.busy_timeout(BUSY).map_err(failed)?;
-    Ok(db)
-}
-
-pub(crate) fn immediate(db: &mut Connection) -> Result<rusqlite::Transaction<'_>, Failure> {
-    Ok(db.transaction_with_behavior(TransactionBehavior::Immediate)?)
-}
-
-/// A ref as bin/threads normalizes it, refused for a native item this caller may not read.
-pub(crate) fn item_ref(text: &str, context: &Context) -> Result<(String, u64), Failure> {
-    let (repo, number) = CATALOG.parse_ref(text)?;
-    if let Some(reason) = context.no_native.filter(|_| CATALOG.is_native(&repo)) {
-        return Err(Failure::Refused(format!("native items are not readable here: {reason}")));
-    }
-    Ok((repo, number))
-}
-
-pub(crate) fn is_native_ref(item: &str) -> bool {
-    NATIVE_REF.find(item).is_some_and(|found| found.start() == 0 && found.end() == item.len())
-}
-
-pub(crate) fn names_native(text: &str) -> bool {
-    NATIVE_REF.is_match(text)
-}
-
-/// One ledger event, its data as Python's `json.dumps` writes it.
-pub(crate) fn event(db: &Connection, item: Option<&str>, kind: &str, actor: &str, data: Value, now: Timestamp) -> rusqlite::Result<usize> {
-    db.execute("INSERT INTO events(ts, item, kind, actor, tier, data) VALUES (?1, ?2, ?3, ?4, '', ?5)", params![now.iso(), item, kind, actor, crate::pyjson::dumps(&data)])
-}
-
-pub(crate) fn integer(value: i64) -> Value {
-    Value::Number { raw: value.to_string(), output: value.to_string() }
-}
-
-pub(crate) fn text_or_null(value: Option<String>) -> Value {
-    value.map_or(Value::Null, Value::from)
-}
-
-/// Columns padded to their widest cell, two spaces apart, trailing space trimmed.
-pub(crate) fn table(rows: &[Vec<String>]) -> String {
-    let widths: Vec<usize> = (0..rows[0].len()).map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0)).collect();
-    let line = |row: &Vec<String>| row.iter().zip(&widths).map(|(cell, width)| format!("{cell:<width$}")).collect::<Vec<_>>().join("  ").trim_end().to_owned();
-    rows.iter().map(|row| format!("{}\n", line(row))).collect()
-}
 
 fn job_run(argv: &[String], context: &Context) -> Outcome {
     let args = Args::parse(argv, &["--host", "--started", "--finished", "--rc"], &[])?;
