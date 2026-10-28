@@ -111,7 +111,7 @@ fn a_launch_holds_its_item_only_until_its_session_exits_or_is_forgotten() {
     let now = 100_000.0;
     let records = [launch("north#281", "north-281-d1250", now - 54.0 * 60.0), launch("north#285", "north-285-d1220", now - 84.0 * 60.0), launch("north#290", "north-290-d1300", now - 5.0 * 60.0), launch("north#291", "north-291-d1200", now - 30.0 * 60.0), launch("north#292", "north-292-d1210", now - 40.0 * 60.0)];
     let listings = vec![("gex45".to_owned(), json!([{"name": "north-281-d1250", "status": "exited"}, {"name": "north-285-d1220", "status": "exited"}, {"name": "north-291-d1200", "status": "working"}]))];
-    let gone = fleets::gone(&listings, &records, now);
+    let gone = fleets::gone(&listings, &BTreeMap::new(), &records, now);
     let holds = record::holds(&records, now, &BTreeMap::new(), &gone);
     let launching = record::launching(&records, now, &gone);
     for exited in [281, 285] {
@@ -124,6 +124,24 @@ fn a_launch_holds_its_item_only_until_its_session_exits_or_is_forgotten() {
     assert!(holds.contains_key(&running) && launching.contains_key(&running), "a running session's launch still holds its item");
     let forgotten = IssueRef::new("north", 292);
     assert!(!holds.contains_key(&forgotten) && !launching.contains_key(&forgotten), "a session no listing shows after the time it needs to show holds nothing");
-    let unread = fleets::gone(&[("gex45".to_owned(), Value::Null)], &records, now);
+    let unread = fleets::gone(&[("gex45".to_owned(), Value::Null)], &BTreeMap::new(), &records, now);
     assert!(unread.is_empty(), "an unread listing says nothing about whether a session was forgotten: {unread:?}");
+}
+
+#[test]
+fn a_laptop_launch_absent_from_a_copy_older_than_it_still_holds_its_item() {
+    let now = 100_000.0;
+    let on_laptop = |item: &str, name: &str, at: f64| Record { host: "whiterabbit".into(), ..launch(item, name, at) };
+    let records = [on_laptop("north#293", "north-293-d1300", now - 40.0 * 60.0), on_laptop("north#294", "north-294-d1200", now - 90.0 * 60.0)];
+    let listings = vec![("whiterabbit".to_owned(), json!([{"name": "tom-notes", "status": "idle"}]))];
+    let copies = BTreeMap::from([("whiterabbit".to_owned(), now - 60.0 * 60.0)]);
+    let gone = fleets::gone(&listings, &copies, &records, now);
+    let holds = record::holds(&records, now, &BTreeMap::new(), &gone);
+    let launching = record::launching(&records, now, &gone);
+    let after_copy = IssueRef::new("north", 293);
+    assert!(holds.contains_key(&after_copy) && launching.contains_key(&after_copy), "a copy taken before the launch cannot show its session forgotten: {gone:?}");
+    let before_copy = IssueRef::new("north", 294);
+    assert!(!holds.contains_key(&before_copy) && !launching.contains_key(&before_copy), "a copy taken well after the launch that lacks its session shows it forgotten: {gone:?}");
+    let fresh_copy = fleets::gone(&listings, &BTreeMap::from([("whiterabbit".to_owned(), now)]), &records, now);
+    assert!(fresh_copy.contains("north-293-d1300"), "once a newer copy lacks the session it is forgotten: {fresh_copy:?}");
 }

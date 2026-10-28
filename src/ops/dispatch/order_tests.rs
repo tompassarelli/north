@@ -126,7 +126,7 @@ impl World {
     }
 
     fn gone(&self) -> BTreeSet<String> {
-        fleets::gone(&self.listings(), &self.records, self.at)
+        fleets::gone(&self.listings(), &BTreeMap::new(), &self.records, self.at)
     }
 
     fn holds(&self) -> BTreeMap<IssueRef, String> {

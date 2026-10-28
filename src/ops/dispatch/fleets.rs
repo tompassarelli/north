@@ -72,10 +72,11 @@ pub(crate) fn stopped_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
 
 /// The names of dispatch launches whose sessions no longer hold their items: sessions some listing
 /// shows and none shows running, and sessions absent from every listing though the listing of the
-/// host they launched on was read and the launch is old enough for it to show.
-pub(crate) fn gone(fleets: &[(String, Value)], records: &[record::Record], at: f64) -> BTreeSet<String> {
+/// host they launched on was read and taken late enough after the launch for it to show. A listing
+/// was taken at `at` unless `copies` holds the time its host copied it.
+pub(crate) fn gone(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, records: &[record::Record], at: f64) -> BTreeSet<String> {
     let listed: BTreeSet<&str> = fleets.iter().flat_map(|(_, listing)| listing.as_array().into_iter().flatten()).filter_map(|session| session["name"].as_str()).collect();
-    let forgotten = records.iter().filter(|launch| launch.launched && !launch.cloud && !launch.hand && at - launch.at >= record::LAPTOP_SHOW_S).filter(|launch| !listed.contains(launch.name.as_str())).filter(|launch| fleets.iter().any(|(host, listing)| *host == launch.host && listing.is_array()));
+    let forgotten = records.iter().filter(|launch| launch.launched && !launch.cloud && !launch.hand && copies.get(&launch.host).copied().unwrap_or(at) - launch.at >= record::LAPTOP_SHOW_S).filter(|launch| !listed.contains(launch.name.as_str())).filter(|launch| fleets.iter().any(|(host, listing)| *host == launch.host && listing.is_array()));
     stopped_names(fleets).into_iter().chain(forgotten.map(|launch| launch.name.clone())).collect()
 }
 
@@ -111,13 +112,17 @@ pub(crate) fn holder(task: &str, local: Value, notes: &mut Vec<String>) -> Optio
     let here = crate::platform::host::name();
     let at = placement::now();
     let mut fleets = vec![(here.clone(), local)];
+    let mut copies = BTreeMap::new();
     match placement::config() {
-        Ok(cfg) => fleets.extend(others(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, notes)),
+        Ok(cfg) => {
+            fleets.extend(others(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, notes));
+            copies = copy_times(&record::directory(), "fleet", laptop(&cfg, &here).as_deref());
+        }
         Err(why) => notes.push(format!("no placement config, so only this host's sessions count: {why}")),
     }
     let sessions: Vec<(Session, String)> = fleets.iter().flat_map(|(host, listing)| running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let records = record::read(&record::directory());
-    held(&items, &sessions, &record::launching(&records, at, &gone(&fleets, &records, at)))
+    held(&items, &sessions, &record::launching(&records, at, &gone(&fleets, &copies, &records, at)))
 }
 
 pub(crate) fn remote_json(ssh: Option<&str>, command: &[&str]) -> Result<Value, String> {
@@ -174,10 +179,9 @@ pub(crate) fn others(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str
 pub(crate) fn mirrored(directory: &Path, kind: &str, host: &str, at: f64, notes: &mut Vec<String>) -> Value {
     let path = directory.join(format!("{kind}-{host}.json"));
     let listing = std::fs::read_to_string(&path).map_err(|error| error.to_string()).and_then(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()));
-    let copied = std::fs::metadata(&path).and_then(|meta| meta.modified()).ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
     match listing {
         Ok(listing) => {
-            if let Some(age) = copied.map(|copied| at - copied.as_secs_f64()).filter(|age| *age > MIRROR_FRESH_S) {
+            if let Some(age) = copied(directory, kind, host).map(|copied| at - copied).filter(|age| *age > MIRROR_FRESH_S) {
                 notes.push(format!("{host} {kind} list copied {:.0} min ago", age / 60.0));
             }
             listing
@@ -187,6 +191,17 @@ pub(crate) fn mirrored(directory: &Path, kind: &str, host: &str, at: f64, notes:
             Value::Null
         }
     }
+}
+
+/// When the laptop last copied its `KIND-HOST.json` listing to `directory`.
+pub(crate) fn copied(directory: &Path, kind: &str, host: &str) -> Option<f64> {
+    let modified = std::fs::metadata(directory.join(format!("{kind}-{host}.json"))).and_then(|meta| meta.modified()).ok()?;
+    modified.duration_since(std::time::UNIX_EPOCH).ok().map(|since| since.as_secs_f64())
+}
+
+/// The time `laptop` copied its listing of `kind`, by host, which [`gone`] takes for when the listing was taken.
+pub(crate) fn copy_times(directory: &Path, kind: &str, laptop: Option<&str>) -> BTreeMap<String, f64> {
+    laptop.and_then(|host| copied(directory, kind, host).map(|at| (host.to_owned(), at))).into_iter().collect()
 }
 
 /// One `north` JSON listing from this host and from every other, each with the host it came from.

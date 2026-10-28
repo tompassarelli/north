@@ -305,7 +305,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let (mut issues, open) = github::open_issues(projects.repos(), &mut notes);
     let records = record::read(&record::directory());
     holds.extend(claims(&cfg, &here, &fleets::stopped_names(&fleet_lists), &mut notes));
-    holds.extend(record::holds(&records, at, &unspent(laptop.as_deref(), &records, at, &mut notes), &fleets::gone(&fleet_lists, &records, at)));
+    holds.extend(record::holds(&records, at, &unspent(laptop.as_deref(), &records, at, &mut notes), &fleets::gone(&fleet_lists, &fleets::copy_times(&record::directory(), "fleet", laptop.as_deref()), &records, at)));
     holds.extend(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)));
     let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
