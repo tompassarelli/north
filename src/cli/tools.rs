@@ -30,12 +30,17 @@ pub(super) enum Tool {
     Cloud,
     Dispatch,
     Tune,
+    IncidentMine,
     LandClean,
     Archives,
 }
 
 impl Tool {
     pub(super) fn named(command: &str) -> Option<Self> {
+        Self::landing(command).or_else(|| Self::operations(command))
+    }
+
+    fn landing(command: &str) -> Option<Self> {
         Some(match command {
             "wisp" => Self::Wisp,
             "dep-gate" => Self::DepGate,
@@ -48,6 +53,14 @@ impl Tool {
             "provenance" => Self::Provenance,
             "issue-box-lint" => Self::IssueBoxLint,
             "follows-release" => Self::FollowsRelease,
+            "land-clean" => Self::LandClean,
+            "archives" => Self::Archives,
+            _ => return None,
+        })
+    }
+
+    fn operations(command: &str) -> Option<Self> {
+        Some(match command {
             "hardcoded-repo-path-check" => Self::HardcodedRepoPathCheck,
             "worktree-layout-check" => Self::WorktreeLayoutCheck,
             "pace" => Self::Pace,
@@ -59,6 +72,7 @@ impl Tool {
             "cloud" => Self::Cloud,
             "dispatch" => Self::Dispatch,
             "tune" => Self::Tune,
+            "incident-mine" => Self::IncidentMine,
             "land-clean" => Self::LandClean,
             "archives" => Self::Archives,
             _ => return None,
@@ -93,6 +107,7 @@ impl Tool {
             Self::SessionUnit => return super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Runtime => return ExitCode::from(crate::ops::runtime::run(arguments)),
             Self::Tune => return ExitCode::from(crate::ops::tune::run(arguments)),
+            Self::IncidentMine => return ExitCode::from(crate::ops::incident_mine::run(arguments)),
         };
         super::in_runtime(async move { Ok(ExitCode::from(run(arguments))) })
     }

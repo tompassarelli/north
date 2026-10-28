@@ -55,7 +55,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | S:costs.toml | hand | harness/lib/plan_usage.py:79; harness/lib/usage.py:267 | read | |
 | costs/*.json | harness/lib/billing_*.py | harness/lib/usage.py:264 service lines | read | |
 | S:operating-point.toml | harness/scripts/policy-replay.py | harness/scripts/agent-config-check.sh:246; bin/skill-prune:17 | read | |
-| S:incidents.jsonl | harness/scripts/incident-mine.py | harness/scripts/agent-config-check.sh:296 | read | |
+| S:incidents.jsonl | north incident-mine (src/ops/incident_mine) | harness/scripts/agent-config-check.sh:296 | read | |
 | replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | harness/scripts/agent-config-check.sh:201 | read | |
 | harness/model-catalog.toml | hand | harness/lib/usage.py:31; harness/lib/ledger_context.py run_usage; src/providers/claude/runs/telemetry.rs Prices | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |

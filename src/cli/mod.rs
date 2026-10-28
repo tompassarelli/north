@@ -80,6 +80,7 @@ Commands:
   cloud [list|events|sweep|send|wait]            Read, message, wait on and sweep Anthropic cloud sessions
   dispatch [--dry-run]                          Launch ready smashcraft and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
+  incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   private-desktop [start|control|capture|type]   Run or control an isolated private desktop
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
