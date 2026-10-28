@@ -44,7 +44,7 @@ Graphical work runs on a separate hardware-rendered Wayland desktop so Tom's Nir
 
 - Type with `type` from stdin, including secrets, and never with `control ... type` or `xdotool type`, because only stdin keeps text out of arguments and checks the US layout first.
 - Keep typed text within the supported US layout, because the launcher refuses other characters.
-- Run `scripts/private-desktop-type.test.sh` when changing key mapping, under the `verification` skill, because mapping errors type wrong characters silently.
+- Run `cargo test private_desktop::typing` when changing key mapping, under the `verification` skill, because mapping errors type wrong characters silently.
 - Use lowercase VNC key names and control sequences shorter than eight seconds, and keydown/keyup or mousedown/mouseup for holds, because longer sequences hit the control timeout.
 - Use private XTEST for X11 pointer or window queries only after VNC input fails and the private window is confirmed active, because XTEST bypasses the VNC path being diagnosed.
 - Observe the actual control change before advancing, and never infer keyboard delivery from command success or pointer coordinates, because VNC modifiers have been observed to report success without effect.

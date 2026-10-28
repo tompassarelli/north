@@ -1,11 +1,12 @@
 use std::fs::{self, OpenOptions};
-use std::io;
+use std::io::{self, Read};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
-use super::process::{checked, find_tool, status_code, vncdo};
+use super::process::{checked, find_tool, vncdo};
 use super::run_state::{is_socket, read_run_value, validate_run_dir};
+use super::typing;
 
 pub(super) fn control(arguments: &[String]) -> io::Result<u8> {
     if arguments.len() < 2 {
@@ -27,26 +28,20 @@ pub(super) fn type_text(arguments: &[String]) -> io::Result<u8> {
         ));
     }
     let (run, _) = validate_run_dir(&arguments[0])?;
-    let port = read_run_value(&run, "port")?;
-    let skill = Command::new("agents")
-        .args(["path", "private-desktop-development"])
-        .output()?;
-    if !skill.status.success() {
-        return Err(io::Error::other(
-            "could not resolve private-desktop-development skill",
-        ));
-    }
-    let skill = PathBuf::from(String::from_utf8_lossy(&skill.stdout).trim());
-    let script = skill
-        .parent()
-        .unwrap_or(&skill)
-        .join("scripts/private-desktop-type.py");
-    let status = Command::new(run.join("venv/bin/python"))
-        .arg(script)
-        .arg(port)
-        .stdin(Stdio::inherit())
-        .status()?;
-    status_code(status)
+    let port: u16 = read_run_value(&run, "port")?
+        .parse()
+        .map_err(|_| io::Error::other("run directory port is not a number"))?;
+    let mut text = String::new();
+    io::stdin().read_to_string(&mut text)?;
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let keys = typing::plan(&text).map_err(|reason| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{reason}; nothing was typed"),
+        )
+    })?;
+    typing::send(port, &keys)?;
+    Ok(0)
 }
 
 pub(super) fn capture(arguments: &[String]) -> io::Result<u8> {

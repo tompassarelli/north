@@ -4,6 +4,7 @@ mod reap;
 mod run_state;
 mod session;
 mod start;
+mod typing;
 
 use std::env;
 use std::fs;
