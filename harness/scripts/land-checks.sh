@@ -65,7 +65,5 @@ if [ "${#selected[@]}" -gt 0 ] && [ -f Cargo.toml ]; then
 fi
 north=${CARGO_TARGET_DIR:-target}/debug/north
 [ ! -x "$north" ] || { NORTH_PACE_BIN=$(realpath "$north"); export NORTH_PACE_BIN; }
-for test in "${selected[@]}"; do
-  printf 'land check: %s\n' "$test"
-  case "$test" in *.sh) bash "$test" ;; *.py) python3 "$test" ;; esac
-done
+runner=${NORTH_PACE_BIN:-$(dirname "$0")/../../target/debug/north}
+[ "${#selected[@]}" -eq 0 ] || "$runner" land-tests "${selected[@]}"

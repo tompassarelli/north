@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use crate::landing::{denylist, lane_target, mutant_cli, safe_push_tag};
+use crate::landing::{denylist, land_test_runner, lane_target, mutant_cli, safe_push_tag};
 use crate::{
     autoland_status, capacity, dep_gate, follows_release, issue_box_lint, land_abandon, provenance,
     review_gate,
@@ -16,6 +16,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("autoland-wait", autoland_status::wait),
     ("land-abandon", land_abandon::abandon),
     ("land-clean", lane_target::run),
+    ("land-tests", land_test_runner::run),
     ("safe-push-result", super::safe_push_result::run),
     ("safe-push", safe_push_tag::run),
     ("provenance", provenance::run),

@@ -1,6 +1,7 @@
 pub(crate) mod denylist;
 pub(crate) mod denylist_attest;
 mod instruction_limits;
+pub(crate) mod land_test_runner;
 pub(crate) mod lane_target;
 mod mutant;
 pub(crate) mod mutant_cli;

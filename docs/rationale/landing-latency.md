@@ -47,3 +47,24 @@ lane back to its worker and why.
   HEAD, because the checks already ran for that exact commit.
 - Placement treats a box with no `Surface:` as `Needs: native, private` while this host is in game
   reserve, so it goes to a machine that serves them instead of waiting out the game.
+
+## North, 2026-10-28
+
+North has no Autoland: `safe-push --to main` runs the land checks on the lane's host and pushes
+straight to main. Over the last 24 h, 141 landings had a median commit to main of 34 min (p75
+143). Queue push to main took under a minute and the last amend or rebase to push about 6 min, so
+the tail sits between the first commit and the last amend. It was split from the session
+transcripts:
+
+- The 30 slowest landings (172 to 819 min) were mostly idle sessions: lanes parked as WIP
+  commits, waits on a planner or lead that never answered, and gex45's disk at 95%.
+- In the 15 to 60 min band that sets the median, land checks and their reruns were the biggest
+  stage (254 of 564 attributed minutes, a median of 4 `safe-push --to main` runs per landing),
+  then the review-gate round (191 min). Capacity and hold waits added nothing.
+- One clean land check for a one-line `src/` change took 469 s: `cargo test` 142 s, the
+  owner check 28 s, clippy 18 s, and 55 shell and Python tests run one after another 267 s.
+  Any `src/` change selects every script that invokes north.
+
+Fix: `north land-tests` runs the selected shell and Python tests side by side, up to the CPUs
+the land check's capacity lease grants, and runs every test after a red one, so one run names
+every failure instead of the first.
