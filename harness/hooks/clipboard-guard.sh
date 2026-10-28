@@ -62,7 +62,7 @@ if not cmd:
 cleaned = strip_quotes(strip_heredocs(cmd))
 
 SEP = r"(?:^|[\n;&|({`]|\$\()"
-WRAP = r"(?:(?:sudo|doas|env|command|exec|nohup|timeout\s+\S+|north\s+run-bounded\s+\S+\s+--)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+WRAP = r"(?:(?:sudo|doas|env|command|exec|nohup|timeout\s+\S+|run-bounded\s+\S+\s+--)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
 PATHED = r"(?:\S*/)?"
 
 WL_COPY = re.compile(SEP + r"\s*" + WRAP + PATHED + r"wl-copy\b")

@@ -98,7 +98,7 @@ holds the tier table. In order:
    and `--effort` off; a `--model` of another family needs `--tier-reason "REASON"`, which is
    recorded with the other override reasons.
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
-   `north follows-release` starts it once its predecessor lands on main.
+   `follows-release` starts it once its predecessor lands on main.
 7. **Record.** Fleet receipts capture delivery and completion. `worker-ledger` records each run's
    outcome, cost and duration, and those records feed the next recommendation
    ([feedback-loop.md](feedback-loop.md)).
@@ -128,7 +128,7 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
    (`north dep-gate BASE HEAD`), a `Provenance:` record for each new
    gating number (`north provenance check`), a `Test-kind:` claim for each new test naming a recorded mutant
    only it kills (`north mutant verify` runs the named tests when `.safe-push` sets `mutant.run`), and the CI time budgets in `.safe-push`; it never force-pushes;
-4. pushes to main, removes the clean lane and its branch, and runs `north follows-release`.
+4. pushes to main, removes the clean lane and its branch, and runs `follows-release`.
 
 North's land checks share that capacity scope and run with the landing lock released; the lock
 covers only the fetch, rebase, scans and push. If main moved during the checks, a lane whose files

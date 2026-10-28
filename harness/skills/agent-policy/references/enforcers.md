@@ -28,11 +28,11 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | A worker at 350k tokens of context lands what passes and hands off the rest | `worker-handoff` | Claude |
 | A worker never runs a foreground command that can block past 60 seconds | `worker-wait-guard` | Claude |
 | Worker briefs carry Category, Spec, Scope, Surface and Verify, and tier rules hold | `worker-tier-guard` | Claude, Codex |
-| A subagent does not finish while its background shells or Monitor watches run; a `north job-run --notify` job detaches and survives it | `subagent-teardown` | Claude |
+| A subagent does not finish while its background shells or Monitor watches run; a `job-run --notify` job detaches and survives it | `subagent-teardown` | Claude |
 | No new local worker once capacity leases hold the CPU limit or desktop pressure is above 20% | `spawn-capacity-guard` | Claude |
 | Wine, Proton, steam-run or Warcraft .exe launches run inside a machine-capacity native session | `native-launch-guard` | Claude |
 | Rust PreBash routes cargo test, TypeScript builds and multi-file Bun tests through machine-capacity; refuses unleased builds, full suites, renders and CPU throttles | `heavy-command-guard` through `north-hook` | Claude, Codex |
-| Rust PreBash refuses a foreground sleep or `until`/`while` sleep loop that can wait over 60 s, naming `north job-run --notify` and Monitor | `poll-loop-guard` through `north-hook` | Claude, Codex |
+| Rust PreBash refuses a foreground sleep or `until`/`while` sleep loop that can wait over 60 s, naming `job-run --notify` and Monitor | `poll-loop-guard` through `north-hook` | Claude, Codex |
 | Claude only: no non-Claude model CLI as a reviewer, per Tom's standing order | `reviewer_cli` in `north-hook` | Claude, Codex |
 | No agent wl-copy or niri screenshot actions, because they replace Tom's pending paste | `clipboard-guard` | Claude, Codex |
 | No window focus, move, fullscreen, close or typed input on Tom's desktop unless the seat is idle 60 seconds, the private desktop is the target, or a sanctioned tool restores focus | `north-hook` | Claude, Codex |
@@ -52,7 +52,7 @@ These run for every provider, because every landing goes through `safe-push`.
 | --- | --- |
 | No force or destructive pushes | `safe-push` argument check |
 | Origin carries the default branch only; publish with `--to main` | `enforce_one_branch_main` |
-| Repository AGENTS.md and instruction files stay within their limits | `check_instruction_limits` (`north agent-instruction-check`) |
+| Repository AGENTS.md and instruction files stay within their limits | `check_instruction_limits` (`agent-instruction-check`) |
 | No secrets in pushed commits | gitleaks secret scan |
 | Private identity values never reach a public repository | `denylist_scan` |
 | Tom-specific facts in a public skill live behind a `south:` pointer | `denylist_scan` (south `privacy/public-denylist.toml` host, account, billing and ID rules; a missing deny-list refuses a public push where south exists) |

@@ -4,7 +4,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 const SEP: &str = r"(?:^|[\n;&|({`]|\$\()";
-const WRAP: &str = r"(?:(?:sudo|doas|env|command|exec|nohup|timeout\s+\S+|north\s+run-bounded\s+\S+\s+--)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*";
+const WRAP: &str = r"(?:(?:sudo|doas|env|command|exec|nohup|timeout\s+\S+|run-bounded\s+\S+\s+--)\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*";
 const PATHED: &str = r"(?:\S*/)?";
 const HINTS: &[&str] = &["wl-copy", "wl-paste", "xclip", "xsel", "screenshot"];
 const REASON: &str = "No. Never read, write or clear Tom's clipboard; capture screens only with agent-capture, never niri screenshot actions. Capture with `agent-capture --screen OUT.png` (or --region \"X,Y WxH\" OUT.png, or --window ID OUT.png for a visible floating window) and pass the file path.";

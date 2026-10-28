@@ -505,7 +505,7 @@ if [ -s "$OPERATOR/AGENTS.md" ]; then
 else
   bad "global AGENTS.md owner source is missing or empty"
 fi
-if instruction_result=$("$NORTH/bin/north" agent-instruction-check --repo "$FIRN" --ref HEAD 2>&1); then
+if instruction_result=$("$NORTH/bin/agent-instruction-check" --repo "$FIRN" --ref HEAD 2>&1); then
   ok_detail "$instruction_result"
 else
   bad "$instruction_result"

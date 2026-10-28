@@ -362,11 +362,9 @@ capture_repository_state() {
 }
 
 check_instruction_limits() {
-  if ! north agent-instruction-check --help >/dev/null 2>&1; then
-    echo "safe-push: this host's north runtime has no agent-instruction-check yet (north runtime update adds it); instruction limits are not checked." >&2
-    return 0
-  fi
-  north agent-instruction-check --repo "$repo_root" --ref "$1"
+  local helper
+  helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/agent-instruction-check"
+  "$helper" --repo "$repo_root" --ref "$1"
 }
 
 # Public deny-list: private identity values never reach a public repository.

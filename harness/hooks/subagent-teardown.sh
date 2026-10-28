@@ -5,7 +5,7 @@
 # and never re-notifies later. A task has ended when the transcript holds a
 # TaskStop or a task notification for it; a shell task has also ended when no
 # process holds its output file open; a Monitor has also ended once its
-# timeout has passed; a `north job-run --notify` job detaches and holds no output.
+# timeout has passed; a `job-run --notify` job detaches and holds no output.
 # stop_hook_active, an unreadable transcript and malformed input allow.
 #
 # Kill-switch: `north config agents off subagent-teardown` or env
@@ -146,7 +146,7 @@ names = ", ".join(f"{t} ({v[1] or v[0]})" for t, v in pending.items())
 print(json.dumps({
     "decision": "block",
     "reason": f"You still have background tasks running: {names}. "
-              "Stop each with TaskStop (long work that must outlive you runs as `north job-run --notify`), then finish your report.",
+              "Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.",
 }))
 PYEOF
 

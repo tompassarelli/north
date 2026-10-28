@@ -91,9 +91,6 @@ Commands:
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
   gate [open --session S --question Q --option O... --recommend N --default N --default-after D | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
-  agent-instruction-check [--repo DIR] [--ref REF]  Refuse repository AGENTS.md over 100 lines
-  job-run [--path DIRS] [--user USER] NAME -- CMD...  Record a scheduled job's start and finish in the threads ledger, run CMD and exit with its code
-  run-bounded DURATION -- CMD...               Run CMD in a transient systemd scope under the shared 48G ceiling for at most 24h
   capacity admission < FACTS.json               Decide one machine-capacity admission
   capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
   capacity game-reserve on [--auto]|off|status Reserve CPUs for Tom's game, moving it only once it has run 60 s

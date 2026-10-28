@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf 'usage: run-bounded <duration> -- <command> [args...]\n' >&2
+  printf 'duration must be 1s..24h (suffix: s, m, h, or d)\n' >&2
+  exit 2
+}
+
+[ "$#" -ge 3 ] || usage
+duration=$1
+shift
+[ "${1:-}" = "--" ] || usage
+shift
+[ "$#" -gt 0 ] || usage
+
+if [[ ! "$duration" =~ ^([0-9]+)([smhd]?)$ ]]; then
+  usage
+fi
+[ "${#BASH_REMATCH[1]}" -le 5 ] || usage
+amount=$((10#${BASH_REMATCH[1]}))
+unit=${BASH_REMATCH[2]:-s}
+case "$unit" in
+  s) seconds=$amount ;;
+  m) seconds=$((amount * 60)) ;;
+  h) seconds=$((amount * 3600)) ;;
+  d) seconds=$((amount * 86400)) ;;
+  *) usage ;;
+esac
+if [ "$seconds" -lt 1 ] || [ "$seconds" -gt 86400 ]; then
+  usage
+fi
+
+SYSTEMCTL=/run/current-system/sw/bin/systemctl
+SYSTEMD_RUN=/run/current-system/sw/bin/systemd-run
+TIMEOUT=/run/current-system/sw/bin/timeout
+for tool in "$SYSTEMCTL" "$SYSTEMD_RUN" "$TIMEOUT"; do
+  [ -x "$tool" ] || {
+    printf 'run-bounded: required owner runtime is unavailable: %s\n' "$tool" >&2
+    exit 127
+  }
+done
+
+# One aggregate boundary for every agent-owned background run. The 48 GiB hard
+# ceiling is 80x the measured ~0.6 GiB compiler process and would stop the
+# incident's ~60.5 GiB descendant set while roughly 27 GiB was still available
+# from its measured 76 GiB starting point.
+"$SYSTEMCTL" --user start agent-bounded.slice
+"$SYSTEMCTL" --user set-property --runtime agent-bounded.slice \
+  MemoryHigh=44G MemoryMax=48G >/dev/null
+
+stamp=${EPOCHREALTIME//[.,]/}
+unit="agent-bounded-${stamp}-${BASHPID}-${RANDOM}"
+
+# Bound to the guard scope so wrapper death stops the service; no user namespace, so root files stay root.
+if [[ "${RUN_BOUNDED_STAGE:-}" != serve ]]; then
+  guard=()
+  if [[ -n "${NORTH_FLEET_SCOPE:-}" ]]; then
+    guard=(--property="BindsTo=$NORTH_FLEET_SCOPE" --property="After=$NORTH_FLEET_SCOPE")
+  fi
+  RUN_BOUNDED_STAGE=serve RUN_BOUNDED_UNIT=$unit exec "$SYSTEMD_RUN" --user --scope --quiet --collect \
+    --same-dir "${guard[@]}" --unit="$unit-guard" --slice=agent-bounded.slice \
+    "$0" "$duration" -- "$@"
+fi
+
+unset RUN_BOUNDED_STAGE
+unit=$RUN_BOUNDED_UNIT
+unset RUN_BOUNDED_UNIT
+envs=()
+while IFS= read -r name; do
+  [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+  case "$name" in NOTIFY_SOCKET|INVOCATION_ID|JOURNAL_STREAM|MANAGERPID|SYSTEMD_EXEC_PID|LISTEN_PID|LISTEN_FDS|LISTEN_FDNAMES) continue ;; esac
+  envs+=(-E "$name")
+done < <(compgen -e)
+exec "$SYSTEMD_RUN" --user --pipe --quiet --wait --collect --same-dir "${envs[@]}" \
+  --unit="$unit" --slice=agent-bounded.slice \
+  --property="BindsTo=$unit-guard.scope" --property="After=$unit-guard.scope" \
+  --property="RuntimeMaxSec=${seconds}s" \
+  "$TIMEOUT" --preserve-status --signal=TERM --kill-after=5s "$duration" "$@"

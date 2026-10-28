@@ -42,4 +42,4 @@ Launchers that create additional systemd units use `north session-unit` with
 the usual `systemd-run` arguments. This Rust adapter binds the unit to the
 inherited `NORTH_FLEET_SCOPE` with `BindsTo` and `After`, so capacity jobs and
 private desktop clients end with their session even after reparenting.
-`north run-bounded` applies the same dependency to its bounded scope.
+`run-bounded` applies the same dependency to its bounded scope.

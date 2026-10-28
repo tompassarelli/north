@@ -64,7 +64,7 @@ shim_main() {
       fi
       exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       ;;
-    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:mutant|north:agent-instruction-check) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:mutant) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid

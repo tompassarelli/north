@@ -57,7 +57,7 @@ fn reason(hit: &Hit) -> String {
             "BLOCKED: session-killing shape refused ({shape}) — this signals the whole desktop session (compositor, user manager, every agent), not just your target. Signal only processes YOU started, by specific PID (`kill <pid>`) or a unique pattern (`pkill -f '<unique-pattern>'`); manage your own units by exact name. To restart a host's user manager, run `{HOST_RESTART} HOST`, which refuses while the host is in use. Session/compositor teardown is the operator's call. Prose that mentions these phrases is unaffected — only a command-position invocation is denied. Rare explicit override: `north config agents off session-kill-guard` (persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
         ),
         Hit::Detached(shape) => format!(
-            "BLOCKED: {shape} would detach an agent child from its owner. Use `north run-bounded <duration> -- <command>`; the wrapper has a 24h maximum, owns a transient cgroup plus PID namespace, reaps every descendant when the owner ends, and gives all background jobs a shared 48G hard ceiling."
+            "BLOCKED: {shape} would detach an agent child from its owner. Use `run-bounded <duration> -- <command>`; the wrapper has a 24h maximum, owns a transient cgroup plus PID namespace, reaps every descendant when the owner ends, and gives all background jobs a shared 48G hard ceiling."
         ),
     }
 }
@@ -256,7 +256,7 @@ fn launch(words: &[String], background: bool) -> Option<String> {
         Some(name @ ("bun" | "node")) if args.iter().any(|arg| temporary_script(arg)) => {
             Some(format!("direct {name} /tmp script"))
         }
-        Some("north") if args.first().is_some_and(|arg| arg == "run-bounded") => None,
+        Some("run-bounded") => None,
         _ if background => Some("unmanaged background job".into()),
         _ => None,
     }

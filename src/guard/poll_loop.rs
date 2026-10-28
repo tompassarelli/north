@@ -38,7 +38,7 @@ fn refusal(wait: f64) -> String {
     let span = if wait.is_finite() { format!("up to {wait:.0} s") } else { "until its condition holds".into() };
     format!(
         "No. This call waits {span} in a sleep or poll loop, and every wait over {LIMIT_SECONDS:.0} s holds a full-context request open. \
-         For work that ends on its own, run `north job-run --notify NAME -- CMD` and end your turn: its exit arrives as a fleet message. \
+         For work that ends on its own, run `job-run --notify NAME -- CMD` and end your turn: its exit arrives as a fleet message. \
          To wake on a condition, use Monitor with an until-loop, or run the loop with run_in_background so its exit notifies you. \
          A sleep or a loop bounded by `timeout` at {LIMIT_SECONDS:.0} s or less runs inline."
     )
