@@ -81,6 +81,40 @@ fn report(assistant: &[&Value]) -> Option<String> {
     reports[reports.len().saturating_sub(3)..].iter().max_by_key(|text| text.chars().count()).cloned()
 }
 
+fn human(record: &Value) -> bool {
+    record["type"] == "user"
+        && match &record["message"]["content"] {
+            Value::String(_) => true,
+            Value::Array(parts) => !parts.iter().any(|part| part["type"] == "tool_result"),
+            _ => false,
+        }
+}
+
+fn turn_report(lines: &[Value]) -> Option<(String, bool)> {
+    let mut turns: Vec<Vec<&Value>> = vec![Vec::new()];
+    for line in lines {
+        if human(line) {
+            turns.push(Vec::new());
+        } else if let Some(turn) = turns.last_mut() {
+            turn.push(line);
+        }
+    }
+    let reports: Vec<(String, bool)> = turns
+        .iter()
+        .filter_map(|turn| {
+            let assistant: Vec<&Value> = turn.iter().copied().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
+            Some((report(&assistant)?, quiet_run(turn.iter().copied())))
+        })
+        .collect();
+    let rank = |(report, quiet): &(String, bool)| match outcome::classify(report, *quiet) {
+        "idle" => 0,
+        "unclear" => 1,
+        _ => 2,
+    };
+    let best = reports.iter().map(rank).max()?;
+    reports.into_iter().rev().find(|turn| rank(turn) == best)
+}
+
 pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     let lines = transcript.lines;
     let assistant: Vec<&Value> = lines.iter().filter(|line| line["type"] == "assistant" && !line["message"]["usage"].is_null()).collect();
@@ -111,7 +145,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
         row.insert("backfill".into(), json!(transcript.backfill));
         return Some(row);
     }
-    let report = report(&assistant)?;
+    let (report, quiet) = turn_report(lines)?;
     let head = prefix(&report, 600);
     let usage = &last_usage["message"]["usage"];
     row.insert("status".into(), json!(if done { "finished" } else { "active" }));
@@ -119,16 +153,15 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("actual_min".into(), json!((seconds(ended)? - seconds(started.as_str()?)?).div_euclid(60)));
     row.insert("tokens".into(), json!(tokens(&assistant)));
     row.insert("peak_ctx".into(), json!(int(&usage["input_tokens"]) + int(&usage["cache_read_input_tokens"]) + int(&usage["cache_creation_input_tokens"])));
-    row.insert("outcome".into(), json!(outcome::classify(&report, quiet_run(lines))));
+    row.insert("outcome".into(), json!(outcome::classify(&report, quiet)));
     row.insert("flaws".into(), FLAWS.captures(&report).map_or(Value::Null, |found| number(found[1].parse().unwrap_or(0.0))));
     row.insert("backfill".into(), json!(transcript.backfill));
     row.insert("report".into(), json!(prefix(&SPACE.replace_all(&head, " "), 600)));
     Some(row)
 }
 
-fn quiet_run(lines: &[Value]) -> bool {
+fn quiet_run<'a>(lines: impl Iterator<Item = &'a Value>) -> bool {
     !lines
-        .iter()
         .filter(|line| line["type"] == "assistant")
         .any(|line| line["message"]["content"].as_array().is_some_and(|parts| parts.iter().any(|part| part["type"] == "tool_use")))
 }

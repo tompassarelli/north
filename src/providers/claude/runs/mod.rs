@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use toml_edit::{DocumentMut, Item};
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::landings::{self, Push};
 use crate::foundation::clock::Timestamp;
 
 use super::accounts::{config_file, default_home};
@@ -65,6 +66,8 @@ struct Root {
 }
 
 struct FleetSession {
+    name: String,
+    relaunched_ms: u64,
     role: &'static str,
     effort: Option<String>,
 }
@@ -74,6 +77,7 @@ struct Ledger {
     prices: Prices,
     main: MainIndex,
     sessions: HashMap<String, FleetSession>,
+    pushes: Vec<Push>,
     now: Timestamp,
 }
 
@@ -82,11 +86,11 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or_else(|| NorthError::Usage("no home directory".into()))?);
     let policy = fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse().ok());
     let main = std::env::var_os("LEDGER_MAIN").and_then(|path| fs::read_to_string(path).ok()).unwrap_or_default();
-    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main: MainIndex::parse(&main), sessions: fleet_sessions(), now: Timestamp::now() };
+    let ledger = Ledger { policy, prices: Prices::parse(CATALOG, DEFAULTS), main: MainIndex::parse(&main), sessions: fleet_sessions(), pushes: landings::pushes(&landings::push_log()), now: Timestamp::now() };
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     let mut out = BufWriter::new(io::stdout().lock());
     for root in roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name()) {
-        for path in transcripts(&root.projects, &options) {
+        for path in transcripts(&root.projects, &options).into_iter().filter(|path| ledger.rereads(&options, path)) {
             if let Some(row) = record(&ledger, &options, &root, &path) {
                 writeln!(out, "{}", Value::Object(row))?;
             }
@@ -132,7 +136,11 @@ fn fleet_sessions() -> HashMap<String, FleetSession> {
             "proxy"
         };
         let effort = node["effort"].as_str().map(str::to_owned);
-        sessions.entry(conversation.to_owned()).or_insert(FleetSession { role, effort });
+        let name = node["name"].as_str().unwrap_or_default().to_owned();
+        let created = node["created_ms"].as_u64().unwrap_or(0);
+        let later = nodes.iter().filter_map(|other| other["created_ms"].as_u64().filter(|at| other["name"] == node["name"] && *at > created));
+        let relaunched_ms = later.min().unwrap_or(u64::MAX);
+        sessions.entry(conversation.to_owned()).or_insert(FleetSession { name, relaunched_ms, role, effort });
     }
     sessions
 }
@@ -207,13 +215,31 @@ fn transcripts(projects: &Path, options: &Options) -> Vec<PathBuf> {
         }
     }
     found.sort();
-    let id = |path: &PathBuf| transcript_id(path);
-    found.into_iter().filter(|path| options.settled.get(&id(path)).is_none_or(|ended| ended.as_deref().is_some_and(|ended| modified_after(path, ended)))).collect()
+    found
 }
 
 fn modified_after(path: &Path, ended: &str) -> bool {
     let Some(ended) = Timestamp::parse_loose(ended) else { return true };
     fs::metadata(path).and_then(|meta| meta.modified()).map_or(true, |modified| modified > UNIX_EPOCH + Duration::from_secs(ended.unix_seconds().max(0) as u64))
+}
+
+impl Ledger {
+    fn rereads(&self, options: &Options, path: &Path) -> bool {
+        let id = transcript_id(path);
+        let session = self.sessions.get(&id);
+        options.settled.get(&id).is_none_or(|ended| ended.as_deref().is_some_and(|ended| modified_after(path, ended) || session.is_some_and(|session| self.pushed_since(session, ended))))
+    }
+
+    fn pushed_since(&self, session: &FleetSession, ended: &str) -> bool {
+        let Some(ended) = Timestamp::parse_loose(ended) else { return false };
+        let after = ended.unix_millis().max(0) as u64;
+        self.pushes.iter().any(|push| push.session == session.name && !push.landed.is_empty() && push.at_ms > after && push.at_ms < session.relaunched_ms)
+    }
+
+    fn landing<'a>(&'a self, session: &'a FleetSession, row: &Map<String, Value>) -> Option<&'a Push> {
+        let started = row.get("started")?.as_str().and_then(|at| Timestamp::parse(at).ok())?.unix_millis().max(0) as u64;
+        landings::landings_by(&self.pushes, &session.name, started, session.relaunched_ms.saturating_sub(1)).next()
+    }
 }
 
 fn entries(directory: &Path) -> Vec<PathBuf> {
@@ -247,11 +273,18 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     let transcript = row::Transcript { lines: &lines, id: &id, role, tier: &tier, since: &options.since, backfill: options.recorded.contains(&id), now: ledger.now };
     let mut row = row::build(&transcript)?;
     if let Some(Some(ended)) = options.settled.get(&id)
+        && !session.is_some_and(|session| ledger.pushed_since(session, ended))
         && row.get("ended").and_then(Value::as_str).is_none_or(|now| now <= ended.as_str())
     {
         return None;
     }
     row.extend(landing::checks(&lines, &ledger.main));
+    if row["landed"] != 1 && let Some(push) = session.and_then(|session| ledger.landing(session, &row)) {
+        row.insert("landed".into(), json!(1));
+        row.insert("expects_landing".into(), json!(1));
+        row.insert("landed_sha".into(), json!(push.landed));
+        row.insert("landed_at".into(), json!(Timestamp::from_unix_millis(push.at_ms as i64).iso()));
+    }
     row.extend(telemetry::context_metrics(&lines));
     row.extend(usage);
     row.insert("role".into(), json!(role));

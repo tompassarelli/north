@@ -22,8 +22,11 @@ pub fn observe(books: &dyn Books, record: &SessionRecord, push_log: &Path) -> No
 }
 
 pub fn landed_between(record: &SessionRecord, push_log: &Path, from_ms: u64, to_ms: u64) -> Option<String> {
-    let during = |push: &&Push| push.session == record.name && !push.landed.is_empty() && push.at_ms + 1_000 > from_ms && push.at_ms <= to_ms;
-    pushes(push_log).iter().rev().find(during).map(|push| push.landed.clone())
+    landings_by(&pushes(push_log), &record.name, from_ms, to_ms).next_back().map(|push| push.landed.clone())
+}
+
+pub fn landings_by<'a>(pushes: &'a [Push], session: &'a str, from_ms: u64, to_ms: u64) -> impl DoubleEndedIterator<Item = &'a Push> + 'a {
+    pushes.iter().filter(move |push| push.session == session && !push.landed.is_empty() && push.at_ms + 1_000 > from_ms && push.at_ms <= to_ms)
 }
 
 pub fn push_log() -> PathBuf {
@@ -36,7 +39,7 @@ fn landing<'a>(pushes: &'a [Push], record: &SessionRecord) -> Option<&'a Push> {
     pushes.iter().rev().find(|push| push.session == record.name && !push.landed.is_empty() && push.at_ms + 1_000 > record.created_ms)
 }
 
-fn pushes(log: &Path) -> Vec<Push> {
+pub fn pushes(log: &Path) -> Vec<Push> {
     let text = std::fs::read_to_string(log).unwrap_or_default();
     text.lines()
         .filter_map(|line| {
