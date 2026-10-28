@@ -16,7 +16,7 @@ operator_dir() {
 
 usage() {
   printf 'agents pace grant ACCOUNT MAX-WORKERS --until UTC --for LEAD --reason TEXT [--task NAME --uses N]\n' >&2
-  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alert]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|report|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]}\n' >&2
+  printf 'usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alarm]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|report|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]}\n' >&2
 }
 
 plan() {
@@ -304,7 +304,7 @@ case "${1:-}" in
     ;;
   flow)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/flow.py" "$@"
+    exec north flow "$@"
     ;;
   news)
     shift
@@ -316,7 +316,7 @@ case "${1:-}" in
     ;;
   report)
     shift
-    exec python3 -I "$(dirname "$(readlink -f "$0")")/../harness/lib/report.py" "$@"
+    exec north report "$@"
     ;;
   *)
     usage

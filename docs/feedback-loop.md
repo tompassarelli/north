@@ -18,7 +18,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.outcome, follows, landed, expects_landing | bin/worker-ledger | bin/threads:1408 run_ok; harness/lib/plan_usage.py:153 routing success | read | 4a58f21e |
 | runs.tier | bin/worker-ledger | bin/threads:1191 recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | bin/threads brief_fields | bin/threads:1191 recommend, :1243 recommend_eta | read | |
-| runs.arm | bin/threads:967 | harness/lib/report.py arm_lines, Wilson 95% per arm | read | lane H |
+| runs.arm | bin/threads:967 | src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
 | runs.lens, flaws | bin/worker-ledger | bin/threads:1113 summary lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | bin/worker-ledger | bin/threads:1097 tokens_med, :1526 tokens_per_closed | read | |
@@ -48,10 +48,10 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | model_events | bin/model-watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | mc/machine-capacity-host.mjs:315 | mc/machine-capacity-host.mjs:623, :660 sizing | read | |
 | usage-gate.json | harness/lib/usage.py:185 | harness/hooks/lib/spawn_capacity.py:280 | read | |
-| spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | harness/lib/report.py:118 | read | 871718bb |
+| spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | harness/lib/spawn_queue.py from harness/lib/spawn.py | harness/lib/spawn.py release at the end of pace_sampler.sample; oldest eligible durable worker launches automatically | read | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
-| goal-scores.jsonl | harness/lib/project_score.py | harness/lib/report.py:119 | read | 871718bb |
+| goal-scores.jsonl | harness/lib/project_score.py | src/ops/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | harness/lib/plan_usage.py:79; harness/lib/usage.py:267 | read | |
 | costs/*.json | harness/lib/billing_*.py | harness/lib/usage.py:264 service lines | read | |
 | S:operating-point.toml | harness/scripts/policy-replay.py | harness/scripts/agent-config-check.sh:246; bin/skill-prune:17 | read | |

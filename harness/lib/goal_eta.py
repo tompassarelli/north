@@ -180,10 +180,10 @@ def gate_width(project, concurrency):
 
 def landing_minutes(project):
     try:
-        import flow
-        value = flow.get(project, fields=("push_to_land_minutes",))["push_to_land_minutes"]
+        shown = subprocess.run(["north", "flow", "row", project, "push_to_land_minutes"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, check=True).stdout
+        value = json.loads(shown)["row"]["push_to_land_minutes"]
         return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
-    except (ImportError, OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         return 0.0
 
 

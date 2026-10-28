@@ -384,14 +384,14 @@ def flow_gate(event, texts):
     if repo is None:
         return None
     try:
-        north_lib()
-        import flow
-        row = flow.get(repo, fields=("pending", "landed_per_hour"))
-        pending, rate = number(row["pending"]), number(row["landed_per_hour"])
+        import shutil
+        agents = shutil.which("agents") or os.path.expanduser("~/.local/share/north/bin/agents")
+        flow = json.loads(subprocess.run([agents, "flow", "row", repo, "pending", "landed_per_hour"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, check=True).stdout)
+        pending, rate = number(flow["row"]["pending"]), number(flow["row"]["landed_per_hour"])
         if pending is None or rate is None or pending <= max(2, rate):
             return None
-        reason = f"{flow.format_row(row)}. Refusing a new code worker: widen the landing path first. A closing pass that pushes no lane passes with a `Closing: yes` brief line."
-    except (ImportError, OSError, ValueError, KeyError, TypeError, StopIteration):
+        reason = f"{flow['line']}. Refusing a new code worker: widen the landing path first. A closing pass that pushes no lane passes with a `Closing: yes` brief line."
+    except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError):
         return None
     log_denial(event, "flow", reason)
     return reason
