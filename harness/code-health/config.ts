@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { gitOk, isSource, Snapshot, ToolError } from "./files";
 
 export interface Thresholds { file_lines: number; function_lines: number; function_complexity: number; hotspot_top: number }
-export interface Review { commits: number; hand_lines_added: number; days: number; hotspot_score: number }
+export interface Review { commits: number; hand_lines_added: number; test_lines_changed: number; days: number; hotspot_score: number }
 export interface Module { name: string; paths: string[]; responsibility: string; may_use: string[]; globs: Bun.Glob[]; thresholds: Thresholds }
 export interface Generated { paths: string[]; producer: string; globs: Bun.Glob[] }
 
@@ -18,7 +18,7 @@ export interface Config {
 }
 
 const DEFAULT_THRESHOLDS: Thresholds = { file_lines: 500, function_lines: 80, function_complexity: 15, hotspot_top: 20 };
-const DEFAULT_REVIEW: Review = { commits: 100, hand_lines_added: 5000, days: 7, hotspot_score: 0 };
+const DEFAULT_REVIEW: Review = { commits: 100, hand_lines_added: 5000, test_lines_changed: 3000, days: 7, hotspot_score: 0 };
 
 function strings(v: unknown, where: string): string[] {
   if (v === undefined) return [];

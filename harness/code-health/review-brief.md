@@ -1,6 +1,9 @@
 # Code health review: {{repo}} ({{date}})
+Tier: worker
+Surface: ts
+Needs: local-state
 
-Goal: a recurring structure review of {{repo}}, started by `code-health tick` because the review signal fired:
+Goal: a recurring structure and test-value review of {{repo}}, started by `code-health tick` because the review signal fired:
 
 {{reasons}}
 
@@ -12,10 +15,16 @@ skills first. Fleet records delivery and session completion; your final message 
 
 1. Read the report the tick saved at {{report}} (or rerun `code-health report --repo {{checkout}} --rev origin/main`). Write a
    ranked refactor list to {{list}}: cycles and layer violations first, then hotspots (churn x complexity),
-   then oversize functions and files, then `Code-health-allow` debt the report lists. Each item names the
+   then oversize functions and files, then `Code-health-allow` debt the report lists, then test value (below). Each item names the
    files, the split or move, the test that covers the behavior, and an ETA. Price each item with a
    `Payback:` line per the planning skill (its code-health review step) and drop items above its staffing
    threshold.
+   Test value: read the verification skill's "Delete on sight" classes and walk the test files that changed since the
+   last review (`git diff --stat <marker sha> origin/main -- <test paths>`; the marker is `~/.local/state/code-health/{{repo}}/review.json`). List each test
+   in a delete-on-sight class with the kept test that still protects its guarantee, or say nobody cares about it. For
+   every check family you keep (a sweep, a recorded scenario, a property, a boundary check), name one canary: the
+   injected fault or mutant that must trip it, and run it once. A family with no canary that you can write goes on
+   the list as an item. Never weaken or retry a test to green; deletions follow the skill's keep-or-name rule.
 2. Staff the top items as worker boxes per the workers skill, launching fleet sessions with `--parent <your session name>`,
    each in its own worktree off origin/main. Each slice preserves behavior: no feature, tuning or interface
    change for outside callers; when a module boundary moves, update every in-repo caller and `structure.toml`

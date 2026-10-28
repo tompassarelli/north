@@ -2,9 +2,9 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statS
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const ENROLLED = ["smashcraft", "wisp", "padbridge", "smashcraft-client"];
-const DOMAIN: Record<string, string> = { wisp: "wisp" };
+export const ENROLLED = ["north", "smashcraft", "wisp", "padbridge", "smashcraft-client"];
 const LAUNCH_GRACE_MS = 60 * 60 * 1000;
+const PLACEMENT_PICK = /launch with --account ([\w-]+)/;
 
 export type TickEnv = {
   codeRoot: string;
@@ -12,7 +12,6 @@ export type TickEnv = {
   handoffs: string;
   codeHealth: string[];
   north: string;
-  account?: string;
   template: string;
   dryRun: boolean;
   now: () => Date;
@@ -86,8 +85,7 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
 
   const report = run([...env.codeHealth, "report", "--repo", checkout, "--rev", "origin/main"], checkout);
   if (report.code !== 0) return release(`report exit ${report.code}: ${report.stderr.trim()}`);
-  const reportPath = join(state, "review-report.txt");
-  writeFileSync(reportPath, report.stdout);
+  const reportPath = join(state, "review-report.txt"); writeFileSync(reportPath, report.stdout);
 
   mkdirSync(env.handoffs, { recursive: true });
   const brief = join(env.handoffs, `${name}-brief.md`);
@@ -98,14 +96,17 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
     date: env.now().toISOString().slice(0, 10),
   }));
 
-  const launch = [env.north, "fleet", "launch", "--provider", "claude", "--name", name,
-    "--system-prompt", brief, "--cwd", checkout, ...(env.account ? ["--account", env.account] : []),
+  const launchOn = (account: string) => [env.north, "fleet", "launch", "--provider", "claude", "--name", name,
+    "--system-prompt", brief, "--cwd", checkout, "--account", account,
     `Review the code-health report for ${repo} and land the bounded maintenance changes it identifies.`];
+  const account = run([env.north, "fleet", "accounts"], checkout).stdout.split("\n").find((line) => line.startsWith("claude\t"))?.split("\t")[1] ?? "a";
   if (env.dryRun) {
-    print(`dry-run: ${launch.map(shellQuote).join(" ")}`);
+    print(`dry-run: ${launchOn(account).map(shellQuote).join(" ")}`);
     return { repo, result: "started", detail: `dry-run ${name} (${reasons.join("; ")})` };
   }
-  const started = run(launch, checkout);
+  let started = run(launchOn(account), checkout);
+  const picked = PLACEMENT_PICK.exec(started.stderr + started.stdout)?.[1];
+  if (started.code !== 0 && picked && picked !== account) started = run(launchOn(picked), checkout);
   if (started.code !== 0) return release(`fleet launch exit ${started.code}: ${(started.stderr || started.stdout).trim()}`);
   return { repo, result: "started", detail: `${name} (${reasons.join("; ")})` };
 }
@@ -121,7 +122,6 @@ export function defaultEnv(argv: string[]): { env: TickEnv; repos: string[] } {
       handoffs: process.env.AGENTS_HANDOFFS ?? join(home, ".local/state/agents/handoffs"),
       codeHealth: (process.env.CODE_HEALTH_BIN ?? "code-health").split(" "),
       north: process.env.CODE_HEALTH_NORTH_BIN ?? "north",
-      account: process.env.CODE_HEALTH_ACCOUNT || undefined,
       template: join(import.meta.dir, "review-brief.md"),
       dryRun: argv.includes("--dry-run"),
       now: () => new Date(),

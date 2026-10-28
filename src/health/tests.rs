@@ -211,3 +211,71 @@ fn health_alerts_once_per_episode() {
     );
     assert_eq!(state.checks["pace"].since, Some(104));
 }
+
+fn shown(active: &str, result: &str, invocation: &str) -> Reading {
+    Reading::parse(&format!("LoadState=loaded\nActiveState={active}\nResult={result}\nInvocationID={invocation}\n"))
+}
+
+#[derive(Default)]
+struct Recorder {
+    open: Option<u64>,
+    created: Vec<(String, String)>,
+    commented: Vec<(u64, String)>,
+}
+
+impl units::Tracker for Recorder {
+    fn open(&self, _: &str) -> Result<Option<u64>, String> {
+        Ok(self.open)
+    }
+
+    fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
+        self.created.push((title.into(), body.into()));
+        Ok(())
+    }
+
+    fn comment(&mut self, number: u64, body: &str) -> Result<(), String> {
+        self.commented.push((number, body.into()));
+        Ok(())
+    }
+}
+
+#[test]
+fn health_unit_failing_twice_in_a_row_opens_one_issue_and_a_later_failure_updates_it() {
+    let unit = "agents-flow-stall.service";
+    let mut runs = BTreeMap::new();
+    assert!(units::judge(unit, Some(&shown("failed", "exit-code", "run-1")), &mut runs).is_ok());
+    assert!(units::judge(unit, Some(&shown("failed", "exit-code", "run-1")), &mut runs).is_ok());
+    let error = units::judge(unit, Some(&shown("failed", "exit-code", "run-2")), &mut runs).unwrap_err();
+    assert_eq!(error, "agents-flow-stall.service failed 2 runs in a row");
+    let mut tracker = Recorder::default();
+    units::report(&mut tracker, unit, &error).unwrap();
+    assert_eq!(tracker.created.len(), 1);
+    assert_eq!(tracker.created[0].0, "Harness unit agents-flow-stall.service keeps failing");
+    assert!(tracker.commented.is_empty());
+    assert!(units::judge(unit, Some(&shown("inactive", "success", "run-3")), &mut runs).is_ok());
+    tracker.open = Some(7);
+    units::report(&mut tracker, unit, &error).unwrap();
+    assert_eq!(tracker.created.len(), 1);
+    assert_eq!(tracker.commented, vec![(7, error)]);
+}
+
+#[test]
+fn health_code_health_review_unit_alerts_on_its_first_failure_and_a_success_between_failures_resets_the_count() {
+    let mut runs = BTreeMap::new();
+    assert!(units::judge("code-health-review.service", Some(&shown("failed", "exit-code", "run-1")), &mut runs).is_err());
+    let other = "lane-gc.service";
+    assert!(units::judge(other, Some(&shown("failed", "exit-code", "run-1")), &mut runs).is_ok());
+    assert!(units::judge(other, Some(&shown("inactive", "success", "run-2")), &mut runs).is_ok());
+    assert!(units::judge(other, Some(&shown("failed", "exit-code", "run-3")), &mut runs).is_ok());
+}
+
+#[test]
+fn health_unit_without_a_loaded_service_is_not_judged() {
+    let mut runs = BTreeMap::new();
+    let missing = Reading::parse("LoadState=not-found\nActiveState=inactive\n");
+    assert!(units::judge("x.service", Some(&missing), &mut runs).is_ok());
+    assert!(runs.is_empty());
+    assert!(units::judge("x.service", None, &mut runs).is_ok());
+    assert!(runs.is_empty());
+    assert_eq!(units::service_of("lane-gc.timer"), "lane-gc.service");
+}

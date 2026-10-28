@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};
+use units::{Gh, Reading, Run};
 
 type Verdict = Result<(), String>;
 type Output = Result<String, String>;
@@ -30,6 +31,8 @@ struct State {
     checks: BTreeMap<String, Episode>,
     runtime_mismatch_since: Option<u64>,
     land: Option<LandCache>,
+    #[serde(default)]
+    units: BTreeMap<String, Run>,
 }
 
 struct RuntimeInput {
@@ -330,9 +333,9 @@ fn live(dry_run: bool) -> Result<bool, String> {
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("current runtime: {e}"));
     let expected = command("git", &["rev-parse", "origin/main"], Some(&repo), 5);
-    let mut results = vec![
+    let mut results: Vec<(String, Verdict)> = vec![
         (
-            "runtime",
+            "runtime".into(),
             runtime(
                 RuntimeInput {
                     now,
@@ -344,14 +347,14 @@ fn live(dry_run: bool) -> Result<bool, String> {
             ),
         ),
         (
-            "pace",
+            "pace".into(),
             pace(FreshnessInput {
                 now,
                 text: read(&home.join(".local/state/agents/pace-control.json")),
             }),
         ),
         (
-            "usage",
+            "usage".into(),
             usage(FreshnessInput {
                 now,
                 text: newest_usage(&home.join(".local/state/threads/snapshot.db")),
@@ -359,18 +362,28 @@ fn live(dry_run: bool) -> Result<bool, String> {
         ),
     ];
     let config = read(&home.join("code/nixos-config/main/hosts/whiterabbit/configuration.nix"));
-    let active = config
+    let names = config
         .as_ref()
         .ok()
         .and_then(|text| timer_names(text).ok())
-        .unwrap_or_default()
-        .into_iter()
+        .unwrap_or_default();
+    let active = names
+        .iter()
         .map(|name| {
-            let result = command("systemctl", &["--user", "is-active", &name], None, 5);
-            (name, result)
+            let result = command("systemctl", &["--user", "is-active", name], None, 5);
+            (name.clone(), result)
         })
         .collect();
-    results.push(("timers", timers(TimersInput { config, active })));
+    results.push(("timers".into(), timers(TimersInput { config, active })));
+    for timer in &names {
+        let unit = units::service_of(timer);
+        let shown = command("systemctl", &["--user", "show", "-p", "LoadState,ActiveState,Result,InvocationID", &unit], None, 5);
+        let verdict = units::judge(&unit, shown.ok().map(|text| Reading::parse(&text)).as_ref(), &mut state.units);
+        let check = format!("unit {unit}");
+        if verdict.is_err() || state.checks.get(&check).is_some_and(|episode| episode.failing) {
+            results.push((check, verdict));
+        }
+    }
     let runs = ["north", "smashcraft"]
         .into_iter()
         .map(|repo| {
@@ -396,7 +409,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
             )
         })
         .collect();
-    results.push(("ci", ci(CiInput { runs })));
+    results.push(("ci".into(), ci(CiInput { runs })));
     let output = if land_due(now, &state) {
         Some(match std::env::var_os("XDG_RUNTIME_DIR") {
             Some(path) => landing_probe(&repo, &PathBuf::from(path)),
@@ -405,7 +418,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
     } else {
         None
     };
-    results.push(("land", land(LandInput { now, output }, &mut state)));
+    results.push(("land".into(), land(LandInput { now, output }, &mut state)));
     let mut alerts = Vec::new();
     for (check, result) in &results {
         println!(
@@ -413,14 +426,18 @@ fn live(dry_run: bool) -> Result<bool, String> {
             result.as_ref().err().map_or("ok", String::as_str)
         );
         if let Some(line) = transition(&mut state, check, result, now) {
-            alerts.push(line);
+            alerts.push((check.clone(), line));
         }
     }
     if !dry_run {
         save(&state_path, &state)?;
-        for line in alerts {
+        for (check, line) in alerts {
             if line.ends_with(": recovered") {
                 println!("{line}");
+            } else if let Some(unit) = check.strip_prefix("unit ")
+                && let Err(error) = units::report(&mut Gh, unit, &line)
+            {
+                eprintln!("health: issue: {error}");
             }
             for (program, args) in [
                 (
@@ -468,6 +485,8 @@ pub fn run(arguments: &[String]) -> ExitCode {
         }
     }
 }
+
+mod units;
 
 #[cfg(test)]
 mod tests;
