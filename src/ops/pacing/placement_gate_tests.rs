@@ -30,7 +30,7 @@ fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
 
 fn decide(text: &str, cfg: &DocumentMut, quota: &Value, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {
     let listed = roster(&[("a", None), ("b", None), ("c", None)]);
-    gate::decide(text, cfg, verdicts(quota, &listed), credit, machines, here)
+    gate::decide(text, cfg, verdicts(quota, &listed), credit, machines, here, false)
 }
 
 fn target(decision: &super::placement::gate::Decision) -> String {
@@ -181,7 +181,7 @@ fn placement_never_picks_a_label_logged_into_another_labels_account() {
         ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
     ]);
     let shared = roster(&[("a", Some("one")), ("b", Some("one")), ("c", Some("two"))]);
-    let decision = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &shared), (false, String::new()), &[], "here");
+    let decision = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &shared), (false, String::new()), &[], "here", false);
     assert_eq!(target(&decision), "claude:a", "{:?}", decision.verdicts);
     let b = decision.verdict("claude:b").unwrap();
     assert!(!b.available && b.line.ends_with(&shared.duplicates[0].to_string()), "{}", b.line);
@@ -258,10 +258,10 @@ fn placement_puts_a_label_owned_by_another_machine_only_on_that_machine() {
     machines[0].live = Some(0);
     machines[0].accounts = vec!["b".into()];
 
-    let there = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &owned), (false, String::new()), &machines, "laptop");
+    let there = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &owned), (false, String::new()), &machines, "laptop", false);
     assert_eq!((there.machine.as_ref().map(|m| m.name.as_str()), target(&there).as_str()), (Some("gex45"), "claude:b"), "{:?}", there.machine_lines);
 
-    let here = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &owned), (false, String::new()), &[], "laptop");
+    let here = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &owned), (false, String::new()), &[], "laptop", false);
     assert_eq!((here.machine.as_ref(), target(&here).as_str()), (None, "claude:a"), "{:?}", here.machine_lines);
     assert!(here.machine_lines.contains(&"claude:b runs only on gex45; claude:a here".to_owned()), "{:?}", here.machine_lines);
 }
@@ -286,4 +286,19 @@ fn the_probe_runs_on_an_account_whose_burn_refuses_a_launch_but_not_one_whose_we
     let quota = gate(&[("claude:a", week_out.clone()), ("claude:b", week_out), ("claude:c", burning)]);
     assert_eq!(gate::roomiest_here(&quota, &listed), Some("c".to_owned()));
     assert!(!verdicts(&quota, &listed).iter().any(|verdict| verdict.available), "a launch is still refused");
+}
+
+#[test]
+fn a_box_without_a_surface_leaves_a_host_in_game_reserve_for_one_serving_its_repositorys_native_and_private_work() {
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native:smashcraft\", \"private:smashcraft\"]\n[hosts.laptop]\nserves = [\"private\", \"native\"]\n".parse().unwrap();
+    let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let mut machines = gate::machines(&cfg);
+    machines[0].live = Some(0);
+    machines[0].accounts = vec!["c".into()];
+    let listed = roster(&[("c", None)]);
+    let placed = |text: &str, gaming: bool| gate::summary(&gate::decide(text, &cfg, verdicts(&quota, &listed), (false, "cloud credit: spent".to_owned()), &machines, "laptop", gaming));
+    let smashcraft = "Item: smashcraft#9 Frostbolt startup\n";
+    assert_eq!(placed(smashcraft, false), "target laptop claude:c (no Surface: declared, so local)");
+    assert_eq!(placed(smashcraft, true), "target gex45 claude:c (no Surface: declared, so local)");
+    assert_eq!(placed(UNDECLARED, true), "target laptop claude:c (no Surface: declared, so local)");
 }

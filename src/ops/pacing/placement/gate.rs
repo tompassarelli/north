@@ -6,6 +6,7 @@
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
 use super::{credit, facets, field, local, resident, signed_in, strings};
+use crate::capacity::agent_load;
 use crate::fleet::model::ProviderName;
 use crate::pace::exhaustion;
 use crate::fleet::roster::{Roster, Standing};
@@ -14,6 +15,7 @@ use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
 
 const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "smashcraft"];
+const GAMING_NEEDS: [&str; 2] = ["native", "private"];
 const LOCAL_NEEDS: [&str; 12] = [
     "warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop",
 ];
@@ -305,9 +307,9 @@ fn covers(serves: &[String], need: &str, repo: &str) -> bool {
 
 /// The first machine that serves every local need of the box and is below its cap, with one line per
 /// machine, and the need here does not serve with why no host serves it.
-fn machine_for(text: &str, machines: &[Machine], here_serves: &[String]) -> (Option<Machine>, Vec<String>, Option<(String, String)>) {
+fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool) -> (Option<Machine>, Vec<String>, Option<(String, String)>) {
     let declared = !words(text, "Surface").is_empty();
-    let needs = local_needs(text);
+    let needs = if declared || !here_gaming { local_needs(text) } else { GAMING_NEEDS.iter().map(|need| (*need).to_owned()).collect() };
     let repo = repository(text);
     let missing = |serves: &[String]| needs.iter().find(|need| !covers(serves, need, &repo));
     let mut chosen = None;
@@ -315,7 +317,7 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String]) -> (Opt
         .iter()
         .map(|machine| {
             let name = &machine.name;
-            if !declared {
+            if !declared && !here_gaming {
                 return format!("{name} skipped: no Surface: declared");
             }
             if let Some(need) = missing(&machine.serves) {
@@ -366,10 +368,10 @@ fn unavailable(account: &str, reason: String) -> Verdict {
     Verdict { account: account.into(), available: false, headroom: 0.0, line: format!("{account} unavailable: {reason}"), owners: Vec::new() }
 }
 
-pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {
+pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str, here_gaming: bool) -> Decision {
     let (code_only, surface) = surface(text, cfg);
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
-    let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves);
+    let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves, here_gaming);
     let mut decision = Decision {
         target: Target::Held(String::new()),
         code_only,
@@ -421,12 +423,16 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Rost
         .unwrap_or_else(storage::now);
     let gate = live_gate();
     let machines = probed(&cfg, fleet_load);
-    let mut decision = decide(text, &cfg, verdicts(&gate, roster), credit(&cfg, at), &machines, &local());
+    let mut decision = decide(text, &cfg, verdicts(&gate, roster), credit(&cfg, at), &machines, &local(), here_in_game_reserve());
     if let Some(name) = named {
         let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
         decision.run_on(machine);
     }
     Ok(decision)
+}
+
+pub(crate) fn here_in_game_reserve() -> bool {
+    agent_load::game_reserve_on(&agent_load::Host::from_env())
 }
 
 /// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet
