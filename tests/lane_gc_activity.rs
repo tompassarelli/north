@@ -3,8 +3,14 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, SystemTime};
 
-fn git(directory: &Path, args: &[&str]) {
-    let status = Command::new("git").args(args).current_dir(directory).status().unwrap();
+fn git(config: &Path, directory: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(directory)
+        .env("GIT_CONFIG_GLOBAL", config)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .unwrap();
     assert!(status.success(), "git {args:?}");
 }
 
@@ -33,21 +39,22 @@ fn lane_gc(scratch: &Path, now: SystemTime) -> Output {
 fn a_merged_detached_lane_retires_although_a_branch_was_created_in_the_repo_within_the_idle_window() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
-    fs::write(root.join("gitconfig"), "[user]\n\tname = fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n").unwrap();
+    let config = root.join("gitconfig");
+    fs::write(&config, "[user]\n\tname = fixture\n\temail = fixture@example.invalid\n[init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n").unwrap();
     let origin = root.join("origin.git");
     let main = root.join("code/north/main");
     fs::create_dir_all(&origin).unwrap();
     fs::create_dir_all(&main).unwrap();
     fs::create_dir_all(root.join("code/north/worktrees")).unwrap();
-    git(&origin, &["init", "-q", "--bare"]);
-    git(&main, &["init", "-q"]);
+    git(&config, &origin, &["init", "-q", "--bare"]);
+    git(&config, &main, &["init", "-q"]);
     fs::write(main.join("readme"), "main\n").unwrap();
-    git(&main, &["add", "readme"]);
-    git(&main, &["commit", "-qm", "main"]);
-    git(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
-    git(&main, &["push", "-q", "origin", "main"]);
-    git(&main, &["fetch", "-q", "origin"]);
-    git(&main, &["worktree", "add", "-q", "--detach", root.join("code/north/worktrees/base").to_str().unwrap(), "main"]);
+    git(&config, &main, &["add", "readme"]);
+    git(&config, &main, &["commit", "-qm", "main"]);
+    git(&config, &main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    git(&config, &main, &["push", "-q", "origin", "main"]);
+    git(&config, &main, &["fetch", "-q", "origin"]);
+    git(&config, &main, &["worktree", "add", "-q", "--detach", root.join("code/north/worktrees/base").to_str().unwrap(), "main"]);
     let now = SystemTime::now() + Duration::from_secs(30 * 3600);
     File::open(main.join(".git/logs/refs/heads")).unwrap().set_modified(now - Duration::from_secs(1800)).unwrap();
 
