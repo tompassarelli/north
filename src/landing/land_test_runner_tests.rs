@@ -46,3 +46,14 @@ fn a_red_test_fails_the_run_while_every_other_test_still_runs_and_reports_its_ow
     assert!(out.contains(&format!("land check: {green}\ngreen ran under python\nland check: {green} passed")), "{out}");
     assert!(out.contains(&format!("land check: {later}\nlater ran\nland check: {later} passed")), "{out}");
 }
+
+#[test]
+fn a_built_test_executable_without_an_extension_runs_as_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let built = script(dir.path(), "units-0123abcd", "#!/bin/sh\necho ran as $0\nexit 4\n");
+    fs::set_permissions(&built, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut out = Vec::new();
+    assert_eq!(run_all(std::slice::from_ref(&built), NonZeroUsize::MIN, &mut out), vec![built.clone()]);
+    let out = String::from_utf8(out).unwrap();
+    assert!(out.contains(&format!("land check: {built}\nran as {built}\nland check: {built} exited 4 after ")), "{out}");
+}

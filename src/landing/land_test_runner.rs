@@ -1,5 +1,6 @@
 use std::io::{self, Read, Seek, Write};
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -80,14 +81,14 @@ fn run_one(test: &str) -> Outcome {
 }
 
 fn execute(test: &str) -> io::Result<(Option<i32>, Vec<u8>)> {
-    let interpreter = match test.rsplit_once('.') {
-        Some((_, "py")) => "python3",
-        Some((_, "sh")) => "bash",
-        _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "a land-check test is a .sh or .py file")),
+    let mut command = match Path::new(test).extension().and_then(|extension| extension.to_str()) {
+        Some("py") => interpreted("python3", test),
+        Some("sh") => interpreted("bash", test),
+        None => Command::new(test),
+        Some(_) => return Err(io::Error::new(io::ErrorKind::InvalidInput, "a land-check test is a .sh or .py file or a built test executable")),
     };
     let mut log = tempfile::tempfile()?;
-    let status = Command::new(interpreter)
-        .arg(test)
+    let status = command
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log.try_clone()?)
@@ -96,6 +97,12 @@ fn execute(test: &str) -> io::Result<(Option<i32>, Vec<u8>)> {
     log.rewind()?;
     log.read_to_end(&mut output)?;
     Ok((status.code(), output))
+}
+
+fn interpreted(interpreter: &str, test: &str) -> Command {
+    let mut command = Command::new(interpreter);
+    command.arg(test);
+    command
 }
 
 fn report(outcome: &Outcome, out: &mut impl Write) {

@@ -68,3 +68,9 @@ transcripts:
 Fix: `north land-tests` runs the selected shell and Python tests side by side, up to the CPUs
 the land check's capacity lease grants, and runs every test after a red one, so one run names
 every failure instead of the first.
+
+Second fix: `cargo test` ran its 65 test binaries one after another, 223 s of a 277 s run
+on a cold build. `harness/scripts/cargo-tests.sh` builds them with `cargo test --no-run` and
+hands the binaries to `north land-tests`, so they run side by side. On the same head and a
+warm build, the land check went from 124 s to 41 s; the unit-test binary, 29 s, is now the
+floor.
