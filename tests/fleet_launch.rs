@@ -56,6 +56,7 @@ fn north_as(root: &Path, host: &str, sender: &[(&str, &str)], args: &[&str]) -> 
         .env("PLACEMENT_HOSTS", root.join("placement-hosts.json"))
         .env("FAKE_CLAUDE_HOOK_MS", "1500")
         .env("FAKE_CLAUDE_SIGNED_OUT_MARK", root.join("signed-out"))
+        .env("FAKE_CLAUDE_STALL_MARK", root.join("stalled"))
         .env("NORTH_FLEET_SESSION", "")
         .env_remove("NORTH_FLEET_TEST")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -511,4 +512,33 @@ fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_an
     assert!(answered.status.success(), "{}", text(&answered.stderr));
     assert!(text(&answered.stdout).contains("closed by tom: yes"), "{}", text(&answered.stdout));
     until("the answer in the asking session's transcript", || text(&north(&hosts.far(), &["fleet", "show", "kid"]).stdout).contains("Tom answered: yes"));
+}
+
+#[test]
+fn a_prompt_queued_to_a_finished_worker_just_before_its_host_stops_runs_on_the_restarted_host_without_a_send_or_revive() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "done");
+    assert!(launch_named(root, "boss", "none").status.success());
+    assert!(launch_named(root, "kid", "boss").status.success());
+    let session = root.join(".local/state/north/fleet/kid");
+    let stream = || fs::read_to_string(session.join("g1/stream.jsonl")).unwrap_or_default();
+    until("the worker's final report", || stream().contains("Done: fake report"));
+
+    let first_host = fs::read_to_string(session.join("host.pid")).unwrap();
+    let sent = north(root, &["fleet", "send", "kid", "stall this prompt, then run it on the next host"]);
+    let unit = fs::read_to_string(session.join("host.scope")).unwrap();
+    let stopped = Command::new(root.join("bin/systemctl")).args(["--user", "stop", unit.trim()]).env("FLEET_LAUNCH_FIXTURE", root).status().unwrap();
+
+    let ran = std::panic::catch_unwind(|| until("the restarted worker to run the prompt", || stream().matches("Done: fake report").count() >= 2));
+    let restarted = fs::read_to_string(session.join("host.pid")).unwrap();
+    let record = fs::read_to_string(session.join("session.json")).unwrap();
+    for name in ["kid", "boss"] {
+        north(root, &["fleet", "forget", name]);
+    }
+
+    assert!(sent.status.success() && stopped.success(), "{}", text(&sent.stderr));
+    assert!(ran.is_ok(), "the prompt never ran after the host stopped");
+    assert_ne!(first_host, restarted, "a new host replaced the stopped one");
+    assert!(record.contains(r#""stopped": false"#), "{record}");
 }

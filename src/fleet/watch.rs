@@ -19,6 +19,7 @@ use super::receipts::{Courier, Report, deliver_report, is_final};
 use super::records::{find_session, host_sessions, parents_live, write_record};
 use super::runtime::{Runtime, now_ms};
 use super::turns::{RunRecord, Turn, TurnSignal, Turns};
+use super::unaccepted::Unaccepted;
 
 const KEPT_LINES: usize = 5;
 
@@ -35,6 +36,7 @@ pub struct TurnWatch {
     finished: HashMap<String, bool>,
     rolled_over: bool,
     nudges: HashMap<String, Option<Nudge>>,
+    unaccepted: Unaccepted,
 }
 
 struct Nudge {
@@ -67,6 +69,7 @@ impl View {
 
 impl TurnWatch {
     pub fn new(runtime: Arc<dyn Runtime>, ledger: Arc<dyn WatchBooks>, courier: Arc<dyn Courier>, claims: Arc<dyn Claims>, root: PathBuf, host_dir: PathBuf) -> Self {
+        let unaccepted = Unaccepted::inherit(&host_dir);
         Self {
             runtime,
             ledger,
@@ -80,6 +83,7 @@ impl TurnWatch {
             finished: HashMap::new(),
             rolled_over: false,
             nudges: HashMap::new(),
+            unaccepted,
         }
     }
 
@@ -195,6 +199,9 @@ impl FrameWatch for TurnWatch {
         if let Some(question) = self.runtime.question(&frame) {
             self.relay(question);
         }
+        if let Some(id) = self.runtime.accepted_prompt(&frame) {
+            self.unaccepted.accepted(&id);
+        }
         let signals = self.runtime.signals(&frame);
         for signal in &signals {
             self.views.entry(signal.conversation().to_owned()).or_insert_with(|| View::of(signal.conversation()));
@@ -207,6 +214,13 @@ impl FrameWatch for TurnWatch {
             if let Some(turn) = self.turns.observe(signal, now_ms()) {
                 self.record(turn);
             }
+        }
+    }
+
+    fn sent(&mut self, line: &str) {
+        let Ok(frame) = serde_json::from_str::<Value>(line) else { return };
+        if let Some(id) = self.runtime.sent_prompt(&frame) {
+            self.unaccepted.sent(id, line.trim_end().to_owned());
         }
     }
 
@@ -233,7 +247,7 @@ impl FrameWatch for TurnWatch {
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
         }
-        if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) {
+        if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.is_empty() {
             self.retire();
         }
         for record in host_sessions(&self.root, &self.host_dir) {

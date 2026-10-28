@@ -31,6 +31,24 @@ pub(super) fn signals(frame: &Value) -> Vec<TurnSignal> {
     }
 }
 
+// Claude Code never echoes a slash command back, so only a plain prompt can be waited on.
+pub(super) fn sent_prompt(frame: &Value) -> Option<String> {
+    let text = frame["message"]["content"].as_str()?;
+    if frame["type"] != "user" || text.starts_with('/') {
+        return None;
+    }
+    frame["uuid"].as_str().map(str::to_owned)
+}
+
+pub(super) fn accepted_prompt(frame: &Value) -> Option<String> {
+    let id = match frame["type"].as_str()? {
+        "user" if frame["isReplay"] == true => &frame["uuid"],
+        "command_lifecycle" if frame["state"] == "cancelled" => &frame["command_uuid"],
+        _ => return None,
+    };
+    id.as_str().map(str::to_owned)
+}
+
 fn call_signal(frame: &Value, conversation: &str) -> Option<TurnSignal> {
     let message = &frame["message"];
     let usage = &message["usage"];

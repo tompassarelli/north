@@ -141,6 +141,14 @@ impl Runtime for Claude {
     fn compact(&self) -> Option<String> {
         Some(encode_user_message(&new_uuid().ok()?, "/compact"))
     }
+
+    fn sent_prompt(&self, frame: &Value) -> Option<String> {
+        turns::sent_prompt(frame)
+    }
+
+    fn accepted_prompt(&self, frame: &Value) -> Option<String> {
+        turns::accepted_prompt(frame)
+    }
 }
 
 fn observe_system(frame: &Value, transcript: &mut Transcript) {

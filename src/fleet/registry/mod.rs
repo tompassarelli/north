@@ -13,12 +13,13 @@ use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, Effort, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
 use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
-use super::records::{ARCHIVE, PLACED, read_record, write_record};
+use super::records::{PLACED, read_record, write_record};
 use super::remote;
 use super::roster::Roster;
 use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
+use super::unaccepted::Unaccepted;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
 mod depth;
@@ -27,6 +28,8 @@ mod first_turn;
 mod follower;
 mod gate_commands;
 mod home;
+mod start_lock;
+mod stopping;
 pub use home::{orders_here, recorded_here};
 mod letters;
 mod parents;
@@ -163,6 +166,12 @@ impl Fleet {
 
     /// Revive with a fresh placement override note and effort, which the restarted record keeps.
     pub fn revive_placed(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {
+        self.record(name)?;
+        let _start = self.start_lock(name)?;
+        self.revive_held(name, system_prompt, placement, effort)
+    }
+
+    fn revive_held(&self, name: &str, system_prompt: Option<PathBuf>, placement: Option<String>, effort: Option<Effort>) -> NorthResult<SessionRecord> {
         let mut record = self.record(name)?;
         record.effort = efforts::revived(&record, self.runtime(&record)?.as_ref(), session_running(&record), effort)?;
         if system_prompt.is_some() {
@@ -205,35 +214,6 @@ impl Fleet {
         let runtime = self.runtime(&record)?;
         let transcript = self.recent(runtime.as_ref(), &record)?;
         Host::new(record.host_dir.clone()).send(&runtime.interrupt(&transcript)?)
-    }
-
-    pub fn stop(&self, name: &str) -> NorthResult<()> {
-        let mut record = self.record(name)?;
-        let host = Host::new(record.host_dir.clone());
-        if session_running(&record) {
-            let runtime = self.runtime(&record)?;
-            let transcript = self.recent(runtime.as_ref(), &record)?;
-            let _ = host.send(&runtime.close(&transcript));
-        }
-        let terminate = !self.host_in_use(&record)?;
-        let was_stopped = record.stopped;
-        record.stopped = true;
-        write_record(&self.root.join(name), &record)?;
-        if terminate && let Err(error) = host.terminate() {
-            record.stopped = was_stopped;
-            write_record(&self.root.join(name), &record)?;
-            return Err(error);
-        }
-        claims::release_for(self.claims.as_ref(), &record);
-        Ok(())
-    }
-
-    pub fn forget(&self, name: &str) -> NorthResult<()> {
-        self.stop(name)?;
-        let archive = self.root.join(ARCHIVE);
-        fs::create_dir_all(&archive)?;
-        fs::rename(self.root.join(name), archive.join(format!("{name}-{}", now_ms())))?;
-        Ok(())
     }
 
     pub fn observe_landings(&self) -> NorthResult<()> {
@@ -316,7 +296,8 @@ impl Fleet {
         let spec = remote::placed(runtime.host(account, &request, opening, &instructions)?, record)?;
         let host_dir = if spec.shared { self.root.join(HOSTS).join(&spec.key) } else { self.root.join(&record.name) };
         let host = Host::new(host_dir.clone());
-        if !host.running() {
+        let started = !host.running();
+        if started {
             host.start(&spec, &record.provider, idle_exit(record))?;
             host.send(&runtime.handshake())?;
         }
@@ -335,6 +316,9 @@ impl Fleet {
             host.send(&frames)?;
             record.conversation = Some(await_conversation(runtime.as_ref(), record, opened_from)?);
             write_record(&self.root.join(&record.name), record)?;
+        }
+        if started {
+            host.send(&Unaccepted::to_replay(&host_dir))?;
         }
         remote::leave_record(record, &self.root.join(PLACED));
         claims::hold_for(self.claims.as_ref(), record);

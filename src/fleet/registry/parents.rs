@@ -10,6 +10,7 @@ use super::super::model::{Delivery, SessionRecord};
 use super::super::receipts::{Courier, HostDeath, deliver_death, still_watched};
 use super::super::runtime::{Runtime, binary, now_ms};
 use super::super::turns::Turns;
+use super::super::unaccepted::Unaccepted;
 use super::Fleet;
 
 const WATCHDOG_POLL: Duration = Duration::from_secs(1);
@@ -26,6 +27,17 @@ impl Fleet {
         let death = HostDeath { child: &child, host_pid, mid_task: mid_task(self, runtime.as_ref(), &child)?, lines: &lines };
         if deliver_death(self.ledger.as_ref(), &Inline(self), &death, now_ms())? {
             Host::new(child.host_dir.clone()).terminate()?;
+        } else {
+            self.resume_unaccepted(name, host_pid)?;
+        }
+        Ok(())
+    }
+
+    fn resume_unaccepted(&self, name: &str, dead_host: u32) -> NorthResult<()> {
+        let _start = self.start_lock(name)?;
+        let Ok(child) = self.record(name) else { return Ok(()) };
+        if still_watched(Some(&child), dead_host) && Unaccepted::awaits_a_host(&child.host_dir) {
+            self.revive_held(name, None, None, None)?;
         }
         Ok(())
     }
@@ -41,7 +53,7 @@ impl Fleet {
     }
 
     pub(super) fn watch_over(&self, record: &SessionRecord) -> NorthResult<()> {
-        if record.parent.is_none() {
+        if record.parent.is_none() && record.task_ref.is_none() {
             return Ok(());
         }
         let mut watchdog = Command::new(binary("setsid"))

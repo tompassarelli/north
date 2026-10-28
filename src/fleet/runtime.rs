@@ -80,6 +80,12 @@ pub trait Runtime: Send + Sync {
     fn compact(&self) -> Option<String> {
         None
     }
+    fn sent_prompt(&self, _frame: &Value) -> Option<String> {
+        None
+    }
+    fn accepted_prompt(&self, _frame: &Value) -> Option<String> {
+        None
+    }
 }
 
 

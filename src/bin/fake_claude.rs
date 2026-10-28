@@ -8,6 +8,7 @@ const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
 const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|slow-hooks|signed-out-once|oauth-expired [ARG...]";
+const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
 const SIGNED_OUT: &str = "Not logged in · Please run /login";
 const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could not be refreshed";
@@ -79,6 +80,9 @@ impl<W: Write> Fake<W> {
 
     fn user(&mut self, uuid: &str, message: Value) -> io::Result<bool> {
         self.lifecycle(uuid, "queued")?;
+        if message.to_string().contains(STALL) && stall_once() {
+            return Ok(false);
+        }
         if self.trace == Trace::SignedOutOnce && signed_out_first() {
             return self.refuse(uuid, message, SIGNED_OUT);
         }
@@ -219,6 +223,10 @@ impl<W: Write> Fake<W> {
         writeln!(self.out, "{frame}")?;
         self.out.flush()
     }
+}
+
+fn stall_once() -> bool {
+    env::var_os("FAKE_CLAUDE_STALL_MARK").is_some_and(|mark| std::fs::OpenOptions::new().write(true).create_new(true).open(mark).is_ok())
 }
 
 fn signed_out_first() -> bool {

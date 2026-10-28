@@ -173,6 +173,7 @@ pub enum Rest {
 
 pub trait FrameWatch: Send {
     fn line(&mut self, line: &[u8]);
+    fn sent(&mut self, line: &str);
     fn in_flight(&self) -> bool;
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest;
     fn close(&mut self);
@@ -195,6 +196,10 @@ impl Watcher {
 
     fn lines(&self, bytes: &[u8]) {
         self.with((), |watch| bytes.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).for_each(|line| watch.line(line)));
+    }
+
+    fn sent(&self, line: &str) {
+        self.with((), |watch| watch.sent(line));
     }
 
     fn output_keeps_awake(&self) -> bool {
@@ -249,7 +254,7 @@ impl SessionHost {
         Ok(Self {
             stdin: StdinQueue { control, user, next: Arc::default(), activity: activity.clone() },
             child,
-            writer: tokio::spawn(feed_stdin(input, priority, lines)),
+            writer: tokio::spawn(feed_stdin(input, priority, lines, watcher.clone())),
             stdout: tokio::spawn(copy_lines(output, stream, activity, watcher.clone())),
             stderr: tokio::spawn(copy_rotating(errors, log, STDERR_ROTATE_BYTES)),
             server: None,
@@ -310,8 +315,8 @@ pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Op
     let socket = config.socket_path()?;
     fs::create_dir_all(&config.state_dir)?;
     fs::write(config.state_dir.join("host.pid"), std::process::id().to_string())?;
-    let listener = bind(&socket)?;
     let watcher = watch_for(&config).map(Watcher::new).unwrap_or_default();
+    let listener = bind(&socket)?;
     let mut host = SessionHost::spawn_watched(&config, watcher)?;
     host.serve(listener);
     host.end_with_host_signal();
@@ -432,6 +437,7 @@ async fn feed_stdin(
     mut input: ChildStdin,
     mut priority: mpsc::Receiver<Frame>,
     mut lines: mpsc::Receiver<Frame>,
+    watcher: Watcher,
 ) -> ChildStdin {
     loop {
         let frame = tokio::select! {
@@ -440,6 +446,7 @@ async fn feed_stdin(
             Some(frame) = lines.recv() => frame,
             else => break,
         };
+        watcher.sent(&frame.line);
         if write_frame(&mut input, frame).await.is_err() {
             break;
         }
