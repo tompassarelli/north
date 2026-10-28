@@ -101,3 +101,16 @@ impl Shown {
         provider != "claude" || self.hosted.is_empty() || account.is_some_and(|account| self.hosted.contains(account))
     }
 }
+
+pub(crate) fn ledger_path(home: &Path, explicit: Option<std::ffi::OsString>) -> PathBuf {
+    store::Source::locate(home, explicit).path().to_owned()
+}
+
+pub(crate) fn open_ledger(home: &Path, explicit: Option<std::ffi::OsString>) -> Result<Connection, String> {
+    store::open(&store::Source::locate(home, explicit), &crate::threads_client::refresh_mirrored_snapshot)
+}
+
+pub(crate) fn json_readings(db: &Connection, now: Timestamp) -> Result<Vec<serde_json::Value>, String> {
+    let text = report(db, &crate::pace::target::policy_path(), now)?;
+    serde_json::from_str(&text).map_err(|error| format!("unreadable usage readings: {error}"))
+}

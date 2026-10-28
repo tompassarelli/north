@@ -1,6 +1,10 @@
 mod busy;
+mod lines;
 pub(crate) mod plan;
+mod replay;
 pub(crate) mod script;
+mod status;
+mod tiers;
 #[cfg(test)]
 mod tests;
 

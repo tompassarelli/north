@@ -106,7 +106,7 @@ may_use = ["threads", "platform", "foundation"]
 name = "ops"
 paths = ["src/ops/**", "src/health.rs", "src/health/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, todo lint, runtime update."
-may_use = ["ledger", "fleet", "threads", "capacity", "domain", "shell", "platform", "foundation"]
+may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation"]
 
 [[module]]
 name = "usage"

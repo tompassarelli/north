@@ -23,6 +23,10 @@ pub(super) struct Source {
 pub(super) struct Row(Vec<Value>);
 
 impl Source {
+    pub(super) fn path(&self) -> &Path {
+        &self.path
+    }
+
     pub(super) fn locate(home: &Path, explicit: Option<OsString>) -> Self {
         let snapshot = explicit.is_none() && home.join(".config/threads/remote").exists();
         let path = explicit.map_or_else(

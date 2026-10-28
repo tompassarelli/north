@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use crate::error::NorthResult;
 
-use super::{USAGE, script};
+use super::status::{self, Options};
+use super::{USAGE, replay, script};
 
 pub(crate) struct Ports<'a> {
     pub harness: &'a Path,
@@ -40,6 +41,23 @@ pub(crate) fn run(arguments: &[String], ports: &Ports) -> u8 {
             script::run(ports.harness, "project_plan.py", arguments)
         }
         _ => {
+            status::update_status();
+            run_status(arguments, ports)
+        }
+    }
+}
+
+fn run_status(arguments: &[String], ports: &Ports) -> u8 {
+    match Options::parse(arguments) {
+        Some(Options { at: Some(scenario), json, .. }) => replay::run(&scenario, json),
+        Some(options) => match orchestration(ports) {
+            Ok(config) => status::run(&options, ports.harness, &config),
+            Err(error) => {
+                eprintln!("agents plan: {}", error.user_message());
+                2
+            }
+        },
+        None => {
             eprintln!("{USAGE}");
             2
         }

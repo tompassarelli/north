@@ -1,13 +1,10 @@
-"""Account and project lines for `agents plan`: build the router's ctx from orchestration.toml, the catalog's
-[accounts.*] billing and the live usage snapshot (or a scenario file), then let `north pace` decide."""
+"""Build the router's ctx from orchestration.toml, the catalog's [accounts.*] billing and the live usage snapshot for `agents usage` and project_score; `north pace` decides."""
 
-import math
 import re
 import sqlite3
 from calibration import open_ledger
 from datetime import datetime, timedelta, timezone
 
-import routing
 from defaults import DEFAULTS
 from run_outcome import succeeded, unjudged
 
@@ -235,48 +232,6 @@ def promo_lines(catalog, db, now, days=7):
                    f"{'confirmed' if a.get('promo_end_confirmed') else 'unconfirmed'}); at USD {a['monthly_price']}/month it is "
                    f"{cost_share:.1f}% of plan spend and ran {run_share:.1f}% of runs in 30 days ({runs} of {total}): {verdict}; keep it at full price?")
     return out
-
-
-def project_line(name, p):
-    target = p.get("target")
-    if target is None:
-        urgency = "no target"
-    elif "u" in p and not p.get("unmeasured"):
-        urgency = f"target {target}, urgency {p['u']:.2f}"
-    else:
-        urgency = f"target {target}, urgency unmeasured"
-    share = f", share {p['share']}%" if "share" in p else ""
-    return f"project {name}: priority {p.get('priority', '-')}{share}, {urgency}"
-
-
-def measured_lines(ctx):
-    out = []
-    for t in ctx["tiers"]:
-        rates = sorted((c.split("|", 1)[1], r) for c, r in ctx.get("success", {}).items() if c.split("|", 1)[0] == t["key"])
-        if "runs" not in t and not rates and not t.get("successor"):
-            continue
-        line = f"measured {t['key']}: {t.get('runs', 'unknown')} runs"
-        line += "; success " + ", ".join(f"{c} {r}%" for c, r in rates) if rates else f"; no category with {MIN_RUNS} runs"
-        s = t.get("successor")
-        if s:
-            line += f"; successor {s.get('model', 'unnamed')} in {s['eta_days']:.1f} days at p {s['p']:.2f}"
-        out.append(line)
-    return out
-
-
-def lines(ctx, result=None):
-    shown = routing.ask("plan_lines", ctx=ctx, result=result)
-    projects = sorted(ctx["projects"].items(), key=lambda kv: kv[1].get("priority", math.inf))
-    return shown["head"] + [project_line(n, p) for n, p in projects] + measured_lines(ctx) + shown["tail"]
-
-
-def replay(ctx):
-    result = json_plan(ctx)
-    return lines(ctx, result), routing.ask("divergence", result=result, expect=ctx.get("expect", {}))
-
-
-def json_plan(ctx):
-    return routing.ask("plan", ctx=ctx)
 
 
 def open_db(path):

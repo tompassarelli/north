@@ -28,7 +28,6 @@ ledger_context -> usage
 news -> watch_digest
 plan_usage -> calibration
 plan_usage -> defaults
-plan_usage -> routing
 plan_usage -> run_outcome
 presence -> defaults
 project_plan -> calibration
