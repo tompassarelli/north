@@ -1,3 +1,7 @@
+use std::path::Path;
+
+use crate::platform::git;
+
 pub(crate) const USAGE: &str = include_str!("safe_push_usage.txt");
 
 const DESTRUCTIVE: [&str; 6] = ["-f", "--force", "--force-with-lease", "--mirror", "--delete", "--prune"];
@@ -153,6 +157,23 @@ pub(crate) fn source(current: &str, default: &str) -> Result<(), String> {
         "safe-push: non-main branch {current}: publish with safe-push --to main (one-branch-main doctrine)\n\
          safe-push: pushing branch names to origin is disabled\n"
     ))
+}
+
+pub(crate) fn one_branch_main(repository: &Path) -> Result<(), String> {
+    let Some(head) = symbolic_ref(repository, "HEAD") else { return Ok(()) };
+    let Some(current) = head.strip_prefix("refs/heads/") else { return Ok(()) };
+    source(current, &default_branch(repository))
+}
+
+pub(crate) fn default_branch(repository: &Path) -> String {
+    let origin_head = symbolic_ref(repository, "refs/remotes/origin/HEAD").unwrap_or_default();
+    let default = origin_head.strip_prefix("refs/remotes/origin/").unwrap_or(&origin_head);
+    if default.is_empty() { "main".to_owned() } else { default.to_owned() }
+}
+
+fn symbolic_ref(repository: &Path, name: &str) -> Option<String> {
+    let output = git::run(repository, &["symbolic-ref", "--quiet", name]).ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_owned())
 }
 
 pub(crate) fn snapshot(observed: &str, destination_ref: &str) -> Result<Snapshot, String> {

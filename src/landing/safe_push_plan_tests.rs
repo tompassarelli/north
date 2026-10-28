@@ -49,7 +49,7 @@ struct Observed {
 fn shell_functions() -> String {
     let script = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push")).unwrap();
     let mut functions = String::new();
-    for name in ["durable_harness_paths", "usage", "argument_error", "plan_push"] {
+    for name in ["durable_harness_paths", "usage", "argument_error", "plan_push", "default_branch", "enforce_one_branch_main"] {
         let start = format!("{name}() {{");
         let body: Vec<&str> = script.lines().skip_while(|line| *line != start).collect();
         let end = body.iter().position(|line| *line == "}").unwrap_or_else(|| panic!("bin/safe-push lost {name}"));
@@ -59,10 +59,15 @@ fn shell_functions() -> String {
 }
 
 fn shell(body: &str, arguments: &[&str]) -> Observed {
+    shell_in(Path::new("."), body, arguments)
+}
+
+fn shell_in(directory: &Path, body: &str, arguments: &[&str]) -> Observed {
     let output = Command::new("bash")
         .arg("-c")
         .arg(format!("set -euo pipefail\n{}{body}", shell_functions()))
         .arg("safe-push")
+        .current_dir(directory)
         .args(arguments)
         .output()
         .unwrap();
@@ -221,4 +226,49 @@ fn safe_push_durable_harness_paths_match_the_shell_list() {
         assert_same(repository, &shell("durable_harness_paths \"$1\"\n", &[repository]), &new);
     }
     assert!(durable_harness_paths("nixos-config").contains(&"modules/worker-ledger/".to_owned()));
+}
+
+fn git(repository: &Path, arguments: &[&str]) {
+    let status = Command::new("git").arg("-C").arg(repository).args(arguments).status().unwrap();
+    assert!(status.success(), "git {arguments:?} failed");
+}
+
+fn branch_fixture(scratch: &Path) -> std::path::PathBuf {
+    let remote = scratch.join("remote.git");
+    let repository = scratch.join("repo");
+    git(scratch, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    git(scratch, &["init", "-q", "-b", "main", repository.to_str().unwrap()]);
+    git(&repository, &["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "initial"]);
+    git(&repository, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(&repository, &["push", "-q", "-u", "origin", "main"]);
+    repository
+}
+
+const ONE_BRANCH_MAIN_STEPS: [(&str, &[&str], bool); 6] = [
+    ("main without origin HEAD", &["status", "--short"], true),
+    ("new branch with no upstream", &["switch", "-q", "-c", "topic"], false),
+    ("branch inheriting origin/main", &["branch", "-q", "--set-upstream-to=origin/main", "topic"], false),
+    ("detached HEAD", &["switch", "-q", "--detach"], true),
+    ("detached HEAD after origin HEAD moves", &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/topic"], true),
+    ("main when origin HEAD names another", &["switch", "-q", "main"], false),
+];
+
+#[test]
+fn safe_push_one_branch_main_matches_the_shell_guard_on_real_repositories() {
+    let scratch = tempfile::tempdir().unwrap();
+    let repository = branch_fixture(scratch.path());
+    for (shape, step, allowed) in ONE_BRANCH_MAIN_STEPS {
+        git(&repository, step);
+        let new = match one_branch_main(&repository) {
+            Ok(()) => Observed { status: 0, stdout: String::new(), stderr: String::new() },
+            Err(reason) => Observed { status: 1, stdout: String::new(), stderr: reason },
+        };
+        assert_eq!(new.status == 0, allowed, "verdict differs for {shape}");
+        assert_same(shape, &shell_in(&repository, "enforce_one_branch_main\n", &[]), &new);
+    }
+    git(&repository, &["push", "-q", "origin", "main:topic"]);
+    git(&repository, &["switch", "-q", "topic"]);
+    assert_eq!(default_branch(&repository), "topic");
+    assert_eq!(one_branch_main(&repository), Ok(()));
+    assert_same("branch origin HEAD names", &shell_in(&repository, "enforce_one_branch_main\n", &[]), &Observed { status: 0, stdout: String::new(), stderr: String::new() });
 }
