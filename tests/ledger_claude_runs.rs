@@ -19,6 +19,10 @@ fn transcript_of(path: &Path, text: &str, model: &str) {
 }
 
 fn claude_runs(root: &Path, fleet_json: &str, policy: &Path) -> (Vec<Value>, String) {
+    claude_runs_on(root, fleet_json, policy, None)
+}
+
+fn claude_runs_on(root: &Path, fleet_json: &str, policy: &Path, main: Option<&Path>) -> (Vec<Value>, String) {
     let calls = root.join("fleet-calls");
     let fleet = root.join("north");
     fs::write(&fleet, format!("#!/bin/sh\necho \"$@\" >> {}\nprintf '%s' '{fleet_json}'\n", calls.display())).unwrap();
@@ -35,6 +39,8 @@ fn claude_runs(root: &Path, fleet_json: &str, policy: &Path) -> (Vec<Value>, Str
         .env("NORTH_BIN", &fleet)
         .env("AGENTS_ORCHESTRATION", policy)
         .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("LEDGER_MAIN")
+        .envs(main.map(|main| ("LEDGER_MAIN", main)))
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -118,4 +124,39 @@ fn a_haiku_fleet_worker_at_any_effort_is_tier_haiku_and_a_synthetic_last_message
     let by_id = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap_or_else(|| panic!("no row for {id}: {rows:?}"));
     assert_eq!((by_id("quick")["tier"].as_str(), by_id("quick")["effort"].as_str()), (Some("haiku"), Some("medium")));
     assert_eq!((by_id("limited")["tier"].as_str(), by_id("limited")["model"].as_str()), (Some("sonnet"), Some("claude-sonnet-5-5")));
+}
+
+fn commit_transcript(path: &Path, steps: &[(&str, &str)]) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut lines = vec![r#"{"type":"user","timestamp":"2026-10-08T00:00:00Z","sessionId":"s","message":{"content":"Item: north#255 landing"}}"#.to_owned()];
+    for (n, (command, output)) in steps.iter().enumerate() {
+        let at = format!("2026-10-08T00:0{}:00Z", n + 1);
+        lines.push(
+            serde_json::json!({"type":"assistant","timestamp":at,"requestId":format!("r{n}"),"message":{"model":"claude-sonnet-5-5","usage":{"output_tokens":5,"input_tokens":5},
+                "content":[{"type":"tool_use","id":format!("t{n}"),"name":"Bash","input":{"command":command}}]}})
+            .to_string(),
+        );
+        lines.push(serde_json::json!({"type":"user","timestamp":at,"message":{"content":[{"type":"tool_result","tool_use_id":format!("t{n}"),"content":output}]}}).to_string());
+    }
+    lines.push(r#"{"type":"assistant","timestamp":"2026-10-08T00:09:00Z","requestId":"rz","message":{"model":"claude-sonnet-5-5","usage":{"output_tokens":5,"input_tokens":5},"content":[{"type":"text","text":"Done: landed."}]}}"#.to_owned());
+    fs::write(path, lines.join("\n") + "\n").unwrap();
+}
+
+#[test]
+fn a_quiet_combined_flag_heredoc_commit_and_a_safe_push_landing_line_both_count_as_landed_on_main() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let projects = root.join("home/.claude/projects/-home-tom-code-north-main");
+    let sha = "a".repeat(40);
+    commit_transcript(&projects.join("heredoc.jsonl"), &[("git add x && git commit -qF - <<'EOF'\nKeep the real subject (north#255)\nEOF", "")]);
+    commit_transcript(&projects.join("pushed.jsonl"), &[("git commit -q --amend -F /tmp/message.txt", ""), ("safe-push --to main > /tmp/push.log; tail -3 /tmp/push.log", &format!("safe-push: landed {sha}\n"))]);
+    commit_transcript(&projects.join("reader.jsonl"), &[("rg safe-push src", "src/a.rs")]);
+    let main = root.join("main");
+    fs::write(&main, format!("{} 2026-10-08T01:00:00+00:00 Other work\n{} 2026-10-08T02:00:00+00:00 Keep the real subject (north#255)\n", sha, "b".repeat(40))).unwrap();
+    let fleet = r#"[{"name":"h","conversation":"heredoc","parent":"lead"},{"name":"p","conversation":"pushed","parent":"lead"},{"name":"r","conversation":"reader","parent":"lead"}]"#;
+    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main));
+    let by_id = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap_or_else(|| panic!("no row for {id}: {rows:?}"));
+    assert_eq!((by_id("heredoc")["landed"].as_i64(), by_id("heredoc")["landed_sha"].as_str()), (Some(1), Some("b".repeat(40).as_str())));
+    assert_eq!((by_id("pushed")["landed"].as_i64(), by_id("pushed")["landed_sha"].as_str()), (Some(1), Some(sha.as_str())));
+    assert_eq!((by_id("reader")["landed"].as_i64(), by_id("reader")["expects_landing"].as_i64()), (Some(0), Some(1)));
 }

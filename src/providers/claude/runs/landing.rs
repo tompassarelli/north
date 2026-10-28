@@ -13,9 +13,10 @@ static COMMIT: LazyLock<Regex> =
 static SUBJECT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\s-[a-zA-Z]*m[ =]?\s*(?:"\$\(cat <<-?['"]?\w+['"]?\s*\n)?["']?([^"'\n]+)"#).unwrap()
 });
-static HEREDOC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s-F\s*-\s*<<-?['"]?\w+['"]?[^\n]*\n([^\n]+)"#).unwrap());
+static HEREDOC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s-[a-zA-Z]*F\s*-\s*<<-?['"]?\w+['"]?[^\n]*\n([^\n]+)"#).unwrap());
 static LANE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^([0-9a-f]{7,40}) (.+)$").unwrap());
 static MADE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\[[^\]\s]+(?: \([^)]*\))? ([0-9a-f]{7,40})\] (.+)$").unwrap());
+static PUSHED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^safe-push: landed ([0-9a-f]{40})\b").unwrap());
 static ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:tompassarelli/)?([a-z][\w.-]*#\d+)\b").unwrap());
 static GH_ISSUE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\bgh issue (?:view|close|comment|edit|reopen) (\d+)\b.*?(?:-R|--repo)[ =](?:[\w-]+/)?([\w.-]+)").unwrap()
@@ -124,6 +125,9 @@ fn tally(steps: &[Step], main: &MainIndex) -> Map<String, Value> {
             made_subjects.extend(LANE.captures_iter(output).map(|lane| lane[2].trim().to_owned()));
         } else if succeeded && THREADS_REF.is_match(command) {
             refs.extend(ISSUE.captures_iter(command).map(|c| c[1].to_owned()));
+        }
+        if committed && succeeded {
+            made_shas.extend(PUSHED.captures_iter(step.output.as_deref().unwrap_or("")).map(|landed| landed[1].to_owned()));
         }
         if succeeded {
             refs.extend(GH_ISSUE.captures_iter(command).map(|c| format!("{}#{}", &c[2], &c[1])));
