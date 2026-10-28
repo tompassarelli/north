@@ -1,9 +1,8 @@
-"""agents usage: run every usage_<provider>.py adapter beside this file in parallel (30 s each, 0 model turns),
-record their rows in threads.db's usage table, and print the latest row per account window."""
+"""The Python remainder of `agents usage`: the helpers other harness scripts import (account labels, record, publish, latest,
+reservation) and --reservation-json. Every other verb runs in Rust, in src/usage."""
 
 import json
 import os
-import socket
 import sqlite3
 import subprocess
 import sys
@@ -14,7 +13,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from defaults import DEFAULTS
 from calibration import open_ledger
-from ssh_transport import ssh_argv
 REMOTE = not os.environ.get("THREADS_DB") and (Path.home() / ".config/threads/remote").exists()
 DB = os.environ.get("THREADS_DB") or str(Path.home() / ".local/state/threads" / ("snapshot.db" if REMOTE else "threads.db"))
 STALE_MIN = DEFAULTS["usage_stale_min"]
@@ -26,16 +24,6 @@ def operator_dir():
     if configured:
         return Path(configured)
     return Path.home() / "code/south/main/agents"
-
-
-def machines():
-    """Provider hosts to query for signed-in account readings."""
-    import tomllib
-    try:
-        catalog = tomllib.load(open(HERE.parent / "model-catalog.toml", "rb"))
-    except (OSError, ValueError):
-        return {}
-    return {p: a["machines"] for p, a in catalog.get("accounts", {}).items() if isinstance(a.get("machines"), list)}
 
 
 def account_settings(provider):
@@ -148,42 +136,6 @@ def remaining_p75(measurement, elapsed):
 
 def hard_stop_due(deadline, now, reading, cap):
     return now >= deadline or reading >= cap + 1
-
-
-def read_all(remote=True):
-    """Local adapters, plus each labelled account signed in on another machine, read there over ssh."""
-    procs = {p.stem.removeprefix("usage_"): subprocess.Popen([sys.executable, "-I", str(p)], stdout=subprocess.PIPE,
-                                                            stderr=subprocess.DEVNULL, text=True)
-             for p in sorted([*HERE.glob("usage_*.py"), *HERE.glob("billing_*.py")])}
-    hosts = machines()
-    here = socket.gethostname()
-    remotes = {(p, h): subprocess.Popen(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", h, "agents", "usage",
-                                               "--refresh", "--local", "--json"), stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, text=True)
-               for p, m in hosts.items() for h in m if h != here and remote}
-    rows = []
-    for (p, h), proc in remotes.items():
-        try:
-            out, _ = proc.communicate(timeout=45)
-            remote_rows = json.loads(out or "[]")
-        except (subprocess.TimeoutExpired, ValueError):
-            proc.kill()
-            continue
-        rows += [{c: r.get(c) for c in COLUMNS} for r in remote_rows if r.get("provider") == p]
-    for name, proc in procs.items():
-        try:
-            out, _ = proc.communicate(timeout=30)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            print(f"agents usage: {name} adapter timed out after 30 s", file=sys.stderr)
-            continue
-        for line in out.splitlines():
-            try:
-                row = json.loads(line)
-            except ValueError:
-                continue
-            rows.append(row)
-    return rows
 
 
 def record(db, rows):
@@ -339,42 +291,6 @@ def write_gate(db, providers, pace_locked=False):
     return verdicts
 
 
-def notify_promos(db):
-    """One desktop notification per promotion, from 7 days before it ends (plan_usage.promo_lines decides)."""
-    import tomllib
-    import plan_usage
-    catalog = tomllib.load(open(HERE.parent / "model-catalog.toml", "rb"))
-    sent = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/promo-notified"
-    for line in plan_usage.promo_lines(catalog, db, datetime.now(timezone.utc)):
-        stamp = sent / (line.split(" promotion", 1)[0].removeprefix("Blocked: decision for Tom: ") + "-" + line.split(" ends ", 1)[1].split()[0])
-        if stamp.exists():
-            continue
-        stamp.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["notify-send", "Plan promotion ending", line], check=False)
-        stamp.write_text(line + "\n")
-
-
-def fast(db, provider, domain, cached=False):
-    """Exit 0 printing "on" when routing turns plan-billed fast on for a new lead on this provider while under pace;
-    exit 1 printing "off" otherwise. Refreshes the provider's usage first unless
-    cached, when a snapshot older than stale_min reads as off."""
-    import tomllib
-    sys.path.insert(0, str(HERE))
-    import routing
-    import plan_usage
-    if not cached:
-        publish(db, [r for r in read_all(remote=False) if r.get("provider") == provider])
-    root = HERE.parent
-    cfg = tomllib.load(open(os.environ.get("AGENTS_ORCHESTRATION") or operator_dir() / "orchestration.toml", "rb"))
-    catalog = tomllib.load(open(root / "model-catalog.toml", "rb"))
-    rows = [r for r in latest(db) if r["provider"] == provider]
-    ctx = plan_usage.live_ctx(cfg, catalog, rows, db, datetime.now(timezone.utc), cfg.get("tiers", {}))
-    name = provider if provider in ctx["accounts"] or not local_account(provider) else f"{provider}:{local_account(provider)}"
-    on = routing.ask("fast", ctx=ctx, account=name)
-    print("on" if on else "off")
-    return 0 if on else 1
-
-
 def costs_dir():
     return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "agents/costs"
 
@@ -437,15 +353,6 @@ def main(argv):
     if "--write-pace-gate" in argv:
         print(json.dumps(write_gate(db, ("claude", "gemini"), pace_locked=True)))
         return 0
-    if "--gate" in argv:
-        return subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace", "gate", argv[argv.index("--gate") + 1]]).returncode
-    if "--fast" in argv:
-        return fast(db, argv[argv.index("--fast") + 1], argv[argv.index("--domain") + 1] if "--domain" in argv else None,
-                    "--cached" in argv)
-    if "--refresh" in argv:
-        publish(db, read_all(remote="--local" not in argv))
-        write_gate(db, sorted({r["provider"] for r in latest(db)}))
-        notify_promos(db)
     now = datetime.now(timezone.utc)
     rows = latest(db)
     for r in rows:

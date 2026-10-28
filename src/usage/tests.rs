@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 
 use super::store::{self, Source};
-use super::{Places, costs, report, table};
+use super::{Action, Places, costs, report, table};
 use crate::foundation::clock::Timestamp;
 
 const STATES: &str = include_str!("fixtures/states.json");
@@ -330,4 +330,11 @@ fn the_ctx_built_for_the_router_equals_plan_usage_live_ctx_on_a_recorded_ledger_
     }
     assert_eq!(expected["claude"]["success"], serde_json::json!({"claude:haiku|tooling": 60}));
     assert_eq!(expected["claude"]["tiers"][0]["successor"]["model"], "claude-haiku-5-7");
+}
+
+#[test]
+fn arguments_only_the_python_verbs_serve_are_left_to_them() {
+    let handled = |text: &str| Action::parse(&text.split_whitespace().map(str::to_owned).collect::<Vec<_>>()).is_some();
+    assert!(handled("--refresh --local --json") && handled("--fast claude --cached --domain lead") && handled("--write-pace-gate --fast claude"));
+    assert!(!handled("--reservation-json") && !handled("--fast") && !handled("--gate claude"));
 }

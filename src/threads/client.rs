@@ -51,14 +51,10 @@ enum Input {
 }
 
 pub(crate) fn run(arguments: &[String]) -> u8 {
-    let env: BTreeMap<String, String> = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
-        .collect();
-    let Some(home) = env.get("HOME").cloned() else {
+    let Some(client) = ambient_client() else {
         eprintln!("NorthThreads: no home directory");
         return 1;
     };
-    let client = Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()]);
     match client.main(arguments, &mut io::stdin(), &mut io::stderr()) {
         Ok(code) => (code & 0xff) as u8,
         Err(error) => {
@@ -69,14 +65,28 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
 }
 
 pub(crate) fn refresh_mirrored_snapshot() {
-    let env: BTreeMap<String, String> = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
-        .collect();
-    let Some(home) = env.get("HOME").cloned() else { return };
-    let client = Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()]);
+    let Some(client) = ambient_client() else { return };
     if let Ok(destination) = fs::read_to_string(&client.remote) {
         let _ = client.refresh_snapshot(destination.trim(), true);
     }
+}
+
+pub(crate) fn ingest(batch: &[u8]) -> Result<(), String> {
+    let client = ambient_client().ok_or("no home directory")?;
+    let mut err = Vec::new();
+    match client.main(&["ingest".to_owned()], &mut io::Cursor::new(batch), &mut err) {
+        Ok(0) => Ok(()),
+        Ok(code) => Err(format!("ingest exited {code}: {}", String::from_utf8_lossy(&err).trim())),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn ambient_client() -> Option<Client> {
+    let env: BTreeMap<String, String> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    let home = env.get("HOME").cloned()?;
+    Some(Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()]))
 }
 
 fn local_threads() -> OsString {
@@ -449,29 +459,7 @@ impl Client {
     }
 
     fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
-        let mut argv = self.ssh.clone();
-        let configured = self.env.get("NORTH_SSH_CONFIG");
-        let profile = configured.map_or_else(
-            || PathBuf::from(self.env.get("HOME").map_or("", String::as_str)).join(".config/threads/ssh-config"),
-            PathBuf::from,
-        );
-        if configured.is_some() || profile.is_file() {
-            argv.extend(["-F".into(), profile.into_os_string()]);
-        }
-        if let Some(runtime) = self.var("XDG_RUNTIME_DIR")
-            && runtime.starts_with('/')
-            && runtime.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_./-".contains(&byte))
-            && runtime.len() + "/north-ssh-".len() + 40 + 20 <= 107
-        {
-            for option in [
-                "ControlMaster=auto".to_owned(), format!("ControlPath={runtime}/north-ssh-%C"),
-                "ControlPersist=10m".to_owned(), "ServerAliveInterval=5".to_owned(), "ServerAliveCountMax=2".to_owned(),
-            ] {
-                argv.extend(["-o".into(), option.into()]);
-            }
-        }
-        argv.extend(arguments.iter().map(OsString::from));
-        argv
+        crate::platform::ssh::argv(&self.ssh, &self.env, arguments)
     }
 }
 

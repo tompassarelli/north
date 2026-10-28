@@ -38,14 +38,11 @@ pub(super) fn plan_text(policy: &Path, provider: &str, account: Option<&str>, ob
     let Some(key) = observed.filter(|key| !key.is_empty()).map(str::to_owned).or_else(declared) else {
         return String::new();
     };
-    let catalog: DocumentMut = CATALOG.parse().expect("harness/model-catalog.toml parses");
+    let catalog = catalog();
     let plan = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|account| account.get("plans")).and_then(|plans| plans.get(&key));
-    let named = plan.and_then(|plan| Some((plan.get("name")?.as_str()?.to_owned(), plan.get("monthly_price")?.clone())));
+    let named = plan.and_then(|plan| Some((plan.get("name")?.as_str()?.to_owned(), number_text(plan.get("monthly_price")?))));
     match named {
-        Some((name, price)) => {
-            let price = price.as_integer().map_or_else(|| price.as_float().map_or_else(|| price.as_str().unwrap_or("?").to_owned(), |float| format!("{float:?}")), |integer| integer.to_string());
-            format!(" | plan {name} ${price}/month")
-        }
+        Some((name, price)) => format!(" | plan {name} ${price}/month"),
         None => format!(" | plan {key}"),
     }
 }
@@ -63,4 +60,25 @@ pub(super) fn catalog_json() -> serde_json::Value {
 pub(super) fn default_value(name: &str) -> serde_json::Value {
     let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");
     crate::router::policy::json_value(&defaults[name]["value"])
+}
+
+pub(super) fn catalog() -> DocumentMut {
+    CATALOG.parse().expect("harness/model-catalog.toml parses")
+}
+
+pub(super) fn machines() -> Vec<(String, Vec<String>)> {
+    let catalog = catalog();
+    let accounts = catalog.get("accounts").and_then(toml_edit::Item::as_table_like);
+    accounts
+        .into_iter()
+        .flat_map(|accounts| accounts.iter())
+        .filter_map(|(provider, account)| {
+            let hosts = account.get("machines")?.as_array()?;
+            Some((provider.to_owned(), hosts.iter().filter_map(|host| host.as_str().map(str::to_owned)).collect()))
+        })
+        .collect()
+}
+
+pub(super) fn number_text(value: &toml_edit::Item) -> String {
+    value.as_integer().map_or_else(|| value.as_float().map_or_else(|| value.as_str().unwrap_or("?").to_owned(), |float| format!("{float:?}")), |integer| integer.to_string())
 }

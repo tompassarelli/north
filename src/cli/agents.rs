@@ -31,13 +31,38 @@ pub(super) fn run(arguments: &[String]) -> u8 {
         }),
         Verb::Command("flow") => flow::run(rest),
         Verb::Command(_) => report::run(rest),
-        Verb::Script("usage.py") if crate::usage::handles(rest) => usage(rest),
+        Verb::Script("usage.py") => usage(rest),
         Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),
     }
 }
 
 pub(super) fn usage(arguments: &[String]) -> u8 {
-    crate::usage::run(arguments, &crate::threads::client::refresh_mirrored_snapshot)
+    if let Some(provider) = gate_provider(arguments) {
+        return pace(&["gate".to_owned(), provider]);
+    }
+    if crate::usage::handles(arguments) {
+        return with_usage_host(|host| crate::usage::run(arguments, host));
+    }
+    with_harness(|root| script::run(root, "usage.py", arguments))
+}
+
+fn with_usage_host(work: impl FnOnce(&crate::usage::Host) -> u8) -> u8 {
+    let env: std::collections::BTreeMap<String, String> = std::env::vars_os().filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?))).collect();
+    let ssh = move |arguments: &[&str]| crate::platform::ssh::argv(&["ssh".into()], &env, arguments);
+    work(&crate::usage::Host {
+        name: crate::platform::host::name(),
+        refresh_snapshot: &crate::threads::client::refresh_mirrored_snapshot,
+        ingest: &crate::threads::client::ingest,
+        run: &|command, limit| crate::platform::process::run_command_within(command, None, limit),
+        ssh: &ssh,
+        harness_lib: &|| Ok(crate::platform::harness::harness_root()?.join("harness/lib")),
+    })
+}
+
+fn gate_provider(arguments: &[String]) -> Option<String> {
+    let precedes = arguments.iter().any(|argument| matches!(argument.as_str(), "--reservation-json" | "--write-pace-gate"));
+    let at = arguments.iter().position(|argument| argument == "--gate")?;
+    arguments.get(at + 1).filter(|_| !precedes).cloned()
 }
 
 fn exit(outcome: NorthResult<u8>) -> u8 {

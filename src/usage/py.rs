@@ -94,3 +94,9 @@ pub(super) fn before(at: Timestamp, seconds: i64) -> Timestamp {
 pub(super) fn minutes_precise(from: Timestamp, to: Timestamp) -> f64 {
     (to.unix_nanos() - from.unix_nanos()) as f64 / 1e9 / 60.0
 }
+
+pub(super) fn midnight(year: u16, month: u8, day: u8) -> Result<i128, String> {
+    let month = time::Month::try_from(month).map_err(|error| error.to_string())?;
+    let date = time::Date::from_calendar_date(i32::from(year), month, day).map_err(|error| error.to_string())?;
+    Ok(date.midnight().assume_utc().unix_timestamp_nanos())
+}

@@ -90,14 +90,15 @@ fn tiers(document: &DocumentMut) -> Vec<Tier> {
         .collect()
 }
 
+pub(super) fn account_name(context: &Value, provider: &str, local: Option<&str>) -> String {
+    match local {
+        Some(label) if context["accounts"].get(provider).is_none() => format!("{provider}:{label}"),
+        _ => provider.to_owned(),
+    }
+}
+
 fn refusal(context: &Value, provider: &str, account: Option<&str>, local: Option<&str>) -> Value {
-    let name = match account {
-        Some(name) => name.to_owned(),
-        None => match local {
-            Some(label) if context["accounts"].get(provider).is_none() => format!("{provider}:{label}"),
-            _ => provider.to_owned(),
-        },
-    };
+    let name = account.map_or_else(|| account_name(context, provider, local), str::to_owned);
     let asked = ops::answer(&json!({"op": "money_refusal", "ctx": context, "account": name}));
     match asked {
         Some(Ok(Value::String(why))) if !why.is_empty() => json!(format!("No: a new {name} worker could spend money: {why}. {REFUSAL_TAIL}")),
@@ -134,7 +135,7 @@ fn quota_ceiling(target_left: &Value) -> Value {
     if plan_stop.as_f64() <= left.as_f64() { plan_stop } else { left }
 }
 
-fn local_account(provider: &str, cfg: &Value) -> Option<String> {
+pub(super) fn local_account(provider: &str, cfg: &Value) -> Option<String> {
     if provider != "claude" {
         return None;
     }

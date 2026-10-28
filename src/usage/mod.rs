@@ -11,8 +11,10 @@ use crate::foundation::clock::Timestamp;
 mod burn;
 mod costs;
 mod ctx;
+mod fast;
 mod gate;
 mod py;
+mod refresh;
 mod render;
 mod settings;
 mod store;
@@ -21,7 +23,7 @@ mod table;
 mod tests;
 mod web;
 
-const USAGE: &str = "usage: north usage [--json]";
+const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --write-pace-gate";
 const PACED: [&str; 2] = ["claude", "gemini"];
 
 pub(crate) struct Places {
@@ -42,8 +44,60 @@ impl Places {
     }
 }
 
+enum Action {
+    WritePaceGate,
+    Fast { provider: String, cached: bool },
+    Show { refresh: bool, json: bool, remote: bool },
+}
+
+impl Action {
+    fn parse(arguments: &[String]) -> Option<Self> {
+        let (mut json, mut local, mut refresh, mut write_gate, mut cached, mut fast) = (false, false, false, false, false, None);
+        let mut rest = arguments.iter();
+        while let Some(argument) = rest.next() {
+            match argument.as_str() {
+                "--json" => json = true,
+                "--local" => local = true,
+                "--refresh" => refresh = true,
+                "--write-pace-gate" => write_gate = true,
+                "--cached" => cached = true,
+                "--fast" => fast = Some(rest.next()?.clone()),
+                "--domain" => {
+                    rest.next()?;
+                }
+                _ => return None,
+            }
+        }
+        if write_gate {
+            return Some(Self::WritePaceGate);
+        }
+        Some(match fast {
+            Some(provider) => Self::Fast { provider, cached },
+            None => Self::Show { refresh, json, remote: !local },
+        })
+    }
+
+    fn writes(&self) -> bool {
+        matches!(self, Self::Fast { cached: false, .. } | Self::Show { refresh: true, .. })
+    }
+
+    fn perform(&self, db: &Connection, source: &store::Source, places: &Places, host: &Host) -> Result<(String, u8), String> {
+        match self {
+            Self::WritePaceGate => gate::write(db, &PACED, places, clock()).map(|verdicts| (verdicts.to_string(), 0)),
+            Self::Fast { provider, cached } => fast::decide(db, source, places, provider, *cached, host),
+            Self::Show { refresh, json, remote } => {
+                if *refresh {
+                    refresh::refresh_readings(db, source, places, *remote, host)?;
+                }
+                let now = clock();
+                if *json { report(db, &places.policy, now).map(|text| (text, 0)) } else { table::render(db, places, now) }
+            }
+        }
+    }
+}
+
 pub(crate) fn handles(arguments: &[String]) -> bool {
-    arguments.iter().all(|argument| matches!(argument.as_str(), "--json" | "--local" | "--write-pace-gate"))
+    Action::parse(arguments).is_some()
 }
 
 fn clock() -> Timestamp {
@@ -54,25 +108,25 @@ pub(crate) fn write_pace_gate(db: &Connection) -> Result<serde_json::Value, Stri
     gate::write(db, &PACED, &Places::from_env(), Timestamp::now())
 }
 
-pub(crate) fn run(arguments: &[String], refresh: &dyn Fn()) -> u8 {
-    if !handles(arguments) {
+pub(crate) struct Host<'a> {
+    pub name: String,
+    pub refresh_snapshot: &'a dyn Fn(),
+    pub ingest: &'a dyn Fn(&[u8]) -> Result<(), String>,
+    pub run: &'a (dyn Fn(std::process::Command, std::time::Duration) -> Option<std::process::Output> + Sync),
+    pub ssh: &'a dyn Fn(&[&str]) -> Vec<std::ffi::OsString>,
+    pub harness_lib: &'a dyn Fn() -> Result<PathBuf, String>,
+}
+
+pub(crate) fn run(arguments: &[String], host: &Host) -> u8 {
+    let Some(action) = Action::parse(arguments) else {
         eprintln!("{USAGE}");
         return 2;
-    }
-    let wants = |flag: &str| arguments.iter().any(|argument| argument == flag);
+    };
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let source = store::Source::locate(&home, std::env::var_os("THREADS_DB"));
     let places = Places::from_env();
-    let outcome = store::open(&source, refresh).and_then(|db| {
-        let now = clock();
-        if wants("--write-pace-gate") {
-            gate::write(&db, &PACED, &places, now).map(|verdicts| (verdicts.to_string(), 0))
-        } else if wants("--json") {
-            report(&db, &places.policy, now).map(|text| (text, 0))
-        } else {
-            table::render(&db, &places, now)
-        }
-    });
+    let open = if action.writes() { store::open_writable } else { store::open };
+    let outcome = open(&source, host.refresh_snapshot).and_then(|db| action.perform(&db, &source, &places, host));
     match outcome {
         Ok((text, code)) => {
             println!("{text}");

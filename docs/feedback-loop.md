@@ -34,7 +34,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | calibration | bin/threads calibrate | bin/threads:1395; harness/lib/calibration.py:23 | read | ac79788c |
 | run_usage | bin/threads:897 | bin/threads allocation into run_costs | read | |
 | run_costs | bin/threads:987 | bin/threads:989 rolls into runs.cost_usd | read | |
-| usage | harness/lib/usage.py | harness/lib/usage.py:111, routing and the pace gate | read | |
+| usage | src/usage/refresh/ | src/usage/store.rs latest, routing and the pace gate | read | |
 | claims.eta_min | src/threads/claims/ledger.rs take | src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; src/work_items.rs:82 | read | |
 | tier_choice | bin/threads:1431 | bin/threads:1427 incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
@@ -47,7 +47,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | job_runs | bin/threads:1748 | bin/threads:1753 job-runs; bin/job-watch | read | |
 | model_events | bin/model-watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | mc/machine-capacity-host.mjs:315 | mc/machine-capacity-host.mjs:623, :660 sizing | read | |
-| usage-gate.json | harness/lib/usage.py:185 | harness/hooks/lib/spawn_capacity.py:280 | read | |
+| usage-gate.json | src/usage/gate.rs | harness/hooks/lib/spawn_capacity.py:280 | read | |
 | spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | harness/lib/spawn_queue.py from harness/lib/spawn.py | harness/lib/spawn.py release at the end of pace_sampler.sample; oldest eligible durable worker launches automatically | read | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |

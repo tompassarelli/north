@@ -27,6 +27,10 @@ impl Source {
         &self.path
     }
 
+    pub(super) fn mirrored(&self) -> bool {
+        self.snapshot
+    }
+
     pub(super) fn locate(home: &Path, explicit: Option<OsString>) -> Self {
         let snapshot = explicit.is_none() && home.join(".config/threads/remote").exists();
         let path = explicit.map_or_else(
@@ -52,6 +56,16 @@ pub(super) fn open(source: &Source, refresh: &dyn Fn()) -> Result<Connection, St
             snapshot_copy(&source.path).map_err(|error| format!("NorthThreads: snapshot still unreadable after one refresh: {error}"))
         }
     }
+}
+
+pub(super) fn open_writable(source: &Source, refresh: &dyn Fn()) -> Result<Connection, String> {
+    if source.snapshot {
+        return open(source, refresh);
+    }
+    let fail = |error: rusqlite::Error| error.to_string();
+    let db = Connection::open(&source.path).map_err(fail)?;
+    db.busy_timeout(std::time::Duration::from_secs(10)).map_err(fail)?;
+    Ok(db)
 }
 
 fn snapshot_copy(path: &Path) -> Result<Connection, String> {

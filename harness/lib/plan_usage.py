@@ -206,34 +206,6 @@ def live_ctx(cfg, catalog, rows, db, now, tiers, costs=None):
             "services": costs.get("service", []) if costs else []}
 
 
-def provider_of_tier(tier):
-    return "gemini" if tier.startswith("gemini") else "codex" if tier.startswith("gpt-") else "claude"
-
-
-def promo_lines(catalog, db, now, days=7):
-    """A Tom decision line for each promotion ending within `days`: does the account earn its full price, i.e. is its
-    share of the last 30 days' runs at least its share of the plans' monthly spend at full price."""
-    accounts = catalog.get("accounts", {})
-    full = {p: a.get("monthly_total", a["monthly_price"] * a.get("account_count", 1)) for p, a in accounts.items() if "monthly_price" in a}
-    out = []
-    for p, a in accounts.items():
-        end = a.get("promo_end")
-        left = end and (datetime.combine(end, datetime.min.time(), timezone.utc) - now).days
-        if left is None or not 0 <= left <= days:
-            continue
-        counts = {}
-        for (tier,) in (db.execute("SELECT tier FROM runs WHERE started >= ?",
-                                   ((now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),)) if db else []):
-            counts[provider_of_tier(tier or "")] = counts.get(provider_of_tier(tier or ""), 0) + 1
-        runs, total = counts.get(p, 0), sum(counts.values())
-        run_share, cost_share = (100 * runs / total if total else 0.0), 100 * full.get(p, 0) / (sum(full.values()) or 1)
-        verdict = "earned its full price" if run_share >= cost_share else "did not earn its full price"
-        out.append(f"Blocked: decision for Tom: {p} promotion (USD {a['promo_price']}/month) ends {end} ({left} days, "
-                   f"{'confirmed' if a.get('promo_end_confirmed') else 'unconfirmed'}); at USD {a['monthly_price']}/month it is "
-                   f"{cost_share:.1f}% of plan spend and ran {run_share:.1f}% of runs in 30 days ({runs} of {total}): {verdict}; keep it at full price?")
-    return out
-
-
 def open_db(path):
     try:
         return open_ledger(path)
