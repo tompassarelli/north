@@ -202,3 +202,26 @@ fn a_deploy_with_help_prints_usage_and_with_an_unknown_flag_is_refused_before_an
     assert!(!host.path("alerts").exists(), "nothing was shipped");
     assert!(!host.path("state/north/runtimes").exists(), "nothing was built");
 }
+
+#[test]
+fn a_promotion_roots_each_store_path_the_runtime_names_inside_the_runtime_directory() {
+    let host = skewed();
+    let glibc = "/nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84";
+    script(&host.runtime(&host.target).join("north"), &format!("# {glibc}/lib/ld-linux-x86-64.so.2\n"));
+    script(&host.path("bin/nix-store"), "printf '%s\\n' \"$*\" >>\"$TEST_ALERTS\"\n");
+    let output = host.update(0, 0);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let root = host.runtime(&host.target).join("gcroot-n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84");
+    let expected = format!("--add-root {} --indirect --realise {glibc}", root.display());
+    assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().collect::<Vec<_>>(), [expected]);
+}
+
+#[test]
+fn a_promotion_that_cannot_root_a_store_path_leaves_the_current_runtime_selected() {
+    let host = skewed();
+    script(&host.runtime(&host.target).join("north"), "# /nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84\n");
+    script(&host.path("bin/nix-store"), "exit 3\n");
+    let output = host.update(0, 0);
+    assert_eq!(output.status.code(), Some(1), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+}

@@ -1,5 +1,7 @@
 mod deploy;
+mod failure;
 pub(crate) mod layout;
+mod store;
 mod update;
 
 const USAGE: &str = "usage: north runtime update | north runtime deploy HOST...";

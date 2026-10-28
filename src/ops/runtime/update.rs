@@ -1,26 +1,13 @@
+use super::failure::{Failure, code, failed};
 use super::layout::{self, Layout, PROGRAMS, TREE};
+use super::store;
 use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
-
-pub(super) struct Failure {
-    pub(super) code: u8,
-    pub(super) message: String,
-}
-
-pub(super) fn failed(code: u8, message: impl Into<String>) -> Failure {
-    Failure { code, message: message.into() }
-}
-
-impl From<std::io::Error> for Failure {
-    fn from(error: std::io::Error) -> Self {
-        failed(1, error.to_string())
-    }
-}
+use std::process::{Command, Stdio};
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
     let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
@@ -34,6 +21,7 @@ pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
     if !runtime.join(TREE).is_dir() {
         export_tree(&checkout, &target, &runtime)?;
     }
+    store::root(&runtime)?;
     let link = layout::link(&target);
     if previous.as_deref() == Some(link.as_path()) {
         println!("north runtime current: {short}");
@@ -76,10 +64,6 @@ fn git<S: AsRef<OsStr>>(checkout: &Path, args: &[S]) -> Result<String, Failure> 
         return Err(failed(1, format!("git {} failed: {}", shown.join(" "), stderr.trim())));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
-pub(super) fn code(status: ExitStatus) -> u8 {
-    status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(1)
 }
 
 struct Lane<'a> {
