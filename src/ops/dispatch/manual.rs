@@ -134,10 +134,14 @@ pub(crate) fn begin(ask: &Ask) -> Result<Start, String> {
     let mut notes = Vec::new();
     let grounds = grounds::Ledger::read(&mut notes);
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
-    let body = issue_body(ask.item).unwrap_or_else(|why| {
-        eprintln!("north fleet: {} body unread, so its brief carries no Not required lines: {why}", ask.item);
+    let body = if IssueRef::parse(ask.item).is_none() {
         String::new()
-    });
+    } else {
+        issue_body(ask.item).unwrap_or_else(|why| {
+            eprintln!("north fleet: {} body unread, so its brief carries no Not required lines: {why}", ask.item);
+            String::new()
+        })
+    };
     start(ask, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, &body, route))
 }
 
@@ -151,11 +155,21 @@ pub(crate) fn tier_reason(brief: &str, flag: Option<&str>) -> Option<String> {
     flag.or_else(|| facets::declared_in(brief, "Tier-reason")).map(str::to_owned)
 }
 
-pub(crate) fn unrouted(model: Option<&str>, reason: Option<&str>) -> Result<(), String> {
-    match (model, reason) {
-        (Some(model), None) => Err(format!(
-            "--model {model} names a tier, but the launch names no issue (--task or a first `Item:` line) whose category routing could check it; add a `Tier-reason:` line to the brief header, pass --tier-reason TEXT, or name the issue"
-        )),
-        _ => Ok(()),
+pub(crate) fn untasked(brief: &str, model: Option<&str>, reason: Option<&str>) -> Result<bool, String> {
+    if let Some(model) = model {
+        return match reason {
+            Some(_) => Ok(false),
+            None => Err(format!(
+                "--model {model} names a tier, but the launch names no issue (--task or a first `Item:` line) whose category routing could check it; add a `Tier-reason:` line to the brief header, pass --tier-reason TEXT, or name the issue"
+            )),
+        };
+    }
+    let declared = |key: &str| facets::declared_in(brief, key);
+    let worker = declared("Delegation").is_some_and(|delegation| delegation.contains("role=worker")) || ["Spec", "Scope", "Surface", "Verify"].iter().any(|key| declared(key).is_some());
+    let worker = worker && declared("Item").is_none();
+    match (declared("Category").or_else(|| declared("Tier")), worker) {
+        (Some(_), _) => Ok(true),
+        (None, true) => Err("this worker launch names no issue, no `Category:` or `Tier:` line and no --model, so no tier can be picked for it; add a `Category:` line to the brief header, or name the issue (`--task` or an `Item:` line)".to_owned()),
+        (None, false) => Ok(false),
     }
 }

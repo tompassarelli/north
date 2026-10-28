@@ -578,20 +578,22 @@ fn a_message_sent_right_after_reviving_a_parked_session_shows_it_working_at_once
     assert!(ran.is_ok(), "the revived session never ran the message");
 }
 
+fn launch_untasked(root: &Path, brief: &str, extra: &[&str]) -> Output {
+    let path = root.join("box.md");
+    fs::write(&path, brief).unwrap();
+    let path = path.display().to_string();
+    let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &path];
+    args.extend(extra);
+    args.push("start the work");
+    north(root, &args)
+}
+
 #[test]
 fn a_launch_that_names_no_issue_is_refused_a_model_without_a_tier_reason_and_runs_it_with_one() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "fold");
-    let untasked = |brief: &str, extra: &[&str]| {
-        let path = root.join("box.md");
-        fs::write(&path, brief).unwrap();
-        let path = path.display().to_string();
-        let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &path];
-        args.extend(extra);
-        args.push("start the work");
-        north(root, &args)
-    };
+    let untasked = |brief: &str, extra: &[&str]| launch_untasked(root, brief, extra);
 
     let refused = untasked("Delegation: role=worker\nCategory: tooling\n", &["--model", "opus"]);
     let stderr = String::from_utf8_lossy(&refused.stderr);
@@ -606,7 +608,41 @@ fn a_launch_that_names_no_issue_is_refused_a_model_without_a_tier_reason_and_run
     assert_eq!(session["model"], "opus", "{session}");
     assert!(session["placement"].as_str().unwrap_or_default().contains("tier: a wrong routing rule misplaces every later launch"), "{session}");
 
-    let unnamed = untasked("Delegation: role=worker\n", &[]);
+    let unnamed = untasked("Delegation: role=lead\n", &[]);
     assert!(unnamed.status.success(), "a launch that names no model needs no reason: {}", String::from_utf8_lossy(&unnamed.stderr));
     north(root, &["fleet", "forget", "narrow"]);
+}
+
+#[test]
+fn a_launch_that_names_no_issue_and_no_model_takes_its_tier_from_the_briefs_category_and_a_worker_brief_without_one_is_refused() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+
+    let known = launch_untasked(root, "Delegation: role=worker\nCategory: bug-known-cause\n", &[]);
+    assert!(known.status.success(), "{}", String::from_utf8_lossy(&known.stderr));
+    let routed = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert_eq!((routed["model"].as_str(), routed["effort"].as_str()), (Some("claude-sonnet-5-5"), Some("high")), "{routed}");
+    assert!(routed.to_string().contains("Tier: sonnet-high"), "{routed}");
+
+    let unknown = launch_untasked(root, "Delegation: role=worker\nCategory: debugging-unknown-cause\n", &[]);
+    assert!(unknown.status.success(), "{}", String::from_utf8_lossy(&unknown.stderr));
+    let opus = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert_eq!(opus["model"], "claude-opus-5-5", "{opus}");
+
+    for brief in ["Delegation: role=worker\nGoal: tidy the notes\n", "Spec: exact\nScope: module\n\nCategory: tooling\n"] {
+        let uncategorised = launch_untasked(root, brief, &[]);
+        let stderr = String::from_utf8_lossy(&uncategorised.stderr);
+        assert!(!uncategorised.status.success(), "{stderr}");
+        assert!(stderr.contains("`Category:`") && stderr.contains("no tier can be picked"), "{stderr}");
+        assert!(!north(root, &["fleet", "show", "narrow", "--json"]).status.success(), "a refused launch starts no session");
+    }
+
+    let lead = launch_untasked(root, "Delegation: role=lead\n\nPlan box 1\nCategory: mechanical\nTier: nonsense\n", &[]);
+    assert!(lead.status.success(), "a Category or Tier line below the header is no routing: {}", String::from_utf8_lossy(&lead.stderr));
+    let unrouted = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    assert_eq!(unrouted["model"], serde_json::Value::Null, "{unrouted}");
 }

@@ -1,6 +1,6 @@
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, LaunchRequest};
-use crate::ops::dispatch::{Ask, Start, start_hand, tier_reason, unrouted};
+use crate::ops::dispatch::{Ask, Start, start_hand, tier_reason, untasked};
 
 use super::fleet_placement::{self, Overrides};
 
@@ -11,10 +11,14 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
     let mut brief = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     brief.extend(request.named_brief());
     let reason = tier_reason(&brief, overrides.tier.as_deref());
-    let Some(item) = request.task() else {
-        unrouted(request.model.as_deref(), reason.as_deref()).map_err(NorthError::Refused)?;
-        overrides.tier = reason;
-        return Ok(None);
+    let header = headers(&[&fleet_placement::brief_text(request.system_prompt.as_deref(), "")?, &request.prompt, &request.named_brief().unwrap_or_default()]);
+    let (item, brief) = match request.task() {
+        Some(item) => (item, brief),
+        None if untasked(&header, request.model.as_deref(), reason.as_deref()).map_err(NorthError::Refused)? => (request.name.clone(), header),
+        None => {
+            overrides.tier = reason;
+            return Ok(None);
+        }
     };
     let ask = Ask { item: &item, brief: &brief, prompt: &request.prompt, model: request.model.as_deref(), reason: reason.as_deref() };
     let start = start_hand(&ask).map_err(NorthError::Refused)?;
@@ -38,4 +42,9 @@ pub(super) fn recorded(start: Option<Start>, request: &LaunchRequest, name: &str
     if let Err(why) = start.record(&host, &format!("{}:{}", request.provider.label(), request.account), name) {
         eprintln!("north fleet: tier not recorded: {why}");
     }
+}
+
+fn headers(texts: &[&str]) -> String {
+    let blocks = texts.iter().map(|text| text.trim_start().lines().take_while(|line| !line.trim().is_empty()).collect::<Vec<_>>().join("\n"));
+    blocks.collect::<Vec<_>>().join("\n")
 }
