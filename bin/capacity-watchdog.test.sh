@@ -98,8 +98,8 @@ assert set(observed)=={'handoff hook silent: silent peak 365k, 0 fires','handoff
                        'handoff hook silent: pre-fix peak 365k, 0 fires'},observed
 PY
 
-claude_home="$scratch/claude" subagents="$scratch/claude/projects/-srv-repo/lead/subagents"; mkdir -p "$subagents" "$scratch/handoffs" "$scratch/bin"
-printf '#!/usr/bin/env bash\n[ "$1" = ledger ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"\n[ "$1 $2" = "fleet list" ] && printf "%%s\\n" '\''[{"name":"fleet-parent","conversation":"parent","parent":null,"provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"done","conversation":"done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"not-done","conversation":"not-done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"ignored","conversation":"ignored","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"}]'\''\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
+claude_home="$scratch/claude" subagents="$scratch/claude/projects/-srv-repo/lead/subagents"; mkdir -p "$subagents" "$scratch/handoffs" "$scratch/bin" && ln -s "$(dirname "$target")/threads" "$scratch/bin/threads"
+printf '#!/usr/bin/env bash\n[ "$1" = ledger ] || [ "$1 $2" = "threads ingest" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"\n[ "$1 $2" = "fleet list" ] && printf "%%s\\n" '\''[{"name":"fleet-parent","conversation":"parent","parent":null,"provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"done","conversation":"done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"not-done","conversation":"not-done","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"},{"name":"ignored","conversation":"ignored","parent":"fleet-parent","provider":"claude","status":"working","cwd":"/srv/repo/main"}]'\''\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
 python3 - "$subagents" <<'PY'
 import json, sys
 from datetime import datetime, timedelta, timezone
