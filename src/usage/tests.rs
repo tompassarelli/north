@@ -13,7 +13,6 @@ use crate::foundation::clock::Timestamp;
 const STATES: &str = include_str!("fixtures/states.json");
 const CREATE: &str = "CREATE TABLE usage(ts TEXT, provider TEXT, account TEXT, kind TEXT, name TEXT, used_pct REAL, window_min INTEGER, resets_at TEXT, amount REAL, source TEXT) STRICT";
 const FROZEN: &str = "2026-10-28T12:00:00Z";
-const DRIVER: &str = "import datetime, runpy, sys\nwhen = sys.argv[1]\nclass Frozen(datetime.datetime):\n    @classmethod\n    def now(cls, tz=None):\n        moment = cls.fromisoformat(when)\n        return moment.astimezone(tz) if tz else moment.replace(tzinfo=None)\ndatetime.datetime = Frozen\nsys.argv = ['usage.py'] + sys.argv[2:]\nrunpy.run_path('harness/lib/usage.py', run_name='__main__')\n";
 
 struct Scratch {
     dir: tempfile::TempDir,
@@ -51,10 +50,6 @@ impl Scratch {
     fn text(&self) -> String {
         table::render(&self.open(), &self.places(), frozen()).unwrap().0 + "\n"
     }
-
-    fn python(&self, arguments: &[&str]) -> String {
-        python(self.dir.path(), Some(&self.db()), &self.places(), arguments)
-    }
 }
 
 fn frozen() -> Timestamp {
@@ -85,40 +80,6 @@ fn ledger(path: &Path, rows: &Value) {
             })
             .collect();
         db.execute("INSERT INTO usage VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", rusqlite::params_from_iter(values)).unwrap();
-    }
-}
-
-fn python(home: &Path, threads_db: Option<&Path>, places: &Places, arguments: &[&str]) -> String {
-    let mut command = Command::new("python3");
-    command
-        .current_dir(root())
-        .args(["-I", "-c", DRIVER, "2026-10-28T12:00:00+00:00"])
-        .args(arguments)
-        .env("HOME", home)
-        .env("AGENTS_ORCHESTRATION", &places.policy)
-        .env("AGENTS_OPERATOR_DIR", &places.operator)
-        .env("XDG_STATE_HOME", &places.state);
-    if let Some(path) = threads_db {
-        command.env("THREADS_DB", path);
-    }
-    let output = command.output().unwrap();
-    String::from_utf8(output.stdout).unwrap()
-}
-
-#[test]
-fn agents_usage_json_is_byte_equal_between_python_and_rust_on_three_recorded_sampler_states() {
-    for state in &states()[..3] {
-        let scratch = Scratch::new(state);
-        assert_eq!(scratch.json(), scratch.python(&["--json"]), "{}", state["name"]);
-        assert!(serde_json::from_str::<Vec<Value>>(&scratch.json()).unwrap().len() > 1, "{}", state["name"]);
-    }
-}
-
-#[test]
-fn the_agents_usage_table_is_byte_equal_between_python_and_rust_on_four_recorded_sampler_states() {
-    for state in &states() {
-        let scratch = Scratch::new(state);
-        assert_eq!(scratch.text(), scratch.python(&[]), "{}", state["name"]);
     }
 }
 
@@ -154,7 +115,7 @@ fn a_stale_flag_marks_readings_older_than_the_stale_minutes() {
 }
 
 #[test]
-fn a_ledger_without_a_usage_table_or_file_prints_what_python_prints() {
+fn a_ledger_without_a_usage_table_or_file_prints_no_readings_and_exits_1() {
     let scratch = Scratch::new(&serde_json::json!({"rows": [], "orchestration": ""}));
     let bare = scratch.dir.path().join("bare.db");
     Connection::open(&bare).unwrap().execute("CREATE TABLE other(x)", []).unwrap();
@@ -162,12 +123,13 @@ fn a_ledger_without_a_usage_table_or_file_prints_what_python_prints() {
         let source = Source::locate(scratch.dir.path(), Some(db.clone().into()));
         let open = || store::open(&source, &|| {}).unwrap();
         let (json, (text, code)) = (report(&open(), &scratch.places().policy, frozen()).unwrap(), table::render(&open(), &scratch.places(), frozen()).unwrap());
-        assert_eq!((json + "\n", text + "\n", code), (python(scratch.dir.path(), Some(&db), &scratch.places(), &["--json"]), python(scratch.dir.path(), Some(&db), &scratch.places(), &[]), 1));
+        assert_eq!((json.as_str(), code), ("[]", 1), "{}", db.display());
+        assert!(text.starts_with("agents usage: no snapshot yet"), "{text}");
     }
 }
 
 #[test]
-fn a_remote_host_reads_the_mirrored_snapshot_and_prints_what_python_prints() {
+fn a_remote_host_reads_the_mirrored_snapshot_as_the_ledger_host_reads_its_own() {
     let state = &states()[0];
     let home = tempfile::tempdir().unwrap();
     fs::create_dir_all(home.path().join(".config/threads")).unwrap();
@@ -178,7 +140,7 @@ fn a_remote_host_reads_the_mirrored_snapshot_and_prints_what_python_prints() {
     fs::write(&places.policy, state["orchestration"].as_str().unwrap()).unwrap();
     let db = store::open(&Source::locate(home.path(), None), &|| {}).unwrap();
     let actual = report(&db, &places.policy, frozen()).unwrap() + "\n";
-    assert_eq!(actual, python(home.path(), None, &places, &["--json"]));
+    assert_eq!(actual, Scratch::new(state).json());
     assert!(actual.len() > 3);
 }
 

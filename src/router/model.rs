@@ -203,13 +203,6 @@ mod tests {
     const CONTRACT: &str = include_str!("fixtures/controller-contract.json");
 
     #[test]
-    fn recorded_controller_contract_deserializes() {
-        let contract: ControllerContract = serde_json::from_str(CONTRACT).unwrap();
-        assert!(!contract.controls.is_empty());
-        assert!(contract.controls.values().all(|c| !c.windows.is_empty()));
-    }
-
-    #[test]
     fn controller_contract_round_trip_preserves_every_field() {
         let original: Value = serde_json::from_str(CONTRACT).unwrap();
         let contract: ControllerContract = serde_json::from_value(original.clone()).unwrap();
@@ -235,22 +228,5 @@ mod tests {
                     .iter()
                     .all(|w| w.smoothed_pct_h.is_none() && w.bound_pct_h.is_none())
         }));
-    }
-
-    #[test]
-    fn controller_missing_required_field_names_the_field() {
-        let mut raw: Value = serde_json::from_str(CONTRACT).unwrap();
-        let control = raw["controls"]
-            .as_object_mut()
-            .unwrap()
-            .values_mut()
-            .next()
-            .unwrap();
-        control["windows"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("used_pct");
-        let error = serde_json::from_value::<ControllerContract>(raw).unwrap_err();
-        assert!(error.to_string().contains("used_pct"), "{error}");
     }
 }

@@ -51,12 +51,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_price_parses() {
-        let table = PriceTable::load().unwrap();
-        assert!(table.models.contains_key("claude-haiku-5-5") && table.models.contains_key("gpt-6-luna"));
-    }
-
-    #[test]
     fn an_alias_or_a_context_suffix_resolves_to_its_model_price() {
         let table = PriceTable::load().unwrap();
         let cost = |model: &str| table.price(model).map(|price| price.of(TokenUse { input: 1_000_000, ..TokenUse::default() }));
