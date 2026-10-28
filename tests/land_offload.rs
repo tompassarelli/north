@@ -24,7 +24,7 @@ esac
 HOME=$FAKE_REMOTE_HOMES/$destination exec sh -c "$*"
 "#;
 
-const CAPACITY_STUB: &str = "#!/bin/sh\nprintf '%s\\n' \"$1\" >>\"$CAPACITY_LOG\"\nshift\nexec \"$@\"\n";
+const CAPACITY_STUB: &str = "#!/bin/sh\nprintf '%s\\n' \"$1\" >>\"$CAPACITY_LOG\"\nshift 2\nexec \"$@\"\n";
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").current_dir(directory).args(arguments).output().unwrap();

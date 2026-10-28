@@ -81,10 +81,25 @@ static ABSENT_PID: LazyLock<String> = LazyLock::new(|| {
     std::fs::read_to_string("/proc/sys/kernel/pid_max").map_or_else(|_| "4194304".into(), |max| max.trim().to_owned())
 });
 
+fn on_this_host(text: &str) -> String {
+    text.replace("/proc/1234", &format!("/proc/{}", *ABSENT_PID))
+        .replace("/run/current-system", "/dev/fd")
+}
+
+fn key_on_this_host(key: &Value) -> Value {
+    match key {
+        Value::String(text) => json!(on_this_host(text)),
+        Value::Array(parts) => parts.iter().map(key_on_this_host).collect(),
+        other => other.clone(),
+    }
+}
+
 fn filled(text: &str) -> String {
-    text.replace("{home}", &HOME.path)
-        .replace("{cwd}", &format!("{}/code/proj/main", HOME.path))
-        .replace("/proc/1234", &format!("/proc/{}", *ABSENT_PID))
+    on_this_host(
+        &text
+            .replace("{home}", &HOME.path)
+            .replace("{cwd}", &format!("{}/code/proj/main", HOME.path)),
+    )
 }
 
 static MODERN_KEY: LazyLock<Regex> = LazyLock::new(|| {
@@ -178,7 +193,7 @@ fn search_guards_decide_as_the_recorded_shell_guards_did() {
             "{guard} in {cwd}: {command:?}"
         );
         if decision != "allow" {
-            assert_eq!(observed_key, case["k"], "{guard} in {cwd}: {command:?}");
+            assert_eq!(observed_key, key_on_this_host(&case["k"]), "{guard} in {cwd}: {command:?}");
         }
     }
 }
