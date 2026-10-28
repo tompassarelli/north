@@ -1454,6 +1454,18 @@ expect_status nonzero
 expect_output 'safe-push: ✗ code-health gate refused — NOT pushed.'
 [ ! -s "$real_trace" ] || fail 'code-health refusal reached the scan'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'code-health refusal changed origin'
+make_real_fixture code-health-before-land-checks
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'file.txt :: printf "ran\\n" >> land-check-runs'
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'land check'
+printf 'changed\n' >"$real_repo/file.txt"
+"$real_git" -C "$real_repo" add file.txt
+"$real_git" -C "$real_repo" commit -qm 'changed input'
+code_health_case 1 --to main
+expect_status nonzero
+expect_output 'safe-push: ✗ code-health gate refused — NOT pushed.'
+[ ! -e "$real_repo/land-check-runs" ] || fail 'a code-health refusal ran the land checks first'
+printf 'PASS: a code-health refusal stops the landing before its land checks run\n'
 make_real_fixture code-health-error-unenrolled
 code_health_case 2 --dry-run --to main
 expect_status zero
@@ -2512,7 +2524,7 @@ printf 'pin 1\n' >"$landing_root/seed/bun.lock"
 "$real_git" -C "$landing_root/seed" add .safe-push package.json bun.lock
 "$real_git" -C "$landing_root/seed" commit -qm 'exact landings, pin 1'
 "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
-printf '#!/usr/bin/env bash\n[ "$*" = "install --frozen-lockfile" ] && cp bun.lock node_modules/installed.lock\n' >"$real_bin/bun"
+printf '#!/usr/bin/env bash\n[ "$*" = "install --frozen-lockfile" ] || exec %q "$@"\ncp bun.lock node_modules/installed.lock\n' "$(command -v bun)" >"$real_bin/bun"
 chmod +x "$real_bin/bun"
 make_landing_clone "$landing_root/a" a.txt
 mkdir "$landing_root/a/node_modules" && cp "$landing_root/a/bun.lock" "$landing_root/a/node_modules/installed.lock"

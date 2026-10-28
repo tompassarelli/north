@@ -1980,6 +1980,30 @@ if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] \
   fi
 fi
 
+code_health_gated=""
+code_health_gate() {
+  local base="$1" head="$2" code_health has_structure=0 status=0
+  [ "$code_health_gated" != "$base $head" ] || return 0
+  code_health="${SAFE_PUSH_CODE_HEALTH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/code-health}"
+  git cat-file -e "$head:structure.toml" 2>/dev/null && has_structure=1
+  if [ -x "$code_health" ]; then
+    (cd "$(git rev-parse --show-toplevel)" && "$code_health" gate "$base" "$head") || status=$?
+    case "$status" in
+      0) ;;
+      1) echo "safe-push: ✗ code-health gate refused — NOT pushed."; exit 1 ;;
+      *)
+        if [ "$has_structure" -eq 1 ]; then
+          echo "safe-push: ✗ code-health gate failed (exit $status) — fix the tool; NOT pushed."; exit 1
+        fi
+        echo "safe-push: code-health gate failed (exit $status) in a repo with no structure.toml — continuing"
+        ;;
+    esac
+  elif [ "$has_structure" -eq 1 ]; then
+    echo "safe-push: code-health missing at $code_health — refusing to push a repo with structure.toml ungated; NOT pushed."; exit 1
+  fi
+  code_health_gated="$base $head"
+}
+
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
   scan_range_for_native=("refs/remotes/origin/$to..HEAD")
   native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
@@ -1990,6 +2014,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   policy_sweep_scan "refs/remotes/origin/$to..HEAD" || exit 1
   [ "$to" != "$(default_branch)" ] || review_scan "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  code_health_gate "$(git rev-parse "refs/remotes/origin/$to")" "$(git rev-parse HEAD)"
 fi
 
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
@@ -2131,25 +2156,7 @@ echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
 (cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
   || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
 
-code_health="${SAFE_PUSH_CODE_HEALTH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/code-health}"
-has_structure=0
-git cat-file -e "$head_oid:structure.toml" 2>/dev/null && has_structure=1
-if [ -x "$code_health" ]; then
-  code_health_status=0
-  (cd "$repo_root" && "$code_health" gate "${destination_oid:-${absent_base:-}}" "$head_oid") || code_health_status=$?
-  case "$code_health_status" in
-    0) ;;
-    1) echo "safe-push: ✗ code-health gate refused — NOT pushed."; exit 1 ;;
-    *)
-      if [ "$has_structure" -eq 1 ]; then
-        echo "safe-push: ✗ code-health gate failed (exit $code_health_status) — fix the tool; NOT pushed."; exit 1
-      fi
-      echo "safe-push: code-health gate failed (exit $code_health_status) in a repo with no structure.toml — continuing"
-      ;;
-  esac
-elif [ "$has_structure" -eq 1 ]; then
-  echo "safe-push: code-health missing at $code_health — refusing to push a repo with structure.toml ungated; NOT pushed."; exit 1
-fi
+code_health_gate "${destination_oid:-${absent_base:-}}" "$head_oid"
 
 scan_range_for_native=("$scan_range")
 native_ref_scan "$branch" "$destination_branch" || exit 1
