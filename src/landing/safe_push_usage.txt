@@ -21,8 +21,8 @@ Options:
                open "BRANCH is red" issue is #N, a lane with #N in a commit
                subject queues ahead of the others, and a holder hands its
                undecided lanes back behind it before its next check run;
-               when main has .github/workflows/autoland.yml or its .safe-push
-               sets landing.queue = autoland,
+               when main's .safe-push sets landing.queue = autoland, or sets
+               none and main has .github/workflows/autoland.yml,
                the lane is checked, pushed to claude/land-<lane>-<sha> and
                waits for the Autoland workflow's batched queue to land it;
                a stop, a refusal or a handback deletes that queue branch, and
