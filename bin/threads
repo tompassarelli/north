@@ -32,7 +32,7 @@ from ledger_context import COST_WINDOWS, UNTRACKED, allocation_intervals, box_gr
 from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
-from thread_holders import alive_owners, held_claims, local_alive_owners
+from thread_holders import local_alive_owners
 from ssh_transport import ssh_argv
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
@@ -478,124 +478,6 @@ def cmd_claims(db, a):
     argv = [a.cmd, a.id, "--by", a.by, *(["--eta", str(a.eta)] if a.eta else [])] if a.cmd == "claim" else ["list", *(["--json"] if a.json else [])]
     if code := subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", *argv], env=dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1")).returncode:
         sys.exit(code)
-
-
-def held():
-    run = subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", "list", "--json"], env=dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1"), capture_output=True, text=True)
-    if run.returncode: raise Refused(run.stderr.strip() or "north threads list failed")
-    return held_claims(json.loads(run.stdout), alive_owners())
-
-
-# Staffing: unowned and blocked issues -------------------------------------------
-
-STAFFED = ["smashcraft", "wisp"]
-PRIORITIES = ["priority:now", "-", "priority:next", "priority:later"]
-BOX = re.compile(r"^\s*[-*] \[ \]", re.M)
-BLOCK_DAYS = 7
-
-
-COMMIT_REF = re.compile(r"^(?:item|closes|close|fixes|fix|refs|ref|part of|issue|for)\b", re.I)
-BRANCH_HOURS = 48
-
-
-def commit_refs(message: str, repo: str, number: int) -> bool:
-    """The headline, or an Item:/Closes/Fixes/Refs line, names the issue; a passing mention in the body does not."""
-    lines = message.splitlines()
-    picked = lines[:1] + [l for l in lines[1:] if COMMIT_REF.match(l.strip())]
-    return any(mentions(l, repo, number) for l in picked)
-
-
-def mentions(text: str, repo: str, number: int) -> bool:
-    return re.search(rf"(?:(?<![\w/-])|(?<={re.escape(repo)}))#{number}(?!\d)", text) is not None
-
-
-def branch_names_issue(name: str, number: int) -> bool:
-    return re.search(rf"(?:^|[-_/#]){number}(?:$|[-_/])", name) is not None
-
-
-def open_branches(repo: str) -> tuple[dict, dict]:
-    """({branch: [commit messages ahead of the default branch]}, {branch: (reason, failed at)}) for claude/* and *land-*
-    branches on origin; a branch whose tip Autoland failed goes only in the second."""
-    nodes = json.loads(gh("api", "graphql", "-f", "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) "
-                          "{ refs(refPrefix: \"refs/heads/\", first: 100) { nodes { name target { ... on Commit { committedDate "
-                          "status { context(name: \"autoland\") { state description createdAt } } } } } } } }",
-                          "-F", f"owner={OWNER}", "-F", f"name={repo}"))["data"]["repository"]["refs"]["nodes"]
-    cutoff = time.time() - BRANCH_HOURS * 3600
-    nodes = [n for n in nodes if (n["name"].startswith("claude/") or "land-" in n["name"])
-             and datetime.fromisoformat(((n.get("target") or {}).get("committedDate") or "1970-01-01T00:00:00Z")
-                                        .replace("Z", "+00:00")).timestamp() >= cutoff]
-    lanes = {n["name"]: (((n.get("target") or {}).get("status") or {}).get("context") or {}) for n in nodes}
-    failed = {b: (c.get("description") or "no reason given", c.get("createdAt") or "") for b, c in lanes.items() if c.get("state") == "FAILURE"}
-    names = list(lanes)
-    while True:
-        if not names:
-            return {}, {}
-        fields = " ".join(f'b{i}: compare(headRef: {json.dumps(n)}) {{ commits(first: 100) {{ nodes {{ message }} }} }}' for i, n in enumerate(names))
-        try:
-            out = json.loads(gh("api", "graphql", "-f", f"query=query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) "
-                                f"{{ defaultBranchRef {{ {fields} }} }} }}", "-F", f"owner={OWNER}", "-F", f"name={repo}"))
-            break
-        except Refused as e:
-            gone = set(re.findall(r"Could not resolve head ref '([^']+)'", str(e))) & set(names)
-            if not gone:
-                raise
-            print(f"NorthThreads: skipped deleted {repo} branches {', '.join(sorted(gone))}", file=sys.stderr)
-            names = [n for n in names if n not in gone]
-    base = out["data"]["repository"]["defaultBranchRef"]
-    msgs = {n: [c["message"] for c in ((base.get(f"b{i}") or {}).get("commits") or {}).get("nodes", [])] for i, n in enumerate(names)}
-    return ({n: m for n, m in msgs.items() if n not in failed},
-            {n: (*failed[n], m) for n, m in msgs.items() if n in failed})
-
-
-def comment_block(comments) -> str | None:
-    cutoff = time.time() - BLOCK_DAYS * 86400
-    for c in sorted(comments, key=lambda c: c["createdAt"], reverse=True):
-        body = c.get("body", "").strip()
-        if datetime.fromisoformat(c["createdAt"].replace("Z", "+00:00")).timestamp() < cutoff:
-            return None
-        if body.startswith("Blocked:"):
-            return body[len("Blocked:"):].strip().splitlines()[0] if body[len("Blocked:"):].strip() else "comment"
-    return None
-
-
-def cmd_unowned(db, a):
-    claims = {item: (c["owner"], c["since"]) for item, c in held().items()}
-    blocks = {r["item"]: r["reason"] for r in db.execute("SELECT item, reason FROM blocks")}
-    rows, stale = [], []
-    for repo in STAFFED:
-        issues = json.loads(gh("issue", "list", "-R", f"{OWNER}/{repo}", "--state", "open", "--limit", "500",
-                               "--json", "number,title,labels,body,comments"))
-        branches, failed = open_branches(repo)
-        for i in issues:
-            boxes = len(BOX.findall(i.get("body") or ""))
-            if not boxes:
-                continue
-            number, item = i["number"], ref(repo, i["number"])
-            labels = {l["name"] for l in i.get("labels", [])}
-            prio = next((p for p in PRIORITIES if p in labels), "-")
-            names = lambda b, msgs: branch_names_issue(b, number) or any(commit_refs(m, repo, number) for m in msgs)
-            lane = next(((b, why, at) for b, (why, at, msgs) in sorted(failed.items()) if names(b, msgs)), None)
-            claim = claims.get(item)
-            if claim and lane and claim[1] < lane[2]:
-                stale.append((item, claim[0], lane))
-                claim = None
-            owner = (claim[0] if claim else None) or next(
-                (f"branch:{b}" for b, msgs in sorted(branches.items()) if names(b, msgs)), None)
-            block = blocks.get(item) or comment_block(i.get("comments") or [])
-            state = owner or (f"blocked:{block}" if block else "UNOWNED")
-            note = f"\tlane failed: {lane[1]} ({lane[0]})" if lane and state == "UNOWNED" else ""
-            rows.append((PRIORITIES.index(prio), repo, number, prio, state, boxes, i["title"] + note))
-    with Tx(db):
-        for item, owner, (branch, why, at) in stale:
-            db.execute("DELETE FROM claims WHERE item = ? AND owner = ?", (item, owner))
-            event(db, item, "release", "threads", owner=owner, lane_failed=branch, reason=why, failed_at=at)
-    rows.sort(key=lambda r: (r[0], STAFFED.index(r[1]), r[2]))
-    for _, repo, number, prio, state, boxes, title in rows:
-        print(f"{ref(repo, number)}\t{prio}\t{state}\t{boxes}\t{title}")
-    now_rows = [r for r in rows if r[3] == "priority:now"]
-    print(f"priority:now unowned={sum(r[4] == 'UNOWNED' for r in now_rows)} "
-          f"blocked={sum(r[4].startswith('blocked:') for r in now_rows)} "
-          f"owned={sum(r[4] != 'UNOWNED' and not r[4].startswith('blocked:') for r in now_rows)}")
 
 
 # Runs (fed by worker-ledger) ---------------------------------------------------
@@ -1833,9 +1715,9 @@ def parser() -> argparse.ArgumentParser:
                + "; ".join(f"{k.capitalize()}: {' | '.join(v)}" for k, v in FACETS.items())
                + "; Lens: <reviewer lens>. unowned: order is priority:now, unlabeled, "
                "priority:next, priority:later; the owner is a NorthThread claim not past 2x its ETA or held by a live org session, else an origin claude/* or "
-               f"*land-* branch with a commit in the last {BRANCH_HOURS} h whose name, or a commit headline or "
+               f"*land-* branch with a commit in the last 48 h whose name, or a commit headline or "
                "Item:/Closes/Fixes/Refs line ahead of main, names the issue; blocked:REASON comes from `threads block` "
-               f"or a comment starting `Blocked:` in the last {BLOCK_DAYS} days. Cloud routine runs are not a source: the "
+               f"or a comment starting `Blocked:` in the last 7 days. Cloud routine runs are not a source: the "
                "CLI cannot read them.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1871,8 +1753,6 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("run-ids", cmd_run_ids, "agent ids already recorded (for worker-ledger)")
     s.add_argument("--settled", action="store_true", help=f"leave out runs that committed in the last {LANDING_DAYS} days "
                    "and whose commit is not yet on origin/main, so worker-ledger rereads them")
-    s = cmd("unowned", cmd_unowned, "open smashcraft and wisp issues with an unchecked box: owner, block or UNOWNED, "
-            "priority:now first")
     s = cmd("summary", cmd_summary, "runs by category (or --group facets) and tier: success, minutes against ETA, "
             "working (staffed to first report) and waiting (first report to its commit on origin/main) medians, "
             "and accepted flaws per reviewer Lens")
@@ -2035,7 +1915,7 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "release", "need", "unneed", "new", "note", "close", "reopen", "block")
+RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block")
 
 
 def delegate(argv) -> int:

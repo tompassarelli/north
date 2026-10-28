@@ -5,6 +5,9 @@ use super::claims::Issue;
 use super::claims::issues::Issues;
 use super::verb::Outside;
 
+/// A gh reply from the joined arguments, or None to fall through to `answers` and `reply`.
+pub(crate) type Respond = fn(&str) -> Option<Result<String, String>>;
+
 /// Records each gh call and answers it with the reply of the first `answers` needle its joined
 /// arguments contain, else `reply`, refusing a call that contains `refuse`; refuses text holding
 /// `secret`.
@@ -17,6 +20,8 @@ pub(crate) struct Recorded {
     pub alive: Vec<&'static str>,
     pub archived: &'static str,
     pub refuse: Option<&'static str>,
+    /// Answers a call from its joined arguments before `answers` and `reply` are tried.
+    pub respond: Option<Respond>,
 }
 
 impl Issues for Recorded {
@@ -38,6 +43,9 @@ impl Outside for Recorded {
         let joined = args.join(" ");
         if self.refuse.is_some_and(|needle| joined.contains(needle)) {
             return Err("gh api graphql: refused".into());
+        }
+        if let Some(answer) = self.respond.and_then(|respond| respond(&joined)) {
+            return answer;
         }
         Ok(self.answers.iter().find(|(needle, _)| joined.contains(needle)).map_or(self.reply, |(_, reply)| reply.as_str()).to_owned())
     }

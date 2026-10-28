@@ -4,13 +4,13 @@ pub(crate) mod issues;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
 use self::issues::Board;
-use super::claims::{self, Standing};
+use super::claims::{self, Claim, Standing};
 use super::verb::{Args, Context, Failure, Outcome, item_ref, report};
 use crate::foundation::clock::Timestamp;
 use crate::pyjson;
@@ -139,13 +139,7 @@ fn ready(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
     if !args.positional.is_empty() {
         return Err(Failure::Usage("usage: threads ready".into()));
     }
-    let claims_context = claims::verbs::Context { database: context.database, actor: context.actor.clone(), no_native: context.no_native, issues: context.outside, now: context.now.unix_seconds() };
-    let alive = context.outside.alive_owners();
-    let held: BTreeSet<String> = claims::verbs::standing_claims(&claims_context)?
-        .into_iter()
-        .filter(|(claim, standing)| matches!(standing, Standing::Live) || alive.contains(&claim.owner))
-        .map(|(claim, _)| claim.item)
-        .collect();
+    let held = held(context)?;
     let board = Board::open(context)?;
     let visible = if context.no_native.is_some() { &[][..] } else { &CATALOG.native[..] };
     let mut listed = String::new();
@@ -161,11 +155,22 @@ fn ready(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
         for issue in issues {
             let item = format!("{repo}#{}", issue.number);
             let local = if CATALOG.is_native(repo) { Vec::new() } else { board.local_blockers(&item)? };
-            if held.contains(&item) || issue.blockers.iter().chain(&local).any(|blocker| blocker.state == "OPEN") {
+            if held.contains_key(&item) || issue.blockers.iter().chain(&local).any(|blocker| blocker.state == "OPEN") {
                 continue;
             }
             listed += &format!("{item}\t{}\n", issue.title);
         }
     }
     Ok(listed)
+}
+
+/// The claims that hold their issue: live ones, and stale ones whose owner is alive now.
+pub(crate) fn held(context: &Context) -> Result<BTreeMap<String, Claim>, Failure> {
+    let claims_context = claims::verbs::Context { database: context.database, actor: context.actor.clone(), no_native: context.no_native, issues: context.outside, now: context.now.unix_seconds() };
+    let alive = context.outside.alive_owners();
+    Ok(claims::verbs::standing_claims(&claims_context)?
+        .into_iter()
+        .filter(|(claim, standing)| matches!(standing, Standing::Live) || alive.contains(&claim.owner))
+        .map(|(claim, _)| (claim.item.clone(), claim))
+        .collect())
 }

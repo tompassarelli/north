@@ -37,6 +37,7 @@ mod threads {
     pub(crate) mod jobs;
     pub(crate) mod outside;
     pub(crate) mod snapshot;
+    pub(crate) mod staffing;
     pub(crate) mod verb;
     #[cfg(test)]
     mod fake;

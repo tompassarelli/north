@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{board, claims, ingest_lock, items, jobs, outside, snapshot, verb};
+use crate::threads::{board, claims, ingest_lock, items, jobs, outside, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -157,6 +157,8 @@ impl Client {
             Some(items::run)
         } else if board::VERBS.contains(&verb) {
             Some(board::run)
+        } else if staffing::VERBS.contains(&verb) {
+            Some(staffing::run)
         } else {
             None
         };
