@@ -18,7 +18,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "src/test_inputs.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","learn","domain","shell","platform","foundation"]
+may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","learn","domain","shell","platform","foundation"]
 
 [[module]]
 name = "foundation"
@@ -107,6 +107,12 @@ name = "ops"
 paths = ["src/ops/**", "src/health.rs", "src/health/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, todo lint, runtime update."
 may_use = ["ledger", "fleet", "threads", "capacity", "domain", "shell", "platform", "foundation"]
+
+[[module]]
+name = "usage"
+paths = ["src/usage/**"]
+responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
+may_use = ["domain", "foundation"]
 
 [[module]]
 name = "learn"

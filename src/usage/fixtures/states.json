@@ -1,0 +1,41 @@
+[
+  {
+    "name": "four claude accounts with window and plan readings, each read twice",
+    "orchestration": "[accounts.claude.profiles.a]\nhere = {}\n[accounts.claude.profiles.d]\nhere = {}\n",
+    "rows": [
+      ["2020-10-28T06:58:07Z", "claude", "a", "window", "session", 0.0, 300, null, null, "claude -p /usage; ~/.claude.json cachedUsageUtilization"],
+      ["2020-10-28T07:00:00Z", "claude", "a", "window", "session", 0.0, 300, "2026-10-28T12:00:00Z", null, "Messages response anthropic-ratelimit-unified headers on the account's setup token"],
+      ["2020-10-28T07:01:00Z", "claude", "a", "window", "session", 3.5, 300, "2026-10-28T12:00:00Z", null, "Messages response anthropic-ratelimit-unified headers on the account's setup token"],
+      ["2020-10-28T07:01:00Z", "claude", "a", "window", "weekly_all", 100.0, 10080, "2026-10-29T02:00:00Z", null, "Messages response anthropic-ratelimit-unified headers on the account's setup token"],
+      ["2020-10-28T07:01:00Z", "claude", "d", "window", "session", 48.0, 300, "2026-10-28T08:40:00Z", null, "Messages response anthropic-ratelimit-unified headers on the account's setup token"],
+      ["2020-10-28T07:01:00Z", "claude", "d", "window", "weekly_all", 47.0, 10080, "2026-11-03T08:00:00Z", null, "Messages response anthropic-ratelimit-unified headers on the account's setup token"],
+      ["2020-10-28T07:01:00Z", "claude", "b", "billing", "plan", null, null, null, 1.0, "max-20x"],
+      ["2020-10-28T07:01:00Z", "claude", "c", "window", "weekly_all", 12.25, 10080, "2026-10-29T11:59:59Z", null, "claude -p /usage; ~/.claude.json cachedUsageUtilization"],
+      ["2999-01-01T00:00:00Z", "claude", "d", "grant", "cedar_ember/full", null, null, "2999-02-01T00:00:00Z", 2.0, "web: usage page"],
+      ["2999-01-01T00:00:00Z", "claude", "d", "grant", "cedar_ember/5h", null, null, null, 1e-05, "web: usage page"]
+    ]
+  },
+  {
+    "name": "claude, gemini and an unknown provider with no hosted profiles declared",
+    "orchestration": "",
+    "rows": [
+      ["2020-01-01T00:00:00Z", "claude", "a", "window", "weekly_all", 61.0, 10080, "2020-01-07T00:00:00Z", null, "old"],
+      ["2020-01-01T00:00:00Z", "claude", null, "window", "session", 1.0, 300, null, null, "no account"],
+      ["2999-01-01T00:00:00+00:00", "gemini", "tom", "window", "day", 80.5, 1440, "2999-01-02T00:00:00Z", null, "gemini quota é世 😀 \"quoted\" \\ back\ttab"],
+      ["2999-01-01T00:00:00Z", "gemini", "tom", "billing", "credit", null, null, null, 1e22, "x"],
+      ["2999-01-01T00:00:00Z", "mystery", "z", "window", "day", 5.0, 1440, null, null, "unknown provider is never shown"],
+      ["2999-01-01T00:00:00Z", "codex", "pooled", "window", "weekly", 40.0, 10080, null, null, "codex is not in the catalog accounts"]
+    ]
+  },
+  {
+    "name": "claude rows of an account the host does not hold are hidden when profiles are declared",
+    "orchestration": "[accounts.claude.profiles.d]\nhere = {}\n",
+    "rows": [
+      ["2020-10-28T07:01:00Z", "claude", "a", "window", "session", 3.5, 300, null, null, "foreign"],
+      ["2020-10-28T07:01:00Z", "claude", null, "window", "session", 9.0, 300, null, null, "no account"],
+      ["2020-10-28T07:01:00Z", "claude", "d", "window", "session", 48.0, 300, null, null, "held"],
+      ["2020-10-28T07:01:00Z", "claude", "d", "window", "session", 49.0, 300, null, null, "tie on ts: the later rowid wins"],
+      ["2999-01-01T00:00:00Z", "gemini", "tom", "window", "day", 0.0, 1440, null, null, "gemini ignores the claude profile filter"]
+    ]
+  }
+]

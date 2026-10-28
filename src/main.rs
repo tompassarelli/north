@@ -24,6 +24,7 @@ mod foundation;
 mod work_items;
 mod session_host;
 mod ops;
+mod usage;
 mod hook;
 mod guard;
 mod pyjson;
