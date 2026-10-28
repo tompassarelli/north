@@ -1,6 +1,6 @@
 //! What every Rust NorthThreads verb shares: the ledger bin/threads has migrated, argparse-shaped
 //! arguments, refusals, events written the way Python wrote them, and the outside effects.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 use std::sync::LazyLock;
@@ -12,6 +12,7 @@ use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use crate::foundation::clock::Timestamp;
 use crate::pyjson::Value;
 use crate::threads::catalog::CATALOG;
+use crate::threads::claims::issues::Issues;
 
 /// Set by bin/threads once it has migrated THREADS_DB, which it owns until its migrations move here.
 pub(crate) const SCHEMA_READY: &str = "THREADS_SCHEMA_READY";
@@ -20,11 +21,15 @@ const BUSY: Duration = Duration::from_secs(60);
 static NATIVE_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(&format!(r"\b(?:{})#\d+\b", CATALOG.native.join("|"))).expect("native ref pattern"));
 
 /// What a verb touches outside the ledger.
-pub(crate) trait Outside {
+pub(crate) trait Outside: Issues {
     /// Refuses text holding a secret.
     fn scan(&self, text: &str) -> Result<(), String>;
     /// Runs gh with these arguments and returns its stdout.
     fn gh(&self, args: &[String]) -> Result<String, String>;
+    /// Who owns a session alive now, here or as relayed by the caller.
+    fn alive_owners(&self) -> BTreeSet<String>;
+    /// The archive tags naming an issue, with their restore commands, as `show` prints them.
+    fn archives(&self, repo: &str, number: u64) -> String;
 }
 
 pub(crate) struct Context<'a> {
@@ -34,6 +39,8 @@ pub(crate) struct Context<'a> {
     pub no_native: Option<&'static str>,
     pub outside: &'a dyn Outside,
     pub now: Timestamp,
+    /// The ledger is the local snapshot of a remote one, never written.
+    pub replica: bool,
 }
 
 impl Context<'_> {

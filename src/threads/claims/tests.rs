@@ -27,6 +27,7 @@ struct Ledger {
     _directory: tempfile::TempDir,
     path: PathBuf,
     issues: Seen,
+    no_native: Option<&'static str>,
 }
 
 fn at(text: &str) -> i64 {
@@ -38,7 +39,7 @@ fn ledger(issues: &[(u64, Issue)]) -> Ledger {
     let path = directory.path().join("threads.db");
     Connection::open(&path).unwrap().execute_batch(SCHEMA).unwrap();
     let issues = Seen(issues.iter().map(|(number, issue)| (("smashcraft".to_owned(), *number), *issue)).collect());
-    Ledger { _directory: directory, path, issues }
+    Ledger { _directory: directory, path, issues, no_native: None }
 }
 
 impl Ledger {
@@ -52,7 +53,7 @@ impl Ledger {
     }
 
     fn run(&self, argv: &[&str]) -> (i32, String, String) {
-        let context = Context { database: &self.path, actor: "tester".into(), no_native: None, issues: &self.issues, now: at(NOW) };
+        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, issues: &self.issues, now: at(NOW) };
         let argv: Vec<String> = argv.iter().map(|arg| (*arg).to_owned()).collect();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = verbs::run(&argv, &context, &mut out, &mut err);
@@ -153,4 +154,17 @@ fn github_answers_a_missing_issue_beside_the_found_ones_and_an_unread_reply_void
     let found = issues::answers(&items, &reply);
     assert_eq!(found.values().copied().collect::<Vec<_>>(), [Issue::Closed, Issue::Missing, Issue::Open { opened: at("2026-10-01T00:00:00Z") }]);
     assert!(issues::answers(&items, &Value::Null).values().all(|issue| *issue == Issue::Unread));
+}
+
+#[test]
+fn a_caller_that_may_not_read_native_items_lists_no_native_claim() {
+    let mut ledger = ledger(&[(3, Issue::Open { opened: at("2026-10-01T00:00:00Z") })]);
+    ledger.db().execute("INSERT INTO items(ns, number, title, created) VALUES ('life', 1, 'p a', 'x')", []).unwrap();
+    ledger.claimed("life#1", "alice", "2026-10-27T11:00:00Z", None);
+    ledger.claimed("smashcraft#3", "bob", "2026-10-27T11:00:00Z", None);
+    assert_eq!(ledger.listed(), ["life#1", "smashcraft#3"]);
+    ledger.no_native = Some("THREADS_NO_NATIVE is set (agy)");
+    assert_eq!(ledger.listed(), ["smashcraft#3"]);
+    assert!(!ledger.run(&["list", "--json"]).1.contains("life#"));
+    assert_eq!(ledger.run(&["claim", "life#1"]).2, "NorthThreads: native items are not readable here: THREADS_NO_NATIVE is set (agy)\n");
 }

@@ -40,7 +40,7 @@ impl Ledger {
     }
 
     fn feed(&self, argv: &[&str], stdin: &str) -> (i32, String, String) {
-        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, outside: &self.outside, now: Timestamp::parse(NOW).unwrap() };
+        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, outside: &self.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
         let argv: Vec<String> = argv.iter().map(|arg| (*arg).to_owned()).collect();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = run(&argv, &context, &mut stdin.as_bytes(), &mut out, &mut err);

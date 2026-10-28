@@ -371,10 +371,6 @@ def no_native_reason() -> str | None:
     return None
 
 
-def visible_native() -> list:
-    return [] if no_native_reason() else NATIVE
-
-
 def gitleaks_clean(text: str):
     try:
         p = subprocess.run(["gitleaks", "stdin", "--no-banner", "--redact", "-l", "error"], input=text,
@@ -409,15 +405,6 @@ query($owner: String!, $name: String!, $cursor: String) {
     issues(states: OPEN, first: 100, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes { number title blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } } }
-    }
-  }
-}"""
-
-ONE_ISSUE = """
-query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $number) {
-      number title state blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } }
     }
   }
 }"""
@@ -481,23 +468,6 @@ def open_issues(db, repo: str) -> dict:
     return issues
 
 
-def one_issue(db, repo: str, number: int) -> dict:
-    if repo in NATIVE:
-        row = native_item(db, repo, number)
-        return {"title": row["title"], "state": row["state"].upper(), "blockers": local_blockers(db, ref(repo, number))}
-    row = db.execute("SELECT fetched, issues FROM gh_cache WHERE repo = ?", (repo,)).fetchone()
-    if row and time.time() - row["fetched"] < CACHE_SECONDS and str(number) in json.loads(row["issues"]):
-        cached = json.loads(row["issues"])[str(number)]
-        return dict(cached, state="OPEN", blockers=cached["blockers"] + local_blockers(db, ref(repo, number)))
-    owner, name = OWNER, repo
-    out = json.loads(gh("api", "graphql", "-f", f"query={ONE_ISSUE}", "-F", f"owner={owner}",
-                        "-F", f"name={name}", "-F", f"number={number}"))
-    issue = out["data"]["repository"]["issue"]
-    if issue is None:
-        raise Refused(f"no issue {ref(repo, number)}")
-    return {"title": issue["title"], "state": issue["state"], "blockers": blockers(issue) + local_blockers(db, ref(repo, number))}
-
-
 # Commands --------------------------------------------------------------------
 
 
@@ -514,65 +484,6 @@ def held():
     run = subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", "list", "--json"], env=dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1"), capture_output=True, text=True)
     if run.returncode: raise Refused(run.stderr.strip() or "north threads list failed")
     return held_claims(json.loads(run.stdout), alive_owners())
-
-
-def cmd_show(db, a):
-    repo, number = parse_ref(a.id)
-    item = ref(repo, number)
-    issue = one_issue(db, repo, number)
-    print(f"{item}  {issue['title']}")
-    print(f"  state: {issue['state'].lower()}")
-    if issue["blockers"]:
-        print("  blocked by: " + ", ".join(f"{b['ref']} ({b['state'].lower()})" for b in issue["blockers"]))
-    if repo in NATIVE:
-        row = native_item(db, repo, number)
-        if row["due"]:
-            print(f"  due: {row['due']}")
-        if row["body"]:
-            print("  " + row["body"].replace("\n", "\n  "))
-        for e in db.execute("SELECT ts, data FROM events WHERE item = ? AND kind = 'note' AND json_extract(data, '$.text')"
-                            " IS NOT NULL ORDER BY seq", (item,)):
-            print(f"  note {e['ts']}  {json.loads(e['data'])['text']}")
-    c = db.execute("SELECT * FROM claims WHERE item = ?", (item,)).fetchone()
-    if c:
-        print(f"  owner: {c['owner']} for {minutes_since(c['since'])}m" + (f" of {c['eta_min']}m ETA" if c["eta_min"] else ""))
-    hands = db.execute(
-        "SELECT ts, kind, actor, data FROM events WHERE item = ? AND kind IN ('claim','release','handoff') ORDER BY seq",
-        (item,),
-    ).fetchall()
-    if hands:
-        print("  owners:")
-        for e in hands:
-            d = json.loads(e["data"])
-            what = f"{d['from']} -> {d['to']}" if e["kind"] == "handoff" else e["actor"]
-            print(f"    {e['ts']}  {e['kind']:<8} {what}")
-    runs = db.execute("SELECT * FROM runs WHERE item = ? ORDER BY ended", (item,)).fetchall()
-    if runs:
-        print(f"  runs: {len(runs)}, {sum(r['minutes'] for r in runs)}m in all")
-        for r in runs:
-            eta = f"/{r['eta_min']}m ETA" if r["eta_min"] else ""
-            follows = f" follows {r['follows']}" if r["follows"] else ""
-            note = f"  note {r['note']}" if r["note"] else ""
-            print(f"    {r['ended'][:16]}  {r['agent']} {r['tier']}{follows}  {r['minutes']}m{eta}  {r['outcome']}: {r['report'][:80]}{note}")
-    if repo not in NATIVE and not os.environ.get("THREADS_ARCHIVES_LOCAL"):
-        print(subprocess.run([os.environ.get("NORTH_BIN") or "north", "archives", repo, str(number)], capture_output=True, text=True).stdout, end="")
-
-
-def cmd_ready(db, a):
-    claimed = held()
-    for repo in REPOS + visible_native():
-        try:
-            issues = open_issues(db, repo)
-        except Refused as e:
-            print(f"NorthThreads: skipped {repo}: {e}", file=sys.stderr)
-            continue
-        for number in sorted(issues, key=int):
-            i = issues[number]
-            item = ref(repo, int(number))
-            local = local_blockers(db, item) if repo in REPOS else []
-            if item in claimed or any(b["state"] == "OPEN" for b in i["blockers"] + local):
-                continue
-            print(f"{item}\t{i['title']}")
 
 
 # Staffing: unowned and blocked issues -------------------------------------------
@@ -1954,9 +1865,6 @@ def parser() -> argparse.ArgumentParser:
     s = cmd("claim", cmd_claims, "hold an issue; refused while someone else's claim is live, taking over one stale 24 h past its ETA")
     s.add_argument("id")
     s.add_argument("--eta", type=int, help="minutes")
-    s = cmd("show", cmd_show, "issue title, state and blockers, with its owners, handoffs, runs and origin archive restore commands")
-    s.add_argument("id")
-    cmd("ready", cmd_ready, "open issues with no open blocker and no owner")
     s = cmd("list", cmd_claims, "held issues with owner, time on the clock, ETA and an OVERDUE or STALE flag; void claims are not shown")
     s.add_argument("--json", action="store_true")
     cmd("ingest", cmd_ingest, "record worker runs or type=usage readouts from JSON rows on stdin")
@@ -2115,7 +2023,7 @@ def proxy(dest, argv) -> int:
         if not (code == 0 and argv[:1] == ["calibrate"] and "--write" in argv and "--goal-row" in argv):
             refresh_snapshot(dest, force=code == 0 and (argv[:1] == ["record-priors"] or argv[:1] == ["calibrate"] and "--write" in argv))
         if code == 0 and argv[:1] == ["show"]:
-            repo, number = parse_ref(parser().parse_args(argv).id)
+            repo, number = parse_ref(next(arg for arg, before in zip(argv[1:], argv) if not arg.startswith("-") and before != "--by"))
             if repo not in NATIVE:
                 print(subprocess.run([os.environ.get("NORTH_BIN") or "north", "archives", repo, str(number)], capture_output=True, text=True).stdout, end="")
         return code
@@ -2127,7 +2035,7 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("job-run", "job-runs", "queue", "release", "need", "unneed", "new", "note", "close", "reopen", "block")
+RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "release", "need", "unneed", "new", "note", "close", "reopen", "block")
 
 
 def delegate(argv) -> int:

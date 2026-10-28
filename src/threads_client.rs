@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
-use crate::threads::{claims, ingest_lock, items, jobs, outside, snapshot, verb};
+use crate::threads::{board, claims, ingest_lock, items, jobs, outside, snapshot, verb};
 use crate::foundation::clock::Timestamp;
 
 const READS: [&str; 12] = [
@@ -151,10 +151,19 @@ impl Client {
             let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, now: Timestamp::now().unix_seconds() };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
         }
-        let ported: Option<verb::Verb> =
-            if jobs::VERBS.contains(&verb) { Some(jobs::run) } else if items::VERBS.contains(&verb) { Some(items::run) } else { None };
+        let ported: Option<verb::Verb> = if jobs::VERBS.contains(&verb) {
+            Some(jobs::run)
+        } else if items::VERBS.contains(&verb) {
+            Some(items::run)
+        } else if board::VERBS.contains(&verb) {
+            Some(board::run)
+        } else {
+            None
+        };
         if let Some(run) = ported.filter(|_| self.var(verb::SCHEMA_READY).is_some()) {
-            let context = verb::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &outside::Live, now: Timestamp::now() };
+            let live = outside::Live::new(&self.env);
+            let replica = ledger == self.snapshot;
+            let context = verb::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &live, now: Timestamp::now(), replica };
             let mut stdin: Box<dyn Read> = replay.map_or_else(|| Box::new(io::stdin()) as Box<dyn Read>, |brief| Box::new(io::Cursor::new(brief.to_vec())));
             return Ok(run(argv, &context, &mut stdin, &mut io::stdout().lock(), &mut io::stderr()));
         }
@@ -392,7 +401,7 @@ impl Client {
         }
         let first = args.first().map(String::as_str);
         if first == Some("unowned") {
-            remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&self.local_alive_owners())));
+            remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&outside::fleet_owners(self.var("NORTH_BIN").unwrap_or("north")).into_iter().collect::<Vec<_>>())));
         }
         if first == Some("show") {
             remote.push("THREADS_ARCHIVES_LOCAL=1".to_owned());
@@ -442,27 +451,6 @@ impl Client {
         }
         argv.extend(arguments.iter().map(OsString::from));
         argv
-    }
-
-    fn local_alive_owners(&self) -> Vec<String> {
-        let north = self.var("NORTH_BIN").unwrap_or("north");
-        let Ok(output) = Command::new(north).args(["fleet", "list", "--json"]).output() else {
-            return Vec::new();
-        };
-        if !output.status.success() { return Vec::new(); }
-        let Some(sessions) = serde_json::from_slice::<Value>(&output.stdout).ok().and_then(|value| value.as_array().cloned()) else {
-            return Vec::new();
-        };
-        let mut owners = BTreeSet::new();
-        for session in sessions.iter().filter(|session| session.get("status").and_then(Value::as_str) != Some("exited")) {
-            let text = |key: &str| session.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
-            owners.extend(text("name").map(str::to_owned));
-            owners.extend(text("conversation").map(str::to_owned));
-            if let (Some(provider), Some(conversation)) = (text("provider"), text("conversation")) {
-                owners.insert(format!("{provider}:{conversation}"));
-            }
-        }
-        owners.into_iter().collect()
     }
 }
 
@@ -767,6 +755,12 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(code, 255);
         assert_eq!(err, "NorthThreads: ledger-host unreachable; the ledger lives there, so nothing was read or recorded\n");
         assert_eq!(log(&rig, "threads.log").len(), 1);
+    }
+
+    #[test]
+    fn a_caller_that_may_not_read_native_items_is_served_no_snapshot_pages() {
+        let rig = rig(&[("THREADS_NO_NATIVE", "1")]);
+        assert_eq!(call(&rig, &["snapshot-pages"], b""), (1, "NorthThreads: the snapshot holds native items: THREADS_NO_NATIVE is set (agy)\n".to_owned()));
     }
 
     fn ledger_host(wait: Duration) -> (tempfile::TempDir, Client) {

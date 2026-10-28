@@ -29,6 +29,7 @@ mod guard;
 mod pyjson;
 mod shell;
 mod threads {
+    pub(crate) mod board;
     pub(crate) mod catalog;
     pub(crate) mod claims;
     pub(crate) mod ingest_lock;

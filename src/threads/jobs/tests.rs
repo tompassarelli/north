@@ -36,7 +36,7 @@ impl Ledger {
     }
 
     fn feed(&self, argv: &str, stdin: &str) -> (i32, String, String) {
-        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, outside: &self.outside, now: Timestamp::parse(NOW).unwrap() };
+        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, outside: &self.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
         let argv: Vec<String> = shell_words(argv);
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = run(&argv, &context, &mut stdin.as_bytes(), &mut out, &mut err);
@@ -91,7 +91,7 @@ fn two_concurrent_takes_claim_the_one_job_once_and_its_result_is_commented_on_it
 
 fn ledger_take(path: &std::path::Path) -> String {
     let outside = Recorded::default();
-    let context = Context { database: path, actor: "tester".into(), no_native: None, outside: &outside, now: Timestamp::parse(NOW).unwrap() };
+    let context = Context { database: path, actor: "tester".into(), no_native: None, outside: &outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
     let mut out = Vec::new();
     assert_eq!(run(&shell_words("queue take laptop"), &context, &mut &b""[..], &mut out, &mut Vec::new()), 0);
     String::from_utf8(out).unwrap()
