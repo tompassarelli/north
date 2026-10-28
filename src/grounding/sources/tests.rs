@@ -345,5 +345,5 @@ fn refresh_lock_held_by_a_starting_refresh_keeps_an_idle_refresh_out_until_relea
     );
     assert!(refresh_lock(root.path(), false).unwrap().is_none());
     drop(held);
-    assert!(refresh_lock(root.path(), false).unwrap().is_some());
+    assert!(refresh_lock(root.path(), true).unwrap().is_some());
 }

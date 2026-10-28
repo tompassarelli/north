@@ -402,7 +402,7 @@ fn a_lock_held_past_the_wait_never_becomes_a_definitive_absence() {
     let lab = Lab::new();
     demo(&lab);
     let lock = File::options().create(true).truncate(false).write(true).open(lab.env.lock()).unwrap();
-    flock(&lock, FlockOperation::NonBlockingLockExclusive).unwrap();
+    flock(&lock, FlockOperation::LockExclusive).unwrap();
     for subcommand in ["search", "session"] {
         let (code, _, err) = lab.run(&[subcommand, "22222222-3333-4444-5555-666666666666"]);
         assert_eq!(code, 2, "{subcommand}");
