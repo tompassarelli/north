@@ -10,6 +10,8 @@ use crate::foundation::clock::Timestamp;
 
 mod burn;
 mod costs;
+mod ctx;
+mod gate;
 mod py;
 mod render;
 mod settings;
@@ -20,6 +22,7 @@ mod tests;
 mod web;
 
 const USAGE: &str = "usage: north usage [--json]";
+const PACED: [&str; 2] = ["claude", "gemini"];
 
 pub(crate) struct Places {
     pub policy: PathBuf,
@@ -40,7 +43,15 @@ impl Places {
 }
 
 pub(crate) fn handles(arguments: &[String]) -> bool {
-    arguments.iter().all(|argument| argument == "--json" || argument == "--local")
+    arguments.iter().all(|argument| matches!(argument.as_str(), "--json" | "--local" | "--write-pace-gate"))
+}
+
+fn clock() -> Timestamp {
+    std::env::var("USAGE_NOW").ok().and_then(|text| Timestamp::parse_rfc3339(&text)).unwrap_or_else(Timestamp::now)
+}
+
+pub(crate) fn write_pace_gate(db: &Connection) -> Result<serde_json::Value, String> {
+    gate::write(db, &PACED, &Places::from_env(), Timestamp::now())
 }
 
 pub(crate) fn run(arguments: &[String]) -> u8 {
@@ -48,13 +59,19 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     }
-    let json = arguments.iter().any(|argument| argument == "--json");
+    let wants = |flag: &str| arguments.iter().any(|argument| argument == flag);
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let source = store::Source::locate(&home, std::env::var_os("THREADS_DB"));
     let places = Places::from_env();
     let outcome = store::open(&source, &crate::threads_client::refresh_mirrored_snapshot).and_then(|db| {
-        let now = Timestamp::now();
-        if json { report(&db, &places.policy, now).map(|text| (text, 0)) } else { table::render(&db, &places, now) }
+        let now = clock();
+        if wants("--write-pace-gate") {
+            gate::write(&db, &PACED, &places, now).map(|verdicts| (verdicts.to_string(), 0))
+        } else if wants("--json") {
+            report(&db, &places.policy, now).map(|text| (text, 0))
+        } else {
+            table::render(&db, &places, now)
+        }
     });
     match outcome {
         Ok((text, code)) => {

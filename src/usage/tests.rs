@@ -306,3 +306,66 @@ fn a_corrupt_snapshot_is_refreshed_once_and_persistent_corruption_is_reported_af
     assert!(error.starts_with("NorthThreads: snapshot still unreadable after one refresh"), "{error}");
     assert_eq!((pulls.get(), fs::read(&snapshot).unwrap()), (1, before));
 }
+
+const CTX_ORACLE: &str = "import datetime, json, sqlite3, sys, tomllib\nwhen = sys.argv[1]\nclass Frozen(datetime.datetime):\n    @classmethod\n    def now(cls, tz=None):\n        moment = cls.fromisoformat(when)\n        return moment.astimezone(tz) if tz else moment.replace(tzinfo=None)\ndatetime.datetime = Frozen\nsys.path.insert(0, 'harness/lib')\nimport usage, plan_usage\ncfg = tomllib.load(open(sys.argv[2], 'rb'))\ncatalog = tomllib.load(open('harness/model-catalog.toml', 'rb'))\ndb = sqlite3.connect(sys.argv[3])\nnow = Frozen.now(datetime.timezone.utc)\nout = {}\nfor provider in ('claude', 'gemini'):\n    rows = [r for r in usage.latest(db) if r['provider'] == provider]\n    out[provider] = plan_usage.live_ctx(cfg, catalog, rows, db, now, cfg.get('tiers', {}))\nprint(json.dumps(out, default=str))\n";
+
+fn same(left: &Value, right: &Value, path: &str) {
+    match (left, right) {
+        (Value::Object(a), Value::Object(b)) => {
+            assert_eq!(a.keys().collect::<Vec<_>>(), b.keys().collect::<Vec<_>>(), "{path}");
+            a.iter().for_each(|(key, value)| same(value, &b[key], &format!("{path}.{key}")));
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            assert_eq!(a.len(), b.len(), "{path}");
+            a.iter().zip(b).enumerate().for_each(|(index, (x, y))| same(x, y, &format!("{path}[{index}]")));
+        }
+        (Value::Number(a), Value::Number(b)) if a.is_f64() && b.is_f64() => {
+            assert!((a.as_f64().unwrap() - b.as_f64().unwrap()).abs() < 1e-6, "{path}: {a} vs {b}");
+        }
+        _ => assert_eq!(left, right, "{path}"),
+    }
+}
+
+#[test]
+fn the_ctx_built_for_the_router_equals_plan_usage_live_ctx_on_a_recorded_ledger_with_runs_and_model_events() {
+    let state: Value = serde_json::from_str(include_str!("fixtures/gate_state.json")).unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let (db_path, policy) = (scratch.path().join("threads.db"), scratch.path().join("orchestration.toml"));
+    ledger(&db_path, &state["rows"]);
+    let db = Connection::open(&db_path).unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, tier TEXT, category TEXT, outcome TEXT, expects_landing INTEGER, landed INTEGER, item TEXT, role TEXT, follows TEXT); CREATE TABLE model_events(model TEXT, at TEXT, p REAL, kind TEXT, ts TEXT);").unwrap();
+    for (sql, rows) in [("INSERT INTO runs VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", &state["runs"]), ("INSERT INTO model_events VALUES (?1, ?2, ?3, ?4, ?5)", &state["events"])] {
+        for row in rows.as_array().unwrap() {
+            let cells = row.as_array().unwrap().iter().map(|cell| match cell {
+                Value::Null => rusqlite::types::Value::Null,
+                Value::String(text) => rusqlite::types::Value::Text(text.clone()),
+                number if number.is_i64() => rusqlite::types::Value::Integer(number.as_i64().unwrap()),
+                number => rusqlite::types::Value::Real(number.as_f64().unwrap()),
+            });
+            db.execute(sql, rusqlite::params_from_iter(cells)).unwrap();
+        }
+    }
+    fs::write(&policy, include_str!("../router/fixtures/policy/orchestration.toml")).unwrap();
+    let output = Command::new("python3")
+        .current_dir(root())
+        .args(["-I", "-c", CTX_ORACLE, "2026-10-28T12:00:00+00:00"])
+        .arg(&policy)
+        .arg(&db_path)
+        .env("HOME", scratch.path())
+        .env("AGENTS_ORCHESTRATION", &policy)
+        .env("THREADS_DB", &db_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let mut expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let inputs = super::gate::Inputs::load(&policy).unwrap();
+    let readings = super::readings(&db, &policy).unwrap();
+    for provider in ["claude", "gemini"] {
+        let mut actual = inputs.context(&db, &readings, provider, frozen()).unwrap();
+        actual.as_object_mut().unwrap().remove("now");
+        expected[provider].as_object_mut().unwrap().remove("now");
+        same(&expected[provider], &actual, provider);
+    }
+    assert_eq!(expected["claude"]["success"], serde_json::json!({"claude:haiku|tooling": 60}));
+    assert_eq!(expected["claude"]["tiers"][0]["successor"]["model"], "claude-haiku-5-7");
+}

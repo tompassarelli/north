@@ -8,22 +8,6 @@ fn reading(index: usize) -> serde_json::Value {
 }
 
 #[test]
-fn a_file_readout_is_read_in_place_and_only_a_memory_readout_is_copied() {
-    let scratch = tempfile::tempdir().unwrap();
-    let file = scratch.path().join("threads.db");
-    let db = Connection::open(&file).unwrap();
-    readout::prepare(&db).unwrap();
-    assert_eq!(readout::readable_path(&db, scratch.path()).unwrap(), file.to_string_lossy());
-    assert!(!scratch.path().join("readout.db").exists());
-    let memory = Connection::open_in_memory().unwrap();
-    readout::prepare(&memory).unwrap();
-    readout::record(&memory, &[reading(0)]).unwrap();
-    let copy = readout::readable_path(&memory, scratch.path()).unwrap();
-    let rows: i64 = Connection::open(copy).unwrap().query_row("SELECT count(*) FROM usage", [], |r| r.get(0)).unwrap();
-    assert_eq!(rows, 1);
-}
-
-#[test]
 fn each_prepared_readout_carries_usage_planner_stats_for_its_current_size() {
     let db = Connection::open_in_memory().unwrap();
     readout::prepare(&db).unwrap();

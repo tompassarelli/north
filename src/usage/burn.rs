@@ -48,7 +48,7 @@ pub(super) fn describe(db: &Connection, mine: &[&Row], now: Timestamp) -> Result
     ))
 }
 
-fn beta(db: &Connection, row: &Row, now: Timestamp) -> Result<Option<f64>, String> {
+pub(super) fn beta(db: &Connection, row: &Row, now: Timestamp) -> Result<Option<f64>, String> {
     let resets_at = row.text("resets_at").unwrap_or_default();
     let window = i64::from(row.number("window_min").unwrap_or_default() as i32) * 60;
     let since = std::cmp::max(py::before(py::parse(resets_at)?, window), py::before(now, HOURS_BACK));

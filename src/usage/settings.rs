@@ -54,3 +54,13 @@ pub(super) fn services(operator: &Path) -> Option<Vec<toml_edit::Table>> {
     let document: DocumentMut = fs::read_to_string(operator.join("costs.toml")).ok()?.parse().ok()?;
     Some(document.get("service").and_then(toml_edit::Item::as_array_of_tables).map(|tables| tables.iter().cloned().collect()).unwrap_or_default())
 }
+
+pub(super) fn catalog_json() -> serde_json::Value {
+    let catalog: DocumentMut = CATALOG.parse().expect("harness/model-catalog.toml parses");
+    crate::router::policy::json_value(catalog.as_item())
+}
+
+pub(super) fn default_value(name: &str) -> serde_json::Value {
+    let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");
+    crate::router::policy::json_value(&defaults[name]["value"])
+}

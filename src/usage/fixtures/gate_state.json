@@ -1,0 +1,35 @@
+{
+  "rows": [
+    ["2026-10-28T09:30:00Z", "claude", "a", "window", "weekly_all", 40.0, 10080, "2026-10-30T00:00:00Z", null, "headers"],
+    ["2026-10-28T11:30:00Z", "claude", "a", "window", "weekly_all", 50.0, 10080, "2026-10-30T00:00:00Z", null, "headers"],
+    ["2026-10-28T11:30:00Z", "claude", "a", "window", "session", 12.5, 300, "2026-10-28T14:00:00Z", null, "headers"],
+    ["2026-10-28T11:30:00Z", "claude", "a", "billing", "plan", null, null, null, 1.0, "max-20x"],
+    ["2026-10-28T11:30:00Z", "claude", "a", "billing", "extra_usage", 0.0, null, null, 0.0, "headers"],
+    ["2026-10-28T09:20:00Z", "claude", "b", "window", "weekly_all", 10.0, 10080, "2026-10-30T06:00:00Z", null, "headers"],
+    ["2026-10-28T11:20:00Z", "claude", "b", "window", "weekly_all", 11.0, 10080, "2026-10-30T06:00:00Z", null, "headers"],
+    ["2026-10-28T11:20:00Z", "claude", "b", "window", "session", 96.0, 300, "2026-10-28T13:00:00Z", null, "headers"],
+    ["2026-10-28T11:20:00Z", "claude", "b", "billing", "extra_usage", 1.0, null, null, 1.0, "headers"],
+    ["2026-10-28T11:59:00Z", "gemini", "tom", "window", "day", 80.5, 1440, "2026-10-29T00:00:00Z", null, "gemini"],
+    ["2026-10-28T11:00:00Z", "gemini", "tom", "window", "week", 30.0, 10080, "2026-11-01T00:00:00Z", null, "gemini"],
+    ["2026-10-28T11:59:00Z", "gemini", "tom", "window", "week", 33.0, 10080, "2026-11-01T00:00:00Z", null, "gemini"],
+    ["2026-10-28T11:59:00Z", "gemini", "tom", "billing", "hasCredits", null, null, null, 1.0, "gemini"]
+  ],
+  "runs": [
+    ["w1", "haiku", "tooling", "done", 1, 1, "n#1", "worker", null],
+    ["w2", "haiku", "tooling", "done", 1, 1, "n#2", "worker", null],
+    ["w3", "haiku", "tooling", "done", 1, 0, "n#3", "worker", null],
+    ["w4", "haiku", "tooling", "done", 0, null, "n#4", "worker", null],
+    ["w5", "haiku", "tooling", "done", 1, 1, "n#5", "worker", null],
+    ["w6", "haiku", "tooling", "running", 1, 1, "n#6", "worker", null],
+    ["w7", "medium", "feature", "done", 1, 1, "n#7", "worker", null],
+    ["w8", "gpt-6.1-sol high", "feature", "done", 1, 1, "n#8", "worker", null],
+    ["w9", "haiku", "tooling", "done", 1, 1, "n#9", "worker", "w1"],
+    ["w10", "claude-opus-5-5 medium", "feature", "unclear", 1, 1, null, "worker", null]
+  ],
+  "events": [
+    ["claude-haiku-5-6", "2026-11-15T00:00:00Z", 0.5, "expected", "2026-10-20T00:00:00Z"],
+    ["claude-haiku-5-7", "2026-11-10T00:00:00Z", null, "market", "2026-10-21T00:00:00Z"],
+    ["claude-haiku-5-4", "2026-11-01T00:00:00Z", 0.9, "expected", "2026-10-22T00:00:00Z"],
+    ["gpt-6.2-sol", "2026-12-01T00:00:00Z", 0.7, "expected", "2026-10-22T00:00:00Z"]
+  ]
+}

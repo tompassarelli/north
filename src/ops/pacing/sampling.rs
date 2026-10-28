@@ -170,21 +170,7 @@ fn record_cadence(
 }
 
 fn usage_gate(db: &rusqlite::Connection) -> Result<Value, String> {
-    let snapshot = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let database = readout::readable_path(db, snapshot.path())?;
-    let usage = root().join("harness/lib/usage.py");
-    let output = process::run_env(
-        "python3",
-        &["-I", &usage.to_string_lossy(), "--write-pace-gate"],
-        None,
-        30.0,
-        &[("THREADS_DB", &database)],
-    )?;
-    if output.code != 0 {
-        return Err(format!("usage gate failed: {}", output.err));
-    }
-    let gate = serde_json::from_str(&output.out).map_err(|e| format!("invalid usage gate: {e}"))?;
-    Ok(gate)
+    crate::usage::write_pace_gate(db).map_err(|error| format!("usage gate failed: {error}"))
 }
 
 pub(super) fn prune_retired(state: &mut Value) {
