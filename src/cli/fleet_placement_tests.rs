@@ -51,7 +51,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     assert_eq!(Overrides::default().recorded(note.as_deref()), tiered.clone(), "revive keeps the tier reason");
 
     let mut remote = decision(Target::Account("claude:a".into()));
-    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()] });
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()] });
     let launch = Launch { name: "box", account: "a", brief: None, cwd: None, machine: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
     assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
@@ -70,7 +70,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
 fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_one_elsewhere() {
     let mut remote = decision(Target::Account("claude:a".into()));
     remote.verdicts.push(verdict("claude:b", Some(90.0)));
-    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), cap: 4, live: Some(0), accounts: vec!["a".into()] });
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(0), accounts: vec!["a".into()] });
     let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: Some("far") };
     assert_eq!(admit(&remote, &launch("a"), "", &Overrides::default()).unwrap().note, None);
     let here = decision(Target::Account("claude:a".into()));

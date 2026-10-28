@@ -302,3 +302,25 @@ fn a_box_without_a_surface_leaves_a_host_in_game_reserve_for_one_serving_its_rep
     assert_eq!(placed(smashcraft, true), "target gex45 claude:c (no Surface: declared, not cloud)");
     assert_eq!(placed(UNDECLARED, true), "target laptop claude:c (no Surface: declared, not cloud)");
 }
+
+#[test]
+fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\npushes = [\"north\", \"wisp\"]\n[hosts.laptop]\nresident_cap = 8\n".parse().unwrap();
+    let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
+    let mut machines = gate::machines(&cfg);
+    machines[0].live = Some(0);
+    machines[0].accounts = vec!["c".into()];
+    let south = "Item: south#9 timer change\nSurface: rust\nNeeds: code\n";
+    let north = "Item: north#9 timer change\nSurface: rust\nNeeds: code\n";
+    let credit = (false, "cloud credit: spent".to_owned());
+
+    let kept = decide(south, &cfg, &quota, credit.clone(), &machines, "laptop");
+    assert_eq!(kept.machine, None, "{:?}", kept.machine_lines);
+    assert!(kept.machine_lines.contains(&"gex45 skipped: cannot push south".to_owned()), "{:?}", kept.machine_lines);
+    assert_eq!(gate::lacks(&cfg, "gex45", south).as_deref(), Some("push to south"));
+    assert_eq!(gate::lacks(&cfg, "laptop", south), None, "a host naming no list pushes any repository");
+
+    let sent = decide(north, &cfg, &quota, credit, &machines, "laptop");
+    assert_eq!(sent.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", sent.machine_lines);
+    assert_eq!(gate::lacks(&cfg, "gex45", north), None);
+}

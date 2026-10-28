@@ -39,12 +39,14 @@ pub(crate) enum Target {
 
 /// A `[hosts.NAME]` with an `ssh` destination: the local needs it serves beyond code, each `NEED` for
 /// every repository or `NEED:REPO` for one, its resident cap, its live resident CLIs (None when
-/// unreachable) and the Claude labels signed in there.
+/// unreachable) and the Claude labels signed in there. `pushes` names the repositories a landing from
+/// there can push, None when the host declares no list and so pushes any.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Machine {
     pub name: String,
     pub ssh: String,
     pub serves: Vec<String>,
+    pub pushes: Option<Vec<String>>,
     pub cap: i64,
     pub live: Option<i64>,
     pub accounts: Vec<String>,
@@ -266,7 +268,7 @@ pub(crate) fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = host.get("ssh")?.as_str()?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
-            Some(Machine { serves: strings(host.get("serves")), name, ssh, cap, live: None, accounts: Vec::new() })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), name, ssh, cap, live: None, accounts: Vec::new() })
         })
         .collect()
 }
@@ -296,9 +298,22 @@ pub(crate) fn capacity_need(text: &str) -> Option<String> {
 
 /// The first local need of the box that `[hosts.HOST] serves` does not cover.
 pub(crate) fn lacks(cfg: &DocumentMut, host: &str, text: &str) -> Option<String> {
-    let serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("serves")));
+    let host = cfg.get("hosts").and_then(|hosts| hosts.get(host));
+    let serves = strings(host.and_then(|host| host.get("serves")));
     let repo = repository(text);
+    if !can_push(host.and_then(pushes).as_deref(), &repo) {
+        return Some(format!("push to {repo}"));
+    }
     local_needs(text).into_iter().find(|need| !covers(&serves, need, &repo))
+}
+
+/// The repositories a host declares it can push, None when it declares no list.
+fn pushes(host: &Item) -> Option<Vec<String>> {
+    host.get("pushes").map(|_| strings(host.get("pushes")))
+}
+
+fn can_push(pushes: Option<&[String]>, repo: &str) -> bool {
+    repo.is_empty() || pushes.is_none_or(|pushes| pushes.iter().any(|pushed| pushed == repo))
 }
 
 fn covers(serves: &[String], need: &str, repo: &str) -> bool {
@@ -322,6 +337,9 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             }
             if let Some(need) = missing(&machine.serves) {
                 return format!("{name} skipped: needs {need}");
+            }
+            if !can_push(machine.pushes.as_deref(), &repo) {
+                return format!("{name} skipped: cannot push {repo}");
             }
             match machine.live {
                 None => format!("{name} unreachable over ssh {}", machine.ssh),
