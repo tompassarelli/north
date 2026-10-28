@@ -159,6 +159,11 @@ pub(crate) fn room(control: &Value, at: f64) -> Room {
     room
 }
 
+/// The 5h window's measured burn in percent per hour, which usage-gate carries only for a trail of two readings.
+fn five_hour_burn(usage: &Value) -> Option<f64> {
+    usage["windows"].as_array()?.iter().find(|window| window["window"] == "5h")?["burn_pct_h"].as_f64()
+}
+
 fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
     let usage = placement::pace_state("usage-gate.json");
@@ -185,6 +190,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
                 room: sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at)),
                 spending: control["target"]["by"].as_str().and_then(crate::pace::target::seconds).is_some_and(|by| by > at),
                 refusal: refusal(name, control, verdict.as_ref(), at),
+                burn: sampled.and_then(five_hour_burn),
             }
         })
         .collect()

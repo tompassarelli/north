@@ -15,7 +15,7 @@ eta 32m (p75 of n=15, cell Category: tooling, tier claude:sonnet-high)";
 
 fn placed(boxes: Vec<super::issues::Issue>, history: History, ledger: BTreeMap<String, Evidence>) -> Vec<super::plan::Launch> {
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
-    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
     let mut survey = survey(boxes, Cloud::Closed(String::new()), hosts, accounts);
     (survey.history, survey.ledger) = (history, ledger);
     decide(&survey, "test").launches
@@ -129,7 +129,7 @@ fn the_arm_switch_takes_the_lower_cost_per_closed_box_not_the_higher_done_rate()
 fn a_launch_runs_its_tiers_model_and_effort_and_an_unnamed_tier_fails_it() {
     let launches = {
         let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
-        let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+        let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
         let survey = survey(vec![issue("smashcraft", 3, "- [ ] a\nCategory: mechanical", &[]), issue("smashcraft", 1, "- [ ] a\nCategory: tooling", &[])], Cloud::Closed(String::new()), hosts, accounts);
         let outcome = decide(&survey, "test");
         outcome.launches.iter().map(|launch| effects::command(launch, "sc-1", &survey, "/home/tom", "north").unwrap().1.join(" ")).collect::<Vec<_>>()
@@ -138,7 +138,7 @@ fn a_launch_runs_its_tiers_model_and_effort_and_an_unnamed_tier_fails_it() {
     assert!(launches[1].contains("--model claude-haiku-5-5 --effort high"), "{}", launches[1]);
     let bare = survey(Vec::new(), Cloud::Closed(String::new()), Vec::new(), Vec::new());
     let bare = super::survey::Survey { cfg: "[hosts.gex45]\n".parse().unwrap(), ..bare };
-    let launch = super::plan::Launch { item: issue("smashcraft", 1, "", &[]).reference(), host: "gex45".into(), account: "claude:b".into(), brief: String::new(), route: route(Tier::Opus), cloud: false, local: None, pin: None, handoff: None };
+    let launch = super::plan::Launch { item: issue("smashcraft", 1, "", &[]).reference(), host: "gex45".into(), account: "claude:b".into(), brief: String::new(), route: route(Tier::Opus), cloud: false, local: None, pin: None, handoff: None, burn: None };
     assert!(effects::command(&launch, "sc-1", &bare, "/home/tom", "north").unwrap_err().contains("claude:opus-medium"), "a tier orchestration does not name fails the launch, never falls back to the default model");
 }
 
@@ -149,7 +149,7 @@ pub(super) fn route(tier: Tier) -> super::tier::Route {
 #[test]
 fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_each_tier_holds_thirty() {
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
-    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
     let boxes = |category: &str| (1..=3).map(|number| issue("smashcraft", number, &format!("- [ ] a\nCategory: {category}"), &[])).collect::<Vec<_>>();
     let arms = |survey: &super::survey::Survey| -> Vec<(Option<String>, Option<String>)> {
         decide(survey, "test").launches.into_iter().map(|launch| (launch.handoff, launch.brief.lines().find_map(|line| line.strip_prefix("Arm: ")).map(str::to_owned))).collect()
@@ -180,7 +180,7 @@ fn a_box_without_a_category_line_takes_one_from_its_labels_and_one_nothing_categ
     assert_eq!(headers, [true; 4], "the brief names the derived category");
 
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
-    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None }];
+    let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
     let blind = survey(vec![uncategorised("north", 5, "- [ ] a", &["priority:now"])], Cloud::Closed(String::new()), hosts, accounts);
     let outcome = decide(&blind, "test");
     assert!(outcome.launches.is_empty(), "an item nothing categorises does not launch");

@@ -53,6 +53,8 @@ mod tests;
 #[cfg(test)]
 mod plan_size_tests;
 #[cfg(test)]
+mod plan_burn_tests;
+#[cfg(test)]
 mod projects_tests;
 #[cfg(test)]
 mod tier_tests;
@@ -131,9 +133,11 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         let route = tier::route(issue, &history, &survey.ledger);
-        let brief = brief::brief(issue, launched_by, &route, &survey.grounds.grounds(&issue.reference().to_string(), &issue.body, &route));
+        let grounds = survey.grounds.grounds(&issue.reference().to_string(), &issue.body, &route);
+        let eta_h = grounds.figures.as_ref().map(|figures| grounds::eta_minutes(figures) / 60.0);
+        let brief = brief::brief(issue, launched_by, &route, &grounds);
         let code_only = gate::surface(&brief, &survey.cfg).0 && cloud::autoland(&issue.repo);
-        let ready = Ready { item: issue.reference(), brief, code_only, route };
+        let ready = Ready { item: issue.reference(), brief, code_only, route, eta_h };
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
                 history.chose(&launch.route);
@@ -193,6 +197,7 @@ fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
     for launch in &outcome.launches {
         let verb = if launch.cloud { "cloud-launch" } else { "launch" };
         let line = format!("{verb} {} on {} {} as {}", launch.item, launch.host, launch.account, launch.route.tier.name());
+        let line = launch.burn.as_ref().map_or(line.clone(), |burn| format!("{line} ({burn})"));
         if dry_run {
             let why = std::iter::once(launch.route.why.as_str()).chain(launch.local.as_deref()).collect::<Vec<_>>().join("; ");
             println!("would {line} ({why})");

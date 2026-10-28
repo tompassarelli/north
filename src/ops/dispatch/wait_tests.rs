@@ -15,7 +15,7 @@ fn host(name: &str, running: Result<i64, &str>, measure: Option<Measure>) -> Hos
 
 fn accounts() -> Vec<Account> {
     let room = Room { five_hour: 80.0, week: 80.0, week_reset_h: 100.0 };
-    let account = |name: &str, hosts: &[&str]| Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan: PlanSize { five_hour: 1.0, week: 1.0 }, room, spending: false, refusal: None };
+    let account = |name: &str, hosts: &[&str]| Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan: PlanSize { five_hour: 1.0, week: 1.0 }, room, spending: false, refusal: None, burn: None };
     vec![account("claude:a", &["nexus", "whiterabbit"]), account("claude:b", &["gex45"])]
 }
 

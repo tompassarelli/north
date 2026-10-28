@@ -43,6 +43,8 @@ pub(crate) struct Account {
     pub spending: bool,
     /// Why the out-rule keeps the account out, if it does.
     pub refusal: Option<String>,
+    /// Its measured five-hour burn in its own percent per hour, when its trail spans two readings.
+    pub burn: Option<f64>,
 }
 
 /// What a plan holds of each window, in Max 5x units: Max 20x holds four times the five-hour room of Max 5x but only twice its week.
