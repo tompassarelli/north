@@ -77,9 +77,14 @@ static HOME: LazyLock<Home> = LazyLock::new(|| {
     }
 });
 
+static ABSENT_PID: LazyLock<String> = LazyLock::new(|| {
+    std::fs::read_to_string("/proc/sys/kernel/pid_max").map_or_else(|_| "4194304".into(), |max| max.trim().to_owned())
+});
+
 fn filled(text: &str) -> String {
     text.replace("{home}", &HOME.path)
         .replace("{cwd}", &format!("{}/code/proj/main", HOME.path))
+        .replace("/proc/1234", &format!("/proc/{}", *ABSENT_PID))
 }
 
 static MODERN_KEY: LazyLock<Regex> = LazyLock::new(|| {
