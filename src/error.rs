@@ -25,7 +25,7 @@ impl NorthError {
             Self::Protocol(message) if message.contains("turn ended as failed") => {
                 "Codex couldn’t complete the request.".into()
             }
-            Self::State(_) => "North couldn’t read the conversation state.".into(),
+            Self::State(message) => format!("North couldn’t read the conversation state: {message}"),
             _ => self.to_string(),
         }
     }

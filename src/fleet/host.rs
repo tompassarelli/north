@@ -103,14 +103,18 @@ impl Host {
     }
 
     pub fn terminate(&self) -> NorthResult<()> {
+        let pid = self.pid();
         if let Ok(unit) = fs::read_to_string(self.dir.join("host.scope")) {
             let stopped = Command::new(binary("systemctl")).args(["--user", "stop", unit.trim()]).stdin(Stdio::null()).stderr(Stdio::piped()).output()?;
-            if !stopped.status.success() && stopped.status.code() != Some(5) {
+            if stopped.status.code() == Some(5) {
+                return Ok(());
+            }
+            if !stopped.status.success() {
                 return Err(NorthError::Refused(format!("could not stop session scope {}: {}", unit.trim(), String::from_utf8_lossy(&stopped.stderr).trim())));
             }
-            return Ok(());
+            return await_exit(pid);
         }
-        let Some(pid) = self.pid() else { return Ok(()) };
+        let Some(pid) = pid else { return Ok(()) };
         let Some(group) = i32::try_from(pid).ok().and_then(Pid::from_raw) else { return Ok(()) };
         let _ = kill_process_group(group, Signal::Term);
         let deadline = Instant::now() + TERM_GRACE;
@@ -138,6 +142,18 @@ impl Host {
         }
         Err(NorthError::State("session host did not open its socket".into()))
     }
+}
+
+fn await_exit(pid: Option<u32>) -> NorthResult<()> {
+    let Some(pid) = pid else { return Ok(()) };
+    let deadline = Instant::now() + TERM_GRACE;
+    while alive(pid) {
+        if Instant::now() > deadline {
+            return Err(NorthError::Refused(format!("session host {pid} was still running {} s after it was stopped", TERM_GRACE.as_secs())));
+        }
+        std::thread::sleep(POLL);
+    }
+    Ok(())
 }
 
 pub fn alive(pid: u32) -> bool {
