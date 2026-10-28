@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::session_host::{FrameWatch, Rest};
+use crate::session_host::{FrameWatch, Rest, SentLog};
 
 use super::books::WatchBooks;
 use super::claims::{self, Claims};
@@ -36,7 +36,27 @@ pub struct TurnWatch {
     finished: HashMap<String, bool>,
     rolled_over: bool,
     nudges: HashMap<String, Option<Nudge>>,
-    unaccepted: Unaccepted,
+    unaccepted: Arc<SentPrompts>,
+}
+
+struct SentPrompts {
+    runtime: Arc<dyn Runtime>,
+    journal: Mutex<Unaccepted>,
+}
+
+impl SentPrompts {
+    fn journal(&self) -> MutexGuard<'_, Unaccepted> {
+        self.journal.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl SentLog for SentPrompts {
+    fn sent(&self, line: &str) {
+        let Ok(frame) = serde_json::from_str::<Value>(line) else { return };
+        if let Some(id) = self.runtime.sent_prompt(&frame) {
+            self.journal().sent(id, line.trim_end().to_owned());
+        }
+    }
 }
 
 struct Nudge {
@@ -69,7 +89,7 @@ impl View {
 
 impl TurnWatch {
     pub fn new(runtime: Arc<dyn Runtime>, ledger: Arc<dyn WatchBooks>, courier: Arc<dyn Courier>, claims: Arc<dyn Claims>, root: PathBuf, host_dir: PathBuf) -> Self {
-        let unaccepted = Unaccepted::inherit(&host_dir);
+        let unaccepted = Arc::new(SentPrompts { runtime: runtime.clone(), journal: Mutex::new(Unaccepted::inherit(&host_dir)) });
         Self {
             runtime,
             ledger,
@@ -200,7 +220,7 @@ impl FrameWatch for TurnWatch {
             self.relay(question);
         }
         if let Some(id) = self.runtime.accepted_prompt(&frame) {
-            self.unaccepted.accepted(&id);
+            self.unaccepted.journal().accepted(&id);
         }
         let signals = self.runtime.signals(&frame);
         for signal in &signals {
@@ -217,11 +237,8 @@ impl FrameWatch for TurnWatch {
         }
     }
 
-    fn sent(&mut self, line: &str) {
-        let Ok(frame) = serde_json::from_str::<Value>(line) else { return };
-        if let Some(id) = self.runtime.sent_prompt(&frame) {
-            self.unaccepted.sent(id, line.trim_end().to_owned());
-        }
+    fn sent_log(&self) -> Arc<dyn SentLog> {
+        self.unaccepted.clone()
     }
 
     fn in_flight(&self) -> bool {
@@ -247,7 +264,7 @@ impl FrameWatch for TurnWatch {
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
         }
-        if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.is_empty() {
+        if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() {
             self.retire();
         }
         for record in host_sessions(&self.root, &self.host_dir) {

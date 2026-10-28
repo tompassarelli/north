@@ -7,7 +7,8 @@ use super::super::model::{SessionRecord, Transcript};
 use super::super::records::{read_record, write_record};
 use super::super::runtime::{Runtime, now_ms};
 use super::super::transcript::{StreamTail, stream_path};
-use super::{seeded, settled_status};
+use super::seeded;
+use super::status::settled;
 
 const TUI_HISTORY_LIMIT: u64 = 256 * 1024;
 
@@ -46,7 +47,7 @@ impl Follower {
         let got_frames = !frames.is_empty();
         self.observe(frames);
         self.persist_conversation()?;
-        self.transcript.status = settled_status(&self.record, self.transcript.status);
+        self.transcript.status = settled(&self.record, self.transcript.status);
         Ok(got_frames || before != (self.transcript.entries.len(), self.transcript.status))
     }
 
@@ -66,7 +67,7 @@ impl Follower {
         if let Some(status) = super::status::latest_turn_status(&self.index_path, 0, self.record.conversation.as_deref(), &|frame| self.runtime.signals(frame))? {
             self.transcript.status = status;
         }
-        self.transcript.status = settled_status(&self.record, self.transcript.status);
+        self.transcript.status = settled(&self.record, self.transcript.status);
         Ok(())
     }
 

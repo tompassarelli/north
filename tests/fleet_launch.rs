@@ -542,3 +542,38 @@ fn a_prompt_queued_to_a_finished_worker_just_before_its_host_stops_runs_on_the_r
     assert_ne!(first_host, restarted, "a new host replaced the stopped one");
     assert!(record.contains(r#""stopped": false"#), "{record}");
 }
+
+#[test]
+fn a_message_sent_right_after_reviving_a_parked_session_shows_it_working_at_once_and_starts_a_turn_on_that_message() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "done");
+    assert!(launch_named(root, "kid", "none").status.success());
+    let session = root.join(".local/state/north/fleet/kid");
+    let stream = || fs::read_to_string(session.join("g1/stream.jsonl")).unwrap_or_default();
+    until("the worker's final report", || stream().contains("Done: fake report"));
+    let unit = fs::read_to_string(session.join("host.scope")).unwrap();
+    let parked = Command::new(root.join("bin/systemctl")).args(["--user", "stop", unit.trim()]).env("FLEET_LAUNCH_FIXTURE", root).status().unwrap();
+    let status = || {
+        let listed: Value = serde_json::from_slice(&north(root, &["fleet", "list", "--json"]).stdout).unwrap_or_default();
+        listed.as_array().into_iter().flatten().find(|session| session["name"] == "kid").map(|session| session["status"].to_string()).unwrap_or_default()
+    };
+    until("the worker parked", || status() == r#""parked""#);
+    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nFAKE_CLAUDE_HOOK_MS=5000 exec {} --trace slow-hooks \"$@\"\n", support::fake_claude()));
+
+    let revived = north(root, &["fleet", "revive", "kid"]);
+    let sent = north(root, &["fleet", "send", "kid", "resume from your handoff"]);
+    let at_once = status();
+    let ran = std::panic::catch_unwind(|| {
+        until("a turn on the message", || {
+            let frames: Vec<Value> = stream().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+            let echoed = frames.iter().position(|frame| frame["isReplay"] == true && frame["message"].to_string().contains("resume from your handoff"));
+            echoed.is_some_and(|at| frames[at..].iter().any(|frame| frame["type"] == "assistant"))
+        })
+    });
+    north(root, &["fleet", "forget", "kid"]);
+
+    assert!(parked.success() && revived.status.success() && sent.status.success(), "{}{}", text(&revived.stderr), text(&sent.stderr));
+    assert_eq!(at_once, r#""working""#, "a revived session still loading its conversation holds the message it was sent");
+    assert!(ran.is_ok(), "the revived session never ran the message");
+}

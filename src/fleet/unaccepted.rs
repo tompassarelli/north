@@ -59,6 +59,10 @@ impl Unaccepted {
         }
     }
 
+    pub fn outstanding(dir: &Path) -> bool {
+        !read(dir).is_empty()
+    }
+
     pub fn awaits_a_host(dir: &Path) -> bool {
         read(dir).iter().any(|entry| entry.replays < REPLAYS)
     }

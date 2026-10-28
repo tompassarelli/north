@@ -246,7 +246,7 @@ fn main() -> ExitCode {
     };
     let session = arguments
         .iter()
-        .position(|argument| argument == "--session-id")
+        .position(|argument| argument == "--session-id" || argument == "--resume")
         .and_then(|index| arguments.get(index + 1))
         .map_or_else(|| SESSION.to_owned(), String::clone);
     if trace == Trace::SlowHooks {

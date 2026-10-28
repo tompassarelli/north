@@ -130,6 +130,7 @@ pub struct StdinQueue {
     user: mpsc::Sender<Frame>,
     next: Arc<Mutex<u64>>,
     activity: Activity,
+    watcher: Watcher,
 }
 
 impl StdinQueue {
@@ -152,6 +153,7 @@ impl StdinQueue {
                 return None;
             }
         };
+        self.watcher.sent(&line);
         let mut next = self.next.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         *next += 1;
         respond(format!(r#"{{"host_seq":{}}}"#, *next));
@@ -171,24 +173,31 @@ pub enum Rest {
     End,
 }
 
+pub trait SentLog: Send + Sync {
+    fn sent(&self, line: &str);
+}
+
 pub trait FrameWatch: Send {
     fn line(&mut self, line: &[u8]);
-    fn sent(&mut self, line: &str);
+    fn sent_log(&self) -> Arc<dyn SentLog>;
     fn in_flight(&self) -> bool;
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest;
     fn close(&mut self);
 }
 
 #[derive(Clone, Default)]
-pub struct Watcher(Option<Arc<Mutex<Box<dyn FrameWatch>>>>);
+pub struct Watcher {
+    watch: Option<Arc<Mutex<Box<dyn FrameWatch>>>>,
+    sent: Option<Arc<dyn SentLog>>,
+}
 
 impl Watcher {
     pub fn new(watch: Box<dyn FrameWatch>) -> Self {
-        Self(Some(Arc::new(Mutex::new(watch))))
+        Self { sent: Some(watch.sent_log()), watch: Some(Arc::new(Mutex::new(watch))) }
     }
 
     fn with<T>(&self, idle: T, act: impl FnOnce(&mut Box<dyn FrameWatch>) -> T) -> T {
-        match &self.0 {
+        match &self.watch {
             Some(watch) => act(&mut watch.lock().unwrap_or_else(|poisoned| poisoned.into_inner())),
             None => idle,
         }
@@ -199,7 +208,9 @@ impl Watcher {
     }
 
     fn sent(&self, line: &str) {
-        self.with((), |watch| watch.sent(line));
+        if let Some(log) = &self.sent {
+            log.sent(line);
+        }
     }
 
     fn output_keeps_awake(&self) -> bool {
@@ -252,9 +263,9 @@ impl SessionHost {
         let (user, lines) = mpsc::channel(STDIN_LINES);
         let activity = Activity::new();
         Ok(Self {
-            stdin: StdinQueue { control, user, next: Arc::default(), activity: activity.clone() },
+            stdin: StdinQueue { control, user, next: Arc::default(), activity: activity.clone(), watcher: watcher.clone() },
             child,
-            writer: tokio::spawn(feed_stdin(input, priority, lines, watcher.clone())),
+            writer: tokio::spawn(feed_stdin(input, priority, lines)),
             stdout: tokio::spawn(copy_lines(output, stream, activity, watcher.clone())),
             stderr: tokio::spawn(copy_rotating(errors, log, STDERR_ROTATE_BYTES)),
             server: None,
@@ -437,7 +448,6 @@ async fn feed_stdin(
     mut input: ChildStdin,
     mut priority: mpsc::Receiver<Frame>,
     mut lines: mpsc::Receiver<Frame>,
-    watcher: Watcher,
 ) -> ChildStdin {
     loop {
         let frame = tokio::select! {
@@ -446,7 +456,6 @@ async fn feed_stdin(
             Some(frame) = lines.recv() => frame,
             else => break,
         };
-        watcher.sent(&frame.line);
         if write_frame(&mut input, frame).await.is_err() {
             break;
         }

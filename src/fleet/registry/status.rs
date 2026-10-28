@@ -5,9 +5,22 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::error::NorthResult;
-use crate::fleet::model::Status;
+use crate::fleet::model::{SessionRecord, Status};
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::transcript::{WINDOW_SIZE, read_window};
+use crate::fleet::unaccepted::Unaccepted;
+
+use super::session_running;
+
+pub(super) fn settled(record: &SessionRecord, observed: Status) -> Status {
+    match (session_running(record), record.stopped) {
+        (true, _) if Unaccepted::outstanding(&record.host_dir) => Status::Working,
+        (true, _) if matches!(observed, Status::Exited | Status::Parked) => Status::Idle,
+        (true, _) => observed,
+        (false, true) => Status::Exited,
+        (false, false) => Status::Parked,
+    }
+}
 
 pub(super) fn latest_turn_status(
     path: &Path,

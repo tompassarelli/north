@@ -230,7 +230,7 @@ impl Fleet {
 
     pub fn status(&self, record: &SessionRecord) -> Status {
         if record.host_dir.as_os_str().is_empty() {
-            return settled_status(record, Status::Starting);
+            return status::settled(record, Status::Starting);
         }
         self.status_from_index(record).unwrap_or(Status::Exited)
     }
@@ -271,7 +271,7 @@ impl Fleet {
         let observed = self.runtime(record).and_then(|runtime| {
             status::latest_turn_status(&path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame))
         })?.unwrap_or(Status::Starting);
-        Ok(settled_status(record, observed))
+        Ok(status::settled(record, observed))
     }
 
     fn stream_index(&self, record: &SessionRecord) -> NorthResult<(PathBuf, u64)> {
@@ -374,15 +374,6 @@ impl Fleet {
             return Err(NorthError::Usage(format!("invalid session name {name:?}")));
         }
         Ok(self.root.join(name))
-    }
-}
-
-fn settled_status(record: &SessionRecord, observed: Status) -> Status {
-    match (session_running(record), record.stopped) {
-        (true, _) if matches!(observed, Status::Exited | Status::Parked) => Status::Idle,
-        (true, _) => observed,
-        (false, true) => Status::Exited,
-        (false, false) => Status::Parked,
     }
 }
 
