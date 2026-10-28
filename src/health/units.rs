@@ -75,23 +75,23 @@ pub(super) trait Tracker {
     fn comment(&mut self, number: u64, body: &str) -> Result<(), String>;
 }
 
-pub(super) fn title(unit: &str) -> String {
-    format!("Harness unit {unit} keeps failing")
+pub(super) fn title(unit: &str, host: &str) -> String {
+    format!("Harness unit {unit} keeps failing on {host}")
 }
 
-pub(super) fn report(tracker: &mut dyn Tracker, unit: &str, line: &str) -> Result<(), String> {
-    let title = title(unit);
+pub(super) fn report(tracker: &mut dyn Tracker, unit: &str, host: &str, line: &str) -> Result<(), String> {
+    let title = title(unit, host);
     match tracker.open(&title)? {
         Some(number) => tracker.comment(number, line),
-        None => tracker.create(&title, &body(unit, line)),
+        None => tracker.create(&title, &body(unit, host, line)),
     }
 }
 
-fn body(unit: &str, line: &str) -> String {
+fn body(unit: &str, host: &str, line: &str) -> String {
     format!(
         "Category: debugging-unknown-cause\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test\n\n\
-         `north health` ({line}). Read the failure with `journalctl --user -u {unit}`.\n\n\
-         ## Done when\n- [ ] (headless run) The journal of `{unit}` ends in `Finished` on its next timer run and `north health` reports no failing unit.\n"
+         `north health` on {host} ({line}). Read the failure on {host} with `journalctl --user -u {unit}`.\n\n\
+         ## Done when\n- [ ] (headless run) The journal of `{unit}` on {host} ends in `Finished` on its next timer run and `north health` reports no failing unit.\n"
     )
 }
 

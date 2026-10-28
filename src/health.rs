@@ -435,7 +435,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
             if line.ends_with(": recovered") {
                 println!("{line}");
             } else if let Some(unit) = check.strip_prefix("unit ")
-                && let Err(error) = units::report(&mut Gh, unit, &line)
+                && let Err(error) = units::report(&mut Gh, unit, &crate::platform::host::name(), &line)
             {
                 eprintln!("health: issue: {error}");
             }

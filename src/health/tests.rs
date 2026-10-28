@@ -248,13 +248,14 @@ fn health_unit_failing_twice_in_a_row_opens_one_issue_and_a_later_failure_update
     let error = units::judge(unit, Some(&shown("failed", "exit-code", "run-2")), &mut runs).unwrap_err();
     assert_eq!(error, "agents-flow-stall.service failed 2 runs in a row");
     let mut tracker = Recorder::default();
-    units::report(&mut tracker, unit, &error).unwrap();
+    units::report(&mut tracker, unit, "whiterabbit", &error).unwrap();
     assert_eq!(tracker.created.len(), 1);
-    assert_eq!(tracker.created[0].0, "Harness unit agents-flow-stall.service keeps failing");
+    assert_eq!(tracker.created[0].0, "Harness unit agents-flow-stall.service keeps failing on whiterabbit");
+    assert!(tracker.created[0].1.contains("on whiterabbit ("));
     assert!(tracker.commented.is_empty());
     assert!(units::judge(unit, Some(&shown("inactive", "success", "run-3")), &mut runs).is_ok());
     tracker.open = Some(7);
-    units::report(&mut tracker, unit, &error).unwrap();
+    units::report(&mut tracker, unit, "whiterabbit", &error).unwrap();
     assert_eq!(tracker.created.len(), 1);
     assert_eq!(tracker.commented, vec![(7, error)]);
 }
