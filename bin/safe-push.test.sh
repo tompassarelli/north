@@ -1430,6 +1430,32 @@ grep -Eq "lane commits missing from .*$autoland_dropped.*; NOT pushed\." <<<"$ca
 "$real_git" --git-dir="$real_remote" update-ref refs/heads/main "$autoland_base"
 "$real_git" -C "$real_repo" fetch -q origin
 printf 'PASS: autoland rebase that drops a lane commit is refused before the queue branch\n'
+queue_hook_dir="$scratch/queue-hook"
+mkdir -p "$queue_hook_dir/bin"
+printf '#!/usr/bin/env bash\nif [ "${1:-}" = push ]; then printf "%%s | %%s\\n" "$(tr "\\n" , <"%s/hook-log" 2>/dev/null)" "$*" >>"%s/push-log"; fi\nexec %q "$@"\n' \
+  "$queue_hook_dir" "$queue_hook_dir" "$real_git" >"$queue_hook_dir/bin/git"
+chmod +x "$queue_hook_dir/bin/git"
+for hook_verdict in 0 1; do
+  : >"$queue_hook_dir/hook-log"
+  : >"$queue_hook_dir/push-log"
+  printf '#!/usr/bin/env bash\ncat >/dev/null\necho start >>"%s/hook-log"\nsleep 2\necho end >>"%s/hook-log"\nexit %s\n' \
+    "$queue_hook_dir" "$queue_hook_dir" "$hook_verdict" >"$real_repo/.git/hooks/pre-push"
+  chmod +x "$real_repo/.git/hooks/pre-push"
+  SAFE_PUSH_TEST_PATH="$queue_hook_dir/bin:$real_bin:$PATH" \
+    SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tTrain retested\thttps://example.test/run' run_real_case '' --to main
+  expect_status nonzero
+  [ "$(grep -c '^start' "$queue_hook_dir/hook-log" || true)" -eq 1 ] || fail "the Autoland pre-push hook did not run exactly once: $(cat "$queue_hook_dir/hook-log")"
+  if [ "$hook_verdict" -eq 0 ]; then
+    grep -q 'Autoland did not land this lane: Train retested' <<<"$case_output" || fail 'the Autoland lane did not reach the queue verdict after a passing hook'
+    head -n 1 "$queue_hook_dir/push-log" | grep -Eq '^start,end, \| push .*--no-verify .*refs/heads/claude/land-' || fail "the queue push did not follow the finished hook with --no-verify: $(cat "$queue_hook_dir/push-log")"
+  else
+    expect_output 'the pre-push checks failed; NOT pushed.'
+    [ ! -s "$queue_hook_dir/push-log" ] || fail 'a failing hook still opened a push'
+    [ -z "$("$real_git" --git-dir="$real_remote" for-each-ref 'refs/heads/claude/land-*')" ] || fail 'a failing Autoland hook pushed its queue branch'
+  fi
+  rm -f "$real_repo/.git/hooks/pre-push"
+done
+printf 'PASS: an Autoland queue push runs the pre-push hook to completion before opening the push, then pushes with --no-verify\n'
 printf 'landed by train\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'landed by train'
 test_landed_sha=$("$real_git" -C "$real_repo" rev-parse HEAD)
