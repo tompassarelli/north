@@ -9,6 +9,7 @@ use crate::{
 
 mod agents;
 mod cloud;
+mod cloud_handback;
 mod token_usage;
 mod fleet;
 mod fleet_claims;
@@ -82,7 +83,7 @@ Commands:
   mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
   archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands
   threads ARGV                                  Run a NorthThreads command on the ledger host
-  cloud [list|events|sweep|send|wait]            Read, message, wait on and sweep Anthropic cloud sessions
+  cloud [list|events|sweep|send|wait|collect]    Read, message, wait on, collect and sweep Anthropic cloud sessions
   dispatch [--dry-run]                          Launch ready smashcraft and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks

@@ -58,6 +58,10 @@ fn cloud_parse_reads_each_command_and_the_wait_timeout() {
         Some(Cloud::Send("s1".into(), "msg.txt".into()))
     );
     assert_eq!(
+        parse(&words("collect events.jsonl out.mbox")),
+        Some(Cloud::Collect("events.jsonl".into(), "out.mbox".into()))
+    );
+    assert_eq!(
         parse(&words("wait s1 out.jsonl")),
         Some(Cloud::Wait("s1".into(), "out.jsonl".into(), 3600, None))
     );

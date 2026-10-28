@@ -1,0 +1,41 @@
+From cc8fc3fdb52f0ead943214164d7a1831c4478ede Mon Sep 17 00:00:00 2001
+From: Worker <worker@example.invalid>
+Date: Sun, 25 Oct 2026 04:28:25 +0000
+Subject: [PATCH] Install the fake agent's stop handler before it writes
+ agent.pid, as the real agent's runMain does, so a pool stopped mid-start
+ never kills it before it stops its clients (Closes #57)
+
+Since 2788d6d the fake agent wrote agent.pid first, then spawned its two
+clients and only then handled SIGTERM. A pool stopped in that window had
+stopAgent signal it to death by the default action, leaving its setsid
+clients running. pairAgent writes its pid inside runMain, whose SIGTERM
+handler is already installed.
+---
+ test/fixtures/host-tools/agent.ts | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/test/fixtures/host-tools/agent.ts b/test/fixtures/host-tools/agent.ts
+index 945ce8e..b6d2007 100644
+--- a/test/fixtures/host-tools/agent.ts
++++ b/test/fixtures/host-tools/agent.ts
+@@ -4,13 +4,14 @@ import { join } from "node:path";
+ import { agentPidFile, agentSocket, clientName, pairDirectory } from "../../../host/lan/pool";
+ 
+ const pair = Number(process.argv[process.argv.indexOf("--pair") + 1]);
+-mkdirSync(pairDirectory(pair), { recursive: true });
+-writeFileSync(agentPidFile(pair), `${process.pid}\n`);
+-const clients = ["a", "b"].map((side) => ({ name: clientName(pair, side as "a" | "b"), child: spawn("sleep", ["600"], { detached: true, stdio: "ignore" }) }));
++const clients: { name: string; child: ReturnType<typeof spawn> }[] = [];
+ for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => setTimeout(() => {
+   for (const { child } of clients) child.kill("SIGTERM");
+   process.exit(143);
+ }, 1000));
++mkdirSync(pairDirectory(pair), { recursive: true });
++writeFileSync(agentPidFile(pair), `${process.pid}\n`);
++clients.push(...["a", "b"].map((side) => ({ name: clientName(pair, side as "a" | "b"), child: spawn("sleep", ["600"], { detached: true, stdio: "ignore" }) })));
+ const runs = Object.fromEntries(["a", "b"].map((side) => {
+   const run = join(process.env["WISP_TEST_DESKTOPS"] ?? "", `private-desktop.${side}`);
+   mkdirSync(run, { recursive: true });
+-- 
+2.43.0
+

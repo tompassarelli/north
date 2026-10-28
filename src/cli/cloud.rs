@@ -6,11 +6,12 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF [--item REPO#N] | events SESSION_ID OUT.jsonl | sweep OUT_DIR | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS]
+const USAGE: &str = "usage: north cloud list | launch REPO SLUG BRIEF [--item REPO#N] | events SESSION_ID OUT.jsonl | sweep OUT_DIR | send SESSION_ID FILE | wait SESSION_ID OUT.jsonl [--after UUID] [--timeout SECS] | collect EVENTS.jsonl OUT.mbox
 launch refreshes /tmp/cloud/src/REPO, trusts it, starts BRIEF with its landing steps through claude --cloud and prints the session, claude/land-SLUG and the checkout; --item records the launch so north dispatch holds that issue for six hours.
 sweep archives only cloud-run sessions (environment_kind anthropic_cloud) waiting on a human, never Remote Control bridges.
 send posts FILE as a user message to the session and prints the HTTP status and the message's uuid.
 wait returns once the session is idle and its latest turn ended, after the message UUID when --after is given, then writes its events (default timeout 3600 s; exit 1 on timeout).
+collect decodes the latest multi-part patch handback in a saved events transcript to an mbox, reading no session and needing no login; a missing part, a failed decode or output not starting with From is refused.
 Run on the host whose ~/.claude login owns the cloud sessions (south:agents/skills/claude-accounts/).";
 
 const BASE: &str = "https://api.anthropic.com";
@@ -25,6 +26,7 @@ pub(super) enum Cloud {
     Sweep(PathBuf),
     Send(String, PathBuf),
     Wait(String, PathBuf, u64, Option<String>),
+    Collect(PathBuf, PathBuf),
     Launch(String, String, PathBuf, Option<String>),
 }
 
@@ -35,6 +37,7 @@ pub(super) fn parse(arguments: &[String]) -> Option<Cloud> {
         ["launch", repo, slug, brief] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into(), None),
         ["launch", repo, slug, brief, "--item", item] => Cloud::Launch((*repo).to_owned(), (*slug).to_owned(), brief.into(), Some((*item).to_owned())),
         ["events", id, out] => Cloud::Events((*id).to_owned(), out.into()),
+        ["collect", events, out] => Cloud::Collect(events.into(), out.into()),
         ["sweep", dir] => Cloud::Sweep(dir.into()),
         ["send", id, file] => Cloud::Send((*id).to_owned(), file.into()),
         ["wait", id, out, options @ ..] => wait_command(id, out, options)?,
@@ -355,6 +358,7 @@ pub(super) fn execute(command: Cloud, api: &mut Api, out: &mut dyn Write) -> Res
         }
         Cloud::Sweep(dir) => sweep(api, &dir, out)?,
         Cloud::Launch(..) => return Err("launch starts a session through claude --cloud, not the sessions API".into()),
+        Cloud::Collect(..) => return Err("collect reads a saved transcript, not the sessions API".into()),
         Cloud::Send(id, file) => {
             let text = std::fs::read_to_string(&file)
                 .map_err(|error| format!("{}: {error}", file.display()))?;
@@ -395,6 +399,15 @@ pub fn run(arguments: &[String]) -> u8 {
             }
             Err(error) => {
                 eprintln!("north cloud launch: {error}");
+                1
+            }
+        };
+    }
+    if let Cloud::Collect(events, out) = &command {
+        return match super::cloud_handback::run(events, out, &mut std::io::stdout()) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("north cloud collect: {error}");
                 1
             }
         };
