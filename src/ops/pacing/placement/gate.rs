@@ -5,7 +5,7 @@
 //! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
-use super::{credit, facets, field, local, resident, saturation, signed_in, strings};
+use super::{credit, facets, field, here_saturation, local, resident, saturation, signed_in, strings};
 use crate::capacity::agent_load;
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
@@ -65,6 +65,7 @@ pub(crate) struct Decision {
     pub here_lacks: Option<(String, String)>,
     pub machine_lines: Vec<String>,
     pub saturated: Option<String>,
+    pub here_saturated: Option<String>,
 }
 
 impl Decision {
@@ -405,6 +406,7 @@ pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, cred
         here_lacks,
         machine_lines,
         saturated: None,
+        here_saturated: None,
     };
     decision.target = if code_only && credit.0 {
         Target::Cloud(credit.1)
@@ -452,6 +454,8 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Rost
         let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
         decision.run_on(machine);
     }
+    decision.here_saturated = here_saturation();
+    decision.hold_here();
     Ok(decision)
 }
 

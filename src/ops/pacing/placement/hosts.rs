@@ -137,21 +137,33 @@ pub(in crate::ops::pacing) fn resident(name: &str, destination: &str) -> Option<
 
 const SATURATION_CACHE_SECONDS: f64 = 60.0;
 
+pub(in crate::ops::pacing) fn here_saturation() -> Option<String> {
+    let name = local();
+    saturation(&name, "")?.refusal(&name)
+}
+
+impl super::gate::Decision {
+    pub(crate) fn hold_here(&mut self) {
+        let (None, super::gate::Target::Account(_), Some(why)) = (&self.machine, &self.target, &self.here_saturated) else { return };
+        let why = why.clone();
+        self.machine_lines.push(why.clone());
+        self.target = super::gate::Target::Held(why);
+    }
+}
+
 impl super::gate::Machine {
     pub(in crate::ops::pacing) fn saturation_refusal(&self) -> Option<String> {
         self.saturation?.refusal(&self.name)
     }
 }
 
-/// The host's saturation reading, from the PLACEMENT_HOSTS fixture, else the cache when under a
+/// The host's saturation reading, from the PLACEMENT_HOSTS fixture alone when that is set, else the cache when under a
 /// minute old, else a fresh probe here or over ssh `destination`; None when unreadable.
 pub(in crate::ops::pacing) fn saturation(name: &str, destination: &str) -> Option<Saturation> {
     if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
         let fixture = load(Path::new(&path));
-        if fixture[name].is_object() {
-            let reading = &fixture[name]["saturation"];
-            return Some(Saturation { queued: reading["queued"].as_u64()?.try_into().ok()?, cores: reading["cores"].as_f64()?, load5: reading["load5"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()? });
-        }
+        let reading = &fixture[name]["saturation"];
+        return Some(Saturation { queued: reading["queued"].as_u64()?.try_into().ok()?, cores: reading["cores"].as_f64()?, load5: reading["load5"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()? });
     }
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
     let now = storage::now();

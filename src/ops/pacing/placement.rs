@@ -13,7 +13,7 @@ mod launch;
 mod survey;
 mod tiers;
 use candidates::admit;
-use hosts::{credit, laptop, resident, saturation, signed_in};
+use hosts::{credit, here_saturation, laptop, resident, saturation, signed_in};
 pub(super) use launch::{Probes, Routing, spawn};
 pub(super) use tiers::routing_defaults;
 pub(crate) use inputs::{cloud_credit, config, laptop_state, now, pace_directory, pace_state, resident_clis};
@@ -300,7 +300,9 @@ pub(super) fn cli(args: &[String], fleet: super::FleetFacts) -> Result<(), Strin
         } else {
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
-        let decision = gate::decide(&text, &cfg, gate::verdicts(&gate, &roster), credit(&cfg, at), &machines, &local(), gate::here_in_game_reserve());
+        let mut decision = gate::decide(&text, &cfg, gate::verdicts(&gate, &roster), credit(&cfg, at), &machines, &local(), gate::here_in_game_reserve());
+        decision.here_saturated = here_saturation();
+        decision.hold_here();
         for line in decision.verdicts.iter().map(|v| &v.line).chain(&decision.machine_lines) {
             println!("  {line}");
         }

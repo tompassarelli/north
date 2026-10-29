@@ -84,6 +84,7 @@ pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_lo
     if absent.is_some() {
         decision.stay_here(absent);
     }
+    decision.hold_here();
     eprintln!("placement: {}", gate::summary(&decision));
     for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
         eprintln!("  {line}");
@@ -99,7 +100,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     match (&decision.target, &overrides.local) {
         (Target::Unserved(why), _) => return Err(format!("{why}; list it in a holding host's [hosts.NAME] serves")),
         (Target::Cloud(credit), None) => return Err(cloud_command(launch, credit, &decision.surface, text)),
-        (_, Some(reason)) if elsewhere => notes.push(format!("local: {reason}")),
+        (_, Some(reason)) if elsewhere || decision.here_saturated.is_some() => notes.push(format!("local: {reason}")),
         _ => {}
     }
     let machine = match (&decision.machine, &overrides.local) {
@@ -108,7 +109,8 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         _ => None,
     };
     let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
-    if let Some(refusal) = saturated.or_else(|| account_refusal(decision, launch.account)) {
+    let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; launch from another host, or keep it here with --local \"<reason>\" or --pin \"<reason>\""));
+    if let Some(refusal) = saturated.or(hot).or_else(|| account_refusal(decision, launch.account)) {
         let Some(reason) = &overrides.pin else {
             return Err(refusal);
         };

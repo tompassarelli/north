@@ -35,6 +35,7 @@ fn fixture(root: &Path) {
         "claude:c": {"windows": [window("5h", 42.0, 86.0, "2026-10-16T16:00:00Z"), window("week", 20.0, 1.0, "2026-10-20T00:00:00Z")]},
     }}});
     fs::write(agents.join("usage-gate.json"), gate.to_string()).unwrap();
+    fs::write(root.join("hosts.json"), "{}").unwrap();
     for label in ["a", "c"] {
         let profile = root.join(format!(".local/state/north/profiles/claude-{label}"));
         fs::create_dir_all(&profile).unwrap();
@@ -58,6 +59,7 @@ fn north_at(root: &Path, args: &[&str], now: &str) -> Output {
         .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
         .env("AGENTS_OPERATOR_DIR", root.join("op"))
         .env("PLACEMENT_NOW", now)
+        .env("PLACEMENT_HOSTS", root.join("hosts.json"))
         .env("RESIDENT_CAP_HOST", "here")
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("PLACEMENT_FIXTURE", root)
@@ -248,4 +250,45 @@ fn the_cloud_credit_places_a_code_only_box_until_it_expires_or_a_readout_records
     assert_eq!(credit(NOW), "cloud credit: spent (read 2026-10-15), expires in 19 days");
     let spent = placed_at(root, NOW);
     assert!(!spent.contains("anthropic-cloud") && spent.contains("target here claude:"), "{spent}");
+}
+
+#[test]
+fn a_saturated_launching_host_holds_the_box_with_the_reason_and_a_local_keep_launches_it() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    fs::write(root.join("hosts.json"), r#"{"here": {"saturation": {"queued": 9, "cores": 20, "load5": 3.0, "disk_free_gib": 40.0}}}"#).unwrap();
+    let path = root.join("private.md");
+    fs::write(&path, "Item: galileo#3 private change\nSurface: rust\n").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_north"))
+            .args(args)
+            .current_dir(root)
+            .env("HOME", root)
+            .env("XDG_STATE_HOME", root.join(".local/state"))
+            .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
+            .env("AGENTS_OPERATOR_DIR", root.join("op"))
+            .env("PLACEMENT_NOW", NOW)
+            .env("RESIDENT_CAP_HOST", "here")
+            .env("PLACEMENT_HOSTS", root.join("hosts.json"))
+            .env("CLAUDE_RUNTIME", root.join("bin/claude"))
+            .env("NORTH_FLEET_SESSION", "")
+            .env_remove("NORTH_FLEET_TEST")
+            .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+            .output()
+            .unwrap()
+    };
+    let planned = run(&["pace", "place", "place", &path.display().to_string()]);
+    let plan = String::from_utf8_lossy(&planned.stdout).into_owned();
+    assert!(plan.contains("target held: here skipped: 9 queued for admission"), "{plan}");
+    let prompt = path.display().to_string();
+    let refused = run(&["fleet", "launch", "--provider", "claude", "--name", "hot-box", "--parent", "none", "--system-prompt", &prompt, "--account", "a", "start the box"]);
+    assert!(!refused.status.success());
+    let said = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(said.contains("here skipped: 9 queued for admission") && said.contains("--local"), "{said}");
+    let kept = run(&["fleet", "launch", "--provider", "claude", "--name", "hot-kept", "--parent", "none", "--system-prompt", &prompt, "--account", "a", "--local", "serves the repo", "start the box"]);
+    assert!(kept.status.success(), "{}", String::from_utf8_lossy(&kept.stderr));
+    let said = String::from_utf8_lossy(&kept.stderr).into_owned();
+    assert!(said.contains("here skipped: 9 queued for admission"), "the reason is printed under an override: {said}");
+    north(root, &["fleet", "stop", "hot-kept"]);
 }

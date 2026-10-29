@@ -20,6 +20,7 @@ fn decision(target: Target) -> Decision {
         here_lacks: None,
         machine_lines: Vec::new(),
         saturated: None,
+        here_saturated: None,
     }
 }
 
@@ -109,4 +110,28 @@ fn a_launch_on_a_saturated_named_machine_needs_a_pin_and_a_local_keep_does_not()
     let local = Overrides { local: Some("laptop work".into()), ..Overrides::default() };
     let kept = admit(&saturated, &launch, "", &local).unwrap();
     assert_eq!((kept.note.as_deref(), kept.machine), (Some("local: laptop work"), None));
+}
+
+#[test]
+fn a_box_kept_on_a_saturated_launching_host_needs_local_or_a_pin_and_a_move_elsewhere_does_not() {
+    let why = "here skipped: 14.0 GiB free on the root disk, under 15";
+    let mut held = decision(Target::Account("claude:a".into()));
+    held.here_saturated = Some(why.into());
+    held.hold_here();
+    assert_eq!(held.target, Target::Held(why.into()));
+    assert_eq!(held.machine_lines, [why]);
+    let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: None };
+    let refused = admit(&held, &launch, "", &Overrides::default()).unwrap_err();
+    assert!(refused.starts_with(why), "{refused}");
+    let local = Overrides { local: Some("this host is the one that serves it".into()), ..Overrides::default() };
+    assert_eq!(admit(&held, &launch, "", &local).unwrap().note.as_deref(), Some("local: this host is the one that serves it"));
+    let pinned = Overrides { pin: Some("urgent".into()), ..Overrides::default() };
+    assert_eq!(admit(&held, &launch, "", &pinned).unwrap().note.as_deref(), Some("pin: urgent"));
+
+    let mut elsewhere = decision(Target::Account("claude:a".into()));
+    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
+    elsewhere.here_saturated = Some(why.into());
+    elsewhere.hold_here();
+    assert_eq!(elsewhere.target, Target::Account("claude:a".into()));
+    assert_eq!(admit(&elsewhere, &launch, "", &Overrides::default()).unwrap().machine.map(|machine| machine.name), Some("far".to_owned()));
 }
