@@ -32,6 +32,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("resident-cap", crate::ops::resident_cap::run),
     ("usage", super::agents::usage),
     ("convo", crate::ops::convo::run),
+    ("incident-mine", crate::ops::incident_mine::run),
+    ("advisor-report", crate::ops::advisor_report::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,7 +48,6 @@ pub(super) enum Tool {
     Runtime,
     Dispatch,
     Tune,
-    IncidentMine,
     Archives,
     CodeHealth,
     SecretsProxyExec,
@@ -68,7 +69,6 @@ impl Tool {
             "runtime" => Self::Runtime,
             "dispatch" => Self::Dispatch,
             "tune" => Self::Tune,
-            "incident-mine" => Self::IncidentMine,
             "archives" => Self::Archives,
             "code-health" => Self::CodeHealth,
             "secrets-proxy-exec" => Self::SecretsProxyExec,
@@ -93,7 +93,6 @@ impl Tool {
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::Runtime => ExitCode::from(crate::ops::runtime::run(arguments)),
             Self::Tune => ExitCode::from(crate::ops::tune::run(arguments)),
-            Self::IncidentMine => ExitCode::from(crate::ops::incident_mine::run(arguments)),
             Self::Archives => ExitCode::from(crate::platform::archive_tags::run(arguments)),
             Self::CodeHealth => ExitCode::from(crate::code_health::run(arguments)),
             Self::SecretsProxyExec => super::in_runtime(async move { Ok(ExitCode::from(crate::platform::secrets_proxy::run(arguments).await)) }),

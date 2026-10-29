@@ -1,3 +1,4 @@
+pub(crate) mod advisor_report;
 pub(crate) mod agents;
 pub(crate) mod convo;
 pub(crate) mod dispatch;

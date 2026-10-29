@@ -1,4 +1,4 @@
-"""Wilson interval, one-sided Fisher exact comparison and the task-cluster paired bootstrap shared by policy-replay.py --sweep, advisor-report.py and the agent-config-check policy gate."""
+"""Wilson interval, one-sided Fisher exact comparison and the task-cluster paired bootstrap shared by policy-replay.py --sweep, north advisor-report and the agent-config-check policy gate."""
 
 from __future__ import annotations
 

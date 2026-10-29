@@ -34,7 +34,7 @@ SURFACES = {
                re.compile(r"^harness/skills/workers/references/[^/]+\.md$")),
     "hook-message": (re.compile(r"^harness/hooks/[^/]+\.sh$"), re.compile(r"^harness/hooks/lib/[^/]+\.py$")),
 }
-OUT_OF_REACH = re.compile(r"\.test\.|(^|/)(fixtures|replay)/|policy-replay|policy_stats|advisor-report|harness-tuner"
+OUT_OF_REACH = re.compile(r"\.test\.|(^|/)(fixtures|replay)/|policy-replay|policy_stats|advisor_report|harness-tuner"
                           r"|defaults\.toml$|operating-point")
 EDIT_ID = re.compile(r"^e[1-9][0-9]*$")
 RULES = f"""- Propose at most {MAX_EDITS} edits, all to the one target file named below.

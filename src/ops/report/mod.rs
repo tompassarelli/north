@@ -9,6 +9,7 @@ use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};
 
 mod arms;
+pub(crate) use arms::wilson;
 mod calibration;
 #[cfg(test)]
 mod tests;
