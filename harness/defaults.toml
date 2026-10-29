@@ -222,14 +222,14 @@ value = 20
 unit = "newest matching runs machine-capacity sizes a command from"
 source = "measured: flat over {5,10,20,40,all}: capacity_runs exact signatures walk-forward, 0 under-charged, charged/peak memory 6.65-6.66, n=27"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "harness/skills/machine-capacity/scripts/machine-capacity-host.mjs"]
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "src/capacity/host/policy.rs"]
 
 [capacity_memory_margin]
 value = 1.2
 unit = "multiple of p90 peak memory machine-capacity charges"
 source = "measured: capacity_runs exact signatures walk-forward, peak memory / p90 of the prior 20, to 2026-10-12, n=27, p99 1.02, none over 1.2"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "harness/skills/machine-capacity/scripts/machine-capacity-host.mjs"]
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "src/capacity/host/policy.rs"]
 
 [capacity_high_confidence_runs]
 value = 10
@@ -632,7 +632,7 @@ value = 0.25
 unit = "measured cores of a quiet native lease's scope below which its clients count as idle"
 source = "measured: a quiet lease held at 0 measured cores for over 17 minutes while 19 batch jobs from six sessions queued behind it on the GPU host, 2026-10-26 (north#237)"
 fallback = "a lease whose scope is not measured counts as busy"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-host.mjs"]
+consumers = ["src/capacity/host/policy.rs"]
 
 [quiet_idle_seconds]
 value = 300

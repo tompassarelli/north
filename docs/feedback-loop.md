@@ -39,14 +39,14 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | tier_choice | bin/threads:1431 | bin/threads:1427 incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
-| capacity_runs cores, memory, signature | mc/machine-capacity-host.mjs:386 | mc/machine-capacity-logic.ts estimateCapacity | read | |
-| capacity_runs.wallSeconds | mc/machine-capacity-host.mjs:1123 | mc/machine-capacity-logic.ts:302 duration p75 | read | 4aecdaf9 |
-| capacity_runs io, diskBusyShare | mc/machine-capacity-host.mjs | mc/machine-capacity-logic.ts:336 estimate output | read | |
-| capacity_runs.exitCode | mc/machine-capacity-host.mjs:1120 | mc/machine-capacity-logic.ts:305 duration p75 counts only exit 0 | read | 99f4618d |
-| capacity_runs.command, cpuSeconds | mc/machine-capacity-host.mjs:1120 | none | held for north#17 | |
+| capacity_runs cores, memory, signature | src/capacity/host/run.rs record | src/capacity/host/estimate.rs estimate_capacity | read | |
+| capacity_runs.wallSeconds | src/capacity/host/run.rs usage_entry | src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
+| capacity_runs io, diskBusyShare | src/capacity/host/run.rs record | src/capacity/host/estimate.rs estimate output | read | |
+| capacity_runs.exitCode | src/capacity/host/run.rs usage_entry | src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
+| capacity_runs.command, cpuSeconds | src/capacity/host/run.rs usage_entry | none | held for north#17 | |
 | job_runs | bin/threads:1748 | bin/threads:1753 job-runs; bin/job-watch | read | |
 | model_events | bin/model-watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
-| machine-capacity-usage.jsonl | mc/machine-capacity-host.mjs:315 | mc/machine-capacity-host.mjs:623, :660 sizing | read | |
+| machine-capacity-usage.jsonl | src/capacity/host/database.rs record_usage | src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | src/usage/gate.rs | harness/hooks/lib/spawn_capacity.py:280 | read | |
 | spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | harness/lib/spawn_queue.py from harness/lib/spawn.py | harness/lib/spawn.py release at the end of pace_sampler.sample; oldest eligible durable worker launches automatically | read | |

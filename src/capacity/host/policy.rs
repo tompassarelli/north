@@ -1,7 +1,9 @@
+use std::sync::LazyLock;
+
 use serde_json::{Value, json};
+use toml_edit::DocumentMut;
 
 use super::json::num;
-use crate::capacity::admission::default_mib as default_number;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Resources {
@@ -13,6 +15,13 @@ impl Resources {
     pub(crate) fn json(self) -> Value {
         json!({ "cpus": num(self.cpus), "memoryMiB": num(self.memory_mib) })
     }
+}
+
+static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
+
+fn default_number(name: &str) -> f64 {
+    let value = &DEFAULTS[name]["value"];
+    value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
 pub(crate) const CLASS_NAMES: [&str; 8] = ["agent", "native", "moderate", "heavy", "exclusive", "gpu", "critical", "tom"];
