@@ -10,6 +10,8 @@ pair, `bun wisp pad SCRIPT|DIR... --helper H --out PRIVATE_OUTPUT
 `--map` uses the already-built candidate without rebuilding it; every
 selected check must use the same build profile. Give each revision its own
 private path; the same candidate is passed to every selected pair.
+Take each pair from the shared lease queue (`lan lease take`), which orders
+only the choice of a free pair; leased pairs run concurrently.
 Do not let simultaneous acceptance runs rebuild the same mutable map path;
 prepare their immutable candidates or use independent lane-owned fixtures.
 
