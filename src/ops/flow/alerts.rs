@@ -130,7 +130,7 @@ pub(crate) fn deliver(places: &Places, host: &dyn Host, file: &str, plan: impl F
     let lock = OpenOptions::new().create(true).append(true).open(directory.join("stalls.lock")).map_err(|error| error.to_string())?;
     flock(&lock, FlockOperation::LockExclusive).map_err(|error| error.to_string())?;
     let path = directory.join(file);
-    let nodes = fleet_nodes(host).ok_or("Fleet session list unavailable")?;
+    let nodes = fleet_nodes(host).unwrap_or_default();
     let (mut state, actions) = plan(&load(&path), &nodes);
     for action in actions {
         if !valid_name(&action.node) {

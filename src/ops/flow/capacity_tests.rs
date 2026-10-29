@@ -83,3 +83,27 @@ fn test_saturation_alert_reaches_the_proxy_through_fleet_send() {
     assert_eq!(sends.borrow().len(), 1);
     assert!(sends.borrow()[0].starts_with("proxy: Host gex45 saturated for 10m: 9 jobs queued"), "{}", sends.borrow()[0]);
 }
+
+#[test]
+fn test_an_alert_still_reaches_the_proxy_when_the_fleet_list_does_not_answer() {
+    let directory = tempfile::tempdir().unwrap();
+    let places = places(directory.path());
+    let policy = directory.path().join("orchestration.toml");
+    std::fs::write(&policy, "[hosts.gex45]\nssh = \"tom@gex45\"\n").unwrap();
+    let sends = RefCell::new(Vec::<String>::new());
+    let reply = |argv: &[&str]| match argv {
+        ["north", "fleet", "send", node, text] => {
+            sends.borrow_mut().push(format!("{node}: {text}"));
+            Some(String::new())
+        }
+        ["hostname"] => Some("whiterabbit\n".into()),
+        ["sh", "-c", _] => Some("{\"queued\":[]}\n---\n200G\n".into()),
+        ["ssh", .., "tom@gex45", _] => Some("{\"queued\":[1,2,3,4]}\n---\n40G\n".into()),
+        _ => None,
+    };
+    let host = Fake(&reply);
+    saturation_alert(&places, &host, &policy, NOW).unwrap();
+    saturation_alert(&places, &host, &policy, NOW + 600.0).unwrap();
+    assert_eq!(sends.borrow().len(), 1);
+    assert!(sends.borrow()[0].starts_with("proxy: Host gex45 saturated"), "{}", sends.borrow()[0]);
+}
