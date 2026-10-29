@@ -72,7 +72,7 @@ pub(super) fn archive(remote: &dyn Remote, family: &Family, name: &str, destinat
         return Err(format!("{name}: changed on the source while it was copied; kept"));
     }
     let script = format!(
-        "{} && root=$(pwd -P) && [ -r /proc/1/cmdline ] && [ ! -e '{name}/PINNED' ] && [ -z \"$(find '{name}' ! -type f ! -type d ! -type l -print -quit)\" ] && [ -z \"$(find /proc/[0-9]*/cwd /proc/[0-9]*/fd/* -maxdepth 0 \\( -lname \"$root/{name}\" -o -lname \"$root/{name}/*\" \\) -print -quit 2>/dev/null)\" ] && rm -rf -- '{name}'",
+        "{} && root=$(pwd -P) && [ -r /proc/1/cmdline ] && [ ! -e '{name}/PINNED' ] && [ -z \"$(find '{name}' ! -type f ! -type d ! -type l -print -quit)\" ] && [ -z \"$(find /proc/[0-9]*/cwd /proc/[0-9]*/fd/* -maxdepth 0 \\( -lname \"$root/{name}\" -o -lname \"$root/{name}/*\" \\) -print -quit 2>/dev/null)\" ] && chmod -R u+w -- '{name}' && rm -rf -- '{name}'",
         family.enter()
     );
     remote.output(&script).map(drop).map_err(|error| format!("{name}: {error}"))
@@ -92,7 +92,7 @@ fn verify_copy(remote: &dyn Remote, family: &Family, name: &str, destination: &P
     if staging.exists() {
         fs::remove_dir_all(&staging)?;
     }
-    let copied = copy_into(remote, family, name, &staging).and_then(|()| local_manifest(&staging, name));
+    let copied = copy_into(remote, family, name, &staging).and_then(|()| writable(&staging)).and_then(|()| local_manifest(&staging, name));
     match copied {
         Ok(local) if local == expected => {
             fs::rename(staging.join(name), &target)?;
@@ -105,10 +105,15 @@ fn verify_copy(remote: &dyn Remote, family: &Family, name: &str, destination: &P
             Err(io::Error::other("sha256 of the copy differs from the source"))
         }
         Err(error) => {
+            let _ = writable(&staging);
             let _ = fs::remove_dir_all(&staging);
             Err(error)
         }
     }
+}
+
+fn writable(staging: &Path) -> io::Result<()> {
+    if Command::new("chmod").arg("-R").arg("u+w").arg("--").arg(staging).status()?.success() { Ok(()) } else { Err(io::Error::other("chmod of the staged copy failed")) }
 }
 
 fn flush(target: &Path) -> io::Result<()> {

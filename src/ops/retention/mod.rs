@@ -3,6 +3,7 @@ mod family;
 mod inventory;
 mod plan;
 mod remote;
+mod store;
 #[cfg(test)]
 mod tests;
 
@@ -29,8 +30,18 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let remote = Ssh { host: policy.host.clone() };
-    let mut failed = false;
-    for family in family::families() {
+    let mut families = family::families();
+    let mut failed = match store::families(&remote, &store::Layout::gex45(), family::hours("build_input_retention_hours")) {
+        Ok(found) => {
+            families.extend(found);
+            false
+        }
+        Err(error) => {
+            eprintln!("north retain: build-inputs: {error}");
+            true
+        }
+    };
+    for family in families {
         failed |= !retain(&remote, &family, &policy, now());
     }
     u8::from(failed)
@@ -63,7 +74,7 @@ fn retain(remote: &dyn Remote, family: &Family, policy: &Policy, now: u64) -> bo
             return false;
         }
     };
-    let destination = policy.archive.join(family.name);
+    let destination = policy.archive.join(&family.name);
     if !policy.dry_run && let Err(error) = std::fs::create_dir_all(&destination) {
         eprintln!("north retain: {}: {error}", destination.display());
         return false;

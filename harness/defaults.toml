@@ -650,3 +650,11 @@ source = "measured: 127 batches held 31 GB within two days on 2026-10-29 (north#
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a batch ends its frames are last read" }
 fallback = "an unreadable setting archives nothing"
 consumers = ["src/ops/retention/family.rs"]
+
+[build_input_retention_hours]
+value = 72
+unit = "hours since the newest change after which a GPU-host build-input store version no pin on Smashcraft origin/main or a lane checkout names, or a derived step cache entry, is archived to the laptop and deleted there"
+source = "measured: the store held 44 GB on the GPU host on 2026-10-29 (north#320), 28 GB of it derived caches; a 72 h floor listed no version origin/main names and keeps a fresh add until its lane writes the pin"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after an add a lane writes its pin, and how often derive rebuilds an archived key" }
+fallback = "an unreadable setting or pin read archives no store version"
+consumers = ["src/ops/retention/mod.rs"]

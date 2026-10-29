@@ -52,7 +52,7 @@ impl Rig {
     }
 
     fn run(&self, dry_run: bool) -> bool {
-        let family = Family { name: "evidence", base: format!("'{}'", self.state.path().display()), dir: "evidence", max_age: Duration::from_secs(72 * HOUR) };
+        let family = Family::new("evidence", &format!("'{}'", self.state.path().display()), "evidence", Duration::from_secs(72 * HOUR));
         let policy = Policy { dry_run, host: String::new(), archive: self.archive.path().to_owned() };
         retain(&Local, &family, &policy, super::now())
     }
@@ -159,4 +159,104 @@ fn an_entry_holding_a_fifo_is_not_deleted_for_want_of_a_checkable_copy() {
     aged(&directory, "pipe");
     assert!(rig.run(false));
     assert!(rig.here("piped") && !rig.archived("piped"));
+}
+
+const ON_MAIN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const IN_LANE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const UNNAMED: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const FRESH: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const ON_BRANCH: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+struct Store {
+    home: tempfile::TempDir,
+    archive: tempfile::TempDir,
+}
+
+impl Store {
+    fn new(main_pin: &str) -> Self {
+        let store = Self { home: tempfile::tempdir().unwrap(), archive: tempfile::tempdir().unwrap() };
+        let (origin, main, other) = (store.home.path().join("origin.git"), store.home.path().join("code/main"), store.home.path().join("other"));
+        let git = |dir: &Path, arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).output().unwrap().status.success());
+        fs::create_dir_all(main.join("build-inputs")).unwrap();
+        fs::create_dir_all(&origin).unwrap();
+        git(&origin, &["init", "-q", "--bare"]);
+        fs::write(main.join("build-inputs/hero-models"), main_pin).unwrap();
+        git(&main, &["init", "-q"]);
+        git(&main, &["add", "."]);
+        git(&main, &["commit", "-qm", "pins"]);
+        git(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        git(&main, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+        git(store.home.path(), &["clone", "-q", "-b", "main", origin.to_str().unwrap(), other.to_str().unwrap()]);
+        fs::write(other.join("build-inputs/stage-assets"), ON_BRANCH).unwrap();
+        git(&other, &["add", "."]);
+        git(&other, &["commit", "-qm", "landing"]);
+        git(&other, &["push", "-q", "origin", "HEAD:refs/heads/claude/land-x"]);
+        let lane = store.home.path().join("code/worktrees/lane/build-inputs/hero-models");
+        fs::create_dir_all(&lane).unwrap();
+        fs::write(lane.join("shard"), IN_LANE).unwrap();
+        store
+    }
+
+    fn path(&self, relative: &str) -> std::path::PathBuf {
+        self.home.path().join("store").join(relative)
+    }
+
+    fn sealed(&self, relative: &str, age_hours: u64) {
+        let entry = self.path(relative);
+        fs::create_dir_all(entry.join("inner")).unwrap();
+        fs::write(entry.join("inner/data"), relative).unwrap();
+        self.age_and_seal(&entry, age_hours);
+    }
+
+    fn age_and_seal(&self, entry: &Path, age_hours: u64) {
+        let stamp = format!("{age_hours} hours ago");
+        assert!(Command::new("find").arg(entry).args(["-exec", "touch", "-h", "-d", &stamp, "{}", "+"]).status().unwrap().success());
+        assert!(Command::new("chmod").args(["-R", "a-w"]).arg(entry).status().unwrap().success());
+    }
+
+    fn run(&self) -> Result<bool, std::io::Error> {
+        let layout = super::store::Layout { store: format!("'{}'", self.home.path().join("store").display()), checkouts: format!("'{}'", self.home.path().join("code").display()) };
+        let policy = Policy { dry_run: false, host: String::new(), archive: self.archive.path().to_owned() };
+        let families = super::store::families(&Local, &layout, Duration::from_secs(72 * HOUR))?;
+        Ok(families.iter().all(|family| retain(&Local, family, &policy, super::now())))
+    }
+
+    fn archived(&self, relative: &str) -> bool {
+        self.archive.path().join("build-inputs").join(relative).exists()
+    }
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        let _ = Command::new("chmod").args(["-R", "u+w"]).arg(self.home.path()).arg(self.archive.path()).status();
+    }
+}
+
+#[test]
+fn store_versions_no_pin_on_origin_or_a_lane_names_are_archived_once_expired() {
+    let store = Store::new(ON_MAIN);
+    for hash in [ON_MAIN, IN_LANE, ON_BRANCH, UNNAMED] {
+        store.sealed(&format!("hero-models/{hash}"), 100);
+    }
+    store.sealed(&format!("hero-models/{FRESH}"), 1);
+    store.sealed(&format!("views/{UNNAMED}"), 100);
+    fs::create_dir_all(store.path("derived/thinned")).unwrap();
+    fs::write(store.path("derived/thinned/key.bin"), "cache").unwrap();
+    store.age_and_seal(&store.path("derived/thinned/key.bin"), 100);
+    assert!(store.run().unwrap());
+    for kept in [ON_MAIN, IN_LANE, ON_BRANCH, FRESH] {
+        assert!(store.path(&format!("hero-models/{kept}")).exists() && !store.archived(&format!("hero-models/{kept}")));
+    }
+    assert!(!store.path(&format!("hero-models/{UNNAMED}")).exists());
+    assert_eq!(fs::read_to_string(store.archive.path().join(format!("build-inputs/hero-models/{UNNAMED}/inner/data"))).unwrap(), format!("hero-models/{UNNAMED}"));
+    assert!(!store.path("derived/thinned/key.bin").exists() && store.archived("derived/thinned/key.bin"));
+    assert!(store.path(&format!("views/{UNNAMED}")).exists());
+}
+
+#[test]
+fn a_main_that_names_no_pin_archives_no_store_version() {
+    let store = Store::new("no pins here");
+    store.sealed(&format!("hero-models/{UNNAMED}"), 100);
+    assert!(store.run().is_err());
+    assert!(store.path(&format!("hero-models/{UNNAMED}")).exists());
 }

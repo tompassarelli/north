@@ -12,12 +12,17 @@ pub(super) struct Entry {
     pub(super) opaque: bool,
 }
 
-const AWK: &str = r#"{n=split($1,a,"/");k=a[1];if(n==1)kind[k]=$2;else if($2!="f"&&$2!="d"&&$2!="l")odd[k]=1;if($3>m[k])m[k]=$3;b[k]+=$4;if(n==2&&a[2]=="PINNED")p[k]=1}END{for(k in kind)if(kind[k]=="d")printf "%s\t%d\t%d\t%d\t%d\n",k,m[k],b[k],p[k],odd[k]}"#;
+const AWK: &str = r#"{n=split($1,a,"/");k=a[1];if(n==1)kind[k]=$2;else if($2!="f"&&$2!="d"&&$2!="l")odd[k]=1;if($3>m[k])m[k]=$3;b[k]+=$4;if(n==2&&a[2]=="PINNED")p[k]=1}END{for(k in kind)if(kind[k]=="d"||(files&&kind[k]=="f"))printf "%s\t%d\t%d\t%d\t%d\n",k,m[k],b[k],p[k],odd[k]}"#;
 
 pub(super) fn read(remote: &dyn Remote, family: &Family) -> io::Result<Vec<Entry>> {
-    let script = format!("{} && find . -mindepth 1 -printf '%P\\t%y\\t%T@\\t%s\\n' | awk -F'\\t' '{AWK}'", family.enter());
+    let script = format!("{} && find . -mindepth 1 -printf '%P\\t%y\\t%T@\\t%s\\n' | awk -v files={} -F'\\t' '{AWK}'", family.enter(), u8::from(family.files_are_entries));
     let text = String::from_utf8_lossy(&remote.output(&script)?).into_owned();
-    Ok(text.lines().filter_map(parse).filter(|entry| safe_name(&entry.name)).collect())
+    Ok(text.lines().filter_map(parse).filter(|entry| safe_name(&entry.name))
+        .map(|mut entry| {
+            entry.pinned |= family.pins.contains(&entry.name);
+            entry
+        })
+        .collect())
 }
 
 fn parse(line: &str) -> Option<Entry> {

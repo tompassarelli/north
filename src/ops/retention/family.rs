@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use toml_edit::DocumentMut;
@@ -5,28 +6,35 @@ use toml_edit::DocumentMut;
 const DEFAULTS: &str = include_str!("../../../harness/defaults.toml");
 
 pub(super) struct Family {
-    pub(super) name: &'static str,
+    pub(super) name: String,
     pub(super) base: String,
-    pub(super) dir: &'static str,
+    pub(super) dir: String,
     pub(super) max_age: Duration,
+    pub(super) pins: BTreeSet<String>,
+    pub(super) files_are_entries: bool,
 }
 
 const BASE: &str = "\"$HOME/.local/state/smashcraft\"";
 
+pub(super) fn hours(name: &str) -> Duration {
+    let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");
+    let value = &defaults[name]["value"];
+    let hours = value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"));
+    Duration::from_secs((hours * 3600.0) as u64)
+}
+
 pub(super) fn families() -> Vec<Family> {
-    let hours = |name: &str| {
-        let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");
-        let value = &defaults[name]["value"];
-        let hours = value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"));
-        Duration::from_secs((hours * 3600.0) as u64)
-    };
     vec![
-        Family { name: "evidence", base: BASE.into(), dir: "evidence", max_age: hours("evidence_retention_hours") },
-        Family { name: "capture-batches", base: BASE.into(), dir: "capture-queue/batches", max_age: hours("capture_batch_retention_hours") },
+        Family::new("evidence", BASE, "evidence", hours("evidence_retention_hours")),
+        Family::new("capture-batches", BASE, "capture-queue/batches", hours("capture_batch_retention_hours")),
     ]
 }
 
 impl Family {
+    pub(super) fn new(name: &str, base: &str, dir: &str, max_age: Duration) -> Self {
+        Self { name: name.into(), base: base.into(), dir: dir.into(), max_age, pins: BTreeSet::new(), files_are_entries: false }
+    }
+
     pub(super) fn enter(&self) -> String {
         format!("cd {} && cd {}", self.base, self.dir)
     }
