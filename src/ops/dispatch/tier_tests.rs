@@ -40,10 +40,10 @@ fn haiku_try(item: &str, at: f64) -> Record {
 #[test]
 fn known_cause_bugs_and_judged_art_start_on_sonnet_mechanical_work_on_haiku_and_unknown_causes_on_opus() {
     let boxes = vec![
-        issue("smashcraft", 1, "- [ ] a\nCategory: bug-known-cause", &[]),
+        issue("smashcraft", 1, "- [ ] a\nCategory: bug-known-cause\nClass: a stale frame", &[]),
         issue("smashcraft", 2, "- [ ] a\nCategory: feature\nSpec: judged\nSurface: assets\nVerify: visual", &[]),
         issue("smashcraft", 3, "- [ ] a\nCategory: mechanical", &[]),
-        issue("smashcraft", 4, "- [ ] a\nCategory: debugging-unknown-cause", &[]),
+        issue("smashcraft", 4, "- [ ] a\nCategory: debugging-unknown-cause\nClass: a lost input", &[]),
         issue("smashcraft", 5, "- [ ] a\nCategory: anim", &[]),
         issue("smashcraft", 6, "- [ ] a\nCategory: netcode-determinism", &[]),
     ];
@@ -150,7 +150,7 @@ pub(super) fn route(tier: Tier) -> super::tier::Route {
 fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_each_tier_holds_thirty() {
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
-    let boxes = |category: &str| (1..=3).map(|number| issue("smashcraft", number, &format!("- [ ] a\nCategory: {category}"), &[])).collect::<Vec<_>>();
+    let boxes = |category: &str| (1..=3).map(|number| issue("smashcraft", number, &format!("- [ ] a\nCategory: {category}\nClass: a lost input"), &[])).collect::<Vec<_>>();
     let arms = |survey: &super::survey::Survey| -> Vec<(Option<String>, Option<String>)> {
         decide(survey, "test").launches.into_iter().map(|launch| (launch.handoff, launch.brief.lines().find_map(|line| line.strip_prefix("Arm: ")).map(str::to_owned))).collect()
     };
@@ -193,9 +193,9 @@ fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_
 fn a_box_without_a_category_line_takes_one_from_its_labels_and_one_nothing_categorises_is_refused_with_the_reason() {
     let boxes = vec![
         uncategorised("north", 1, "- [ ] a", &["enhancement", "priority:now"]),
-        uncategorised("north", 2, "- [ ] a", &["bug"]),
+        uncategorised("north", 2, "- [ ] a\n- Class: a landing called done without checking its live effect", &["bug"]),
         uncategorised("north", 3, "- [ ] a", &["priority:next", "category:mechanical"]),
-        uncategorised("north", 4, "- [ ] a\n- Category: bug-known-cause. Spec: measured. Scope: padbridge.", &[]),
+        uncategorised("north", 4, "- [ ] a\n- Category: bug-known-cause. Spec: measured. Scope: padbridge.\n- Class: a dropped pad frame", &[]),
     ];
     let mut launches = launched(boxes, History::default(), BTreeMap::new());
     launches.sort_by(|a, b| a.0.cmp(&b.0));
@@ -205,6 +205,9 @@ fn a_box_without_a_category_line_takes_one_from_its_labels_and_one_nothing_categ
 
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
+    let unclassed = decide(&survey(vec![uncategorised("north", 6, "- [ ] a", &["bug"])], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()), "test");
+    assert!(unclassed.launches.is_empty(), "a bug box naming no class of failure does not launch");
+    assert!(unclassed.skipped[0].1.starts_with("ready, not placed: Category debugging-unknown-cause has no Class: line"), "{:?}", unclassed.skipped);
     let blind = survey(vec![uncategorised("north", 5, "- [ ] a", &["priority:now"])], Cloud::Closed(String::new()), hosts, accounts);
     let outcome = decide(&blind, "test");
     assert!(outcome.launches.is_empty(), "an item nothing categorises does not launch");

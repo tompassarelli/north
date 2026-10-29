@@ -116,7 +116,7 @@ fn body(host: &str, failing: &[(String, String)]) -> String {
     let needs = if host == "whiterabbit" { "laptop" } else { "local-state" };
     let lines: String = failing.iter().map(|(unit, line)| format!("- `{unit}`: {line}. Read it on {host} with `journalctl --user -u {unit}`.\n")).collect();
     format!(
-        "Category: debugging-unknown-cause\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: {needs}\n\n\
+        "Category: debugging-unknown-cause\nClass: a harness unit failing on {host}\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test\nNeeds: {needs}\n\n\
          The one rolling issue `north health` keeps for {host}. It lists the services failing now, edits itself as they change and closes itself when none fail.\n\n\
          {lines}\n## Done when\n- [ ] (headless run) `north health` on {host} reports no failing unit; this issue then closes itself.\n"
     )

@@ -1,0 +1,12 @@
+Item: north#1 a landing reported done before its live effect showed
+Category: bug-known-cause
+Done when: `cargo test -q landing`
+
+Fix the landing.
+---
+Item: north#1 a landing reported done before its live effect showed
+Category: bug-known-cause
+Class: a landing called done without checking its live effect
+Done when: every landing path checks its live effect before reporting done, shown by `cargo test -q landing`
+
+Fix the class.

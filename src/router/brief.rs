@@ -236,6 +236,17 @@ pub fn review_admits(
     }
 }
 
+const BUG_CATEGORIES: [&str; 2] = ["bug-known-cause", "debugging-unknown-cause"];
+
+pub fn class_refusal(text: &str) -> Option<String> {
+    let fields = brief_header(text);
+    let category = fields.get("category")?.split(|c: char| c.is_whitespace() || c == ',' || c == '·').find(|word| !word.is_empty())?.trim_matches(['.', '`']).to_lowercase();
+    if !BUG_CATEGORIES.contains(&category.as_str()) || fields.get("class").is_some_and(|class| !class.trim().is_empty()) {
+        return None;
+    }
+    Some(format!("Category {category} has no Class: line; name the class of failure before the first blank line and write a Done when that covers every instance of it"))
+}
+
 pub fn codex_box_refusal(text: &str, defaults: &Defaults) -> Option<String> {
     let fields = brief_header(text);
     if !fields.contains_key("category") {
@@ -257,6 +268,21 @@ pub fn codex_box_refusal(text: &str, defaults: &Defaults) -> Option<String> {
 mod tests {
     use super::*;
     use crate::router::policy;
+
+    #[test]
+    fn bug_briefs_without_a_class_are_refused_and_briefs_naming_one_pass() {
+        let fixture = include_str!("fixtures/brief-class.txt");
+        let (refused, passing) = fixture.split_once("\n---\n").unwrap();
+        assert_eq!(
+            class_refusal(refused).as_deref(),
+            Some("Category bug-known-cause has no Class: line; name the class of failure before the first blank line and write a Done when that covers every instance of it")
+        );
+        assert_eq!(class_refusal(passing), None);
+        assert!(class_refusal(&refused.replace("bug-known-cause", "debugging-unknown-cause")).is_some());
+        assert_eq!(class_refusal(&refused.replace("bug-known-cause", "feature")), None);
+        assert!(class_refusal(&refused.replace("bug-known-cause", "`Bug-Known-Cause`.")).is_some());
+        assert_eq!(class_refusal("Item: north#1 x\n"), None);
+    }
 
     #[test]
     fn recorded_python_briefs_match_verdict_and_reason() {

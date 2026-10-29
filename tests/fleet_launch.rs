@@ -313,7 +313,7 @@ fn a_second_task_launch_on_a_held_item_is_refused_unless_it_says_why_it_runs_bes
 
 fn launch_task(root: &Path, category: &str, extra: &[&str]) -> Output {
     let brief = root.join("box.md");
-    fs::write(&brief, format!("Item: north#9 tier check\nCategory: {category}\nSurface: lua\nNeeds: warcraft\n")).unwrap();
+    fs::write(&brief, format!("Item: north#9 tier check\nCategory: {category}\nClass: a stale tier pick\nSurface: lua\nNeeds: warcraft\n")).unwrap();
     let brief = brief.display().to_string();
     let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "north#9", "--system-prompt", &brief];
     args.extend(extra);
@@ -620,14 +620,19 @@ fn a_launch_that_names_no_issue_and_no_model_takes_its_tier_from_the_briefs_cate
     let root = scratch.path();
     fixture(root, "fold");
 
-    let known = launch_untasked(root, "Delegation: role=worker\nCategory: bug-known-cause\n", &[]);
+    let unclassed = launch_untasked(root, "Delegation: role=worker\nCategory: bug-known-cause\n", &[]);
+    let why = String::from_utf8_lossy(&unclassed.stderr);
+    assert!(!unclassed.status.success() && why.contains("brief refused: Category bug-known-cause has no Class: line"), "{why}");
+    assert!(!north(root, &["fleet", "show", "narrow", "--json"]).status.success(), "a refused bug brief left a session");
+
+    let known = launch_untasked(root, "Delegation: role=worker\nCategory: bug-known-cause\nClass: x\n", &[]);
     assert!(known.status.success(), "{}", String::from_utf8_lossy(&known.stderr));
     let routed = shown(root);
     north(root, &["fleet", "forget", "narrow"]);
     assert_eq!((routed["model"].as_str(), routed["effort"].as_str()), (Some("claude-sonnet-5-5"), Some("high")), "{routed}");
     assert!(routed.to_string().contains("Tier: sonnet-high"), "{routed}");
 
-    let unknown = launch_untasked(root, "Delegation: role=worker\nCategory: debugging-unknown-cause\n", &[]);
+    let unknown = launch_untasked(root, "Delegation: role=worker\nCategory: debugging-unknown-cause\nClass: x\n", &[]);
     assert!(unknown.status.success(), "{}", String::from_utf8_lossy(&unknown.stderr));
     let opus = shown(root);
     north(root, &["fleet", "forget", "narrow"]);

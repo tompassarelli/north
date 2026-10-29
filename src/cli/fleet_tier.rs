@@ -11,7 +11,7 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
     let mut brief = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     brief.extend(request.named_brief());
     let reason = tier_reason(&brief, overrides.tier.as_deref());
-    let header = headers(&[&fleet_placement::brief_text(request.system_prompt.as_deref(), "")?, &request.prompt, &request.named_brief().unwrap_or_default()]);
+    let header = header(request)?;
     let (item, brief) = match request.task() {
         Some(item) => (item, brief),
         None if untasked(&header, request.model.as_deref(), reason.as_deref()).map_err(NorthError::Refused)? => (request.name.clone(), header),
@@ -36,12 +36,20 @@ pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> N
     Ok(Some(start))
 }
 
+pub(super) fn admit_class(request: &LaunchRequest) -> NorthResult<()> {
+    crate::router::brief::class_refusal(&header(request)?).map_or(Ok(()), |why| Err(NorthError::Refused(format!("brief refused: {why}"))))
+}
+
 pub(super) fn recorded(start: Option<Start>, request: &LaunchRequest, name: &str) {
     let Some(start) = start else { return };
     let host = request.machine.as_ref().map_or_else(crate::platform::host::name, |machine| machine.name.clone());
     if let Err(why) = start.record(&host, &format!("{}:{}", request.provider.label(), request.account), name) {
         eprintln!("north fleet: tier not recorded: {why}");
     }
+}
+
+fn header(request: &LaunchRequest) -> NorthResult<String> {
+    Ok(headers(&[&fleet_placement::brief_text(request.system_prompt.as_deref(), "")?, &request.prompt, &request.named_brief().unwrap_or_default()]))
 }
 
 fn headers(texts: &[&str]) -> String {
