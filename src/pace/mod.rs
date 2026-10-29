@@ -7,6 +7,8 @@ pub(crate) mod exhaustion;
 pub(crate) mod limits;
 pub(crate) mod target;
 #[cfg(test)]
+mod replay_tests;
+#[cfg(test)]
 mod tests;
 mod trail;
 pub(crate) mod window;

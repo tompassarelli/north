@@ -7,7 +7,7 @@ use super::limits;
 pub(crate) const FIVE_HOUR_STOP: f64 = 95.0;
 const WEEK_EXHAUSTED: f64 = 100.0;
 
-fn five_hour(window: &str) -> bool {
+pub(super) fn five_hour(window: &str) -> bool {
     window == "5h"
 }
 

@@ -327,3 +327,61 @@ fn target_round_trips_the_policy_entry() {
     let target = policy.target("codex", 0.0).unwrap();
     assert_eq!(target, Some(Target { by: "2099-01-01T00:00:00Z".into(), spend_to_pct: 90.0 }));
 }
+
+fn short_and_week(at: f64, short_used: f64, short_burn: f64, short_reset_h: f64, week_used: f64) -> Vec<Window> {
+    let stamped = |name: &str, used: f64, burn: f64, reset_h: f64, resets: &str| {
+        window(json!({"window": name, "used_pct": used, "burn_pct_h": burn, "reset_h": reset_h, "resets_at": resets,
+                      "age_s": 0, "as_of": stamp(at), "quota_ceiling": 95.0}))
+    };
+    vec![
+        stamped("5h", short_used, short_burn, short_reset_h, "short"),
+        stamped("week", week_used, 0.5, 160.0, "week"),
+    ]
+}
+
+fn rated(at: f64, workers: i64, allowed: i64, windows: Vec<Window>, rates: &[(&str, f64)]) -> Control {
+    Control {
+        at: Some(at),
+        workers: Some(workers),
+        allowed_workers: Some(allowed),
+        held: Some(false),
+        windows,
+        burn_pct_worker_min: rates.iter().map(|(kind, rate)| (kind.to_string(), *rate)).collect(),
+        ..Control::default()
+    }
+}
+
+#[test]
+fn a_short_window_burn_caps_the_allowance_at_what_its_per_worker_rate_affords() {
+    let at = 1_792_000_000.0;
+    let rates = [("week", 0.01000539876691317), ("5h", 0.030016196300739508)];
+    let previous = rated(at - 60.0, 20, 20, short_and_week(at - 60.0, 40.0, 15.0, 2.64, 11.0), &rates);
+    let control = step(&previous, short_and_week(at, 40.0, 15.0, 2.64, 11.0), Some(20), at);
+    assert_eq!(control.allowed_workers, Some(11));
+    let next = step(&control, short_and_week(at + 60.0, 40.2, 15.0, 2.63, 11.0), Some(20), at + 60.0);
+    assert_eq!(next.allowed_workers, Some(11));
+}
+
+#[test]
+fn a_cleared_throttle_with_zero_burn_restores_headroom_from_the_running_workers() {
+    let at = 1_792_028_893.0;
+    let week_at = |at: f64, used: f64, resets: &str, reset_h: f64| {
+        window(json!({"window": "week", "used_pct": used, "burn_pct_h": 0.0, "reset_h": reset_h, "resets_at": resets,
+                      "age_s": 0, "as_of": stamp(at), "quota_ceiling": 95.0}))
+    };
+    let previous = Control { at: Some(at - 60.0), workers: Some(21), allowed_workers: Some(2), held: Some(false), ..Control::default() };
+    let held = step(&previous, vec![week_at(at, 99.0, "old", 0.003)], Some(21), at);
+    assert_eq!((held.held, held.allowed_workers), (Some(true), Some(1)));
+    let later = at + 11.0 * 60.0;
+    let recovered = step(&held, vec![week_at(later, 1.0, "new", 168.0)], Some(21), later);
+    assert_eq!(recovered.held, Some(false));
+    assert_eq!(recovered.allowed_workers, Some(22));
+}
+
+#[test]
+fn a_short_window_projection_past_its_ceiling_caps_workers_without_holding_the_account() {
+    let at = 1_792_000_000.0;
+    let previous = step(&Control::default(), short_and_week(at - 60.0, 40.0, 50.0, 4.0, 11.0), Some(3), at - 60.0);
+    let control = step(&previous, short_and_week(at, 40.5, 50.0, 4.0, 11.0), Some(3), at);
+    assert_eq!((control.held, control.over), (Some(false), Some(false)));
+}

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use super::exhaustion;
 use super::limits;
 use super::target::Target;
 use super::trail;
@@ -126,6 +127,25 @@ fn may_raise(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Readin
     }
 }
 
+fn capacity(windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading) -> Option<i64> {
+    windows
+        .iter()
+        .filter(|w| !w.is_week())
+        .filter_map(|w| {
+            let rate = rates.get(&w.window).copied().filter(|rate| *rate > 0.0)?;
+            let hours = w.horizon(reading.target.as_ref(), reading.at);
+            (hours > 0.0).then(|| ((w.quota_ceiling.unwrap_or(100.0) - w.used_pct).max(0.0) / (rate * 60.0 * hours)).floor() as i64)
+        })
+        .min()
+        .map(|cap| cap.max(1))
+}
+
+fn unmeasured(windows: &[Window], rates: &BTreeMap<String, f64>) -> bool {
+    windows
+        .iter()
+        .all(|w| w.burn_pct_h.is_none_or(|burn| burn <= 0.0) && rates.get(&w.window).is_none_or(|rate| *rate <= 0.0))
+}
+
 struct Standing {
     held: bool,
     state_since: f64,
@@ -149,10 +169,12 @@ fn standing(previous: &Control, wanted: bool, soft: bool, target_kept: bool, at:
     Standing { held, state_since, notify, notified: if notify { Some(held) } else { notified } }
 }
 
-fn next_allowed(allowed: i64, windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading, held: bool, over: bool) -> i64 {
+fn next_allowed(allowed: i64, windows: &[Window], rates: &BTreeMap<String, f64>, reading: &Reading, held: bool, over: bool, recovering: bool) -> i64 {
     let known = windows.iter().all(|w| w.projected_pct.is_some());
     if over {
         (allowed / 2).max(1)
+    } else if !held && recovering && !windows.is_empty() && unmeasured(windows, rates) && let Some(count) = reading.workers.filter(|count| *count != 0) {
+        allowed.max(reading.initial).max(count + 1)
     } else if !held && known && reading.workers.is_some_and(|count| count != 0) && may_raise(windows, rates, reading, allowed) {
         allowed + 1
     } else {
@@ -164,7 +186,7 @@ fn is_over(previous: &Control, windows: &[Window], reading: &Reading) -> bool {
     let target = reading.target.as_ref();
     let exhausted = windows.iter().any(|w| w.is_week() && w.used_pct >= w.ceiling(target));
     let ceiling = if previous.over == Some(true) { 100.0 - reading.margin } else { 100.0 };
-    exhausted || windows.iter().any(|w| w.projected_pct.is_some_and(|p| p > ceiling))
+    exhausted || windows.iter().any(|w| !exhaustion::five_hour(&w.window) && w.projected_pct.is_some_and(|p| p > ceiling))
 }
 
 pub fn advance(previous: &Control, mut reading: Reading) -> Control {
@@ -187,7 +209,10 @@ pub fn advance(previous: &Control, mut reading: Reading) -> Control {
     let stand = standing(previous, !fresh || over || reading.workers.is_none(), !over && fresh, target_kept, at);
     let mut allowed = if target_kept { started } else { reading.initial };
     if previous.sample.as_ref() != Some(&sample) || !target_kept {
-        allowed = next_allowed(allowed, &windows, &rates, &reading, stand.held, over);
+        allowed = next_allowed(allowed, &windows, &rates, &reading, stand.held, over, previous.held == Some(true));
+    }
+    if let Some(cap) = capacity(&windows, &rates, &reading) {
+        allowed = allowed.min(cap);
     }
     Control {
         changed: Some(stand.held) != previous.held || allowed != started || !target_kept,
