@@ -35,3 +35,30 @@ fn admission_spawns_the_promoted_north_when_path_has_no_north() {
     assert!(output.status.success(), "{stderr}");
     assert!(!stderr.contains("ENOENT"), "{stderr}");
 }
+
+#[test]
+fn status_works_when_the_north_on_path_predates_the_script() {
+    let stale = "#!/bin/sh\necho 'usage: north capacity [probe|run|session|release]' >&2\nexit 64\n";
+    let host = Host::new("capacity-stale-north-", &[("systemd-run", &scope_systemd_run("\"$@\"")), ("systemctl", SCOPE_SYSTEMCTL), ("north", stale)]);
+    for tool in ["bun", "timeout", "env", "sh", "true", "cut", "sed", "cat", "kill", "sleep", "mkdir", "rm", "dirname", "basename"] {
+        if let Some(found) = on_path(tool) {
+            symlink(found, host.path("bin").join(tool)).unwrap();
+        }
+    }
+    let promoted = host.path("home/.local/state/north/current");
+    fs::create_dir_all(&promoted).unwrap();
+    symlink(env!("CARGO_BIN_EXE_north"), promoted.join("north")).unwrap();
+    let mut command = host.command("bun");
+    command
+        .arg(Host::bundle())
+        .arg("status")
+        .env("PATH", host.path("bin"))
+        .env("HOME", host.path("home"))
+        .env_remove("AGENT_CAPACITY_NORTH")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("usage: north capacity"), "{stderr}");
+}
