@@ -386,7 +386,7 @@ pub fn recommend(threads_db: &Path, facets: &str) -> NorthResult<String> {
 }
 
 fn report(asked: &Facets, items: &[Item], efforts: &BTreeMap<String, usize>) -> String {
-    let cuts = cuts(items);
+    let mut sorted: Vec<f64> = items.iter().map(|item| item.difficulty).collect(); sorted.sort_by(f64::total_cmp); let cuts = Cuts { xhigh: sorted[sorted.len() * 90 / 100], max: sorted[sorted.len() * 98 / 100] };
     let prediction = predict(asked, items);
     let mut out = String::new();
     let _ = writeln!(out, "planner {}  nearest items n={}  difficulty={prediction:.6}", cuts.band(prediction).name(), neighbours(items.len()));
