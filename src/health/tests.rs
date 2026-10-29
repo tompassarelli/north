@@ -353,6 +353,9 @@ fn health_closes_the_main_red_issue_only_when_every_workflows_newest_run_is_gree
     assert!(settle(&run_list(&[("Cargo", "fix", "success"), ("Harness", "fix", "failure")]), issue()).closed.is_empty());
     assert!(settle(&run_list(&[("Cargo", "fix", "failure"), ("Cargo", "old", "success"), ("Harness", "fix", "success")]), issue()).closed.is_empty());
     assert!(settle(&run_list(&[("Cargo", "fix", "cancelled"), ("Cargo", "older", "success"), ("Harness", "fix", "success")]), issue()).closed.len() == 1, "a cancelled run is no verdict");
+    assert!(settle(&run_list(&[("Main is red", "fix", "success")]), issue()).closed.is_empty(), "only Harness and Cargo decide");
+    assert!(settle(&run_list(&[("Cargo", "fix", "success")]), issue()).closed.is_empty(), "Harness has not reported");
+    assert!(settle(&run_list(&[("Main is red", "fix", "failure"), ("Canary", "fix", "failure"), ("Cargo", "fix", "success"), ("Harness", "fix", "success")]), issue()).closed.len() == 1);
     assert!(settle(&run_list(&[("Cargo", "fix", "success")]), None).closed.is_empty());
     assert!(settle("[]", issue()).closed.is_empty());
 }

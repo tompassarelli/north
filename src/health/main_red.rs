@@ -5,6 +5,7 @@ use super::units::Tracker;
 
 const TITLE: &str = "main is red";
 const BOX: &str = "- [ ] The newest Harness and Cargo runs on main are green";
+const GATING: [&str; 2] = ["Cargo", "Harness"];
 
 fn culprit_heads(body: &str) -> Vec<&str> {
     body.lines()
@@ -26,6 +27,9 @@ fn newest(runs: &str) -> Result<BTreeMap<String, Run>, String> {
     let mut newest = BTreeMap::new();
     for row in rows.iter().filter(|row| row["status"] == "completed" && row["conclusion"] != "cancelled" && row["conclusion"] != "skipped") {
         let name = row["workflowName"].as_str().ok_or("main-red: workflowName missing")?;
+        if !GATING.contains(&name) {
+            continue;
+        }
         newest.entry(name.to_owned()).or_insert_with(|| Run {
             success: row["conclusion"] == "success",
             sha: row["headSha"].as_str().unwrap_or_default().to_owned(),
@@ -39,7 +43,7 @@ pub(super) fn settle(tracker: &mut dyn Tracker, north_runs: &str) -> Result<(), 
     let Some(issue) = tracker.open(TITLE)? else { return Ok(()) };
     let heads = culprit_heads(&issue.body);
     let newest = newest(north_runs)?;
-    if heads.is_empty() || newest.is_empty() || newest.values().any(|run| !run.success || heads.contains(&run.sha.as_str())) {
+    if heads.is_empty() || newest.len() < GATING.len() || newest.values().any(|run| !run.success || heads.contains(&run.sha.as_str())) {
         return Ok(());
     }
     let links: Vec<String> = newest.iter().map(|(workflow, run)| format!("[{workflow}]({}) on {}", run.url, run.sha)).collect();
