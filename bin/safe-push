@@ -1038,6 +1038,12 @@ land_workflow() {
   git config --blob "$1:.safe-push" --get land.workflow 2>/dev/null || true
 }
 
+land_publish_ref() {
+  local prefix
+  prefix=$(git config --blob "$1:.safe-push" --get land.publish 2>/dev/null) && [ -n "$prefix" ] || return 1
+  printf '%s%s\n' "$prefix" "${1:0:12}"
+}
+
 land_check_local_reason() {
   local entry
   while IFS= read -r entry; do
@@ -1084,7 +1090,7 @@ run_land_checks() {
   sync_dependencies || return 1
   land_commands=()
   land_check_commands "$base" "$head" || return 1
-  local workflow actions_pid="" actions_status=0 reason failed=0
+  local workflow actions_pid="" actions_status=0 reason failed=0 published=""
   local -a here=() on_actions=()
   workflow=$(land_workflow "$head")
   for command in "${land_commands[@]}"; do
@@ -1099,6 +1105,12 @@ run_land_checks() {
     printf "safe-push: running %s land check(s) on GitHub Actions (%s)\n" "${#on_actions[@]}" "$workflow"
     (drop_lock_fd; north land-actions --workflow "$workflow" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "${on_actions[@]}") &
     actions_pid=$!
+  fi
+  if [ "${#here[@]}" -gt 0 ] && [ "${dry:-0}" -eq 0 ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && published=$(land_publish_ref "$head"); then
+    publication_scan "$base" "$head" || return 1
+    SAFE_PUSH_ACTIVE=1 git push -q --no-verify origin "+$head:refs/heads/$published" \
+      || { printf 'safe-push: could not publish %s to origin %s for the land checks; NOT pushed.\n' "$head" "$published" >&2; return 1; }
+    printf 'safe-push: published %s to origin %s for the land checks\n' "${head:0:12}" "$published"
   fi
   for command in "${here[@]}"; do
     land_check_root=$root
@@ -1125,7 +1137,7 @@ run_land_checks() {
     exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
     stderr_pid=$!
     status=0
-    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" "${runner[@]}") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
+    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" SAFE_PUSH_LAND_REF="$published" "${runner[@]}") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
     safe_push_child=$!
     wait "$safe_push_child" || status=$?
     safe_push_child=""
@@ -1138,6 +1150,9 @@ run_land_checks() {
     fi
     rm -f -- "$log"
   done
+  if [ -n "$published" ] && ! SAFE_PUSH_ACTIVE=1 git push -q --no-verify origin ":refs/heads/$published"; then
+    printf 'safe-push: could not delete origin %s\n' "$published" >&2
+  fi
   if [ -n "$actions_pid" ]; then
     wait "$actions_pid" || actions_status=$?
     if [ "$actions_status" -ne 0 ]; then

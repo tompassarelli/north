@@ -538,6 +538,20 @@ HOME="$land_home" run_real_case '' --to main
 expect_status zero
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'unconfigured landing did not publish'
 
+make_real_fixture land-publish
+"$real_git" -C "$real_repo" config --file .safe-push land.publish farm/
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: printf '%s\\n' \"\$SAFE_PUSH_LAND_REF\" > '$real_fixture/published-ref'; '$real_git' --git-dir='$real_remote' rev-parse \"refs/heads/\$SAFE_PUSH_LAND_REF\" > '$real_fixture/published-head'"
+printf 'published\n' >"$real_repo/file.txt"
+"$real_git" -C "$real_repo" add .safe-push file.txt
+"$real_git" -C "$real_repo" commit -qm 'publish for the land check'
+publish_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
+HOME="$real_fixture" run_real_case '' --to main
+expect_status zero
+[ "$(cat "$real_fixture/published-ref")" = "farm/${publish_head:0:12}" ] || fail 'land check did not get the published ref'
+[ "$(cat "$real_fixture/published-head")" = "$publish_head" ] || fail 'published ref did not hold the lane head while the land check ran'
+! "$real_git" --git-dir="$real_remote" rev-parse -q --verify "refs/heads/farm/${publish_head:0:12}" >/dev/null || fail 'published ref outlived the land checks'
+printf 'PASS: land.publish pushes the scanned lane to a scratch ref for the land checks and deletes it afterwards\n'
+
 make_real_fixture planning-outcomes
 for args_text in '--dry-run' '--dry-run --to other'; do
   read -r -a parsed_args <<<"$args_text"

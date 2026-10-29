@@ -124,7 +124,10 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
    (`REASON :: COMMAND`, the reason printed when it runs here) runs as one job of that workflow on
    GitHub Actions: `north land-actions` scans the lane for secrets and private values, pushes it to
    `land-check/<sha>`, dispatches the workflow, waits for its verdict and deletes the branch, while
-   the local-only checks run here; `bin/land-shell` runs a check in `depbox` on a host and directly on
+   the local-only checks run here; when `.safe-push` sets `land.publish = PREFIX`, safe-push scans
+   the lane the same way before the checks that run here, pushes it to `PREFIX<sha12>`, passes that
+   branch as `SAFE_PUSH_LAND_REF` so a check can dispatch its own workflow on it, and deletes it after
+   them; `bin/land-shell` runs a check in `depbox` on a host and directly on
    a runner, and `harness/machine-bound-tests` names the harness tests only a host can run;
    while this host is in game-reserve and another `[hosts.NAME]` with an `ssh` destination has room
    (6 free cores, the heavy memory request and 20 GiB of disk), the lane ships there by git bundle
