@@ -1296,6 +1296,7 @@ release_follows() {
   local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
   [ -x "$north_runtime" ] || return 0
   "$north_runtime" follows-release --repo-dir "$repo_root" 2>&1 | sed 's/^/safe-push: /' || true
+  ( [ -z "${output_lock_fd:-}" ] || exec {output_lock_fd}<&-; "$north_runtime" runtime follow --repo-dir "$repo_root" ) 2>&1 | sed 's/^/safe-push: /' || true
 }
 
 capture_destination_state() {

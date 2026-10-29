@@ -195,7 +195,7 @@ fn a_deploy_with_help_prints_usage_and_with_an_unknown_flag_is_refused_before_an
     }
     let help = host.north(&["runtime", "deploy", "--help"], 0, 0);
     assert_eq!(help.status.code(), Some(0));
-    assert!(String::from_utf8_lossy(&help.stdout).starts_with("usage: north runtime update | north runtime deploy HOST..."));
+    assert!(String::from_utf8_lossy(&help.stdout).starts_with("usage: north runtime update | north runtime deploy [HOST...]"));
     let refused = host.north(&["runtime", "deploy", "far", "--bogus"], 0, 0);
     assert_eq!(refused.status.code(), Some(64));
     let stderr = String::from_utf8_lossy(&refused.stderr);

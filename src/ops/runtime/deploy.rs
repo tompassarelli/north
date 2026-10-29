@@ -1,4 +1,5 @@
-use super::failure::Failure;
+use super::failure::{Failure, failed};
+use crate::ops::land_offload;
 use super::layout::{Layout, PROGRAMS};
 use super::remote::{run, ssh};
 use super::store::references;
@@ -12,10 +13,21 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     let _lock = lock(layout, FlockOperation::LockExclusive)?;
     let (target, runtime) = built_main(layout, &checkout())?;
     let references = references(&runtime)?;
-    for host in hosts {
-        ship(host, &target, &runtime, &references)?;
+    let hosts = if hosts.is_empty() { land_offload::other_destinations() } else { hosts.to_vec() };
+    if hosts.is_empty() {
+        return Err(failed(64, "no host to deploy to: name one or declare [hosts.NAME] with an ssh destination"));
     }
-    Ok(())
+    let mut failures = Vec::new();
+    for host in &hosts {
+        if let Err(failure) = ship(host, &target, &runtime, &references) {
+            eprintln!("north runtime deploy: {}", failure.message);
+            failures.push(failure);
+        }
+    }
+    match failures.into_iter().next() {
+        Some(failure) => Err(failure),
+        None => Ok(()),
+    }
 }
 
 fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {

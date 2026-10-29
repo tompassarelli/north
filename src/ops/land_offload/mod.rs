@@ -27,6 +27,11 @@ fn machines() -> Vec<gate::Machine> {
     config().map(|cfg| gate::machines(&cfg)).unwrap_or_default()
 }
 
+pub(crate) fn other_destinations() -> Vec<String> {
+    let here = crate::platform::host::name();
+    machines().into_iter().filter(|machine| machine.name != here).map(|machine| machine.ssh).collect()
+}
+
 pub(crate) fn in_game_reserve() -> bool {
     let local = agent_load::Host::from_env();
     agent_load::gaming_marked(&local.capacity) || agent_load::game_reserve_on(&local)
