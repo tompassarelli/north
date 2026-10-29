@@ -67,7 +67,7 @@ impl Arms {
     }
 
     fn labels() -> [String; 2] {
-        [arm(crate::pace::limits::handoff_ctx()), NO_HANDOFF.to_owned()]
+        [arm(crate::pace::limits::handoff_arm_ctx()), NO_HANDOFF.to_owned()]
     }
 
     pub(crate) fn winner(&self, tier: Tier) -> Option<Winner> {

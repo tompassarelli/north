@@ -24,6 +24,10 @@ pub(crate) fn handoff_ctx() -> u64 {
     default("handoff_ctx") as u64
 }
 
+pub(crate) fn handoff_arm_ctx() -> u64 {
+    default("handoff_arm_ctx") as u64
+}
+
 pub(super) fn claude_target_left() -> f64 {
     default("pace_target_left_claude")
 }

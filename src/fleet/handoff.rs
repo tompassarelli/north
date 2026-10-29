@@ -41,6 +41,19 @@ mod tests {
     }
 
     #[test]
+    fn the_experiment_arm_hands_off_at_150k_while_the_hook_and_watchdog_point_stays_350k() {
+        use crate::pace::limits::{handoff_arm_ctx, handoff_ctx};
+        let label = arm(handoff_arm_ctx());
+        assert_eq!(label, "handoff-150k");
+        assert_eq!(threshold(&format!("Tier: sonnet\nArm: {label}")), Some(150_000));
+        assert!(due(150_000, 150_000, None) && !due(150_000, 149_999, None));
+        assert_eq!(handoff_ctx(), 350_000);
+        let watchdog = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/capacity-watchdog")).unwrap();
+        let hook = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/harness/hooks/worker-handoff.sh")).unwrap();
+        assert!(watchdog.contains("DEFAULTS[\"handoff_ctx\"]") && hook.contains("DEFAULTS[\"handoff_ctx\"]"));
+    }
+
+    #[test]
     fn the_nudge_fires_at_the_threshold_and_again_only_after_another_50k() {
         assert!(!due(350_000, 349_999, None));
         assert!(due(350_000, 350_000, None));

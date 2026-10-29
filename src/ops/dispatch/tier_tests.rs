@@ -154,7 +154,7 @@ fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_e
     let arms = |survey: &super::survey::Survey| -> Vec<(Option<String>, Option<String>)> {
         decide(survey, "test").launches.into_iter().map(|launch| (launch.handoff, launch.brief.lines().find_map(|line| line.strip_prefix("Arm: ")).map(str::to_owned))).collect()
     };
-    let (on, off) = (Some("handoff-350k".to_owned()), Some("no-handoff".to_owned()));
+    let (on, off) = (Some("handoff-150k".to_owned()), Some("no-handoff".to_owned()));
     let fresh = survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone());
     assert_eq!(arms(&fresh), [(on.clone(), on.clone()), (off.clone(), off.clone()), (on.clone(), on.clone())], "the handoff arm is the brief's first Arm line, which the ledger records");
     let record = |handoff: &Option<String>| Record { tier: Some("worker".into()), handoff: handoff.clone(), ..haiku_try("smashcraft#9", 1.0) };
@@ -167,17 +167,17 @@ fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_e
 
 #[test]
 fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_north_57_recommendation_is_emitted() {
-    let (on, off) = ("handoff-350k", "no-handoff");
+    let (on, off) = ("handoff-150k", "no-handoff");
     let record = |handoff: &str| Record { tier: Some("worker".into()), handoff: Some(handoff.into()), ..haiku_try("smashcraft#9", 1.0) };
     let held = |on_runs: usize, off_runs: usize| super::handoff::Arms::new(&[vec![record(on); on_runs], vec![record(off); off_runs]].concat());
     let costed = |on_usd: f64, off_usd: f64| ClosedReport { arms: vec![ArmCell { tier: "opus-medium".into(), arm: on.into(), closed: 5, usd: on_usd * 5.0 }, ArmCell { tier: "opus-medium".into(), arm: off.into(), closed: 5, usd: off_usd * 5.0 }], ..closed(&[]) };
     let mut cheaper_without = held(30, 30).priced(&costed(10.0, 6.0));
     assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off));
     assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off), "a settled tier keeps launching its winner");
-    assert!(cheaper_without.recommendations()[0].contains("no-handoff wins at $6.00") && cheaper_without.recommendations()[0].contains("handoff-350k at $10.00"));
+    assert!(cheaper_without.recommendations()[0].contains("no-handoff wins at $6.00") && cheaper_without.recommendations()[0].contains("handoff-150k at $10.00"));
     let mut cheaper_with = held(30, 30).priced(&costed(4.0, 6.0));
     assert_eq!(cheaper_with.pick(Tier::Opus).as_deref(), Some(on));
-    assert!(cheaper_with.recommendations()[0].contains("handoff-350k wins at $4.00") && cheaper_with.recommendations()[0].ends_with("keep the worker handoff point for this tier"));
+    assert!(cheaper_with.recommendations()[0].contains("handoff-150k wins at $4.00") && cheaper_with.recommendations()[0].ends_with("keep the worker handoff point for this tier"));
     let mut tied = held(30, 30).priced(&costed(6.0, 6.0));
     assert_eq!(tied.pick(Tier::Opus).as_deref(), Some(on), "a tie keeps the incumbent handoff arm");
     let mut lagging = held(30, 29).priced(&costed(10.0, 6.0));

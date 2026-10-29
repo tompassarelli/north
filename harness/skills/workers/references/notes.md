@@ -108,8 +108,8 @@ a rule when its numbers move.
 ## Recycling and waits
 
 - The worker-handoff hook nudges an Agent-tool worker between tool calls. A
-  fleet worker gets the 350k nudge from its session host only when its brief
-  says `Arm: handoff-350k`; north dispatch alternates that arm with
+  fleet worker gets the 150k nudge from its session host only when its brief
+  says `Arm: handoff-150k`; north dispatch alternates that arm with
   `Arm: no-handoff` until `worker-ledger --summary --by arm` can compare them
   (north#252). The worker-wait-guard hook keeps workers out of foreground
   waits, so messages reach them at once.
