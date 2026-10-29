@@ -27,7 +27,7 @@ Claude workers count transcript hook attachments. handoff_ignored counts fires w
 A running worker whose brief names `Item:` holds that issue until it finishes.
 Each recording run ends with harness/lib/recalibrate.py: `threads calibrate --write` on the ledger host (no
 ~/.config/threads/remote) when the newest calibration row is over calibrate_after_min old, and, on the host with the
-Codex rollouts, `defaults-measure.py --priors` recorded as kind prior rows once a week from Monday 00:00Z.
+Codex rollouts, `north defaults-measure --priors` recorded as kind prior rows once a week from Monday 00:00Z.
 One adapter per provider reads its local session store into the same rows: Claude Code transcripts, Codex
 rollouts (${CODEX_CONFIG_DIR}) and Gemini print-mode runs of agy (${AGY_CONFIG_DIR:-~/.gemini/antigravity-cli}:
 model from its run log, parent Claude session from its workspace). A Grok adapter is one more block.

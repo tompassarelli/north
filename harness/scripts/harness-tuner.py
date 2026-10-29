@@ -7,7 +7,7 @@ import argparse
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 import hashlib
-import importlib.util
+import importlib.machinery, importlib.util
 import json
 import os
 from pathlib import Path
@@ -54,10 +54,10 @@ def load_replay():
 
 
 def load_threads():
-    spec = importlib.util.spec_from_file_location("defaults_measure", HERE / "defaults-measure.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.T
+    loader = importlib.machinery.SourceFileLoader("threads_mod", str(ROOT / "bin/threads"))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader("threads_mod", loader))
+    loader.exec_module(module)
+    return module
 
 
 def normalized(text: str) -> str:

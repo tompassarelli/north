@@ -1,5 +1,5 @@
 """worker-ledger's recurring step: threads calibrate --write on the ledger host when the newest calibration row is
-older than calibrate_after_min, defaults-measure --priors recorded as kind prior rows on the host holding the
+older than calibrate_after_min, north defaults-measure --priors recorded as kind prior rows on the host holding the
 Codex rollouts, once a week from Monday 00:00Z."""
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +13,6 @@ import provider_capacity
 
 ROOT = Path(__file__).resolve().parents[2]
 THREADS = ROOT / "bin/threads"
-MEASURE = ROOT / "harness/scripts/defaults-measure.py"
 
 
 def prior_specs(out):
@@ -35,7 +34,7 @@ def main():
         print(f"recalibrate: threads calibrate --write rc={done.returncode}", file=sys.stderr)
         code |= done.returncode
     if provider_capacity.root().is_dir() and calibration.priors_due(rows, now):
-        done = subprocess.run([sys.executable, str(MEASURE), "--priors", str(calibration.ledger_path())],
+        done = subprocess.run(["north", "defaults-measure", "--priors", str(calibration.ledger_path())],
                               capture_output=True, text=True, timeout=600)
         specs = prior_specs(done.stdout) if done.returncode == 0 else []
         if specs:

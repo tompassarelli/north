@@ -6,7 +6,7 @@ from pathlib import Path
 root = Path(os.environ.get("DEFAULTS_ROOT") or Path(__file__).resolve().parents[2])
 registry = tomllib.loads((root / "harness/defaults.toml").read_text())
 KINDS = ("measured: ", "tom: ", "standard: ", "prior: ")
-measure = (root / "harness/scripts/defaults-measure.py").read_text()
+counters = (root / "src/ops/defaults_measure/priors.rs").read_text()
 failures = []
 for name, entry in registry.items():
     source, fallback = str(entry.get("source", "")), str(entry.get("fallback", ""))
@@ -18,8 +18,8 @@ for name, entry in registry.items():
         settles = entry.get("settles_when")
         if not isinstance(settles, dict) or not isinstance(settles.get("need"), int) or settles["need"] < 1:
             failures.append(f"{name}: a prior needs settles_when with a positive integer need")
-        elif f"def {settles.get('count')}(" not in measure or not str(settles.get("what", "")).strip():
-            failures.append(f"{name}: settles_when count {settles.get('count')!r} is not a defaults-measure.py counter with a what")
+        elif f'"{settles.get("count")}" =>' not in counters or not str(settles.get("what", "")).strip():
+            failures.append(f"{name}: settles_when count {settles.get('count')!r} is not a north defaults-measure counter with a what")
     if not fallback.strip():
         failures.append(f"{name}: empty fallback")
     if not entry.get("consumers"):

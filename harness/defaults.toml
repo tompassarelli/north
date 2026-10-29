@@ -256,14 +256,14 @@ consumers = ["harness/lib/ledger_context.py", "src/providers/claude/runs/telemet
 [box_chain_gap_min]
 value = 30
 unit = "minutes between an item's runs that still chain them into one box"
-source = "measured: defaults-measure.py box_chain_gap_min, snapshot 2026-10-12T08:13Z: 775 same-item gaps from the chain's latest end to the next run's staffing; per 10-minute bin 160, 47, 36 to 30m (57% within), then 15 per 10m to 60m and 3-5 per 10m to 120m (26% over 120m, waits on Tom or overnight); 30 closes the review-and-landing mode; box p75 50m at 10, 62m at 30, 77m at 60, 107m at 120, 566 chains at 30"
+source = "measured: north defaults-measure box_chain_gap_min, snapshot 2026-10-12T08:13Z: 775 same-item gaps from the chain's latest end to the next run's staffing; per 10-minute bin 160, 47, 36 to 30m (57% within), then 15 per 10m to 60m and 3-5 per 10m to 120m (26% over 120m, waits on Tom or overnight); 30 closes the review-and-landing mode; box p75 50m at 10, 62m at 30, 77m at 60, 107m at 120, 566 chains at 30"
 fallback = "a longer gap starts a new chain, so idle waits on Tom or overnight never count as box time"
 consumers = ["bin/threads"]
 
 [box_calibration_n]
 value = 200
 unit = "box chains behind the box calibration ratio row before goal_eta applies it"
-source = "measured: defaults-measure.py box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
+source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
 consumers = ["bin/threads", "harness/lib/calibration.py"]
 

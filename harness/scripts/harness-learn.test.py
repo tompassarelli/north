@@ -38,7 +38,7 @@ class LearningCycle(unittest.TestCase):
             for part in ("harness/lib", "harness/scripts", "bin"):
                 (repo / part).mkdir(parents=True)
             registry = tomllib.loads((ROOT / "harness/defaults.toml").read_text())
-            for path in {"harness/defaults.toml", "harness/lib/defaults.test.py", "harness/scripts/defaults-measure.py"} | (consumers := {c for e in registry.values() for c in e["consumers"]}) | {
+            for path in {"harness/defaults.toml", "harness/lib/defaults.test.py", "src/ops/defaults_measure/priors.rs"} | (consumers := {c for e in registry.values() for c in e["consumers"]}) | {
                     str(module.relative_to(ROOT)) for consumer in consumers if consumer.endswith(".rs") for module in (ROOT / consumer).parent.glob("*.rs")}:
                 (repo / path).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / path, repo / path)
@@ -50,7 +50,7 @@ class LearningCycle(unittest.TestCase):
             base = command("git", "rev-parse", "HEAD")
             events = root / "events.jsonl"
             north = root / "north"
-            north.write_text("#!/usr/bin/env python3\nimport json, sys\nwith open(" + repr(str(events))
+            north.write_text("#!/usr/bin/env python3\nimport json, sys\nif sys.argv[1] == 'fleet':\n    with open(" + repr(str(events))
                               + ", 'a') as stream: stream.write(json.dumps(sys.argv[1:]) + '\\n')\n")
             north.chmod(0o755)
             state.mkdir()

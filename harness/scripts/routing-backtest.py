@@ -15,7 +15,7 @@ import bisect
 from collections import Counter
 import json
 import re
-import importlib.util
+import runpy, sqlite3, subprocess, types
 import math
 import random
 import sys
@@ -24,10 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from policy_stats import wilson
 
-spec = importlib.util.spec_from_file_location("defaults_measure", Path(__file__).resolve().parent / "defaults-measure.py")
-DM = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(DM)
-T = DM.T
+T = types.SimpleNamespace(**runpy.run_path(str(Path(__file__).resolve().parents[2] / "bin/threads")))
 FACETS = ["spec", "scope", "surface", "verify"]
 REFIT_EVERY = 20
 MIN_TRAIN = 30
@@ -161,10 +158,10 @@ def tier_features(cat, facets, tier, diff):
     return x
 
 
-def backtest_tier(db, rows, seed):
+def backtest_tier(db_path, rows, seed):
     firsts = [r for r in rows if r["follows"] is None and r["outcome"] != "split"]
-    picks = DM.tier_picks(db, "", {})
-    by_agent = {x["agent"]: (pick, ok) for x, pick, ok, _ in picks}
+    picks = subprocess.run(["north", "defaults-measure", db_path, "--picks"], capture_output=True, text=True, check=True)
+    by_agent = {p["agent"]: (p["pick"], p["ok"]) for p in map(json.loads, picks.stdout.splitlines())}
     followed = {}
     for r in rows:
         if r["follows"]:
@@ -428,7 +425,8 @@ def main():
     a = ap.parse_args()
     if a.boot < 1:
         ap.error("--boot must be positive")
-    db = DM.open_db(a.db)
+    db = sqlite3.connect(f"file:{a.db}?mode=ro", uri=True)
+    db.row_factory = sqlite3.Row
     if a.retrieval_only:
         retrieval_only(db, a.boot, a.seed)
         db.close()
@@ -437,7 +435,7 @@ def main():
     dataset_report(rows)
     rng = random.Random(a.seed)
 
-    tier_rows = backtest_tier(db, rows, a.seed)
+    tier_rows = backtest_tier(a.db, rows, a.seed)
     n = len(tier_rows)
     idx = list(range(n))
     ok_n = sum(r["ok"] for r in tier_rows)

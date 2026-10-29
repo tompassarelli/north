@@ -20,6 +20,10 @@ use crate::threads::runs::brief::CATEGORIES;
 
 pub(crate) use recommend::Pick;
 pub(crate) use verbs::{VERBS, run};
+pub(crate) use boxes::{box_chains, box_duration, moment};
+pub(crate) use forward::walk_forward_eta;
+pub(crate) use read::{Raw, box_rows, calibration_runs, escalated, raw_runs};
+pub(crate) use recommend::{recommend, recommend_usd};
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
 

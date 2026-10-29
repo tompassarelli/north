@@ -14,7 +14,7 @@ WORKER_LEDGER_REAL_NORTH="$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}"
 export WORKER_LEDGER_REAL_NORTH
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
-[ "$1 $2" = "ledger claude-runs" ] || [ "$1 $2" = "threads ingest" ] || [ "$1 $2" = "threads run-ids" ] || [ "$1 $2" = "threads calibrate" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
+[ "$1" = defaults-measure ] || [ "$1 $2" = "ledger claude-runs" ] || [ "$1 $2" = "threads ingest" ] || [ "$1 $2" = "threads run-ids" ] || [ "$1 $2" = "threads calibrate" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
 [ "$1 $2 $3" = "fleet list --json" ] || exit 1
 cat "$FLEET_TEST_SESSIONS"
 NORTH
@@ -380,23 +380,16 @@ printf '%s\n' 'PASS [north#35] stale calibration rewritten on the ledger host, f
 priors=$(python3 -c 'import sys,tomllib;print(sum(str(e.get("source","")).startswith("prior: ") for e in tomllib.load(open(sys.argv[1],"rb")).values()))' "$repo/harness/defaults.toml")
 sqlite3 "$THREADS_DB" "create table if not exists usage(ts, provider, kind, name, used_pct, resets_at);
   create table if not exists model_events(model, kind, at)"
-python3 - "$repo" "$THREADS_DB" <<'PYPRIORS'
-import argparse, importlib.util, math, sqlite3, sys, tomllib
-from pathlib import Path
-root=Path(sys.argv[1])
-spec=importlib.util.spec_from_file_location("defaults_measure",root/"harness/scripts/defaults-measure.py")
-measure=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(measure)
-db=measure.open_db(sys.argv[2])
-a=argparse.Namespace(state=None)
-registry=tomllib.loads((root/"harness/defaults.toml").read_text())
-expected={name:entry for name,entry in registry.items() if str(entry.get("source","")).startswith("prior: ")}
-for name,entry in expected.items():
- n,value=getattr(measure,entry["settles_when"]["count"])(db,a)
- assert type(n) is int and n>=0,(name,n)
- assert value is None or isinstance(value,(int,float)) and math.isfinite(value),(name,value)
-rows=list(measure.priors(db,a))
-assert {row.split()[1] for row in rows}==set(expected),rows
+rows=$("$WORKER_LEDGER_REAL_NORTH" defaults-measure --priors "$THREADS_DB")
+python3 - "$repo/harness/defaults.toml" "$rows" <<'PYPRIORS'
+import math, re, sys, tomllib
+registry = tomllib.load(open(sys.argv[1], "rb"))
+expected = {name for name, entry in registry.items() if str(entry.get("source", "")).startswith("prior: ")}
+rows = sys.argv[2].splitlines()
+for row in rows:
+    m = re.fullmatch(r"(SETTLED|WAIT) (\S+) n=(\d+)(?:/\d+)?(?: value=(\S+))?", row)
+    assert m and (m[4] is None or math.isfinite(float(m[4]))), row
+assert {row.split()[1] for row in rows} == expected, rows
 print(f"PASS [north#50] every advertised prior evaluates with a nonnegative integer count and optional finite measurement ({len(rows)} priors)")
 PYPRIORS
 sqlite3 "$THREADS_DB" "update calibration set at='2000-01-01T00:00:00Z' where kind='prior'"

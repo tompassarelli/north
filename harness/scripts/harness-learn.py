@@ -275,12 +275,11 @@ def main():
     parser.add_argument("--now")
     args = parser.parse_args()
     args.repo = args.repo.resolve()
-    defaults_source = args.repo / "harness/scripts/defaults-measure.py"
     ledger = Path(os.environ.get("THREADS_DB", Path.home() / ".local/state/threads/threads.db"))
     now = stamp(args.now) if args.now else datetime.now(timezone.utc)
-    if args.defaults_command is None and defaults_source.exists() and ledger.exists() and "--propose" in defaults_source.read_text():
+    if args.defaults_command is None and ledger.exists():
         window = (now - timedelta(days=7)).isoformat()
-        args.defaults_command = shlex.join([sys.executable, str(defaults_source), str(ledger), "--propose",
+        args.defaults_command = shlex.join([args.north, "defaults-measure", str(ledger), "--propose",
                                            "--train-until", window, "--since", window, "--json"])
     pace_source = args.repo / "harness/lib/pace_replay.py"
     if args.pace_command is None and pace_source.exists():
