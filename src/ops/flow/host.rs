@@ -49,11 +49,22 @@ impl Host for Machine {
         }
         let mut command = Command::new(argv.first()?);
         command.args(&argv[1..]);
+        command.env("PATH", with_user_bin(std::env::var_os("PATH"), &std::env::var_os("HOME").unwrap_or_default()));
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
         process::run_command_within(command, input.map(str::as_bytes), limit)
     }
+}
+
+/// PATH with the user's `~/.local/bin` last, where `claude` lives and a systemd unit's PATH does not reach.
+pub(super) fn with_user_bin(path: Option<std::ffi::OsString>, home: &std::ffi::OsStr) -> std::ffi::OsString {
+    let mut paths: Vec<PathBuf> = path.iter().flat_map(std::env::split_paths).collect();
+    let user_bin = PathBuf::from(home).join(".local/bin");
+    if !paths.contains(&user_bin) {
+        paths.push(user_bin);
+    }
+    std::env::join_paths(paths).unwrap_or_default()
 }
 
 #[derive(Clone, Debug)]

@@ -106,6 +106,7 @@ Commands:
   capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
   capacity game-reserve on [--auto]|off|status Reserve CPUs for Tom's game, moving it only once it has run 60 s
   capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
+  capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
   nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
   nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
   laptop open|close|drain|toggle|status|tick|observe  Set or read the laptop's placement availability on the ledger host

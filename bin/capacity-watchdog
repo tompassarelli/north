@@ -12,7 +12,9 @@ const USAGE = `usage: capacity-watchdog sample [--once] [--interval SECONDS]
 sample   every 30 s append load, CPU/memory PSI, per-cgroup CPU, leases, clients and the
          top processes outside capacity scopes to samples.jsonl (rotated daily); log an
          incident for an unleased process tree over 4 cores for 2 minutes and SIGTERM git
-         maintenance/gc/repack outside capacity scopes and the nightly timer.
+         maintenance/gc/repack outside capacity scopes and the nightly timer. Each sample also goes
+         to north capacity watchdog step, which on sustained overload names the top process trees
+         by fleet session, caps the offending session scope and sends the owner and coordinators.
 report   summarize the last N minutes (default 5 and 30) of samples and incidents with flags.
          Claude workers over 350k with no handoff fire flag in that window since the hook fix.
          A fire without HANDOFF or a Done:/Not done: report in its next three assistant turns flags as handoff ignored.
@@ -343,6 +345,21 @@ function act(incidents: Incident[], terms: Term[]) {
   }
 }
 
+let stepping: Promise<void> | null = null;
+function actOnOverload(sample: object): Promise<void> {
+  if (stepping) return stepping;
+  stepping = (async () => {
+    try {
+      const north = process.env.NORTH_BIN || "north";
+      const step = Bun.spawn([north, "capacity", "watchdog", "step"], { stdin: new TextEncoder().encode(JSON.stringify(sample)), stdout: "ignore", stderr: "inherit", timeout: 90_000 });
+      if ((await step.exited) !== 0) console.error(`capacity-watchdog: north capacity watchdog step exited ${step.exitCode}`);
+    } catch (error) {
+      console.error(`capacity-watchdog: north capacity watchdog step: ${(error as Error).message}`);
+    }
+  })().finally(() => { stepping = null; });
+  return stepping;
+}
+
 const AGENT = /^(claude|codex|tmux)/;
 
 function unitCgroups(): Map<string, string> {
@@ -430,9 +447,13 @@ async function main(argv: string[]) {
     for (;;) {
       const r = step(state, snapshot());
       state = r.state;
-      if (r.state.prev && (r.sample as any).intervalSeconds > 0) appendSample(r.sample);
+      let stepped: Promise<void> | null = null;
+      if (r.state.prev && (r.sample as any).intervalSeconds > 0) {
+        appendSample(r.sample);
+        stepped = actOnOverload(r.sample);
+      }
       act(r.incidents, r.terms);
-      if (once && (r.sample as any).intervalSeconds > 0) return 0;
+      if (once && (r.sample as any).intervalSeconds > 0) { await stepped; return 0; }
       await Bun.sleep((once ? 1 : interval) * 1000);
     }
   }

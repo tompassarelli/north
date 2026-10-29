@@ -7,7 +7,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::alerts::{Node, State, alert_plan, stall_alert};
-use super::host::{Host, Places, seconds};
+use super::host::{Host, Places, seconds, with_user_bin};
 use super::measure::{Env, get};
 use super::stall::{Facts, Job, Medians, landing_run, verdict, workflow_median};
 
@@ -235,4 +235,12 @@ fn a_cached_row_is_recomputed_once_main_has_moved() {
     assert_eq!(fresh["stall"], "error");
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(places.flow().join("smashcraft.json")).unwrap()).unwrap();
     assert_eq!(saved["epoch"], now);
+}
+
+#[test]
+fn a_unit_path_without_the_user_bin_gains_it_so_ci_diagnose_finds_claude() {
+    let path = with_user_bin(Some("/run/current-system/sw/bin".into()), "/home/fixture".as_ref());
+    assert_eq!(path, "/run/current-system/sw/bin:/home/fixture/.local/bin");
+    assert_eq!(with_user_bin(Some(path.clone()), "/home/fixture".as_ref()), path);
+    assert_eq!(with_user_bin(None, "/home/fixture".as_ref()), "/home/fixture/.local/bin");
 }

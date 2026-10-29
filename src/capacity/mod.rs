@@ -10,6 +10,7 @@ pub(crate) mod laptop_auto;
 mod game_reserve;
 mod host;
 mod unleased;
+mod watchdog;
 mod native_hold;
 mod deadline;
 mod lease_deadline;
@@ -48,9 +49,10 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("deadline") => deadline::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
         Some("unleased") if arguments.len() == 1 => unleased::run(),
+        Some("watchdog") => watchdog::run(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | unleased | quiet < LEASES.json | host OPERATION ...");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ...");
             2
         }
     };
