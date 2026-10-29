@@ -84,6 +84,8 @@ Commands:
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
+  agent-config-check [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
+  agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
   agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring
   mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
   archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands

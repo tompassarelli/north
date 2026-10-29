@@ -168,33 +168,38 @@ fn execute(options: &Options, locations: &Locations) -> Result<Outcome, String> 
     Ok(Outcome::Checked(contract.errors))
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+pub(crate) struct Verdict {
+    pub(crate) code: u8,
+    pub(crate) out: String,
+    pub(crate) err: String,
+}
+
+pub(crate) fn evaluate(arguments: &[String]) -> Verdict {
+    let failed = |code: u8, err: String| Verdict { code, out: String::new(), err };
     let options = match parse(arguments) {
         Ok(options) => options,
-        Err(message) => {
-            eprintln!("policy-contract: {message}\n{USAGE}");
-            return 2;
-        }
+        Err(message) => return failed(2, format!("policy-contract: {message}\n{USAGE}")),
     };
     let locations = Locations::resolve(&options, &|name| std::env::var(name).ok());
     match execute(&options, &locations) {
-        Ok(Outcome::Adapters(adapters)) => {
-            println!("{}", adapters.join("\n"));
-            0
-        }
-        Ok(Outcome::Checked(errors)) if errors.is_empty() => {
-            println!("policy-contract: surface ownership and generated provider wiring passed");
-            0
-        }
-        Ok(Outcome::Checked(errors)) => {
-            for error in errors {
-                eprintln!("policy-contract: {error}");
-            }
-            1
-        }
-        Err(message) => {
-            eprintln!("policy-contract: {message}");
-            1
-        }
+        Ok(Outcome::Adapters(adapters)) => Verdict { code: 0, out: adapters.join("\n"), err: String::new() },
+        Ok(Outcome::Checked(errors)) if errors.is_empty() => Verdict {
+            code: 0,
+            out: "policy-contract: surface ownership and generated provider wiring passed".into(),
+            err: String::new(),
+        },
+        Ok(Outcome::Checked(errors)) => failed(1, errors.iter().map(|error| format!("policy-contract: {error}")).collect::<Vec<_>>().join("\n")),
+        Err(message) => failed(1, format!("policy-contract: {message}")),
     }
+}
+
+pub fn run(arguments: &[String]) -> u8 {
+    let verdict = evaluate(arguments);
+    if !verdict.out.is_empty() || verdict.code == 0 {
+        println!("{}", verdict.out);
+    }
+    if !verdict.err.is_empty() {
+        eprintln!("{}", verdict.err);
+    }
+    verdict.code
 }

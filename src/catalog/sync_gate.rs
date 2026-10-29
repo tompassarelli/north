@@ -33,7 +33,7 @@ pub(crate) fn run(arguments: &[String]) -> NorthResult<u8> {
         return Ok(1);
     }
     let harness = harness::harness_root().map_err(crate::error::NorthError::Configuration)?;
-    if !policy_gate(&harness, &repo_root("nixos-config")?, &operator) {
+    if !policy_gate(&repo_root("nixos-config")?, &operator) {
         eprintln!("{NOT_PUBLISHED}");
         return Ok(1);
     }
@@ -60,25 +60,8 @@ fn toplevel(directory: &Path) -> Option<PathBuf> {
         .then(|| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
 }
 
-fn policy_gate(harness: &Path, nixos_config: &Path, operator: &Path) -> bool {
-    let python = env::var("NORTH_AGENT_PYTHON").unwrap_or_else(|_| "python3".into());
-    let north = env::var_os("NORTH_BIN")
-        .filter(|north| !north.is_empty())
-        .or_else(|| env::current_exe().ok().map(PathBuf::into_os_string))
-        .unwrap_or_else(|| "north".into());
-    Command::new("bash")
-        .args([
-            "-c",
-            "set -uo pipefail; . \"$1\"; policy_gate \"$2\" session",
-            "policy-gate",
-        ])
-        .arg(harness.join("harness/scripts/agent-config-check.sh"))
-        .arg(nixos_config)
-        .env("AGENT_CONFIG_PYTHON", python)
-        .env("OPERATOR", operator)
-        .env("NORTH_BIN", north)
-        .status()
-        .is_ok_and(|status| status.success())
+fn policy_gate(nixos_config: &Path, operator: &Path) -> bool {
+    crate::agent_config_check::policy_gate_session(nixos_config, operator)
 }
 
 pub(super) fn current_main(

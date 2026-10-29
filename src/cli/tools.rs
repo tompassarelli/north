@@ -3,13 +3,14 @@ use std::process::ExitCode;
 use crate::landing::{denylist, land_actions, land_test_runner, landed_tree, lane_target, mutant_cli, safe_push_tag, stale_revert};
 use crate::ops::timers::{self, Timer};
 use crate::{
-    agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
+    agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
     land_abandon, provenance, review_gate,
 };
 
 type Run = fn(&[String]) -> u8;
 
 const UNIFORM: &[(&str, Run)] = &[
+    ("agent-config-check", agent_config_check::run),
     ("agent-policy-contract", agent_policy_contract::run),
     ("dep-gate", dep_gate::run),
     ("review-gate", review_gate::run),

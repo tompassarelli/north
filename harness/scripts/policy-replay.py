@@ -384,11 +384,9 @@ def variant_policy(base: str, variant: dict) -> str:
 
 
 def session_start_tokens(operator: Path) -> int:
-    script = Path(__file__).resolve().parent / "agent-config-check.sh"
     firn = os.environ.get("NORTH_FIRN") or str(Path.home() / "code/nixos-config/main")
-    env = dict(os.environ, AGENT_CONFIG_PYTHON=os.environ.get("NORTH_AGENT_PYTHON") or sys.executable, OPERATOR=str(operator))
-    out = subprocess.run(["bash", "-c", '. "$1"; policy_gate "$2" measure', "-", str(script), firn],
-                         env=env, capture_output=True, text=True, timeout=120).stdout
+    out = subprocess.run([os.environ.get("NORTH_BIN", "north"), "agent-config-check", "policy-gate", "measure", "--repo", firn, "--operator", str(operator)],
+                         capture_output=True, text=True, timeout=120).stdout
     match = re.search(r"^session start (\d+) tokens", out, re.M)
     if not match:
         raise SystemExit(f"policy-replay: no session start measurement from agent-config-check: {out[-300:]}")

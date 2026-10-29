@@ -1,4 +1,5 @@
 mod agent_catalog;
+mod agent_config_check;
 mod agent_policy_contract;
 mod capacity;
 mod platform;

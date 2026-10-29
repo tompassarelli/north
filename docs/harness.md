@@ -36,13 +36,13 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    `north` command in [bin/north](../bin/north) launches that installed runtime, and scheduled jobs run
    harness code from `current/tree/bin`, so the code they run and the binary they call share a commit.
 4. `agents sync` publishes policy. It fast-forwards the south and north main checkouts, runs the
-   policy gate in [harness/scripts/agent-config-check.sh](../harness/scripts/agent-config-check.sh),
+   policy gate in [src/agent_config_check/](../src/agent_config_check/) (`north agent-config-check policy-gate session`),
    then `north config agents sync` builds a new activation generation under
    `~/.local/state/north/agents/` from South's `catalog-config.json` and links each allowed skill into
    `~/.claude/skills` and `~/.codex/skills`. It reads north's skills, scripts and hooks from the tree of the
    runtime `current` names, never from the checkout, so a deferred promotion leaves them in step with the
    binary; only promotion moves them. The generation's instructions and `provider-hooks` reach
-   Claude Code and Codex through links Firn's profile module makes; `agent-config-check.sh` checks
+   Claude Code and Codex through links Firn's profile module makes; `north agent-config-check` checks
    that wiring. A hook script deleted from `harness/hooks/` must be named in `harness/retired-hooks.txt`
    (`north config agents check-owners` refuses the landing otherwise); the generation then carries a
    no-op stub under that name, so a host whose Firn profile still registers it is silent, not a
@@ -63,7 +63,7 @@ Policy is the rules agents follow and the checks that hold them to it. Each kind
 | Rules for one repository | that repository's `AGENTS.md`, such as [this one](../AGENTS.md) | the agent's harness reads it in the checkout |
 | Procedures | skills in [harness/skills/](../harness/skills/) and [agent-machinery/skills/](../agent-machinery/skills/) | `agents sync` links them |
 | Guards on tool calls | hooks in [harness/hooks/](../harness/hooks/), bound to events by [harness/policy-owners.toml](../harness/policy-owners.toml) | the generation's `provider-hooks` |
-| Claude worker definitions and Codex prompts | [harness/claude/agents/](../harness/claude/agents/) and [harness/codex/prompts/](../harness/codex/prompts/) | not traced in this repository; `agent-config-check.sh` reads the installed copies in `~/.claude/agents` |
+| Claude worker definitions and Codex prompts | [harness/claude/agents/](../harness/claude/agents/) and [harness/codex/prompts/](../harness/codex/prompts/) | not traced in this repository; `north agent-config-check` reads the installed copies in `~/.claude/agents` |
 | Thresholds and priors | [harness/defaults.toml](../harness/defaults.toml), each with its source | read by the commands that use them |
 | Models, prices and benchmarks | [harness/model-catalog.toml](../harness/model-catalog.toml) | read by routing |
 | Staffing tiers, accounts, project shares and targets | `south:agents/orchestration.toml` | read by `agents plan` and the spawn gate |

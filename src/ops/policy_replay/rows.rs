@@ -34,7 +34,7 @@ impl RunRow {
     }
 }
 
-pub(crate) type Scenarios = BTreeMap<String, [usize; 2]>;
+pub(crate) use crate::platform::trials::Scenarios;
 
 pub(crate) fn summary(rows: &[RunRow]) -> String {
     let mut cells: Vec<((&str, &str), Vec<&RunRow>)> = Vec::new();

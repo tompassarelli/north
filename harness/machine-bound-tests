@@ -9,6 +9,5 @@ harness/hooks/launch-critical-worktree-guard.test.py
 harness/hooks/lead-regrounding.test.sh
 harness/hooks/spawn-capacity-guard.test.sh
 harness/lib/routing.test.sh
-harness/scripts/agent-config-check.test.sh
 harness/skills/todo/scripts/cross-supervisor-mailbox.test.sh
 harness/skills/machine-capacity/scripts/machine-capacity.test.sh

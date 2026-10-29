@@ -118,7 +118,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 - <a id="agent-skills-spec"></a>**Agent Skills specification**, https://agentskills.io/specification; accessed: not recorded, cited 2026-10-12.
   Informed: the playbook SKILL.md body ceiling in
-  [harness/scripts/agent-config-check.sh](../harness/scripts/agent-config-check.sh) (0aa8f9fa).
+  [src/agent_config_check/gate.rs](../src/agent_config_check/gate.rs) (0aa8f9fa, first in agent-config-check.sh).
   Outcome: adopted as the failing ceiling, with the tighter local size kept as a reported target that fails
   nothing.
 
