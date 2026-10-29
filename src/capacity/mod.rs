@@ -8,6 +8,7 @@ mod aperture;
 pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
 mod game_reserve;
+mod host;
 mod unleased;
 mod native_hold;
 mod deadline;
@@ -29,6 +30,7 @@ mod tests;
 
 use admission::Facts;
 
+#[derive(Clone, Copy)]
 pub(crate) struct Host {
     pub(crate) serving: fn(&str) -> Option<String>,
     pub(crate) warcraft_clients: fn() -> Option<u32>,
@@ -48,7 +50,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("unleased") if arguments.len() == 1 => unleased::run(),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | unleased | quiet < LEASES.json");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | unleased | quiet < LEASES.json | host OPERATION ...");
             2
         }
     };
@@ -56,6 +58,9 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
 }
 
 pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
+    if arguments.first().map(String::as_str) == Some("host") {
+        return host::run(&arguments[1..], &host);
+    }
     if let Some(status) = route(arguments, host.offload) {
         return status;
     }
@@ -65,32 +70,8 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
         .map_err(|error| error.to_string())
         .and_then(|_| serde_json::from_str::<Facts>(&input).map_err(|error| error.to_string()));
     match outcome {
-        Ok(mut facts) => {
-            if facts.game_reserve_agent_cpus.is_none() && agent_load::game_reserve_on(&agent_load::Host::from_env()) {
-                facts.game_reserve_agent_cpus = Some(game_reserve::Settings::from_env().agent_cpu_count());
-            }
-            facts.gaming |= facts.game_reserve_agent_cpus.is_some() || agent_load::gaming_marked(&agent_load::capacity_root());
-            facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
-            facts.disk_free_gib = facts.disk_free_gib.or_else(root_disk_free_gib);
-            facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
-            facts.host_bar1_margin_mib = facts.host_bar1_margin_mib.or_else(host.bar1_margin_mib);
-            if facts.bar1_free_mib.is_none() && !facts.bar1_timed_out && admission::starts_gpu_work(&facts) {
-                let memory = aperture::memory();
-                facts.vram_free_mib = facts.vram_free_mib.or(memory.vram_free_mib);
-                match memory.bar1 {
-                    aperture::Bar1::Free(free) => facts.bar1_free_mib = Some(free),
-                    aperture::Bar1::TimedOut => facts.bar1_timed_out = true,
-                    aperture::Bar1::Unknown => {}
-                }
-            }
-            facts.derive_native_holds();
-            facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
-            facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
-            let admitted = admission::admit(&facts, host.serving);
-            if let Some(ticket) = facts.ticket.as_deref().filter(|_| admitted.reason != admission::Reason::Run) {
-                note_reason(ticket, admitted.reason);
-            }
-            let _ = writeln!(std::io::stdout(), "{}", json!(admitted));
+        Ok(facts) => {
+            let _ = writeln!(std::io::stdout(), "{}", json!(admit_enriched(facts, &host)));
             0
         }
         Err(message) => {
@@ -98,6 +79,35 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
             2
         }
     }
+}
+
+/// Admission on the caller's facts, filled in with what this host observes: game reserve, run queue, disk, Warcraft clients, aperture and native holds.
+pub(crate) fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
+    if facts.game_reserve_agent_cpus.is_none() && agent_load::game_reserve_on(&agent_load::Host::from_env()) {
+        facts.game_reserve_agent_cpus = Some(game_reserve::Settings::from_env().agent_cpu_count());
+    }
+    facts.gaming |= facts.game_reserve_agent_cpus.is_some() || agent_load::gaming_marked(&agent_load::capacity_root());
+    facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
+    facts.disk_free_gib = facts.disk_free_gib.or_else(root_disk_free_gib);
+    facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
+    facts.host_bar1_margin_mib = facts.host_bar1_margin_mib.or_else(host.bar1_margin_mib);
+    if facts.bar1_free_mib.is_none() && !facts.bar1_timed_out && admission::starts_gpu_work(&facts) {
+        let memory = aperture::memory();
+        facts.vram_free_mib = facts.vram_free_mib.or(memory.vram_free_mib);
+        match memory.bar1 {
+            aperture::Bar1::Free(free) => facts.bar1_free_mib = Some(free),
+            aperture::Bar1::TimedOut => facts.bar1_timed_out = true,
+            aperture::Bar1::Unknown => {}
+        }
+    }
+    facts.derive_native_holds();
+    facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
+    facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
+    let admitted = admission::admit(&facts, host.serving);
+    if let Some(ticket) = facts.ticket.as_deref().filter(|_| admitted.reason != admission::Reason::Run) {
+        note_reason(ticket, admitted.reason);
+    }
+    admitted
 }
 
 fn note_reason(ticket: &std::path::Path, reason: admission::Reason) {

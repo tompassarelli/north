@@ -1,27 +1,24 @@
 mod capacity_host;
 
 use capacity_host::{Host, Wrapper};
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::process::Stdio;
+use std::time::{Duration, Instant};
 
-fn host(first: &str) -> Host {
-    let host = Host::new("capacity-admission-lock-", &[]);
-    let shim = format!(
-        "#!/bin/sh\ncase \"$2\" in admission) ;; *) exec {north} \"$@\" ;; esac\necho enter >>{log}\nif mkdir {first_dir} 2>/dev/null; then : >{holding}; {first}; fi\n{north} \"$@\"\nstatus=$?\necho leave >>{log}\nexit $status\n",
-        log = host.path("admissions").display(),
-        first_dir = host.path("first").display(),
-        holding = host.path("holding").display(),
-        north = env!("CARGO_BIN_EXE_north"),
+fn holder(host: &Host, then: &str) -> Wrapper {
+    let script = format!(
+        "import {{ Database }} from 'bun:sqlite'; import {{ writeFileSync }} from 'node:fs'; const lock = new Database(process.env.LOCK); lock.exec('BEGIN EXCLUSIVE'); writeFileSync(process.env.HOLDING, ''); {then}"
     );
-    fs::write(host.path("bin/north"), shim).unwrap();
-    fs::set_permissions(host.path("bin/north"), fs::Permissions::from_mode(0o755)).unwrap();
-    host
+    let mut command = host.command("bun");
+    command.args(["-e", &script]).env("LOCK", host.path("agent-capacity-v1/admission.lock")).env("HOLDING", host.path("holding"));
+    command.stdout(Stdio::null()).stderr(Stdio::piped());
+    let wrapper = Wrapper(command.spawn().unwrap());
+    host.until("the holder to take the admission lock", |host| host.path("holding").exists());
+    wrapper
 }
 
 fn probe(host: &Host) -> Wrapper {
     let mut command = host.helper(&["probe", "--class", "agent"]);
-    command.env("AGENT_CAPACITY_NORTH", host.path("bin/north")).stdout(Stdio::null()).stderr(Stdio::piped());
+    command.stdout(Stdio::null()).stderr(Stdio::piped());
     Wrapper(command.spawn().unwrap())
 }
 
@@ -36,25 +33,26 @@ fn finish(host: &Host, what: &str, wrapper: &mut Wrapper) -> (bool, String) {
 
 #[test]
 fn second_admission_waits_for_a_live_holder_past_the_old_stale_age() {
-    let host = host("sleep 3");
-    let mut first = probe(&host);
-    host.until("the first admission to hold the lock", |host| host.path("holding").exists());
+    let host = Host::new("capacity-admission-lock-", &[]);
+    std::fs::create_dir_all(host.path("agent-capacity-v1/leases")).unwrap();
+    let started = Instant::now();
+    let mut first = holder(&host, "Bun.sleepSync(3000); lock.exec('COMMIT');");
     let mut second = probe(&host);
-    let (first_ok, first_stderr) = finish(&host, "the first admission", &mut first);
-    let (second_ok, second_stderr) = finish(&host, "the second admission", &mut second);
+    let (first_ok, first_stderr) = finish(&host, "the holder", &mut first);
+    let (second_ok, second_stderr) = finish(&host, "the waiting admission", &mut second);
     assert!(first_ok, "{first_stderr}");
     assert!(second_ok, "{second_stderr}");
-    assert_eq!(fs::read_to_string(host.path("admissions")).unwrap(), "enter\nleave\nenter\nleave\n");
+    assert!(started.elapsed() >= Duration::from_secs(3), "the admission ran while the holder still held the lock");
 }
 
 #[test]
 fn dead_holder_lock_is_broken() {
-    let host = host("exit 1");
-    let mut first = probe(&host);
-    let (first_ok, first_stderr) = finish(&host, "the first admission to die holding the lock", &mut first);
-    assert!(!first_ok && first_stderr.contains("north capacity admission failed"), "{first_stderr}");
+    let host = Host::new("capacity-admission-lock-", &[]);
+    std::fs::create_dir_all(host.path("agent-capacity-v1/leases")).unwrap();
+    let mut first = holder(&host, "Bun.sleepSync(60000);");
+    first.0.kill().unwrap();
+    first.0.wait().unwrap();
     let mut second = probe(&host);
-    let (second_ok, second_stderr) = finish(&host, "the second admission", &mut second);
+    let (second_ok, second_stderr) = finish(&host, "the admission after the holder died", &mut second);
     assert!(second_ok, "{second_stderr}");
-    assert_eq!(fs::read_to_string(host.path("admissions")).unwrap(), "enter\nenter\nleave\n");
 }

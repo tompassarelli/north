@@ -141,9 +141,21 @@ pub(crate) fn run(idle_bound: f64) -> u8 {
             return 2;
         }
     };
+    println!("{}", Value::Array(standing(&leases, &queue, now, idle_bound)));
+    0
+}
+
+/// The host's raw lease and queue records as the quiet standing of each quiet native lease.
+pub(crate) fn standing_json(leases: &[Value], queue: &[Value], now: f64) -> Vec<Value> {
+    let leases: Vec<LeaseFact> = leases.iter().filter_map(|lease| serde_json::from_value(lease.clone()).ok()).collect();
+    let queue: Vec<QueueEntry> = queue.iter().filter_map(|entry| serde_json::from_value(entry.clone()).ok()).collect();
+    standing(&leases, &queue, now, super::admission::quiet_idle_bound())
+}
+
+fn standing(leases: &[LeaseFact], queue: &[QueueEntry], now: f64, idle_bound: f64) -> Vec<Value> {
     let waiting: Vec<&QueueEntry> = queue.iter().filter(|entry| BATCH_CLASSES.contains(&entry.class.as_str())).collect();
     let longest = waiting.iter().map(|entry| ((now - entry.queued_at) / 1000.0).round()).fold(0.0, f64::max);
-    let standing: Vec<Value> = leases
+    leases
         .iter()
         .filter(|lease| lease.is_quiet_native())
         .map(|lease| {
@@ -152,7 +164,5 @@ pub(crate) fn run(idle_bound: f64) -> u8 {
             let deferring = holding.then(|| json!({ "jobs": waiting.len(), "longestWaitingSeconds": longest }));
             json!({ "id": lease.id, "owner": view.owner, "heldSeconds": view.held_seconds, "idleSeconds": view.idle_seconds, "runSeconds": view.run_seconds, "holding": holding, "deferring": deferring })
         })
-        .collect();
-    println!("{}", Value::Array(standing));
-    0
+        .collect()
 }

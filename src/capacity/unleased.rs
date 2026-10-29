@@ -19,7 +19,7 @@ pub(crate) fn run() -> u8 {
     0
 }
 
-fn read() -> Option<Value> {
+pub(crate) fn read() -> Option<Value> {
     let directory = std::env::var_os("CAPACITY_WATCHDOG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state/agents/watchdog"));

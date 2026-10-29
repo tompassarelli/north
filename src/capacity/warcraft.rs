@@ -5,9 +5,13 @@ use std::path::Path;
 const PREFIX_VARIABLES: [&str; 2] = ["STEAM_COMPAT_DATA_PATH", "WINEPREFIX"];
 
 pub(crate) fn run() -> u8 {
-    let root = std::env::var_os("AGENT_CAPACITY_PROC").unwrap_or_else(|| "/proc".into());
-    println!("{}", clients(Path::new(&root)));
+    println!("{}", count());
     0
+}
+
+pub(crate) fn count() -> usize {
+    let root = std::env::var_os("AGENT_CAPACITY_PROC").unwrap_or_else(|| "/proc".into());
+    clients(Path::new(&root))
 }
 
 /// Live Warcraft III clients: one per Wine prefix, so a client running two processes counts once.
