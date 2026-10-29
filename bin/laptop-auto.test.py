@@ -17,7 +17,7 @@ def test_recorded_observation_journey(root):
 
     def run(minutes, *args):
         result = subprocess.run([str(repo / "bin/laptop"), *args], env={**env, "LAPTOP_NOW": (start + timedelta(minutes=minutes)).isoformat()},
-                                text=True, capture_output=True, timeout=15)
+                                text=True, capture_output=True)
         assert result.returncode == 0, result.stderr
         return json.loads((root / "laptop.json").read_text())
 

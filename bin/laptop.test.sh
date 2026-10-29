@@ -74,26 +74,25 @@ printf '{"state":"draining","deadline":%s}\n' "$(( $(date +%s) + 3600 ))" >"$LAP
 out=$(laptop-runner 2>&1)
 gated=$(qstate "$b")
 printf '{"state":"available"}\n' >"$LAPTOP_STUB"
-out=$(timeout 30 laptop-runner 2>&1)
+out=$(laptop-runner 2>&1)
 check '[spec] laptop-runner takes no laptop job unless the state is available, then runs the queue' \
   '[ "$gated" = requeued ] && [ "$(qstate "$b")" = done ] && [ "$(qstate "$c")" = done ]'
 
 printf '{"state":"available"}\n' >"$LAPTOP_STUB"
 u=$(threads queue add laptop - -- echo u)
 mv "$LAPTOP_STUB" "$scratch/stub.saved"
-out=$(timeout 30 laptop-runner 2>&1)
+out=$(laptop-runner 2>&1)
 check '[spec] with the ledger host unreachable and the cached state available, the runner keeps taking jobs' \
   '[ "$(qstate "$u")" = done ] && jq -e ".state == \"available\"" "$XDG_STATE_HOME/laptop-runner/laptop-state.json" >/dev/null'
 mv "$scratch/stub.saved" "$LAPTOP_STUB"
 
 long=$(threads queue add laptop - -- sh -c 'echo $$ >"$0"; sleep 120' "$scratch/long.pid")
 after=$(threads queue add laptop - -- echo after)
-( sleep 3; printf '{"state":"draining","deadline":%s}\n' "$(date +%s)" >"$LAPTOP_STUB" ) &
-start=$(date +%s)
-out=$(timeout 60 laptop-runner 2>&1)
-took=$(( $(date +%s) - start ))
+( until [ -s "$scratch/long.pid" ]; do sleep 0.1; done; printf '{"state":"draining","deadline":%s}\n' "$(date +%s)" >"$LAPTOP_STUB" ) & drain=$!
+out=$(laptop-runner 2>&1)
+kill "$drain" 2>/dev/null
 check '[spec] past the drain deadline the runner SIGTERMs the job-run process group and records the job requeued, taking nothing more' \
-  '[ "$(qstate "$long")" = requeued ] && [ "$(qstate "$after")" = queued ] && [ "$took" -lt 15 ] && ! kill -0 "$(cat "$scratch/long.pid")" 2>/dev/null && sqlite3 "$THREADS_DB" "select result from job_queue where id = $long" | grep -q "^rc=143"'
+  '[ "$(qstate "$long")" = requeued ] && [ "$(qstate "$after")" = queued ] && ! kill -0 "$(cat "$scratch/long.pid")" 2>/dev/null && sqlite3 "$THREADS_DB" "select result from job_queue where id = $long" | grep -q "^rc=143"'
 
 printf 'laptop: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

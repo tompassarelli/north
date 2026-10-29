@@ -1702,9 +1702,12 @@ sections+=($!)
 new_real_bin -landing
 
 wait_for() {
-  local deadline=$((SECONDS + 15))
+  local producers=$1 producer live
+  shift
   until "$@"; do
-    [ "$SECONDS" -lt "$deadline" ] || fail "handshake timed out: $*"
+    live=''
+    for producer in $producers; do kill -0 "$producer" 2>/dev/null && live=1; done
+    [ -n "$live" ] || "$@" || fail "handshake never came and its producer exited: $*"
     sleep 0.01
   done
 }
@@ -1722,7 +1725,7 @@ hold_landing_lock() {
   mkfifo "$landing_root/lock-release"
   flock "$xdg_state/safe-push/$key.lock" bash -c \
     'touch "$1/lock-ready"; read -r _ <"$1/lock-release"' _ "$landing_root" & blocker=$!
-  wait_for test -e "$landing_root/lock-ready"
+  wait_for "$blocker" test -e "$landing_root/lock-ready"
 }
 
 release_landing_lock() {
@@ -1735,8 +1738,8 @@ release_hook() {
 }
 
 finish_first_lane() {
-  wait_for test -s "$landing_root/a.hook-runs"
-  wait_for test -s "$landing_root/b.hook-runs"
+  wait_for "$pid_a" test -s "$landing_root/a.hook-runs"
+  wait_for "$pid_b" test -s "$landing_root/b.hook-runs"
   release_hook "$landing_root/a"
   status_a=0; wait "$pid_a" || status_a=$?
   release_hook "$landing_root/b"
@@ -1805,7 +1808,7 @@ land_command="printf 'DEFER_NATIVE_QUIET\\n'; if [ -e '$landing_root/deferred' ]
 "$real_git" -C "$landing_root/a" add .safe-push
 "$real_git" -C "$landing_root/a" commit -qm 'record deferred admission'
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -e "$landing_root/deferred"
+wait_for "$pid_a" test -e "$landing_root/deferred"
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 if ! flock -n "$landing_state/safe-push/$lock_key.lock" true; then
   printf 'admitted\n' >"$landing_root/admission-release"
@@ -1819,7 +1822,7 @@ status_b=0; wait "$pid_b" || status_b=$?
 "$real_git" --git-dir="$landing_remote" cat-file -e main:b.txt || fail 'ready lane did not land first'
 ! "$real_git" --git-dir="$landing_remote" cat-file -e main:a.txt 2>/dev/null || fail 'deferred lane landed before admission'
 printf 'admitted\n' >"$landing_root/admission-release"
-wait_for test -e "$landing_root/recheck"
+wait_for "$pid_a" test -e "$landing_root/recheck"
 printf 'admitted\n' >"$landing_root/recheck-release"
 status_a=0; wait "$pid_a" || status_a=$?
 [ "$status_a" -eq 0 ] || fail "deferred lane failed after requeue: $(cat "$landing_root/a.out")"
@@ -1835,7 +1838,7 @@ land_command="printf 'DEFER_NATIVE_QUIET\\n'; printf 'run\\n' >>'$landing_root/r
 "$real_git" -C "$landing_root/a" add .safe-push
 "$real_git" -C "$landing_root/a" commit -qm 'admitted land check'
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -s "$landing_root/runs"
+wait_for "$pid_a" test -s "$landing_root/runs"
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 if ! flock -n "${landing_state:-$xdg_state}/safe-push/$lock_key.lock" true; then
   printf 'go\n' >"$landing_root/check-release"
@@ -1881,9 +1884,9 @@ make_landing_clone "$landing_root/b" b.txt
 "$real_git" -C "$landing_root/b" commit --amend -qm 'repair red main' -m 'Main-red: 55'
 hold_landing_lock
 run_landing "$landing_root/a" & pid_a=$!
-wait_for bash -c 'compgen -G "$1/[1-9]*" >/dev/null' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
+wait_for "$pid_a" bash -c 'compgen -G "$1/[1-9]*" >/dev/null' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
 run_landing "$landing_root/b" & pid_b=$!
-wait_for bash -c 'compgen -G "$1/0*" >/dev/null' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
+wait_for "$pid_b" bash -c 'compgen -G "$1/0*" >/dev/null' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
 release_landing_lock
 status_a=0; wait "$pid_a" || status_a=$?
 status_b=0; wait "$pid_b" || status_b=$?
@@ -1898,7 +1901,7 @@ mkfifo "$landing_root/cancel-wait"
 "$real_git" -C "$landing_root/a" add .safe-push
 "$real_git" -C "$landing_root/a" commit -qm 'cancel during admission'
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -s "$landing_root/cancel-pid"
+wait_for "$pid_a" test -s "$landing_root/cancel-pid"
 kill -INT "$(cat "$landing_root/cancel-pid")"
 status_a=0; wait "$pid_a" || status_a=$?
 [ "$status_a" -eq 130 ] || fail "cancelled admission returned $status_a: $(cat "$landing_root/a.out")"
@@ -1912,7 +1915,7 @@ make_landing_clone "$landing_root/a" a.txt
 "$real_git" -C "$landing_root/a" add .safe-push
 "$real_git" -C "$landing_root/a" commit -qm 'check leaves an orphan holding its output'
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -s "$landing_root/orphan-pid"
+wait_for "$pid_a" test -s "$landing_root/orphan-pid"
 finished=''
 for i in $(seq 150); do
   if ! kill -0 "$pid_a" 2>/dev/null; then finished="$i"; break; fi
@@ -2037,12 +2040,12 @@ make_landing_clone "$landing_root/b" b.txt
 landing_gate=1
 mkfifo "$landing_root/a.scan-release" "$landing_root/b.scan-release"
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -d "$landing_root/a.scan-started"
+wait_for "$pid_a" test -d "$landing_root/a.scan-started"
 run_landing "$landing_root/b" & pid_b=$!
-wait_for grep -Fq 'waiting for the landing lock' "$landing_root/b.out"
+wait_for "$pid_b" grep -Fq 'waiting for the landing lock' "$landing_root/b.out"
 printf 'release\n' >"$landing_root/a.scan-release"
 status_a=0; wait "$pid_a" || status_a=$?
-wait_for test -d "$landing_root/b.scan-started"
+wait_for "$pid_b" test -d "$landing_root/b.scan-started"
 printf 'release\n' >"$landing_root/b.scan-release"
 status_b=0; wait "$pid_b" || status_b=$?
 landing_gate=''
@@ -2080,8 +2083,8 @@ add_held_hook "$landing_root/a"
 add_held_hook "$landing_root/b"
 run_landing "$landing_root/a" & pid_a=$!
 run_landing "$landing_root/b" & pid_b=$!
-wait_for test -s "$landing_root/a.hook-runs"
-wait_for test -s "$landing_root/b.hook-runs"
+wait_for "$pid_a" test -s "$landing_root/a.hook-runs"
+wait_for "$pid_b" test -s "$landing_root/b.hook-runs"
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 flock -n "$xdg_state/safe-push/$lock_key.lock" true || fail 'checks held the landing lock'
 finish_first_lane
@@ -2108,7 +2111,7 @@ sed -i 's/^bottom$/bottom from b/' "$landing_root/b/shared.txt"
 "$real_git" -C "$landing_root/a" commit -qam 'a edits the top'
 "$real_git" -C "$landing_root/b" commit -qam 'b edits the bottom'
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -s "$landing_root/a.hook-runs"
+wait_for "$pid_a" test -s "$landing_root/a.hook-runs"
 run_landing "$landing_root/b" & pid_b=$!
 finish_first_lane
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
@@ -2128,7 +2131,7 @@ make_landing_clone "$landing_root/b" b.txt
 add_held_hook "$landing_root/a"
 add_held_hook "$landing_root/b"
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -s "$landing_root/a.hook-runs"
+wait_for "$pid_a" test -s "$landing_root/a.hook-runs"
 run_landing "$landing_root/b" & pid_b=$!
 finish_first_lane
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
@@ -2150,12 +2153,12 @@ make_landing_clone "$landing_root/b" b.txt
 add_held_hook "$landing_root/a"
 add_held_hook "$landing_root/b"
 run_landing "$landing_root/a" & pid_a=$!
-wait_for test -s "$landing_root/a.hook-runs"
+wait_for "$pid_a" test -s "$landing_root/a.hook-runs"
 run_landing "$landing_root/b" & pid_b=$!
-wait_for queued_lane "$landing_root/b"
+wait_for "$pid_b" queued_lane "$landing_root/b"
 release_hook "$landing_root/a"
 status_a=0; wait "$pid_a" || status_a=$?
-wait_for test -s "$landing_root/b.hook-runs"
+wait_for "$pid_b" test -s "$landing_root/b.hook-runs"
 release_hook "$landing_root/b"
 status_b=0; wait "$pid_b" || status_b=$?
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
@@ -2191,7 +2194,7 @@ run_train_case() {
   for lane in "$@"; do
     add_train_hook "$landing_root/$lane"
     NORTH_FLEET_SESSION="${landing_root##*/}-$lane" run_landing "$landing_root/$lane" & train_pids+=($!)
-    wait_for queued_lane "$landing_root/$lane"
+    wait_for "${train_pids[-1]}" queued_lane "$landing_root/$lane"
   done
   release_landing_lock
   train_status=()
@@ -2345,9 +2348,9 @@ lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 mkdir -p "$xdg_state/safe-push"
 hold_landing_lock
 run_landing "$landing_root/a" & pid_a=$!
-wait_for queued_lane "$landing_root/a"
+wait_for "$pid_a" queued_lane "$landing_root/a"
 run_landing "$landing_root/b" & pid_b=$!
-wait_for queued_lane "$landing_root/b"
+wait_for "$pid_b" queued_lane "$landing_root/b"
 release_landing_lock
 status_a=0; wait "$pid_a" || status_a=$?
 status_b=0; wait "$pid_b" || status_b=$?
@@ -2386,11 +2389,11 @@ chmod +x "$real_bin/gh"
 mkdir -p "$xdg_state/safe-push"
 hold_landing_lock
 run_landing "$landing_root/h" & pid_h=$!
-wait_for queued_lane "$landing_root/h"
+wait_for "$pid_h" queued_lane "$landing_root/h"
 run_landing "$landing_root/w" & pid_w=$!
-wait_for queued_lane "$landing_root/w"
+wait_for "$pid_w" queued_lane "$landing_root/w"
 release_landing_lock
-wait_for test -e "$landing_root/red-check"
+wait_for "$pid_h $pid_w" test -e "$landing_root/red-check"
 run_landing "$landing_root/f" & pid_f=$!
 red_status=()
 for pid in "$pid_h" "$pid_w" "$pid_f"; do
@@ -2420,7 +2423,7 @@ chmod +x "$landing_root/lane/.hooks/pre-push"
 "$real_git" -C "$landing_root/lane" config core.hooksPath .hooks
 lock_file="$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).lock"
 run_landing "$landing_root/lane" & pid_lane=$!
-wait_for test -s "$landing_root/hook-pid"
+wait_for "$pid_lane" test -s "$landing_root/hook-pid"
 kill -TERM "$(awk '/^NSpid:/ { print $NF }' "/proc/$(sed -n 's/^pid \([0-9]*\) .*/\1/p' "$lock_file")/status")" 2>/dev/null || true
 freed=''
 for i in $(seq 30); do
@@ -2466,7 +2469,7 @@ add_held_hook "$landing_root/lane" 1
 remote_main_before="$("$real_git" --git-dir="$landing_remote" rev-parse main)"
 case_status=0
 run_landing "$landing_root/lane" & pid_lane=$!
-wait_for test -s "$landing_root/lane.hook-runs"
+wait_for "$pid_lane" test -s "$landing_root/lane.hook-runs"
 release_hook "$landing_root/lane"
 wait "$pid_lane" || case_status=$?
 case_output="$(cat "$landing_root/lane.out")"
