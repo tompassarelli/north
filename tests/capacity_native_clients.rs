@@ -211,3 +211,25 @@ fn a_relaunched_pair_client_counts_once_against_its_pairs_hold_so_its_sibling_ke
     launch("lan0b");
     assert_eq!(probe(&host, "2")["reason"], "RUN", "both sides started, the pair holds nothing");
 }
+
+#[test]
+fn a_relaunch_of_a_started_pair_client_waits_for_a_free_slot_instead_of_drawing_its_siblings_held_slot() {
+    let host = attended_host_with_clients(&["/prefix/a"]);
+    let _pair = client_start(&host, "pair-0", "2", &["sleep", "60"]);
+    host.until("the pair to be admitted", |host| host.leases("native") == 1);
+    let pair = native_lease_id(&host);
+    let file = host.path("desktop-cgroup");
+    fs::write(&file, "0::/user.slice/user-1000.slice/user@1000.service/app.slice/private-desktop-client-7.scope\n").unwrap();
+    let arguments = ["session", "--class", "native", "--memory-gib", "1", "--wait-seconds", "60", "--owner", "lan0a", "--", "true"];
+    let status = helper(&host, &arguments).env("AGENT_CAPACITY_SELF_CGROUP", &file).env("AGENT_CAPACITY_LEASE", &pair).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
+    assert!(status.success(), "lan0a launch");
+    host.until("the client lease to end", |host| host.leases("native") == 1);
+    fake_client(&host, 300, "/prefix/other");
+    fake_client(&host, 301, "/prefix/another");
+    let from_desktop = |owner: &str| {
+        let output = helper(&host, &["probe", "--class", "native", "--memory-gib", "1", "--new-clients", "1", "--owner", owner]).env("AGENT_CAPACITY_SELF_CGROUP", &file).env("AGENT_CAPACITY_LEASE", &pair).output().unwrap();
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["reason"].clone()
+    };
+    assert_eq!(from_desktop("lan0b"), "RUN", "the pair's unstarted b-client takes its held slot");
+    assert_eq!(from_desktop("lan0a"), "DEFER_GPU_CLIENTS", "a relaunched a-client doesn't take the b-client's held slot");
+}

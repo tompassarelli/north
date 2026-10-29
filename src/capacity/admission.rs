@@ -211,7 +211,7 @@ impl Facts {
         let ticket = self.ticket.as_deref().and_then(|path| path.file_name()).and_then(|name| name.to_str());
         let derived = native_hold::derive(&self.leases, &self.queue, ticket, self.now);
         (self.quiet_native, self.pair_leases, self.alone_queued_ahead) = (derived.quiet_native, derived.pair_leases, derived.alone_queued_ahead);
-        self.client_hold = client_reserve::client_hold(&self.leases, self.requester_lease.as_deref(), self.new_clients, self.now, default_mib("client_reserve_seconds") * 1000.0);
+        self.client_hold = client_reserve::client_hold(&self.leases, self.requester_lease.as_deref(), self.owner.as_deref(), self.new_clients, self.now, default_mib("client_reserve_seconds") * 1000.0);
     }
 }
 
