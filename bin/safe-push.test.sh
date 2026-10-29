@@ -444,6 +444,29 @@ expect_output "safe-push: no node_modules — bun install --frozen-lockfile in $
 expect_output 'safe-push: ✓ clean (--dry-run)'
 printf 'PASS: a fresh north worktree installs agent-machinery before its land check\n'
 
+make_real_fixture stale-revert-before-land-checks
+land_home="$real_fixture/home"
+mkdir -p "$land_home"
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check "content.txt :: printf 'ran\\n' >> check-runs"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'checks on content.txt'
+"$real_git" clone -q "$real_remote" "$real_fixture/mover"
+"$real_git" -C "$real_fixture/mover" config user.name safe-push-test
+"$real_git" -C "$real_fixture/mover" config user.email safe-push-test@example.invalid
+printf 'moved\n' >"$real_fixture/mover/content.txt"
+"$real_git" -C "$real_fixture/mover" commit -qam 'main moves content.txt'
+"$real_git" -C "$real_fixture/mover" push -q origin main
+"$real_git" -C "$real_repo" fetch -q origin
+"$real_git" -C "$real_repo" reset -q --soft origin/main
+"$real_git" -C "$real_repo" commit -qm 'squash without a rebase'
+stale_remote_before=$(real_remote_state)
+HOME="$land_home" run_real_case '' --to main
+expect_status nonzero
+expect_output 'safe-push: ✗ this landing undoes recent commits on main'
+[ ! -e "$real_repo/check-runs" ] || fail 'a stale-revert refusal still ran the land checks'
+[ "$(real_remote_state)" = "$stale_remote_before" ] || fail 'a stale-revert refusal published'
+printf 'PASS: a landing that undoes recent main is refused before its land checks start\n'
+
 make_real_fixture land-check-boundary
 land_home="$real_fixture/home"
 land_clean_trace="$real_fixture/land-clean-trace"

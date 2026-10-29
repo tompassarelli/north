@@ -7,8 +7,7 @@ fn git_ok(root: &Path, args: &[&str]) -> String {
     git(root, args).unwrap_or_else(|error| panic!("{error}")).trim().to_owned()
 }
 
-fn commit_at(root: &Path, path: &str, text: &str, message: &str, at: i64) -> String {
-    std::fs::write(root.join(path), text).unwrap();
+fn commit_staged(root: &Path, message: &str, at: i64) -> String {
     git_ok(root, &["add", "-A"]);
     let date = format!("@{at} +0000");
     let status = Command::new("git")
@@ -20,6 +19,11 @@ fn commit_at(root: &Path, path: &str, text: &str, message: &str, at: i64) -> Str
         .unwrap();
     assert!(status.success());
     git_ok(root, &["rev-parse", "HEAD"])
+}
+
+fn commit_at(root: &Path, path: &str, text: &str, message: &str, at: i64) -> String {
+    std::fs::write(root.join(path), text).unwrap();
+    commit_staged(root, message, at)
 }
 
 fn fixture() -> tempfile::TempDir {
@@ -210,4 +214,34 @@ fn lines_a_lane_adds_away_from_a_recent_commits_change_do_not_restore_it() {
         START + 101 * HOUR,
     );
     assert_eq!(reverted(root, "main", "lane", "lane").unwrap(), []);
+}
+
+fn remove_at(root: &Path, path: &str, message: &str, at: i64) -> String {
+    std::fs::remove_file(root.join(path)).unwrap();
+    commit_staged(root, message, at)
+}
+
+#[test]
+fn a_lane_that_deletes_a_whole_file_its_base_held_lands() {
+    let scratch = fixture();
+    let root = scratch.path();
+    commit_at(root, "port.txt", "one\ntwo\nthree\nfour\n", "x ports a file", START + 100 * HOUR);
+    git_ok(root, &["checkout", "-q", "-b", "lane"]);
+    remove_at(root, "port.txt", "lane retires the port", START + 101 * HOUR);
+    assert_eq!(reverted(root, "main", "lane", "lane").unwrap(), []);
+}
+
+#[test]
+fn a_stale_squash_that_deletes_a_file_main_added_is_refused() {
+    let scratch = fixture();
+    let root = scratch.path();
+    git_ok(root, &["branch", "lane"]);
+    let x = commit_at(root, "port.txt", "one\ntwo\nthree\nfour\n", "x adds a file", START + 100 * HOUR);
+    git_ok(root, &["checkout", "-q", "lane"]);
+    let lane = commit_at(root, "notes.txt", "lane work\n", "lane", START + 101 * HOUR);
+    git_ok(root, &["checkout", "-q", "-B", "landed", "main"]);
+    remove_at(root, "port.txt", "squash that never saw the file", START + 102 * HOUR);
+    let found = reverted(root, "main", "landed", &lane).unwrap();
+    assert_eq!(shas(&found), [x.as_str()]);
+    assert_eq!(found[0].files.keys().collect::<Vec<_>>(), ["port.txt"]);
 }

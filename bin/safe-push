@@ -2188,6 +2188,7 @@ capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
 check_instruction_limits "$head_oid"
 generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
+has_land_checks && refuse_stale_revert
 while :; do
   land_base="${destination_oid:-${absent_base:-}}"
   land_locked=0

@@ -34,6 +34,7 @@ struct FileChange {
     added: BTreeSet<String>,
     removed: BTreeSet<String>,
     submodule: bool,
+    deleted: bool,
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -129,6 +130,8 @@ fn changes(patch: &str) -> Vec<FileChange> {
             file.hunks.extend(hunk(line));
         } else if let (true, Some(path), Some(file)) = (in_header, line.strip_prefix("--- a/"), files.last_mut()) {
             file.path = path.strip_suffix('\t').unwrap_or(path).to_owned();
+        } else if let (true, true, Some(file)) = (in_header, line == "+++ /dev/null", files.last_mut()) {
+            file.deleted = true;
         } else if let (true, true, Some(file)) = (in_header, line.ends_with(" 160000"), files.last_mut()) {
             file.submodule = true;
         } else if let (false, Some(file)) = (in_header, files.last_mut()) {
@@ -170,7 +173,7 @@ impl FileChange {
         let put_back: BTreeSet<&String> = blamed.hunks.iter().flat_map(|&at| &self.hunks[at].added).collect();
         let restored = earlier.removed.iter().filter(|line| put_back.contains(line)).count();
         let restores = !earlier.removed.is_empty() && restored * 2 >= earlier.removed.len();
-        let wipes = earlier.added.len() >= WIPE_FLOOR && blamed.gone.len() * 5 >= earlier.added.len() * 4;
+        let wipes = !self.deleted && earlier.added.len() >= WIPE_FLOOR && blamed.gone.len() * 5 >= earlier.added.len() * 4;
         restores || wipes
     }
 }
@@ -290,7 +293,7 @@ fn blame_all(repo: &Path, window: &Window, changes: &[&FileChange], kept: &BTree
 }
 
 pub(crate) fn refusal(found: &[Reverted]) -> String {
-    let mut text = String::from("safe-push: ✗ this landing undoes recent commits on main (lines from a commit this lane never saw, or, per file, half the lines a commit removed restored or four fifths of the lines it added gone):\n");
+    let mut text = String::from("safe-push: ✗ this landing undoes recent commits on main (lines from a commit this lane never saw, or, per file, half the lines a commit removed restored or four fifths of the lines it added gone from a file that stays; deleting a whole file only undoes commits the lane never saw):\n");
     for reverted in found {
         let files: Vec<String> = reverted.files.iter().map(|(path, lines)| format!("{path} ({lines} lines)")).collect();
         text.push_str(&format!("  {} {}\n    {}\n", &reverted.commit[..9], reverted.subject, files.join(", ")));
