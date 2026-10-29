@@ -15,7 +15,7 @@ pub(super) fn list(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
         [] => list_lines(fleet),
         ["--json"] => list_json(fleet, false),
-        ["--json", "--all"] => list_json(fleet, true),
+        ["--json", "--all"] | ["--all", "--json"] => list_json(fleet, true),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }
