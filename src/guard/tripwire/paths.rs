@@ -135,13 +135,13 @@ impl State<'_> {
     pub(super) fn container_reason(p: &str, code: &str) -> Option<String> {
         if p.ends_with("/pins") {
             return Some(format!(
-                "'{p}' is a container's pins/ root — every content-addressed checkout in that project at once, plus the .pin manifests that record who consumes them. Sweepers and raw recursive deletion never operate here; retire one verified orphan with pin-retire"
+                "'{p}' is a container's pins/ root — every content-addressed checkout in that project at once, plus the .pin manifests that record who consumes them. Sweepers and raw recursive deletion never operate here; retire one verified orphan with north pin-retire"
             ));
         }
         if let Some((pre, rest)) = p.split_once("/pins/") {
             let wt = format!("{pre}/pins/{}", rest.split('/').next().unwrap_or(""));
             return Some(format!(
-                "'{p}' is in a content-addressed pin whose consumer state must be verified. Its contents, HEAD, and path are immutable while any consumer remains. Advance consumers with a new hash-named pin; after every real consumer moves, retire this pin and sidecar with: pin-retire --consumer-main CONSUMER/main -- '{wt}'. Raw deletion stays denied"
+                "'{p}' is in a content-addressed pin whose consumer state must be verified. Its contents, HEAD, and path are immutable while any consumer remains. Advance consumers with a new hash-named pin; after every real consumer moves, retire this pin and sidecar with: north pin-retire --consumer-main CONSUMER/main -- '{wt}'. Raw deletion stays denied"
             ));
         }
         if p.ends_with("/worktrees") {

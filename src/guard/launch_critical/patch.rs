@@ -104,7 +104,7 @@ impl Policy {
             let path = resolve(&self.expanduser(target), cwd)?;
             if let Some(pin) = self.sidecar(&path) {
                 return Some(format!(
-                    "This apply_patch envelope would delete live pin consumer metadata at {path}. Retire the checkout and sidecar together after proving every named consumer moved:\n\n  pin-retire --consumer-main CONSUMER/main -- {pin}"
+                    "This apply_patch envelope would delete live pin consumer metadata at {path}. Retire the checkout and sidecar together after proving every named consumer moved:\n\n  north pin-retire --consumer-main CONSUMER/main -- {pin}"
                 ));
             }
         }

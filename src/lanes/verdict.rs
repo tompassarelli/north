@@ -31,3 +31,8 @@ pub(super) fn retirement_verdict(facts: &Facts) -> Verdict {
         Verdict::Keep
     }
 }
+
+pub(super) fn retires(merged: bool, protections: u32) -> bool {
+    let facts = Facts { age: 0, minimum_age: 0, merged, equivalent: false, evil_merge: false, archive_age: None, protections };
+    retirement_verdict(&facts) == Verdict::Retire
+}

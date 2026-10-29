@@ -45,7 +45,7 @@ The sidecar records one exact `consumer-main: ~/code/CONSUMER/main` per
 repository consumer. After all consumer moves land, use:
 
 ```bash
-pin-retire --consumer-main ~/code/CONSUMER/main -- \
+north pin-retire --consumer-main ~/code/CONSUMER/main -- \
   ~/code/<project>/pins/OLD_FULL_GIT_OBJECT_ID
 ```
 
@@ -53,7 +53,7 @@ Repeat the consumer argument for every recorded consumer. The helper checks
 cleanliness, detachment, naming, publication, registration, agreement, and
 remaining references before removal. Git history recovers committed content;
 it does not recover untracked work or prove live consumers are finished.
-A pin with no `.pin` sidecar is retired by the agent, never handed to Tom, with `pin-retire --unconsumed -- ~/code/<project>/pins/NAME`; it proves naming, reachability, no references and cleanliness, then removes it.
+A pin with no `.pin` sidecar is retired by the agent, never handed to Tom, with `north pin-retire --unconsumed -- ~/code/<project>/pins/NAME`; it proves naming, reachability, no references and cleanliness, then removes it.
 
 ## Destructive operations and denials
 

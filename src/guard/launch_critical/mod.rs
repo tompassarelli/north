@@ -246,7 +246,7 @@ impl Policy {
         };
         let container = format!("{}/{}", self.root, hit.project);
         format!(
-            "A pin is not a lane. Do not edit it, and do not cut a worktree from it:\n  cat {container}/pins/{name}.pin        # who consumes it, on what terms\nTo advance a consumer, leave this checkout untouched and create a new pin:\n  PIN_OBJECT_ID=FULL_GIT_OBJECT_ID\n  git -C {container}/main worktree add --detach {container}/pins/$PIN_OBJECT_ID $PIN_OBJECT_ID\n  # write {container}/pins/$PIN_OBJECT_ID.pin, then update the consumer\nAfter read-only checks prove every named consumer moved, retire the old pin:\n  pin-retire --consumer-main CONSUMER/main -- {container}/pins/{name}\nRaw removal stays denied; the old path and HEAD remain immutable until retirement.\n"
+            "A pin is not a lane. Do not edit it, and do not cut a worktree from it:\n  cat {container}/pins/{name}.pin        # who consumes it, on what terms\nTo advance a consumer, leave this checkout untouched and create a new pin:\n  PIN_OBJECT_ID=FULL_GIT_OBJECT_ID\n  git -C {container}/main worktree add --detach {container}/pins/$PIN_OBJECT_ID $PIN_OBJECT_ID\n  # write {container}/pins/$PIN_OBJECT_ID.pin, then update the consumer\nAfter read-only checks prove every named consumer moved, retire the old pin:\n  north pin-retire --consumer-main CONSUMER/main -- {container}/pins/{name}\nRaw removal stays denied; the old path and HEAD remain immutable until retirement.\n"
         )
     }
     fn base_env(&self) -> Env {

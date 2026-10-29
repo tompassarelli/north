@@ -114,7 +114,7 @@ impl Policy {
                         && let Some(pin) = self.sidecar(&path)
                         && let Some(hit) = self.protected(&pin)
                     {
-                        return Some(self.deny(&path, &hit, &format!("delete live consumer metadata with `{base}`; use `pin-retire --consumer-main CONSUMER/main -- {pin}` instead")));
+                        return Some(self.deny(&path, &hit, &format!("delete live consumer metadata with `{base}`; use `north pin-retire --consumer-main CONSUMER/main -- {pin}` instead")));
                     }
                     if let Some(hit) = self.protected(&path) {
                         if DESTRUCTIVE_COMMANDS.contains(&base)
@@ -133,7 +133,7 @@ impl Policy {
                             && let Some(pin) = self.sidecar(&path)
                             && let Some(hit) = self.protected(&pin)
                         {
-                            return Some(self.deny(&path, &hit, &format!("move live consumer metadata; use `pin-retire --consumer-main CONSUMER/main -- {pin}` instead")));
+                            return Some(self.deny(&path, &hit, &format!("move live consumer metadata; use `north pin-retire --consumer-main CONSUMER/main -- {pin}` instead")));
                         }
                     }
                 }
