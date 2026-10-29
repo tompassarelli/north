@@ -16,10 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shellcmd
 
 TRIGGERS = {
-    'clipboard': (['wl-copy hi', 'wl-copy --clear', '/run/current-system/sw/bin/wl-copy hi', 'niri msg action screenshot-window', 'niri msg -j action screenshot-screen', 'wl-paste', 'wl-paste --list-types', 'xclip -o -selection clipboard', 'xsel -o'], ['echo "wl-paste"', 'rg wl-paste socrates', 'agent-capture --screen /tmp/s.png', 'niri msg action focus-window --id 3']),
     'generated-policy': (['sed -i s/a/b/ {cwd}/src/host.nix', 'tee {home}/.claude/CLAUDE.md', 'sd old new {home}/.claude/CLAUDE.md', 'cp /tmp/x {home}/.codex/AGENTS.md', 'mv /tmp/x {home}/.codex/skills/a/SKILL.md'], ['cat {home}/.claude/CLAUDE.md', 'sed -n p {cwd}/src/host.nix', 'sed -i s/a/b/ {cwd}/src/plain.nix', 'cp {home}/.claude/CLAUDE.md /tmp/claude.md', 'agents sync']),
-    'native-launch': (['wine game.exe', 'wine64 game.exe', 'proton run game.exe', 'steam-run wine game.exe'], ['ls game.exe', 'pgrep -f game.exe', 'bun /opt/machine-capacity.mjs session --class native --owner x -- wine game.exe']),
-    'native-item': (['gh issue comment 5 --body life#1', 'gh pr edit 3 --body travel#2'], ['gh issue view 1', 'gh issue comment 5 --body landed', 'threads note life#1 progress']),
 }
 
 
@@ -126,8 +123,7 @@ def exercise(name, home, cwd, boundary):
         single = "'" + trigger.replace("'", "'\"'\"'") + "'"
         double = '"' + trigger.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`') + '"'
         for data in [single, double, 'echo ' + single, 'echo ' + double, 'git commit -m ' + single, "cat <<'BODY'\n" + trigger + '\nBODY', 'echo '+trigger]:
-            expected = data in (single, double) and name == 'native-launch'
-            check(guard(data, cwd) == expected, name + ' inert data', data)
+            check(not guard(data, cwd), name + ' inert data', data)
             count += 1
         for separator in (';', '&&', '|', '\n', '('):
             prose = 'example ' + separator + ' ' + trigger
@@ -139,53 +135,6 @@ def exercise(name, home, cwd, boundary):
     for command in near_misses:
         check(not guard(command, cwd), name + ' near miss', command)
         count += 1
-    if name == 'native-item':
-        import sqlite3
-        database = Path(home) / '.local/state/threads/threads.db'
-        database.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(database) as connection:
-            connection.executescript("CREATE TABLE items(title TEXT, body TEXT); CREATE TABLE events(kind TEXT, data TEXT); INSERT INTO items VALUES ('the orange bicycle beside the gate', 'repaint the garden shed blue tomorrow'); INSERT INTO events VALUES ('note', '{\"text\":\"the parcel went to the neighbour; authorization for landing and roles across providers and models account 873492 booking Q7R9Z2 contact native@example.test handle @native on 2026-10-26\"}');")
-        active = Path(home) / 'activation.active'
-        active.write_text('hook native-item-guard\n')
-        env = dict(os.environ, NORTH_AGENT_ACTIVE=str(active), AGENT_NO_AUTHORING_HOOKS='0')
-
-        def native_entry(command, **overrides):
-            payload = {'tool_name': 'Bash', 'cwd': cwd, 'tool_input': {'command': command}}
-            result = subprocess.run([str(path)], input=json.dumps(payload), text=True, capture_output=True,
-                                    env=dict(env, **overrides), check=True, timeout=30)
-            decoded = json.loads(result.stdout or '{}')
-            return (decoded.get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny'
-
-        body = Path(cwd) / 'body.md'
-        body.write_text('see the orange bicycle beside the gate')
-        for command in ['gh issue comment 5 --body "the orange bicycle beside the gate"', 'gh issue comment 5 --body-file body.md', 'gh api repos/x/y/issues -F body=@body.md', "gh issue comment 5 --body-file - <<'BODY'\nlife#1\nBODY"]:
-            check(guard(command, cwd), name + ' SQLite/body-file boundary', command)
-            check(native_entry(command), name + ' SQLite/body-file entry point', command)
-            count += 2
-        for command in ['gh issue edit 5 --title "Harness landing RBAC: authorized roles across providers and models"',
-                        'gh issue comment 5 --body "Harness landing RBAC: authorized roles across providers and models"',
-                        'gh issue comment 5 --body "the orange bicycle beside the"',
-                        'gh issue comment 5 --body "ordinary authorization for landing and prose"', 'gh issue comment 5 --body "Tom chose this (2026-10-26)"',
-                        'gh issue comment 5 --body "repaint the garden shed blue tomorrow"', 'gh issue comment 5 --body "the parcel went to the neighbour"', 'gh issue comment 5 --body "account 873492 contact native@example.test handle @native"', 'gh issue comment 5 --body "the gpt-6.1-sol high rise, build 0.0.192"', 'rg -n life#1 src | head', 'sed -n 100,150p a.rs', 'head -30 life#1.md',
-                        'gh issue view life#1', 'gh issue view 5 --json title,body']:
-            check(not native_entry(command), name + ' adjacent prose/read entry point', command)
-            count += 1
-        for text in ['THE ORANGE BICYCLE BESIDE THE GATE', 'the orange\n bicycle beside, the gate',
-                     'life#1', 'accounts#2', 'travel#3', 'ops#4']:
-            command = 'gh issue comment 5 --body ' + shlex.quote(text)
-            check(native_entry(command), name + ' private text entry point', command)
-            count += 1
-        check(not native_entry('gh issue comment 5 --body life#1', AGENT_NO_AUTHORING_HOOKS='1'),
-              name + ' override entry point', 'AGENT_NO_AUTHORING_HOOKS=1')
-        malformed = subprocess.run([str(path)], input='{"gh":', text=True, capture_output=True,
-                                   env=env, check=True, timeout=30)
-        check(not malformed.stdout, name + ' malformed payload entry point', '{"gh":')
-        count += 2
-        database.unlink()
-        check(not guard('gh issue comment 5 --body "the orange bicycle"', cwd), name + ' missing database', 'missing database')
-        check(not native_entry('gh issue comment 5 --body "the orange bicycle beside the gate"'),
-              name + ' missing database entry point', 'missing database')
-        count += 2
     if boundary:
         active = Path(home) / 'activation.active'
         active.write_text('hook ' + name + '-guard\n')

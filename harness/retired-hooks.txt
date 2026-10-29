@@ -1,10 +1,15 @@
 chat-post.sh
+clipboard-guard.sh
 code-health-edit.sh
 corpus-scan-guard.sh
 heavy-command-guard.sh
 modern-search-guard.sh
+native-item-guard.sh
+native-launch-guard.sh
 resource-safe-search-guard.sh
+session-kill-guard.sh
 subagent-teardown.sh
 unlanded-work.sh
 worker-handoff.sh
 worker-tier-guard.sh
+worker-wait-guard.sh
