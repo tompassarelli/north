@@ -101,10 +101,12 @@ fn run_queue_over_thread_count_still_admits_moderate_critical_and_tom() {
 }
 
 #[test]
-fn run_queue_at_thread_count_still_admits_heavy() {
+fn heavy_runs_only_while_the_run_queue_leaves_room_for_its_cpus_under_the_thread_count() {
     let (mut facts, _) = overload("heavy", Some("native:smashcraft"));
-    facts.run_queue_load = Some(f64::from(facts.cores));
+    facts.run_queue_load = Some(f64::from(facts.cores) - facts.requested_cpus);
     assert_eq!(decide(&facts), Reason::Run);
+    facts.run_queue_load = Some(f64::from(facts.cores) - facts.requested_cpus + 0.5);
+    assert_eq!(decide(&facts), Reason::DeferRunQueue);
 }
 
 fn beside(class: Class, quiet_native_runs: u32, beside_native: bool) -> Reason {
@@ -440,26 +442,18 @@ fn heavy_beside_clients(leased_batch_cpus: f64, gpu_clients: u32) -> Facts {
 }
 
 #[test]
-fn heavy_up_to_the_reserve_runs_above_the_thread_count_while_native_clients_run() {
-    assert_eq!(decide(&heavy_beside_clients(0.0, 3)), Reason::Run);
-    assert_eq!(decide(&heavy_beside_clients(6.0, 3)), Reason::Run);
-    assert_eq!(decide(&heavy_beside_clients(6.5, 3)), Reason::DeferRunQueue);
-    assert_eq!(decide(&heavy_beside_clients(0.0, 0)), Reason::DeferRunQueue);
+fn native_clients_lift_the_run_queue_gate_for_neither_heavy_nor_exclusive_work() {
+    let heavy = heavy_beside_clients(0.0, 3);
+    assert_eq!((decide(&heavy), decide(&Facts { class: Class::Exclusive, ..heavy.clone() })), (Reason::DeferRunQueue, Reason::DeferRunQueue));
+    assert_eq!(decide(&Facts { run_queue_load: Some(14.0), ..heavy }), Reason::Run);
 }
 
 #[test]
-fn the_heavy_reserve_does_not_lift_the_run_queue_gate_for_exclusive_work() {
-    let facts = Facts { class: Class::Exclusive, ..heavy_beside_clients(0.0, 3) };
-    assert_eq!(decide(&facts), Reason::DeferRunQueue);
-}
-
-#[test]
-fn either_a_live_client_or_native_cpus_open_the_heavy_reserve_and_untracked_load_closes_it() {
-    let clients_only = Facts { leased_native_cpus: 0.0, ..heavy_beside_clients(0.0, 3) };
-    let native_only = Facts { gpu_clients: 0, ..heavy_beside_clients(0.0, 3) };
-    let untracked = Facts { unleased_heavy_cores: 7.0, ..heavy_beside_clients(0.0, 3) };
-    let crowded = Facts { leased_native_cpus: 15.0, ..heavy_beside_clients(0.0, 3) };
-    assert_eq!((decide(&clients_only), decide(&native_only), decide(&untracked), decide(&crowded)), (Reason::Run, Reason::Run, Reason::DeferRunQueue, Reason::DeferRunQueue));
+fn a_request_for_the_whole_host_waits_only_for_the_run_queue_to_reach_the_thread_count() {
+    let exclusive = Facts { class: Class::Exclusive, requested_cpus: 20.0, run_queue_load: Some(19.0), ..heavy_beside_clients(0.0, 0) };
+    let small = Facts { cores: 4, requested_cpus: 4.0, run_queue_load: Some(1.5), ..heavy_beside_clients(0.0, 0) };
+    assert_eq!((decide(&exclusive), decide(&Facts { run_queue_load: Some(20.5), ..exclusive.clone() })), (Reason::Run, Reason::DeferRunQueue));
+    assert_eq!((super::run_queue::overloaded(&small), super::run_queue::overloaded(&Facts { run_queue_load: Some(2.5), ..small.clone() })), (false, true));
 }
 
 #[test]

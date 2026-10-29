@@ -24,7 +24,7 @@ fn host(prefix: &str, orchestration: &str) -> Host {
 fn cargo(host: &Host, arguments: &[&str]) -> Command {
     let mut command = host.command(env!("CARGO_BIN_EXE_north"));
     let path = format!("{}:{}:{}:{}", host.path("shims").display(), host.path("toolchain").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default());
-    command.args(["capacity", "gate"]).arg(host.path("shims/cargo")).args(arguments).env("PATH", path).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("AGENT_CAPACITY_LEASE").env_remove("NORTH_FLEET_SESSION");
+    command.args(["capacity", "gate"]).arg(host.path("shims/cargo")).args(arguments).env("PATH", path).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("AGENT_CAPACITY_LEASE").env_remove("NORTH_FLEET_SESSION").env_remove("CARGO_BUILD_JOBS");
     command
 }
 
@@ -62,7 +62,7 @@ fn the_shim_runs_the_next_cargo_on_path_when_north_has_no_gate() {
     fs::write(&stale, "#!/bin/sh\necho usage >&2\nexit 2\n").unwrap();
     fs::set_permissions(&stale, fs::Permissions::from_mode(0o755)).unwrap();
     let path = format!("{}:{}:{}:/run/current-system/sw/bin:/usr/bin:/bin", host.path("stale").display(), host.path("shims").display(), host.path("toolchain").display());
-    let status = Command::new(host.path("shims/cargo")).arg("test").env("PATH", path).status().unwrap();
+    let status = Command::new(host.path("shims/cargo")).arg("test").env("PATH", path).env_remove("CARGO_BUILD_JOBS").status().unwrap();
     assert!(status.success());
     assert_eq!(fs::read_to_string(host.path("built")).unwrap(), " test\n");
 }

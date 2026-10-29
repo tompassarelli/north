@@ -634,13 +634,6 @@ source = "measured: 10 workers launched onto the GPU host in an hour on 2026-10-
 fallback = "an unreadable queue does not skip the host"
 consumers = ["src/capacity/saturation.rs"]
 
-[heavy_reserve_cpus]
-value = 12
-unit = "leased batch CPUs (committed, with unleased heavy cores and the request) up to which a heavy request ignores a run queue above the thread count while Warcraft clients run"
-source = "measured: 2026-10-29 on the GPU host (20 threads), 3 live native clients drew 1.2 to 2.0 cores each (4.4 with the pair agent) while the 1-minute load average stood at 21 to 25 with CPU pressure at 11.6%, so DEFER_RUN_QUEUE held heavy tickets for 12.1 h (landing-blockers audit); 12 admits two 6-core heavy runs beside them, fewer when moderate runs share the reserve"
-fallback = "an unreadable setting is a build error, as for every default"
-consumers = ["src/capacity/run_queue.rs"]
-
 [quiet_idle_cores]
 value = 0.25
 unit = "measured cores of a quiet native lease's scope below which its clients count as idle"

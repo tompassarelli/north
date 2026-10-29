@@ -384,21 +384,20 @@ out=$(tail -1 "$scratch/prop.out")
 check '[property] 1,000 generated native refs and titles: gh refuses every argv naming one and none appears in the logged gh argv' \
   '[ "$out" = "refused=1000 leaked=0" ]'
 
-# 40 processes, each making 25 claims through NorthThreads' own entry point.
-for w in $(seq 1 40); do
-  python3 - "$threads" "$w" <<'PY' >/dev/null 2>>"$scratch/writers.err" &
+writers=$(( $(nproc) * 2 )); writers=$(( writers < 4 ? 4 : writers > 40 ? 40 : writers )); claims=$(( (1000 + writers - 1) / writers )); total=$(( writers * claims ))
+for w in $(seq 1 "$writers"); do
+  python3 - "$threads" "$w" "$claims" <<'PY' >/dev/null 2>>"$scratch/writers.err" &
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("threads", sys.argv[1])
 spec = importlib.util.spec_from_loader("threads", loader)
 mod = importlib.util.module_from_spec(spec)
 loader.exec_module(mod)
-for n in range(25):
-    assert mod.main(["claim", f"wisp#{int(sys.argv[2]) * 100 + n}", "--by", f"w{sys.argv[2]}"]) == 0
+for n in range(int(sys.argv[3])):
+    assert mod.main(["claim", f"wisp#{int(sys.argv[2]) * 1000 + n}", "--by", f"w{sys.argv[2]}"]) == 0
 PY
-done
-wait
-kept=$(sqlite3 "$THREADS_DB" "select count(*) from claims where item like 'wisp#%'"); out="$kept of 1000 kept; writer errors:"$'\n'"$(sort "$scratch/writers.err" 2>/dev/null | uniq -c | head -5)"
-check '[invariant] 40 writers x 25 parallel writes keep all 1000' '[ "$kept" = 1000 ]'
+done; wait
+kept=$(sqlite3 "$THREADS_DB" "select count(*) from claims where item like 'wisp#%'"); out="$kept of $total kept; writer errors:"$'\n'"$(sort "$scratch/writers.err" 2>/dev/null | uniq -c | head -5)"
+check "[invariant] $writers writers x $claims parallel writes keep all $total" '[ "$kept" = "$total" ]'
 
 # The remote ledger over a fake ssh: ingest spools while it is unreachable, then flushes in order.
 mkdir -p "$scratch/home/.config/threads" "$scratch/remote"
