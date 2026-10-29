@@ -2,23 +2,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
-use std::sync::LazyLock;
 
 use serde_json::json;
-use toml_edit::DocumentMut;
 
 use super::issues::Issues;
 use super::ledger::{self, Taken};
-use super::{Claim, Issue, Standing};
+use super::{Claim, Issue, OVERDUE_RATIO, Standing};
 use crate::foundation::clock::Timestamp;
 use crate::threads::catalog::CATALOG;
 
 pub(crate) const VERBS: [&str; 2] = ["claim", "list"];
-
-static OVERDUE_RATIO: LazyLock<f64> = LazyLock::new(|| {
-    let defaults: DocumentMut = include_str!("../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses");
-    defaults["overdue_ratio"]["value"].as_integer().map(|ratio| ratio as f64).or_else(|| defaults["overdue_ratio"]["value"].as_float()).expect("overdue_ratio is a number")
-});
 
 pub(crate) struct Context<'a> {
     pub database: &'a Path,
@@ -26,6 +19,8 @@ pub(crate) struct Context<'a> {
     /// Why native items are hidden from this caller, when they are.
     pub no_native: Option<&'static str>,
     pub issues: &'a dyn Issues,
+    /// The owners of the sessions alive now, or `None` when no fleet could be read.
+    pub alive: Option<BTreeSet<String>>,
     pub now: i64,
 }
 
@@ -92,7 +87,7 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
     let mut db = ledger::open(context.database, true)?;
     let github = context.issues.read(&github_items(std::iter::once(item.as_str())));
     let issue = issue_of(&db, &item, &github);
-    Ok(match ledger::take(&mut db, &item, &by, eta, issue, context.now)? {
+    Ok(match ledger::take(&mut db, &item, &by, eta, issue, context.alive.as_ref(), context.now)? {
         Taken::Fresh | Taken::Renewed => format!("{by} owns {item}\n"),
         Taken::Voided { previous, why } => format!("{by} owns {item}; the claim by {} was void because {why}\n", previous.owner),
         Taken::Takeover { previous, idle_since } => {
@@ -113,7 +108,7 @@ pub(crate) fn standing_claims(context: &Context) -> Result<Vec<(Claim, Standing)
     Ok(claims
         .into_iter()
         .map(|claim| {
-            let standing = claim.standing(issue_of(&db, &claim.item, &github), context.now);
+            let standing = claim.standing(issue_of(&db, &claim.item, &github), context.alive.as_ref(), context.now);
             (claim, standing)
         })
         .filter(|(_, standing)| !matches!(standing, Standing::Void(_)))

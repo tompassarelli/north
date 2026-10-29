@@ -88,10 +88,12 @@ impl Ledger {
 #[test]
 fn ready_lists_open_issues_minus_open_blockers_live_claims_and_claims_of_live_owners() {
     let mut rig = ledger();
-    rig.outside.alive = vec!["carol"];
+    rig.outside.alive = vec!["bob", "carol"];
     rig.exec("INSERT INTO claims VALUES ('smashcraft#3', 'bob', '2026-10-28T08:00:00Z', 30), ('smashcraft#2', 'carol', '2026-10-20T08:00:00Z', 30), ('smashcraft#4', 'dave', '2026-10-20T08:00:00Z', 30)");
     assert_eq!(rig.out(&["ready", "--by", "x"]), "smashcraft#4\tT4\n");
     rig.outside.alive.clear();
+    assert_eq!(rig.ready(), ["smashcraft#2", "smashcraft#3", "smashcraft#4"]);
+    rig.outside.fleet_unread = true;
     assert_eq!(rig.ready(), ["smashcraft#2", "smashcraft#4"]);
     assert_eq!(rig.run(&["ready", "smashcraft#1"]).0, 2);
 }

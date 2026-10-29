@@ -10,7 +10,7 @@ threads=$repo/bin/threads
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/threads-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export THREADS_DB=$scratch/threads.db GH_TRACE=$scratch/gh.trace PATH=$scratch/bin:$PATH
-export AGENTS_ORCHESTRATION=$scratch/orchestration.toml NORTH_BIN=${NORTH_PACE_BIN:-$repo/target/debug/north}
+export AGENTS_ORCHESTRATION=$scratch/orchestration.toml NORTH_BIN=${NORTH_PACE_BIN:-$repo/target/debug/north} THREADS_ALIVE_OWNERS='["alice","bob","fixture"]'
 : >"$AGENTS_ORCHESTRATION"
 
 # smashcraft: #1 blocked by open #2, #2 open, #3 open, #4 blocked by closed #5.

@@ -173,7 +173,7 @@ impl Client {
         let ledger = ledger.unwrap_or_else(|| self.home.join(".local/state/threads/threads.db"));
         let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
         if claims::verbs::VERBS.contains(&verb) {
-            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, now: Timestamp::now().unix_seconds() };
+            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: verb::Outside::alive_owners(&outside::Live::new(&self.env)), now: Timestamp::now().unix_seconds() };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
         }
         let ported: Option<verb::Verb> = if jobs::VERBS.contains(&verb) {
@@ -433,8 +433,8 @@ impl Client {
             remote.push("THREADS_NO_NATIVE=1".to_owned());
         }
         let first = args.first().map(String::as_str);
-        if first == Some("unowned") {
-            remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&outside::fleet_owners(self.var("NORTH_BIN").unwrap_or("north")).into_iter().collect::<Vec<_>>())));
+        if matches!(first, Some("unowned" | "claim" | "list")) && let Some(owners) = outside::fleet_owners(self.var("NORTH_BIN").unwrap_or("north")) {
+            remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&owners.into_iter().collect::<Vec<_>>())));
         }
         if first == Some("show") {
             remote.push("THREADS_ARCHIVES_LOCAL=1".to_owned());
@@ -658,10 +658,14 @@ exit "$(cat "$ROOT/code")"
         let rig = rig;
         assert_eq!(call(&rig, &["show", "north#63"], b"").0, 0);
         assert_eq!(call(&rig, &["unowned"], b"").0, 0);
+        assert_eq!(call(&rig, &["claim", "north#63"], b"").0, 0);
+        assert_eq!(call(&rig, &["list"], b"").0, 0);
         assert_eq!(log(&rig, "ssh.log"), [
             format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 THREADS_ARCHIVES_LOCAL=1 threads show 'north#63'"),
             format!("{PREFIX} north threads snapshot-pages"),
             format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' threads unowned"),
+            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' threads claim 'north#63'"),
+            format!("{PREFIX} env 'THREADS_ACTOR=lead one' THREADS_NO_NATIVE=1 'THREADS_ALIVE_OWNERS=[\"codex:s9\", \"s9\", \"w2\"]' threads list"),
         ]);
         assert!(fs::read(&rig.client.snapshot).unwrap().starts_with(b"SQLite format 3"));
     }
@@ -686,7 +690,7 @@ exit "$(cat "$ROOT/code")"
         assert_eq!(log(&rig, "ssh.log")[attempts..], [
             format!("{PREFIX} threads job-run nightly --host laptop"),
             format!("{PREFIX} north threads ingest"),
-            format!("{PREFIX} threads list"),
+            format!("{PREFIX} env 'THREADS_ALIVE_OWNERS=[]' threads list"),
             format!("{PREFIX} north threads snapshot-pages"),
         ]);
         assert_eq!(log(&rig, "ingest.log"), ["{\"type\": \"run\"}"]);

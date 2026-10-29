@@ -87,7 +87,7 @@ fn ledger() -> Ledger {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("threads.db");
     Connection::open(&path).unwrap().execute_batch(SCHEMA).unwrap();
-    Ledger { _directory: directory, path, outside: Recorded { respond: Some(github), ..Recorded::default() } }
+    Ledger { _directory: directory, path, outside: Recorded { respond: Some(github), alive: vec!["alice", "bob", "dave"], ..Recorded::default() } }
 }
 
 impl Ledger {

@@ -46,6 +46,7 @@ impl Rig {
             .env("THREADS_DB", self.root.join("threads.db"))
             .env("AGENTS_ORCHESTRATION", self.root.join("orchestration.toml"))
             .env("NORTH_BIN", env!("CARGO_BIN_EXE_north"))
+            .env("THREADS_ALIVE_OWNERS", r#"["bob","carol"]"#)
             .env("PATH", format!("{}:{}", self.root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
             .env_remove("THREADS_NO_NATIVE")
             .env_remove("CLAUDE_CODE_REMOTE")

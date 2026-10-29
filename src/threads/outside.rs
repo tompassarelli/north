@@ -47,10 +47,14 @@ impl super::verb::Outside for Live {
         crate::platform::github::run_patiently(args, "NorthThreads")
     }
 
-    fn alive_owners(&self) -> BTreeSet<String> {
-        let mut owners = fleet_owners(&self.north);
+    fn alive_owners(&self) -> Option<BTreeSet<String>> {
+        let fleet = fleet_owners(&self.north);
+        if fleet.is_none() && self.relayed_owners.is_empty() {
+            return None;
+        }
+        let mut owners = fleet.unwrap_or_default();
         owners.extend(self.relayed_owners.iter().cloned());
-        owners
+        Some(owners)
     }
 
     fn archives(&self, repo: &str, number: u64) -> String {
@@ -76,14 +80,11 @@ impl super::verb::Outside for Live {
 }
 
 /// The names, conversations and provider:conversation ids of this host's sessions that have not
-/// exited, as `north fleet list --json` shows them.
-pub(crate) fn fleet_owners(north: &str) -> BTreeSet<String> {
+/// exited, as `north fleet list --json` shows them; `None` when that list could not be read, so an unread fleet is not taken for an empty one.
+pub(crate) fn fleet_owners(north: &str) -> Option<BTreeSet<String>> {
     let mut owners = BTreeSet::new();
-    let Ok(output) = Command::new(north).args(["fleet", "list", "--json"]).output() else { return owners };
-    if !output.status.success() {
-        return owners;
-    }
-    let Some(sessions) = serde_json::from_slice::<Value>(&output.stdout).ok().and_then(|value| value.as_array().cloned()) else { return owners };
+    let output = Command::new(north).args(["fleet", "list", "--json"]).output().ok().filter(|output| output.status.success())?;
+    let sessions = serde_json::from_slice::<Value>(&output.stdout).ok().and_then(|value| value.as_array().cloned())?;
     for session in sessions.iter().filter(|session| session.get("status").and_then(Value::as_str) != Some("exited")) {
         let text = |key: &str| session.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
         owners.extend(text("name").map(str::to_owned));
@@ -92,7 +93,7 @@ pub(crate) fn fleet_owners(north: &str) -> BTreeSet<String> {
             owners.insert(format!("{provider}:{conversation}"));
         }
     }
-    owners
+    Some(owners)
 }
 
 pub(crate) fn gitleaks_clean(text: &str) -> Result<(), String> {

@@ -1,4 +1,5 @@
 //! Claims as the NorthThreads SQLite ledger stores them; bin/threads owns the schema.
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
 
@@ -73,14 +74,14 @@ fn event(db: &Connection, at: &str, item: &str, kind: &str, actor: &str, data: &
 
 /// Claims `item` for `by` in one immediate transaction: a new claim, a renewal of `by`'s own, a
 /// replacement of a void claim, a takeover of a stale one, or a refusal by a live one.
-pub(crate) fn take(db: &mut Connection, item: &str, by: &str, eta_min: Option<i64>, issue: Issue, now: i64) -> Result<Taken, String> {
+pub(crate) fn take(db: &mut Connection, item: &str, by: &str, eta_min: Option<i64>, issue: Issue, alive: Option<&BTreeSet<String>>, now: i64) -> Result<Taken, String> {
     let at = Timestamp::from_unix_seconds(now).iso();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| error.to_string())?;
     let held = tx.query_row(&format!("{CLAIMS} WHERE c.item = ?1"), [item], row).optional().map_err(|error| error.to_string())?;
     let taken = match held {
         None => Taken::Fresh,
         Some(claim) if claim.owner == by => Taken::Renewed,
-        Some(claim) => match claim.standing(issue, now) {
+        Some(claim) => match claim.standing(issue, alive, now) {
             Standing::Live => Taken::Refused(claim),
             Standing::Void(why) => Taken::Voided { previous: claim, why },
             Standing::Stale { idle_since } => Taken::Takeover { previous: claim, idle_since },

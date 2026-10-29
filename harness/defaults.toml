@@ -96,7 +96,7 @@ value = 2
 unit = "multiple of a claim's or worker's ETA before it flags OVERDUE or OVERTIME"
 source = "measured: runs minutes/eta_min (threads calibrate kind eta), workers, 7d to 2026-10-12, n=969, p90 1.30, p95 1.87, 4.1% over 2x"
 fallback = "a claim or worker with no ETA never flags by ratio; overtime_min still applies"
-consumers = ["src/threads/claims/verbs.rs"]
+consumers = ["src/threads/claims/mod.rs"]
 
 [overtime_min]
 value = 45

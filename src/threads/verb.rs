@@ -26,8 +26,8 @@ pub(crate) trait Outside: Issues {
     fn scan(&self, text: &str) -> Result<(), String>;
     /// Runs gh with these arguments and returns its stdout.
     fn gh(&self, args: &[String]) -> Result<String, String>;
-    /// Who owns a session alive now, here or as relayed by the caller.
-    fn alive_owners(&self) -> BTreeSet<String>;
+    /// Who owns a session alive now, here or as relayed by the caller; `None` when no fleet could be read.
+    fn alive_owners(&self) -> Option<BTreeSet<String>>;
     /// The archive tags naming an issue, with their restore commands, as `show` prints them.
     fn archives(&self, repo: &str, number: u64) -> String;
     /// Each service's dollars per week from the operator's costs.toml.

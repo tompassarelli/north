@@ -28,6 +28,7 @@ struct Ledger {
     path: PathBuf,
     issues: Seen,
     no_native: Option<&'static str>,
+    alive: Option<BTreeSet<String>>,
 }
 
 fn at(text: &str) -> i64 {
@@ -39,7 +40,7 @@ fn ledger(issues: &[(u64, Issue)]) -> Ledger {
     let path = directory.path().join("threads.db");
     Connection::open(&path).unwrap().execute_batch(SCHEMA).unwrap();
     let issues = Seen(issues.iter().map(|(number, issue)| (("smashcraft".to_owned(), *number), *issue)).collect());
-    Ledger { _directory: directory, path, issues, no_native: None }
+    Ledger { _directory: directory, path, issues, no_native: None, alive: None }
 }
 
 impl Ledger {
@@ -53,7 +54,7 @@ impl Ledger {
     }
 
     fn run(&self, argv: &[&str]) -> (i32, String, String) {
-        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, issues: &self.issues, now: at(NOW) };
+        let context = Context { database: &self.path, actor: "tester".into(), no_native: self.no_native, issues: &self.issues, alive: self.alive.clone(), now: at(NOW) };
         let argv: Vec<String> = argv.iter().map(|arg| (*arg).to_owned()).collect();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = verbs::run(&argv, &context, &mut out, &mut err);
@@ -134,7 +135,7 @@ fn a_claim_a_day_past_its_eta_with_no_newer_owner_event_is_taken_over_with_a_tak
 fn a_live_claim_still_refuses_and_dispatch_holds_it_even_when_github_is_unread() {
     let ledger = ledger(&[(492, Issue::Open { opened: at("2026-10-27T03:00:00Z") })]);
     ledger.claimed("smashcraft#492", "tom", "2026-10-27T04:18:00Z", None);
-    ledger.claimed("smashcraft#600", "w600", "2026-10-27T10:00:00Z", Some(30));
+    ledger.claimed("smashcraft#600", "w600", "2026-10-27T10:00:00Z", Some(90));
     let (code, out, err) = ledger.run(&["claim", "tompassarelli/smashcraft#492", "--by", "sc-492-w"]);
     assert_eq!((code, out.as_str(), err.as_str()), (1, "", "NorthThreads: smashcraft#492 is already owned by tom\n"));
     assert_eq!(ledger.run(&["claim", "smashcraft#600"]).0, 1);
@@ -167,4 +168,43 @@ fn a_caller_that_may_not_read_native_items_lists_no_native_claim() {
     assert_eq!(ledger.listed(), ["smashcraft#3"]);
     assert!(!ledger.run(&["list", "--json"]).1.contains("life#"));
     assert_eq!(ledger.run(&["claim", "life#1"]).2, "NorthThreads: native items are not readable here: THREADS_NO_NATIVE is set (agy)\n");
+}
+
+#[test]
+fn a_claim_whose_owner_is_not_a_live_fleet_session_is_void_and_the_next_claimer_takes_it() {
+    let opened = Issue::Open { opened: at("2026-10-01T00:00:00Z") };
+    let mut ledger = ledger(&[(309, opened), (310, opened)]);
+    ledger.claimed("smashcraft#309", "c00dae06", "2026-10-27T10:00:00Z", Some(40));
+    ledger.claimed("smashcraft#310", "w310", "2026-10-27T11:30:00Z", Some(120));
+    ledger.alive = Some(BTreeSet::from(["w310".to_owned()]));
+    assert_eq!(ledger.listed(), ["smashcraft#310"]);
+    assert_eq!(ledger.dispatch_holds(), ["smashcraft#310"]);
+    let (code, out, err) = ledger.run(&["claim", "smashcraft#309", "--by", "sc-309-w", "--eta", "30"]);
+    assert_eq!((code, err.as_str()), (0, ""));
+    assert_eq!(out, "sc-309-w owns smashcraft#309; the claim by c00dae06 was void because its owner is not a live fleet session\n");
+    assert_eq!(ledger.owner("smashcraft#309"), "sc-309-w");
+    let (code, _, err) = ledger.run(&["claim", "smashcraft#310", "--by", "sc-310-w"]);
+    assert_eq!((code, err.as_str()), (1, "NorthThreads: smashcraft#310 is already owned by w310\n"));
+}
+
+#[test]
+fn an_unread_fleet_voids_no_claim() {
+    let ledger = ledger(&[(309, Issue::Open { opened: at("2026-10-01T00:00:00Z") })]);
+    ledger.claimed("smashcraft#309", "c00dae06", "2026-10-27T11:00:00Z", Some(120));
+    assert_eq!(ledger.listed(), ["smashcraft#309"]);
+    assert_eq!(ledger.run(&["claim", "smashcraft#309", "--by", "sc-309-w"]).0, 1);
+}
+
+#[test]
+fn a_claim_past_twice_its_eta_is_taken_unless_its_owner_recorded_an_event_since_the_eta() {
+    let opened = Issue::Open { opened: at("2026-10-01T00:00:00Z") };
+    let ledger = ledger(&[(61, opened), (62, opened)]);
+    ledger.claimed("smashcraft#61", "w61", "2026-10-27T10:00:00Z", Some(40));
+    ledger.claimed("smashcraft#62", "w62", "2026-10-27T10:00:00Z", Some(40));
+    ledger.db().execute("INSERT INTO events(ts, item, kind, actor) VALUES ('2026-10-27T11:30:00Z', 'smashcraft#62', 'note', 'w62')", []).unwrap();
+    let (code, out, _) = ledger.run(&["claim", "smashcraft#61", "--by", "sc-61-w"]);
+    assert_eq!(code, 0);
+    assert!(out.starts_with("sc-61-w owns smashcraft#61, taken over from w61: stale, no owner event since 2026-10-27T10:40:00Z"), "{out}");
+    let (code, _, err) = ledger.run(&["claim", "smashcraft#62", "--by", "sc-62-w"]);
+    assert_eq!((code, err.as_str()), (1, "NorthThreads: smashcraft#62 is already owned by w62\n"));
 }

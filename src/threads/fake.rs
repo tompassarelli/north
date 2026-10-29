@@ -18,6 +18,8 @@ pub(crate) struct Recorded {
     pub reply: &'static str,
     pub answers: Vec<(&'static str, String)>,
     pub alive: Vec<&'static str>,
+    /// The fleet list cannot be read, so no owner is known alive or dead.
+    pub fleet_unread: bool,
     pub archived: &'static str,
     pub refuse: Option<&'static str>,
     /// Answers a call from its joined arguments before `answers` and `reply` are tried.
@@ -51,8 +53,8 @@ impl Outside for Recorded {
         Ok(self.answers.iter().find(|(needle, _)| joined.contains(needle)).map_or(self.reply, |(_, reply)| reply.as_str()).to_owned())
     }
 
-    fn alive_owners(&self) -> BTreeSet<String> {
-        self.alive.iter().map(|owner| (*owner).to_owned()).collect()
+    fn alive_owners(&self) -> Option<BTreeSet<String>> {
+        (!self.fleet_unread).then(|| self.alive.iter().map(|owner| (*owner).to_owned()).collect())
     }
 
     fn archives(&self, _repo: &str, _number: u64) -> String {

@@ -166,8 +166,9 @@ fn ready(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
 
 /// The claims that hold their issue: live ones, and stale ones whose owner is alive now.
 pub(crate) fn held(context: &Context) -> Result<BTreeMap<String, Claim>, Failure> {
-    let claims_context = claims::verbs::Context { database: context.database, actor: context.actor.clone(), no_native: context.no_native, issues: context.outside, now: context.now.unix_seconds() };
     let alive = context.outside.alive_owners();
+    let claims_context = claims::verbs::Context { database: context.database, actor: context.actor.clone(), no_native: context.no_native, issues: context.outside, alive: alive.clone(), now: context.now.unix_seconds() };
+    let alive = alive.unwrap_or_default();
     Ok(claims::verbs::standing_claims(&claims_context)?
         .into_iter()
         .filter(|(claim, standing)| matches!(standing, Standing::Live) || alive.contains(&claim.owner))
