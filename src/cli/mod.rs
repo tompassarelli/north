@@ -73,6 +73,7 @@ Commands:
   autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
   land-abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land-clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
+  landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   land-tests [--jobs N] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
   safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag (branches still land through bin/safe-push)
   safe-push-result STATUS SHA REASON MINUTES URL  Print safe-push.s terminal result

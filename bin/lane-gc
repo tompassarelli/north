@@ -98,14 +98,18 @@ function newestMtime(paths: string[]): number {
   return m;
 }
 
+const CHERRY_LIMIT = 400;
 export type Verdict = { landed: boolean; ahead: number; how: string };
 export function landed(repo: string, base: string, tip: string): Verdict {
   if (git(repo, ["merge-base", "--is-ancestor", tip, base]).ok) return { landed: true, ahead: 0, how: "ancestor" };
   const ahead = Number(git(repo, ["rev-list", "--count", `${base}..${tip}`]).out || "0");
-  const cherry = git(repo, ["cherry", base, tip]);
-  if (cherry.ok && !cherry.out.split("\n").some((l) => l.startsWith("+"))) return { landed: true, ahead, how: "patch-equivalent" };
+  const tree = command(["north", "landed-tree", "--repo", repo, base, tip]);
+  if (tree.ok) return { landed: true, ahead, how: tree.out };
   const merged = git(repo, ["merge-tree", "--write-tree", base, tip]);
   if (merged.ok && merged.out.split("\n")[0] === git(repo, ["rev-parse", `${base}^{tree}`]).out) return { landed: true, ahead, how: "adds nothing" };
+  const diverged = Number(git(repo, ["rev-list", "--count", `${tip}..${base}`]).out || "0");
+  const cherry = diverged <= CHERRY_LIMIT ? git(repo, ["cherry", base, tip]) : undefined;
+  if (cherry?.ok && !cherry.out.split("\n").some((l) => l.startsWith("+"))) return { landed: true, ahead, how: "patch-equivalent" };
   return { landed: false, ahead, how: "" };
 }
 
