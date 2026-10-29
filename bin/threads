@@ -32,7 +32,6 @@ from ledger_context import UNTRACKED, box_groups, delivery_metrics
 from plan_usage import RUN_TIERS, bands_of, costs_by_id, resolve_bands, resolve_mode
 from policy_stats import wilson
 from run_outcome import succeeded, unjudged
-from thread_holders import local_alive_owners
 from ssh_transport import ssh_argv
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
@@ -1237,8 +1236,6 @@ def ssh(dest, args, **io):
     actor = os.environ.get("THREADS_ACTOR")
     remote = [f"THREADS_ACTOR={actor}"] if actor else []
     remote += ["THREADS_NO_NATIVE=1"] if no_native_reason() else []
-    owners = local_alive_owners() if args[:1] in (["unowned"], ["claim"], ["list"]) else set()
-    remote += [f"THREADS_ALIVE_OWNERS={json.dumps(sorted(owners))}"] if owners else []
     if args[:1] == ["show"]:
         remote += ["THREADS_ARCHIVES_LOCAL=1"]
     remote = ["env", *remote] if remote else []
@@ -1366,6 +1363,8 @@ def delegate(argv) -> int:
 def main(argv=None) -> int:
     global DB
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] in (["claim"], ["list"], ["unowned"]) and not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):
+        return subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", *argv]).returncode
     if argv[:1] == ["routing-compare"] and not os.environ.get("THREADS_DB"):
         DB = SNAPSHOT
     elif not os.environ.get("THREADS_DB") and os.path.exists(REMOTE):

@@ -59,7 +59,7 @@ usage_claude -> usage
 `policy_stats` is `harness/scripts/policy_stats.py`. Modules not named on the left import no other
 `harness/lib` module: `billing_digitalocean`, `defaults`, `durable_events`, `laptop_line`,
 `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
-`thread_holders`, `usage_agy`, `usage_codex`.
+`usage_agy`, `usage_codex`.
 
 ## The cycle
 
@@ -80,7 +80,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 
 1. `billing_digitalocean`, `claude_profiles`, `defaults`, `durable_events`, `laptop_line`, `policy_stats`,
    `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
-   `thread_holders`, `usage_agy`, `usage_codex`
+   `usage_agy`, `usage_codex`
 2. `calibration`, `ledger_context`, `presence`, `routing`, `usage_claude`
 3. `flow`, `plan_usage`, `recalibrate`, `report`
 4. `goal_eta`, `usage`
