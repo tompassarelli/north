@@ -4,6 +4,7 @@ use super::layout::{self, Layout, PROGRAMS, TREE};
 use super::pull;
 use super::remote;
 use super::store;
+use super::supersede::{self, SUPERSEDED};
 use crate::ops::land_offload;
 use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
@@ -18,11 +19,23 @@ const STEP_LIMIT: Duration = Duration::from_secs(300);
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 
+const SUPERSESSIONS: usize = 5;
+
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
     let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
         println!("north runtime update already running");
         return Ok(());
     };
+    for _ in 0..SUPERSESSIONS {
+        match pass(layout) {
+            Err(failure) if failure.code == SUPERSEDED => println!("north runtime: {}; restarting on the new origin/main", failure.message),
+            finished => return finished,
+        }
+    }
+    Err(failed(DEFERRED, "origin/main kept moving past each build; retrying on the next tick"))
+}
+
+fn pass(layout: &Layout) -> Result<(), Failure> {
     let checkout = checkout();
     let target = main_commit(&checkout)?;
     let short = &target[..8];
@@ -39,6 +52,7 @@ pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
     let promoted = promote(layout, &checkout, &target, previous.as_deref());
     if let Err(failure) = &promoted
         && failure.code != DEFERRED
+        && failure.code != SUPERSEDED
     {
         fs::write(layout.failed(), &target)?;
     }
@@ -80,7 +94,7 @@ pub(super) fn built_main(layout: &Layout, checkout: &Path) -> Result<(String, Pa
     Ok((target, runtime))
 }
 
-fn main_commit(checkout: &Path) -> Result<String, Failure> {
+pub(super) fn main_commit(checkout: &Path) -> Result<String, Failure> {
     fetch(checkout)?;
     git(checkout, &["rev-parse", "--verify", "origin/main^{commit}"])
 }
@@ -147,13 +161,14 @@ fn build(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
     }
     let lane = Lane::add(checkout, target)?;
     let built = layout::home().join(".cache/cargo-target/north");
-    let status = Command::new("bun")
+    let mut build = Command::new("bun");
+    build
         .arg(capacity_helper()?)
         .args(["run", "--class", "heavy", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
         .args(["nix", "develop", "-c", "cargo", "build", "--release", "--locked"])
         .current_dir(&lane.path)
-        .env("CARGO_TARGET_DIR", &built)
-        .status()?;
+        .env("CARGO_TARGET_DIR", &built);
+    let status = supersede::run(&mut build, target, || main_commit(checkout).ok())?;
     if !status.success() {
         return Err(failed(code(status), format!("build of {target} failed: {status}")));
     }

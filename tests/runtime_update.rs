@@ -337,3 +337,45 @@ fn a_host_that_declares_builds_runtime_false_defers_when_no_other_host_has_built
     assert!(String::from_utf8_lossy(&output.stderr).contains("this host does not build runtimes"));
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
 }
+
+#[test]
+fn a_build_whose_commit_is_no_longer_origin_main_is_abandoned_and_the_new_head_is_built() {
+    let host = Host::new();
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    let skill = host.path("skill/machine-capacity");
+    script(
+        &host.path("bin/agents"),
+        &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()),
+    );
+    script(
+        &host.path("bin/bun"),
+        "n=$(cat \"$TEST_COUNT\" 2>/dev/null || echo 0)\necho $((n + 1)) >\"$TEST_COUNT\"\n[ \"$n\" = 0 ] && exec sleep 120\n\
+         release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
+         for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
+    );
+    let count = host.path("count");
+    let source = host.path("source");
+    let home = host.path("home");
+    let started = std::time::Instant::now();
+    let output = std::thread::scope(|scope| {
+        let run = scope.spawn(|| {
+            host.north_with(
+                &["runtime", "update"],
+                &[("NORTH_RUNTIME_WATCH_SECONDS", "1"), ("TEST_COUNT", count.to_str().unwrap())],
+            )
+        });
+        while !count.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        git(&home, &source, &["commit", "-q", "--allow-empty", "-m", "second"]);
+        run.join().unwrap()
+    });
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert!(stdout.contains("abandoned its build") && stdout.contains("restarting on the new origin/main"), "{stdout}");
+    assert_eq!(fs::read_to_string(&count).unwrap().trim(), "2");
+    let head = git(&home, &source, &["rev-parse", "HEAD"]);
+    assert_eq!(host.current(), Path::new("runtimes").join(head));
+    assert!(started.elapsed() < std::time::Duration::from_secs(60));
+}

@@ -7,6 +7,7 @@ pub(crate) mod layout;
 mod pull;
 mod remote;
 mod store;
+mod supersede;
 mod update;
 
 use std::path::Path;
