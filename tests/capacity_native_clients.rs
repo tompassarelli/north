@@ -169,3 +169,24 @@ fn a_pair_whose_client_leases_have_all_started_and_ended_holds_nothing() {
     host.until("both client leases to end", |host| host.leases("native") == 1);
     assert_eq!(probe(&host, "2")["reason"], "RUN", "the pair's started clients release its hold even though no admission saw them run");
 }
+
+#[test]
+fn a_pair_client_launched_from_its_desktop_scope_draws_on_the_pairs_hold_through_its_inherited_lease() {
+    let host = attended_host_with_clients(&["/prefix/a", "/prefix/b"]);
+    let _pair = client_start(&host, "pair-0", "2", &["sleep", "60"]);
+    host.until("the pair to be admitted", |host| host.leases("native") == 1);
+    let pair = native_lease_id(&host);
+    let file = host.path("desktop-cgroup");
+    fs::write(&file, "0::/user.slice/user-1000.slice/user@1000.service/app.slice/private-desktop-client-7.scope\n").unwrap();
+    let from_desktop = |arguments: &[&str]| {
+        let mut command = helper(&host, arguments);
+        command.env("AGENT_CAPACITY_SELF_CGROUP", &file).env("AGENT_CAPACITY_LEASE", &pair);
+        command
+    };
+    let output = from_desktop(&["probe", "--class", "native", "--memory-gib", "1", "--new-clients", "1"]).output().unwrap();
+    assert_eq!(serde_json::from_slice::<Value>(&output.stdout).unwrap()["reason"], "RUN", "the pair's client, outside its scope, draws on the pair's hold");
+    let status = from_desktop(&["session", "--class", "native", "--memory-gib", "1", "--wait-seconds", "60", "--owner", "lan0a", "--", "true"]).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
+    assert!(status.success(), "the pair's client launch");
+    host.until("the client lease to end", |host| host.leases("native") == 1);
+    assert_eq!(probe(&host, "1")["reason"], "RUN", "the started client's slot leaves the pair's hold");
+}

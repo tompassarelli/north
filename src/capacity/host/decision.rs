@@ -143,10 +143,10 @@ fn add_to_lease(root: &Path, id: &str, key: &str, amount: u64) {
     }
 }
 
-/// The live native run lease whose scope this request comes from, such as a pair session launching its own clients.
+/// The live native run lease this request comes from, by the lease its wrapper exported or its cgroup scope, such as a pair session launching its own clients from their desktops.
 fn requester_lease(runs: &[&Value]) -> Option<String> {
-    let scope = enclosing_lease()?;
-    runs.iter().find(|lease| class(lease) == "native" && id(lease) == scope).map(|lease| id(lease).to_owned())
+    let ids = [env("AGENT_CAPACITY_LEASE"), enclosing_lease()];
+    runs.iter().find(|lease| class(lease) == "native" && ids.iter().flatten().any(|candidate| candidate == id(lease))).map(|lease| id(lease).to_owned())
 }
 
 struct Context {
