@@ -49,7 +49,17 @@ impl Run {
 
     /// The brief's Item, else the first issue the row's commits and issue commands name (encrypted Codex briefs).
     fn item(&self) -> Option<String> {
-        issue_ref(&self.either(self.f.item.as_deref(), "item")).or_else(|| self.r.get("refs").and_then(Value::as_array).and_then(|refs| refs.iter().find_map(issue_ref)))
+        issue_ref(&self.either(self.f.item.as_deref(), "item")).or_else(|| self.landed_item()).or_else(|| self.r.get("refs").and_then(Value::as_array).and_then(|refs| refs.iter().find_map(issue_ref)))
+    }
+
+    /// The issue the commit this run landed on origin/main names in its subject.
+    fn landed_item(&self) -> Option<String> {
+        self.r.get("landed_ref").and_then(issue_ref)
+    }
+
+    /// A worker's Item; any other run is attributed only through its landed commit.
+    fn attributed(&self) -> Option<String> {
+        if self.worker() { self.item() } else { self.landed_item() }
     }
 
     /// `brief or r.get(key)`.
@@ -198,7 +208,7 @@ impl Ingest<'_> {
         values.extend(CONTEXT[1..].iter().map(|key| r.sql(key)).collect::<Result<Vec<_>, _>>()?);
         values.push(agent.clone());
         self.db.execute(&format!("UPDATE runs SET {} WHERE agent = ?", sets.join(", ")), params_from_iter(values))?;
-        let item = if run.worker() { run.item() } else { None };
+        let item = run.attributed();
         if let Some(item) = item.as_ref().filter(|_| run.worker() && !run.original && known.is_none() && prior.category == Sql::Text("unknown".into())) {
             self.tally.unlabeled.push((run.id.clone(), item.clone()));
         }
@@ -220,7 +230,7 @@ impl Ingest<'_> {
 
     /// A run the ledger has not recorded: a running worker holds its issue, anything else ends.
     fn record(&mut self, run: &Run) -> Result<(), Failure> {
-        let item = if run.worker() { run.item() } else { None };
+        let item = run.attributed();
         let follows = run.either(run.f.follows.as_deref(), "follows");
         let claim: Option<String> = match &item {
             Some(item) => self.db.query_row("SELECT owner FROM claims WHERE item = ?", [item], |row| row.get(0)).optional()?,
@@ -284,12 +294,12 @@ impl Ingest<'_> {
     fn finished(&mut self, run: &Run, item: Option<&str>, follows: Value) -> Result<(), Failure> {
         let raw = run.either(run.f.category.as_deref(), "category");
         let raw = if truthy(&raw) { raw } else { Value::from("unknown") };
-        if let Some(item) = item.filter(|_| raw == "unknown" && !run.original) {
+        if let Some(item) = item.filter(|_| run.worker() && raw == "unknown" && !run.original) {
             self.tally.unlabeled.push((run.id.clone(), item.to_owned()));
         }
         let category = raw.as_str().filter(|raw| CATEGORIES.contains(raw)).unwrap_or("unknown");
         let mut prev = Value::Null;
-        if let Some(item) = item {
+        if let Some(item) = item.filter(|_| run.worker()) {
             let handed = self.db.query_row("SELECT 1 FROM events WHERE item = ? AND kind = 'handoff' AND json_extract(data, '$.to') = ?", params![item, run.agent()?], |_| Ok(())).optional()?;
             if handed.is_none() {
                 let last: Option<Sql> = self.db.query_row("SELECT agent FROM runs WHERE item = ? ORDER BY ended DESC LIMIT 1", [item], |row| row.get(0)).optional()?;
@@ -303,7 +313,7 @@ impl Ingest<'_> {
             "UPDATE runs SET brief_text=?, brief_origin=?, brief_path=?, brief_sha256=? WHERE agent=?",
             params![r.sql("brief_text")?, r.sql("brief_origin")?, r.sql("brief_path")?, r.sql("brief_sha256")?, run.agent()?],
         )?;
-        if let Some(item) = item.filter(|_| truthy(&prev) && prev != run.id) {
+        if let Some(item) = item.filter(|_| run.worker() && truthy(&prev) && prev != run.id) {
             self.event(item, "handoff", run, Value::object([("from", prev), ("to", run.id.clone())]))?;
         }
         self.tally.added += 1;

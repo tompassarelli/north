@@ -327,3 +327,20 @@ fn an_incremental_ingest_leaves_runs_and_run_costs_as_a_full_ingest_does() {
         assert_eq!(incremental.rows(sql), expected, "{sql}");
     }
 }
+
+#[test]
+fn a_proxy_landing_and_an_itemless_worker_take_the_item_their_landed_commit_names() {
+    let ledger = ledger();
+    let done = |id: &str, role: &str, extra: Json| {
+        let mut row = json!({"id": id, "role": role, "ended": "2026-10-28T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done", "landed": 1, "landed_ref": "north#42", "brief": "Goal: no item line"});
+        row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        row
+    };
+    ledger.ingest(&[done("proxy-landing", "proxy", json!({})), done("itemless-worker", "worker", json!({})), done("named-worker", "worker", json!({"brief": "Item: north#7"})), done("no-landing", "proxy", json!({"landed_ref": null}))]);
+    let items = ledger.rows("SELECT agent, item FROM runs ORDER BY agent");
+    let text = |value: &str| Value::Text(value.into());
+    assert_eq!(items, [("itemless-worker", Some("north#42")), ("named-worker", Some("north#7")), ("no-landing", None), ("proxy-landing", Some("north#42"))].map(|(agent, item)| vec![text(agent), item.map_or(Value::Null, text)]));
+    ledger.ingest(&[json!({"id": "proxy-late", "role": "proxy", "ended": "2026-10-28T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done"})]);
+    ledger.ingest(&[json!({"id": "proxy-late", "role": "proxy", "backfill": true, "ended": "2026-10-28T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done", "landed": 1, "landed_ref": "north#43"})]);
+    assert_eq!(ledger.row("SELECT item FROM runs WHERE agent = 'proxy-late'"), "north#43");
+}

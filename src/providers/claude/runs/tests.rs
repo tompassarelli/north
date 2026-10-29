@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::telemetry::{Prices, run_usage};
+use super::landing::{MainIndex, checks};
 use super::{CATALOG, DEFAULTS, roots};
 
 const PRICED: &str = r#"
@@ -86,4 +87,18 @@ fn a_token_profile_root_without_a_login_takes_the_label_it_is_declared_under_eve
 
     let accounts: Vec<&str> = roots.iter().map(|root| root.account.as_str()).collect();
     assert_eq!(accounts, ["claude-b"]);
+}
+
+#[test]
+fn a_landed_commit_subject_naming_an_issue_is_reported_as_the_runs_landed_ref() {
+    let sha = "a".repeat(40);
+    let records = [
+        json!({"type": "assistant", "timestamp": "2026-10-28T09:00:00Z", "message": {"content": [{"type": "tool_use", "id": "c", "name": "Bash", "input": {"command": "git commit -m \"Fix the thing (north#42)\""}}]}}),
+        json!({"type": "user", "timestamp": "2026-10-28T09:01:00Z", "message": {"content": [{"type": "tool_result", "tool_use_id": "c", "content": "[main aaaaaaa] Fix the thing (north#42)"}]}}),
+    ];
+    let main = MainIndex::parse(&format!("{sha} 2026-10-28T10:00:00Z Fix the thing (north#42)\n"));
+    let landed = checks(&records, &main);
+    assert_eq!((landed["landed"].clone(), landed["landed_ref"].clone()), (json!(1), json!("north#42")));
+    let elsewhere = checks(&records, &MainIndex::parse(&format!("{} 2026-10-28T10:00:00Z Another change (north#7)\n", "b".repeat(40))));
+    assert_eq!((elsewhere["landed"].clone(), elsewhere["landed_ref"].clone()), (json!(0), Value::Null));
 }

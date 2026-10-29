@@ -26,13 +26,13 @@ static GH_ISSUE: LazyLock<Regex> = LazyLock::new(|| {
 static THREADS_REF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(?:\S+/)?threads (?:show|claim|release) ").unwrap());
 
 pub(super) struct MainIndex {
-    shas: Vec<(String, String)>,
+    shas: Vec<(String, String, String)>,
     subjects: HashMap<String, Vec<(String, String)>>,
 }
 
 impl MainIndex {
     pub(super) fn parse(text: &str) -> Self {
-        let mut shas: Vec<(String, String)> = Vec::new();
+        let mut shas: Vec<(String, String, String)> = Vec::new();
         let mut positions: HashMap<String, usize> = HashMap::new();
         let mut subjects: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for line in text.lines() {
@@ -42,7 +42,7 @@ impl MainIndex {
                 Some(&position) => shas[position].1 = date.to_owned(),
                 None => {
                     positions.insert(sha.to_owned(), shas.len());
-                    shas.push((sha.to_owned(), date.to_owned()));
+                    shas.push((sha.to_owned(), date.to_owned(), subject.trim().to_owned()));
                 }
             }
             subjects.entry(subject.trim().to_owned()).or_default().push((sha.to_owned(), date.to_owned()));
@@ -145,20 +145,21 @@ fn landing(main: &MainIndex, made_shas: &[String], made_subjects: &[String], fir
             seen_subjects.push(subject);
         }
     }
-    let mut on_main: Vec<(String, Option<String>)> = main
+    let mut on_main: Vec<(String, Option<String>, &str)> = main
         .shas
         .iter()
-        .filter(|(sha, _)| made_shas.iter().any(|prefix| sha.starts_with(prefix.as_str())))
-        .map(|(sha, date)| (sha.clone(), utc(Some(date))))
+        .filter(|(sha, _, _)| made_shas.iter().any(|prefix| sha.starts_with(prefix.as_str())))
+        .map(|(sha, date, subject)| (sha.clone(), utc(Some(date)), subject.as_str()))
         .collect();
     for subject in seen_subjects {
-        on_main.extend(main.subjects.get(subject).into_iter().flatten().map(|(sha, date)| (sha.clone(), utc(Some(date)))));
+        on_main.extend(main.subjects.get(subject).into_iter().flatten().map(|(sha, date)| (sha.clone(), utc(Some(date)), subject.as_str())));
     }
     if let Some(first) = first_commit {
         let day: String = utc(Some(first)).unwrap_or_default().chars().take(11).collect();
-        on_main.retain(|(_, date)| date.as_deref().is_some_and(|date| date >= day.as_str()));
+        on_main.retain(|(_, date, _)| date.as_deref().is_some_and(|date| date >= day.as_str()));
     }
     let landing = on_main.iter().min_by(|left, right| (&left.1, &left.0).cmp(&(&right.1, &right.0)));
+    let landed_ref = landing.and_then(|(_, _, subject)| ISSUE.captures_iter(subject).last()).map(|found| found[1].to_owned());
     let mut ranked: Vec<&String> = Vec::new();
     for reference in &refs {
         if !ranked.contains(&reference) {
@@ -170,8 +171,9 @@ fn landing(main: &MainIndex, made_shas: &[String], made_subjects: &[String], fir
     let mut out = Map::new();
     out.insert("landed".into(), json!(i32::from(landing.is_some())));
     out.insert("expects_landing".into(), json!(i32::from(expects)));
-    out.insert("landed_sha".into(), json!(landing.map(|(sha, _)| sha)));
-    out.insert("landed_at".into(), json!(landing.and_then(|(_, date)| date.as_ref())));
+    out.insert("landed_sha".into(), json!(landing.map(|(sha, _, _)| sha)));
+    out.insert("landed_at".into(), json!(landing.and_then(|(_, date, _)| date.as_ref())));
+    out.insert("landed_ref".into(), json!(landed_ref));
     out.insert("refs".into(), json!(ranked));
     out
 }
