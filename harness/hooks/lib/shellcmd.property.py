@@ -162,8 +162,8 @@ def exercise(name, home, cwd, boundary):
             return (decoded.get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny'
 
         body = Path(cwd) / 'body.md'
-        body.write_text('repaint the garden shed blue tomorrow')
-        for command in ['gh issue comment 5 --body "the orange bicycle beside the gate"', 'gh issue comment 5 --body "the parcel went to the neighbour"', 'gh issue comment 5 --body-file body.md', 'gh api repos/x/y/issues -F body=@body.md', "gh issue comment 5 --body-file - <<'BODY'\nlife#1\nBODY"]:
+        body.write_text('see the orange bicycle beside the gate')
+        for command in ['gh issue comment 5 --body "the orange bicycle beside the gate"', 'gh issue comment 5 --body-file body.md', 'gh api repos/x/y/issues -F body=@body.md', "gh issue comment 5 --body-file - <<'BODY'\nlife#1\nBODY"]:
             check(guard(command, cwd), name + ' SQLite/body-file boundary', command)
             check(native_entry(command), name + ' SQLite/body-file entry point', command)
             count += 2
@@ -171,12 +171,11 @@ def exercise(name, home, cwd, boundary):
                         'gh issue comment 5 --body "Harness landing RBAC: authorized roles across providers and models"',
                         'gh issue comment 5 --body "the orange bicycle beside the"',
                         'gh issue comment 5 --body "ordinary authorization for landing and prose"', 'gh issue comment 5 --body "Tom chose this (2026-10-26)"',
+                        'gh issue comment 5 --body "repaint the garden shed blue tomorrow"', 'gh issue comment 5 --body "the parcel went to the neighbour"', 'gh issue comment 5 --body "account 873492 contact native@example.test handle @native"', 'gh issue comment 5 --body "the gpt-6.1-sol high rise, build 0.0.192"', 'rg -n life#1 src | head', 'sed -n 100,150p a.rs', 'head -30 life#1.md',
                         'gh issue view life#1', 'gh issue view 5 --json title,body']:
             check(not native_entry(command), name + ' adjacent prose/read entry point', command)
             count += 1
-        for text in ['repaint the garden shed blue tomorrow', 'THE ORANGE BICYCLE BESIDE THE GATE',
-                     'the orange\n bicycle beside, the gate', '873492', '(873492),', '[Q7R9Z2];',
-                     'native@example.test', '<native@example.test>', '@native',
+        for text in ['THE ORANGE BICYCLE BESIDE THE GATE', 'the orange\n bicycle beside, the gate',
                      'life#1', 'accounts#2', 'travel#3', 'ops#4']:
             command = 'gh issue comment 5 --body ' + shlex.quote(text)
             check(native_entry(command), name + ' private text entry point', command)

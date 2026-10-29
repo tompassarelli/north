@@ -2,8 +2,8 @@
 # PreToolUse guard: refuses a Bash `gh` command that writes to GitHub (issue/pr
 # create, comment, edit, review; api; gist; release) when its arguments, heredoc
 # bodies or named body files name a native NorthThread item (life#N, accounts#N,
-# travel#N, ops#N) or quote six consecutive words or a sensitive token from a
-# native item's title, body or note (read-only from threads.db and its snapshot).
+# travel#N, ops#N) or quote the full title (20+ characters, 3+ words) of a native
+# item (read-only from threads.db and its snapshot).
 #
 # Kill-switch: persistent `north config agents off native-item-guard` OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but 0/false; 0/false forces guards live).
@@ -62,7 +62,8 @@ NATIVE_REF = re.compile(r"\b(?:life|accounts|travel|ops)#\d+\b")
 GH = re.compile(r"(?:^|[\n;&|({`])\s*(?:[A-Za-z_]\w*=\S*\s+|sudo\s+|env\s+|command\s+)*(?:\S*/)?gh"
                 r"((?:\s+(?:-R|--repo)\s+\S+)*)\s+(issue|pr|api|gist|release)\b([^\n;&|)}`]*)")
 WRITES = {"create", "comment", "edit", "review", "close", "reopen", "merge", "upload"}
-SHINGLE = 6
+TITLE_MIN_CHARS = 20
+TITLE_MIN_WORDS = 3
 
 def gh_writes(cleaned):
     for m in GH.finditer(cleaned):
@@ -100,30 +101,23 @@ def read_bounded(path):
     except OSError:
         return ""
 
-def word_shingles(text):
-    tokens = re.findall(r"\w+", text.casefold())
-    return {tuple(tokens[i:i + SHINGLE]) for i in range(len(tokens) - SHINGLE + 1)}
+def normalized(text):
+    return " " + " ".join(re.findall(r"\w+", text.casefold())) + " "
 
-def sensitive_tokens(text):
-    return {t for t in re.findall(r"[\w@]+(?:[.+/-][\w@]+)*", text.casefold())
-            if len(t) >= 6 and ("@" in t or any(c.isdigit() for c in t)) and not re.fullmatch(r"\d{4}-\d\d-\d\d", t)}
-
-def native_texts():
+def native_titles():
     home = os.path.expanduser("~/.local/state/threads")
     paths = [os.environ.get("THREADS_DB") or "", f"{home}/threads.db", f"{home}/snapshot.db"]
-    texts = []
+    titles = []
     for path in dict.fromkeys(p for p in paths if p and os.path.exists(p)):
         try:
             db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
             try:
-                texts += [r for row in db.execute("SELECT title, body FROM items") for r in row if r]
-                texts += [r[0] for r in db.execute("SELECT json_extract(data, '$.text') FROM events WHERE kind = 'note'"
-                                                   " AND json_extract(data, '$.text') IS NOT NULL")]
+                titles += [normalized(row[0]).strip() for row in db.execute("SELECT title FROM items") if row[0]]
             finally:
                 db.close()
         except sqlite3.Error:
             continue
-    return texts
+    return [t for t in titles if len(t) >= TITLE_MIN_CHARS and len(t.split(" ")) >= TITLE_MIN_WORDS]
 
 if not gh_writes(strip_quotes(strip_heredocs(cmd))):
     sys.exit(0)
@@ -131,12 +125,8 @@ if not gh_writes(strip_quotes(strip_heredocs(cmd))):
 text = "\n".join([cmd] + [read_bounded(p) for p in body_files(cmd)])
 hit = bool(NATIVE_REF.search(text))
 if not hit:
-    shingles = set()
-    sensitive = set()
-    for t in native_texts():
-        shingles.update(word_shingles(t))
-        sensitive.update(sensitive_tokens(t))
-    hit = bool(shingles & word_shingles(text) or sensitive & sensitive_tokens(text))
+    haystack = normalized(text)
+    hit = any(" " + title + " " in haystack for title in native_titles())
 if not hit:
     sys.exit(0)
 
@@ -144,9 +134,9 @@ print(json.dumps({"hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
     "permissionDecisionReason": (
-        "No. This gh command names a native NorthThread item (life/accounts/travel/ops#N) or quotes its text, and "
+        "No. This gh command names a native NorthThread item (life/accounts/travel/ops#N) or quotes its title, and "
         "native NorthThread items never reach GitHub. Record it with `threads note REF TEXT` instead, and rewrite the GitHub "
-        "text without the ref or the quoted item text."),
+        "text without the ref or the quoted item title."),
 }}))
 PYEOF
 

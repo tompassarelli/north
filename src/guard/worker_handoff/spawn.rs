@@ -98,6 +98,11 @@ fn failure(error: std::io::Error) -> &'static str {
 }
 
 fn ingest(line: &str) -> Result<(), &'static str> {
+    match crate::threads::client::spool_ingest(line.as_bytes()) {
+        Ok(true) => return Ok(()),
+        Ok(false) => {}
+        Err(_) => return Err("OSError"),
+    }
     let mut child = Command::new("threads")
         .arg("ingest")
         .stdin(Stdio::piped())

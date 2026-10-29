@@ -1,0 +1,6 @@
+chat-post.sh
+code-health-edit.sh
+heavy-command-guard.sh
+subagent-teardown.sh
+unlanded-work.sh
+worker-handoff.sh

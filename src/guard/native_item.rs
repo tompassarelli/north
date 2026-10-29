@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 pub(super) use gh::writes_to_github;
 
-const REASON: &str = "No. This gh command names a native NorthThread item (life/accounts/travel/ops#N) or quotes its text, and native NorthThread items never reach GitHub. Record it with `threads note REF TEXT` instead, and rewrite the GitHub text without the ref or the quoted item text.";
+const REASON: &str = "No. This gh command names a native NorthThread item (life/accounts/travel/ops#N) or quotes its title, and native NorthThread items never reach GitHub. Record it with `threads note REF TEXT` instead, and rewrite the GitHub text without the ref or the quoted item title.";
 const BODY_FILE_LIMIT: usize = 1 << 20;
 
 static NATIVE_REF: LazyLock<Regex> =
@@ -39,7 +39,7 @@ pub(super) fn names_native_item(command: &str, cwd: &Path, databases: &[PathBuf]
         text.push('\n');
         text.push_str(&read_bounded(&path));
     }
-    NATIVE_REF.is_match(&text) || corpus::quotes_native_text(&text, databases)
+    NATIVE_REF.is_match(&text) || corpus::quotes_native_title(&text, databases)
 }
 
 fn read_bounded(path: &Path) -> String {

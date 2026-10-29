@@ -12,6 +12,8 @@ mod generation;
 mod paths;
 #[path = "catalog/registration_checks.rs"]
 mod registration_checks;
+#[path = "catalog/retired_hooks.rs"]
+mod retired_hooks;
 #[path = "catalog/reviews.rs"]
 mod reviews;
 #[path = "catalog/sync_gate.rs"]

@@ -68,6 +68,37 @@ fn registered_hook_paths_for_both_providers_are_refused() {
 }
 
 #[test]
+fn landing_catalog_without_a_registered_hook_refuses_the_nixos_registration() {
+    let catalog = json!({
+        "activation": {
+            "kept-guard": {"distributions": [{"type": "hook", "targets": ["claude"]}]},
+            "firn-system-policy": {"distributions": [{"type": "providerAdapter", "adapterId": "firn-system-policy", "targets": ["claude"]}]}
+        },
+        "registrations": {
+            "kept-guard": {"kind": "hook", "owner": {"repo": "north", "path": "harness/hooks/kept-guard.sh"}}
+        },
+        "providerSupport": [{"owner": {"repo": "north", "path": "harness/defaults.toml"}, "path": "defaults.toml"}]
+    });
+    let provision = registration_checks::HookProvision::Names(registration_checks::landing_hook_names(&catalog));
+    let registered = |name: &str| {
+        json!({"hooks": {"PreToolUse": [{"hooks": [{
+            "type": "command",
+            "command": format!("/home/tom/.agents/hooks/{name}")
+        }]}]}})
+    };
+    let check = |name: &str| {
+        registration_checks::validate_hook_commands(&registered(name), "Claude", Path::new("claude-hooks.json"), &provision)
+    };
+
+    assert!(check("kept-guard.sh").is_ok());
+    assert!(check("firn-system-policy").is_ok());
+    assert!(check("defaults.toml").is_ok());
+    let error = check("worker-handoff.sh").expect_err("a hook the catalog no longer projects must refuse");
+    assert!(error.to_string().contains("worker-handoff.sh"));
+    assert!(error.to_string().contains("claude-hooks.json"));
+}
+
+#[test]
 fn activation_with_a_missing_registered_hook_keeps_the_current_generation() {
     let state = tempfile::tempdir().expect("activation state");
     let current = state.path().join("current");

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,28 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 
-use super::{agents_root, configuration, read_json, string_field};
+use super::{configuration, read_json, string_field};
+
+pub(super) enum HookProvision {
+    Directory(PathBuf),
+    Names(BTreeSet<String>),
+}
+
+impl HookProvision {
+    fn provides(&self, suffix: &str) -> bool {
+        match self {
+            Self::Directory(root) => root.join(suffix).is_file(),
+            Self::Names(names) => names.contains(suffix),
+        }
+    }
+
+    fn describe(&self, suffix: &str) -> String {
+        match self {
+            Self::Directory(root) => root.join(suffix).display().to_string(),
+            Self::Names(_) => format!("{suffix}, which the landing catalog does not project"),
+        }
+    }
+}
 
 pub(super) struct HookPathInputs {
     pub(super) claude: PathBuf,
@@ -56,7 +77,8 @@ impl HookPathInputs {
 
 pub(super) fn validate_hook_registrations(inputs: &HookPathInputs) -> NorthResult<HookPathReport> {
     let claude = read_json(&inputs.claude)?;
-    let claude = validate_hook_commands(&claude, "Claude", &inputs.claude, &inputs.provider_hooks)?;
+    let provision = HookProvision::Directory(inputs.provider_hooks.clone());
+    let claude = validate_hook_commands(&claude, "Claude", &inputs.claude, &provision)?;
     let codex_path = &inputs.codex;
     let codex_text = fs::read_to_string(codex_path).map_err(|error| {
         NorthError::Configuration(format!("cannot read {}: {error}", codex_path.display()))
@@ -67,7 +89,7 @@ pub(super) fn validate_hook_registrations(inputs: &HookPathInputs) -> NorthResul
     let mut commands = Vec::new();
     collect_toml_hook_commands(&codex, &mut commands);
     let (codex, codex_runtime) =
-        validate_hook_command_list(commands, "Codex", codex_path, &inputs.provider_hooks)?;
+        validate_hook_command_list(commands, "Codex", codex_path, &provision)?;
     Ok(HookPathReport {
         claude,
         codex,
@@ -75,15 +97,15 @@ pub(super) fn validate_hook_registrations(inputs: &HookPathInputs) -> NorthResul
     })
 }
 
-fn validate_hook_commands(
+pub(super) fn validate_hook_commands(
     value: &Value,
     provider: &str,
     registration_file: &Path,
-    provider_hooks: &Path,
+    provision: &HookProvision,
 ) -> NorthResult<usize> {
     let mut commands = Vec::new();
     collect_hook_commands(value, &mut commands);
-    validate_hook_command_list(commands, provider, registration_file, provider_hooks)
+    validate_hook_command_list(commands, provider, registration_file, provision)
         .map(|(registrations, _)| registrations)
 }
 
@@ -91,7 +113,7 @@ fn validate_hook_command_list<'a>(
     commands: impl IntoIterator<Item = &'a str>,
     provider: &str,
     registration_file: &Path,
-    provider_hooks: &Path,
+    provision: &HookProvision,
 ) -> NorthResult<(usize, usize)> {
     let mut registrations = 0;
     let mut runtime = 0;
@@ -101,26 +123,22 @@ fn validate_hook_command_list<'a>(
             if provider == "Codex" && path.starts_with("/etc/codex/hooks/runtime/") {
                 runtime += 1;
             }
-            let registered = Path::new(path);
-            let resolved = registered
-                .to_str()
-                .and_then(|path| {
-                    path.split_once("/.agents/hooks/")
-                        .or_else(|| {
-                            path.strip_prefix("/etc/codex/hooks/")
-                                .filter(|suffix| !suffix.starts_with("runtime/"))
-                                .map(|suffix| ("", suffix))
-                        })
-                })
-                .map_or_else(
-                    || registered.to_path_buf(),
-                    |(_, suffix)| provider_hooks.join(suffix),
-                );
-            if !resolved.is_file() {
+            let suffix = path
+                .split_once("/.agents/hooks/")
+                .map(|(_, suffix)| suffix)
+                .or_else(|| {
+                    path.strip_prefix("/etc/codex/hooks/")
+                        .filter(|suffix| !suffix.starts_with("runtime/"))
+                });
+            let present = match suffix {
+                Some(suffix) => provision.provides(suffix),
+                None => Path::new(path).is_file(),
+            };
+            if !present {
                 return configuration(format!(
                     "{provider} hook registration in {} references missing path {}",
                     registration_file.display(),
-                    resolved.display()
+                    suffix.map_or_else(|| path.to_owned(), |suffix| provision.describe(suffix))
                 ));
             }
         }
@@ -177,26 +195,21 @@ pub(super) fn check_registered_owners(arguments: &[String]) -> NorthResult<()> {
     let current_head = env::var("SAFE_PUSH_LAND_HEAD")
         .or_else(|_| git_text(Path::new("."), &["rev-parse", "HEAD"]))
         .map_err(|error| NorthError::Configuration(error.to_string()))?;
-    let south_root = canonical(&roots.south)?;
-    let south_ref = if south_root == current_root {
-        current_head.clone()
-    } else {
-        fetch_main(&roots.south)?;
-        "origin/main".into()
-    };
-    let nixos_root = canonical(&roots.nixos)?;
-    let nixos_ref = if nixos_root == current_root {
-        current_head.clone()
-    } else {
-        fetch_main(&roots.nixos)?;
-        "origin/main".into()
-    };
-    check_nixos_hook_registrations(&roots.nixos, &nixos_ref, &agents_root()?.join("current/provider-hooks"))?;
+    let (_, south_ref) = roots.resolve("south", &current_root, &current_head)?;
+    let (_, nixos_ref) = roots.resolve("nixos-config", &current_root, &current_head)?;
+    if current_root == canonical(&roots.north)? {
+        super::retired_hooks::require_deleted_hooks_retired(&roots.north, &current_head)?;
+    }
     let catalog = git_output(
         &roots.south,
         &["show", &format!("{south_ref}:agents/catalog-config.json")],
     )?;
     let registrations: Value = serde_json::from_slice(&catalog)?;
+    check_nixos_hook_registrations(
+        &roots.nixos,
+        &nixos_ref,
+        &HookProvision::Names(landing_hook_names(&registrations)),
+    )?;
     let mut owners = Vec::new();
     collect_owner_paths(&registrations, &mut owners)?;
     let mut resolved = BTreeMap::new();
@@ -234,12 +247,12 @@ pub(super) fn check_registered_owners(arguments: &[String]) -> NorthResult<()> {
 fn check_nixos_hook_registrations(
     root: &Path,
     reference: &str,
-    provider_hooks: &Path,
+    provision: &HookProvision,
 ) -> NorthResult<()> {
     let claude_file = "modules/north-profile/claude-hooks.json";
     let claude_object = git_object(root, reference, claude_file)?;
     let claude: Value = serde_json::from_slice(&claude_object)?;
-    validate_hook_commands(&claude, "Claude", Path::new(claude_file), provider_hooks)?;
+    validate_hook_commands(&claude, "Claude", Path::new(claude_file), provision)?;
 
     let codex_file = "modules/codex/requirements.toml";
     let codex_object = git_object(root, reference, codex_file)?;
@@ -250,8 +263,46 @@ fn check_nixos_hook_registrations(
     })?;
     let mut commands = Vec::new();
     collect_toml_hook_commands(&codex, &mut commands);
-    validate_hook_command_list(commands, "Codex", Path::new(codex_file), provider_hooks)?;
+    validate_hook_command_list(commands, "Codex", Path::new(codex_file), provision)?;
     Ok(())
+}
+
+pub(super) fn landing_hook_names(catalog: &Value) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let units = catalog
+        .get("activation")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten();
+    for (id, unit) in units {
+        for distribution in unit
+            .get("distributions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let name = match distribution.get("type").and_then(Value::as_str) {
+                Some("providerAdapter") => distribution.get("adapterId").and_then(Value::as_str),
+                Some("hook") => catalog
+                    .pointer(&format!("/registrations/{id}/owner/path"))
+                    .and_then(Value::as_str)
+                    .and_then(|path| Path::new(path).file_name())
+                    .and_then(|name| name.to_str()),
+                _ => None,
+            };
+            names.extend(name.map(str::to_owned));
+        }
+    }
+    names.extend(
+        catalog
+            .get("providerSupport")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|support| support.get("path").and_then(Value::as_str))
+            .map(str::to_owned),
+    );
+    names
 }
 
 fn git_object(root: &Path, reference: &str, path: &str) -> NorthResult<Vec<u8>> {

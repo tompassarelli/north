@@ -81,6 +81,15 @@ pub(crate) fn ingest(batch: &[u8]) -> Result<(), String> {
     }
 }
 
+pub(crate) fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
+    let Some(client) = ambient_client() else { return Ok(false) };
+    if client.var("THREADS_DB").is_some() || !client.remote.exists() {
+        return Ok(false);
+    }
+    client.write_spool(batch)?;
+    Ok(true)
+}
+
 fn ambient_client() -> Option<Client> {
     let env: BTreeMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
@@ -265,11 +274,7 @@ impl Client {
                     return Ok(Some(code));
                 }
             }
-            fs::create_dir_all(&self.spool)?;
-            let path = self.spool.join(format!("{}.jsonl", spool_stem()));
-            let tmp = path.with_extension("tmp");
-            fs::write(&tmp, &data)?;
-            fs::rename(&tmp, &path)?;
+            let path = self.write_spool(&data)?;
             writeln!(err, "NorthThreads: {dest} {state}; spooled ingest to {}", path.display())?;
             return Ok(Some(0));
         }
@@ -317,6 +322,15 @@ impl Client {
     fn stale_line(&self, dest: &str) -> NorthResult<String> {
         let modified = fs::metadata(&self.snapshot)?.modified()?;
         Ok(format!("STALE: ledger snapshot from {}; {dest} unreachable", Timestamp::from(modified).iso()))
+    }
+
+    fn write_spool(&self, data: &[u8]) -> NorthResult<PathBuf> {
+        fs::create_dir_all(&self.spool)?;
+        let path = self.spool.join(format!("{}.jsonl", spool_stem()));
+        let tmp = path.with_extension("tmp");
+        fs::write(&tmp, data)?;
+        fs::rename(&tmp, &path)?;
+        Ok(path)
     }
 
     fn spool_argv(&self, argv: &[String]) -> NorthResult<()> {

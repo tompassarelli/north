@@ -182,3 +182,20 @@ fn worker_handoff_confirms_the_spawn_reservation() {
     assert!(context(&failed).is_some_and(|text| text.starts_with("spawn reservation confirmation failed for lead claude-lead: ")));
     assert!(!lab.path("sink").exists());
 }
+
+#[test]
+fn worker_handoff_spools_the_spawn_row_when_the_ledger_is_remote() {
+    let lab = Lab::new();
+    let active = lab.activate("on", "hook north-hook\n");
+    std::fs::create_dir_all(lab.path("home/.config/threads")).unwrap();
+    std::fs::write(lab.path("home/.config/threads/remote"), "ledger-host\n").unwrap();
+    let launched = json!({"status": "async_launched", "agentId": "actual-child", "resolvedModel": "claude-opus-4-6"});
+    let payload = spawn_payload(launched);
+    assert_eq!(lab.run(payload.to_string().as_bytes(), &active, &[]), None);
+    let spool = lab.path("home/.local/state/threads/spool");
+    let rows: Vec<_> = std::fs::read_dir(&spool).unwrap().map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].extension().unwrap(), "jsonl");
+    let row: Value = serde_json::from_str(&std::fs::read_to_string(&rows[0]).unwrap()).unwrap();
+    assert_eq!((row["id"].as_str(), row["session"].as_str()), (Some("actual-child"), Some("claude-lead")));
+}

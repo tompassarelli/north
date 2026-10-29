@@ -165,6 +165,7 @@ fn refresh_provider_hooks(generation: &Path, activation: &Value) -> NorthResult<
     for (relative, source_owner) in destinations {
         copy_tree(&owner_path(&source_owner)?, &directory.join(relative))?;
     }
+    super::retired_hooks::write_stubs(&directory)?;
     Ok(())
 }
 
