@@ -104,6 +104,9 @@ const LANDING_CHECK: &str = "safe-push landing";
 const LINK_RUNS: &str = "UPDATE runs SET task_ref = (SELECT t.task_ref FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session) ORDER BY t.task_ref LIMIT 1) \
      WHERE task_ref IS NULL AND EXISTS (SELECT 1 FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session))";
 
+const LINK_RUNS_OF_SESSION: &str = "UPDATE runs SET task_ref = (SELECT t.task_ref FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session) ORDER BY t.task_ref LIMIT 1) \
+     WHERE task_ref IS NULL AND session = ?1 AND EXISTS (SELECT 1 FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session))";
+
 const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account,prompt_sha,system_prompt_sha,deepen,started_ms,ended_ms,wall_ms,turns,\
      tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit";
 
@@ -275,6 +278,7 @@ impl RunSink for Ledger {
                     turn.exit.label(),
                 ],
             )?;
+            conn.execute(LINK_RUNS_OF_SESSION, [&run.session])?;
             briefs::link_by_brief(conn, Some(&run.session))?;
             conn.query_row("SELECT count(*) FROM runs WHERE session = ?1", [&run.session], |row| row.get::<_, i64>(0)).map(|count| u64::try_from(count).unwrap_or(0))
         })

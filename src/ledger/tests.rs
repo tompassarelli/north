@@ -233,3 +233,18 @@ fn reopening_the_ledger_links_runs_recorded_before_their_brief_was_read() {
     let reopened = Ledger::open(&path).unwrap();
     assert_eq!(reopened.runs().unwrap()[0].task_ref.as_deref(), Some("north#4"));
 }
+
+#[test]
+fn a_run_recorded_after_its_sessions_landing_is_linked_without_reopening_the_ledger() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = ledger(&directory);
+    ledger.record_landing("lane-late", "sha-1", 5_000, None, None).unwrap();
+    ledger.join_task("north#8", "lane-listed").unwrap();
+    ledger.record_landing("north#8", "sha-2", 5_000, None, None).unwrap();
+    ledger.record_run(&run("lane-late", "claude-opus-5-5", 1, 1)).unwrap();
+    ledger.record_run(&run("lane-listed", "claude-opus-5-5", 1, 1)).unwrap();
+    ledger.record_run(&run("lane-other", "claude-opus-5-5", 1, 1)).unwrap();
+    assert_eq!(ledger.landing_links(0).unwrap(), (2, 2));
+    let linked: Vec<Option<String>> = ledger.runs().unwrap().into_iter().map(|run| run.task_ref).collect();
+    assert_eq!(linked, [Some("lane-late".to_owned()), Some("north#8".to_owned()), None]);
+}
