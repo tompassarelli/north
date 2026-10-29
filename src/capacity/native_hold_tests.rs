@@ -8,7 +8,7 @@ fn quiet(owner: &str, held_seconds: f64, idle_seconds: Option<f64>, run_seconds:
 
 #[test]
 fn a_quiet_lease_idle_past_its_bound_or_past_its_declared_run_stops_deferring_batch_work_while_a_busy_one_still_does() {
-    let batch = |lease: QuietNative| decide(&Facts { quiet_native: vec![lease], ..facts(Class::Heavy) });
+    let batch = |lease: QuietNative| decide(&Facts { quiet_native: vec![lease], ..facts(Class::Moderate) });
     assert_eq!(batch(quiet("sc-434-t1915", 1020.0, None, None)), Reason::DeferNativeQuiet);
     assert_eq!(batch(quiet("sc-434-t1915", 1020.0, Some(10.0), None)), Reason::DeferNativeQuiet);
     assert_eq!(batch(quiet("sc-434-t1915", 1020.0, Some(1000.0), None)), Reason::Run);

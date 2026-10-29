@@ -108,7 +108,7 @@ fn run_queue_at_thread_count_still_admits_heavy() {
 }
 
 fn beside(class: Class, quiet_native_runs: u32, beside_native: bool) -> Reason {
-    let busy = |index: u32| QuietNative { owner: format!("quiet-{index}"), held_seconds: 60.0, idle_seconds: None, run_seconds: None };
+    let busy = |index: u32| QuietNative { owner: format!("quiet-{index}"), held_seconds: 60.0, idle_seconds: None, run_seconds: Some(3600.0) };
     decide(&Facts { quiet_native: (0..quiet_native_runs).map(busy).collect(), beside_native, ..facts(class) })
 }
 
@@ -117,6 +117,21 @@ fn live_quiet_native_session_holds_batch_work_until_it_ends() {
     for class in [Class::Moderate, Class::Heavy, Class::Gpu, Class::Exclusive] {
         assert_eq!(beside(class, 1, false), Reason::DeferNativeQuiet, "{class:?}");
         assert_eq!(beside(class, 0, false), Reason::Run, "{class:?}");
+    }
+}
+
+#[test]
+fn heavy_tests_and_builds_pass_busy_quiet_clients_that_are_not_a_protected_play_session() {
+    let quiet = |class: Class, run_seconds: Option<f64>| {
+        let lease = QuietNative { owner: "pool".into(), held_seconds: 43_560.0, idle_seconds: Some(0.0), run_seconds };
+        admit(&Facts { quiet_native: vec![lease], ..facts(class) }, |_| None)
+    };
+    assert_eq!(quiet(Class::Heavy, None).reason, Reason::Run);
+    assert_eq!(quiet(Class::Heavy, Some(43_200.0)).reason, Reason::Run);
+    let held = quiet(Class::Heavy, Some(86_400.0));
+    assert_eq!((held.reason, held.quiet_owners), (Reason::DeferNativeQuiet, vec!["pool".to_owned()]));
+    for class in [Class::Moderate, Class::Gpu, Class::Exclusive] {
+        assert_eq!(quiet(class, None).reason, Reason::DeferNativeQuiet, "{class:?}");
     }
 }
 

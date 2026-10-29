@@ -95,10 +95,20 @@ impl QuietNative {
         let idle = self.idle_seconds.is_some_and(|idle| idle >= idle_bound);
         !past_run && !idle
     }
+
+    /// A protected play session is a quiet lease still inside the length its `--quiet-seconds` declared; one that declared none is an open-ended hold on clients nobody is bound to be using.
+    pub(crate) fn protects_play(&self) -> bool {
+        self.run_seconds.is_some_and(|run| self.held_seconds <= run)
+    }
+
+    pub(crate) fn holds_request(&self, idle_bound: f64, heavy: bool) -> bool {
+        self.holds(idle_bound) && (!heavy || self.protects_play())
+    }
 }
 
-pub(crate) fn holding_owners(leases: &[QuietNative], idle_bound: f64) -> Vec<String> {
-    leases.iter().filter(|lease| lease.holds(idle_bound)).map(|lease| lease.owner.clone()).collect()
+/// The quiet leases that hold this request: heavy tests and builds wait only on a protected play session, because open-ended quiet leases on clients nobody played held heavy work 12.1 h on the GPU host (north#335).
+pub(crate) fn holding_owners(leases: &[QuietNative], idle_bound: f64, heavy: bool) -> Vec<String> {
+    leases.iter().filter(|lease| lease.holds_request(idle_bound, heavy)).map(|lease| lease.owner.clone()).collect()
 }
 
 pub(crate) fn derive(leases: &[LeaseFact], queue: &[QueueEntry], ticket: Option<&str>, now: f64) -> Derived {
@@ -154,14 +164,15 @@ pub(crate) fn standing_json(leases: &[Value], queue: &[Value], now: f64) -> Vec<
 
 fn standing(leases: &[LeaseFact], queue: &[QueueEntry], now: f64, idle_bound: f64) -> Vec<Value> {
     let waiting: Vec<&QueueEntry> = queue.iter().filter(|entry| BATCH_CLASSES.contains(&entry.class.as_str())).collect();
-    let longest = waiting.iter().map(|entry| ((now - entry.queued_at) / 1000.0).round()).fold(0.0, f64::max);
     leases
         .iter()
         .filter(|lease| lease.is_quiet_native())
         .map(|lease| {
             let view = lease.quiet_view(now);
             let holding = view.holds(idle_bound);
-            let deferring = holding.then(|| json!({ "jobs": waiting.len(), "longestWaitingSeconds": longest }));
+            let held: Vec<&&QueueEntry> = waiting.iter().filter(|entry| entry.class != "heavy" || view.protects_play()).collect();
+            let longest = held.iter().map(|entry| ((now - entry.queued_at) / 1000.0).round()).fold(0.0, f64::max);
+            let deferring = holding.then(|| json!({ "jobs": held.len(), "longestWaitingSeconds": longest }));
             json!({ "id": lease.id, "owner": view.owner, "heldSeconds": view.held_seconds, "idleSeconds": view.idle_seconds, "runSeconds": view.run_seconds, "holding": holding, "deferring": deferring })
         })
         .collect()
