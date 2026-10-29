@@ -27,6 +27,7 @@ mod safe_push_result;
 #[cfg(test)]
 mod tests;
 mod tools;
+mod worker_ledger;
 
 use tools::Tool;
 
@@ -96,6 +97,7 @@ Commands:
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
+  worker-ledger [--session ID] [--since DATE] [--backfill] | --summary [--by LIST] | --recommend [--planner] FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
   advisor-report FILE... --incumbent ARM [--arm-key FIELD] [--codex-plan-usd ARM=VALUE]  Compare policy-replay arms against an incumbent with a verdict per challenger
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   secrets-proxy-exec SOCKET -- CMD [ARGS...]   Run CMD with a Secret-Service-only view of the user D-Bus session at SOCKET

@@ -130,7 +130,7 @@ fn unknown_facet(prompt: &str, already_refused: bool) -> Option<String> {
             let value = &found[1];
             (!field.allowed.contains(&value.to_lowercase().as_str())).then(|| {
                 let shown = if value.is_empty() { "(empty)" } else { value };
-                format!("{}: {shown} is not a facet value; use one of {}, so worker-ledger can group runs by it.", field.name, field.allowed.join(" | "))
+                format!("{}: {shown} is not a facet value; use one of {}, so north worker-ledger can group runs by it.", field.name, field.allowed.join(" | "))
             })
         })
     })

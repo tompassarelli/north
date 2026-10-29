@@ -13,22 +13,22 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
-| runs.eta_min | bin/worker-ledger | src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
-| runs.minutes | bin/worker-ledger | bin/threads:1243 recommend_eta | read | |
-| runs.outcome, follows, landed, expects_landing | bin/worker-ledger | bin/threads:1408 run_ok; harness/lib/plan_usage.py:153 routing success | read | 4a58f21e |
-| runs.tier | bin/worker-ledger | bin/threads:1191 recommend, every provider | read | 4b71ac63 |
+| runs.eta_min | north worker-ledger | src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
+| runs.minutes | north worker-ledger | bin/threads:1243 recommend_eta | read | |
+| runs.outcome, follows, landed, expects_landing | north worker-ledger | bin/threads:1408 run_ok; harness/lib/plan_usage.py:153 routing success | read | 4a58f21e |
+| runs.tier | north worker-ledger | bin/threads:1191 recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | bin/threads brief_fields | bin/threads:1191 recommend, :1243 recommend_eta | read | |
 | runs.arm | bin/threads:967 | src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
-| runs.lens, flaws | bin/worker-ledger | bin/threads:1113 summary lens table | read | |
+| runs.lens, flaws | north worker-ledger | bin/threads:1113 summary lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
-| runs.tokens | bin/worker-ledger | bin/threads:1097 tokens_med, :1526 tokens_per_closed | read | |
-| runs.cost_usd | bin/threads:989 | bin/threads:1184 recommend $ per success; harness/lib/ledger_context.py:259; harness/lib/project_score.py:51 | read | 4b71ac63 |
-| runs.staffed, review_requested, landed_at | bin/worker-ledger | harness/lib/ledger_context.py:248 delivery_metrics | read | |
-| runs.landed_sha | bin/worker-ledger | none yet (north#51 box 2) | unread | |
-| runs.first_commit | none (tally-internal, bin/worker-ledger:110) | none | dropped | 4aecdaf9 |
+| runs.tokens | north worker-ledger | bin/threads:1097 tokens_med, :1526 tokens_per_closed | read | |
+| runs.cost_usd | bin/threads:989 | bin/threads:1184 recommend $ per success; harness/lib/ledger_context.py delivery_metrics; harness/lib/project_score.py:51 | read | 4b71ac63 |
+| runs.staffed, review_requested, landed_at | north worker-ledger | harness/lib/ledger_context.py delivery_metrics | read | |
+| runs.landed_sha | north worker-ledger | none yet (north#51 box 2) | unread | |
+| runs.first_commit | none (tally-internal, src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
 | runs.turns | none | none | dropped | 4aecdaf9 |
-| runs.peak_ctx, handoff_fires, handoff_ignored | src/providers/claude/runs/telemetry.rs (Claude); harness/lib/ledger_context.py (Codex) | bin/capacity-watchdog:465 | read | |
-| runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | src/providers/claude/runs/telemetry.rs (Claude); harness/lib/ledger_context.py (Codex) | bin/threads:1057 context_summary | read | |
+| runs.peak_ctx, handoff_fires, handoff_ignored | src/providers/claude/runs/telemetry.rs (Claude); src/providers/codex/runs/usage.rs (Codex) | bin/capacity-watchdog:465 | read | |
+| runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | src/providers/claude/runs/telemetry.rs (Claude); src/providers/codex/runs/usage.rs (Codex) | bin/threads:1057 context_summary | read | |
 | runs.account, model, effort, fast | bin/threads:902 | bin/threads:1131 delivery_summary | read | |
 | runs.note, report, session, role | bin/threads | `threads show`, role filters | read | |
 | calibration | bin/threads calibrate | bin/threads:1395; harness/lib/calibration.py:23 | read | ac79788c |
@@ -57,7 +57,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | S:operating-point.toml | harness/scripts/policy-replay.py | src/agent_config_check/gate.rs; src/ops/timers/skill_prune.rs | read | |
 | S:incidents.jsonl | north incident-mine (src/ops/incident_mine) | src/agent_config_check/rules.rs | read | |
 | replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | src/agent_config_check/gate.rs | read | |
-| harness/model-catalog.toml | hand | harness/lib/usage.py:31; harness/lib/ledger_context.py run_usage; src/providers/claude/runs/telemetry.rs Prices | read | |
+| harness/model-catalog.toml | hand | harness/lib/usage.py:31; src/providers/codex/runs/usage.rs run_usage; src/providers/claude/runs/telemetry.rs Prices | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
 Claude worker creation (north#35): foreground `SubagentStart` lacks the original prompt, and the child prompt is persisted only after that callback. The supported route is `Agent` with `run_in_background: true`: its `PostToolUse` result has `status=async_launched` and the actual child `agentId`, so `worker-handoff` records the original tool input at launch. `worker-tier-guard` requires this route before any `Follows:` exemption.

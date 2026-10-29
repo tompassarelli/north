@@ -1,4 +1,4 @@
-//! One worker-ledger row into the ledger: a running worker holds its Item, a finished one releases
+//! One north worker-ledger row into the ledger: a running worker holds its Item, a finished one releases
 //! it and becomes a run, a stale one releases it; a recorded run takes only what a backfill adds.
 use std::collections::BTreeSet;
 

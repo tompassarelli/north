@@ -124,7 +124,7 @@ for agent, final in (("done", "Done: scenario green on the fix, red on main."), 
 PY
 ledger_env=(THREADS_DB="$scratch/fires.db" CLAUDE_CONFIG_DIR="$claude_home" AGENTS_ORCHESTRATION="$scratch/none" CODEX_CONFIG_DIR="$scratch/none" AGY_CONFIG_DIR="$scratch/none"
   LEDGER_REPOS="$scratch/none" CAPACITY_WATCHDOG_DIR="$scratch/empty" PATH="$scratch/bin:$PATH" WORKER_LEDGER_REAL_NORTH="$NORTH_BIN")
-env "${ledger_env[@]}" "$(dirname "$target")/worker-ledger" --since "$(date -u -d '1 day ago' +%FT%TZ)" >/dev/null 2>"$scratch/ledger.err"
+env "${ledger_env[@]}" NORTH_BIN="$scratch/bin/north" NORTH_HOME="$(cd "$(dirname "$target")/.." && pwd)" "$NORTH_BIN" worker-ledger --since "$(date -u -d '1 day ago' +%FT%TZ)" >/dev/null 2>"$scratch/ledger.err"
 fires=$(env "${ledger_env[@]}" "$target" report --minutes 30 | jq -c '[.flags[] | select(startswith("handoff"))]')
 [ "$fires" = '["handoff ignored: ignored"]' ] \
   && check ok 'a fire answered within three assistant turns by a Done: or Not done: report is not handoff ignored; one answered by neither is' \

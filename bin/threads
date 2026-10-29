@@ -463,7 +463,7 @@ def cmd_claims(db, a):
         sys.exit(code)
 
 
-# Runs (fed by worker-ledger) ---------------------------------------------------
+# Runs (fed by north worker-ledger) ---------------------------------------------------
 
 BRIEF_FIELD = {name: re.compile(rf"\b{name}:[ \t]*([^\s`<>]+)") for name in ("Item", "Follows", "Arm")}
 CATEGORY = re.compile(r"\bCategory:[ \t]*([A-Za-z-]+)")
@@ -571,7 +571,7 @@ def parser() -> argparse.ArgumentParser:
         prog="threads",
         description=f"Who holds which GitHub issue, handoffs and worker runs. Items are issue refs "
                     f"({', '.join(r + '#N' for r in REPOS)}). Database: {DB}",
-        epilog="A running worker whose brief has `Item: <repo#N>` holds that issue (recorded by worker-ledger); "
+        epilog="A running worker whose brief has `Item: <repo#N>` holds that issue (recorded by north worker-ledger); "
                "claim/release are for humans and lanes. Brief categories: "
                + ", ".join(CATEGORIES) + "; anything else counts as unknown. Facets: "
                + "; ".join(f"{k.capitalize()}: {' | '.join(v)}" for k, v in FACETS.items())

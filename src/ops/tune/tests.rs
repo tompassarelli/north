@@ -207,12 +207,12 @@ fn an_issue_closed_in_the_last_week_still_holds_its_cell_and_a_refused_filing_fa
 fn unread_arm_evidence_keeps_the_prior_routing_cells_and_fails_the_tick() {
     let mut ledger = ledger();
     ledger.evidence.clear();
-    ledger.notes.push("worker-ledger --recommend \"Category: feature\" unread".into());
+    ledger.notes.push("north worker-ledger --recommend \"Category: feature\" unread".into());
     let prior = first_tick(&mut Issues::default()).cells;
     let blind = tick(&ledger, &prior, &[], &mut Issues::default(), AT, false);
     assert_eq!(blind.cells.get("route feature"), Some(&json!("sonnet-high")));
     assert!(blind.records.is_empty(), "a failed read neither drops nor re-adds a route: {:?}", blind.records);
-    assert!(blind.lines[1].starts_with("unread: worker-ledger --recommend"), "{:#?}", blind.lines);
+    assert!(blind.lines[1].starts_with("unread: north worker-ledger --recommend"), "{:#?}", blind.lines);
     assert!(blind.failed);
 }
 

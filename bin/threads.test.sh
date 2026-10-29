@@ -10,7 +10,7 @@ threads=$repo/bin/threads
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/threads-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export THREADS_DB=$scratch/threads.db GH_TRACE=$scratch/gh.trace PATH=$scratch/bin:$PATH
-export AGENTS_ORCHESTRATION=$scratch/orchestration.toml NORTH_BIN=${NORTH_PACE_BIN:-$repo/target/debug/north} THREADS_ALIVE_OWNERS='["alice","bob","fixture"]'
+export AGENTS_ORCHESTRATION=$scratch/orchestration.toml NORTH_BIN=${NORTH_PACE_BIN:-$repo/target/debug/north} THREADS_ALIVE_OWNERS='["alice","bob","fixture"]' NORTH_HOME=$repo
 : >"$AGENTS_ORCHESTRATION"
 
 # smashcraft: #1 blocked by open #2, #2 open, #3 open, #4 blocked by closed #5.
@@ -137,15 +137,15 @@ except AssertionError as error:
 else:
     print("cuts ok")
 try:
-    recommendation = subprocess.run([str(Path(threads).with_name("worker-ledger")), "--recommend", "--planner",
+    recommendation = subprocess.run([os.environ["NORTH_BIN"], "worker-ledger", "--recommend", "--planner",
         "Item: north#1, Category: feature, Scope: module, Surface: shell, Summed box ETA: 10m, Prior Not dones: 2"],
         env=env, capture_output=True, text=True)
     assert recommendation.returncode == 0, recommendation.stderr
     assert recommendation.stdout.startswith("planner xhigh  "), recommendation.stdout
     assert "prior Not dones: 2 given; history has no planning-time prior Not dones for 100 of 100 items, so matching ignores it for those\n" in recommendation.stdout, recommendation.stdout
-    refused = subprocess.run([str(Path(threads).with_name("worker-ledger")), "--planner"],
+    refused = subprocess.run([os.environ["NORTH_BIN"], "worker-ledger", "--planner"],
                              env=env, capture_output=True, text=True)
-    assert refused.returncode == 2 and refused.stderr.startswith("usage: worker-ledger"), refused
+    assert refused.returncode == 2 and refused.stderr.startswith("usage: north worker-ledger"), refused
     assert f"cut points high=[0,{high:.6f}) xhigh=[{high:.6f},{maximum:.6f}) max=[{maximum:.6f},inf)" in recommendation.stdout, recommendation.stdout
     assert all(line in recommendation.stdout for line in ("realized items high/xhigh/max=90.00/5.00/5.00% of 100\n", "planner runs by effort n=0: high=0 (0.00%) xhigh=0 (0.00%) max=0 (0.00%)\n")), recommendation.stdout
     assert hashlib.sha256(Path(db_path).read_bytes()).digest() == before, "planner recommendation changed the ledger"
@@ -160,7 +160,7 @@ check '[recorded] planner-band reaches north ledger planner-band, counts every r
   'grep -qx "backfill ok" <<<"$out"'
 check '[measurement] planner cut points separate known zero/one/multiple payoff signals and print their measured split beside the prior and the leave-one-out table' \
   'grep -qx "cuts ok" <<<"$out"'
-check '[recorded] planner recommendation uses measured bands and prints the realized band and planner-effort shares through worker-ledger' \
+check '[recorded] planner recommendation uses measured bands and prints the realized band and planner-effort shares through north worker-ledger' \
   'grep -qx "recommend planner ok" <<<"$out"'
 
 out=$(python3 - "$repo" "$scratch" <<'PYMODE'
@@ -179,7 +179,7 @@ with sqlite3.connect(env["THREADS_DB"]) as db:
             db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,spec,scope,surface,verify) VALUES (?,?,?,?,?,?,?,?,?,?)",
                        (f"{tier}-{i}", tier, "bug-known-cause", "2026-10-09T00:00:00Z", minutes + i, "done", "exact", "module", "shell", "local-test"))
 pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config)
-split = run(str(repo / "bin/worker-ledger"), "--recommend", facets)
+split = run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", facets)
 expected = """tier claude:haiku  cell [Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell]  n 10
 success threshold 80%  rule rank (uncalibrated: thin $ claude:haiku n=0, codex:sol-medium n=0 < 5)
   claude:haiku       100% of 5  $ n/a (priced n=0)
@@ -189,17 +189,17 @@ eta 8m (p75 of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, 
 assert split == expected, repr(split)
 print("split unchanged")
 pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "split"', 'mode = "claude-only"', 1))
-assert run(str(repo / "bin/worker-ledger"), "--recommend", facets) == split
+assert run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", facets) == split
 pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "split"', 'mode = "codex-only"', 1))
-codex = run(str(repo / "bin/worker-ledger"), "--recommend", facets)
+codex = run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", facets)
 assert "claude:" not in codex and codex.startswith("tier codex:sol-medium "), codex
 assert "eta 13m (actual_med of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier codex:sol-medium)" in codex, codex
-assert run(str(repo / "bin/worker-ledger"), "--recommend", "Category: balance-tuning").startswith("insufficient evidence  ")
+assert run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", "Category: balance-tuning").startswith("insufficient evidence  ")
 print("codex-only median")
 PYMODE
 )
-check '[recorded] worker-ledger recommend split stdout stays unchanged' 'grep -qx "split unchanged" <<<"$out"'
-check '[recorded] worker-ledger recommend codex-only drops Claude and uses the chosen Codex cell median and n' 'grep -qx "codex-only median" <<<"$out"'
+check '[recorded] north worker-ledger recommend split stdout stays unchanged' 'grep -qx "split unchanged" <<<"$out"'
+check '[recorded] north worker-ledger recommend codex-only drops Claude and uses the chosen Codex cell median and n' 'grep -qx "codex-only median" <<<"$out"'
 
 python3 - "$threads" "$scratch/cal.db" <<'PYCAL' >"$scratch/cal.out" 2>&1
 import json, random, subprocess, sys

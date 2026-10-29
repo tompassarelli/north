@@ -31,7 +31,7 @@ north follows-release >/dev/null
 check '[7] a follow box whose ref names another repository reads that repository issue, not its own' \
   'grep -qE "^issue view 51 --repo [^ /]+/wisp " "$scratch/gh-calls" && ! grep -qE "^issue view 51 --repo [^ /]+/north " "$scratch/gh-calls" && grep -q "Item: north#22" "$scratch/bin/started"'
 
-queue 23 'north#240 (n240-ledger, worker-ledger recording fix)' claude:opus-medium >/dev/null
+queue 23 'north#240 (n240-ledger, north worker-ledger recording fix)' claude:opus-medium >/dev/null
 : >"$scratch/bin/started"
 printf 'OPEN\n' >"$scratch/gh-state"
 north follows-release >/dev/null

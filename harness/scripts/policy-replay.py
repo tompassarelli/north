@@ -564,7 +564,7 @@ def variant_row(name: str, policy: str, startup: int, runs: list[dict]) -> dict:
                       for s in sorted({r["scenario"] for r in scored})},
         "errors": len(runs) - len(scored),
         "runs_tokens": round(sum(tokens) / len(tokens)) if tokens else None,
-        # worker-ledger exposes no usage-fraction rate, so subscription $ stays null; cost_api_usd_comparison rows hold list price only.
+        # north worker-ledger exposes no usage-fraction rate, so subscription $ stays null; cost_api_usd_comparison rows hold list price only.
         "usd_or_null": None,
         "wall_s": round(sum(r["wall_s"] for r in runs), 1),
         "model": common([r.get("model_resolved") or r.get("model") for r in runs]),

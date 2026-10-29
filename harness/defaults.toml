@@ -86,10 +86,10 @@ consumers = ["harness/lib/calibration.py"]
 
 [calibrate_after_min]
 value = 55
-unit = "minutes since the newest calibration row before worker-ledger recalibrates"
+unit = "minutes since the newest calibration row before north worker-ledger recalibrates"
 source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): the loop reads usage hourly; 55 keeps it under the hourly tick"
-fallback = "no calibration row at all recalibrates on the next worker-ledger run"
-consumers = ["harness/lib/calibration.py"]
+fallback = "no calibration row at all recalibrates on the next north worker-ledger run"
+consumers = ["src/cli/worker_ledger/recalibrate.rs"]
 
 [overdue_ratio]
 value = 2
@@ -258,7 +258,7 @@ unit = "how an account interval's plan $ splits across concurrent runs: price (e
 source = "measured: north#36 meter test 2026-10-12 (replay/advisor-2026-10-12-M-haiku.jsonl): 40 Haiku 5.5 high runs on claude:a, $0.095 at list price, moved five_hour 10 -> at most 11 and seven_day 68 -> 68, against the several points token weight predicts; token weight had given Opus kappa 0.050 and Haiku 1.31 over the same 2 days, price weight gives 0.051 and 0.028"
 settles_when = { need = 40, count = "count_meter_test_haiku_runs", what = "re-measure: Haiku policy-replay rows carrying five_hour_pct and seven_day_pct; value is the five_hour rise across the newest such file" }
 fallback = "a model without input and output list prices in model-catalog.toml takes token weight, which equals list price at $1/M input and $5/M output, and threads ingest names it"
-consumers = ["harness/lib/ledger_context.py", "src/providers/claude/runs/telemetry.rs"]
+consumers = ["src/providers/claude/runs/telemetry.rs"]
 
 [box_chain_gap_min]
 value = 30

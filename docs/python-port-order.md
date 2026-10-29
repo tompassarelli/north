@@ -38,9 +38,6 @@ project_score -> plan_usage
 project_score -> project_plan
 project_score -> routing
 project_score -> usage
-recalibrate -> calibration
-recalibrate -> defaults
-recalibrate -> provider_capacity
 report -> calibration
 report -> policy_stats
 report -> run_outcome
@@ -82,7 +79,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
    `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
    `usage_agy`, `usage_codex`
 2. `calibration`, `ledger_context`, `presence`, `routing`, `usage_claude`
-3. `flow`, `plan_usage`, `recalibrate`, `report`
+3. `flow`, `plan_usage`, `report`
 4. `goal_eta`, `usage`
 5. `project_plan`
 6. `project_score`
@@ -90,7 +87,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 ## Python callers outside `harness/lib`
 
 These import the cycle's modules directly and change in the same commit as the module they import:
-`bin/agents`, `bin/threads`, `bin/worker-ledger`,
+`bin/agents`, `bin/threads`,
 `harness/hooks/lib/codex_behavior.py`, `harness/hooks/lib/spawn_capacity.py`,
 `harness/scripts/codex-route-propose.py`, `harness/scripts/harness-tuner.py`,
 and `harness/scripts/policy-replay.py`.

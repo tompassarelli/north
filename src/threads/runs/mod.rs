@@ -1,4 +1,4 @@
-//! `north threads ingest` and `north threads run-ids`: worker-ledger's JSON rows into the runs,
+//! `north threads ingest` and `north threads run-ids`: north worker-ledger's JSON rows into the runs,
 //! claims and usage tables, and the run ids already recorded.
 pub(crate) mod brief;
 mod costs;

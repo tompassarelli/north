@@ -1,4 +1,4 @@
-//! The calibration rows worker-ledger records, shown as the newest batch of each kind, and the
+//! The calibration rows north worker-ledger records, shown as the newest batch of each kind, and the
 //! goal ETAs the planner predicted against what finished.
 use std::collections::BTreeMap;
 

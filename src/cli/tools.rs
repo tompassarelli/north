@@ -47,6 +47,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("incident-mine", crate::ops::incident_mine::run),
     ("advisor-report", crate::ops::advisor_report::run),
     ("defaults-measure", crate::ops::defaults_measure::run),
+    ("worker-ledger", super::worker_ledger::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

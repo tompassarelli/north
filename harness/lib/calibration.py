@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -13,7 +13,6 @@ THIN_N = DEFAULTS["calibration_thin_n"]
 RATE_N = DEFAULTS["min_runs"]
 STALE_DAYS = DEFAULTS["calibration_stale_days"]
 BOX_N = DEFAULTS["box_calibration_n"]
-CALIBRATE_AFTER = timedelta(minutes=DEFAULTS["calibrate_after_min"])
 GOAL_KINDS = ("goal_eta", "goal_actual")
 COLUMNS = ("at", "kind", "cell", "n", "p25", "median", "p75", "value", "source")
 
@@ -95,10 +94,6 @@ def latest(all_rows):
             for kind, at in sorted(newest.items())}
 
 
-def newest_at(all_rows):
-    return max((stamp(r["at"]) for r in all_rows if r.get("kind") not in GOAL_KINDS), default=None)
-
-
 def fallback(row, now):
     floor = RATE_N if row["kind"] == "tier" else BOX_N if row["kind"] == "box" else THIN_N
     if (row["n"] or 0) < floor:
@@ -106,15 +101,3 @@ def fallback(row, now):
     if (now - stamp(row["at"])).days >= STALE_DAYS:
         return f"older than {STALE_DAYS} days"
     return None
-
-
-def calibration_due(all_rows, now):
-    newest = newest_at([r for r in all_rows if r["kind"] != "prior"])
-    return newest is None or now - newest > CALIBRATE_AFTER
-
-
-def priors_due(all_rows, now):
-    newest = newest_at([r for r in all_rows if r["kind"] == "prior"])
-    week = (now.astimezone(timezone.utc) - timedelta(days=now.astimezone(timezone.utc).weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0)
-    return newest is None or newest < week

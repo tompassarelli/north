@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -12,16 +12,17 @@ fn rig(root: &Path) {
     let north = root.join("bin/north");
     fs::write(
         &north,
-        format!("#!/bin/sh\ncase \"$1 $2\" in \"ledger \"*|\"threads ingest\") exec {} \"$@\";; esac\nprintf '[]\\n'\n", env!("CARGO_BIN_EXE_north")),
+        "#!/bin/sh\nprintf '[]\\n'\n",
     )
     .unwrap();
     fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
-    symlink(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/threads"), root.join("bin/threads")).unwrap();
 }
 
 fn ledger(root: &Path) -> Output {
-    Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/worker-ledger"))
-        .args(["--since", "2026-10-08"])
+    Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["worker-ledger", "--since", "2026-10-08"])
+        .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))
+        .env("NORTH_BIN", root.join("bin/north"))
         .env("HOME", root)
         .env("XDG_STATE_HOME", root.join("state"))
         .env("THREADS_DB", root.join("threads.db"))

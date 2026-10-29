@@ -86,7 +86,7 @@ holds the tier table. In order:
    duplicated.
 2. **Pick the provider and account.** `agents plan` reads the signed-in providers, South's
    `orchestration.toml` and live usage, and routes each tier to an account.
-3. **Pick the tier and ETA.** `worker-ledger --recommend` picks the cheapest tier whose measured
+3. **Pick the tier and ETA.** `north worker-ledger --recommend` picks the cheapest tier whose measured
    success meets the threshold in [harness/defaults.toml](../harness/defaults.toml) and prints the
    ETA.
 4. **Write the brief.** Carry Item, Category, facet lines, files, Done when and ETA. A retry or
@@ -104,7 +104,7 @@ holds the tier table. In order:
    recorded with the other override reasons.
 6. **Queue what waits.** A box that waits on another lane is queued with `threads queue follow`;
    `follows-release` starts it once its predecessor lands on main.
-7. **Record.** Fleet receipts capture delivery and completion. `worker-ledger` records each run's
+7. **Record.** Fleet receipts capture delivery and completion. `north worker-ledger` records each run's
    outcome, cost and duration, and those records feed the next recommendation
    ([feedback-loop.md](feedback-loop.md)).
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use rusqlite::Connection;
@@ -343,4 +344,128 @@ fn a_proxy_landing_and_an_itemless_worker_take_the_item_their_landed_commit_name
     ledger.ingest(&[json!({"id": "proxy-late", "role": "proxy", "ended": "2026-10-28T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done"})]);
     ledger.ingest(&[json!({"id": "proxy-late", "role": "proxy", "backfill": true, "ended": "2026-10-28T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done", "landed": 1, "landed_ref": "north#43"})]);
     assert_eq!(ledger.row("SELECT item FROM runs WHERE agent = 'proxy-late'"), "north#43");
+}
+
+fn measured_ledger(prices: Vec<(&'static str, f64)>) -> Ledger {
+    let mut ledger = ledger();
+    ledger.outside.prices = prices;
+    ledger
+}
+
+fn reading(account: &str, ts: &str, used: i64, resets: &str) -> Json {
+    json!({"type": "usage", "ts": ts, "provider": "claude", "account": account, "kind": "window", "name": "weekly_all", "used_pct": used, "resets_at": resets})
+}
+
+fn sampled(id: &str, account: &str, samples: &[(&str, f64)]) -> Json {
+    let samples: Vec<Json> = samples.iter().map(|(ts, weight)| json!({"request": format!("{id}-{ts}"), "ts": ts, "weight": weight})).collect();
+    json!({"id": id, "role": "routine", "account": account, "usage_samples": samples, "tier": "high", "actual_min": 20, "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:20:00Z", "outcome": "done"})
+}
+
+fn costs_by_agent(ledger: &Ledger) -> BTreeMap<String, f64> {
+    ledger
+        .rows("SELECT agent, SUM(cost_usd) FROM run_costs GROUP BY agent")
+        .into_iter()
+        .map(|row| match (&row[0], &row[1]) {
+            (Value::Text(agent), Value::Real(usd)) => (agent.clone(), *usd),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+const RESETS: &str = "2026-10-15T00:00:00Z";
+
+fn climb() -> Vec<Json> {
+    [("2026-10-11T00:00:00Z", 10), ("2026-10-11T00:10:00Z", 14), ("2026-10-11T00:20:00Z", 20)].iter().map(|(ts, used)| reading("b", ts, *used, RESETS)).collect()
+}
+
+fn climbing_runs(account: &str) -> Vec<Json> {
+    vec![sampled("a", account, &[("2026-10-11T00:05:00Z", 730.0)]), sampled("b", account, &[("2026-10-11T00:08:00Z", 270.0), ("2026-10-11T00:15:00Z", 100.0)])]
+}
+
+fn assert_costs(found: &BTreeMap<String, f64>, expected: &[(&str, f64)]) {
+    assert_eq!(found.len(), expected.len(), "{found:?}");
+    for (agent, usd) in expected {
+        assert!((found[*agent] - usd).abs() < 1e-9, "{agent}: {found:?}");
+    }
+}
+
+#[test]
+fn a_plateau_of_equal_readings_gives_every_active_run_points_and_conserves_its_step() {
+    for base in [91, 84] {
+        let at = |minute: u32| format!("2026-10-12T12:{minute:02}:00Z");
+        let readings: Vec<Json> = [(0, base), (10, base), (20, base), (30, base + 1)].iter().map(|(minute, used)| reading("a", &at(*minute), *used, RESETS)).collect();
+        let active = [("plateau-a", 5, 1.0), ("plateau-b", 15, 2.0), ("step", 25, 1.0)];
+        for runs in [&active[..], &active[..2]] {
+            let ledger = measured_ledger(vec![("claude-a", 100.0)]);
+            ledger.ingest(&[readings.clone(), runs.iter().map(|(id, minute, weight)| sampled(id, "claude-a", &[(&at(*minute), *weight)])).collect()].concat());
+            let found = costs_by_agent(&ledger);
+            assert_eq!(found.len(), runs.len(), "{base}: {found:?}");
+            assert!((found.values().sum::<f64>() - 1.0).abs() < 1e-9, "{base}: {found:?}");
+            assert!(found.values().all(|usd| *usd > 0.0), "{base}: {found:?}");
+        }
+    }
+}
+
+#[test]
+fn readings_whose_reset_times_differ_by_a_second_are_one_window_and_samples_on_another_account_cost_nothing() {
+    let steady = measured_ledger(vec![("claude-b", 50.0)]);
+    steady.ingest(&[climb(), climbing_runs("claude-b")].concat());
+    let expected = [("a", 1.46), ("b", 3.54)];
+    assert_costs(&costs_by_agent(&steady), &expected);
+
+    let mut jittered = climb();
+    jittered[1]["resets_at"] = json!("2026-10-15T00:00:01Z");
+    let jitter = measured_ledger(vec![("claude-b", 50.0)]);
+    jitter.ingest(&[jittered, climbing_runs("claude-b")].concat());
+    assert_costs(&costs_by_agent(&jitter), &expected);
+
+    let elsewhere = measured_ledger(vec![("claude-b", 50.0)]);
+    elsewhere.ingest(&[climb(), climbing_runs("claude-a")].concat());
+    assert!(costs_by_agent(&elsewhere).is_empty(), "samples on the wrong account were charged");
+}
+
+#[test]
+fn a_reading_and_a_sample_before_the_first_interval_create_no_untracked_share_and_keep_the_whole_cost() {
+    let mut readings = climb();
+    readings.insert(0, reading("b", "2026-10-10T23:50:00Z", 10, RESETS));
+    let ledger = measured_ledger(vec![("claude-b", 50.0)]);
+    ledger.ingest(&[readings, climbing_runs("claude-b"), vec![sampled("c", "claude-b", &[("2026-10-10T23:40:00Z", 500.0)])]].concat());
+    let found = costs_by_agent(&ledger);
+    assert!(!found.contains_key("(untracked)") && !found.contains_key("c"), "{found:?}");
+    assert!((found.values().sum::<f64>() - 5.0).abs() < 1e-9, "{found:?}");
+}
+
+#[test]
+fn opus_and_haiku_list_price_samples_in_one_interval_split_the_cost_forty_to_one() {
+    let ledger = measured_ledger(vec![("claude-b", 50.0)]);
+    ledger.ingest(&[
+        climb()[..2].to_vec(),
+        vec![
+            sampled("claude-opus-5-5", "claude-b", &[("2026-10-11T00:03:00Z", 6400.0)]),
+            sampled("claude-haiku-5-5", "claude-b", &[("2026-10-11T00:04:00Z", 160.0)]),
+        ],
+    ]
+    .concat());
+    let found = costs_by_agent(&ledger);
+    assert!((found["claude-opus-5-5"] / found["claude-haiku-5-5"] - 40.0).abs() < 1e-9, "{found:?}");
+    assert!((found.values().sum::<f64>() - 2.0).abs() < 1e-9, "{found:?}");
+}
+
+#[test]
+fn the_run_costs_of_changing_readouts_keep_the_bytes_the_shell_allocator_printed() {
+    let ledger = measured_ledger(vec![("claude-b", 50.0)]);
+    ledger.ingest(&[climb(), climbing_runs("claude-b")].concat());
+    let text = ledger
+        .rows("SELECT account, started, ended, agent, cost_usd FROM run_costs ORDER BY started, agent")
+        .iter()
+        .map(|row| match row.as_slice() {
+            [Value::Text(account), Value::Text(started), Value::Text(ended), Value::Text(agent), Value::Real(usd)] => {
+                format!(r#"{{"account": "{account}", "started": "{started}", "ended": "{ended}", "agent": "{agent}", "cost_usd": {usd:?}}}"#)
+            }
+            other => panic!("{other:?}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let control = r#"[{"account": "claude-b", "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:10:00Z", "agent": "a", "cost_usd": 1.46}, {"account": "claude-b", "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:10:00Z", "agent": "b", "cost_usd": 0.54}, {"account": "claude-b", "started": "2026-10-11T00:10:00Z", "ended": "2026-10-11T00:20:00Z", "agent": "b", "cost_usd": 3.0}]"#;
+    assert_eq!(format!("[{text}]"), control);
 }
