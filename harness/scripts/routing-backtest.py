@@ -15,17 +15,26 @@ import bisect
 from collections import Counter
 import json
 import re
-import runpy, sqlite3, subprocess, types
+import sqlite3, subprocess
 import math
 import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from calibration import threads_call
+from defaults import DEFAULTS
 from policy_stats import wilson
+from run_outcome import succeeded, unjudged
 
-T = types.SimpleNamespace(**runpy.run_path(str(Path(__file__).resolve().parents[2] / "bin/threads")))
 FACETS = ["spec", "scope", "surface", "verify"]
+GROUPS = ["category", *FACETS]
+BACKOFF = ["surface", "verify", "scope", "spec"]
+MIN_RUNS = USD_MIN = DEFAULTS["min_runs"]
+SUCCESS_THRESHOLD = DEFAULTS["success_threshold"]
+DEFAULT_TIER = DEFAULTS["default_tier"]
+SPAWN_ORIGINS = ("codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent")
 REFIT_EVERY = 20
 MIN_TRAIN = 30
 
@@ -97,23 +106,42 @@ def chain_depth(r, by_agent):
     return d
 
 
+def annotated(rows):
+    """The rows with the cells, tier key and rank, and brief coverage `north threads annotate-runs` reads off each, under `note`."""
+    pending = [r for r in rows if "note" not in r]
+    notes = iter(threads_call("annotate-runs", pending)["rows"] if pending else [])
+    return [r if "note" in r else dict(r, note=next(notes)) for r in rows]
+
+
+def recommend_run(r, ok):
+    return {"cells": r["note"]["cells"], "tier": r["note"]["tier"], "ok": ok, "minutes": r["minutes"],
+            "cost_usd": r["cost_usd"], "outcome": r["outcome"]}
+
+
+def recommend_cases(cases, carry=False):
+    """`north threads recommend-runs`: one pick per case of (runs, asked cells), each pick's stats listing tier, rank and n."""
+    request = {"carry": carry, "cases": [{"runs": runs, "asked": asked} for runs, asked in cases]}
+    return threads_call("recommend-runs", request)["picks"] if cases else []
+
+
 def load(db):
-    rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' ORDER BY ended") if not T.unjudged(r)]
+    worker = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' ORDER BY ended")]
+    escalated = {r["follows"] for r in worker if r["follows"]}
+    rows = annotated([r for r in worker if not unjudged(r)])
     by_agent = {r["agent"]: r for r in rows}
     children = {}
     for r in rows:
         if r["follows"] in by_agent:
             children.setdefault(r["follows"], []).append(r)
-    final = T.run_ok(db)
     cat_minutes = {}
     for r in rows:
-        cat = T.cell_value(r, "category")
+        cat = r["note"]["cells"][0]
         prior = cat_minutes.setdefault(cat, [])
         r["cat"] = cat
-        r["tierk"] = T.tier_key(r["tier"])
+        r["tierk"] = r["note"]["tier"]
         r["difficulty"] = percentile_of(prior, r["minutes"])
         r["depth"] = chain_depth(r, by_agent)
-        r["ok_final"] = bool(final(r))
+        r["ok_final"] = succeeded(r, r["agent"] in escalated)
         r["escalation"] = r["outcome"] == "escalated" or r["agent"] in children
         bisect.insort(prior, r["minutes"])
     return rows, by_agent, children
@@ -129,9 +157,7 @@ def dataset_report(rows):
     print(f"  category known {len(known)}, tiers {len({r['tierk'] for r in rows})}, categories {len({r['cat'] for r in known})}, "
           f"priced (cost_usd) {sum(r['cost_usd'] is not None for r in rows)}, eta_min {sum(r['eta_min'] is not None for r in rows)}, "
           f"facets {sum(r['spec'] is not None for r in rows)}, arm {sum(bool(r['arm']) for r in rows)}")
-    covered = sum(r["category"] in T.CATEGORIES and all(r[key] in T.FACETS[key] for key in FACETS)
-                  and all(T.brief_fields(r.get("brief_text") or "").get(key) == r[key] for key in ("category", *FACETS))
-                  and r.get("brief_origin") in ("codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent") for r in rows)
+    covered = sum(brief_qualified(r) for r in rows)
     print(f"  spawn brief coverage {covered}; retrieval trigger >=300, rerun backtest >500")
     depths = {}
     for r in rows:
@@ -140,8 +166,8 @@ def dataset_report(rows):
     cells = {}
     for r in known:
         cells.setdefault((r["cat"], r["tierk"]), []).append(r["ok_final"])
-    big = sum(len(v) >= T.MIN_RUNS for v in cells.values())
-    print(f"  (category x tier) cells {len(cells)}, with >= {T.MIN_RUNS} runs {big}")
+    big = sum(len(v) >= MIN_RUNS for v in cells.values())
+    print(f"  (category x tier) cells {len(cells)}, with >= {MIN_RUNS} runs {big}")
 
 
 def tier_features(cat, facets, tier, diff):
@@ -167,7 +193,7 @@ def backtest_tier(db_path, rows, seed):
         if r["follows"]:
             followed[r["follows"]] = min(r["ended"], followed.get(r["follows"], r["ended"]))
     eta_hist = {}
-    out, lr_model, mf_model, fitted_at = [], None, None, -1
+    pending = []
     for x in firsts:
         cat = x["cat"]
         at = x["started"] or x["ended"]
@@ -182,9 +208,15 @@ def backtest_tier(db_path, rows, seed):
         if len(hist) < MIN_TRAIN:
             continue
 
-        def ok_then(r):
-            return T.succeeded(r, r["agent"] in followed and followed[r["agent"]] < at)
+        def ok_then(r, at=at):
+            return succeeded(r, r["agent"] in followed and followed[r["agent"]] < at)
 
+        cat_runs = [recommend_run(r, ok_then(r)) for r in hist if r["cat"] == cat]
+        pending.append((x, diff, hist, ok_then, cat_runs))
+    picks = recommend_cases([(cat_runs, [x["cat"]] + [None] * len(FACETS)) for x, _, _, _, cat_runs in pending])
+    out, lr_model, mf_model, fitted_at = [], None, None, -1
+    for (x, diff, hist, ok_then, cat_runs), found in zip(pending, picks):
+        cat = x["cat"]
         if lr_model is None or len(hist) - fitted_at >= REFIT_EVERY:
             labelled = [(r, ok_then(r)) for r in hist]
             lr_model = Logistic([(tier_features(r["cat"], r, r["tierk"], r.get("eta_pct")), y) for r, y in labelled], seed)
@@ -192,15 +224,12 @@ def backtest_tier(db_path, rows, seed):
             fitted_at = len(hist)
             train_acc = sum((lr_model.prob(tier_features(r["cat"], r, r["tierk"], r.get("eta_pct"))) >= .5) == y
                             for r, y in labelled) / len(labelled)
-        cat_hist = [r for r in hist if r["cat"] == cat]
-        cat_runs = T.recommend_runs(cat_hist, ok_then)
-        stats = T.tier_stats(cat_runs)
-        sampled = {t: st for t, st in stats.items() if st["n"] >= T.MIN_RUNS}
+        sampled = {st["tier"]: st for st in found["stats"] if st["n"] >= MIN_RUNS}
         cost = {}
         for r in cat_runs:
             if r["cost_usd"] is not None:
                 cost.setdefault(r["tier"], []).append(r["cost_usd"])
-        asked = {k: T.cell_value(x, k) for k in T.GROUPS}
+        asked = dict(zip(GROUPS, x["note"]["cells"]))
         rule_rate = cell_rate(cat_runs, asked, x["tierk"])
         row = {"run": x, "ok": by_agent[x["agent"]][1], "rule_pick": by_agent[x["agent"]][0],
                "rule_pred": rule_rate is not None and rule_rate >= 0.5, "train_acc": train_acc}
@@ -213,24 +242,25 @@ def backtest_tier(db_path, rows, seed):
 
 
 def cell_rate(runs, asked, tier):
-    keys = ["category", *(k for k in reversed(T.BACKOFF) if asked.get(k, "-") != "-")]
+    keys = ["category", *(k for k in reversed(BACKOFF) if asked.get(k, "-") != "-")]
     while keys:
-        rs = [r for r in runs if r["tier"] == tier and all(r.get(k) == asked[k] for k in keys)]
-        if len(rs) >= T.MIN_RUNS or len(keys) == 1:
+        rs = [r for r in runs if r["tier"] == tier and all(r["cells"][GROUPS.index(k)] == asked[k] for k in keys)]
+        if len(rs) >= MIN_RUNS or len(keys) == 1:
             return sum(r["ok"] for r in rs) / len(rs) if rs else None
         keys.pop()
 
 
 def model_pick(sampled, cost, prob):
     if not sampled:
-        return T.DEFAULT_TIER
+        return DEFAULT_TIER
     p = {t: prob(t) for t in sampled}
-    passing = [t for t in sampled if p[t] * 100 >= T.SUCCESS_THRESHOLD]
+    rank = lambda t: sampled[t]["rank"]
+    passing = [t for t in sampled if p[t] * 100 >= SUCCESS_THRESHOLD]
     if not passing:
-        return max(sampled, key=lambda t: (p[t], -T.tier_rank(t)))
-    if len(passing) > 1 and all(len(cost.get(t, [])) >= T.USD_MIN for t in passing):
-        return min(passing, key=lambda t: (sum(cost[t]) / len(cost[t]) / p[t], T.tier_rank(t)))
-    return min(passing, key=T.tier_rank)
+        return max(sampled, key=lambda t: (p[t], -rank(t)))
+    if len(passing) > 1 and all(len(cost.get(t, [])) >= USD_MIN for t in passing):
+        return min(passing, key=lambda t: (sum(cost[t]) / len(cost[t]) / p[t], rank(t)))
+    return min(passing, key=rank)
 
 
 def retry_features(r):
@@ -298,11 +328,7 @@ def fmt_ci(v, lo, hi, unit=""):
 
 
 def brief_qualified(r):
-    fields = T.brief_fields(r.get("brief_text") or "")
-    return (r["category"] in T.CATEGORIES
-            and all(r.get(k) in values for k, values in T.FACETS.items())
-            and all(fields.get(k) == r.get(k) for k in T.GROUPS)
-            and r.get("brief_origin") in ("codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent"))
+    return r["note"]["brief_covered"] and r.get("brief_origin") in SPAWN_ORIGINS
 
 
 def brief_vector(text):
@@ -329,15 +355,17 @@ def neighbor_pick(target, history, k):
         wins = sum(r["ok"] for r in rs)
         if wins:
             candidates[tier] = sum(r["cost_usd"] for r in rs) / wins
-    return min(candidates, key=lambda t: (candidates[t], T.tier_rank(t), t)) if candidates else None
+    rank = {tier: rs[0]["note"]["rank"] for tier, rs in priced.items()}
+    return min(candidates, key=lambda t: (candidates[t], rank[t], t)) if candidates else None
 
 
 def retrieval_decisions(rows, costs):
-    finished = [r for r in rows if not T.unjudged(r) and r.get("ended")]
+    rows = annotated(rows)
+    finished = [r for r in rows if not unjudged(r) and r.get("ended")]
     firsts = [r for r in finished if r["follows"] is None and r["outcome"] != "split"]
-    targets = sorted((r for r in firsts if brief_qualified(r) and r.get("started")
-                      and T.tier_key(r["tier"]) in T.RUN_TIERS), key=lambda r: (r["started"], r["agent"]))
-    held, out = {}, []
+    targets = sorted((r for r in firsts if brief_qualified(r) and r.get("started") and r["note"]["known_tier"]),
+                     key=lambda r: (r["started"], r["agent"]))
+    histories = []
     for target in targets:
         at = target["started"]
         followed = {r["follows"] for r in rows if r.get("follows") and r.get("ended") and r["ended"] < at}
@@ -347,21 +375,23 @@ def retrieval_decisions(rows, costs):
                 available[cost["agent"]] = available.get(cost["agent"], 0) + cost["cost_usd"]
         history = []
         for r in finished:
-            if r["ended"] >= at or T.tier_key(r["tier"]) not in T.RUN_TIERS:
+            if r["ended"] >= at or not r["note"]["known_tier"]:
                 continue
             known = dict(r, cost_usd=available.get(r["agent"]))
             if known["expects_landing"] and (not known.get("landed_at") or known["landed_at"] >= at):
                 known["landed"] = 0
-            known["ok"] = T.succeeded(known, r["agent"] in followed)
-            known["tier"] = T.tier_key(r["tier"])
+            known["ok"] = succeeded(known, r["agent"] in followed)
+            known["tier"] = r["note"]["tier"]
             history.append(known)
-        asked = {k: T.cell_value(target, k) for k in T.GROUPS}
-        baseline = [r for r in history if r["follows"] is None and r["outcome"] != "split"]
-        cell, _, pick, _, _ = T.recommend(T.recommend_runs(baseline, lambda r: r["ok"]), asked, held)
-        held[cell] = pick
+        histories.append(history)
+    baselines = [[recommend_run(r, r["ok"]) for r in history if r["follows"] is None and r["outcome"] != "split"]
+                 for history in histories]
+    picks = recommend_cases([(baseline, target["note"]["cells"]) for baseline, target in zip(baselines, targets)], carry=True)
+    out = []
+    for target, history, found in zip(targets, histories, picks):
         final_followed = any(r.get("follows") == target["agent"] for r in rows)
-        row = {"actual": T.tier_key(target["tier"]), "rule": pick,
-               "waste": not T.succeeded(target, final_followed),
+        row = {"actual": target["note"]["tier"], "rule": found["tier"],
+               "waste": not succeeded(target, final_followed),
                "escalation": target["outcome"] == "escalated" or final_followed}
         neighbors = [r for r in history if brief_qualified(r)]
         for k in (10, 20):
@@ -400,12 +430,12 @@ def retrieval_metrics(rows, arm, boot, seed):
 
 
 def retrieval_only(db, boot, seed):
-    rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role='worker'")]
+    rows = annotated([dict(r) for r in db.execute("SELECT * FROM runs WHERE role='worker'")])
     covered = sum(r["outcome"] != "running" and brief_qualified(r) for r in rows)
     if covered < 300:
         raise SystemExit(f"retrieval requires >=300 flow-qualified finished runs; found {covered}")
     costs = ([dict(r) for r in db.execute("SELECT agent,ended,cost_usd FROM run_costs")]
-             if T.table_exists(db, "run_costs") else [])
+             if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'run_costs'").fetchone() else [])
     decisions = retrieval_decisions(rows, costs)
     result = {"flow_qualified": covered, "finished_workers": sum(r["outcome"] != "running" for r in rows),
               "outcomes": dict(Counter(r["outcome"] for r in rows)),

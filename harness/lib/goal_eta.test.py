@@ -7,8 +7,9 @@ from unittest.mock import patch
 
 import goal_eta
 
+os.environ["NORTH_BIN"] = (os.environ.get("NORTH_PACE_BIN") or str(Path(__file__).resolve().parents[2] / "target/debug/north"))
+
 FIXTURE = json.loads(Path(__file__).with_name("fixtures").joinpath("goal-eta-2026-10-12.json").read_text())
-THREADS = goal_eta.threads_module()
 
 
 LEDGER = [dict(zip(FIXTURE["ledger_fields"], row)) for row in FIXTURE["ledger"]]
@@ -20,7 +21,7 @@ def off(finish, actual):
 
 class Replay(unittest.TestCase):
     def test_goals_of_12_oct_replayed_from_their_start(self):
-        results = {g["goal"]: (g, goal_eta.replay(g, LEDGER, THREADS)) for g in FIXTURE["goals"]}
+        results = {g["goal"]: (g, goal_eta.replay(g, LEDGER)) for g in FIXTURE["goals"]}
         recorded = {"policy-lead harness goal": (450, "2026-10-12T12:54:00Z", 978, 26, 22),
                     "north#35": (62, "2026-10-12T08:07:00Z", 310, 5, 22)}
         for name, (goal, result) in results.items():
@@ -42,14 +43,14 @@ class Scale(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch) / "ledger.db"
             db = goal_eta.sqlite3.connect(path)
-            db.execute("CREATE TABLE runs (agent TEXT)")
+            db.execute("CREATE TABLE runs (agent TEXT, role TEXT, item TEXT, category TEXT, outcome TEXT, staffed TEXT, started TEXT, ended TEXT, landed INT, landed_at TEXT, cost_usd REAL)")
             db.execute("CREATE TABLE calibration (at TEXT, kind TEXT, cell TEXT, n INT, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT)")
             at = goal_eta.datetime.now(goal_eta.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             db.execute("INSERT INTO calibration VALUES (?, 'box', 'all', 563, 0.31, 0.78, 1.99, 1.99, 'measured')", (at,))
             db.commit()
             db.close()
-            _, _, (scale, label) = goal_eta.snapshot(THREADS, path)
-        self.assertEqual(scale, 0.78, label)
+            measured = goal_eta.box_durations(["Category: feature"], db_path=path)
+        self.assertEqual(measured["scale"], 0.78, measured["label"])
 
 
 def chains(boxes):

@@ -5,7 +5,9 @@ use rusqlite::Connection;
 use super::boxes::{BoxRun, box_chains, box_duration};
 use super::forward::{calibrate_box, calibrate_eta_pred, walk_forward_eta};
 use super::recommend::{asked_of, recommend, recommend_eta, recommend_usd};
+use super::verbs::since_start;
 use super::{Knobs, Run, median, quantile, scaled, tier_key, tier_rank};
+use crate::foundation::clock::Timestamp;
 use crate::threads::runs::brief::Fields;
 
 fn run(tier: &str, ok: bool, cost: Option<f64>) -> Run {
@@ -90,6 +92,7 @@ fn recommend_keeps_the_incumbent_unless_a_dearer_challenger_beats_it_by_the_marg
 
 #[test]
 fn recommend_with_no_passing_tier_takes_the_lowest_measured_cost_or_admits_it_has_none() {
+    with_no_passing_tier_the_pick_is_the_lowest_measured_cost_among_sampled_tiers_for_any_run_mix();
     let mut runs = many(5, "claude:haiku", 1, 1.0);
     runs.extend(many(5, "codex:sol-medium", 2, 1.0));
     let (_, _, tier, rule) = pick(&runs, "Category: research", &[], true);
@@ -129,6 +132,7 @@ fn walk_forward_eta_predicts_each_run_from_strictly_earlier_runs_of_its_tier() {
 
 #[test]
 fn eta_prediction_backs_off_a_facet_until_enough_samples_and_ignores_other_tiers() {
+    eta_p75_takes_the_third_of_three_durations_and_backs_off_the_two_run_scope_cell();
     let mut runs = timed(&[10.0, 20.0, 30.0, 99.0]);
     runs[3].tier = "claude:haiku".into();
     runs[0].cells[1] = "measured".into();
@@ -140,6 +144,7 @@ fn eta_prediction_backs_off_a_facet_until_enough_samples_and_ignores_other_tiers
 
 #[test]
 fn the_eta_prediction_ratio_row_gives_the_scale_covering_the_target_share_of_runs() {
+    calibrating_the_walk_forward_eta_brings_its_coverage_closer_to_the_target_on_a_drifting_ledger();
     let runs = timed(&[10.0, 20.0, 30.0, 40.0, 50.0]);
     let all = calibrate_eta_pred(&Knobs::registry(), &runs, "", "9999").into_iter().find(|row| row.cell == "all").unwrap();
     assert_eq!((all.n, all.p25, all.median, all.p75), (4, Some(4.0 / 3.0), Some(1.5), Some(5.0 / 3.0)));
@@ -267,4 +272,87 @@ fn routing_compare_equals_the_python_output_on_one_ledger_with_a_costs_file() {
 fn the_bootstrap_draws_python_random_seeded_zero() {
     let mut twister = crate::platform::twister::Twister::seeded(0);
     assert_eq!(twister.choices(&[1.0, 2.0, 3.0, 4.0, 5.0], 8), [5.0, 4.0, 3.0, 2.0, 3.0, 3.0, 4.0, 2.0]);
+}
+
+struct Draws(u64);
+
+impl Draws {
+    fn next(&mut self) -> f64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    fn below(&mut self, bound: usize) -> usize {
+        (self.next() * bound as f64) as usize
+    }
+
+    fn gauss(&mut self) -> f64 {
+        (-2.0 * (1.0 - self.next()).ln()).sqrt() * (std::f64::consts::TAU * self.next()).cos()
+    }
+}
+
+fn eta_p75_takes_the_third_of_three_durations_and_backs_off_the_two_run_scope_cell() {
+    let mut runs: Vec<Run> = [5.0, 5.0, 20.0].iter().map(|minutes| Run { cells: ["research", "measured", "-", "-", "-"].map(str::to_owned), tier: "medium".into(), minutes: Some(*minutes), ..Run::default() }).collect();
+    runs[0].cells[2] = "one-file".into();
+    runs[1].cells[2] = "one-file".into();
+    let refs: Vec<&Run> = runs.iter().collect();
+    let knobs = Knobs::registry();
+    for cell in ["Category: research, Spec: measured", "Category: research, Spec: measured, Scope: one-file"] {
+        assert_eq!(recommend_eta(&knobs, &refs, cell, "medium"), (Some(20.0), 3, "Category: research, Spec: measured".to_owned()), "{cell}");
+    }
+}
+
+fn with_no_passing_tier_the_pick_is_the_lowest_measured_cost_among_sampled_tiers_for_any_run_mix() {
+    let knobs = Knobs::registry();
+    let tiers = ["codex:sol-medium", "codex:sol-high", "codex:sol-xhigh"];
+    let mut draws = Draws(131_013);
+    for case in 0..240 {
+        let mut runs = Vec::new();
+        for tier in tiers {
+            let n = draws.below(21);
+            let wins = draws.below((n * knobs.success_threshold as usize).div_ceil(100).max(1));
+            runs.extend((0..n).map(|index| run(tier, index < wins, (draws.next() >= 0.35).then(|| (1 + draws.below(99)) as f64 / 100.0))));
+        }
+        let asked = asked("Category: research, Spec: measured");
+        let found = recommend(&knobs, &runs, &asked, &BTreeMap::new(), true);
+        let expected = found.stats.iter().filter(|(_, stat)| stat.n >= knobs.min_runs && stat.usd.is_some()).min_by(|(x, a), (y, b)| a.usd.partial_cmp(&b.usd).unwrap().then(tier_rank(x).cmp(&tier_rank(y)))).map(|(tier, _)| tier.clone());
+        assert_eq!(found.tier, expected, "case {case}");
+        if let Some(tier) = &found.tier {
+            let stat = &found.stats.iter().find(|(key, _)| key == tier).unwrap().1;
+            assert!(stat.n >= knobs.min_runs && stat.usd_n >= knobs.usd_min, "case {case}");
+        }
+        let held = BTreeMap::from([(found.cell.clone(), "codex:sol-xhigh".to_owned())]);
+        assert_eq!(recommend(&knobs, &runs, &asked, &held, true).tier, expected, "case {case} held");
+    }
+}
+
+fn calibrating_the_walk_forward_eta_brings_its_coverage_closer_to_the_target_on_a_drifting_ledger() {
+    let knobs = Knobs::registry();
+    let mut draws = Draws(35);
+    let end = 1_790_000_000_i64;
+    let runs: Vec<Run> = (0..720)
+        .map(|index| {
+            let progress = index as f64 / 720.0;
+            let minutes = (30.0 * 2f64.powf(-1.5 * progress) * (0.5 * draws.gauss()).exp()).round().max(1.0);
+            let ended = Timestamp::from_unix_seconds(end - ((30.0 - index as f64 / 24.0) * 86_400.0) as i64 - 7_200).iso();
+            Run { cells: ["mechanical", "measured", "-", "-", "-"].map(str::to_owned), tier: "medium".into(), minutes: Some(minutes), eta_min: Some(30.0), first: true, ended, ..Run::default() }
+        })
+        .collect();
+    let now = Timestamp::from_unix_seconds(end);
+    let pairs = walk_forward_eta(&knobs, &runs, &since_start("7d", now), &now.iso());
+    let share = |hits: usize| hits as f64 / pairs.len() as f64;
+    let raw = share(pairs.iter().filter(|(run, eta)| run.minutes.unwrap() <= *eta).count());
+    let calibrated = share(
+        pairs
+            .iter()
+            .filter(|(run, eta)| {
+                let ended = Timestamp::parse_loose(&run.ended).unwrap();
+                let scale = calibrate_eta_pred(&knobs, &runs, &since_start("7d", ended), &run.ended).into_iter().find(|row| row.cell == "all").and_then(|row| row.value).map(super::forward::Figure::real);
+                run.minutes.unwrap() <= scaled(*eta, scale, true)
+            })
+            .count(),
+    );
+    assert!(!pairs.is_empty() && (calibrated - 0.75).abs() < (raw - 0.75).abs(), "raw {raw} calibrated {calibrated} over {}", pairs.len());
 }

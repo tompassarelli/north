@@ -23,7 +23,7 @@ use crate::threads::catalog::CATALOG;
 pub(crate) const VERBS: [&str; 2] = ["ingest", "run-ids"];
 const LANDING_DAYS: i64 = 3;
 /// Issue labels that name a category, first match wins, for runs whose brief is unreadable (Codex encrypts it).
-const LABEL_CATEGORY: [(&str, &str); 8] = [
+pub(crate) const LABEL_CATEGORY: [(&str, &str); 8] = [
     ("theme:balance", "balance-tuning"),
     ("theme:netplay", "netcode-determinism"),
     ("needs:native-pair", "native-check"),

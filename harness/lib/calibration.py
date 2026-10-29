@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
+import json
+import math
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 
 from defaults import DEFAULTS
@@ -13,6 +16,22 @@ BOX_N = DEFAULTS["box_calibration_n"]
 CALIBRATE_AFTER = timedelta(minutes=DEFAULTS["calibrate_after_min"])
 GOAL_KINDS = ("goal_eta", "goal_actual")
 COLUMNS = ("at", "kind", "cell", "n", "p25", "median", "p75", "value", "source")
+
+
+def threads_call(verb, request=None, db=None, timeout=600):
+    """The JSON a `north threads` calibration verb prints for a JSON request on stdin, over the ledger at `db`; a verb that
+    reads only its request runs against no ledger, so it never reaches for the remote one."""
+    env = dict(os.environ, THREADS_SCHEMA_READY="1", THREADS_DB=str(os.devnull if db is None else db))
+    result = subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", verb], input="" if request is None else json.dumps(request),
+                            capture_output=True, text=True, env=env, timeout=timeout)
+    if result.returncode:
+        raise OSError(result.stderr.strip() or f"north threads {verb} exited {result.returncode}")
+    return json.loads(result.stdout)
+
+
+def quantile(values, fraction):
+    values = sorted(v for v in values if v is not None)
+    return values[max(0, math.ceil(len(values) * fraction) - 1)] if values else None
 
 
 def owns_ledger():

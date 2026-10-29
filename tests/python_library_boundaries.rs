@@ -31,12 +31,9 @@ goal_eta.LIB = Path(sys.argv[2])\nassert goal_eta.record({}) is None";
 fn a_calibration_that_outlives_its_timeout_warns_once_and_records_nothing() {
     let scratch = TempDir::new().unwrap();
     fs::create_dir_all(scratch.path().join("goal/harness/lib")).unwrap();
-    fs::create_dir_all(scratch.path().join("goal/bin")).unwrap();
-    executable(
-        &scratch.path().join("goal/bin/threads"),
-        "#!/usr/bin/env bash\n[[ \"$1 $2\" == \"calibrate --write\" ]] || exit 97\nexec sleep 6\n",
-    );
-    let output = python(GOAL_RECORD, &[&scratch.path().join("goal/harness/lib")], &[("PYTHONDONTWRITEBYTECODE", Path::new("1"))]);
+    let north = scratch.path().join("north");
+    executable(&north, "#!/usr/bin/env bash\n[[ \"$1 $2 $3\" == \"threads calibrate --write\" ]] || exit 97\nexec sleep 6\n");
+    let output = python(GOAL_RECORD, &[&scratch.path().join("goal/harness/lib")], &[("PYTHONDONTWRITEBYTECODE", Path::new("1")), ("NORTH_BIN", &north)]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert!(output.stdout.is_empty());
     assert_eq!(

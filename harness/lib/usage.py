@@ -10,9 +10,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+SNAPSHOT_SECONDS = 900
 sys.path.insert(0, str(HERE))
 from defaults import DEFAULTS
-from calibration import open_ledger
+from calibration import open_ledger, quantile, threads_call
 REMOTE = not os.environ.get("THREADS_DB") and (Path.home() / ".config/threads/remote").exists()
 DB = os.environ.get("THREADS_DB") or str(Path.home() / ".local/state/threads" / ("snapshot.db" if REMOTE else "threads.db"))
 STALE_MIN = DEFAULTS["usage_stale_min"]
@@ -59,25 +60,22 @@ def reservation_stop(used: float, cap: float, expected: float, in_flight: int, i
     return used >= cap or (projected > cap and not math.isclose(projected, cap, rel_tol=0.0, abs_tol=1e-9))
 
 
-def ledger_reservation(provider: str, model: str | None, effort: str | None, threads=None, label=None, details=False) -> tuple[float | None, float | None] | dict | None:
+def ledger_reservation(provider: str, model: str | None, effort: str | None, label=None, details=False) -> tuple[float | None, float | None] | dict | None:
     from plan_usage import RUN_TIERS, costs_by_id, open_db
-    import importlib.machinery
-    import importlib.util
     import statistics
     import time
     import tomllib
-    if threads is None:
-        loader = importlib.machinery.SourceFileLoader("reservation_threads", str(HERE.parents[1] / "bin/threads"))
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        threads = importlib.util.module_from_spec(spec)
-        loader.exec_module(threads)
-    T = threads
-    path = Path(T.DB if os.environ.get("THREADS_DB") else T.SNAPSHOT).resolve()
-    if str(path) == str(Path(T.SNAPSHOT).resolve()):
-        remote = Path(T.REMOTE)
+    snapshot = (Path.home() / ".local/state/threads/snapshot.db").resolve()
+    path = Path(os.environ["THREADS_DB"]).resolve() if os.environ.get("THREADS_DB") else snapshot
+    if path == snapshot:
+        remote = Path.home() / ".config/threads/remote"
         if remote.is_file():
-            T.refresh_snapshot(remote.read_text().strip())
-    if str(path) == str(Path(T.SNAPSHOT).resolve()) and (not path.exists() or time.time() - path.stat().st_mtime >= T.SNAPSHOT_SECONDS):
+            try:
+                subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", "snapshot-pull", "--snapshot", str(snapshot), remote.read_text().strip()],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
+            except subprocess.TimeoutExpired:
+                pass
+    if path == snapshot and (not path.exists() or time.time() - path.stat().st_mtime >= SNAPSHOT_SECONDS):
         raise RuntimeError("harness-tuner: cap reached: seven-day reservation unavailable: NorthThreads snapshot missing or stale")
     db = open_db(path)
     if db is None:
@@ -94,7 +92,7 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
                  and (model is None or model in (value.get("model"), key.split(":", 1)[1].split("-", 1)[0]))}
         provider_tiers = {RUN_TIERS.get(key, f"{value['model']} {value['effort']}")
                           for key, value in catalog["models"].items() if key.startswith(provider + ":")}
-        calibrated = [r for r in T.calibration_runs(db) if r["tier"] in provider_tiers]
+        calibrated = [r for r in threads_call("calibration-runs", db=path) if r["tier"] in provider_tiers]
         runs = [r for r in calibrated if r["tier"] in tiers]
         points = [r["cost_usd"] * 100 / prices[account] for r in runs
                   if r["tier"] in tiers and r["cost_usd"] is not None and r["cost_usd"] > 0 and prices.get(account, 0) > 0]
@@ -116,9 +114,9 @@ def ledger_reservation(provider: str, model: str | None, effort: str | None, thr
         if details:
             walls = [r["minutes"] * 60 for r in runs if r["minutes"] is not None and r["minutes"] > 0]
             return {"expected": expected, "existing": existing, "reading": reading,
-                    "p75_points": T.quantile(points, .75) if points else None,
-                    "p75_s": T.quantile(walls, .75) if walls else None,
-                    "source": "T.calibration_runs: tier cost_usd / weekly plan price and minutes"}
+                    "p75_points": quantile(points, .75) if points else None,
+                    "p75_s": quantile(walls, .75) if walls else None,
+                    "source": "north threads calibration-runs: tier cost_usd / weekly plan price and minutes"}
         return expected, reading
     except (OSError, ValueError, sqlite3.Error):
         return None if details else (None, None)

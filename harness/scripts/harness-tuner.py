@@ -7,7 +7,7 @@ import argparse
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 import hashlib
-import importlib.machinery, importlib.util
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,6 +22,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "harness/lib"))
+from calibration import quantile  # noqa: E402
 from defaults import DEFAULTS  # noqa: E402
 from policy_stats import paired_diff, wilson  # noqa: E402
 
@@ -50,13 +51,6 @@ def load_replay():
     spec = importlib.util.spec_from_file_location("policy_replay", HERE / "policy-replay.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module
-
-
-def load_threads():
-    loader = importlib.machinery.SourceFileLoader("threads_mod", str(ROOT / "bin/threads"))
-    module = importlib.util.module_from_spec(importlib.util.spec_from_loader("threads_mod", loader))
-    loader.exec_module(module)
     return module
 
 
@@ -275,7 +269,7 @@ from usage import reservation_stop
 
 def ledger_reservation(provider: str, model: str, effort: str) -> tuple[float | None, float | None]:
     from usage import ledger_reservation as measured_reservation
-    return measured_reservation(provider, model, effort, threads=load_threads())
+    return measured_reservation(provider, model, effort)
 
 
 def cmd_replay(args) -> int:
@@ -314,7 +308,7 @@ def cmd_replay(args) -> int:
         measurements = [measured_reservation("claude",
                         args.model or s.get("model", "opus"),
                         args.effort or s.get("effort", "medium"),
-                        threads=load_threads(), details=True) or {} for s in scenarios]
+                        details=True) or {} for s in scenarios]
     starts = [r["seven_day_start_pct"] for r in prior if r.get("seven_day_start_pct") is not None]
     start_week = starts[0] if starts else weeks[0] if weeks else meter
     if meter is not None:
@@ -379,10 +373,9 @@ def cmd_replay(args) -> int:
                     replay.soft_stop(args.cap_week_pct, used, measurement)
                 if stop and args.cap_usd is not None:
                     walls = [r.get("wall_s") for r in prior if r.get("wall_s") is not None]
-                    T = load_threads()
                     replay.soft_stop(args.cap_usd, spent,
-                                     {"p75_s": T.quantile(walls, .75) if walls else None,
-                                      "p75_points": T.quantile(measured_usd, .75) if measured_usd else None}, os.environ.get("CODEX_THREAD_ID"))
+                                     {"p75_s": quantile(walls, .75) if walls else None,
+                                      "p75_points": quantile(measured_usd, .75) if measured_usd else None}, os.environ.get("CODEX_THREAD_ID"))
                 finished, running = wait(running, timeout=1, return_when=FIRST_COMPLETED)
                 for fut in finished:
                     row = fut.result()

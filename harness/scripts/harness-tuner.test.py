@@ -120,7 +120,7 @@ with tempfile.TemporaryDirectory() as tmp:
           "while [ $# -gt 0 ]; do [ \"$1\" = --append-system-prompt-file ] && policy=$2; shift; done\n"
           "if grep -q EDITED \"$policy\"; then t=ok; else t=no; fi\n"
           "echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"'$t'\",\"total_cost_usd\":2.0,\"usage\":{\"input_tokens\":10}}'\n").chmod(0o755)
-    env = dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}")
+    env = dict(os.environ, PATH=f"{fake}:{os.environ['PATH']}", NORTH_BIN=os.environ.get("NORTH_PACE_BIN") or str(SCRIPT.parents[2] / "target/debug/north"))
     scen = [write(tmp / f"judge/s{i}.json", {"id": f"s{i}", "prompt": "p", "detector": {"kind": "regex", "pattern": "^ok"}}) for i in range(4)]
     results = tmp / "results.jsonl"
     capped = run("replay", *scen, "--variants", variants / "e1", "--base", base, "--trials", 1, "--jobs", 1,
@@ -138,13 +138,13 @@ with tempfile.TemporaryDirectory() as tmp:
         rejected = tuner.reservation_stop(reading, 88.0, 0.105, 32)
         assert rejected == expected, (reading, rejected)
     ledger = tmp / "ledger.db"
-    threads = tuner.load_threads()
-    threads.DB = str(ledger)
-    db = threads.connect()
+    subprocess.run([SCRIPT.parents[2] / "bin" / "threads", "record-priors", "fixture:1:1"], env=dict(os.environ, THREADS_DB=str(ledger)), capture_output=True, check=True)
+    db = sqlite3.connect(ledger)
     db.executemany("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
                    [("priced", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", 0.105),
                     ("lead", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "lead", 9.0),
                     ("other-tier", "high", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", 9.0)])
+    db.commit()
     db.close()
     write(tmp / "costs.toml", '[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
     write(fake / "claude", "#!/bin/sh\n[ \"$1\" = --version ] && { echo 9; exit 0; }\n"

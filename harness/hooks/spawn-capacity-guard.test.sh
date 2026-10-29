@@ -29,7 +29,7 @@ mkdir -p "$XDG_RUNTIME_DIR" "$SCRATCH/offline-bin"
 mkdir -p "$SCRATCH/bin"
 cat >"$SCRATCH/bin/north" <<'SH'
 #!/usr/bin/env bash
-[[ "$*" == "fleet list --json" ]] || { [[ "$1 $2" == "threads snapshot-pull" ]] && exec "$NORTH_PACE_BIN" "$@"; exit 2; }
+[[ "$*" == "fleet list --json" ]] || { [[ "$1 $2" == "threads snapshot-pull" || "$1 $2" == "threads calibration-runs" ]] && exec "$NORTH_PACE_BIN" "$@"; exit 2; }
 cat "$FLEET_JSON"
 SH
 chmod +x "$SCRATCH/bin/north"
@@ -179,17 +179,16 @@ dodeny "$(agent "$worker")" 'the refusal entry for the session account denies th
 gate null
 
 export THREADS_DB="$SCRATCH/initial-reservation.db" AGENTS_OPERATOR_DIR="$SCRATCH"
-python3 - "$SCRATCH" "$HERE/../scripts/harness-tuner.py" <<'PYFIX'
-import importlib.util, sys
+python3 - "$SCRATCH" "$HERE/../../bin/threads" <<'PYFIX'
+import sqlite3, subprocess, sys
 from pathlib import Path
 root = Path(sys.argv[1])
-spec = importlib.util.spec_from_file_location("tuner", sys.argv[2])
-tuner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(tuner)
-db = tuner.load_threads().connect()
+subprocess.run([sys.argv[2], "record-priors", "fixture:1:1"], capture_output=True, check=True)
+db = sqlite3.connect(root / "initial-reservation.db")
 for tier in ("medium", "gpt-6.1-sol high"):
     db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
                (tier, tier, "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .001))
+db.commit()
 db.close()
 (root / "costs.toml").write_text(''.join('[[service]]\nid="' + name + '"\nkind="ai-plan"\nusd_per_week=100\n' for name in ("claude-a", "claude-b", "codex")))
 PYFIX
@@ -280,18 +279,15 @@ assert any("smashcraft: pending 3, landed 1/h over 3h, push-to-land median 12m" 
            and "widen the landing path first" in reason for reason in reasons)
 PY
 
-python3 - "$SCRATCH" "$HERE/../scripts/harness-tuner.py" <<'PY'
-import importlib.util, os, sys, time
+python3 - "$SCRATCH" "$HERE/../../bin/threads" <<'PY'
+import os, sqlite3, subprocess, sys, time
 from pathlib import Path
 root = Path(sys.argv[1])
-spec = importlib.util.spec_from_file_location("tuner", sys.argv[2])
-tuner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(tuner)
-threads = tuner.load_threads()
-threads.DB = str(root / "reservation.db")
-db = threads.connect()
+subprocess.run([sys.argv[2], "record-priors", "fixture:1:1"], env=dict(os.environ, THREADS_DB=str(root / "reservation.db")), capture_output=True, check=True)
+db = sqlite3.connect(root / "reservation.db")
 db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
            ("priced", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .105))
+db.commit()
 db.close()
 (root / "costs.toml").write_text('[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
 for n in range(30):

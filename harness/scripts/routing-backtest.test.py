@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import copy
 import importlib.util
+import os
 from pathlib import Path
 import random
 import unittest
 
+os.environ["NORTH_BIN"] = os.environ.get("NORTH_PACE_BIN") or str(Path(__file__).resolve().parents[2] / "target/debug/north")
 spec = importlib.util.spec_from_file_location("routing_backtest", Path(__file__).with_name("routing-backtest.py"))
 R = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(R)
@@ -59,6 +61,10 @@ class RetrievalTests(unittest.TestCase):
         self.assertEqual(R.retrieval_decisions(rows, costs)[-1]["k20"], "codex:sol-medium")
         rows[-1]["brief_origin"] = "report"
         self.assertEqual(len(R.retrieval_decisions(rows, costs)), 20)
+        named = [run(f"named{i:02}", "01", "02", "gpt-6.1-sol medium") for i in range(20)]
+        named.append(run("target", "05", "09", "gpt-6.1-sol medium"))
+        pick = R.retrieval_decisions(named, [dict(agent=r["agent"], ended="03", cost_usd=2) for r in named])[-1]
+        self.assertEqual((pick["actual"], pick["k10"], pick["k20"]), ("codex:sol-medium",) * 3)
 
     def test_unsupported_matches_cannot_claim_savings(self):
         rows = [dict(actual="codex:sol-medium", rule="codex:sol-medium", k10=None, waste=True, escalation=True)]

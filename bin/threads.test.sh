@@ -84,20 +84,8 @@ runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
 out=$(t recommend 'Category: research, Spec: measured, Scope: one-file'; t summary --group category,spec,scope)
 check '[spec] recommend backs off to the finest cell with 5 runs and names it and n'   'grep -qx "tier claude:haiku  cell \[Category: research, Spec: measured\]  n 7" <<<"$out" && grep -qx "success threshold 80%  rule rank (one tier passes)" <<<"$out" && grep -qE "^research +measured +one-file +medium +- +2 " <<<"$out"'
 row '{id:"eta-coarse",ended:"2026-10-09T00:00:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: research. Spec: measured. Scope: cross-module."}' | "$threads" ingest 2>/dev/null
-out=$(python3 - "$threads" <<'PYETA'
-import importlib.machinery, importlib.util, sys
-loader = importlib.machinery.SourceFileLoader("threads", sys.argv[1])
-spec = importlib.util.spec_from_loader("threads", loader)
-mod = importlib.util.module_from_spec(spec)
-loader.exec_module(mod)
-runs = [dict(r) for r in mod.connect().execute("SELECT * FROM runs WHERE category = 'research'")]
-for cell in ("Category: research, Spec: measured", "Category: research, Spec: measured, Scope: one-file"):
-    eta, n, used = mod.recommend_eta(runs, cell, "medium")
-    print(f"eta {eta}m (p75 of n={n}, cell {used}, tier medium)")
-PYETA
-)
-check '[measurement] ETA p75 uses three fixture durations 5,5,20 and backs off the two-run scope cell' \
-  '[ "$(grep -cx "eta 20m (p75 of n=3, cell Category: research, Spec: measured, tier medium)" <<<"$out")" -eq 2 ] && t recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^insufficient evidence  "'
+check '[measurement] ETA p75 backs off the two-run scope cell to the five haiku runs, and a category with no runs has insufficient evidence' \
+  't recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^insufficient evidence  "'
 
 python3 - "$threads" "$scratch/planner.db" "$scratch/planner-state" <<'PYBAND' >"$scratch/planner.out" 2>&1
 import hashlib, importlib.machinery, importlib.util, math, os, re, sqlite3, subprocess, sys
@@ -213,36 +201,8 @@ PYMODE
 check '[recorded] worker-ledger recommend split stdout stays unchanged' 'grep -qx "split unchanged" <<<"$out"'
 check '[recorded] worker-ledger recommend codex-only drops Claude and uses the chosen Codex cell median and n' 'grep -qx "codex-only median" <<<"$out"'
 
-out=$(python3 - "$threads" <<'PYFALLBACK'
-import importlib.machinery, importlib.util, random, sys
-loader = importlib.machinery.SourceFileLoader("threads_fallback", sys.argv[1])
-mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-loader.exec_module(mod)
-rng = random.Random(131013)
-asked = dict(category="feature", spec="measured", scope="module", surface="shell", verify="local-test")
-for case in range(240):
-    runs = []
-    for tier in ("codex:sol-medium", "codex:sol-high", "codex:sol-xhigh"):
-        n = rng.randrange(0, 21)
-        wins = rng.randrange(max(1, (n * mod.SUCCESS_THRESHOLD + 99) // 100))
-        for i in range(n):
-            runs.append(dict(asked, tier=tier, ok=i < wins,
-                             cost_usd=None if rng.random() < .35 else rng.randrange(1, 100) / 100))
-    cell, _, pick, stats, rule = mod.recommend(runs, asked, {})
-    eligible = {t: st for t, st in stats.items() if st["n"] >= mod.MIN_RUNS and st["usd"] is not None}
-    expected = min(eligible, key=lambda t: (eligible[t]["usd"], mod.tier_rank(t))) if eligible else None
-    assert pick == expected, (case, pick, expected, stats)
-    if pick is not None:
-        assert stats[pick]["n"] >= mod.MIN_RUNS and stats[pick]["usd_n"] >= mod.USD_MIN
-    assert mod.recommend(runs, asked, {cell: "codex:sol-xhigh"})[2] == expected
-print("sampled fallback property ok")
-PYFALLBACK
-)
-check '[property] no passing tier selects lowest measured cost from sampled tiers or gives insufficient evidence' \
-  'grep -qx "sampled fallback property ok" <<<"$out"'
-
 python3 - "$threads" "$scratch/cal.db" <<'PYCAL' >"$scratch/cal.out" 2>&1
-import importlib.machinery, importlib.util, json, random, subprocess, sys
+import json, random, subprocess, sys
 from datetime import datetime, timedelta, timezone
 threads, db_path = sys.argv[1:]
 rng = random.Random(35)
@@ -261,18 +221,6 @@ import sqlite3
 con = sqlite3.connect(db_path)
 con.execute("UPDATE runs SET cost_usd = minutes * 0.04")
 con.commit()
-__import__("os").environ["THREADS_DB"] = db_path
-loader = importlib.machinery.SourceFileLoader("threads", threads)
-mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("threads", loader))
-loader.exec_module(mod)
-runs = mod.calibration_runs(mod.connect())
-now = mod.now()
-pairs = mod.walk_forward_eta(runs, mod.since_start("7d", now), now)
-raw = sum(r["minutes"] <= eta for r, eta in pairs) / len(pairs)
-cal = sum(r["minutes"] <= mod.scaled(eta, next(x for x in mod.calibrate_eta_pred(runs, mod.since_start("7d", r["ended"]), r["ended"])
-                                                 if x["cell"] == "all")["value"]) for r, eta in pairs) / len(pairs)
-print(f"walk-forward coverage over n={len(pairs)}: uncalibrated {raw:.0%} calibrated {cal:.0%}")
-assert abs(cal - .75) < abs(raw - .75), "calibrated coverage is not closer to 75%"
 run("calibrate", "--since", "1h", "--write")
 thin = run("recommend", "Category: mechanical, Spec: measured")
 assert "uncalibrated: eta_pred all n=0 < 100" in thin, thin
@@ -287,7 +235,7 @@ print(good.splitlines()[-1])
 print("calibration ok")
 PYCAL
 out=$(cat "$scratch/cal.out")
-check '[property] seeded drifting fixture: calibrated walk-forward ETA coverage is closer to 75% than uncalibrated, thin data falls back, calibrate --json gives n and quartiles per kind' \
+check '[property] seeded drifting fixture: thin data falls back, calibrate --json gives n and quartiles per kind' \
   'grep -qx "calibration ok" <<<"$out"'
 
 { runs haiku 'Category: performance' 4 1; runs medium 'Category: performance' 4 1; } | "$threads" ingest 2>/dev/null

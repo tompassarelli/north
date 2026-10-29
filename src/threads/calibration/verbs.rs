@@ -13,13 +13,17 @@ use crate::foundation::clock::Timestamp;
 use crate::threads::runs::brief::{CATEGORIES, Fields};
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 
-pub(crate) const VERBS: [&str; 5] = ["recommend", "calibrate", "replay-staffing", "summary", "routing-compare"];
+pub(crate) const VERBS: [&str; 9] = ["recommend", "calibrate", "replay-staffing", "summary", "routing-compare", "box-eta", "annotate-runs", "recommend-runs", "calibration-runs"];
 
 /// Runs one verb, printing its result to `out` and a refusal to `err`; returns the exit code.
-pub(crate) fn run(argv: &[String], context: &Context, _stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+pub(crate) fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let result = match argv[0].as_str() {
         "summary" => return super::summary::run(&argv[1..], context, out, err),
         "routing-compare" => return super::routing::run(context, out, err),
+        "box-eta" => super::box_eta::run(context, stdin),
+        "annotate-runs" => super::feeds::annotate(stdin),
+        "recommend-runs" => super::feeds::recommend_cases(stdin),
+        "calibration-runs" => super::feeds::runs(context),
         "recommend" => recommend_verb(&argv[1..], context),
         "calibrate" => super::calibrate::run(&argv[1..], context),
         _ => super::replay::run(&argv[1..], context),
@@ -47,7 +51,7 @@ pub(super) fn since_start(text: &str, end: Timestamp) -> String {
 }
 
 /// The newest calibration row of `kind` for the tier's provider, else for all: (scale, label), or no scale with why.
-fn latest_calibration(db: &Connection, knobs: &Knobs, now: Timestamp, kind: &str, tier: &str) -> Result<(Option<f64>, String), Failure> {
+pub(super) fn latest_calibration(db: &Connection, knobs: &Knobs, now: Timestamp, kind: &str, tier: &str, median_scale: bool) -> Result<(Option<f64>, String), Failure> {
     let mut reason = format!("no {kind} calibration");
     for cell in [provider(tier), "all".to_owned()] {
         let row: Option<(String, i64, Option<f64>, Option<f64>)> = db
@@ -55,11 +59,13 @@ fn latest_calibration(db: &Connection, knobs: &Knobs, now: Timestamp, kind: &str
             .map(Some)
             .or_else(|error| if error == rusqlite::Error::QueryReturnedNoRows { Ok(None) } else { Err(error) })?;
         let Some((at, n, median, value)) = row else { continue };
+        let value = if median_scale { median } else { value };
         let age = (now.unix_seconds() - Timestamp::parse_loose(&at).map_or(now.unix_seconds(), Timestamp::unix_seconds)).div_euclid(60) as f64 / 1440.0;
         let floor = if kind == "box" { knobs.box_calibration_n } else { knobs.calibration_thin_n };
         match value {
             Some(value) if n as usize >= floor && age <= knobs.calibration_stale_days => {
-                return Ok((Some(value), format!("x{value:.2} {kind} {cell} n={n} median {:.2}", median.unwrap_or(0.0))));
+                let note = if median_scale { "median of actual/predicted".to_owned() } else { format!("median {:.2}", median.unwrap_or(0.0)) };
+                return Ok((Some(value), format!("x{value:.2} {kind} {cell} n={n} {note}")));
             }
             _ if (n as usize) < floor || value.is_none() => reason = format!("{kind} {cell} n={n} < {floor}"),
             _ => reason = format!("{kind} {cell} {age:.0}d old"),
@@ -139,7 +145,7 @@ fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, r
     let Some(tier) = pick.tier.as_deref() else { return Ok(text) };
     let by_ref: Vec<&super::Run> = runs.iter().collect();
     let (usd, usd_n) = recommend_usd(&by_ref, category, tier);
-    let (usd_scale, usd_label) = latest_calibration(db, knobs, context.now, "usd", tier)?;
+    let (usd_scale, usd_label) = latest_calibration(db, knobs, context.now, "usd", tier, false)?;
     let cost = match usd.filter(|usd| *usd != 0.0) {
         Some(usd) => format!("  ${:.2} (median of n={usd_n}, {usd_label})", scaled(usd, usd_scale, false)),
         None => format!("  $ n/a ({usd_label})"),
@@ -159,7 +165,7 @@ fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, r
         return Ok(text);
     }
     let (eta, eta_n, eta_cell) = recommend_eta(knobs, &by_ref, &pick.cell, tier);
-    let (scale, label) = latest_calibration(db, knobs, context.now, "eta_pred", tier)?;
+    let (scale, label) = latest_calibration(db, knobs, context.now, "eta_pred", tier, false)?;
     match eta.filter(|_| eta_n > 0) {
         Some(eta) => text += &format!("eta {}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label}){cost}\n", scaled(eta, scale, true)),
         None => text += &format!("eta n/a (n=0){cost}\n"),

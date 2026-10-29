@@ -33,42 +33,42 @@ value = 80
 unit = "percent of runs that succeed (threads run_ok)"
 source = "measured: flat over {60,70,75,80,85,90}: picked-tier success among runs on the pick 60.1-63.0%, Wilson 95% intervals overlap, n=291-354 of 801 decisions; 80 is tied-best (63.0%, n=354, $0.11/success)"
 fallback = "a tier under min_runs runs is unsampled: recommend requires sampled measured costs when no tier passes; routing uses the orchestration.toml band"
-consumers = ["bin/threads", "src/router/ctx.rs"]
+consumers = ["src/threads/calibration/mod.rs", "src/router/ctx.rs"]
 
 [min_runs]
 value = 5
 unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell; recommend reports insufficient evidence without a sampled priced tier"
-consumers = ["bin/threads", "harness/lib/plan_usage.py", "harness/lib/calibration.py"]
+consumers = ["src/threads/calibration/mod.rs", "harness/lib/plan_usage.py", "harness/lib/calibration.py"]
 
 [incumbent_margin]
 value = 15
 unit = "success points a dearer challenger must gain over a cell's incumbent"
 source = "measured: flat over {0,5,10,15,20,30}: picked-tier success 59.3-63.2%, Wilson 95% intervals overlap, n=317-354 of 801 decisions; 10-20 tied-best at 62.9-63.2%"
 fallback = "with no incumbent the cheapest passing tier is picked"
-consumers = ["bin/threads"]
+consumers = ["src/threads/calibration/mod.rs"]
 
 [default_tier]
 value = "claude:opus-medium"
 unit = "tier key"
 source = "tom: south agents/orchestration.toml tiers.claude:opus-medium, hand-edited by Tom: 'The default Opus worker for the whole top range'"
 fallback = "defines the mode-allowed band baseline; recommend never selects an unsampled fallback"
-consumers = ["bin/threads"]
+consumers = ["src/threads/calibration/mod.rs"]
 
 [eta_min_samples]
 value = 3
 unit = "timed runs before recommend prints a cell's ETA"
 source = "measured: flat over {1,2,3,5,8}: walk-forward recommend_eta median |ln(actual/eta)| 1.04-1.05, p75 coverage 76-77%, n=1844-1847"
 fallback = "back off to the category cell; below it the ETA is n/a and the brief says (uncalibrated)"
-consumers = ["bin/threads"]
+consumers = ["src/threads/calibration/mod.rs"]
 
 [eta_coverage]
 value = 0.75
 unit = "quantile of actual/predicted the calibrated ETA scale covers"
 source = "measured: flat over {0.5..0.8}: OVERDUE false alarms (done runs past 2x the scaled ETA) plus unfinished runs never flagged 840-852, 866 at 0.9, n=1902 walk-forward runs; live row threads calibrate kind eta_pred, 2026-10-12, n=1889, p75 0.96"
 fallback = "below calibration_thin_n runs or older than calibration_stale_days the ETA is unscaled and marked (uncalibrated)"
-consumers = ["bin/threads"]
+consumers = ["src/threads/calibration/mod.rs"]
 
 [calibration_thin_n]
 value = 100
@@ -265,14 +265,14 @@ value = 30
 unit = "minutes between an item's runs that still chain them into one box"
 source = "measured: north defaults-measure box_chain_gap_min, snapshot 2026-10-12T08:13Z: 775 same-item gaps from the chain's latest end to the next run's staffing; per 10-minute bin 160, 47, 36 to 30m (57% within), then 15 per 10m to 60m and 3-5 per 10m to 120m (26% over 120m, waits on Tom or overnight); 30 closes the review-and-landing mode; box p75 50m at 10, 62m at 30, 77m at 60, 107m at 120, 566 chains at 30"
 fallback = "a longer gap starts a new chain, so idle waits on Tom or overnight never count as box time"
-consumers = ["bin/threads"]
+consumers = ["src/threads/calibration/mod.rs"]
 
 [box_calibration_n]
 value = 200
 unit = "box chains behind the box calibration ratio row before goal_eta applies it"
 source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
-consumers = ["bin/threads", "harness/lib/calibration.py"]
+consumers = ["src/threads/calibration/mod.rs", "harness/lib/calibration.py"]
 
 [noninferiority_margin]
 value = 10

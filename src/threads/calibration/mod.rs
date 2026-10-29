@@ -1,8 +1,10 @@
 //! The NorthThreads calibration core: which tier to recommend for a brief, the walk-forward ETA and
 //! $ it replays from strictly earlier runs, and the box chains the box ETA is measured on. Every
 //! tunable is a field of [`Knobs`], so a sweep can run the same core under other values.
+mod box_eta;
 mod boxes;
 mod calibrate;
+mod feeds;
 mod forward;
 mod mode;
 mod read;

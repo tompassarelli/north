@@ -6,10 +6,8 @@ SQLite file holds only what GitHub can't."""
 from __future__ import annotations
 
 import argparse
-import bisect
 import fcntl
 import json
-import math
 import os
 import random
 import re
@@ -19,17 +17,13 @@ import subprocess
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts"))
-from calibration import GOAL_KINDS, STALE_DAYS, THIN_N, open_ledger
-from defaults import DEFAULTS
+from calibration import open_ledger
 import durable_events
-from ledger_context import box_groups
-from plan_usage import RUN_TIERS, bands_of, resolve_bands, resolve_mode
-from run_outcome import succeeded, unjudged
 from ssh_transport import ssh_argv
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
@@ -37,7 +31,6 @@ CACHE_SECONDS = 60
 REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
-SNAPSHOT_SECONDS = 900
 READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "replay-staffing", "planner-band", "routing-compare"}
 UNREACHABLE, RETRY = 255, 75
 
@@ -514,240 +507,6 @@ CATEGORIES = [
 ]
 
 
-# Issue labels that name a category, first match wins, for runs whose brief is unreadable (Codex encrypts it).
-LABEL_CATEGORY = [("theme:balance", "balance-tuning"), ("theme:netplay", "netcode-determinism"),
-                  ("needs:native-pair", "native-check"), ("needs:native-single", "native-check"),
-                  ("native:running", "native-check"), ("documentation", "docs-policy"),
-                  ("bug", "bug-known-cause"), ("enhancement", "feature")]
-
-
-TIER_ORDER = ["claude:haiku", "codex:luna-low", "claude:sonnet-high", "codex:sol-medium", "codex:sol-high", "codex:sol-xhigh", "claude:opus-medium",
-              "claude:opus-high", "claude:opus-xhigh", "codex:astra"]
-TIER_KEYS = {run: key for key, run in RUN_TIERS.items()}
-
-
-def tier_key(tier):
-    t = (tier or "").strip() or "-"
-    return t if t in RUN_TIERS else TIER_KEYS.get(t, t)
-
-
-def tier_rank(tier):
-    key = tier_key(tier)
-    return TIER_ORDER.index(key) if key in TIER_ORDER else len(TIER_ORDER)
-
-
-GROUPS = ["category", *FACETS]
-
-
-def cell_value(r, key):
-    if key == "category":
-        return r["category"] if r["category"] in CATEGORIES else "unknown"
-    return r[key] or "-"
-
-
-SUCCESS_THRESHOLD = DEFAULTS["success_threshold"]
-MIN_RUNS, MARGIN = DEFAULTS["min_runs"], DEFAULTS["incumbent_margin"]
-BACKOFF = ["surface", "verify", "scope", "spec"]
-
-
-USD_MIN = MIN_RUNS
-DEFAULT_TIER = DEFAULTS["default_tier"]
-OLD_TIERS = ("haiku", "low", "medium", "high", "xhigh", "max")
-
-
-def tier_stats(rs):
-    by: dict = {}
-    for r in rs:
-        by.setdefault(tier_key(r["tier"]), []).append(r)
-    out = {}
-    for t, xs in by.items():
-        priced = [r for r in xs if r.get("cost_usd") is not None]
-        wins = sum(r["ok"] for r in priced)
-        out[t] = {"rate": sum(r["ok"] for r in xs) * 100 // len(xs), "n": len(xs), "ok": sum(r["ok"] for r in xs), "usd_n": len(priced),
-                  "usd": sum(r["cost_usd"] for r in priced) / wins if len(priced) >= USD_MIN and wins else None}
-    return out
-
-
-def recommend(runs, asked, incumbent, priced=True, default_tier=DEFAULT_TIER):
-    """Pure core. runs: dicts with category, the facets, tier, ok (run_ok) and cost_usd (or None).
-    asked: facet -> value, category required. incumbent: cell -> tier. Returns (cell, n, tier, stats, rule) where
-    cell is the finest one with a tier holding MIN_RUNS runs, backing off along BACKOFF; tier is the cheapest by
-    measured $ per success among tiers reaching the success threshold, by TIER_ORDER when any of them has under
-    USD_MIN priced runs or priced is False, kept at the incumbent unless a dearer challenger beats it by MARGIN points.
-    With no passing tier, returns the lowest measured cost among sampled tiers, or None for insufficient evidence."""
-    keys = ["category", *(k for k in reversed(BACKOFF) if k in asked)]
-    while True:
-        cell = {k: asked[k] for k in keys}
-        rs = [r for r in runs if all(r.get(k) == v for k, v in cell.items())]
-        stats = tier_stats(rs)
-        if any(st["n"] >= MIN_RUNS for st in stats.values()) or len(keys) == 1:
-            break
-        keys.pop()
-    name = ", ".join(f"{k.capitalize()}: {v}" for k, v in cell.items())
-    sampled = {t: st for t, st in stats.items() if st["n"] >= MIN_RUNS}
-    passing = [t for t, st in sampled.items() if st["rate"] >= SUCCESS_THRESHOLD]
-    thin = sorted((t for t in passing if sampled[t]["usd"] is None), key=tier_rank)
-    if not passing:
-        measured = {t: st for t, st in sampled.items() if st["usd"] is not None}
-        best = min(measured, key=lambda t: (measured[t]["usd"], tier_rank(t))) if measured else None
-        rule = ("$ per success (no tier passes; lowest measured cost among sampled tiers)" if measured
-                else "insufficient evidence (no tier passes; no sampled tier has measured $ per success)")
-        return name, len(rs), best, stats, rule
-    elif len(passing) == 1:
-        rule = "rank (one tier passes)"
-    elif not priced:
-        rule = "rank"
-    elif thin:
-        rule = "rank (uncalibrated: thin $ " + ", ".join(f"{t} n={sampled[t]['usd_n']}" for t in thin) + f" < {USD_MIN})"
-    else:
-        rule = "$ per success"
-    by_usd = rule == "$ per success"
-
-    def dearer(x, y):
-        if by_usd and x in passing and y in passing:
-            return sampled[x]["usd"] > sampled[y]["usd"]
-        return tier_rank(x) > tier_rank(y)
-
-    best = min(passing, key=lambda t: (sampled[t]["usd"], tier_rank(t)) if by_usd else tier_rank(t))
-    held = tier_key(incumbent.get(name)) if incumbent.get(name) else None
-    if held and held != best and held in sampled and best in sampled:
-        if dearer(best, held) and sampled[best]["rate"] < sampled[held]["rate"] + MARGIN:
-            best = held
-    return name, len(rs), best, stats, rule
-
-
-def recommend_eta(runs, cell, tier):
-    fields = brief_fields(cell)
-    keys = ["category", *(k for k in reversed(BACKOFF) if k in fields)]
-    while True:
-        samples = [r["minutes"] for r in runs if tier_key(r["tier"]) == tier_key(tier) and r["minutes"] is not None
-                   and all(r.get(k) == fields[k] for k in keys)]
-        if len(samples) >= DEFAULTS["eta_min_samples"] or len(keys) == 1:
-            name = ", ".join(f"{k.capitalize()}: {fields[k]}" for k in keys)
-            return quantile(samples, .75), len(samples), name
-        keys.pop()
-
-
-def recommend_usd(runs, category, tier):
-    """Median $ per done run in the (category, tier) cell, backing off to the tier; None below 3 samples."""
-    for keep in (lambda r: r["category"] == category and r["tier"] == tier, lambda r: r["tier"] == tier):
-        costs = [r["cost_usd"] for r in runs if keep(r) and r["outcome"] == "done" and r["cost_usd"] is not None]
-        if len(costs) >= 3:
-            return quantile(costs, .5), len(costs)
-    return None, 0
-
-
-BOX_GAP, BOX_N = DEFAULTS["box_chain_gap_min"], DEFAULTS["box_calibration_n"]
-
-
-def moment(text):
-    value = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-
-
-def box_chains(rows):
-    """Box durations: worker runs on one Item: in staffed order, chained while each is staffed within BOX_GAP minutes of
-    the chain's latest end; a chain with a landed run lasts from its first staffed to its last landed. Runs carry no box
-    and Follows: is free text, so chains are by item; parallel boxes of one item share a chain."""
-    chains = []
-    for g in box_groups(rows, BOX_GAP):
-        landed = [moment(r.get("landed_at") or r["ended"]) for r in g if r.get("landed")]
-        start, finish = g[0]["begin"], max(landed)
-        category = g[0]["category"] if g[0]["category"] in CATEGORIES else None
-        chains.append({"item": g[0]["item"], "category": category, "start": start, "end": finish, "runs": len(g),
-                       "minutes": max(0.0, (finish - start).total_seconds() / 60)})
-    return sorted(chains, key=lambda c: c["end"])
-
-
-def box_duration(chains, category):
-    """(p75 minutes, n, label): the category's box chains with at least eta_min_samples, else every category's."""
-    if category in CATEGORIES:
-        xs = [c["minutes"] for c in chains if c["category"] == category]
-        if len(xs) >= DEFAULTS["eta_min_samples"]:
-            return quantile(xs, .75), len(xs), f"box p75 Category: {category}"
-    xs = [c["minutes"] for c in chains]
-    return quantile(xs, .75), len(xs), "box p75 all categories"
-
-
-def box_rows(db):
-    return [dict(r) for r in db.execute("SELECT item, role, category, outcome, staffed, started, ended, landed, landed_at"
-                                        " FROM runs WHERE role = 'worker' AND outcome != 'running' AND item IS NOT NULL")]
-
-
-CAL_FLOOR, CAL_MAX_DAYS, CAL_TARGET = THIN_N, STALE_DAYS, DEFAULTS["eta_coverage"]
-PROVIDERS = ("claude", "codex", "gemini", "all")
-
-
-def quantile(xs, fraction):
-    xs = sorted(x for x in xs if x is not None)
-    return xs[max(0, math.ceil(len(xs) * fraction) - 1)] if xs else None
-
-
-def provider(tier):
-    key = tier_key(tier)
-    if ":" in key:
-        return key.split(":")[0]
-    return "codex" if key.startswith("gpt-") else "gemini" if key.startswith("gemini") else "claude"
-
-
-def scaled(raw, scale, whole=True):
-    value = raw if raw is None or not scale else raw * scale
-    return math.ceil(value) if whole and value is not None else value
-
-
-def ratio_rows(pairs):
-    """pairs: (tier, actual/predicted). One row per provider and all, value the scale that covers CAL_TARGET."""
-    rows = []
-    for cell in PROVIDERS:
-        rs = [x for t, x in pairs if cell == "all" or provider(t) == cell]
-        rows.append({"cell": cell, "n": len(rs), "p25": quantile(rs, .25), "median": quantile(rs, .5),
-                     "p75": quantile(rs, .75), "value": quantile(rs, CAL_TARGET)})
-    return rows
-
-
-def run_cell(r):
-    return ", ".join(f"{k.capitalize()}: {r[k]}" for k in GROUPS if r[k] != "-")
-
-
-def earlier_by_tier(runs):
-    by_tier: dict = {}
-    for r in sorted(runs, key=lambda r: r["ended"]):
-        by_tier.setdefault(r["tier"], []).append(r)
-    keys = {t: [r["ended"] for r in rs] for t, rs in by_tier.items()}
-    return lambda r: by_tier.get(r["tier"], [])[:bisect.bisect_left(keys.get(r["tier"], []), r["ended"])]
-
-
-def walk_forward_eta(runs, start, end):
-    """(run, uncalibrated recommend_eta from strictly earlier runs) for each run that ended in [start, end)."""
-    earlier = earlier_by_tier([r for r in runs if r["first"]])
-    out = []
-    for r in runs:
-        if r["first"] and r["minutes"] is not None and start <= r["ended"] < end:
-            eta, n, _ = recommend_eta(earlier(r), run_cell(r), r["tier"])
-            if n and eta:
-                out.append((r, eta))
-    return out
-
-
-def calibrate_eta_pred(runs, start, end):
-    return ratio_rows([(r["tier"], r["minutes"] / eta) for r, eta in walk_forward_eta(runs, start, end)])
-
-
-def since_start(text, end):
-    m = re.fullmatch(r"(\d+)([dh])", text)
-    if not m:
-        return text
-    delta = timedelta(days=int(m[1])) if m[2] == "d" else timedelta(hours=int(m[1]))
-    return (datetime.fromisoformat(end.replace("Z", "+00:00")) - delta).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def calibration_runs(db):
-    ok = run_ok(db)
-    return [{**{k: cell_value(r, k) for k in GROUPS}, **{k: r[k] for k in ("tier", "minutes", "eta_min", "cost_usd", "outcome", "ended")},
-             "first": r["follows"] is None, "ok": ok(r), "unjudged": unjudged(r)}
-            for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND outcome NOT IN ('split','running') AND ended IS NOT NULL")]
-
-
 def north_ledger(*argv):
     try:
         code = subprocess.run([os.environ.get("NORTH_BIN") or "north", "ledger", *argv], env=dict(os.environ, THREADS_DB=DB)).returncode
@@ -772,35 +531,6 @@ def cmd_record_priors(db, a):
     with Tx(db):
         db.executemany("INSERT INTO calibration(at, kind, cell, n, value, source) VALUES (?, 'prior', ?, ?, ?, ?)",
                        [(end, *r) for r in rows])
-
-
-def latest_calibration(db, kind, tier, column="value"):
-    """(scale, label): the newest row's column for the tier's provider, else all; scale None with the fallback reason."""
-    reason = f"no {kind} calibration"
-    for cell in (provider(tier), "all"):
-        row = db.execute("SELECT * FROM calibration WHERE kind = ? AND cell = ? ORDER BY rowid DESC LIMIT 1", (kind, cell)).fetchone()
-        if not row:
-            continue
-        age = minutes_since(row["at"]) / 1440
-        floor = BOX_N if kind == "box" else CAL_FLOOR
-        if row["n"] < floor or row[column] is None:
-            reason = f"{kind} {cell} n={row['n']} < {floor}"
-        elif age > CAL_MAX_DAYS:
-            reason = f"{kind} {cell} {age:.0f}d old"
-        else:
-            return row[column], f"x{row[column]:.2f} {kind} {cell} n={row['n']} " + (f"median {row['median']:.2f}" if column == "value" else f"{column} of actual/predicted")
-    return None, f"uncalibrated: {reason}"
-
-
-def run_ok(db):
-    """Reported Done (ruled out included) with no later Follows: run on it, and landed when the run made a commit."""
-    escalated = {r["follows"] for r in db.execute("SELECT follows FROM runs WHERE role = 'worker' AND follows IS NOT NULL")}
-    return lambda r: succeeded(r, r["agent"] in escalated)
-
-
-def recommend_runs(rows, ok):
-    return [{**{k: cell_value(r, k) for k in GROUPS}, "tier": tier_key(r["tier"]), "ok": ok(r), "minutes": r["minutes"],
-             "cost_usd": r["cost_usd"], "outcome": r["outcome"]} for r in rows if not unjudged(r)]
 
 
 def cmd_agent_event(db, a):

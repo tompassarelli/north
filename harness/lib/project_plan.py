@@ -72,9 +72,8 @@ def main():
             raise ValueError("worker ledger returned a non-finite measurement")
         eta, eta_n, source = None, 0, None
         if args.category:
-            threads = goal_eta.threads_module()
-            _, chains, scale = goal_eta.snapshot(threads, snapshot_path())
-            eta, eta_n, source = goal_eta.box_eta(threads, chains, f"Category: {args.category}", scale, None)
+            measured = goal_eta.box_durations([f"Category: {args.category}"], db_path=snapshot_path())
+            eta, eta_n, source = goal_eta.box_eta(measured["boxes"][0], (measured["scale"], measured["label"]), None)
         width, _ = goal_eta.gate_width(args.project, ledger_context.delivery_metrics(rows)["concurrency"])
         lines, date, dollars = quote(args.project, args.boxes, metrics, datetime.now(timezone.utc), width,
                                      0.0 if eta is not None else goal_eta.landing_minutes(args.project), eta, eta_n, source)
