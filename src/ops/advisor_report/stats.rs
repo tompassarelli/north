@@ -71,7 +71,7 @@ impl PyRandom {
 }
 
 /// Python's `sum` over floats: Neumaier-compensated since 3.12.
-pub(super) fn float_sum(values: impl IntoIterator<Item = f64>) -> f64 {
+pub(crate) fn float_sum(values: impl IntoIterator<Item = f64>) -> f64 {
     let (mut total, mut carry) = (0.0f64, 0.0f64);
     for x in values {
         let t = total + x;

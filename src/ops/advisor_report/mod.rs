@@ -1,6 +1,6 @@
 //! `north advisor-report`: compares policy-replay arms (model, effort, advisor) against an incumbent: pass rate, paired
 //! task-cluster difference, list and plan $ per success, wall time, advisor use and one verdict per challenger.
-mod stats;
+pub(crate) mod stats;
 #[cfg(test)]
 mod tests;
 

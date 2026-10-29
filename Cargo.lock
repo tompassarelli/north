@@ -817,6 +817,7 @@ name = "north"
 version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
+ "fancy-regex",
  "percent-encoding",
  "ratatui",
  "regex",
