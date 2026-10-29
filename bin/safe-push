@@ -2066,15 +2066,21 @@ code_health_gate() {
   code_health_gated="$base $head"
 }
 
+policy_scans() {
+  local branch="$1" destination="$2" range="$3" refused=0
+  scan_range_for_native=("$range")
+  native_ref_scan "$branch" "$destination" || refused=1
+  tool_removal_scan "$range" || refused=1
+  test_integrity_scan "$range" || refused=1
+  generated_rewrite_scan "$range" || refused=1
+  provenance_scan "$range" || refused=1
+  policy_sweep_scan "$range" || refused=1
+  [ "$destination" != "$(default_branch)" ] || review_scan "$range" || refused=1
+  return "$refused"
+}
+
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
-  scan_range_for_native=("refs/remotes/origin/$to..HEAD")
-  native_ref_scan "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" || exit 1
-  tool_removal_scan "refs/remotes/origin/$to..HEAD" || exit 1
-  test_integrity_scan "refs/remotes/origin/$to..HEAD" || exit 1
-  generated_rewrite_scan "refs/remotes/origin/$to..HEAD" || exit 1
-  provenance_scan "refs/remotes/origin/$to..HEAD" || exit 1
-  policy_sweep_scan "refs/remotes/origin/$to..HEAD" || exit 1
-  [ "$to" != "$(default_branch)" ] || review_scan "refs/remotes/origin/$to..HEAD" || exit 1
+  policy_scans "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
   code_health_gate "$(git rev-parse "refs/remotes/origin/$to")" "$(git rev-parse HEAD)"
 fi
@@ -2214,14 +2220,7 @@ echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
 
 code_health_gate "${destination_oid:-${absent_base:-}}" "$head_oid"
 
-scan_range_for_native=("$scan_range")
-native_ref_scan "$branch" "$destination_branch" || exit 1
-tool_removal_scan "$scan_range" || exit 1
-test_integrity_scan "$scan_range" || exit 1
-generated_rewrite_scan "$scan_range" || exit 1
-provenance_scan "$scan_range" || exit 1
-policy_sweep_scan "$scan_range" || exit 1
-[ "$destination_branch" != "$(default_branch)" ] || review_scan "$scan_range" || exit 1
+policy_scans "$branch" "$destination_branch" "$scan_range" || exit 1
 safe_push_reviewers=$(landing_reviewers "$scan_range")
 [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
 echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"

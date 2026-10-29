@@ -1029,6 +1029,15 @@ for target_case in unsourced unsourced-none unsourced-rationale sourced reworded
     *) expect_status zero ;;
   esac
 done
+"$real_git" -C "$real_repo" fetch -q origin
+"$real_git" -C "$real_repo" reset -q --hard origin/main
+printf '| 9.12p | query view | the 1,000-row query scroll stays under 40 ms | open |\n' >>"$real_repo/PLAN.md"
+"$real_git" -C "$real_repo" commit -qam 'query scroll target for ops#17'
+run_real_case '' --dry-run
+expect_status nonzero
+expect_output 'names a native NorthThread item'
+expect_output "add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer"
+printf 'Every refusing scan reports in one run: PASS (native ref and provenance together)\n'
 
 make_real_fixture policy-sweep
 mkdir -p "$real_repo/agents/replay"
