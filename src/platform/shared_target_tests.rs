@@ -25,6 +25,7 @@ fn an_idle_executable_and_an_idle_incremental_directory_go_but_libraries_stay() 
     write(&target.join("debug/deps/libnorth-1.rlib"), 4096, 0o755, HOUR);
     write(&target.join("debug/deps/libnorth-1.rmeta"), 4096, 0o644, HOUR);
     write(&target.join("debug/incremental/north-x/s-1/dep-graph.bin"), 4096, 0o644, HOUR);
+    write(&target.join("debug/deps/libfresh.rlib"), 4096, 0o644, Duration::from_secs(30));
     assert_eq!(sweep_now(&target, 0), 8192);
     assert!(!target.join("debug/deps/north-1").exists());
     assert!(!target.join("debug/incremental/north-x").exists());
@@ -84,6 +85,32 @@ fn an_executable_hard_linked_elsewhere_in_the_target_stays_and_counts_once() {
     write(&target.join("debug/deps/north-1"), 4096, 0o755, HOUR);
     fs::hard_link(target.join("debug/deps/north-1"), target.join("debug/north")).unwrap();
     assert_eq!(tree(&target, &mut HashSet::new()).unwrap().0, 4096);
+    write(&target.join("debug/fresh.bin"), 1, 0o644, Duration::from_secs(30));
     assert_eq!(sweep_now(&target, 0), 0);
     assert!(target.join("debug/deps/north-1").is_file());
+}
+
+#[test]
+fn a_named_target_under_the_shared_cache_and_its_release_profile_are_swept() {
+    let scratch = tempfile::tempdir().unwrap();
+    let nested = scratch.path().join("cargo-target/north");
+    write(&nested.join("release/deps/north-1"), 4096, 0o755, HOUR);
+    write(&nested.join("debug/incremental/north-x/s-1/dep-graph.bin"), 4096, 0o644, HOUR);
+    assert_eq!(shared_targets(scratch.path()), [scratch.path().join("cargo-target"), nested.clone()]);
+    assert_eq!(sweep_now(&nested, 0), 8192);
+    assert!(!nested.join("release/deps/north-1").exists());
+    assert!(!nested.join("debug/incremental/north-x").exists());
+}
+
+#[test]
+fn an_idle_profile_of_libraries_goes_whole_only_when_nothing_finer_gets_under_the_cap() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("release/deps/libold.rlib"), 4096, 0o644, HOUR * 3);
+    write(&target.join("debug/deps/libnew.rlib"), 4096, 0o644, Duration::from_secs(30));
+    assert_eq!(sweep_now(&target, 4096), 4096);
+    assert!(!target.join("release").exists());
+    assert!(target.join("debug/deps/libnew.rlib").is_file());
+    assert_eq!(sweep_now(&target, 0), 0);
+    assert!(target.join("debug/deps/libnew.rlib").is_file());
 }

@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime};
 const GIB: u64 = 1 << 30;
 const CAP_BYTES: u64 = 10 * GIB;
 const IDLE: Duration = Duration::from_secs(20 * 60);
+const PROFILES: [&str; 2] = ["debug", "release"];
 const LIBRARY_EXTENSIONS: [&str; 5] = ["rlib", "rmeta", "d", "so", "a"];
 
 struct Candidate {
@@ -53,39 +54,85 @@ fn shared_targets(cache: &Path) -> Vec<PathBuf> {
         })
         .map(|entry| entry.path())
         .collect();
+    for parent in targets.clone() {
+        let Ok(children) = fs::read_dir(&parent) else { continue };
+        targets.extend(children.flatten().filter(|child| holds_profile(&child.path())).map(|child| child.path()));
+    }
     targets.sort();
     targets
 }
 
+fn holds_profile(directory: &Path) -> bool {
+    directory.is_dir() && PROFILES.iter().any(|profile| directory.join(profile).is_dir())
+}
+
+fn profile_size(target: &Path) -> io::Result<u64> {
+    let mut size = 0;
+    for profile in PROFILES {
+        size += vanished(tree(&target.join(profile), &mut HashSet::new()))?.map_or(0, |(bytes, _)| bytes);
+    }
+    Ok(size)
+}
+
 fn sweep(target: &Path, cap: u64, idle: Duration, now: SystemTime) -> io::Result<u64> {
-    let mut size = tree(target, &mut HashSet::new())?.0;
+    let mut size = profile_size(target)?;
     let mut freed = 0;
     if size <= cap {
         return Ok(freed);
     }
-    let mut candidates = stale_incremental(target, idle, now)?;
-    candidates.extend(stale_executables(target, idle, now)?);
+    let mut candidates = Vec::new();
+    for profile in PROFILES {
+        candidates.extend(stale_incremental(target, profile, idle, now)?);
+        candidates.extend(stale_executables(target, profile, idle, now)?);
+    }
     candidates.sort_by_key(|candidate| candidate.touched);
     for candidate in candidates {
         if size <= cap {
             break;
         }
-        let removed = if candidate.path.is_dir() {
-            fs::remove_dir_all(&candidate.path)
-        } else {
-            fs::remove_file(&candidate.path)
-        };
-        if vanished(removed)?.is_some() {
-            size = size.saturating_sub(candidate.bytes);
-            freed += candidate.bytes;
+        freed += remove(&candidate, &mut size)?;
+    }
+    if size > cap {
+        let mut profiles = stale_profiles(target, idle, now)?;
+        profiles.sort_by_key(|candidate| candidate.touched);
+        for candidate in profiles {
+            if size <= cap {
+                break;
+            }
+            freed += remove(&candidate, &mut size)?;
         }
     }
     Ok(freed)
 }
 
-fn stale_incremental(target: &Path, idle: Duration, now: SystemTime) -> io::Result<Vec<Candidate>> {
+fn remove(candidate: &Candidate, size: &mut u64) -> io::Result<u64> {
+    let removed = if candidate.path.is_dir() {
+        fs::remove_dir_all(&candidate.path)
+    } else {
+        fs::remove_file(&candidate.path)
+    };
+    if vanished(removed)?.is_none() {
+        return Ok(0);
+    }
+    *size = size.saturating_sub(candidate.bytes);
+    Ok(candidate.bytes)
+}
+
+fn stale_profiles(target: &Path, idle: Duration, now: SystemTime) -> io::Result<Vec<Candidate>> {
     let mut stale = Vec::new();
-    let Ok(entries) = fs::read_dir(target.join("debug/incremental")) else { return Ok(stale) };
+    for profile in PROFILES {
+        let path = target.join(profile);
+        let Some((bytes, touched)) = vanished(tree(&path, &mut HashSet::new()))? else { continue };
+        if idle_since(touched, idle, now) {
+            stale.push(Candidate { path, bytes, touched });
+        }
+    }
+    Ok(stale)
+}
+
+fn stale_incremental(target: &Path, profile: &str, idle: Duration, now: SystemTime) -> io::Result<Vec<Candidate>> {
+    let mut stale = Vec::new();
+    let Ok(entries) = fs::read_dir(target.join(profile).join("incremental")) else { return Ok(stale) };
     for entry in entries.flatten() {
         let Some((bytes, touched)) = vanished(tree(&entry.path(), &mut HashSet::new()))? else { continue };
         if idle_since(touched, idle, now) {
@@ -95,9 +142,9 @@ fn stale_incremental(target: &Path, idle: Duration, now: SystemTime) -> io::Resu
     Ok(stale)
 }
 
-fn stale_executables(target: &Path, idle: Duration, now: SystemTime) -> io::Result<Vec<Candidate>> {
+fn stale_executables(target: &Path, profile: &str, idle: Duration, now: SystemTime) -> io::Result<Vec<Candidate>> {
     let mut stale = Vec::new();
-    let Ok(entries) = fs::read_dir(target.join("debug/deps")) else { return Ok(stale) };
+    let Ok(entries) = fs::read_dir(target.join(profile).join("deps")) else { return Ok(stale) };
     for entry in entries.flatten() {
         let Some(metadata) = vanished(fs::symlink_metadata(entry.path()))? else { continue };
         let library = entry

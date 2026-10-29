@@ -2592,6 +2592,10 @@ remote_lane_exists() {
 }
 
 new_lane_container clean
+printf 'target/\n' >>"$lane_container/main/.git/info/exclude"
+mkdir -p "$lane/target/debug/deps"
+printf 'Signature: 8a477f597d28d172789f06886806bc55\n' >"$lane/target/CACHEDIR.TAG"
+head -c 1048576 /dev/zero >"$lane/target/debug/deps/libbulk.rlib"
 NORTH_FLEET_SESSION=lane-clean run_lane
 expect_status zero
 [ "$(landed_for lane-clean)" = "$("$real_git" --git-dir="$lane_remote" rev-parse main)" ] \

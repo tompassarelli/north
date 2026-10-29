@@ -134,7 +134,7 @@ fn cargo_target(machine: &Machine, relative: &str, age: Duration) -> PathBuf {
 }
 
 #[test]
-fn idle_cargo_targets_go_from_north_main_and_every_worktree_but_not_other_mains_or_node_modules() {
+fn idle_cargo_targets_go_from_north_main_and_every_containers_worktrees_but_not_other_mains_or_node_modules() {
     let machine = Machine::new();
     let main = cargo_target(&machine, "code/north/main/target", 3 * DAY);
     let lane = cargo_target(&machine, "code/smashcraft/worktrees/sc-1/target", 3 * DAY);
@@ -154,11 +154,11 @@ fn idle_cargo_targets_go_from_north_main_and_every_worktree_but_not_other_mains_
     let recent = cargo_target(&machine, "code/north/worktrees/recent/target", Duration::from_secs(3600));
     let source = machine.file("code/smashcraft/worktrees/sc-1/src.rs", 3 * DAY);
 
-    assert_eq!(machine.reclaim(false), vec![main.clone(), hours_old.clone(), lane.clone(), wisp_lane.clone()]);
-    assert!(!main.exists() && !lane.exists() && !wisp_lane.exists());
+    assert_eq!(machine.reclaim(false), vec![other.clone(), main.clone(), hours_old.clone(), lane.clone(), wisp_lane.clone()]);
+    assert!(!main.exists() && !lane.exists() && !wisp_lane.exists() && !other.exists());
     assert!(!hours_old.exists());
     assert!(installed.exists() && smashcraft_main.exists() && wisp_main.exists() && north_modules.exists());
-    assert!(busy.exists() && held.exists() && recent.exists() && untagged.exists() && other.exists() && source.exists());
+    assert!(busy.exists() && held.exists() && recent.exists() && untagged.exists() && source.exists());
 }
 
 #[test]

@@ -118,7 +118,7 @@ Commands:
   model-watch news [--days N] [--noise ID|--more ID]  Show the last delivered watch digest or record feedback on an item
   outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read
   outside-watch status                          Show the last run and its log line
-  reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of north, smashcraft and wisp worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
+  reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
   retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Smashcraft evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
   worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv

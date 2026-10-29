@@ -8,14 +8,15 @@ use super::{Inputs, Policy, Removal, hours, idle_for, removed};
 use crate::platform::shared_target;
 
 const BUILD_OUTPUT_IDLE: Duration = Duration::from_secs(4 * 3600);
-const CONTAINERS: [(&str, bool); 3] = [("north", true), ("smashcraft", false), ("wisp", false)];
+const MAIN_BUILT_CONTAINER: &str = "north";
 const PRIVATE_TARGET_PREFIX: &str = "cargo-target-";
 
 pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result<Vec<Removal>> {
     let limit = policy.idle.min(BUILD_OUTPUT_IDLE);
     let mut removals = Vec::new();
-    for (container, with_main) in CONTAINERS {
-        for checkout in checkouts(&inputs.code.join(container), with_main) {
+    for container in containers(&inputs.code) {
+        let with_main = container.file_name().is_some_and(|name| name == MAIN_BUILT_CONTAINER);
+        for checkout in checkouts(&container, with_main) {
             if let Some(path) = rebuildable(&checkout)
                 && let Some(removal) = idle_unheld(inputs, policy.dry_run, limit, held, path, |idle| {
                     format!("cargo target of {} idle {}h, held by no process; the next build restores it", checkout.display(), hours(idle))
@@ -70,4 +71,11 @@ fn private_targets(cache: &Path) -> Vec<PathBuf> {
         .filter(|entry| entry.file_name().to_string_lossy().starts_with(PRIVATE_TARGET_PREFIX) && entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .map(|entry| entry.path())
         .collect()
+}
+
+fn containers(code: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(code) else { return Vec::new() };
+    let mut containers: Vec<PathBuf> = entries.flatten().filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).map(|entry| entry.path()).collect();
+    containers.sort();
+    containers
 }
