@@ -1,6 +1,7 @@
 use super::bounded;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, Layout, PROGRAMS, TREE};
+use super::peers;
 use super::pull;
 use super::remote;
 use super::store;
@@ -13,53 +14,86 @@ use std::fs::{self, File};
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const STEP_LIMIT: Duration = Duration::from_secs(300);
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 
-const SUPERSESSIONS: usize = 5;
+const PASSES: usize = 5;
+
+enum Pass {
+    Settled,
+    Promoted,
+}
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
     let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
         println!("north runtime update already running");
         return Ok(());
     };
-    for _ in 0..SUPERSESSIONS {
+    for _ in 0..PASSES {
         match pass(layout) {
             Err(failure) if failure.code == SUPERSEDED => println!("north runtime: {}; restarting on the new origin/main", failure.message),
-            finished => return finished,
+            Ok(Pass::Promoted) => continue,
+            finished => return finished.map(|_| ()),
         }
     }
     Err(failed(DEFERRED, "origin/main kept moving past each build; retrying on the next tick"))
 }
 
-fn pass(layout: &Layout) -> Result<(), Failure> {
+fn pass(layout: &Layout) -> Result<Pass, Failure> {
     let checkout = checkout();
     let target = main_commit(&checkout)?;
-    let short = &target[..8];
     let previous = fs::read_link(layout.current()).ok();
-    let was = previous.as_deref().and_then(layout::linked_sha).unwrap_or("none");
     if previous.as_deref() == Some(layout::link(&target).as_path()) {
-        println!("north runtime current: {short}");
-        return Ok(());
+        println!("north runtime current: {}", layout::short(&target));
+        return Ok(Pass::Settled);
     }
-    if held_back(layout, &target) {
+    match advance(layout, &checkout, &target, previous.as_deref()) {
+        Err(deferred) if deferred.code == DEFERRED => catch_up(layout, &checkout, &target, previous.as_deref())?.ok_or(deferred),
+        advanced => advanced,
+    }
+}
+
+fn advance(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<Pass, Failure> {
+    let short = layout::short(target);
+    let was = previous.and_then(layout::linked_sha).unwrap_or("none");
+    if held_back(layout, target) {
         println!("north runtime: {short} failed within the last hour; staying on {was}");
-        return Ok(());
+        return Ok(Pass::Settled);
     }
-    let promoted = promote(layout, &checkout, &target, previous.as_deref());
+    let promoted = promote(layout, checkout, target, previous);
     if let Err(failure) = &promoted
         && failure.code != DEFERRED
         && failure.code != SUPERSEDED
     {
-        fs::write(layout.failed(), &target)?;
+        fs::write(layout.failed(), target)?;
     }
     let synced = promoted?;
     println!("{synced}north runtime promoted: {short} (was {was})");
-    collect(layout, &target, previous.as_deref())
-        .map_err(|error| failed(1, format!("collecting old runtimes: {error}")))
+    collect(layout, target, previous).map_err(|error| failed(1, format!("collecting old runtimes: {error}")))?;
+    Ok(Pass::Promoted)
+}
+
+fn catch_up(layout: &Layout, checkout: &Path, main: &str, previous: Option<&Path>) -> Result<Option<Pass>, Failure> {
+    let current = previous.and_then(layout::linked_sha);
+    let ahead = |sha: &str| sha != main && ancestor(checkout, sha, main) && current.is_none_or(|current| sha != current && !ancestor(checkout, sha, current));
+    let promoted = peers::promoted().into_iter().filter(|peer| ahead(&peer.sha)).collect();
+    let Some(newest) = peers::newest(promoted, |later, earlier| ancestor(checkout, earlier, later)) else {
+        return Ok(None);
+    };
+    let runtime = layout.runtime(&newest.sha);
+    if !layout::has_programs(&runtime) && !pull::pull_from(&newest.host, &newest.sha, &runtime) {
+        return Ok(None);
+    }
+    println!("north runtime: {} is not built anywhere yet; catching up to {}, promoted on {}", layout::short(main), layout::short(&newest.sha), newest.host);
+    advance(layout, checkout, &newest.sha, previous)?;
+    Ok(Some(Pass::Settled))
+}
+
+fn ancestor(checkout: &Path, earlier: &str, later: &str) -> bool {
+    process::run("git", Some(checkout), &["merge-base", "--is-ancestor", earlier, later]).is_ok_and(|output| output.status.success())
 }
 
 fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<String, Failure> {
@@ -102,7 +136,7 @@ pub(super) fn main_commit(checkout: &Path) -> Result<String, Failure> {
 fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Failure> {
     let runtime = layout.runtime(target);
     if !layout::has_programs(&runtime) {
-        build(checkout, target, &runtime)?;
+        build(layout, checkout, target, &runtime)?;
     }
     Ok(runtime)
 }
@@ -149,7 +183,7 @@ impl Drop for Lane<'_> {
     }
 }
 
-fn build(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
+fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
     if pull::pull(target, runtime) {
         return Ok(());
     }
@@ -168,7 +202,9 @@ fn build(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
         .args(["nix", "develop", "-c", "cargo", "build", "--release", "--locked"])
         .current_dir(&lane.path)
         .env("CARGO_TARGET_DIR", &built);
-    let status = supersede::run(&mut build, target, || main_commit(checkout).ok())?;
+    let previous = fs::read_to_string(layout.build_seconds()).ok().and_then(|seconds| seconds.trim().parse().ok()).map(Duration::from_secs);
+    let started = Instant::now();
+    let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok())?;
     if !status.success() {
         return Err(failed(code(status), format!("build of {target} failed: {status}")));
     }
@@ -180,6 +216,7 @@ fn build(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
     for program in PROGRAMS {
         install(&release.join(program), &runtime.join(program))?;
     }
+    fs::write(layout.build_seconds(), started.elapsed().as_secs().to_string())?;
     Ok(())
 }
 

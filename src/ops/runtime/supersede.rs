@@ -9,26 +9,41 @@ pub(super) const SUPERSEDED: u8 = 76;
 const CHECK_EVERY: Duration = Duration::from_secs(20);
 const TERM_GRACE: Duration = Duration::from_secs(10);
 
-pub(super) fn run(command: &mut Command, target: &str, head: impl Fn() -> Option<String>) -> Result<ExitStatus, Failure> {
+pub(super) fn run(command: &mut Command, target: &str, previous: Option<Duration>, head: impl Fn() -> Option<String>) -> Result<ExitStatus, Failure> {
+    let started = Instant::now();
     let mut child = command.process_group(0).spawn()?;
     let every = std::env::var("NORTH_RUNTIME_WATCH_SECONDS")
         .ok()
         .and_then(|seconds| seconds.parse().ok())
         .map_or(CHECK_EVERY, Duration::from_secs);
     let mut next = Instant::now() + every;
+    let mut finishing = false;
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(status);
         }
-        if Instant::now() >= next {
+        if !finishing && Instant::now() >= next {
             next = Instant::now() + every;
             if head().is_some_and(|head| head != target) {
-                stop(&mut child);
-                return Err(failed(SUPERSEDED, format!("origin/main moved past {}; abandoned its build", layout::short(target))));
+                let short = layout::short(target);
+                let Some(previous) = previous.filter(|previous| past_half(started.elapsed(), *previous)) else {
+                    stop(&mut child);
+                    return Err(failed(SUPERSEDED, format!("origin/main moved past {short}; abandoned its build")));
+                };
+                println!(
+                    "north runtime: origin/main moved past {short}, but its build has run {}s of the last build's {}s; finishing it before building the new origin/main",
+                    started.elapsed().as_secs(),
+                    previous.as_secs()
+                );
+                finishing = true;
             }
         }
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+fn past_half(elapsed: Duration, previous: Duration) -> bool {
+    elapsed * 2 > previous
 }
 
 fn stop(child: &mut Child) {

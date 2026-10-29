@@ -28,6 +28,10 @@ impl Layout {
         self.state.join("runtime-failed")
     }
 
+    pub(crate) fn build_seconds(&self) -> PathBuf {
+        self.state.join("runtime-build-seconds")
+    }
+
     pub(crate) fn runtime(&self, sha: &str) -> PathBuf {
         self.runtimes().join(sha)
     }

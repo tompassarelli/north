@@ -4,6 +4,7 @@ mod failure;
 mod follow;
 mod health;
 pub(crate) mod layout;
+mod peers;
 mod pull;
 mod remote;
 mod store;

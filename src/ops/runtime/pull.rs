@@ -12,22 +12,24 @@ const COPY: Duration = Duration::from_secs(10 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);
 
 pub(super) fn pull(target: &str, runtime: &Path) -> bool {
+    land_offload::other_destinations().iter().any(|host| pull_from(host, target, runtime))
+}
+
+pub(super) fn pull_from(host: &str, target: &str, runtime: &Path) -> bool {
     let short = layout::short(target);
-    for host in land_offload::other_destinations() {
-        match fetch(&host, target, runtime) {
-            Ok(()) => {
-                println!("north runtime: pulled {short} built on {host} and realised its store closure");
-                return true;
+    match fetch(host, target, runtime) {
+        Ok(()) => {
+            println!("north runtime: pulled {short} built on {host} and realised its store closure");
+            true
+        }
+        Err(why) => {
+            eprintln!("north runtime: {host} has no usable {short}: {why}");
+            for program in PROGRAMS {
+                let _ = fs::remove_file(runtime.join(program));
             }
-            Err(why) => {
-                eprintln!("north runtime: {host} has no usable {short}: {why}");
-                for program in PROGRAMS {
-                    let _ = fs::remove_file(runtime.join(program));
-                }
-            }
+            false
         }
     }
-    false
 }
 
 fn fetch(host: &str, target: &str, runtime: &Path) -> Result<(), String> {

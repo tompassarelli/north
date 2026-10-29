@@ -328,6 +328,7 @@ fn a_host_that_declares_builds_runtime_false_defers_when_no_other_host_has_built
     host.built(PREVIOUS);
     host.select(PREVIOUS);
     script(&host.path("bin/rsync"), "exit 23\n");
+    script(&host.path("bin/ssh"), "exit 255\n");
     let orchestration = fleet(&host, "[hosts.builder]\nssh = \"tom@builder\"\n[hosts.small]\nbuilds_runtime = false\n");
     let output = host.north_with(
         &["runtime", "update"],
@@ -378,4 +379,85 @@ fn a_build_whose_commit_is_no_longer_origin_main_is_abandoned_and_the_new_head_i
     let head = git(&home, &source, &["rev-parse", "HEAD"]);
     assert_eq!(host.current(), Path::new("runtimes").join(head));
     assert!(started.elapsed() < std::time::Duration::from_secs(60));
+}
+
+#[test]
+fn a_follower_that_cannot_get_origin_main_promotes_the_newest_ancestor_a_peer_has_promoted() {
+    let host = Host::new();
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    let source = host.path("source");
+    let home = host.path("home");
+    git(&home, &source, &["commit", "-q", "--allow-empty", "-m", "finished on a peer"]);
+    let finished = git(&home, &source, &["rev-parse", "HEAD"]);
+    git(&home, &source, &["checkout", "-q", "-b", "side"]);
+    git(&home, &source, &["commit", "-q", "--allow-empty", "-m", "off main"]);
+    let side = git(&home, &source, &["rev-parse", "HEAD"]);
+    git(&home, &source, &["checkout", "-q", "main"]);
+    git(&home, &source, &["commit", "-q", "--allow-empty", "-m", "landed, built nowhere"]);
+    let main = git(&home, &source, &["rev-parse", "HEAD"]);
+    script(
+        &host.path("bin/ssh"),
+        &format!("case \"$*\" in *tom@older*) echo runtimes/{};; *tom@newer*) echo runtimes/{finished};; *tom@side*) echo runtimes/{side};; esac\n", host.target),
+    );
+    script(
+        &host.path("bin/rsync"),
+        &format!("printf 'rsync %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n[[ \"$*\" == *{main}* ]] && exit 23\nfor program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"${{@: -1}}/$program\"; chmod +x \"${{@: -1}}/$program\"; done\n"),
+    );
+    script(&host.path("bin/nix-store"), "exit 0\n");
+    let orchestration = fleet(
+        &host,
+        "[hosts.older]\nssh = \"tom@older\"\n[hosts.newer]\nssh = \"tom@newer\"\n[hosts.side]\nssh = \"tom@side\"\n[hosts.small]\nbuilds_runtime = false\n",
+    );
+    let output = host.north_with(
+        &["runtime", "update"],
+        &[("AGENTS_ORCHESTRATION", orchestration.to_str().unwrap()), ("RESIDENT_CAP_HOST", "small"), ("TEST_TARGET", &finished)],
+    );
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(&finished));
+    let calls = fs::read_to_string(host.path("alerts")).unwrap();
+    assert!(calls.contains(&format!("tom@newer:.local/state/north/runtimes/{finished}/north")), "{calls}");
+    assert!(host.runtime(&finished).join("tree").is_dir());
+}
+
+#[test]
+fn a_build_more_than_half_done_when_origin_main_moves_is_finished_and_promoted_before_the_new_head_is_built() {
+    let host = Host::new();
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    fs::write(host.path("state/north/runtime-build-seconds"), "1").unwrap();
+    let skill = host.path("skill/machine-capacity");
+    script(
+        &host.path("bin/agents"),
+        &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()),
+    );
+    script(
+        &host.path("bin/bun"),
+        "n=$(cat \"$TEST_COUNT\" 2>/dev/null || echo 0)\necho $((n + 1)) >\"$TEST_COUNT\"\n[ \"$n\" = 0 ] && sleep 4\n\
+         release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
+         for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
+    );
+    let count = host.path("count");
+    let source = host.path("source");
+    let home = host.path("home");
+    let output = std::thread::scope(|scope| {
+        let run = scope.spawn(|| {
+            host.north_with(
+                &["runtime", "update"],
+                &[("NORTH_RUNTIME_WATCH_SECONDS", "1"), ("TEST_COUNT", count.to_str().unwrap())],
+            )
+        });
+        while !count.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        git(&home, &source, &["commit", "-q", "--allow-empty", "-m", "second"]);
+        run.join().unwrap()
+    });
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    let head = git(&home, &source, &["rev-parse", "HEAD"]);
+    assert!(stdout.contains(&format!("north runtime promoted: {} (was {PREVIOUS})", &host.target[..8])), "{stdout}");
+    assert!(stdout.contains(&format!("north runtime promoted: {} (was {})", &head[..8], host.target)), "{stdout}");
+    assert!(!stdout.contains("abandoned"), "{stdout}");
+    assert_eq!(host.current(), Path::new("runtimes").join(head));
 }
