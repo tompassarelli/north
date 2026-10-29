@@ -937,36 +937,58 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(stdout).map_err(|e| e.to_string())
 }
 
-fn read_tree(
-    root: &Path,
-    revision: &str,
-    manifests: bool,
-) -> Result<BTreeMap<String, String>, String> {
-    let mut result = BTreeMap::new();
-    for path in git(root, &["ls-tree", "-r", "--name-only", "-z", revision])?.split('\0') {
-        let filename = path.rsplit('/').next().unwrap_or("");
-        let selected = if manifests {
-            ["package.json", "Cargo.toml", "pyproject.toml"].contains(&filename)
-        } else {
-            ["bun.lock", "Cargo.lock", "flake.lock"].contains(&filename)
-        };
-        if !path.starts_with("repos/") && selected {
-            result.insert(
-                path.to_owned(),
-                git(root, &["show", &format!("{revision}:{path}")])?,
-            );
-        }
-    }
-    Ok(result)
+struct Snapshot {
+    manifests: BTreeMap<String, String>,
+    locks: BTreeMap<String, String>,
 }
 
-fn read_manifests(root: &Path, revision: &str) -> Result<Manifests, String> {
-    read_tree(root, revision, true)?
-        .into_iter()
+const MANIFEST_NAMES: [&str; 3] = ["package.json", "Cargo.toml", "pyproject.toml"];
+const LOCK_NAMES: [&str; 3] = ["bun.lock", "Cargo.lock", "flake.lock"];
+
+fn read_snapshot(root: &Path, revision: &str) -> Result<Snapshot, String> {
+    let listing = git(root, &["ls-tree", "-r", "-z", revision])?;
+    let mut wanted: Vec<(&str, &str, bool)> = Vec::new();
+    for entry in listing.split('\0') {
+        let Some((meta, path)) = entry.split_once('\t') else { continue };
+        let Some(oid) = meta.split(' ').nth(2) else { continue };
+        let filename = path.rsplit('/').next().unwrap_or("");
+        let manifest = MANIFEST_NAMES.contains(&filename);
+        if !path.starts_with("repos/") && (manifest || LOCK_NAMES.contains(&filename)) {
+            wanted.push((path, oid, manifest));
+        }
+    }
+    let request: String = wanted.iter().map(|(_, oid, _)| format!("{oid}\n")).collect();
+    let root_text = root.to_string_lossy();
+    let output = crate::platform::process::run_with_input_within(
+        "git",
+        &["-C", root_text.as_ref(), "cat-file", "--batch"],
+        Some(request.as_bytes()),
+        Duration::from_secs(60),
+    )
+    .filter(|output| output.status.success())
+    .ok_or("git cat-file failed; check repository and revisions")?;
+    let bytes = output.stdout;
+    let mut at = 0;
+    let mut snapshot = Snapshot { manifests: BTreeMap::new(), locks: BTreeMap::new() };
+    for (path, _, manifest) in wanted {
+        let header_end = at + bytes[at..].iter().position(|&byte| byte == b'\n').ok_or("git cat-file output ended early")?;
+        let header = String::from_utf8_lossy(&bytes[at..header_end]);
+        let size: usize = header.rsplit(' ').next().and_then(|size| size.parse().ok()).ok_or_else(|| format!("git cat-file: {path}: {header}"))?;
+        let body = bytes.get(header_end + 1..header_end + 1 + size).ok_or("git cat-file output ended early")?;
+        let text = String::from_utf8(body.to_vec()).map_err(|e| e.to_string())?;
+        at = header_end + 1 + size + 1;
+        if manifest { snapshot.manifests.insert(path.to_owned(), text); } else { snapshot.locks.insert(path.to_owned(), text); }
+    }
+    Ok(snapshot)
+}
+
+fn parse_manifests(manifests: &BTreeMap<String, String>) -> Result<Manifests, String> {
+    manifests
+        .iter()
         .map(|(path, text)| {
-            dependencies(&path, &text)
+            dependencies(path, text)
                 .map_err(|kind| format!("cannot parse {path}: {kind}"))
-                .map(|deps| (path, deps))
+                .map(|deps| (path.clone(), deps))
         })
         .collect()
 }
@@ -997,8 +1019,10 @@ fn evaluate(root: &Path, args: &[String]) -> Result<(u8, String), (u8, String)> 
             .collect::<Result<_, _>>()
             .map_err(|e| (1, e))?;
         let (base, head) = (&revisions[0], &revisions[1]);
-        let before = read_manifests(root, base).map_err(|e| (1, e))?;
-        let after = read_manifests(root, head).map_err(|e| (1, e))?;
+        let base_snapshot = read_snapshot(root, base).map_err(|e| (1, e))?;
+        let head_snapshot = read_snapshot(root, head).map_err(|e| (1, e))?;
+        let before = parse_manifests(&base_snapshot.manifests).map_err(|e| (1, e))?;
+        let after = parse_manifests(&head_snapshot.manifests).map_err(|e| (1, e))?;
         let messages: Vec<_> = git(
             root,
             &["log", "--format=%B%x00", &format!("{base}..{head}")],
@@ -1011,11 +1035,7 @@ fn evaluate(root: &Path, args: &[String]) -> Result<(u8, String), (u8, String)> 
         if !failures.is_empty() {
             return Ok((1, format!("{}\n{TRAILER_FORMAT}\n", failures.join("\n"))));
         }
-        let candidates = lock_candidates(
-            &read_tree(root, base, false).map_err(|e| (1, e))?,
-            &read_tree(root, head, false).map_err(|e| (1, e))?,
-        )
-        .map_err(|e| (1, e))?;
+        let candidates = lock_candidates(&base_snapshot.locks, &head_snapshot.locks).map_err(|e| (1, e))?;
         let urgent = urgent_dependencies(&messages);
         let times = publish_times(&candidates, &urgent).map_err(|e| (2, e))?;
         let now = Timestamp::now().unix_seconds_f64();
