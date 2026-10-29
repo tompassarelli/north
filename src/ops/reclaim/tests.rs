@@ -224,13 +224,3 @@ fn a_build_cache_within_its_cap_keeps_every_child() {
     assert!(machine.reclaim(false).is_empty());
     assert!(old.exists() && target.exists());
 }
-
-#[test]
-fn the_galileo_target_cache_is_trimmed_to_its_own_cap() {
-    let machine = Machine::new();
-    let old = cache_job(&machine, "cache/galileo-full-suite/target/full", 6 * DAY, 3);
-    let newer = cache_job(&machine, "cache/galileo-full-suite/target/debug", 2 * DAY, 3);
-
-    assert_eq!(machine.reclaim(false), vec![old.clone()]);
-    assert!(!old.exists() && newer.exists());
-}

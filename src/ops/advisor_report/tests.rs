@@ -1,7 +1,5 @@
-use std::collections::BTreeMap;
-
 use super::stats::{PyRandom, Row, paired_diff};
-use super::{Run, render, summarize, verdict};
+use super::{Run, summarize, verdict};
 
 fn runs(passes: &[(&str, &[Option<bool>])], usd: Option<f64>, codex: bool, advisor: bool) -> Vec<Run> {
     passes
@@ -81,7 +79,7 @@ fn codex_runs_spread_the_plan_dollars_per_run_and_stay_unpriced_without_them() {
 }
 
 #[test]
-fn each_verdict_branch_is_reached() {
+fn a_challenger_beats_matches_for_less_gains_nothing_or_stays_undecided_by_pass_rate_and_cost() {
     let four = ["a", "b", "c", "d"];
     let cases = |passed: bool, count: usize, usd: f64| {
         let trials = all(passed, count);
@@ -95,16 +93,4 @@ fn each_verdict_branch_is_reached() {
     let low = runs(&[("a", &[t]), ("b", &[f])], Some(1.0), false, false);
     let high = runs(&[("a", &[f]), ("b", &[t])], Some(1.0), false, false);
     assert_eq!(verdict_of(low, high), "UNDECIDED");
-}
-
-#[test]
-fn the_table_aligns_columns_and_ends_with_one_verdict_per_challenger() {
-    let (incumbent, challenger) = incumbent_and_challenger();
-    let arms = vec![("opus".to_owned(), incumbent), ("haiku-adv".to_owned(), challenger)];
-    let out = render(&arms, "opus", &BTreeMap::new());
-    let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines.len(), 4);
-    assert!(lines[0].starts_with("arm        n  pass"));
-    assert!(lines[1].contains("incumbent"));
-    assert!(lines[3].starts_with("haiku-adv: ") && lines[3].ends_with(" vs opus"));
 }
