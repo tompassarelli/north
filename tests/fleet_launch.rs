@@ -527,6 +527,7 @@ fn a_prompt_queued_to_a_finished_worker_just_before_its_host_stops_runs_on_the_r
 
     let first_host = fs::read_to_string(session.join("host.pid")).unwrap();
     let sent = north(root, &["fleet", "send", "kid", "stall this prompt, then run it on the next host"]);
+    until("the worker to hold the prompt unrun", || root.join("stalled").exists());
     let unit = fs::read_to_string(session.join("host.scope")).unwrap();
     let stopped = Command::new(root.join("bin/systemctl")).args(["--user", "stop", unit.trim()]).env("FLEET_LAUNCH_FIXTURE", root).status().unwrap();
 
