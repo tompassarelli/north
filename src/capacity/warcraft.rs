@@ -18,6 +18,11 @@ pub(crate) fn count() -> usize {
     clients(&proc_root()).len()
 }
 
+/// The cgroup each live client runs in.
+pub(crate) fn cgroups() -> Vec<String> {
+    clients(&proc_root()).into_iter().map(|client| client.cgroup).collect()
+}
+
 /// The live clients as `north capacity host status` lists them.
 pub(crate) fn view() -> Vec<Value> {
     clients(&proc_root())

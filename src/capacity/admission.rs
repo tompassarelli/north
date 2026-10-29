@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 use toml_edit::DocumentMut;
 
+use super::client_reserve;
 use super::native_hold::{self, LeaseFact, PairLease, PairRefusal, QueueEntry, QuietNative};
 
 const INTERACTIVE_PRESSURE_BASIS_POINTS: u32 = 1000;
@@ -126,6 +127,10 @@ pub(crate) struct Facts {
     pub(crate) disk_free_gib: Option<f64>,
     #[serde(default)]
     pub(crate) ticket: Option<std::path::PathBuf>,
+    #[serde(default)]
+    pub(crate) requester_lease: Option<String>,
+    #[serde(skip)]
+    pub(crate) client_hold: client_reserve::ClientHold,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -201,11 +206,12 @@ pub(crate) fn quiet_idle_bound() -> f64 {
 }
 
 impl Facts {
-    /// Fills the quiet, pair and alone facts from the raw leases and queue the host passed.
+    /// Fills the quiet, pair, alone and reserved-client facts from the raw leases and queue the host passed.
     pub(crate) fn derive_native_holds(&mut self) {
         let ticket = self.ticket.as_deref().and_then(|path| path.file_name()).and_then(|name| name.to_str());
         let derived = native_hold::derive(&self.leases, &self.queue, ticket, self.now);
         (self.quiet_native, self.pair_leases, self.alone_queued_ahead) = (derived.quiet_native, derived.pair_leases, derived.alone_queued_ahead);
+        self.client_hold = client_reserve::client_hold(&self.leases, self.requester_lease.as_deref(), self.new_clients, self.now, default_mib("client_reserve_seconds") * 1000.0);
     }
 }
 
@@ -393,8 +399,9 @@ pub(crate) fn warcraft_client_cap(facts: &Facts) -> Option<u32> {
     }
 }
 
-fn over_client_cap(facts: &Facts, new_clients: u32) -> bool {
-    warcraft_client_cap(facts).is_some_and(|cap| facts.gpu_clients.saturating_add(new_clients) > cap)
+/// Whether `new_clients` more clients, beside the running ones and the `held` slots admitted leases keep for theirs, pass the cap.
+fn over_client_cap(facts: &Facts, new_clients: u32, held: u32) -> bool {
+    warcraft_client_cap(facts).is_some_and(|cap| facts.gpu_clients.saturating_add(held).saturating_add(new_clients) > cap)
 }
 
 /// Native waiters ahead in line, less those whose own clients would defer as DEFER_GPU_CLIENTS: they hold no place, so a smaller start behind them takes a slot that frees.
@@ -402,7 +409,7 @@ fn native_queued_ahead(facts: &Facts) -> u32 {
     if facts.queued_ahead_new_clients.is_empty() {
         return facts.queued_ahead;
     }
-    let holding = facts.queued_ahead_new_clients.iter().filter(|new_clients| !over_client_cap(facts, **new_clients)).count();
+    let holding = facts.queued_ahead_new_clients.iter().filter(|new_clients| !over_client_cap(facts, **new_clients, facts.client_hold.held)).count();
     u32::try_from(holding).unwrap_or(u32::MAX)
 }
 
@@ -419,7 +426,7 @@ fn native(facts: &Facts) -> Reason {
     if facts.leased_native_cpus + facts.requested_cpus > aggregate_cpus(facts.profile, facts.cores) {
         return Reason::DeferNativeCpus;
     }
-    if over_client_cap(facts, facts.new_clients) {
+    if over_client_cap(facts, facts.new_clients, facts.client_hold.held - facts.client_hold.drawn) {
         return Reason::DeferGpuClients;
     }
     if facts.gpu_busy_percent >= GPU_BUSY_PERCENT && facts.gpu_runs == 0 {

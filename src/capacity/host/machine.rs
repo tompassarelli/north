@@ -50,6 +50,13 @@ pub(crate) fn slice_path(slice: &str) -> String {
     (1..=parts.len()).map(|count| format!("{}.slice", parts[..count].join("-"))).collect::<Vec<_>>().join("/")
 }
 
+/// The capacity lease whose scope this process runs in, read from its cgroup (`AGENT_CAPACITY_SELF_CGROUP` names another file for tests).
+pub(crate) fn enclosing_lease() -> Option<String> {
+    static SCOPE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)/agent-capacity-([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})\.scope(/|$)").expect("scope pattern"));
+    let text = read_text(env("AGENT_CAPACITY_SELF_CGROUP").unwrap_or_else(|| "/proc/self/cgroup".to_owned()))?;
+    SCOPE.captures(&text).map(|parts| (1..=5).map(|index| parts[index].to_owned()).collect::<Vec<_>>().join("-"))
+}
+
 pub(crate) fn cgroup_root() -> String {
     env("AGENT_CAPACITY_CGROUP_ROOT").unwrap_or_else(|| "/sys/fs/cgroup".to_owned())
 }

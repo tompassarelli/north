@@ -20,6 +20,14 @@ pub(crate) struct LeaseFact {
     pub(crate) quiet_seconds: Option<f64>,
     #[serde(default)]
     pub(crate) usage: Option<UsageSample>,
+    #[serde(default)]
+    pub(crate) new_clients: u32,
+    #[serde(default)]
+    pub(crate) running_clients: u32,
+    #[serde(default)]
+    pub(crate) clients_seen: u32,
+    #[serde(default)]
+    pub(crate) clients_started: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]

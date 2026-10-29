@@ -766,3 +766,11 @@ unit = "north processes on one host above which north runtime settle reports the
 source = "measured: 2026-10-30 12:15 AM with 10 fleet sessions, 24 north processes on the laptop, 40 on the GPU host and 8 on the server host; 100 is 2.5 times the busiest host, under the per-claim north fleet list fork storm that loaded the GPU host to 71"
 fallback = "an unread count reports the host unhealthy"
 consumers = ["src/ops/runtime/probe.rs"]
+
+[client_reserve_seconds]
+value = 900
+unit = "seconds an admitted native lease holds its declared Warcraft client slots for clients that have not started yet"
+source = "prior: covers a pair's 10-minute wait for both clients after its admission plus its desktops' start; on the GPU host on 2026-10-29 pair 0's client lost its slot to a start admitted 30 s after the pair (north#358)"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against native pair admissions' seconds from admission to both clients running; worker runs are the nearest existing count until native admissions are counted" }
+fallback = "none; a lease older than this holds only the clients that run in it"
+consumers = ["src/capacity/admission.rs"]

@@ -13,6 +13,7 @@ mod host;
 mod unleased;
 mod watchdog;
 mod native_hold;
+mod client_reserve;
 mod run_queue;
 mod deadline;
 mod lease_deadline;

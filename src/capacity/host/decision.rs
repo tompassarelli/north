@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use super::fail;
 use super::gpu::{GpuProcessSample, take_gpu_process_sample, top_unleased_gpu_process};
 use super::json::{Obj, field, num, round2, text};
-use super::machine::{Gpu, Signals, env, lease_slice, now_ms, read_gpu, read_signals, scope_cgroup, wrapper_identity};
+use super::machine::{Gpu, Signals, enclosing_lease, env, lease_slice, now_ms, read_gpu, read_signals, scope_cgroup, wrapper_identity};
 use super::policy::{GPU_BUSY_LIMIT_PERCENT, aggregate_cpus, batch_class};
 use super::request::{Create, Request, Totals, class, cpu_accounting, grant, granted_view, id, is_run, lease_facts, totals};
 use super::state::{RUN_LEASE_GRACE_MILLISECONDS, active_profile, dequeue, lease_path, mark_native_waiting, native_waiting, read_leases, read_queue, record_gpu_busy, with_lock, write_lease};
@@ -101,7 +101,8 @@ fn facts(root: &Path, request: &Request, create: Option<&Create>, ticket: Option
         .put("newDesktops", request.new_desktops)
         .put("gpuRuns", count(&|lease| class(lease) == "gpu"))
         .put("nativeWaiting", native_waiting(root, observed.now))
-        .put("leases", lease_facts(root, &runs))
+        .put("leases", with_started_clients(root, lease_facts(root, &runs)))
+        .put_some("requesterLease", requester_lease(&runs))
         .put("queue", observed.queue.clone())
         .put("now", num(observed.now))
         .put("alone", request.alone)
@@ -111,6 +112,41 @@ fn facts(root: &Path, request: &Request, create: Option<&Create>, ticket: Option
         .put("quiet", request.quiet)
         .put("exclusiveLeases", runs.iter().filter(|lease| class(lease) == "exclusive").map(|lease| id(lease)).collect::<Vec<_>>())
         .put_some("ticket", ticket.map(|ticket| root.join("queue").join(ticket).to_string_lossy().into_owned()))
+}
+
+/// Marks each lease fact with the Warcraft clients running inside its scope, and records on each native lease the most it has seen running there, so its hold doesn't return once they exit.
+fn with_started_clients(root: &Path, mut leases: Vec<Value>) -> Vec<Value> {
+    let cgroups = crate::capacity::warcraft::cgroups();
+    for lease in &mut leases {
+        let scope = scope_unit(id(lease));
+        let running = cgroups.iter().filter(|cgroup| cgroup.split('/').any(|part| part == scope)).count() as u64;
+        let seen = field(lease, "clientsSeen").unwrap_or(0.0) as u64;
+        if let Value::Object(map) = lease {
+            map.insert("runningClients".to_owned(), json!(running));
+        }
+        if running > seen && class(lease) == "native" && field(lease, "newClients").is_some() {
+            add_to_lease(root, id(lease), "clientsSeen", running - seen);
+            if let Value::Object(map) = lease {
+                map.insert("clientsSeen".to_owned(), json!(running));
+            }
+        }
+    }
+    leases
+}
+
+/// Adds `amount` to a number field of the stored lease `id`; the caller holds the admission lock.
+fn add_to_lease(root: &Path, id: &str, key: &str, amount: u64) {
+    let path = lease_path(root, id);
+    if let Some(stored) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) {
+        let total = field(&stored, key).unwrap_or(0.0) as u64 + amount;
+        write_lease(&path, &Obj::new().spread(&stored).put(key, total), false);
+    }
+}
+
+/// The live native run lease whose scope this request comes from, such as a pair session launching its own clients.
+fn requester_lease(runs: &[&Value]) -> Option<String> {
+    let scope = enclosing_lease()?;
+    runs.iter().find(|lease| class(lease) == "native" && id(lease) == scope).map(|lease| id(lease).to_owned())
 }
 
 struct Context {
@@ -227,13 +263,13 @@ pub(crate) fn decision(root: &Path, request: &Request, create: Option<&Create>, 
             .put("committedNativeCpus", num(context.committed_native_cpus))
             .put("reclaimed", observed.reclaimed);
         match create.filter(|_| code == "RUN") {
-            Some(create) => create_lease(root, request, create, ticket, &granted, outcome),
+            Some(create) => create_lease(root, request, create, ticket, &granted, requester_lease(&runs(&observed)), outcome),
             None => outcome,
         }
     })
 }
 
-fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<&str>, granted: &super::request::Granted, outcome: Obj) -> Obj {
+fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<&str>, granted: &super::request::Granted, parent: Option<String>, outcome: Obj) -> Obj {
     if let Some(ticket) = ticket {
         dequeue(root, ticket);
     }
@@ -249,6 +285,8 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
         .put_some("quietSeconds", request.quiet_seconds)
         .put_some("pair", request.pair)
         .put("class", request.name.as_str())
+        .put_some("newClients", (request.name == "native" && request.new_clients > 0).then_some(request.new_clients))
+        .put_some("parentLease", parent.as_deref())
         .put("aggregateSlice", run.then(|| lease_slice(&request.name)))
         .put("owner", create.owner.as_str())
         .put("cpus", num(granted.charged.cpus))
@@ -263,5 +301,8 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
         lease = lease.put("wrapperPid", pid).put("wrapperStart", start);
     }
     write_lease(&lease_path(root, &id), &lease, true);
+    if let Some(parent) = parent.as_deref().filter(|_| request.name == "native" && request.new_clients > 0) {
+        add_to_lease(root, parent, "clientsStarted", u64::from(request.new_clients));
+    }
     outcome.put("lease", id).put("expiresAt", super::json::opt(expires_at))
 }

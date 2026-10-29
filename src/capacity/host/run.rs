@@ -110,9 +110,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, host: &Host, ter
 
 /// The batch lease this process already runs inside, by its environment or its cgroup scope.
 fn nested_parent(root: &Path) -> Option<String> {
-    static SCOPE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?m)/agent-capacity-([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})\.scope(/|$)").expect("scope pattern"));
-    let scope = read_text("/proc/self/cgroup").and_then(|text| SCOPE.captures(&text).map(|parts| (1..=5).map(|index| parts[index].to_owned()).collect::<Vec<_>>().join("-")));
-    let ids = [env("AGENT_CAPACITY_LEASE"), scope];
+    let ids = [env("AGENT_CAPACITY_LEASE"), super::machine::enclosing_lease()];
     with_lock(root, || {
         let (active, _) = read_leases(root, now_ms());
         active

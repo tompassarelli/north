@@ -107,3 +107,65 @@ fn clients_in_lease_scopes_and_private_desktops_count_against_the_native_limit()
     fs::remove_dir_all(host.path("proc/103")).unwrap();
     assert_eq!(probe(&host, "1")["reason"], "RUN");
 }
+
+fn native_lease_id(host: &Host) -> String {
+    let leases = fs::read_dir(host.path("agent-capacity-v1/leases")).unwrap();
+    let lease: Value = leases.flatten().map(|entry| serde_json::from_str(&fs::read_to_string(entry.path()).unwrap()).unwrap()).find(|lease: &Value| lease["class"] == "native").unwrap();
+    lease["id"].as_str().unwrap().to_owned()
+}
+
+fn probe_from(host: &Host, cgroup: &str, new_clients: &str) -> Value {
+    let file = host.path("requester-cgroup");
+    fs::write(&file, format!("0::{cgroup}\n")).unwrap();
+    let output = helper(host, &["probe", "--class", "native", "--memory-gib", "1", "--new-clients", new_clients]).env("AGENT_CAPACITY_SELF_CGROUP", &file).output().unwrap();
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[test]
+fn an_admitted_pair_holds_its_client_slots_until_its_clients_run_so_a_later_start_waits_and_its_own_clients_are_admitted() {
+    let host = attended_host_with_clients(&["/prefix/a", "/prefix/b"]);
+    let _pair = client_start(&host, "pair-0", "2", &["sleep", "60"]);
+    host.until("the pair to be admitted", |host| host.leases("native") == 1);
+    let scope = format!("/user.slice/user-1000.slice/user@1000.service/native.slice/agent-capacity-{}.scope", native_lease_id(&host).replace('-', ""));
+
+    assert_eq!(probe(&host, "2")["reason"], "DEFER_GPU_CLIENTS", "another pair may not take the admitted pair's slots");
+    assert_eq!(probe(&host, "1")["reason"], "DEFER_GPU_CLIENTS", "nor may a single client");
+    assert_eq!(probe_from(&host, &format!("{scope}/pair-agent"), "1")["reason"], "RUN", "the pair's own client launch takes its slot from the pair's hold");
+
+    let executable = r"C:\Program Files (x86)\Warcraft III\_retail_\x86_64\Warcraft III.exe";
+    fake_process(&host, 300, "Warcraft III.ex", executable, &scope, &["STEAM_COMPAT_DATA_PATH=/prefix/lan0a"]);
+    fake_process(&host, 301, "Warcraft III.ex", executable, &scope, &["STEAM_COMPAT_DATA_PATH=/prefix/lan0b"]);
+    let full = probe(&host, "1");
+    assert_eq!((full["gpuClients"].as_u64(), full["reason"].as_str()), (Some(4), Some("DEFER_GPU_CLIENTS")), "the pair's running clients replace its hold rather than adding to it");
+    fs::remove_dir_all(host.path("proc/300")).unwrap();
+    fs::remove_dir_all(host.path("proc/301")).unwrap();
+    assert_eq!(probe(&host, "2")["reason"], "RUN", "once its clients have run, the pair holds nothing even after they exit");
+}
+
+#[test]
+fn a_waiter_kept_out_by_an_admitted_pairs_hold_does_not_stall_that_pairs_own_client_launch() {
+    let host = attended_host_with_clients(&["/prefix/a", "/prefix/b"]);
+    let _pair = client_start(&host, "pair-0", "2", &["sleep", "60"]);
+    host.until("the pair to be admitted", |host| host.leases("native") == 1);
+    let scope = format!("/user.slice/user-1000.slice/user@1000.service/native.slice/agent-capacity-{}.scope", native_lease_id(&host).replace('-', ""));
+    let _waiter = client_start(&host, "single", "1", &["sleep", "60"]);
+    host.until("a single client to queue behind the pair's hold", |host| host.queued("native") == 1);
+    assert_eq!(probe_from(&host, &format!("{scope}/pair-agent"), "1")["reason"], "RUN");
+}
+
+#[test]
+fn a_pair_whose_client_leases_have_all_started_and_ended_holds_nothing() {
+    let host = attended_host_with_clients(&["/prefix/a", "/prefix/b"]);
+    let _pair = client_start(&host, "pair-0", "2", &["sleep", "60"]);
+    host.until("the pair to be admitted", |host| host.leases("native") == 1);
+    let scope = format!("/user.slice/user-1000.slice/user@1000.service/native.slice/agent-capacity-{}.scope", native_lease_id(&host).replace('-', ""));
+    let file = host.path("pair-agent-cgroup");
+    fs::write(&file, format!("0::{scope}/pair-agent\n")).unwrap();
+    for side in ["a", "b"] {
+        let arguments = ["session", "--class", "native", "--memory-gib", "1", "--wait-seconds", "60", "--owner", side, "--", "true"];
+        let status = helper(&host, &arguments).env("AGENT_CAPACITY_SELF_CGROUP", &file).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
+        assert!(status.success(), "client {side} launch");
+    }
+    host.until("both client leases to end", |host| host.leases("native") == 1);
+    assert_eq!(probe(&host, "2")["reason"], "RUN", "the pair's started clients release its hold even though no admission saw them run");
+}
