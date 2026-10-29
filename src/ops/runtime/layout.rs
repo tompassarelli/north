@@ -24,6 +24,10 @@ impl Layout {
         self.state.join("current")
     }
 
+    pub(crate) fn failed(&self) -> PathBuf {
+        self.state.join("runtime-failed")
+    }
+
     pub(crate) fn runtime(&self, sha: &str) -> PathBuf {
         self.runtimes().join(sha)
     }

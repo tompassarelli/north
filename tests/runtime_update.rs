@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs::{self, File};
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -239,4 +239,21 @@ fn a_promoted_runtime_that_fails_its_health_check_is_rolled_back_before_agents_s
     let alerts = fs::read_to_string(host.path("alerts")).unwrap();
     let expected = format!("failed step health check on {}; rolled back to runtimes/{PREVIOUS}; exit status 7", host.target);
     assert!(alerts.contains(&expected), "{alerts}");
+}
+
+#[test]
+fn a_commit_that_failed_its_health_check_is_held_back_for_an_hour_without_another_alert() {
+    let host = skewed();
+    assert_eq!(host.update(42, 0).status.code(), Some(1));
+    let retried = host.update(0, 0);
+    assert!(retried.status.success(), "{}", String::from_utf8_lossy(&retried.stderr));
+    let stdout = String::from_utf8_lossy(&retried.stdout);
+    assert!(stdout.contains(&format!("{} failed within the last hour; staying on {PREVIOUS}", &host.target[..8])), "{stdout}");
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+    assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().filter(|line| *line == "proxy").count(), 1);
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(61 * 60);
+    File::options().write(true).open(host.path("state/north/runtime-failed")).unwrap().set_modified(hour_ago).unwrap();
+    let promoted = host.update(0, 0);
+    assert!(promoted.status.success(), "{}", String::from_utf8_lossy(&promoted.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
 }

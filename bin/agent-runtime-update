@@ -8,7 +8,7 @@ flock 9
 failed=()
 step() { "$@" || failed+=("$* (exit $?)"); }
 step codex-runtime-update "${1:-latest}"
-[[ "$(date +%H)" != 02 ]] || step north runtime update
+step north runtime update
 step claude-runtime-update "${1:-latest}"
 step agy-runtime-update "${1:-latest}"
 if (( ${#failed[@]} )); then

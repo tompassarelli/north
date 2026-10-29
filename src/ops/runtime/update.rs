@@ -1,5 +1,5 @@
 use super::bounded;
-use super::failure::{Failure, code, failed};
+use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, Layout, PROGRAMS, TREE};
 use super::remote;
 use super::store;
@@ -15,6 +15,7 @@ use std::time::Duration;
 
 const STEP_LIMIT: Duration = Duration::from_secs(300);
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
+const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
     let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
@@ -22,23 +23,45 @@ pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
         return Ok(());
     };
     let checkout = checkout();
-    let (target, runtime) = built_main(layout, &checkout)?;
+    let target = main_commit(&checkout)?;
     let short = &target[..8];
     let previous = fs::read_link(layout.current()).ok();
-    if !runtime.join(TREE).is_dir() {
-        export_tree(&checkout, &target, &runtime)?;
-    }
-    store::root(&runtime)?;
-    let link = layout::link(&target);
-    if previous.as_deref() == Some(link.as_path()) {
+    let was = previous.as_deref().and_then(layout::linked_sha).unwrap_or("none");
+    if previous.as_deref() == Some(layout::link(&target).as_path()) {
         println!("north runtime current: {short}");
         return Ok(());
     }
-    let synced = sync(layout, previous.as_deref(), &target)?;
-    let was = previous.as_deref().and_then(layout::linked_sha).unwrap_or("none");
+    if held_back(layout, &target) {
+        println!("north runtime: {short} failed within the last hour; staying on {was}");
+        return Ok(());
+    }
+    let promoted = promote(layout, &checkout, &target, previous.as_deref());
+    if let Err(failure) = &promoted
+        && failure.code != DEFERRED
+    {
+        fs::write(layout.failed(), &target)?;
+    }
+    let synced = promoted?;
     println!("{synced}north runtime promoted: {short} (was {was})");
     collect(layout, &target, previous.as_deref())
         .map_err(|error| failed(1, format!("collecting old runtimes: {error}")))
+}
+
+fn promote(layout: &Layout, checkout: &Path, target: &str, previous: Option<&Path>) -> Result<String, Failure> {
+    let runtime = built(layout, checkout, target)?;
+    if !runtime.join(TREE).is_dir() {
+        export_tree(checkout, target, &runtime)?;
+    }
+    store::root(&runtime)?;
+    sync(layout, previous, target)
+}
+
+fn held_back(layout: &Layout, target: &str) -> bool {
+    let failed = layout.failed();
+    let recent = fs::metadata(&failed)
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|at| at.elapsed().is_ok_and(|age| age < RETRY_AFTER));
+    recent && fs::read_to_string(&failed).is_ok_and(|sha| sha.trim() == target)
 }
 
 pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<File>, Failure> {
@@ -48,13 +71,22 @@ pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<
 }
 
 pub(super) fn built_main(layout: &Layout, checkout: &Path) -> Result<(String, PathBuf), Failure> {
-    fetch(checkout)?;
-    let target = git(checkout, &["rev-parse", "--verify", "origin/main^{commit}"])?;
-    let runtime = layout.runtime(&target);
-    if !layout::has_programs(&runtime) {
-        build(checkout, &target, &runtime)?;
-    }
+    let target = main_commit(checkout)?;
+    let runtime = built(layout, checkout, &target)?;
     Ok((target, runtime))
+}
+
+fn main_commit(checkout: &Path) -> Result<String, Failure> {
+    fetch(checkout)?;
+    git(checkout, &["rev-parse", "--verify", "origin/main^{commit}"])
+}
+
+fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Failure> {
+    let runtime = layout.runtime(target);
+    if !layout::has_programs(&runtime) {
+        build(checkout, target, &runtime)?;
+    }
+    Ok(runtime)
 }
 
 pub(super) fn checkout() -> PathBuf {
@@ -117,7 +149,7 @@ fn build(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
     }
     let release = built.join("release");
     if !layout::has_programs(&release) {
-        return Err(failed(75, "build did not run or produced no binary (capacity lease deferred?); runtime unchanged"));
+        return Err(failed(DEFERRED, "build did not run or produced no binary (capacity lease deferred?); runtime unchanged"));
     }
     fs::create_dir_all(runtime)?;
     for program in PROGRAMS {

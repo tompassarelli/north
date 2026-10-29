@@ -1,5 +1,7 @@
 use std::process::ExitStatus;
 
+pub(super) const DEFERRED: u8 = 75;
+
 pub(super) struct Failure {
     pub(super) code: u8,
     pub(super) message: String,
