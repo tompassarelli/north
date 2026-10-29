@@ -70,6 +70,9 @@ impl Policy {
             if package && i > 0 {
                 continue;
             }
+            if !introduced(words, executable, i) {
+                continue;
+            }
             let args: Vec<_> = words[i + 1..]
                 .iter()
                 .filter(|s| !s.starts_with('-') && !REDIRECT.is_match(s))
@@ -189,4 +192,12 @@ fn python_write_targets(words: &[String]) -> Vec<String> {
                 .cloned(),
         )
         .collect()
+}
+const INTRODUCERS: &[&str] = &[
+    "xargs", "-exec", "-execdir", "-ok", "-okdir", "sudo", "doas", "env", "nice", "ionice",
+    "nohup", "setsid", "timeout", "stdbuf", "command", "exec", "time", "parallel", "watch",
+    "flock", "unshare", "run-bounded",
+];
+fn introduced(words: &[String], executable: usize, at: usize) -> bool {
+    at <= executable || words[executable..at].iter().any(|s| INTRODUCERS.contains(&basename(s)))
 }

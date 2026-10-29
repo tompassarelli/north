@@ -4,6 +4,7 @@ mod heredoc;
 mod log;
 mod paths;
 mod publish;
+mod safe_push;
 mod transfer;
 
 use crate::hook::{HookInput, Verdict};
@@ -284,6 +285,23 @@ impl<'a> State<'a> {
     }
 }
 
+const PUSH_NOTE: &str = "tripwire: rewrote a raw `git push` to the equivalent `safe-push`, which gitleaks-scans the outgoing commits first. Write safe-push directly next time.";
+
+fn pushed(input: &HookInput, get: &impl Fn(&str) -> String) -> Option<crate::platform::pyjson::Value> {
+    if input.data["tool_name"] != "Bash" {
+        return None;
+    }
+    let command = input.tool_input["command"].as_str()?;
+    let cwd = input.cwd().unwrap_or(".");
+    let candidate = safe_push::rewrite(command, cwd)?;
+    let mut updated = input.tool_input.clone();
+    updated["command"] = candidate.as_str().into();
+    let mut data = input.data.clone();
+    data["tool_input"] = updated.clone();
+    let rewritten = HookInput::parse(crate::platform::pyjson::dumps(&data).as_bytes())?;
+    matches!(decide(&rewritten, get), Verdict::Allow).then_some(updated)
+}
+
 pub fn check(input: &HookInput) -> Verdict {
     decide(input, &env)
 }
@@ -300,6 +318,9 @@ fn decide(input: &HookInput, get: &impl Fn(&str) -> String) -> Verdict {
     }
     let mut state = State::new(input, get);
     match state.walk() {
+        Err(reason) if reason.starts_with("raw 'git push'") && let Some(updated) = pushed(input, get) => {
+            Verdict::Rewrite(updated, PUSH_NOTE.into())
+        }
         Err(reason) => {
             state.log(&reason, get);
             Verdict::Deny(format!("tripwire: {reason}"))

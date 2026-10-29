@@ -1,30 +1,61 @@
 use super::scan::strip_comments;
 
+fn single_quoted(out: &mut [char], stack: &mut Vec<char>, i: usize) -> usize {
+    if out[i] == '\'' {
+        stack.pop();
+    } else {
+        out[i] = '_';
+    }
+    i + 1
+}
+
+fn double_quoted(out: &mut [char], stack: &mut Vec<char>, i: usize) -> usize {
+    let c = out[i];
+    if c == '\\' && i + 1 < out.len() {
+        out[i] = '_';
+        out[i + 1] = '_';
+        return i + 2;
+    }
+    if c == '"' {
+        stack.pop();
+    } else if c == '$' && out.get(i + 1) == Some(&'(') {
+        out[i] = '_';
+        out[i + 1] = '_';
+        stack.push('S');
+        return i + 2;
+    } else {
+        out[i] = '_';
+    }
+    i + 1
+}
+
+fn code(out: &mut [char], stack: &mut Vec<char>, i: usize) -> usize {
+    let c = out[i];
+    let nested = !stack.is_empty();
+    if c == '\\' && i + 1 < out.len() {
+        out[i + 1] = '_';
+        return i + 2;
+    }
+    if c == '\'' || c == '"' {
+        stack.push(c);
+    } else if nested && c == '(' {
+        stack.push('n');
+    } else if nested && c == ')' && stack.pop() == Some('S') {
+        out[i] = '_';
+    }
+    i + 1
+}
+
 pub fn unquoted_mask(text: &str) -> String {
     let mut out: Vec<_> = text.chars().collect();
-    let mut quote = None;
+    let mut stack: Vec<char> = Vec::new();
     let mut i = 0;
     while i < out.len() {
-        let c = out[i];
-        if let Some(q) = quote {
-            if q == '"' && c == '\\' && i + 1 < out.len() {
-                out[i] = '_';
-                out[i + 1] = '_';
-                i += 2;
-                continue;
-            }
-            if c == q {
-                quote = None;
-            } else {
-                out[i] = '_';
-            }
-        } else if c == '\'' || c == '"' {
-            quote = Some(c);
-        } else if c == '\\' && i + 1 < out.len() {
-            out[i + 1] = '_';
-            i += 1;
-        }
-        i += 1;
+        i = match stack.last().copied() {
+            Some('\'') => single_quoted(&mut out, &mut stack, i),
+            Some('"') => double_quoted(&mut out, &mut stack, i),
+            _ => code(&mut out, &mut stack, i),
+        };
     }
     out.into_iter().collect()
 }

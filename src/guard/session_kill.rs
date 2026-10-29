@@ -1,7 +1,9 @@
+mod background;
 mod commands;
 mod lexical;
 
 use crate::hook::{HookInput, Verdict};
+use crate::platform::pyjson::Value;
 use crate::shell;
 use commands::{SHELLS, Script, Systemd, kill, killall, pkill, shell_script, ssh};
 use regex::Regex;
@@ -13,6 +15,8 @@ const TEARDOWN_PREFIXES: &[&str] = &[
 ];
 const LAUNCH_PREFIXES: &[&str] = &["env", "exec", "do", "then", "else", "!", "{"];
 const HOST_RESTART: &str = "firn host restart-user-manager";
+const UNMANAGED: &str = "unmanaged background job";
+const REWRITE_NOTE: &str = "session-kill-guard: wrapped the background `&` job in `run-bounded 24h --` so the owner reaps it. Write `run-bounded <duration> -- <command> &` yourself next time.";
 
 static REDIRECTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d*(?:<>|>>|<<|>|<|&>)").unwrap());
@@ -33,10 +37,25 @@ pub(super) enum Hit {
 pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()).and_then(decide) {
         Some(hit) if !crate::hook::authoring_guards_off("session-kill-guard") => {
-            Verdict::Deny(reason(&hit))
+            managed(input, &hit).map_or_else(|| Verdict::Deny(reason(&hit)), |updated| Verdict::Rewrite(updated, REWRITE_NOTE.into()))
         }
         _ => Verdict::Allow,
     }
+}
+
+fn managed(input: &HookInput, hit: &Hit) -> Option<Value> {
+    let wrappable = matches!(hit, Hit::Detached(shape) if shape == UNMANAGED || shape == "nohup" || shape.starts_with("direct "));
+    if !wrappable || input.data["tool_name"] != "Bash" {
+        return None;
+    }
+    let command = input.tool_input["command"].as_str()?;
+    let candidate = background::rewrite(command)?;
+    if decide(&candidate).is_some() {
+        return None;
+    }
+    let mut updated = input.tool_input.clone();
+    updated["command"] = candidate.into();
+    Some(updated)
 }
 
 pub(super) fn decide(command: &str) -> Option<Hit> {
@@ -257,7 +276,7 @@ fn launch(words: &[String], background: bool) -> Option<String> {
             Some(format!("direct {name} /tmp script"))
         }
         Some("run-bounded") => None,
-        _ if background => Some("unmanaged background job".into()),
+        _ if background => Some(UNMANAGED.into()),
         _ => None,
     }
 }

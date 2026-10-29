@@ -1,5 +1,6 @@
 mod find;
 mod grep;
+mod rewrite;
 
 use super::search_words::{self, Located, MAX_NESTING};
 use crate::hook::{HookInput, Verdict};
@@ -7,7 +8,7 @@ use crate::shell;
 
 const GREP_LIKE: &[&str] = &["grep", "egrep", "fgrep", "rgrep"];
 const UNIT: &str = "modern-search-guard";
-const REWRITE_NOTE: &str = "modern-search-guard: changed grep -qFf PATTERNS FILE to rg -qF -f PATTERNS FILE; preserved shell arguments and tool input.";
+const REWRITE_NOTE: &str = "modern-search-guard: rewrote a recursive grep or find tree search to rg or fd before it ran, keeping every shell argument and the rest of the command. rg and fd skip hidden and git-ignored files; add --hidden or -uu (rg), or -H and -I (fd), when you need them. Write rg and fd directly next time.";
 
 struct Hit {
     tool: String,
@@ -44,11 +45,14 @@ pub(super) enum Decision {
 
 pub(super) fn decide(command: &str, cwd: &str, home: &str) -> Option<Decision> {
     let hit = inspect_command(command, cwd, home, 0)?;
-    if let Some(candidate) = exact_pattern_file_rewrite(command, cwd, home)
-        && candidate != command
-        && inspect_command(&candidate, cwd, home, 0).is_none()
-    {
-        return Some(Decision::Rewrite(candidate));
+    let candidates = [
+        exact_pattern_file_rewrite(command, cwd, home),
+        rewrite::rewrite(command, cwd, home),
+    ];
+    for candidate in candidates.into_iter().flatten() {
+        if candidate != command && inspect_command(&candidate, cwd, home, 0).is_none() {
+            return Some(Decision::Rewrite(candidate));
+        }
     }
     Some(Decision::Deny(reason(&hit)))
 }

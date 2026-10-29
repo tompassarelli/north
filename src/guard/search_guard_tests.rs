@@ -168,6 +168,7 @@ fn reason_of(guard: &str, command: &str, cwd: &str) -> String {
     match guard {
         "modern" => match modern_search::decide(command, cwd, home) {
             Some(modern_search::Decision::Deny(reason)) => reason,
+            Some(modern_search::Decision::Rewrite(rewritten)) => rewritten,
             other => panic!("{command}: {other:?}"),
         },
         "corpus" => corpus_scan::refusal(command, cwd, home).unwrap(),
@@ -241,7 +242,7 @@ fn a_named_regular_file_is_never_a_tree_walk() {
     );
     assert_eq!(
         observed("modern", "grep -r foo a.ts src", &filled("{cwd}")).0,
-        "deny"
+        "rewrite"
     );
 }
 

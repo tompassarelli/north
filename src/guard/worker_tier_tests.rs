@@ -153,3 +153,29 @@ fn a_native_worker_brief_must_land_before_its_capture() {
     assert!(verdict("worker", native).is_some_and(|why| why.contains("Lands-before: native")));
     assert_eq!(verdict("worker", &format!("{native}\nLands-before: native")), None);
 }
+
+#[test]
+fn a_foreground_spawn_or_facet_synonym_is_repaired_when_nothing_else_is_wrong() {
+    use super::worker_repair::repaired;
+    let foreground = input("worker", json!(false), &feature());
+    let updated = repaired(&foreground).unwrap();
+    assert_eq!(updated["run_in_background"], crate::platform::pyjson::Value::Bool(true));
+    assert_eq!(updated["prompt"].as_str(), foreground.tool_input["prompt"].as_str());
+
+    let synonyms = feature()
+        .replace("Scope: module", "Scope: single-repo")
+        .replace("Verify: local-test", "Verify: read-only");
+    let updated = repaired(&input("worker", json!(true), &synonyms)).unwrap();
+    let prompt = updated["prompt"].as_str().unwrap();
+    assert!(prompt.contains("Scope: cross-module") && prompt.contains("Verify: none"), "{prompt}");
+    assert_eq!(updated["run_in_background"], crate::platform::pyjson::Value::Bool(true));
+
+    for (agent, background, prompt) in [
+        ("worker", json!(false), feature().replace("Spec: measured", "Spec: Peon")),
+        ("worker", json!(true), feature().replace("Scope: module", "Scope: read-only")),
+        ("worker", json!(false), "Item: x".to_owned()),
+        ("worker-high", json!(false), feature()),
+    ] {
+        assert!(repaired(&input(agent, background, &prompt)).is_none(), "{prompt}");
+    }
+}

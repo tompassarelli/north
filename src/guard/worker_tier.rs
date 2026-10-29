@@ -53,6 +53,11 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::hook::authoring_guards_off("worker-tier-guard") {
         return Verdict::Allow;
     }
+    if input.data["tool_name"] == "Agent"
+        && let Some(updated) = super::worker_repair::repaired(input)
+    {
+        return Verdict::Rewrite(updated, super::worker_repair::NOTE.into());
+    }
     if let (Some(session), Some(tool_use_id)) = (
         input.data["session_id"].as_str().filter(|id| !id.is_empty()),
         input.data["tool_use_id"].as_str().filter(|id| !id.is_empty()),
@@ -62,7 +67,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     Verdict::Deny(reason)
 }
 
-pub(super) fn refusal(input: &HookInput) -> Option<String> {
+pub(super) fn spawn_parts(input: &HookInput) -> Option<(&str, &str)> {
     let tool = input.data["tool_name"].as_str().unwrap_or("");
     let native = tool.ends_with("spawn_agent");
     if tool != "Agent" && !native {
@@ -76,9 +81,12 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
             input.tool_input["prompt"].as_str()?,
         )
     };
-    if !kind.starts_with("worker") {
-        return None;
-    }
+    kind.starts_with("worker").then_some((kind, prompt))
+}
+
+pub(super) fn refusal(input: &HookInput) -> Option<String> {
+    let (kind, prompt) = spawn_parts(input)?;
+    let native = input.data["tool_name"].as_str().unwrap_or("").ends_with("spawn_agent");
     let foreground = !native
         && input
             .tool_input
@@ -87,7 +95,7 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
     brief_refusal(kind, native, foreground, prompt)
 }
 
-fn brief_refusal(kind: &str, native: bool, foreground: bool, prompt: &str) -> Option<String> {
+pub(super) fn brief_refusal(kind: &str, native: bool, foreground: bool, prompt: &str) -> Option<String> {
     if let Some(reason) = declared_refusal(foreground, prompt)
         .or_else(|| crate::router::brief::landing_refusal(prompt))
     {

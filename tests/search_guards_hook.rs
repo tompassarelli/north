@@ -61,7 +61,7 @@ fn search_guards_follow_their_hook_activation() {
     let scratch = scratch_home();
     let home = scratch.path().join("home");
     let guards = [
-        ("modern-search-guard", "grep -rn foo src".to_owned()),
+        ("modern-search-guard", "bash -c 'grep -rn foo src'".to_owned()),
         (
             "corpus-scan-guard",
             format!("CHECK=1 rg needle {}/code/north-data", home.display()),
@@ -155,12 +155,16 @@ fn search_guards_judge_the_command_as_typed_before_any_guard_rewrites_it() {
         disabled: "0",
     };
     for command in [
-        "cargo test; grep -rn foo src".to_owned(),
+        "cargo test; bash -c 'grep -rn foo src'".to_owned(),
         format!("cargo test && rg -l x {}/code/north-data", home.display()),
         "cargo test; rg x /proc".to_owned(),
     ] {
         assert!(denies(&setup, &command), "{command}");
     }
+
+    let composed = call(&setup, &json!({"command": "cargo test; grep -rn foo src"}));
+    assert_eq!(composed["permissionDecision"], "allow");
+    assert!(composed["updatedInput"]["command"].as_str().unwrap().contains("rg -n foo src"));
 
     let container = scratch.path().join("home/code/proj");
     std::fs::create_dir_all(container.join("main")).unwrap();

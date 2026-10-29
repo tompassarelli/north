@@ -178,7 +178,7 @@ fn classify(words: &[String]) -> Decision {
         .collect();
     if name == "cargo" {
         return match plain.first().copied() {
-            Some("build") => refuse("cargo build"),
+            Some("build") => Decision::Route,
             Some("test") => Decision::Route,
             _ => Decision::Allow,
         };
@@ -204,12 +204,12 @@ fn bun_command(args: &[String], plain: &[&str]) -> Decision {
         return bun_tests(args);
     }
     if plain.starts_with(&["wisp", "map", "build"]) {
-        return refuse("wisp map build");
+        return Decision::Route;
     }
     if plain.starts_with(&["wisp", "view"])
         || (plain.starts_with(&["wisp", "headless"]) && args.iter().any(|s| s == "--render"))
     {
-        return refuse("wisp render");
+        return Decision::Route;
     }
     if plain.first() == Some(&"tsc") && args.iter().any(|s| matches!(s.as_str(), "--build" | "-b"))
     {

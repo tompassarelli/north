@@ -2,6 +2,7 @@ mod heredoc;
 mod lexer;
 mod scan;
 mod segments;
+mod spans;
 mod substitution;
 #[cfg(test)]
 mod tests;
@@ -29,3 +30,7 @@ pub fn rewrite_input(data: &Value, field: &str, value: &str, context: &str) -> V
     input[field] = json!(value);
     json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": input, "additionalContext": context}})
 }
+#[allow(unused_imports)]
+pub use spans::{Piece, PieceKind, pieces, slice, splice};
+#[allow(unused_imports)]
+pub use spans::segments as piece_segments;

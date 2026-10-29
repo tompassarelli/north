@@ -162,6 +162,27 @@ fn short_map(letter: char) -> Option<&'static str> {
 }
 
 pub(super) fn to_rg(arguments: &[String], base: &str, home: &str) -> Option<Vec<String>> {
+    translate(arguments, base, home, false)
+}
+
+impl Translation {
+    fn flag_group(&self) -> Option<String> {
+        let mut unique = String::new();
+        for letter in &self.flags {
+            if !unique.contains(*letter) {
+                unique.push(*letter);
+            }
+        }
+        (!unique.is_empty()).then(|| format!("-{unique}"))
+    }
+}
+
+pub(super) fn translate(
+    arguments: &[String],
+    base: &str,
+    home: &str,
+    anchored: bool,
+) -> Option<Vec<String>> {
     let mut state = Translation::default();
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
@@ -192,16 +213,8 @@ pub(super) fn to_rg(arguments: &[String], base: &str, home: &str) -> Option<Vec<
         return None;
     }
     let mut words = vec!["rg".to_owned()];
-    let mut unique = String::new();
-    for letter in &state.flags {
-        if !unique.contains(*letter) {
-            unique.push(*letter);
-        }
-    }
-    if !unique.is_empty() {
-        words.push(format!("-{unique}"));
-    }
-    words.extend(state.options);
+    words.extend(state.flag_group());
+    words.extend(state.options.iter().cloned());
     if let Some(pattern) = pattern {
         if pattern.starts_with('-') {
             words.push("-e".to_owned());
@@ -209,5 +222,8 @@ pub(super) fn to_rg(arguments: &[String], base: &str, home: &str) -> Option<Vec<
         words.push(pattern.clone());
     }
     words.extend(paths.iter().cloned());
+    if anchored && paths.is_empty() {
+        words.push(".".to_owned());
+    }
     Some(words)
 }

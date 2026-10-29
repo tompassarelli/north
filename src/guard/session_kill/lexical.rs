@@ -43,6 +43,12 @@ pub(super) fn detached(command: &str) -> Option<String> {
             segment.push(token.clone());
             continue;
         }
+        let duplicates = tokens
+            .get(index + 1)
+            .is_some_and(|next| next == "-" || next.bytes().all(|b| b.is_ascii_digit()));
+        if token == "&" && duplicates && segment.last().is_some_and(|word| word.ends_with(['>', '<'])) {
+            continue;
+        }
         let redirect = segment.last().is_some_and(|word| word.ends_with('>'))
             || tokens
                 .get(index + 1)

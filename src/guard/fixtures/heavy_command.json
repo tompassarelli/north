@@ -1,7 +1,7 @@
 [
   [
     "cargo build --release",
-    "refuse"
+    "route"
   ],
   [
     "cargo test --locked",
@@ -49,15 +49,15 @@
   ],
   [
     "bun wisp map build",
-    "refuse"
+    "route"
   ],
   [
     "bun wisp headless --render out --frames 3",
-    "refuse"
+    "route"
   ],
   [
     "bun wisp view scene out",
-    "refuse"
+    "route"
   ],
   [
     "bun wisp map rebuild",
@@ -121,23 +121,23 @@
   ],
   [
     "echo $(true)#; cargo build",
-    "refuse"
+    "route"
   ],
   [
     "echo <(true)#; cargo build",
-    "refuse"
+    "route"
   ],
   [
     "echo $((1))#; cargo build",
-    "refuse"
+    "route"
   ],
   [
     "a=(1)#; cargo build",
-    "refuse"
+    "route"
   ],
   [
     "echo a\r#; cargo build",
-    "refuse"
+    "route"
   ],
   [
     "(true)#; cargo build",
@@ -145,15 +145,15 @@
   ],
   [
     "ls # <<EOF\ncargo build\nEOF",
-    "refuse"
+    "route"
   ],
   [
     "echo '<<EOF'\ncargo build\nEOF",
-    "refuse"
+    "route"
   ],
   [
     "ls # it's\n$(cargo build)",
-    "refuse"
+    "route"
   ],
   [
     "git commit -m \"$(cat <<'EOF'\nSay \"hi\ncargo build\nEOF\n)\"",
@@ -161,10 +161,10 @@
   ],
   [
     "echo `cargo build`",
-    "refuse"
+    "route"
   ],
   [
     "echo \"`cargo build`\"",
-    "refuse"
+    "route"
   ]
 ]

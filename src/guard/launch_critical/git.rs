@@ -29,6 +29,7 @@ pub(super) fn tracks_nothing(path: &str) -> bool {
     })
 }
 pub(super) struct GitCall {
+    pub(super) env: Env,
     pub(super) target: String,
     pub(super) verb: String,
     pub(super) args: Vec<String>,
@@ -69,6 +70,7 @@ impl Policy {
                         }
                         if let Some(target) = target {
                             found.push(GitCall {
+                                env: segment.env.clone(),
                                 target,
                                 verb: word.clone(),
                                 args: words[j + 1..].to_vec(),
@@ -123,7 +125,7 @@ impl Policy {
                 ));
             }
             if let Some(raw) = paths.first() {
-                let path = resolve(&self.expanduser(raw), &call.target)?;
+                let path = resolve(&self.substitute(raw, &call.env), &call.target)?;
                 if let Some(hit) = self.protected(&path)
                     && !(hit.pin.is_some()
                         && Path::new(&path)
@@ -136,7 +138,7 @@ impl Policy {
             }
         } else if sub == "remove" || sub == "move" {
             for raw in paths.iter().take(if sub == "remove" { 1 } else { 2 }) {
-                let path = resolve(&self.expanduser(raw), &call.target)?;
+                let path = resolve(&self.substitute(raw, &call.env), &call.target)?;
                 if let Some(hit) = self.protected(&path) {
                     let mut stray = false;
                     if sub == "remove"

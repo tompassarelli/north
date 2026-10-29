@@ -105,6 +105,19 @@ pub fn fixture() -> Fixture {
         ),
         (format!("CARGO_TARGET_DIR={lane}/target cargo test"), false),
         (
+            format!("W={root}/proj/worktrees/x; git -C {main} worktree add $W"),
+            false,
+        ),
+        (
+            format!("W={root}/proj/worktrees/x && git -C {main} worktree add -b x ${{W}}"),
+            false,
+        ),
+        (
+            format!("W={main}/inside; git -C {main} worktree add $W"),
+            true,
+        ),
+        (format!("git -C {main} worktree add $UNSET"), true),
+        (
             "cargo test --target-dir /tmp/galileo-target-agent-a".into(),
             false,
         ),
@@ -197,6 +210,11 @@ pub fn fixture() -> Fixture {
         "python3 -c \"print(open('cli/x.clj').read())\"",
         "python3 -c \"open('/tmp/out.txt','w').write('x')\"",
         "perl -Mstrict -ne print cli/x.clj",
+        "north convo install map warcraft --limit 5",
+        "north convo search install out/x",
+        "gh issue list --search \"closed:>=2026-10-22\" --limit 5",
+        "echo \"closed: $(gh issue list --search \"closed:>=$(date -u -d '10 hours ago' +%FT%H:%M)\" --limit 5)\"",
+        "gh search issues --search 'created:>=2026-10-22'",
     ] {
         let command = command.to_string();
         cases.push((command.clone(), bash(command, &north), false));

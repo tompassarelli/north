@@ -28,6 +28,8 @@ pub mod clipboard;
 pub mod native_item;
 pub mod native_launch;
 pub mod worker_wait;
+pub mod commit_paths;
+pub mod worker_repair;
 pub mod worker_tier;
 mod spawn_state;
 #[cfg(test)]
