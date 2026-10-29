@@ -1,4 +1,18 @@
+use std::collections::BTreeSet;
+use std::env;
+use std::fs;
+use std::os::unix::fs::symlink;
+use std::path::{Path, PathBuf};
+
 use super::*;
+use super::activation::{catalog_registration, restrict_skill_agents};
+use super::files::write_json;
+use super::generation::{
+    instruction_targets, publish_generation, publish_skill_links_in, safe_relative_path, start_clean_generation,
+    write_active_list,
+};
+use super::paths::repo_root_in;
+use super::reviews::skill_metadata;
 
 #[test]
 fn missing_owner_path_names_its_registration() {
