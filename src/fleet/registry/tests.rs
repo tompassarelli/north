@@ -144,3 +144,23 @@ fn a_parent_cycle_is_refused_instead_of_walked_forever() {
 
     assert!(launch_refusal(&fleet, "a").is_some());
 }
+
+#[test]
+fn a_revived_session_shows_the_turns_and_final_report_after_a_frame_larger_than_a_read_window() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    let session = fleet.root.join("revived");
+    let record = serde_json::json!({"name": "revived", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "c", "host_dir": session, "stream_offset": 0, "machine": {"name": "far", "ssh": "tom@far"}});
+    fs::create_dir_all(session.join("g1")).unwrap();
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let assistant = |text: &str| serde_json::json!({"type": "assistant", "session_id": "c", "message": {"content": [{"type": "text", "text": text}]}}).to_string();
+    let strip = serde_json::json!({"type": "user", "session_id": "c", "message": {"content": [{"type": "tool_result", "content": "A".repeat(3 * crate::fleet::transcript::WINDOW_SIZE as usize)}]}}).to_string();
+    let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": "c"}).to_string();
+    let lines = [assistant("before the revive"), result.clone(), strip, assistant("final report"), result];
+    fs::write(session.join("g1/stream.jsonl"), lines.map(|line| line + "\n").concat()).unwrap();
+
+    let follower = fleet.follow("revived").unwrap();
+
+    let replies: Vec<_> = follower.transcript().entries.iter().filter(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.as_str()).collect();
+    assert_eq!(replies, ["before the revive", "final report"]);
+}

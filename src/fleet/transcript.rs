@@ -34,7 +34,7 @@ impl StreamTail {
     }
 
     pub fn frames(&mut self) -> io::Result<Vec<Value>> {
-        self.read_new()?;
+        while !self.partial.contains(&b'\n') && self.read_new()? > 0 {}
         let complete = self.partial.iter().rposition(|byte| *byte == b'\n').map_or(0, |index| index + 1);
         let frames = self.partial[..complete]
             .split(|byte| *byte == b'\n')
@@ -45,15 +45,16 @@ impl StreamTail {
         Ok(frames)
     }
 
-    fn read_new(&mut self) -> io::Result<()> {
+    fn read_new(&mut self) -> io::Result<usize> {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
             Err(error) => return Err(error),
         };
         let start = self.offset + self.partial.len() as u64;
-        self.partial.extend(read_window(&mut file, start, WINDOW_SIZE)?);
-        Ok(())
+        let window = read_window(&mut file, start, WINDOW_SIZE)?;
+        self.partial.extend(&window);
+        Ok(window.len())
     }
 }
 
