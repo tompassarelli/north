@@ -465,3 +465,11 @@ fn a_runtime_build_runs_past_the_run_queue_gate_full_heavy_leases_and_heavy_tick
     assert_eq!(decide(&Facts { class: Class::Heavy, ..gex45.clone() }), Reason::DeferRunQueue);
     assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..gex45 }), Reason::DeferDiskFree);
 }
+
+#[test]
+fn the_run_queue_is_the_higher_of_the_one_and_five_minute_loads_so_a_brief_dip_admits_nothing() {
+    assert_eq!(super::sustained_load("12.40 25.10 26.22 3/2210 4096\n"), Some(25.1));
+    assert_eq!(super::sustained_load("31.73 25.10 26.22 3/2210 4096\n"), Some(31.73));
+    assert_eq!(super::sustained_load("7.5\n"), Some(7.5));
+    assert_eq!(super::sustained_load(""), None);
+}

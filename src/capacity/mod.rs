@@ -181,7 +181,13 @@ pub(crate) fn root_disk_free_gib() -> Option<f64> {
 
 fn run_queue_load() -> Option<f64> {
     let path = std::env::var_os("AGENT_CAPACITY_LOADAVG").unwrap_or_else(|| "/proc/loadavg".into());
-    std::fs::read_to_string(path).ok()?.split_whitespace().next()?.parse().ok()
+    sustained_load(&std::fs::read_to_string(path).ok()?)
+}
+
+pub(crate) fn sustained_load(loadavg: &str) -> Option<f64> {
+    let mut averages = loadavg.split_whitespace().map(|field| field.parse::<f64>().ok());
+    let one = averages.next()??;
+    Some(averages.next().flatten().map_or(one, |five| one.max(five)))
 }
 
 pub(crate) enum DesktopAperture {
