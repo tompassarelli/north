@@ -7,7 +7,14 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 fn on_path(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file())
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(name)).find(|path| path.is_file() && !gate_shim(path))
+}
+
+fn gate_shim(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 256];
+    let read = fs::File::open(path).and_then(|mut file| file.read(&mut head)).unwrap_or(0);
+    head[..read].starts_with(b"#!") && head[..read].windows(13).any(|window| window == b"capacity gate")
 }
 
 #[test]
