@@ -10,6 +10,7 @@ use super::tier::{self, Evidence, History};
 use super::handoff::Arms;
 use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
+use super::revive::Strand;
 use crate::fleet::model::ProviderName;
 use crate::ledger::ClosedReport;
 use crate::fleet::roster::{Roster, Standing};
@@ -48,6 +49,12 @@ pub(crate) struct Survey {
     pub ledger: BTreeMap<String, Evidence>,
     /// The closed boxes and prior reports each brief grounds its ETA, budget and trace in.
     pub grounds: Ledger,
+    /// Stopped sessions holding unlanded lanes, which dispatch revives before it launches.
+    pub strands: Vec<Strand>,
+    /// The saturation refusal of each host a strand lives on, or why it is unread.
+    pub saturated: BTreeMap<String, String>,
+    /// The report each session was last revived for, by `ended_ms`.
+    pub revived: BTreeMap<String, u64>,
     pub at: f64,
 }
 
@@ -287,8 +294,8 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let at = placement::now();
     let mut notes = Vec::new();
     let laptop = fleets::laptop(&cfg, &here);
-    let fleet_lists = fleets::everywhere(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, &mut notes);
-    let gates = fleets::everywhere(&cfg, &here, &["gate", "list", "--json"], "gates", at, &mut notes);
+    let fleet_lists = fleets::everywhere(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut notes);
+    let gates = fleets::everywhere(&cfg, &here, &["gate", "list", "--json"], "gates", at, PROBE, &mut notes);
     let sessions: Vec<(Session, String)> = fleet_lists.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
     let (elsewhere, mut holds) = fleets::tally(&sessions);
     let (mut issues, open) = github::open_issues(projects.repos(), &mut notes);
@@ -312,11 +319,12 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let grounds = Ledger::read(&mut notes);
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
+    let super::strands::Read { strands, saturated, revived } = super::strands::read(&cfg, &here, at, &mut notes);
     let frozen = crate::platform::frozen_topics::load().unwrap_or_else(|why| {
         notes.push(why);
         Vec::new()
     });
-    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, at })
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, at })
 }
 
 mod github {

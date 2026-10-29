@@ -74,9 +74,14 @@ pub(crate) fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[No
     let mut actions = Vec::new();
     for row in rows {
         let repo = row["repo"].as_str().unwrap_or_default();
-        let Ok(verdict) = serde_json::from_value::<Verdict>(row["stall"].clone()) else { continue };
-        let guards = guard_reasons(row);
-        if !verdict.stalled && guards.is_empty() {
+        let stranded = super::stranded::lines(row);
+        let verdict = serde_json::from_value::<Verdict>(row["stall"].clone()).ok();
+        if verdict.is_none() && stranded.is_empty() {
+            continue;
+        }
+        let guards = if verdict.is_some() { guard_reasons(row) } else { Vec::new() };
+        let stalled = verdict.as_ref().filter(|verdict| verdict.stalled);
+        if stalled.is_none() && guards.is_empty() && stranded.is_empty() {
             state.remove(repo);
             continue;
         }
@@ -86,10 +91,14 @@ pub(crate) fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[No
             let what = if *kind == "pins" { "Broken pin" } else { "Underused capacity" };
             actions.extend(pending_actions(record, now, repo, &parent, &format!("guard:{kind}:fleet:{{node}}"), &format!("{what} in {repo}: {reason}")));
         }
-        if verdict.stalled {
+        if let Some(verdict) = stalled {
             let runner = verdict.runner.as_deref().map_or(String::new(), |runner| format!("; oldest landing job runner {runner}"));
             let text = format!("Landing stalled in {repo}: {}{runner}", verdict.reason);
             actions.extend(pending_actions(record, now, repo, &parent, "notice:fleet:{node}", &text));
+        }
+        if !stranded.is_empty() {
+            let text = format!("Lanes stranded in {repo}, unlanded with no live session: {}", stranded.join("; "));
+            actions.extend(pending_actions(record, now, repo, &parent, "stranded:fleet:{node}", &text));
         }
     }
     (state, actions)

@@ -4,9 +4,10 @@
 use super::{brief, cloud};
 use super::issues::Issue;
 use super::plan::Launch;
+use super::revive::Revive;
 use super::record::{self, Record};
 use super::survey::Survey;
-use crate::ops::pacing::placement;
+use crate::ops::pacing::placement::{self, gate};
 use crate::platform::process::run_within;
 use serde_json::json;
 use std::path::Path;
@@ -16,6 +17,7 @@ use toml_edit::{DocumentMut, Item};
 const LAUNCH_WAIT: Duration = Duration::from_secs(180);
 const REPEAT_ALERT_S: f64 = 6.0 * 3600.0;
 const BOXLESS_EVERY_S: f64 = 24.0 * 3600.0;
+pub(crate) const REVIVED: &str = "revived.json";
 
 /// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back.
 pub(crate) fn session_name(launch: &Launch, at: f64) -> String {
@@ -93,6 +95,48 @@ fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Res
         Some(output) if output.status.success() => Ok(name.to_owned()),
         Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
     }
+}
+
+/// Revives a stranded session through `north fleet revive`, whose placement admits it as it would a
+/// launch, then gives it the turn that resumes its lane, and records the report it answered.
+pub(crate) fn revive(survey: &Survey, revive: &Revive) -> Result<(), String> {
+    let mut words = vec!["fleet".to_owned(), "revive".into(), revive.name.clone()];
+    for (flag, reason) in [("--local", &revive.local), ("--pin", &revive.pin)] {
+        if let Some(reason) = reason {
+            words.extend([flag.to_owned(), reason.clone()]);
+        }
+    }
+    north_on(survey, &revive.registry, &words)?;
+    north_on(survey, &revive.registry, &["fleet".into(), "send".into(), revive.name.clone(), super::revive::prompt(revive)])?;
+    let mut revived = placement::pace_state(&format!("dispatch/{REVIVED}"));
+    revived[&revive.name] = json!(revive.ended_ms);
+    remember(REVIVED, &revived);
+    Ok(())
+}
+
+pub(crate) fn forget(survey: &Survey, name: &str, registry: &str) -> Result<(), String> {
+    north_on(survey, registry, &["fleet".into(), "forget".into(), name.to_owned()])
+}
+
+/// Runs `north WORDS` on `host`: here, or over the ssh destination its `[hosts]` entry names.
+fn north_on(survey: &Survey, host: &str, words: &[String]) -> Result<(), String> {
+    let north = std::env::current_exe().map_err(|error| error.to_string())?.to_string_lossy().into_owned();
+    let output = if host == survey.here {
+        run_within(&north, &words.iter().map(String::as_str).collect::<Vec<_>>(), LAUNCH_WAIT)
+    } else {
+        let machine = gate::machines(&survey.cfg).into_iter().find(|machine| machine.name == host).ok_or_else(|| format!("no ssh destination for {host}"))?;
+        let command = std::iter::once("north".to_owned()).chain(words.iter().map(|word| quoted(word))).collect::<Vec<_>>().join(" ");
+        run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, &command], LAUNCH_WAIT)
+    };
+    match output {
+        None => Err(format!("north {} did not return within {} s", words[..2].join(" "), LAUNCH_WAIT.as_secs())),
+        Some(output) if output.status.success() => Ok(()),
+        Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
+    }
+}
+
+fn quoted(word: &str) -> String {
+    format!("'{}'", word.replace('\'', r"'\''"))
 }
 
 /// The error `north fleet launch` ended on, its `error:` line, else the last unindented line:

@@ -29,7 +29,7 @@ use super::fleet_tree;
 use super::{gate, orders, relay};
 
 const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF [--force-dup REASON]] [--local REASON] [--pin REASON] [--tier-reason REASON] [--test] PROMPT... \
-     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | outbox snapshot | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
+     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | outbox snapshot | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | stranded --json | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
@@ -99,7 +99,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         [] => tui::fleet::run(fleet),
-        ["list", rest @ ..] => fleet_list::list(&fleet, rest),
+        [verb @ ("list" | "stranded"), rest @ ..] => fleet_list::list(&fleet, verb, rest),
         ["tree"] => fleet_tree::tree(&fleet),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),

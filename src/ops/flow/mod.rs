@@ -26,6 +26,7 @@ mod measure;
 mod notes;
 mod render;
 mod stall;
+mod stranded;
 mod throughput;
 #[cfg(test)]
 mod capacity_tests;

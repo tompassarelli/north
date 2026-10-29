@@ -14,6 +14,8 @@ use super::guards::{pin_builds, pins_verdict, reuse_verdict, wisp_row};
 use super::host::{Host, Places, iso, read_json, seconds, write_atomic};
 use super::jobs::landing_jobs;
 use super::stall::{self, Facts, Job};
+use super::stranded;
+use crate::fleet::stranded::Stranded;
 use super::throughput::{self, Closed, Commit, DeadLane, Inputs};
 
 pub(crate) type Row = Map<String, Value>;
@@ -33,16 +35,22 @@ pub(crate) struct Env<'a> {
     pub(crate) host: &'a dyn Host,
     pub(crate) targets: BTreeMap<String, f64>,
     claims: RefCell<Option<BTreeMap<String, BTreeMap<u64, f64>>>>,
+    stranded: RefCell<Option<Vec<Stranded>>>,
 }
 
 impl<'a> Env<'a> {
     pub(crate) fn new(places: &'a Places, host: &'a dyn Host, targets: BTreeMap<String, f64>) -> Self {
-        Self { places, host, targets, claims: RefCell::default() }
+        Self { places, host, targets, claims: RefCell::default(), stranded: RefCell::default() }
     }
 
     /// Claim start times by repository and issue, from `threads list`, read once per run.
     fn claims(&self, repo: &str, now: f64) -> BTreeMap<u64, f64> {
         self.claims.borrow_mut().get_or_insert_with(|| claim_times(self.host, now)).get(repo).cloned().unwrap_or_default()
+    }
+
+    /// The repository's stranded lanes, from `north fleet stranded`, read once per run.
+    fn stranded(&self, repo: &str, now: f64) -> Value {
+        stranded::rows(self.stranded.borrow_mut().get_or_insert_with(|| stranded::read(self.host)), repo, now)
     }
 }
 
@@ -127,6 +135,7 @@ fn initial(env: &Env, repo: &str, now: f64) -> Row {
 
 pub(crate) fn measure(env: &Env, repo: &str, now: f64) -> Row {
     let mut row = initial(env, repo, now);
+    row.insert("stranded".into(), env.stranded(repo, now));
     let _ = fill(env, repo, now, &mut row);
     row
 }

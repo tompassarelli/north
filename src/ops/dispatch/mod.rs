@@ -34,8 +34,10 @@ pub(crate) mod measure;
 mod plan;
 mod projects;
 mod record;
+mod revive;
 mod slots;
 mod stops;
+mod strands;
 mod survey;
 mod tier;
 mod tries;
@@ -46,6 +48,8 @@ mod claim_tests;
 mod order_tests;
 #[cfg(test)]
 mod frozen_tests;
+#[cfg(test)]
+mod revive_tests;
 #[cfg(test)]
 mod stops_tests;
 #[cfg(test)]
@@ -75,6 +79,7 @@ pub(crate) struct Outcome {
     pub skipped: Vec<(IssueRef, String)>,
     pub ready: usize,
     pub free: i64,
+    pub revival: revive::Revival,
 }
 
 fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects) -> Vec<&'a Issue> {
@@ -112,10 +117,14 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let mut pools = Pools::new(&survey.hosts, &survey.accounts).with_cloud(cloud::SESSIONS - survey.cloud_running);
     let mut outcome = Outcome { free: pools.total(), ..Outcome::default() };
     let planned = issues::planned_predecessors(&survey.issues);
-    let world = issues::World { open: &survey.open, holds: &survey.holds, planned: &planned, at: survey.at };
+    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: slots::Room::box_reserve() };
+    let revival = revive::plan(&revive::Inputs { strands: &survey.strands, saturated: &survey.saturated, revived: &survey.revived }, &capacity, &mut pools);
+    let mut holds = survey.holds.clone();
+    holds.extend(revival.holds.clone());
+    outcome.revival = revival;
+    let world = issues::World { open: &survey.open, holds: &holds, planned: &planned, at: survey.at };
     let mut history = survey.history.clone();
     let mut handoffs = survey.handoffs.clone();
-    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: slots::Room::box_reserve() };
     for issue in ordered(&survey.issues, &survey.projects) {
         if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
             outcome.skipped.push((issue.reference(), why));
@@ -194,7 +203,32 @@ fn print_survey(survey: &Survey) {
     }
 }
 
+fn revive(survey: &Survey, revival: &revive::Revival, dry_run: bool) {
+    for (name, why) in &revival.waiting {
+        println!("stranded {name} waits: {why}");
+    }
+    for step in &revival.steps {
+        let line = match step {
+            revive::Step::Revive(revive) => format!("revive {} on {} {} ({}; {})", revive.name, revive.host, revive.account, revive.stop.label(), revive.lanes.join(", ")),
+            revive::Step::Forget { name, registry } => format!("forget {name} on {registry}: its lanes' work is on origin/main"),
+        };
+        if dry_run {
+            println!("would {line}");
+            continue;
+        }
+        let done = match step {
+            revive::Step::Revive(revive) => effects::revive(survey, revive),
+            revive::Step::Forget { name, registry } => effects::forget(survey, name, registry),
+        };
+        match done {
+            Ok(()) => println!("{line}"),
+            Err(why) => println!("{line} failed: {why}"),
+        }
+    }
+}
+
 fn execute(survey: &Survey, outcome: &Outcome, dry_run: bool) -> Vec<String> {
+    revive(survey, &outcome.revival, dry_run);
     let mut failures = Vec::new();
     for launch in &outcome.launches {
         let verb = if launch.cloud { "cloud-launch" } else { "launch" };

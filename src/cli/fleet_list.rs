@@ -8,16 +8,23 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::remote_view::{Seen, SessionView};
 use crate::fleet::runtime::now_ms;
 
-const USAGE: &str = "Usage: north fleet list [--json [--all]]";
+const USAGE: &str = "Usage: north fleet list [--json [--all]] | north fleet stranded --json";
 const STALE_MINUTES: u64 = 5;
 
-pub(super) fn list(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
-    match words {
-        [] => list_lines(fleet),
-        ["--json"] => list_json(fleet, false),
-        ["--json", "--all"] | ["--all", "--json"] => list_json(fleet, true),
+pub(super) fn list(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> {
+    match (verb, words) {
+        ("list", []) => list_lines(fleet),
+        ("list", ["--json"]) => list_json(fleet, false),
+        ("list", ["--json", "--all"] | ["--all", "--json"]) => list_json(fleet, true),
+        ("stranded", ["--json"]) => stranded(fleet),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
+}
+
+/// The stopped sessions holding unlanded lanes, with each lane's standing.
+fn stranded(fleet: &Fleet) -> NorthResult<()> {
+    println!("{}", serde_json::to_value(fleet.stranded(&crate::fleet::lane_probe::Git)?)?);
+    Ok(())
 }
 
 fn list_lines(fleet: &Fleet) -> NorthResult<()> {

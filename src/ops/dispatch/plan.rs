@@ -137,6 +137,27 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
     }
 }
 
+/// Admits reviving a session bound to `host` and `account` by the slot and room rules a launch
+/// meets there, taking the slot and its charge, with the pin placement needs when it would rank
+/// another account first.
+pub(crate) fn revive(capacity: &Capacity, pools: &mut Pools, host: &str, account: &str) -> Result<Option<String>, String> {
+    let chosen = capacity.accounts.iter().find(|candidate| candidate.name == account).ok_or_else(|| format!("{account} has no pace sample"))?;
+    chosen.open()?;
+    if pools.host(host) == 0 {
+        return Err(format!("{host} has no free slot"));
+    }
+    if pools.pair(host, account) == 0 {
+        return Err(format!("{account} is not signed in on {host}"));
+    }
+    if !capacity.takes(pools, chosen, None) {
+        return Err(format!("{account} has no room for another box this run"));
+    }
+    let pin = pin(capacity, pools, host, chosen).map(|_| format!("north dispatch revives the session on {account}, which holds its conversation"));
+    pools.take(host);
+    pools.charge(account, capacity.charge(chosen));
+    Ok(pin)
+}
+
 /// Places one ready box, taking its slot from `pools`, or says why no slot takes it.
 pub(crate) fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools: &mut Pools) -> Result<Launch, String> {
     let mut local = None;

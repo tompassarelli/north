@@ -119,7 +119,7 @@ pub(crate) fn holder(task: &str, local: Value, notes: &mut Vec<String>) -> Optio
     let mut copies = BTreeMap::new();
     match placement::config() {
         Ok(cfg) => {
-            fleets.extend(others(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, notes));
+            fleets.extend(others(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, notes));
             copies = copy_times(&record::directory(), "fleet", laptop(&cfg, &here).as_deref());
         }
         Err(why) => notes.push(format!("no placement config, so only this host's sessions count: {why}")),
@@ -130,14 +130,18 @@ pub(crate) fn holder(task: &str, local: Value, notes: &mut Vec<String>) -> Optio
 }
 
 pub(crate) fn remote_json(ssh: Option<&str>, command: &[&str]) -> Result<Value, String> {
+    remote_json_within(ssh, command, PROBE)
+}
+
+pub(crate) fn remote_json_within(ssh: Option<&str>, command: &[&str], limit: Duration) -> Result<Value, String> {
     let north = std::env::current_exe().map_err(|error| error.to_string())?;
     let north = north.to_string_lossy();
     let output = match ssh {
-        None => run_within(&north, command, PROBE),
+        None => run_within(&north, command, limit),
         Some(destination) => {
             let mut words = vec!["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "north"];
             words.extend(command);
-            run_within("ssh", &words, PROBE)
+            run_within("ssh", &words, limit)
         }
     };
     let output = output.ok_or("timed out")?;
@@ -159,7 +163,7 @@ pub(crate) fn laptop(cfg: &DocumentMut, here: &str) -> Option<String> {
 
 /// One `north` JSON listing from every host but `here`: an ssh host over its destination, the laptop
 /// from the copy it leaves in the dispatch record as `KIND-HOST.json`, any other host over ssh by name.
-pub(crate) fn others(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+pub(crate) fn others(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let laptop = laptop(cfg, here);
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).filter(|name| name != here).collect();
     let machines = gate::machines(cfg);
@@ -170,7 +174,7 @@ pub(crate) fn others(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str
             continue;
         }
         let ssh = machines.iter().find(|machine| machine.name == host).map_or_else(|| host.clone(), |machine| machine.ssh.clone());
-        match remote_json(Some(&ssh), command) {
+        match remote_json_within(Some(&ssh), command, limit) {
             Ok(listing) => found.push((host, listing)),
             Err(why) => notes.push(format!("{host} north {} unread: {why}", command[..2].join(" "))),
         }
@@ -209,12 +213,12 @@ pub(crate) fn copy_times(directory: &Path, kind: &str, laptop: Option<&str>) -> 
 }
 
 /// One `north` JSON listing from this host and from every other, each with the host it came from.
-pub(crate) fn everywhere(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+pub(crate) fn everywhere(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let mut found = Vec::new();
-    match remote_json(None, command) {
+    match remote_json_within(None, command, limit) {
         Ok(listing) => found.push((here.to_owned(), listing)),
         Err(why) => notes.push(format!("{here} north {} unread: {why}", command[..2].join(" "))),
     }
-    found.extend(others(cfg, here, command, kind, at, notes));
+    found.extend(others(cfg, here, command, kind, at, limit, notes));
     found
 }

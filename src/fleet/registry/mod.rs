@@ -37,6 +37,7 @@ mod parents;
 mod past;
 mod senders;
 mod status;
+mod stranding;
 mod views;
 #[cfg(test)]
 mod testing;

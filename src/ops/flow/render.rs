@@ -32,6 +32,13 @@ fn cleanup(row: &Value) -> String {
     }
 }
 
+fn stranded(row: &Value) -> String {
+    match row["stranded"].as_array().map(Vec::len).filter(|count| *count != 0) {
+        Some(count) => format!(", stranded {count} lanes: {}", super::stranded::lines(row).join("; ")),
+        None => String::new(),
+    }
+}
+
 fn dead(row: &Value) -> String {
     match (row["dead"].as_f64().filter(|count| *count != 0.0), row["dead_oldest_minutes"].as_f64()) {
         (Some(count), Some(oldest)) => format!(", dead {count} (oldest {oldest:.0}m)"),
@@ -76,7 +83,7 @@ pub(crate) fn format_row(row: &Value, services: Option<&[Value]>) -> String {
         "{}: pending {}{}, landed {}/h over 3h, push-to-land median {} p90 {} over 24h",
         plain(&row["repo"]),
         plain(&row["pending"]),
-        dead(row) + &cleanup(row),
+        dead(row) + &cleanup(row) + &stranded(row),
         general(&row["landed_per_hour"], ""),
         general(&row["push_to_land_minutes"], "m"),
         general(&row["push_to_land_p90_minutes"], "m"),

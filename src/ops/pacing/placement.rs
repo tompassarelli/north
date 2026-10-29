@@ -69,6 +69,10 @@ pub(crate) fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;
     Some(crate::fleet::model::Machine { name: machine.name, ssh: machine.ssh })
 }
+pub(crate) fn saturation_refusal(name: &str) -> Result<Option<String>, String> {
+    let destination = if name == local() { String::new() } else { machine(name).map(|machine| machine.ssh).ok_or_else(|| format!("no [hosts.{name}] ssh destination to read its saturation"))? };
+    Ok(saturation(name, &destination).ok_or_else(|| format!("{name} saturation unreadable"))?.refusal(name))
+}
 fn local() -> String {
     crate::platform::host::name()
 }
