@@ -15,7 +15,7 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     let references = references(&runtime)?;
     let hosts = if hosts.is_empty() { land_offload::other_destinations() } else { hosts.to_vec() };
     if hosts.is_empty() {
-        return Err(failed(64, "no host to deploy to: name one or declare [hosts.NAME] with an ssh destination"));
+        return Err(failed(64, "no host to deploy to: name one or declare [hosts.NAME] with an ssh or deploy_ssh destination"));
     }
     let mut failures = Vec::new();
     for host in &hosts {

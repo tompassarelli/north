@@ -1,6 +1,7 @@
 use crate::capacity::agent_load;
 use crate::ops::pacing::placement::{config, gate};
 
+mod destinations;
 mod room;
 mod ship;
 
@@ -28,8 +29,7 @@ fn machines() -> Vec<gate::Machine> {
 }
 
 pub(crate) fn other_destinations() -> Vec<String> {
-    let here = crate::platform::host::name();
-    machines().into_iter().filter(|machine| machine.name != here).map(|machine| machine.ssh).collect()
+    config().map(|cfg| destinations::deploy(&cfg, &crate::platform::host::name())).unwrap_or_default()
 }
 
 pub(crate) fn in_game_reserve() -> bool {
