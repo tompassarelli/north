@@ -1481,6 +1481,24 @@ code_health_case 0 --dry-run --to main
 expect_status zero
 grep -Fxq "code-health gate $("$real_git" --git-dir="$real_remote" rev-parse main) $("$real_git" -C "$real_repo" rev-parse HEAD)" "$scratch/code-health-trace" \
   || fail 'code-health gate was not called with the destination and head'
+make_real_fixture code-health-behind
+behind_base="$("$real_git" -C "$real_repo" rev-parse HEAD)"
+printf 'main moved\n' >"$real_repo/main-only.txt"
+"$real_git" -C "$real_repo" add main-only.txt
+"$real_git" -C "$real_repo" commit -qm 'main moves on'
+main_moved="$("$real_git" -C "$real_repo" rev-parse HEAD)"
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+"$real_git" -C "$real_repo" reset -q --hard "$behind_base"
+printf 'lane\n' >"$real_repo/lane-only.txt"
+"$real_git" -C "$real_repo" add lane-only.txt
+"$real_git" -C "$real_repo" commit -qm 'lane work behind main'
+behind_head="$("$real_git" -C "$real_repo" rev-parse HEAD)"
+code_health_case 0 --to main
+expect_status zero
+! grep -Fxq "code-health gate $main_moved $behind_head" "$scratch/code-health-trace" \
+  || fail 'code-health gate charged a lane behind main with the main commits it lacks'
+grep -Fxq "code-health gate $behind_base $behind_head" "$scratch/code-health-trace" \
+  || fail 'code-health gate did not measure a lane behind main from its merge base'
 make_real_fixture code-health-debt
 remote_before="$(real_remote_state)"
 code_health_case 1 --to main

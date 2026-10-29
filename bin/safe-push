@@ -2095,7 +2095,7 @@ policy_scans() {
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
   policy_scans "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
-  code_health_gate "$(git rev-parse "refs/remotes/origin/$to")" "$(git rev-parse HEAD)"
+  code_health_gate "$(git merge-base "refs/remotes/origin/$to" HEAD)" "$(git rev-parse HEAD)"
 fi
 
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
