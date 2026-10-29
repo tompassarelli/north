@@ -10,7 +10,7 @@ const GATE_COLUMNS: &str = "gate_id,session,question,options,recommend,default_o
 impl GateBook for Ledger {
     fn open_gate(&self, request: &GateRequest, opened_ms: u64) -> NorthResult<i64> {
         let options = serde_json::to_string(&request.options)?;
-        self.with(|conn| {
+        self.write(|conn| {
             conn.execute(
                 "INSERT INTO gates(session, question, options, recommend, default_option, default_after_ms, opened_ms, verification) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![request.session, request.question, options, ordinal(request.recommend), ordinal(request.default), millis(request.default_after_ms), millis(opened_ms), request.verification],
@@ -33,7 +33,7 @@ impl GateBook for Ledger {
     }
 
     fn close_gate(&self, id: i64, closure: &Closure) -> NorthResult<bool> {
-        self.with(|conn| {
+        self.write(|conn| {
             conn.execute(
                 "UPDATE gates SET answer = ?2, answered_by = ?3, closed_ms = ?4 WHERE gate_id = ?1 AND closed_ms IS NULL",
                 params![id, closure.answer, closure.by.label(), millis(closure.closed_ms)],
@@ -76,11 +76,9 @@ fn ordinal(number: usize) -> i64 {
 pub(super) fn allow_session_answerers(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     let schema: String = conn.query_row("SELECT sql FROM sqlite_master WHERE name = 'gates'", [], |row| row.get(0))?;
     if schema.contains("CHECK(answered_by") {
-        let transaction = conn.unchecked_transaction()?;
-        transaction.execute_batch("ALTER TABLE gates RENAME TO gates_restricted;")?;
-        transaction.execute_batch(super::SCHEMA)?;
-        transaction.execute_batch("INSERT INTO gates SELECT * FROM gates_restricted; DROP TABLE gates_restricted;")?;
-        transaction.commit()?;
+        conn.execute_batch("ALTER TABLE gates RENAME TO gates_restricted;")?;
+        conn.execute_batch(super::SCHEMA)?;
+        conn.execute_batch("INSERT INTO gates SELECT * FROM gates_restricted; DROP TABLE gates_restricted;")?;
     }
     Ok(())
 }

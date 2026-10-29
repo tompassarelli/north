@@ -222,12 +222,13 @@ fn a_landed_task_links_the_runs_of_a_session_whose_brief_or_task_flag_names_it()
 }
 
 #[test]
-fn reopening_the_ledger_links_runs_recorded_before_their_brief_was_read() {
+fn migrating_the_ledger_links_runs_recorded_before_their_brief_was_read() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     let first = Ledger::open(&path).unwrap();
     first.record_run(&briefed("old", "Item: north#4", None)).unwrap();
     first.with(|conn| conn.execute("UPDATE runs SET task_ref = NULL", [])).unwrap();
+    first.with(|conn| conn.pragma_update(None, "user_version", 0)).unwrap();
     assert_eq!(first.runs().unwrap()[0].task_ref, None);
     drop(first);
     let reopened = Ledger::open(&path).unwrap();
@@ -250,10 +251,11 @@ fn a_run_recorded_after_its_sessions_landing_is_linked_without_reopening_the_led
 }
 
 #[test]
-fn opening_a_locked_ledger_retries_until_the_lock_clears_and_fails_once_the_wait_runs_out() {
+fn migrating_a_locked_ledger_retries_until_the_lock_clears_and_fails_once_the_wait_runs_out() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ledger.db");
     drop(ledger(&directory));
+    Connection::open(&path).unwrap().pragma_update(None, "user_version", 0).unwrap();
     let holder = Connection::open(&path).unwrap();
     holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
     let refused = Ledger::open_within(&path, std::time::Duration::from_millis(200)).err().unwrap().to_string();
@@ -267,4 +269,64 @@ fn opening_a_locked_ledger_retries_until_the_lock_clears_and_fails_once_the_wait
     Ledger::open_within(&path, std::time::Duration::from_secs(5)).unwrap();
     assert!(started.elapsed() >= std::time::Duration::from_millis(400), "{:?}", started.elapsed());
     release.join().unwrap();
+}
+
+#[test]
+fn readers_never_meet_a_lock_while_a_writer_holds_a_write_transaction_for_two_seconds() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    drop(ledger(&directory));
+    let holder = Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN IMMEDIATE; INSERT INTO events(session, kind, payload, recorded_ms) VALUES('s', 'k', '{}', 1)").unwrap();
+    let started = std::time::Instant::now();
+    let readers: Vec<_> = (0..24)
+        .map(|_| {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let reader = Ledger::open_within(&path, std::time::Duration::from_millis(100))?;
+                reader.runs()?;
+                reader.tasks().map(drop)
+            })
+        })
+        .collect();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    holder.execute_batch("COMMIT").unwrap();
+    for reader in readers {
+        reader.join().unwrap().unwrap();
+    }
+    assert!(started.elapsed() >= std::time::Duration::from_secs(2));
+}
+
+#[test]
+fn an_open_of_a_migrated_ledger_writes_nothing() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    drop(ledger(&directory));
+    let before = std::fs::metadata(path.with_extension("db-wal")).map(|meta| meta.len()).unwrap_or(0);
+    Ledger::open(&path).unwrap();
+    let after = std::fs::metadata(path.with_extension("db-wal")).map(|meta| meta.len()).unwrap_or(0);
+    assert_eq!(before, after);
+}
+
+#[test]
+fn concurrent_writers_wait_their_turn_instead_of_failing() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    drop(ledger(&directory));
+    let writers: Vec<_> = (0..8)
+        .map(|index| {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let writer = Ledger::open(&path)?;
+                for turn in 0..10 {
+                    writer.record_run(&run(&format!("lane-{index}"), "claude-opus-5-5", turn, 1))?;
+                }
+                Ok::<(), crate::error::NorthError>(())
+            })
+        })
+        .collect();
+    for writer in writers {
+        writer.join().unwrap().unwrap();
+    }
+    assert_eq!(Ledger::open(&path).unwrap().runs().unwrap().len(), 80);
 }

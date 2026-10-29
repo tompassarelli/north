@@ -37,7 +37,7 @@ impl Books for Ledger {
     }
 
     fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>, review: Option<&str>) -> NorthResult<bool> {
-        self.with(|conn| {
+        self.write(|conn| {
             let changed = conn.execute(
                 "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms, review)
                  VALUES(?1, 'landed', ?2, ?3, coalesce(?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1), ?4), ?5)

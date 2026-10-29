@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use rusqlite::{Connection, Row, params};
+use rusqlite::{Connection, Row, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
@@ -99,6 +99,10 @@ CREATE TABLE IF NOT EXISTS receipts(
 ) STRICT;
 ";
 
+const SCHEMA_VERSION: i64 = 1;
+
+const CHECKPOINT_EVERY: Duration = Duration::from_secs(60);
+
 const LANDING_CHECK: &str = "safe-push landing";
 
 const LINK_RUNS: &str = "UPDATE runs SET task_ref = (SELECT t.task_ref FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session) ORDER BY t.task_ref LIMIT 1) \
@@ -115,6 +119,7 @@ const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account
 
 pub struct Ledger {
     conn: Mutex<Connection>,
+    checkpointed: Mutex<Option<Instant>>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -165,7 +170,7 @@ pub struct CheckRun<'a> {
 impl Ledger {
     pub fn record_native_solo(&self, session: &str, reason: &str, command: &str) -> NorthResult<()> {
         let payload = serde_json::json!({"reason": reason, "command": command});
-        self.with(|conn| {
+        self.write(|conn| {
             conn.execute(
                 "INSERT INTO events(session, kind, payload, recorded_ms) VALUES(?1, 'native-solo', ?2, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
                 params![session, payload.to_string()],
@@ -190,14 +195,11 @@ impl Ledger {
         }
         let conn = Connection::open(path).map_err(sql)?;
         conn.busy_timeout(lock_wait).map_err(sql)?;
-        conn.pragma_update(None, "journal_mode", "WAL").map_err(sql)?;
-        conn.execute_batch(SCHEMA).map_err(sql)?;
-        add_missing_column(&conn, "gates", "verification", "INTEGER NOT NULL DEFAULT 0").map_err(sql)?;
-        gates::allow_session_answerers(&conn).map_err(sql)?;
-        add_missing_column(&conn, "tasks", "landed_ms", "INTEGER").map_err(sql)?;
-        conn.execute_batch(LINK_RUNS).map_err(sql)?;
-        briefs::link_by_brief(&conn, None).map_err(sql)?;
-        Ok(Self { conn: Mutex::new(conn) })
+        conn.pragma_update(None, "synchronous", "NORMAL").map_err(sql)?;
+        if schema_version(&conn).map_err(sql)? < SCHEMA_VERSION {
+            migrate(&conn).map_err(sql)?;
+        }
+        Ok(Self { conn: Mutex::new(conn), checkpointed: Mutex::new(None) })
     }
 
     pub fn runs(&self) -> NorthResult<Vec<Run>> {
@@ -231,14 +233,34 @@ impl Ledger {
     }
 
     pub fn record_check(&self, check: &CheckRun) -> NorthResult<()> {
-        self.with(|conn| {
-            conn.execute("INSERT OR IGNORE INTO tasks(task_ref) VALUES(?1)", [check.task_ref])?;
+        self.write(|conn| {
+            if conn.execute("INSERT OR IGNORE INTO tasks(task_ref) VALUES(?1)", [check.task_ref])? == 1 {
+                conn.execute_batch(LINK_RUNS)?;
+            }
             conn.execute(
                 "INSERT INTO checks(task_ref, command, cwd, head_sha, exit, ran_ms) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
                 params![check.task_ref, check.command, check.cwd.display().to_string(), check.head_sha, check.exit, check.ran_ms],
             )
             .map(drop)
         })
+    }
+
+    fn write<T>(&self, work: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> NorthResult<T> {
+        let conn = self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let transaction = Transaction::new_unchecked(&conn, TransactionBehavior::Immediate).map_err(sql)?;
+        let output = work(&transaction).map_err(sql)?;
+        transaction.commit().map_err(sql)?;
+        self.checkpoint_when_due(&conn);
+        Ok(output)
+    }
+
+    fn checkpoint_when_due(&self, conn: &Connection) {
+        let mut last = self.checkpointed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if last.is_some_and(|at| at.elapsed() < CHECKPOINT_EVERY) {
+            return;
+        }
+        *last = Some(Instant::now());
+        conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())).ok();
     }
 
     fn with<T>(&self, work: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> NorthResult<T> {
@@ -248,7 +270,7 @@ impl Ledger {
 
 impl ReceiptBook for Ledger {
     fn claim_receipt(&self, session: &str, key: &str, claimed_ms: u64) -> NorthResult<bool> {
-        self.with(|conn| {
+        self.write(|conn| {
             conn.execute("INSERT OR IGNORE INTO receipts(session, receipt, claimed_ms) VALUES(?1, ?2, ?3)", params![session, key, millis(claimed_ms)])
                 .map(|inserted| inserted == 1)
         })
@@ -258,7 +280,7 @@ impl ReceiptBook for Ledger {
 impl RunSink for Ledger {
     fn record_run(&self, run: &RunRecord) -> NorthResult<u64> {
         let turn = &run.turn;
-        self.with(|conn| {
+        self.write(|conn| {
             conn.execute(
                 "INSERT INTO runs(session, task_ref, provider, model, effort, account, prompt_sha, prompt, system_prompt_sha, deepen,
                    started_ms, ended_ms, wall_ms, turns, tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, exit)
@@ -292,14 +314,14 @@ impl RunSink for Ledger {
     }
 
     fn join_task(&self, task_ref: &str, session: &str) -> NorthResult<()> {
-        self.with(|conn| {
+        self.write(|conn| {
             conn.execute(
                 "INSERT INTO tasks(task_ref, sessions) VALUES(?1, json_array(?2))
                  ON CONFLICT(task_ref) DO UPDATE SET sessions = json_insert(tasks.sessions, '$[#]', ?2)
                  WHERE NOT EXISTS (SELECT 1 FROM json_each(tasks.sessions) WHERE value = ?2)",
                 params![task_ref, session],
-            )
-            .map(drop)
+            )?;
+            conn.execute(LINK_RUNS_OF_SESSION, [session]).map(drop)
         })
     }
 }
@@ -345,6 +367,25 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
 
 fn sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn schema_version(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+}
+
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    if schema_version(&transaction)? < SCHEMA_VERSION {
+        transaction.execute_batch(SCHEMA)?;
+        add_missing_column(&transaction, "gates", "verification", "INTEGER NOT NULL DEFAULT 0")?;
+        gates::allow_session_answerers(&transaction)?;
+        add_missing_column(&transaction, "tasks", "landed_ms", "INTEGER")?;
+        transaction.execute_batch(LINK_RUNS)?;
+        briefs::link_by_brief(&transaction, None)?;
+        transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+    transaction.commit()
 }
 
 fn add_missing_column(conn: &Connection, table: &str, column: &str, kind: &str) -> rusqlite::Result<()> {
