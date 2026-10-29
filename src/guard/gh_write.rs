@@ -25,6 +25,8 @@ pub struct GhWrite {
     pub dir: Option<String>,
     pub public: bool,
     pub bodies: Vec<String>,
+    pub title: Option<String>,
+    pub creates_issue: bool,
     pub opaque: bool,
 }
 
@@ -169,6 +171,7 @@ fn complete(write: &mut GhWrite, group: &str, positionals: &[&str], cwd: Option<
     if write.repo.is_none() && group == "repo" {
         write.repo = positionals.get(1).filter(|word| word.matches('/').count() == 1).map(|word| (*word).to_owned());
     }
+    write.creates_issue = group == "issue" && verb == Some("create");
     write.public = match group {
         "gist" => true,
         "repo" => verb == Some("create"),
@@ -212,6 +215,9 @@ fn collect(write: &mut GhWrite, group: Option<&str>, flag: &str, value: &str, cw
     } else if FILE_FLAGS.contains(&flag) {
         push_file(write, value, cwd);
     } else if TEXT_FLAGS.contains(&flag) || DESCRIPTION_FLAGS.contains(&flag) {
+        if matches!(flag, "-t" | "--title") {
+            write.title = Some(value.to_owned());
+        }
         push_text(write, value, cwd);
     }
 }

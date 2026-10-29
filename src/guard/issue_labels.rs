@@ -48,7 +48,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     })
 }
 
-fn gh(cwd: Option<&str>, args: &[&str]) -> Option<String> {
+pub(super) fn gh(cwd: Option<&str>, args: &[&str]) -> Option<String> {
     let mut gh = Command::new("gh");
     gh.args(args);
     if let Some(cwd) = cwd {

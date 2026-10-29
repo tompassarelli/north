@@ -11,7 +11,7 @@ Read this to create or edit issues, labels or Done-when boxes.
 - Reopen a standing bot issue instead of filing a new one, because duplicates split its history.
 - Preserve legitimate labels and the requested body, checklist and state during metadata repairs, because a repair must not change content.
 - Limit batches to named tickets or evidenced same-session omissions, because speculative batches flood the backlog.
-- File one issue per fix when an audit or review finds several, never one issue for the whole audit, because each fix finishes independently.
+- File one issue per independent fix when an audit or review finds several, never one issue for the whole audit, because each fix finishes independently; pieces of one claimed task are boxes on its issue, and the `gh issue create` guard refuses a split of it and a title matching an open issue.
 - Read each issue back to verify the requested content and labels, and report its link, because `gh` can succeed with dropped fields.
 
 ## Done-when boxes
