@@ -264,6 +264,52 @@ pub fn codex_box_refusal(text: &str, defaults: &Defaults) -> Option<String> {
     why
 }
 
+static LANDING_FIELD: LazyLock<Vec<(&str, Regex)>> = LazyLock::new(|| {
+    ["Lands-before", "Verify", "Category"]
+        .into_iter()
+        .map(|name| {
+            (
+                name,
+                Regex::new(&format!(r"(?mi)^[ \t]*[-*]?[ \t]*{name}:[ \t]*`?([A-Za-z0-9-]+)"))
+                    .unwrap(),
+            )
+        })
+        .collect()
+});
+
+fn landing_word(text: &str, name: &str) -> Option<String> {
+    let (_, pattern) = LANDING_FIELD.iter().find(|(field, _)| *field == name)?;
+    pattern
+        .captures(text)
+        .map(|found| found[1].to_lowercase())
+}
+
+/// A box lands before its native capture when it is verified natively and is not itself a
+/// `Category: native-check` capture box, which has nothing to land.
+pub fn lands_before_native(verify: &str, category: &str) -> bool {
+    let first = |value: &str| {
+        TOKEN
+            .find(&value.to_lowercase())
+            .map(|found| found.as_str().to_owned())
+    };
+    first(verify).as_deref() == Some("native") && first(category).as_deref() != Some("native-check")
+}
+
+/// Refuses a brief that would hold its landing for a native capture: a `Verify: native` box lands
+/// on its passing sim, headless and Lua32 checks and says so with `Lands-before: native`.
+pub fn landing_refusal(text: &str) -> Option<String> {
+    let word = |name: &str| landing_word(text, name).unwrap_or_default();
+    let order = word("Lands-before");
+    if !order.is_empty() && order != "native" {
+        return Some(format!(
+            "Lands-before: {order} is not a landing order; the one value is native, for a box that lands before its native capture."
+        ));
+    }
+    (order.is_empty() && lands_before_native(&word("Verify"), &word("Category"))).then(|| {
+        "Verify: native needs a `Lands-before: native` line: the box lands as soon as its sim, headless and Lua32 checks pass, then takes its native capture on main's build and fixes forward; only a release candidate waits on native captures, and a Category: native-check capture box has nothing to land.".into()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,6 +328,20 @@ mod tests {
         assert_eq!(class_refusal(&refused.replace("bug-known-cause", "feature")), None);
         assert!(class_refusal(&refused.replace("bug-known-cause", "`Bug-Known-Cause`.")).is_some());
         assert_eq!(class_refusal("Item: north#1 x\n"), None);
+    }
+
+    #[test]
+    fn a_native_box_lands_before_its_capture_and_only_a_release_candidate_waits() {
+        let mut count = 0;
+        for line in include_str!("fixtures/landing-order.tsv").lines().skip(1) {
+            let row: Vec<&str> = line.split('\t').collect();
+            assert_eq!(row.len(), 3, "{line}");
+            let brief: String = serde_json::from_str(row[1]).unwrap();
+            let reason: Option<String> = serde_json::from_str(row[2]).unwrap();
+            assert_eq!(landing_refusal(&brief), reason, "{}", row[0]);
+            count += 1;
+        }
+        assert!(count > 0);
     }
 
     #[test]

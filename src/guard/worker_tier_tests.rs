@@ -146,3 +146,10 @@ fn worker_tier_decisions_hold() {
     infrastructure_categories_need_a_priced_payback_line();
     other_tools_and_malformed_inputs_pass();
 }
+
+#[test]
+fn a_native_worker_brief_must_land_before_its_capture() {
+    let native = "Item: fix the arrow streak.\nCategory: bug-known-cause\nSpec: exact\nScope: module\nSurface: ts\nVerify: native";
+    assert!(verdict("worker", native).is_some_and(|why| why.contains("Lands-before: native")));
+    assert_eq!(verdict("worker", &format!("{native}\nLands-before: native")), None);
+}

@@ -584,3 +584,14 @@ fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
     assert!(!holds.contains_key(&IssueRef::new("smashcraft", 9)), "two failed launches are no tries and their brief hold has passed: {holds:?}");
     assert!(holds[&IssueRef::new("wisp", 4)].starts_with("north dispatch launch sc-9-d0000"), "a fresh failure still holds the box for a few minutes");
 }
+
+#[test]
+fn a_native_box_brief_lands_before_its_capture_and_passes_the_brief_check() {
+    let route = super::tier_tests::route(super::tier::Tier::Opus);
+    let native = super::brief::brief(&issue("smashcraft", 60, "- [ ] (native) capture the arrow streak\nSurface: ts", &[]), "test", &route, &Grounds::default());
+    assert!(native.contains("\nVerify: native\nLands-before: native\n"), "{native}");
+    assert_eq!(crate::router::brief::landing_refusal(&native), None);
+    let release = super::brief::brief(&issue("smashcraft", 66, "Category: native-check\nVerify: native\n- [ ] a", &[]), "test", &route, &Grounds::default());
+    assert!(!release.contains("Lands-before:"), "{release}");
+    assert_eq!(crate::router::brief::landing_refusal(&release), None);
+}

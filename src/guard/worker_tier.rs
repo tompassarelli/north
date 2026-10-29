@@ -88,7 +88,9 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
 }
 
 fn brief_refusal(kind: &str, native: bool, foreground: bool, prompt: &str) -> Option<String> {
-    if let Some(reason) = declared_refusal(foreground, prompt) {
+    if let Some(reason) = declared_refusal(foreground, prompt)
+        .or_else(|| crate::router::brief::landing_refusal(prompt))
+    {
         return Some(reason);
     }
     if !native && kind == "worker-haiku" && DOCS.is_match(prompt) {

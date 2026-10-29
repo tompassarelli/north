@@ -15,6 +15,7 @@ pub(crate) fn brief(issue: &Issue, launched_by: &str, route: &Route, grounds: &G
     let mut head = vec![format!("Item: {reference} {}", issue.title), format!("Repository: {OWNER}/{}", issue.repo)];
     head.extend(FACETS.iter().map(|(key, _)| format!("{key}: {}", facet(issue, key))));
     head.extend(declared(issue, "Class").map(|class| format!("Class: {class}")));
+    head.extend(crate::router::brief::lands_before_native(&facet(issue, "Verify"), &facet(issue, "Category")).then(|| "Lands-before: native".to_owned()));
     head.push(format!("Tier: {}", route.tier.name()));
     head.extend(route.arm.then(|| format!("Arm: {}", route.tier.name())));
     head.extend(route.follows.as_ref().map(|follows| format!("Follows: {follows}")));
