@@ -58,8 +58,8 @@ fn lease_past_its_timeout_has_its_scope_killed_and_is_released() {
     let pid = host.path("pid");
     let script = format!("read host _ </proc/self/stat; echo $host >{}; exec sleep 60", pid.display());
     let mut overdue = run(&host, "moderate", "fixture:/overdue", "1", &["sh", "-c", &script]);
-    host.until("the overdue lease", |host| host.leases("moderate") == 1 && pid.exists());
-    let sleeper = fs::read_to_string(&pid).unwrap().trim().to_owned();
+    host.until("the overdue lease", |host| host.leases("moderate") == 1 && fs::read_to_string(&pid).is_ok_and(|text| text.ends_with('\n')));
+    let sleeper: u32 = fs::read_to_string(&pid).unwrap().trim().parse().unwrap();
     host.until("the reaped lease", |host| host.status()["holding"] == json!([]));
     let mut status = None;
     host.until("the wrapper", |_| {
