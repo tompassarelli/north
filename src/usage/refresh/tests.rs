@@ -90,7 +90,7 @@ fn a_remote_machine_supplies_only_the_rows_of_the_provider_it_is_listed_for() {
     script(&ssh, "#!/bin/sh\necho '[{\"provider\": \"claude\", \"name\": \"week\", \"extra\": 1}, {\"provider\": \"gemini\", \"name\": \"other\"}]'\n");
     let mut far = readers(&directory.path().join("no-adapters"));
     far.machines = vec![("claude".into(), vec!["here".into(), "far".into()])];
-    let fake = |arguments: &[&str]| std::iter::once(ssh.clone().into_os_string()).chain(arguments.iter().map(OsString::from)).collect();
+    let fake = |arguments: &[&str]| [OsString::from("/bin/sh"), ssh.clone().into_os_string()].into_iter().chain(arguments.iter().map(OsString::from)).collect();
     far.ssh = &fake;
     let rows = far.read_all(true);
     assert_eq!(rows.len(), 1);
