@@ -217,7 +217,9 @@ pub(super) fn accounts_of(chosen: &[(String, Option<String>)]) -> Vec<&str> {
 fn an_account_with_a_live_spend_target_takes_the_slot_before_any_whose_room_ranks_higher() {
     let spending = Account { spending: true, ..sized("claude:c", &["gex45"], MAX_5X, Room { five_hour: 40.0, week: 9.0, week_reset_h: 70.0 }) };
     let accounts = vec![sized("claude:a", &["gex45"], MAX_20X, Room { five_hour: 47.0, week: 13.0, week_reset_h: 60.0 }), spending];
-    assert_eq!(chosen(vec![host("gex45", 24, Ok(22))], accounts, 2), [("claude:c".into(), None), ("claude:c".into(), None)]);
+    let picks = chosen(vec![host("gex45", 24, Ok(22))], accounts, 2);
+    assert_eq!(accounts_of(&picks), ["claude:c", "claude:c"]);
+    assert!(picks.iter().all(|(_, pin)| pin.as_deref().is_some_and(|pin| pin.contains("placement would pick claude:a for its 13% headroom over 9%"))), "placement knows no spend target, so the pick carries a pin: {picks:?}");
 }
 
 #[test]

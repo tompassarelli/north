@@ -82,3 +82,13 @@ fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_
     let kept = admit(&cloud, &launch("b"), "", &Overrides { local: Some("reads a local lane".into()), pin: None, ..Overrides::default() }).unwrap();
     assert_eq!(kept.note.as_deref(), Some("local: reads a local lane"), "a box kept here needs no pin beside an account that runs only elsewhere");
 }
+
+#[test]
+fn an_available_account_with_less_headroom_than_placements_pick_is_admitted_only_with_a_pin() {
+    let mut roomier = decision(Target::Account("claude:a".into()));
+    roomier.verdicts.push(verdict("claude:b", Some(30.0)));
+    let launch = Launch { name: "box", account: "b", brief: None, cwd: None, machine: None };
+    assert!(admit(&roomier, &launch, "", &Overrides::default()).unwrap_err().contains("placement picks claude:a"));
+    let pin = Overrides { pin: Some("north dispatch ranks claude:b first by spend target and week room expiring soonest".into()), ..Overrides::default() };
+    assert!(admit(&roomier, &launch, "", &pin).unwrap().note.unwrap().starts_with("pin: north dispatch ranks claude:b first"));
+}

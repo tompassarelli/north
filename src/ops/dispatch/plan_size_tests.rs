@@ -16,3 +16,16 @@ fn plan_size_is_read_per_window_from_the_catalog_so_a_max_20x_holds_four_times_t
     let accounts = vec![sized("claude:a", &["gex45"], MAX_20X, tied_week(20.0, 20.0)), sized("claude:c", &["gex45"], MAX_5X, tied_week(50.0, 40.0))];
     assert_eq!(accounts_of(&chosen(vec![host("gex45", 24, Ok(23))], accounts, 1)), ["claude:a"], "equal week units leave the five-hour room, where a fifth of a Max 20x is four times as large");
 }
+
+#[test]
+fn an_account_ranked_first_by_expiring_week_room_but_short_of_the_roomiest_headroom_launches_pinned() {
+    let soon = Room { five_hour: 50.0, week: 30.0, week_reset_h: 10.0 };
+    let late = Room { five_hour: 80.0, week: 70.0, week_reset_h: 150.0 };
+    let accounts = vec![sized("claude:a", &["gex45"], MAX_5X, soon), sized("claude:b", &["gex45"], MAX_5X, late)];
+    let picks = chosen(vec![host("gex45", 24, Ok(0))], accounts, 1);
+    assert_eq!(accounts_of(&picks), ["claude:a"], "a's week expires sooner, so dispatch spends it first");
+    let pin = picks[0].1.as_deref().unwrap_or_default();
+    assert!(pin.contains("placement would pick claude:b for its 70% headroom over 30%"), "{pin:?}");
+    let roomiest = vec![sized("claude:a", &["gex45"], MAX_5X, Room { five_hour: 80.0, ..soon }), sized("claude:b", &["gex45"], MAX_5X, Room { five_hour: 20.0, ..late })];
+    assert_eq!(chosen(vec![host("gex45", 24, Ok(0))], roomiest, 1), [("claude:a".to_owned(), None)], "a pick that is also the roomiest needs no pin");
+}

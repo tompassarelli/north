@@ -78,6 +78,11 @@ impl Room {
         self.week * plan.week / self.week_reset_h.max(Self::SOONEST_RESET_H)
     }
 
+    /// The tightest window's own percent left, the measure `north fleet launch` placement ranks accounts by.
+    pub(crate) fn headroom(&self) -> f64 {
+        self.five_hour.min(self.week)
+    }
+
     pub(crate) fn less(self, charge: Charge) -> Self {
         Self { five_hour: self.five_hour - charge.five_hour, week: self.week - charge.week, ..self }
     }

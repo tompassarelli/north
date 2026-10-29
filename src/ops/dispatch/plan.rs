@@ -105,15 +105,23 @@ fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str, eta_h: Op
 }
 
 /// A pin reason when an open account that ranks higher runs elsewhere, since placement on the
-/// launching host would pick it over the one signed in where placement order puts the box.
+/// launching host would pick it over the one signed in where placement order puts the box; else
+/// when another account has more headroom, since placement picks by the live gate's headroom where
+/// dispatch ranks by spend target and expiring week room.
 fn pin(capacity: &Capacity, pools: &Pools, host: &str, chosen: &Account, eta_h: Option<f64>) -> Option<String> {
-    let placed = capacity
-        .accounts
-        .iter()
-        .filter(|account| account.provider() == chosen.provider() && account.refusal.is_none() && capacity.takes(pools, account, eta_h))
-        .max_by(|a, b| rank(pools, a, b))?;
-    (placed.name != chosen.name && rank(pools, placed, chosen) == Ordering::Greater)
-        .then(|| format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name))
+    let peers = || capacity.accounts.iter().filter(|account| account.provider() == chosen.provider() && account.name != chosen.name);
+    let placed = peers().filter(|account| account.refusal.is_none() && capacity.takes(pools, account, eta_h)).max_by(|a, b| rank(pools, a, b));
+    if let Some(placed) = placed.filter(|placed| rank(pools, placed, chosen) == Ordering::Greater) {
+        return Some(format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name));
+    }
+    let roomier = peers().filter(|account| account.refusal.is_none() && account.room.headroom() > chosen.room.headroom()).max_by(|a, b| a.room.headroom().total_cmp(&b.room.headroom()))?;
+    Some(format!(
+        "north dispatch ranks {} first by spend target and week room expiring soonest; placement would pick {} for its {:.0}% headroom over {:.0}%",
+        chosen.name,
+        roomier.name,
+        roomier.room.headroom(),
+        chosen.room.headroom()
+    ))
 }
 
 fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, local: Option<String>) -> Launch {
