@@ -13,14 +13,13 @@ use super::gates::Question;
 use super::handoff;
 use super::idle::{self, Step};
 use super::landings::{self, push_log};
-use super::model::{Delivery, EntryKind, SessionRecord, Transcript};
+use super::model::{EntryKind, SessionRecord, Transcript};
 use super::prompt::is_deepened;
 use super::receipts::{Courier, Report, deliver_report, is_final};
 use super::records::{find_session, host_sessions, parents_live, write_record};
 use super::runtime::{Runtime, now_ms};
-use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
+use super::turns::{RunRecord, Turn, TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
-use super::wait;
 
 const KEPT_LINES: usize = 5;
 
@@ -35,7 +34,6 @@ pub struct TurnWatch {
     views: HashMap<String, View>,
     idle: idle::Policy,
     finished: HashMap<String, bool>,
-    waits: HashMap<String, Wait>,
     rolled_over: bool,
     nudges: HashMap<String, Option<Nudge>>,
     unaccepted: Arc<SentPrompts>,
@@ -59,11 +57,6 @@ impl SentLog for SentPrompts {
             self.journal().sent(id, line.trim_end().to_owned());
         }
     }
-}
-
-struct Wait {
-    wakes: usize,
-    reply: String,
 }
 
 struct Nudge {
@@ -108,7 +101,6 @@ impl TurnWatch {
             views: HashMap::new(),
             idle: idle::Policy::default(),
             finished: HashMap::new(),
-            waits: HashMap::new(),
             rolled_over: false,
             nudges: HashMap::new(),
             unaccepted,
@@ -123,11 +115,8 @@ impl TurnWatch {
 
     fn follow(&mut self, signal: &TurnSignal) {
         match signal {
-            TurnSignal::Prompt { conversation, text } => {
+            TurnSignal::Prompt { conversation, .. } => {
                 self.finished.insert(conversation.clone(), false);
-                if !wait::is_wake(text) {
-                    self.waits.remove(conversation);
-                }
             }
             TurnSignal::Call { conversation, tokens, .. } => {
                 self.rolled_over = false;
@@ -141,38 +130,12 @@ impl TurnWatch {
                 let threshold = nudge.threshold;
                 self.nudge(conversation, context, threshold);
             }
-            TurnSignal::Ended { conversation, exit, .. } => {
-                let Some(reply) = self.views.get(conversation).and_then(|view| view.reply.clone()).filter(|reply| !reply.trim().is_empty()) else { return };
-                self.finished.insert(conversation.clone(), is_final(&reply));
-                if *exit == TurnExit::Completed {
-                    self.note_wait(conversation, reply);
+            TurnSignal::Ended { conversation, .. } => {
+                if let Some(reply) = self.views.get(conversation).and_then(|view| view.reply.as_deref()).filter(|reply| !reply.trim().is_empty()) {
+                    self.finished.insert(conversation.clone(), is_final(reply));
                 }
             }
             _ => {}
-        }
-    }
-
-    fn note_wait(&mut self, conversation: &str, reply: String) {
-        let box_worker = find_session(&self.root, &self.host_dir, conversation).is_some_and(|record| record.task_ref.is_some() && !record.stopped);
-        if box_worker && wait::ended_on_a_wait(&reply) {
-            self.waits.entry(conversation.to_owned()).or_insert(Wait { wakes: 0, reply: String::new() }).reply = reply;
-        } else {
-            self.waits.remove(conversation);
-        }
-    }
-
-    fn wake(&mut self) -> Option<Vec<String>> {
-        let wait = self.waits.values_mut().next()?;
-        let frames = self.runtime.message(&Transcript::new(), &wait::wake(&wait.reply, wait.wakes)).ok()?;
-        wait.wakes += 1;
-        Some(frames)
-    }
-
-    fn stall(&mut self) {
-        let Some((conversation, wait)) = self.waits.drain().next() else { return };
-        let Some(record) = find_session(&self.root, &self.host_dir, &conversation) else { return };
-        if let Some(parent) = record.parent.as_deref() {
-            self.courier.post(parent, wait::stalled(&record.name, &wait.reply), Delivery::Queued);
         }
     }
 
@@ -284,15 +247,9 @@ impl FrameWatch for TurnWatch {
 
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
         let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
-        let wakes = self.waits.values().map(|wait| wait.wakes).next();
-        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, wakes };
+        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished };
         match self.idle.step(session, park_after) {
             Step::Wait => Rest::Wait,
-            Step::Wake => self.wake().map_or(Rest::Wait, Rest::Send),
-            Step::Stall => {
-                self.stall();
-                self.rest(idle, park_after)
-            }
             Step::Park => Rest::End,
             Step::Compact => {
                 self.rolled_over = true;

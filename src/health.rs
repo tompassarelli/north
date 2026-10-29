@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::foundation::clock::Timestamp;
 use crate::platform::sqlite::{self, Access};
-use units::{Gh, Reading, Run};
+use units::{Reading, Run};
 
 type Verdict = Result<(), String>;
 type Output = Result<String, String>;
@@ -384,7 +384,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
             results.push((check, verdict));
         }
     }
-    let runs = ["north", "smashcraft"]
+    let runs: BTreeMap<String, Output> = ["north", "smashcraft"]
         .into_iter()
         .map(|repo| {
             (
@@ -401,7 +401,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
                         "--limit",
                         "5",
                         "--json",
-                        "conclusion,status,workflowName,headSha",
+                        "conclusion,status,workflowName,headSha,url",
                     ],
                     None,
                     20,
@@ -409,6 +409,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
             )
         })
         .collect();
+    let north_runs = runs.get("north").and_then(|text| text.clone().ok());
     results.push(("ci".into(), ci(CiInput { runs })));
     let output = if land_due(now, &state) {
         Some(match std::env::var_os("XDG_RUNTIME_DIR") {
@@ -430,14 +431,11 @@ fn live(dry_run: bool) -> Result<bool, String> {
         }
     }
     if !dry_run {
+        issues::file(&results, north_runs.as_deref());
         save(&state_path, &state)?;
-        for (check, line) in alerts {
+        for (_, line) in alerts {
             if line.ends_with(": recovered") {
                 println!("{line}");
-            } else if let Some(unit) = check.strip_prefix("unit ")
-                && let Err(error) = units::report(&mut Gh, unit, &crate::platform::host::name(), &line)
-            {
-                eprintln!("health: issue: {error}");
             }
             for (program, args) in [
                 (
@@ -486,6 +484,8 @@ pub fn run(arguments: &[String]) -> ExitCode {
     }
 }
 
+mod issues;
+mod main_red;
 mod units;
 
 #[cfg(test)]

@@ -199,3 +199,18 @@ fn a_settled_run_whose_transcript_grew_past_its_recorded_end_is_read_again_and_t
     assert_eq!(ids, ["resumed"], "{rows:?}");
     assert_eq!((rows[0]["backfill"].as_bool(), rows[0]["ended"].as_str()), (Some(true), Some("2026-10-08T00:04:00Z")));
 }
+
+#[test]
+fn a_settled_worker_run_that_is_unfinished_again_keeps_its_recorded_end_and_is_not_reread() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let projects = root.join("home/.claude/projects/-home-tom-code-north-main");
+    transcript(&projects.join("stale.jsonl"), "Item: north#290");
+    let mut text = fs::read_to_string(projects.join("stale.jsonl")).unwrap();
+    text.push_str("{\"type\":\"user\",\"timestamp\":\"2026-10-08T00:05:00Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"content\":\"ok\"}]}}\n");
+    fs::write(projects.join("stale.jsonl"), text).unwrap();
+    let fleet = r#"[{"name":"s","conversation":"stale","parent":"lead"}]"#;
+    let settled = "stale\t2026-10-08T00:01:00Z\n";
+    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), None, &["stale"], settled);
+    assert!(rows.is_empty(), "{rows:?}");
+}

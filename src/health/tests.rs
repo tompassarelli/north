@@ -216,16 +216,21 @@ fn shown(active: &str, result: &str, invocation: &str) -> Reading {
     Reading::parse(&format!("LoadState=loaded\nActiveState={active}\nResult={result}\nInvocationID={invocation}\n"))
 }
 
-#[derive(Default)]
 struct Recorder {
-    open: Option<u64>,
+    open: Option<units::Issue>,
+    legacy: Vec<(u64, String)>,
     created: Vec<(String, String)>,
-    commented: Vec<(u64, String)>,
+    edited: Vec<(u64, String)>,
+    closed: Vec<(u64, String)>,
 }
 
 impl units::Tracker for Recorder {
-    fn open(&self, _: &str) -> Result<Option<u64>, String> {
-        Ok(self.open)
+    fn open(&self, _: &str) -> Result<Option<units::Issue>, String> {
+        Ok(self.open.as_ref().map(|issue| units::Issue { number: issue.number, body: issue.body.clone() }))
+    }
+
+    fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
+        Ok(self.legacy.clone())
     }
 
     fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
@@ -233,32 +238,58 @@ impl units::Tracker for Recorder {
         Ok(())
     }
 
-    fn comment(&mut self, number: u64, body: &str) -> Result<(), String> {
-        self.commented.push((number, body.into()));
+    fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
+        self.edited.push((number, body.into()));
+        Ok(())
+    }
+
+    fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
+        self.closed.push((number, comment.into()));
         Ok(())
     }
 }
 
+fn recorder(open: Option<units::Issue>) -> Recorder {
+    Recorder { open, legacy: Vec::new(), created: Vec::new(), edited: Vec::new(), closed: Vec::new() }
+}
+
 #[test]
-fn health_unit_failing_twice_in_a_row_opens_one_issue_and_a_later_failure_updates_it() {
+fn health_unit_failing_twice_in_a_row_is_judged_failing_until_a_run_succeeds() {
     let unit = "agents-flow-stall.service";
     let mut runs = BTreeMap::new();
     assert!(units::judge(unit, Some(&shown("failed", "exit-code", "run-1")), &mut runs).is_ok());
     assert!(units::judge(unit, Some(&shown("failed", "exit-code", "run-1")), &mut runs).is_ok());
     let error = units::judge(unit, Some(&shown("failed", "exit-code", "run-2")), &mut runs).unwrap_err();
     assert_eq!(error, "agents-flow-stall.service failed 2 runs in a row");
-    let mut tracker = Recorder::default();
-    units::report(&mut tracker, unit, "whiterabbit", &error).unwrap();
-    assert_eq!(tracker.created.len(), 1);
-    assert_eq!(tracker.created[0].0, "Harness unit agents-flow-stall.service keeps failing on whiterabbit");
-    assert!(tracker.created[0].1.contains("on whiterabbit ("));
-    assert!(tracker.created[0].1.contains("\nNeeds: laptop\n"), "dispatch places the box on the laptop, whose journal holds the failure");
-    assert!(tracker.commented.is_empty());
     assert!(units::judge(unit, Some(&shown("inactive", "success", "run-3")), &mut runs).is_ok());
-    tracker.open = Some(7);
-    units::report(&mut tracker, unit, "whiterabbit", &error).unwrap();
-    assert_eq!(tracker.created.len(), 1);
-    assert_eq!(tracker.commented, vec![(7, error)]);
+}
+
+#[test]
+fn health_failing_units_share_one_rolling_issue_per_host_that_it_edits_and_closes() {
+    let two = [("a.service".to_owned(), "a.service failed 2 runs in a row".to_owned()), ("b.service".to_owned(), "b.service failed 3 runs in a row".to_owned())];
+    let mut tracker = recorder(None);
+    units::reconcile(&mut tracker, "whiterabbit", &two).unwrap();
+    assert_eq!(tracker.created.len(), 1, "two failing units open one issue, not two");
+    assert_eq!(tracker.created[0].0, "Harness services failing on whiterabbit");
+    let body = tracker.created[0].1.clone();
+    assert!(body.contains("`a.service`") && body.contains("`b.service`") && body.contains("\nNeeds: laptop\n"));
+
+    let mut tracker = recorder(Some(units::Issue { number: 7, body: body.clone() }));
+    units::reconcile(&mut tracker, "whiterabbit", &two).unwrap();
+    assert!(tracker.created.is_empty() && tracker.edited.is_empty() && tracker.closed.is_empty(), "an unchanged set touches nothing");
+
+    units::reconcile(&mut tracker, "whiterabbit", &two[..1]).unwrap();
+    assert_eq!(tracker.edited.len(), 1);
+    assert_eq!(tracker.edited[0].0, 7);
+    assert!(!tracker.edited[0].1.contains("b.service"));
+
+    units::reconcile(&mut tracker, "whiterabbit", &[]).unwrap();
+    assert_eq!(tracker.closed.len(), 1);
+    assert_eq!(tracker.closed[0].0, 7);
+
+    let mut none = recorder(None);
+    units::reconcile(&mut none, "whiterabbit", &[]).unwrap();
+    assert!(none.created.is_empty() && none.closed.is_empty());
 }
 
 #[test]
@@ -280,4 +311,48 @@ fn health_unit_without_a_loaded_service_is_not_judged() {
     assert!(units::judge("x.service", None, &mut runs).is_ok());
     assert!(runs.is_empty());
     assert_eq!(units::service_of("lane-gc.timer"), "lane-gc.service");
+}
+
+#[test]
+fn health_closes_per_unit_issues_of_units_that_no_longer_fail_and_keeps_those_still_failing() {
+    let failing = [("a.service".to_owned(), "a.service failed 2 runs in a row".to_owned())];
+    let mut tracker = recorder(None);
+    tracker.legacy = vec![
+        (1, "Harness unit a.service keeps failing on whiterabbit".into()),
+        (2, "Harness unit b.service keeps failing".into()),
+        (3, "Harness unit c.service keeps failing on gex45".into()),
+        (4, "Harness unit lane-gc.service ran slowly".into()),
+    ];
+    units::reconcile(&mut tracker, "whiterabbit", &failing).unwrap();
+    assert_eq!(tracker.closed.iter().map(|(number, _)| *number).collect::<Vec<_>>(), [2]);
+}
+
+fn run_list(rows: &[(&str, &str, &str)]) -> String {
+    let rows: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|(workflow, sha, conclusion)| serde_json::json!({"workflowName": workflow, "headSha": sha, "conclusion": conclusion, "status": "completed", "url": format!("https://runs/{workflow}")}))
+        .collect();
+    serde_json::to_string(&rows).unwrap()
+}
+
+#[test]
+fn health_closes_the_main_red_issue_only_when_every_workflows_newest_run_is_green_beyond_the_culprit() {
+    let body = "Intro\n\n## Done when\n- [ ] The newest Harness and Cargo runs on main are green on a commit\n\n<!-- main-red:1:1 -->\nCulprit range: tip, base\nFailing step: test\n";
+    let issue = || Some(units::Issue { number: 9, body: body.to_owned() });
+    let settle = |runs: &str, open: Option<units::Issue>| {
+        let mut tracker = recorder(open);
+        main_red::settle(&mut tracker, runs).unwrap();
+        tracker
+    };
+    let fixed = settle(&run_list(&[("Cargo", "fix", "success"), ("Harness", "fix", "success")]), issue());
+    assert_eq!(fixed.closed.len(), 1);
+    assert_eq!(fixed.closed[0].0, 9);
+    assert!(fixed.edited[0].1.contains("- [x] The newest Harness and Cargo runs on main are green"));
+    assert!(fixed.closed[0].1.contains("https://runs/Cargo"));
+    assert!(settle(&run_list(&[("Cargo", "tip", "success"), ("Harness", "fix", "success")]), issue()).closed.is_empty(), "a green rerun of the culprit is not a repair");
+    assert!(settle(&run_list(&[("Cargo", "fix", "success"), ("Harness", "fix", "failure")]), issue()).closed.is_empty());
+    assert!(settle(&run_list(&[("Cargo", "fix", "failure"), ("Cargo", "old", "success"), ("Harness", "fix", "success")]), issue()).closed.is_empty());
+    assert!(settle(&run_list(&[("Cargo", "fix", "cancelled"), ("Cargo", "older", "success"), ("Harness", "fix", "success")]), issue()).closed.len() == 1, "a cancelled run is no verdict");
+    assert!(settle(&run_list(&[("Cargo", "fix", "success")]), None).closed.is_empty());
+    assert!(settle("[]", issue()).closed.is_empty());
 }

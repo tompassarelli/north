@@ -1,19 +1,16 @@
 use std::time::Duration;
 
-use super::wait::WAKE_AFTER;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Policy {
     pub rollover_after: Duration,
     pub cache_lifetime: Duration,
     pub rollover_min_tokens: u64,
     pub finished_exit_after: Duration,
-    pub wake_after: [Duration; 3],
 }
 
 impl Default for Policy {
     fn default() -> Self {
-        Self { rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60), wake_after: WAKE_AFTER }
+        Self { rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60) }
     }
 }
 
@@ -24,7 +21,6 @@ pub struct Session {
     pub context: u64,
     pub rolled_over: bool,
     pub finished: bool,
-    pub wakes: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,8 +29,6 @@ pub enum Step {
     Compact,
     Park,
     Exit,
-    Wake,
-    Stall,
 }
 
 impl Policy {
@@ -46,13 +40,6 @@ impl Policy {
         }
         if session.in_flight {
             return Step::Wait;
-        }
-        if let Some(wakes) = session.wakes {
-            return match self.wake_after.get(wakes) {
-                Some(after) if session.idle >= *after => Step::Wake,
-                Some(_) => Step::Wait,
-                None => Step::Stall,
-            };
         }
         if session.context >= self.rollover_min_tokens && !session.rolled_over && session.idle < self.cache_lifetime {
             return if session.idle >= self.rollover_after { Step::Compact } else { Step::Wait };
@@ -103,18 +90,5 @@ mod tests {
         assert_eq!(step(Session { idle: minutes(59), in_flight: true, ..finished }), Step::Wait);
         assert_eq!(step(Session { idle: minutes(60), in_flight: true, ..finished }), Step::Exit);
         assert_eq!(Policy::default().step(Session { idle: minutes(60), ..finished }, Some(minutes(600))), Step::Exit, "a longer idle limit stops at 60");
-    }
-
-    #[test]
-    fn a_session_that_ended_on_a_wait_is_woken_at_5_15_and_45_minutes_then_stalls_instead_of_parking() {
-        let waiting = |idle, wakes| Session { idle: minutes(idle), wakes: Some(wakes), ..Session::default() };
-        assert_eq!(step(waiting(4, 0)), Step::Wait, "held past its park time while a wait is open");
-        assert_eq!(step(waiting(5, 0)), Step::Wake);
-        assert_eq!(step(waiting(14, 1)), Step::Wait);
-        assert_eq!(step(waiting(15, 1)), Step::Wake);
-        assert_eq!(step(waiting(45, 2)), Step::Wake);
-        assert_eq!(step(waiting(1, 3)), Step::Stall, "after the last wake the parent is told, whatever the idle time");
-        assert_eq!(step(Session { in_flight: true, ..waiting(60, 0) }), Step::Wait, "never mid-turn");
-        assert_eq!(step(Session { finished: true, ..waiting(10, 0) }), Step::Exit, "a final report ends the wait");
     }
 }

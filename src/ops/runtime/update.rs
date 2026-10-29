@@ -72,9 +72,6 @@ pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<
 
 pub(super) fn built_main(layout: &Layout, checkout: &Path) -> Result<(String, PathBuf), Failure> {
     let target = main_commit(checkout)?;
-    if !layout::has_programs(&layout.runtime(&target)) {
-        println!("north runtime deploy: building {} (up to 25 min under a heavy capacity lease)", layout::short(&target));
-    }
     let runtime = built(layout, checkout, &target)?;
     Ok((target, runtime))
 }

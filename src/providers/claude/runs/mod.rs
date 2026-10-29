@@ -247,7 +247,7 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     let transcript = row::Transcript { lines: &lines, id: &id, role, tier: &tier, since: &options.since, backfill: options.recorded.contains(&id), now: ledger.now };
     let mut row = row::build(&transcript)?;
     if let Some(Some(ended)) = options.settled.get(&id)
-        && row["ended"].as_str().is_none_or(|now| now <= ended.as_str())
+        && row.get("ended").and_then(Value::as_str).is_none_or(|now| now <= ended.as_str())
     {
         return None;
     }
