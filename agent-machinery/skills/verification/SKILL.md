@@ -68,6 +68,7 @@ Example matrices re-testing one rule a property should own; our own prose, const
 ## Landing fast
 - Reuse every build and test result whose inputs are unchanged, keyed by a content hash of those inputs, and never run one suite twice for one landing, because rerunning unchanged inputs is waste.
 - Give each repeated stage between finished work and the owner's hands (build, test, land, install) a wall-time budget, and have the tool that already logs its time open or update one issue for an agent when a run exceeds it, because unreused work is found from timings already logged, not by the owner or a schedule; such budgets alert and never gate.
+- Before landing, run only the tests that cover the change; full suites run on GitHub (Autoland, the farm), never on a saturated local host, and a red there is fixed forward, because local full runs queue every lane behind one host while hosted runners sit idle.
 - Call an external tool once per batch, not per file, row, test or branch; fall back per item only for exact diagnostics on failure, because process start dominates small calls.
 - Bound cost in a deterministic unit (instructions, frames, allocations), never wall seconds, because wall time flakes under load; shrink inputs or move work after landing instead of raising a ceiling. Run a timing check once, under an exclusive capacity lease.
 - Quarantine a flake at first sight with its seed, log and an issue; fix or delete it within a week, because a flake hides real failures. Never retry to green, sleep or weaken an expectation.
