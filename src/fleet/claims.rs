@@ -4,8 +4,8 @@ use crate::error::{NorthError, NorthResult};
 use super::model::SessionRecord;
 
 pub trait Claims: Send + Sync {
-    /// Claims `item` for `session`; a claim a live owner holds is `NorthError::Refused`, taking one its exited owner left is not.
-    fn hold(&self, item: &str, session: &str) -> NorthResult<()>;
+    /// Claims `item` for `session`; a claim a live owner holds is `NorthError::Refused`, while one an exited owner left or one past its ETA moves to `session`, and Some says from whom and why.
+    fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>>;
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
 }
@@ -21,7 +21,8 @@ pub fn hold_all(claims: &dyn Claims, tasks: &[String], session: &str) -> NorthRe
                 return Err(error);
             }
             Err(error) => eprintln!("north fleet: {session} does not hold {task} yet: {}", error.user_message()),
-            Ok(()) => {}
+            Ok(Some(moved)) => eprintln!("north fleet: {moved}"),
+            Ok(None) => {}
         }
     }
     Ok(())
@@ -55,9 +56,9 @@ pub struct Held(pub std::sync::Mutex<Vec<(&'static str, String, String)>>);
 
 #[cfg(test)]
 impl Claims for Held {
-    fn hold(&self, item: &str, session: &str) -> NorthResult<()> {
+    fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
         self.0.lock().unwrap().push(("hold", item.to_owned(), session.to_owned()));
-        Ok(())
+        Ok(None)
     }
 
     fn release(&self, item: &str, session: &str) -> NorthResult<()> {
@@ -75,12 +76,12 @@ mod tests {
     struct Owned<'a>(&'a str, Mutex<Vec<String>>);
 
     impl Claims for Owned<'_> {
-        fn hold(&self, item: &str, session: &str) -> NorthResult<()> {
+        fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
             if item == self.0 {
                 return Err(NorthError::Refused(format!("{item} is already owned by tom")));
             }
             self.1.lock().unwrap().push(format!("hold {item} {session}"));
-            Ok(())
+            Ok(None)
         }
 
         fn release(&self, item: &str, session: &str) -> NorthResult<()> {

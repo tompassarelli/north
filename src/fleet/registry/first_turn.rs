@@ -24,7 +24,18 @@ enum FirstTurn {
 }
 
 impl Fleet {
+    /// Delivers the launch prompt and waits for its turn to start; a session that does not start it is stopped, so it holds no claim.
     pub(super) fn deliver_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str) -> NorthResult<()> {
+        let failed = self.answer_first_turn(record, account, prompt);
+        if failed.is_err()
+            && let Err(error) = self.stop(&record.name)
+        {
+            eprintln!("north fleet: {} did not stop after its failed start: {}", record.name, error.user_message());
+        }
+        failed
+    }
+
+    fn answer_first_turn(&self, record: &mut SessionRecord, account: &Account, prompt: &str) -> NorthResult<()> {
         let FirstTurn::Failed(failure) = self.first_turn(record, prompt)? else { return Ok(()) };
         self.note_credential_failure(record, failure)?;
         if failure == CredentialFailure::Expired || self.host_in_use(record)? {

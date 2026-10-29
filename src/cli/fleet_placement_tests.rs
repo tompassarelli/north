@@ -25,7 +25,7 @@ fn decision(target: Target) -> Decision {
     }
 }
 
-fn noted(note: Option<&str>) -> Result<Placed, String> {
+fn noted(note: Option<&str>) -> Result<Placed, Refusal> {
     Ok(Placed { note: note.map(Into::into), machine: None, need: None })
 }
 
@@ -40,11 +40,11 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let given = |local: Option<&str>, pin: Option<&str>| Overrides { local: local.map(Into::into), pin: pin.map(Into::into), ..Overrides::default() };
 
     assert_eq!(admit(&local, &launch("a"), "", &Overrides::default()), noted(None));
-    let refused = admit(&local, &launch("c"), "", &Overrides::default()).unwrap_err();
+    let refused = admit(&local, &launch("c"), "", &Overrides::default()).unwrap_err().to_string();
     assert!(refused.starts_with("claude:c unavailable: burning") && refused.contains("--account a"), "{refused}");
     assert_eq!(admit(&local, &launch("b"), "", &given(None, Some("drain b"))), noted(Some("pin: drain b")));
-    assert!(admit(&cloud, &launch("a"), "", &given(None, Some("drain c"))).unwrap_err().contains("north cloud launch"));
-    assert!(admit(&cloud, &launch("b"), "", &given(Some("x"), None)).unwrap_err().contains("--pin"));
+    assert!(admit(&cloud, &launch("a"), "", &given(None, Some("drain c"))).unwrap_err().to_string().contains("north cloud launch"));
+    assert!(admit(&cloud, &launch("b"), "", &given(Some("x"), None)).unwrap_err().to_string().contains("--pin"));
     let both = admit(&cloud, &launch("b"), "", &given(Some("x"), Some("y"))).unwrap().note;
     assert_eq!(both.as_deref(), Some("local: x; pin: y"));
 
@@ -66,7 +66,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None, ..Overrides::default() }).unwrap();
     assert_eq!(here, noted(None).unwrap(), "--local on a box placed here records nothing");
 
-    let unsigned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides::default()).unwrap_err();
+    let unsigned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides::default()).unwrap_err().to_string();
     assert!(unsigned.starts_with("far is not signed in to claude:b (signed in there: a, c); launch with --account a, or "), "{unsigned}");
     let pinned = admit(&remote, &Launch { name: "box", account: "b", brief: None, cwd: None, machine: None }, "", &Overrides { local: Some("x".into()), pin: Some("y".into()), ..Overrides::default() });
     assert_eq!(pinned.unwrap().machine, None);
@@ -82,7 +82,7 @@ fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_
     let here = decision(Target::Account("claude:a".into()));
     let mut roomier = here.clone();
     roomier.verdicts.push(verdict("claude:b", Some(90.0)));
-    assert!(admit(&roomier, &launch("c"), "", &Overrides::default()).unwrap_err().contains("placement picks claude:a"));
+    assert!(admit(&roomier, &launch("c"), "", &Overrides::default()).unwrap_err().to_string().contains("placement picks claude:a"));
     let mut cloud = decision(Target::Cloud("cloud credit: unread".into()));
     cloud.verdicts = vec![Verdict { owners: vec!["nexus".into()], ..verdict("claude:a", Some(90.0)) }, verdict("claude:b", Some(40.0))];
     let kept = admit(&cloud, &launch("b"), "", &Overrides { local: Some("reads a local lane".into()), pin: None, ..Overrides::default() }).unwrap();
@@ -94,7 +94,7 @@ fn an_available_account_with_less_headroom_than_placements_pick_is_admitted_only
     let mut roomier = decision(Target::Account("claude:a".into()));
     roomier.verdicts.push(verdict("claude:b", Some(30.0)));
     let launch = Launch { name: "box", account: "b", brief: None, cwd: None, machine: None };
-    assert!(admit(&roomier, &launch, "", &Overrides::default()).unwrap_err().contains("placement picks claude:a"));
+    assert!(admit(&roomier, &launch, "", &Overrides::default()).unwrap_err().to_string().contains("placement picks claude:a"));
     let pin = Overrides { pin: Some("north dispatch ranks claude:b first by spend target and week room expiring soonest".into()), ..Overrides::default() };
     assert!(admit(&roomier, &launch, "", &pin).unwrap().note.unwrap().starts_with("pin: north dispatch ranks claude:b first"));
 }
@@ -106,7 +106,7 @@ fn the_account_the_shared_rank_puts_first_is_admitted_without_a_pin_though_anoth
     ranked.verdicts[1].rank = Rank::of(Room { five_hour: 30.0, week: 30.0, week_reset_h: 5.0 }, PlanSize { five_hour: 1.0, week: 1.0 }, false);
     let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: None };
     assert_eq!(admit(&ranked, &launch("b"), "", &Overrides::default()), noted(None), "b's week expires sooner, so placement ranks it first");
-    assert!(admit(&ranked, &launch("a"), "", &Overrides::default()).unwrap_err().contains("placement picks claude:b"));
+    assert!(admit(&ranked, &launch("a"), "", &Overrides::default()).unwrap_err().to_string().contains("placement picks claude:b"));
 }
 
 #[test]
@@ -116,6 +116,8 @@ fn a_launch_on_a_saturated_named_machine_needs_a_pin_and_a_local_keep_does_not()
     saturated.saturated = Some("far skipped: 9 queued for admission".into());
     let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: Some("far") };
     let refused = admit(&saturated, &launch, "", &Overrides::default()).unwrap_err();
+    assert!(matches!(refused, Refusal::Saturated(_)), "a saturated machine is a refusal a waiting launch outlasts: {refused:?}");
+    let refused = refused.to_string();
     assert!(refused.starts_with("far skipped: 9 queued for admission"), "{refused}");
     let pinned = Overrides { pin: Some("Tom named it".into()), ..Overrides::default() };
     let placed = admit(&saturated, &launch, "", &pinned).unwrap();
@@ -136,6 +138,8 @@ fn a_box_kept_on_a_saturated_launching_host_needs_local_or_a_pin_and_a_move_else
     assert_eq!(held.machine_lines, [why]);
     let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: None };
     let refused = admit(&held, &launch, "", &Overrides::default()).unwrap_err();
+    assert!(matches!(refused, Refusal::Saturated(_)), "{refused:?}");
+    let refused = refused.to_string();
     assert!(refused.starts_with(why), "{refused}");
     let local = Overrides { local: Some("this host is the one that serves it".into()), ..Overrides::default() };
     assert_eq!(admit(&held, &launch, "", &local).unwrap().note.as_deref(), Some("local: this host is the one that serves it"));
@@ -155,19 +159,19 @@ fn an_account_that_is_out_refuses_even_a_pin_and_names_the_account_placement_pic
     let placed = decision(Target::Account("claude:a".into()));
     let launch = Launch { name: "burndown-lead", account: "c", brief: None, cwd: None, machine: None };
     let revived = Overrides::default().recorded(Some("pin: north dispatch ranks claude:c first"));
-    let refused = admit(&placed, &launch, "", &revived).unwrap_err();
+    let refused = admit(&placed, &launch, "", &revived).unwrap_err().to_string();
     assert!(refused.starts_with("claude:c unavailable: burning: 5h 86.0%/h"), "{refused}");
     assert!(refused.contains("placement picks claude:a (claude:a available") && refused.ends_with("launch with --account a"), "{refused}");
 
     let mut week = placed.clone();
     week.verdicts[1] = Verdict { line: "claude:c unavailable: exhausted: provider week 100%".into(), ..week.verdicts[1].clone() };
     let local = Overrides { local: Some("x".into()), pin: Some("y".into()), ..Overrides::default() };
-    assert!(admit(&week, &launch, "", &local).unwrap_err().starts_with("claude:c unavailable: exhausted: provider week 100%; placement picks claude:a"));
+    assert!(admit(&week, &launch, "", &local).unwrap_err().to_string().starts_with("claude:c unavailable: exhausted: provider week 100%; placement picks claude:a"));
 
     let mut all_out = decision(Target::Held("no account".into()));
     let week_out = placement::verdict("claude:c", &serde_json::json!({"windows": [{"window": "week", "used_pct": 100.0}]}));
     assert!(week_out.exhausted && !week_out.available, "{week_out:?}");
 
     all_out.verdicts.retain(|verdict| verdict.exhausted);
-    assert!(admit(&all_out, &launch, "", &revived).unwrap_err().ends_with("no Claude account is available; wait for a window to reset"));
+    assert!(admit(&all_out, &launch, "", &revived).unwrap_err().to_string().ends_with("no Claude account is available; wait for a window to reset"));
 }

@@ -34,7 +34,7 @@ pub(super) fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, 
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
         let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
-        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster())?.note;
+        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster(), true)??.note;
     }
     fleet.revive_placed(name, system_prompt, placement, effort).map(|record| println!("{}", record.name))
 }

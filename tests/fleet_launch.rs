@@ -652,3 +652,73 @@ fn a_launch_that_names_no_issue_and_no_model_takes_its_tier_from_the_briefs_cate
     north(root, &["fleet", "forget", "narrow"]);
     assert_eq!(unrouted["model"], serde_json::Value::Null, "{unrouted}");
 }
+
+#[test]
+fn a_launch_whose_session_exits_before_its_first_turn_exits_non_zero_naming_why_and_leaves_its_session_stopped() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "crash");
+    let launched = launch(root);
+    let show = shown(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    let said = text(&launched.stderr);
+    assert!(!launched.status.success(), "{said}");
+    assert!(said.contains("narrow exited before its first turn started"), "{said}");
+    assert!(launched.stdout.is_empty(), "a launch that started no session prints no session name: {}", text(&launched.stdout));
+    assert_eq!(show["status"], "exited", "{show}");
+}
+
+fn holder(root: &Path, name: &str, stopped: bool) {
+    let session = root.join(".local/state/north/fleet").join(name);
+    fs::create_dir_all(&session).unwrap();
+    let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": stopped, "task_ref": "smashcraft#4"});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    executable(&root.join("bin/gh"), FAKE_GH);
+    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
+    north(root, &["threads", "release", "smashcraft#4", "--by", "setup"]);
+    let claimed = north(root, &["threads", "claim", "smashcraft#4", "--by", name]);
+    assert!(claimed.status.success(), "{}", text(&claimed.stderr));
+}
+
+fn launch_on_item(root: &Path) -> Output {
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "smashcraft#4", "--system-prompt", &brief.display().to_string(), "start the box"])
+}
+
+#[test]
+fn a_launch_takes_the_claim_an_exited_session_left_without_force_dup_and_says_from_whom() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    holder(root, "gone", true);
+    let launched = launch_on_item(root);
+    let held = held_by_name(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    let said = text(&launched.stderr);
+    assert!(launched.status.success(), "{said}");
+    assert!(said.contains("narrow owns smashcraft#4; the claim by gone was void because its owner is not a live fleet session"), "{said}");
+    assert_eq!(held, ["smashcraft#4 narrow"]);
+}
+
+#[test]
+fn a_parked_holder_refuses_a_launch_until_its_claim_is_past_its_eta_and_then_the_launch_takes_it_over_on_record() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    holder(root, "resting", false);
+    let refused = launch_on_item(root);
+    let ledger = rusqlite::Connection::open(root.join("threads.db")).unwrap();
+    ledger.execute_batch("UPDATE claims SET since = '2026-10-01T00:00:00Z', eta_min = 40; UPDATE events SET ts = '2026-10-01T00:00:00Z';").unwrap();
+    let taken = launch_on_item(root);
+    let held = held_by_name(root);
+    north(root, &["fleet", "forget", "narrow"]);
+    let handoffs: i64 = ledger.query_row("SELECT count(*) FROM events WHERE item = 'smashcraft#4' AND kind = 'handoff' AND actor = 'narrow' AND data LIKE '%\"from\":\"resting\"%'", [], |row| row.get(0)).unwrap();
+
+    assert!(!refused.status.success(), "{}", text(&refused.stderr));
+    assert!(text(&refused.stderr).contains("smashcraft#4 is already owned by resting"), "{}", text(&refused.stderr));
+    assert!(taken.status.success(), "{}", text(&taken.stderr));
+    assert!(text(&taken.stderr).contains("narrow owns smashcraft#4, taken over from resting: stale"), "{}", text(&taken.stderr));
+    assert_eq!(held, ["smashcraft#4 narrow"]);
+    assert_eq!(handoffs, 1);
+}

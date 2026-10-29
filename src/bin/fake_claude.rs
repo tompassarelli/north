@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|slow-hooks|signed-out-once|oauth-expired [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|slow-hooks|signed-out-once|oauth-expired|crash [ARG...]";
 const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
 const SIGNED_OUT: &str = "Not logged in · Please run /login";
@@ -22,6 +22,7 @@ enum Trace {
     SlowHooks,
     SignedOutOnce,
     OAuthExpired,
+    Crash,
 }
 
 impl Trace {
@@ -34,6 +35,7 @@ impl Trace {
             "slow-hooks" => Some(Self::SlowHooks),
             "signed-out-once" => Some(Self::SignedOutOnce),
             "oauth-expired" => Some(Self::OAuthExpired),
+            "crash" => Some(Self::Crash),
             _ => None,
         }
     }
@@ -79,6 +81,9 @@ impl<W: Write> Fake<W> {
     }
 
     fn user(&mut self, uuid: &str, message: Value) -> io::Result<bool> {
+        if self.trace == Trace::Crash {
+            return Ok(true);
+        }
         self.lifecycle(uuid, "queued")?;
         if message.to_string().contains(STALL) && stall_once() {
             return Ok(false);

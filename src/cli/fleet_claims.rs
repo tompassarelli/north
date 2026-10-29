@@ -19,6 +19,11 @@ fn running_north() -> NorthResult<std::path::PathBuf> {
     Ok(exe.to_str().and_then(|path| path.strip_suffix(" (deleted)")).map_or(exe.clone(), std::path::PathBuf::from))
 }
 
+/// The ledger's line when the claim moved to `session` from an earlier owner; a fresh or renewed claim says only that `session` owns the item.
+fn moved(said: &str, item: &str, session: &str) -> Option<String> {
+    (said != format!("{session} owns {}", canonical(item))).then(|| said.to_owned())
+}
+
 pub struct ThreadsCli;
 
 impl ThreadsCli {
@@ -32,10 +37,10 @@ impl ThreadsCli {
 }
 
 impl Claims for ThreadsCli {
-    fn hold(&self, item: &str, session: &str) -> NorthResult<()> {
+    fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
         match Self::threads(&["claim", item, "--by", session]) {
             Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
-            other => other.map(drop),
+            other => other.map(|said| moved(said.trim(), item, session)),
         }
     }
 

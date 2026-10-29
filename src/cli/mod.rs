@@ -10,6 +10,7 @@ mod cloud;
 mod cloud_handback;
 mod token_usage;
 mod fleet;
+mod fleet_admission;
 mod fleet_claims;
 mod fleet_duplicate;
 mod fleet_list;

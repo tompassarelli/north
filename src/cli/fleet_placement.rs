@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::Machine;
+use crate::fleet::model::{LaunchRequest, Machine};
 use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::binary;
@@ -73,9 +73,54 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
     Ok(format!("{file}\n{prompt}"))
 }
 
-/// Runs live placement, prints one verdict line per account and machine, and returns where to run.
+/// Why placement does not start a launch: a saturated host may take it once its admission queue,
+/// disk or load eases, while anything else needs a different launch.
+#[derive(Debug, PartialEq)]
+pub(super) enum Refusal {
+    Saturated(String),
+    Final(String),
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Saturated(why) | Self::Final(why) => formatter.write_str(why),
+        }
+    }
+}
+
+impl From<Refusal> for NorthError {
+    fn from(refusal: Refusal) -> Self {
+        Self::Refused(refusal.to_string())
+    }
+}
+
+/// Placement gates every Claude launch except `--test` sessions, before anything starts; `report`
+/// prints its verdict lines.
+pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides, report: bool) -> NorthResult<Result<Placed, Refusal>> {
+    if request.provider.label() != "claude" || request.verification {
+        return Ok(Ok(Placed::default()));
+    }
+    let text = brief_text(request.system_prompt.as_deref(), &request.prompt)?;
+    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()) };
+    check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster(), report)
+}
+
+/// Runs live placement, prints one verdict line per account and machine when `report`, and returns where to run.
 /// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
-pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> NorthResult<Placed> {
+pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster, report: bool) -> NorthResult<Result<Placed, Refusal>> {
+    let decision = decide(launch, text, fleet_load, roster)?;
+    if !report {
+        return Ok(admit(&decision, launch, text, overrides));
+    }
+    eprintln!("placement: {}", gate::summary(&decision));
+    for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
+        eprintln!("  {line}");
+    }
+    Ok(admit(&decision, launch, text, overrides))
+}
+
+fn decide(launch: &Launch, text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> NorthResult<Decision> {
     let mut decision = gate::live(text, fleet_load, roster, launch.machine).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
     let absent = match (&decision.machine, launch.cwd) {
         (Some(machine), Some(cwd)) if !has_directory(&machine.ssh, cwd) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
@@ -85,35 +130,32 @@ pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_lo
         decision.stay_here(absent);
     }
     decision.hold_here();
-    eprintln!("placement: {}", gate::summary(&decision));
-    for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
-        eprintln!("  {line}");
-    }
-    admit(&decision, launch, text, overrides).map_err(NorthError::Refused)
+    Ok(decision)
 }
 
 /// Ok(where) when the launch may start, Err(refusal with the way forward) otherwise. `--local` keeps
 /// the box here instead of the cloud or another machine.
-pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Placed, String> {
+pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Placed, Refusal> {
     let mut notes = Vec::new();
     let elsewhere = matches!(decision.target, Target::Cloud(_)) || decision.machine.is_some();
     match (&decision.target, &overrides.local) {
-        (Target::Unserved(why), _) => return Err(format!("{why}; list it in a holding host's [hosts.NAME] serves")),
-        (Target::Cloud(credit), None) => return Err(cloud_command(launch, credit, &decision.surface, text)),
+        (Target::Unserved(why), _) => return Err(Refusal::Final(format!("{why}; list it in a holding host's [hosts.NAME] serves"))),
+        (Target::Cloud(credit), None) => return Err(Refusal::Final(cloud_command(launch, credit, &decision.surface, text))),
         (_, Some(reason)) if elsewhere || decision.here_saturated.is_some() => notes.push(format!("local: {reason}")),
         _ => {}
     }
     let machine = match (&decision.machine, &overrides.local) {
-        (Some(chosen), None) if !chosen.accounts.iter().any(|label| label == launch.account) => return Err(not_signed_in(decision, chosen, launch.account)),
+        (Some(chosen), None) if !chosen.accounts.iter().any(|label| label == launch.account) => return Err(Refusal::Final(not_signed_in(decision, chosen, launch.account))),
         (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone() }),
         _ => None,
     };
     if let Some(out) = exhausted_refusal(decision, launch.account) {
-        return Err(out);
+        return Err(Refusal::Final(out));
     }
     let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
     let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; launch from another host, or keep it here with --local \"<reason>\" or --pin \"<reason>\""));
-    if let Some(refusal) = saturated.or(hot).or_else(|| account_refusal(decision, launch.account)) {
+    let held = saturated.or(hot).map(Refusal::Saturated).or_else(|| account_refusal(decision, launch.account).map(Refusal::Final));
+    if let Some(refusal) = held {
         let Some(reason) = &overrides.pin else {
             return Err(refusal);
         };

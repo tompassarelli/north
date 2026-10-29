@@ -20,7 +20,8 @@ use crate::ledger::Ledger;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
-use super::fleet_placement::{self, Launch, Overrides, Placed};
+use super::fleet_placement::{self, Overrides};
+use super::fleet_admission;
 use super::fleet_duplicate;
 use super::fleet_list;
 use super::fleet_revive;
@@ -28,7 +29,7 @@ use super::fleet_tier;
 use super::fleet_tree;
 use super::{gate, orders, relay};
 
-const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF [--force-dup REASON]] [--local REASON] [--pin REASON] [--tier-reason REASON] [--test] PROMPT... \
+const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF [--force-dup REASON]] [--local REASON] [--pin REASON] [--tier-reason REASON] [--wait | --no-wait] [--test] PROMPT... \
      | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | outbox snapshot | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | stranded --json | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
@@ -165,26 +166,17 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
-    let (mut request, mut overrides) = launch_parts(&fleet.providers(), words, caller)?;
+    let (mut request, mut overrides, wait) = launch_parts(&fleet.providers(), words, caller)?;
     fleet_tier::admit_class(&request)?;
     let started = fleet_tier::apply(&mut request, &mut overrides)?;
-    let placed = placed(fleet, &request, &overrides)?;
+    let waiting = fleet_admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
+    let placed = fleet_admission::admitted(&request.name, waiting, |first| fleet_placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"))?;
     (request.placement, request.capacity_need) = (fleet_duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
     request.machine = placed.machine.or(request.machine);
     let record = fleet.launch(&request)?;
     fleet_tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())
-}
-
-/// Placement gates every Claude launch except `--test` sessions, before anything starts.
-fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides) -> NorthResult<Placed> {
-    if request.provider.label() != "claude" || request.verification {
-        return Ok(Placed::default());
-    }
-    let text = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
-    let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()) };
-    fleet_placement::check(&launch, &text, overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster())
 }
 
 #[derive(Default)]
@@ -203,6 +195,7 @@ struct LaunchFlags {
     parent: Option<String>,
     task_ref: Option<String>,
     overrides: Overrides,
+    wait: Option<bool>,
 }
 
 impl LaunchFlags {
@@ -268,10 +261,11 @@ fn parent(flag: Option<String>, caller: Option<String>) -> Option<String> {
 
 #[cfg(test)]
 fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<LaunchRequest> {
-    launch_parts(providers, words, caller).map(|(request, _)| request)
+    launch_parts(providers, words, caller).map(|(request, _, _)| request)
 }
 
-fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<(LaunchRequest, Overrides)> {
+/// The request, its placement overrides and `--wait` (Some(true)) or `--no-wait` (Some(false)).
+fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<(LaunchRequest, Overrides, Option<bool>)> {
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
@@ -280,12 +274,17 @@ fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<Strin
             index += 1;
             continue;
         }
+        if let wait @ ("--wait" | "--no-wait") = *flag {
+            flags.wait = Some(wait == "--wait");
+            index += 1;
+            continue;
+        }
         let value = words.get(index + 1).map(|value| (*value).to_owned()).ok_or_else(usage)?;
         flags.set(providers, flag, value)?;
         index += 2;
     }
-    let overrides = std::mem::take(&mut flags.overrides);
-    Ok((flags.request(words[index..].join(" "), caller)?, overrides))
+    let (overrides, wait) = (std::mem::take(&mut flags.overrides), flags.wait);
+    Ok((flags.request(words[index..].join(" "), caller)?, overrides, wait))
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {
