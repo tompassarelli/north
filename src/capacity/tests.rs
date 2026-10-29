@@ -364,3 +364,9 @@ fn heavy_builds_held_by_the_disk_floor_do_not_queue_moderate_work_behind_them() 
     assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, low, &[Class::Heavy, Class::Heavy, Class::Moderate])), Reason::DeferQueued);
     assert_eq!(decide(&gex45_on_2026_10_28(Class::Moderate, 20.0, &[Class::Heavy, Class::Heavy])), Reason::DeferQueued);
 }
+
+#[test]
+fn a_configured_client_cap_prints_its_number_and_an_unconfigured_host_prints_nothing() {
+    assert_eq!(super::limit_text(Some(6)), "6");
+    assert_eq!(super::limit_text(None), "");
+}

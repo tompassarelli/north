@@ -50,16 +50,25 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("unleased") if arguments.len() == 1 => unleased::run(),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | unleased | quiet < LEASES.json | host OPERATION ...");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | unleased | quiet < LEASES.json | host OPERATION ...");
             2
         }
     };
     Some(status)
 }
 
+/// The host's configured Warcraft client cap, empty when it sets none.
+pub(crate) fn limit_text(limit: Option<u32>) -> String {
+    limit.map(|limit| limit.to_string()).unwrap_or_default()
+}
+
 pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
     if arguments.first().map(String::as_str) == Some("host") {
         return host::run(&arguments[1..], &host);
+    }
+    if arguments == ["warcraft-limit"] {
+        println!("{}", limit_text((host.warcraft_clients)()));
+        return 0;
     }
     if let Some(status) = route(arguments, host.offload) {
         return status;
