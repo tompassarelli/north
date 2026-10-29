@@ -1,6 +1,8 @@
+use std::io::Read;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const PRIVATE_TERM: &str = "zebra-quokka-7731";
 const DENYLIST: &str = "title = \"safe-push tag test deny-list\"\n[[rules]]\nid = \"fake-private-term\"\ndescription = \"fake private identity term\"\nregex = '''zebra-quokka-7731'''\n";
@@ -101,6 +103,61 @@ fn shims(copy: &Path, case: &Case) -> PathBuf {
     bin
 }
 
+const STALL_LIMIT: Duration = Duration::from_secs(60);
+
+fn process_tree(root: u32) -> Vec<(u32, u64)> {
+    let table: Vec<(u32, u32, u64)> = std::fs::read_dir("/proc")
+        .unwrap()
+        .filter_map(|entry| {
+            let pid: u32 = entry.ok()?.file_name().to_str()?.parse().ok()?;
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            let fields: Vec<&str> = stat[stat.rfind(')')? + 2..].split(' ').collect();
+            let ticks = (11..15).map(|index| fields[index].parse::<u64>().unwrap_or(0)).sum();
+            Some((pid, fields[1].parse().ok()?, ticks))
+        })
+        .collect();
+    let mut tree = vec![root];
+    let mut index = 0;
+    while index < tree.len() {
+        let parent = tree[index];
+        let children: Vec<u32> = table.iter().filter(|row| row.1 == parent && !tree.contains(&row.0)).map(|row| row.0).collect();
+        tree.extend(children);
+        index += 1;
+    }
+    table.iter().filter(|row| tree.contains(&row.0)).map(|row| (row.0, row.2)).collect()
+}
+
+fn output_unless_stalled(command: &mut Command, stall_limit: Duration) -> std::process::Output {
+    let mut child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let drain = |mut pipe: Box<dyn Read + Send>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            pipe.read_to_end(&mut bytes).unwrap();
+            bytes
+        })
+    };
+    let stdout = drain(Box::new(child.stdout.take().unwrap()));
+    let stderr = drain(Box::new(child.stderr.take().unwrap()));
+    let (mut spent, mut idle_since) = (0, Instant::now());
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        let tree = process_tree(child.id());
+        let ticks = tree.iter().map(|row| row.1).sum::<u64>();
+        if ticks > spent {
+            (spent, idle_since) = (ticks, Instant::now());
+        } else if idle_since.elapsed() > stall_limit {
+            for (pid, _) in &tree {
+                Command::new("kill").args(["-KILL", &pid.to_string()]).status().unwrap();
+            }
+            panic!("the process tree used no CPU for {stall_limit:?}: it is deadlocked");
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    std::process::Output { status, stdout: stdout.join().unwrap(), stderr: stderr.join().unwrap() }
+}
+
 fn run(copy: &Path, program: &[&str], case: &Case) -> Observed {
     let bin = shims(copy, case);
     let denylist = copy.join("denylist.toml");
@@ -108,7 +165,8 @@ fn run(copy: &Path, program: &[&str], case: &Case) -> Observed {
         std::fs::write(&denylist, DENYLIST).unwrap();
     }
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
-    let output = Command::new(program[0])
+    let mut command = Command::new(program[0]);
+    command
         .args(&program[1..])
         .args(case.arguments)
         .current_dir(copy.join("repo"))
@@ -119,9 +177,8 @@ fn run(copy: &Path, program: &[&str], case: &Case) -> Observed {
         .env("SAFE_PUSH_TEST_REAL_NORTH", env!("CARGO_BIN_EXE_north"))
         .env_remove("NORTH_NO_AUTOREAP")
         .env_remove("SAFE_PUSH_OUTPUT_CLAIMED")
-        .envs(case.environment.iter().copied())
-        .output()
-        .unwrap();
+        .envs(case.environment.iter().copied());
+    let output = output_unless_stalled(&mut command, STALL_LIMIT);
     let root = copy.to_string_lossy().into_owned();
     let normal = |bytes: &[u8]| String::from_utf8_lossy(bytes).replace(&root, "FIXTURE");
     let stderr = normal(&output.stderr).lines().filter(|line| !gitleaks_log(line)).map(|line| format!("{line}\n")).collect();
@@ -311,7 +368,13 @@ fn safe_push_tag_scans_an_outgoing_tag_against_an_origin_with_thousands_of_refs(
     git(&repo, &["add", "bulk"]);
     git(&repo, &["commit", "-qm", "outgoing objects"]);
     tag(&repo, "release-bulk", "bulk release");
-    let observed = run(&fixture.copy("bulk"), &["timeout", "120", env!("CARGO_BIN_EXE_north"), "safe-push"], &Case::new(&["--tag", "release-bulk"]));
-    assert_eq!(observed.status, 0, "exit 124 means the scan hung: {observed:#?}");
+    let observed = run(&fixture.copy("bulk"), &[env!("CARGO_BIN_EXE_north"), "safe-push"], &Case::new(&["--tag", "release-bulk"]));
+    assert_eq!(observed.status, 0, "a stalled scan panics before this: {observed:#?}");
     assert!(published(&observed, &fixture, "release-bulk"), "{observed:#?}");
+}
+
+#[test]
+#[should_panic(expected = "deadlocked")]
+fn a_process_tree_that_uses_no_cpu_is_reported_as_deadlocked() {
+    output_unless_stalled(Command::new("sh").args(["-c", "sleep 30"]), Duration::from_secs(2));
 }
