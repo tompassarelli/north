@@ -830,7 +830,7 @@ ci_budget_scan() {
 
   local commits test_kind=0 workflow budget ceiling extra commit trailers name before arrow after matched improved
   local source rows sha wall result slowest runs ids id jobs measurement median since need head_sha
-  local newest_job newest_seconds job_seconds
+  local newest_job newest_seconds job_seconds attempt measure_cache measure_dir
   local -a walls
   commits=$(git log --format=%H "$range")
   [ -n "$commits" ] || return 0
@@ -908,11 +908,11 @@ ci_budget_scan() {
         ;;
       *)
         runs=$(gh run list --workflow "$workflow" --branch main --status completed --limit 10 \
-          --json databaseId,conclusion,createdAt,headSha) || {
+          --json databaseId,attempt,conclusion,createdAt,headSha) || {
           ci_budget_hold "$workflow" 'gh failed to list completed main runs' || return 1
           continue
         }
-        ids=$(jq -r 'sort_by(.createdAt) | reverse | .[] | select(.conclusion != "cancelled" and .conclusion != "skipped") | "\(.databaseId) \(.headSha // "")"' <<<"$runs") || {
+        ids=$(jq -r 'sort_by(.createdAt) | reverse | .[] | select(.conclusion != "cancelled" and .conclusion != "skipped") | "\(.databaseId) \(.attempt // 1) \(.headSha // "")"' <<<"$runs") || {
           ci_budget_hold "$workflow" 'cannot parse main runs' || return 1
           continue
         }
@@ -920,26 +920,33 @@ ci_budget_scan() {
           printf 'safe-push: CI budget %s exemption — main is red at run %s and every commit names it in Main-red:.\n' "$workflow" "$main_red"
           continue
         fi
-        while read -r id head_sha; do
+        measure_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/run-measurements/$(git remote get-url origin 2>/dev/null | tr -c 'A-Za-z0-9._-' _)"
+        while read -r id attempt head_sha; do
           [ -n "$id" ] || continue
           if [ -n "$since" ] && ! git merge-base --is-ancestor "$since" "${head_sha:-$since^}" 2>/dev/null; then
             continue
           fi
-          jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --paginate --slurp) || {
-            ci_budget_hold "$workflow" "gh failed to read jobs for run $id" || return 1
-            continue 2
-          }
-          measurement=$(jq -r '
-            [.[].jobs[] | select(.started_at != null and .completed_at != null)
-              | {name, start: (.started_at | fromdateiso8601), end: (.completed_at | fromdateiso8601)}
-              | .seconds = (.end - .start)] as $jobs
-            | if ($jobs | length) == 0 then empty else
-                ($jobs | max_by(.seconds)) as $slowest
-                | [([$jobs[].end] | max) - ([$jobs[].start] | min), $slowest.name, $slowest.seconds] | @tsv
-              end' <<<"$jobs") || {
-            ci_budget_hold "$workflow" "cannot measure jobs for run $id" || return 1
-            continue 2
-          }
+          measurement=''
+          measure_cache="$measure_dir/$id-$attempt"
+          [ ! -r "$measure_cache" ] || IFS= read -r measurement <"$measure_cache" || measurement=''
+          if [ -z "$measurement" ]; then
+            jobs=$(gh api "repos/{owner}/{repo}/actions/runs/$id/jobs?per_page=100" --paginate --slurp) || {
+              ci_budget_hold "$workflow" "gh failed to read jobs for run $id" || return 1
+              continue 2
+            }
+            measurement=$(jq -r '
+              [.[].jobs[] | select(.started_at != null and .completed_at != null)
+                | {name, start: (.started_at | fromdateiso8601), end: (.completed_at | fromdateiso8601)}
+                | .seconds = (.end - .start)] as $jobs
+              | if ($jobs | length) == 0 then empty else
+                  ($jobs | max_by(.seconds)) as $slowest
+                  | [([$jobs[].end] | max) - ([$jobs[].start] | min), $slowest.name, $slowest.seconds] | @tsv
+                end' <<<"$jobs") || {
+              ci_budget_hold "$workflow" "cannot measure jobs for run $id" || return 1
+              continue 2
+            }
+            if [ -n "$measurement" ] && mkdir -p "$measure_dir"; then printf '%s\n' "$measurement" >"$measure_cache"; fi
+          fi
           [ -n "$measurement" ] || continue
           IFS=$'\t' read -r wall slowest job_seconds <<<"$measurement"
           if [ "${#walls[@]}" = 0 ]; then newest_job="$slowest"; newest_seconds="$job_seconds"; fi

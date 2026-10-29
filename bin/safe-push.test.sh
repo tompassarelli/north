@@ -152,6 +152,10 @@ fail() {
   exit 1
 }
 
+forget_run_measurements() {
+  rm -rf -- "$xdg_state/safe-push/run-measurements"
+}
+
 expect_status() {
   local expected="$1"
   if [ "$expected" = zero ]; then
@@ -1127,6 +1131,7 @@ cat >"$ci_fixture/103.json" <<'JSON'
 ]
 JSON
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
+forget_run_measurements
 printf '[{"jobs":[{"name":"oldest tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:00Z"}]}]\n' >"$ci_fixture/101.json"
 make_real_fixture ci-budget
 printf '[ci]\n\tbudget = farm-test.yml 240\n' >"$real_repo/.safe-push"
@@ -1157,11 +1162,13 @@ printf 'new work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'new work'
 
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:20Z"}]}]\n' >"$ci_fixture/102.json"
+forget_run_measurements
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
 expect_status zero
 expect_output 'clean (--dry-run)'
 
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
+forget_run_measurements
 "$real_git" -C "$real_repo" commit --amend -qm 'speed up tests' -m 'CI-budget: farm-test.yml 300s -> 200s'
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
 expect_status zero
@@ -1222,10 +1229,16 @@ expect_status zero
 expect_output 'CI budget farm-test.yml override: median 300s > budget 240s'
 grep -q $'\tfarm-test.yml\t300\t240\t' "$ci_hold_dir/ci-budget-overrides.tsv" || fail 'override was not recorded'
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:20Z"}]}]\n' >"$ci_fixture/102.json"
+forget_run_measurements
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
 expect_status zero
 [ ! -e "$ci_hold" ] || fail 'a passing budget left the hold in place'
+mv "$ci_fixture/102.json" "$ci_fixture/102.json.gone"
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+expect_status zero
+mv "$ci_fixture/102.json.gone" "$ci_fixture/102.json"
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
+forget_run_measurements
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
 expect_status nonzero
 expect_output 'a recorded override opens at'
