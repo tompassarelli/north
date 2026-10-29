@@ -78,6 +78,7 @@ impl Replay {
                 ),
             )
             .env("HOME", self.home())
+            .env("NORTH_BIN", env!("CARGO_BIN_EXE_north"))
             .env("NORTH_FIRN", root)
             .env(
                 "CLAUDE_CONFIG_DIR",
