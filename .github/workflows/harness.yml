@@ -79,3 +79,8 @@ jobs:
       - name: Agent-machinery tests
         working-directory: agent-machinery
         run: bun test
+      - name: Automation browser download
+        if: ${{ !cancelled() && steps.tools.outputs.browser-skip != '' }}
+        run: |
+          echo "::error::${{ steps.tools.outputs.browser-skip }}"
+          exit 1

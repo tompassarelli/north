@@ -1,5 +1,9 @@
 name: Harness test tools
 description: The north build, system tools, namespaces and browser the shell, Python and agent-machinery tests need.
+outputs:
+  browser-skip:
+    description: Why the CDP boundary test was skipped, empty when the automation browser is available.
+    value: ${{ steps.browser.outputs.skip }}
 runs:
   using: composite
   steps:
@@ -40,9 +44,39 @@ runs:
     - name: Install automation browser boundary
       shell: bash
       working-directory: lib/automation-chrome
+      run: bun install --frozen-lockfile
+    - name: Find installed automation browser
+      id: installed
+      shell: bash
       run: |
-        bun install --frozen-lockfile
-        timeout 240 bunx --no-install playwright-core install --with-deps chromium
+        if command -v google-chrome >/dev/null || command -v chromium >/dev/null; then
+          echo "present=true" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Cache automation browser download
+      if: steps.installed.outputs.present != 'true'
+      uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: ~/.cache/ms-playwright
+        key: automation-browser-${{ runner.os }}-${{ hashFiles('lib/automation-chrome/bun.lock') }}
+    - name: Download automation browser
+      id: download
+      if: steps.installed.outputs.present != 'true'
+      continue-on-error: true
+      shell: bash
+      working-directory: lib/automation-chrome
+      run: |
+        timeout 120 bunx --no-install playwright-core install chromium
+        timeout 120 bunx --no-install playwright-core install-deps chromium
+    - name: Record automation browser skip
+      id: browser
+      shell: bash
+      run: |
+        if [ "${{ steps.download.outcome }}" = failure ]; then
+          reason="automation browser download failed or exceeded 120 s"
+          echo "AUTOMATION_BROWSER_SKIP=$reason" >> "$GITHUB_ENV"
+          echo "skip=$reason" >> "$GITHUB_OUTPUT"
+          echo "::error::$reason; the CDP boundary test is skipped"
+        fi
     - name: Install agent-machinery dependencies
       shell: bash
       working-directory: agent-machinery
