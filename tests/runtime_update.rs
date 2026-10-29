@@ -95,6 +95,14 @@ impl Host {
     }
 
     fn north(&self, args: &[&str], sync_status: u8, alert_status: u8) -> Output {
+        self.run(args, sync_status, alert_status, &[])
+    }
+
+    fn north_with(&self, args: &[&str], environment: &[(&str, &str)]) -> Output {
+        self.run(args, 0, 0, environment)
+    }
+
+    fn run(&self, args: &[&str], sync_status: u8, alert_status: u8, environment: &[(&str, &str)]) -> Output {
         let isolated = !self.path("bin/agents").exists();
         let path = match isolated {
             true => self.path("bin").display().to_string(),
@@ -114,6 +122,7 @@ impl Host {
             .env("TEST_SYNCED", self.path("synced"))
             .env("TEST_SYNC_STATUS", sync_status.to_string())
             .env("TEST_EVENT_STATUS", alert_status.to_string())
+            .envs(environment.iter().copied())
             .output()
             .unwrap()
     }
@@ -256,4 +265,29 @@ fn a_commit_that_failed_its_health_check_is_held_back_for_an_hour_without_anothe
     let promoted = host.update(0, 0);
     assert!(promoted.status.success(), "{}", String::from_utf8_lossy(&promoted.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
+}
+
+#[test]
+fn a_deploy_that_cannot_take_the_update_lock_says_what_it_waits_on_and_fails_with_that_reason() {
+    let host = Host::new();
+    fs::create_dir_all(host.path("state/north")).unwrap();
+    let held = File::create(host.path("state/north/runtime-update.lock")).unwrap();
+    rustix::fs::flock(&held, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
+    let output = host.north_with(&["runtime", "deploy", "far"], &[("NORTH_RUNTIME_STEP_SECONDS", "2")]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("waiting up to 2s for runtime-update.lock, held by another north runtime update"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime-update.lock stayed held by another north runtime update for 2s"));
+}
+
+#[test]
+fn a_deploy_step_that_hangs_on_a_host_is_stopped_and_named_with_its_host_and_limit() {
+    let host = Host::new();
+    host.built(&host.target);
+    script(&host.path("bin/ssh"), "sleep 30\n");
+    let output = host.north_with(&["runtime", "deploy", "far"], &[("NORTH_RUNTIME_STEP_SECONDS", "1")]);
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("far: nix-store --realise"), "{stdout}");
+    assert!(stderr.contains("nix-store --realise on far did not finish within 1s and was stopped"), "{stderr}");
 }

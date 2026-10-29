@@ -264,7 +264,7 @@ fn a_launch_inherits_the_calling_session_as_parent_unless_told_none() {
 }
 
 fn seconds(rollover: u64, finished_exit: u64) -> crate::fleet::idle::Policy {
-    crate::fleet::idle::Policy { rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit) }
+    crate::fleet::idle::Policy { rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit), wake_after: [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(3)] }
 }
 
 fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) {
@@ -368,4 +368,47 @@ fn a_worker_on_the_handoff_arm_is_told_to_hand_off_at_its_threshold_and_again_pe
     assert_eq!(nudged.len(), 2, "at 360k and at 410k, not at 400k: {nudged:?}");
     assert!(nudged[0].contains("Your context is 360k tokens, past the 350k handoff point") && nudged[0].contains("worker.md"), "{}", nudged[0]);
     assert!(calls(None).is_empty(), "the no-handoff arm and unarmed sessions are never nudged");
+}
+
+fn box_worker_record(root: &Path) {
+    let session = root.join("worker");
+    std::fs::create_dir_all(&session).unwrap();
+    let record = json!({"name": "worker", "provider": "claude", "account": "c", "cwd": "/tmp", "model": null, "created_ms": 0, "host_pid": null, "conversation": "s", "host_dir": session, "parent": "lead", "task_ref": "north#187"});
+    std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+}
+
+async fn wait_run(root: &Path, reply: &str) -> (u8, String, Vec<(String, String, Delivery)>) {
+    let (config, stdin) = claude_turn(root, 1_000, reply);
+    let sink = Arc::new(Recorded::default());
+    let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.to_path_buf(), root.join("worker")).idling_by(seconds(600, 600));
+    let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
+    host.rest_when_idle(Some(Duration::from_secs(1)));
+    let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
+    let posted = sink.1.lock().unwrap().clone();
+    (code, std::fs::read_to_string(stdin).unwrap_or_default(), posted)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_box_worker_that_ended_its_turn_on_a_wait_is_woken_three_times_then_reported_stalled_to_its_lead() {
+    let root = tempfile::tempdir().unwrap();
+    box_worker_record(root.path());
+    let (code, stdin, posted) = wait_run(root.path(), "Still building on nexus.").await;
+    assert_eq!(code, 143);
+    assert_eq!(stdin.lines().filter(|line| line.contains("your turn ended on a wait")).count(), 3, "{stdin}");
+    assert!(stdin.contains("wake 3 of 3") && stdin.contains("Still building on nexus."), "{stdin}");
+    let stalls: Vec<_> = posted.iter().filter(|(parent, text, _)| parent == "lead" && text.contains("ended on a wait · woken 3 times")).collect();
+    assert_eq!(stalls.len(), 1, "{posted:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_worker_with_a_final_report_or_no_box_is_never_woken() {
+    let root = tempfile::tempdir().unwrap();
+    box_worker_record(root.path());
+    let (_, stdin, posted) = wait_run(root.path(), "Done: landed abc123.").await;
+    assert_eq!(stdin, "");
+    assert!(posted.iter().all(|(_, text, _)| !text.contains("ended on a wait")), "{posted:?}");
+    let other = tempfile::tempdir().unwrap();
+    session_record(other.path(), Some("lead"));
+    let (_, stdin, _) = wait_run(other.path(), "Still building on nexus.").await;
+    assert_eq!(stdin, "", "a session with no box is not a worker the fleet wakes");
 }

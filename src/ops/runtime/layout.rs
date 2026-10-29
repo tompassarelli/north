@@ -37,6 +37,10 @@ pub(crate) fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
+pub(crate) fn short(sha: &str) -> &str {
+    sha.get(..8).unwrap_or(sha)
+}
+
 pub(crate) fn link(sha: &str) -> PathBuf {
     Path::new("runtimes").join(sha)
 }

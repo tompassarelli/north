@@ -35,3 +35,23 @@ fn a_second_session_asking_for_a_pair_another_live_owner_holds_is_refused_naming
     let same_owner = session(&host, "wisp-worker", "4", &["true"]);
     assert!(same_owner.status.success(), "{}", host.helper_stderr());
 }
+
+#[test]
+fn a_pairs_lease_is_released_when_its_owners_scope_ends() {
+    let host = host();
+    let flag = host.path("holder-running");
+    std::fs::write(&flag, "").unwrap();
+    let script = format!("while [ -e {} ]; do sleep 0.05; done", flag.display());
+    let holder_arguments = ["session", "--class", "native", "--new-clients", "0", "--memory-gib", "1", "--owner", "wisp-worker", "--pair", "4", "--", "sh", "-c", script.as_str()];
+    let mut holder = Wrapper(host.helper(&holder_arguments).stdout(Stdio::null()).spawn().unwrap());
+    host.until("the pair 4 lease", |host| host.leases("native") == 1);
+    assert_eq!(session(&host, "sc-46-place", "4", &["true"]).status.code(), Some(75));
+
+    std::fs::remove_file(&flag).unwrap();
+    host.until("the holder's scope to end", |_| holder.exited().is_some());
+    assert_eq!(host.leases("native"), 0);
+    assert!(host.status()["holding"].as_array().is_none_or(|holding| holding.is_empty()), "{}", host.status());
+
+    let taken = session(&host, "sc-46-place", "4", &["true"]);
+    assert!(taken.status.success(), "{}", host.helper_stderr());
+}
