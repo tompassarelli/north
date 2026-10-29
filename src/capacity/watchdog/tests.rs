@@ -55,3 +55,21 @@ fn caps_lift_after_load_stays_calm() {
     let actions = replayed(&hot.chain(calm).collect::<Vec<_>>().join("\n"), &mut owners(), Settings::bundled(LAPTOP_CPUS));
     assert!(actions.iter().any(|action| matches!(action, Action::Release(cap) if cap.unit.starts_with("north-session-77c49ab1"))), "{actions:#?}");
 }
+
+#[test]
+fn a_top_tree_in_a_north_fleet_service_unit_names_its_session_and_sends_to_it() {
+    let unit = "north-fleet-sc-butcher-hook-a5f3b12f.service";
+    let hot: Vec<_> = SAMPLES
+        .lines()
+        .map(|line| {
+            let mut sample: serde_json::Value = serde_json::from_str(line).unwrap();
+            sample["cgroups"].as_array_mut().unwrap().push(serde_json::json!({ "cgroup": format!("app.slice/{unit}"), "cores": 40.0 }));
+            sample.to_string()
+        })
+        .collect();
+    let actions = replayed(&hot.join("\n"), &mut BTreeMap::new(), Settings::bundled(LAPTOP_CPUS));
+    let incident = actions.iter().find_map(|action| if let Action::Incident(incident) = action { Some(incident) } else { None }).expect("an incident");
+    let tree = incident.trees.iter().find(|tree| tree.unit == unit).expect("the service unit is a named tree");
+    assert_eq!(tree.session.as_deref(), Some("sc-butcher-hook"));
+    assert!(actions.iter().any(|action| matches!(action, Action::Send { to, text } if to == "sc-butcher-hook" && text.contains("session sc-butcher-hook"))), "{actions:#?}");
+}

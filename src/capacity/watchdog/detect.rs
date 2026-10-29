@@ -6,6 +6,8 @@ use toml_edit::DocumentMut;
 
 pub(super) const COORDINATOR: &str = "proxy";
 const SESSION_PREFIX: &str = "north-session-";
+const SERVICE_PREFIX: &str = "north-fleet-";
+const SERVICE_SUFFIX_LENGTH: usize = 8;
 const LEASE_PREFIX: &str = "agent-capacity-";
 const TREES_NAMED: usize = 5;
 const UNOWNED_NAMED: usize = 3;
@@ -137,6 +139,16 @@ fn unit_of(cgroup: &str) -> &str {
     cgroup.rsplit('/').next().unwrap_or(cgroup)
 }
 
+fn service_session(unit: &str) -> Option<String> {
+    let stem = unit.strip_prefix(SERVICE_PREFIX)?.strip_suffix(".service")?;
+    let (name, suffix) = stem.rsplit_once('-')?;
+    (!name.is_empty() && suffix.len() == SERVICE_SUFFIX_LENGTH && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())).then(|| name.to_owned())
+}
+
+fn owner_of(owners: &mut dyn Owners, unit: &str) -> Option<Owner> {
+    owners.owner(unit).or_else(|| service_session(unit).map(|session| Owner { session, parent: None }))
+}
+
 fn fleet_scope(cgroup: &str) -> bool {
     cgroup.strip_prefix("agent.slice/").is_some_and(|unit| unit.starts_with(SESSION_PREFIX) && unit.ends_with(".scope") && !unit.contains('/'))
 }
@@ -197,13 +209,13 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
     let (owned, unowned): (Vec<Tree>, Vec<Tree>) = ranked
         .iter()
         .map(|(cgroup, cores)| {
-            let owner = owners.owner(unit_of(cgroup));
+            let owner = owner_of(owners, unit_of(cgroup));
             Tree { unit: unit_of(cgroup).to_owned(), cores: round(*cores), kind: kind(cgroup), session: owner.as_ref().map(|owner| owner.session.clone()), parent: owner.and_then(|owner| owner.parent), lead: sample.lead_command(cgroup) }
         })
         .partition(|tree| tree.session.is_some());
     let trees: Vec<Tree> = owned.into_iter().take(TREES_NAMED).chain(unowned.into_iter().take(UNOWNED_NAMED)).collect();
     let capped = ranked.iter().find(|(cgroup, cores)| fleet_scope(cgroup) && *cores >= settings.offender_cores).map(|(cgroup, cores)| {
-        let owner = owners.owner(unit_of(cgroup));
+        let owner = owner_of(owners, unit_of(cgroup));
         Cap {
             unit: unit_of(cgroup).to_owned(),
             session: owner.map(|owner| owner.session),
