@@ -13,16 +13,17 @@ use super::fleets::{self, PROBE, Session, remote_json};
 use crate::fleet::model::ProviderName;
 use crate::ledger::ClosedReport;
 use crate::fleet::roster::{Roster, Standing};
-use crate::pace::exhaustion;
 use crate::ops::pacing::placement::{self, gate};
 use crate::platform::process::run_within;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
-pub(super) const CATALOG: &str = include_str!("../../../harness/model-catalog.toml");
+pub(super) use crate::ops::pacing::placement::room::room;
+#[cfg(test)]
+pub(super) use crate::ops::pacing::placement::room::{CATALOG, plan};
+use crate::ops::pacing::placement::room::{Basis, WEEK_H};
 const PACE_FRESH_S: f64 = 15.0 * 60.0;
-const WEEK_H: f64 = 7.0 * 24.0;
 
 pub(crate) struct Survey {
     pub here: String,
@@ -132,40 +133,6 @@ pub(crate) fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here:
     account_hosts(cfg, account, here).into_iter().filter(|host| own || host != here).collect()
 }
 
-/// An account's plan size per window in Max 5x units: the five-hour and weekly multipliers of its
-/// `[accounts.PROVIDER] plans` entry in the model catalog, over those of `max-5x`.
-pub(crate) fn plan(cfg: &DocumentMut, catalog: &DocumentMut, account: &str) -> Result<PlanSize, String> {
-    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
-    let named = cfg.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|policy| policy.get("plans")).and_then(|plans| plans.get(label)).and_then(Item::as_str);
-    let plan = named.ok_or_else(|| format!("{account} has no [accounts.{provider}] plans entry, so dispatch sizes it as max-5x"))?;
-    let plans = catalog.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|catalog| catalog.get("plans"));
-    let multiples = |name: &str| {
-        let entry = plans?.get(name)?;
-        let multiple = |key: &str| entry.get(key).and_then(|item| item.as_float().or_else(|| item.as_integer().map(|whole| whole as f64))).filter(|times| *times > 0.0);
-        Some((multiple("five_hour_multiplier")?, multiple("weekly_multiplier")?))
-    };
-    let unit = multiples("max-5x").ok_or_else(|| format!("the model catalog has no {provider} max-5x plan with five_hour_multiplier and weekly_multiplier, so dispatch sizes {account} as max-5x"))?;
-    let (five_hour, week) = multiples(plan).ok_or_else(|| format!("{account} plan {plan} has no five_hour_multiplier and weekly_multiplier in the model catalog, so dispatch sizes it as max-5x"))?;
-    Ok(PlanSize { five_hour: five_hour / unit.0, week: week / unit.1 })
-}
-
-/// The room a usage-gate control leaves at `at`: its tightest five-hour and week windows, an
-/// unsampled window counting as unused.
-pub(crate) fn room(control: &Value, at: f64) -> Room {
-    let mut room = Room { five_hour: exhaustion::FIVE_HOUR_STOP, week: 100.0, week_reset_h: WEEK_H };
-    for window in control["windows"].as_array().into_iter().flatten() {
-        let (Some(name), Some(used)) = (window["window"].as_str(), window["used_pct"].as_f64()) else { continue };
-        let Some(left) = exhaustion::headroom(name, used) else { continue };
-        if name == "5h" {
-            room.five_hour = room.five_hour.min(left);
-        } else if left <= room.week {
-            let reset = window["resets_at"].as_str().and_then(crate::pace::target::seconds).map(|resets| (resets - at) / 3600.0);
-            room = Room { week: left, week_reset_h: reset.or_else(|| window["reset_h"].as_f64()).unwrap_or(WEEK_H), ..room };
-        }
-    }
-    room
-}
-
 /// The 5h window's measured burn in percent per hour, which usage-gate carries only for a trail of two readings.
 fn five_hour_burn(usage: &Value) -> Option<f64> {
     usage["windows"].as_array()?.iter().find(|window| window["window"] == "5h")?["burn_pct_h"].as_f64()
@@ -174,7 +141,7 @@ fn five_hour_burn(usage: &Value) -> Option<f64> {
 fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
     let pace = placement::pace_state("pace-control.json");
     let usage = placement::pace_state("usage-gate.json");
-    let catalog: DocumentMut = CATALOG.parse().expect("harness/model-catalog.toml parses");
+    let basis = Basis::new(cfg, pace.clone(), at);
     pace["accounts"]
         .as_object()
         .into_iter()
@@ -182,7 +149,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
         .map(|(name, control)| {
             let sampled = usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:"));
             let verdict = sampled.map(|usage| gate::verdict(name, usage));
-            let plan = match sampled.map(|_| plan(cfg, &catalog, name)) {
+            let plan = match sampled.map(|_| basis.plan(name)) {
                 Some(Ok(plan)) => plan,
                 Some(Err(why)) => {
                     notes.push(why);
@@ -195,7 +162,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
                 name: name.clone(),
                 hosts: signed_in(cfg, roster, name, here),
                 plan,
-                spending: control["target"]["by"].as_str().and_then(crate::pace::target::seconds).is_some_and(|by| by > at),
+                spending: basis.spending(name),
                 refusal: account_refusal(name, control, verdict.as_ref(), &room, at),
                 room,
                 burn: sampled.and_then(five_hour_burn),

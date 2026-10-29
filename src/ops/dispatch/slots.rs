@@ -1,5 +1,6 @@
 //! Free worker slots: a host has its resident cap minus the sessions it runs, and an account the
 //! out-rule keeps out has none; any other account may take every free slot of a host it is signed in on.
+pub(crate) use crate::ops::pacing::placement::room::{Charge, PlanSize, Room};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,63 +46,6 @@ pub(crate) struct Account {
     pub refusal: Option<String>,
     /// Its measured five-hour burn in its own percent per hour, when its trail spans two readings.
     pub burn: Option<f64>,
-}
-
-/// What a plan holds of each window, in Max 5x units: Max 20x holds four times the five-hour room of Max 5x but only twice its week.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct PlanSize {
-    pub five_hour: f64,
-    pub week: f64,
-}
-
-/// Points of an account's own percent a launch takes from each window.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct Charge {
-    pub five_hour: f64,
-    pub week: f64,
-}
-
-/// Points an account has left, in its own percent, before the five-hour stop and before the week is exhausted.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Room {
-    pub five_hour: f64,
-    pub week: f64,
-    /// Hours until the week resets, when its unspent room is lost.
-    pub week_reset_h: f64,
-}
-
-impl Room {
-    const SOONEST_RESET_H: f64 = 1.0 / 60.0;
-
-    /// Week room in plan units per hour until it resets: the capacity lost each hour it is not spent.
-    pub(crate) fn expiring(&self, plan: PlanSize) -> f64 {
-        self.week * plan.week / self.week_reset_h.max(Self::SOONEST_RESET_H)
-    }
-
-    /// The tightest window's own percent left, the measure `north fleet launch` placement ranks accounts by.
-    pub(crate) fn headroom(&self) -> f64 {
-        self.five_hour.min(self.week)
-    }
-
-    pub(crate) fn less(self, charge: Charge) -> Self {
-        Self { five_hour: self.five_hour - charge.five_hour, week: self.week - charge.week, ..self }
-    }
-
-    /// Weekly points of an account's own percent that one box reserves, which the week must hold beyond to staff it.
-    pub(crate) fn box_reserve() -> f64 {
-        crate::pace::limits::default("reservation_fallback_points")
-    }
-
-    /// Why the week's room, `reserve` points or fewer, keeps a box off the account, else None.
-    pub(crate) fn week_short(&self, reserve: f64) -> Option<String> {
-        (self.week <= reserve).then(|| format!("{:.0} points left in the week, no more than the {reserve:.0} a box reserves", self.week))
-    }
-
-    /// Whether `charge` more leaves both windows short of the point where the out-rule refuses.
-    pub(crate) fn takes(&self, charge: Charge) -> bool {
-        let after = self.less(charge);
-        after.five_hour > 0.0 && after.week > 0.0
-    }
 }
 
 impl Account {

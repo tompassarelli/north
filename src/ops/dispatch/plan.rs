@@ -3,6 +3,7 @@
 use super::issues::IssueRef;
 use super::cloud::{HOST, SESSIONS};
 use super::slots::{Account, Charge, Pools};
+use crate::ops::pacing::placement::room::Rank;
 use super::tier::Route;
 use std::cmp::Ordering;
 
@@ -89,43 +90,36 @@ fn burn_held(capacity: &Capacity, pools: &Pools, host: &str, eta_h: Option<f64>)
     capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.takes(pools, account, None) && !capacity.takes(pools, account, eta_h)).filter_map(|account| burn_line(pools, account, eta_h)).collect()
 }
 
-/// A live spend target first, since Tom set it to drain that account; then the week's room that
-/// expires soonest, in plan units per hour until its reset; then five-hour room in plan units.
+/// The shared rank (`room::Rank`) of each account's room less what this run has charged it.
 fn rank(pools: &Pools, a: &Account, b: &Account) -> Ordering {
-    let (room_a, room_b) = (pools.room(a), pools.room(b));
-    a.spending
-        .cmp(&b.spending)
-        .then(room_a.expiring(a.plan).total_cmp(&room_b.expiring(b.plan)))
-        .then((room_a.five_hour * a.plan.five_hour).total_cmp(&(room_b.five_hour * b.plan.five_hour)))
-        .then(b.name.cmp(&a.name))
+    Rank::of(pools.room(a), a.plan, a.spending).order(&Rank::of(pools.room(b), b.plan, b.spending)).then(b.name.cmp(&a.name))
+}
+
+/// The same rank at the room placement reads live, before this run's charges.
+fn live_rank(a: &Account, b: &Account) -> Ordering {
+    Rank::of(a.room, a.plan, a.spending).order(&Rank::of(b.room, b.plan, b.spending)).then(b.name.cmp(&a.name))
 }
 
 fn best_account<'a>(capacity: &'a Capacity, pools: &Pools, host: &str, eta_h: Option<f64>) -> Option<&'a Account> {
     capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.takes(pools, account, eta_h)).max_by(|a, b| rank(pools, a, b))
 }
 
-/// A pin reason when an open account that ranks higher runs elsewhere, since placement on the
-/// launching host would pick it over the one signed in where placement order puts the box; else
-/// when another account has more headroom, since placement picks by the live gate's headroom where
-/// dispatch ranks by spend target and expiring week room.
-fn pin(capacity: &Capacity, pools: &Pools, host: &str, chosen: &Account, eta_h: Option<f64>) -> Option<String> {
-    let peers = || capacity.accounts.iter().filter(|account| account.provider() == chosen.provider() && account.name != chosen.name);
-    let placed = peers().filter(|account| account.refusal.is_none() && capacity.takes(pools, account, eta_h)).max_by(|a, b| rank(pools, a, b));
-    if let Some(placed) = placed.filter(|placed| rank(pools, placed, chosen) == Ordering::Greater) {
-        return Some(format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name));
+/// A pin reason when placement, ranking the open accounts by the same rank at the room it reads
+/// live, would pick another account than the one this run's earlier launches put first.
+fn pin(capacity: &Capacity, pools: &Pools, host: &str, chosen: &Account) -> Option<String> {
+    let placed = capacity.accounts.iter().filter(|account| account.provider() == chosen.provider() && account.refusal.is_none()).max_by(|a, b| live_rank(a, b))?;
+    if placed.name == chosen.name {
+        return None;
     }
-    let roomier = peers().filter(|account| account.refusal.is_none() && account.room.headroom() > chosen.room.headroom()).max_by(|a, b| a.room.headroom().total_cmp(&b.room.headroom()))?;
-    Some(format!(
-        "north dispatch ranks {} first by spend target and week room expiring soonest; placement would pick {} for its {:.0}% headroom over {:.0}%",
-        chosen.name,
-        roomier.name,
-        roomier.room.headroom(),
-        chosen.room.headroom()
-    ))
+    Some(if pools.pair(host, &placed.name) > 0 {
+        format!("north dispatch ranks {} first on the room left after this run's earlier launches; placement ranks by the room it reads live and would pick {}", chosen.name, placed.name)
+    } else {
+        format!("north dispatch: placement order puts this box on {host}, where {} has a free worker slot and {} is not signed in", chosen.name, placed.name)
+    })
 }
 
 fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, local: Option<String>) -> Launch {
-    let pin = pin(capacity, pools, host, account, ready.eta_h);
+    let pin = pin(capacity, pools, host, account);
     let burn = burn_line(pools, account, ready.eta_h);
     pools.take(host);
     pools.charge(&account.name, capacity.charge(account));

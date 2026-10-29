@@ -158,7 +158,7 @@ fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
     if chosen.is_none() && best.is_none() {
         return None;
     }
-    let fits = chosen.is_some_and(|v| v.available) && best.is_none_or(|b| b.headroom <= chosen.map_or(0.0, |v| v.headroom));
+    let fits = chosen.is_some_and(|v| v.available) && best.is_none_or(|b| chosen.is_some_and(|v| b.rank.order(&v.rank).is_le()));
     if fits {
         return None;
     }

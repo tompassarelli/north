@@ -1,12 +1,13 @@
 use super::*;
 use crate::ops::pacing::placement::gate::{self as placement, Verdict};
+use crate::ops::pacing::placement::room::{PlanSize, Rank, Room};
 
 fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
     let line = match headroom {
         Some(room) => format!("{account} available: 5h {:.0}% ({room:.0}% headroom)", 95.0 - room),
         None => format!("{account} unavailable: burning: 5h 86.0%/h > the 50%/h cap that keeps the window two hours"),
     };
-    Verdict { account: account.into(), available: headroom.is_some(), exhausted: headroom.is_none(), headroom: headroom.unwrap_or(0.0), line, owners: Vec::new() }
+    Verdict { account: account.into(), available: headroom.is_some(), exhausted: headroom.is_none(), headroom: headroom.unwrap_or(0.0), rank: Rank::of(Room { five_hour: headroom.unwrap_or(0.0), week: headroom.unwrap_or(0.0), week_reset_h: 100.0 }, PlanSize { five_hour: 1.0, week: 1.0 }, false), line, owners: Vec::new() }
 }
 
 fn decision(target: Target) -> Decision {
@@ -96,6 +97,16 @@ fn an_available_account_with_less_headroom_than_placements_pick_is_admitted_only
     assert!(admit(&roomier, &launch, "", &Overrides::default()).unwrap_err().contains("placement picks claude:a"));
     let pin = Overrides { pin: Some("north dispatch ranks claude:b first by spend target and week room expiring soonest".into()), ..Overrides::default() };
     assert!(admit(&roomier, &launch, "", &pin).unwrap().note.unwrap().starts_with("pin: north dispatch ranks claude:b first"));
+}
+
+#[test]
+fn the_account_the_shared_rank_puts_first_is_admitted_without_a_pin_though_another_has_more_headroom() {
+    let mut ranked = decision(Target::Account("claude:b".into()));
+    ranked.verdicts = vec![verdict("claude:a", Some(80.0)), verdict("claude:b", Some(30.0))];
+    ranked.verdicts[1].rank = Rank::of(Room { five_hour: 30.0, week: 30.0, week_reset_h: 5.0 }, PlanSize { five_hour: 1.0, week: 1.0 }, false);
+    let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: None };
+    assert_eq!(admit(&ranked, &launch("b"), "", &Overrides::default()), noted(None), "b's week expires sooner, so placement ranks it first");
+    assert!(admit(&ranked, &launch("a"), "", &Overrides::default()).unwrap_err().contains("placement picks claude:b"));
 }
 
 #[test]

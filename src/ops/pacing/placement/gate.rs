@@ -1,10 +1,11 @@
 //! Claude-only launch placement for `north fleet launch`: the cloud credit first for code-only public
-//! work, then the Claude account with the most headroom, run on the first machine in `[placement] order`
+//! work, then the Claude account the shared rank puts first (`room::Rank`), run on the first machine in `[placement] order`
 //! that serves every local need of the box and is below its resident cap, else here. Pace lines, weekly
 //! projections and the controller's held or over never hold a launch; an account is out only by the
 //! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
+use super::room::{Basis, Rank};
 use super::{credit, facets, field, here_saturation, local, resident, saturation, signed_in, strings};
 use crate::capacity::agent_load;
 use crate::capacity::saturation::Saturation;
@@ -12,6 +13,7 @@ use crate::fleet::model::ProviderName;
 use crate::pace::exhaustion;
 use crate::fleet::roster::{Roster, Standing};
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
 
@@ -28,6 +30,8 @@ pub(crate) struct Verdict {
     /// Out by the five-hour stop, the burn cap or an exhausted week, which no `--pin` overrides.
     pub exhausted: bool,
     pub headroom: f64,
+    /// Zero until `verdicts` ranks it from the account's room, plan and spend target.
+    pub rank: Rank,
     pub line: String,
     pub owners: Vec<String>,
 }
@@ -75,14 +79,14 @@ impl Decision {
         self.best_where(|_| true)
     }
 
-    /// The roomiest available account that runs here, the one a box kept here launches on.
+    /// The best-ranked available account that runs here, the one a box kept here launches on.
     pub(crate) fn best_here(&self) -> Option<&Verdict> {
         let here: Vec<&str> = self.verdicts.iter().filter(|verdict| verdict.owners.is_empty()).map(|verdict| verdict.account.trim_start_matches("claude:")).collect();
         self.best_where(|label| here.contains(&label))
     }
 
     fn best_where(&self, allowed: impl Fn(&str) -> bool) -> Option<&Verdict> {
-        roomiest(&self.verdicts, allowed)
+        best(&self.verdicts, allowed, |a, b| a.rank.order(&b.rank))
     }
 
     fn sign_in_on_machine(&mut self) {
@@ -143,11 +147,8 @@ impl Decision {
     }
 }
 
-fn roomiest(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool) -> Option<&Verdict> {
-    verdicts
-        .iter()
-        .filter(|v| v.available && allowed(v.account.trim_start_matches("claude:")))
-        .max_by(|a, b| a.headroom.total_cmp(&b.headroom).then(b.account.cmp(&a.account)))
+fn best(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool, order: impl Fn(&Verdict, &Verdict) -> Ordering) -> Option<&Verdict> {
+    verdicts.iter().filter(|v| v.available && allowed(v.account.trim_start_matches("claude:"))).max_by(|a, b| order(a, b).then(b.account.cmp(&a.account)))
 }
 
 /// The label of the Claude account that runs here with the most headroom in the gate pace-control
@@ -155,7 +156,7 @@ fn roomiest(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool) -> Option<&Ver
 /// replies cannot drain a window, so only the five-hour stop and an exhausted week rule an account out.
 pub(crate) fn roomiest_here(gate: &Value, roster: &Roster) -> Option<String> {
     let here: Vec<Verdict> = standing_verdicts(gate, roster, false).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
-    roomiest(&here, |_| true).map(|best| best.account.trim_start_matches("claude:").to_owned())
+    best(&here, |_| true, |a, b| a.headroom.total_cmp(&b.headroom)).map(|best| best.account.trim_start_matches("claude:").to_owned())
 }
 
 pub(crate) fn live_gate() -> Value {
@@ -202,6 +203,7 @@ fn judged(account: &str, control: &Value, burn_counts: bool) -> Verdict {
         available: true,
         exhausted: false,
         headroom: room,
+        rank: Rank::default(),
         line: format!("{account} available: {} ({room:.0}% headroom)", usage(windows)),
         owners: Vec::new(),
     }
@@ -374,8 +376,11 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
         .collect()
 }
 
-pub(crate) fn verdicts(gate: &Value, roster: &Roster) -> Vec<Verdict> {
+pub(crate) fn verdicts(gate: &Value, roster: &Roster, basis: &Basis) -> Vec<Verdict> {
     standing_verdicts(gate, roster, true)
+        .into_iter()
+        .map(|verdict| Verdict { rank: basis.rank(verdict.available, &verdict.account, &gate["claude"]["controls"][&verdict.account]), ..verdict })
+        .collect()
 }
 
 fn standing_verdicts(gate: &Value, roster: &Roster, burn_counts: bool) -> Vec<Verdict> {
@@ -392,7 +397,7 @@ fn standing_verdicts(gate: &Value, roster: &Roster, burn_counts: bool) -> Vec<Ve
 }
 
 fn unavailable(account: &str, reason: String) -> Verdict {
-    Verdict { account: account.into(), available: false, exhausted: false, headroom: 0.0, line: format!("{account} unavailable: {reason}"), owners: Vec::new() }
+    Verdict { account: account.into(), available: false, exhausted: false, headroom: 0.0, rank: Rank::default(), line: format!("{account} unavailable: {reason}"), owners: Vec::new() }
 }
 
 pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str, here_gaming: bool) -> Decision {
@@ -452,7 +457,7 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Rost
         .unwrap_or_else(storage::now);
     let gate = live_gate();
     let machines = probed(&cfg, fleet_load);
-    let mut decision = decide(text, &cfg, verdicts(&gate, roster), credit(&cfg, at), &machines, &local(), here_in_game_reserve());
+    let mut decision = decide(text, &cfg, verdicts(&gate, roster, &Basis::new(&cfg, load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &local(), here_in_game_reserve());
     if let Some(name) = named {
         let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
         decision.run_on(machine);

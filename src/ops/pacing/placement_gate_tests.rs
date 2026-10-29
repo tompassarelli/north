@@ -1,4 +1,5 @@
-use super::placement::gate::{self, Decision, Machine, Target, verdicts};
+use super::placement::gate::{self, Decision, Machine, Target, Verdict};
+use super::placement::room::Basis;
 use crate::fleet::model::{Account, ProviderName};
 use crate::fleet::roster::{Declared, Roster};
 use serde_json::{Value, json};
@@ -26,6 +27,11 @@ fn roster(identities: &[(&str, Option<&str>)]) -> Roster {
         let account = Account { provider: ProviderName::new("claude"), label: (*label).into(), home: format!("/profiles/claude-{label}").into(), token_file: None };
         (account, identity.map(str::to_owned))
     }), &Declared::default())
+}
+
+fn verdicts(quota: &Value, roster: &Roster) -> Vec<Verdict> {
+    let at = crate::pace::target::seconds("2026-10-19T00:00:00Z").unwrap();
+    gate::verdicts(quota, roster, &Basis::new(&DocumentMut::new(), json!({}), at))
 }
 
 fn decide(text: &str, cfg: &DocumentMut, quota: &Value, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {
@@ -176,9 +182,9 @@ fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
 fn placement_never_picks_a_label_logged_into_another_labels_account() {
     let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let quota = gate(&[
-        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
+        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
         ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
-        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
+        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
     ]);
     let shared = roster(&[("a", Some("one")), ("b", Some("one")), ("c", Some("two"))]);
     let decision = gate::decide(WARCRAFT, &cfg, verdicts(&quota, &shared), (false, String::new()), &[], "here", false);
@@ -207,9 +213,9 @@ fn needs_on_separate_lines_place_like_needs_on_one_line() {
 fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
     let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"warcraft\", \"native\"]\n[hosts.laptop]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let quota = gate(&[
-        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
+        ("claude:a", control((60.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
         ("claude:b", control((5.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
-        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (20.0, 1.0))),
+        ("claude:c", control((70.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0))),
     ]);
     let mut machines = super::placement::gate::machines(&cfg);
     machines[0].live = Some(0);
@@ -353,4 +359,20 @@ fn a_saturated_machine_is_skipped_by_name_and_the_next_one_takes_the_box() {
         assert_eq!(machine.as_deref(), Some("nexus"), "{signal}: {lines:?}");
         assert_eq!(lines, [line, "nexus available: 3/8 resident CLIs"], "{signal}");
     }
+}
+
+#[test]
+fn placement_picks_the_week_that_expires_soonest_then_a_live_spend_target_ahead_of_the_roomiest_account() {
+    let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
+    let usage = |five: f64, week: f64, resets: &str| json!({"windows": [{"window": "5h", "used_pct": five, "resets_at": "2026-10-19T04:00:00Z"}, {"window": "week", "used_pct": week, "resets_at": resets}]});
+    let quota = gate(&[("claude:a", usage(50.0, 70.0, "2026-10-19T10:00:00Z")), ("claude:b", usage(20.0, 30.0, "2026-10-26T00:00:00Z"))]);
+    let listed = roster(&[("a", None), ("b", None)]);
+    let at = crate::pace::target::seconds("2026-10-19T00:00:00Z").unwrap();
+    let picked = |pace: Value| {
+        let verdicts = gate::verdicts(&quota, &listed, &Basis::new(&DocumentMut::new(), pace, at));
+        target(&gate::decide(CODE_ONLY, &cfg, verdicts, (false, String::new()), &[], "here", false))
+    };
+    assert_eq!(picked(json!({})), "claude:a", "a holds less headroom than b but its week expires sooner");
+    let spending = json!({"accounts": {"claude:b": {"target": {"by": "2026-10-19T12:00:00Z"}}}});
+    assert_eq!(picked(spending), "claude:b", "a live spend target outranks every room");
 }

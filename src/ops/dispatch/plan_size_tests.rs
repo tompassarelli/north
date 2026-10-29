@@ -18,14 +18,17 @@ fn plan_size_is_read_per_window_from_the_catalog_so_a_max_20x_holds_four_times_t
 }
 
 #[test]
-fn an_account_ranked_first_by_expiring_week_room_but_short_of_the_roomiest_headroom_launches_pinned() {
+fn placement_ranks_accounts_as_dispatch_does_so_its_pick_needs_no_pin_until_an_earlier_launch_this_run_reorders_them() {
     let soon = Room { five_hour: 50.0, week: 30.0, week_reset_h: 10.0 };
     let late = Room { five_hour: 80.0, week: 70.0, week_reset_h: 150.0 };
     let accounts = vec![sized("claude:a", &["gex45"], MAX_5X, soon), sized("claude:b", &["gex45"], MAX_5X, late)];
-    let picks = chosen(vec![host("gex45", 24, Ok(0))], accounts, 1);
-    assert_eq!(accounts_of(&picks), ["claude:a"], "a's week expires sooner, so dispatch spends it first");
-    let pin = picks[0].1.as_deref().unwrap_or_default();
-    assert!(pin.contains("placement would pick claude:b for its 70% headroom over 30%"), "{pin:?}");
-    let roomiest = vec![sized("claude:a", &["gex45"], MAX_5X, Room { five_hour: 80.0, ..soon }), sized("claude:b", &["gex45"], MAX_5X, Room { five_hour: 20.0, ..late })];
-    assert_eq!(chosen(vec![host("gex45", 24, Ok(0))], roomiest, 1), [("claude:a".to_owned(), None)], "a pick that is also the roomiest needs no pin");
+    assert_eq!(chosen(vec![host("gex45", 24, Ok(0))], accounts, 1), [("claude:a".to_owned(), None)], "a's week expires sooner, so dispatch and placement both rank it first, though b has more headroom");
+    let week = |left: f64| Room { five_hour: 80.0, week: left, week_reset_h: 10.0 };
+    let half_a_box = Room::box_reserve() / 2.0;
+    let accounts = vec![sized("claude:a", &["gex45"], MAX_5X, week(40.0 + half_a_box)), sized("claude:b", &["gex45"], MAX_5X, week(40.0))];
+    let picks = chosen(vec![host("gex45", 24, Ok(0))], accounts, 2);
+    assert_eq!(accounts_of(&picks), ["claude:a", "claude:b"], "a's charge for the first box drops it below b");
+    assert_eq!(picks[0].1, None);
+    let pin = picks[1].1.as_deref().unwrap_or_default();
+    assert!(pin.contains("placement ranks by the room it reads live and would pick claude:a"), "{pin:?}");
 }
