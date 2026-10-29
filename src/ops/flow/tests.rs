@@ -7,7 +7,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::alerts::{Node, State, alert_plan, stall_alert};
-use super::host::{Host, Places, seconds, with_user_bin};
+use super::host::{Host, Places, iso, seconds, with_user_bin};
+use super::jobs::landing_jobs;
 use super::measure::{Env, get};
 use super::stall::{Facts, Job, Medians, landing_run, verdict, workflow_median};
 
@@ -243,4 +244,30 @@ fn a_unit_path_without_the_user_bin_gains_it_so_ci_diagnose_finds_claude() {
     assert_eq!(path, "/run/current-system/sw/bin:/home/fixture/.local/bin");
     assert_eq!(with_user_bin(Some(path.clone()), "/home/fixture".as_ref()), path);
     assert_eq!(with_user_bin(None, "/home/fixture".as_ref()), "/home/fixture/.local/bin");
+}
+
+#[test]
+fn a_workflow_with_hundreds_of_runs_a_day_gets_its_median_from_one_listing_page_per_day() {
+    let now = 1_793_000_000.0;
+    let directory = tempfile::tempdir().unwrap();
+    let places = places(directory.path());
+    let reply = |argv: &[&str]| -> Option<String> {
+        match argv {
+            ["git", "config", .., "ci.budget"] => Some("farm-test.yml 600\n".into()),
+            ["git", "ls-tree", ..] => Some(String::new()),
+            ["gh", "run", "list", .., "--status", "in_progress", _, _, _, _] => Some("[]".into()),
+            ["gh", "run", "list", .., "--created", bounds, "--limit", limit, _, _] => {
+                let (from, to) = bounds.split_once("..")?;
+                let count: u64 = limit.parse().ok().filter(|limit| *limit <= 100)?;
+                let first = (at(from) as u64) * 10;
+                let runs: Vec<Value> = (0..count).map(|i| json!({"databaseId": first + i, "workflowName": "Farm test", "displayTitle": "farm", "conclusion": "success", "startedAt": iso(at(to) - 600.0), "updatedAt": iso(at(to) - 300.0)})).collect();
+                Some(Value::from(runs).to_string())
+            }
+            _ => None,
+        }
+    };
+    let host = Fake(&reply);
+    let (jobs, medians) = landing_jobs(&places, &host, directory.path(), "owner/repo", now).expect("each listing fits one page, inside the per-command limit");
+    assert!(jobs.is_empty());
+    assert_eq!(medians["farm-test.yml"], Some(5.0));
 }

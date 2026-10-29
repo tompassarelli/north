@@ -99,20 +99,18 @@ fn workflows_of(host: &dyn Host, checkout: &Path) -> Option<Vec<String>> {
     Some(unique)
 }
 
+const DAILY_SAMPLE: &str = "100";
+
 fn history_median(host: &dyn Host, slug: &str, workflow: &str, now: f64) -> Option<Option<f64>> {
     let mut history: BTreeMap<u64, Value> = BTreeMap::new();
     for day in 0..7 {
         let bounds = format!("{}..{}", iso(now - f64::from(day + 1) * DAY), iso(now - f64::from(day) * DAY));
-        let mut command = vec!["gh", "run", "list", "--repo", slug, "--workflow", workflow, "--status", "success", "--created", &bounds, "--limit", "1000", "--json", "databaseId,workflowName,displayTitle,conclusion,startedAt,updatedAt"];
+        let mut command = vec!["gh", "run", "list", "--repo", slug, "--workflow", workflow, "--status", "success", "--created", &bounds, "--limit", DAILY_SAMPLE, "--json", "databaseId,workflowName,displayTitle,conclusion,startedAt,updatedAt"];
         if workflow == "autoland.yml" {
             command.extend(["--event", "workflow_dispatch"]);
         }
         let samples = host.json(&command)?;
-        let samples = samples.as_array()?;
-        if samples.len() == 1000 {
-            return None;
-        }
-        history.extend(samples.iter().filter_map(|item| Some((item["databaseId"].as_u64()?, item.clone()))));
+        history.extend(samples.as_array()?.iter().filter_map(|item| Some((item["databaseId"].as_u64()?, item.clone()))));
     }
     Some(workflow_median(history.values(), now))
 }
