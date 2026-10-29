@@ -123,3 +123,8 @@ pub(crate) fn recent_on(records: &[Record], host: &str, open: &BTreeSet<IssueRef
     let live = |record: &&Record| record.launched && !record.hand && record.host == host && at - record.at < if record.cloud { CLOUD_HOLD_S } else { LAPTOP_SHOW_S };
     records.iter().filter(live).filter(|record| IssueRef::parse(&record.item).is_some_and(|item| open.contains(&item))).count() as i64
 }
+
+/// When each cloud-lane session was launched, from the dispatch record.
+pub(crate) fn cloud_launch_times() -> Vec<f64> {
+    read(&directory()).into_iter().filter(|record| record.cloud && record.launched).map(|record| record.at).collect()
+}

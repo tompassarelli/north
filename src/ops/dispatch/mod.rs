@@ -11,6 +11,7 @@ use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
 use survey::Survey;
 
+pub(crate) use record::cloud_launch_times;
 pub(crate) use cloud::{autoland as cloud_autoland, branch as cloud_branch};
 pub(crate) use fleets::holder as task_holder;
 pub(crate) use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
