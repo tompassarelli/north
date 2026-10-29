@@ -3,18 +3,21 @@
 //! ETA and budget cells to the cells file, appends each changed cell's evidence to the provenance
 //! file, files one north issue for each cell whose cost per closed box rose more than 25% week on
 //! week unless one filed for it is open or closed in the last week, and prints the open north issue
-//! count. A failed read of the arms' evidence keeps the prior routing cells and fails the tick.
+//! count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
+//! today's beside the last earlier day's. A failed read of the arms' evidence keeps the prior routing cells and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport};
 use crate::ops::dispatch::{ARMED, Evidence, LEDGER_WINDOW, arm_evidence};
 use crate::platform::github;
 use cells::{Cells, Change};
+use costs::Cost;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
 mod cells;
+mod costs;
 mod rises;
 #[cfg(test)]
 mod tests;
@@ -45,10 +48,11 @@ pub(crate) struct Tick {
     pub lines: Vec<String>,
     pub cells: Cells,
     pub records: Vec<Value>,
+    pub costs: Vec<Value>,
     pub failed: bool,
 }
 
-pub(crate) fn tick(ledger: &Ledger, prior: &Cells, tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
+pub(crate) fn tick(ledger: &Ledger, prior: &Cells, earlier: &[Cost], tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
     let mut lines = vec![ledger.week.dashboard(LEDGER_WINDOW)];
     lines.extend(ledger.notes.iter().map(|note| format!("unread: {note}; prior routing cells are kept")));
     let mut decided = cells::decide(&ledger.week, &ledger.evidence);
@@ -60,13 +64,15 @@ pub(crate) fn tick(ledger: &Ledger, prior: &Cells, tracker: &mut dyn Tracker, at
     if changes.is_empty() {
         lines.push(format!("no cell changed ({} cells)", decided.len()));
     }
+    let today = costs::today(&ledger.week, earlier, at);
+    lines.extend(today.lines);
     let filing = file_rises(ledger, tracker, at, dry_run, &mut lines);
     lines.push(match &filing.open {
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
     let failed = !ledger.notes.is_empty() || filing.failed || filing.open.is_err();
-    Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), failed }
+    Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, failed }
 }
 
 /// What filing the risen cells came to: the open issue count after it, and whether a rise went
@@ -132,7 +138,7 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let ledger = Ledger { week, before, evidence, notes };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
-    let tick = tick(&ledger, &files.cells()?, &mut Gh, &at, dry_run);
+    let tick = tick(&ledger, &files.cells()?, &files.costs()?, &mut Gh, &at, dry_run);
     tick.lines.iter().for_each(|line| println!("{line}"));
     if !dry_run {
         files.write(&tick)?;
@@ -161,6 +167,15 @@ impl Files {
         }
     }
 
+    fn costs(&self) -> Result<Vec<Cost>, String> {
+        let path = self.dir.join("costs.jsonl");
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(text.lines().filter_map(|line| Cost::read(&serde_json::from_str(line).ok()?)).collect()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(error) => Err(format!("{}: {error}", path.display())),
+        }
+    }
+
     /// Appends the changes' provenance before the cells file moves, so a tick that dies between the
     /// two re-records a change next time rather than losing its evidence.
     fn write(&self, tick: &Tick) -> Result<(), String> {
@@ -169,6 +184,8 @@ impl Files {
         let mut provenance = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("provenance.jsonl")).map_err(failed)?;
         tick.records.iter().try_for_each(|record| writeln!(provenance, "{record}")).map_err(failed)?;
         provenance.sync_all().map_err(failed)?;
+        let mut costs = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("costs.jsonl")).map_err(failed)?;
+        tick.costs.iter().try_for_each(|record| writeln!(costs, "{record}")).map_err(failed)?;
         let staged = self.dir.join("cells.json.tmp");
         let text = serde_json::to_string_pretty(&tick.cells).map_err(|error| error.to_string())?;
         let mut file = std::fs::File::create(&staged).map_err(failed)?;
