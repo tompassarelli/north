@@ -69,7 +69,7 @@ impl Landing {
         config("landing.offloaded-capacity", &stub("offloaded"));
         config("land.check", &format!("** :: {check}"));
         if local_only {
-            config("land.local-only", check);
+            config("land.local-only", &format!("needs this host :: {check}"));
         }
         fs::write(repo.join("verdict"), "ok\n").unwrap();
         git(&repo, &["add", "."]);

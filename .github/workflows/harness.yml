@@ -48,22 +48,7 @@ jobs:
           NORTH_HOME: ${{ github.workspace }}
           NORTH_PACE_BIN: ${{ github.workspace }}/target/debug/north
         run: |
-          # Machine-bound: these need ~/code checkouts, a systemd user manager, /etc/codex/hooks/runtime, live agent state or shellcheck 0.11; they run locally.
-          skip=(
-            bin/agents-plan.test.sh bin/worker-ledger.test.sh bin/threads.test.sh
-            bin/convo.test.sh
-            bin/pin-retire.test.sh bin/run-bounded.test.sh
-            harness/hooks/launch-critical-worktree-guard.test.sh
-            harness/hooks/launch-critical-worktree-guard.test.py harness/hooks/lead-regrounding.test.sh
-            harness/hooks/modern-search-guard.test.sh harness/hooks/native-launch-guard.test.sh
-            harness/hooks/resource-safe-search-guard.test.sh harness/hooks/spawn-capacity-guard.test.sh
-            harness/hooks/subagent-teardown.test.sh
-            harness/hooks/worker-handoff.test.sh harness/hooks/worker-tier-guard.test.sh
-            harness/hooks/worker-wait-guard.test.sh harness/hooks/session-kill-guard.test.sh
-            harness/lib/routing.test.sh harness/scripts/agent-config-check.test.sh
-            harness/skills/todo/scripts/cross-supervisor-mailbox.test.sh harness/skills/machine-capacity/scripts/machine-capacity.test.sh
-          )
-          mapfile -t tests < <(find bin lib harness -type f \( -name '*.test.sh' -o -name '*.test.py' \) 2>/dev/null | sort | grep -vxF -f <(printf '%s\n' "${skip[@]}"))
+          mapfile -t tests < <(find bin lib harness -type f \( -name "*.test.sh" -o -name "*.test.py" \) 2>/dev/null | sort | grep -vxF -f <(grep -v "^#" harness/machine-bound-tests))
           if (( ${#tests[@]} == 0 )); then
             echo "No shell or Python tests under bin/, lib/ or harness/"
             exit 0

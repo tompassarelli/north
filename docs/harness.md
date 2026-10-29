@@ -120,6 +120,12 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
 2. runs the checks that the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness scripts
    and agent-machinery), or the pre-push hook when there are none;
+   when `.safe-push` names a `land.workflow`, every check except the `land.local-only` ones
+   (`REASON :: COMMAND`, the reason printed when it runs here) runs as one job of that workflow on
+   GitHub Actions: `north land-actions` scans the lane for secrets and private values, pushes it to
+   `land-check/<sha>`, dispatches the workflow, waits for its verdict and deletes the branch, while
+   the local-only checks run here; `bin/land-shell` runs a check in `depbox` on a host and directly on
+   a runner, and `harness/machine-bound-tests` names the harness tests only a host can run;
    while this host is in game-reserve and another `[hosts.NAME]` with an `ssh` destination has room
    (6 free cores, the heavy memory request and 20 GiB of disk), the lane ships there by git bundle
    (`north capacity offload`), `landing.offloaded-capacity` replaces `landing.capacity` for the light
@@ -131,8 +137,8 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
    only it kills (`north mutant verify` runs the named tests when `.safe-push` sets `mutant.run`), and the CI time budgets in `.safe-push`; it never force-pushes;
 4. pushes to main, removes the clean lane and its branch, and runs `follows-release`.
 
-North's land checks share that capacity scope and run with the landing lock released; the lock
-covers only the fetch, rebase, scans and push. If main moved during the checks, a lane whose files
+North's land checks share that capacity scope and run with the landing lock released, on every
+retry; the lock covers only the fetch, rebase, scans and push, so two landings' checks overlap. If main moved during the checks, a lane whose files
 the new commits do not touch rebases and keeps its verdict; any other lane requeues and rechecks. Cancellation prints `safe-push: cancelled` and
 exits 130; a landed receipt names the lane head verified on the destination.
 

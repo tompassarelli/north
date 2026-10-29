@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+dev=0
+[ "${1:-}" != --dev ] || { dev=1; shift; }
+[ "${1:-}" = -- ] || { printf 'usage: land-shell [--dev] -- COMMAND...\n' >&2; exit 2; }
+shift
+if [ "${GITHUB_ACTIONS:-}" = true ]; then exec env CARGO_INCREMENTAL=0 "$@"; fi
+depbox=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/depbox
+[ "$dev" -eq 1 ] || exec "$depbox" run -- "$@"
+exec "$depbox" run -- nix develop -c env CARGO_INCREMENTAL=0 "$@"

@@ -1042,13 +1042,36 @@ land_check_commands() {
   done <<<"$entries"
 }
 
+land_workflow() {
+  git config --blob "$1:.safe-push" --get land.workflow 2>/dev/null || true
+}
+
+land_check_local_reason() {
+  local entry
+  while IFS= read -r entry; do
+    [[ "$entry" = *" :: $1" ]] || continue
+    printf "%s\n" "${entry%% :: *}"
+    return 0
+  done < <(git config --blob "$2:.safe-push" --get-all land.local-only 2>/dev/null)
+  return 1
+}
+
 land_check_is_local_only() {
-  git config --blob "$2:.safe-push" --get-all land.local-only 2>/dev/null | grep -qxF -- "$1"
+  land_check_local_reason "$1" "$2" >/dev/null
+}
+
+publication_scan() {
+  command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed." >&2; return 1; }
+  gitleaks detect --no-banner --redact --log-opts="${1:+$1..}$2" \
+    || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed." >&2; return 1; }
+  denylist_scan "$1" "$2" main || return 1
+  commit_email_scan "${1:+$1..}$2" || return 1
 }
 
 land_offload_host() {
   local command host
   [ "${SAFE_PUSH_LAND_OFFLOAD:-1}" = 1 ] || return 1
+  [ -z "$(land_workflow HEAD)" ] || return 1
   has_land_checks && command -v north >/dev/null 2>&1 || return 1
   land_commands=()
   land_check_commands "refs/remotes/origin/${to:-main}" HEAD 2>/dev/null || return 1
@@ -1069,8 +1092,27 @@ run_land_checks() {
   sync_dependencies || return 1
   land_commands=()
   land_check_commands "$base" "$head" || return 1
+  local workflow actions_pid="" actions_status=0 reason failed=0
+  local -a here=() on_actions=()
+  workflow=$(land_workflow "$head")
   for command in "${land_commands[@]}"; do
+    if [ -n "$workflow" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$command" "$head"; then
+      on_actions+=("$command")
+    else
+      here+=("$command")
+    fi
+  done
+  if [ "${#on_actions[@]}" -gt 0 ]; then
+    publication_scan "$base" "$head" || return 1
+    printf "safe-push: running %s land check(s) on GitHub Actions (%s)\n" "${#on_actions[@]}" "$workflow"
+    (drop_lock_fd; north land-actions --workflow "$workflow" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "${on_actions[@]}") &
+    actions_pid=$!
+  fi
+  for command in "${here[@]}"; do
     land_check_root=$root
+    if [ -n "$workflow" ] && reason=$(land_check_local_reason "$command" "$head"); then
+      printf "safe-push: land check runs on this host because it %s\n" "$reason"
+    fi
     local -a runner=(north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- bash -euo pipefail -c "$command")
     if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ]; then
       if land_check_is_local_only "$command" "$head"; then
@@ -1099,10 +1141,19 @@ run_land_checks() {
     reap_log_pipes "$stdout_pid" "$stderr_pid"
     if [ "$status" -ne 0 ]; then
       printf 'safe-push: land check %s exited %s; log: %s; NOT pushed.\n' "$command" "$status" "$log" >&2
-      return "$status"
+      [ "$failed" -ne 0 ] || failed=$status
+      continue
     fi
     rm -f -- "$log"
   done
+  if [ -n "$actions_pid" ]; then
+    wait "$actions_pid" || actions_status=$?
+    if [ "$actions_status" -ne 0 ]; then
+      printf "safe-push: land checks on GitHub Actions exited %s; NOT pushed.\n" "$actions_status" >&2
+      [ "$failed" -ne 0 ] || failed=$actions_status
+    fi
+  fi
+  return "$failed"
 }
 
 release_land_check_build() {
@@ -2111,17 +2162,12 @@ capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
 check_instruction_limits "$head_oid"
 generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
-land_attempt=1
 while :; do
   land_base="${destination_oid:-${absent_base:-}}"
   land_locked=0
   if [ -n "$push_lock_fd" ] && has_land_checks; then
-    if [ "$land_attempt" -le 3 ]; then
-      land_locked=1
-      release_push_lock
-    else
-      echo "safe-push: origin $to changed this change's files during 3 land check runs — running them under the landing lock"
-    fi
+    land_locked=1
+    release_push_lock
   fi
   run_land_checks "$land_base" "$head_oid" || exit $?
   [ "$land_locked" -eq 1 ] || break
@@ -2143,7 +2189,6 @@ while :; do
   rebase_onto_destination "$(fetch_destination)"
   capture_repository_state
   capture_destination_state
-  land_attempt=$((land_attempt + 1))
 done
 if [ "$destination_branch" = main ] && has_land_checks; then hook_verified=1; fi
 command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to push without a secret scan"; exit 1; }

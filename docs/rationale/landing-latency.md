@@ -74,3 +74,10 @@ on a cold build. `harness/scripts/cargo-tests.sh` builds them with `cargo test -
 hands the binaries to `north land-tests`, so they run side by side. On the same head and a
 warm build, the land check went from 124 s to 41 s; the unit-test binary, 29 s, is now the
 floor.
+
+Third fix, 2026-10-29: both local hosts sat at load 47 to 51 while GitHub Actions used 5 of its 40
+runner slots, and north's land checks filled gex45's disk. North's `.safe-push` now names
+`land.workflow = land-check.yml`, so each portable check runs as one job of that workflow and only
+the checks that need this host (the owner check, the machine-bound harness tests and the dev-shell
+test, each `land.local-only` with its reason) run locally. The landing lock is released for every
+check run, not only the first three, so it covers the fetch, scans and push alone.

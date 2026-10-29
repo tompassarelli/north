@@ -75,6 +75,8 @@ Commands:
   land-clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   land-tests [--jobs N] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
+  land-actions --workflow FILE --base B --head H --timeout S -- COMMAND...
+                                                 Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
   safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag (branches still land through bin/safe-push)
   safe-push-result STATUS SHA REASON MINUTES URL  Print safe-push.s terminal result
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract

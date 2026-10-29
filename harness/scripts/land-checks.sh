@@ -7,6 +7,10 @@ for dir in "${path_dirs[@]}"; do pinned+=("$(readlink -f -- "$dir" 2>/dev/null |
 PATH=$(IFS=:; printf '%s' "${pinned[*]}")
 export PATH
 unset THREADS_ACTOR
+mode=${1:-}
+case "$mode" in ""|portable|machine-bound) ;; *) printf "usage: land-checks.sh [portable|machine-bound]\n" >&2; exit 2 ;; esac
+declare -A machine_bound=()
+while IFS= read -r test; do machine_bound[$test]=1; done < <(grep -v "^#" "$(dirname "$0")/../machine-bound-tests")
 base=${SAFE_PUSH_LAND_BASE:?}
 head=${SAFE_PUSH_LAND_HEAD:?}
 scratch=$(mktemp -d)
@@ -24,6 +28,7 @@ selected=() queue=()
 add_test() {
   [ -f "$1" ] || return 0
   [ -z "${seen[$1]:-}" ] || return 0
+  case "$mode:${machine_bound[$1]:+bound}" in portable:bound|machine-bound:) return 0 ;; esac
   seen[$1]=1
   selected+=("$1")
 }
@@ -61,7 +66,7 @@ for ((next = 0; next < ${#queue[@]}; next++)); do
   done <"$scratch/matches"
 done
 if [ "${#selected[@]}" -gt 0 ] && [ -f Cargo.toml ]; then
-  ./bin/depbox run -- nix develop -c env CARGO_INCREMENTAL=0 cargo build --locked --offline --bin north
+  ./bin/land-shell --dev -- cargo build --locked --offline --bin north
 fi
 north=${CARGO_TARGET_DIR:-target}/debug/north
 [ ! -x "$north" ] || { NORTH_PACE_BIN=$(realpath "$north"); export NORTH_PACE_BIN; }

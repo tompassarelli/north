@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use crate::landing::{denylist, land_test_runner, landed_tree, lane_target, mutant_cli, safe_push_tag};
+use crate::landing::{denylist, land_actions, land_test_runner, landed_tree, lane_target, mutant_cli, safe_push_tag};
 use crate::{
     agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
     land_abandon, provenance, review_gate,
@@ -19,6 +19,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("land-clean", lane_target::run),
     ("landed-tree", landed_tree::run),
     ("land-tests", land_test_runner::run),
+    ("land-actions", land_actions::run),
     ("safe-push-result", super::safe_push_result::run),
     ("safe-push", safe_push_tag::run),
     ("provenance", provenance::run),

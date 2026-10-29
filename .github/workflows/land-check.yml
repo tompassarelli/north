@@ -1,0 +1,52 @@
+name: Land check
+run-name: Land check ${{ inputs.head }} ${{ inputs.nonce }}
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: The origin main commit the lane is rebased onto
+        required: true
+        type: string
+      head:
+        description: The lane commit safe-push will land
+        required: true
+        type: string
+      nonce:
+        description: Tells safe-push which run its dispatch started
+        required: true
+        type: string
+      commands:
+        description: JSON array of the land.check commands safe-push selected for Actions
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ matrix.command }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        command: ${{ fromJSON(inputs.commands) }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.head }}
+          fetch-depth: 0
+      - name: Install harness test tools
+        uses: ./.github/actions/harness
+      - name: Dependencies the offline checks read
+        run: |
+          cargo fetch --locked
+          git ls-files -- bun.lock '*/bun.lock' | while read -r lock; do (cd "$(dirname "$lock")" && bun install --frozen-lockfile); done
+      - name: Land check
+        env:
+          COMMAND: ${{ matrix.command }}
+          SAFE_PUSH_LAND_BASE: ${{ inputs.base }}
+          SAFE_PUSH_LAND_HEAD: ${{ inputs.head }}
+          NORTH_HOME: ${{ github.workspace }}
+        run: bash -euo pipefail -c "$COMMAND"
