@@ -93,6 +93,7 @@ pub(crate) fn status(root: &Path) -> Obj {
             .put("profile", profile)
             .put("mode", mode)
             .merge(gpu_view(gpu))
+            .put("warcraftClients", crate::capacity::warcraft::view())
             .merge(gpu_busy)
             .put("aggregateCpuLimit", num(aggregate_cpus(profile, signals.cores)))
             .put("protectedCpuSomeAvg10", num(signals.protected_cpu_some / 100.0))

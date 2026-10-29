@@ -68,3 +68,42 @@ fn a_waiter_whose_clients_do_not_fit_lets_a_smaller_start_behind_it_take_the_fre
     assert_eq!(owners(&host.status()["holding"], "native"), ["pair-wide"]);
     assert_eq!(owners(&host.status()["queued"], "native"), Vec::<&str>::new());
 }
+
+fn fake_process(host: &Host, pid: u32, comm: &str, command_line: &str, cgroup: &str, environment: &[&str]) {
+    let directory = host.path(&format!("proc/{pid}"));
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("comm"), format!("{comm}\n")).unwrap();
+    fs::write(directory.join("cmdline"), format!("{command_line}\0")).unwrap();
+    fs::write(directory.join("cgroup"), format!("0::{cgroup}\n")).unwrap();
+    fs::write(directory.join("environ"), environment.iter().map(|entry| format!("{entry}\0")).collect::<String>()).unwrap();
+}
+
+#[test]
+fn clients_in_lease_scopes_and_private_desktops_count_against_the_native_limit() {
+    let host = attended_host_with_clients(&[]);
+    let lease = |id: &str| format!("/user.slice/user-1000.slice/user@1000.service/native.slice/agent-capacity-{id}.scope");
+    let desktop = "PRIVATE_DESKTOP_RUN=/run/user/1000/private-desktop.TFxebN";
+    let executable = r"C:\Program Files (x86)\Warcraft III\_retail_\x86_64\Warcraft III.exe";
+    fake_process(&host, 100, "Warcraft III.ex", executable, &lease("a"), &["STEAM_COMPAT_DATA_PATH=/prefix/lan0a", desktop]);
+    fake_process(&host, 101, "Warcraft III.ex", executable, &lease("b"), &["STEAM_COMPAT_DATA_PATH=/prefix/lan0b"]);
+    fake_process(&host, 102, "Warcraft III.ex", executable, "/agent.slice/private-desktop-client-1.scope", &["STEAM_COMPAT_DATA_PATH=/prefix/lan1a"]);
+    fake_process(&host, 103, "steam.exe", &format!(r"c:\windows\system32\steam.exe {executable} -launch"), &lease("c"), &["STEAM_COMPAT_DATA_PATH=/prefix/lan1b", desktop]);
+    fake_process(&host, 104, "bash", "bash -c Warcraft III.exe", "/user.slice/session.scope", &["STEAM_COMPAT_DATA_PATH=/prefix/lan1b"]);
+
+    let at_limit = probe(&host, "1");
+    assert_eq!(at_limit["gpuClients"], 4);
+    assert_eq!(at_limit["reason"], "DEFER_GPU_CLIENTS");
+
+    let output = host.helper(&["status"]).env_remove("AGENT_CAPACITY_GPU_CLIENTS").env("AGENT_CAPACITY_PROC", host.path("proc")).output().unwrap();
+    let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let clients = status["warcraftClients"].as_array().unwrap();
+    let state = |prefix: &str| clients.iter().find(|client| client["prefix"] == format!("prefix:{prefix}")).map(|client| (client["state"].as_str().unwrap().to_owned(), client["privateDesktop"].as_bool().unwrap()));
+    assert_eq!(clients.len(), 4);
+    assert_eq!(state("/prefix/lan0a"), Some(("running".to_owned(), true)));
+    assert_eq!(state("/prefix/lan0b"), Some(("running".to_owned(), false)));
+    assert_eq!(state("/prefix/lan1a"), Some(("running".to_owned(), true)));
+    assert_eq!(state("/prefix/lan1b"), Some(("launching".to_owned(), true)));
+
+    fs::remove_dir_all(host.path("proc/103")).unwrap();
+    assert_eq!(probe(&host, "1")["reason"], "RUN");
+}
