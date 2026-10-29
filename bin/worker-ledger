@@ -159,7 +159,7 @@ fi
 
 # Exit 255: the remote ledger is unreachable; ingest skips recorded runs, so send every row to its spool.
 recorded=$("$threads" run-ids) || { [ $? -eq 255 ] || exit 1; }
-known=$("$threads" run-ids --settled) || { [ $? -eq 255 ] || exit 1; }
+known=$("$threads" run-ids --settled --ended) || { [ $? -eq 255 ] || exit 1; }
 LEDGER_MAIN=$(mktemp "${TMPDIR:-/tmp}/worker-ledger-main.XXXXXX") || exit 1
 export LEDGER_MAIN
 trap 'rm -f "$LEDGER_MAIN"' EXIT
@@ -183,7 +183,7 @@ from pathlib import Path
 exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text())
 
 session, since, known, recorded = sys.argv[1:]
-known, recorded = (set(Path(p).read_text().splitlines()) for p in (known, recorded))
+known, recorded = ({line.split("\t")[0] for line in Path(p).read_text().splitlines()} for p in (known, recorded))
 root = Path(os.environ.get("CODEX_CONFIG_DIR", os.path.expanduser("~/code/north-data/codex-pooled")))
 cutoff = datetime.fromisoformat(since.replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp() if since else time.time() - 86400
 
@@ -377,7 +377,7 @@ exec(Path(os.environ["LEDGER_CONTEXT_PY"]).read_text())
 prices = list_prices(tomllib.load(open(Path(os.environ["LEDGER_CONTEXT_PY"]).resolve().parent.parent / "model-catalog.toml", "rb")))
 
 session, since, known, recorded = sys.argv[1:]
-known, recorded = (set(Path(p).read_text().splitlines()) for p in (known, recorded))
+known, recorded = ({line.split("\t")[0] for line in Path(p).read_text().splitlines()} for p in (known, recorded))
 root = Path(os.environ.get("AGY_CONFIG_DIR", os.path.expanduser("~/.gemini/antigravity-cli")))
 cutoff = datetime.fromisoformat(since.replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp() if since else time.time() - 86400
 EFFORTS = ("low", "medium", "high", "xhigh", "max")

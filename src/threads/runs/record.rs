@@ -25,6 +25,7 @@ struct Recorded {
     effort: Sql,
     brief: [Sql; 4],
     started: Sql,
+    ended: Sql,
 }
 
 /// A row with what it says about itself: its brief's fields, its role and whether it is recorded.
@@ -139,8 +140,8 @@ impl Ingest<'_> {
         let id = r.require("id")?.clone();
         let recorded = self
             .db
-            .query_row("SELECT category, outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started FROM runs WHERE agent = ?", [bind(Some(&id))?], |row| {
-                Ok(Recorded { category: row.get(0)?, outcome: row.get(1)?, model: row.get(2)?, effort: row.get(3)?, brief: [row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?], started: row.get(8)? })
+            .query_row("SELECT category, outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started, ended FROM runs WHERE agent = ?", [bind(Some(&id))?], |row| {
+                Ok(Recorded { category: row.get(0)?, outcome: row.get(1)?, model: row.get(2)?, effort: row.get(3)?, brief: [row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?], started: row.get(8)?, ended: row.get(9)? })
             })
             .optional()?;
         let mut original = false;
@@ -178,6 +179,12 @@ impl Ingest<'_> {
             "UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), tier=coalesce(?, tier), outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?",
             params![r.sql("model")?, r.sql("effort")?, r.sql("tier")?, r.sql("outcome")?, agent],
         )?;
+        if run.worker() && run.status == "finished" && matches!((&prior.ended, r.get("ended").and_then(Value::as_str)), (Sql::Text(recorded), Some(ended)) if ended > recorded.as_str()) {
+            self.db.execute(
+                "UPDATE runs SET ended = ?, minutes = ?, tokens = ?, peak_ctx = ?, outcome = ?, report = ? WHERE agent = ?",
+                params![r.required("ended")?, r.required("actual_min")?, r.sql("tokens")?, r.sql("peak_ctx")?, r.required("outcome")?, bind(Some(&r.or("report", Value::from(""))))?, agent],
+            )?;
+        }
         let category = run.either(run.f.category.as_deref(), "category");
         let known = category.as_str().filter(|category| CATEGORIES.contains(category));
         if !run.worker() {

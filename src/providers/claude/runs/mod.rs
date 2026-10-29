@@ -53,7 +53,7 @@ pub(super) fn number(value: f64) -> Value {
 struct Options {
     session: Option<String>,
     since: String,
-    settled: HashSet<String>,
+    settled: HashMap<String, Option<String>>,
     recorded: HashSet<String>,
 }
 
@@ -96,16 +96,21 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
 }
 
 fn parse(arguments: &[String]) -> NorthResult<Options> {
-    let mut options = Options { session: None, since: String::new(), settled: HashSet::new(), recorded: HashSet::new() };
+    let mut options = Options { session: None, since: String::new(), settled: HashMap::new(), recorded: HashSet::new() };
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         let value = words.next().ok_or_else(|| NorthError::Usage(USAGE.into()))?;
-        let ids = || -> NorthResult<HashSet<String>> { Ok(fs::read_to_string(value)?.lines().filter(|id| !id.is_empty()).map(str::to_owned).collect()) };
+        let ids = || -> NorthResult<HashMap<String, Option<String>>> {
+            Ok(fs::read_to_string(value)?.lines().filter(|line| !line.is_empty()).map(|line| match line.split_once('\t') {
+                Some((id, ended)) => (id.to_owned(), Some(ended.to_owned())),
+                None => (line.to_owned(), None),
+            }).collect())
+        };
         match word.as_str() {
             "--session" => options.session = Some(value.clone()).filter(|session| !session.is_empty()),
             "--since" => options.since = value.clone(),
             "--settled" => options.settled = ids()?,
-            "--recorded" => options.recorded = ids()?,
+            "--recorded" => options.recorded = ids()?.into_keys().collect(),
             _ => return Err(NorthError::Usage(USAGE.into())),
         }
     }
@@ -203,7 +208,12 @@ fn transcripts(projects: &Path, options: &Options) -> Vec<PathBuf> {
     }
     found.sort();
     let id = |path: &PathBuf| transcript_id(path);
-    found.into_iter().filter(|path| !options.settled.contains(&id(path))).collect()
+    found.into_iter().filter(|path| options.settled.get(&id(path)).is_none_or(|ended| ended.as_deref().is_some_and(|ended| modified_after(path, ended)))).collect()
+}
+
+fn modified_after(path: &Path, ended: &str) -> bool {
+    let Some(ended) = Timestamp::parse_loose(ended) else { return true };
+    fs::metadata(path).and_then(|meta| meta.modified()).map_or(true, |modified| modified > UNIX_EPOCH + Duration::from_secs(ended.unix_seconds().max(0) as u64))
 }
 
 fn entries(directory: &Path) -> Vec<PathBuf> {
@@ -236,6 +246,11 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     let tier = if role == "worker" { worker_tier(ledger.policy.as_ref(), metadata.as_ref(), &usage)? } else { String::new() };
     let transcript = row::Transcript { lines: &lines, id: &id, role, tier: &tier, since: &options.since, backfill: options.recorded.contains(&id), now: ledger.now };
     let mut row = row::build(&transcript)?;
+    if let Some(Some(ended)) = options.settled.get(&id)
+        && row["ended"].as_str().is_none_or(|now| now <= ended.as_str())
+    {
+        return None;
+    }
     row.extend(landing::checks(&lines, &ledger.main));
     row.extend(telemetry::context_metrics(&lines));
     row.extend(usage);

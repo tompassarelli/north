@@ -43,25 +43,30 @@ pub(crate) fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out:
     report(&argv[0], result, out, err)
 }
 
-/// Every recorded run's agent id; with --settled, only finished worker runs not still waiting to land.
+/// Every recorded run's agent id; with --settled, only finished worker runs not still waiting to land, and with --ended each id is followed by a tab and the time its run was recorded as ending.
 fn run_ids(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &[], &["--settled"])?;
-    if !args.positional.is_empty() {
-        return Err(Failure::Usage("usage: threads run-ids [--settled]".into()));
+    let args = Args::parse(argv, &[], &["--settled", "--ended"])?;
+    if !args.positional.is_empty() || (args.has("--ended") && !args.has("--settled")) {
+        return Err(Failure::Usage("usage: threads run-ids [--settled [--ended]]".into()));
     }
     let db = open(context.database, false)?;
     let since = Timestamp::from_unix_seconds(context.now.unix_seconds() - LANDING_DAYS * 86400).iso();
     let settled = args.has("--settled");
     let filter = if settled { " WHERE role = \"worker\" AND outcome != \"running\" AND NOT (expects_landing = 1 AND landed_at IS NULL AND ended >= ?)" } else { "" };
-    let mut query = db.prepare(&format!("SELECT agent FROM runs{filter}"))?;
-    let agents = query.query_map(params_from_iter(settled.then_some(since)), |row| row.get::<_, Sql>(0))?;
+    let mut query = db.prepare(&format!("SELECT agent, ended FROM runs{filter} ORDER BY agent"))?;
+    let agents = query.query_map(params_from_iter(settled.then_some(since)), |row| Ok((row.get::<_, Sql>(0)?, row.get::<_, Sql>(1)?)))?;
     let mut shown = String::new();
     for agent in agents {
-        shown += &match agent? {
+        let (agent, ended) = agent?;
+        shown += &match agent {
             Sql::Text(text) => text,
             Sql::Integer(number) => number.to_string(),
             other => pyjson::dumps(&value(&other)),
         };
+        if let (true, Sql::Text(ended)) = (args.has("--ended"), ended) {
+            shown.push('\t');
+            shown += &ended;
+        }
         shown.push('\n');
     }
     Ok(shown)

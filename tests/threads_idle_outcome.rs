@@ -47,3 +47,29 @@ fn the_runs_table_takes_an_idle_outcome_and_a_backfill_relabels_only_a_recorded_
     let relabelled: Vec<String> = ["quiet", "vague", "settled"].iter().map(|id| outcome(root, id)).collect();
     assert_eq!(relabelled, ["idle", "done", "done"]);
 }
+
+fn row_ending(id: &str, outcome: &str, ended: &str) -> String {
+    format!(
+        r#"{{"id":"{id}","backfill":true,"status":"finished","ended":"{ended}","tier":"haiku","actual_min":9,"outcome":"{outcome}","report":"{outcome} report","brief":"Item: smashcraft#7 Category: native-check"}}"#
+    ) + "\n"
+}
+
+fn field(root: &Path, id: &str, column: &str) -> String {
+    let query = format!("select {column} from runs where agent='{id}'");
+    let output = Command::new("sqlite3").arg(root.join("threads.db")).arg(query).output().unwrap();
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+#[test]
+fn a_recorded_worker_that_kept_working_takes_its_later_end_outcome_and_report_and_run_ids_name_its_recorded_end() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    assert!(threads(root, "run-ids").status().unwrap().success());
+    ingest(root, &row_ending("long", "not done", "2026-10-09T00:00:00Z"));
+    ingest(root, &row_ending("long", "done", "2026-10-09T06:00:00Z"));
+    assert_eq!((field(root, "long", "outcome"), field(root, "long", "ended"), field(root, "long", "report")), ("done".into(), "2026-10-09T06:00:00Z".into(), "done report".into()));
+    ingest(root, &row_ending("long", "not done", "2026-10-09T03:00:00Z"));
+    assert_eq!(field(root, "long", "outcome"), "done", "an earlier end never replaces a later one");
+    let ids = threads(root, "run-ids").args(["--settled", "--ended"]).output().unwrap();
+    assert!(String::from_utf8(ids.stdout).unwrap().contains("long\t2026-10-09T06:00:00Z"));
+}

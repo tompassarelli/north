@@ -19,16 +19,16 @@ fn transcript_of(path: &Path, text: &str, model: &str) {
 }
 
 fn claude_runs(root: &Path, fleet_json: &str, policy: &Path) -> (Vec<Value>, String) {
-    claude_runs_on(root, fleet_json, policy, None, &[])
+    claude_runs_on(root, fleet_json, policy, None, &[], "")
 }
 
-fn claude_runs_on(root: &Path, fleet_json: &str, policy: &Path, main: Option<&Path>, recorded: &[&str]) -> (Vec<Value>, String) {
+fn claude_runs_on(root: &Path, fleet_json: &str, policy: &Path, main: Option<&Path>, recorded: &[&str], settled: &str) -> (Vec<Value>, String) {
     let calls = root.join("fleet-calls");
     let fleet = root.join("north");
     fs::write(&fleet, format!("#!/bin/sh\necho \"$@\" >> {}\nprintf '%s' '{fleet_json}'\n", calls.display())).unwrap();
     fs::set_permissions(&fleet, fs::Permissions::from_mode(0o755)).unwrap();
     let empty = root.join("empty");
-    fs::write(&empty, "").unwrap();
+    fs::write(&empty, settled).unwrap();
     let known = root.join("recorded");
     fs::write(&known, recorded.join("\n")).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_north"))
@@ -157,7 +157,7 @@ fn a_quiet_combined_flag_heredoc_commit_and_a_safe_push_landing_line_both_count_
     let main = root.join("main");
     fs::write(&main, format!("{} 2026-10-08T01:00:00+00:00 Other work\n{} 2026-10-08T02:00:00+00:00 Keep the real subject (north#255)\n", sha, "b".repeat(40))).unwrap();
     let fleet = r#"[{"name":"h","conversation":"heredoc","parent":"lead"},{"name":"p","conversation":"pushed","parent":"lead"},{"name":"r","conversation":"reader","parent":"lead"},{"name":"c","conversation":"chained","parent":"lead"}]"#;
-    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main), &[]);
+    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main), &[], "");
     let by_id = |id: &str| rows.iter().find(|row| row["id"] == id).unwrap_or_else(|| panic!("no row for {id}: {rows:?}"));
     assert_eq!((by_id("heredoc")["landed"].as_i64(), by_id("heredoc")["landed_sha"].as_str()), (Some(1), Some("b".repeat(40).as_str())));
     assert_eq!((by_id("pushed")["landed"].as_i64(), by_id("pushed")["landed_sha"].as_str()), (Some(1), Some(sha.as_str())));
@@ -180,6 +180,22 @@ fn a_recorded_worker_now_ending_on_a_notice_is_a_backfill_that_carries_its_landi
     let main = root.join("main");
     fs::write(&main, format!("{sha} 2026-10-08T02:00:00+00:00 Other work\n")).unwrap();
     let fleet = r#"[{"name":"p","conversation":"parked","parent":"lead"}]"#;
-    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main), &["parked"]);
+    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), Some(&main), &["parked"], "");
     assert_eq!((rows[0]["backfill"].as_bool(), rows[0]["landed"].as_i64(), rows[0]["landed_sha"].as_str()), (Some(true), Some(1), Some(sha.as_str())), "{rows:?}");
+}
+
+#[test]
+fn a_settled_run_whose_transcript_grew_past_its_recorded_end_is_read_again_and_the_rest_are_not() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    let projects = root.join("home/.claude/projects/-home-tom-code-north-main");
+    for id in ["resumed", "quiet", "plain"] {
+        transcript(&projects.join(format!("{id}.jsonl")), "Item: north#255");
+    }
+    let fleet = r#"[{"name":"r","conversation":"resumed","parent":"lead"},{"name":"q","conversation":"quiet","parent":"lead"},{"name":"p","conversation":"plain","parent":"lead"}]"#;
+    let settled = "resumed\t2026-10-08T00:01:00Z\nquiet\t2026-10-08T00:04:00Z\nplain\n";
+    let (rows, _) = claude_runs_on(root, fleet, &root.join("absent.toml"), None, &["resumed", "quiet", "plain"], settled);
+    let ids: Vec<&str> = rows.iter().filter_map(|row| row["id"].as_str()).collect();
+    assert_eq!(ids, ["resumed"], "{rows:?}");
+    assert_eq!((rows[0]["backfill"].as_bool(), rows[0]["ended"].as_str()), (Some(true), Some("2026-10-08T00:04:00Z")));
 }
