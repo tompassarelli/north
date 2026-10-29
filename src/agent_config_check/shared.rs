@@ -58,22 +58,34 @@ fn skills(root: &Path) -> Vec<PathBuf> {
     found
 }
 
+pub(super) fn shellcheck_command(on_path: Option<PathBuf>, north: &Path) -> Command {
+    match on_path {
+        Some(shellcheck) => Command::new(shellcheck),
+        None => {
+            let mut command = Command::new("nix");
+            command.args(["shell", "--quiet"]).arg(format!("path:{}#shellcheck", north.display())).args(["-c", "shellcheck"]);
+            command
+        }
+    }
+}
+
 fn lint_hooks(context: &Context, report: &mut Report) -> usize {
-    if path_command("shellcheck").is_none() {
-        report.bad("shellcheck is required to lint shared hooks");
+    let found = hooks(&context.north.join("harness/hooks"));
+    if found.is_empty() {
         return 0;
     }
-    let found = hooks(&context.north.join("harness/hooks"));
-    for hook in &found {
-        let name = hook.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        match Command::new("shellcheck").args(["-S", "warning"]).arg(hook).output() {
-            Ok(output) if output.status.success() => report.ok(format!("shellcheck {name}")),
-            Ok(output) => report.bad(format!("shellcheck {name}:\n{}", combined(&output))),
-            Err(error) => report.bad(format!("shellcheck {name}:\n{error}")),
+    match shellcheck_command(path_command("shellcheck"), &context.north).args(["-S", "warning"]).args(&found).output() {
+        Ok(output) if output.status.success() => {
+            for hook in &found {
+                report.ok(format!("shellcheck {}", hook.file_name().unwrap_or_default().to_string_lossy()));
+            }
         }
+        Ok(output) => report.bad(format!("shellcheck:\n{}", combined(&output))),
+        Err(error) => report.bad(format!("shellcheck is required to lint shared hooks and neither PATH nor the north flake supplied it: {error}")),
     }
     found.len()
 }
+
 
 fn scan_skills(context: &Context, report: &mut Report) -> usize {
     let mut count = 0;

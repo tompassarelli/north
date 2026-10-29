@@ -2,12 +2,13 @@ pub(super) struct Report {
     verbose: bool,
     pub(super) fail: usize,
     pub(super) warn: usize,
+    pub(super) failures: Vec<String>,
     details: Vec<String>,
 }
 
 impl Report {
     pub(super) fn new(verbose: bool) -> Self {
-        Self { verbose, fail: 0, warn: 0, details: Vec::new() }
+        Self { verbose, fail: 0, warn: 0, failures: Vec::new(), details: Vec::new() }
     }
 
     pub(super) fn ok(&mut self, message: impl std::fmt::Display) {
@@ -22,6 +23,7 @@ impl Report {
 
     pub(super) fn bad(&mut self, message: impl std::fmt::Display) {
         eprintln!("  FAIL: {message}");
+        self.failures.push(message.to_string().lines().next().unwrap_or_default().to_owned());
         self.fail += 1;
     }
 

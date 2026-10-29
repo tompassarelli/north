@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod advisory;
 mod codex;
 mod gate;
 mod report;
@@ -174,6 +175,10 @@ fn execute(context: &Context, verbose: bool) -> u8 {
 
     if context.local {
         worktree_layout(context, &mut report);
+    }
+
+    if context.local {
+        advisory::record_local(&context.roots.home, &report.failures);
     }
 
     if report.fail != 0 {

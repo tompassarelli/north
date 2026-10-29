@@ -1,4 +1,5 @@
 use super::*;
+use crate::platform::rolling_issue;
 use serde_json::json;
 
 fn sample(text: &str, age: u64) -> FreshnessInput {
@@ -217,16 +218,16 @@ fn shown(active: &str, result: &str, invocation: &str) -> Reading {
 }
 
 struct Recorder {
-    open: Option<units::Issue>,
+    open: Option<rolling_issue::Issue>,
     legacy: Vec<(u64, String)>,
     created: Vec<(String, String)>,
     edited: Vec<(u64, String)>,
     closed: Vec<(u64, String)>,
 }
 
-impl units::Tracker for Recorder {
-    fn open(&self, _: &str) -> Result<Option<units::Issue>, String> {
-        Ok(self.open.as_ref().map(|issue| units::Issue { number: issue.number, body: issue.body.clone() }))
+impl rolling_issue::Tracker for Recorder {
+    fn open(&self, _: &str) -> Result<Option<rolling_issue::Issue>, String> {
+        Ok(self.open.as_ref().map(|issue| rolling_issue::Issue { number: issue.number, body: issue.body.clone() }))
     }
 
     fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
@@ -249,7 +250,7 @@ impl units::Tracker for Recorder {
     }
 }
 
-fn recorder(open: Option<units::Issue>) -> Recorder {
+fn recorder(open: Option<rolling_issue::Issue>) -> Recorder {
     Recorder { open, legacy: Vec::new(), created: Vec::new(), edited: Vec::new(), closed: Vec::new() }
 }
 
@@ -274,7 +275,7 @@ fn health_failing_units_share_one_rolling_issue_per_host_that_it_edits_and_close
     let body = tracker.created[0].1.clone();
     assert!(body.contains("`a.service`") && body.contains("`b.service`") && body.contains("\nNeeds: laptop\n"));
 
-    let mut tracker = recorder(Some(units::Issue { number: 7, body: body.clone() }));
+    let mut tracker = recorder(Some(rolling_issue::Issue { number: 7, body: body.clone() }));
     units::reconcile(&mut tracker, "whiterabbit", &two).unwrap();
     assert!(tracker.created.is_empty() && tracker.edited.is_empty() && tracker.closed.is_empty(), "an unchanged set touches nothing");
 
@@ -338,8 +339,8 @@ fn run_list(rows: &[(&str, &str, &str)]) -> String {
 #[test]
 fn health_closes_the_main_red_issue_only_when_every_workflows_newest_run_is_green_beyond_the_culprit() {
     let body = "Intro\n\n## Done when\n- [ ] The newest Harness and Cargo runs on main are green on a commit\n\n<!-- main-red:1:1 -->\nCulprit range: tip, base\nFailing step: test\n";
-    let issue = || Some(units::Issue { number: 9, body: body.to_owned() });
-    let settle = |runs: &str, open: Option<units::Issue>| {
+    let issue = || Some(rolling_issue::Issue { number: 9, body: body.to_owned() });
+    let settle = |runs: &str, open: Option<rolling_issue::Issue>| {
         let mut tracker = recorder(open);
         main_red::settle(&mut tracker, runs).unwrap();
         tracker

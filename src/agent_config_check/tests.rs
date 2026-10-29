@@ -5,6 +5,9 @@ use std::process::Command;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
+use crate::platform::rolling_issue::{Issue, Tracker};
+
+use super::advisory::record;
 use super::gate::{Gate, Mode, hex};
 use super::roots::Roots;
 use super::rules::rule_register;
@@ -339,4 +342,93 @@ fn vocabulary_refuses_socrates_called_the_agent_machinery() {
     vocabulary.add("notes.md", "Socrates is the agent machinery beside North.\n");
     let (text, clean) = vocabulary.check();
     assert!(!clean && text.contains("notes.md"), "{text}");
+}
+
+#[test]
+fn shellcheck_comes_from_path_when_installed() {
+    let command = super::shared::shellcheck_command(Some(PathBuf::from("/usr/bin/shellcheck")), Path::new("/tree"));
+    assert_eq!(command.get_program(), "/usr/bin/shellcheck");
+    assert_eq!(command.get_args().count(), 0);
+}
+
+#[test]
+fn shellcheck_falls_back_to_the_north_flake_when_absent_from_path() {
+    let command = super::shared::shellcheck_command(None, Path::new("/tree"));
+    let arguments: Vec<_> = command.get_args().map(|argument| argument.to_string_lossy().into_owned()).collect();
+    assert_eq!(command.get_program(), "nix");
+    assert_eq!(arguments, ["shell", "--quiet", "path:/tree#shellcheck", "-c", "shellcheck"]);
+}
+
+
+#[derive(Default)]
+struct Issues {
+    open: Option<(u64, String)>,
+    created: Vec<(String, String)>,
+    edited: Vec<(u64, String)>,
+    closed: Vec<u64>,
+}
+
+impl Tracker for Issues {
+    fn open(&self, _: &str) -> Result<Option<Issue>, String> {
+        Ok(self.open.as_ref().map(|(number, body)| Issue { number: *number, body: body.clone() }))
+    }
+
+    fn listed(&self, _: &str) -> Result<Vec<(u64, String)>, String> {
+        Ok(Vec::new())
+    }
+
+    fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
+        self.created.push((title.into(), body.into()));
+        self.open = Some((7, body.into()));
+        Ok(())
+    }
+
+    fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
+        self.edited.push((number, body.into()));
+        self.open = Some((number, body.into()));
+        Ok(())
+    }
+
+    fn close(&mut self, number: u64, _: &str) -> Result<(), String> {
+        self.closed.push(number);
+        self.open = None;
+        Ok(())
+    }
+}
+
+fn failing(text: &str) -> Vec<String> {
+    vec![text.to_owned()]
+}
+
+#[test]
+fn advisory_opens_one_issue_on_the_second_failing_run_in_a_row_and_updates_then_closes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state/agent-config-check.json");
+    let mut issues = Issues::default();
+    record(&mut issues, &state, "gex45", "run-1", &failing("shared: shellcheck is required")).unwrap();
+    assert!(issues.created.is_empty(), "one failure is not noticed yet");
+    record(&mut issues, &state, "gex45", "run-1", &failing("shared: shellcheck is required")).unwrap();
+    assert!(issues.created.is_empty(), "the same run recorded twice counts once");
+    record(&mut issues, &state, "gex45", "run-2", &failing("shared: shellcheck is required")).unwrap();
+    assert_eq!(issues.created.len(), 1);
+    assert_eq!(issues.created[0].0, "Agent configuration check failing on gex45");
+    assert!(issues.created[0].1.contains("- shared: shellcheck is required\n"));
+    record(&mut issues, &state, "gex45", "run-3", &failing("shared: shellcheck is required")).unwrap();
+    assert!(issues.created.len() == 1 && issues.edited.is_empty(), "an unchanged failure set touches nothing");
+    record(&mut issues, &state, "gex45", "run-4", &failing("rules: diverge")).unwrap();
+    assert_eq!(issues.edited.len(), 1);
+    assert!(issues.edited[0].1.contains("- rules: diverge\n") && !issues.edited[0].1.contains("shellcheck"));
+    record(&mut issues, &state, "gex45", "run-5", &[]).unwrap();
+    assert_eq!(issues.closed, [7]);
+}
+
+#[test]
+fn advisory_a_passing_run_between_failures_resets_the_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("agent-config-check.json");
+    let mut issues = Issues::default();
+    record(&mut issues, &state, "gex45", "run-1", &failing("a")).unwrap();
+    record(&mut issues, &state, "gex45", "run-2", &[]).unwrap();
+    record(&mut issues, &state, "gex45", "run-3", &failing("a")).unwrap();
+    assert!(issues.created.is_empty());
 }

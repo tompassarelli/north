@@ -139,19 +139,20 @@ fn classify(
             return;
         }
     }
-    if exempt(code, worktree) {
+    if exempt(code, home, worktree) {
         return;
     }
     report.lines.push(format!("STRAY  {repository:<14} {shown}"));
     report.strays += 1;
 }
 
-fn exempt(code: &Path, worktree: &Path) -> bool {
+fn exempt(code: &Path, home: &Path, worktree: &Path) -> bool {
     let text = worktree.to_string_lossy();
     let under = |marker: &str| text.split_once(marker).is_some_and(|(_, rest)| !rest.is_empty());
     under("/store-runtime/deployments/")
         || under("/experiments/")
         || worktree.strip_prefix(code.join("resources")).is_ok_and(|rest| !rest.as_os_str().is_empty())
+        || [home.join(".cache"), home.join(".local/state")].iter().any(|owned| worktree.strip_prefix(owned).is_ok_and(|rest| !rest.as_os_str().is_empty()))
 }
 
 fn pin_problem(container: &Path, worktree: &Path, leaf: &str) -> Option<String> {

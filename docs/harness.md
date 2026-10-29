@@ -43,7 +43,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    runtime `current` names, never from the checkout, so a deferred promotion leaves them in step with the
    binary; only promotion moves them. The generation's instructions and `provider-hooks` reach
    Claude Code and Codex through links Firn's profile module makes; `north agent-config-check` checks
-   that wiring. A hook script deleted from `harness/hooks/` must be named in `harness/retired-hooks.txt`
+   that wiring. `north agent-config-check --local` lints the shared hooks with `shellcheck` from PATH or else from the north flake's `shellcheck` package, and its second failing run in a row opens or updates one North issue, "Agent configuration check failing on HOST", that a passing run closes (north#351); worktrees under `~/.cache` and `~/.local/state` belong to their tools and are not layout drift. A hook script deleted from `harness/hooks/` must be named in `harness/retired-hooks.txt`
    (`north config agents check-owners` refuses the landing otherwise); the generation then carries a
    no-op stub under that name, so a host whose Firn profile still registers it is silent, not a
    "No such file or directory" error, until it rebuilds. The same check refuses a landing while

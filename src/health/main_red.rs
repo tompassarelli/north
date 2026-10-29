@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-use super::units::Tracker;
+use crate::platform::rolling_issue::Tracker;
 
 const TITLE: &str = "main is red";
 const BOX: &str = "- [ ] The newest Harness and Cargo runs on main are green";

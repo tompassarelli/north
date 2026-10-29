@@ -1,5 +1,6 @@
-use super::units::{self, Gh};
+use super::units;
 use super::{Verdict, main_red};
+use crate::platform::rolling_issue::Gh;
 
 pub(super) fn file(results: &[(String, Verdict)], north_runs: Option<&str>) {
     let failing: Vec<(String, String)> = results

@@ -117,3 +117,16 @@ fn too_few_repositories_is_not_a_clean_result() {
     assert!(report.repositories < super::layout_check::MINIMUM_REPOSITORIES);
     assert_eq!(conclude(&report, small.path()), 1);
 }
+
+#[test]
+fn worktrees_under_tool_owned_cache_and_state_are_not_lanes() {
+    let tree = Tree::new();
+    for owned in [".cache/land-offload/code-alpha-main", ".local/state/delta/capture-queue/batch/src-0"] {
+        let path = tree.root.path().canonicalize().unwrap().join(owned);
+        git_in(&tree.main("alpha"), &["worktree", "add", "-q", "--detach", path.to_str().unwrap(), "main"]);
+    }
+    assert_eq!(tree.scan().strays, 0, "{}", output(&tree.scan()));
+    let tmp = tree.root.path().canonicalize().unwrap().join("tmp/lane");
+    git_in(&tree.main("alpha"), &["worktree", "add", "-q", "--detach", tmp.to_str().unwrap(), "main"]);
+    assert_eq!(tree.scan().strays, 1);
+}
