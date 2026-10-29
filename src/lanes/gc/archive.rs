@@ -12,6 +12,8 @@ use crate::foundation::clock::Timestamp;
 
 const ZERO: &str = "0000000000000000000000000000000000000000";
 const NOTED_REPOS: [&str; 4] = ["life", "accounts", "travel", "ops"];
+// GitHub's wording for a push exposing a private author email, which no retry can pass.
+const EMAIL_PRIVACY_DECLINE: &str = "push declined due to email privacy restrictions";
 
 pub(super) struct Lane<'a> {
     pub(super) path: Option<&'a Path>,
@@ -123,6 +125,9 @@ impl Gc {
                 Some((fields.next().unwrap_or(""), oid))
             }).collect();
             if !pushed.ok || !seen.ok || refs.get(peeled_name.as_str()).or_else(|| refs.get(reference.as_str())).copied() != Some(target) {
+                if pushed.err.contains(EMAIL_PRIVACY_DECLINE) {
+                    return Ok(self.archive_to_mirror(main, container, lane.label, target));
+                }
                 let why = push_failure(&pushed.err);
                 self.notice(container, lane.label, &format!("kept ({why})"), "")?;
                 return Ok(Err(why));

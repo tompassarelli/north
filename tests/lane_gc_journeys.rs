@@ -360,6 +360,20 @@ impl Classified {
 }
 
 #[test]
+fn a_lane_whose_archive_tag_github_declines_for_email_privacy_retires_to_the_mirror() {
+    let scratch = tempfile::tempdir().unwrap();
+    let fixture = Classified::new(scratch.path());
+    let (rig, main) = (&fixture.rig, &fixture.main);
+    executable(&fixture.origin.join("hooks/pre-receive"), "#!/bin/sh\nwhile read -r old new ref; do case \"$ref\" in refs/tags/*) echo 'push declined due to email privacy restrictions' >&2; exit 1 ;; esac; done\n");
+    let out = fixture.run(&[]);
+    let sup = &fixture.tips[1];
+    assert!(!rig.home.join("code/north/worktrees/sup").exists() && !rig.git_ok(main, &["rev-parse", "-q", "--verify", "refs/heads/sup"]), "{out}");
+    assert!(fixture.remote_tag("sup").is_empty() && !fixture.origin_has_sup(), "{out}");
+    let mirrored = rig.git(&rig.root.join("mirrors/north.git"), &["for-each-ref", "--format=%(objectname) %(refname)", "refs/archive/"]);
+    assert!(mirrored.lines().any(|line| line.starts_with(sup.as_str()) && line.ends_with("/sup")), "{mirrored}\n{out}");
+}
+
+#[test]
 fn each_lane_class_retires_behind_a_verified_archive_tag_and_owned_work_stays_reported() {
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
