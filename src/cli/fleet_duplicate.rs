@@ -13,10 +13,14 @@ use super::fleet_placement::Overrides;
 /// The note the session records: placement's, then `dup: REASON` when it runs beside a holder;
 /// Err naming the holder when nothing says why. `--test` sessions skip the rule.
 pub(super) fn noted(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrides, placement: Option<String>) -> NorthResult<Option<String>> {
-    let Some(task) = request.task_ref.as_deref().filter(|_| !request.verification) else { return Ok(placement) };
+    let tasks = request.tasks();
+    if request.verification || tasks.is_empty() {
+        return Ok(placement);
+    }
+    let task = tasks.join(" ");
     let local = Value::Array(fleet.sessions()?.iter().map(|record| fleet_list::session_json(record, fleet.status(record))).collect());
     let mut notes = Vec::new();
-    let held = task_holder(task, local, &mut notes);
+    let held = task_holder(&task, local, &mut notes);
     for note in notes {
         eprintln!("fleet launch: {note}");
     }

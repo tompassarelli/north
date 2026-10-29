@@ -13,6 +13,9 @@ use crate::threads::catalog::CATALOG;
 
 pub(crate) const VERBS: [&str; 2] = ["claim", "list"];
 
+/// What a refusal by a live holder says, which `north fleet launch` tells from a ledger it could not read.
+pub(crate) const OWNED: &str = "is already owned by";
+
 pub(crate) struct Context<'a> {
     pub database: &'a Path,
     pub actor: String,
@@ -93,7 +96,7 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
         Taken::Takeover { previous, idle_since } => {
             format!("{by} owns {item}, taken over from {}: stale, no owner event since {}\n", previous.owner, Timestamp::from_unix_seconds(idle_since).iso())
         }
-        Taken::Refused(holder) => return Err(format!("{item} is already owned by {}", holder.owner)),
+        Taken::Refused(holder) => return Err(format!("{item} {OWNED} {}", holder.owner)),
     })
 }
 

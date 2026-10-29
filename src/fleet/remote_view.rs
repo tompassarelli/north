@@ -9,6 +9,10 @@ pub struct SessionView {
     pub parent: Option<String>,
     pub cwd: String,
     pub placement: Option<String>,
+    #[serde(default)]
+    pub machine: Option<String>,
+    #[serde(default)]
+    pub tasks: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

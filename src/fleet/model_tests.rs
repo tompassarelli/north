@@ -64,3 +64,14 @@ fn a_session_launched_without_task_holds_the_issue_the_brief_its_prompt_points_a
     assert_eq!(request("read brief-w63.md".into(), None).task(), None, "a relative path is not read");
     assert_eq!(request(format!("read ./{}", brief.to_string().trim_start_matches('/')), None).task(), None, "a dot-relative path is not read");
 }
+
+#[test]
+fn every_issue_the_first_item_line_names_is_held_up_to_a_word_that_marks_the_rest_as_context() {
+    use super::item_issues;
+    assert_eq!(item_issues("Category: bug\nItem: north#306, north#314 and #315 close the duplicates\nItem: north#9"), ["north#306", "north#314", "north#315"]);
+    assert_eq!(item_issues("Item: close north#306 (see north#12)"), ["north#306"]);
+    assert_eq!(item_issues("Item: fix north#7 follows north#6"), ["north#7"]);
+    assert_eq!(item_issues("Item: tompassarelli/smashcraft#342 and north#9, north#9"), ["tompassarelli/smashcraft#342", "north#9"]);
+    assert!(item_issues("Item: #342 dash attack").is_empty());
+    assert!(item_issues("Done when: north#1").is_empty());
+}

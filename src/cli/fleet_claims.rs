@@ -6,6 +6,7 @@ use serde_json::Value;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::claims::Claims;
 use crate::threads::catalog::CATALOG;
+use crate::threads::claims::verbs::OWNED;
 
 /// The `repo#N` form `threads claim` records, whichever spelling `--task` carried.
 fn canonical(item: &str) -> String {
@@ -32,7 +33,10 @@ impl ThreadsCli {
 
 impl Claims for ThreadsCli {
     fn hold(&self, item: &str, session: &str) -> NorthResult<()> {
-        Self::threads(&["claim", item, "--by", session]).map(drop)
+        match Self::threads(&["claim", item, "--by", session]) {
+            Err(NorthError::Refused(why)) if !why.contains(OWNED) => Err(NorthError::State(why)),
+            other => other.map(drop),
+        }
     }
 
     fn release(&self, item: &str, session: &str) -> NorthResult<()> {

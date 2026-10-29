@@ -22,6 +22,7 @@ pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
+mod claiming;
 mod depth;
 mod efforts;
 mod first_turn;
@@ -123,8 +124,10 @@ impl Fleet {
         }
         let effort = efforts::taken(runtime.as_ref(), request.effort)?;
         let conversation = runtime.assign_conversation()?;
-        fs::create_dir_all(&session_dir)?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
+        let tasks = request.tasks();
+        self.claim_before_start(request, &tasks, verification)?;
+        fs::create_dir_all(&session_dir)?;
         let mut record = SessionRecord {
             verification,
             name: request.name.clone(),
@@ -143,7 +146,8 @@ impl Fleet {
             foreground_cap_secs: request.foreground_cap_secs,
             idle_exit_minutes: request.idle_exit_minutes,
             parent: request.parent.clone(),
-            task_ref: request.task(),
+            task_ref: tasks.first().cloned(),
+            extra_tasks: tasks.iter().skip(1).cloned().collect(),
             prompt_mode: request.prompt_mode,
             system_prompt_sha: None,
             placement: request.placement.clone(),
@@ -152,7 +156,7 @@ impl Fleet {
             last_sender: None,
             handoff_at: crate::fleet::handoff::threshold(&request.prompt),
         };
-        self.start(&mut record, &account, Opening::Fresh(conversation.as_deref()))?;
+        self.start_claiming(&mut record, &account, conversation.as_deref())?;
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;
         }

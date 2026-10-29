@@ -26,6 +26,8 @@ impl Fleet {
                 None => record.cwd.display().to_string(),
             },
             placement: record.placement.clone(),
+            machine: record.machine.as_ref().map(|machine| machine.name.clone()),
+            tasks: record.tasks().map(str::to_owned).collect(),
         });
         let open = gates::decisions(self.ledger.gates(0)?).into_iter().filter(|gate| gate.is_open());
         let gates = open.map(|gate| GateView { id: gate.id, session: gate.request.session, question: gate.request.question, options: gate.request.options });

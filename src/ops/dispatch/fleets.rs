@@ -48,7 +48,11 @@ pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
         .filter(|session| RUNNING.contains(&session["status"].as_str().unwrap_or_default()))
         .map(|session| {
             let name = session["name"].as_str().unwrap_or_default().to_owned();
-            let tasked: Vec<IssueRef> = issues::references(session["task_ref"].as_str().unwrap_or_default(), "").into_iter().filter(|item| !item.repo.is_empty()).collect();
+            let task_text = match session["tasks"].as_array() {
+                Some(tasks) => tasks.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
+                None => session["task_ref"].as_str().unwrap_or_default().to_owned(),
+            };
+            let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
             Session { machine: session["machine"].as_str().map(str::to_owned), name, items }
         })

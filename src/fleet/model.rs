@@ -62,11 +62,21 @@ pub struct LaunchRequest {
 }
 
 impl LaunchRequest {
-    /// `--task`, else the issue the first `Item:` line starts with (`repo#N` or `owner/repo#N`),
-    /// in the prompt or else in the `.md` brief at an absolute path the prompt names, so a session
-    /// launched without `--task` still holds its issue.
+    /// The first of [`Self::tasks`].
     pub fn task(&self) -> Option<String> {
-        self.task_ref.clone().or_else(|| first_item_issue(&self.prompt)).or_else(|| first_item_issue(&self.named_brief()?))
+        self.tasks().into_iter().next()
+    }
+
+    /// `--task` alone, else every issue the first `Item:` line names, in the prompt or else in the brief it points at.
+    pub fn tasks(&self) -> Vec<String> {
+        if let Some(task) = &self.task_ref {
+            return vec![task.clone()];
+        }
+        let named = item_issues(&self.prompt);
+        if !named.is_empty() {
+            return named;
+        }
+        self.named_brief().map(|brief| item_issues(&brief)).unwrap_or_default()
     }
 
     pub fn named_brief(&self) -> Option<String> {
@@ -80,12 +90,40 @@ impl LaunchRequest {
     }
 }
 
-pub(crate) fn first_item_issue(text: &str) -> Option<String> {
-    let line = text.lines().find_map(|line| line.trim_start().strip_prefix("Item:"))?;
-    let word = line.split_whitespace().next()?.trim_end_matches([':', ',', '.', ';']);
+const ITEM_STOPS: [&str; 8] = ["follows", "after", "blocked", "depends", "needs", "see", "refs", "from"];
+
+fn issue_word(word: &str) -> Option<(&str, &str)> {
+    let word = word.trim_start_matches(|c: char| "\"'`(<[".contains(c)).trim_end_matches(|c: char| "\"'`)>],;:.".contains(c));
     let (repo, number) = word.rsplit_once('#')?;
-    let repo_ok = !repo.is_empty() && repo.chars().all(|c| c.is_ascii_alphanumeric() || "/_.-".contains(c));
-    (repo_ok && !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then(|| word.to_owned())
+    let repo_ok = repo.chars().all(|c| c.is_ascii_alphanumeric() || "/_.-".contains(c));
+    (repo_ok && !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then_some((repo, number))
+}
+
+/// Every issue the first `Item:` line names, in order: `repo#N` or `owner/repo#N`, and a bare `#N` after one for its repository, up to a word such as "follows" that marks the rest as context.
+pub(crate) fn item_issues(text: &str) -> Vec<String> {
+    let Some(line) = text.lines().find_map(|line| line.trim_start().strip_prefix("Item:")) else { return Vec::new() };
+    let mut found: Vec<String> = Vec::new();
+    let mut repo = "";
+    for word in line.split_whitespace() {
+        if ITEM_STOPS.contains(&word.trim_matches(|c: char| !c.is_ascii_alphabetic()).to_ascii_lowercase().as_str()) {
+            break;
+        }
+        let Some((named, number)) = issue_word(word) else { continue };
+        let named = if named.is_empty() { repo } else { named };
+        if named.is_empty() {
+            continue;
+        }
+        repo = named;
+        let issue = format!("{named}#{number}");
+        if !found.contains(&issue) {
+            found.push(issue);
+        }
+    }
+    found
+}
+
+pub(crate) fn first_item_issue(text: &str) -> Option<String> {
+    item_issues(text).into_iter().next()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -118,6 +156,8 @@ pub struct SessionRecord {
     pub parent: Option<String>,
     #[serde(default)]
     pub task_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_tasks: Vec<String>,
     #[serde(default)]
     pub prompt_mode: PromptMode,
     #[serde(default)]
@@ -135,6 +175,11 @@ pub struct SessionRecord {
 }
 
 impl SessionRecord {
+    /// Every issue this session holds a claim on: its task and the others its Item line named.
+    pub fn tasks(&self) -> impl Iterator<Item = &str> {
+        self.task_ref.iter().chain(&self.extra_tasks).map(String::as_str)
+    }
+
     pub fn relaunch_request(&self) -> LaunchRequest {
         LaunchRequest {
             verification: self.verification,
