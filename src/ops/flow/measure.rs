@@ -144,7 +144,8 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     row.insert("pins".into(), json!(pins_verdict(pin_builds(env.host, &source.path).as_deref())));
     let landing = source.landing(row);
     let tips = source.lane_tips()?;
-    let unlanded = source.unlanded(&tips);
+    let (unlanded, cleanup) = source.live_lanes(&tips, source.unlanded(&tips));
+    row.insert("cleanup".into(), json!(cleanup));
     let states = if source.autoland { autoland::autoland_states(env.host, &source.slug, &unlanded) } else { BTreeMap::new() };
     let (lanes, dead_count, dead_oldest) = autoland::lane_counts(&unlanded, &states, now);
     let mut pending = lanes as u64;
@@ -210,6 +211,24 @@ impl Source<'_> {
             })
             .cloned()
             .collect()
+    }
+
+    /// The unlanded lanes still in play, and the branches to clean up: pushed over a day ago, or whose
+    /// merge into main adds nothing because the change landed in another form.
+    fn live_lanes(&self, tips: &BTreeMap<String, (f64, String)>, unlanded: Vec<String>) -> (Vec<String>, Vec<String>) {
+        let main_tree = self.git(&["rev-parse", "origin/main^{tree}"]).map(|tree| tree.trim().to_owned());
+        let (mut live, mut cleanup) = (Vec::new(), Vec::new());
+        for sha in unlanded {
+            let (pushed, branch) = &tips[&sha];
+            let merged = self.git(&["merge-tree", "--write-tree", "origin/main", &sha]);
+            let landed = matches!((&merged, &main_tree), (Some(merged), Some(tree)) if merged.lines().next() == Some(tree.as_str()));
+            if self.now - pushed > DAY || landed {
+                cleanup.push(branch.clone());
+            } else {
+                live.push(sha);
+            }
+        }
+        (live, cleanup)
     }
 
     fn queued_runs(&self) -> Option<(u64, Vec<f64>)> {

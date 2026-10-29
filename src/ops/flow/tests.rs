@@ -79,7 +79,7 @@ fn row(recorded: &Recorded, now: f64) -> Value {
 }
 
 fn parent() -> Vec<Node> {
-    vec![Node { id: "smashcraft-parent".into(), session: None, parent: None, provider: "claude".into(), active: true, pid: None, cwd: "/home/tom/code/smashcraft/main".into() }]
+    vec![Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/smashcraft/main".into() }]
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn replay_alerts(recorded: &Recorded) {
             let (next, actions) = alert_plan(&[row(recorded, now)], &state, now, &nodes);
             state = next;
             for action in actions {
-                state.get_mut(&action.repo).unwrap().sent.push(action.key.clone());
+                state.get_mut(&action.repo).unwrap().sent.insert(action.key.clone(), now);
                 found.push((now, action));
             }
             now += 300.0;
@@ -156,7 +156,12 @@ fn deliver_alerts(recorded: &Recorded) {
     let state_path = directory.path().join("agents/flow/stalls.json");
     stall_alert(&places, &host, std::slice::from_ref(&stalled), first).unwrap();
     stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 300.0).unwrap();
+    stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 600.0).unwrap();
     assert_eq!(sends.borrow().len(), 2);
+    stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 900.0).unwrap();
+    assert_eq!(sends.borrow().len(), 4);
+    stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 1200.0).unwrap();
+    assert_eq!(sends.borrow().len(), 4);
     assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send proxy ")));
     assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send smashcraft-parent ")));
     let initial = std::fs::read_to_string(&state_path).unwrap();
@@ -171,15 +176,12 @@ fn deliver_alerts(recorded: &Recorded) {
     assert_eq!(fault["stall"]["overdue_jobs"].as_array().unwrap().len(), 1);
     stall_alert(&places, &host, std::slice::from_ref(&fault), prolonged).unwrap();
     stall_alert(&places, &host, std::slice::from_ref(&fault), prolonged + 300.0).unwrap();
-    assert_eq!(sends.borrow().len(), 2);
-    let mut healthy = json!({"repo": "smashcraft", "main_sha": stalled["main_sha"], "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, &[], &Medians::new(), None))});
-    stall_alert(&places, &host, std::slice::from_ref(&healthy), prolonged).unwrap();
-    assert!(std::fs::read_to_string(&state_path).unwrap().contains("smashcraft"));
-    healthy["main_sha"] = "recovered".into();
+    assert_eq!(sends.borrow().len(), 6);
+    let healthy = json!({"repo": "smashcraft", "main_sha": stalled["main_sha"], "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, &[], &Medians::new(), None))});
     stall_alert(&places, &host, std::slice::from_ref(&healthy), prolonged).unwrap();
     assert_eq!(std::fs::read_to_string(&state_path).unwrap().trim(), "{}");
     stall_alert(&places, &host, std::slice::from_ref(&stalled), prolonged + 300.0).unwrap();
-    assert_eq!(sends.borrow().len(), 4);
+    assert_eq!(sends.borrow().len(), 8);
 }
 
 fn events_first(recorded: &Recorded) -> f64 {

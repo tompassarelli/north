@@ -104,7 +104,7 @@ fn test_recorded_11_oct_idle_capacity() {
     let pins = cargo_pins(&["[package]\nname = \"smashcraft\"\n".to_owned(), manifest]);
     assert_eq!(pins, [("tompassarelli/wc3-controller".to_owned(), "v0.3.3".to_owned())]);
     let build = |conclusion: &str| Build { dependency: pins[0].0.clone(), tag: pins[0].1.clone(), status: "completed".into(), conclusion: conclusion.into() };
-    let nodes = vec![Node { id: "smashcraft-parent".into(), session: None, parent: None, provider: "claude".into(), active: true, pid: None, cwd: "/home/tom/code/smashcraft/main".into() }];
+    let nodes = vec![Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/smashcraft/main".into() }];
     let red = [build("failure")];
     let flagged = capacity_row(now, &Capacity { pending: 17, samples: &quiet, pairs: &lines, flags: &reuse, builds: &red });
     let (_, actions) = alert_plan(std::slice::from_ref(&flagged), &State::new(), now, &nodes);

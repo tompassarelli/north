@@ -57,6 +57,7 @@ Every rule here holds on any provider unless marked Claude-only, so the provider
 - Run at most as many native workers as free client slots (machine-capacity allows 4 Warcraft clients, 2 per pair), and give each a box that fits 45 minutes, because on 19 Oct three native workers queued on slots and five hit leash or context limits mid-run.
 - Tell Tom only what changes his next action: a landed fix (with its build), a result, or a decision; never relay a worker's interim "still waiting", because status chatter buries what he must act on.
 - File an unproven process idea as an issue and promote it to policy only after a measured result. Finish an issue's last unchecked box before starting new work, and after an hour with no closure start nothing new until an open box closes, because open boxes are the throughput.
+- On a stall or saturation alert from `north flow`, which repeats every 15 minutes while it lasts, diagnose and act within 15 minutes (stop launching onto the host, move work to a free host, clear the blocker) and report only the result to Tom, because a pipeline left alone cost 2 hours of landings on 2026-10-29.
 
 ## Reports
 

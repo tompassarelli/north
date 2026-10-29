@@ -26,7 +26,9 @@ fn settings(root: &Path) -> Settings {
         let script = root.join(tool);
         fs::write(&script, format!("#!/bin/sh\necho \"{tool} $*\" >> '{}'\n", log.display())).unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::foundation::shim::wait_until_executable(&script);
     }
+    let _ = fs::remove_file(&log);
     Settings {
         proc,
         state: root.join("state.json"),

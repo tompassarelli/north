@@ -1,20 +1,22 @@
 //! `north flow`: how fast each repository's lanes land, whether landing has stalled, and which
-//! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy, once per
-//! stall, and runs `ci-diagnose`.
+//! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy of a stall or a
+//! saturated host every fifteen minutes while it lasts, and runs `ci-diagnose`.
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
-use alerts::{fleet_nodes, stall_alert};
+use alerts::stall_alert;
+use capacity::saturation_alert;
 use guards::actions_verdict;
 use host::{Host, Machine, Places, valid_name};
 use jobs::account_busy;
 use measure::{Env, get, project_targets};
-use notes::{brief_coverage, claude_sessions, unnamed, untranscribed, usage_stale};
+use notes::{brief_coverage, usage_stale};
 use render::format_row;
 
 mod alerts;
+mod capacity;
 mod autoland;
 mod goal;
 mod guards;
@@ -25,6 +27,10 @@ mod notes;
 mod render;
 mod stall;
 mod throughput;
+#[cfg(test)]
+mod capacity_tests;
+#[cfg(test)]
+mod lanes_tests;
 #[cfg(test)]
 mod readings_tests;
 #[cfg(test)]
@@ -66,21 +72,12 @@ fn laptop_line(host: &dyn Host) -> String {
     }
 }
 
-fn announce(places: &Places, host: &dyn Host, now: f64, options: &Options) {
-    let nodes = fleet_nodes(host).unwrap_or_default();
+fn announce(places: &Places, now: f64, options: &Options) {
     if options.json {
         return;
     }
-    let stale = untranscribed(&nodes);
-    if !stale.is_empty() {
-        println!("agents flow: no transcript (inherited CLAUDE_CODE_CHILD_SESSION), restart at a break: {}", stale.join(", "));
-    }
     if let Some(age) = usage_stale(places, now, USAGE_STALE_HOURS) {
         println!("agents flow: usage cache stale: claude-web.json last written {age:.0}h ago; usage-web-read runs every 6h");
-    }
-    let nameless = unnamed(&nodes, &claude_sessions(places));
-    if !nameless.is_empty() {
-        println!("agents flow: not reachable by Fleet name, restart at a break: {}", nameless.join(", "));
     }
     let covered = brief_coverage(places).map_or("unknown".into(), |covered| covered.to_string());
     println!("agents flow: tagged finished worker briefs {covered}/300 retrieval trigger; backtest requires >500");
@@ -89,6 +86,9 @@ fn announce(places: &Places, host: &dyn Host, now: f64, options: &Options) {
 fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     if stall_alert(places, host, rows, now).is_err() {
         println!("agents flow: stall alert state error");
+    }
+    if saturation_alert(places, host, &crate::pace::target::policy_path(), now).is_err() {
+        println!("agents flow: saturation alert state error");
     }
     match host.output(&["ci-diagnose"], None, None, Duration::from_secs(1200)) {
         Some(output) => {
@@ -155,7 +155,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         println!("{}", laptop_line(&machine));
         println!("{}", rows.iter().map(|row| format_row(row, None)).collect::<Vec<_>>().join("\n"));
     }
-    announce(&places, &machine, now, &options);
+    announce(&places, now, &options);
     if options.alarm {
         alarm(&places, &machine, &rows, now);
     }

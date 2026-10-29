@@ -1,11 +1,8 @@
-//! The caveats printed under the flow rows: sessions the Fleet cannot reach, a stale usage cache
-//! and how many finished worker briefs carry every facet.
-use std::path::{Path, PathBuf};
+//! The caveats printed under the flow rows: a stale usage cache and how many finished worker briefs carry every facet.
 use std::time::Duration;
 
 use serde_json::Value;
 
-use super::alerts::Node;
 use super::host::Places;
 use crate::platform::sqlite::{self, Access};
 
@@ -19,47 +16,6 @@ const FACETS: [(&str, &[&str]); 4] = [
     ("Verify", &["none", "local-test", "farm", "native", "visual"]),
 ];
 const ORIGINS: [&str; 2] = ["codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent"];
-
-fn running_claude(node: &Node) -> Option<u64> {
-    (node.provider == "claude" && node.active).then_some(node.pid?).filter(|pid| *pid != 0)
-}
-
-/// Sessions whose process inherited a parent's `CLAUDE_CODE_CHILD_SESSION`, which Claude writes no transcript for.
-pub(crate) fn untranscribed(nodes: &[Node]) -> Vec<String> {
-    nodes
-        .iter()
-        .filter(|node| {
-            let Some(pid) = running_claude(node) else { return false };
-            std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|environ| environ.split(|byte| *byte == 0).any(|item| item.starts_with(b"CLAUDE_CODE_CHILD_SESSION=")))
-        })
-        .map(|node| node.id.clone())
-        .collect()
-}
-
-fn session_names(sessions: &Path) -> Vec<(Option<String>, Option<String>)> {
-    let Ok(listing) = std::fs::read_dir(sessions) else { return Vec::new() };
-    listing
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json"))
-        .filter_map(|entry| serde_json::from_str::<Value>(&std::fs::read_to_string(entry.path()).ok()?).ok())
-        .map(|record| (record["sessionId"].as_str().map(str::to_owned), record["name"].as_str().map(str::to_owned)))
-        .collect()
-}
-
-pub(crate) fn claude_sessions(places: &Places) -> PathBuf {
-    std::env::var_os("CLAUDE_CONFIG_DIR").map_or_else(|| places.home.join(".claude"), PathBuf::from).join("sessions")
-}
-
-/// Running Claude sessions Claude does not know by their Fleet name.
-pub(crate) fn unnamed(nodes: &[Node], sessions: &Path) -> Vec<String> {
-    let named = session_names(sessions);
-    nodes
-        .iter()
-        .filter(|node| running_claude(node).is_some_and(|pid| Path::new(&format!("/proc/{pid}")).exists()))
-        .filter(|node| !named.iter().any(|(session, name)| session.is_some() && *session == node.session && name.as_deref() == Some(node.id.as_str())))
-        .map(|node| node.id.clone())
-        .collect()
-}
 
 /// Hours since the Claude usage cache was written, when that is over `hours`.
 pub(crate) fn usage_stale(places: &Places, now: f64, hours: f64) -> Option<f64> {

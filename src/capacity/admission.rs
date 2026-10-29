@@ -229,7 +229,7 @@ pub(crate) fn aperture_need_mib(desktops: u32, clients: u32, host_margin_mib: Op
     f64::from(desktops) * default_mib("bar1_desktop_mib") + f64::from(clients) * default_mib("bar1_client_mib") + margin
 }
 
-pub(super) fn default_mib(name: &str) -> f64 {
+pub(crate) fn default_mib(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
     value
         .as_float()
