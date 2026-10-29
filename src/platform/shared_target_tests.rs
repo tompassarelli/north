@@ -26,7 +26,7 @@ fn an_idle_executable_and_an_idle_incremental_directory_go_but_libraries_stay() 
     write(&target.join("debug/deps/libnorth-1.rmeta"), 4096, 0o644, HOUR);
     write(&target.join("debug/incremental/north-x/s-1/dep-graph.bin"), 4096, 0o644, HOUR);
     write(&target.join("debug/deps/libfresh.rlib"), 4096, 0o644, Duration::from_secs(30));
-    assert_eq!(sweep_now(&target, 0), 8192);
+    assert_eq!(sweep_now(&target, 12288), 8192);
     assert!(!target.join("debug/deps/north-1").exists());
     assert!(!target.join("debug/incremental/north-x").exists());
     assert!(target.join("debug/deps/libnorth-1.rlib").is_file());
@@ -103,14 +103,72 @@ fn a_named_target_under_the_shared_cache_and_its_release_profile_are_swept() {
 }
 
 #[test]
-fn an_idle_profile_of_libraries_goes_whole_only_when_nothing_finer_gets_under_the_cap() {
+fn an_idle_profile_goes_whole_only_when_nothing_finer_gets_under_the_cap() {
     let scratch = tempfile::tempdir().unwrap();
     let target = scratch.path().join("cargo-target");
     write(&target.join("release/deps/libold.rlib"), 4096, 0o644, HOUR * 3);
+    write(&target.join("release/build/out.bin"), 4096, 0o644, HOUR * 3);
     write(&target.join("debug/deps/libnew.rlib"), 4096, 0o644, Duration::from_secs(30));
-    assert_eq!(sweep_now(&target, 4096), 4096);
+    assert_eq!(sweep_now(&target, 4096), 8192);
     assert!(!target.join("release").exists());
     assert!(target.join("debug/deps/libnew.rlib").is_file());
     assert_eq!(sweep_now(&target, 0), 0);
     assert!(target.join("debug/deps/libnew.rlib").is_file());
+}
+
+#[test]
+fn an_idle_dependency_artifact_goes_oldest_first_from_a_profile_a_build_just_touched() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("release/deps/libold-1.rlib"), 4096, 0o644, HOUR * 3);
+    write(&target.join("release/deps/libold-1.rmeta"), 4096, 0o644, HOUR * 2);
+    write(&target.join("release/deps/libold-1.d"), 4096, 0o644, HOUR);
+    write(&target.join("release/deps/libfresh-2.rlib"), 4096, 0o644, Duration::from_secs(30));
+    assert_eq!(sweep_now(&target, 8192), 8192);
+    assert!(!target.join("release/deps/libold-1.rlib").exists());
+    assert!(!target.join("release/deps/libold-1.rmeta").exists());
+    assert!(target.join("release/deps/libold-1.d").is_file());
+    assert!(target.join("release/deps/libfresh-2.rlib").is_file());
+    assert_eq!(sweep_now(&target, 0), 4096);
+    assert!(!target.join("release/deps/libold-1.d").exists());
+    assert!(target.join("release/deps/libfresh-2.rlib").is_file());
+}
+
+#[test]
+fn a_dependency_artifact_touched_within_twenty_minutes_stays_even_over_the_cap() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("release/deps/libfresh-2.rlib"), 4096, 0o644, Duration::from_secs(60));
+    write(&target.join("release/deps/libfresh-2.rmeta"), 4096, 0o644, Duration::from_secs(60));
+    assert_eq!(sweep_now(&target, 0), 0);
+    assert!(target.join("release/deps/libfresh-2.rlib").is_file());
+    assert!(target.join("release/deps/libfresh-2.rmeta").is_file());
+}
+
+#[test]
+fn a_profile_whose_build_lock_is_held_keeps_its_idle_dependency_artifacts() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("release/deps/libold-1.rlib"), 4096, 0o644, HOUR * 3);
+    write(&target.join("release/.cargo-lock"), 0, 0o644, HOUR * 3);
+    write(&target.join("debug/deps/libold-2.rlib"), 4096, 0o644, HOUR * 3);
+    write(&target.join("debug/fresh.bin"), 1, 0o644, Duration::from_secs(30));
+    let building = File::open(target.join("release/.cargo-lock")).unwrap();
+    building.lock().unwrap();
+    assert_eq!(sweep_now(&target, 0), 4096);
+    assert!(target.join("release/deps/libold-1.rlib").is_file());
+    assert!(!target.join("debug/deps/libold-2.rlib").exists());
+    drop(building);
+    assert_eq!(sweep_now(&target, 0), 4096);
+    assert!(!target.join("release/deps/libold-1.rlib").exists());
+}
+
+#[test]
+fn a_small_file_counts_the_disk_blocks_it_occupies_toward_the_cap() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("release/deps/libtiny.rlib"), 1, 0o644, HOUR);
+    assert_eq!(tree(&target, &mut HashSet::new()).unwrap().0, 1);
+    assert_eq!(profile_size(&target).unwrap(), 4096);
+    assert_eq!(sweep_now(&target, 0), 4096);
 }
