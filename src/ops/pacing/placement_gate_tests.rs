@@ -324,3 +324,49 @@ fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
     assert_eq!(sent.machine.as_ref().map(|machine| machine.name.as_str()), Some("gex45"), "{:?}", sent.machine_lines);
     assert_eq!(gate::lacks(&cfg, "gex45", north), None);
 }
+
+#[test]
+fn a_saturated_machine_is_skipped_by_name_and_the_next_one_takes_the_box() {
+    use crate::capacity::saturation::Saturation;
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\", \"nexus\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"private\"]\n[hosts.nexus]\nresident_cap = 8\nssh = \"tom@nexus\"\nserves = [\"private\"]\n[hosts.here]\n".parse().unwrap();
+    let quota = gate(&[("claude:a", control((35.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0)))]);
+    let calm = Saturation { queued: 0, cores: 20.0, load5: 3.0, disk_free_gib: 40.0 };
+    let place = |gex45: Saturation| {
+        let mut machines = gate::machines(&cfg);
+        for machine in &mut machines {
+            machine.live = Some(3);
+            machine.accounts = vec!["a".into()];
+            machine.saturation = Some(calm);
+        }
+        machines[0].saturation = Some(gex45);
+        let decision = decide(PRIVATE, &cfg, &quota, (false, String::new()), &machines, "here");
+        (decision.machine.map(|machine| machine.name), decision.machine_lines)
+    };
+    assert_eq!(place(calm).0.as_deref(), Some("gex45"));
+    let cases = [
+        ("queue", Saturation { queued: 9, ..calm }, "gex45 skipped: 9 queued for admission"),
+        ("disk", Saturation { disk_free_gib: 14.0, ..calm }, "gex45 skipped: 14.0 GiB free on the root disk, under 15"),
+        ("load", Saturation { load5: 29.5, ..calm }, "gex45 skipped: 5-minute load 29.5 over 20 cores"),
+    ];
+    for (signal, reading, line) in cases {
+        let (machine, lines) = place(reading);
+        assert_eq!(machine.as_deref(), Some("nexus"), "{signal}: {lines:?}");
+        assert_eq!(lines, [line, "nexus available: 3/8 resident CLIs"], "{signal}");
+    }
+}
+
+#[test]
+fn a_named_saturated_machine_runs_the_box_only_under_a_pin_that_records_the_reason() {
+    use crate::capacity::saturation::Saturation;
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"private\"]\n".parse().unwrap();
+    let quota = gate(&[("claude:a", control((35.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0)))]);
+    let mut machines = gate::machines(&cfg);
+    machines[0].live = Some(3);
+    machines[0].accounts = vec!["a".into()];
+    machines[0].saturation = Some(Saturation { queued: 9, cores: 20.0, load5: 3.0, disk_free_gib: 40.0 });
+    let mut decision = decide(PRIVATE, &cfg, &quota, (false, String::new()), &machines, "here");
+    assert!(decision.machine.is_none());
+    decision.run_on(machines.remove(0));
+    assert_eq!(decision.saturated.as_deref(), Some("gex45 skipped: 9 queued for admission"));
+    assert!(decision.machine_lines.contains(&"gex45 skipped: 9 queued for admission".to_owned()));
+}

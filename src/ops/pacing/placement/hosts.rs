@@ -1,7 +1,8 @@
 use super::super::storage::load;
 use super::super::{process, storage, target};
 use super::{local, moment, operator, stamp};
-use serde_json::Value;
+use crate::capacity::saturation::{self, Saturation};
+use serde_json::{Value, json};
 use std::path::Path;
 use toml_edit::{DocumentMut, Item};
 
@@ -132,6 +133,45 @@ pub(in crate::ops::pacing) fn resident(name: &str, destination: &str) -> Option<
         20.0,
     );
     result.ok().filter(|r| r.code == 0).and_then(|r| live_count(&r.out))
+}
+
+const SATURATION_CACHE_SECONDS: f64 = 60.0;
+
+impl super::gate::Machine {
+    pub(in crate::ops::pacing) fn saturation_refusal(&self) -> Option<String> {
+        self.saturation?.refusal(&self.name)
+    }
+}
+
+/// The host's saturation reading, from the PLACEMENT_HOSTS fixture, else the cache when under a
+/// minute old, else a fresh probe here or over ssh `destination`; None when unreadable.
+pub(in crate::ops::pacing) fn saturation(name: &str, destination: &str) -> Option<Saturation> {
+    if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
+        let fixture = load(Path::new(&path));
+        if fixture[name].is_object() {
+            let reading = &fixture[name]["saturation"];
+            return Some(Saturation { queued: reading["queued"].as_u64()?.try_into().ok()?, cores: reading["cores"].as_f64()?, load5: reading["load5"].as_f64()?, disk_free_gib: reading["disk_free_gib"].as_f64()? });
+        }
+    }
+    let cache = storage::directory().join("saturation").join(format!("{name}.json"));
+    let now = storage::now();
+    let cached = load(&cache);
+    if cached["at"].as_f64().is_some_and(|at| (0.0..SATURATION_CACHE_SECONDS).contains(&(now - at))) {
+        return serde_json::from_value(cached["reading"].clone()).ok();
+    }
+    let reading = probe(name, destination)?;
+    let _ = std::fs::create_dir_all(cache.parent()?).and_then(|()| std::fs::write(&cache, json!({"at": now, "reading": reading}).to_string()));
+    Some(reading)
+}
+
+fn probe(name: &str, destination: &str) -> Option<Saturation> {
+    let output = if name == local() {
+        process::run("sh", &["-c", saturation::PROBE], None, 20.0)
+    } else {
+        let command = format!("sh -c '{}'", saturation::PROBE);
+        process::run("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, &command], None, 20.0)
+    };
+    output.ok().filter(|r| r.code == 0).and_then(|r| saturation::parse(&r.out))
 }
 
 pub(in crate::ops::pacing) fn signed_in(name: &str, destination: &str) -> Vec<String> {

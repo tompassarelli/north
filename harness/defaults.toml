@@ -611,7 +611,14 @@ value = 15
 unit = "GiB free on the root filesystem below which admission defers a heavy build (cargo build/test/clippy, nix build)"
 source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/28 with about 17 sessions building at once while admission counted only CPU and memory (north#259)"
 fallback = "an unreadable disk admits, as before"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["src/capacity/admission.rs", "src/capacity/saturation.rs"]
+
+[launch_queue_limit]
+value = 4
+unit = "jobs queued for machine-capacity admission on a host at or above which placement skips it for a new launch"
+source = "measured: 10 workers launched onto the GPU host in an hour on 2026-10-29 while 9 jobs queued for admission at load 32-47, a 2-hour stall"
+fallback = "an unreadable queue does not skip the host"
+consumers = ["src/capacity/saturation.rs"]
 
 [quiet_idle_cores]
 value = 0.25

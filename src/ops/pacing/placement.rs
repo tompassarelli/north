@@ -13,7 +13,7 @@ mod launch;
 mod survey;
 mod tiers;
 use candidates::admit;
-use hosts::{credit, laptop, resident, signed_in};
+use hosts::{credit, laptop, resident, saturation, signed_in};
 pub(super) use launch::{Probes, Routing, spawn};
 pub(super) use tiers::routing_defaults;
 pub(crate) use inputs::{cloud_credit, config, laptop_state, now, pace_directory, pace_state, resident_clis};
@@ -151,6 +151,7 @@ fn place_resident(cfg: &DocumentMut, probe: &Value, name: &str) -> Option<Result
         .and_then(|h| h.get(name))
         .and_then(|h| h.get("resident_cap"))
         .and_then(Item::as_integer)?;
+    let mut saturated = None;
     let (online, live) = if let Some(pair) = probe[name].as_array() {
         (
             pair[0].as_bool().unwrap_or(false),
@@ -163,8 +164,12 @@ fn place_resident(cfg: &DocumentMut, probe: &Value, name: &str) -> Option<Result
             .and_then(|h| h.get("ssh"))
             .and_then(Item::as_str)
             .unwrap_or(name);
+        saturated = saturation(name, ssh).and_then(|reading| reading.refusal(name));
         resident(name, ssh).map_or((false, 0), |live| (true, live))
     };
+    if let Some(why) = saturated.filter(|_| online) {
+        return Some(Err(why));
+    }
     if online && live < cap {
         return Some(Ok((name.to_owned(), format!("{name} {live}/{cap}"))));
     }

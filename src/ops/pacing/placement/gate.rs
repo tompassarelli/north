@@ -5,8 +5,9 @@
 //! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
-use super::{credit, facets, field, local, resident, signed_in, strings};
+use super::{credit, facets, field, local, resident, saturation, signed_in, strings};
 use crate::capacity::agent_load;
+use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
 use crate::pace::exhaustion;
 use crate::fleet::roster::{Roster, Standing};
@@ -50,6 +51,7 @@ pub(crate) struct Machine {
     pub cap: i64,
     pub live: Option<i64>,
     pub accounts: Vec<String>,
+    pub saturation: Option<Saturation>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,6 +64,7 @@ pub(crate) struct Decision {
     pub here: String,
     pub here_lacks: Option<(String, String)>,
     pub machine_lines: Vec<String>,
+    pub saturated: Option<String>,
 }
 
 impl Decision {
@@ -111,6 +114,8 @@ impl Decision {
     pub(crate) fn run_on(&mut self, machine: Machine) {
         let (name, accounts) = (machine.name.clone(), machine.accounts.clone());
         self.machine_lines.push(format!("{name} named by --cwd"));
+        self.saturated = machine.saturation_refusal();
+        self.machine_lines.extend(self.saturated.clone());
         self.machine = Some(machine);
         if matches!(self.target, Target::Held(_)) {
             return;
@@ -268,7 +273,7 @@ pub(crate) fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = host.get("ssh")?.as_str()?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
-            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), name, ssh, cap, live: None, accounts: Vec::new() })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), name, ssh, cap, live: None, accounts: Vec::new(), saturation: None })
         })
         .collect()
 }
@@ -341,14 +346,14 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             if !can_push(machine.pushes.as_deref(), &repo) {
                 return format!("{name} skipped: cannot push {repo}");
             }
-            match machine.live {
+            machine.saturation_refusal().unwrap_or_else(|| match machine.live {
                 None => format!("{name} unreachable over ssh {}", machine.ssh),
                 Some(live) if live >= machine.cap => format!("{name} full: {live}/{} resident CLIs", machine.cap),
                 Some(live) => {
                     chosen.get_or_insert_with(|| machine.clone());
                     format!("{name} available: {live}/{} resident CLIs", machine.cap)
                 }
-            }
+            })
         })
         .collect();
     let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}")));
@@ -399,6 +404,7 @@ pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, cred
         here: here.into(),
         here_lacks,
         machine_lines,
+        saturated: None,
     };
     decision.target = if code_only && credit.0 {
         Target::Cloud(credit.1)
@@ -460,7 +466,7 @@ pub(crate) fn probed(cfg: &DocumentMut, fleet_load: &BTreeMap<String, i64>) -> V
         .into_iter()
         .map(|machine| {
             let hosted = fleet_load.get(&machine.name).copied().unwrap_or(0);
-            Machine { live: resident(&machine.name, &machine.ssh).map(|live| live + hosted), accounts: signed_in(&machine.name, &machine.ssh), ..machine }
+            Machine { live: resident(&machine.name, &machine.ssh).map(|live| live + hosted), accounts: signed_in(&machine.name, &machine.ssh), saturation: saturation(&machine.name, &machine.ssh), ..machine }
         })
         .collect()
 }

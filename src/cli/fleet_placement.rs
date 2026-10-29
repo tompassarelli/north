@@ -107,7 +107,8 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone() }),
         _ => None,
     };
-    if let Some(refusal) = account_refusal(decision, launch.account) {
+    let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
+    if let Some(refusal) = saturated.or_else(|| account_refusal(decision, launch.account)) {
         let Some(reason) = &overrides.pin else {
             return Err(refusal);
         };
