@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+dry=0
+case "${1:-}" in
+  "") ;;
+  --dry-run) dry=1 ;;
+  *) echo "usage: watch-review [--dry-run]" >&2; exit 64 ;;
+esac
+toml="${WATCH_TOML:-$HOME/code/south/main/agents/watch.toml}"
+cache="${WATCH_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/watch-review}"
+north="${WATCH_NORTH_BIN:-north}"
+mkdir -p "$cache"
+
+sources="$(awk '
+  function flush() { if (id != "") print id "|" repo "|" path "|" last; id = repo = path = last = "" }
+  /^\[\[source\]\]/ { flush(); next }
+  match($0, /^(id|repo|path|last_commit) *= *"[^"]*"/) {
+    k = $0; sub(/[ ]*=.*/, "", k)
+    v = $0; sub(/^[^=]*=[ ]*"/, "", v); sub(/"[^"]*$/, "", v)
+    if (k == "id") id = v; else if (k == "repo") repo = v
+    else if (k == "path") path = v; else last = v
+  }
+  END { flush() }' "$toml")"
+
+account=a
+sessions=
+if [[ "$dry" -eq 0 ]]; then
+  account="$("$north" fleet accounts | awk -F'\t' '$1 == "claude" { print $2; exit }' || true)"
+  [[ -n "$account" ]] || { echo "watch-review: no claude account from north fleet accounts" >&2; exit 1; }
+  sessions="$("$north" fleet list)"
+fi
+
+status=0
+while IFS="|" read -r id repo path last; do
+  [[ -n "$id" ]] || continue
+  [[ -n "$repo" && -n "$last" ]] || { echo "watch-review: $id: repo and last_commit are required" >&2; status=1; continue; }
+  [[ "$id" =~ ^[A-Za-z0-9._-]+$ && "$last" =~ ^[0-9a-f]{7,40}$ && "$repo" != -* ]] \
+    || { echo "watch-review: $id: invalid id, repo or last_commit" >&2; status=1; continue; }
+  clone="$cache/$id.git"
+  if [[ -d "$clone" ]]; then
+    git -C "$clone" remote set-url origin "$repo"
+    git -C "$clone" fetch --quiet origin '+HEAD:refs/watch/head' || { echo "watch-review: $id: fetch failed" >&2; status=1; continue; }
+  else
+    git clone --quiet --bare --filter=blob:none -- "$repo" "$clone" && git -C "$clone" update-ref refs/watch/head HEAD \
+      || { echo "watch-review: $id: clone failed" >&2; status=1; continue; }
+  fi
+  git -C "$clone" rev-parse --verify --quiet "$last^{commit}" >/dev/null || { echo "watch-review: $id: $last not found" >&2; status=1; continue; }
+  spec=("$last..refs/watch/head")
+  [[ -n "$path" ]] && spec+=(-- "$path")
+  moved="$(git -C "$clone" rev-list --count "${spec[@]}")"
+  [[ "$moved" -gt 0 ]] || continue
+  head="$(git -C "$clone" rev-parse --short refs/watch/head)"
+  prompt="Run the watch-review cycle for source $id in south agents/watch.toml, from $last to $head ($moved commits), following north harness/skills/agent-policy/references/watching.md. Move last_reviewed and last_commit only after the cycle's record has landed."
+  if [[ "$dry" -eq 1 ]]; then
+    printf 'watch-review: launch %s (%s commits, %s..%s)\n' "$id" "$moved" "$last" "$head"
+  elif awk -F'\t' -v n="^watch-review-$id-[0-9]+$" '$1 ~ n && $4 !~ /^exited/ { found = 1 } END { exit !found }' <<<"$sessions"; then
+    printf 'watch-review: %s already has a live session\n' "$id"
+  elif "$north" fleet launch --provider claude --name "watch-review-$id-$(date +%Y%m%d%H%M)" --account "$account" \
+    --cwd "$HOME/code/south/main" "$prompt"; then
+    printf 'watch-review: launched %s (%s commits, %s..%s)\n' "$id" "$moved" "$last" "$head"
+  else
+    status=1
+  fi
+done <<<"$sources"
+exit "$status"
