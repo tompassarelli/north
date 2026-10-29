@@ -138,15 +138,7 @@ def normalize(source: dict, payload: bytes) -> dict[str, dict]:
         rows[key + "|" + model] = {"model": model, "kind": kind, "title": clean(title),
                                   "at": at, "p": p, "url": url, "basis": basis}
 
-    if parser == "codex-cache":
-        models = json.loads(payload)["models"]
-        if not models:
-            raise ValueError("empty model list")
-        for row in models:
-            slug = row["slug"]
-            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,120}", slug):
-                add(slug, "openai:" + slug, "released", slug, basis="CLI cache availability; first-seen is not a release date")
-    elif parser == "claude-models":
+    if parser == "claude-models":
         page = PublicPage()
         page.feed(payload.decode())
         text = " ".join(page.text)
@@ -277,11 +269,6 @@ def persist(db: sqlite3.Connection, source: str, current: dict[str, dict], fetch
 
 def fetch(source: dict, timeout: float) -> bytes:
     endpoint = source["endpoint"]
-    if source["parser"] == "codex-cache":
-        path = Path(endpoint).expanduser()
-        if not path.exists():
-            path = Path("~/.local/state/north/codex-pooled/models_cache.json").expanduser()
-        return path.read_bytes()
     request = urllib.request.Request(endpoint, headers={"User-Agent": "model-watch/1.0"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         payload = response.read(8_000_001)

@@ -1,13 +1,6 @@
 market_move_threshold = 0.10
 
 [[sources]]
-name = "codex-cache"
-parser = "codex-cache"
-endpoint = "~/code/north-data/codex-pooled/models_cache.json"
-access = "Existing local models[].slug cache; no network, account access, key, or token read. Verified 10 model slugs. Only fallback: ~/.local/state/north/codex-pooled/models_cache.json."
-verified = "2026-10-10"
-
-[[sources]]
 name = "claude-models"
 parser = "claude-models"
 endpoint = "https://platform.claude.com/docs/en/about-claude/models/overview"
