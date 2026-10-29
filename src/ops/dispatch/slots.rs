@@ -82,6 +82,16 @@ impl Room {
         Self { five_hour: self.five_hour - charge.five_hour, week: self.week - charge.week, ..self }
     }
 
+    /// Weekly points of an account's own percent that one box reserves, which the week must hold beyond to staff it.
+    pub(crate) fn box_reserve() -> f64 {
+        crate::pace::limits::default("reservation_fallback_points")
+    }
+
+    /// Why the week's room, `reserve` points or fewer, keeps a box off the account, else None.
+    pub(crate) fn week_short(&self, reserve: f64) -> Option<String> {
+        (self.week <= reserve).then(|| format!("{:.0} points left in the week, no more than the {reserve:.0} a box reserves", self.week))
+    }
+
     /// Whether `charge` more leaves both windows short of the point where the out-rule refuses.
     pub(crate) fn takes(&self, charge: Charge) -> bool {
         let after = self.less(charge);

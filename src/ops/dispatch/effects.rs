@@ -91,8 +91,16 @@ fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Res
     match run_within(&program, &arguments, LAUNCH_WAIT) {
         None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
         Some(output) if output.status.success() => Ok(name.to_owned()),
-        Some(output) => Err(String::from_utf8_lossy(&output.stderr).lines().find(|line| !line.trim().is_empty() && !line.starts_with("  ")).unwrap_or("failed").to_owned()),
+        Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
     }
+}
+
+/// The error `north fleet launch` ended on, its `error:` line, else the last unindented line:
+/// the lines before it are the `tier:` and `placement:` notes of a launch that got that far.
+pub(crate) fn refusal_line(stderr: &str) -> String {
+    let lines = || stderr.lines().filter(|line| !line.trim().is_empty() && !line.starts_with("  "));
+    let error = lines().filter_map(|line| line.strip_prefix("error: ")).next_back();
+    error.or_else(|| lines().next_back()).unwrap_or("failed").to_owned()
 }
 
 /// Sends `line` through nexus-alert unless the same line went out in the last six hours.

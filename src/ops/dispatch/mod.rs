@@ -64,6 +64,8 @@ mod grounds_tests;
 mod tries_tests;
 #[cfg(test)]
 mod wait_tests;
+#[cfg(test)]
+mod week_tests;
 
 const USAGE: &str = "usage: north dispatch [--dry-run]";
 
@@ -113,7 +115,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let world = issues::World { open: &survey.open, holds: &survey.holds, planned: &planned, at: survey.at };
     let mut history = survey.history.clone();
     let mut handoffs = survey.handoffs.clone();
-    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: crate::pace::limits::default("reservation_fallback_points") };
+    let capacity = Capacity { here: &survey.here, cloud: &survey.cloud, accounts: &survey.accounts, charge: slots::Room::box_reserve() };
     for issue in ordered(&survey.issues, &survey.projects) {
         if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
             outcome.skipped.push((issue.reference(), why));

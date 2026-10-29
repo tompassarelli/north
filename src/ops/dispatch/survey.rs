@@ -117,6 +117,12 @@ pub(crate) fn refusal(name: &str, control: &Value, verdict: Option<&gate::Verdic
     }
 }
 
+/// `refusal`, else the week-room rule `Room::week_short` that keeps a box off an account the
+/// provider has not yet exhausted.
+pub(crate) fn account_refusal(name: &str, control: &Value, verdict: Option<&gate::Verdict>, room: &Room, at: f64) -> Option<String> {
+    refusal(name, control, verdict, at).or_else(|| room.week_short(Room::box_reserve()).map(|why| format!("{name} unavailable: {why}")))
+}
+
 /// The hosts an account runs on: those South signs it in on, less this host when this host's
 /// roster has no login of its own for it.
 pub(crate) fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here: &str) -> Vec<String> {
@@ -183,13 +189,14 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
                 }
                 None => PlanSize { five_hour: 1.0, week: 1.0 },
             };
+            let room = sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at));
             Account {
                 name: name.clone(),
                 hosts: signed_in(cfg, roster, name, here),
                 plan,
-                room: sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at)),
                 spending: control["target"]["by"].as_str().and_then(crate::pace::target::seconds).is_some_and(|by| by > at),
-                refusal: refusal(name, control, verdict.as_ref(), at),
+                refusal: account_refusal(name, control, verdict.as_ref(), &room, at),
+                room,
                 burn: sampled.and_then(five_hour_burn),
             }
         })
