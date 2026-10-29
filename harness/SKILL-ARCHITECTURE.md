@@ -32,7 +32,7 @@ or a second routinely loaded instruction set.
 
 `guard[]` in `north:harness/policy-owners.toml` is the one
 source of provider wiring: each hook's Claude and Codex events, and a reason
-for each provider it does not bind. `scripts/agent-policy-contract.py --repo .
+for each provider it does not bind. `north agent-policy-contract --repo .
 --write` generates `modules/north-profile/claude-hooks.json` and
 `modules/codex/requirements.toml` from it; the contract rejects a hand edit of
 either, a `default.nix` provider adapter list other than the Codex-bound

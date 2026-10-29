@@ -80,7 +80,7 @@ may_use = ["shell", "threads", "domain", "platform", "foundation"]
 
 [[module]]
 name = "catalog"
-paths = ["src/catalog/**", "src/agent_catalog.rs"]
+paths = ["src/catalog/**", "src/agent_catalog.rs", "src/agent_policy_contract.rs", "src/agent_policy_contract/**"]
 responsibility = "Agent catalog, activation generations, projection port and policy checks."
 may_use = ["domain", "platform", "foundation"]
 

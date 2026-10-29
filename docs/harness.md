@@ -26,7 +26,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    expect `~/code/north/main` and `~/code/south/main`.
 2. Firn puts [bin/](../bin/) on `PATH`. Not verified here: the only trace in this repository is the
    `~/.local/share/north/bin` path in [harness/policy-owners.toml](../harness/policy-owners.toml) and
-   [harness/scripts/agent-policy-contract.py](../harness/scripts/agent-policy-contract.py).
+   [src/agent_policy_contract/wiring.rs](../src/agent_policy_contract/wiring.rs).
 3. `north runtime update` builds origin/main in a detached worktree, installs the binary and the
    commit's own tree under `~/.local/state/north/runtimes/<sha>/`, points `~/.local/state/north/current` at it and runs
    `agents sync`, rolling back if that fails. `agent-runtime-update` runs it in its nightly pass. `north runtime deploy HOST...` builds on

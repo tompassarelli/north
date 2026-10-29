@@ -80,6 +80,7 @@ Commands:
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
+  agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring
   mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
   archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands
   threads ARGV                                  Run a NorthThreads command on the ledger host

@@ -65,7 +65,7 @@ run_agent_policy_contract() {
   local repo="$1" local_mode="${2:-0}"
   local -a args=(--repo "$repo")
   [ "$local_mode" -eq 0 ] || args+=(--local)
-  "$AGENT_CONFIG_PYTHON" "$(dirname "${BASH_SOURCE[0]}")/agent-policy-contract.py" "${args[@]}"
+  north agent-policy-contract --north "$NORTH" "${args[@]}"
 }
 
 policy_gate() {
@@ -564,9 +564,9 @@ validate_codex_managed_policy() {
   local module="$FIRN/modules/codex/default.nix"
   local live resolved adapter expected_adapter
   local -a provider_adapters
-  mapfile -t provider_adapters < <(
-    "$AGENT_CONFIG_PYTHON" "$NORTH/harness/scripts/agent-policy-contract.py" --repo "$FIRN" --codex-adapters
-  )
+  local adapters_out
+  adapters_out="$(north agent-policy-contract --north "$NORTH" --repo "$FIRN" --codex-adapters)" &&
+    mapfile -t provider_adapters <<<"$adapters_out" || bad 'Codex provider adapter list could not be computed'
   if grep -Fq 'path = "${flakeRoot}/modules/codex/requirements.toml";' "$module"; then :
   else bad 'Codex module does not install its managed requirements'; fi
   local runtime package binary
