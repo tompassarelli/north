@@ -595,3 +595,17 @@ fn a_native_box_brief_lands_before_its_capture_and_passes_the_brief_check() {
     assert!(!release.contains("Lands-before:"), "{release}");
     assert_eq!(crate::router::brief::landing_refusal(&release), None);
 }
+
+#[test]
+fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_native_box_waits_for_a_native_host() {
+    let (mut hosts, accounts) = fleet();
+    let queued = "gex45 skipped: 8 queued for admission";
+    hosts[0] = hosts[0].clone().saturated(Some(queued.into()));
+    let boxes = vec![issue("smashcraft", 50, "- [ ] a", &[]), issue("smashcraft", 51, "- [ ] b", &["needs:native-pair"])];
+    let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
+    let launched: Vec<(String, &str)> = outcome.launches.iter().map(|launch| (launch.item.to_string(), launch.host.as_str())).collect();
+    assert_eq!(launched, [("smashcraft#50".to_owned(), "nexus")]);
+    let (item, why) = outcome.skipped.last().unwrap();
+    assert_eq!(item.to_string(), "smashcraft#51");
+    assert!(why.contains(&format!("gex45 takes nothing: {queued}")), "{why}");
+}

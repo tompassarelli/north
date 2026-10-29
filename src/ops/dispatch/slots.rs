@@ -14,6 +14,23 @@ pub(crate) struct Host {
 }
 
 impl Host {
+    /// The host as dispatch may use it: a saturated one (full admission queue, low disk, high load)
+    /// takes nothing, so its boxes fall through to the next host in the placement order.
+    pub(crate) fn saturated(self, why: Option<String>) -> Self {
+        match why {
+            Some(why) if self.running.is_ok() => Self { running: Err(why), ..self },
+            _ => self,
+        }
+    }
+
+    /// The host with the saturation refusal it reports, read when dispatch reaches it (here or over
+    /// ssh); an unreadable reading refuses nothing.
+    pub(crate) fn probed(self, here: &str, ssh: Option<&str>) -> Self {
+        let reachable = self.name == here || ssh.is_some();
+        let why = reachable.then(|| crate::ops::pacing::placement::saturation_refusal(&self.name).ok().flatten()).flatten();
+        self.saturated(why)
+    }
+
     pub(crate) fn free(&self) -> Result<i64, String> {
         let running = self.running.clone()?;
         let cap = self.cap.ok_or_else(|| format!("no [hosts.{}] resident_cap", self.name))?;
