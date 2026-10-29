@@ -12,11 +12,16 @@ use super::remote::Remote;
 type Manifest = BTreeMap<String, String>;
 
 fn remote_manifest(remote: &dyn Remote, family: &Family, name: &str) -> io::Result<Manifest> {
-    let script = format!("{} && find '{name}' -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum", family.enter());
+    let script = format!("{} && {{ find '{name}' -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum && find '{name}' -type l -printf '-> %l  %p\\n'; }}", family.enter());
     let text = String::from_utf8_lossy(&remote.output(&script)?).into_owned();
-    text.lines()
-        .map(|line| line.split_once("  ").map(|(hash, path)| (path.to_owned(), hash.to_owned())).ok_or_else(|| io::Error::other(format!("unreadable checksum line: {line}"))))
-        .collect()
+    text.lines().map(|line| entry(line).ok_or_else(|| io::Error::other(format!("unreadable manifest line: {line}")))).collect()
+}
+
+fn entry(line: &str) -> Option<(String, String)> {
+    match line.strip_prefix("-> ") {
+        Some(link) => link.rsplit_once("  ").map(|(target, path)| (path.to_owned(), format!("-> {target}"))),
+        None => line.split_once("  ").map(|(hash, path)| (path.to_owned(), hash.to_owned())),
+    }
 }
 
 fn local_manifest(root: &Path, name: &str) -> io::Result<Manifest> {
@@ -31,6 +36,9 @@ fn walk(root: &Path, path: &Path, manifest: &mut Manifest) -> io::Result<()> {
         for entry in fs::read_dir(path)? {
             walk(root, &entry?.path(), manifest)?;
         }
+    } else if metadata.is_symlink() {
+        let relative = path.strip_prefix(root).map_err(io::Error::other)?;
+        manifest.insert(relative.to_string_lossy().into_owned(), format!("-> {}", fs::read_link(path)?.to_string_lossy()));
     } else if metadata.is_file() {
         let mut file = fs::File::open(path)?;
         let mut hasher = Sha256::new();
@@ -64,7 +72,7 @@ pub(super) fn archive(remote: &dyn Remote, family: &Family, name: &str, destinat
         return Err(format!("{name}: changed on the source while it was copied; kept"));
     }
     let script = format!(
-        "{} && root=$(pwd -P) && [ -r /proc/1/cmdline ] && [ ! -e '{name}/PINNED' ] && [ -z \"$(find '{name}' ! -type f ! -type d -print -quit)\" ] && [ -z \"$(find /proc/[0-9]*/cwd /proc/[0-9]*/fd/* -maxdepth 0 \\( -lname \"$root/{name}\" -o -lname \"$root/{name}/*\" \\) -print -quit 2>/dev/null)\" ] && rm -rf -- '{name}'",
+        "{} && root=$(pwd -P) && [ -r /proc/1/cmdline ] && [ ! -e '{name}/PINNED' ] && [ -z \"$(find '{name}' ! -type f ! -type d ! -type l -print -quit)\" ] && [ -z \"$(find /proc/[0-9]*/cwd /proc/[0-9]*/fd/* -maxdepth 0 \\( -lname \"$root/{name}\" -o -lname \"$root/{name}/*\" \\) -print -quit 2>/dev/null)\" ] && rm -rf -- '{name}'",
         family.enter()
     );
     remote.output(&script).map(drop).map_err(|error| format!("{name}: {error}"))

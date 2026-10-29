@@ -12,7 +12,7 @@ pub(super) struct Entry {
     pub(super) opaque: bool,
 }
 
-const AWK: &str = r#"{n=split($1,a,"/");k=a[1];if(n==1)kind[k]=$2;else if($2!="f"&&$2!="d")odd[k]=1;if($3>m[k])m[k]=$3;b[k]+=$4;if(n==2&&a[2]=="PINNED")p[k]=1}END{for(k in kind)if(kind[k]=="d")printf "%s\t%d\t%d\t%d\t%d\n",k,m[k],b[k],p[k],odd[k]}"#;
+const AWK: &str = r#"{n=split($1,a,"/");k=a[1];if(n==1)kind[k]=$2;else if($2!="f"&&$2!="d"&&$2!="l")odd[k]=1;if($3>m[k])m[k]=$3;b[k]+=$4;if(n==2&&a[2]=="PINNED")p[k]=1}END{for(k in kind)if(kind[k]=="d")printf "%s\t%d\t%d\t%d\t%d\n",k,m[k],b[k],p[k],odd[k]}"#;
 
 pub(super) fn read(remote: &dyn Remote, family: &Family) -> io::Result<Vec<Entry>> {
     let script = format!("{} && find . -mindepth 1 -printf '%P\\t%y\\t%T@\\t%s\\n' | awk -F'\\t' '{AWK}'", family.enter());

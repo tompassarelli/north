@@ -116,15 +116,47 @@ fn a_differing_copy_already_in_the_archive_blocks_the_delete() {
     assert!(rig.here("clash"));
 }
 
+fn aged(directory: &Path, inner: &str) {
+    let touch = |flag: &str, path: std::path::PathBuf| assert!(Command::new("touch").args([flag, "-d", "100 hours ago"]).arg(path).status().unwrap().success());
+    touch("-h", directory.join(inner));
+    touch("-c", directory.to_owned());
+}
+
 #[test]
-fn an_entry_holding_a_link_is_not_deleted_for_want_of_a_checkable_copy() {
+fn an_entry_holding_a_link_is_archived_with_the_link_target_kept() {
     let rig = Rig::new();
     rig.entry("linked", 100, false);
     let directory = rig.root().join("linked");
     std::os::unix::fs::symlink("log.txt", directory.join("alias")).unwrap();
-    let aged = |flag: &str, path: std::path::PathBuf| assert!(Command::new("touch").args([flag, "-d", "100 hours ago"]).arg(path).status().unwrap().success());
-    aged("-h", directory.join("alias"));
-    aged("-c", directory);
+    aged(&directory, "alias");
     assert!(rig.run(false));
-    assert!(rig.here("linked") && !rig.archived("linked"));
+    assert!(!rig.here("linked") && rig.archived("linked"));
+    assert_eq!(fs::read_link(rig.archive.path().join("evidence/linked/alias")).unwrap(), Path::new("log.txt"));
+}
+
+#[test]
+fn an_archived_link_with_a_different_target_blocks_the_delete() {
+    let rig = Rig::new();
+    rig.entry("relinked", 100, false);
+    let directory = rig.root().join("relinked");
+    std::os::unix::fs::symlink("log.txt", directory.join("alias")).unwrap();
+    aged(&directory, "alias");
+    let existing = rig.archive.path().join("evidence/relinked");
+    fs::create_dir_all(existing.join("shots")).unwrap();
+    fs::write(existing.join("shots/a.png"), "relinked").unwrap();
+    fs::write(existing.join("log.txt"), "log").unwrap();
+    std::os::unix::fs::symlink("shots/a.png", existing.join("alias")).unwrap();
+    assert!(!rig.run(false));
+    assert!(rig.here("relinked"));
+}
+
+#[test]
+fn an_entry_holding_a_fifo_is_not_deleted_for_want_of_a_checkable_copy() {
+    let rig = Rig::new();
+    rig.entry("piped", 100, false);
+    let directory = rig.root().join("piped");
+    assert!(Command::new("mkfifo").arg(directory.join("pipe")).status().unwrap().success());
+    aged(&directory, "pipe");
+    assert!(rig.run(false));
+    assert!(rig.here("piped") && !rig.archived("piped"));
 }

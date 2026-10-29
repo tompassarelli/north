@@ -17,7 +17,7 @@ impl Verdict {
             Self::Archive => "expired",
             Self::Pinned => "pinned",
             Self::Live => "held open by a running process",
-            Self::Unverifiable => "holds a link or special file a copy cannot be verified against",
+            Self::Unverifiable => "holds a socket, fifo or device a copy cannot be verified against",
             Self::Recent => "within its retention age",
         }
     }
