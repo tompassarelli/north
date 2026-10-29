@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+class=
+if [ -z "${DEPBOX_ADMITTED:-}" ]; then class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=; fi
+if [ -n "$class" ]; then
+  DEPBOX_ADMITTED=1 exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
+fi
 read -r host_pid _ </proc/self/stat
 if [ "$host_pid" != "$$" ]; then
-  class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=
-  if [ -n "$class" ]; then
-    exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
-  fi
   exec /run/current-system/sw/bin/unshare --user --map-current-user --pid --fork --kill-child=KILL --mount-proc "$0" "$@"
 fi
 

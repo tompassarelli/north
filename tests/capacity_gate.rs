@@ -3,6 +3,7 @@ mod capacity_host;
 use capacity_host::{Host, SCOPE_SYSTEMCTL, Wrapper, scope_systemd_run};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
 const LEASED_HOST: &str = "[hosts.gex45]\nlease_builds = true\n";
@@ -65,4 +66,38 @@ fn the_shim_runs_the_next_cargo_on_path_when_north_has_no_gate() {
     let status = Command::new(host.path("shims/cargo")).arg("test").env("PATH", path).env_remove("CARGO_BUILD_JOBS").status().unwrap();
     assert!(status.success());
     assert_eq!(fs::read_to_string(host.path("built")).unwrap(), " test\n");
+}
+
+#[test]
+fn depbox_outside_a_lease_on_a_lease_builds_host_waits_for_a_heavy_lease_before_it_starts() {
+    let host = host("capacity-gate-depbox-", LEASED_HOST);
+    fs::write(host.path("loadavg"), "34.68 29.11 23.93 31/2210 4096\n").unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north")).unwrap();
+    let mut depbox = host.command(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/depbox"));
+    depbox.args(["run", "--", "cargo", "test"]).current_dir(host.path("")).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("AGENT_CAPACITY_LEASE");
+    let mut waiting = Wrapper(depbox.stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+    host.until("depbox's heavy ticket", |host| host.queued("heavy") == 1);
+    assert!(waiting.exited().is_none(), "depbox started before its lease");
+}
+
+#[test]
+fn depbox_under_an_inherited_live_lease_outside_its_scope_runs_once_nested_instead_of_asking_again() {
+    let host = host("capacity-gate-inherited-", LEASED_HOST);
+    let _holder = Wrapper(host.helper(&["run", "--class", "heavy", "--owner", "fixture:/holder", "--timeout-seconds", "60", "--", "sleep", "30"]).stdout(Stdio::null()).spawn().unwrap());
+    host.until("the holder's heavy lease", |host| host.leases("heavy") == 1);
+    let lease = fs::read_dir(host.path("agent-capacity-v1/leases")).unwrap().find_map(|entry| Some(entry.ok()?.file_name().to_str()?.strip_suffix(".json")?.to_owned())).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north")).unwrap();
+    let mut depbox = host.command(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/depbox"));
+    depbox.args(["run", "--", "cargo", "test"]).current_dir(host.path("")).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env("AGENT_CAPACITY_LEASE", &lease);
+    let mut nested = Wrapper(depbox.process_group(0).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while nested.exited().is_none() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let finished = nested.exited().is_some();
+    if !finished {
+        let _ = Command::new("kill").args(["-TERM", "--", &format!("-{}", nested.0.id())]).status();
+    }
+    assert!(finished, "depbox kept asking the gate under its inherited lease");
+    assert!(nested.stderr().contains("depbox: run inside a git checkout"));
 }
