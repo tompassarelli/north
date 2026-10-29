@@ -213,3 +213,40 @@ fn unread_arm_evidence_keeps_the_prior_routing_cells_and_fails_the_tick() {
     assert!(blind.lines[1].starts_with("unread: worker-ledger --recommend"), "{:#?}", blind.lines);
     assert!(blind.failed);
 }
+
+fn spent(item: &str, (tier, model): (&str, &str), category: &str, day: &str, output: i64) -> SpendRun {
+    SpendRun { input: 0, cache_read: 0, output, ..run(item, (tier, model), category, &format!("{day}T10:00:00Z"), &format!("{day}T10:30:00Z")) }
+}
+
+fn boxes(prefix: &str, count: usize, arm: (&str, &str), category: &str, day: &str, output: i64) -> Vec<SpendRun> {
+    (0..count).map(|index| spent(&format!("north#{prefix}{index}"), arm, category, day, output)).collect()
+}
+
+fn arms(sonnet: (f64, usize), opus: (f64, usize)) -> BTreeMap<String, (f64, usize)> {
+    BTreeMap::from([("claude:sonnet-high".to_owned(), sonnet), ("claude:opus-medium".to_owned(), opus)])
+}
+
+#[test]
+fn sonnet_closing_60_percent_at_3_dollars_a_box_beats_opus_closing_70_percent_at_9_and_its_route_cell_is_written() {
+    let runs = [boxes("1", 6, SONNET, "tooling", "2026-10-22", 300_000), boxes("2", 7, OPUS, "tooling", "2026-10-23", 450_000)].concat();
+    let week = report(&runs, "2026-10-20T06:00:00Z");
+    let evidence = BTreeMap::from([("tooling".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), usd_per_closed: None }.priced(&week, "tooling"))]);
+    let ledger = Ledger { week, before: report(&[], "2026-10-13T06:00:00Z"), evidence, notes: Vec::new() };
+    let tick = tick(&ledger, &Cells::new(), &mut Issues::default(), AT, false);
+    assert_eq!(tick.cells.get("route tooling"), Some(&json!("sonnet-high")), "{:#?}", tick.lines);
+    let record = tick.records.iter().find(|record| record["cell"] == "route tooling").unwrap();
+    let claim = record["claim"].as_str().unwrap();
+    assert!(claim.contains("sonnet-high 60% of 15, $3.00 per closed box") && claim.contains("worker 70% of 15, $9.00 per closed box"), "{record}");
+}
+
+#[test]
+fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one_20_percent_dearer_files_none() {
+    let week = [boxes("1", 3, SONNET, "tooling", "2026-10-24", 1_300_000), boxes("2", 3, SONNET, "feature", "2026-10-24", 1_200_000)].concat();
+    let before = [boxes("3", 3, SONNET, "tooling", "2026-10-17", 1_000_000), boxes("4", 3, SONNET, "feature", "2026-10-17", 1_000_000)].concat();
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new() };
+    let mut issues = Issues::default();
+    let tick = tick(&ledger, &Cells::new(), &mut issues, AT, false);
+    assert_eq!(issues.filed.len(), 1, "{:#?}", tick.lines);
+    assert_eq!(issues.filed[0].0, "Cost per closed box rose more than 25% week on week in sonnet tooling");
+    assert!(issues.filed[0].1.contains("from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{}", issues.filed[0].1);
+}
