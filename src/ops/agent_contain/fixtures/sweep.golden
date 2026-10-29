@@ -1,0 +1,8 @@
+freeze 400 /user.slice/user-1000.slice/user@1000.service/user.slice/libpod-abc.scope
+move 201 /user.slice/user-1000.slice/user@1000.service/app.slice/app-spawn-quiet-lead-1.scope bash -c bun test
+move 202 /user.slice/user-1000.slice/user@1000.service/app.slice/app-spawn-quiet-lead-1.scope bun test
+move 600 /user.slice/user-1000.slice/user@1000.service/app.slice/it's.scope sh -c echo it's
+---
+INCIDENT STAMP agent-contain host=testhost action=frozen pid=400 cmd='conmon' cgroup=/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-abc.scope
+INCIDENT STAMP agent-contain host=testhost action=moved pid=201 cmd='bash -c bun test' cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/app-spawn-quiet-lead-1.scope processes=2
+INCIDENT STAMP agent-contain host=testhost action=moved pid=600 cmd="sh -c echo it's" cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/it's.scope

@@ -62,13 +62,13 @@ fn parse(arguments: &[String]) -> Option<Options> {
 }
 
 fn laptop_line(host: &dyn Host) -> String {
-    let Some(output) = host.output(&["laptop", "status"], None, None, Duration::from_secs(20)) else {
-        return "laptop: unknown (laptop status did not answer)".into();
+    let Some(output) = host.output(&["north", "laptop", "status"], None, None, Duration::from_secs(20)) else {
+        return "laptop: unknown (north laptop status did not answer)".into();
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     match stdout.trim().lines().next() {
         Some(first) if output.status.success() && first.starts_with("laptop: ") => first.into(),
-        _ => "laptop: unknown (laptop status failed)".into(),
+        _ => "laptop: unknown (north laptop status failed)".into(),
     }
 }
 

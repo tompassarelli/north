@@ -67,7 +67,7 @@ fn the_orphan_reaper_stops_a_dead_wrappers_scope_on_a_host_with_no_laptop_comman
         .env("AGENT_LOAD_PROC", host.path("proc"))
         .env("AGENT_LOAD_CGROUP", host.path("user-cgroup"))
         .env("AGENT_LOAD_SYSTEMCTL", host.path("bin/systemctl"))
-        .env_remove("LAPTOP_AUTO_LAPTOP")
+        .env("LAPTOP_AUTO_LAPTOP", host.path("bin/laptop"))
         .output()
         .unwrap();
 

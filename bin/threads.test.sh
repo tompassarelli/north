@@ -459,12 +459,9 @@ def load(name):
     loader.exec_module(mod)
     return mod
 threads = load("threads")
-laptop = load("laptop")
 nexus = load("nexus-run")
 threads.SPOOL = str(root / "spool")
 threads.SNAPSHOT = str(root / "snapshot")
-laptop.REMOTE = root / "remote"
-laptop.REMOTE.write_text("nexus")
 real_run = subprocess.run
 calls = []
 def bounded(argv, **kwargs):
@@ -486,12 +483,6 @@ with patch.object(subprocess, "run", bounded):
     snapshot.write_bytes(b"keep existing snapshot"); os.utime(snapshot, (0, 0))
     threads.refresh_snapshot("nexus", force=True, snapshot=str(snapshot))
     assert snapshot.read_bytes() == b"keep existing snapshot"; threads.refresh_snapshot("nexus", snapshot=str(snapshot))
-    try:
-        laptop.forward(["close"])
-    except SystemExit as error:
-        assert error.code == 124
-    else:
-        raise AssertionError("laptop timeout succeeded")
     with patch.object(sys, "argv", ["nexus-run", "--source", str(repo), "--cwd", ".", "--", "true"]):
         try:
             nexus.main()
@@ -499,7 +490,7 @@ with patch.object(subprocess, "run", bounded):
             pass
         else:
             raise AssertionError("nexus timeout succeeded")
-    assert calls == [90] * 7, calls
+    assert calls == [90] * 6, calls
     assert time.monotonic() - started < 10
 print("stalled SSH waits fail within their bounds and writes are never replayed")
 PYSTALL
@@ -540,6 +531,14 @@ print("expanded socket paths reserve 20 bytes within the Unix socket limit")
 PYSOCKET
 socket_status=$?
 check '[unit] SSH socket paths leave room for the OpenSSH suffix' '[ "$socket_status" -eq 0 ] || { cat "$scratch/socket-ssh.out"; false; }'
+
+rq_a=$("$threads" queue add reqq - -- echo a 2>&1)
+rq_b=$("$threads" queue add reqq - -- echo b 2>&1)
+"$threads" queue take reqq >/dev/null 2>&1
+out=$("$threads" queue msg "$rq_a" requeued "rc=143" 2>&1)
+rq_took=$("$threads" queue take reqq | jq -r .id)
+check '[spec] msg requeued puts a taken job back ahead of later jobs, and take claims it first while the later job stays queued' \
+  '[ "$rq_took" = "$rq_a" ] && [ "$(sqlite3 "$THREADS_DB" "select state from job_queue where id = $rq_b")" = queued ]'
 
 python3 - "$threads" "$scratch/routing" <<'PYROUTING' >"$scratch/routing.out" 2>&1
 import hashlib, importlib.machinery, importlib.util, os, re, sqlite3, subprocess, sys

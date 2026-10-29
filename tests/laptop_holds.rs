@@ -9,7 +9,8 @@ fn at(minute: u32) -> String {
 }
 
 fn laptop(root: &Path, minute: u32, arguments: &[&str]) -> Value {
-    let output = Command::new(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/laptop"))
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .arg("laptop")
         .args(arguments)
         .env("THREADS_DB", root.join("threads.db"))
         .env("LAPTOP_THREADS", "sh -c 'echo []'")

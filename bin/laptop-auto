@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-here=$(dirname "$(readlink -f "$0")")
-export LAPTOP_AUTO_LAPTOP="${LAPTOP_AUTO_LAPTOP:-$here/laptop}"
-exec "$here/north" capacity laptop-auto "$@"

@@ -499,9 +499,9 @@ consumers = ["src/router/ctx.rs"]
 [laptop_idle_reopen_sec]
 value = 1800
 unit = "seconds of continuous idle before reopening background laptop capacity"
-source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve bin/laptop observe's existing 1800-second idle reopening threshold"
+source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe's existing 1800-second idle reopening threshold"
 fallback = "without continuous idle evidence background capacity remains closed"
-consumers = ["bin/laptop", "harness/lib/presence.py"]
+consumers = ["src/ops/laptop/observe.rs", "harness/lib/presence.py"]
 
 [presence_slot_min]
 value = 15

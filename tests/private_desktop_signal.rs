@@ -26,7 +26,8 @@ fn sigterm_to_private_desktop_start_stops_its_desktop_and_releases_its_lease() {
         .args(["--render-node", "/dev/dri/renderD128"]);
     let mut wrapper = Wrapper(start.stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap());
     host.until("the desktop lease and scope", |host| {
-        host.leases("native") == 1 && fs::read_dir(host.path("state/scopes")).unwrap().count() == 1
+        host.leases("native") == 1
+            && fs::read_dir(host.path("state/scopes")).unwrap().flatten().filter(|entry| fs::read_to_string(entry.path()).is_ok_and(|text| text.split_whitespace().last().is_some())).count() == 1
     });
     let lease = fs::read_dir(host.path("agent-capacity-v1/leases"))
         .unwrap()

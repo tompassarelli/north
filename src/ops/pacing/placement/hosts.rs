@@ -104,10 +104,12 @@ pub(in crate::ops::pacing) fn laptop() -> String {
             .unwrap_or("unknown")
             .into();
     }
-    process::run("laptop", &["status", "--json"], None, 20.0)
+    state_of(&crate::ops::laptop::Ctx::from_env())
+}
+fn state_of(ctx: &crate::ops::laptop::Ctx) -> String {
+    ctx.main(&["status".to_owned(), "--json".to_owned()])
         .ok()
-        .filter(|r| r.code == 0)
-        .and_then(|r| serde_json::from_str::<Value>(&r.out).ok())
+        .and_then(|out| serde_json::from_str::<Value>(&out).ok())
         .and_then(|v| v["state"].as_str().map(str::to_owned))
         .unwrap_or_else(|| "unknown".into())
 }
@@ -213,6 +215,15 @@ mod tests {
     fn the_live_count_is_read_from_the_resident_cap_status_line() {
         assert_eq!(super::live_count("far: 3/24 resident agent CLIs\n"), Some(3));
         assert_eq!(super::live_count("far: no cap\n"), None);
+    }
+
+    #[test]
+    fn the_laptop_state_is_read_in_process_without_a_laptop_program_on_the_path() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("placement")).unwrap();
+        std::fs::write(root.path().join("placement/laptop.json"), r#"{"state":"draining","since":"2026-10-13T12:00:00Z","reason":"lid","by":"t","grace":900}"#).unwrap();
+        let ctx = crate::ops::laptop::Ctx::fixture(root.path(), "2026-10-13T12:00:00Z", "false");
+        assert_eq!(super::state_of(&ctx), "draining");
     }
 
     #[test]

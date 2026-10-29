@@ -1,4 +1,5 @@
 pub(crate) mod advisor_report;
+pub(crate) mod agent_contain;
 pub(crate) mod agents;
 pub(crate) mod convo;
 pub(crate) mod dispatch;
@@ -6,6 +7,9 @@ pub(crate) mod flow;
 pub(crate) mod incident_mine;
 pub(crate) mod land_offload;
 pub(crate) mod defaults_measure;
+pub(crate) mod laptop;
+pub(crate) mod laptop_ntfy;
+pub(crate) mod laptop_runner;
 pub(crate) mod nexus_ram;
 pub(crate) mod pacing;
 pub(crate) mod private_desktop;

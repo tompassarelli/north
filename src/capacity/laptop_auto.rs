@@ -130,8 +130,15 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
             plan.stop, plan.freeze, plan.thaw, plan.kill
         );
     }
-    let laptop = std::env::var_os("LAPTOP_AUTO_LAPTOP").unwrap_or_else(|| "laptop".into());
-    let observed = observe(Command::new(laptop).arg("observe").arg(sample.to_string()), OBSERVE_WAIT);
+    let mut laptop = match std::env::var_os("LAPTOP_AUTO_LAPTOP") {
+        Some(program) => Command::new(program),
+        None => {
+            let mut north = Command::new(std::env::current_exe().unwrap_or_else(|_| "north".into()));
+            north.arg("laptop");
+            north
+        }
+    };
+    let observed = observe(laptop.arg("observe").arg(sample.to_string()), OBSERVE_WAIT);
     let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
     warn_battery_once(&host.capacity.join(BATTERY_WARNED), battery, &mut Command::new(notify), NOTIFY_WAIT);
     observed
