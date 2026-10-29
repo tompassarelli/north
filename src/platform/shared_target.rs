@@ -125,7 +125,7 @@ fn vanished<T>(result: io::Result<T>) -> io::Result<Option<T>> {
     }
 }
 
-fn tree(path: &Path, seen: &mut HashSet<(u64, u64)>) -> io::Result<(u64, SystemTime)> {
+pub(crate) fn tree(path: &Path, seen: &mut HashSet<(u64, u64)>) -> io::Result<(u64, SystemTime)> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() {
         let linked_again = metadata.nlink() > 1 && !seen.insert((metadata.dev(), metadata.ino()));

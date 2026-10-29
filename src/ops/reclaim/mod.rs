@@ -1,4 +1,5 @@
 mod build_output;
+mod cache_cap;
 mod held;
 mod lan_clients;
 mod scratch;
@@ -100,6 +101,7 @@ pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Remova
     let mut removals = scratch::sweep(inputs, policy, &held)?;
     removals.extend(lan_clients::sweep(inputs, policy, &held)?);
     removals.extend(build_output::sweep(inputs, policy, &held)?);
+    removals.extend(cache_cap::sweep(inputs, policy, &held)?);
     Ok(removals)
 }
 

@@ -190,3 +190,47 @@ fn reclaim_trims_a_shared_cargo_target_over_its_cap_and_a_dry_run_leaves_it() {
     assert_eq!(machine.reclaim(false), vec![machine.path("cache/cargo-target")]);
     assert!(!binary.exists());
 }
+
+fn cache_job(machine: &Machine, relative: &str, age: Duration, gib: u64) -> PathBuf {
+    let blob = machine.file(&format!("{relative}/source/blob"), age);
+    File::options().write(true).open(&blob).unwrap().set_len(gib << 30).unwrap();
+    touch(&blob, machine.now - age);
+    machine.path(relative)
+}
+
+#[test]
+fn a_build_cache_over_its_cap_loses_its_oldest_idle_unheld_children_until_it_fits() {
+    let machine = Machine::new();
+    let oldest = cache_job(&machine, "cache/nexus-run/aaa", 5 * DAY, 1);
+    let held = cache_job(&machine, "cache/nexus-run/bbb", 4 * DAY, 1);
+    let older = cache_job(&machine, "cache/nexus-run/ccc", 3 * DAY, 1);
+    let newer = cache_job(&machine, "cache/nexus-run/ddd", Duration::from_secs(7200), 1);
+    let fresh = cache_job(&machine, "cache/nexus-run/eee", Duration::from_secs(600), 1);
+    machine.dir("proc/4242/fd", DAY);
+    symlink(held.join("source/blob"), machine.path("proc/4242/fd/3")).unwrap();
+
+    assert_eq!(machine.reclaim(true), vec![oldest.clone(), older.clone()]);
+    assert!(oldest.exists() && older.exists());
+    assert_eq!(machine.reclaim(false), vec![oldest.clone(), older.clone()]);
+    assert!(!oldest.exists() && !older.exists() && held.exists() && newer.exists() && fresh.exists());
+}
+
+#[test]
+fn a_build_cache_within_its_cap_keeps_every_child() {
+    let machine = Machine::new();
+    let old = cache_job(&machine, "cache/nexus-run/aaa", 9 * DAY, 1);
+    let target = cache_job(&machine, "cache/galileo-full-suite/target/debug", 9 * DAY, 3);
+
+    assert!(machine.reclaim(false).is_empty());
+    assert!(old.exists() && target.exists());
+}
+
+#[test]
+fn the_galileo_target_cache_is_trimmed_to_its_own_cap() {
+    let machine = Machine::new();
+    let old = cache_job(&machine, "cache/galileo-full-suite/target/full", 6 * DAY, 3);
+    let newer = cache_job(&machine, "cache/galileo-full-suite/target/debug", 2 * DAY, 3);
+
+    assert_eq!(machine.reclaim(false), vec![old.clone()]);
+    assert!(!old.exists() && newer.exists());
+}
