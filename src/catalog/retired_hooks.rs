@@ -52,7 +52,8 @@ pub(super) fn require_deleted_hooks_retired(root: &Path, head: &str) -> NorthRes
     let retired: Vec<&str> = names(&list).collect();
     for path in deleted.lines() {
         let name = path.strip_prefix(HOOKS).unwrap_or(path);
-        if !name.contains('/') && !retired.contains(&name) {
+        let registrable = !name.contains('/') && !name.contains(".test.");
+        if registrable && !retired.contains(&name) {
             return configuration(format!(
                 "{path} is deleted but {name} is not listed in {LIST}; hosts that still register it would fail with 'No such file or directory' until rebuilt"
             ));
@@ -90,11 +91,12 @@ mod tests {
         git(root, &["config", "user.name", "t"]);
         fs::create_dir_all(root.join("harness/hooks")).unwrap();
         fs::write(root.join("harness/hooks/old.sh"), "x").unwrap();
+        fs::write(root.join("harness/hooks/old.test.sh"), "x").unwrap();
         fs::write(root.join(LIST), "").unwrap();
         git(root, &["add", "."]);
         git(root, &["commit", "-q", "-m", "base"]);
         git(root, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
-        git(root, &["rm", "-q", "harness/hooks/old.sh"]);
+        git(root, &["rm", "-q", "harness/hooks/old.sh", "harness/hooks/old.test.sh"]);
         git(root, &["commit", "-q", "-m", "delete"]);
         let error = require_deleted_hooks_retired(root, "HEAD").expect_err("unlisted deletion must refuse");
         assert!(error.to_string().contains("old.sh"));
