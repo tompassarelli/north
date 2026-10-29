@@ -49,9 +49,12 @@ fn a_chrome_that_outlives_its_timeout_is_killed_and_reported_as_timed_out() {
     assert!(matches!(outcome, Chrome::Failed), "sleep rejects the tool argument and exits at once");
     let scratch = tempfile::tempdir().unwrap();
     let slow = scratch.path().join("slow-chrome");
-    fs::write(&slow, "#!/bin/sh\nsleep 30\n").unwrap();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut fs::metadata(&slow).unwrap().permissions(), 0o755);
-    fs::set_permissions(&slow, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let written = std::process::Command::new("sh")
+        .args(["-c", r#"printf '#!/bin/sh\nsleep 30\n' > "$1" && chmod 755 "$1""#, "sh"])
+        .arg(&slow)
+        .status()
+        .unwrap();
+    assert!(written.success());
     assert!(matches!(run_chrome(slow.to_str().unwrap(), Duration::from_millis(200)), Chrome::TimedOut));
     assert!(started.elapsed() < Duration::from_secs(10));
 }
