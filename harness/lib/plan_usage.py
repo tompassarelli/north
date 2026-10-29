@@ -99,7 +99,7 @@ def accounts_from(rows, db, now):
                                       "extra_usage": False, "spend": False, "age_min": None, "resets": {}})
         if r["kind"] != "grant":
             age = (now - ts(r["ts"])).total_seconds() / 60
-            a["age_min"] = age if a["age_min"] is None else max(a["age_min"], age)
+            a["age_min"] = age if a["age_min"] is None else min(a["age_min"], age)
         if r["kind"] == "window" and r["used_pct"] is not None and r["resets_at"]:
             k = window_key(r)
             if k and (k not in a["windows"] or (r["provider"] == "gemini"
