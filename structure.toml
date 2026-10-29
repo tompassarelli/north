@@ -112,7 +112,7 @@ may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell",
 name = "usage"
 paths = ["src/usage/**"]
 responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
-may_use = ["domain", "foundation"]
+may_use = ["domain", "platform", "foundation"]
 
 [[module]]
 name = "code_health"

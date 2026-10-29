@@ -1,3 +1,4 @@
+use crate::platform::usage_table;
 use rusqlite::{Connection, params_from_iter};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -59,12 +60,13 @@ pub(super) fn open() -> Result<(Connection, bool), String> {
     Ok((db, remote))
 }
 pub(super) fn prepare(db: &Connection) -> Result<(), String> {
-    db.execute_batch("CREATE TABLE IF NOT EXISTS usage(ts TEXT,provider TEXT,account TEXT,kind TEXT,name TEXT,used_pct REAL,window_min INTEGER,resets_at TEXT,amount REAL,source TEXT) STRICT; CREATE INDEX IF NOT EXISTS usage_latest ON usage(provider,account,kind,name,ts); PRAGMA analysis_limit=1000; ANALYZE usage;").map_err(|e| e.to_string())
+    usage_table::ensure(db).map_err(|e| e.to_string())?;
+    db.execute_batch("PRAGMA analysis_limit=1000; ANALYZE usage;").map_err(|e| e.to_string())
 }
 pub(super) fn record(db: &Connection, readings: &[Value]) -> Result<(), String> {
     let transaction = db.unchecked_transaction().map_err(|e| e.to_string())?;
     {
-        let mut insert = transaction.prepare_cached("INSERT INTO usage(ts,provider,account,kind,name,used_pct,window_min,resets_at,amount,source) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10 WHERE NOT EXISTS (SELECT 1 FROM usage WHERE provider IS ?2 AND account IS ?3 AND kind IS ?4 AND name IS ?5 AND ts IS ?1 AND source IS ?10)").map_err(|e| e.to_string())?;
+        let mut insert = transaction.prepare_cached("INSERT OR IGNORE INTO usage(ts,provider,account,kind,name,used_pct,window_min,resets_at,amount,source) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)").map_err(|e| e.to_string())?;
         for row in readings {
             let values: Vec<_> = COLUMNS
                 .iter()

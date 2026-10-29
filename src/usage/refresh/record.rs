@@ -2,6 +2,7 @@ use rusqlite::Connection;
 use rusqlite::types::Value as Sql;
 use serde_json::{Map, Value};
 
+use crate::platform::usage_table;
 use crate::usage::store::COLUMNS;
 
 pub(super) type Reading = Map<String, Value>;
@@ -25,12 +26,7 @@ pub(super) fn publish(db: &Connection, mirrored: bool, rows: &[Reading], ingest:
 
 pub(super) fn record(db: &Connection, rows: &[Reading]) -> Result<(), String> {
     let fail = |error: rusqlite::Error| error.to_string();
-    let columns: Vec<String> = COLUMNS.iter().map(|name| format!("{name} {}", affinity(name))).collect();
-    db.execute_batch(&format!(
-        "CREATE TABLE IF NOT EXISTS usage({}) STRICT; CREATE INDEX IF NOT EXISTS usage_latest ON usage(provider, account, kind, name, ts)",
-        columns.join(", ")
-    ))
-    .map_err(fail)?;
+    usage_table::ensure(db).map_err(fail)?;
     let identity: Vec<String> = COLUMNS[..IDENTITY].iter().map(|name| format!("{name} IS ?")).collect();
     let insert = format!(
         "INSERT INTO usage({}) SELECT {} WHERE NOT EXISTS (SELECT 1 FROM usage WHERE {})",
@@ -47,14 +43,6 @@ pub(super) fn record(db: &Connection, rows: &[Reading]) -> Result<(), String> {
         }
     }
     transaction.commit().map_err(fail)
-}
-
-fn affinity(column: &str) -> &'static str {
-    match column {
-        "used_pct" | "amount" => "REAL",
-        "window_min" => "INTEGER",
-        _ => "TEXT",
-    }
 }
 
 fn bind(value: Option<&Value>) -> Result<Sql, String> {

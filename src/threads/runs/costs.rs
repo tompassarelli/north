@@ -6,6 +6,7 @@ use rusqlite::{Connection, params, params_from_iter};
 
 use super::row::Row;
 use crate::foundation::clock::Timestamp;
+use crate::platform::usage_table;
 use crate::threads::verb::{Failure, immediate};
 
 const COLUMNS: [&str; 10] = ["ts", "provider", "account", "kind", "name", "used_pct", "window_min", "resets_at", "amount", "source"];
@@ -14,13 +15,7 @@ const SAME_WINDOW_NANOS: i128 = 60_000_000_000;
 
 /// Appends each readout no earlier readout of the same window at the same time recorded.
 pub(crate) fn record(db: &mut Connection, readouts: &[Row]) -> Result<(), Failure> {
-    let types = COLUMNS.map(|column| match column {
-        "used_pct" | "amount" => format!("{column} REAL"),
-        "window_min" => format!("{column} INTEGER"),
-        _ => format!("{column} TEXT"),
-    });
-    db.execute(&format!("CREATE TABLE IF NOT EXISTS usage({}) STRICT", types.join(", ")), [])?;
-    db.execute("CREATE INDEX IF NOT EXISTS usage_latest ON usage(provider, account, kind, name, ts)", [])?;
+    usage_table::ensure(db)?;
     let tx = db.transaction()?;
     {
         let same = COLUMNS[..5].iter().map(|column| format!("{column} IS ?")).collect::<Vec<_>>().join(" AND ");
