@@ -32,6 +32,10 @@ pub(crate) fn other_destinations() -> Vec<String> {
     config().map(|cfg| destinations::deploy(&cfg, &crate::platform::host::name())).unwrap_or_default()
 }
 
+pub(crate) fn builds_runtime_here() -> bool {
+    config().map(|cfg| destinations::builds_runtime(&cfg, &crate::platform::host::name())).unwrap_or(true)
+}
+
 pub(crate) fn in_game_reserve() -> bool {
     let local = agent_load::Host::from_env();
     agent_load::gaming_marked(&local.capacity) || agent_load::game_reserve_on(&local)

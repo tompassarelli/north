@@ -291,3 +291,49 @@ fn a_deploy_step_that_hangs_on_a_host_is_stopped_and_named_with_its_host_and_lim
     assert!(stdout.contains("far: nix-store --realise"), "{stdout}");
     assert!(stderr.contains("nix-store --realise on far did not finish within 1s and was stopped"), "{stderr}");
 }
+
+fn fleet(host: &Host, hosts: &str) -> PathBuf {
+    let orchestration = host.path("orchestration.toml");
+    fs::write(&orchestration, hosts).unwrap();
+    orchestration
+}
+
+#[test]
+fn a_runtime_another_host_built_is_pulled_and_its_closure_realised_instead_of_built_here() {
+    let host = Host::new();
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    let glibc = "/nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84";
+    script(
+        &host.path("bin/rsync"),
+        &format!("printf 'rsync %s\\n' \"$*\" >>\"$TEST_ALERTS\"\nfor program in north verify-north; do printf '#!/bin/sh\\n# {glibc}\\nexit 0\\n' >\"${{@: -1}}/$program\"; chmod +x \"${{@: -1}}/$program\"; done\n"),
+    );
+    script(&host.path("bin/nix-store"), "printf 'nix-store %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n");
+    let orchestration = fleet(&host, "[hosts.builder]\nssh = \"tom@builder\"\n");
+    let output = host.north_with(
+        &["runtime", "update"],
+        &[("AGENTS_ORCHESTRATION", orchestration.to_str().unwrap()), ("RESIDENT_CAP_HOST", "puller")],
+    );
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
+    let calls = fs::read_to_string(host.path("alerts")).unwrap();
+    assert!(calls.contains(&format!("tom@builder:.local/state/north/runtimes/{}/north", host.target)), "{calls}");
+    assert!(calls.contains(&format!("nix-store --realise --quiet {glibc}")), "{calls}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("pulled"), "{}", String::from_utf8_lossy(&output.stdout));
+}
+
+#[test]
+fn a_host_that_declares_builds_runtime_false_defers_when_no_other_host_has_built_the_commit() {
+    let host = Host::new();
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    script(&host.path("bin/rsync"), "exit 23\n");
+    let orchestration = fleet(&host, "[hosts.builder]\nssh = \"tom@builder\"\n[hosts.small]\nbuilds_runtime = false\n");
+    let output = host.north_with(
+        &["runtime", "update"],
+        &[("AGENTS_ORCHESTRATION", orchestration.to_str().unwrap()), ("RESIDENT_CAP_HOST", "small")],
+    );
+    assert_eq!(output.status.code(), Some(75), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("this host does not build runtimes"));
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+}

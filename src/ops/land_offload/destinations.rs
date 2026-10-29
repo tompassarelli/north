@@ -14,3 +14,12 @@ pub(super) fn deploy(cfg: &DocumentMut, here: &str) -> Vec<String> {
     }
     destinations
 }
+
+pub(super) fn builds_runtime(cfg: &DocumentMut, here: &str) -> bool {
+    cfg.get("hosts")
+        .and_then(Item::as_table_like)
+        .and_then(|hosts| hosts.get(here))
+        .and_then(|host| host.get("builds_runtime"))
+        .and_then(Item::as_bool)
+        .unwrap_or(true)
+}

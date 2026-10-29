@@ -1,6 +1,7 @@
 use super::bounded;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::{self, Layout, PROGRAMS, TREE};
+use super::pull;
 use super::remote;
 use super::store;
 use crate::ops::land_offload;
@@ -135,8 +136,14 @@ impl Drop for Lane<'_> {
 }
 
 fn build(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
+    if pull::pull(target, runtime) {
+        return Ok(());
+    }
     if land_offload::in_game_reserve() {
         return remote::build(target, runtime);
+    }
+    if !land_offload::builds_runtime_here() {
+        return Err(failed(DEFERRED, format!("no other host has built {} yet and this host does not build runtimes (builds_runtime = false); retrying on the next tick", layout::short(target))));
     }
     let lane = Lane::add(checkout, target)?;
     let built = layout::home().join(".cache/cargo-target/north");

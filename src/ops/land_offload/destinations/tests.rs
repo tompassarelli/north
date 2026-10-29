@@ -8,3 +8,11 @@ fn deploy_destinations_add_a_deploy_only_key_without_making_the_host_a_machine()
     assert_eq!(deploy(&cfg, "laptop"), ["tom@nexus", "tom@gex45"]);
     assert_eq!(gate::machines(&cfg).iter().map(|machine| machine.name.as_str()).collect::<Vec<_>>(), ["gex45", "copy"]);
 }
+
+#[test]
+fn a_host_builds_the_runtime_unless_it_declares_builds_runtime_false() {
+    let cfg: DocumentMut = "[hosts.nexus]\nbuilds_runtime = false\n[hosts.gex45]\nssh = \"tom@gex45\"\n".parse().unwrap();
+    assert!(!super::builds_runtime(&cfg, "nexus"));
+    assert!(super::builds_runtime(&cfg, "gex45"));
+    assert!(super::builds_runtime(&cfg, "unlisted"));
+}
