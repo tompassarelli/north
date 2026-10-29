@@ -34,6 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install harness test tools
+        id: tools
         uses: ./.github/actions/harness
       - name: Shell and Python tests
         env:
@@ -81,6 +82,8 @@ jobs:
         run: bun test
       - name: Automation browser download
         if: ${{ !cancelled() && steps.tools.outputs.browser-skip != '' }}
+        env:
+          REASON: ${{ steps.tools.outputs.browser-skip }}
         run: |
-          echo "::error::${{ steps.tools.outputs.browser-skip }}"
+          echo "::error::$REASON"
           exit 1
