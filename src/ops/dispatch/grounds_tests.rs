@@ -15,6 +15,7 @@ fn run(item: &str, minutes: u32) -> SpendRun {
         role: "worker".into(),
         tier: "sonnet".into(),
         category: "tooling".into(),
+        arm: String::new(),
         model: Some("claude-sonnet-5-5".into()),
         started: "2026-10-27T10:00:00Z".into(),
         ended: format!("2026-10-27T{:02}:{:02}:00Z", 10 + minutes / 60, minutes % 60),

@@ -8,6 +8,7 @@ fn run(item: Option<&str>, role: &str, tier: &str, category: &str, model: &str, 
         role: role.into(),
         tier: tier.into(),
         category: category.into(),
+        arm: String::new(),
         model: Some(model.into()),
         started: ended.into(),
         ended: ended.into(),
@@ -89,4 +90,24 @@ fn the_window_and_the_one_before_it_meet_at_one_instant_from_one_clock_reading()
     let [(since, until), (earlier, start)] = crate::ledger::closed_source::adjacent_windows(now, 7 * 86_400);
     assert_eq!((until.as_str(), start.as_str()), (now.iso().as_str(), since.as_str()));
     assert!(since.starts_with("2026-10-20T06:00:00") && earlier.starts_with("2026-10-13T06:00:00"), "{since} {earlier}");
+}
+
+#[test]
+fn a_closed_box_costs_its_whole_spend_to_the_tier_and_arm_of_its_first_run() {
+    let armed = |item: &str, arm: &str, ended: &str, landed: bool| SpendRun { arm: arm.into(), ..run(Some(item), "worker", "sonnet", "tooling", "claude-sonnet-5-5", ended, landed) };
+    let runs = vec![
+        armed("north#1", "handoff-350k", "2026-10-27T10:00:00Z", false),
+        armed("north#1", "", "2026-10-27T11:00:00Z", true),
+        armed("north#2", "no-handoff", "2026-10-27T12:00:00Z", true),
+        armed("north#3", "no-handoff", "2026-10-27T13:00:00Z", true),
+        armed("north#4", "no-handoff", "2026-10-27T14:00:00Z", true),
+        armed("north#5", "", "2026-10-27T15:00:00Z", true),
+    ];
+    let report = summarize(&runs, &closed(&["north#1", "north#2", "north#3", "north#5"]), "2026-10-27T00:00:00Z", &PriceTable::load().unwrap());
+    let arms: Vec<(&str, &str, usize, f64)> = report.arms.iter().map(|cell| (cell.tier.as_str(), cell.arm.as_str(), cell.closed, cell.usd / cell.closed as f64)).collect();
+    assert_eq!(arms.len(), 2, "{arms:?}");
+    assert_eq!((arms[0].0, arms[0].1, arms[0].2), ("sonnet", "handoff-350k", 1));
+    assert!((arms[0].3 - 2.0 * SONNET).abs() < 1e-9, "{arms:?}");
+    assert_eq!((arms[1].0, arms[1].1, arms[1].2), ("sonnet", "no-handoff", 2));
+    assert!((arms[1].3 - SONNET).abs() < 1e-9, "{arms:?}");
 }

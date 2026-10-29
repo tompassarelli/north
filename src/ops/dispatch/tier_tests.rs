@@ -2,7 +2,7 @@ use super::plan::Cloud;
 use super::record::Record;
 use super::tests::{issue, survey};
 use super::tier::{ARM_RUNS, Evidence, History, Tier};
-use crate::ledger::closed::{Cell, ClosedReport};
+use crate::ledger::closed::{ArmCell, Cell, ClosedReport};
 use super::{alert, decide, effects, slots};
 use std::collections::BTreeMap;
 
@@ -94,7 +94,7 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
 fn closed(cells: &[(&str, usize, f64)]) -> ClosedReport {
     let other = Cell::priced("opus-medium", "feature", 1, 0.01);
     let cells: Vec<Cell> = cells.iter().map(|(tier, closed, per)| Cell::priced(tier, "tooling", *closed, per * *closed as f64)).chain([other]).collect();
-    ClosedReport { closed: cells.iter().map(|cell| cell.closed).sum(), cells, spend_usd: 0.0, leads_usd: 0.0 }
+    ClosedReport { closed: cells.iter().map(|cell| cell.closed).sum(), cells, arms: Vec::new(), spend_usd: 0.0, leads_usd: 0.0 }
 }
 
 fn armed(sonnet: (f64, usize), opus: (f64, usize), report: &ClosedReport) -> BTreeMap<String, Evidence> {
@@ -163,6 +163,30 @@ fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_e
     assert_eq!(arms(&lagging), [(off.clone(), off.clone()), (None, None), (None, None)], "only the arm under 30 runs on that tier still launches");
     let sonnet = super::survey::Survey { handoffs: held(30, 30), ..survey(boxes("bug-known-cause"), Cloud::Closed(String::new()), hosts, accounts) };
     assert_eq!(arms(&sonnet)[0], (on.clone(), on), "each tier fills its own arms");
+}
+
+#[test]
+fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_north_57_recommendation_is_emitted() {
+    let (on, off) = ("handoff-350k", "no-handoff");
+    let record = |handoff: &str| Record { tier: Some("worker".into()), handoff: Some(handoff.into()), ..haiku_try("smashcraft#9", 1.0) };
+    let held = |on_runs: usize, off_runs: usize| super::handoff::Arms::new(&[vec![record(on); on_runs], vec![record(off); off_runs]].concat());
+    let costed = |on_usd: f64, off_usd: f64| ClosedReport { arms: vec![ArmCell { tier: "opus-medium".into(), arm: on.into(), closed: 5, usd: on_usd * 5.0 }, ArmCell { tier: "opus-medium".into(), arm: off.into(), closed: 5, usd: off_usd * 5.0 }], ..closed(&[]) };
+    let mut cheaper_without = held(30, 30).priced(&costed(10.0, 6.0));
+    assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off));
+    assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off), "a settled tier keeps launching its winner");
+    assert_eq!(cheaper_without.recommendations(), ["north#57 handoff arms, worker: no-handoff wins at $6.00 per closed box against handoff-350k at $10.00 over 30 runs each; recommend: drop the worker handoff point for this tier and leave Claude Code's own compaction to it"]);
+    let mut cheaper_with = held(30, 30).priced(&costed(4.0, 6.0));
+    assert_eq!(cheaper_with.pick(Tier::Opus).as_deref(), Some(on));
+    assert!(cheaper_with.recommendations()[0].contains("handoff-350k wins at $4.00") && cheaper_with.recommendations()[0].ends_with("keep the worker handoff point for this tier"));
+    let mut tied = held(30, 30).priced(&costed(6.0, 6.0));
+    assert_eq!(tied.pick(Tier::Opus).as_deref(), Some(on), "a tie keeps the incumbent handoff arm");
+    let mut lagging = held(30, 29).priced(&costed(10.0, 6.0));
+    assert!(lagging.recommendations().is_empty());
+    assert_eq!(lagging.pick(Tier::Opus).as_deref(), Some(off), "a tier short of 30 runs on an arm keeps filling it");
+    let mut unpriced = held(30, 30).priced(&closed(&[]));
+    assert!(unpriced.recommendations().is_empty());
+    assert_eq!(unpriced.pick(Tier::Opus), None, "30 runs each without a closed box on both arms holds the arms as they were");
+    assert_eq!(held(30, 30).priced(&costed(10.0, 6.0)).pick(Tier::Sonnet).as_deref(), Some(on), "another tier's runs are its own");
 }
 
 #[test]

@@ -1,29 +1,96 @@
 use super::record::Record;
 use super::tier::Tier;
 use crate::fleet::handoff::{NO_HANDOFF, arm};
+use crate::ledger::ClosedReport;
 use std::collections::BTreeMap;
 
 pub(crate) const ARM_RUNS: usize = 30;
+const FAMILIES: [Tier; 3] = [Tier::Haiku, Tier::Sonnet, Tier::Opus];
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct Arms(BTreeMap<(String, String), usize>);
+pub(crate) struct Arms {
+    runs: BTreeMap<(String, String), usize>,
+    usd_per_closed: BTreeMap<(Tier, String), f64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Winner {
+    pub tier: Tier,
+    pub arm: String,
+    pub usd: f64,
+    pub other: String,
+    pub other_usd: f64,
+}
+
+impl Winner {
+    fn recommendation(&self) -> String {
+        let advice = if self.arm == NO_HANDOFF {
+            "drop the worker handoff point for this tier and leave Claude Code's own compaction to it"
+        } else {
+            "keep the worker handoff point for this tier"
+        };
+        format!(
+            "north#57 handoff arms, {}: {} wins at ${:.2} per closed box against {} at ${:.2} over {ARM_RUNS} runs each; recommend: {advice}",
+            self.tier.name(),
+            self.arm,
+            self.usd,
+            self.other,
+            self.other_usd
+        )
+    }
+}
 
 impl Arms {
     pub(crate) fn new(records: &[Record]) -> Self {
         let mut arms = Self::default();
         for record in records.iter().filter(|record| record.launched && !record.cloud) {
             if let (Some(tier), Some(handoff)) = (&record.tier, &record.handoff) {
-                *arms.0.entry((tier.clone(), handoff.clone())).or_default() += 1;
+                *arms.runs.entry((tier.clone(), handoff.clone())).or_default() += 1;
             }
         }
         arms
     }
 
+    pub(crate) fn priced(self, report: &ClosedReport) -> Self {
+        let mut sums: BTreeMap<(Tier, String), (f64, usize)> = BTreeMap::new();
+        for cell in &report.arms {
+            if let Some(tier) = FAMILIES.into_iter().find(|tier| tier.serves(&cell.tier)) {
+                let sum = sums.entry((tier, cell.arm.clone())).or_default();
+                *sum = (sum.0 + cell.usd, sum.1 + cell.closed);
+            }
+        }
+        Self { usd_per_closed: sums.into_iter().map(|(key, (usd, closed))| (key, usd / closed as f64)).collect(), ..self }
+    }
+
+    fn runs(&self, tier: Tier, label: &str) -> usize {
+        self.runs.get(&(tier.name().to_owned(), label.to_owned())).copied().unwrap_or(0)
+    }
+
+    fn labels() -> [String; 2] {
+        [arm(crate::pace::limits::handoff_ctx()), NO_HANDOFF.to_owned()]
+    }
+
+    pub(crate) fn winner(&self, tier: Tier) -> Option<Winner> {
+        let [handoff, none] = Self::labels();
+        if self.runs(tier, &handoff) < ARM_RUNS || self.runs(tier, &none) < ARM_RUNS {
+            return None;
+        }
+        let cost = |label: &str| self.usd_per_closed.get(&(tier, label.to_owned())).copied();
+        let (with, without) = (cost(&handoff)?, cost(&none)?);
+        let (arm, usd, other, other_usd) = if without < with { (none, without, handoff, with) } else { (handoff, with, none, without) };
+        Some(Winner { tier, arm, usd, other, other_usd })
+    }
+
+    pub(crate) fn recommendations(&self) -> Vec<String> {
+        FAMILIES.into_iter().filter_map(|tier| self.winner(tier)).map(|winner| winner.recommendation()).collect()
+    }
+
     pub(crate) fn pick(&mut self, tier: Tier) -> Option<String> {
-        let runs = |arms: &Self, label: &str| arms.0.get(&(tier.name().to_owned(), label.to_owned())).copied().unwrap_or(0);
-        let labels = [arm(crate::pace::limits::handoff_ctx()), NO_HANDOFF.to_owned()];
-        let next = labels.iter().filter(|label| runs(self, label) < ARM_RUNS).min_by_key(|label| runs(self, label))?.clone();
-        *self.0.entry((tier.name().to_owned(), next.clone())).or_default() += 1;
+        let next = match self.winner(tier) {
+            Some(winner) => winner.arm,
+            None => Self::labels().into_iter().filter(|label| self.runs(tier, label) < ARM_RUNS).min_by_key(|label| self.runs(tier, label))?,
+        };
+        *self.runs.entry((tier.name().to_owned(), next.clone())).or_default() += 1;
         Some(next)
     }
 }

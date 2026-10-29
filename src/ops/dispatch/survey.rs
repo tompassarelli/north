@@ -11,6 +11,7 @@ use super::handoff::Arms;
 use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
 use crate::fleet::model::ProviderName;
+use crate::ledger::ClosedReport;
 use crate::fleet::roster::{Roster, Standing};
 use crate::pace::exhaustion;
 use crate::ops::pacing::placement::{self, gate};
@@ -287,16 +288,24 @@ fn unspent(laptop: Option<&str>, records: &[record::Record], at: f64, notes: &mu
     found
 }
 
+fn closed(notes: &mut Vec<String>) -> Option<ClosedReport> {
+    crate::ledger::closed_report(tier::ARM_WINDOW).map_err(|why| notes.push(format!("north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message()))).ok()
+}
+
 pub(crate) fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
+    let closed = closed(notes);
+    evidence_from(categories, closed.as_ref(), notes)
+}
+
+fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let mut found = BTreeMap::new();
-    let closed = crate::ledger::closed_report(tier::ARM_WINDOW).map_err(|why| notes.push(format!("north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message())));
     for category in categories {
         let facets = format!("Category: {category}");
         let program = crate::fleet::runtime::binary("worker-ledger");
         match run_within(&program.to_string_lossy(), &["--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
-                found.insert((*category).to_owned(), closed.as_ref().map_or(read.clone(), |report| read.priced(report, category)));
+                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)));
             }
             _ => notes.push(format!("worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
         }
@@ -329,8 +338,10 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     }
     stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
     let history = History::new(&records);
-    let handoffs = Arms::new(&records);
-    let ledger = evidence(&tier::ARMED, &mut notes);
+    let report = closed(&mut notes);
+    let ledger = evidence_from(&tier::ARMED, report.as_ref(), &mut notes);
+    let handoffs = report.as_ref().map_or_else(|| Arms::new(&records), |report| Arms::new(&records).priced(report));
+    notes.extend(handoffs.recommendations());
     let grounds = Ledger::read(&mut notes);
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);

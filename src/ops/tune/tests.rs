@@ -16,6 +16,7 @@ fn run(item: &str, (tier, model): (&str, &str), category: &str, started: &str, e
         role: "worker".into(),
         tier: tier.into(),
         category: category.into(),
+        arm: String::new(),
         model: Some(model.into()),
         started: started.into(),
         ended: ended.into(),
