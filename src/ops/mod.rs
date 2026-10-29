@@ -9,6 +9,7 @@ pub(crate) mod nexus_ram;
 pub(crate) mod pacing;
 pub(crate) mod private_desktop;
 pub(crate) mod reclaim;
+pub(crate) mod retention;
 pub(crate) mod resident_cap;
 pub(crate) mod report;
 #[cfg_attr(not(test), allow(dead_code))]

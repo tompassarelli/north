@@ -634,3 +634,19 @@ source = "prior: five minutes outlasts a screenshot read or a between-capture pa
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against quiet native leases' measured idle seconds; worker runs are the nearest existing count until quiet leases are counted" }
 fallback = "a lease whose scope is not measured keeps deferring until it ends or passes its declared run length"
 consumers = ["src/capacity/admission.rs"]
+
+[evidence_retention_hours]
+value = 72
+unit = "hours since the newest change after which an unpinned, unopened Smashcraft evidence folder on the GPU host is archived to the laptop and deleted there"
+source = "measured: evidence reached 50 GB and the root disk 96-98% on 2026-10-29 (north#309) with the oldest unmoved folders 5 days old; three days keeps a lane's recent runs at hand"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a folder's last change a lane still reads it" }
+fallback = "an unreadable setting archives nothing"
+consumers = ["src/ops/retention/family.rs"]
+
+[capture_batch_retention_hours]
+value = 24
+unit = "hours since the newest change after which an unopened Smashcraft capture-queue batch on the GPU host is archived to the laptop and deleted there"
+source = "measured: 127 batches held 31 GB within two days on 2026-10-29 (north#309); a batch's frames are judged within hours of its run"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a batch ends its frames are last read" }
+fallback = "an unreadable setting archives nothing"
+consumers = ["src/ops/retention/family.rs"]
