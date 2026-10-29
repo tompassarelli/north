@@ -349,6 +349,59 @@ fn a_host_that_declares_builds_runtime_false_defers_when_no_other_host_has_built
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
 }
 
+const ROOM_PROBE: &str = "20\n1.50 1.00 1.00 2/900 1\nMemTotal:       65536000 kB\nMemAvailable:   40000000 kB\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/md1 490000000 400000000 50000000 90% /\n";
+
+fn reserved_puller(host: &Host, peer_built: &Path) -> Vec<(&'static str, String)> {
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    script(
+        &host.path("bin/rsync"),
+        &format!("[[ -f {} ]] || exit 23\nfor program in north verify-north; do printf '#!/bin/sh\nexit 0\n'>\"${{@: -1}}/$program\"; chmod +x \"${{@: -1}}/$program\"; done\n", peer_built.display()),
+    );
+    script(&host.path("bin/nix-store"), "exit 0\n");
+    script(&host.path("bin/ssh"), &format!("case \"$*\" in *nproc*) printf '{ROOM_PROBE}'; exit 0;; esac\nexit 0\n"));
+    let orchestration = fleet(host, "[hosts.builder]\nssh = \"tom@builder\"\n");
+    fs::write(host.path("game-reserve.json"), "{\"on\":true,\"since\":99999999999}").unwrap();
+    vec![
+        ("AGENTS_ORCHESTRATION", orchestration.display().to_string()),
+        ("RESIDENT_CAP_HOST", "puller".to_owned()),
+        ("GAME_RESERVE_STATE", host.path("game-reserve.json").display().to_string()),
+    ]
+}
+
+fn tick(host: &Host, environment: &[(&'static str, String)], sync_status: u8) -> Output {
+    let borrowed: Vec<(&str, &str)> = environment.iter().map(|(key, value)| (*key, value.as_str())).collect();
+    host.run(&["runtime", "update"], sync_status, 0, &borrowed)
+}
+
+#[test]
+fn a_peer_runtime_not_yet_written_while_in_game_reserve_is_retried_next_tick_and_never_marked_failed() {
+    let host = Host::new();
+    let peer_built = host.path("peer-built");
+    let environment = reserved_puller(&host, &peer_built);
+    let first = tick(&host, &environment, 0);
+    assert_eq!(first.status.code(), Some(75), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(!host.path("state/north/runtime-failed").exists());
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+    fs::write(&peer_built, "").unwrap();
+    let second = tick(&host, &environment, 0);
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
+    assert!(!host.path("state/north/runtime-failed").exists());
+}
+
+#[test]
+fn a_pulled_runtime_that_fails_its_sync_is_still_marked_failed_and_held_back() {
+    let host = Host::new();
+    let peer_built = host.path("peer-built");
+    fs::write(&peer_built, "").unwrap();
+    let environment = reserved_puller(&host, &peer_built);
+    let output = tick(&host, &environment, 42);
+    assert_eq!(output.status.code(), Some(1), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(host.path("state/north/runtime-failed")).unwrap(), host.target);
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+}
+
 #[test]
 fn a_build_whose_commit_is_no_longer_origin_main_is_abandoned_and_the_new_head_is_built() {
     let host = Host::new();

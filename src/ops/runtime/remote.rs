@@ -10,6 +10,7 @@ use std::time::Duration;
 
 const BUILD_ELSEWHERE: Duration = Duration::from_secs(30 * 60);
 const COPY: Duration = Duration::from_secs(10 * 60);
+const RSYNC_SOURCE_MISSING: u8 = 23;
 
 pub(super) fn build(target: &str, runtime: &Path) -> Result<(), Failure> {
     let machine = land_offload::host_with_room()
@@ -21,7 +22,10 @@ pub(super) fn build(target: &str, runtime: &Path) -> Result<(), Failure> {
     fs::create_dir_all(runtime)?;
     let mut copy = Command::new("rsync");
     copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| format!("{built}/{program}"))).arg(runtime);
-    run(host, "rsync", &mut copy, COPY)
+    run(host, "rsync", &mut copy, COPY).map_err(|failure| match failure.code {
+        RSYNC_SOURCE_MISSING => failed(DEFERRED, format!("{host} has not finished building {}; retrying on the next tick ({})", &target[..8], failure.message)),
+        _ => failure,
+    })
 }
 
 pub(super) fn ssh(destination: &str) -> Command {
