@@ -1,5 +1,8 @@
 [landing]
 	capacity = bun \"$PWD/harness/skills/machine-capacity/scripts/machine-capacity.mjs\" run --class moderate --owner land-check --timeout-seconds 3600 --
+[mutant]
+	class = heavy
+	run = nix develop --no-update-lock-file -c bash harness/scripts/mutant-cargo-tests.sh
 [ci]
 	budget = cargo.yml 162 600
 	budget = harness.yml 80 600
