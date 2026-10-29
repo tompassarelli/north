@@ -111,6 +111,7 @@ impl Host {
             .env("TEST_PREVIOUS", PREVIOUS)
             .env("TEST_SECRET", SECRET)
             .env("TEST_ALERTS", self.path("alerts"))
+            .env("TEST_SYNCED", self.path("synced"))
             .env("TEST_SYNC_STATUS", sync_status.to_string())
             .env("TEST_EVENT_STATUS", alert_status.to_string())
             .output()
@@ -178,9 +179,9 @@ fn a_deploy_ships_the_built_runtime_and_its_store_references_then_promotes_remot
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let runtime = host.runtime(&host.target);
     let expected = [
-        format!("ssh -o BatchMode=yes far nix-store --realise --quiet {glibc}"),
-        format!("rsync -a --mkpath {} {} far:.local/state/north/runtimes/{}/", runtime.join("north").display(), runtime.join("verify-north").display(), host.target),
-        "ssh -o BatchMode=yes far north runtime update".to_owned(),
+        format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 far nix-store --realise --quiet {glibc}"),
+        format!("rsync -a --timeout=120 --mkpath {} {} far:.local/state/north/runtimes/{}/", runtime.join("north").display(), runtime.join("verify-north").display(), host.target),
+        "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 far north runtime update".to_owned(),
     ];
     assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().collect::<Vec<_>>(), expected);
     assert!(!host.path("state/north/current").exists());
@@ -224,4 +225,18 @@ fn a_promotion_that_cannot_root_a_store_path_leaves_the_current_runtime_selected
     let output = host.update(0, 0);
     assert_eq!(output.status.code(), Some(1), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+}
+
+#[test]
+fn a_promoted_runtime_that_fails_its_health_check_is_rolled_back_before_agents_sync_runs() {
+    let host = skewed();
+    script(&host.runtime(&host.target).join("north"), "[[ \"$1 $2\" == 'runtime health' ]] && exit 7\nexit 0\n");
+    script(&host.path("bin/agents"), "touch \"$TEST_SYNCED\"\n");
+    let output = host.update(0, 0);
+    assert_eq!(output.status.code(), Some(1), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+    assert!(!host.path("synced").exists(), "agents sync ran against an unhealthy runtime");
+    let alerts = fs::read_to_string(host.path("alerts")).unwrap();
+    let expected = format!("failed step health check on {}; rolled back to runtimes/{PREVIOUS}; exit status 7", host.target);
+    assert!(alerts.contains(&expected), "{alerts}");
 }

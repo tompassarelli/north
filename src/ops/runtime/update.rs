@@ -1,3 +1,4 @@
+use super::bounded;
 use super::failure::{Failure, code, failed};
 use super::layout::{self, Layout, PROGRAMS, TREE};
 use super::remote;
@@ -10,6 +11,10 @@ use std::fs::{self, File};
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
+
+const STEP_LIMIT: Duration = Duration::from_secs(300);
+const FETCH_LIMIT: Duration = Duration::from_secs(120);
 
 pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
     let Some(_lock) = lock(layout, FlockOperation::NonBlockingLockExclusive)? else {
@@ -43,7 +48,7 @@ pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<
 }
 
 pub(super) fn built_main(layout: &Layout, checkout: &Path) -> Result<(String, PathBuf), Failure> {
-    git(checkout, &["fetch", "-q"])?;
+    fetch(checkout)?;
     let target = git(checkout, &["rev-parse", "--verify", "origin/main^{commit}"])?;
     let runtime = layout.runtime(&target);
     if !layout::has_programs(&runtime) {
@@ -172,23 +177,29 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
         .suffix(".log")
         .tempfile_in(&layout.state)?;
     swap(layout, &layout::link(target))?;
-    let ran = log.reopen().and_then(|out| {
-        let err = log.reopen()?;
-        Command::new("agents").arg("sync").stdout(out).stderr(err).status()
-    });
-    let status = match ran {
-        Ok(status) if status.success() => {
-            let mut synced = fs::read_to_string(log.path()).unwrap_or_default();
-            if !synced.is_empty() && !synced.ends_with('\n') {
-                synced.push('\n');
+    let steps = [("health check", health_check(layout)), ("agents sync", agents_sync())];
+    let mut failure = None;
+    for (name, mut command) in steps {
+        let ran = log.reopen().and_then(|out| {
+            let err = log.reopen()?;
+            bounded::status(command.stdout(out).stderr(err), STEP_LIMIT)
+        });
+        match ran {
+            Ok(status) if status.success() => continue,
+            Ok(status) => failure = Some((name, code(status))),
+            Err(error) => {
+                let _ = fs::write(log.path(), format!("{name} did not run: {error}\n"));
+                failure = Some((name, 127));
             }
-            return Ok(synced);
         }
-        Ok(status) => code(status),
-        Err(error) => {
-            let _ = fs::write(log.path(), format!("agents sync did not run: {error}\n"));
-            127
+        break;
+    }
+    let Some((step, status)) = failure else {
+        let mut synced = fs::read_to_string(log.path()).unwrap_or_default();
+        if !synced.is_empty() && !synced.ends_with('\n') {
+            synced.push('\n');
         }
+        return Ok(synced);
     };
     if let Some(previous) = previous {
         swap(layout, previous)?;
@@ -196,11 +207,23 @@ fn sync(layout: &Layout, previous: Option<&Path>, target: &str) -> Result<String
     let (_, kept) = log.keep().map_err(|error| failed(1, error.to_string()))?;
     let was = previous.map_or_else(|| "<none>".to_owned(), |link| link.display().to_string());
     let message = format!(
-        "failed step agents sync on {target}; rolled back to {was}; exit status {status}; local log: {}",
+        "failed step {step} on {target}; rolled back to {was}; exit status {status}; local log: {}",
         kept.display()
     );
     alert(&message);
     Err(failed(1, message))
+}
+
+fn health_check(layout: &Layout) -> Command {
+    let mut command = Command::new(layout.current().join("north"));
+    command.args(["runtime", "health"]);
+    command
+}
+
+fn agents_sync() -> Command {
+    let mut command = Command::new("agents");
+    command.arg("sync");
+    command
 }
 
 fn alert(message: &str) {
@@ -234,4 +257,14 @@ fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::R
         fs::remove_dir_all(&doomed)?;
     }
     Ok(())
+}
+
+fn fetch(checkout: &Path) -> Result<(), Failure> {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(checkout).args(["fetch", "-q"]);
+    let status = bounded::status(&mut command, FETCH_LIMIT).map_err(|error| failed(1, format!("git fetch failed: {error}")))?;
+    match status.success() {
+        true => Ok(()),
+        false => Err(failed(code(status), format!("git fetch failed: {status}"))),
+    }
 }

@@ -24,7 +24,7 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     run(host, "nix-store --realise", ssh(host).args(&realise).stdout(std::process::Stdio::null()))?;
     let destination = format!("{host}:.local/state/north/runtimes/{target}/");
     let mut copy = Command::new("rsync");
-    copy.args(["-a", "--mkpath"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
+    copy.args(["-a", "--timeout=120", "--mkpath"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
     run(host, "rsync", &mut copy)?;
     run(host, "north runtime update", ssh(host).args(["north", "runtime", "update"]))
 }

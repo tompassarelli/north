@@ -108,6 +108,7 @@ Commands:
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there
+  runtime health                                Check that the running binary is the current runtime with its programs and tree
   help                                          Show this help
 
 Options:

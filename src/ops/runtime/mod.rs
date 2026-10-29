@@ -1,11 +1,13 @@
+mod bounded;
 mod deploy;
 mod failure;
+mod health;
 pub(crate) mod layout;
 mod remote;
 mod store;
 mod update;
 
-const USAGE: &str = "usage: north runtime update | north runtime deploy HOST...";
+const USAGE: &str = "usage: north runtime update | north runtime deploy HOST... | north runtime health";
 
 pub(crate) fn run(arguments: &[String]) -> u8 {
     if arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
@@ -15,6 +17,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     let layout = layout::Layout::from_env();
     let result = match arguments.split_first() {
         Some((command, [])) if command == "update" => update::update(&layout),
+        Some((command, [])) if command == "health" => health::health(&layout),
         Some((command, hosts)) if command == "deploy" && !hosts.is_empty() => {
             if let Some(flag) = hosts.iter().find(|host| host.starts_with('-')) {
                 eprintln!("north runtime deploy: unknown flag {flag}\n{USAGE}");

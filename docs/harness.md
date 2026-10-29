@@ -29,7 +29,8 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    [src/agent_policy_contract/wiring.rs](../src/agent_policy_contract/wiring.rs).
 3. `north runtime update` builds origin/main in a detached worktree, installs the binary and the
    commit's own tree under `~/.local/state/north/runtimes/<sha>/`, points `~/.local/state/north/current` at it and runs
-   `agents sync`, rolling back if that fails. `agent-runtime-update` runs it in its nightly pass. `north runtime deploy HOST...` builds on
+   `north runtime health` (the new binary is the current runtime, with its programs and tree) and `agents sync`, each bounded to 5 minutes, rolling back if either fails.
+   `agent-runtime-update` runs it in its nightly pass and `north-runtime-pull` on every host every 5 minutes, so each host promotes a landing itself, with no push from another host. `north runtime deploy HOST...` builds on
    the machine it runs on, realises the binary's Nix store references on each HOST, copies the programs into that
    HOST's `runtimes/<sha>/` and runs `north runtime update` there, which finds them built and only promotes. The
    `north` command in [bin/north](../bin/north) launches that installed runtime, and scheduled jobs run

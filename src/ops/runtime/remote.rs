@@ -14,13 +14,13 @@ pub(super) fn build(target: &str, runtime: &Path) -> Result<(), Failure> {
     let built = format!("{}:.local/state/north/runtimes/{target}", machine.ssh);
     fs::create_dir_all(runtime)?;
     let mut copy = Command::new("rsync");
-    copy.arg("-a").args(PROGRAMS.map(|program| format!("{built}/{program}"))).arg(runtime);
+    copy.args(["-a", "--timeout=120"]).args(PROGRAMS.map(|program| format!("{built}/{program}"))).arg(runtime);
     run(host, "rsync", &mut copy)
 }
 
 pub(super) fn ssh(destination: &str) -> Command {
     let mut command = Command::new("ssh");
-    command.args(["-o", "BatchMode=yes", destination]);
+    command.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", destination]);
     command
 }
 
