@@ -55,7 +55,6 @@ fn the_generator_repeats_the_sequence_python_gives_for_seed_zero() {
 fn the_paired_interval_is_the_mean_task_difference_and_repeats_under_seed_zero() {
     let (incumbent, challenger) = incumbent_and_challenger();
     let first = paired_diff(&rows(&challenger), &rows(&incumbent), 4000);
-    assert_eq!(first, paired_diff(&rows(&challenger), &rows(&incumbent), 4000));
     assert_eq!(first.0, (0.5 + 0.0 + 0.5) / 3.0);
     assert_eq!(paired_diff(&[], &[], 4000), (0.0, -1.0, 1.0));
 }

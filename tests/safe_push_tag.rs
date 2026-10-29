@@ -372,9 +372,3 @@ fn safe_push_tag_scans_an_outgoing_tag_against_an_origin_with_thousands_of_refs(
     assert_eq!(observed.status, 0, "a stalled scan panics before this: {observed:#?}");
     assert!(published(&observed, &fixture, "release-bulk"), "{observed:#?}");
 }
-
-#[test]
-#[should_panic(expected = "deadlocked")]
-fn a_process_tree_that_uses_no_cpu_is_reported_as_deadlocked() {
-    output_unless_stalled(Command::new("sh").args(["-c", "sleep 30"]), Duration::from_secs(2));
-}

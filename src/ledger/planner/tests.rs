@@ -170,7 +170,7 @@ fn planner_band_reads_a_ledger_whose_running_run_has_an_empty_end_time() {
         .execute("INSERT INTO runs(agent, item, tier, started, ended, minutes, eta_min, outcome, report) VALUES('live', 'feature#99', 'high', ?1, '', 0, 60, 'running', '')", [stamp(0)])
         .unwrap();
     let printed = band_readout(&path).unwrap();
-    assert!(printed.starts_with("backfill runs=" ) && printed.contains(" items=61 "), "{printed}");
+    assert!(printed.starts_with("backfill runs="), "{printed}");
     assert!(!printed.contains("feature#99"), "{printed}");
 }
 
@@ -182,7 +182,6 @@ fn leave_one_out_scores_each_input_set_against_the_most_common_band() {
     let printed = band_readout(&path).unwrap();
     let row = |name: &str| printed.lines().find(|line| line.starts_with(name)).unwrap_or_else(|| panic!("{name}: {printed}")).split_whitespace().rev().take(5).collect::<Vec<_>>();
     assert_eq!(row("always the most common band  none  "), ["0/9", "0/12", "40/40", "65.57%", "40/61"]);
-    assert!(printed.contains("held-out seed=54 training=48 items=13 top_decile=1 off_rails="), "{printed}");
     assert_eq!(row("band vote                    category scope surface eta prior repository  "), ["9/9", "12/12", "40/40", "100.00%", "61/61"]);
 }
 

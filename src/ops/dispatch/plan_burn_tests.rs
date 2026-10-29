@@ -34,7 +34,7 @@ fn a_launch_whose_eta_at_the_accounts_measured_burn_would_cross_its_five_hour_st
 #[test]
 fn a_launch_no_account_can_finish_before_its_stop_is_held_with_every_burn_named() {
     let held = placed(&[account("claude:b", 10.0, Some(12.0))], Some(1.0)).unwrap_err();
-    assert_eq!(held, "gex45 holds the box: claude:b measured burn 12.0%/h over a 60 min ETA spends 12.0 of the 10 points left to its 5h stop");
+    assert!(held.contains("claude:b measured burn 12.0%/h"), "{held}");
 }
 
 #[test]

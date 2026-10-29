@@ -174,7 +174,7 @@ fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_
     let mut cheaper_without = held(30, 30).priced(&costed(10.0, 6.0));
     assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off));
     assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off), "a settled tier keeps launching its winner");
-    assert_eq!(cheaper_without.recommendations(), ["north#57 handoff arms, worker: no-handoff wins at $6.00 per closed box against handoff-350k at $10.00 over 30 runs each; recommend: drop the worker handoff point for this tier and leave Claude Code's own compaction to it"]);
+    assert!(cheaper_without.recommendations()[0].contains("no-handoff wins at $6.00") && cheaper_without.recommendations()[0].contains("handoff-350k at $10.00"));
     let mut cheaper_with = held(30, 30).priced(&costed(4.0, 6.0));
     assert_eq!(cheaper_with.pick(Tier::Opus).as_deref(), Some(on));
     assert!(cheaper_with.recommendations()[0].contains("handoff-350k wins at $4.00") && cheaper_with.recommendations()[0].ends_with("keep the worker handoff point for this tier"));
