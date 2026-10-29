@@ -16,6 +16,8 @@ pub(super) fn init_repo(path: &Path, object_format: Option<&str>) {
     let mut args = vec!["init", "-q", "-b", "main"];
     args.extend(format.as_deref());
     git_in(path, &args);
+    git_in(path, &["config", "user.name", "lanes-test"]);
+    git_in(path, &["config", "user.email", "lanes-test@example.invalid"]);
     std::fs::write(path.join("f.txt"), "base\n").unwrap();
     git_in(path, &["add", "f.txt"]);
     git_in(path, &["commit", "-qm", "base"]);
