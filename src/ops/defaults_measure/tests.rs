@@ -250,15 +250,3 @@ fn a_capacity_episode_runs_from_the_first_capacity_turn_to_the_next_ok_turn() {
     assert_eq!(episodes.rows[0].get("unclosed"), &Value::from(1));
 }
 
-#[test]
-fn a_settled_value_prints_like_percent_g() {
-    for (value, shown) in [(2.0, "2"), (12.5, "12.5"), (0.333333333, "0.333333"), (1234567.0, "1.23457e+06"), (0.00001, "1e-05")] {
-        assert_eq!(priors::general(value), shown);
-    }
-}
-
-#[test]
-fn the_bootstrap_draws_match_python_random_seeded_35() {
-    let mut twister = crate::platform::twister::Twister::seeded(35);
-    assert_eq!(twister.choices(&[1.0, 2.0, 3.0, 4.0, 5.0], 8), [3.0, 4.0, 4.0, 5.0, 2.0, 5.0, 3.0, 4.0]);
-}

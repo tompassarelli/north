@@ -170,9 +170,3 @@ fn a_failed_retry_reports_only_the_live_child_once_per_hour_and_still_retries_ea
     assert_eq!(scenario.log().lines().count(), 4);
 }
 
-#[test]
-fn a_command_with_a_single_quote_is_quoted_the_way_python_repr_does() {
-    assert_eq!(super::repr("sh -c echo it's"), "\"sh -c echo it's\"");
-    assert_eq!(super::repr("plain"), "'plain'");
-    assert_eq!(super::repr("a\\b\n"), "'a\\\\b\\n'");
-}

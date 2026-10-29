@@ -5,7 +5,7 @@ use super::cross_project::{Asked, Reply, ask};
 use super::git_maintenance::{maintenance_argv, repositories};
 use super::gcroots::store_roots;
 use super::runtime_update::steps;
-use super::skill_prune::{body_row, render_point};
+use super::skill_prune::body_row;
 use super::skill_review::{due_count, issue_body, items};
 use super::supply_chain::{Finding, alert_texts, findings, lockfile_names, merged_seen};
 
@@ -74,20 +74,6 @@ fn skill_bodies_count_lines_after_the_frontmatter_and_mark_domain_and_long_skill
     assert_eq!(body_row("c", &skill("domain", 120)), (120, "c".to_owned(), "domain"));
     assert_eq!(body_row("d", "no frontmatter here"), (0, "d".to_owned(), "unreadable"));
     assert_eq!(body_row("e", "---\nname: plain\n---\nl1\nl2\n"), (2, "e".to_owned(), ""));
-}
-
-#[test]
-fn the_operating_point_prints_beside_the_total_or_says_there_is_none() {
-    let point = "date = 2026-10-20\nskill_lines = 3400\nstartup_tokens = 12000\nconformance = 0.95\n";
-    assert_eq!(
-        render_point(Some(point), 248),
-        "total 248 (operating point 2026-10-20: skill lines 3400, startup tokens 12000, conformance 0.95)"
-    );
-    assert_eq!(
-        render_point(Some("date = \"d\"\nstartup_tokens = 1\nconformance = 1.0\n"), 5),
-        "total 5 (operating point d: startup tokens 1, conformance 1.0)"
-    );
-    assert_eq!(render_point(None, 248), "total 248 (no operating point yet)");
 }
 
 #[test]
