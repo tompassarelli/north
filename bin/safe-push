@@ -142,6 +142,9 @@ Options:
                a Classic record refresh handback returns 75 keeping the lane;
                a BRANCH other than origin's default (farm/*, scratch) skips
                the lock and the queue and runs the hook in its own push
+               (.safe-push land.check entries replace the hook; with
+               land.workflow set, each check not in land.local-only, written
+               REASON :: COMMAND, runs as a job of that GitHub Actions workflow)
   --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
                keep the lane instead of removing it and its branch, and keep
                the cargo target its land checks otherwise remove
