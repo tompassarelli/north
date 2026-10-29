@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -11,10 +11,23 @@ use super::remote::Remote;
 
 type Manifest = BTreeMap<String, String>;
 
-fn remote_manifest(remote: &dyn Remote, family: &Family, name: &str) -> io::Result<Manifest> {
-    let script = format!("{} && {{ find '{name}' -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum && find '{name}' -type l -printf '-> %l  %p\\n'; }}", family.enter());
+pub(super) type Outcome = Result<(), String>;
+
+fn quoted(names: &[&str]) -> String {
+    names.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>().join(" ")
+}
+
+fn remote_manifests(remote: &dyn Remote, family: &Family, names: &[&str]) -> io::Result<BTreeMap<String, Manifest>> {
+    let list = quoted(names);
+    let script = format!("{} && {{ find {list} -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum && find {list} -type l -printf '-> %l  %p\\n'; }}", family.enter());
     let text = String::from_utf8_lossy(&remote.output(&script)?).into_owned();
-    text.lines().map(|line| entry(line).ok_or_else(|| io::Error::other(format!("unreadable manifest line: {line}")))).collect()
+    let mut manifests: BTreeMap<String, Manifest> = names.iter().map(|name| ((*name).to_owned(), Manifest::new())).collect();
+    for line in text.lines() {
+        let (path, hash) = entry(line).ok_or_else(|| io::Error::other(format!("unreadable manifest line: {line}")))?;
+        let owner = path.split('/').next().unwrap_or_default();
+        manifests.get_mut(owner).ok_or_else(|| io::Error::other(format!("manifest line outside the batch: {line}")))?.insert(path, hash);
+    }
+    Ok(manifests)
 }
 
 fn entry(line: &str) -> Option<(String, String)> {
@@ -56,60 +69,102 @@ fn walk(root: &Path, path: &Path, manifest: &mut Manifest) -> io::Result<()> {
     Ok(())
 }
 
-fn copy_into(remote: &dyn Remote, family: &Family, name: &str, staging: &Path) -> io::Result<()> {
+fn copy_into(remote: &dyn Remote, family: &Family, names: &[&str], staging: &Path) -> io::Result<()> {
     fs::create_dir_all(staging)?;
-    let mut sender = remote.stream(&format!("{} && tar -cf - '{name}'", family.enter()))?;
+    let mut sender = remote.stream(&format!("{} && tar -cf - {}", family.enter(), quoted(names)))?;
     let stdout = sender.stdout.take().ok_or_else(|| io::Error::other("no tar stream"))?;
     let received = Command::new("tar").arg("-xf").arg("-").arg("-C").arg(staging).stdin(Stdio::from(stdout)).status()?;
     let sent = sender.wait()?;
     if received.success() && sent.success() { Ok(()) } else { Err(io::Error::other("tar stream failed")) }
 }
 
-pub(super) fn archive(remote: &dyn Remote, family: &Family, name: &str, destination: &Path) -> Result<(), String> {
-    let verified = verify_copy(remote, family, name, destination).map_err(|error| format!("{name}: {error}"))?;
-    let again = remote_manifest(remote, family, name).map_err(|error| format!("{name}: {error}"))?;
-    if again != verified {
-        return Err(format!("{name}: changed on the source while it was copied; kept"));
+pub(super) fn archive(remote: &dyn Remote, family: &Family, names: &[&str], destination: &Path) -> BTreeMap<String, Outcome> {
+    let mut outcomes: BTreeMap<String, Outcome> = BTreeMap::new();
+    let verified = match verify_copies(remote, family, names, destination, &mut outcomes) {
+        Ok(verified) => verified,
+        Err(error) => return names.iter().map(|name| ((*name).to_owned(), Err(error.to_string()))).collect(),
+    };
+    let unchanged: Vec<&str> = match remote_manifests(remote, family, &verified.keys().map(String::as_str).collect::<Vec<_>>()) {
+        Ok(again) => verified
+            .iter()
+            .filter_map(|(name, manifest)| {
+                if again.get(name) == Some(manifest) {
+                    Some(name.as_str())
+                } else {
+                    outcomes.insert(name.clone(), Err("changed on the source while it was copied; kept".into()));
+                    None
+                }
+            })
+            .collect(),
+        Err(error) => {
+            outcomes.extend(verified.keys().map(|name| (name.clone(), Err(error.to_string()))));
+            Vec::new()
+        }
+    };
+    match delete(remote, family, &unchanged) {
+        Ok(deleted) => outcomes.extend(unchanged.iter().map(|name| {
+            let outcome = if deleted.contains(*name) { Ok(()) } else { Err("pinned, opened or given a special file since it was judged; kept".into()) };
+            ((*name).to_owned(), outcome)
+        })),
+        Err(error) => outcomes.extend(unchanged.iter().map(|name| ((*name).to_owned(), Err(error.to_string())))),
     }
-    let script = format!(
-        "{} && root=$(pwd -P) && [ -r /proc/1/cmdline ] && [ ! -e '{name}/PINNED' ] && [ -z \"$(find '{name}' ! -type f ! -type d ! -type l -print -quit)\" ] && [ -z \"$(find /proc/[0-9]*/cwd /proc/[0-9]*/fd/* -maxdepth 0 \\( -lname \"$root/{name}\" -o -lname \"$root/{name}/*\" \\) -print -quit 2>/dev/null)\" ] && chmod -R u+w -- '{name}' && rm -rf -- '{name}'",
-        family.enter()
-    );
-    remote.output(&script).map(drop).map_err(|error| format!("{name}: {error}"))
+    outcomes
 }
 
-fn verify_copy(remote: &dyn Remote, family: &Family, name: &str, destination: &Path) -> io::Result<Manifest> {
-    let expected = remote_manifest(remote, family, name)?;
-    let target = destination.join(name);
-    if target.exists() {
-        if local_manifest(destination, name)? != expected {
-            return Err(io::Error::other("archive already holds a different copy"));
-        }
-        flush(&target)?;
-        return Ok(expected);
+fn delete(remote: &dyn Remote, family: &Family, names: &[&str]) -> io::Result<BTreeSet<String>> {
+    if names.is_empty() {
+        return Ok(BTreeSet::new());
     }
-    let staging: PathBuf = destination.join(".incoming").join(format!("{name}.{}", std::process::id()));
-    if staging.exists() {
-        fs::remove_dir_all(&staging)?;
+    let script = format!(
+        "{} && root=$(pwd -P) && [ -r /proc/1/cmdline ] && held=$(find /proc/[0-9]*/cwd /proc/[0-9]*/fd/* -maxdepth 0 -lname \"$root/*\" -printf '%l\\n' 2>/dev/null; true) && for name in {}; do if [ ! -e \"$name/PINNED\" ] && [ -z \"$(find \"$name\" ! -type f ! -type d ! -type l -print -quit)\" ] && ! printf '%s\\n' \"$held\" | awk -v p=\"$root/$name\" '$0==p||index($0,p\"/\")==1{{f=1}}END{{exit !f}}'; then chmod -R u+w -- \"$name\" && rm -rf -- \"$name\" && echo \"$name\"; fi || :; done",
+        family.enter(),
+        quoted(names)
+    );
+    Ok(String::from_utf8_lossy(&remote.output(&script)?).lines().map(str::to_owned).collect())
+}
+
+fn verify_copies(remote: &dyn Remote, family: &Family, names: &[&str], destination: &Path, outcomes: &mut BTreeMap<String, Outcome>) -> io::Result<BTreeMap<String, Manifest>> {
+    let expected = remote_manifests(remote, family, names)?;
+    let mut verified = BTreeMap::new();
+    let mut fresh = Vec::new();
+    for (name, manifest) in expected {
+        let target = destination.join(&name);
+        if !target.exists() {
+            fresh.push((name, manifest));
+        } else if local_manifest(destination, &name)? == manifest {
+            verified.insert(name, manifest);
+        } else {
+            outcomes.insert(name, Err("archive already holds a different copy".into()));
+        }
     }
-    let copied = copy_into(remote, family, name, &staging).and_then(|()| writable(&staging)).and_then(|()| local_manifest(&staging, name));
-    match copied {
-        Ok(local) if local == expected => {
-            fs::rename(staging.join(name), &target)?;
+    if !fresh.is_empty() {
+        let staging: PathBuf = destination.join(".incoming").join(std::process::id().to_string());
+        if staging.exists() {
+            writable(&staging)?;
             fs::remove_dir_all(&staging)?;
-            flush(&target)?;
-            Ok(expected)
         }
-        Ok(_) => {
-            fs::remove_dir_all(&staging)?;
-            Err(io::Error::other("sha256 of the copy differs from the source"))
-        }
-        Err(error) => {
+        let copied = copy_into(remote, family, &fresh.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), &staging).and_then(|()| writable(&staging));
+        if let Err(error) = copied {
             let _ = writable(&staging);
             let _ = fs::remove_dir_all(&staging);
-            Err(error)
+            return Err(error);
         }
+        for (name, manifest) in fresh {
+            match local_manifest(&staging, &name) {
+                Ok(local) if local == manifest => {
+                    fs::rename(staging.join(&name), destination.join(&name))?;
+                    verified.insert(name, manifest);
+                }
+                Ok(_) => drop(outcomes.insert(name, Err("sha256 of the copy differs from the source".into()))),
+                Err(error) => drop(outcomes.insert(name, Err(error.to_string()))),
+            }
+        }
+        fs::remove_dir_all(&staging)?;
     }
+    if !verified.is_empty() {
+        flush(destination)?;
+    }
+    Ok(verified)
 }
 
 fn writable(staging: &Path) -> io::Result<()> {

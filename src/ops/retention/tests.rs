@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use super::family::Family;
 use super::remote::Remote;
-use super::{retain, Policy};
+use super::{retain, Policy, Tally};
 
 const HOUR: u64 = 3600;
 
@@ -53,8 +53,8 @@ impl Rig {
 
     fn run(&self, dry_run: bool) -> bool {
         let family = Family::new("evidence", &format!("'{}'", self.state.path().display()), "evidence", Duration::from_secs(72 * HOUR));
-        let policy = Policy { dry_run, host: String::new(), archive: self.archive.path().to_owned() };
-        retain(&Local, &family, &policy, super::now())
+        let policy = Policy { dry_run, host: String::new(), archive: self.archive.path().to_owned(), batch_entries: 200, out_of_time: Box::new(|| false) };
+        retain(&Local, &family, &policy, super::now(), &mut Tally::default())
     }
 
     fn here(&self, name: &str) -> bool {
@@ -216,9 +216,9 @@ impl Store {
 
     fn run(&self) -> Result<bool, std::io::Error> {
         let layout = super::store::Layout { store: format!("'{}'", self.home.path().join("store").display()), checkouts: format!("'{}'", self.home.path().join("code").display()) };
-        let policy = Policy { dry_run: false, host: String::new(), archive: self.archive.path().to_owned() };
+        let policy = Policy { dry_run: false, host: String::new(), archive: self.archive.path().to_owned(), batch_entries: 200, out_of_time: Box::new(|| false) };
         let families = super::store::families(&Local, &layout, Duration::from_secs(72 * HOUR))?;
-        Ok(families.iter().all(|family| retain(&Local, family, &policy, super::now())))
+        Ok(families.iter().all(|family| retain(&Local, family, &policy, super::now(), &mut Tally::default())))
     }
 
     fn archived(&self, relative: &str) -> bool {
@@ -259,4 +259,40 @@ fn a_main_that_names_no_pin_archives_no_store_version() {
     store.sealed(&format!("hero-models/{UNNAMED}"), 100);
     assert!(store.run().is_err());
     assert!(store.path(&format!("hero-models/{UNNAMED}")).exists());
+}
+
+#[test]
+fn a_run_out_of_time_archives_the_oldest_batch_and_leaves_the_rest_for_the_next_run() {
+    let rig = Rig::new();
+    rig.entry("oldest", 300, false);
+    rig.entry("older", 200, false);
+    rig.entry("old", 100, false);
+    let family = Family::new("evidence", &format!("'{}'", rig.state.path().display()), "evidence", Duration::from_secs(72 * HOUR));
+    let checks = std::cell::Cell::new(0);
+    let out_of_time = Box::new(move || {
+        checks.set(checks.get() + 1);
+        checks.get() > 1
+    });
+    let policy = Policy { dry_run: false, host: String::new(), archive: rig.archive.path().to_owned(), batch_entries: 1, out_of_time };
+    let mut tally = Tally::default();
+    assert!(retain(&Local, &family, &policy, super::now(), &mut tally));
+    assert_eq!(tally.entries, 1);
+    assert!(!rig.here("oldest") && rig.archived("oldest"));
+    assert!(rig.here("older") && rig.here("old") && !rig.archived("older") && !rig.archived("old"));
+}
+
+#[test]
+fn one_batch_archives_every_expired_entry_and_keeps_a_differing_one() {
+    let rig = Rig::new();
+    for name in ["one", "two", "three", "clash"] {
+        rig.entry(name, 100, false);
+    }
+    let existing = rig.archive.path().join("evidence/clash/shots");
+    fs::create_dir_all(&existing).unwrap();
+    fs::write(existing.join("a.png"), "different").unwrap();
+    assert!(!rig.run(false));
+    for name in ["one", "two", "three"] {
+        assert!(!rig.here(name) && rig.archived(name));
+    }
+    assert!(rig.here("clash"));
 }

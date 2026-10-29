@@ -16,11 +16,18 @@ pub(super) struct Family {
 
 const BASE: &str = "\"$HOME/.local/state/smashcraft\"";
 
-pub(super) fn hours(name: &str) -> Duration {
+fn setting(name: &str) -> f64 {
     let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");
     let value = &defaults[name]["value"];
-    let hours = value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"));
-    Duration::from_secs((hours * 3600.0) as u64)
+    value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
+}
+
+pub(super) fn hours(name: &str) -> Duration {
+    Duration::from_secs((setting(name) * 3600.0) as u64)
+}
+
+pub(super) fn minutes(name: &str) -> Duration {
+    Duration::from_secs((setting(name) * 60.0) as u64)
 }
 
 pub(super) fn families() -> Vec<Family> {

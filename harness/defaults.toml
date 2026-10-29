@@ -680,6 +680,14 @@ settles_when = { need = 20, count = "count_worker_runs", what = "worker runs ava
 fallback = "an unreadable setting or pin read archives no store version"
 consumers = ["src/ops/retention/mod.rs"]
 
+[retention_budget_minutes]
+value = 40
+unit = "minutes after which north retain starts no new archive batch and leaves the remaining expired entries for the next hourly run"
+source = "measured: the laptop's smashcraft-retain unit was killed at its 50 min TimeoutStartSec mid-archive on 2026-10-29 (north#320, north#331); 40 min leaves 10 min for one 256 MiB batch already in flight"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how long one 256 MiB archive batch takes from the laptop" }
+fallback = "an unreadable setting panics north retain before it archives anything; the value is compiled in from this file"
+consumers = ["src/ops/retention/mod.rs"]
+
 [overload_psi10]
 value = 50
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which a watchdog sample counts as overloaded"
