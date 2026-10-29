@@ -14,3 +14,4 @@ mod safe_push_guards;
 pub(crate) mod safe_push_plan;
 mod safe_push_state;
 pub(crate) mod safe_push_tag;
+pub(crate) mod stale_revert;

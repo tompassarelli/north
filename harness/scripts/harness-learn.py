@@ -110,7 +110,7 @@ def replace_default(text, name, current, proposed, source):
     return updated
 
 
-def land(args, row, now, revert=False):
+def land(args, row, now, revert=False, reverts=None):
     run(["git", "fetch", "origin", "main"], args.repo)
     branch = "harness-learn-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix="harness-learn-") as directory:
@@ -125,7 +125,7 @@ def land(args, row, now, revert=False):
             path.write_text(replace_default(path.read_text(), row["default"], old, new, source))
             run([sys.executable, "harness/lib/defaults.test.py"], lane)
             run(["git", "add", "--", "harness/defaults.toml"], lane)
-            run(["git", "commit", "-m", f"harness-learn: {'revert' if revert else 'adopt'} {row['default']}"], lane)
+            run(["git", "commit", "-m", f"harness-learn: {'revert' if revert else 'adopt'} {row['default']}" + (f"\n\nReverts: {reverts}" if reverts else "")], lane)
             run([args.safe_push, "--to", "main"], lane)
             run(["git", "fetch", "origin", "main"], args.repo)
             sha = run(["git", "rev-parse", f"{branch}^{{commit}}"], args.repo)
@@ -150,7 +150,7 @@ def history(path):
                 elif row["verdict"] in ("reverted", "kept"):
                     active.pop(key, None)
                     if row["verdict"] == "reverted":
-                        reverted[(key, json.dumps(row["proposed"], sort_keys=True))] = max(row["n"], row.get("trial_n", 0))
+                        reverted[(key, json.dumps(row["proposed"], sort_keys=True))] = (max(row["n"], row.get("trial_n", 0)), row.get("sha"))
     return active, reverted, failed
 
 
@@ -169,9 +169,9 @@ def oriented(row, trial):
     return flipped
 
 
-def attempt(args, row, now, revert=False):
+def attempt(args, row, now, revert=False, reverts=None):
     try:
-        return land(args, row, now, revert), None
+        return land(args, row, now, revert, reverts), None
     except ValueError as error:
         return None, ("waited", str(error))
     except Exception as error:
@@ -205,12 +205,12 @@ def cycle(args):
                     result = dict(row, action="rejudge", trial_sha=trial["sha"], trial_n=trial["n"],
                                   verdict="waited", reason=reason)
                     if verdict == "rejected":
-                        sha, failure = (None, ("waited", "landing failed today")) if tried(result) else attempt(args, row, now, revert=True)
+                        sha, failure = (None, ("waited", "landing failed today")) if tried(result) else attempt(args, row, now, revert=True, reverts=trial["sha"])
                         if failure:
                             result["verdict"], result["reason"] = failure
                         else:
                             result.update(sha=sha, verdict="reverted")
-                            reverted[(name, json.dumps(row["proposed"], sort_keys=True))] = max(row["n"], trial["n"])
+                            reverted[(name, json.dumps(row["proposed"], sort_keys=True))] = (max(row["n"], trial["n"]), sha)
                             changed.add(row["dimension"])
                             active.pop(name)
                         break
@@ -229,14 +229,14 @@ def cycle(args):
                 previous = reverted.get((name, json.dumps(row.get("proposed"), sort_keys=True)))
                 if dimension in changed:
                     verdict, reason = "waited", "dimension already changed this cycle"
-                elif previous is not None and row["n"] < previous + minimum:
+                elif previous is not None and row["n"] < previous[0] + minimum:
                     verdict, reason = "waited", "reverted value needs more evidence"
                 elif row.get("current") == row.get("proposed"):
                     verdict, reason = "waited", "unchanged value"
                 elif tried(result):
                     verdict, reason = "waited", "landing failed today"
                 else:
-                    sha, failure = attempt(args, row, now)
+                    sha, failure = attempt(args, row, now, reverts=previous and previous[1])
                     if failure:
                         verdict, reason = failure
                     else:

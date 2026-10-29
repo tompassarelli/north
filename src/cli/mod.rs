@@ -75,6 +75,7 @@ Commands:
   land-abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land-clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
+  stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   land-tests [--jobs N] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
   land-actions --workflow FILE --base B --head H --timeout S -- COMMAND...
                                                  Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
