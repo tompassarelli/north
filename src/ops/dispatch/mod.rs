@@ -84,7 +84,12 @@ pub(crate) struct Outcome {
 
 fn ordered<'a>(issues: &'a [Issue], projects: &projects::Projects) -> Vec<&'a Issue> {
     let mut ordered: Vec<&Issue> = issues.iter().collect();
-    ordered.sort_by_key(|issue| (issue.priority(), projects.position(&issue.repo), issue.number));
+    ordered.sort_by(|a, b| {
+        (a.priority().cmp(&b.priority()))
+            .then(a.created.total_cmp(&b.created))
+            .then_with(|| projects.position(&a.repo).cmp(&projects.position(&b.repo)))
+            .then(a.number.cmp(&b.number))
+    });
     ordered
 }
 

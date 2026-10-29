@@ -42,3 +42,18 @@ fn the_staffed_repos_are_the_projects_in_priority_order_less_private_ones_and_a_
     assert!(super::projects::Projects::read(&bad).unwrap_err().contains("not an RFC 3339 time"), "a pause that cannot be read fails dispatch rather than being ignored");
     assert!(super::projects::Projects::read(&"[placement]\n".parse().unwrap()).unwrap_err().contains("no [projects.NAME] repos"));
 }
+
+#[test]
+fn dispatch_staffs_the_oldest_ready_issue_first_across_projects_within_a_priority() {
+    let projects = super::projects::Projects::read(&CONFIG.parse().unwrap()).unwrap();
+    let opened = |repo: &str, number: u64, created: f64, labels: &[&str]| super::issues::Issue { created, ..issue(repo, number, "- [ ] a", labels) };
+    let issues = [
+        opened("north", 340, 3_000.0, &[]),
+        opened("wisp", 12, 1_000.0, &[]),
+        opened("smashcraft", 700, 2_000.0, &[]),
+        opened("north", 339, 2_000.0, &[]),
+        opened("smashcraft", 738, 4_000.0, &["priority:now"]),
+    ];
+    let order: Vec<String> = super::ordered(&issues, &projects).iter().map(|issue| issue.reference().to_string()).collect();
+    assert_eq!(order, ["smashcraft#738", "wisp#12", "north#339", "smashcraft#700", "north#340"], "priority:now first, then oldest; a tie goes to project order");
+}

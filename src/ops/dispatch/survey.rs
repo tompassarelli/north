@@ -330,7 +330,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
 mod github {
     use super::*;
 
-    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 1) { nodes { body createdAt updatedAt } } } } } }";
+    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 1) { nodes { body createdAt updatedAt } } } } } }";
 
     pub(crate) type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
 
@@ -356,6 +356,7 @@ mod github {
             open_blockers,
             report: node["comments"]["nodes"][0]["body"].as_str().unwrap_or_default().into(),
             touched: touched(node),
+            created: node["createdAt"].as_str().and_then(crate::pace::target::seconds).unwrap_or(0.0),
             stopped: None,
         })
     }

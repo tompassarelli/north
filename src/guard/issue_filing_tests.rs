@@ -4,6 +4,7 @@ use serde_json::json;
 struct Fake {
     claimed: Vec<&'static str>,
     open: Vec<(u64, &'static str)>,
+    brief: Option<&'static str>,
 }
 
 impl World for Fake {
@@ -18,6 +19,10 @@ impl World for Fake {
     fn open(&mut self, _: &str) -> Vec<(u64, String)> {
         self.open.iter().map(|(number, title)| (*number, (*title).to_owned())).collect()
     }
+
+    fn worker_brief(&mut self) -> Option<String> {
+        self.brief.map(str::to_owned)
+    }
 }
 
 fn world() -> Fake {
@@ -27,6 +32,7 @@ fn world() -> Fake {
             (300, "Make the open-issue count measure open outcomes in the filing guard"),
             (301, "Harness failing units on whiterabbit"),
         ],
+        brief: None,
     }
 }
 
@@ -159,4 +165,73 @@ fn rolling_alarm_issues_are_edited_not_refused_and_other_owners_and_commands_pas
     ] {
         assert_eq!(decide(command), Verdict::Allow, "{command}");
     }
+}
+
+const BRIEF: &str = "Item: north#316 Delete the calibration helpers\nCategory: tooling\nDone when: bin/threads defines no calibration helper and `north threads summary` prints the closure table\n";
+
+fn worker_decide(command: &str) -> Verdict {
+    decide_with(&pre(command), &mut Fake { brief: Some(BRIEF), ..world() })
+}
+
+#[test]
+fn a_worker_issue_naming_no_blocked_box_or_measured_defect_is_refused_with_the_in_lane_rule() {
+    for command in [
+        "gh issue create --title 'Port the summary table to a shared module' --body 'Would be cleaner.'",
+        "gh issue create --title 'Idea: cache the calibration rows' --body-file - <<'EOF'\nFound while porting north#316.\nCategory: tooling\nEOF",
+    ] {
+        let reason = denial(worker_decide(command));
+        assert!(reason.contains("Blocks: repo#N") && reason.contains("Defect:"), "{reason}");
+        assert!(reason.contains("20 minutes") && reason.contains("Ideas:"), "{reason}");
+    }
+}
+
+#[test]
+fn a_worker_issue_for_a_blocker_a_measured_defect_or_its_own_launch_item_passes() {
+    for command in [
+        "gh issue create --title 'Cargo registry mirror is unreachable' --body 'Blocks: north#316'",
+        "gh issue create --title 'Ledger write contention drops runs' --body-file - <<'EOF'\n**Defect:** `north fleet list --json` exited 1 three times in 20 runs: database is locked\nEOF",
+        "gh issue create --title 'Delete the calibration helpers' --body-file - <<'EOF'\nDone when: bin/threads defines no calibration helper and\n`north threads summary` prints the closure table\nEOF",
+    ] {
+        assert_eq!(worker_decide(command), Verdict::Allow, "{command}");
+    }
+}
+
+#[test]
+fn a_session_without_a_worker_brief_files_without_a_blocks_or_defect_line() {
+    assert_eq!(decide("gh issue create --title 'Idea: cache the calibration rows' --body 'Would be faster.'"), Verdict::Allow);
+}
+
+#[test]
+fn a_worker_brief_is_read_only_from_a_fleet_session_transcript_whose_prompt_has_a_done_when_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let transcript = dir.path().join("s.jsonl");
+    let line = |text: &str| json!({"type": "user", "message": {"role": "user", "content": text}}).to_string();
+    std::fs::write(&transcript, format!("{}\n{}\n", json!({"type": "summary"}), line(BRIEF))).unwrap();
+    let live = |session: Option<&str>| Live { cwd: None, transcript: Some(transcript.clone()), fleet_session: session.map(str::to_owned) };
+    assert_eq!(live(Some("issue-intake")).worker_brief().as_deref(), Some(BRIEF));
+    assert_eq!(live(None).worker_brief(), None);
+    std::fs::write(&transcript, format!("{}\n", line("You are taking over as Tom's proxy now."))).unwrap();
+    assert_eq!(live(Some("proxy")).worker_brief(), None);
+}
+
+#[test]
+fn a_bold_or_listed_blocks_line_counts_and_a_listed_done_when_marks_a_worker() {
+    for command in [
+        "gh issue create --title 'Cargo mirror down' --body '**Blocks:** north#316'",
+        "gh issue create --title 'Cargo mirror down' --body '- Blocks: north#316'",
+    ] {
+        assert_eq!(worker_decide(command), Verdict::Allow, "{command}");
+    }
+    let listed = "Item: north#1 x\nCategory: tooling\nDone when:\n- [ ] `cargo test` passes with the ledger fixture loaded\nETA: 30 min\n";
+    let mut world = Fake { brief: Some(listed), ..world() };
+    let idea = pre("gh issue create --title 'Cache the rows' --body 'Would be faster.'");
+    assert!(matches!(decide_with(&idea, &mut world), Verdict::Deny(_)));
+    let own = pre("gh issue create --title 'x' --body-file - <<'EOF'\n## Done when\n\n- [ ] (local test) `cargo test` passes with the ledger fixture loaded\nEOF");
+    assert_eq!(decide_with(&own, &mut world), Verdict::Allow);
+}
+
+#[test]
+fn an_unreadable_worker_body_is_refused_with_how_to_make_it_readable() {
+    let reason = denial(worker_decide("b='Blocks: north#316'; gh issue create --title T --body \"$b\""));
+    assert!(reason.contains("heredoc"), "{reason}");
 }

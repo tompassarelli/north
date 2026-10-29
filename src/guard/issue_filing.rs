@@ -11,19 +11,27 @@ const SIMILAR: f64 = 0.75;
 const FUZZY_WORDS: usize = 3;
 const STOP_WORDS: [&str; 14] = ["a", "an", "the", "of", "to", "in", "on", "for", "and", "or", "with", "from", "by", "is"];
 
-static BLOCKS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\s*Blocks:\s*((?:[\w.-]+/)?[\w.-]*)#(\d+)").unwrap());
+static BLOCKS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Blocks:[ \t*_]*((?:[\w.-]+/)?[\w.-]*)#(\d+)").unwrap());
 static SPLIT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*(?:split|follow[- ]?up)\s+(?:of|to)\b[\s:*_]*((?:[\w.-]+/)?[\w.-]*)#(\d+)").unwrap());
 static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https://github\.com/([\w.-]+/[\w.-]+)/issues/(\d+)").unwrap());
+static DEFECT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Defect:[\s*_]*\S").unwrap());
+static DONE_WHEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[^\w\n]*Done when:[ \t*_]*").unwrap());
+static FIELD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Z][\w -]*:").unwrap());
+static MARKER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t>*-]*(?:\[[ xX]\][ \t]*)?").unwrap());
+const BRIEF_LINES: usize = 64;
 
 pub(super) trait World {
     fn repo(&mut self, named: Option<&str>) -> Option<String>;
     fn claimed(&mut self) -> Vec<String>;
     fn open(&mut self, repo: &str) -> Vec<(u64, String)>;
+    fn worker_brief(&mut self) -> Option<String>;
 }
 
 struct Live {
     cwd: Option<String>,
+    transcript: Option<PathBuf>,
+    fleet_session: Option<String>,
 }
 
 impl World for Live {
@@ -68,13 +76,36 @@ impl World for Live {
             })
             .collect()
     }
+
+    fn worker_brief(&mut self) -> Option<String> {
+        self.fleet_session.as_ref()?;
+        let file = std::fs::File::open(self.transcript.as_ref()?).ok()?;
+        let prompt = std::io::BufRead::lines(std::io::BufReader::new(file))
+            .take(BRIEF_LINES)
+            .map_while(Result::ok)
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+            .find(|entry| entry["type"] == "user")
+            .and_then(|entry| match &entry["message"]["content"] {
+                serde_json::Value::String(text) => Some(text.clone()),
+                serde_json::Value::Array(parts) => Some(parts.iter().filter_map(|part| part["text"].as_str()).collect::<Vec<_>>().join("\n")),
+                _ => None,
+            })?;
+        DONE_WHEN.is_match(&prompt).then_some(prompt)
+    }
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     if crate::hook::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
-    decide_with(input, &mut Live { cwd: input.cwd().map(str::to_owned) })
+    decide_with(
+        input,
+        &mut Live {
+            cwd: input.cwd().map(str::to_owned),
+            transcript: input.data["transcript_path"].as_str().map(PathBuf::from),
+            fleet_session: std::env::var("NORTH_FLEET_SESSION").ok().filter(|session| !session.is_empty()),
+        },
+    )
 }
 
 pub fn link(input: &HookInput) -> Verdict {
@@ -206,11 +237,36 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
             }
         }
     }
+    if let Some(brief) = world.worker_brief()
+        && !BLOCKS.is_match(&body)
+        && !DEFECT.is_match(&body)
+        && !records_brief(&brief, &body)
+    {
+        return Some(if write.opaque { format!("{UNFOUNDED}{OPAQUE}") } else { UNFOUNDED.to_owned() });
+    }
     let title = write.title.as_deref()?;
     let (number, existing) = world.open(&repo).into_iter().find(|(_, open)| similar(title, open))?;
     Some(format!(
         "No. \"{title}\" matches the open issue {repo}#{number} \"{existing}\". Add your boxes or evidence to it with `gh issue comment {number} -R {repo}` or `gh issue edit {number} -R {repo}`; a rolling alarm or standing issue is edited, not filed again."
     ))
+}
+
+const UNFOUNDED: &str = "No. A worker files an issue only for what it cannot finish in its lane: a blocker, with a `Blocks: repo#N` body line naming the issue it blocks, or a measured defect, with a `Defect:` body line giving the command you ran and what it showed. A finding you can fix in 20 minutes is fixed in this lane and lands with it. An idea or a possible follow-up goes under `Ideas:` in your final report, not into a new issue. The issue for the item you were launched on passes when its body carries your brief's Done when.";
+const OPAQUE: &str = " This body is built from a shell variable or a pipe the guard cannot read, so give it literally, in a heredoc or with --body-file PATH.";
+
+fn spaced(text: &str) -> String {
+    MARKER.replace_all(text, "").split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+fn records_brief(brief: &str, body: &str) -> bool {
+    let body = spaced(body);
+    DONE_WHEN.find_iter(brief).any(|found| {
+        let rest = &brief[found.end()..];
+        let (first, later) = rest.split_once('\n').unwrap_or((rest, ""));
+        let list = later.lines().take_while(|line| !line.trim().is_empty() && !FIELD.is_match(line));
+        let outcome: String = spaced(&std::iter::once(first).chain(list).collect::<Vec<_>>().join("\n")).chars().take(80).collect();
+        outcome.len() >= 20 && body.contains(&outcome)
+    })
 }
 
 fn own_task(repo: &str, number: &str) -> String {

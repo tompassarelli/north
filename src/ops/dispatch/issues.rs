@@ -62,6 +62,8 @@ pub(crate) struct Issue {
     pub report: String,
     /// The newest of its body edit and last comment, as unix seconds.
     pub touched: f64,
+    /// When it was opened, as unix seconds; dispatch staffs the oldest ready issue first.
+    pub created: f64,
     /// When the last dispatched worker's final report named `Stop: decision`.
     pub stopped: Option<f64>,
 }
