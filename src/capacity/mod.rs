@@ -59,7 +59,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("watchdog") => watchdog::run(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
             2
         }
     };
@@ -81,6 +81,9 @@ pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
     if arguments == ["warcraft-limit"] {
         println!("{}", limit_text((host.warcraft_clients)()));
         return 0;
+    }
+    if let [verb, share] = arguments && verb == "disk-share" {
+        return disk_share(share);
     }
     if let Some(status) = route(arguments, host.offload) {
         return status;
@@ -203,4 +206,16 @@ pub(crate) fn desktop_aperture(host_margin_mib: Option<u32>) -> DesktopAperture 
         aperture::Bar1::TimedOut => DesktopAperture::TimedOut,
         _ => DesktopAperture::Fits,
     }
+}
+
+/// `north capacity disk-share SHARE`: the GiB this host's `[hosts.NAME.disk_budget_gib]` gives the store, or nothing when it names none.
+fn disk_share(name: &str) -> u8 {
+    let Some(share) = crate::platform::disk_budget::Share::parse(name) else {
+        eprintln!("north capacity: disk-share is one of cargo_target, map_store, smashcraft_evidence");
+        return 64;
+    };
+    if let Some(gib) = crate::platform::disk_budget::DiskBudget::local().gib(share) {
+        println!("{gib}");
+    }
+    0
 }

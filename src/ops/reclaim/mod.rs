@@ -19,6 +19,7 @@ use std::time::{Duration, SystemTime};
 
 use toml_edit::DocumentMut;
 
+use crate::platform::disk_budget::DiskBudget;
 use crate::platform::shared_target;
 
 const DEFAULTS: &str = include_str!("../../../harness/defaults.toml");
@@ -41,6 +42,7 @@ pub(super) struct Inputs {
     lan_clients: PathBuf,
     lan_state: PathBuf,
     evidence: PathBuf,
+    disk_budget: DiskBudget,
     open_issue_text: fn() -> Result<String, String>,
     uid: u32,
     now: SystemTime,
@@ -60,6 +62,7 @@ impl Inputs {
             lan_clients: data.join("wisp/lan/clients"),
             lan_state: state.join("wisp/lan"),
             evidence: state.join("smashcraft/evidence"),
+            disk_budget: DiskBudget::local(),
             open_issue_text: evidence_budget::open_issue_text,
             uid: rustix::process::getuid().as_raw(),
             now: SystemTime::now(),
@@ -118,7 +121,7 @@ pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Remova
     removals.extend(lan_clients::sweep(inputs, policy, &held)?);
     removals.extend(build_output::sweep(inputs, policy, &held)?);
     removals.extend(cache_cap::sweep(inputs, policy, &held)?);
-    removals.extend(evidence_budget::sweep(inputs, policy, &held, &evidence_budget::Budget::from_defaults(), 0)?);
+    removals.extend(evidence_budget::sweep(inputs, policy, &held, &evidence_budget::Budget::of(&inputs.disk_budget), 0)?);
     Ok(removals)
 }
 
@@ -139,7 +142,7 @@ pub(crate) fn evidence_start(arguments: &[String]) -> u8 {
         return 1;
     }
     let policy = Policy { idle: Duration::from_secs(DEFAULT_IDLE_HOURS * 3600), dry_run: false };
-    match evidence_budget::sweep(&inputs, &policy, &held::paths(&inputs.proc_root), &evidence_budget::Budget::from_defaults(), 0) {
+    match evidence_budget::sweep(&inputs, &policy, &held::paths(&inputs.proc_root), &evidence_budget::Budget::of(&inputs.disk_budget), 0) {
         Ok(removals) => removals.iter().for_each(|removal| eprintln!("removed {}: {}", removal.path.display(), removal.reason)),
         Err(error) => eprintln!("north evidence: budget sweep: {error}"),
     }

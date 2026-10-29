@@ -2,6 +2,9 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::platform::disk_budget::DiskBudget;
+use crate::platform::shared_target;
+
 const USAGE: &str = "usage: north land-clean LANE_ROOT | --sweep";
 const MIB: u64 = 1 << 20;
 
@@ -26,7 +29,7 @@ fn sweep_home_cache() -> u8 {
         eprintln!("land-clean: cannot sweep: HOME is not set");
         return 1;
     };
-    crate::platform::shared_target::run_sweep(&Path::new(&home).join(".cache"))
+    shared_target::run_sweep(&Path::new(&home).join(".cache"), shared_target::cap_bytes(&DiskBudget::local()))
 }
 
 pub(crate) fn release(lane: &Path) -> io::Result<Option<u64>> {

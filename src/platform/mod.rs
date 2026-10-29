@@ -5,6 +5,7 @@ pub(crate) mod gitleaks;
 pub(crate) mod harness;
 pub(crate) mod wisp_payoff;
 pub(crate) mod frozen_topics;
+pub(crate) mod disk_budget;
 pub(crate) mod github;
 pub(crate) mod hook_commands;
 pub(crate) mod host;

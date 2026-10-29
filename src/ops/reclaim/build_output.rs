@@ -32,7 +32,7 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
         }
     }
     if !policy.dry_run {
-        for (target, freed) in shared_target::sweep_cache(&inputs.cache, inputs.now)? {
+        for (target, freed) in shared_target::sweep_cache(&inputs.cache, inputs.now, shared_target::cap_bytes(&inputs.disk_budget))? {
             removals.push(Removal { path: target, reason: "shared cargo target over its cap: idle incremental state, test binaries, libraries and profiles".to_owned(), bytes: freed });
         }
     }

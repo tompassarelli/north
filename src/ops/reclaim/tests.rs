@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime};
 use rustix::fs::{FlockOperation, flock};
 
 use super::{Inputs, Policy, reclaim, summary};
+use crate::platform::disk_budget::DiskBudget;
 
 pub(super) const DAY: Duration = Duration::from_secs(24 * 3600);
 
@@ -51,6 +52,7 @@ impl Machine {
             lan_clients: self.path("clients"),
             lan_state: self.path("state"),
             evidence: self.path("evidence"),
+            disk_budget: DiskBudget::default(),
             open_issue_text: || Ok(String::new()),
             uid: rustix::process::getuid().as_raw(),
             now: self.now,
@@ -227,4 +229,41 @@ fn a_build_cache_within_its_cap_keeps_every_child() {
 
     assert!(machine.reclaim(false).is_empty());
     assert!(old.exists() && target.exists());
+}
+
+fn budgeted(machine: &Machine, policy: &str) -> Inputs {
+    Inputs { disk_budget: DiskBudget::parse(policy, "gex45"), ..machine.inputs() }
+}
+
+#[test]
+fn the_shared_cargo_target_sweep_reads_its_cap_from_the_hosts_disk_budget() {
+    let machine = Machine::new();
+    let deps = machine.dir("cache/cargo-target/debug/deps", 3 * DAY);
+    let binary = deps.join("north-1a2b3c");
+    fs::write(&binary, vec![0u8; 3 << 20]).unwrap();
+    fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    touch(&binary, machine.now - 3 * DAY);
+    let policy = Policy { idle: DAY, dry_run: false };
+
+    let roomy = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\ncargo_target = 1\n");
+    assert!(reclaim(&roomy, &policy).unwrap().is_empty() && binary.exists());
+    let tight = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\ncargo_target = 0.001\n");
+    assert_eq!(reclaim(&tight, &policy).unwrap().len(), 1);
+    assert!(!binary.exists());
+}
+
+#[test]
+fn the_evidence_sweep_reads_its_budget_from_the_hosts_disk_budget() {
+    let machine = Machine::new();
+    let run = machine.dir("evidence/old-run", 9 * DAY);
+    fs::write(run.join("frame.png"), vec![7u8; 2 << 20]).unwrap();
+    touch(&run, machine.now - 9 * DAY);
+    touch(&run.join("frame.png"), machine.now - 9 * DAY);
+    let policy = Policy { idle: DAY, dry_run: false };
+
+    let roomy = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nsmashcraft_evidence = 1\n");
+    assert!(reclaim(&roomy, &policy).unwrap().is_empty() && run.exists());
+    let tight = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nsmashcraft_evidence = 0.001\n");
+    assert_eq!(reclaim(&tight, &policy).unwrap().len(), 1);
+    assert!(!run.exists());
 }

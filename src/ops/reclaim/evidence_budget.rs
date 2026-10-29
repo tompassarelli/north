@@ -4,6 +4,8 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::platform::disk_budget::{DiskBudget, Share};
+
 use super::held::Held;
 use super::{Inputs, Policy, Removal, hours, idle_for, removed, setting, size};
 
@@ -15,8 +17,9 @@ pub(super) struct Budget {
 }
 
 impl Budget {
-    pub(super) fn from_defaults() -> Self {
-        Self { bytes: (setting("evidence_budget_gib") * GIB) as u64, min_age: Duration::from_secs_f64(setting("evidence_min_age_hours") * 3600.0) }
+    pub(super) fn of(budget: &DiskBudget) -> Self {
+        let bytes = budget.bytes(Share::SmashcraftEvidence).unwrap_or((setting("evidence_budget_gib") * GIB) as u64);
+        Self { bytes, min_age: Duration::from_secs_f64(setting("evidence_min_age_hours") * 3600.0) }
     }
 }
 

@@ -5,6 +5,8 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use super::disk_budget::{DiskBudget, Share};
+
 const GIB: u64 = 1 << 30;
 const CAP_BYTES: u64 = 10 * GIB;
 const IDLE: Duration = Duration::from_secs(20 * 60);
@@ -18,10 +20,14 @@ struct Candidate {
     touched: SystemTime,
 }
 
-pub(crate) fn run_sweep(cache: &Path) -> u8 {
+pub(crate) fn cap_bytes(budget: &DiskBudget) -> u64 {
+    budget.bytes(Share::CargoTarget).unwrap_or(CAP_BYTES)
+}
+
+pub(crate) fn run_sweep(cache: &Path, cap: u64) -> u8 {
     let mut status = 0;
     for target in shared_targets(cache) {
-        match sweep(&target, CAP_BYTES, IDLE, SystemTime::now()) {
+        match sweep(&target, cap, IDLE, SystemTime::now()) {
             Ok(freed) => println!("land-clean: swept {} ({} MiB freed)", target.display(), freed >> 20),
             Err(error) => {
                 eprintln!("land-clean: could not sweep {}: {error}", target.display());
@@ -32,10 +38,10 @@ pub(crate) fn run_sweep(cache: &Path) -> u8 {
     status
 }
 
-pub(crate) fn sweep_cache(cache: &Path, now: SystemTime) -> io::Result<Vec<(PathBuf, u64)>> {
+pub(crate) fn sweep_cache(cache: &Path, now: SystemTime, cap: u64) -> io::Result<Vec<(PathBuf, u64)>> {
     let mut trimmed = Vec::new();
     for target in shared_targets(cache) {
-        let freed = sweep(&target, CAP_BYTES, IDLE, now)?;
+        let freed = sweep(&target, cap, IDLE, now)?;
         if freed > 0 {
             trimmed.push((target, freed));
         }
