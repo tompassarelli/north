@@ -6,7 +6,7 @@ fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
         Some(room) => format!("{account} available: 5h {:.0}% ({room:.0}% headroom)", 95.0 - room),
         None => format!("{account} unavailable: burning: 5h 86.0%/h > the 50%/h cap that keeps the window two hours"),
     };
-    Verdict { account: account.into(), available: headroom.is_some(), headroom: headroom.unwrap_or(0.0), line, owners: Vec::new() }
+    Verdict { account: account.into(), available: headroom.is_some(), exhausted: headroom.is_none(), headroom: headroom.unwrap_or(0.0), line, owners: Vec::new() }
 }
 
 fn decision(target: Target) -> Decision {
@@ -30,25 +30,28 @@ fn noted(note: Option<&str>) -> Result<Placed, String> {
 
 #[test]
 fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
-    let cloud = decision(Target::Cloud("cloud credit: unread".into()));
-    let local = decision(Target::Account("claude:a".into()));
+    let mut cloud = decision(Target::Cloud("cloud credit: unread".into()));
+    let mut local = decision(Target::Account("claude:a".into()));
+    for decision in [&mut cloud, &mut local] {
+        decision.verdicts.push(verdict("claude:b", Some(30.0)));
+    }
     let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: None };
     let given = |local: Option<&str>, pin: Option<&str>| Overrides { local: local.map(Into::into), pin: pin.map(Into::into), ..Overrides::default() };
 
     assert_eq!(admit(&local, &launch("a"), "", &Overrides::default()), noted(None));
     let refused = admit(&local, &launch("c"), "", &Overrides::default()).unwrap_err();
     assert!(refused.starts_with("claude:c unavailable: burning") && refused.contains("--account a"), "{refused}");
-    assert_eq!(admit(&local, &launch("c"), "", &given(None, Some("drain c"))), noted(Some("pin: drain c")));
+    assert_eq!(admit(&local, &launch("b"), "", &given(None, Some("drain b"))), noted(Some("pin: drain b")));
     assert!(admit(&cloud, &launch("a"), "", &given(None, Some("drain c"))).unwrap_err().contains("north cloud launch"));
-    assert!(admit(&cloud, &launch("c"), "", &given(Some("x"), None)).unwrap_err().contains("--pin"));
-    let both = admit(&cloud, &launch("c"), "", &given(Some("x"), Some("y"))).unwrap().note;
+    assert!(admit(&cloud, &launch("b"), "", &given(Some("x"), None)).unwrap_err().contains("--pin"));
+    let both = admit(&cloud, &launch("b"), "", &given(Some("x"), Some("y"))).unwrap().note;
     assert_eq!(both.as_deref(), Some("local: x; pin: y"));
 
     assert_eq!(Overrides::default().recorded(both.as_deref()), given(Some("x"), Some("y")));
     assert_eq!(given(Some("new"), None).recorded(both.as_deref()), given(Some("new"), Some("y")));
     assert_eq!(Overrides::default().recorded(None), Overrides::default());
     let tiered = Overrides { tier: Some("the cause spans two engines".into()), ..given(None, Some("y")) };
-    let note = admit(&local, &launch("c"), "", &tiered).unwrap().note;
+    let note = admit(&local, &launch("b"), "", &tiered).unwrap().note;
     assert_eq!(note.as_deref(), Some("pin: y; tier: the cause spans two engines"));
     assert_eq!(Overrides::default().recorded(note.as_deref()), tiered.clone(), "revive keeps the tier reason");
 
@@ -134,4 +137,26 @@ fn a_box_kept_on_a_saturated_launching_host_needs_local_or_a_pin_and_a_move_else
     elsewhere.hold_here();
     assert_eq!(elsewhere.target, Target::Account("claude:a".into()));
     assert_eq!(admit(&elsewhere, &launch, "", &Overrides::default()).unwrap().machine.map(|machine| machine.name), Some("far".to_owned()));
+}
+
+#[test]
+fn an_account_that_is_out_refuses_even_a_pin_and_names_the_account_placement_picks() {
+    let placed = decision(Target::Account("claude:a".into()));
+    let launch = Launch { name: "burndown-lead", account: "c", brief: None, cwd: None, machine: None };
+    let revived = Overrides::default().recorded(Some("pin: north dispatch ranks claude:c first"));
+    let refused = admit(&placed, &launch, "", &revived).unwrap_err();
+    assert!(refused.starts_with("claude:c unavailable: burning: 5h 86.0%/h"), "{refused}");
+    assert!(refused.contains("placement picks claude:a (claude:a available") && refused.ends_with("launch with --account a"), "{refused}");
+
+    let mut week = placed.clone();
+    week.verdicts[1] = Verdict { line: "claude:c unavailable: exhausted: provider week 100%".into(), ..week.verdicts[1].clone() };
+    let local = Overrides { local: Some("x".into()), pin: Some("y".into()), ..Overrides::default() };
+    assert!(admit(&week, &launch, "", &local).unwrap_err().starts_with("claude:c unavailable: exhausted: provider week 100%; placement picks claude:a"));
+
+    let mut all_out = decision(Target::Held("no account".into()));
+    let week_out = placement::verdict("claude:c", &serde_json::json!({"windows": [{"window": "week", "used_pct": 100.0}]}));
+    assert!(week_out.exhausted && !week_out.available, "{week_out:?}");
+
+    all_out.verdicts.retain(|verdict| verdict.exhausted);
+    assert!(admit(&all_out, &launch, "", &revived).unwrap_err().ends_with("no Claude account is available; wait for a window to reset"));
 }

@@ -108,6 +108,9 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         (Some(chosen), None) => Some(Machine { name: chosen.name.clone(), ssh: chosen.ssh.clone() }),
         _ => None,
     };
+    if let Some(out) = exhausted_refusal(decision, launch.account) {
+        return Err(out);
+    }
     let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
     let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; launch from another host, or keep it here with --local \"<reason>\" or --pin \"<reason>\""));
     if let Some(refusal) = saturated.or(hot).or_else(|| account_refusal(decision, launch.account)) {
@@ -131,13 +134,27 @@ fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) ->
     format!("{} is not signed in to claude:{account} (signed in there: {there}); {instead}keep the box here with --local \"<reason>\"", machine.name)
 }
 
+/// An account that is out cannot run the box at all, so no `--pin`, recorded or given, keeps it.
+fn exhausted_refusal(decision: &Decision, account: &str) -> Option<String> {
+    let chosen = decision.verdict(&format!("claude:{account}")).filter(|verdict| verdict.exhausted)?;
+    let instead = match picked(decision) {
+        Some(better) => format!("placement picks {} ({}); launch with --account {}", better.account, better.line, better.account.trim_start_matches("claude:")),
+        None => "no Claude account is available; wait for a window to reset".to_owned(),
+    };
+    Some(format!("{}; {instead}", chosen.line))
+}
+
+fn picked(decision: &Decision) -> Option<&gate::Verdict> {
+    match &decision.target {
+        Target::Account(placed) => decision.verdict(placed),
+        _ => decision.best_here(),
+    }
+}
+
 fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
     let name = format!("claude:{account}");
     let chosen = decision.verdict(&name);
-    let best = match &decision.target {
-        Target::Account(placed) => decision.verdict(placed),
-        _ => decision.best_here(),
-    };
+    let best = picked(decision);
     if chosen.is_none() && best.is_none() {
         return None;
     }

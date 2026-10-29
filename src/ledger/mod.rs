@@ -107,6 +107,9 @@ const LINK_RUNS: &str = "UPDATE runs SET task_ref = (SELECT t.task_ref FROM task
 const LINK_RUNS_OF_SESSION: &str = "UPDATE runs SET task_ref = (SELECT t.task_ref FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session) ORDER BY t.task_ref LIMIT 1) \
      WHERE task_ref IS NULL AND session = ?1 AND EXISTS (SELECT 1 FROM tasks t WHERE t.task_ref = runs.session OR EXISTS (SELECT 1 FROM json_each(t.sessions) WHERE value = runs.session))";
 
+/// How long a statement meeting another writer's lock retries, through SQLite's backoff, before it fails.
+const LOCK_WAIT: Duration = Duration::from_secs(30);
+
 const RUN_COLUMNS: &str = "run_id,session,task_ref,provider,model,effort,account,prompt_sha,system_prompt_sha,deepen,started_ms,ended_ms,wall_ms,turns,\
      tokens_in,tokens_out,tokens_cache_read,tokens_cache_write,exit";
 
@@ -178,11 +181,15 @@ impl Ledger {
     }
 
     pub fn open(path: &Path) -> NorthResult<Self> {
+        Self::open_within(path, LOCK_WAIT)
+    }
+
+    fn open_within(path: &Path, lock_wait: Duration) -> NorthResult<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path).map_err(sql)?;
-        conn.busy_timeout(Duration::from_secs(5)).map_err(sql)?;
+        conn.busy_timeout(lock_wait).map_err(sql)?;
         conn.pragma_update(None, "journal_mode", "WAL").map_err(sql)?;
         conn.execute_batch(SCHEMA).map_err(sql)?;
         add_missing_column(&conn, "gates", "verification", "INTEGER NOT NULL DEFAULT 0").map_err(sql)?;

@@ -414,7 +414,7 @@ fn a_live_threads_claim_on_any_hosts_ledger_holds_its_issue_and_a_stale_one_does
 #[test]
 fn an_account_placement_never_judged_gets_no_slot() {
     let control = serde_json::json!({"at": 1000.0, "allowed_workers": 2});
-    let judged = gate::Verdict { account: "claude:b".into(), available: true, headroom: 40.0, line: "claude:b ok".into(), owners: vec!["gex45".into()] };
+    let judged = gate::Verdict { account: "claude:b".into(), available: true, exhausted: false, headroom: 40.0, line: "claude:b ok".into(), owners: vec!["gex45".into()] };
     assert_eq!(super::survey::refusal("claude:b", &control, Some(&judged), 1060.0), None);
     let unjudged = super::survey::refusal("codex", &control, None, 1060.0).unwrap();
     assert!(unjudged.contains("codex has no placement verdict"), "{unjudged}");

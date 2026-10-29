@@ -248,3 +248,23 @@ fn a_run_recorded_after_its_sessions_landing_is_linked_without_reopening_the_led
     let linked: Vec<Option<String>> = ledger.runs().unwrap().into_iter().map(|run| run.task_ref).collect();
     assert_eq!(linked, [Some("lane-late".to_owned()), Some("north#8".to_owned()), None]);
 }
+
+#[test]
+fn opening_a_locked_ledger_retries_until_the_lock_clears_and_fails_once_the_wait_runs_out() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.db");
+    drop(ledger(&directory));
+    let holder = Connection::open(&path).unwrap();
+    holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    let refused = Ledger::open_within(&path, std::time::Duration::from_millis(200)).err().unwrap().to_string();
+    assert!(refused.contains("database is locked"), "{refused}");
+
+    let started = std::time::Instant::now();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        holder.execute_batch("COMMIT").unwrap();
+    });
+    Ledger::open_within(&path, std::time::Duration::from_secs(5)).unwrap();
+    assert!(started.elapsed() >= std::time::Duration::from_millis(400), "{:?}", started.elapsed());
+    release.join().unwrap();
+}

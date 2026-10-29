@@ -25,6 +25,8 @@ const LOCAL_NEEDS: [&str; 12] = [
 pub(crate) struct Verdict {
     pub account: String,
     pub available: bool,
+    /// Out by the five-hour stop, the burn cap or an exhausted week, which no `--pin` overrides.
+    pub exhausted: bool,
     pub headroom: f64,
     pub line: String,
     pub owners: Vec<String>,
@@ -192,12 +194,13 @@ fn judged(account: &str, control: &Value, burn_counts: bool) -> Verdict {
         return unavailable(account, "no live quota sample".into());
     }
     if let Some(reason) = windows.iter().find_map(|window| window_refusal(window, burn_counts)) {
-        return unavailable(account, reason);
+        return Verdict { exhausted: true, ..unavailable(account, reason) };
     }
     let room = headroom(windows);
     Verdict {
         account: account.into(),
         available: true,
+        exhausted: false,
         headroom: room,
         line: format!("{account} available: {} ({room:.0}% headroom)", usage(windows)),
         owners: Vec::new(),
@@ -389,7 +392,7 @@ fn standing_verdicts(gate: &Value, roster: &Roster, burn_counts: bool) -> Vec<Ve
 }
 
 fn unavailable(account: &str, reason: String) -> Verdict {
-    Verdict { account: account.into(), available: false, headroom: 0.0, line: format!("{account} unavailable: {reason}"), owners: Vec::new() }
+    Verdict { account: account.into(), available: false, exhausted: false, headroom: 0.0, line: format!("{account} unavailable: {reason}"), owners: Vec::new() }
 }
 
 pub(crate) fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str, here_gaming: bool) -> Decision {
