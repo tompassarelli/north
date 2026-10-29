@@ -8,6 +8,7 @@ pub(super) const COORDINATOR: &str = "proxy";
 const SESSION_PREFIX: &str = "north-session-";
 const SERVICE_PREFIX: &str = "north-fleet-";
 const SERVICE_SUFFIX_LENGTH: usize = 8;
+const SSH_PREFIX: &str = "session-";
 const LEASE_PREFIX: &str = "agent-capacity-";
 const TREES_NAMED: usize = 5;
 const UNOWNED_NAMED: usize = 3;
@@ -58,11 +59,16 @@ pub(super) struct Owner {
 
 pub(super) trait Owners {
     fn owner(&mut self, unit: &str) -> Option<Owner>;
+    fn parent(&mut self, session: &str) -> Option<String>;
 }
 
 impl Owners for BTreeMap<String, Owner> {
     fn owner(&mut self, unit: &str) -> Option<Owner> {
         self.get(unit).cloned()
+    }
+
+    fn parent(&mut self, session: &str) -> Option<String> {
+        self.values().find(|owner| owner.session == session).and_then(|owner| owner.parent.clone())
     }
 }
 
@@ -72,6 +78,7 @@ pub(super) struct Sample {
     pub(super) psi10: f64,
     pub(super) psi60: f64,
     pub(super) cpus: Option<f64>,
+    busy_cores: Option<f64>,
     cgroups: Vec<(String, f64)>,
     tops: Vec<(String, f64, String)>,
 }
@@ -82,7 +89,7 @@ impl Sample {
         let tops = value["top"].as_array().map_or_else(Vec::new, |tops| {
             tops.iter().filter_map(|top| Some((top["cgroup"].as_str()?.trim_start_matches('/').to_owned(), top["cores"].as_f64()?, top["command"].as_str()?.to_owned()))).collect()
         });
-        Some(Self { at: value["at"].as_str()?.to_owned(), load1: value["load"][0].as_f64()?, psi10: value["cpuPsi"].as_f64()?, psi60: value["cpuPsi60"].as_f64()?, cpus: value["cpus"].as_f64(), cgroups, tops })
+        Some(Self { at: value["at"].as_str()?.to_owned(), load1: value["load"][0].as_f64()?, psi10: value["cpuPsi"].as_f64()?, psi60: value["cpuPsi60"].as_f64()?, cpus: value["cpus"].as_f64(), busy_cores: value["busyCores"].as_f64(), cgroups, tops })
     }
 
     fn lead_command(&self, cgroup: &str) -> Option<String> {
@@ -124,6 +131,7 @@ pub(super) struct Incident {
     pub(super) load_per_core: f64,
     pub(super) psi60: f64,
     pub(super) trees: Vec<Tree>,
+    pub(super) unattributed_cores: f64,
     pub(super) capped: Option<Cap>,
 }
 
@@ -146,17 +154,34 @@ fn service_session(unit: &str) -> Option<String> {
 }
 
 fn owner_of(owners: &mut dyn Owners, unit: &str) -> Option<Owner> {
-    owners.owner(unit).or_else(|| service_session(unit).map(|session| Owner { session, parent: None }))
+    owners.owner(unit).or_else(|| {
+        let session = service_session(unit)?;
+        let parent = owners.parent(&session);
+        Some(Owner { session, parent })
+    })
 }
 
 fn fleet_scope(cgroup: &str) -> bool {
     cgroup.strip_prefix("agent.slice/").is_some_and(|unit| unit.starts_with(SESSION_PREFIX) && unit.ends_with(".scope") && !unit.contains('/'))
 }
 
+fn cappable(cgroup: &str) -> bool {
+    fleet_scope(cgroup) || service_session(unit_of(cgroup)).is_some()
+}
+
+fn ssh_scope(cgroup: &str) -> bool {
+    let unit = unit_of(cgroup);
+    cgroup.starts_with("user.slice/") && unit.strip_prefix(SSH_PREFIX).and_then(|rest| rest.strip_suffix(".scope")).is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
 fn kind(cgroup: &str) -> &'static str {
     let unit = unit_of(cgroup);
     if fleet_scope(cgroup) {
         "session"
+    } else if service_session(unit).is_some() {
+        "service"
+    } else if ssh_scope(cgroup) {
+        "ssh"
     } else if unit.starts_with(LEASE_PREFIX) && unit.len() >= LEASE_PREFIX.len() + LEASE_SCOPE_ID_LENGTH {
         "lease"
     } else {
@@ -214,7 +239,7 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
         })
         .partition(|tree| tree.session.is_some());
     let trees: Vec<Tree> = owned.into_iter().take(TREES_NAMED).chain(unowned.into_iter().take(UNOWNED_NAMED)).collect();
-    let capped = ranked.iter().find(|(cgroup, cores)| fleet_scope(cgroup) && *cores >= settings.offender_cores).map(|(cgroup, cores)| {
+    let capped = ranked.iter().find(|(cgroup, cores)| cappable(cgroup) && *cores >= settings.offender_cores).map(|(cgroup, cores)| {
         let owner = owner_of(owners, unit_of(cgroup));
         Cap {
             unit: unit_of(cgroup).to_owned(),
@@ -223,7 +248,10 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
             cpu_weight: CAPPED_WEIGHT,
         }
     });
-    let incident = Incident { at: sample.at.clone(), load1: sample.load1, load_per_core: round(load_per_core), psi60: sample.psi60, trees, capped: capped.clone() };
+    let unattributed_cores = unattributed(sample);
+    let offender = ranked.iter().any(|(cgroup, cores)| kind(cgroup) != "lease" && *cores >= settings.offender_cores);
+    let actionable = capped.is_some() || offender || unattributed_cores >= settings.offender_cores;
+    let incident = Incident { at: sample.at.clone(), load1: sample.load1, load_per_core: round(load_per_core), psi60: sample.psi60, trees, unattributed_cores, capped: capped.clone() };
     let text = message(&incident);
     let mut recipients: Vec<String> = Vec::new();
     let named = incident.trees.iter().find(|tree| tree.session.is_some());
@@ -240,8 +268,17 @@ fn report(settings: &Settings, owners: &mut dyn Owners, state: &mut State, sampl
         state.caps.push(cap.clone());
         actions.push(Action::Cap(cap));
     }
-    actions.extend(recipients.into_iter().map(|to| Action::Send { to, text: text.clone() }));
+    if actionable {
+        actions.extend(recipients.into_iter().map(|to| Action::Send { to, text: text.clone() }));
+    }
     actions
+}
+
+fn unattributed(sample: &Sample) -> f64 {
+    let Some(busy) = sample.busy_cores else { return 0.0 };
+    let measured: BTreeMap<String, f64> = sample.cgroups.iter().cloned().collect();
+    let attributed: f64 = ranked(&measured).iter().map(|(_, cores)| cores).sum();
+    round((busy - attributed).max(0.0))
 }
 
 fn ranked(cores: &BTreeMap<String, f64>) -> Vec<(String, f64)> {
@@ -269,7 +306,10 @@ pub(super) fn message(incident: &Incident) -> String {
             "\nCapped {} to {}% of one core and cpu weight {} (runtime, reversible); it lifts by itself once load stays calm. Stop the fan-out (parallel test runs, forked CLIs) and use the machine-capacity lease.",
             cap.unit, cap.cpu_quota_percent, cap.cpu_weight
         )),
-        None => text.push_str("\nNo unleased fleet session scope is over the offender floor, so nothing was capped."),
+        None => text.push_str("\nNo unleased fleet session scope or service unit is over the offender floor, so nothing was capped."),
+    }
+    if incident.unattributed_cores > 0.0 {
+        text.push_str(&format!("\n{} busy cores belong to no process tree listed above.", incident.unattributed_cores));
     }
     text
 }

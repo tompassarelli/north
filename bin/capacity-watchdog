@@ -45,7 +45,7 @@ const CLIENT = /^(Warcraft III|BlizzardBrows)/;
 type Proc = { pid: number; ppid: number; sid: number; comm: string; args: string[]; cgroup: string; ticks: number; start: string; rssKiB: number; cwd: string | null };
 type Lease = { owner: string; class: string; cpus: number; declaredCpus?: number; memoryMiB: number; recentCores: number | null; usedMiB: number | null; wrapperPid?: number; session?: string | null; parent?: string | null };
 type FleetSession = { name: string; conversation: string; host_pid: number | null; parent: string | null };
-type Snapshot = { at: number; load: number[]; cpuPsi: number; cpuPsi60: number; memPsi: number; memFullPsi: number; memAvailableMiB: number; memTotalMiB: number; cgroups: Record<string, number>; procs: Proc[]; leases: Lease[] };
+type Snapshot = { at: number; load: number[]; cpuPsi: number; cpuPsi60: number; memPsi: number; memFullPsi: number; memAvailableMiB: number; memTotalMiB: number; cgroups: Record<string, number>; busyTicks?: number; procs: Proc[]; leases: Lease[] };
 type Hot = { since: number; reported: boolean };
 type State = { prev: Snapshot | null; hot: Record<string, Hot> };
 type Incident = { at: string; kind: "unleased-tree" | "git-maintenance-terminated"; summary: string; cgroup: string; cores?: number; seconds?: number; cwd?: string | null; chain?: string[]; pids?: number[] };
@@ -99,7 +99,7 @@ export function step(state: State, snap: Snapshot): { state: State; sample: obje
   const cgroupCores = dt > 0 ? Object.entries(snap.cgroups).flatMap(([cg, usec]) => {
     const before = prev!.cgroups[cg];
     return before === undefined ? [] : [{ cgroup: cg, cores: r2(Math.max(0, usec - before) / 1e6 / dt) }];
-  }).filter((c) => c.cores >= 0.05).sort((a, b) => b.cores - a.cores).slice(0, 15) : [];
+  }).filter((c) => c.cores >= 0.05).sort((a, b) => b.cores - a.cores).filter((c, i) => i < 15 || /\.(scope|service)$/.test(c.cgroup)) : [];
   const unleased = snap.procs.filter((p) => !leased(p.cgroup) && p.cgroup !== "/");
   const top = unleased.filter((p) => (cores.get(p.pid) ?? 0) >= 0.05).sort((a, b) => cores.get(b.pid)! - cores.get(a.pid)!).slice(0, 8)
     .map((p) => ({ pid: p.pid, cores: r2(cores.get(p.pid)!), rssMiB: Math.round(p.rssKiB / 1024), cgroup: short(p.cgroup), command: command(p) }));
@@ -141,9 +141,10 @@ export function step(state: State, snap: Snapshot): { state: State; sample: obje
       summary: `SIGTERM git ${gitMaintenanceVerb(root.args)} outside the nightly timer (${fresh.length} processes) in ${root.cwd ?? "?"}` });
   }
 
+  const busyCores = dt > 0 && prev?.busyTicks !== undefined && snap.busyTicks !== undefined ? r2(Math.max(0, snap.busyTicks - prev.busyTicks) / 100 / dt) : undefined;
   const sample = {
     at: iso, load: snap.load, cpuPsi: snap.cpuPsi, cpuPsi60: snap.cpuPsi60, memPsi: snap.memPsi, memFullPsi: snap.memFullPsi,
-    memAvailableMiB: snap.memAvailableMiB, memTotalMiB: snap.memTotalMiB, intervalSeconds: r2(dt),
+    memAvailableMiB: snap.memAvailableMiB, memTotalMiB: snap.memTotalMiB, intervalSeconds: r2(dt), busyCores,
     cgroups: cgroupCores, top, clients, leases: snap.leases, hotTrees: Object.keys(hot).length,
   };
   return { state: { prev: snap, hot }, sample, incidents, terms };
@@ -260,7 +261,18 @@ function cgroupUsage(): Record<string, number> {
   };
   walk(USER_ROOT, "", 0);
   walk(`${CGROOT}/system.slice`, "system.slice", 3);
+  const login = `user.slice/user-${UID}.slice`;
+  let sessions: string[] = [];
+  try { sessions = readdirSync(`${CGROOT}/${login}`).filter((name) => /^session-\d+\.scope$/.test(name)); } catch {}
+  for (const name of sessions) walk(`${CGROOT}/${login}/${name}`, `${login}/${name}`, 4);
   return out;
+}
+
+function busyTicks(): number | undefined {
+  const fields = read("/proc/stat")?.split("\n", 1)[0].split(/\s+/).slice(1).map(Number);
+  if (!fields || fields.length < 8) return undefined;
+  const [user, nice, system, , , irq, softirq, steal] = fields;
+  return user + nice + system + irq + softirq + steal;
 }
 
 function procs(): Proc[] {
@@ -315,7 +327,7 @@ function snapshot(): Snapshot {
     cpuPsi: avg10("/proc/pressure/cpu", "some"), cpuPsi60: avg60("/proc/pressure/cpu", "some"),
     memPsi: avg10("/proc/pressure/memory", "some"), memFullPsi: avg10("/proc/pressure/memory", "full"),
     memAvailableMiB: Math.round(kib("MemAvailable") / 1024), memTotalMiB: Math.round(kib("MemTotal") / 1024),
-    cgroups: cgroupUsage(), procs: all, leases: leases().map(({ wrapperPid, ...l }) => ({ ...l, ...leaseHolder(wrapperPid, byPid, sessions) })),
+    cgroups: cgroupUsage(), busyTicks: busyTicks(), procs: all, leases: leases().map(({ wrapperPid, ...l }) => ({ ...l, ...leaseHolder(wrapperPid, byPid, sessions) })),
   };
 }
 
