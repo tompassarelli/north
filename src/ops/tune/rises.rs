@@ -1,5 +1,5 @@
-//! Cells whose cost per closed box rose more than 25% week on week, each as the north issue a tick
-//! files for it.
+//! Cells on a tier still staffed this week whose cost per closed box rose more than 25% week on
+//! week, each as the north issue a tick files for it.
 use crate::ledger::ClosedReport;
 
 /// The rise over the week before past which a cell gets an issue.
@@ -18,6 +18,7 @@ pub(crate) struct Rise {
 pub(crate) fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
     week.cells
         .iter()
+        .filter(|cell| cell.staffed)
         .filter_map(|cell| {
             let earlier = before.cells.iter().find(|earlier| earlier.tier == cell.tier && earlier.category == cell.category)?;
             let (was, now) = (earlier.usd_per_closed(), cell.usd_per_closed());

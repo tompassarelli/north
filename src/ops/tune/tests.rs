@@ -251,3 +251,35 @@ fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one
     assert_eq!(issues.filed[0].0, "Cost per closed box rose more than 25% week on week in sonnet tooling");
     assert!(issues.filed[0].1.contains("from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{}", issues.filed[0].1);
 }
+
+#[test]
+fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_earlier() {
+    const SOL: (&str, &str) = ("gpt-6.1-sol high", "gpt-6.1-sol");
+    let week = report(
+        &[
+            run("north#20", SOL, "bug-known-cause", "2026-10-14T10:00:00Z", "2026-10-14T10:30:00Z"),
+            run("north#20", OPUS, "bug-known-cause", "2026-10-21T10:00:00Z", "2026-10-21T11:00:00Z"),
+            run("north#21", SOL, "bug-known-cause", "2026-10-14T12:00:00Z", "2026-10-14T12:30:00Z"),
+            run("north#21", OPUS, "bug-known-cause", "2026-10-22T10:00:00Z", "2026-10-22T11:00:00Z"),
+            run("north#22", SOL, "bug-known-cause", "2026-10-15T10:00:00Z", "2026-10-15T10:30:00Z"),
+            run("north#22", OPUS, "bug-known-cause", "2026-10-23T10:00:00Z", "2026-10-23T11:00:00Z"),
+        ],
+        "2026-10-20T06:00:00Z",
+    );
+    let before = report(
+        &[
+            run("north#23", SOL, "bug-known-cause", "2026-10-14T10:00:00Z", "2026-10-14T10:30:00Z"),
+            run("north#24", SOL, "bug-known-cause", "2026-10-15T10:00:00Z", "2026-10-15T10:30:00Z"),
+            run("north#25", SOL, "bug-known-cause", "2026-10-16T10:00:00Z", "2026-10-16T10:30:00Z"),
+        ],
+        "2026-10-13T06:00:00Z",
+    );
+    let cell = |report: &ClosedReport| report.cells.iter().find(|cell| cell.tier == SOL.0).map(|cell| (cell.closed, cell.usd_per_closed(), cell.staffed)).unwrap();
+    let ((was_n, was, was_staffed), (now_n, now, now_staffed)) = (cell(&before), cell(&week));
+    assert!((was_n, now_n, was_staffed, now_staffed) == (3, 3, true, false) && now > was * 1.25, "{was} -> {now}");
+
+    let mut issues = Issues::default();
+    let quiet = tick(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new() }, &Cells::new(), &mut issues, AT, false);
+    assert!(issues.filed.is_empty(), "{:#?}", quiet.lines);
+    assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
+}

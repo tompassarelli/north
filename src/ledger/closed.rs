@@ -39,6 +39,7 @@ pub struct Cell {
     pub category: String,
     pub closed: usize,
     pub usd: f64,
+    pub staffed: bool,
     box_usd: Vec<f64>,
     run_minutes: Vec<f64>,
 }
@@ -46,7 +47,7 @@ pub struct Cell {
 impl Cell {
     #[cfg(test)]
     pub fn priced(tier: &str, category: &str, closed: usize, usd: f64) -> Self {
-        Self { tier: tier.into(), category: category.into(), closed, usd, box_usd: Vec::new(), run_minutes: Vec::new() }
+        Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, box_usd: Vec::new(), run_minutes: Vec::new() }
     }
 
     pub fn usd_per_closed(&self) -> f64 {
@@ -128,13 +129,14 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
             boxes.entry(item).or_default().push(run);
         }
     }
+    let staffed: HashSet<String> = runs.iter().filter(|run| run.role == WORKER && run.started.as_str() >= since).map(|run| tier_label(&run.tier)).collect();
     let mut cells: HashMap<(String, String), Cell> = HashMap::new();
     let mut arms: HashMap<(String, String), ArmCell> = HashMap::new();
     for runs in boxes.values_mut().filter(|runs| runs.iter().any(|run| run.landed)) {
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let key = (tier_label(&runs[0].tier), category.to_owned());
-        let cell = cells.entry(key.clone()).or_insert(Cell { tier: key.0, category: key.1, closed: 0, usd: 0.0, box_usd: Vec::new(), run_minutes: Vec::new() });
+        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, box_usd: Vec::new(), run_minutes: Vec::new() });
         let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         cell.closed += 1;
         cell.usd += spent;
