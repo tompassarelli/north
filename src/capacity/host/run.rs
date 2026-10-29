@@ -164,6 +164,10 @@ fn scope_command(root: &Path, request: &Request, admitted: &Obj, timeout_seconds
     if let Some(pair) = request.pair {
         child.env("AGENT_CAPACITY_PAIR", pair.to_string());
     }
+    if request.name != "native" {
+        let jobs = field(&scope, "cpus").filter(|cpus| cpus.is_finite()).map_or(1.0, f64::ceil).max(1.0).to_string();
+        child.env("CARGO_BUILD_JOBS", &jobs).env("RUST_TEST_THREADS", &jobs);
+    }
     client_environment(&mut child);
     tokio::process::Command::from(child)
 }

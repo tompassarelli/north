@@ -8,6 +8,7 @@ mod aperture;
 pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
 mod game_reserve;
+mod gate;
 mod host;
 mod unleased;
 mod watchdog;
@@ -24,6 +25,8 @@ mod agent_load_tests;
 #[cfg(test)]
 mod game_reserve_tests;
 #[cfg(test)]
+mod gate_tests;
+#[cfg(test)]
 mod unleased_tests;
 #[cfg(test)]
 mod native_hold_tests;
@@ -38,6 +41,7 @@ pub(crate) struct Host {
     pub(crate) warcraft_clients: fn() -> Option<u32>,
     pub(crate) bar1_margin_mib: fn() -> Option<u32>,
     pub(crate) offload: fn(&[String]) -> u8,
+    pub(crate) lease_builds: fn() -> bool,
 }
 
 fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
@@ -53,7 +57,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("watchdog") => watchdog::run(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ...");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
             2
         }
     };
@@ -68,6 +72,9 @@ pub(crate) fn limit_text(limit: Option<u32>) -> String {
 pub(crate) fn run(arguments: &[String], host: Host) -> u8 {
     if arguments.first().map(String::as_str) == Some("host") {
         return host::run(&arguments[1..], &host);
+    }
+    if arguments.first().map(String::as_str) == Some("gate") {
+        return gate::run(&arguments[1..], &host);
     }
     if arguments == ["warcraft-limit"] {
         println!("{}", limit_text((host.warcraft_clients)()));

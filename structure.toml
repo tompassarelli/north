@@ -94,7 +94,7 @@ may_use = ["threads", "domain", "platform", "foundation"]
 name = "capacity"
 paths = ["src/capacity/**"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["platform", "foundation"]
+may_use = ["shell", "platform", "foundation"]
 
 [[module]]
 name = "lanes"

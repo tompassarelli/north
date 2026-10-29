@@ -2,6 +2,10 @@
 set -euo pipefail
 read -r host_pid _ </proc/self/stat
 if [ "$host_pid" != "$$" ]; then
+  class=$(north capacity gate --class depbox "$@" 2>/dev/null) || class=
+  if [ -n "$class" ]; then
+    exec north capacity host run --class "$class" --owner "gate:${NORTH_FLEET_SESSION:-${PWD##*/}}" --timeout-seconds 3600 -- "$0" "$@"
+  fi
   exec /run/current-system/sw/bin/unshare --user --map-current-user --pid --fork --kill-child=KILL --mount-proc "$0" "$@"
 fi
 
@@ -74,7 +78,7 @@ fi
 
 args+=(--bind "$top" "$top" --ro-bind "$common" "$common")
 args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
-for var in PATH HOME USER LANG TERM NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
+for var in PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
 done
 args+=(--setenv CARGO_TARGET_DIR "$target")

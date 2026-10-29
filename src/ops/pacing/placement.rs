@@ -65,6 +65,9 @@ pub(crate) fn local_warcraft_clients() -> Option<u32> {
 pub(crate) fn local_bar1_margin_mib() -> Option<u32> {
     gate::bar1_margin_mib(&sampling::config().ok()?, &local())
 }
+pub(crate) fn local_lease_builds() -> bool {
+    sampling::config().ok().and_then(|cfg| cfg.get("hosts")?.get(local())?.get("lease_builds")?.as_bool()).unwrap_or(false)
+}
 pub(crate) fn machine(name: &str) -> Option<crate::fleet::model::Machine> {
     let machine = gate::machines(&sampling::config().ok()?).into_iter().find(|machine| machine.name == name)?;
     Some(crate::fleet::model::Machine { name: machine.name, ssh: machine.ssh })

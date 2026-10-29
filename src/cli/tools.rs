@@ -112,7 +112,7 @@ impl Tool {
             }),
             Self::Dispatch => ExitCode::from(crate::ops::dispatch::run(arguments, super::fleet::roster)),
             Self::Pace => ExitCode::from(crate::ops::pacing::run(arguments, crate::ops::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet_placement::fleet_load }, super::token_usage::read)),
-            Self::Capacity => ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib, offload: crate::ops::land_offload::run })),
+            Self::Capacity => ExitCode::from(capacity::run(arguments, capacity::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib, offload: crate::ops::land_offload::run, lease_builds: crate::ops::pacing::placement::local_lease_builds })),
             Self::NexusRam => ExitCode::from(crate::ops::nexus_ram::run(arguments)),
             Self::Laptop => ExitCode::from(crate::ops::laptop::run(arguments)),
             Self::LaptopRunner => ExitCode::from(crate::ops::laptop_runner::run(arguments)),

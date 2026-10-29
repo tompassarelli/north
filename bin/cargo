@@ -1,0 +1,14 @@
+#!/bin/sh
+if north capacity gate --class "$0" >/dev/null 2>&1; then
+  exec north capacity gate "$0" "$@"
+fi
+name=${0##*/}
+self=$(readlink -f "$0")
+IFS=:
+for dir in $PATH; do
+  if [ -x "$dir/$name" ] && [ "$(readlink -f "$dir/$name")" != "$self" ]; then
+    exec "$dir/$name" "$@"
+  fi
+done
+printf '%s: command not found\n' "$name" >&2
+exit 127
