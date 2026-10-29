@@ -1,4 +1,5 @@
 pub(crate) mod board;
+pub(crate) mod calibration;
 pub(crate) mod catalog;
 pub(crate) mod claims;
 pub(crate) mod client;

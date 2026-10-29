@@ -13,7 +13,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
-| runs.eta_min | bin/worker-ledger | bin/threads:1319 calibrate_eta scales recommend_eta | read | ac79788c |
+| runs.eta_min | bin/worker-ledger | src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
 | runs.minutes | bin/worker-ledger | bin/threads:1243 recommend_eta | read | |
 | runs.outcome, follows, landed, expects_landing | bin/worker-ledger | bin/threads:1408 run_ok; harness/lib/plan_usage.py:153 routing success | read | 4a58f21e |
 | runs.tier | bin/worker-ledger | bin/threads:1191 recommend, every provider | read | 4b71ac63 |

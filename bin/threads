@@ -768,11 +768,6 @@ def recommend(runs, asked, incumbent, priced=True, default_tier=DEFAULT_TIER):
     return name, len(rs), best, stats, rule
 
 
-def stat_text(t, st):
-    usd = f"${st['usd']:.2f}/success" if st["usd"] is not None else "$ n/a"
-    return f"{t} {st['rate']}% of {st['n']}, {usd} (priced n={st['usd_n']})"
-
-
 def recommend_eta(runs, cell, tier):
     fields = brief_fields(cell)
     keys = ["category", *(k for k in reversed(BACKOFF) if k in fields)]
@@ -824,19 +819,6 @@ def box_duration(chains, category):
             return quantile(xs, .75), len(xs), f"box p75 Category: {category}"
     xs = [c["minutes"] for c in chains]
     return quantile(xs, .75), len(xs), "box p75 all categories"
-
-
-def calibrate_box(chains, start, end):
-    """Walk-forward actual/predicted for each chain that landed in [start, end), predicted from chains landed before it
-    was staffed; one row, cell all, since a chain mixes providers."""
-    lo, hi = moment(start), moment(end)
-    pairs = []
-    for c in chains:
-        if lo <= c["end"] < hi:
-            pred, n, _ = box_duration([e for e in chains if e["end"] < c["start"]], c["category"])
-            if n and pred:
-                pairs.append(("all", c["minutes"] / pred))
-    return [r for r in ratio_rows(pairs) if r["cell"] == "all"]
 
 
 def box_rows(db):
@@ -899,40 +881,8 @@ def walk_forward_eta(runs, start, end):
     return out
 
 
-def calibrate_eta(runs, start, end):
-    return ratio_rows([(r["tier"], r["minutes"] / r["eta_min"]) for r in runs
-                       if r["eta_min"] and r["minutes"] is not None and start <= r["ended"] < end])
-
-
 def calibrate_eta_pred(runs, start, end):
     return ratio_rows([(r["tier"], r["minutes"] / eta) for r, eta in walk_forward_eta(runs, start, end)])
-
-
-def calibrate_usd(runs, start, end):
-    pairs = []
-    for r in runs:
-        if r["cost_usd"] is not None and start <= r["ended"] < end:
-            usd, _ = recommend_usd([e for e in runs if e["ended"] < r["ended"]], r["category"], r["tier"])
-            if usd:
-                pairs.append((r["tier"], r["cost_usd"] / usd))
-    return ratio_rows(pairs)
-
-
-def calibrate_tier(runs, start, end):
-    by_cat: dict = {}
-    for r in runs:
-        if r["first"] and not r["unjudged"] and start <= r["ended"] < end:
-            by_cat.setdefault(r["category"], []).append(r)
-    out = []
-    for cat, rs in sorted(by_cat.items()):
-        for t, st in sorted(tier_stats(rs).items(), key=lambda kv: tier_rank(kv[0])):
-            out.append({"cell": f"{cat} {t} success", "n": st["n"], "p25": None, "median": None, "p75": None, "value": st["rate"]})
-            out.append({"cell": f"{cat} {t} usd_per_success", "n": st["usd_n"], "p25": None, "median": None, "p75": None,
-                        "value": st["usd"]})
-    return out
-
-
-CALIBRATORS = {"eta": calibrate_eta, "eta_pred": calibrate_eta_pred, "usd": calibrate_usd, "tier": calibrate_tier}
 
 
 def since_start(text, end):
@@ -1105,43 +1055,6 @@ def cmd_routing_compare(db, a):
     table(point_out)
 
 
-def cmd_calibrate(db, a):
-    if a.write and DB == SNAPSHOT:
-        raise Refused("calibrate --write needs the live ledger; this is the read-only snapshot")
-    end = now()
-    if a.goal_row:
-        if not a.write:
-            raise Refused("calibrate --goal-row needs --write")
-        try:
-            row = json.loads(a.goal_row)
-            values = (end, row["kind"], row["cell"], int(row["n"]), None, None, None, row["value"], row["source"])
-        except (ValueError, KeyError, TypeError) as e:
-            raise Refused(f"calibrate --goal-row takes a JSON object with kind, cell, n, value and source: {e}")
-        if row["kind"] not in GOAL_KINDS or not isinstance(row["value"], (int, float, type(None))):
-            raise Refused(f"calibrate --goal-row kind must be one of {', '.join(GOAL_KINDS)} with a numeric value")
-        with Tx(db):
-            db.execute("INSERT INTO calibration(at, kind, cell, n, p25, median, p75, value, source) VALUES (?,?,?,?,?,?,?,?,?)", values)
-        print(f"{row['kind']} {row['cell']} recorded at {end}")
-        return
-    start = since_start(a.since, end)
-    runs = calibration_runs(db)
-    window = a.since if re.fullmatch(r"\d+[dh]", a.since) else f"since {a.since}"
-    rows = [{"kind": kind, **row, "source": f"measured n={row['n']} {window}"}
-            for kind, fn in CALIBRATORS.items() for row in fn(runs, start, end)]
-    rows += [{"kind": "box", **row, "source": f"measured n={row['n']} chains {window}"}
-             for row in calibrate_box(box_chains(box_rows(db)), start, end)]
-    if a.write:
-        with Tx(db):
-            db.executemany("INSERT INTO calibration(at, kind, cell, n, p25, median, p75, value, source) VALUES (?,?,?,?,?,?,?,?,?)",
-                           [(end, r["kind"], r["cell"], r["n"], r["p25"], r["median"], r["p75"], r["value"], r["source"]) for r in rows])
-    if a.json:
-        print(json.dumps({"at": end, "since": start, "rows": rows}))
-        return
-    fmt = lambda x: "-" if x is None else f"{x:.2f}"
-    table([("kind", "cell", "n", "p25", "median", "p75", "value")]
-          + [(r["kind"], r["cell"], str(r["n"]), fmt(r["p25"]), fmt(r["median"]), fmt(r["p75"]), fmt(r["value"])) for r in rows])
-
-
 def cmd_record_priors(db, a):
     rows = []
     for spec in a.priors:
@@ -1182,113 +1095,6 @@ def run_ok(db):
 def recommend_runs(rows, ok):
     return [{**{k: cell_value(r, k) for k in GROUPS}, "tier": tier_key(r["tier"]), "ok": ok(r), "minutes": r["minutes"],
              "cost_usd": r["cost_usd"], "outcome": r["outcome"]} for r in rows if not unjudged(r)]
-
-
-def cmd_recommend(db, a):
-    asked = brief_fields(a.facets)
-    if "category" not in asked or asked["category"] not in CATEGORIES:
-        raise Refused(f"recommend needs `Category: <one of {', '.join(CATEGORIES)}>` in {a.facets!r}")
-    if a.planner:
-        return north_ledger("recommend", "--planner", a.facets)
-    asked = {k: v for k, v in asked.items() if k in GROUPS}
-    operator = Path(os.environ.get("AGENTS_OPERATOR_DIR") or Path.home() / "code/south/main/agents")
-    config = Path(os.environ.get("AGENTS_ORCHESTRATION") or operator / "orchestration.toml")
-    try:
-        with config.open("rb") as f:
-            cfg = tomllib.load(f)
-        mode, _, wanted = resolve_mode(cfg)
-    except (OSError, ValueError) as e:
-        raise Refused(f"cannot resolve recommendation mode from {config}: {e}")
-    runs = recommend_runs(db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"
-                                     " AND ended >= ?", (a.since or "",)), run_ok(db))
-    incumbent = dict(db.execute("SELECT cell, tier FROM tier_choice").fetchall())
-    default_tier = DEFAULT_TIER
-    if mode == "codex-only":
-        allowed = [key for key in cfg.get("tiers", {}) if key.split(":")[0] in wanted]
-        runs = [r for r in runs if r["tier"] in allowed]
-        full = bands_of(cfg.get("tiers", {}))
-        default_start = next((lo for lo, _, tier in full if tier == DEFAULT_TIER), None)
-        default_tier = next((tier for lo, hi, tier in resolve_bands(full, allowed)
-                             if default_start is not None and lo <= default_start < hi), None)
-        if default_tier is None:
-            raise Refused(f"no mode-allowed band for default tier {DEFAULT_TIER}")
-    cell, n, tier, stats, rule = recommend(runs, asked, incumbent, default_tier=default_tier)
-    if tier is not None and incumbent.get(cell) != tier:
-        with Tx(db):
-            db.execute("INSERT INTO tier_choice(cell, tier, since) VALUES (?,?,?) ON CONFLICT(cell) DO UPDATE SET"
-                       " tier = excluded.tier, since = excluded.since", (cell, tier, now()))
-    print(f"tier {tier}  cell [{cell}]  n {n}" if tier is not None else f"insufficient evidence  cell [{cell}]  n {n}")
-    print(f"success threshold {SUCCESS_THRESHOLD}%  rule {rule}")
-    for t, st in sorted(stats.items(), key=lambda kv: tier_rank(kv[0])):
-        usd = f"${st['usd']:.2f}/success" if st["usd"] is not None else "$ n/a"
-        print(f"  {t:<18} {st['rate']}% of {st['n']}  {usd} (priced n={st['usd_n']})")
-    if tier is None:
-        return
-    eta, eta_n, eta_cell = recommend_eta(runs, cell, tier)
-    scale, label = latest_calibration(db, "eta_pred", tier)
-    usd, usd_n = recommend_usd(runs, asked["category"], tier)
-    usd_scale, usd_label = latest_calibration(db, "usd", tier)
-    cost = f"  ${scaled(usd, usd_scale, whole=False):.2f} (median of n={usd_n}, {usd_label})" if usd else f"  $ n/a ({usd_label})"
-    if mode == "codex-only":
-        fields = brief_fields(cell)
-        samples = [r["minutes"] for r in runs if r["tier"] == tier and r["minutes"] is not None
-                   and all(r.get(k) == v for k, v in fields.items())]
-        print((f"eta {median(samples)}m (actual_med of n={len(samples)}, cell {cell}, tier {tier})" if len(samples) >= MIN_RUNS
-               else f"eta n/a (n={len(samples)})") + cost)
-        return
-    print((f"eta {scaled(eta, scale)}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label})" if eta_n
-           else "eta n/a (n=0)") + cost)
-
-
-def cmd_replay_staffing(db, a):
-    since = since_start(a.since, now())
-    rows = [dict(r) for r in db.execute("SELECT * FROM runs WHERE role = 'worker' AND follows IS NULL AND outcome != 'split'"
-                                        " ORDER BY ended") if not unjudged(r)]
-    followed: dict = {}
-    for f, ended in db.execute("SELECT follows, ended FROM runs WHERE role = 'worker' AND follows IS NOT NULL"):
-        followed[f] = min(ended, followed.get(f, ended))
-    final = run_ok(db)
-    by_cat: dict = {}
-    for r in rows:
-        by_cat.setdefault(cell_value(r, "category"), []).append(r)
-    old_held: dict = {}
-    new_held: dict = {}
-    decisions, changes = 0, {}
-    for x in (r for r in rows if r["ended"] >= since and cell_value(r, "category") != "unknown"):
-        at = x["started"] or x["ended"]
-        asked = {k: cell_value(x, k) for k in GROUPS if cell_value(x, k) != "-"}
-
-        def ok_then(r):
-            return succeeded(r, r["agent"] in followed and followed[r["agent"]] < at)
-
-        hist = [r for r in by_cat[asked["category"]] if r["ended"] < at]
-        new_runs = recommend_runs(hist, ok_then)
-        old_runs = [r for r in recommend_runs([r for r in hist if r["tier"] in OLD_TIERS], ok_then)]
-        cell, _, old, _, _ = recommend(old_runs, asked, old_held, priced=False)
-        old_held[cell] = old
-        cell, _, new, stats, rule = recommend(new_runs, asked, new_held)
-        new_held[cell] = new
-        decisions += 1
-        if old == new:
-            continue
-        c = changes.setdefault((cell, old, new), {"runs": 0, "new": 0, "new_ok": 0, "old": 0, "old_ok": 0, "other": 0})
-        c["runs"] += 1
-        c["stats"], c["rule"] = stats, rule
-        actual = tier_key(x["tier"])
-        side = "new" if actual == new else "old" if actual == old else "other"
-        c[side] += 1
-        if side != "other":
-            c[side + "_ok"] += final(x)
-    print(f"replay-staffing since {since or 'all'}: {decisions} first-assignment runs, picks from strictly earlier runs")
-    for (cell, old, new), c in sorted(changes.items(), key=lambda kv: (-kv[1]["runs"], tuple(str(x) for x in kv[0]))):
-        print(f"[{cell}]  {old} -> {new}  runs {c['runs']}  rule {c['rule']}")
-        for t in (new, old):
-            if t in c["stats"]:
-                print(f"  {stat_text(t, c['stats'][t])}")
-        print(f"  actual: new pick {c['new']} ({c['new_ok']} ok), old pick {c['old']} ({c['old_ok']} ok), other {c['other']}")
-    total = {k: sum(c[k] for c in changes.values()) for k in ("runs", "new", "new_ok", "old", "old_ok", "other")}
-    print(f"changed {total['runs']} of {decisions} decisions in {len({k[0] for k in changes})} cells; actual tier was the new pick "
-          f"{total['new']} ({total['new_ok']} ok), the old pick {total['old']} ({total['old_ok']} ok), another {total['other']}")
 
 
 def table(out):
@@ -1410,34 +1216,11 @@ def parser() -> argparse.ArgumentParser:
             "and accepted flaws per reviewer Lens")
     s.add_argument("--since", help="only runs that ended on or after DATE")
     s.add_argument("--group", default="category", help=f"comma list of {', '.join(GROUPS)} (default category)")
-    s = cmd("recommend", cmd_recommend,
-            f"tier (an orchestration.toml key, every provider) whose first-assignment runs reported Done with no later "
-            "Follows: run (and landed when it committed) at an 80%% measured success threshold in the finest "
-            f"cell holding a tier with >= {MIN_RUNS} runs, backing off {', '.join(BACKOFF)}; among passing tiers the cheapest "
-            f"by measured $ per success, by tier order when one has under {USD_MIN} priced runs; a dearer tier replaces the "
-            f"cell's last recommendation only when it beats it by {MARGIN} points on >= {MIN_RUNS} runs each")
-    s.add_argument("--planner", action="store_true", help="measured planner effort band from nearest past items")
-    s.add_argument("facets", help="brief facet lines, e.g. 'Item: firn#12, Category: tooling, Spec: measured, Scope: one-file'")
-    s.add_argument("--since", help="only runs that ended on or after DATE")
     cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and leave-one-out accuracy per input set")
     cmd("routing-compare", cmd_routing_compare, "read-only campaign arms by category: landed items, speed, quality, review minutes and account points")
-    s = cmd("calibrate", cmd_calibrate,
-            f"predicted against actual per provider: eta (minutes / brief ETA), eta_pred (minutes / recommend's p75 "
-            "replayed from strictly earlier runs) and usd ($ / median $ per done run of the category and tier, replayed); "
-            f"value is the scale covering {CAL_TARGET:.0%}".replace("%", "%%") + ", and recommend applies the newest eta_pred and usd rows unless "
-            f"n < {CAL_FLOOR} or older than {CAL_MAX_DAYS} days")
-    s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
-    s.add_argument("--json", action="store_true")
-    s.add_argument("--write", action="store_true", help="append the rows to the calibration table")
-    s.add_argument("--goal-row", help="with --write, append one goal_eta or goal_actual row (JSON: kind, cell, n, value, source)"
-                   " instead of measuring")
     s = cmd("record-priors", cmd_record_priors, "append one calibration row of kind prior per default: cell NAME, n its "
             "settling count, value the count it needs, and the measured VALUE in source")
     s.add_argument("priors", nargs="+", metavar="NAME:N:NEED[:VALUE]")
-    s = cmd("replay-staffing", cmd_replay_staffing, "walk forward over first-assignment worker runs in the window: the old "
-            "pick (Claude tiers by rank) and the new pick (every provider, $ per success) from strictly earlier runs, the "
-            "cells where they differ with their history, and whether each run's actual tier and outcome agree")
-    s.add_argument("--since", default="7d", help="window: Nd, Nh or a DATE (default 7d)")
     return p
 
 
@@ -1567,7 +1350,7 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "run-ids")
+RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "run-ids", "recommend", "calibrate", "replay-staffing")
 
 
 def delegate(argv) -> int:
