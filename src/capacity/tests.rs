@@ -1,5 +1,5 @@
 use super::admission::{Admission, Class, Facts, Profile, Reason, admit, decide};
-use super::native_hold::QuietNative;
+use super::native_hold::{LeaseFact, QuietNative};
 
 pub(super) fn facts(class: Class) -> Facts {
     Facts {
@@ -327,9 +327,22 @@ fn the_warcraft_client_cap_follows_measured_free_bar1_and_vram_under_its_static_
 fn a_heavy_build_waits_while_the_root_disk_is_under_its_floor_and_names_the_free_space() {
     let low = Facts { disk_free_gib: Some(9.5), ..facts(Class::Heavy) };
     assert_eq!(admit(&low, |_| None), Admission { reason: Reason::DeferDiskFree, offload: None, aperture: None, disk_free_gib: Some(9.5), pair: None, quiet_owners: Vec::new() });
-    assert_eq!(decide(&Facts { disk_free_gib: Some(15.0), ..facts(Class::Heavy) }), Reason::Run);
+    assert_eq!(decide(&Facts { disk_free_gib: Some(20.0), ..facts(Class::Heavy) }), Reason::Run);
     assert_eq!(decide(&Facts { disk_free_gib: None, ..facts(Class::Heavy) }), Reason::Run);
     assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..facts(Class::Agent) }), Reason::Run);
+}
+
+fn running(class: &str) -> LeaseFact {
+    LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, quiet_seconds: None, usage: None }
+}
+
+#[test]
+fn a_heavy_build_reserves_a_target_for_itself_and_each_running_heavy_build_before_the_disk_floor() {
+    let on = |disk_free_gib: f64, classes: &[&str]| Facts { disk_free_gib: Some(disk_free_gib), leases: classes.iter().map(|class| running(class)).collect(), ..facts(Class::Heavy) };
+    assert_eq!(decide(&on(19.9, &[])), Reason::DeferDiskFree, "15 GiB floor plus its own 5 GiB target");
+    assert_eq!(decide(&on(30.0, &["heavy", "heavy"])), Reason::Run);
+    assert_eq!(decide(&on(29.9, &["heavy", "heavy"])), Reason::DeferDiskFree, "two running builds still write their targets");
+    assert_eq!(decide(&on(20.0, &["moderate", "native"])), Reason::Run, "only heavy builds reserve a target");
 }
 
 fn reserved(class: Class) -> Facts {

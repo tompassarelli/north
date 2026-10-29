@@ -620,6 +620,13 @@ source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/2
 fallback = "an unreadable disk admits, as before"
 consumers = ["src/capacity/admission.rs", "src/capacity/saturation.rs"]
 
+[build_disk_reserve_gib]
+value = 5
+unit = "GiB of root disk admission sets aside for each heavy build already running and for the one asking, before comparing what is left with build_disk_free_gib"
+source = "measured: one north lane's target/ held 4.9 GiB when the GPU host's root disk filled at 6:12 PM on 2026-10-29 and stranded six lanes, after heavy builds admitted above the floor wrote their targets at once (north#336)"
+fallback = "none: a heavy build that would leave less than the floor after the reserves waits as DEFER_DISK_FREE"
+consumers = ["src/capacity/admission.rs"]
+
 [launch_queue_limit]
 value = 4
 unit = "jobs queued for machine-capacity admission on a host at or above which placement skips it for a new launch"

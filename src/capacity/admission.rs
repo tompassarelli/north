@@ -318,13 +318,17 @@ fn memory(facts: &Facts) -> Option<Reason> {
         .then_some(Reason::DeferMemoryCapacity)
 }
 
-/// A heavy build is deferred while the root filesystem has less than the floor free; an unread disk admits.
+/// A heavy build is deferred while it would take the root filesystem under the floor; an unread disk admits.
 fn disk_short(facts: &Facts) -> bool {
     facts.class == Class::Heavy && disk_below_floor(facts)
 }
 
+/// Whether the free space, less a target's reserve for every heavy build already running and for
+/// this one, is under the floor: builds admitted above it still write their targets afterwards.
 fn disk_below_floor(facts: &Facts) -> bool {
-    facts.disk_free_gib.is_some_and(|free| free < default_mib("build_disk_free_gib"))
+    let builds = facts.leases.iter().filter(|lease| lease.class == "heavy").count() + 1;
+    let reserved = builds as f64 * default_mib("build_disk_reserve_gib");
+    facts.disk_free_gib.is_some_and(|free| free - reserved < default_mib("build_disk_free_gib"))
 }
 
 fn memory_floor_mib(profile: Profile, total: f64) -> f64 {
