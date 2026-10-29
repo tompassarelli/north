@@ -59,10 +59,10 @@ test("a launch the first account cannot take is retried once on the account plac
   expect(launches).toHaveLength(2); expect(launches[0]).toContain("--account b"); expect(launches[1]).toContain("--account c");
 });
 
-test("a launch placement refuses on every account is an error that releases the lock", () => {
-  const { root, env } = scratch(`echo "FIRE days 7"`);
-  writeFileSync(join(root, "north"), "#!/usr/bin/env bash\nexit 1\n");
+test("a launch placement refuses on every account is an error, and one refused because this host is saturated is deferred; both release the lock", () => {
+  const { root, env } = scratch(`echo "FIRE days 7"`); writeFileSync(join(root, "north"), "#!/usr/bin/env bash\nexit 1\n");
   expect(tickRepo("smashcraft", { ...env, dryRun: false }, () => {}).result).toBe("error"); expect(existsSync(join(env.stateRoot, "smashcraft/review.lock"))).toBe(false);
+  writeFileSync(join(root, "north"), `#!/usr/bin/env bash\necho 'error: whiterabbit skipped: 5-minute load 36.1 over 24 cores; launch from another host, or keep it here with --local "<reason>"' >&2\nexit 1\n`); expect(tickRepo("smashcraft", { ...env, dryRun: false }, () => {}).result).toBe("deferred"); expect(existsSync(join(env.stateRoot, "smashcraft/review.lock"))).toBe(false);
 });
 
 test("a failed fetch is an error that releases the lock, not quiet", () => {

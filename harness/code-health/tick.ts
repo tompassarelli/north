@@ -17,7 +17,7 @@ export type TickEnv = {
   now: () => Date;
 };
 
-export type Outcome = { repo: string; result: "quiet" | "held" | "started" | "missing" | "error"; detail: string };
+export type Outcome = { repo: string; result: "quiet" | "held" | "deferred" | "started" | "missing" | "error"; detail: string };
 
 const shellQuote = (word: string) => (/^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
 
@@ -67,18 +67,15 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
   const name = reviewName(repo, env.now());
   const state = join(env.stateRoot, repo), lock = join(state, "review.lock");
   if (!acquire(lock, name, env)) return { repo, result: "held", detail: `review lock ${lock}` };
-  const release = (detail: string): Outcome => {
+  const release = (detail: string, result: Outcome["result"] = "error"): Outcome => {
     rmSync(lock, { force: true });
-    return { repo, result: "error", detail };
+    return { repo, result, detail };
   };
 
   const fetched = run(["git", "-C", checkout, "fetch", "-q", "origin"], checkout);
   if (fetched.code !== 0) return release(`fetch origin failed: ${fetched.stderr.trim()}`);
   const signal = run([...env.codeHealth, "signal", "--repo", checkout, "--rev", "origin/main"], checkout);
-  if (signal.code === 1) {
-    rmSync(lock, { force: true });
-    return { repo, result: "quiet", detail: "quiet" };
-  }
+  if (signal.code === 1) return release("quiet", "quiet");
   const reasons = signal.stdout.split("\n").filter((line) => line.startsWith("FIRE"));
   if (signal.code !== 0 || reasons.length === 0) return release(`signal exit ${signal.code}: ${signal.stderr.trim()}`);
 
@@ -95,19 +92,22 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
     date: env.now().toISOString().slice(0, 10),
   }));
 
-  const launchOn = (account: string) => [env.north, "fleet", "launch", "--provider", "claude", "--name", name,
-    "--system-prompt", brief, "--cwd", checkout, "--account", account,
-    `Review the code-health report for ${repo} and land the bounded maintenance changes it identifies.`];
+  const started = launch((account) => [env.north, "fleet", "launch", "--provider", "claude", "--name", name,
+    "--system-prompt", brief, "--cwd", checkout, "--account", account, `Review the code-health report for ${repo} and land the bounded maintenance changes it identifies.`], checkout, env, print);
+  if (started.code !== 0 && /launch from another host/.test(started.stderr + started.stdout)) return release(`host saturated, the next tick retries: ${started.stderr.trim().split("\n").at(-1)}`, "deferred");
+  if (started.code !== 0) return release(`fleet launch exit ${started.code}: ${(started.stderr || started.stdout).trim()}`);
+  return { repo, result: "started", detail: `${env.dryRun ? "dry-run " : ""}${name} (${reasons.join("; ")})` };
+}
+
+function launch(launchOn: (account: string) => string[], checkout: string, env: TickEnv, print: (line: string) => void) {
   const account = run([env.north, "fleet", "accounts"], checkout).stdout.split("\n").find((line) => line.startsWith("claude\t"))?.split("\t")[1] ?? "a";
   if (env.dryRun) {
     print(`dry-run: ${launchOn(account).map(shellQuote).join(" ")}`);
-    return { repo, result: "started", detail: `dry-run ${name} (${reasons.join("; ")})` };
+    return { code: 0, stdout: "", stderr: "" };
   }
-  let started = run(launchOn(account), checkout);
+  const started = run(launchOn(account), checkout);
   const picked = PLACEMENT_PICK.exec(started.stderr + started.stdout)?.[1];
-  if (started.code !== 0 && picked && picked !== account) started = run(launchOn(picked), checkout);
-  if (started.code !== 0) return release(`fleet launch exit ${started.code}: ${(started.stderr || started.stdout).trim()}`);
-  return { repo, result: "started", detail: `${name} (${reasons.join("; ")})` };
+  return started.code !== 0 && picked && picked !== account ? run(launchOn(picked), checkout) : started;
 }
 
 export function defaultEnv(argv: string[]): { env: TickEnv; repos: string[] } {
