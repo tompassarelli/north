@@ -59,19 +59,30 @@ pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
         .collect()
 }
 
-/// The names of fleet sessions that some listing shows and none shows running: a claim they made
-/// holds nothing, as a session that has stopped cannot be working it.
+/// The names of fleet sessions that some listing shows and none shows running: their launches no
+/// longer hold their items.
 pub(crate) fn stopped_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
-    let named = |running: bool| -> BTreeSet<String> {
+    names_outside(fleets, &RUNNING)
+}
+
+/// The names of fleet sessions that some listing shows and none shows running or parked: a claim
+/// they made holds nothing, while a parked owner's claim holds until it is stale, as `threads
+/// claim` refuses on it.
+pub(crate) fn exited_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
+    names_outside(fleets, &[RUNNING.as_slice(), &["parked"]].concat())
+}
+
+fn names_outside(fleets: &[(String, Value)], holding: &[&str]) -> BTreeSet<String> {
+    let named = |inside: bool| -> BTreeSet<String> {
         fleets
             .iter()
             .flat_map(|(_, listing)| listing.as_array().into_iter().flatten())
-            .filter(|session| RUNNING.contains(&session["status"].as_str().unwrap_or_default()) == running)
+            .filter(|session| holding.contains(&session["status"].as_str().unwrap_or_default()) == inside)
             .filter_map(|session| session["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned))
             .collect()
     };
-    let running = named(true);
-    named(false).into_iter().filter(|name| !running.contains(name)).collect()
+    let held = named(true);
+    named(false).into_iter().filter(|name| !held.contains(name)).collect()
 }
 
 /// The names of dispatch launches whose sessions no longer hold their items: sessions some listing

@@ -145,7 +145,7 @@ impl World {
                 }
             }
         }
-        let stopped = fleets::stopped_names(&self.listings());
+        let stopped = fleets::exited_names(&self.listings());
         for (held, why) in claim_rows(&self.threads(), "gex45", &stopped) {
             holds.entry(held).or_insert(why);
         }
@@ -221,7 +221,7 @@ fn check_tries(world: &World, trail: &str, broken: &mut Broken) {
 
 fn check_claims(world: &World, trail: &str, broken: &mut Broken) {
     let listings = world.listings();
-    let stopped = fleets::stopped_names(&listings);
+    let stopped = fleets::exited_names(&listings);
     for (name, status) in &world.gex45 {
         let running_elsewhere = world.nexus.get(name).is_some_and(|other| *other == "idle");
         broken.expect("a session is stopped only when no host shows it running", stopped.contains(name) == (*status == "exited" && !running_elsewhere), || format!("{name}\n{trail}"));
