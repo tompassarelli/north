@@ -107,7 +107,7 @@ fn accounts_from(rows: &[&Row], db: &Connection, now: Timestamp) -> Result<Map<S
         if kind != Some("grant") {
             let age = py::minutes_precise(py::parse(row.text("ts").unwrap_or_default())?, now);
             let previous = account["age_min"].as_f64();
-            account["age_min"] = json!(previous.map_or(age, |previous| previous.max(age)));
+            account["age_min"] = json!(previous.map_or(age, |previous| previous.min(age)));
         }
         let window = row.number("used_pct").zip(row.text("resets_at").filter(|text| !text.is_empty()));
         if let (Some("window"), Some((used, resets_at))) = (kind, window) {

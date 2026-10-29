@@ -94,7 +94,7 @@ fn accounts_from(rows: &[Reading], ledger: &Ledger, now: Timestamp) -> BTreeMap<
         });
         if row.kind != "grant" {
             let age = instant(&row.ts).map_or(0.0, |read| (now.unix_nanos() - read.unix_nanos()) as f64 / 6e10);
-            account.age_min = Some(account.age_min.map_or(age, |known| known.max(age)));
+            account.age_min = Some(account.age_min.map_or(age, |known| known.min(age)));
         }
         if row.kind == "window" {
             let (Some(used), Some(resets)) = (row.used_pct, row.resets_at.as_deref().filter(|text| !text.is_empty())) else {

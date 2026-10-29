@@ -338,3 +338,21 @@ fn arguments_only_the_python_verbs_serve_are_left_to_them() {
     assert!(handled("--refresh --local --json") && handled("--fast claude --cached --domain lead") && handled("--write-pace-gate --fast claude"));
     assert!(!handled("--reservation-json") && !handled("--fast") && !handled("--gate claude"));
 }
+
+#[test]
+fn one_window_a_refresh_did_not_reread_cannot_hold_a_freshly_read_account_stale_at_the_spawn_gate() {
+    let refusal = |fable_ts: &str, fresh_ts: &str| {
+        let rows = serde_json::json!([
+            [fresh_ts, "claude", "a", "window", "session", 20.0, 300, "2026-10-28T14:00:00Z", null, "headers"],
+            [fresh_ts, "claude", "a", "window", "weekly_all", 10.0, 10080, "2026-11-03T00:00:00Z", null, "headers"],
+            [fable_ts, "claude", "a", "window", "weekly_scoped/Fable", 0.0, 10080, "2026-11-03T00:00:00Z", null, "web"],
+            [fable_ts, "claude", "a", "billing", "extra_usage", null, null, null, 0.0, "web"],
+        ]);
+        let scratch = Scratch::new(&serde_json::json!({"rows": rows, "orchestration": include_str!("../router/fixtures/policy/orchestration.toml")}));
+        let gate = super::gate::write(&scratch.open(), &["claude"], &scratch.places(), frozen()).unwrap();
+        gate["claude"]["refusals"]["claude"].clone()
+    };
+    assert_eq!(refusal("2026-10-28T10:39:00Z", "2026-10-28T11:59:00Z"), Value::Null);
+    let held = refusal("2026-10-28T10:39:00Z", "2026-10-28T10:39:00Z");
+    assert!(held.as_str().is_some_and(|why| why.contains("usage snapshot is 81 minutes old even after a refresh")), "{held}");
+}
