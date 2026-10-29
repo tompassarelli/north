@@ -332,6 +332,42 @@ fn a_heavy_build_waits_while_the_root_disk_is_under_its_floor_and_names_the_free
     assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..facts(Class::Agent) }), Reason::Run);
 }
 
+fn reclaiming_host(reclaim_disk: fn() -> Option<f64>) -> super::Host {
+    super::Host { serving: |_| None, warcraft_clients: || None, bar1_margin_mib: || None, offload: |_| 0, lease_builds: || false, reclaim_disk }
+}
+
+#[test]
+fn a_disk_floor_deferral_reclaims_once_and_admits_when_the_reclaim_freed_enough() {
+    static RECLAIMS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let host = reclaiming_host(|| {
+        RECLAIMS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(60.0)
+    });
+    let mut low = Facts { disk_free_gib: Some(9.5), ..facts(Class::Heavy) };
+    let deferred = admit(&low, |_| None);
+    assert_eq!(super::reclaim_before_disk_defer(&mut low, deferred, &host).reason, Reason::Run);
+    assert_eq!((RECLAIMS.load(std::sync::atomic::Ordering::SeqCst), low.disk_free_gib), (1, Some(60.0)));
+
+    let mut roomy = Facts { disk_free_gib: Some(60.0), ..facts(Class::Heavy) };
+    let admitted = admit(&roomy, |_| None);
+    assert_eq!(super::reclaim_before_disk_defer(&mut roomy, admitted, &host).reason, Reason::Run);
+    assert_eq!(RECLAIMS.load(std::sync::atomic::Ordering::SeqCst), 1, "an admission that does not defer on the disk never reclaims");
+}
+
+#[test]
+fn a_disk_floor_deferral_that_one_reclaim_cannot_lift_stays_deferred_after_exactly_one_reclaim() {
+    static RECLAIMS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let host = reclaiming_host(|| {
+        RECLAIMS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(11.0)
+    });
+    let mut low = Facts { disk_free_gib: Some(9.5), ..facts(Class::Heavy) };
+    let deferred = admit(&low, |_| None);
+    let after = super::reclaim_before_disk_defer(&mut low, deferred, &host);
+    assert_eq!((after.reason, after.disk_free_gib), (Reason::DeferDiskFree, Some(11.0)));
+    assert_eq!(RECLAIMS.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
 fn running(class: &str) -> LeaseFact {
     LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, quiet_seconds: None, usage: None }
 }

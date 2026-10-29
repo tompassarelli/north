@@ -7,15 +7,15 @@ use rustix::fs::{FlockOperation, flock};
 
 use super::{Inputs, Policy, reclaim, summary};
 
-const DAY: Duration = Duration::from_secs(24 * 3600);
+pub(super) const DAY: Duration = Duration::from_secs(24 * 3600);
 
-struct Machine {
+pub(super) struct Machine {
     root: tempfile::TempDir,
-    now: SystemTime,
+    pub(super) now: SystemTime,
 }
 
 impl Machine {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         for dir in ["tmp", "proc", "clients", "state", "code", "cache"] {
             fs::create_dir(root.path().join(dir)).unwrap();
@@ -23,11 +23,11 @@ impl Machine {
         Self { root, now: SystemTime::now() + 2 * DAY }
     }
 
-    fn path(&self, relative: &str) -> PathBuf {
+    pub(super) fn path(&self, relative: &str) -> PathBuf {
         self.root.path().join(relative)
     }
 
-    fn dir(&self, relative: &str, age: Duration) -> PathBuf {
+    pub(super) fn dir(&self, relative: &str, age: Duration) -> PathBuf {
         let path = self.path(relative);
         fs::create_dir_all(&path).unwrap();
         touch(&path, self.now - age);
@@ -42,7 +42,7 @@ impl Machine {
         path
     }
 
-    fn inputs(&self) -> Inputs {
+    pub(super) fn inputs(&self) -> Inputs {
         Inputs {
             tmp: self.path("tmp"),
             proc_root: self.path("proc"),
@@ -50,6 +50,8 @@ impl Machine {
             cache: self.path("cache"),
             lan_clients: self.path("clients"),
             lan_state: self.path("state"),
+            evidence: self.path("evidence"),
+            open_issue_text: || Ok(String::new()),
             uid: rustix::process::getuid().as_raw(),
             now: self.now,
         }
@@ -63,7 +65,7 @@ impl Machine {
     }
 }
 
-fn touch(path: &Path, at: SystemTime) {
+pub(super) fn touch(path: &Path, at: SystemTime) {
     File::open(path).unwrap().set_modified(at).unwrap();
 }
 

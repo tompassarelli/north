@@ -42,6 +42,7 @@ pub(crate) struct Host {
     pub(crate) bar1_margin_mib: fn() -> Option<u32>,
     pub(crate) offload: fn(&[String]) -> u8,
     pub(crate) lease_builds: fn() -> bool,
+    pub(crate) reclaim_disk: fn() -> Option<f64>,
 }
 
 fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
@@ -107,6 +108,7 @@ pub(crate) fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admiss
     }
     facts.gaming |= facts.game_reserve_agent_cpus.is_some() || agent_load::gaming_marked(&agent_load::capacity_root());
     facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
+    let disk_measured = facts.disk_free_gib.is_none();
     facts.disk_free_gib = facts.disk_free_gib.or_else(root_disk_free_gib);
     facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
     facts.host_bar1_margin_mib = facts.host_bar1_margin_mib.or_else(host.bar1_margin_mib);
@@ -123,6 +125,7 @@ pub(crate) fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admiss
     facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
     facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
     let admitted = admission::admit(&facts, host.serving);
+    let admitted = if disk_measured { reclaim_before_disk_defer(&mut facts, admitted, host) } else { admitted };
     if let Some(ticket) = facts.ticket.as_deref().filter(|_| admitted.reason != admission::Reason::Run) {
         note_reason(ticket, admitted.reason);
     }
@@ -152,7 +155,21 @@ fn note_reason(ticket: &std::path::Path, reason: admission::Reason) {
     }
 }
 
-fn root_disk_free_gib() -> Option<f64> {
+/// Gives a DEFER_DISK_FREE one reclaim and decides again on the free space it leaves; every other admission passes through.
+pub(crate) fn reclaim_before_disk_defer(facts: &mut Facts, admitted: admission::Admission, host: &Host) -> admission::Admission {
+    if admitted.reason != admission::Reason::DeferDiskFree {
+        return admitted;
+    }
+    match (host.reclaim_disk)() {
+        Some(free) => {
+            facts.disk_free_gib = Some(free);
+            admission::admit(facts, host.serving)
+        }
+        None => admitted,
+    }
+}
+
+pub(crate) fn root_disk_free_gib() -> Option<f64> {
     if let Some(fixture) = std::env::var("AGENT_CAPACITY_DISK_FREE_GIB").ok().and_then(|gib| gib.parse().ok()) {
         return Some(fixture);
     }

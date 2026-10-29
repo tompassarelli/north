@@ -664,6 +664,28 @@ settles_when = { need = 20, count = "count_worker_runs", what = "worker runs ava
 fallback = "an unreadable setting archives nothing"
 consumers = ["src/ops/retention/family.rs"]
 
+[evidence_budget_gib]
+value = 15
+unit = "GiB of allocated disk the GPU host's Smashcraft evidence store may hold; north reclaim, north evidence start and a disk-floor admission delete its oldest runs past it"
+source = "measured: on the GPU host at 2:35 AM on 2026-10-30 evidence held 30 GB of a 468 GB root disk at 95% full with 26 GB free; Tom set 15 GB for blocker 5 of the landing-blockers audit (2026-10-30)"
+fallback = "an unreadable setting panics; the value is compiled in from this file"
+consumers = ["src/ops/reclaim/evidence_budget.rs"]
+
+[evidence_min_age_hours]
+value = 24
+unit = "hours since its newest change under which the evidence budget never deletes a run"
+source = "measured: on the GPU host at 2:35 AM on 2026-10-30 evidence held 30 GB with the root disk 95% full; Tom set 24 h for blocker 5 of the landing-blockers audit (2026-10-30), so a lane's current runs survive the budget"
+fallback = "an unreadable setting panics; the value is compiled in from this file"
+consumers = ["src/ops/reclaim/evidence_budget.rs"]
+
+[disk_reclaim_cooldown_minutes]
+value = 10
+unit = "minutes after one disk-floor reclaim during which admission returns DEFER_DISK_FREE without reclaiming again"
+source = "prior: a deferred ticket asks admission again every few seconds, and one reclaim walks /tmp, every checkout's target/ and the caches and may read open issues over gh; ten minutes lets a queue of deferred tickets share one reclaim"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how often deferred tickets ask admission and how long one reclaim takes on the GPU host" }
+fallback = "an unreadable setting panics; the value is compiled in from this file"
+consumers = ["src/ops/reclaim/mod.rs"]
+
 [capture_batch_retention_hours]
 value = 24
 unit = "hours since the newest change after which an unopened Smashcraft capture-queue batch on the GPU host is archived to the laptop and deleted there"
