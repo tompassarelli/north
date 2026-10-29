@@ -1,4 +1,5 @@
 //! `threads queue`: add queues a job for a placement, take claims the oldest for some placements,
+//! take also records that its --by poller polled for those placements, so the list can name why a job still waits;
 //! msg records its result on the job's issue, drop retires a queued one; follows boxes wait here
 //! for follows-release.
 use std::io::Read;
@@ -10,6 +11,9 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use crate::threads::verb::{Args, Context, Failure, Outcome, event, immediate, integer, is_native_ref, item_ref, open, table, text_or_null};
 use crate::foundation::clock::Timestamp;
 use crate::platform::pyjson::{self, Value};
+
+const POLL: &str = "queue-poll:";
+const STALLED_MINUTES: i64 = 5;
 
 static FOLLOWS_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\W*Follows:[ \t]*`?(.+?)`?[ \t]*$").expect("follows pattern"));
 
@@ -64,7 +68,7 @@ pub(super) fn run(argv: &[String], context: &Context, stdin: &mut dyn Read) -> O
         "follow-list" => follow_list(context),
         "follow-release" | "follow-started" | "follow-alert" => follow_step(name, rest, context),
         "add" => add(rest, context),
-        "take" => take(rest, context),
+        "take" => take(rest, context, &by),
         "msg" => msg(rest, context, &by),
         "drop" => drop(rest, context, &by),
         other => Err(Failure::Usage(format!("unknown action {other}"))),
@@ -162,16 +166,22 @@ fn add(argv: &[String], context: &Context) -> Outcome {
     insert(context, placement, item.as_deref(), &Value::Array(cmd.iter().map(|word| word.as_str().into()).collect()))
 }
 
-fn take(argv: &[String], context: &Context) -> Outcome {
-    let [placements] = argv else { return Err(Failure::Usage("usage: threads queue take PLACEMENT[,PLACEMENT...]".into())) };
-    let placements: Vec<&str> = placements.split(',').collect();
+fn take(argv: &[String], context: &Context, by: &str) -> Outcome {
+    let [named] = argv else { return Err(Failure::Usage("usage: threads queue [--by POLLER] take PLACEMENT[,PLACEMENT...]".into())) };
+    let placements: Vec<&str> = named.split(',').collect();
     let marks = vec!["?"; placements.len()].join(",");
     let mut db = open(context.database, true)?;
     let tx = immediate(&mut db)?;
+    let name = format!("{POLL}{named}");
+    tx.execute("DELETE FROM job_runs WHERE name = ?1 AND host = ?2", params![name, by])?;
+    tx.execute("INSERT INTO job_runs(name, host, started, finished, rc) VALUES (?1, ?2, ?3, ?3, 0)", params![name, by, context.now.iso()])?;
     let found = tx
         .query_row(&format!("SELECT {JOB} FROM job_queue WHERE placement IN ({marks}) AND state IN ('queued','requeued') ORDER BY id LIMIT 1"), params_from_iter(&placements), job)
         .optional()?;
-    let Some(found) = found else { return Ok(String::new()) };
+    let Some(found) = found else {
+        tx.commit()?;
+        return Ok(String::new());
+    };
     tx.execute("UPDATE job_queue SET state = 'taken', taken = ?1 WHERE id = ?2", params![context.now.iso(), found.id])?;
     tx.commit()?;
     let taken = Value::object([("id", integer(found.id)), ("placement", found.placement.as_str().into()), ("item", text_or_null(found.item.clone())), ("cmd", cmd_of(&found)?)]);
@@ -240,8 +250,10 @@ fn list(context: &Context, json: bool) -> Outcome {
     let mut statement = db.prepare(&sql)?;
     let rows = statement.query_map([], |row| Ok((job(row)?, row.get::<_, Option<String>>(9)?, row.get::<_, Option<String>>(10)?)))?;
     let rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let polls = polls(&db)?;
     if json {
         let jobs = rows.into_iter().map(|(job, host, _)| {
+            let waiting = waiting(&job, &polls, context.now);
             Value::object([
                 ("id", integer(job.id)),
                 ("placement", job.placement.into()),
@@ -250,6 +262,7 @@ fn list(context: &Context, json: bool) -> Outcome {
                 ("taken", text_or_null(job.taken)),
                 ("finished", text_or_null(job.finished)),
                 ("host", text_or_null(host)),
+                ("waiting", text_or_null(waiting)),
             ])
         });
         return Ok(format!("{}\n", pyjson::dumps(&Value::Array(jobs.collect()))));
@@ -265,7 +278,35 @@ fn list(context: &Context, json: bool) -> Outcome {
         let tail = [job.finished.clone().unwrap_or_else(|| "-".into()), run.clone().unwrap_or_else(|| "-".into()), follows_text(&cmd_of(job)?)];
         out.push([line.to_vec(), tail.to_vec()].concat());
     }
-    Ok(table(&out))
+    let reasons: String = rows.iter().filter_map(|(job, _, _)| waiting(job, &polls, context.now)).map(|reason| format!("{reason}\n")).collect();
+    Ok(table(&out) + &reasons)
+}
+
+struct Poll {
+    host: String,
+    placements: String,
+    at: String,
+}
+
+fn polls(db: &Connection) -> rusqlite::Result<Vec<Poll>> {
+    let mut statement = db.prepare("SELECT name, host, max(started) FROM job_runs WHERE name GLOB ?1 GROUP BY name, host")?;
+    let rows = statement.query_map([format!("{POLL}*")], |row| {
+        let name: String = row.get(0)?;
+        Ok(Poll { placements: name.strip_prefix(POLL).unwrap_or(&name).to_owned(), host: row.get(1)?, at: row.get(2)? })
+    })?;
+    rows.collect()
+}
+
+fn waiting(job: &Job, polls: &[Poll], now: Timestamp) -> Option<String> {
+    let minutes = (now.unix_seconds() - Timestamp::parse(&job.queued).ok()?.unix_seconds()).div_euclid(60);
+    if !matches!(job.state.as_str(), "queued" | "requeued") || minutes < STALLED_MINUTES {
+        return None;
+    }
+    let last = polls.iter().filter(|poll| poll.placements.split(',').any(|placement| placement == job.placement)).max_by(|a, b| a.at.cmp(&b.at));
+    Some(match last {
+        Some(poll) => format!("job {} waits {minutes}m: {} last polled this ledger for {} at {}", job.id, poll.host, poll.placements, poll.at),
+        None => format!("job {} waits {minutes}m: no runner has polled this ledger for {}", job.id, job.placement),
+    })
 }
 
 /// Minutes from queued to taken, or to dropped, or to now while it waits.

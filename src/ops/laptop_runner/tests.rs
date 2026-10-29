@@ -2,14 +2,14 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::{Inputs, drain, run_job};
+use super::{Inputs, Ledger, drain, run_job};
 use crate::ops::laptop::hostname;
 
 const THREADS: &str = r#"#!/bin/sh
 d=$(dirname "$0")
-case "$1 $2" in
-"queue take") echo "$3" >> "$d/takes.log"; head -n1 "$d/queue.txt"; sed -i 1d "$d/queue.txt" ;;
-"queue msg") printf '%s|%s|%s\n' "$3" "$4" "$(echo "$5" | head -n1)" >> "$d/msgs.log" ;;
+case "$1 $2 $4" in
+"queue --by take") echo "$3 $5" >> "$d/takes.log"; head -n1 "$d/queue.txt"; sed -i 1d "$d/queue.txt" ;;
+"queue msg "*) printf '%s|%s|%s\n' "$3" "$4" "$(echo "$5" | head -n1)" >> "$d/msgs.log" ;;
 esac
 "#;
 
@@ -40,7 +40,7 @@ impl Rig {
             runtime: base.to_owned(),
             logs: base.join("logs"),
             power_supply: base.join("power"),
-            threads: vec![base.join("threads.sh").display().to_string()],
+            ledgers: vec![Ledger { host: None, command: vec![base.join("threads.sh").display().to_string()] }],
             job_run: base.join("job-run.sh").display().to_string(),
             north: base.join("north.sh").display().to_string(),
             bun: "false".into(),
@@ -76,7 +76,7 @@ fn nothing_is_taken_unless_the_state_is_available_then_the_queue_runs() {
     fs::create_dir(&rig.inputs.runtime).unwrap();
     rig.state(r#"{"state":"available"}"#);
     assert_eq!(drain(&rig.inputs), 0);
-    assert_eq!(rig.file("takes.log"), "laptop\nlaptop\nlaptop\n");
+    assert_eq!(rig.file("takes.log"), format!("{0} laptop\n{0} laptop\n{0} laptop\n", hostname()));
     assert_eq!(rig.file("msgs.log"), rig.done("1") + &rig.done("2"));
 }
 
@@ -122,6 +122,24 @@ fn a_job_whose_log_cannot_be_created_is_reported_failed_with_the_error() {
     let blocker = rig.root.path().join("not-a-directory");
     fs::write(&blocker, "").unwrap();
     rig.inputs.logs = blocker.join("logs");
-    run_job(&rig.inputs, &serde_json::from_str(&job("9", &["echo", "x"])).unwrap());
+    run_job(&rig.inputs, &rig.inputs.ledgers[0], &serde_json::from_str(&job("9", &["echo", "x"])).unwrap());
     assert!(rig.file("msgs.log").starts_with("9|failed|rc=1 log="), "{}", rig.file("msgs.log"));
+}
+
+#[test]
+fn jobs_on_a_fleet_machine_ledger_are_taken_after_the_local_ones_and_reported_back_to_that_ledger() {
+    let mut rig = Rig::new(&[job("1", &["echo", "local"])]);
+    let far = rig.root.path().join("far");
+    fs::create_dir(&far).unwrap();
+    script(&far.join("threads.sh"), THREADS.strip_prefix("#!/bin/sh\n").unwrap());
+    fs::write(far.join("queue.txt"), format!("{}\n", job("1", &["echo", "it's far"]))).unwrap();
+    let remote = vec!["sh".into(), "-c".into(), "eval \"$*\"".into(), "ssh".into(), far.join("threads.sh").display().to_string()];
+    rig.inputs.ledgers.push(Ledger { host: Some("far".into()), command: remote });
+    rig.state(r#"{"state":"available"}"#);
+    assert_eq!(drain(&rig.inputs), 0);
+    assert_eq!(rig.file("msgs.log"), rig.done("1"));
+    let log = format!("{}/logs/queue-far-1.log", rig.root.path().display());
+    assert_eq!(rig.file("far/msgs.log"), format!("1|done|rc=0 log={}:{log}\n", hostname()));
+    assert_eq!(fs::read_to_string(log).unwrap(), "it's far\n");
+    assert_eq!(rig.file("far/takes.log"), format!("{0} laptop\n{0} laptop\n", hostname()));
 }

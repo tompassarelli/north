@@ -118,7 +118,7 @@ fn a_pool_job_goes_to_the_first_runner_that_takes_it_and_a_laptop_only_take_leav
     );
     assert_eq!(
         rig.out("queue --json"),
-        format!("[{{\"id\": {first}, \"placement\": \"pool\", \"state\": \"taken\", \"queued\": \"2026-10-27T11:00:00Z\", \"taken\": \"2026-10-27T11:30:30Z\", \"finished\": null, \"host\": \"nexus\"}}, {{\"id\": {second}, \"placement\": \"pool\", \"state\": \"taken\", \"queued\": \"2026-10-27T11:00:00Z\", \"taken\": \"2026-10-27T11:30:30Z\", \"finished\": null, \"host\": \"whiterabbit\"}}]\n")
+        format!("[{{\"id\": {first}, \"placement\": \"pool\", \"state\": \"taken\", \"queued\": \"2026-10-27T11:00:00Z\", \"taken\": \"2026-10-27T11:30:30Z\", \"finished\": null, \"host\": \"nexus\", \"waiting\": null}}, {{\"id\": {second}, \"placement\": \"pool\", \"state\": \"taken\", \"queued\": \"2026-10-27T11:00:00Z\", \"taken\": \"2026-10-27T11:30:30Z\", \"finished\": null, \"host\": \"whiterabbit\", \"waiting\": null}}]\n")
     );
 }
 
@@ -207,4 +207,27 @@ fn a_follows_box_queues_its_brief_and_each_release_step_happens_once() {
     rig.out(&format!("queue follow-started {id}"));
     assert_eq!(rig.out("queue follow-list"), "[]\n");
     assert_eq!(rig.sql(&format!("SELECT state || '|' || result || '|' || finished FROM job_queue WHERE id = {id}")), format!("done|no lead answered|{NOW}"));
+}
+
+#[test]
+fn a_job_waiting_five_minutes_names_the_runner_that_last_polled_its_placement_or_that_none_has() {
+    let rig = ledger();
+    let laptop = rig.out("queue add laptop - -- echo l").trim().to_owned();
+    let nexus = rig.out("queue add nexus - -- echo n").trim().to_owned();
+    rig.db().execute("UPDATE job_queue SET queued = '2026-10-27T11:50:00Z'", []).unwrap();
+    rig.out("queue --by whiterabbit take gex45,pool");
+    rig.db().execute("UPDATE job_runs SET started = '2026-10-27T11:40:00Z' WHERE host = 'whiterabbit'", []).unwrap();
+    rig.out("queue --by whiterabbit take laptop,pool");
+    rig.db().execute(&format!("UPDATE job_queue SET state = 'queued', taken = NULL WHERE id = {laptop}"), []).unwrap();
+    rig.out("queue --by gex45 take gex45");
+    assert_eq!(rig.sql("SELECT count(*) || '' FROM job_runs WHERE host = 'whiterabbit'"), "2");
+    let listed = rig.out("queue");
+    assert!(listed.ends_with(&format!(
+        "job {laptop} waits 10m: whiterabbit last polled this ledger for laptop,pool at {NOW}\n\
+         job {nexus} waits 10m: no runner has polled this ledger for nexus\n"
+    )), "{listed}");
+    let json = rig.out("queue --json");
+    assert!(json.contains(&format!("\"waiting\": \"job {nexus} waits 10m: no runner has polled this ledger for nexus\"")), "{json}");
+    rig.db().execute("UPDATE job_queue SET queued = '2026-10-27T11:56:00Z'", []).unwrap();
+    assert!(!rig.out("queue").contains("waits"));
 }

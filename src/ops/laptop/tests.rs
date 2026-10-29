@@ -164,3 +164,19 @@ fn a_stalled_ssh_forward_fails_with_124_within_its_bound() {
     assert_eq!(died.code, 124);
     assert!(started.elapsed() < std::time::Duration::from_secs(10));
 }
+
+#[test]
+fn status_names_why_a_queued_laptop_job_still_waits() {
+    let root = tempfile::tempdir().unwrap();
+    let stub = rig(root.path());
+    fs::write(root.path().join("window.json"), json!({"tz": "UTC", "open": "23:00", "close": "10:00"}).to_string()).unwrap();
+    fs::write(root.path().join("rows.json"), "[]").unwrap();
+    run(root.path(), &stub, "2026-10-13T12:00:00Z", &["open"]).unwrap();
+    let rows = json!([
+        {"id": 4, "placement": "nexus", "state": "queued", "host": null, "waiting": "job 4 waits 30m: no runner has polled this ledger for nexus"},
+        {"id": 5, "placement": "laptop", "state": "queued", "host": null, "waiting": "job 5 waits 30m: no runner has polled this ledger for laptop"},
+    ]);
+    fs::write(root.path().join("rows.json"), rows.to_string()).unwrap();
+    let out = run(root.path(), &stub, "2026-10-13T12:30:00Z", &["status"]).unwrap();
+    assert_eq!(out, "laptop: available since 12:00, open by tester@host (0 running, 1 queued; job 5 waits 30m: no runner has polled this ledger for laptop)\n");
+}

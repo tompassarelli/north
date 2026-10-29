@@ -62,10 +62,12 @@ impl Ctx {
         if !args.is_empty() {
             return Err(Die::new(2, "status takes only --json"));
         }
+        let jobs = self.jobs();
+        let waiting = jobs.as_ref().and_then(|jobs| jobs.waiting.as_deref()).map_or_else(String::new, |reason| format!("; {reason}"));
         let Some(state) = current else {
-            return Ok("laptop: no state yet (unavailable)\n".to_owned());
+            return Ok(format!("laptop: no state yet (unavailable){waiting}\n"));
         };
-        let counts = self.jobs().map_or_else(|| "ledger unreachable".to_owned(), |(running, queued)| format!("{running} running, {queued} queued"));
-        Ok(format!("laptop: {} ({counts})\n", self.describe(&state)))
+        let counts = jobs.map_or_else(|| "ledger unreachable".to_owned(), |jobs| format!("{} running, {} queued", jobs.running, jobs.queued));
+        Ok(format!("laptop: {} ({counts}{waiting})\n", self.describe(&state)))
     }
 }

@@ -26,7 +26,7 @@ impl Ctx {
         let Some(mut state) = current else {
             return Err(Die::new(1, "no state to settle"));
         };
-        if state.state == "draining" && self.jobs().map(|(running, _)| running) == Some(0) {
+        if state.state == "draining" && self.jobs().map(|jobs| jobs.running) == Some(0) {
             let hold = match &state.until {
                 Some(until) => Some(parse(until)?),
                 None => None,

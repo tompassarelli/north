@@ -13,6 +13,9 @@ use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
 
 use crate::ops::agent_contain;
+use crate::ops::pacing::placement::{config, gate};
+use crate::platform::ssh;
+use crate::threads::client::shell_quote;
 use crate::platform::process::run_within;
 use crate::shell::shlex_split;
 
@@ -21,13 +24,43 @@ const PROBE_WAIT: Duration = Duration::from_secs(60);
 const LOG_TAIL: u64 = 3000;
 const STEP: Duration = Duration::from_millis(100);
 
+pub(crate) struct Ledger {
+    pub(crate) host: Option<String>,
+    pub(crate) command: Vec<String>,
+}
+
+impl Ledger {
+    fn threads(&self, args: &[&str]) -> Option<String> {
+        let (program, fixed) = self.command.split_first()?;
+        let quoted: Vec<String> = if self.host.is_some() { args.iter().map(|word| shell_quote(word)).collect() } else { args.iter().map(|word| (*word).to_owned()).collect() };
+        let words: Vec<&str> = fixed.iter().chain(&quoted).map(String::as_str).collect();
+        let output = run_within(program, &words, PROBE_WAIT)?;
+        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    fn log_name(&self, id: &str) -> String {
+        self.host.as_ref().map_or_else(|| format!("queue-{id}"), |host| format!("queue-{host}-{id}"))
+    }
+}
+
+fn ledgers(local: Vec<String>) -> Vec<Ledger> {
+    let here = crate::platform::host::name();
+    let machines = config().map(|cfg| gate::machines(&cfg)).unwrap_or_default();
+    let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    let remote = machines.into_iter().filter(|machine| machine.name != here).map(|machine| {
+        let command = ssh::argv(&["ssh".into()], &env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, "north", "threads"]);
+        Ledger { host: Some(machine.name), command: command.into_iter().map(|word| word.to_string_lossy().into_owned()).collect() }
+    });
+    std::iter::once(Ledger { host: None, command: local }).chain(remote).collect()
+}
+
 pub(crate) struct Inputs {
     pub(crate) placement: String,
     pub(crate) poll: Duration,
     pub(crate) runtime: PathBuf,
     pub(crate) logs: PathBuf,
     pub(crate) power_supply: PathBuf,
-    pub(crate) threads: Vec<String>,
+    pub(crate) ledgers: Vec<Ledger>,
     pub(crate) job_run: String,
     pub(crate) north: String,
     pub(crate) bun: String,
@@ -45,19 +78,12 @@ impl Inputs {
             runtime: set("XDG_RUNTIME_DIR").map_or_else(|| "/tmp".into(), PathBuf::from),
             logs: set("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("laptop-runner"),
             power_supply: set("AGENT_LOAD_POWER_SUPPLY").map_or_else(|| "/sys/class/power_supply".into(), PathBuf::from),
-            threads: shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default(),
+            ledgers: ledgers(shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default()),
             job_run: "job-run".into(),
             north,
             bun: "bun".into(),
             agents: "agents".into(),
         }
-    }
-
-    fn threads(&self, args: &[&str]) -> Option<String> {
-        let (program, fixed) = self.threads.split_first()?;
-        let words: Vec<&str> = fixed.iter().map(String::as_str).chain(args.iter().copied()).collect();
-        let output = run_within(program, &words, PROBE_WAIT)?;
-        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     fn laptop_state(&self) -> Value {
@@ -141,39 +167,43 @@ fn drain(inputs: &Inputs) -> u8 {
         eprintln!("laptop-runner: {}: {error}", inputs.logs.display());
         return 1;
     }
+    let me = super::laptop::hostname();
     let mut ran = 0;
-    while let Some(places) = inputs.places() {
-        let Some(job) = inputs.threads(&["queue", "take", &places]).map(|text| text.trim().to_owned()).filter(|text| !text.is_empty()) else {
-            break;
-        };
-        let Some(job) = serde_json::from_str::<Value>(&job).ok() else {
-            break;
-        };
-        run_job(inputs, &job);
-        ran += 1;
+    for ledger in &inputs.ledgers {
+        while let Some(places) = inputs.places() {
+            let Some(job) = ledger.threads(&["queue", "--by", &me, "take", &places]).map(|text| text.trim().to_owned()).filter(|text| !text.is_empty()) else {
+                break;
+            };
+            let Some(job) = serde_json::from_str::<Value>(&job).ok() else {
+                break;
+            };
+            run_job(inputs, ledger, &job);
+            ran += 1;
+        }
     }
     println!("laptop-runner: ran {ran}");
     0
 }
 
-fn run_job(inputs: &Inputs, job: &Value) {
+fn run_job(inputs: &Inputs, ledger: &Ledger, job: &Value) {
     let id = match &job["id"] {
         Value::String(text) => text.clone(),
         other => other.to_string(),
     };
     let command: Vec<String> = job["cmd"].as_array().into_iter().flatten().filter_map(|word| word.as_str().map(str::to_owned)).collect();
-    let log = inputs.logs.join(format!("queue-{id}.log"));
+    let name = ledger.log_name(&id);
+    let log = inputs.logs.join(format!("{name}.log"));
     let opened = File::create(&log).and_then(|output| Ok((output.try_clone()?, output)));
     let (errors, output) = match opened {
         Ok(files) => files,
         Err(error) => {
             let message = format!("rc=1 log={}:{}\ncannot open the log: {error}", super::laptop::hostname(), log.display());
-            let _ = inputs.threads(&["queue", "msg", &id, "failed", &message]);
+            let _ = ledger.threads(&["queue", "msg", &id, "failed", &message]);
             return;
         }
     };
     let child = Command::new(&inputs.job_run)
-        .arg(format!("queue-{id}"))
+        .arg(&name)
         .arg("--")
         .args(&command)
         .stdin(Stdio::null())
@@ -190,7 +220,7 @@ fn run_job(inputs: &Inputs, job: &Value) {
     };
     let status = if stopped { "requeued" } else if code == 0 { "done" } else { "failed" };
     let message = format!("rc={code} log={}:{}\n{}", super::laptop::hostname(), log.display(), tail(&log));
-    let _ = inputs.threads(&["queue", "msg", &id, status, &message]);
+    let _ = ledger.threads(&["queue", "msg", &id, status, &message]);
 }
 
 fn wait_for(inputs: &Inputs, mut child: Child) -> (i32, bool) {

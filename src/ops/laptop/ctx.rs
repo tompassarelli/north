@@ -165,7 +165,7 @@ impl Ctx {
         out
     }
 
-    pub(super) fn jobs(&self) -> Option<(usize, usize)> {
+    pub(super) fn jobs(&self) -> Option<Jobs> {
         let rows = serde_json::from_str::<Value>(&self.threads(&["queue", "--json"])?).ok()?.as_array()?.clone();
         let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
         let me = hostname();
@@ -177,12 +177,16 @@ impl Ctx {
                 text(row, "placement") == "laptop" || (!host.is_empty() && host != me)
             })
             .count();
-        let queued = rows
-            .iter()
-            .filter(|row| matches!(text(row, "state").as_str(), "queued" | "requeued") && text(row, "placement") == "laptop")
-            .count();
-        Some((running, queued))
+        let queued: Vec<&Value> = rows.iter().filter(|row| matches!(text(row, "state").as_str(), "queued" | "requeued") && text(row, "placement") == "laptop").collect();
+        let waiting = queued.iter().map(|row| text(row, "waiting")).find(|reason| !reason.is_empty());
+        Some(Jobs { running, queued: queued.len(), waiting })
     }
+}
+
+pub(super) struct Jobs {
+    pub(super) running: usize,
+    pub(super) queued: usize,
+    pub(super) waiting: Option<String>,
 }
 
 fn quote(word: &str) -> String {
