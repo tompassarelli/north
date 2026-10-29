@@ -54,7 +54,7 @@ pub(super) fn stale_lanes_notice(report: &Path, home: &str) -> Option<String> {
         _ => shown.into_owned(),
     };
     Some(format!(
-        "{count} unlanded worktrees/branches older than 24 h are listed in {shown} (lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n"
+        "{count} unlanded worktrees/branches older than 24 h are listed in {shown} (north lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n"
     ))
 }
 

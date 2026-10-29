@@ -9,7 +9,7 @@ fn the_notice_counts_only_lanes_older_than_a_day_and_abbreviates_home() {
     let notice = stale_lanes_notice(&report, dir.path().to_str().unwrap()).unwrap();
     assert_eq!(
         notice,
-        "2 unlanded worktrees/branches older than 24 h are listed in ~/unlanded.txt (lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n"
+        "2 unlanded worktrees/branches older than 24 h are listed in ~/unlanded.txt (north lane-gc --unlanded). Before starting an issue, continue an existing lane that references it instead of starting over.\n"
     );
     std::fs::write(&report, "# header\n23h\tc\n").unwrap();
     assert_eq!(stale_lanes_notice(&report, "/nowhere"), None);

@@ -1,3 +1,4 @@
+mod gc;
 mod hardcoded_paths;
 mod layout_check;
 mod live_process;
@@ -10,6 +11,7 @@ mod rescue;
 mod test_git;
 mod verdict;
 
+pub(crate) use gc::run as lane_gc;
 pub(crate) use hardcoded_paths::run as hardcoded_paths;
 pub(crate) use layout_check::run as layout_check;
 pub(crate) use pin_retire::run as pin_retire;

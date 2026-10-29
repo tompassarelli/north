@@ -21,8 +21,8 @@ fn lane_gc(scratch: &Path, now: SystemTime) -> Output {
     fs::write(&north, "#!/bin/sh\necho '[]'\n").unwrap();
     fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     let stamp = Command::new("date").args(["-u", "-d", &format!("@{}", now.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()), "+%FT%TZ"]).output().unwrap();
-    Command::new(std::env::current_dir().unwrap().join("bin/lane-gc"))
-        .args(["--root"]).arg(scratch.join("code"))
+    Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["lane-gc", "--root"]).arg(scratch.join("code"))
         .args(["--repo", "north", "--dry-run", "--state"]).arg(scratch.join("unlanded.txt"))
         .env("HOME", scratch)
         .env("GIT_CONFIG_GLOBAL", scratch.join("gitconfig"))

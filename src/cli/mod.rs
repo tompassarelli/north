@@ -124,6 +124,7 @@ Commands:
   retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Smashcraft evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
   worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
+  lane-gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Retire landed, superseded and stale lanes and origin branches behind verified archives; report unlanded work (hourly and daily timers)
   pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
   wt-reap [--all] [--dry-run]                   Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it
   wt-rescue [path] [--dry-run]                  Move a dirty main checkout's changes into a new rescue lane and clean main
