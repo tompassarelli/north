@@ -33,6 +33,10 @@ fn git(home: &Path, dir: &Path, args: &[&str]) -> String {
 
 impl Host {
     fn new() -> Self {
+        Self::landed("fixture", None)
+    }
+
+    fn landed(subject: &str, date: Option<&str>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         let source = dir.path().join("source");
@@ -41,7 +45,13 @@ impl Host {
         fs::write(source.join("harness/lib/usage.py"), "").unwrap();
         git(&home, &source, &["init", "-q", "-b", "main"]);
         git(&home, &source, &["add", "."]);
-        git(&home, &source, &["commit", "-q", "-m", "fixture"]);
+        match date {
+            Some(date) => {
+                let dated = Command::new("git").arg("-C").arg(&source).args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", subject]).env("HOME", &home).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_COMMITTER_DATE", date).env("GIT_AUTHOR_DATE", date).status().unwrap();
+                assert!(dated.success());
+            }
+            None => drop(git(&home, &source, &["commit", "-q", "-m", subject])),
+        }
         let target = git(&home, &source, &["rev-parse", "HEAD"]);
         git(&home, dir.path(), &["clone", "-q", "source", "checkout"]);
         fs::create_dir_all(dir.path().join("bin")).unwrap();
@@ -190,7 +200,7 @@ fn a_deploy_ships_the_built_runtime_and_its_store_references_then_promotes_remot
     let expected = [
         format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 far nix-store --realise --quiet {glibc}"),
         format!("rsync -a --timeout=120 --mkpath {} {} far:.local/state/north/runtimes/{}/", runtime.join("north").display(), runtime.join("verify-north").display(), host.target),
-        "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 far north runtime update".to_owned(),
+        format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 far .local/state/north/runtimes/{0}/north runtime update --sha {0}", host.target),
     ];
     assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().collect::<Vec<_>>(), expected);
     assert!(!host.path("state/north/current").exists());
@@ -204,7 +214,7 @@ fn a_deploy_with_help_prints_usage_and_with_an_unknown_flag_is_refused_before_an
     }
     let help = host.north(&["runtime", "deploy", "--help"], 0, 0);
     assert_eq!(help.status.code(), Some(0));
-    assert!(String::from_utf8_lossy(&help.stdout).starts_with("usage: north runtime update | north runtime deploy [HOST...]"));
+    assert!(String::from_utf8_lossy(&help.stdout).starts_with("usage: north runtime update [--sha SHA] | north runtime settle | north runtime deploy [HOST...]"));
     let refused = host.north(&["runtime", "deploy", "far", "--bogus"], 0, 0);
     assert_eq!(refused.status.code(), Some(64));
     let stderr = String::from_utf8_lossy(&refused.stderr);
@@ -460,4 +470,88 @@ fn a_build_more_than_half_done_when_origin_main_moves_is_finished_and_promoted_b
     assert!(stdout.contains(&format!("north runtime promoted: {} (was {})", &head[..8], host.target)), "{stdout}");
     assert!(!stdout.contains("abandoned"), "{stdout}");
     assert_eq!(host.current(), Path::new("runtimes").join(head));
+}
+
+fn settings(home: &Path, hooks: &[&Path]) {
+    let commands: Vec<String> = hooks.iter().map(|hook| format!("{{\"type\": \"command\", \"command\": \"/usr/bin/env PATH=/x {}\"}}", hook.display())).collect();
+    fs::create_dir_all(home.join(".claude")).unwrap();
+    fs::write(home.join(".claude/settings.json"), format!("{{\"hooks\": {{\"PreToolUse\": [{{\"hooks\": [{}]}}]}}}}", commands.join(", "))).unwrap();
+}
+
+#[test]
+fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue_and_tells_its_session_and_the_proxy_once() {
+    let host = Host::landed("Break the runtime-follow livelock (north#308)", Some("2026-10-29T12:00:00Z"));
+    host.built(&host.target);
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    let far = host.path("far");
+    fs::create_dir_all(far.join("state/north/runtimes")).unwrap();
+    fs::create_dir_all(host.path("state/north")).unwrap();
+    fs::write(host.path("state/north/runtime-settle-seen"), format!("1 {}\n", host.target)).unwrap();
+    let missing_hook = far.join("home/.agents/hooks/generated-policy-guard.sh");
+    settings(&far.join("home"), &[&host.path("bin/agents"), &missing_hook]);
+    settings(&host.path("home"), &[&host.path("bin/agents")]);
+    let proc = host.path("proc");
+    fs::create_dir_all(proc.join("pressure")).unwrap();
+    fs::write(proc.join("pressure/cpu"), "some avg10=1.00 avg60=1.00 avg300=1.00 total=1\n").unwrap();
+    fs::write(proc.join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
+    script(&host.path("bin/systemctl"), "for unit in \"${@:3}\"; do echo active; done\n");
+    script(
+        &host.path("bin/ssh"),
+        "while [[ $1 == -o ]]; do shift 2; done\ndestination=$1; shift\nprintf 'ssh %s %s\\n' \"$destination\" \"$*\" >>\"$TEST_ALERTS\"\n\
+         [[ \"$*\" == 'bash -s' ]] && HOME=\"$TEST_FAR/home\" XDG_STATE_HOME=\"$TEST_FAR/state\" exec bash -s\nexit 0\n",
+    );
+    script(&host.path("bin/rsync"), "printf 'rsync %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n");
+    script(&host.path("bin/gh"), "printf 'gh %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n");
+    script(
+        &host.path("bin/north"),
+        "case \"$1 $2\" in\n'fleet list') echo '[{\"name\": \"proxy\", \"tasks\": []}, {\"name\": \"live-landing\", \"tasks\": [\"north#308\"]}, {\"name\": \"other\", \"tasks\": [\"north#9\"]}]' ;;\n\
+         'fleet send') printf 'send %s\\n' \"$3\" >>\"$TEST_ALERTS\" ;;\n*) exit 94 ;;\nesac\n",
+    );
+    let orchestration = fleet(&host, "[hosts.hub]\nsettles_fleet = true\n[hosts.broken]\ndeploy_ssh = \"broken\"\n");
+    let environment = [
+        ("AGENTS_ORCHESTRATION", orchestration.to_str().unwrap()),
+        ("RESIDENT_CAP_HOST", "hub"),
+        ("NORTH_SETTLE_PROC", proc.to_str().unwrap()),
+        ("TEST_FAR", far.to_str().unwrap()),
+    ];
+
+    let output = host.north_with(&["runtime", "update"], &environment);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!output.status.success(), "{stdout}");
+    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
+    assert!(stdout.contains("north runtime settle: hub: live and healthy"), "{stdout}");
+    assert!(stdout.contains(&format!("broken: no live runtime; unresolved hook path {}/home/.claude/settings.json: {}", far.display(), missing_hook.display())), "{stdout}");
+    let calls = fs::read_to_string(host.path("alerts")).unwrap();
+    assert!(calls.contains(&format!("ssh broken .local/state/north/runtimes/{0}/north runtime update --sha {0}", host.target)), "{calls}");
+    let alarms: Vec<&str> = calls.lines().filter(|line| line.starts_with("gh ") || line.starts_with("send ")).collect();
+    assert_eq!(alarms.len(), 4, "{calls}");
+    assert_eq!(alarms[0], "gh issue reopen 308");
+    assert!(alarms[1].starts_with("gh issue comment 308 --body north landing ") && alarms[1].contains("generated-policy-guard.sh"), "{}", alarms[1]);
+    assert_eq!(&alarms[2..], ["send proxy", "send live-landing"]);
+    let report: serde_json::Value = serde_json::from_str(&fs::read_to_string(host.path("state/north/runtime-settle.json")).unwrap()).unwrap();
+    assert_eq!(report["landing"], host.target.as_str());
+    assert_eq!(report["hosts"][1]["units"]["capacity-watchdog.service"], "active");
+
+    assert!(!host.north_with(&["runtime", "update"], &environment).status.success());
+    symlink(Path::new("runtimes").join(&host.target), far.join("state/north/current")).unwrap();
+    fs::create_dir_all(missing_hook.parent().unwrap()).unwrap();
+    fs::write(&missing_hook, "").unwrap();
+    let healed = host.north_with(&["runtime", "update"], &environment);
+    assert!(healed.status.success(), "{}", String::from_utf8_lossy(&healed.stdout));
+    let calls = fs::read_to_string(host.path("alerts")).unwrap();
+    assert_eq!(calls.lines().filter(|line| line.starts_with("gh ") || line.starts_with("send ")).count(), 4, "{calls}");
+}
+
+#[test]
+fn a_pinned_update_promotes_exactly_the_shipped_commit_and_refuses_one_that_was_not_shipped() {
+    let host = skewed();
+    let unshipped = "3333333333333333333333333333333333333333";
+    let refused = host.north(&["runtime", "update", "--sha", unshipped], 0, 0);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("33333333 was not shipped to this host"), "{}", String::from_utf8_lossy(&refused.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+    let promoted = host.north(&["runtime", "update", "--sha", &host.target], 0, 0);
+    assert!(promoted.status.success(), "{}", String::from_utf8_lossy(&promoted.stderr));
+    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
 }

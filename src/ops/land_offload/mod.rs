@@ -36,6 +36,10 @@ pub(crate) fn builds_runtime_here() -> bool {
     config().map(|cfg| destinations::builds_runtime(&cfg, &crate::platform::host::name())).unwrap_or(true)
 }
 
+pub(crate) fn settles_fleet_here() -> bool {
+    config().is_ok_and(|cfg| destinations::settles_fleet(&cfg, &crate::platform::host::name()))
+}
+
 pub(crate) fn in_game_reserve() -> bool {
     let local = agent_load::Host::from_env();
     agent_load::gaming_marked(&local.capacity) || agent_load::game_reserve_on(&local)

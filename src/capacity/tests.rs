@@ -425,3 +425,11 @@ fn either_a_live_client_or_native_cpus_open_the_heavy_reserve_and_untracked_load
     let crowded = Facts { leased_native_cpus: 15.0, ..heavy_beside_clients(0.0, 3) };
     assert_eq!((decide(&clients_only), decide(&native_only), decide(&untracked), decide(&crowded)), (Reason::Run, Reason::Run, Reason::DeferRunQueue, Reason::DeferRunQueue));
 }
+
+#[test]
+fn a_runtime_build_runs_past_the_run_queue_gate_full_heavy_leases_and_heavy_tickets_ahead_but_not_past_the_disk_floor() {
+    let gex45 = Facts { class: Class::Runtime, requested_cpus: 4.0, run_queue_load: Some(71.0), leased_batch_cpus: 18.0, queued_ahead: 3, queued_ahead_classes: vec![Some(Class::Heavy); 3], disk_free_gib: Some(50.0), ..heavy_beside_clients(0.0, 0) };
+    assert_eq!(decide(&gex45), Reason::Run);
+    assert_eq!(decide(&Facts { class: Class::Heavy, ..gex45.clone() }), Reason::DeferRunQueue);
+    assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..gex45 }), Reason::DeferDiskFree);
+}

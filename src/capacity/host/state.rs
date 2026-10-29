@@ -203,10 +203,10 @@ pub(crate) fn read_queue(root: &Path) -> Vec<Value> {
     waiting
 }
 
-/// Admission order: critical and tom, then exclusive, then the rest, each part in arrival order.
+/// Admission order: critical, tom and runtime, then exclusive, then the rest, each part in arrival order.
 pub(crate) fn priority_order(queue: Vec<Value>) -> Vec<Value> {
     let rank = |ticket: &Value| match text(ticket, "class") {
-        Some("critical" | "tom") => 0,
+        Some("critical" | "tom" | "runtime") => 0,
         Some("exclusive") => 1,
         _ => 2,
     };

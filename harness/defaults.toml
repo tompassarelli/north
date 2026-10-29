@@ -692,14 +692,14 @@ value = 15
 unit = "percent of the 60 s CPU pressure average (PSI some avg60) a watchdog sample must also reach to count as overloaded, so a spike the 60 s average has not registered is not"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi60 p90 9.6, p95 26, p99 72; with cpuPsi at 50 and load per thread at 2, a floor of 10, 15 or 20 raises the same 5 incidents over the span; 15 admits a 60 s burn of 200 spinners on a quiet host on its first overloaded sample"
 fallback = "without a CPU pressure reading no sample is overloaded and the watchdog only samples"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["src/capacity/watchdog/detect.rs", "src/ops/runtime/probe.rs"]
 
 [overload_load_per_core]
 value = 2.0
 unit = "1-minute load average per CPU thread at or above which a watchdog sample counts as overloaded"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406 on 16 threads: load per thread p95 1.4, p99 2.9, max 10.2; the 2026-10-29 10:10-10:12 PM overload reached 8-10"
 fallback = "without a load reading no sample is overloaded"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["src/capacity/watchdog/detect.rs", "src/ops/runtime/probe.rs"]
 
 [overload_sustained_samples]
 value = 2
@@ -729,3 +729,17 @@ source = "prior: halving an offender's measured use is the smallest cap that vis
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes to measure load before and after a cap" }
 fallback = "the cap never goes below one core"
 consumers = ["src/capacity/watchdog/detect.rs"]
+
+[landing_live_deadline_sec]
+value = 600
+unit = "seconds after a north landing by which its runtime must be live and healthy on every fleet host, judged once by the laptop's north runtime settle"
+source = "tom: Tom asked that a north landing count as done only once it is live and healthy on every fleet host within 10 minutes, checked automatically after each landing (2026-10-29)"
+fallback = "a landing younger than the deadline is reported but not judged"
+consumers = ["src/ops/runtime/settle.rs"]
+
+[landing_north_processes_max]
+value = 100
+unit = "north processes on one host above which north runtime settle reports the host unhealthy"
+source = "measured: 2026-10-30 12:15 AM with 10 fleet sessions, 24 north processes on the laptop, 40 on the GPU host and 8 on the server host; 100 is 2.5 times the busiest host, under the per-claim north fleet list fork storm that loaded the GPU host to 71"
+fallback = "an unread count reports the host unhealthy"
+consumers = ["src/ops/runtime/probe.rs"]

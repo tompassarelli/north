@@ -24,7 +24,7 @@ fn default_number(name: &str) -> f64 {
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
-pub(crate) const CLASS_NAMES: [&str; 8] = ["agent", "native", "moderate", "heavy", "exclusive", "gpu", "critical", "tom"];
+pub(crate) const CLASS_NAMES: [&str; 9] = ["agent", "native", "moderate", "heavy", "exclusive", "gpu", "critical", "tom", "runtime"];
 pub(crate) const GPU_BUSY_LIMIT_PERCENT: f64 = 85.0;
 const LEARNED_MINIMUM_RUNS: usize = 3;
 
@@ -67,6 +67,7 @@ pub(crate) fn resource_class(kind: &str, cores: f64) -> Option<Resources> {
         "heavy" if cores < 8.0 => (cores, 8192.0),
         "heavy" => (if cores > 8.0 { 6.0 } else { 3.0 }, 8192.0),
         "gpu" => (1.0, 2048.0),
+        "runtime" => (if cores > 8.0 { 4.0 } else { pair }, 8192.0),
         "critical" if cores < 8.0 => (cores, 16384.0),
         "critical" => (cores - reserved_cpus("attended", cores), 16384.0),
         "exclusive" => (cores, 16384.0),
@@ -84,7 +85,7 @@ pub(crate) fn native_memory_request(kind: &str, cores: f64, memory_gib: f64) -> 
 }
 
 pub(crate) fn batch_class(kind: &str) -> bool {
-    matches!(kind, "moderate" | "heavy" | "exclusive" | "gpu" | "critical" | "tom")
+    matches!(kind, "moderate" | "heavy" | "exclusive" | "gpu" | "critical" | "tom" | "runtime")
 }
 
 pub(crate) fn maximum_seconds(kind: &str) -> u64 {

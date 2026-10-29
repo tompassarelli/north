@@ -23,3 +23,12 @@ pub(super) fn builds_runtime(cfg: &DocumentMut, here: &str) -> bool {
         .and_then(Item::as_bool)
         .unwrap_or(true)
 }
+
+pub(super) fn settles_fleet(cfg: &DocumentMut, here: &str) -> bool {
+    cfg.get("hosts")
+        .and_then(Item::as_table_like)
+        .and_then(|hosts| hosts.get(here))
+        .and_then(|host| host.get("settles_fleet"))
+        .and_then(Item::as_bool)
+        .unwrap_or(false)
+}

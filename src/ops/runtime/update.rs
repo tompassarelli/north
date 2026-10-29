@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 const STEP_LIMIT: Duration = Duration::from_secs(300);
 const FETCH_LIMIT: Duration = Duration::from_secs(120);
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
+const PINNED_LOCK_WAIT: Duration = Duration::from_secs(10 * 60);
 
 const PASSES: usize = 5;
 
@@ -40,6 +41,39 @@ pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
         }
     }
     Err(failed(DEFERRED, "origin/main kept moving past each build; retrying on the next tick"))
+}
+
+pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
+    let _lock = lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha")?;
+    let checkout = checkout();
+    fetch(&checkout)?;
+    let previous = fs::read_link(layout.current()).ok();
+    if previous.as_deref() == Some(layout::link(target).as_path()) {
+        println!("north runtime current: {}", layout::short(target));
+        return Ok(());
+    }
+    if !layout::has_programs(&layout.runtime(target)) {
+        return Err(failed(1, format!("{} was not shipped to this host; runtime unchanged", layout::short(target))));
+    }
+    advance(layout, &checkout, target, previous.as_deref()).map(|_| ())
+}
+
+pub(super) fn lock_waiting(layout: &Layout, limit: Duration, waiter: &str) -> Result<File, Failure> {
+    let started = Instant::now();
+    let mut announced = false;
+    loop {
+        if let Some(held) = lock(layout, FlockOperation::NonBlockingLockExclusive)? {
+            return Ok(held);
+        }
+        if !announced {
+            println!("{waiter}: waiting up to {}s for runtime-update.lock, held by another north runtime update", limit.as_secs());
+            announced = true;
+        }
+        if started.elapsed() >= limit {
+            return Err(failed(1, format!("runtime-update.lock stayed held by another north runtime update for {}s", limit.as_secs())));
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
 }
 
 fn pass(layout: &Layout) -> Result<Pass, Failure> {
@@ -198,7 +232,7 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     let mut build = Command::new("bun");
     build
         .arg(capacity_helper()?)
-        .args(["run", "--class", "heavy", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
+        .args(["run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
         .args(["nix", "develop", "-c", "cargo", "build", "--release", "--locked"])
         .current_dir(&lane.path)
         .env("CARGO_TARGET_DIR", &built);

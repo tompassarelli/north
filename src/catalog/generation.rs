@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
+use crate::platform::hook_commands;
 
 use super::files::{atomic_symlink, copy_tree, current_generation_path, replace_copy, write_json};
 use super::paths::{agents_root, home, owner_path};
@@ -36,8 +37,43 @@ pub(super) fn publish_generation(activation: &Value, root: &Path) -> NorthResult
         write_json(&temporary.join("activation.json"), activation)?;
         fs::rename(&temporary, &generation)?;
     }
+    require_registered_hooks(&generation)?;
     atomic_symlink(&root.join("current"), Path::new(&format!("gen-{suffix}")))?;
     Ok(())
+}
+
+fn require_registered_hooks(generation: &Path) -> NorthResult<()> {
+    let home = home()?;
+    let state = std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from);
+    let current = generation.parent().map(|root| root.join("current")).unwrap_or_default();
+    let missing = missing_registered_hooks(generation, &current, &home, &state);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    configuration(format!(
+        "{} drops hooks the current generation ships and settings still register, so it stays inactive and the current generation is kept: {}; unregister them or ship them first",
+        generation.display(),
+        missing.join(", ")
+    ))
+}
+
+pub(super) fn missing_registered_hooks(generation: &Path, current: &Path, home: &Path, state: &Path) -> Vec<String> {
+    let hooks = home.join(".agents/hooks");
+    let mut missing = BTreeSet::new();
+    for file in hook_commands::registration_files(home, state) {
+        let Some(settings) = fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else {
+            continue;
+        };
+        for path in hook_commands::paths(&settings) {
+            if let Ok(name) = Path::new(&path).strip_prefix(&hooks)
+                && !generation.join("provider-hooks").join(name).exists()
+                && current.join("provider-hooks").join(name).exists()
+            {
+                missing.insert(format!("{} (registered in {})", name.display(), file.display()));
+            }
+        }
+    }
+    missing.into_iter().collect()
 }
 
 pub(super) fn start_clean_generation(generation: &Path) -> NorthResult<()> {

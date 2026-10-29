@@ -2,14 +2,12 @@ use super::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS};
 use super::remote::{limit, run, ssh};
 use super::store::references;
-use super::update::{built_main, checkout, lock};
+use super::update::{built_main, checkout, lock_waiting};
 use crate::ops::land_offload;
-use rustix::fs::FlockOperation;
 use std::collections::BTreeSet;
-use std::fs::File;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const LOCK_WAIT: Duration = Duration::from_secs(30 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);
@@ -17,7 +15,7 @@ const COPY: Duration = Duration::from_secs(10 * 60);
 const PROMOTE: Duration = Duration::from_secs(15 * 60);
 
 pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
-    let _lock = lock_within(layout, limit(LOCK_WAIT))?;
+    let _lock = lock_waiting(layout, limit(LOCK_WAIT), "north runtime deploy")?;
     let checkout = checkout();
     let (target, runtime) = built_main(layout, &checkout)?;
     let references = references(&runtime)?;
@@ -38,22 +36,8 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     }
 }
 
-fn lock_within(layout: &Layout, limit: Duration) -> Result<File, Failure> {
-    let started = Instant::now();
-    let mut announced = false;
-    loop {
-        if let Some(held) = lock(layout, FlockOperation::NonBlockingLockExclusive)? {
-            return Ok(held);
-        }
-        if !announced {
-            println!("north runtime deploy: waiting up to {}s for runtime-update.lock, held by another north runtime update", limit.as_secs());
-            announced = true;
-        }
-        if started.elapsed() >= limit {
-            return Err(failed(1, format!("runtime-update.lock stayed held by another north runtime update for {}s", limit.as_secs())));
-        }
-        std::thread::sleep(Duration::from_secs(1));
-    }
+pub(super) fn ship_runtime(host: &str, target: &str, runtime: &Path) -> Result<(), Failure> {
+    ship(host, target, runtime, &references(runtime)?)
 }
 
 fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>) -> Result<(), Failure> {
@@ -66,6 +50,7 @@ fn ship(host: &str, target: &str, runtime: &Path, references: &BTreeSet<String>)
     let mut copy = Command::new("rsync");
     copy.args(["-a", "--timeout=120", "--mkpath"]).args(PROGRAMS.map(|program| runtime.join(program))).arg(destination);
     run(host, "rsync", &mut copy, COPY)?;
-    println!("north runtime deploy: {host}: waiting for north runtime update to promote {}", layout::short(target));
-    run(host, "north runtime update", ssh(host).args(["north", "runtime", "update"]), PROMOTE)
+    println!("north runtime deploy: {host}: promoting {} with the shipped north", layout::short(target));
+    let shipped = format!(".local/state/north/runtimes/{target}/north");
+    run(host, &format!("north runtime update --sha {}", layout::short(target)), ssh(host).args([shipped.as_str(), "runtime", "update", "--sha", target]), PROMOTE)
 }

@@ -8,7 +8,7 @@ use super::*;
 use super::activation::{catalog_registration, restrict_skill_agents};
 use super::files::write_json;
 use super::generation::{
-    instruction_targets, publish_generation, publish_skill_links_in, safe_relative_path, start_clean_generation,
+    instruction_targets, missing_registered_hooks, publish_generation, publish_skill_links_in, safe_relative_path, start_clean_generation,
     write_active_list,
 };
 use super::paths::repo_root_in;
@@ -505,4 +505,26 @@ fn projection_paths_accept_relative_components_and_reject_absolute_or_parent_com
             }
         }
     }
+}
+
+#[test]
+fn a_generation_dropping_a_registered_hook_the_current_one_ships_is_named_and_one_already_absent_or_restored_is_not() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let home = fixture.path().join("home");
+    let state = home.join(".local/state");
+    let generation = fixture.path().join("gen-new");
+    fs::create_dir_all(generation.join("provider-hooks")).expect("provider hooks");
+    fs::write(generation.join("provider-hooks/kept.sh"), "").expect("kept hook");
+    let current = fixture.path().join("gen-current");
+    fs::create_dir_all(current.join("provider-hooks")).expect("current provider hooks");
+    fs::write(current.join("provider-hooks/generated-policy-guard.sh"), "").expect("current hook");
+    let command = |name: &str| json!({"type": "command", "command": format!("/bin/env PATH=/x /bin/bash {}/.agents/hooks/{name}", home.display())});
+    for (file, hooks) in [(home.join(".claude/settings.json"), vec![command("kept.sh")]), (state.join("north/profiles/claude-a/settings.json"), vec![command("kept.sh"), command("generated-policy-guard.sh"), command("never-shipped.sh")]), (state.join("north/profiles/stale-claude-b/settings.json"), vec![command("old.sh")])] {
+        fs::create_dir_all(file.parent().expect("parent")).expect("settings directory");
+        write_json(&file, &json!({"hooks": {"PreToolUse": [{"hooks": hooks}]}})).expect("settings");
+    }
+    let missing = missing_registered_hooks(&generation, &current, &home, &state);
+    assert_eq!(missing, [format!("generated-policy-guard.sh (registered in {})", state.join("north/profiles/claude-a/settings.json").display())]);
+    fs::write(generation.join("provider-hooks/generated-policy-guard.sh"), "").expect("restored hook");
+    assert!(missing_registered_hooks(&generation, &current, &home, &state).is_empty());
 }

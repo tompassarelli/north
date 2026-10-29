@@ -110,7 +110,7 @@ impl Options {
     pub(crate) fn class(&self, cores: f64) -> Request {
         let name = self.required("--class");
         if !CLASS_NAMES.contains(&name) {
-            fail("--class must be agent, native, moderate, heavy, exclusive, gpu, critical, or tom", 2);
+            fail("--class must be agent, native, moderate, heavy, exclusive, gpu, critical, tom, or runtime", 2);
         }
         let resources = self.resources(name, cores);
         let new_clients = self.count("--new-clients", name).unwrap_or(u32::from(name == "native"));

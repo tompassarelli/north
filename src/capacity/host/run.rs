@@ -276,7 +276,7 @@ fn refusal(admitted: &Obj) -> Option<String> {
 
 pub(crate) fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: Option<u64>, command: &[String], host: &Host) -> u8 {
     if request.name == "agent" {
-        fail("run --class must be moderate, heavy, exclusive, gpu, critical, tom, or native", 2);
+        fail("run --class must be moderate, heavy, exclusive, gpu, critical, tom, runtime, or native", 2);
     }
     if let Some(parent) = batch_class(&request.name).then(|| nested_parent(root)).flatten() {
         print_to(&Obj::new().put("decision", "NESTED").put("parent", parent.as_str()).put("class", request.name.as_str()).put("owner", owner), true);
