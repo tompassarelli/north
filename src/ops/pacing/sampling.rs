@@ -49,16 +49,17 @@ fn due_adapters<'a>(prior: &Value, provider: Option<&str>, at: f64) -> Vec<&'a (
         .collect()
 }
 
-fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String], local: &[&str]) -> Reads<'a> {
+fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String], local: &[&str], refresh: bool) -> Reads<'a> {
     let commands: Vec<(&str, bool, Vec<String>)> = due
         .iter()
         .flat_map(|(p, a)| {
             let script = root().join(format!("harness/lib/usage_{a}.py")).to_string_lossy().into_owned();
             let remote = format!(".local/state/north/current/tree/harness/lib/usage_{a}.py");
+            let quiet = (!refresh && *p == "claude").then_some("--no-refresh");
             let remotes = owners.iter().filter(|_| *p == "claude").map(move |destination| {
-                (*p, true, ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "python3", "-I", &remote].map(str::to_owned).to_vec())
+                (*p, true, ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "python3", "-I", &remote].into_iter().chain(quiet).map(str::to_owned).collect())
             });
-            let own = local.contains(p).then(|| (*p, false, vec!["python3".to_owned(), "-I".to_owned(), script]));
+            let own = local.contains(p).then(|| (*p, false, ["python3", "-I", &script].into_iter().chain(quiet).map(str::to_owned).collect()));
             own.into_iter().chain(remotes.collect::<Vec<_>>())
         })
         .collect();
@@ -86,7 +87,7 @@ fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String], local: &
     })
 }
 
-/// Reads usage rows for the Claude accounts this host holds only a token for; the provider layer supplies it.
+/// Reads usage rows for the Claude accounts this host holds a token for; the provider layer supplies it.
 pub(crate) type TokenUsage = fn(&std::path::Path, f64) -> Vec<Value>;
 static TOKEN_USAGE: std::sync::OnceLock<TokenUsage> = std::sync::OnceLock::new();
 
@@ -109,6 +110,11 @@ pub(super) fn read_here(cfg: &toml_edit::DocumentMut, provider: &str, here: &str
         return false;
     };
     accounts.get("profiles").and_then(toml_edit::Item::as_table_like).is_none_or(|profiles| profiles.iter().any(|(_, hosts)| hosts.as_table_like().is_some_and(|hosts| hosts.contains_key(here))))
+}
+
+pub(super) fn tokens_cover_claude(cfg: &toml_edit::DocumentMut, here: &str) -> bool {
+    let profiles = cfg.get("accounts").and_then(|accounts| accounts.get("claude")).and_then(|claude| claude.get("profiles")).and_then(toml_edit::Item::as_table_like);
+    profiles.is_some_and(|table| !table.is_empty() && table.iter().all(|(_, hosts)| hosts.get(here).and_then(|entry| entry.get("token_file")).is_some()))
 }
 
 pub(super) fn claude_owners(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<String> {
@@ -304,7 +310,8 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
     let cfg = config().ok();
     let owners = cfg.as_ref().map(|cfg| claude_owners(cfg, &here)).unwrap_or_default();
     let local: Vec<&str> = ADAPTERS.iter().map(|(p, _)| *p).filter(|p| cfg.as_ref().is_none_or(|cfg| read_here(cfg, p, &here))).collect();
-    let mut reads = read_adapters(&due_adapters(&prior, provider, at), &owners, &local);
+    let refresh = !cfg.as_ref().is_some_and(|cfg| tokens_cover_claude(cfg, &here));
+    let mut reads = read_adapters(&due_adapters(&prior, provider, at), &owners, &local, refresh);
     if local.contains(&"claude") {
         merge_token_rows(&mut reads, || token_rows(at));
     }

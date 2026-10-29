@@ -356,3 +356,21 @@ fn one_window_a_refresh_did_not_reread_cannot_hold_a_freshly_read_account_stale_
     let held = refusal("2026-10-28T10:39:00Z", "2026-10-28T10:39:00Z");
     assert!(held.as_str().is_some_and(|why| why.contains("usage snapshot is 81 minutes old even after a refresh")), "{held}");
 }
+
+#[test]
+fn the_gate_decides_a_recorded_reading_by_setup_token_exactly_as_the_same_reading_by_the_claude_cli() {
+    let gate = |source: &str| {
+        let mut state: Value = serde_json::from_str(include_str!("fixtures/gate_state.json")).unwrap();
+        for row in state["rows"].as_array_mut().unwrap() {
+            if row[1] == "claude" && row[3] == "window" {
+                row[9] = Value::from(source);
+            }
+        }
+        state["orchestration"] = Value::from(include_str!("../router/fixtures/policy/orchestration.toml"));
+        let scratch = Scratch::new(&state);
+        super::gate::write(&scratch.open(), &["claude"], &scratch.places(), frozen()).unwrap()
+    };
+    let cli = gate("claude -p /usage; ~/.claude.json cachedUsageUtilization");
+    assert!(cli["claude"]["refusals"].as_object().is_some_and(|refusals| !refusals.is_empty()), "{cli}");
+    assert_eq!(gate("Messages response anthropic-ratelimit-unified headers on the account's setup token"), cli);
+}

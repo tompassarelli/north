@@ -2,7 +2,7 @@ use std::fs;
 
 use serde_json::json;
 
-use super::{curl_config, rows_from, token_only_accounts};
+use super::{curl_config, rows_from, token_accounts};
 
 const HEADERS: &str = "HTTP/2 200 \r\ncontent-type: application/json\r\nAnthropic-Ratelimit-Unified-5h-Status: allowed\r\nanthropic-ratelimit-unified-5h-utilization: 0.37\r\nanthropic-ratelimit-unified-5h-reset: 1793118000\r\nanthropic-ratelimit-unified-7d-utilization: 0.0449\r\nanthropic-ratelimit-unified-7d-reset: 1793692800\r\nanthropic-ratelimit-unified-representative-claim: five_hour\r\n\r\n";
 
@@ -22,7 +22,7 @@ fn a_response_without_unified_headers_is_an_error_not_an_empty_reading() {
 }
 
 #[test]
-fn only_an_account_with_a_readable_token_and_no_login_here_is_read_by_token() {
+fn every_account_with_a_readable_token_here_is_read_by_token_whether_or_not_it_has_a_login() {
     let home = tempfile::tempdir().unwrap();
     let state = home.path().join(".local/state/north");
     fs::create_dir_all(state.join("profiles/claude-a")).unwrap();
@@ -31,12 +31,13 @@ fn only_an_account_with_a_readable_token_and_no_login_here_is_read_by_token() {
     for label in ["a", "d"] {
         fs::write(home.path().join(format!("token-{label}")), "setup-token").unwrap();
     }
+    fs::write(home.path().join("token-e"), "").unwrap();
     let host = crate::platform::host::name();
     let policy = home.path().join("orchestration.toml");
     let entry = |label: &str| format!("{label} = {{ {host} = {{ path = \"~/.local/state/north/profiles/claude-{label}\", token_file = \"~/token-{label}\" }} }}");
-    fs::write(&policy, format!("[accounts.claude]\nprofiles = {{ {}, {} }}\n", entry("a"), entry("d"))).unwrap();
-    let labels: Vec<String> = token_only_accounts(&policy, home.path()).into_iter().map(|account| account.label).collect();
-    assert_eq!(labels, ["d"]);
+    fs::write(&policy, format!("[accounts.claude]\nprofiles = {{ {}, {}, {} }}\n", entry("a"), entry("d"), entry("e"))).unwrap();
+    let labels: Vec<String> = token_accounts(&policy, home.path()).into_iter().map(|account| account.label).collect();
+    assert_eq!(labels, ["a", "d"]);
 }
 
 #[test]

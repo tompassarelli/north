@@ -110,7 +110,7 @@ fn profiles(policy: &DocumentMut, home: &Path, here: &str) -> Profiles {
     Profiles { keepers, homes, tokens, elsewhere, default_home: default_home(home) }
 }
 
-fn readable_token(file: &Path) -> bool {
+pub(super) fn readable_token(file: &Path) -> bool {
     std::fs::metadata(file).is_ok_and(|meta| meta.is_file() && meta.len() > 0) && std::fs::File::open(file).is_ok()
 }
 

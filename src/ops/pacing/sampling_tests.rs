@@ -94,3 +94,12 @@ fn a_token_only_accounts_rows_join_the_claude_read_when_claude_is_due_and_are_dr
     sampling::merge_token_rows(&mut idle, || unreachable!("no request goes out while claude is not due"));
     assert!(idle["gemini"].0.is_empty() && !idle.contains_key("claude"));
 }
+
+#[test]
+fn the_claude_cli_refresh_is_skipped_only_when_every_declared_account_has_a_token_on_this_host() {
+    let covered = |profiles: &str| sampling::tokens_cover_claude(&format!("[accounts.claude]\nprofiles = {{ {profiles} }}\n").parse().unwrap(), "here");
+    assert!(covered("a = { here = { path = \"~/a\", token_file = \"~/ta\" } }, d = { here = { token_file = \"~/td\" }, far = {} }"));
+    assert!(!covered("a = { here = { path = \"~/a\", token_file = \"~/ta\" } }, b = { here = { path = \"~/b\" } }"));
+    assert!(!covered("a = { here = { token_file = \"~/ta\" } }, b = { far = { token_file = \"~/tb\" } }"));
+    assert!(!covered(""));
+}

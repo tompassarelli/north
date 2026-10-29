@@ -13,9 +13,17 @@ const MINIMAL_TURN: &str = r#"{"model":"claude-haiku-5-5","max_tokens":1,"system
 const SOURCE: &str = "Messages response anthropic-ratelimit-unified headers on the account's setup token";
 const WINDOWS: [(&str, &str, u32); 2] = [("5h", "session", 300), ("7d", "weekly_all", 10080)];
 
-pub fn token_only_accounts(policy: &Path, home: &Path) -> Vec<Account> {
-    let roster = accounts::discover(&ProviderName::new("claude"), &home.join(".local/state/north"), &accounts::declared(policy, home));
-    roster.accounts.into_iter().filter(|account| account.token_file.is_some()).collect()
+pub fn token_accounts(policy: &Path, home: &Path) -> Vec<Account> {
+    let profiles = accounts::declared(policy, home);
+    profiles
+        .tokens
+        .iter()
+        .filter(|(_, file)| accounts::readable_token(file))
+        .filter_map(|(label, file)| {
+            let (_, account_home) = profiles.homes.iter().find(|(home_label, _)| home_label == label)?;
+            Some(Account { provider: ProviderName::new("claude"), label: label.clone(), home: account_home.clone(), token_file: Some(file.clone()) })
+        })
+        .collect()
 }
 
 pub fn usage_rows(account: &Account, at: f64) -> Result<Vec<Value>, String> {
