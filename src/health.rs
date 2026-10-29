@@ -7,6 +7,7 @@ use std::process::{Command, ExitCode};
 use std::time::Duration;
 
 use crate::foundation::clock::Timestamp;
+use crate::ops::citation_check;
 use crate::platform::sqlite::{self, Access};
 use units::{Reading, Run};
 
@@ -318,7 +319,7 @@ fn save(path: &Path, state: &State) -> Result<(), String> {
     Ok(())
 }
 
-fn live(dry_run: bool) -> Result<bool, String> {
+fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME missing")?);
     let now = Timestamp::now().unix_seconds() as u64;
     let state_path = home.join(".local/state/north/health.json");
@@ -410,6 +411,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
         })
         .collect();
     let north_runs = runs.get("north").and_then(|text| text.clone().ok());
+    results.push(("citations".into(), citation_check::verdict(&repo, defined)));
     results.push(("ci".into(), ci(CiInput { runs })));
     let output = if land_due(now, &state) {
         Some(match std::env::var_os("XDG_RUNTIME_DIR") {
@@ -465,7 +467,7 @@ fn live(dry_run: bool) -> Result<bool, String> {
     Ok(results.iter().all(|(_, result)| result.is_ok()))
 }
 
-pub fn run(arguments: &[String]) -> ExitCode {
+pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> ExitCode {
     let dry_run = match arguments {
         [] => false,
         [flag] if flag == "--dry-run" => true,
@@ -474,7 +476,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match live(dry_run) {
+    match live(dry_run, defined) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::from(1),
         Err(error) => {

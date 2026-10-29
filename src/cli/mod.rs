@@ -57,6 +57,7 @@ Run north with no arguments to open the fleet screen.
 Commands:
   wisp payoff [--since YYYY-MM-DD] [--json]      Measure Wisp agreement and native utilization
   health [--dry-run]                             Check harness invariants
+  citation-check [--root DIR] [--list]          Fail on a doc, skill or hook that cites a north subcommand the CLI does not define
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health imports                           Resolve the imports of files given as JSON on stdin
   guard language                                PreToolUse language guard
@@ -222,7 +223,7 @@ fn dispatch(command: Command) -> ExitCode {
         }),
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
-        Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments)) }),
+        Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments, tools::defines)) }),
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
         Command::ContractProbe(arguments) => in_runtime(async move {
             contract_probe::run(&arguments, probe_account::invocation).await.map(ExitCode::from)

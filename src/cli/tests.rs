@@ -1,4 +1,5 @@
 use super::*;
+use super::tools::defines;
 
 #[test]
 fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
@@ -56,4 +57,17 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
             }
         }
     }
+}
+
+#[test]
+fn every_north_subcommand_cited_in_docs_skills_and_hooks_is_defined() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let undefined = crate::ops::citation_check::undefined(root, defines).unwrap();
+    assert!(undefined.is_empty(), "{undefined:?}");
+}
+
+#[test]
+fn the_cli_defines_what_it_dispatches_and_nothing_else() {
+    assert!(["fleet", "config", "guard", "private-desktop", "land-clean"].into_iter().all(defines));
+    assert!(!["pace-refusal", "capture", "delegate", ""].into_iter().any(defines));
 }

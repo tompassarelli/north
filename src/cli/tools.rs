@@ -26,6 +26,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("provenance", provenance::run),
     ("issue-box-lint", issue_box_lint::run),
     ("follows-release", follows_release::run),
+    ("citation-check", citation_check),
     ("cloud", super::cloud::run),
     ("worktree-layout-check", crate::lanes::layout_check),
     ("hardcoded-repo-path-check", crate::lanes::hardcoded_paths),
@@ -123,4 +124,14 @@ impl Tool {
             Self::Timer(timer) => ExitCode::from(timer.run(arguments)),
         }
     }
+}
+
+fn citation_check(arguments: &[String]) -> u8 {
+    crate::ops::citation_check::run(arguments, defines)
+}
+
+const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help", "private-desktop"];
+
+pub(super) fn defines(command: &str) -> bool {
+    BUILT_IN.contains(&command) || super::forwarded(command, Vec::new()).is_some()
 }

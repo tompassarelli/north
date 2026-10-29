@@ -1,6 +1,7 @@
 pub(crate) mod advisor_report;
 pub(crate) mod agent_contain;
 pub(crate) mod agents;
+pub(crate) mod citation_check;
 pub(crate) mod convo;
 pub(crate) mod dispatch;
 pub(crate) mod flow;
