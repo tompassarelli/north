@@ -27,11 +27,13 @@ fn native_refs_and_quoted_item_titles_are_refused() {
     let scratch = tempfile::tempdir().unwrap();
     let databases = [threads_database(scratch.path())];
     std::fs::write(scratch.path().join("body.md"), "see the orange bicycle beside the gate").unwrap();
+    std::fs::write(scratch.path().join("ref.md"), "moved to life#7 for now").unwrap();
     for command in [
         "gh issue comment 5 --body life#1".to_owned(),
         "gh pr edit 3 --body travel#2".to_owned(),
         "gh issue comment 5 --body-file - <<'BODY'\nlife#1\nBODY".to_owned(),
         "gh issue comment 5 --body-file body.md".to_owned(),
+        "gh issue comment 5 --body-file ref.md".to_owned(),
         "gh api repos/x/y/issues -F body=@body.md".to_owned(),
         "cd x && gh issue create --title ops#4".to_owned(),
         comment("the orange bicycle beside the gate"),
