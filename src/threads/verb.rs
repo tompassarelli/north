@@ -32,6 +32,8 @@ pub(crate) trait Outside: Issues {
     fn archives(&self, repo: &str, number: u64) -> String;
     /// Each service's dollars per week from the operator's costs.toml.
     fn prices(&self) -> Result<BTreeMap<String, f64>, String>;
+    /// The operator's costs.toml the prices come from.
+    fn costs_path(&self) -> std::path::PathBuf;
 }
 
 pub(crate) struct Context<'a> {

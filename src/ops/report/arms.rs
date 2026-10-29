@@ -1,10 +1,11 @@
 //! How often each escalation arm's runs succeeded, with a Wilson 95% interval.
 use serde_json::Value;
 
+pub(crate) use crate::platform::pystats::wilson;
+
 pub(super) const QUERY: &str = "SELECT agent, arm, follows, outcome, expects_landing, landed, item FROM runs WHERE role = 'worker'";
 const ARMS: [&str; 3] = ["escalate", "cheap-fix", "split"];
 const ARM_MIN: usize = 15;
-const Z95: f64 = 1.959964;
 
 pub(crate) struct Run {
     agent: String,
@@ -37,17 +38,6 @@ fn unjudged(run: &Run) -> bool {
 
 fn succeeded(run: &Run, followed: bool) -> bool {
     run.outcome == "done" && !followed && !(run.expects_landing && run.landed == Some(0))
-}
-
-pub(crate) fn wilson(conformance: f64, n: usize) -> (f64, f64) {
-    if n == 0 {
-        return (0.0, 1.0);
-    }
-    let n = n as f64;
-    let p = (conformance * n).round() / n;
-    let centre = (p + Z95 * Z95 / (2.0 * n)) / (1.0 + Z95 * Z95 / n);
-    let half = Z95 * (p * (1.0 - p) / n + Z95 * Z95 / (4.0 * n * n)).sqrt() / (1.0 + Z95 * Z95 / n);
-    ((centre - half).max(0.0), (centre + half).min(1.0))
 }
 
 pub(super) fn lines(runs: &[Run]) -> Vec<String> {

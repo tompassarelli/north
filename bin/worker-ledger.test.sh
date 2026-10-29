@@ -14,7 +14,7 @@ WORKER_LEDGER_REAL_NORTH="$(cd "$repo" && realpath "${CARGO_TARGET_DIR:-target}"
 export WORKER_LEDGER_REAL_NORTH
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
-[ "$1" = defaults-measure ] || [ "$1 $2" = "ledger claude-runs" ] || [ "$1 $2" = "threads ingest" ] || [ "$1 $2" = "threads run-ids" ] || [ "$1 $2" = "threads calibrate" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
+[ "$1" = defaults-measure ] || [ "$1 $2" = "ledger claude-runs" ] || [ "$1 $2" = "threads ingest" ] || [ "$1 $2" = "threads run-ids" ] || [ "$1 $2" = "threads calibrate" ] || [ "$1 $2" = "threads summary" ] || [ "$1 $2" = "threads routing-compare" ] && exec "$WORKER_LEDGER_REAL_NORTH" "$@"
 [ "$1 $2 $3" = "fleet list --json" ] || exit 1
 cat "$FLEET_TEST_SESSIONS"
 NORTH

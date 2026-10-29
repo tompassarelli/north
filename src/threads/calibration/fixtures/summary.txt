@@ -1,0 +1,40 @@
+category    tier              arm       n  done  success  ok    eta_med  actual_med  work_med  wait_med  x_eta_med  over_2x_eta  tokens_med  no_landing  usd_per_done
+feature     medium            split     2  1     50%      50%   15       20          30        5         1.3        0/2          30k         1/2         2.20
+mechanical  haiku             -         2  2     100%     100%  -        5           -         -         0.5        0/1          8k          0/1         0.10
+research    gpt-6.1-sol high  -         1  1     100%     100%  10       20          25        5         2.0        0/1          90k         0/1         2.00
+tooling     sonnet            -         3  2     66%      66%   20       30          40        15        1.5        1/3          120k        1/3         2.00
+tooling     medium            escalate  1  1     100%     100%  30       40          50        15        1.3        0/1          300k        0/1         4.00
+unknown     haiku             -         1  0     0%       0%    10       20          -         -         2.0        0/1          25k         0/0         -
+
+role     category    tier              n  peak_ctx_p50  peak_ctx_p90  compactions/run  handoff_fires  cache_read_share  idle_gap_misses
+planner  research    high              1  60000         60000         2.00             1              66.7%             3
+worker   feature     medium            3  -             -             -                -              -                 -
+worker   made-up     haiku             1  -             -             -                -              -                 -
+worker   mechanical  haiku             2  -             -             -                -              -                 -
+worker   research    gpt-6.1-sol high  1  70000         70000         0.00             0              10.0%             0
+worker   tooling     medium            1  200000        200000        3.00             2              75.0%             2
+worker   tooling     sonnet            3  90000         150000        1.00             1              62.9%             1
+
+model    effort  fast  done_boxes  brief_to_landed_min_med  usd_per_done_med  concurrency
+-        -       -     0           -                        -                 1
+gpt-6.1  high    0     1           30.000                   2.000             1
+haiku    -       -     1           7.000                    0.100             1
+opus     medium  0     1           35.000                   2.200             1
+opus     medium  1     1           65.000                   4.000             1
+sonnet   high    0     2           63.500                   2.000             1
+project  done_boxes  brief_to_landed_min_med  usd_per_done_med  concurrency
+ops      6           45.000                   2.100             1
+untracked sessions on claude-b: $3.25 unallocated
+
+lens      reviews  accepted_flaws  reviews_with_flaws
+review-a  2        2               1
+review-b  1        1               1
+
+category  splits  parts  parts_closed  parts_min  split_to_last_min
+feature   1       2      50%           40         60
+
+category    first_tier  issues  closed  runs_per_closed  tokens_per_closed  escalated
+feature     medium      1       1       3.0              65k                0%
+made-up     haiku       1       1       1.0              25k                0%
+mechanical  haiku       2       2       1.0              4k                 0%
+tooling     sonnet      3       2       2.0              280k               66%

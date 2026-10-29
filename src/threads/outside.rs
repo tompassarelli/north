@@ -65,6 +65,10 @@ impl super::verb::Outside for Live {
         if self.archives { crate::platform::archive_tags::report(repo, number, None) } else { String::new() }
     }
 
+    fn costs_path(&self) -> PathBuf {
+        self.operator.join("costs.toml")
+    }
+
     fn prices(&self) -> Result<BTreeMap<String, f64>, String> {
         let path = self.operator.join("costs.toml");
         let unreadable = |why: String| format!("{}: {why}", path.display());

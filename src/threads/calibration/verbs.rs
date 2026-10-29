@@ -13,11 +13,13 @@ use crate::foundation::clock::Timestamp;
 use crate::threads::runs::brief::{CATEGORIES, Fields};
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 
-pub(crate) const VERBS: [&str; 3] = ["recommend", "calibrate", "replay-staffing"];
+pub(crate) const VERBS: [&str; 5] = ["recommend", "calibrate", "replay-staffing", "summary", "routing-compare"];
 
 /// Runs one verb, printing its result to `out` and a refusal to `err`; returns the exit code.
 pub(crate) fn run(argv: &[String], context: &Context, _stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let result = match argv[0].as_str() {
+        "summary" => return super::summary::run(&argv[1..], context, out, err),
+        "routing-compare" => return super::routing::run(context, out, err),
         "recommend" => recommend_verb(&argv[1..], context),
         "calibrate" => super::calibrate::run(&argv[1..], context),
         _ => super::replay::run(&argv[1..], context),

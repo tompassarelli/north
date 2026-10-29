@@ -259,6 +259,6 @@ fn a_settled_value_prints_like_percent_g() {
 
 #[test]
 fn the_bootstrap_draws_match_python_random_seeded_35() {
-    let mut twister = super::twister::Twister::seeded(35);
+    let mut twister = crate::platform::twister::Twister::seeded(35);
     assert_eq!(twister.choices(&[1.0, 2.0, 3.0, 4.0, 5.0], 8), [3.0, 4.0, 4.0, 5.0, 2.0, 5.0, 3.0, 4.0]);
 }

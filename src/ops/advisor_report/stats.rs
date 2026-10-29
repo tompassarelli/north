@@ -1,6 +1,8 @@
 //! The task-cluster bootstrap, drawing from the generator the Python report seeded so seed 0 gives the same interval.
 use std::collections::BTreeMap;
 
+pub(crate) use crate::platform::pystats::float_sum;
+
 const N: usize = 624;
 const M: usize = 397;
 const UPPER: u32 = 0x8000_0000;
@@ -68,17 +70,6 @@ impl PyRandom {
             }
         }
     }
-}
-
-/// Python's `sum` over floats: Neumaier-compensated since 3.12.
-pub(crate) fn float_sum(values: impl IntoIterator<Item = f64>) -> f64 {
-    let (mut total, mut carry) = (0.0f64, 0.0f64);
-    for x in values {
-        let t = total + x;
-        carry += if total.abs() >= x.abs() { (total - t) + x } else { (x - t) + total };
-        total = t;
-    }
-    if carry != 0.0 && carry.is_finite() { total + carry } else { total }
 }
 
 pub(super) fn upper_quantile(sorted: &[f64]) -> f64 {

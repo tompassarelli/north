@@ -224,3 +224,47 @@ fn recommend_verb_prints_the_pick_the_stats_and_the_eta_and_remembers_the_choice
     let held: String = db.query_row("SELECT tier FROM tier_choice WHERE cell = 'Category: research, Spec: measured'", [], |row| row.get(0)).unwrap();
     assert_eq!(held, "claude:haiku");
 }
+
+fn fixture_ledger(directory: &std::path::Path, extra: &str) -> std::path::PathBuf {
+    let database = directory.join("threads.db");
+    let db = Connection::open(&database).unwrap();
+    db.execute_batch(include_str!("../runs/fixtures/ledger.sql")).unwrap();
+    db.execute_batch(include_str!("fixtures/summary.sql")).unwrap();
+    db.execute_batch(extra).unwrap();
+    database
+}
+
+#[test]
+fn summary_equals_the_python_output_on_one_ledger_fixture() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = fixture_ledger(directory.path(), "");
+    let outside = crate::threads::fake::Recorded::default();
+    let context = crate::threads::verb::Context { database: &database, actor: "tester".into(), no_native: None, outside: &outside, now: crate::foundation::clock::Timestamp::parse("2026-10-12T00:00:00Z").unwrap(), replica: false };
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = super::summary::run(&[], &context, &mut out, &mut err);
+    assert_eq!((code, String::from_utf8(err).unwrap()), (0, String::new()));
+    assert_eq!(String::from_utf8(out).unwrap(), include_str!("fixtures/summary.txt"));
+}
+
+#[test]
+fn routing_compare_equals_the_python_output_on_one_ledger_with_a_costs_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("threads.db");
+    let db = Connection::open(&database).unwrap();
+    db.execute_batch(include_str!("../runs/fixtures/ledger.sql")).unwrap();
+    db.execute_batch(include_str!("fixtures/routing.sql")).unwrap();
+    drop(db);
+    let outside = crate::threads::fake::Recorded { prices: vec![("claude-b", 50.0), ("codex", 100.0)], ..Default::default() };
+    let context = crate::threads::verb::Context { database: &database, actor: "tester".into(), no_native: None, outside: &outside, now: crate::foundation::clock::Timestamp::parse("2026-10-29T00:00:00Z").unwrap(), replica: false };
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = super::routing::run(&context, &mut out, &mut err);
+    assert_eq!((code, String::from_utf8(err).unwrap()), (0, String::new()));
+    let expected = include_str!("fixtures/routing.txt").replace("{ledger}", &std::fs::canonicalize(&database).unwrap().display().to_string());
+    assert_eq!(String::from_utf8(out).unwrap(), expected);
+}
+
+#[test]
+fn the_bootstrap_draws_python_random_seeded_zero() {
+    let mut twister = crate::platform::twister::Twister::seeded(0);
+    assert_eq!(twister.choices(&[1.0, 2.0, 3.0, 4.0, 5.0], 8), [5.0, 4.0, 3.0, 2.0, 3.0, 3.0, 4.0, 2.0]);
+}

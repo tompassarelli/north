@@ -61,6 +61,10 @@ impl Outside for Recorded {
         self.archived.to_owned()
     }
 
+    fn costs_path(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from("costs.toml")
+    }
+
     fn prices(&self) -> Result<BTreeMap<String, f64>, String> {
         Ok(self.prices.iter().map(|(service, usd)| ((*service).to_owned(), *usd)).collect())
     }

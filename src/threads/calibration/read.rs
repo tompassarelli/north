@@ -97,7 +97,7 @@ pub(crate) fn calibration_runs(db: &Connection) -> rusqlite::Result<Vec<Run>> {
 
 /// Finished worker runs that name an item, for box chains.
 pub(crate) fn box_rows(db: &Connection) -> rusqlite::Result<Vec<BoxRun>> {
-    let mut statement = db.prepare("SELECT item, category, outcome, staffed, started, ended, landed, landed_at FROM runs WHERE role = 'worker' AND outcome != 'running' AND item IS NOT NULL")?;
+    let mut statement = db.prepare("SELECT item, category, outcome, staffed, started, ended, landed, landed_at, cost_usd FROM runs WHERE role = 'worker' AND outcome != 'running' AND item IS NOT NULL")?;
     statement
         .query_map([], |row| {
             Ok(BoxRun {
@@ -109,6 +109,7 @@ pub(crate) fn box_rows(db: &Connection) -> rusqlite::Result<Vec<BoxRun>> {
                 ended: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
                 landed: row.get::<_, Option<i64>>(6)?.is_some_and(|landed| landed != 0),
                 landed_at: row.get(7)?,
+                cost_usd: row.get(8)?,
             })
         })?
         .collect()

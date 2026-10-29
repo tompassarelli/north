@@ -1,0 +1,54 @@
+source ledger={ledger} (read-only); campaign=south c2edcdf
+source account prices=costs.toml; plan_usage.costs_by_id; points=run_costs USD*100/account usd_per_week
+source reviews=unavailable from retired peer files; multi-arm items require landing SHA prefix
+boxes=distinct worker items with landed=1 in [start,end); landing time=landed_at, else ended; category=first worker run
+history=landed runs and worker runs ended by last landing; wall requires every staffed and landing timestamp
+first_try=no Not done/rework/escalation before landing; adverse=Not done or repeats/Follows/rework/revert report marker; escalation=outcome/arm/tier increase
+quality=independent metrics; decisive failure/adverse evidence wins; otherwise any outcome other than done is unknown; rates use known observations
+mix=worker run counts by provider(tier)/tier; review minutes=observed total; points require known accounts and every run's allocation, never imputed
+CI=95%; bootstrap=2000 resamples, seed=0, percentile; rates=Wilson; statistics require n>=5
+window baseline [2026-10-05T12:27:27Z,2026-10-12T12:27:27Z)
+no Item runs baseline n=0 landed=0
+coverage baseline category=8/8 landing_timestamp=8/8
+review ambiguity baseline boxes=0/8
+quality coverage baseline feature first_try known=2/2 unknown=0/2 adverse known=2/2 unknown=0/2
+quality coverage baseline tooling first_try known=6/6 unknown=0/6 adverse known=6/6 unknown=0/6
+quality coverage baseline overall first_try known=8/8 unknown=0/8 adverse known=8/8 unknown=0/8
+window codex-only [2026-10-12T12:27:27Z,2026-10-15T02:00Z)
+no Item runs codex-only n=0 landed=0
+coverage codex-only category=7/8 landing_timestamp=6/8
+review ambiguity codex-only boxes=0/8
+quality coverage codex-only mechanical first_try known=1/1 unknown=0/1 adverse known=1/1 unknown=0/1
+quality coverage codex-only research first_try known=3/3 unknown=0/3 adverse known=3/3 unknown=0/3
+quality coverage codex-only tooling first_try known=3/3 unknown=0/3 adverse known=3/3 unknown=0/3
+quality coverage codex-only unknown first_try known=0/1 unknown=1/1 adverse known=0/1 unknown=1/1
+quality coverage codex-only overall first_try known=7/8 unknown=1/8 adverse known=7/8 unknown=1/8
+window split-after [2026-10-15T02:00Z,2026-10-15T16:00Z)
+no Item runs split-after n=0 landed=0
+coverage split-after category=2/2 landing_timestamp=2/2
+review ambiguity split-after boxes=0/2
+quality coverage split-after tooling first_try known=2/2 unknown=0/2 adverse known=2/2 unknown=0/2
+quality coverage split-after overall first_try known=2/2 unknown=0/2 adverse known=2/2 unknown=0/2
+arm          category    landed_boxes  provider/tier_runs                             wall_min_median_CI           first_try_CI                adverse_CI                 review_min  review_coverage
+baseline     feature     2             claude/medium:1;claude/sonnet:1                n/a (n=2)                    n/a (n=2)                   n/a (n=2)                  n/a (n=0)   0/2
+baseline     tooling     6             claude/high:1;claude/medium:4;claude/sonnet:2  108.00 [85.00,154.00] (n=6)  83.33% [43.65,96.99] (5/6)  16.67% [3.01,56.35] (1/6)  n/a (n=0)   0/6
+baseline     overall     8             claude/high:1;claude/medium:5;claude/sonnet:3  87.00 [62.00,154.00] (n=8)   87.50% [52.91,97.76] (7/8)  12.50% [2.24,47.09] (1/8)  n/a (n=0)   0/8
+codex-only   mechanical  1             claude/haiku:1                                 n/a (n=0)                    n/a (n=1)                   n/a (n=1)                  n/a (n=0)   0/1
+codex-only   research    3             codex/gpt-6.1-sol high:3                       n/a (n=3)                    n/a (n=3)                   n/a (n=3)                  n/a (n=0)   0/3
+codex-only   tooling     3             codex/gpt-6.1-sol high:3                       n/a (n=3)                    n/a (n=3)                   n/a (n=3)                  n/a (n=0)   0/3
+codex-only   unknown     1             codex/gpt-6.1-sol high:1                       n/a (n=0)                    n/a (n=0)                   n/a (n=0)                  n/a (n=0)   0/1
+codex-only   overall     8             claude/haiku:1;codex/gpt-6.1-sol high:7        119.00 [83.00,152.00] (n=6)  71.43% [35.89,91.78] (5/7)  28.57% [8.22,64.11] (2/7)  n/a (n=0)   0/8
+split-after  tooling     2             claude/medium:2                                n/a (n=2)                    n/a (n=2)                   n/a (n=2)                  n/a (n=0)   0/2
+split-after  overall     2             claude/medium:2                                n/a (n=2)                    n/a (n=2)                   n/a (n=2)                  n/a (n=0)   0/2
+
+arm          category    account   landed_boxes  allocated_boxes  points_per_box_CI
+baseline     feature     claude-b  2             2                n/a (n=2)
+baseline     tooling     claude-b  6             6                4.58 [2.75,6.75] (n=6)
+baseline     overall     claude-b  8             8                4.12 [2.69,5.88] (n=8)
+codex-only   mechanical  claude-b  1             0                n/a (n=0)
+codex-only   research    codex     3             1                n/a (n=1)
+codex-only   tooling     codex     3             1                n/a (n=1)
+codex-only   overall     claude-b  8             0                n/a (n=2)
+codex-only   overall     codex     8             2                n/a (n=2)
+split-after  tooling     claude-b  2             1                n/a (n=1)
+split-after  overall     claude-b  2             1                n/a (n=1)

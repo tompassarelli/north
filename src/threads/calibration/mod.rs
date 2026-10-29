@@ -8,6 +8,8 @@ mod mode;
 mod read;
 mod recommend;
 mod replay;
+mod routing;
+mod summary;
 #[cfg(test)]
 mod tests;
 mod verbs;

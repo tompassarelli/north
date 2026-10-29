@@ -1,14 +1,14 @@
 const N: usize = 624;
 const M: usize = 397;
 
-pub(super) struct Twister {
+pub(crate) struct Twister {
     state: [u32; N],
     index: usize,
 }
 
 impl Twister {
     // Python's random.Random(seed) for a small non-negative int seed, so bootstrap rows match the measured sources.
-    pub(super) fn seeded(seed: u32) -> Self {
+    pub(crate) fn seeded(seed: u32) -> Self {
         let mut state = [0u32; N];
         state[0] = 19_650_218;
         for i in 1..N {
@@ -57,7 +57,7 @@ impl Twister {
         (f64::from(a) * 67_108_864.0 + f64::from(b)) / 9_007_199_254_740_992.0
     }
 
-    pub(super) fn choices(&mut self, population: &[f64], k: usize) -> Vec<f64> {
+    pub(crate) fn choices(&mut self, population: &[f64], k: usize) -> Vec<f64> {
         let n = population.len() as f64;
         (0..k).map(|_| population[(self.random() * n).floor() as usize]).collect()
     }

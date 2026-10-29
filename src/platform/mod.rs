@@ -18,4 +18,6 @@ pub(crate) mod terminal;
 pub(crate) mod secrets_proxy;
 pub(crate) mod session_scope;
 pub(crate) mod pyjson;
+pub(crate) mod pystats;
+pub(crate) mod twister;
 pub(crate) mod toml_json;

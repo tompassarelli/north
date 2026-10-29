@@ -6,7 +6,6 @@ mod rollouts;
 mod row;
 mod sweeps;
 mod training;
-mod twister;
 mod usage;
 #[cfg(test)]
 mod tests;

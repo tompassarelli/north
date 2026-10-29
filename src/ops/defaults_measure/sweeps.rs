@@ -4,7 +4,7 @@ use rusqlite::Connection;
 
 use super::registry::Registry;
 use super::row::Row;
-use super::twister::Twister;
+use crate::platform::twister::Twister;
 use crate::foundation::clock::Timestamp;
 use crate::threads::calibration::{
     Knobs, Raw, Run, box_chains, box_duration, box_rows, calibration_runs, escalated, moment, quantile, raw_runs, recommend, recommend_usd, tier_key,

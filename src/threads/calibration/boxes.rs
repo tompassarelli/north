@@ -16,6 +16,7 @@ pub(crate) struct BoxRun {
     pub ended: String,
     pub landed: bool,
     pub landed_at: Option<String>,
+    pub cost_usd: Option<f64>,
 }
 
 /// One box: its first staffing to its last landing, the runs it took, and its category when known.
@@ -40,7 +41,7 @@ fn minutes_between(from: Timestamp, to: Timestamp) -> f64 {
 
 /// The runs of each item in staffed order, split where a run is staffed more than `gap` minutes after the latest end so
 /// far; a chain is a box only when one of its runs landed. Each run is paired with when it began.
-fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
+pub(super) fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
     let mut order: Vec<&str> = Vec::new();
     let mut by_item: BTreeMap<&str, Vec<(Timestamp, &BoxRun)>> = BTreeMap::new();
     for run in runs.iter().filter(|run| !run.item.is_empty() && run.outcome != "split" && !run.ended.is_empty()) {
