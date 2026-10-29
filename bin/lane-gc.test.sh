@@ -33,7 +33,7 @@ trap 'rm -rf "${scratch:?}"' EXIT
 mkdir -p "$scratch/bin" "$scratch/code/north/main" "$scratch/code/north/worktrees" "$scratch/handoffs"; printf '#!/usr/bin/env bash\ncase "$1 $2" in "fleet list") cat "$FLEET_TEST_FILE";; "fleet send") [ ! -e "$LANE_GC_FIXTURE/ping-fault" ] || exit 1; printf "%%s\\n" "$*" >>"$FLEET_TEST_SENDS";; *) exit 1;; esac\n' >"$scratch/bin/north"
 export LANE_GC_FIXTURE=$scratch LANE_GC_REAL_GIT=$real_git
 export LANE_GC_STALE_FILE=$scratch/stale.json FLEET_TEST_FILE=$scratch/fleet.json FLEET_TEST_SENDS=$scratch/fleet-sends
-export GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1 PYTHONDONTWRITEBYTECODE=1
+export GIT_CONFIG_GLOBAL=$scratch/gitconfig GIT_CONFIG_NOSYSTEM=1 PYTHONDONTWRITEBYTECODE=1 LANE_GC_MIRRORS=$scratch/mirrors
 export PATH=$scratch/bin:$PATH
 printf '[{"name":"fixture-parent","conversation":"fixture-session","parent":null,"provider":"claude","status":"working","cwd":"%s"}]\n' "$scratch/code/north/main" >"$FLEET_TEST_FILE"
 git config --global user.name fixture
@@ -165,11 +165,11 @@ for b in facts['branches']:
     eligible = any('/land-' + lane + '-' in name for lane in ['orphan', 'pending', 'fresh'])
     assert bool(deletions) == eligible, (name, pushes)
     if eligible:
-        tag = 'refs/tags/archive/north/' + name + '/' + tip[:12]
-        archived = [i for i, line in enumerate(pushes) if tag + ':' + tag in line]
+        ref = 'refs/archive/2026-10-14/' + name
+        archived = [i for i, line in enumerate(pushes) if tip + ':' + ref in line]
         assert archived and archived[0] < deletions[0], (name, pushes)
-        recovered = subprocess.check_output(['git', '--git-dir=' + str(root / 'origin.git'), 'rev-parse', tag + '^{commit}'], text=True).strip()
-        assert recovered == tip, (name, recovered)
+        assert subprocess.check_output(['git', '--git-dir=' + str(root / 'mirrors' / 'north.git'), 'rev-parse', ref + '^{commit}'], text=True).strip() == tip, name
+        assert subprocess.run(['git', '--git-dir=' + str(root / 'origin.git'), 'rev-parse', '-q', '--verify', 'refs/tags/archive/north/' + name + '/' + tip[:12]], capture_output=True).returncode != 0, 'archive tags stay off origin'
         assert '--force-with-lease=refs/heads/' + name + ':' + tip in pushes[deletions[0]]
-print('lane-gc orphan landing journey: PASS (creation and force-push age, owner ping, grace, archive recovery, live safety, unavailable evidence)')
+print('lane-gc orphan landing journey: PASS (creation and force-push age, owner ping, grace, mirror archive recovery, live safety, unavailable evidence)')
 PY

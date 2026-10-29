@@ -37,7 +37,7 @@ resources and archive are skipped), retire what is already on origin/main:
   - origin branches already on origin/main that pass the remote liveness checks;
 --remote checks every origin branch for landed patches or 24h inactivity, protecting
 open PRs, active Actions, Autoland, claims and recent pushes; orphaned
-claude/land-* refs idle 4h notify their Fleet parent, then archive after a 1h grace; stale branches
+claude/land-* refs idle 4h notify their Fleet parent, then archive after a 1h grace; origin branches whose changes are already on main (north landed-tree) are deleted outright and every other stale one is archived into the lane-gc mirror (~/.local/state/agents/lane-gc/mirrors/NAME.git, refs/archive/DATE/BRANCH, never origin) before deletion; stale branches
 are archived before deletion. Local unlanded lanes are flagged at 24h and clean,
 unlocked, unused lanes are archived and retired at 72h.
 Every other lane and branch gets a class: landed-elsewhere (patch-equivalent to main or its
@@ -246,8 +246,11 @@ function scanTrees(root: string, remote: boolean): LiveTrees {
     return r.exitCode === 0 ? JSON.parse(r.stdout.toString()) : { ok: false, branches: {} };
   } catch { return { ok: false, branches: {} }; }
 }
+function restoreCommand(repo: string, branch: string, tag: string): string {
+  return /^refs\/archive\/\d{4}-\d\d-\d\d\//.test(tag) ? `git -C ${mirrorPath(repo)} push $(git -C ${join(HOME, "code", repo, "main")} remote get-url origin) ${tag}:refs/heads/${branch}` : `git push origin ${tag}:refs/heads/${branch}`;
+}
 function notice(repo: string, branch: string, action: string, tag = "") {
-  const line = `${new Date(now()).toISOString()} ${repo} ${branch} ${action} owner=${owner(repo)}${tag ? ` tag=${tag} restore=git push origin ${tag}:refs/heads/${branch}` : ""}`;
+  const line = `${new Date(now()).toISOString()} ${repo} ${branch} ${action} owner=${owner(repo)}${tag ? ` tag=${tag} restore=${restoreCommand(repo, branch, tag)}` : ""}`;
   stale.notices = [...(stale.notices || []), line];
   const path = join(dirname(stalePath), "notices.md");
   mkdirSync(dirname(path), { recursive: true });
@@ -276,6 +279,26 @@ function archive(main: string, container: string, name: string, tip: string, tar
     }
   }
   return { ok: true, tag };
+}
+function mirrorPath(container: string): string {
+  return join(process.env.LANE_GC_MIRRORS || join(HOME, ".local/state/agents/lane-gc/mirrors"), `${container}.git`);
+}
+function archiveToMirror(main: string, container: string, branch: string, tip: string): Archived {
+  const mirror = mirrorPath(container);
+  if (!existsSync(mirror)) {
+    mkdirSync(dirname(mirror), { recursive: true });
+    if (!git(dirname(mirror), ["init", "-q", "--bare", mirror]).ok) return { ok: false, why: "archive mirror init failed" };
+  }
+  const day = new Date(now()).toISOString().slice(0, 10);
+  let ref = `refs/archive/${day}/${branch}`;
+  const held = git(mirror, ["rev-parse", "-q", "--verify", `${ref}^{commit}`]);
+  if (held.ok && held.out !== tip) ref = `${ref}-${tip.slice(0, 12)}`;
+  if (!git(mirror, ["check-ref-format", ref]).ok) return { ok: false, why: "invalid archive ref name" };
+  const copied = git(main, ["push", "-q", mirror, `${tip}:${ref}`], 180_000).ok
+    || git(mirror, ["fetch", "-q", git(main, ["config", "--get", "remote.origin.url"]).out, `+refs/heads/${branch}:${ref}`], 180_000).ok;
+  if (!copied) return { ok: false, why: "archive mirror copy failed" };
+  if (git(mirror, ["rev-parse", "-q", "--verify", `${ref}^{commit}`]).out !== tip) return { ok: false, why: "archive mirror ref unverified" };
+  return { ok: true, tag: ref };
 }
 function snapshot(path: string, main: string, tip: string, label: string): string {
   const dir = mkdtempSync(join(tmpdir(), "lane-gc-"));
@@ -383,19 +406,17 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
       }
       if (!Number.isFinite(Date.parse(ping.pinged_at)) || now() - Date.parse(ping.pinged_at) < 3600_000) { log(`origin ${branch}: keep (owner ping grace)`); skipped++; continue; }
     }
-    const cherry = git(main, ["cherry", base, tip]);
-    if (!ancestor && !cherry.ok) throw new Error("landed evidence unavailable");
-    remoteFacts.equivalent = !cherry.out.split("\n").some((l: string) => l.startsWith("+"));
+    remoteFacts.equivalent = !ancestor && landed(main, base, tip).landed;
     const remoteDecision = retirementVerdict(remoteFacts);
-    const isLanded = !landing && remoteDecision === "retire";
-    const cls = isLanded ? "landed" : laneClass({ dirty: false, equivalent: remoteDecision === "retire-equiv", issues: remoteDecision === "retire-equiv" ? [] : namedIssues(main, name, base, tip).map(issueState), age: 0, held: false });
-    if (isLanded || cls === "landed-elsewhere") report.remote_landed.push(branch);
+    const isLanded = !landing && (remoteDecision === "retire" || remoteDecision === "retire-equiv");
+    const cls = isLanded ? "landed" : laneClass({ dirty: false, equivalent: false, issues: namedIssues(main, name, base, tip).map(issueState), age: 0, held: false });
+    if (isLanded) report.remote_landed.push(branch);
     else report.remote_stale.push({ branch, age_h: Math.floor(age), owner: owner(name) });
-    log(`origin ${branch}: STALE ${cls} (${Math.floor(age)}h; ${isLanded ? "delete (landed)" : `archive to archive/${name}/${branch}/${tip.slice(0, 12)}, then delete`})`);
+    log(`origin ${branch}: STALE ${cls} (${Math.floor(age)}h; ${isLanded ? "delete (landed)" : `archive to the ${name} mirror under refs/archive/, then delete`})`);
     if (isLanded) deletable++; else archivable++;
     if (o.dryRun) continue;
-    if (!o.remote && !landing && !isLanded && cls !== "landed-elsewhere") continue;
-    const archived = isLanded ? { ok: true as const, tag: "" } : archive(main, name, branch, tip, tip);
+    if (!o.remote && !landing && !isLanded) continue;
+    const archived = isLanded ? { ok: true as const, tag: "" } : archiveToMirror(main, name, branch, tip);
     if (!archived.ok) { log(`keep origin ${branch}: ${archived.why}`); continue; }
     const deletion = git(main, ["push", "-q", `--force-with-lease=refs/heads/${branch}:${tip}`, "origin", `:refs/heads/${branch}`], 180_000);
     if (!deletion.ok) { log(`keep origin ${branch}: delete failed: ${deletion.err.split("\n").pop()}`); continue; }
@@ -411,7 +432,7 @@ function remoteSweep(container: string, o: Opts, c: Counts) {
 
 
 function archiveNotes(main: string, name: string, base: string, branch: string, tip: string, tag: string) {
-  const text = `Archived ${name}:${branch} as ${tag}. Restore: git push origin ${tag}:refs/heads/${branch}`;
+  const text = `Archived ${name}:${branch} as ${tag}. Restore: ${restoreCommand(name, branch, tag)}`;
   for (const item of refsOn(main, base, tip)) {
     const [issueRepo, number] = item.split("#");
     if (["life", "accounts", "travel", "ops"].includes(issueRepo)) {
