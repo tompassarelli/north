@@ -134,6 +134,18 @@ fn with_started_clients(root: &Path, mut leases: Vec<Value>) -> Vec<Value> {
     leases
 }
 
+/// Records on the stored lease `id` the clients a lease started inside it by `owner` asked for, keyed by owner so a relaunch of the same client counts once; the caller holds the admission lock.
+fn record_started_owner(root: &Path, id: &str, owner: &str, new_clients: u32) {
+    let path = lease_path(root, id);
+    if let Some(stored) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) {
+        let mut owners = stored.get("startedOwners").cloned().unwrap_or_else(|| json!({}));
+        if let Value::Object(map) = &mut owners {
+            map.insert(owner.to_owned(), json!(new_clients));
+        }
+        write_lease(&path, &Obj::new().spread(&stored).put("startedOwners", owners), false);
+    }
+}
+
 /// Adds `amount` to a number field of the stored lease `id`; the caller holds the admission lock.
 fn add_to_lease(root: &Path, id: &str, key: &str, amount: u64) {
     let path = lease_path(root, id);
@@ -302,7 +314,7 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
     }
     write_lease(&lease_path(root, &id), &lease, true);
     if let Some(parent) = parent.as_deref().filter(|_| request.name == "native" && request.new_clients > 0) {
-        add_to_lease(root, parent, "clientsStarted", u64::from(request.new_clients));
+        record_started_owner(root, parent, &create.owner, request.new_clients);
     }
     outcome.put("lease", id).put("expiresAt", super::json::opt(expires_at))
 }

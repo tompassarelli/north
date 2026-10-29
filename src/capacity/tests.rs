@@ -373,7 +373,7 @@ fn a_disk_floor_deferral_that_one_reclaim_cannot_lift_stays_deferred_after_exact
 }
 
 fn running(class: &str) -> LeaseFact {
-    LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, clients_started: 0 }
+    LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, started_owners: Default::default() }
 }
 
 #[test]

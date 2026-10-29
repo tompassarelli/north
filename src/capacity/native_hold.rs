@@ -27,7 +27,7 @@ pub(crate) struct LeaseFact {
     #[serde(default)]
     pub(crate) clients_seen: u32,
     #[serde(default)]
-    pub(crate) clients_started: u32,
+    pub(crate) started_owners: std::collections::BTreeMap<String, u32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
