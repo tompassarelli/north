@@ -111,6 +111,10 @@ impl Landing {
     }
 
     fn land(&self) -> Output {
+        self.land_with_reserve(&self.root.join("no-game-reserve.json"))
+    }
+
+    fn land_with_reserve(&self, reserve: &Path) -> Output {
         let mut paths = vec![self.root.join("tools")];
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
         Command::new(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/safe-push"))
@@ -122,7 +126,7 @@ impl Landing {
             .env("XDG_RUNTIME_DIR", self.root.join("run"))
             .env("AGENTS_ORCHESTRATION", self.root.join("orchestration.toml"))
             .env("RESIDENT_CAP_HOST", "whiterabbit")
-            .env("GAME_RESERVE_STATE", self.root.join("no-game-reserve.json"))
+            .env("GAME_RESERVE_STATE", reserve)
             .env("FAKE_SSH_LOG", self.root.join("ssh.log"))
             .env("FAKE_ROOMS", self.root.join("rooms"))
             .env("FAKE_REMOTE_HOMES", self.root.join("remotes"))
@@ -267,4 +271,26 @@ fn a_host_that_goes_dark_after_the_room_check_refuses_the_landing_instead_of_run
     assert_eq!(landing.capacity(), ["offloaded"]);
     assert_eq!(landing.checks(), Vec::<String>::new(), "the check never ran here");
     assert_eq!(landing.landed(), before);
+}
+
+#[test]
+fn a_lane_that_names_a_land_workflow_sends_its_checks_to_github_actions_while_game_reserve_is_on_without_offloading() {
+    let landing = Landing::new(RECORDING_CHECK, false);
+    git(&landing.repo, &["config", "--file", ".safe-push", "--add", "land.workflow", "land-check.yml"]);
+    git(&landing.repo, &["add", ".safe-push"]);
+    git(&landing.repo, &["commit", "-qm", "Name a land workflow"]);
+    landing.gaming(false);
+    landing.room("gex45", 40);
+    let since = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let reserve = landing.root.join("game-reserve.json");
+    fs::write(&reserve, format!("{{\"on\":true,\"since\":{since}}}")).unwrap();
+    let head = landing.lane_commit("ok");
+
+    let output = landing.land_with_reserve(&reserve);
+
+    assert!(text(&output).contains("running 1 land check(s) on GitHub Actions (land-check.yml)"), "{}", text(&output));
+    assert!(!text(&output).contains("offloading to"), "{}", text(&output));
+    assert_eq!(landing.capacity(), ["held"], "the landing is admitted as the ordinary class, which game reserve does not defer");
+    assert!(landing.checks().is_empty(), "no check ran on this host or the offload host");
+    assert_ne!(landing.landed(), head, "the fixture has no Actions, so nothing landed");
 }
