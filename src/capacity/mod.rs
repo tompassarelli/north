@@ -12,6 +12,7 @@ mod host;
 mod unleased;
 mod watchdog;
 mod native_hold;
+mod run_queue;
 mod deadline;
 mod lease_deadline;
 mod warcraft;

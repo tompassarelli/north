@@ -370,3 +370,30 @@ fn a_configured_client_cap_prints_its_number_and_an_unconfigured_host_prints_not
     assert_eq!(super::limit_text(Some(6)), "6");
     assert_eq!(super::limit_text(None), "");
 }
+
+fn heavy_beside_clients(leased_batch_cpus: f64, gpu_clients: u32) -> Facts {
+    Facts { cores: 20, profile: Profile::Unattended, run_queue_load: Some(25.4), requested_cpus: 6.0, requested_memory_mib: 8192.0, leased_batch_cpus, gpu_clients, leased_native_cpus: f64::from(gpu_clients) * 1.5, ..facts(Class::Heavy) }
+}
+
+#[test]
+fn heavy_up_to_the_reserve_runs_above_the_thread_count_while_native_clients_run() {
+    assert_eq!(decide(&heavy_beside_clients(0.0, 3)), Reason::Run);
+    assert_eq!(decide(&heavy_beside_clients(6.0, 3)), Reason::Run);
+    assert_eq!(decide(&heavy_beside_clients(6.5, 3)), Reason::DeferRunQueue);
+    assert_eq!(decide(&heavy_beside_clients(0.0, 0)), Reason::DeferRunQueue);
+}
+
+#[test]
+fn the_heavy_reserve_does_not_lift_the_run_queue_gate_for_exclusive_work() {
+    let facts = Facts { class: Class::Exclusive, ..heavy_beside_clients(0.0, 3) };
+    assert_eq!(decide(&facts), Reason::DeferRunQueue);
+}
+
+#[test]
+fn either_a_live_client_or_native_cpus_open_the_heavy_reserve_and_untracked_load_closes_it() {
+    let clients_only = Facts { leased_native_cpus: 0.0, ..heavy_beside_clients(0.0, 3) };
+    let native_only = Facts { gpu_clients: 0, ..heavy_beside_clients(0.0, 3) };
+    let untracked = Facts { unleased_heavy_cores: 7.0, ..heavy_beside_clients(0.0, 3) };
+    let crowded = Facts { leased_native_cpus: 15.0, ..heavy_beside_clients(0.0, 3) };
+    assert_eq!((decide(&clients_only), decide(&native_only), decide(&untracked), decide(&crowded)), (Reason::Run, Reason::Run, Reason::DeferRunQueue, Reason::DeferRunQueue));
+}

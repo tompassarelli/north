@@ -241,10 +241,6 @@ fn aperture_short(facts: &Facts) -> bool {
     starts_gpu_work(facts) && facts.bar1_free_mib.is_some_and(|free| free < bar1_need_mib(facts))
 }
 
-fn run_queue_overloaded(facts: &Facts) -> bool {
-    matches!(facts.class, Class::Heavy | Class::Exclusive) && facts.run_queue_load.is_some_and(|load| load > f64::from(facts.cores))
-}
-
 pub(crate) fn decide(facts: &Facts) -> Reason {
     if invalid(facts) {
         return Reason::Invalid;
@@ -264,7 +260,7 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     if disk_short(facts) {
         return Reason::DeferDiskFree;
     }
-    if run_queue_overloaded(facts) {
+    if super::run_queue::overloaded(facts) {
         return Reason::DeferRunQueue;
     }
     if starts_gpu_work(facts) && facts.bar1_timed_out {
@@ -367,7 +363,7 @@ fn batch_cpus(facts: &Facts) -> f64 {
     facts.game_reserve_agent_cpus.map_or(all, |agent| all.min(f64::from(agent)))
 }
 
-fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
+pub(super) fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
     let reserved = match profile {
         Profile::Attended if cores > 8 => 4,
         Profile::Attended if cores > 4 => 2,

@@ -53,6 +53,7 @@ fn queued_ahead(queue: &[Value], request: &Request, ticket: Option<&str>, before
                 && (entry_class == "gpu") == (request.name == "gpu")
                 && (entry_class == "native") == (request.name == "native")
                 && entry_class != "exclusive"
+                && (matches!(request.name.as_str(), "heavy" | "exclusive") || text(entry, "reason") != Some("DEFER_RUN_QUEUE"))
                 && (exclusive_waiting == 0 || entry_class != "heavy" || before_drain(field(entry, "timeoutSeconds")))
         })
         .cloned()

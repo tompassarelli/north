@@ -35,3 +35,23 @@ fn a_heavy_run_from_a_native_smashcraft_box_above_the_thread_count_queues_naming
     let unserved = first_decision(&host, "private:galileo");
     assert_eq!((unserved["reason"].as_str(), unserved.get("offload")), (Some("DEFER_RUN_QUEUE"), None), "{unserved}");
 }
+
+#[test]
+fn a_heavy_ticket_held_by_the_run_queue_holds_no_place_for_moderate_work() {
+    let host = Host::new("capacity-overload-line-", &[("systemd-run", &scope_systemd_run("\"$@\"")), ("systemctl", SCOPE_SYSTEMCTL)]);
+    fs::write(host.path("loadavg"), "34.68 29.11 23.93 31/2210 4096\n").unwrap();
+    let _heavy = Wrapper(
+        host.helper(&["run", "--class", "heavy", "--owner", "fixture:/held", "--timeout-seconds", "60", "--", "sleep", "60"])
+            .env("AGENT_CAPACITY_LOADAVG", host.path("loadavg"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    host.until("the heavy ticket's run-queue reason", |host| host.status()["queued"].as_array().is_some_and(|queued| queued.iter().any(|ticket| ticket["reason"] == "DEFER_RUN_QUEUE")));
+    let queued_ahead = |class: &str| {
+        let output = host.helper(&["probe", "--class", class]).output().unwrap();
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["queuedAhead"].clone()
+    };
+    assert_eq!((queued_ahead("moderate"), queued_ahead("heavy")), (0.into(), 1.into()));
+}
