@@ -62,6 +62,10 @@ fn toplevel(directory: &Path) -> Option<PathBuf> {
 
 fn policy_gate(harness: &Path, nixos_config: &Path, operator: &Path) -> bool {
     let python = env::var("NORTH_AGENT_PYTHON").unwrap_or_else(|_| "python3".into());
+    let north = env::var_os("NORTH_BIN")
+        .filter(|north| !north.is_empty())
+        .or_else(|| env::current_exe().ok().map(PathBuf::into_os_string))
+        .unwrap_or_else(|| "north".into());
     Command::new("bash")
         .args([
             "-c",
@@ -72,6 +76,7 @@ fn policy_gate(harness: &Path, nixos_config: &Path, operator: &Path) -> bool {
         .arg(nixos_config)
         .env("AGENT_CONFIG_PYTHON", python)
         .env("OPERATOR", operator)
+        .env("NORTH_BIN", north)
         .status()
         .is_ok_and(|status| status.success())
 }
