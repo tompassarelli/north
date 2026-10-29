@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use self::host::{Host, Real, expand_home};
+use self::host::{Host, Real, expand_home, preferred_profile};
 
 const SOURCES: &str = include_str!("../../../harness/model-watch-sources.toml");
 const USAGE: &str = "usage: north model-watch [--interests PATH] [--feedback PATH] [--topic TOPIC] [--alerts-only] [--location PATH] [--sources PATH] [--timeout SECONDS] [--proposals DIR]
@@ -131,7 +131,7 @@ pub(super) fn load_sources(options: &Options) -> Result<Value, String> {
 
 pub(crate) fn run(arguments: &[String]) -> u8 {
     if arguments.first().map(String::as_str) == Some("news") {
-        return news::run(&arguments[1..], &Real, &state_db());
+        return news::run(&arguments[1..], &Real { config_dir: None }, &state_db());
     }
     let options = match Options::parse(arguments) {
         Ok(options) => options,
@@ -140,7 +140,16 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    execute(&Real, &options)
+    execute(&Real { config_dir: claude_config_dir(&options) }, &options)
+}
+
+fn claude_config_dir(options: &Options) -> Option<PathBuf> {
+    if let Some(dir) = present("CLAUDE_CONFIG_DIR") {
+        return Some(dir.into());
+    }
+    let listed = std::process::Command::new(&options.north).args(["fleet", "accounts"]).output().ok()?;
+    let profiles = present("NORTH_PROFILES").map_or_else(|| expand_home("~/.local/state/north/profiles"), PathBuf::from);
+    preferred_profile(&String::from_utf8_lossy(&listed.stdout), &profiles)
 }
 
 fn execute(host: &dyn Host, options: &Options) -> u8 {

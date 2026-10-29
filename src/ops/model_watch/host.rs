@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -20,7 +20,9 @@ pub(super) trait Host {
     fn account(&self) -> Option<String>;
 }
 
-pub(super) struct Real;
+pub(super) struct Real {
+    pub(super) config_dir: Option<PathBuf>,
+}
 
 const LIMIT: usize = 8_000_000;
 
@@ -52,14 +54,14 @@ impl Host for Real {
     }
 
     fn account(&self) -> Option<String> {
-        claude_account()
+        claude_account(self.config_dir.as_deref())
     }
 }
 
 impl Real {
     fn command_bytes(&self, program: &str, args: &[String], input: Option<&[u8]>, timeout: Duration, env: &[(&str, &str)]) -> Result<(i32, Vec<u8>), String> {
         let mut command = Command::new(program);
-        command.args(args).envs(env.iter().copied()).stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::null());
+        command.args(args).envs(env.iter().copied()).envs(self.config_dir.iter().map(|dir| ("CLAUDE_CONFIG_DIR", dir))).stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::null());
         let mut child = command.spawn().map_err(|_| "OSError".to_owned())?;
         let writer = child.stdin.take().zip(input.map(<[u8]>::to_vec)).map(|(mut stdin, bytes)| thread::spawn(move || {
             let _ = stdin.write_all(&bytes);
@@ -107,11 +109,14 @@ pub(super) fn shell_quote(text: &str) -> String {
     }
 }
 
-fn claude_account() -> Option<String> {
+pub(super) fn preferred_profile(accounts: &str, profiles: &Path) -> Option<PathBuf> {
+    accounts.lines().filter_map(|line| line.strip_prefix("claude\t")).map(|label| profiles.join(format!("claude-{}", label.trim()))).find(|dir| dir.is_dir())
+}
+
+fn claude_account(config_dir: Option<&Path>) -> Option<String> {
     use sha2::{Digest, Sha256};
-    let home = std::env::var("HOME").unwrap_or_default();
-    let directory = std::env::var("CLAUDE_CONFIG_DIR").ok().filter(|value| !value.is_empty()).unwrap_or(home.clone());
-    let cache: serde_json::Value = serde_json::from_str(&fs::read_to_string(PathBuf::from(directory).join(".claude.json")).ok()?).ok()?;
+    let directory = config_dir.map_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()), Path::to_path_buf);
+    let cache: serde_json::Value = serde_json::from_str(&fs::read_to_string(directory.join(".claude.json")).ok()?).ok()?;
     let uuid = [&cache["oauthAccount"]["accountUuid"], &cache["cachedUsageUtilization"]["accountUuid"]].into_iter().find_map(|uuid| uuid.as_str().filter(|uuid| !uuid.is_empty()))?;
     let identity = format!("{:x}", Sha256::digest(uuid.as_bytes()))[..8].to_owned();
     let operator = std::env::var("AGENTS_OPERATOR_DIR").ok().filter(|value| !value.is_empty()).map_or_else(|| expand_home("~/code/south/main/agents"), PathBuf::from);

@@ -364,3 +364,14 @@ fn feedback_candidates_snapshots_and_the_kept_window_follow_the_python_rules() {
     snapshots_report_first_seen_and_changed_rows_and_ignore_small_market_moves();
     the_last_digest_is_shown_for_seven_days_only();
 }
+
+#[test]
+fn the_ranking_runs_on_the_first_listed_claude_account_that_has_a_profile() {
+    let profiles = tempfile::tempdir().unwrap();
+    for label in ["b", "c"] {
+        std::fs::create_dir(profiles.path().join(format!("claude-{label}"))).unwrap();
+    }
+    let listed = "claude\ta\nclaude\tc\nclaude\tb\ncodex\tpooled\n";
+    assert_eq!(super::host::preferred_profile(listed, profiles.path()), Some(profiles.path().join("claude-c")));
+    assert_eq!(super::host::preferred_profile("codex\tpooled\n", profiles.path()), None);
+}
