@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use rustix::fs::{FlockOperation, flock};
 
 use super::held::Held;
-use super::{Inputs, KEPT_PAIRS, Policy, Removal, hours, idle_for, removed};
+use super::{Inputs, KEPT_PAIRS, Policy, Removal, hours, idle_for, removed, size};
 
 pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result<Vec<Removal>> {
     let mut removals = Vec::new();
@@ -26,8 +26,9 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
             continue;
         }
         for client in clients {
+            let bytes = size(&client);
             if policy.dry_run || removed(&client) {
-                removals.push(Removal { path: client, reason: format!("Wisp LAN pair {pair} idle {}h and unclaimed; `wisp lan setup --pair {pair}` rebuilds it", hours(idle)) });
+                removals.push(Removal { path: client, reason: format!("Wisp LAN pair {pair} idle {}h and unclaimed; `wisp lan setup --pair {pair}` rebuilds it", hours(idle)), bytes });
             }
         }
     }

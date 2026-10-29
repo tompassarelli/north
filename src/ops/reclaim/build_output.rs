@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::held::Held;
-use super::{Inputs, Policy, Removal, hours, idle_for, removed};
+use super::{Inputs, Policy, Removal, hours, idle_for, removed, size};
 use crate::platform::shared_target;
 
 const BUILD_OUTPUT_IDLE: Duration = Duration::from_secs(4 * 3600);
@@ -33,7 +33,7 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
     }
     if !policy.dry_run {
         for (target, freed) in shared_target::sweep_cache(&inputs.cache, inputs.now)? {
-            removals.push(Removal { path: target, reason: format!("shared cargo target over its cap: idle incremental state and test binaries, {} MiB", freed >> 20) });
+            removals.push(Removal { path: target, reason: "shared cargo target over its cap: idle incremental state, test binaries, libraries and profiles".to_owned(), bytes: freed });
         }
     }
     Ok(removals)
@@ -44,10 +44,11 @@ fn idle_unheld(inputs: &Inputs, dry_run: bool, limit: Duration, held: &Held, pat
         return None;
     }
     let idle = idle_for(&path, inputs.now).ok().filter(|idle| *idle >= limit)?;
+    let bytes = size(&path);
     if !dry_run && !removed(&path) {
         return None;
     }
-    Some(Removal { reason: reason(idle), path })
+    Some(Removal { reason: reason(idle), path, bytes })
 }
 
 fn checkouts(container: &Path, with_main: bool) -> Vec<PathBuf> {

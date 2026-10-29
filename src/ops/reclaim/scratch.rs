@@ -3,7 +3,7 @@ use std::io;
 use std::os::unix::fs::MetadataExt;
 
 use super::held::Held;
-use super::{Inputs, Policy, Removal, hours, idle_for, removed};
+use super::{Inputs, Policy, Removal, hours, idle_for, removed, size};
 
 pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result<Vec<Removal>> {
     let mut removals = Vec::new();
@@ -18,10 +18,11 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
         if idle < policy.idle {
             continue;
         }
+        let bytes = size(&path);
         if !policy.dry_run && !removed(&path) {
             continue;
         }
-        removals.push(Removal { path, reason: format!("scratch idle {}h, held by no process", hours(idle)) });
+        removals.push(Removal { path, reason: format!("scratch idle {}h, held by no process", hours(idle)), bytes });
     }
     Ok(removals)
 }

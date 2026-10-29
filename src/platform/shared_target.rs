@@ -232,7 +232,7 @@ pub(crate) fn tree(path: &Path, seen: &mut HashSet<(u64, u64)>) -> io::Result<(u
     measured_tree(path, seen, fs::Metadata::len)
 }
 
-fn allocated_tree(path: &Path, seen: &mut HashSet<(u64, u64)>) -> io::Result<(u64, SystemTime)> {
+pub(crate) fn allocated_tree(path: &Path, seen: &mut HashSet<(u64, u64)>) -> io::Result<(u64, SystemTime)> {
     measured_tree(path, seen, disk_bytes)
 }
 

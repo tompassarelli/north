@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use rustix::fs::{FlockOperation, flock};
 
-use super::{Inputs, Policy, reclaim};
+use super::{Inputs, Policy, reclaim, summary};
 
 const DAY: Duration = Duration::from_secs(24 * 3600);
 
@@ -187,7 +187,9 @@ fn reclaim_trims_a_shared_cargo_target_over_its_cap_and_a_dry_run_leaves_it() {
 
     assert!(machine.reclaim(true).is_empty());
     assert!(binary.exists());
-    assert_eq!(machine.reclaim(false), vec![machine.path("cache/cargo-target")]);
+    let removals = reclaim(&machine.inputs(), &Policy { idle: DAY, dry_run: false }).unwrap();
+    assert_eq!(removals.iter().map(|removal| &removal.path).collect::<Vec<_>>(), vec![&machine.path("cache/cargo-target")]);
+    assert_eq!(summary(&removals, false), "removed 1 entries; 11264 MiB freed");
     assert!(!binary.exists());
 }
 

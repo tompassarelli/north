@@ -6,12 +6,15 @@ mod scratch;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io;
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+
+use crate::platform::shared_target;
 
 const USAGE: &str = "usage: north reclaim [--dry-run] [--idle-hours H]";
 const DEFAULT_IDLE_HOURS: u64 = 24;
@@ -55,6 +58,7 @@ pub(super) struct Policy {
 pub(super) struct Removal {
     pub(super) path: PathBuf,
     pub(super) reason: String,
+    pub(super) bytes: u64,
 }
 
 pub(crate) fn run(arguments: &[String]) -> u8 {
@@ -63,7 +67,6 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let inputs = Inputs::from_env();
-    let free_before = free_bytes(&inputs.tmp);
     let removals = match reclaim(&inputs, &policy) {
         Ok(removals) => removals,
         Err(error) => {
@@ -75,11 +78,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     for removal in &removals {
         println!("{verb} {}: {}", removal.path.display(), removal.reason);
     }
-    if policy.dry_run {
-        println!("{verb} {} entries", removals.len());
-    } else {
-        println!("{verb} {} entries; {} MiB freed", removals.len(), free_bytes(&inputs.tmp).saturating_sub(free_before) / (1 << 20));
-    }
+    println!("{}", summary(&removals, policy.dry_run));
     0
 }
 
@@ -139,6 +138,15 @@ pub(super) fn hours(duration: Duration) -> u64 {
     duration.as_secs() / 3600
 }
 
-fn free_bytes(path: &Path) -> u64 {
-    rustix::fs::statvfs(path).map_or(0, |stats| stats.f_bavail.saturating_mul(stats.f_frsize))
+pub(super) fn summary(removals: &[Removal], dry_run: bool) -> String {
+    let mebibytes = removals.iter().map(|removal| removal.bytes).sum::<u64>() >> 20;
+    if dry_run {
+        format!("would remove {} entries; {mebibytes} MiB would be freed", removals.len())
+    } else {
+        format!("removed {} entries; {mebibytes} MiB freed", removals.len())
+    }
+}
+
+pub(super) fn size(path: &Path) -> u64 {
+    shared_target::allocated_tree(path, &mut HashSet::new()).map_or(0, |(bytes, _)| bytes)
 }

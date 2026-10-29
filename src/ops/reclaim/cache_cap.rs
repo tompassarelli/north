@@ -42,7 +42,7 @@ fn trim(inputs: &Inputs, policy: &Policy, held: &Held, root: &Path, cap: u64) ->
         }
         size = size.saturating_sub(bytes);
         let reason = format!("{} over its {} GiB cap, oldest first: idle {}h, held by no process; the next job restores it", root.display(), cap / GIB, hours(idle));
-        removals.push(Removal { path, reason });
+        removals.push(Removal { path, reason, bytes });
     }
     removals
 }
