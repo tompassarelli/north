@@ -6,8 +6,7 @@ description: >-
   recovery, desync debugging), and Smashcraft's ts/. Also use to cut frame cost,
   Lua instruction counts or per-frame allocation in TypeScriptToLua code on PUC
   Lua 5.3 (over-ceiling Lua32 tests, failing `bun wisp perf compare`, GC
-  pressure), and to develop maps and tooling in WurstScript (Wurst projects,
-  compiler workflows, tests, compile-time object data, WC3 UI).
+  pressure), and to develop maps and tooling in WurstScript (Wurst projects).
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

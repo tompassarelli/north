@@ -1,7 +1,7 @@
 ---
 name: smashcraft
 description: >-
-  Smashcraft fighter and stage work. Use to author and improve fighter animation (readable silhouettes, drills, locomotion, rolls, get-up attacks, grabs and throws, nine-way damage reactions) for quality and action coverage; to design, build and test a Smashcraft fighter or move (role, move phases, hit regions, damage, knockback, shield, recovery, rollback state, selection) for a new fighter or move change, not other Warcraft maps; and to design, dress and judge a stage's look (backdrop, scenery, set pieces, water, sky, light, fighter contrast) with the Classic models, for any stage art, composition, look issue or new stage.
+  Smashcraft fighter and stage work. Use to author and improve fighter animation for quality and action coverage; to design, build and test a Smashcraft fighter or move for a new fighter or move change, not other Warcraft maps; and to design, dress and judge a stage's look with the Classic models, for any stage art, composition, look issue or new stage.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

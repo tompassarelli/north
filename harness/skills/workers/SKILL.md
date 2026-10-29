@@ -1,7 +1,7 @@
 ---
 name: workers
 description: >-
-  Assign independent work, choose provider tiers and ETAs, and run workers and leads from Codex or Claude. Also covers Codex leads and Codex-led orchestration (driving work through Codex), cloud workers (code-only work in Anthropic's cloud via the cloud credit lane or RemoteTrigger routines, local workers only for Warcraft clients, private assets, the LAN pool or unpushed state), and auto-wake (a recurring session tick that keeps work moving through usage limits, overnight or while Tom is away).
+  Assign independent work, choose provider tiers and ETAs, and run workers and leads from Codex or Claude. Also covers Codex leads and Codex-led orchestration, cloud workers (code-only work in Anthropic's cloud via the cloud credit lane or RemoteTrigger routines, local workers only for Warcraft clients, private assets, the LAN pool or unpushed state), and auto-wake (a recurring session tick that keeps work moving through usage limits).
 grounded: 2026-10-15
 written: 2026-10-15
 ---
