@@ -4,31 +4,35 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 use serde_json::Value;
 
 use super::claims::Issue;
 use super::claims::issues::{GitHub, Issues};
 
+/// This host's live fleet owners, `None` when the registry could not be read.
+pub(crate) type FleetOwners = Arc<dyn Fn() -> Option<BTreeSet<String>> + Send + Sync>;
+
 pub(crate) struct Live {
-    north: String,
+    fleet: FleetOwners,
     relayed_owners: Vec<String>,
     archives: bool,
     operator: PathBuf,
 }
 
 impl Live {
-    /// The effects as this caller's environment shapes them: which north to ask for live sessions,
+    /// The effects as this caller's environment shapes them: where the live sessions come from,
     /// the owners a remote caller relayed, whether the caller prints archives itself, and the
     /// operator directory holding costs.toml.
-    pub(crate) fn new(env: &BTreeMap<String, String>) -> Self {
+    pub(crate) fn new(env: &BTreeMap<String, String>, fleet: FleetOwners) -> Self {
         let var = |name: &str| env.get(name).map(String::as_str).filter(|value| !value.is_empty());
         let relayed_owners = var("THREADS_ALIVE_OWNERS")
             .and_then(|text| serde_json::from_str::<Value>(text).ok())
             .and_then(|value| value.as_array().map(|owners| owners.iter().filter_map(Value::as_str).map(str::to_owned).collect()))
             .unwrap_or_default();
         let operator = var("AGENTS_OPERATOR_DIR").map_or_else(|| PathBuf::from(var("HOME").unwrap_or_default()).join("code/south/main/agents"), PathBuf::from);
-        Self { north: var("NORTH_BIN").unwrap_or("north").to_owned(), relayed_owners, archives: var("THREADS_ARCHIVES_LOCAL").is_none(), operator }
+        Self { fleet, relayed_owners, archives: var("THREADS_ARCHIVES_LOCAL").is_none(), operator }
     }
 }
 
@@ -48,7 +52,7 @@ impl super::verb::Outside for Live {
     }
 
     fn alive_owners(&self) -> Option<BTreeSet<String>> {
-        let fleet = fleet_owners(&self.north);
+        let fleet = (self.fleet)();
         if fleet.is_none() && self.relayed_owners.is_empty() {
             return None;
         }
@@ -77,23 +81,6 @@ impl super::verb::Outside for Live {
             })
             .collect()
     }
-}
-
-/// The names, conversations and provider:conversation ids of this host's sessions that have not
-/// exited, as `north fleet list --json` shows them; `None` when that list could not be read, so an unread fleet is not taken for an empty one.
-pub(crate) fn fleet_owners(north: &str) -> Option<BTreeSet<String>> {
-    let mut owners = BTreeSet::new();
-    let output = Command::new(north).args(["fleet", "list", "--json"]).output().ok().filter(|output| output.status.success())?;
-    let sessions = serde_json::from_slice::<Value>(&output.stdout).ok().and_then(|value| value.as_array().cloned())?;
-    for session in sessions.iter().filter(|session| session.get("status").and_then(Value::as_str) != Some("exited")) {
-        let text = |key: &str| session.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
-        owners.extend(text("name").map(str::to_owned));
-        owners.extend(text("conversation").map(str::to_owned));
-        if let (Some(provider), Some(conversation)) = (text("provider"), text("conversation")) {
-            owners.insert(format!("{provider}:{conversation}"));
-        }
-    }
-    Some(owners)
 }
 
 pub(crate) fn gitleaks_clean(text: &str) -> Result<(), String> {

@@ -164,3 +164,28 @@ fn a_revived_session_shows_the_turns_and_final_report_after_a_frame_larger_than_
     let replies: Vec<_> = follower.transcript().entries.iter().filter(|entry| entry.kind == EntryKind::Assistant).map(|entry| entry.text.as_str()).collect();
     assert_eq!(replies, ["before the revive", "final report"]);
 }
+
+#[test]
+fn the_live_owners_are_the_unexited_sessions_names_conversations_and_provider_conversations() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    for (name, stopped, conversation) in [("parked", false, "c1"), ("gone", true, "c2")] {
+        let session = fleet.root.join(name);
+        fs::create_dir_all(&session).unwrap();
+        let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": conversation, "stopped": stopped});
+        fs::write(session.join("session.json"), record.to_string()).unwrap();
+    }
+
+    let owners = fleet.live_owners().unwrap();
+
+    assert_eq!(owners.iter().map(String::as_str).collect::<Vec<_>>(), ["c1", "claude:c1", "parked"]);
+}
+
+#[test]
+fn an_unreadable_registry_is_not_an_empty_fleet() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    fs::remove_dir_all(&fleet.root).unwrap();
+
+    assert_eq!(fleet.live_owners(), None);
+}

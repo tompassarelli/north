@@ -4,15 +4,14 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/threads-resume-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
-export HOME=$scratch/home THREADS_DB=$scratch/threads.db FLEET_FILE=$scratch/fleet.json
-export NORTH_AGENT_ACTIVE=$scratch/activation.active NORTH_FLEET_FIXTURE=$FLEET_FILE NORTH_BIN=$scratch/bin/north PATH=$scratch/bin:$PATH BUILT_NORTH=${NORTH_PACE_BIN:-$repo/target/debug/north}
+export HOME=$scratch/home THREADS_DB=$scratch/threads.db
+export NORTH_AGENT_ACTIVE=$scratch/activation.active NORTH_BIN=$scratch/bin/north PATH=$scratch/bin:$PATH BUILT_NORTH=${NORTH_PACE_BIN:-$repo/target/debug/north}
 mkdir -p "$scratch/bin" "$HOME/code/smashcraft"
 printf 'hook north-hook\n' >"$NORTH_AGENT_ACTIVE"
 ln -s "$repo/bin/threads" "$scratch/bin/threads"
 cat >"$scratch/bin/north" <<'NORTH'
 #!/usr/bin/env bash
-[[ "$*" == "fleet list --json" ]] || exec "$BUILT_NORTH" "$@"
-cat "$NORTH_FLEET_FIXTURE"
+exec "$BUILT_NORTH" "$@"
 NORTH
 chmod +x "$scratch/bin/north"
 cat >"$scratch/bin/gh" <<'GH'
@@ -42,7 +41,7 @@ git -C "$scratch/seed" commit -qm $'Other repository fixture\n\nRefs wisp#10' --
 git -C "$scratch/seed" tag -a archive/feature/other-10 -m 'archived fixture'
 git -C "$scratch/seed" push -q origin refs/tags/archive/feature/other-10
 git clone -q --no-tags "$scratch/origin.git" "$HOME/code/smashcraft/main"
-fleet() { printf '[{"name":"holder","conversation":"fixture-session","task_ref":"smashcraft#10","provider":"codex","parent":null,"status":"%s"}]\n' "$1" >"$FLEET_FILE"; }
+fleet() { local stopped=false; [[ $1 == exited ]] && stopped=true; mkdir -p "$HOME/.local/state/north/fleet/holder"; printf '{"name":"holder","provider":"codex","account":"a","cwd":"/tmp","model":null,"created_ms":1,"host_pid":%s,"conversation":"fixture-session","stopped":%s}\n' "$$" "$stopped" >"$HOME/.local/state/north/fleet/holder/session.json"; }
 fleet working
 threads claim smashcraft#10 --by codex:fixture-session --eta 5 >/dev/null
 sqlite3 "$THREADS_DB" "UPDATE claims SET since = '2020-01-01T00:00:00Z'; UPDATE events SET ts = '2020-01-01T00:00:00Z'"
@@ -58,12 +57,11 @@ printf 'PASS [integration] expired claims stay held for exact active holders and
 mkdir -p "$HOME/.config/threads" "$HOME/.local/state/threads" "$scratch/remote-home"
 printf 'fixture-host\n' >"$HOME/.config/threads/remote"
 cp "$THREADS_DB" "$scratch/remote.db"
-export REMOTE_DB=$scratch/remote.db REMOTE_HOME=$scratch/remote-home SSH_TRACE=$scratch/ssh.trace REMOTE_FLEET=$scratch/remote-fleet.json
-printf '[]\n' >"$REMOTE_FLEET"
+export REMOTE_DB=$scratch/remote.db REMOTE_HOME=$scratch/remote-home SSH_TRACE=$scratch/ssh.trace
 cat >"$scratch/bin/ssh" <<'SSH'
 #!/usr/bin/env bash
 printf '%s\n' "${@: -1}" >>"$SSH_TRACE"
-HOME=$REMOTE_HOME THREADS_DB=$REMOTE_DB NORTH_BIN=$NORTH_BIN NORTH_FLEET_FIXTURE=$REMOTE_FLEET exec bash -c "${@: -1}"
+HOME=$REMOTE_HOME THREADS_DB=$REMOTE_DB NORTH_BIN=$NORTH_BIN exec bash -c "${@: -1}"
 SSH
 chmod +x "$scratch/bin/ssh"
 out=$(env -u THREADS_DB threads unowned)

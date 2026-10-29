@@ -6,6 +6,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -32,6 +33,7 @@ pub(crate) struct Client {
     env: BTreeMap<String, String>,
     ssh: Vec<OsString>,
     threads: Vec<OsString>,
+    fleet: outside::FleetOwners,
     record_wait: Duration,
     ingest_wait: Duration,
 }
@@ -50,8 +52,8 @@ enum Input {
     File(File),
 }
 
-pub(crate) fn run(arguments: &[String]) -> u8 {
-    let Some(client) = ambient_client() else {
+pub(crate) fn run(arguments: &[String], fleet: outside::FleetOwners) -> u8 {
+    let Some(client) = ambient_client(fleet) else {
         eprintln!("NorthThreads: no home directory");
         return 1;
     };
@@ -65,14 +67,14 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
 }
 
 pub(crate) fn refresh_mirrored_snapshot() {
-    let Some(client) = ambient_client() else { return };
+    let Some(client) = ambient_client(unread_fleet()) else { return };
     if let Ok(destination) = fs::read_to_string(&client.remote) {
         let _ = client.refresh_snapshot(destination.trim(), true);
     }
 }
 
 pub(crate) fn ingest(batch: &[u8]) -> Result<(), String> {
-    let client = ambient_client().ok_or("no home directory")?;
+    let client = ambient_client(unread_fleet()).ok_or("no home directory")?;
     let mut err = Vec::new();
     match client.main(&["ingest".to_owned()], &mut io::Cursor::new(batch), &mut err) {
         Ok(0) => Ok(()),
@@ -82,7 +84,7 @@ pub(crate) fn ingest(batch: &[u8]) -> Result<(), String> {
 }
 
 pub(crate) fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
-    let Some(client) = ambient_client() else { return Ok(false) };
+    let Some(client) = ambient_client(unread_fleet()) else { return Ok(false) };
     if client.var("THREADS_DB").is_some() || !client.remote.exists() {
         return Ok(false);
     }
@@ -90,12 +92,16 @@ pub(crate) fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
     Ok(true)
 }
 
-fn ambient_client() -> Option<Client> {
+fn unread_fleet() -> outside::FleetOwners {
+    Arc::new(|| None)
+}
+
+fn ambient_client(fleet: outside::FleetOwners) -> Option<Client> {
     let env: BTreeMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();
     let home = env.get("HOME").cloned()?;
-    Some(Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()]))
+    Some(Client::new(Path::new(&home), env, vec!["ssh".into()], vec![local_threads()], fleet))
 }
 
 fn local_threads() -> OsString {
@@ -103,7 +109,7 @@ fn local_threads() -> OsString {
 }
 
 impl Client {
-    fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, threads: Vec<OsString>) -> Self {
+    fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, threads: Vec<OsString>, fleet: outside::FleetOwners) -> Self {
         Self {
             home: home.to_path_buf(),
             remote: home.join(".config/threads/remote"),
@@ -112,6 +118,7 @@ impl Client {
             env,
             ssh,
             threads,
+            fleet,
             record_wait: RECORD_WAIT,
             ingest_wait: INGEST_WAIT,
         }
@@ -182,7 +189,7 @@ impl Client {
         let ledger = ledger.unwrap_or_else(|| self.home.join(".local/state/threads/threads.db"));
         let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
         if claims::verbs::VERBS.contains(&verb) {
-            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: verb::Outside::alive_owners(&outside::Live::new(&self.env)), now: Timestamp::now().unix_seconds() };
+            let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: verb::Outside::alive_owners(&outside::Live::new(&self.env, self.fleet.clone())), now: Timestamp::now().unix_seconds() };
             return Ok(claims::verbs::run(argv, &context, &mut io::stdout().lock(), &mut io::stderr()));
         }
         let ported: Option<verb::Verb> = if jobs::VERBS.contains(&verb) {
@@ -201,7 +208,7 @@ impl Client {
             None
         };
         if let Some(run) = ported.filter(|_| self.var(verb::SCHEMA_READY).is_some()) {
-            let live = outside::Live::new(&self.env);
+            let live = outside::Live::new(&self.env, self.fleet.clone());
             let replica = ledger == self.snapshot;
             let context = verb::Context { database: &ledger, actor, no_native: self.no_native_reason(), outside: &live, now: Timestamp::now(), replica };
             let mut stdin: Box<dyn Read> = replay.map_or_else(|| Box::new(io::stdin()) as Box<dyn Read>, |brief| Box::new(io::Cursor::new(brief.to_vec())));
@@ -447,7 +454,7 @@ impl Client {
             remote.push("THREADS_NO_NATIVE=1".to_owned());
         }
         let first = args.first().map(String::as_str);
-        if matches!(first, Some("unowned" | "claim" | "list")) && let Some(owners) = outside::fleet_owners(self.var("NORTH_BIN").unwrap_or("north")) {
+        if matches!(first, Some("unowned" | "claim" | "list")) && let Some(owners) = (self.fleet)() {
             remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&owners.into_iter().collect::<Vec<_>>())));
         }
         if first == Some("show") {
@@ -631,19 +638,18 @@ exit "$(cat "$ROOT/code")"
         let mut pages = Vec::new();
         snapshot::serve(&ledger, &mut &snapshot::manifest_bytes(0, &[])[..], &mut pages).unwrap();
         fs::write(root.join("pages"), pages).unwrap();
-        let north = root.join("north");
-        fs::write(&north, format!("#!/bin/sh\ncat '{}'\n", root.join("fleet.json").display())).unwrap();
-        fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
         let ssh = format!("ROOT='{}'\n{FAKE_SSH}", root.display());
         let threads = format!("printf '%s|%s\\n' \"$THREADS_DB\" \"$*\" >> '{}/threads.log'", root.display());
         let mut variables: BTreeMap<String, String> = env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
         variables.insert("HOME".into(), root.display().to_string());
-        variables.insert("NORTH_BIN".into(), north.display().to_string());
+        let fleet_file = root.join("fleet.json");
+        let fleet: outside::FleetOwners = Arc::new(move || serde_json::from_slice::<Vec<String>>(&fs::read(&fleet_file).ok()?).ok().map(|owners| owners.into_iter().collect()));
         let client = Client::new(
             &root,
             variables,
             vec!["/bin/sh".into(), "-c".into(), ssh.into(), "ssh".into()],
             vec!["/bin/sh".into(), "-c".into(), threads.into(), "threads".into()],
+            fleet,
         );
         Rig { _directory: directory, root, client }
     }
@@ -664,11 +670,7 @@ exit "$(cat "$ROOT/code")"
     #[test]
     fn threads_client_runs_every_verb_over_ssh_with_the_same_env() {
         let rig = rig(&[("THREADS_ACTOR", "lead one"), ("CLAUDE_CODE_REMOTE", "1")]);
-        fs::write(rig.root.join("fleet.json"), format!(
-            r#"[{{"name": "w2", "status": "working", "provider": "codex", "conversation": "s9", "host_pid": {}}},
-                {{"name": "gone", "status": "exited"}}, {{"name": "done", "status": "exited"}}]"#,
-            std::process::id(),
-        )).unwrap();
+        fs::write(rig.root.join("fleet.json"), r#"["w2", "s9", "codex:s9"]"#).unwrap();
         let rig = rig;
         assert_eq!(call(&rig, &["show", "north#63"], b"").0, 0);
         assert_eq!(call(&rig, &["unowned"], b"").0, 0);
@@ -803,7 +805,7 @@ exit "$(cat "$ROOT/code")"
             ("THREADS_DB".to_owned(), root.join("threads.db").display().to_string()),
             ("NORTH_BIN".to_owned(), north.display().to_string()),
         ]);
-        let mut client = Client::new(root, variables, vec!["ssh".into()], vec!["/bin/sh".into(), "-c".into(), script.into(), "threads".into()]);
+        let mut client = Client::new(root, variables, vec!["ssh".into()], vec!["/bin/sh".into(), "-c".into(), script.into(), "threads".into()], unread_fleet());
         client.ingest_wait = wait;
         (directory, client)
     }

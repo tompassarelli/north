@@ -212,7 +212,7 @@ fn dispatch(command: Command) -> ExitCode {
                 }
             }
         }
-        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments)),
+        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(|| fleet::open_fleet().ok()?.live_owners()))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
         Command::Help => in_runtime(async {
