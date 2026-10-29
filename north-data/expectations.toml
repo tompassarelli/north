@@ -1,0 +1,55 @@
+[notify]
+proxy = "proxy"
+
+[[expectation]]
+name = "cloud-lane-use"
+measure = "cloud_launches"
+breach_when = "below"
+threshold = 1
+window = "24h"
+owner = "dispatch"
+fix = "north dispatch places every code-only smashcraft or wisp box in the cloud lane while the credit lasts, and says why when it does not"
+on = "nexus"
+until = "2026-11-05"
+
+[[expectation]]
+name = "launch-failures"
+measure = "launch_failures"
+breach_when = "above"
+threshold = 5
+window = "6h"
+owner = "dispatch"
+fix = "north dispatch holds a box whose launch keeps failing and names the refusal in one alert instead of retrying"
+on = "nexus"
+
+[[expectation]]
+name = "closed-boxes"
+measure = "closed_boxes"
+breach_when = "below"
+threshold = 1
+window = "24h"
+owner = "ops-observability"
+fix = "north tune files the stalled cell as an issue and dispatch raises the tier of the category that closed nothing"
+on = "nexus"
+
+[[expectation]]
+name = "nexus-heartbeat"
+measure = "heartbeat_age_minutes"
+breach_when = "above"
+threshold = 15
+window = "5m"
+owner = "ops-observability"
+fix = "systemd restarts the ops-check timer on Nexus and the unit failure notifies the phone"
+on = "nexus"
+host = "nexus"
+
+[[expectation]]
+name = "nexus-dead-man"
+measure = "heartbeat_age_minutes"
+breach_when = "above"
+threshold = 15
+window = "5m"
+owner = "ops-observability"
+fix = "a second host reads the Nexus heartbeat over ssh, so the checker's own death alerts"
+on = "elsewhere"
+host = "nexus"

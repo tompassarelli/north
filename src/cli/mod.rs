@@ -99,6 +99,7 @@ Commands:
   dispatch [--dry-run]                          Launch ready smashcraft and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
+  ops check [--dry-run]                         Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   worker-ledger [--session ID] [--since DATE] [--backfill] | --summary [--by LIST] | --recommend [--planner] FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier

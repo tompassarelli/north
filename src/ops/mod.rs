@@ -1,6 +1,7 @@
 pub(crate) mod advisor_report;
 pub(crate) mod agent_contain;
 pub(crate) mod agents;
+pub(crate) mod check;
 pub(crate) mod citation_check;
 pub(crate) mod convo;
 pub(crate) mod dispatch;
@@ -32,8 +33,9 @@ pub(crate) mod usage_web_read;
 pub(crate) fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {
         Some((command, rest)) if command == "dividend" => dividend::run(rest),
+        Some((command, _)) if command == "check" => check::run(arguments),
         _ => {
-            eprintln!("usage: north ops dividend [--dry-run] [CHECK]");
+            eprintln!("usage: north ops dividend [--dry-run] [CHECK] | north ops check [--dry-run]");
             2
         }
     }

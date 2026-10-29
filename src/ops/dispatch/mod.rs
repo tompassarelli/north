@@ -17,6 +17,7 @@ pub(crate) use fleets::holder as task_holder;
 pub(crate) use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub(crate) use manual::{Ask, Start, begin as start_hand, tier_reason, untasked};
 pub(crate) use survey::evidence as arm_evidence;
+pub(crate) use record::{Record as LaunchRecord, read as launch_records};
 pub(crate) use tier::{ARMED, Evidence, Tier};
 #[cfg(test)]
 pub(crate) use survey::claim_rows;
