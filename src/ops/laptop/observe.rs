@@ -164,6 +164,9 @@ impl Ctx {
         let Some(active) = seen.active.as_ref().filter(|_| frame.in_window || frame.auto) else {
             return Ok(None);
         };
+        if frame.state.until.as_deref().is_some_and(|until| until > iso(frame.at).as_str()) {
+            return Ok(None);
+        }
         let floor = frame.edge.map_or(frame.at - 86_400, |(edge, _)| edge);
         if frame.at - parse(active)?.max(floor) < ACTIVE_SECONDS {
             return Ok(None);

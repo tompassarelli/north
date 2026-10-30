@@ -103,3 +103,41 @@ fn status_names_why_a_queued_laptop_job_still_waits() {
     let out = run(root.path(), &stub, "2026-10-13T12:30:00Z", &["status"]).unwrap();
     assert_eq!(out, "laptop: available since 12:00, open by tester@host (0 running, 1 queued; job 5 waits 30m: no runner has polled this ledger for laptop)\n");
 }
+
+const ACTIVE: &str = r#"{"gaming":false,"agent_gpu":false,"sleeping":false,"battery_low":false,"idle":false}"#;
+
+fn observe_active(root: &Path, stub: &str, from: i64, minutes: i64) -> Value {
+    for minute in 0..=minutes {
+        let now = format!("2026-10-13T{:02}:{:02}:00Z", 20 + (from + minute) / 60, (from + minute) % 60);
+        run(root, stub, &now, &["observe", ACTIVE]).unwrap();
+    }
+    read(&root.join("placement/laptop.json"))
+}
+
+fn windowed_root(args: &[&str]) -> (tempfile::TempDir, String) {
+    let root = tempfile::tempdir().unwrap();
+    let stub = rig(root.path());
+    fs::write(root.path().join("window.json"), json!({"tz": "Etc/GMT-8", "open": "23:00", "close": "10:00"}).to_string()).unwrap();
+    fs::write(root.path().join("rows.json"), "[]").unwrap();
+    run(root.path(), &stub, "2026-10-13T20:00:00Z", args).unwrap();
+    (root, stub)
+}
+
+#[test]
+fn an_open_with_an_unexpired_until_is_not_drained_by_an_active_seat_and_drains_after_it() {
+    let (root, stub) = windowed_root(&["open", "until", "06:00", "away"]);
+    let held = observe_active(root.path(), &stub, 1, 20);
+    assert_eq!(held["state"], "available");
+    assert_eq!(held["until"], "2026-10-13T22:00:00Z");
+    let drained = observe_active(root.path(), &stub, 120, 10);
+    assert_eq!(drained["state"], "draining");
+    assert_eq!(drained["reason"], "active");
+}
+
+#[test]
+fn an_open_without_an_until_is_still_drained_by_an_active_seat() {
+    let (root, stub) = windowed_root(&["open", "away"]);
+    let drained = observe_active(root.path(), &stub, 1, 10);
+    assert_eq!(drained["state"], "draining");
+    assert_eq!(drained["reason"], "active");
+}
