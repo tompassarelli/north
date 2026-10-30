@@ -393,3 +393,27 @@ fn abandon_superseded_deletes_a_claude_or_farm_branch_only_when_main_holds_every
     }
     assert!(origin_has(&lane, unlanded));
 }
+
+#[test]
+fn an_amended_relanding_withdraws_the_lanes_older_land_branch() {
+    let lane = Lane::new();
+    let first = lane.queue();
+    let neighbour = "claude/land-other-0123456789ab";
+    push_branch(&lane, neighbour, "o", "o\n", "Other lane");
+    git(&lane.repo, &["switch", "-q", "lane"]);
+    git(
+        &lane.repo,
+        &["commit", "-q", "--amend", "-m", "lane change, reworded"],
+    );
+    let output = lane
+        .safe_push(&["--to", "main"])
+        .env("SAFE_PUSH_AUTOLAND_WAIT_SECONDS", "1")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(output.status.code(), Some(2), "{stdout}");
+    assert!(stdout.contains(&format!("withdrew {first}")), "{stdout}");
+    assert!(!origin_has(&lane, &first));
+    assert!(origin_has(&lane, neighbour));
+    assert_eq!(lane.land_branches().len(), 2);
+}

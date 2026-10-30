@@ -2016,6 +2016,21 @@ autoland_gap() {
 
 queue_branch_for() { printf 'claude/land-%s-%s' "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-')" "${2:0:12}"; }
 
+# A re-landed lane carries its current state, so its older land branches are superseded by construction.
+withdraw_older_land_branches() {
+  local prefix ref old tip
+  prefix="claude/land-$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '-')-"
+  while read -r tip ref; do
+    old=${ref#refs/heads/}
+    [ "$old" != "$2" ] && [[ "${old#"$prefix"}" =~ ^[0-9a-f]{12}$ ]] || continue
+    if drop_land_branch "$old" "$tip" 2>/dev/null; then
+      printf 'safe-push: withdrew %s: superseded by %s from the same lane\n' "$old" "$2"
+    else
+      printf 'safe-push: could not withdraw %s from origin\n' "$old" >&2
+    fi
+  done < <(git ls-remote origin "refs/heads/${prefix}*" 2>/dev/null)
+}
+
 land_through_autoland() {
   local lane sha queue_branch autoland_reply line state description url wait_status=0 landed limit="${SAFE_PUSH_AUTOLAND_WAIT_SECONDS:-10800}"
   lane=$(git symbolic-ref --quiet --short HEAD)
@@ -2032,6 +2047,7 @@ land_through_autoland() {
     queue_branch=$(queue_branch_for "$lane" "$sha")
     echo "safe-push: $to lands through Autoland's one queue — checking and pushing $sha as $queue_branch"
     NORTH_NO_AUTOREAP=1 "$(readlink -f "${BASH_SOURCE[0]}")" --to "$queue_branch" || exit 1
+    withdraw_older_land_branches "$lane" "$queue_branch"
   fi
   autoland_reply=$(mktemp)
   "${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}" autoland-wait \
