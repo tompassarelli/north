@@ -131,14 +131,6 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
         problems.push("no Claude settings.json found".to_owned());
     }
     problems.extend(facts.unresolved.iter().map(|unresolved| format!("unresolved hook path {unresolved}")));
-    let load = default_number("overload_load_per_core");
-    let psi = default_number("overload_psi60");
-    if let (Some(per_core), Some(psi60)) = (facts.load_per_core, facts.psi60)
-        && per_core >= load
-        && psi60 >= psi
-    {
-        problems.push(format!("overloaded: load {per_core:.1} per core (bound {load}) with CPU pressure avg60 {psi60:.1}% (bound {psi}%)"));
-    }
     let most = default_number("landing_north_processes_max");
     match facts.north_processes {
         Some(count) if count as f64 > most => problems.push(format!("{count} north processes (bound {most})")),
@@ -218,5 +210,12 @@ mod tests {
     fn pressure_and_load_parse_from_their_proc_files() {
         assert_eq!(psi60("some avg10=27.94 avg60=22.27 avg300=40.48 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n"), Some(22.27));
         assert_eq!(load_per_core("71.00 60.00 50.00 3/900 1\n20\n"), Some(3.55));
+    }
+
+    #[test]
+    fn a_busy_host_running_the_landing_is_healthy_because_load_is_the_watchdogs_to_judge() {
+        let units = UNITS.iter().map(|unit| ((*unit).to_owned(), "active".to_owned())).collect();
+        let facts = Facts { runtime: Some("af7971a5851e603b".into()), units, psi60: Some(57.3), load_per_core: Some(2.5), north_processes: Some(3), settings: vec!["settings.json".into()], ..Facts::default() };
+        assert_eq!(problems(&facts, |_| true), Vec::<String>::new());
     }
 }

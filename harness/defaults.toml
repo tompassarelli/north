@@ -715,14 +715,14 @@ value = 15
 unit = "percent of the 60 s CPU pressure average (PSI some avg60) a watchdog sample must also reach to count as overloaded, so a spike the 60 s average has not registered is not"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi60 p90 9.6, p95 26, p99 72; with cpuPsi at 50 and load per thread at 2, a floor of 10, 15 or 20 raises the same 5 incidents over the span; 15 admits a 60 s burn of 200 spinners on a quiet host on its first overloaded sample"
 fallback = "without a CPU pressure reading no sample is overloaded and the watchdog only samples"
-consumers = ["src/capacity/watchdog/detect.rs", "src/ops/runtime/probe.rs"]
+consumers = ["src/capacity/watchdog/detect.rs"]
 
 [overload_load_per_core]
 value = 2.0
 unit = "1-minute load average per CPU thread at or above which a watchdog sample counts as overloaded"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406 on 16 threads: load per thread p95 1.4, p99 2.9, max 10.2; the 2026-10-29 10:10-10:12 PM overload reached 8-10"
 fallback = "without a load reading no sample is overloaded"
-consumers = ["src/capacity/watchdog/detect.rs", "src/ops/runtime/probe.rs"]
+consumers = ["src/capacity/watchdog/detect.rs"]
 
 [overload_sustained_samples]
 value = 2
