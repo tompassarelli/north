@@ -1,7 +1,7 @@
 # Project layout: full notes
 
 Detail for the file-layout section of
-[program-craftsmanship](../../../../agent-machinery/skills/program-craftsmanship/references/structure.md).
+[program-craftsmanship](../../program-craftsmanship/references/structure.md).
 It stays outside the portable package because its source is licensed CC BY-NC 4.0,
 which the package license cannot carry.
 

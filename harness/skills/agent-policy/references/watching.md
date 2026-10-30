@@ -31,7 +31,7 @@ each has a cited entry in docs/references.md.
 6. Write the cycle's record to `docs/rationale/watch/<date>-<source>.md`: what
    we looked at, how we evaluated it, what we decided, and the dated data
    behind each decision. Add or update the source's
-   [references](../../../../docs/references.md) entry in the same commit.
+   entry in north's `docs/references.md` in the same commit.
    Keep personal facts and quotes in south.
 7. Move the source's `last_reviewed` and `last_commit` forward only after the
    record lands, so a failed cycle is retried from the same commit.

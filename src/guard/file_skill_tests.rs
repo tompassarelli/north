@@ -114,3 +114,66 @@ fn a_missing_skill_directory_allows_and_a_patch_that_adds_the_dev_profile_is_not
     let text = advice(decide(&input, &f.roots));
     assert!(!text.contains("profile.dev"), "{text}");
 }
+
+#[test]
+fn a_patch_that_adds_the_dev_profile_to_one_manifest_still_flags_another_that_lacks_it() {
+    let f = fixture();
+    let covered = f.dir.path().join("covered");
+    let bare = f.dir.path().join("bare");
+    for dir in [&covered, &bare] {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"p\"\n").unwrap();
+    }
+    let patch = format!(
+        "*** Begin Patch\n*** Update File: {}\n@@\n+[profile.dev]\n+debug = 0\n*** Update File: {}\n@@\n+edition = \"2024\"\n*** End Patch",
+        covered.join("Cargo.toml").display(),
+        bare.join("Cargo.toml").display()
+    );
+    let call = json!({"session_id": "m", "hook_event_name": "PreToolUse", "tool_name": "apply_patch", "cwd": "/tmp", "tool_input": {"command": patch}});
+    let text = advice(decide(&HookInput::parse(&serde_json::to_vec(&call).unwrap()).unwrap(), &f.roots));
+    assert_eq!(text.matches("no [profile.dev] section").count(), 1, "{text}");
+}
+
+#[test]
+fn every_relative_link_in_an_installed_skill_resolves_from_its_installed_path() {
+    let roots = ["agent-machinery/skills", "harness/skills"].map(repo);
+    let source = |id: &str| roots.iter().map(|root| root.join(id)).find(|dir| dir.join("SKILL.md").is_file());
+    let link = regex::Regex::new(r"\]\(([^)#\s]+)").unwrap();
+    let mut files: Vec<(String, PathBuf)> = Vec::new();
+    for skill in roots.iter().flat_map(|root| std::fs::read_dir(root).unwrap()).map(|entry| entry.unwrap().path()) {
+        let id = skill.file_name().unwrap().to_str().unwrap().to_owned();
+        let mut pending = vec![skill.clone()];
+        while let Some(dir) = pending.pop() {
+            for path in std::fs::read_dir(&dir).unwrap().map(|entry| entry.unwrap().path()) {
+                match path.is_dir() {
+                    true => pending.push(path),
+                    false if path.extension().is_some_and(|e| e == "md") => files.push((id.clone(), path.strip_prefix(&skill).unwrap().to_owned())),
+                    false => {}
+                }
+            }
+        }
+    }
+    assert!(files.iter().any(|(id, _)| id == "rust-development"));
+    let mut broken = Vec::new();
+    for (id, file) in &files {
+        let text = std::fs::read_to_string(source(id).unwrap().join(file)).unwrap();
+        let prose = text.split("```").step_by(2).collect::<Vec<_>>().join("\n");
+        let from = Path::new("shared").join(id).join(file);
+        for target in link.captures_iter(&prose).map(|c| c[1].to_owned()).filter(|t| !t.contains("://") && !t.starts_with('/') && !t.starts_with("mailto:")) {
+            let mut resolved = PathBuf::new();
+            for part in from.parent().unwrap().join(&target).components() {
+                match part {
+                    std::path::Component::ParentDir => drop(resolved.pop()),
+                    other => resolved.push(other),
+                }
+            }
+            let mut parts = resolved.components();
+            let inside = parts.next().is_some_and(|c| c.as_os_str() == "shared");
+            let target_id = parts.next().and_then(|c| c.as_os_str().to_str()).unwrap_or("").to_owned();
+            if !(inside && source(&target_id).is_some_and(|dir| dir.join(parts.as_path()).is_file())) {
+                broken.push(format!("{}: {target}", from.display()));
+            }
+        }
+    }
+    assert!(broken.is_empty(), "links that do not resolve in the installed skills:\n{}", broken.join("\n"));
+}

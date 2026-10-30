@@ -29,7 +29,7 @@ as the files, so nothing points at the old place.
 A handoff layout is done when the native workflow runs and a newcomer can find
 the source, inputs, outputs, disposable work and the rerun command. Data
 provenance, checkpoint and naming detail is in the
-[project layout notes](../../../../harness/skills/repo-safety/references/project-layout.md).
+[project layout notes](../../repo-safety/references/project-layout.md).
 
 ## Modules and responsibilities
 

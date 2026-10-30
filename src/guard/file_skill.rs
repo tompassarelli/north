@@ -135,11 +135,18 @@ fn claim(seen: &Path, session: &str, key: &str) -> bool {
     std::fs::create_dir_all(&dir).is_ok() && OpenOptions::new().write(true).create_new(true).open(dir.join(&hash[..24])).is_ok()
 }
 
-fn edited_text(input: &HookInput) -> String {
+fn edited_text(input: &HookInput, path: &Path) -> String {
     let tool = &input.tool_input;
+    let cwd = input.data["cwd"].as_str().map(PathBuf::from).unwrap_or_default();
     let edits = tool["edits"].as_array().into_iter().flatten().filter_map(|e| e["new_string"].as_str());
-    let patch = ["command", "input", "patch"].iter().filter_map(|k| tool[*k].as_str()).chain(tool.as_str()).flat_map(str::lines).filter_map(|line| line.strip_prefix('+'));
     let direct = ["content", "new_string"].iter().filter_map(|k| tool[*k].as_str()).chain(edits);
+    let mut file: Option<PathBuf> = None;
+    let patch = ["command", "input", "patch"].iter().filter_map(|k| tool[*k].as_str()).chain(tool.as_str()).flat_map(str::lines).filter_map(|line| {
+        if let Some(header) = line.strip_prefix("*** ").and_then(|rest| rest.split_once(": ")) {
+            file = Some(cwd.join(header.1.trim()));
+        }
+        line.strip_prefix('+').filter(|_| file.as_deref() == Some(path))
+    });
     direct.chain(patch).collect::<Vec<_>>().join("\n")
 }
 
@@ -147,7 +154,7 @@ fn missing_dev_profile(input: &HookInput, edited: &Path, skill: &Path, roots: &R
     let manifest = |dir: &Path| {
         let path = dir.join("Cargo.toml");
         let disk = std::fs::read_to_string(&path).unwrap_or_default();
-        let text = if path == edited { format!("{disk}\n{}", edited_text(input)) } else { disk };
+        let text = if path == edited { format!("{disk}\n{}", edited_text(input, &path)) } else { disk };
         (path.is_file() || path == edited).then_some((path, text))
     };
     let mut package: Option<(PathBuf, String)> = None;

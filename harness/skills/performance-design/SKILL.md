@@ -34,7 +34,7 @@ metadata:
    and consumes data, or the consumer can read unpublished data.
 7. Use the runtime's cost model, because costs differ by runtime. For native code,
    measure caches, branches, instruction cache and SIMD; follow
-   [Rust development](../../../agent-machinery/skills/rust-development/SKILL.md)
+   [Rust development](../rust-development/SKILL.md)
    for data layout and measured branch changes. [Lua performance](../warcraft-modding/references/lua-performance.md)
    covers Lua 5.3 opcodes, table allocation and GC; those counters do not measure
    hardware cache effects. In JS, V8 or Bun, examine hidden classes, monomorphic

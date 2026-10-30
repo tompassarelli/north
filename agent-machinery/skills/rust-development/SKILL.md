@@ -17,7 +17,7 @@ written: 2026-10-15
 
 ## Data-oriented hot paths
 
-Use [performance design](../../../harness/skills/performance-design/SKILL.md) when a runtime budget calls for optimization.
+Use [performance design](../performance-design/SKILL.md) when a runtime budget calls for optimization.
 
 - Sweep `Vec` records or parallel field arrays in passes and choose the layout from access patterns and measurements, because a 64-byte record is not a universal target.
 - Keep cold fields separate and use indices instead of pointer graphs in hot data, so the hot loop touches only the memory it needs.

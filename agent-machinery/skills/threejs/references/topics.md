@@ -35,4 +35,4 @@ Resolve paths relative to the skill directory.
 | `references/shader-effect-math.md` | writing displacement, fresnel, noise, dissolve or other GLSL effects |
 | `references/shader-integration.md` | patching built-ins with onBeforeCompile, instanced shaders or shader debugging |
 
-Retain CloudAI-X/threejs-skills MIT attribution from [PROVENANCE](../../../PROVENANCE.md) and [NOTICE](../../../NOTICE).
+Retain CloudAI-X/threejs-skills MIT attribution from the skill package's `PROVENANCE.md` and `NOTICE`.
