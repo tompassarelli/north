@@ -73,8 +73,9 @@ Thresholds and priors in these loops, and the 350k handoff decision, belong to n
 
 ## Learned routing backtest
 
-Tried, no durable gain (north#35, 2026-10-12). `python3 harness/scripts/routing-backtest.py <copy of snapshot.db>`
-(stdlib only, about 35 s) reproduces this table from the 2026-10-12 snapshot copy: 2434 finished worker runs over
+Tried, no durable gain (north#35, 2026-10-12). The one-off script that produced this table, `harness/scripts/routing-backtest.py`
+(stdlib only, about 35 s on a copy of the snapshot), was deleted unported on 2026-10-30 because nothing called it; it is in
+git history before this change. The 2026-10-12 snapshot copy gave: 2434 finished worker runs over
 2026-10-01..12, 46% ok by `run_ok`, 1118 with a known category, 549 priced, 981 with an ETA, 144 with facets, 7
 with an arm, 39 of 67 (category x tier) cells at `min_runs`. That is enough for a cell-level model of the tier
 pick but thin for retry vs abort, where only 113 failed runs have a resolved `Follows:` run.
