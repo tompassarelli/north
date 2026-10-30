@@ -176,7 +176,11 @@ impl Turns {
     }
 
     pub fn live_tokens(&self) -> u64 {
-        self.threads.values().filter_map(Thread::live_tokens).sum()
+        self.live_usage().iter().map(|(_, tokens)| tokens.total()).sum()
+    }
+
+    pub fn live_usage(&self) -> Vec<(Option<&str>, Tokens)> {
+        self.threads.values().filter_map(|thread| Some((thread.model.as_deref(), thread.live()?))).collect()
     }
 
     pub fn busy(&self, conversation: &str) -> bool {
@@ -197,12 +201,17 @@ impl Thread {
         self.open.is_some() || !self.tasks.is_empty()
     }
 
-    fn live_tokens(&self) -> Option<u64> {
+    fn live(&self) -> Option<Tokens> {
         let open = self.open.as_ref()?;
         if open.call_tokens.is_empty() {
-            return Some(self.total.since(open.baseline).total());
+            return Some(self.total.since(open.baseline));
         }
-        Some(open.call_tokens.values().map(|tokens| tokens.total()).sum())
+        Some(open.call_tokens.values().fold(Tokens::default(), |sum, tokens| Tokens {
+            input: sum.input + tokens.input,
+            output: sum.output + tokens.output,
+            cache_read: sum.cache_read + tokens.cache_read,
+            cache_write: sum.cache_write + tokens.cache_write,
+        }))
     }
 
     fn finish(&mut self, conversation: String, exit: TurnExit, totals: TurnTotals, now_ms: u64) -> Turn {

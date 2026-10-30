@@ -11,6 +11,8 @@ const PRIOR_REPORTS: usize = 2;
 pub(crate) const WINDOW: &str = "7d";
 pub(crate) const BUDGET_TIMES: f64 = 2.0;
 const UNCALIBRATED: &str = "45 min (uncalibrated)";
+const READ_SPEND: &str = "`north fleet spend --self` prints your API-equivalent spend so far";
+const AT_THE_LINE: &str = "commit and land any change already passing its checks, then report `Split:` with the remaining parts as boxes; never stop with passing work unlanded";
 
 /// The ledger as one dispatch run reads it: the closed boxes of the window and each item's last
 /// Not done or Stop reports.
@@ -80,9 +82,9 @@ impl Grounds {
             let measured = format!("median ${:.2} of n={} boxes, {}", figures.median_usd, figures.closed, cell(route));
             match self.floor.filter(|(floor, _)| twice < *floor) {
                 Some((floor, boxes)) => format!(
-                    "Budget: stop and report `Not done:` with where you are at ${floor:.2} API-equivalent spend, the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), since twice the cell's median cost per closed box (${twice:.2}; {measured}) is below what one real box needs"
+                    "Budget: {READ_SPEND}; at ${floor:.2} API-equivalent spend (the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), since twice the cell's median cost per closed box (${twice:.2}; {measured}) is below what one real box needs), {AT_THE_LINE}"
                 ),
-                None => format!("Budget: stop and report `Not done:` with where you are at ${twice:.2} API-equivalent spend, twice the cell's median cost per closed box ({measured})"),
+                None => format!("Budget: {READ_SPEND}; at ${twice:.2} API-equivalent spend (twice the cell's median cost per closed box, {measured}), {AT_THE_LINE}"),
             }
         })
     }

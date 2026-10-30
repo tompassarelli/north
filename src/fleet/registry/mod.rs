@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::books::{Digest, FleetBooks};
+use super::books::{Digest, FleetBooks, SessionSpend};
 use super::claims::{self, Claims};
 use super::gates;
 use super::landings::{self, push_log};
@@ -233,6 +233,10 @@ impl Fleet {
             landings::observe(self.ledger.as_ref(), &record, &log)?;
         }
         Ok(())
+    }
+
+    pub fn spend_of(&self, name: &str) -> NorthResult<Option<SessionSpend>> {
+        Ok(self.ledger.spend()?.into_iter().find(|spend| spend.session == name))
     }
 
     pub fn digest(&self, since_ms: u64) -> NorthResult<Digest> {

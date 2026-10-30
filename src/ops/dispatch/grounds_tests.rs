@@ -57,7 +57,7 @@ fn carries(text: &str, why: Option<&str>) {
         "Not required: No new flags.",
         "Prior report: Not done: the gate refused the push",
         "ETA: 30 min (p75 of n=4 runs, cell tooling on sonnet, ledger 7d)",
-        "Budget: stop and report `Not done:` with where you are at $10.40 API-equivalent spend, twice the cell's median cost per closed box (median $5.20 of n=4 boxes, cell tooling on sonnet, ledger 7d)",
+        "Budget: `north fleet spend --self` prints your API-equivalent spend so far; at $10.40 API-equivalent spend (twice the cell's median cost per closed box, median $5.20 of n=4 boxes, cell tooling on sonnet, ledger 7d), commit and land any change already passing its checks, then report `Split:` with the remaining parts as boxes; never stop with passing work unlanded",
     ] {
         assert!(text.contains(needed), "{needed:?} missing from {text}");
     }
@@ -107,7 +107,7 @@ fn a_hand_launch_with_a_named_tier_still_carries_the_trace_and_a_model_override_
     let named = "Item: north#7 box\nCategory: tooling\nTier: sonnet-high\n\nDo it.";
     let ask = Ask { item: "north#7", brief: named, prompt: named, model: None, reason: None };
     let started = start(&ask, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
-    assert!(started.prompt.contains("Not required: No new flags.") && started.prompt.contains("Budget: stop and report"), "{}", started.prompt);
+    assert!(started.prompt.contains("Not required: No new flags.") && started.prompt.contains("Budget: `north fleet spend --self`"), "{}", started.prompt);
     assert!(!started.prompt.contains("Arm:") && started.prompt.matches("Tier:").count() == 1, "a named tier is not stamped again: {}", started.prompt);
     let overridden = Ask { model: Some("opus"), reason: Some("spans two engines"), ..ask };
     let started = start(&overridden, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();

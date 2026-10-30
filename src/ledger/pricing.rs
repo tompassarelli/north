@@ -38,6 +38,13 @@ pub struct TokenUse {
     pub cache_write: i64,
 }
 
+impl From<crate::fleet::turns::Tokens> for TokenUse {
+    fn from(tokens: crate::fleet::turns::Tokens) -> Self {
+        let count = |count: u64| i64::try_from(count).unwrap_or(i64::MAX);
+        Self { input: count(tokens.input), output: count(tokens.output), cache_read: count(tokens.cache_read), cache_write: count(tokens.cache_write) }
+    }
+}
+
 impl Price {
     pub fn of(self, tokens: TokenUse) -> f64 {
         let cost = |count: i64, rate: f64| count as f64 * rate;
