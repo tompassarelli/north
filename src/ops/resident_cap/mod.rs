@@ -119,12 +119,12 @@ fn live_sessions() -> Vec<Value> {
         .unwrap_or_default()
 }
 
+fn host_pids(sessions: &[Value], status: impl Fn(&str) -> bool) -> BTreeSet<i64> {
+    sessions.iter().filter(|session| session.is_object() && status(session["status"].as_str().unwrap_or_default())).filter_map(|session| session["host_pid"].as_i64()).collect()
+}
+
 fn registered_pids(table: &Table, sessions: &[Value]) -> BTreeSet<i32> {
-    let hosts: BTreeSet<i64> = sessions
-        .iter()
-        .filter(|session| session.is_object() && session["status"] != "exited")
-        .filter_map(|session| session["host_pid"].as_i64())
-        .collect();
+    let hosts = host_pids(sessions, |status| !matches!(status, "exited" | "idle"));
     table
         .iter()
         .filter(|(_, process)| hosts.contains(&i64::from(process.ppid)) && AGENTS.contains(&process.comm.as_str()))
@@ -140,6 +140,7 @@ pub(crate) fn count(table: &Table, launcher: Option<i32>, sessions: &[Value]) ->
         .take_while(|pid| agent_kind(&table[pid]).is_none())
         .collect();
     let nodes = registered_pids(table, sessions);
+    let idle: BTreeSet<i32> = host_pids(sessions, |status| status == "idle").into_iter().filter_map(|pid| i32::try_from(pid).ok()).collect();
     let registered = nodes.difference(&own).count();
     let unregistered = table
         .iter()
@@ -147,6 +148,7 @@ pub(crate) fn count(table: &Table, launcher: Option<i32>, sessions: &[Value]) ->
         .filter(|(pid, _)| {
             let chain = ancestors(table, **pid);
             !(nodes.contains(pid)
+                || chain.iter().any(|parent| idle.contains(parent))
                 || chain.iter().any(|parent| agent_kind(&table[parent]).is_some())
                 || chain.iter().any(|parent| nodes.contains(parent)))
         })

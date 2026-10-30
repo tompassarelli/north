@@ -151,6 +151,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     let inputs = Inputs::from_env();
     let _ = agent_contain::sweep_from_env();
     let _ = Command::new(&inputs.north).args(["private-desktop", "reap"]).status();
+    let _ = Command::new(&inputs.north).args(["fleet", "waits"]).status();
     drain(&inputs)
 }
 

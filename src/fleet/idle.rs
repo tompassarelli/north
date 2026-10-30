@@ -2,6 +2,9 @@ use std::time::Duration;
 
 use super::wait::WAKE_AFTER;
 
+/// How long a session with a registered run stays up after its turn ends, so a revival message sent to it starts a turn before it parks again.
+const REGISTERED_PARK_AFTER: Duration = Duration::from_secs(30);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Policy {
     pub rollover_after: Duration,
@@ -25,6 +28,7 @@ pub struct Session {
     pub rolled_over: bool,
     pub finished: bool,
     pub wakes: Option<usize>,
+    pub registered: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -47,17 +51,24 @@ impl Policy {
         if session.in_flight {
             return Step::Wait;
         }
+        if session.registered && session.idle >= REGISTERED_PARK_AFTER {
+            return Step::Park;
+        }
         if let Some(wakes) = session.wakes {
-            return match self.wake_after.get(wakes) {
-                Some(after) if session.idle >= *after => Step::Wake,
-                Some(_) => Step::Wait,
-                None => Step::Stall,
-            };
+            return self.wake_step(wakes, session.idle);
         }
         if session.context >= self.rollover_min_tokens && !session.rolled_over && session.idle < self.cache_lifetime {
             return if session.idle >= self.rollover_after { Step::Compact } else { Step::Wait };
         }
         if parks { Step::Park } else { Step::Wait }
+    }
+
+    fn wake_step(&self, wakes: usize, idle: Duration) -> Step {
+        match self.wake_after.get(wakes) {
+            Some(after) if idle >= *after => Step::Wake,
+            Some(_) => Step::Wait,
+            None => Step::Stall,
+        }
     }
 }
 
@@ -103,6 +114,16 @@ mod tests {
         assert_eq!(step(Session { idle: minutes(59), in_flight: true, ..finished }), Step::Wait);
         assert_eq!(step(Session { idle: minutes(60), in_flight: true, ..finished }), Step::Exit);
         assert_eq!(Policy::default().step(Session { idle: minutes(60), ..finished }, Some(minutes(600))), Step::Exit, "a longer idle limit stops at 60");
+    }
+
+    #[test]
+    fn a_session_with_a_registered_run_parks_at_once_instead_of_being_woken_or_held_to_the_idle_limit() {
+        let registered = Session { registered: true, wakes: Some(0), idle: Duration::from_secs(30), ..Session::default() };
+        assert_eq!(step(registered), Step::Park);
+        assert_eq!(step(Session { idle: Duration::from_secs(5), ..registered }), Step::Wait, "a revival message gets 30 s to start a turn first");
+        assert_eq!(step(Session { in_flight: true, ..registered }), Step::Wait, "never mid-turn");
+        assert_eq!(step(Session { finished: true, idle: minutes(10), ..registered }), Step::Exit, "a final report still exits it");
+        assert_eq!(Policy::default().step(registered, None), Step::Park, "whatever the idle limit");
     }
 
     #[test]

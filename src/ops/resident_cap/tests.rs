@@ -124,3 +124,12 @@ fn a_launch_from_a_registered_one_shot_session_does_not_count_that_session_as_it
     assert_eq!(count(&table, None, &sessions), 6);
     assert_eq!(count(&table, Some(1002), &sessions), 5);
 }
+
+#[test]
+fn an_idle_session_and_its_cli_take_no_resident_slot() {
+    let (table, mut sessions) = world(4, 1, false);
+    assert_eq!(count(&table, None, &sessions), 5);
+    sessions[0]["status"] = json!("idle");
+    sessions[1]["status"] = json!("idle");
+    assert_eq!(count(&table, None, &sessions), 3, "two idle sessions leave two working ones and the unregistered CLI");
+}

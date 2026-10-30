@@ -15,7 +15,8 @@ use toml_edit::{DocumentMut, Item};
 
 pub(crate) const PROBE: Duration = Duration::from_secs(30);
 const MIRROR_FRESH_S: f64 = 10.0 * 60.0;
-const RUNNING: [&str; 3] = ["starting", "working", "idle"];
+const WORKING: [&str; 2] = ["starting", "working"];
+const HOLDING: [&str; 3] = ["starting", "working", "idle"];
 static SESSION_ITEMS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp|north)-(\d+[a-z]?(?:-\d+[a-z]?)*)(?:-|$)").expect("session pattern"));
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,6 +25,8 @@ pub(crate) struct Session {
     pub items: Vec<IssueRef>,
     /// The machine it runs on, when the registry that launched it names one.
     pub machine: Option<String>,
+    /// Whether it is taking a turn now, which is what a host slot and the working target count; an idle session or a parked one waiting on a registered run holds its items and no slot.
+    pub working: bool,
 }
 
 /// The issues a session's name starts with: `sc-277-d1435` holds smashcraft#277 and
@@ -38,6 +41,12 @@ pub(crate) fn named_items(name: &str) -> Vec<IssueRef> {
     found[2].split('-').filter_map(|number| number.trim_end_matches(|c: char| c.is_ascii_lowercase()).parse().ok()).map(|number| IssueRef::new(repo, number)).collect()
 }
 
+/// Whether a listed session holds its items: it runs, or it is parked on a run it registered a wait for.
+fn holds(session: &Value) -> bool {
+    let status = session["status"].as_str().unwrap_or_default();
+    HOLDING.contains(&status) || status == "parked" && session["waiting"].as_array().is_some_and(|runs| !runs.is_empty())
+}
+
 /// The running sessions in one registry's `north fleet list --json`, each holding every item its
 /// `--task` names, else the items its name starts with.
 pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
@@ -45,7 +54,7 @@ pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|session| RUNNING.contains(&session["status"].as_str().unwrap_or_default()))
+        .filter(|session| holds(session))
         .map(|session| {
             let name = session["name"].as_str().unwrap_or_default().to_owned();
             let task_text = match session["tasks"].as_array() {
@@ -54,7 +63,7 @@ pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
             };
             let tasked: Vec<IssueRef> = issues::references(&task_text, "").into_iter().filter(|item| !item.repo.is_empty()).collect();
             let items = if tasked.is_empty() { named_items(&name) } else { tasked };
-            Session { machine: session["machine"].as_str().map(str::to_owned), name, items }
+            Session { machine: session["machine"].as_str().map(str::to_owned), name, items, working: WORKING.contains(&session["status"].as_str().unwrap_or_default()) }
         })
         .collect()
 }
@@ -62,22 +71,22 @@ pub(crate) fn running_sessions(listing: &Value) -> Vec<Session> {
 /// The names of fleet sessions that some listing shows and none shows running: their launches no
 /// longer hold their items.
 pub(crate) fn stopped_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
-    names_outside(fleets, &RUNNING)
+    names_outside(fleets, holds)
 }
 
 /// The names of fleet sessions that some listing shows and none shows running or parked: a claim
 /// they made holds nothing, while a parked owner's claim holds until it is stale, as `threads
 /// claim` refuses on it.
 pub(crate) fn exited_names(fleets: &[(String, Value)]) -> BTreeSet<String> {
-    names_outside(fleets, &[RUNNING.as_slice(), &["parked"]].concat())
+    names_outside(fleets, |session| holds(session) || session["status"] == "parked")
 }
 
-fn names_outside(fleets: &[(String, Value)], holding: &[&str]) -> BTreeSet<String> {
+fn names_outside(fleets: &[(String, Value)], holding: fn(&Value) -> bool) -> BTreeSet<String> {
     let named = |inside: bool| -> BTreeSet<String> {
         fleets
             .iter()
             .flat_map(|(_, listing)| listing.as_array().into_iter().flatten())
-            .filter(|session| holding.contains(&session["status"].as_str().unwrap_or_default()) == inside)
+            .filter(|session| holding(session) == inside)
             .filter_map(|session| session["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned))
             .collect()
     };
@@ -100,7 +109,7 @@ pub(crate) fn gone(fleets: &[(String, Value)], copies: &BTreeMap<String, f64>, r
 pub(crate) fn tally(sessions: &[(Session, String)]) -> (BTreeMap<String, i64>, BTreeMap<IssueRef, String>) {
     let (mut elsewhere, mut holds) = (BTreeMap::new(), BTreeMap::new());
     for (session, registry) in sessions {
-        if let Some(machine) = session.machine.as_ref().filter(|machine| *machine != registry) {
+        if let Some(machine) = session.machine.as_ref().filter(|machine| session.working && *machine != registry) {
             *elsewhere.entry(machine.clone()).or_insert(0) += 1;
         }
         for item in &session.items {

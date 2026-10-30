@@ -7,6 +7,7 @@ use crate::fleet::model::{Effort, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
 use crate::fleet::remote_view::{Seen, SessionView};
 use crate::fleet::runtime::now_ms;
+use crate::fleet::waits::Waits;
 
 const USAGE: &str = "Usage: north fleet list [--json [--all]] | north fleet stranded --json";
 const STALE_MINUTES: u64 = 5;
@@ -70,10 +71,11 @@ fn list_json(fleet: &Fleet, all: bool) -> NorthResult<()> {
 
 /// This host's sessions; `all` adds its past sessions and those every relayed host reports, a session once.
 fn listing(fleet: &Fleet, all: bool) -> NorthResult<Value> {
-    let mut sessions: Vec<Value> = fleet.sessions()?.iter().map(|record| session_json(record, fleet.status(record))).collect();
+    let waits = fleet.waits();
+    let mut sessions: Vec<Value> = fleet.sessions()?.iter().map(|record| session_json(record, fleet.status(record), &waits)).collect();
     if all {
         for record in fleet.past_sessions() {
-            let mut session = session_json(&record, Status::Exited);
+            let mut session = session_json(&record, Status::Exited, &waits);
             session["past"] = json!(true);
             sessions.push(session);
         }
@@ -107,7 +109,7 @@ fn remote_json(seen: &Seen, session: &SessionView) -> Value {
     })
 }
 
-pub(super) fn session_json(record: &SessionRecord, status: Status) -> Value {
+pub(super) fn session_json(record: &SessionRecord, status: Status, waits: &Waits) -> Value {
     json!({
         "name": record.name,
         "provider": record.provider.label(),
@@ -124,6 +126,7 @@ pub(super) fn session_json(record: &SessionRecord, status: Status) -> Value {
         "host_pid": record.host_pid,
         "placement": record.placement,
         "machine": record.machine.as_ref().map(|machine| &machine.name),
+        "waiting": waits.of(&record.name).iter().map(|wait| wait.run.to_string()).collect::<Vec<_>>(),
     })
 }
 

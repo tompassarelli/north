@@ -351,7 +351,29 @@ fn running_and_idle_sessions_hold_their_task_or_their_named_issue() {
     let hosted: Vec<_> = sessions.into_iter().map(|session| (session, "nexus".to_owned())).collect();
     let (elsewhere, holds) = super::fleets::tally(&hosted);
     assert_eq!(holds[&IssueRef::new("wisp", 21)], "fleet session fixer on nexus", "an idle session still holds its issue");
-    assert_eq!(elsewhere, BTreeMap::from([("gex45".to_owned(), 1)]));
+    assert!(elsewhere.is_empty(), "an idle session on another machine holds its issue and no slot there");
+}
+
+#[test]
+fn idle_and_parked_sessions_take_no_slot_and_dispatch_fills_the_host_to_its_working_target() {
+    let session = |name: &str, status: &str, waiting: &[&str], task: &str| serde_json::json!({"name": name, "provider": "claude", "account": "a", "status": status, "task_ref": task, "machine": null, "waiting": waiting});
+    let listing = serde_json::json!([
+        session("w-1", "working", &[], "tompassarelli/wisp#1"),
+        session("w-2", "starting", &[], "tompassarelli/wisp#2"),
+        session("w-3", "idle", &[], "tompassarelli/wisp#3"),
+        session("w-4", "idle", &[], "tompassarelli/wisp#4"),
+        session("w-5", "parked", &["farm:77"], "tompassarelli/wisp#5"),
+        session("w-6", "parked", &[], "tompassarelli/wisp#6"),
+    ]);
+    let hosted: Vec<_> = super::fleets::running_sessions(&listing).into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
+    let held: Vec<String> = hosted.iter().map(|(session, _)| session.name.clone()).collect();
+    assert_eq!(held, ["w-1", "w-2", "w-3", "w-4", "w-5"], "an idle session and a parked one with a registered wait keep their claims, a plain parked one does not");
+    let working = super::survey::laptop_running(&hosted, "whiterabbit", 0);
+    assert_eq!(working, 2, "only the starting and working sessions fill the host");
+    let boxes = (0..10).map(|number| issue("smashcraft", 20 + number, "- [ ] a", &[])).collect();
+    let (_, accounts) = fleet();
+    let filling = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), vec![host("whiterabbit", 8, Ok(working))], vec![Account { hosts: vec!["whiterabbit".into()], ..accounts[0].clone() }]);
+    assert_eq!(decide(&filling, "test").launches.len(), 6, "launches stop when working sessions reach the target of 8");
 }
 
 #[test]

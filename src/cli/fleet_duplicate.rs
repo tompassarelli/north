@@ -24,7 +24,7 @@ pub(super) fn noted(fleet: &Fleet, request: &LaunchRequest, overrides: &Override
         return Err(NorthError::Refused(refusal));
     }
     let task = tasks.join(" ");
-    let local = Value::Array(fleet.sessions()?.iter().map(|record| fleet_list::session_json(record, fleet.status(record))).collect());
+    let local = Value::Array(fleet.sessions()?.iter().map(|record| fleet_list::session_json(record, fleet.status(record), &fleet.waits())).collect());
     let mut notes = Vec::new();
     let held = task_holder(&task, local, &mut notes);
     for note in notes {

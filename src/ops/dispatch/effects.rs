@@ -205,3 +205,14 @@ fn remember(file: &str, value: &serde_json::Value) {
         eprintln!("north dispatch: {file} not recorded: {why}");
     }
 }
+
+/// Revives each session on this host whose registered run is over (`north fleet waits`), which the
+/// 5-minute dispatch tick makes the wake for a parked worker.
+pub(crate) fn settle_waits() {
+    let Ok(north) = std::env::current_exe() else { return };
+    match run_within(&north.to_string_lossy(), &["fleet", "waits"], LAUNCH_WAIT) {
+        Some(output) if output.status.success() => print!("{}", String::from_utf8_lossy(&output.stdout)),
+        Some(output) => println!("north fleet waits failed: {}", refusal_line(&String::from_utf8_lossy(&output.stderr))),
+        None => println!("north fleet waits did not return within {} s", LAUNCH_WAIT.as_secs()),
+    }
+}

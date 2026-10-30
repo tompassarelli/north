@@ -26,6 +26,7 @@ use super::fleet_duplicate;
 use super::fleet_lineage;
 use super::fleet_list;
 use super::fleet_revive;
+use super::fleet_waits;
 use super::fleet_tier;
 use super::fleet_tree;
 use super::{gate, orders, relay};
@@ -103,6 +104,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         [] => tui::fleet::run(fleet),
         [verb @ ("list" | "stranded"), rest @ ..] => fleet_list::list(&fleet, verb, rest),
         ["tree"] => fleet_tree::tree(&fleet),
+        [verb @ ("wait" | "waits"), rest @ ..] => fleet_waits::run(&fleet, verb, rest),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
         [verb @ ("send" | "relay" | "outbox"), rest @ ..] => relay::run(&fleet, verb, rest),
@@ -145,7 +147,7 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     let follower = fleet.follow(name)?;
     let transcript = follower.transcript();
     let entries: Vec<Value> = transcript.entries.iter().map(|entry| json!({"kind": entry.kind.label(), "text": entry.text})).collect();
-    let mut session = fleet_list::session_json(follower.record(), transcript.status);
+    let mut session = fleet_list::session_json(follower.record(), transcript.status, &fleet.waits());
     session["active_turn"] = json!(transcript.active_turn);
     session["entries"] = Value::Array(entries);
     session["turns"] = transcript.turns.iter().map(turn_json).collect();

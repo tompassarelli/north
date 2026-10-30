@@ -222,10 +222,10 @@ fn cloud(cfg: &DocumentMut, here: &str, at: f64) -> Cloud {
     }
 }
 
-/// The laptop's resident sessions: those its copied fleet list shows, or dispatch's recent launches
+/// The laptop's working sessions: those its copied fleet list shows, or dispatch's recent launches
 /// there when they are more, since a fresh launch may not show yet.
 pub(crate) fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispatched: i64) -> i64 {
-    let listed = sessions.iter().filter(|(_, host)| host == laptop).count();
+    let listed = sessions.iter().filter(|(session, host)| session.working && host == laptop).count();
     i64::try_from(listed).unwrap_or(i64::MAX).max(dispatched)
 }
 

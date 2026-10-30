@@ -21,6 +21,7 @@ use super::runtime::{Runtime, now_ms};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
 use super::wait;
+use super::waits::Waits;
 
 const KEPT_LINES: usize = 5;
 
@@ -161,6 +162,11 @@ impl TurnWatch {
         }
     }
 
+    fn registered_wait(&self) -> bool {
+        let waits = Waits::in_root(&self.root);
+        host_sessions(&self.root, &self.host_dir).iter().any(|record| !waits.of(&record.name).is_empty())
+    }
+
     fn wake(&mut self) -> Option<Vec<String>> {
         let wait = self.waits.values_mut().next()?;
         let frames = self.runtime.message(&Transcript::new(), &wait::wake(&wait.reply, wait.wakes)).ok()?;
@@ -285,7 +291,8 @@ impl FrameWatch for TurnWatch {
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
         let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
         let wakes = self.waits.values().map(|wait| wait.wakes).next();
-        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, wakes };
+        let registered = self.registered_wait();
+        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, wakes, registered };
         match self.idle.step(session, park_after) {
             Step::Wait => Rest::Wait,
             Step::Wake => self.wake().map_or(Rest::Wait, Rest::Send),
@@ -310,7 +317,8 @@ impl FrameWatch for TurnWatch {
         if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() {
             self.retire();
         }
-        for record in host_sessions(&self.root, &self.host_dir) {
+        let waits = Waits::in_root(&self.root);
+        for record in host_sessions(&self.root, &self.host_dir).into_iter().filter(|record| record.stopped || waits.of(&record.name).is_empty()) {
             claims::release_for(self.claims.as_ref(), &record);
         }
     }
