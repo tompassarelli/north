@@ -233,3 +233,58 @@ fn a_relaunch_of_a_started_pair_client_waits_for_a_free_slot_instead_of_drawing_
     assert_eq!(from_desktop("lan0b"), "RUN", "the pair's unstarted b-client takes its held slot");
     assert_eq!(from_desktop("lan0a"), "DEFER_GPU_CLIENTS", "a relaunched a-client doesn't take the b-client's held slot");
 }
+
+fn on_six_client_host(host: &Host, arguments: &[&str]) -> Command {
+    fs::write(host.path("orchestration.toml"), "[hosts.gex45]\nwarcraft_clients = 6\n").unwrap();
+    let mut command = helper(host, arguments);
+    command.env("AGENTS_ORCHESTRATION", host.path("orchestration.toml")).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_NVIDIA_MEMORY", host.path("absent"));
+    command
+}
+
+fn lease_id_of(host: &Host, owner: &str) -> String {
+    let leases = fs::read_dir(host.path("agent-capacity-v1/leases")).unwrap();
+    let lease: Value = leases.flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).map(|entry| serde_json::from_str(&fs::read_to_string(entry.path()).unwrap()).unwrap()).find(|lease: &Value| lease["owner"] == owner).unwrap();
+    lease["id"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn a_pair_client_inside_its_pair_agents_user_namespace_counts_other_pairs_clients_once_so_each_pairs_second_client_is_admitted() {
+    let host = attended_host_with_clients(&[]);
+    let pairs = ["wisp-lan-pair-12", "wisp-lan-pair-23", "wisp-lan-pair-7"];
+    let _sessions: Vec<Wrapper> = pairs
+        .iter()
+        .enumerate()
+        .map(|(admitted, owner)| {
+            let arguments = ["session", "--class", "native", "--memory-gib", "1", "--new-clients", "2", "--wait-seconds", "60", "--owner", owner, "--", "sleep", "60"];
+            let session = Wrapper(on_six_client_host(&host, &arguments).stdout(Stdio::null()).spawn().unwrap());
+            host.until("the pair to be admitted", |host| host.leases("native") == admitted + 1);
+            session
+        })
+        .collect();
+    let desktop = host.path("desktop-cgroup");
+    fs::write(&desktop, "0::/user.slice/user-1000.slice/user@1000.service/app.slice/private-desktop-client-7.scope\n").unwrap();
+    let executable = r"C:\Program Files (x86)\Warcraft III\_retail_\x86_64\Warcraft III.exe";
+    for (index, pair) in pairs.iter().enumerate() {
+        let side = format!("{pair}:a");
+        let arguments = ["session", "--class", "native", "--memory-gib", "1", "--wait-seconds", "60", "--owner", &side, "--", "true"];
+        let status = on_six_client_host(&host, &arguments).env("AGENT_CAPACITY_SELF_CGROUP", &desktop).env("AGENT_CAPACITY_LEASE", lease_id_of(&host, pair)).stdout(Stdio::null()).stderr(Stdio::null()).status().unwrap();
+        assert!(status.success(), "{side} launch");
+        host.until("the a-client lease to end", |host| host.leases("native") == 3);
+        let scope = format!("/user.slice/user-1000.slice/user@1000.service/native.slice/agent-capacity-{index:032x}.scope");
+        let pid = 400 + 2 * index as u32;
+        fake_process(&host, pid, "steam.exe", &format!(r"c:\windows\system32\steam.exe {executable} -launch"), &scope, &[]);
+        fake_process(&host, pid + 1, "Warcraft III.ex", executable, &scope, &[]);
+        fs::remove_file(host.path(&format!("proc/{pid}/environ"))).unwrap();
+        fs::remove_file(host.path(&format!("proc/{}/environ", pid + 1))).unwrap();
+    }
+    let from_desktop = |pair: &str, owner: &str, new_clients: &str| {
+        let arguments = ["probe", "--class", "native", "--memory-gib", "1", "--new-clients", new_clients, "--owner", owner];
+        let output = on_six_client_host(&host, &arguments).env("AGENT_CAPACITY_SELF_CGROUP", &desktop).env("AGENT_CAPACITY_LEASE", pair).output().unwrap();
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    for pair in pairs {
+        let second = from_desktop(&lease_id_of(&host, pair), &format!("{pair}:b"), "1");
+        assert_eq!((second["gpuClients"].as_u64(), second["reason"].as_str()), (Some(3), Some("RUN")), "{pair}'s b-client, whose environment can't see the other clients' prefixes, counts each of them once and fits the slot its pair holds");
+    }
+    assert_eq!(from_desktop("", "wisp-lan-pair-2", "2")["reason"], "DEFER_GPU_CLIENTS", "an outside pair still waits for the slots the three pairs hold");
+}

@@ -53,12 +53,14 @@ impl State {
 struct Client {
     pid: u32,
     prefix: Option<String>,
+    identity: String,
     state: State,
     private_desktop: bool,
     cgroup: String,
 }
 
 /// Live Warcraft III clients: one per Wine prefix, so a client running two processes counts once.
+/// A process whose environment this one can't read, such as another pair's client seen from inside a pair agent's user namespace, belongs to the client of its cgroup.
 /// A client counts from its Proton launch shim on, so one still loading counts against the limit like one in game.
 fn clients(proc_root: &Path) -> Vec<Client> {
     let Ok(entries) = fs::read_dir(proc_root) else {
@@ -68,7 +70,7 @@ fn clients(proc_root: &Path) -> Vec<Client> {
     for entry in entries.flatten() {
         let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else { continue };
         let Some(client) = inspect(&entry.path(), pid) else { continue };
-        let key = client.prefix.clone().unwrap_or_else(|| format!("pid:{pid}"));
+        let key = client.identity.clone();
         match by_client.get_mut(&key) {
             Some(known) => merge(known, client),
             None => {
@@ -96,14 +98,19 @@ fn inspect(process: &Path, pid: u32) -> Option<Client> {
     } else {
         return None;
     };
-    let environment = fs::read(process.join("environ")).unwrap_or_default();
-    let variable = |name: &str| environment.split(|byte| *byte == 0).find_map(|entry| entry.strip_prefix(format!("{name}=").as_bytes()).filter(|value| !value.is_empty()));
+    let environment = fs::read(process.join("environ")).ok();
+    let variable = |name: &str| environment.iter().flat_map(|environment| environment.split(|byte| *byte == 0)).find_map(|entry| entry.strip_prefix(format!("{name}=").as_bytes()).filter(|value| !value.is_empty()));
     let cgroup = fs::read_to_string(process.join("cgroup")).ok().and_then(|text| text.lines().next().and_then(|line| line.rsplit(':').next()).map(str::to_owned)).unwrap_or_default();
     let private_desktop = variable("PRIVATE_DESKTOP_RUN").is_some()
         || variable("XDG_RUNTIME_DIR").is_some_and(|value| String::from_utf8_lossy(value).contains("/private-desktop."))
         || cgroup.contains("/private-desktop-client-");
     let prefix = PREFIX_VARIABLES.iter().find_map(|name| variable(name)).map(|value| format!("prefix:{}", String::from_utf8_lossy(value)));
-    Some(Client { pid, prefix, state, private_desktop, cgroup })
+    let identity = match (&prefix, &environment) {
+        (Some(prefix), _) => prefix.clone(),
+        (None, None) if !cgroup.is_empty() => format!("cgroup:{cgroup}"),
+        (None, _) => format!("pid:{pid}"),
+    };
+    Some(Client { pid, prefix, identity, state, private_desktop, cgroup })
 }
 
 fn launching(process: &Path) -> bool {
