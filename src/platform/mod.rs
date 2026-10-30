@@ -14,6 +14,7 @@ pub(crate) mod process;
 pub(crate) mod shared_target;
 pub(crate) mod sqlite;
 pub(crate) mod usage_table;
+pub(crate) mod wayland_idle;
 pub(crate) mod ssh;
 pub(crate) mod stdio;
 pub(crate) mod terminal;

@@ -7,6 +7,7 @@ pub(crate) mod admission;
 mod aperture;
 pub(crate) mod agent_load;
 pub(crate) mod laptop_auto;
+pub(crate) mod seat_idle;
 mod game_reserve;
 mod gate;
 mod host;
@@ -50,6 +51,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
     let status = match arguments.first().map(String::as_str) {
         Some("admission") if arguments.len() == 1 => return None,
         Some("laptop-auto") => laptop_auto::run(&arguments[1..]),
+        Some("seat-idle-hint") => seat_idle::run(&arguments[1..]),
         Some("offload") => offload(&arguments[1..]),
         Some("reap-orphans") if arguments.len() == 1 => agent_load::reap_orphans_run(),
         Some("game-reserve") => game_reserve::run(&arguments[1..]),
@@ -59,7 +61,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("watchdog") => watchdog::run(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
             2
         }
     };
