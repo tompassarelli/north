@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case ${1:-} in
+  -h|--help) echo "usage: red-main-notify"
+    echo "Sends each open \"main is red\" issue's culprit lane's session and the proxy one north fleet send, once per culprit commit."
+    echo "Reads the issue's \"Culprit lane:\" and \"First failing commit:\" lines (wisp:host/checks/mainRed.ts); the revert deadline is 15 minutes after the red run."; exit 0 ;;
+esac
+repos=${RED_MAIN_REPOS:-tompassarelli/wisp tompassarelli/north tompassarelli/firn tompassarelli/smashcraft}
+gh=${RED_MAIN_GH:-gh}; north=${RED_MAIN_NORTH:-north}
+state=${RED_MAIN_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/north/red-main-notify}
+mkdir -p "$state"
+for repo in $repos; do
+  issues=$("$gh" issue list -R "$repo" --state open --search '"main is red" in:title' --json number,title,url,body --jq '.[] | select(.title == "main is red") | @base64') || continue
+  for row in $issues; do
+    issue=$(base64 -d <<< "$row")
+    number=$(jq -r .number <<< "$issue"); url=$(jq -r .url <<< "$issue"); body=$(jq -r .body <<< "$issue")
+    sha=$(sed -n 's/^- First failing commit: \([0-9a-f]\{40\}\).*/\1/p' <<< "$body" | head -1)
+    [ -n "$sha" ] || continue
+    key="${repo//\//_}-$number-$sha"
+    [ ! -e "$state/$key" ] || continue
+    clean() { printf '%s' "${1:0:300}" | tr -d '\000-\037\177'; }
+    lanes=$(sed -n 's/^- Culprit lane: claude\/land-\(.*\)-[0-9a-f]\{12\} .*/\1/p' <<< "$body" | sort -u)
+    tests=$(clean "$(sed -n '/^## Failing tests/,$p' <<< "$body" | sed -n 's/^- //p' | head -3 | paste -sd';' -)")
+    run=$(sed -n 's/^- First failing commit: .*actions\/runs\/\([0-9]*\).*/\1/p' <<< "$body" | head -1)
+    finished=$("$gh" run view "$run" -R "$repo" --json updatedAt --jq .updatedAt 2> /dev/null || true)
+    deadline=$([ -z "$finished" ] || date -d "$finished + 15 minutes" '+%-I:%M %p' 2> /dev/null || true)
+    sessions=$("$north" fleet list --json 2> /dev/null || echo '[]')
+    sent=1
+    while IFS= read -r lane; do
+      [ -n "$lane" ] || continue
+      lane=$(clean "$lane")
+      text="main is red in $repo from ${sha:0:10}: your lane $lane landed in the range that broke it (${tests:-no test named}); $url. Fix forward now${deadline:+; a lone culprit is reverted at $deadline}."
+      target=$(jq -r --arg lane "$lane" '[.[] | select(.status != "exited" and ((.cwd // "") | endswith("/worktrees/" + $lane)))][0].name // empty' <<< "$sessions" 2> /dev/null || true)
+      [ -z "$target" ] || "$north" fleet send "$target" "$text" || true
+      "$north" fleet send proxy "$(if [ -n "$target" ]; then echo "(sent to $target)"; else echo "(no live session for lane $lane)"; fi) $text" || sent=0
+    done <<< "$lanes"
+    [ -n "$lanes" ] || "$north" fleet send proxy "main is red in $repo from ${sha:0:10} with no lane recorded for it (${tests:-no test named}); $url." || sent=0
+    [ "$sent" = 0 ] || : > "$state/$key"
+  done
+done

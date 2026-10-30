@@ -1,6 +1,6 @@
 //! `north flow`: how fast each repository's lanes land, whether landing has stalled, and which
 //! capacity is idle. With `--stall-alarm` it also tells the Fleet parent and the proxy of a stall or a
-//! saturated host every fifteen minutes while it lasts, and runs `ci-diagnose`.
+//! saturated host every fifteen minutes while it lasts, runs `ci-diagnose`, and runs `red-main-notify`.
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -98,6 +98,13 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
         }
         None => println!("agents flow: ci-diagnose error"),
+    }
+    match host.output(&["red-main-notify"], None, None, Duration::from_secs(120)) {
+        Some(output) => {
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        }
+        None => println!("agents flow: red-main-notify error"),
     }
 }
 
