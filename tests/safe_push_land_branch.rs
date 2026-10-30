@@ -300,7 +300,10 @@ fn push_branch(lane: &Lane, branch: &str, file: &str, content: &str, subject: &s
     git(&lane.repo, &["switch", "-qc", "scratch-source"]);
     fs::write(lane.repo.join(file), content).unwrap();
     git(&lane.repo, &["add", file]);
-    git(&lane.repo, &["commit", "-qm", subject]);
+    git(
+        &lane.repo,
+        &["commit", "-qm", subject, "--date=2001-01-01T00:00:00Z"],
+    );
     git(
         &lane.repo,
         &["push", "-q", "origin", &format!("HEAD:refs/heads/{branch}")],
@@ -392,6 +395,35 @@ fn abandon_superseded_deletes_a_claude_or_farm_branch_only_when_main_holds_every
         assert!(!origin_has(&lane, branch));
     }
     assert!(origin_has(&lane, unlanded));
+}
+
+#[test]
+fn abandon_deletes_a_land_branch_whose_amended_commit_landed_under_a_new_subject() {
+    let lane = Lane::new();
+    let first = lane.queue();
+    let authored = git(&lane.repo, &["log", "-1", "--format=%aI", "lane"]);
+    git(&lane.repo, &["switch", "-q", "main"]);
+    fs::write(lane.repo.join("change"), "the amended lane change\n").unwrap();
+    git(&lane.repo, &["add", "change"]);
+    git(
+        &lane.repo,
+        &[
+            "commit",
+            "-qm",
+            "lane change, reworded",
+            &format!("--date={authored}"),
+        ],
+    );
+    git(&lane.repo, &["push", "-q", "origin", "main"]);
+    git(&lane.repo, &["switch", "-q", "lane"]);
+    let output = lane.run(&["abandon", &first]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!origin_has(&lane, &first));
 }
 
 #[test]

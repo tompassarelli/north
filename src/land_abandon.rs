@@ -18,11 +18,20 @@ fn lane_land_branch() -> Option<String> {
     Some(format!("claude/land-{lane}-{}", sha.trim().get(..12)?))
 }
 
+// An amended commit keeps its author and author date, so a reworded re-landing still matches.
+fn authorship(line: &str) -> (&str, &str) {
+    let mut fields = line.splitn(3, ' ');
+    let stamp = fields.next().unwrap_or_default();
+    let email = fields.next().unwrap_or_default();
+    let author = line.get(..stamp.len() + 1 + email.len()).unwrap_or(line);
+    (author, fields.next().unwrap_or_default())
+}
+
 fn superseded(tip: &str, destination: &str) -> Option<bool> {
     let lane = git_output(&[
         "rev-list",
         "--no-merges",
-        "--format=%H %s",
+        "--format=%H %at %ae %s",
         "--no-commit-header",
         tip,
         &format!("^{destination}"),
@@ -31,12 +40,16 @@ fn superseded(tip: &str, destination: &str) -> Option<bool> {
     let landed = git_output(&[
         "log",
         "--no-merges",
-        "--format=%s",
+        "--format=%at %ae %s",
         &format!("{}..{destination}", base.trim()),
     ])?;
     Some(lane.lines().all(|line| {
-        let (sha, subject) = line.split_once(' ').unwrap_or((line, ""));
-        landed.lines().any(|other| other == subject) || landed_commit(sha, destination).is_some()
+        let (sha, rest) = line.split_once(' ').unwrap_or((line, ""));
+        let (author, subject) = authorship(rest);
+        landed.lines().any(|other| {
+            let (landed_author, landed_subject) = authorship(other);
+            landed_subject == subject || landed_author == author
+        }) || landed_commit(sha, destination).is_some()
     }))
 }
 
