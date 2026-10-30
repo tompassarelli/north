@@ -8,9 +8,9 @@ use super::verb::Outside;
 /// A gh reply from the joined arguments, or None to fall through to `answers` and `reply`.
 pub(crate) type Respond = fn(&str) -> Option<Result<String, String>>;
 
-/// Records each gh call and answers it with the reply of the first `answers` needle its joined
-/// arguments contain, else `reply`, refusing a call that contains `refuse`; refuses text holding
-/// `secret`.
+/// Records each gh call and answers it with the reply of the first `answers` needle one of its
+/// arguments equals, else `reply`, refusing a call with an argument equal to `refuse`; refuses
+/// text holding `secret`.
 #[derive(Default)]
 pub(crate) struct Recorded {
     pub calls: RefCell<Vec<Vec<String>>>,
@@ -46,13 +46,14 @@ impl Outside for Recorded {
     fn gh(&self, args: &[String]) -> Result<String, String> {
         self.calls.borrow_mut().push(args.to_vec());
         let joined = args.join(" ");
-        if self.refuse.is_some_and(|needle| joined.contains(needle)) {
+        let carries = |needle: &str| args.iter().any(|arg| arg == needle);
+        if self.refuse.is_some_and(carries) {
             return Err("gh api graphql: refused".into());
         }
         if let Some(answer) = self.respond.and_then(|respond| respond(&joined)) {
             return answer;
         }
-        Ok(self.answers.iter().find(|(needle, _)| joined.contains(needle)).map_or(self.reply, |(_, reply)| reply.as_str()).to_owned())
+        Ok(self.answers.iter().find(|(needle, _)| carries(needle)).map_or(self.reply, |(_, reply)| reply.as_str()).to_owned())
     }
 
     fn alive_owners(&self) -> Option<BTreeSet<String>> {

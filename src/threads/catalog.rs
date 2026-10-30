@@ -57,6 +57,8 @@ mod tests {
         assert_eq!(CATALOG.parse_ref("tompassarelli/firn#9"), Ok(("firn".to_owned(), 9)));
         assert!(CATALOG.parse_ref("nowhere#9").unwrap_err().starts_with("unknown repo nowhere"));
         assert!(CATALOG.parse_ref("smashcraft#0").is_err() && CATALOG.parse_ref("smashcraft").is_err());
+        assert_eq!(CATALOG.parse_ref("smashcraft-client#26"), Ok(("smashcraft-client".to_owned(), 26)));
+        assert_eq!(CATALOG.parse_ref("padbridge#1"), Ok(("padbridge".to_owned(), 1)));
         assert!(CATALOG.is_native("life") && !CATALOG.is_native("wisp"));
     }
 }

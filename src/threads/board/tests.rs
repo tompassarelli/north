@@ -114,7 +114,7 @@ fn open_issues_are_read_once_a_minute_through_a_cache_bin_threads_reads_too() {
     rig.outside.answers.insert(1, ("name=wisp", page(&[&node(6, &[])], Some("c1"))));
     rig.ready();
     let queries: Vec<String> = rig.calls().iter().map(|call| call.rsplit(" -F ").take(2).collect::<Vec<_>>().join(" ")).collect();
-    assert_eq!(queries.len(), 9);
+    assert_eq!(queries.len(), 11);
     assert!(queries.contains(&"cursor=c1 name=wisp".to_owned()), "{queries:?}");
     assert!(rig.calls()[0].starts_with("api graphql -f query=\nquery($owner: String!, $name: String!, $cursor: String) {\n"));
     assert_eq!(rig.sql("SELECT issues FROM gh_cache WHERE repo = 'wisp'"), r#"{"6": {"title": "T6", "blockers": [], "withheld": null}, "7": {"title": "T7", "blockers": [], "withheld": null}}"#);
@@ -128,7 +128,7 @@ fn open_issues_are_read_once_a_minute_through_a_cache_bin_threads_reads_too() {
     assert!(rig.calls().is_empty());
     rig.exec("UPDATE gh_cache SET fetched = fetched - 60");
     rig.ready();
-    assert_eq!(rig.calls().len(), 9);
+    assert_eq!(rig.calls().len(), 11);
 }
 
 #[test]
