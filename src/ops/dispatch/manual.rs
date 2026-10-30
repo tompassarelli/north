@@ -29,9 +29,12 @@ pub(crate) struct Start {
     pub routed: bool,
 }
 
-pub(crate) fn start(ask: &Ask, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>, grounds: &dyn Fn(&Route) -> Grounds) -> Result<Start, String> {
+pub(crate) fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History, ledger: &BTreeMap<String, Evidence>, grounds: &dyn Fn(&Route) -> Grounds) -> Result<Start, String> {
     let declared = |key: &str| facets::declared_in(ask.brief, key).map(str::to_owned);
-    let facet = |key: &str| declared(key).unwrap_or_else(|| facets::default(key).to_owned());
+    let facet = |key: &str| {
+        let value = declared(key).unwrap_or_else(|| facets::default(key).to_owned());
+        if key == "Category" { facets::settled(value.to_lowercase(), &format!("{}\n{body}", ask.brief)) } else { value }
+    };
     let named = declared("Tier").map(|name| named_tier(&name)).transpose()?;
     let route = match named {
         Some((tier, _)) => Route { tier, category: facet("Category").to_lowercase(), arm: false, follows: None, why: format!("the brief names {}", tier.name()) },
@@ -54,7 +57,7 @@ pub(crate) fn start(ask: &Ask, cfg: &DocumentMut, history: &History, ledger: &BT
             (given.to_owned(), None, Some(reason.to_owned()))
         }
     };
-    let stamp = (named.is_none() && overridden.is_none()).then(|| declared("Category").is_none());
+    let stamp = (named.is_none() && overridden.is_none()).then(|| declared("Category").is_none_or(|category| !category.eq_ignore_ascii_case(&route.category)));
     let prompt = stamped(ask.prompt, &route, stamp, overridden.is_none(), &grounds(&route));
     Ok(Start { item: ask.item.to_owned(), route, model, effort, prompt, overridden, routed: named.is_some() })
 }
@@ -72,6 +75,7 @@ fn stamped(prompt: &str, route: &Route, defaulted: Option<bool>, calibrated: boo
     let all: Vec<&str> = prompt.lines().collect();
     let head = all.iter().position(|line| line.trim().is_empty()).unwrap_or(all.len());
     let mut lines: Vec<String> = Vec::new();
+    let restated = |line: &&str| defaulted == Some(true) && facets::declared_in(line, "Category").is_some();
     if let Some(defaulted) = defaulted {
         lines.extend(defaulted.then(|| format!("Category: {}", route.category)));
         lines.push(format!("Tier: {}", route.tier.name()));
@@ -88,7 +92,7 @@ fn stamped(prompt: &str, route: &Route, defaulted: Option<bool>, calibrated: boo
     let mut text = if lines.is_empty() {
         prompt.to_owned()
     } else if header {
-        let mut kept: Vec<String> = all[..head].iter().map(|line| (*line).to_owned()).collect();
+        let mut kept: Vec<String> = all[..head].iter().filter(|line| !restated(line)).map(|line| (*line).to_owned()).collect();
         kept.extend(lines);
         kept.extend(all[head..].iter().map(|line| (*line).to_owned()));
         kept.join("\n")
@@ -129,11 +133,6 @@ impl Start {
 pub(crate) fn begin(ask: &Ask) -> Result<Start, String> {
     let cfg = placement::config()?;
     let history = History::new(&record::read(&record::directory()));
-    let category = facets::declared_in(ask.brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase();
-    let ledger = if tier::ARMED.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut Vec::new()) } else { BTreeMap::new() };
-    let mut notes = Vec::new();
-    let grounds = grounds::Ledger::read(&mut notes);
-    notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
     let (body, created) = if IssueRef::parse(ask.item).is_none() {
         (String::new(), 0.0)
     } else {
@@ -142,7 +141,12 @@ pub(crate) fn begin(ask: &Ask) -> Result<Start, String> {
             (String::new(), f64::INFINITY)
         })
     };
-    start(ask, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route))
+    let category = facets::settled(facets::declared_in(ask.brief, "Category").unwrap_or_else(|| facets::default("Category")).to_lowercase(), &format!("{}\n{body}", ask.brief));
+    let ledger = if tier::ARMED.contains(&category.as_str()) { survey::evidence(&[category.as_str()], &mut Vec::new()) } else { BTreeMap::new() };
+    let mut notes = Vec::new();
+    let grounds = grounds::Ledger::read(&mut notes);
+    notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
+    start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route))
 }
 
 /// The issue's body and when it was opened, as unix seconds.

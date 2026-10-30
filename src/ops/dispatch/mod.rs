@@ -68,6 +68,8 @@ mod tier_tests;
 #[cfg(test)]
 mod grounds_tests;
 #[cfg(test)]
+mod design_tests;
+#[cfg(test)]
 mod tries_tests;
 #[cfg(test)]
 mod wait_tests;

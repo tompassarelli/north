@@ -184,6 +184,13 @@ impl ClosedReport {
         (total > 0.0).then(|| cells().filter(|cell| cell.tier.contains(family)).map(|cell| cell.usd).sum::<f64>() / total)
     }
 
+    /// The median cost of one closed box across every cell, and how many boxes closed; None when
+    /// none did.
+    pub fn median_box_usd(&self) -> Option<(f64, usize)> {
+        let mut spends: Vec<f64> = self.cells.iter().flat_map(|cell| cell.box_usd.iter().copied()).collect();
+        (!spends.is_empty()).then(|| (percentile(&mut spends, 50), spends.len()))
+    }
+
     /// The figures of every cell in `category` whose tier label names `family` (`haiku`, `sonnet` or
     /// `opus`), pooled; None when no box closed there or no run of it has a wall time.
     pub fn figures(&self, family: &str, category: &str) -> Option<Figures> {

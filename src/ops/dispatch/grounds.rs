@@ -1,6 +1,6 @@
 //! What a brief tells its worker about the box beyond its facets: what the issue says is not
 //! required, what the last two tries reported, and the ETA and budget the ledger's closed boxes set
-//! for the box's tier and category.
+//! for the box's tier and category, the budget never below the window's median closed box.
 use super::tier::Route;
 use crate::ledger::{self, ClosedReport, Figures, PriorReport};
 use std::collections::BTreeMap;
@@ -39,6 +39,7 @@ impl Ledger {
         let prior = self.prior.get(item).into_iter().flatten().filter(|prior| prior.ended > created).take(PRIOR_REPORTS).map(|prior| prior.report.clone()).collect();
         Grounds {
             figures: self.closed.as_ref().and_then(|closed| closed.figures(route.tier.family(), &route.category)),
+            floor: self.closed.as_ref().and_then(ClosedReport::median_box_usd),
             prior,
             not_required: not_required(body),
         }
@@ -48,6 +49,9 @@ impl Ledger {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Grounds {
     pub figures: Option<Figures>,
+    /// The median cost of a closed box across every cell of the window, and how many closed: what
+    /// one real box needs, however little a cell's own few boxes cost.
+    pub floor: Option<(f64, usize)>,
     pub prior: Vec<String>,
     pub not_required: Vec<String>,
 }
@@ -72,13 +76,14 @@ impl Grounds {
 
     pub(crate) fn budget(&self, route: &Route) -> Option<String> {
         self.figures.as_ref().map(|figures| {
-            format!(
-                "Budget: stop and report `Not done:` with where you are at ${:.2} API-equivalent spend, twice the cell's median cost per closed box (median ${:.2} of n={} boxes, {})",
-                figures.median_usd * BUDGET_TIMES,
-                figures.median_usd,
-                figures.closed,
-                cell(route),
-            )
+            let twice = figures.median_usd * BUDGET_TIMES;
+            let measured = format!("median ${:.2} of n={} boxes, {}", figures.median_usd, figures.closed, cell(route));
+            match self.floor.filter(|(floor, _)| twice < *floor) {
+                Some((floor, boxes)) => format!(
+                    "Budget: stop and report `Not done:` with where you are at ${floor:.2} API-equivalent spend, the median cost of a closed box across every cell (n={boxes} boxes, ledger {WINDOW}), since twice the cell's median cost per closed box (${twice:.2}; {measured}) is below what one real box needs"
+                ),
+                None => format!("Budget: stop and report `Not done:` with where you are at ${twice:.2} API-equivalent spend, twice the cell's median cost per closed box ({measured})"),
+            }
         })
     }
 

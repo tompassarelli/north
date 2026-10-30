@@ -94,7 +94,7 @@ fn a_brief_carries_no_prior_report_from_before_its_issue_was_opened() {
 fn a_hand_launch_brief_carries_the_same_four_things() {
     let ledger = ledger(&[("north#7", priors())]);
     let ask = Ask { item: "north#7", brief: "Item: north#7 box\nCategory: tooling\nETA: 75 min\n\nDo it.", prompt: "Item: north#7 box\nCategory: tooling\nETA: 75 min\n\nDo it.", model: None, reason: None };
-    let started = start(&ask, &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
+    let started = start(&ask, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
     assert_eq!(started.route.tier, Tier::Sonnet);
     carries(&started.prompt, None);
     assert!(started.prompt.contains("ETA: 75 min\n") && started.prompt.contains("Ledger ETA: 30 min (p75 of n=4 runs"), "{}", started.prompt);
@@ -106,11 +106,11 @@ fn a_hand_launch_with_a_named_tier_still_carries_the_trace_and_a_model_override_
     let ledger = ledger(&[("north#7", priors())]);
     let named = "Item: north#7 box\nCategory: tooling\nTier: sonnet-high\n\nDo it.";
     let ask = Ask { item: "north#7", brief: named, prompt: named, model: None, reason: None };
-    let started = start(&ask, &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
+    let started = start(&ask, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
     assert!(started.prompt.contains("Not required: No new flags.") && started.prompt.contains("Budget: stop and report"), "{}", started.prompt);
     assert!(!started.prompt.contains("Arm:") && started.prompt.matches("Tier:").count() == 1, "a named tier is not stamped again: {}", started.prompt);
     let overridden = Ask { model: Some("opus"), reason: Some("spans two engines"), ..ask };
-    let started = start(&overridden, &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
+    let started = start(&overridden, "", &CFG.parse().unwrap(), &History::default(), &BTreeMap::<String, Evidence>::new(), &|route| ledger.grounds("north#7", OPENED, BODY, route)).unwrap();
     assert!(started.prompt.contains("Not required: No new flags.") && !started.prompt.contains("Budget:") && !started.prompt.contains("ETA:"), "{}", started.prompt);
 }
 
