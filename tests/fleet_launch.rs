@@ -722,3 +722,33 @@ fn a_parked_holder_refuses_a_launch_until_its_claim_is_past_its_eta_and_then_the
     assert_eq!(held, ["smashcraft#4 narrow"]);
     assert_eq!(handoffs, 1);
 }
+
+#[test]
+fn a_gate_answered_from_inside_the_parent_session_is_closed_by_that_session_and_one_from_a_bare_terminal_by_tom() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    for (name, parent) in [("boss", "none"), ("kid", "boss")] {
+        let launched = launch_named(root, name, parent);
+        assert!(launched.status.success(), "{}", text(&launched.stderr));
+    }
+    let open = |session: &str| {
+        let opened = north(root, &["gate", "open", "--session", session, "--question", "Rent the box?", "--option", "yes", "--option", "no", "--recommend", "1", "--default", "2", "--default-after", "60s"]);
+        assert!(opened.status.success(), "{}", text(&opened.stderr));
+        text(&opened.stdout).trim().to_owned()
+    };
+    let (by_parent, by_conversation, by_terminal) = (open("kid"), open("kid"), open("boss"));
+    let record: serde_json::Value = serde_json::from_str(&fs::read_to_string(root.join(".local/state/north/fleet/boss/session.json")).unwrap()).unwrap();
+    let conversation = record["conversation"].as_str().unwrap().to_owned();
+    let answered = north_as(root, "here", &[("NORTH_FLEET_SESSION", "boss")], &["gate", "answer", &by_parent, "1"]);
+    let by_id = north_as(root, "here", &[("CLAUDE_CODE_SESSION_ID", &conversation)], &["gate", "answer", &by_conversation, "2"]);
+    let terminal = north(root, &["gate", "answer", &by_terminal, "2"]);
+    let listed = text(&north(root, &["gate", "list"]).stdout);
+    north(root, &["fleet", "forget", "kid"]);
+    north(root, &["fleet", "forget", "boss"]);
+    assert!(text(&answered.stdout).contains("closed by boss: yes"), "{}{}", text(&answered.stdout), text(&answered.stderr));
+    assert!(text(&by_id.stdout).contains("closed by boss: no"), "{}{}", text(&by_id.stdout), text(&by_id.stderr));
+    assert!(text(&terminal.stdout).contains("closed by tom: no"), "{}{}", text(&terminal.stdout), text(&terminal.stderr));
+    assert!(listed.contains(&format!("{by_parent}\tkid\tRent the box?\tclosed by boss: yes")), "{listed}");
+    assert!(listed.contains(&format!("{by_terminal}\tboss\tRent the box?\tclosed by tom: no")), "{listed}");
+}

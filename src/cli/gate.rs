@@ -24,7 +24,7 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 }
 
 fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>) -> NorthResult<()> {
-    let caller = std::env::var(crate::fleet::runtime::SESSION_ENV).ok().filter(|name| !name.is_empty());
+    let caller = fleet.caller();
     if id.contains(':') {
         println!("{}", fleet.answer_remote_gate(&Ssh, id, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
         return Ok(());
