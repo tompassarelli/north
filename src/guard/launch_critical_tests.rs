@@ -167,3 +167,38 @@ fn only_a_north_wt_rescue_segment_is_sanctioned_against_a_main_checkout() {
     assert_eq!(excise_sanctioned("wt-rescue ~/code/p/main"), "wt-rescue ~/code/p/main");
     assert_eq!(excise_sanctioned("north reclaim wt-rescue"), "north reclaim wt-rescue");
 }
+
+fn in_place_edit_from_main(command: impl FnOnce(&str) -> String) -> Option<String> {
+    let fixture = fixture();
+    let lane = format!("{}/wisp/worktrees/sc-812-cache", fixture.root);
+    std::fs::create_dir_all(format!("{lane}/host/toolchain")).unwrap();
+    std::fs::write(format!("{lane}/host/toolchain/package.ts"), "a\n").unwrap();
+    let policy = Policy {
+        root: fixture.root.clone(),
+        home: std::env::var("HOME").unwrap(),
+    };
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "cwd": format!("{}/proj/main", fixture.root),
+        "tool_input": {"command": command(&lane)},
+    });
+    policy.decide(&HookInput::parse(&serde_json::to_vec(&payload).unwrap()).unwrap())
+}
+
+#[test]
+fn an_in_place_edit_after_cd_semicolon_into_another_repos_lane_is_allowed() {
+    let reason = in_place_edit_from_main(|lane| {
+        format!("cd {lane}; perl -0pi -e 's/a/b/' host/toolchain/package.ts")
+    });
+    assert_eq!(reason, None);
+}
+
+#[test]
+fn the_same_in_place_edit_without_the_cd_is_refused_in_the_primary_checkout() {
+    let reason = in_place_edit_from_main(|_| {
+        "perl -0pi -e 's/a/b/' host/toolchain/package.ts".into()
+    })
+    .unwrap();
+    assert!(reason.contains("edit in place"), "{reason}");
+    assert!(reason.contains("host/toolchain/package.ts"), "{reason}");
+}

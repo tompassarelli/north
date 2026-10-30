@@ -182,7 +182,9 @@ impl Policy {
             if prev_sep.as_deref() != Some("|") && !matches!(sep.as_deref(), Some("|" | "&")) {
                 let moved = self.cd_destinations(&words, &env, &cwds);
                 if !moved.is_empty() {
-                    cwds = if sep.as_deref() == Some("&&") {
+                    cwds = if sep.as_deref() == Some("&&")
+                        || moved.iter().all(|path| std::path::Path::new(path).is_dir())
+                    {
                         moved
                     } else {
                         union(&cwds, &moved)
