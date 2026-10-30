@@ -35,6 +35,9 @@ fn stale_map_copies_and_custom_map_data_go_from_every_client_including_pool_pair
     let machine = Machine::new();
     let pooled = pair(&machine, 4);
     fs::write(machine.path("state/pool.json"), r#"{"pairs":[{"id":4}]}"#).unwrap();
+    machine.dir("state/pair-4/queue", 3 * DAY);
+    fs::write(machine.path("state/pair-4/queue/next"), b"13").unwrap();
+    fs::write(machine.path("state/pair-4/queue/next.lock"), b"").unwrap();
 
     assert_eq!(sweep(&machine, true), 4);
     assert!(pooled.iter().flatten().all(|file| file.exists()));
@@ -50,7 +53,7 @@ fn a_queued_locked_or_held_pair_keeps_its_map_copies() {
     let machine = Machine::new();
     let queued = pair(&machine, 6);
     machine.dir("state/pair-6/queue", 3 * DAY);
-    fs::write(machine.path("state/pair-6/queue/sc-363"), b"x").unwrap();
+    fs::write(machine.path("state/pair-6/queue/000000000007.json"), b"x").unwrap();
     let locked = pair(&machine, 8);
     let lock = OpenOptions::new().create(true).truncate(false).write(true).open(machine.path("state/pair-8/pool.lock")).unwrap();
     flock(&lock, FlockOperation::NonBlockingLockExclusive).unwrap();

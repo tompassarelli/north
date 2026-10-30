@@ -68,5 +68,5 @@ fn pair_of(client: &str) -> Option<u32> {
 }
 
 pub(super) fn queued(state: &Path) -> bool {
-    fs::read_dir(state.join("queue")).is_ok_and(|mut waiting| waiting.next().is_some())
+    fs::read_dir(state.join("queue")).is_ok_and(|mut waiting| waiting.any(|entry| entry.is_ok_and(|ticket| ticket.path().extension().is_some_and(|extension| extension == "json"))))
 }

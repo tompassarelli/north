@@ -115,7 +115,7 @@ fn lan_pair_copies_go_only_when_idle_unqueued_unlocked_and_not_a_default_pair() 
     let idle = pair(5, 3 * DAY);
     let queued = pair(6, 3 * DAY);
     machine.dir("state/pair-6/queue", 3 * DAY);
-    machine.file("state/pair-6/queue/sc-363", 3 * DAY);
+    machine.file("state/pair-6/queue/000000000007.json", 3 * DAY);
     touch(&machine.path("state/pair-6/queue"), machine.now - 3 * DAY);
     touch(&machine.path("state/pair-6"), machine.now - 3 * DAY);
     let recent = pair(7, Duration::from_secs(1800));
