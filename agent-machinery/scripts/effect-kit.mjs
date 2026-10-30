@@ -269,7 +269,6 @@ function check(root) {
   const vendored = existsSync(metadataPath) ? readJson(metadataPath).version : undefined;
   if (vendored !== version) problems.push(`version drift: ${config.vendor} is effect@${vendored ?? "missing"} but the lockfile has effect@${version}; run effect-kit sync`);
   if (!existsSync(join(root, config.vendor, "LLMS.md"))) problems.push(`${config.vendor}/LLMS.md is missing`);
-
   const ts = loadTypeScript(packageRoot);
   for (const problem of exitFlagProblems(effectPlugin(readTsconfig(ts, join(packageRoot, config.tsconfig)))))
     problems.push(`${config.tsconfig}: ${problem}`);
@@ -286,7 +285,8 @@ function check(root) {
   }
   if (scanned === 0) problems.push("host-tool rule matched no files");
 
-  const typecheck = run(config.typecheck, packageRoot);
+  const log = process.env.EFFECT_KIT_TYPECHECK_LOG;
+  const typecheck = log !== undefined && existsSync(`${log}.code`) ? { code: Number.parseInt(readFileSync(`${log}.code`, "utf8"), 10), out: readFileSync(log, "utf8") } : run(config.typecheck, packageRoot);
   const findings = effectDiagnostics(typecheck.out);
   for (const finding of findings) problems.push(`effect diagnostic: ${finding}`);
   if (typecheck.code !== 0 && findings.length === 0) problems.push(`${config.typecheck.join(" ")} exited ${typecheck.code}:\n${typecheck.out.trim()}`);

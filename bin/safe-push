@@ -14,6 +14,8 @@
 #         safe-push [--dry-run] --tag NAME
 # /proc is the host's even inside run-bounded's PID namespace, so peers are named by host PID.
 read -r self_pid _ </proc/self/stat
+safe_push_started_ms=$(( ${EPOCHREALTIME//./} / 1000 ))
+safe_push_started_at=$(date -u +%FT%T.%3NZ)
 set -euo pipefail
 
 safe_push_terminal() {
@@ -331,6 +333,15 @@ claim_output_log() {
   export SAFE_PUSH_OUTPUT_CLAIMED="${SAFE_PUSH_OUTPUT_CLAIMED:-}$claimed"
 }
 claim_output_log
+
+safe_push_stage_ms=$safe_push_started_ms
+printf 'safe-push: start %s\n' "$safe_push_started_at"
+# Prints how long the stage that just ended took and the time since safe-push started, so a landing's start-to-landed time is measured, not estimated.
+stage() {
+  local now=$(( ${EPOCHREALTIME//./} / 1000 ))
+  printf 'safe-push: stage %s: %s.%03d s (+%s.%03d s since start)\n' "$1" $(( (now - safe_push_stage_ms) / 1000 )) $(( (now - safe_push_stage_ms) % 1000 )) $(( (now - safe_push_started_ms) / 1000 )) $(( (now - safe_push_started_ms) % 1000 ))
+  safe_push_stage_ms=$now
+}
 
 state_changed() {
   printf 'safe-push: repository state changed during secret scan (%s) — refusing; NOT pushed.\n' "$1" >&2
@@ -2109,6 +2120,7 @@ if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >
   policy_scans "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" "refs/remotes/origin/$to..HEAD" || exit 1
   ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
   code_health_gate "$(git merge-base "refs/remotes/origin/$to" HEAD)" "$(git rev-parse HEAD)"
+  stage "preamble scans"
 fi
 
 if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
@@ -2135,6 +2147,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     autoland_gap
     red_base=$(fetch_destination) || exit 1
     red_fix=$(red_fix_issue "$red_base")
+    stage "destination fetch and red-fix lookup"
   fi
   if [ "$to" != "$(default_branch)" ]; then
     echo "safe-push: $to is not origin's default branch — pushing without the landing lock"
@@ -2195,10 +2208,12 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   fi
 fi
 
+stage "rebase, pre-push checks and landing lock"
 # --- the load-bearing guard: secret scan of the commits about to be pushed -------
 capture_repository_state
 capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
+stage "language gate"
 check_instruction_limits "$head_oid"
 generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
 has_land_checks && refuse_stale_revert
@@ -2210,6 +2225,7 @@ while :; do
     release_push_lock
   fi
   run_land_checks "$land_base" "$head_oid" || exit $?
+  stage "land checks"
   [ "$land_locked" -eq 1 ] || break
   acquire_push_lock "$lock_url"
   upstream=$(fetch_destination) || exit 1
@@ -2245,6 +2261,7 @@ command -v north >/dev/null 2>&1 || { echo "safe-push: north missing on PATH —
 echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
 (cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
   || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
+stage "dependency gate"
 
 code_health_gate "${destination_oid:-${absent_base:-}}" "$head_oid"
 
@@ -2256,6 +2273,7 @@ gitleaks detect --no-banner --redact --log-opts="$scan_range" \
   || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
 denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || exit 1
 commit_email_scan "$scan_range" || exit 1
+stage "policy and secret scans"
 [ "$dry" = 1 ] || run_queue_branch_hook
 
 revalidate_repository_state
@@ -2283,6 +2301,7 @@ pushed_at=$EPOCHSECONDS
 record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid" \
   "$(trunk_landing "$destination_branch" "$head_oid")" "${NORTH_FLEET_SESSION:-}" "${safe_push_reviewers:-}"
 release_push_lock
+stage "push"
 if [ "$to_seen" -eq 0 ]; then
   tracking_ref="refs/remotes/origin/$destination_branch"
   if git fetch -q "$origin_url" "${destination_ref}:${tracking_ref}" \
@@ -2298,3 +2317,4 @@ release_follows
 safe_push_published_head="$head_oid"; safe_push_landed_sha="$head_oid"
 cleanup_landed_lane || true
 auto_reap || true
+stage "cleanup"
