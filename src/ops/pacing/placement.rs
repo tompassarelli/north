@@ -10,6 +10,7 @@ pub(crate) mod gate;
 mod hosts;
 mod inputs;
 mod launch;
+mod repository;
 pub(crate) mod room;
 mod survey;
 mod tiers;
@@ -308,6 +309,7 @@ pub(super) fn cli(args: &[String], fleet: super::FleetFacts) -> Result<(), Strin
         } else {
             std::fs::read_to_string(path).map_err(|e| e.to_string())?
         };
+        let text = gate::anchored(&text, std::env::current_dir().ok().as_deref(), None);
         let mut decision = gate::decide(&text, &cfg, gate::verdicts(&gate, &roster, &room::Basis::new(&cfg, storage::load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &local(), gate::here_in_game_reserve());
         decision.here_saturated = here_saturation();
         decision.hold_here();

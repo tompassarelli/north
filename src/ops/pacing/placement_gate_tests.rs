@@ -376,3 +376,37 @@ fn placement_picks_the_week_that_expires_soonest_then_a_live_spend_target_ahead_
     let spending = json!({"accounts": {"claude:b": {"target": {"by": "2026-10-19T12:00:00Z"}}}});
     assert_eq!(picked(spending), "claude:b", "a live spend target outranks every room");
 }
+
+fn gex45() -> Machine {
+    Machine { name: "gex45".into(), ssh: "gex45".into(), cap: 8, live: Some(0), serves: vec!["native:wisp".into(), "native:smashcraft".into()], pushes: None, accounts: vec!["a".into()], saturation: None }
+}
+
+fn placed_on(text: &str) -> Option<String> {
+    let cfg = DocumentMut::new();
+    let quota = gate(&[("claude:a", control((10.0, 1.0, "2026-10-19T04:00:00Z"), (10.0, 1.0)))]);
+    decide(text, &cfg, &quota, (false, String::new()), &[gex45()], "laptop").machine.map(|machine| machine.name)
+}
+
+#[test]
+fn a_prose_item_takes_its_repository_from_the_launch_directory_then_the_task() {
+    let prose = "Item: The native window's GPU tests fail\nNeeds: native\nSurface: lua\n";
+    assert_eq!(placed_on(prose), None);
+    let by_directory = gate::anchored(prose, Some(std::path::Path::new("/home/tom/code/wisp/main")), None);
+    assert_eq!(gate::repository(&by_directory), "wisp");
+    assert_eq!(placed_on(&by_directory).as_deref(), Some("gex45"));
+    let in_lane = gate::anchored(prose, Some(std::path::Path::new("/home/tom/code/smashcraft/worktrees/x/ts")), None);
+    assert_eq!(gate::repository(&in_lane), "smashcraft");
+    let by_task = gate::anchored(prose, Some(std::path::Path::new("/tmp/scratch")), Some("tompassarelli/smashcraft#518"));
+    assert_eq!(gate::repository(&by_task), "smashcraft");
+    assert_eq!(placed_on(&by_task).as_deref(), Some("gex45"));
+}
+
+#[test]
+fn a_declared_repository_or_an_issue_reference_outranks_the_launch_directory() {
+    let cwd = Some(std::path::Path::new("/home/tom/code/wisp/main"));
+    let declared = "Repository: smashcraft\nItem: prose\nNeeds: native\n";
+    assert_eq!(gate::repository(&gate::anchored(declared, cwd, None)), "smashcraft");
+    let referenced = "Item: north#12 tidy\nNeeds: native\n";
+    assert_eq!(gate::repository(&gate::anchored(referenced, cwd, Some("wisp#3"))), "north");
+    assert_eq!(gate::anchored("Item: prose\n", Some(std::path::Path::new("/tmp")), None), "Item: prose\n");
+}

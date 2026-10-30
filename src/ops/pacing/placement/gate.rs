@@ -5,6 +5,7 @@
 //! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
+pub(crate) use super::repository::{anchored, repository};
 use super::room::{Basis, Rank};
 use super::{credit, facets, field, here_saturation, local, resident, saturation, signed_in, strings};
 use crate::capacity::agent_load;
@@ -207,17 +208,6 @@ fn judged(account: &str, control: &Value, burn_counts: bool) -> Verdict {
         line: format!("{account} available: {} ({room:.0}% headroom)", usage(windows)),
         owners: Vec::new(),
     }
-}
-
-pub(crate) fn repository(text: &str) -> String {
-    let declared = field(text, "Repository");
-    let source = if declared.is_empty() {
-        field(text, "Item").split('#').next().unwrap_or_default()
-    } else {
-        declared.split_whitespace().next().unwrap_or_default()
-    };
-    let last = source.trim_end_matches('/').rsplit('/').next().unwrap_or_default();
-    last.trim_end_matches(".git").trim().to_lowercase()
 }
 
 pub(crate) fn words(text: &str, key: &str) -> Vec<String> {

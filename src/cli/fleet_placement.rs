@@ -101,7 +101,7 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
     if request.provider.label() != "claude" || request.verification {
         return Ok(Ok(Placed::default()));
     }
-    let text = brief_text(request.system_prompt.as_deref(), &request.prompt)?;
+    let text = gate::anchored(&brief_text(request.system_prompt.as_deref(), &request.prompt)?, Some(&request.cwd), request.task().as_deref());
     let launch = Launch { name: &request.name, account: &request.account, brief: request.system_prompt.as_deref(), cwd: Some(&request.cwd), machine: request.machine.as_ref().map(|machine| machine.name.as_str()) };
     check(&launch, &text, overrides, &machine_load(fleet)?, &fleet.roster(), report)
 }
