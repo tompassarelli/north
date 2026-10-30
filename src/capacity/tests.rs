@@ -468,8 +468,18 @@ fn a_runtime_build_runs_past_the_run_queue_gate_full_heavy_leases_and_heavy_tick
 
 #[test]
 fn the_run_queue_is_the_higher_of_the_one_and_five_minute_loads_so_a_brief_dip_admits_nothing() {
-    assert_eq!(super::sustained_load("12.40 25.10 26.22 3/2210 4096\n"), Some(25.1));
-    assert_eq!(super::sustained_load("31.73 25.10 26.22 3/2210 4096\n"), Some(31.73));
-    assert_eq!(super::sustained_load("7.5\n"), Some(7.5));
-    assert_eq!(super::sustained_load(""), None);
+    assert_eq!(super::sustained_load("12.40 25.10 26.22 3/2210 4096\n", 400), Some(25.1));
+    assert_eq!(super::sustained_load("31.73 25.10 26.22 3/2210 4096\n", 400), Some(31.73));
+    assert_eq!(super::sustained_load("7.5\n", 400), Some(7.5));
+    assert_eq!(super::sustained_load("", 0), None);
+    let dip = Facts { run_queue_load: super::sustained_load("12.40 25.10 26.22 3/2210 4096\n", 400), ..heavy_beside_clients(0.0, 0) };
+    assert_eq!(decide(&dip), Reason::DeferRunQueue);
+}
+
+#[test]
+fn once_cpu_pressure_is_calm_the_run_queue_is_the_one_minute_load_so_an_idle_host_admits_heavy_work() {
+    let whiterabbit = Facts { class: Class::Heavy, profile: Profile::Unattended, cores: 16, leased_batch_cpus: 2.0, requested_cpus: 4.0, requested_memory_mib: 8192.0, cpu_some_avg10_basis_points: 3, ..facts(Class::Heavy) };
+    let load = super::sustained_load("6.85 14.44 18.68 2/1904 88213\n", whiterabbit.cpu_some_avg10_basis_points);
+    assert_eq!(load, Some(6.85));
+    assert_eq!(decide(&Facts { run_queue_load: load, ..whiterabbit }), Reason::Run);
 }

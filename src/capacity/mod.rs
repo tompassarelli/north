@@ -115,7 +115,7 @@ pub(crate) fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admiss
         facts.game_reserve_agent_cpus = Some(game_reserve::Settings::from_env().agent_cpu_count());
     }
     facts.gaming |= facts.game_reserve_agent_cpus.is_some() || agent_load::gaming_marked(&agent_load::capacity_root());
-    facts.run_queue_load = facts.run_queue_load.or_else(run_queue_load);
+    facts.run_queue_load = facts.run_queue_load.or_else(|| run_queue_load(facts.cpu_some_avg10_basis_points));
     let disk_measured = facts.disk_free_gib.is_none();
     facts.disk_free_gib = facts.disk_free_gib.or_else(root_disk_free_gib);
     facts.host_warcraft_clients = facts.host_warcraft_clients.or_else(host.warcraft_clients);
@@ -186,14 +186,19 @@ pub(crate) fn root_disk_free_gib() -> Option<f64> {
     Some(stats.f_bavail.saturating_mul(stats.f_frsize) as f64 / f64::from(1u32 << 30))
 }
 
-fn run_queue_load() -> Option<f64> {
+const CALM_CPU_SOME_AVG10_BASIS_POINTS: u32 = 100;
+
+fn run_queue_load(cpu_some_avg10_basis_points: u32) -> Option<f64> {
     let path = std::env::var_os("AGENT_CAPACITY_LOADAVG").unwrap_or_else(|| "/proc/loadavg".into());
-    sustained_load(&std::fs::read_to_string(path).ok()?)
+    sustained_load(&std::fs::read_to_string(path).ok()?, cpu_some_avg10_basis_points)
 }
 
-pub(crate) fn sustained_load(loadavg: &str) -> Option<f64> {
+pub(crate) fn sustained_load(loadavg: &str, cpu_some_avg10_basis_points: u32) -> Option<f64> {
     let mut averages = loadavg.split_whitespace().map(|field| field.parse::<f64>().ok());
     let one = averages.next()??;
+    if cpu_some_avg10_basis_points < CALM_CPU_SOME_AVG10_BASIS_POINTS {
+        return Some(one);
+    }
     Some(averages.next().flatten().map_or(one, |five| one.max(five)))
 }
 
