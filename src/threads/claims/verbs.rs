@@ -32,10 +32,11 @@ struct Args {
     by: Option<String>,
     eta: Option<String>,
     json: bool,
+    all: bool,
 }
 
 fn args(argv: &[String]) -> Result<Args, String> {
-    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false };
+    let mut parsed = Args { positional: Vec::new(), by: None, eta: None, json: false, all: false };
     let mut rest = argv.iter();
     while let Some(arg) = rest.next() {
         let (flag, inline) = arg.split_once('=').map_or((arg.as_str(), None), |(flag, value)| (flag, Some(value.to_owned())));
@@ -44,6 +45,7 @@ fn args(argv: &[String]) -> Result<Args, String> {
             "--by" => parsed.by = Some(value()?),
             "--eta" => parsed.eta = Some(value()?),
             "--json" if inline.is_none() => parsed.json = true,
+            "--all" if inline.is_none() => parsed.all = true,
             _ if arg.starts_with('-') => return Err(format!("unknown option {arg}")),
             _ => parsed.positional.push(arg.clone()),
         }
@@ -102,6 +104,11 @@ fn claim(parsed: &Args, context: &Context) -> Result<String, String> {
 
 /// Every claim that still stands, with its standing; a void claim holds nothing, so none shows.
 pub(crate) fn standing_claims(context: &Context) -> Result<Vec<(Claim, Standing)>, String> {
+    Ok(every_claim(context)?.into_iter().filter(|(_, standing)| !matches!(standing, Standing::Void(_))).collect())
+}
+
+/// Every claim row with its standing, void ones included: the rows `threads release` can still clear.
+fn every_claim(context: &Context) -> Result<Vec<(Claim, Standing)>, String> {
     let db = ledger::open(context.database, false)?;
     let claims: Vec<Claim> = ledger::claims(&db)?
         .into_iter()
@@ -114,21 +121,24 @@ pub(crate) fn standing_claims(context: &Context) -> Result<Vec<(Claim, Standing)
             let standing = claim.standing(issue_of(&db, &claim.item, &github), context.alive.as_ref(), context.now);
             (claim, standing)
         })
-        .filter(|(_, standing)| !matches!(standing, Standing::Void(_)))
         .collect())
 }
 
 fn list(parsed: &Args, context: &Context) -> Result<String, String> {
-    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() {
-        return Err("usage: threads list [--json]".into());
+    if !parsed.positional.is_empty() || parsed.by.is_some() || parsed.eta.is_some() || (parsed.all && !parsed.json) {
+        return Err("usage: threads list [--json [--all]]".into());
     }
-    let claims = standing_claims(context)?;
+    let claims = if parsed.all { every_claim(context)? } else { standing_claims(context)? };
     let clock = |claim: &Claim| (context.now - claim.since).max(0) / 60;
     if parsed.json {
         let rows: Vec<_> = claims
             .iter()
             .map(|(claim, standing)| {
-                let standing = if matches!(standing, Standing::Live) { "live" } else { "stale" };
+                let standing = match standing {
+                    Standing::Live => "live",
+                    Standing::Stale { .. } => "stale",
+                    Standing::Void(_) => "void",
+                };
                 json!({"item": claim.item, "owner": claim.owner, "since": Timestamp::from_unix_seconds(claim.since).iso(), "clock_min": clock(claim), "eta_min": claim.eta_min, "standing": standing})
             })
             .collect();

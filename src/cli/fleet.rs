@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
-use super::fleet_claims::ThreadsCli;
+use super::fleet_claims::{ThreadsCli, release_exited_claims};
 use crate::fleet::model::{Effort, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::registry::{self, Fleet, urgent_text};
@@ -40,6 +40,7 @@ const FOLLOW_POLL: Duration = Duration::from_millis(250);
 pub fn run(arguments: &[String]) -> ExitCode {
     let result = open_fleet().and_then(|fleet| {
         default_overdue_gates(&fleet);
+        release_exited_claims(&fleet);
         dispatch(fleet, arguments)
     });
     match result {

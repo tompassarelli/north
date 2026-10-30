@@ -1,4 +1,6 @@
 //! The threads claim a fleet session holds on its task while its host runs, so a hand launch is as visible to dispatch as a dispatched one.
+use std::collections::BTreeSet;
+
 use crate::error::{NorthError, NorthResult};
 
 use super::model::SessionRecord;
@@ -8,6 +10,8 @@ pub trait Claims: Send + Sync {
     fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>>;
     /// Gives the claim up only while `session` still owns it, so a later owner's claim stays.
     fn release(&self, item: &str, session: &str) -> NorthResult<()>;
+    /// Every claim row as (item, owner), including those no dispatch or launch honours any more.
+    fn holders(&self) -> NorthResult<Vec<(String, String)>>;
 }
 
 /// Claims every task before the session starts, so a live holder refuses the launch and nothing is left half-claimed; a ledger that cannot be read waits for the claim `hold_for` makes once the session runs.
@@ -39,6 +43,21 @@ pub fn hold_for(claims: &dyn Claims, record: &SessionRecord) {
     }
 }
 
+/// Gives up every claim whose owner is in `exited`, whatever its standing: a session that exited holds nothing, and the ledger keeps its row until someone clears it.
+pub fn release_exited(claims: &dyn Claims, exited: &BTreeSet<String>) -> NorthResult<usize> {
+    let mut released = 0;
+    for (item, owner) in claims.holders()? {
+        if !exited.contains(&owner) {
+            continue;
+        }
+        match claims.release(&item, &owner) {
+            Ok(()) => released += 1,
+            Err(error) => eprintln!("north fleet: {owner} did not release {item}: {}", error.user_message()),
+        }
+    }
+    Ok(released)
+}
+
 pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
     if record.verification {
         return;
@@ -65,6 +84,19 @@ impl Claims for Held {
         self.0.lock().unwrap().push(("release", item.to_owned(), session.to_owned()));
         Ok(())
     }
+
+    fn holders(&self) -> NorthResult<Vec<(String, String)>> {
+        let mut held: Vec<(String, String)> = Vec::new();
+        for (kind, item, session) in self.0.lock().unwrap().iter() {
+            if *kind == "hold" {
+                held.retain(|(held, _)| held != item);
+                held.push((item.clone(), session.clone()));
+            } else {
+                held.retain(|(held, owner)| !(held == item && owner == session));
+            }
+        }
+        Ok(held)
+    }
 }
 
 #[cfg(test)]
@@ -87,6 +119,10 @@ mod tests {
         fn release(&self, item: &str, session: &str) -> NorthResult<()> {
             self.1.lock().unwrap().push(format!("release {item} {session}"));
             Ok(())
+        }
+
+        fn holders(&self) -> NorthResult<Vec<(String, String)>> {
+            Ok(Vec::new())
         }
     }
 

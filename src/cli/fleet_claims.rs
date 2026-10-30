@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::claims::Claims;
+use crate::fleet::registry::Fleet;
 use crate::threads::catalog::CATALOG;
 use crate::threads::claims::verbs::OWNED;
 
@@ -22,6 +23,13 @@ fn running_north() -> NorthResult<std::path::PathBuf> {
 /// The ledger's line when the claim moved to `session` from an earlier owner; a fresh or renewed claim says only that `session` owns the item.
 fn moved(said: &str, item: &str, session: &str) -> Option<String> {
     (said != format!("{session} owns {}", canonical(item))).then(|| said.to_owned())
+}
+
+/// Clears what exited sessions left in the ledger, so no fleet command reports a claim an exited owner still appears to hold.
+pub(super) fn release_exited_claims(fleet: &Fleet) {
+    if let Err(error) = fleet.release_exited_claims() {
+        eprintln!("north fleet: exited sessions' claims not cleared: {}", error.user_message());
+    }
 }
 
 pub struct ThreadsCli;
@@ -45,10 +53,12 @@ impl Claims for ThreadsCli {
     }
 
     fn release(&self, item: &str, session: &str) -> NorthResult<()> {
-        let held: Value = serde_json::from_str(&Self::threads(&["list", "--json"])?)?;
-        let item = canonical(item);
-        let owned = held.as_array().into_iter().flatten().any(|claim| claim["item"] == item.as_str() && claim["owner"] == session);
-        if owned { Self::threads(&["release", &item, "--by", session]).map(drop) } else { Ok(()) }
+        Self::threads(&["release", &canonical(item), "--by", session, "--held-by", session]).map(drop)
+    }
+
+    fn holders(&self) -> NorthResult<Vec<(String, String)>> {
+        let rows: Value = serde_json::from_str(&Self::threads(&["list", "--json", "--all"])?)?;
+        Ok(rows.as_array().into_iter().flatten().filter_map(|row| Some((row["item"].as_str()?.to_owned(), row["owner"].as_str()?.to_owned()))).collect())
     }
 }
 

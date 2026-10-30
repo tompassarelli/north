@@ -53,6 +53,7 @@ fn north_as(root: &Path, host: &str, sender: &[(&str, &str)], args: &[&str]) -> 
         .env("CLAUDE_RUNTIME", root.join("bin/claude"))
         .env("FLEET_LAUNCH_FIXTURE", root)
         .env("THREADS_DB", root.join("threads.db"))
+        .env("NORTH_HOME", env!("CARGO_MANIFEST_DIR"))
         .env("PLACEMENT_HOSTS", root.join("placement-hosts.json"))
         .env("FAKE_CLAUDE_HOOK_MS", "1500")
         .env("FAKE_CLAUDE_SIGNED_OUT_MARK", root.join("signed-out"))
@@ -687,7 +688,7 @@ fn launch_on_item(root: &Path) -> Output {
 }
 
 #[test]
-fn a_launch_takes_the_claim_an_exited_session_left_without_force_dup_and_says_from_whom() {
+fn a_launch_finds_the_claim_an_exited_session_left_already_cleared_and_takes_the_item_without_force_dup() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "fold");
@@ -697,8 +698,10 @@ fn a_launch_takes_the_claim_an_exited_session_left_without_force_dup_and_says_fr
     north(root, &["fleet", "forget", "narrow"]);
     let said = text(&launched.stderr);
     assert!(launched.status.success(), "{said}");
-    assert!(said.contains("narrow owns smashcraft#4; the claim by gone was void because its owner is not a live fleet session"), "{said}");
+    assert!(!said.contains("gone"), "{said}");
     assert_eq!(held, ["smashcraft#4 narrow"]);
+    let released: i64 = rusqlite::Connection::open(root.join("threads.db")).unwrap().query_row("SELECT count(*) FROM events WHERE item = 'smashcraft#4' AND kind = 'release' AND data LIKE '%gone%'", [], |row| row.get(0)).unwrap();
+    assert_eq!(released, 1);
 }
 
 #[test]

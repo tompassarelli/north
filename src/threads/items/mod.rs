@@ -38,14 +38,18 @@ fn item(text: &str, context: &Context) -> Result<String, Failure> {
 }
 
 fn release(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &["--to"], &[])?;
-    let [id] = args.positional.as_slice() else { return Err(usage("release REPO#N [--to NAME]")) };
+    let args = Args::parse(argv, &["--to", "--held-by"], &[])?;
+    let [id] = args.positional.as_slice() else { return Err(usage("release REPO#N [--to NAME] [--held-by NAME]")) };
     let item = item(id, context)?;
     let by = context.by(&args);
     let mut db = open(context.database, true)?;
     let tx = immediate(&mut db)?;
     let owner: Option<String> = tx.query_row("SELECT owner FROM claims WHERE item = ?1", [&item], |row| row.get(0)).optional()?;
-    let Some(owner) = owner else { return Err(Failure::Refused(format!("{item} has no owner"))) };
+    let guard = args.get("--held-by");
+    let Some(owner) = owner else { return if guard.is_some() { Ok(String::new()) } else { Err(Failure::Refused(format!("{item} has no owner"))) } };
+    if guard.is_some_and(|holder| holder != owner) {
+        return Ok(String::new());
+    }
     let printed = match args.get("--to").filter(|to| !to.is_empty()) {
         Some(to) => {
             tx.execute("UPDATE claims SET owner = ?1, since = ?2 WHERE item = ?3", params![to, context.now.iso(), item])?;

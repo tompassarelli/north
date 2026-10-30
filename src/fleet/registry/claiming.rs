@@ -1,9 +1,11 @@
+use std::collections::BTreeSet;
+
 use crate::error::NorthResult;
 use crate::fleet::claims;
-use crate::fleet::model::{Account, LaunchRequest, SessionRecord};
+use crate::fleet::model::{Account, LaunchRequest, SessionRecord, Status};
 use crate::fleet::runtime::Opening;
 
-use super::Fleet;
+use super::{Fleet, session_running};
 
 impl Fleet {
     /// Claims every task of a launch before its session starts: a live holder refuses it unless `--force-dup` put it beside the holder. A `--test` session claims nothing.
@@ -28,5 +30,21 @@ impl Fleet {
             claims::release_for(self.claims.as_ref(), record);
         }
         started
+    }
+}
+
+impl Fleet {
+    /// Clears every claim an exited session left in the ledger, whichever way it exited, so dispatch, launch and `threads show` stop naming it; a parked, idle or working session keeps its claims. Returns how many it cleared.
+    pub fn release_exited_claims(&self) -> NorthResult<usize> {
+        let exited: BTreeSet<String> = self
+            .sessions()?
+            .iter()
+            .filter(|record| !record.verification && !session_running(record) && self.status(record) == Status::Exited)
+            .map(|record| record.name.clone())
+            .collect();
+        if exited.is_empty() {
+            return Ok(0);
+        }
+        claims::release_exited(self.claims.as_ref(), &exited)
     }
 }

@@ -208,3 +208,16 @@ fn a_claim_past_twice_its_eta_is_taken_unless_its_owner_recorded_an_event_since_
     let (code, _, err) = ledger.run(&["claim", "smashcraft#62", "--by", "sc-62-w"]);
     assert_eq!((code, err.as_str()), (1, "NorthThreads: smashcraft#62 is already owned by w62\n"));
 }
+
+#[test]
+fn list_all_shows_the_void_claims_an_exited_owner_left_and_the_plain_list_still_omits_them() {
+    let mut ledger = ledger(&[(796, Issue::Open { opened: at("2026-10-01T00:00:00Z") })]);
+    ledger.alive = Some(BTreeSet::new());
+    ledger.claimed("smashcraft#796", "sc-796-d0921", "2026-10-30T09:21:46Z", None);
+    assert!(ledger.listed().is_empty());
+    assert!(ledger.dispatch_holds().is_empty());
+    let (code, listing, _) = ledger.run(&["list", "--json", "--all"]);
+    let rows: Value = serde_json::from_str(&listing).unwrap();
+    assert_eq!((code, rows[0]["item"].as_str(), rows[0]["owner"].as_str(), rows[0]["standing"].as_str()), (0, Some("smashcraft#796"), Some("sc-796-d0921"), Some("void")));
+    assert_eq!(ledger.run(&["list", "--all"]).0, 1);
+}

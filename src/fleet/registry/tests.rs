@@ -9,6 +9,10 @@ use crate::fleet::prompt::PromptMode;
 use crate::providers::claude::fleet::Claude;
 
 fn fleet(home: &Path, profiles: &str) -> Fleet {
+    fleet_claiming(home, profiles, Arc::new(claims::Held::default()))
+}
+
+fn fleet_claiming(home: &Path, profiles: &str, held: Arc<claims::Held>) -> Fleet {
     let local = home.join(".local/state/north/profiles/claude-a");
     fs::create_dir_all(&local).unwrap();
     fs::write(local.join(".credentials.json"), "{}").unwrap();
@@ -18,7 +22,7 @@ fn fleet(home: &Path, profiles: &str) -> Fleet {
     let here = crate::platform::host::name();
     fs::write(&policy, format!("[accounts.claude.profiles.a]\n\"{here}\" = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\n{profiles}")).unwrap();
     let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
-    Fleet::at(home.into(), Runtimes::new(vec![Arc::new(Claude)]), ledger).unwrap()
+    Fleet::at_claiming(home.into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, held).unwrap()
 }
 
 fn on_far() -> LaunchRequest {
@@ -244,4 +248,30 @@ fn a_sonnet_session_starts_and_revives_at_high_effort_and_refuses_any_other() {
     assert_eq!(efforts::revived(&stored(Some(Effort::Medium)), &Claude, false, None).unwrap(), Some(Effort::High), "a stored Sonnet at medium is restored to high");
     assert_eq!(efforts::revived(&stored(None), &Claude, false, None).unwrap(), Some(Effort::High));
     assert!(efforts::revived(&stored(None), &Claude, false, Some(Effort::Medium)).is_err());
+}
+
+#[test]
+fn a_session_that_exited_holding_a_claim_leaves_the_issue_unowned_while_parked_and_running_sessions_keep_theirs() {
+    let home = tempfile::tempdir().unwrap();
+    let held = Arc::new(claims::Held::default());
+    let fleet = fleet_claiming(home.path(), "", held.clone());
+    let running = std::process::id();
+    for (name, stopped, pid) in [("exited", true, None), ("parked", false, None), ("running", false, Some(running))] {
+        let session = fleet.root.join(name);
+        fs::create_dir_all(&session).unwrap();
+        let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": pid, "stopped": stopped});
+        fs::write(session.join("session.json"), record.to_string()).unwrap();
+        held.hold(&format!("north#{name}"), name).unwrap();
+    }
+    held.hold("north#elsewhere", "someone-else").unwrap();
+
+    let released = fleet.release_exited_claims().unwrap();
+
+    let mut owners = held.holders().unwrap();
+    owners.sort();
+    assert_eq!(released, 1);
+    assert_eq!(
+        owners,
+        [("north#elsewhere", "someone-else"), ("north#parked", "parked"), ("north#running", "running")].map(|(item, owner)| (item.to_owned(), owner.to_owned()))
+    );
 }

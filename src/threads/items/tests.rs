@@ -147,3 +147,14 @@ fn block_records_why_an_issue_cannot_be_staffed_and_clear_removes_it() {
     assert_eq!(rig.sql("SELECT count(*) FROM blocks"), "0");
     assert_eq!(rig.events(), "wisp#20 note lead {\"block\": \"waits on smashcraft#13\"}\nwisp#20 note tester {\"block\": \"waits on Tom\"}\nwisp#20 note tester {\"unblock\": true}");
 }
+
+#[test]
+fn release_held_by_clears_only_a_claim_that_name_still_owns_and_is_quiet_otherwise() {
+    let rig = ledger();
+    Connection::open(&rig.path).unwrap().execute("INSERT INTO claims VALUES ('smashcraft#3', 'alice', '2026-10-28T08:00:00Z', NULL)", []).unwrap();
+    assert_eq!(rig.out(&["release", "smashcraft#3", "--by", "bob", "--held-by", "bob"]), "");
+    assert_eq!(rig.sql("SELECT owner FROM claims"), "alice");
+    assert_eq!(rig.out(&["release", "smashcraft#3", "--by", "alice", "--held-by", "alice"]), "smashcraft#3 released by alice\n");
+    assert_eq!(rig.sql("SELECT count(*) FROM claims"), "0");
+    assert_eq!(rig.out(&["release", "smashcraft#3", "--by", "alice", "--held-by", "alice"]), "");
+}
