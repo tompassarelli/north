@@ -31,6 +31,11 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
             removals.push(removal);
         }
     }
+    for path in mutant_runs(&inputs.cache) {
+        if let Some(removal) = idle_unheld(inputs, policy.dry_run, limit, held, path, |idle| format!("mutant checkout left by a landing run idle {}h, held by no process; the next mutant run builds its own", hours(idle))) {
+            removals.push(removal);
+        }
+    }
     if !policy.dry_run {
         for (target, freed) in shared_target::sweep_cache(&inputs.cache, inputs.now, shared_target::cap_bytes(&inputs.disk_budget))? {
             removals.push(Removal { path: target, reason: "shared cargo target over its cap: idle incremental state, test binaries, libraries and profiles".to_owned(), bytes: freed });
@@ -83,4 +88,9 @@ fn containers(code: &Path) -> Vec<PathBuf> {
     let mut containers: Vec<PathBuf> = entries.flatten().filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir())).map(|entry| entry.path()).collect();
     containers.sort();
     containers
+}
+
+fn mutant_runs(cache: &Path) -> Vec<PathBuf> {
+    let Ok(repos) = fs::read_dir(cache.join("north/mutant")) else { return Vec::new() };
+    repos.flatten().filter_map(|repo| fs::read_dir(repo.path()).ok()).flat_map(|runs| runs.flatten()).filter(|run| run.file_type().is_ok_and(|kind| kind.is_dir())).map(|run| run.path()).collect()
 }

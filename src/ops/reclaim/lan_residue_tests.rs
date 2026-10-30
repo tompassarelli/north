@@ -64,3 +64,17 @@ fn a_queued_locked_or_held_pair_keeps_its_map_copies() {
     assert_eq!(sweep(&machine, false), 0);
     assert!([queued, locked, held].iter().flatten().flatten().all(|file| file.exists()));
 }
+
+#[test]
+fn a_signed_in_client_loses_stale_map_copies_unless_a_process_holds_it() {
+    let machine = Machine::new();
+    let idle = client(&machine, "../online/clone-b");
+    let held = client(&machine, "../online/clone-c");
+    machine.dir("proc/4242/fd", DAY);
+    symlink(fs::canonicalize(&held[0]).unwrap(), machine.path("proc/4242/fd/3")).unwrap();
+
+    assert_eq!(sweep(&machine, false), 2);
+    assert!(!idle[0].exists() && !idle[1].exists());
+    assert!(idle[2].exists() && idle[3].exists());
+    assert!(held.iter().all(|file| file.exists()));
+}

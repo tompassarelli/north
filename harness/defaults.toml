@@ -680,9 +680,9 @@ fallback = "an unreadable setting panics; the value is compiled in from this fil
 consumers = ["src/ops/reclaim/mod.rs"]
 
 [capture_batch_retention_hours]
-value = 24
+value = 6
 unit = "hours since the newest change after which an unopened Smashcraft capture-queue batch on the GPU host is archived to the laptop and deleted there"
-source = "measured: 127 batches held 31 GB within two days on 2026-10-29 (north#309); a batch's frames are judged within hours of its run"
+source = "measured: 127 batches held 31 GB within two days on 2026-10-29 (north#309); a batch's frames are judged within hours of its run; on 2026-10-30 the 8 GiB batch share held 25 GB because every batch was under the 24 h floor, so six hours archives them to the laptop before the share is blown (north#357)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a batch ends its frames are last read" }
 fallback = "an unreadable setting archives nothing"
 consumers = ["src/ops/retention/family.rs"]
