@@ -238,7 +238,7 @@ fn report(launch: &record::Record, laptop: Option<&str>) -> Result<Value, String
     remote_json(None, &["fleet", "show", &launch.name, "--json"])
 }
 
-/// Marks each open box whose last dispatched session ended its report with `Stop: decision`.
+/// Marks each open box whose last dispatched session ended its report with `Stop: decision` or `Blocked:`.
 fn stopped(laptop: Option<&str>, records: &[record::Record], issues: &mut [Issue], notes: &mut Vec<String>) {
     let launches = super::stops::last_launches(records);
     for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
@@ -330,12 +330,12 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
 mod github {
     use super::*;
 
-    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 1) { nodes { body createdAt updatedAt } } } } } }";
+    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
 
     pub(crate) type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
 
     fn touched(node: &Value) -> f64 {
-        let comment = &node["comments"]["nodes"][0];
+        let comment = node["comments"]["nodes"].as_array().and_then(|nodes| nodes.last()).unwrap_or(&Value::Null);
         [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| crate::pace::target::seconds(time.as_str()?)).fold(0.0, f64::max)
     }
 
@@ -347,6 +347,7 @@ mod github {
             .filter(|blocker| blocker["state"] == "OPEN")
             .filter_map(|blocker| Some(IssueRef::new(blocker["repository"]["name"].as_str()?, blocker["number"].as_u64()?)))
             .collect();
+        let comments: Vec<Value> = node["comments"]["nodes"].as_array().cloned().unwrap_or_default();
         Some(Issue {
             repo: repo.into(),
             number: node["number"].as_u64()?,
@@ -354,7 +355,8 @@ mod github {
             body: node["body"].as_str().unwrap_or_default().into(),
             labels: node["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| label["name"].as_str().map(str::to_owned)).collect(),
             open_blockers,
-            report: node["comments"]["nodes"][0]["body"].as_str().unwrap_or_default().into(),
+            report: comments.last().and_then(|comment| comment["body"].as_str()).unwrap_or_default().into(),
+            comments,
             touched: touched(node),
             created: node["createdAt"].as_str().and_then(crate::pace::target::seconds).unwrap_or(0.0),
             stopped: None,

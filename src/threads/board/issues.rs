@@ -7,6 +7,7 @@ use serde_json::Value as Json;
 
 use crate::platform::pyjson::{self, Value};
 use crate::threads::catalog::CATALOG;
+use crate::threads::withheld::withheld;
 use crate::threads::verb::{Context, Failure, is_native_ref, item_ref};
 
 const CACHE_SECONDS: f64 = 60.0;
@@ -16,7 +17,7 @@ query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     issues(states: OPEN, first: 100, after: $cursor) {
       pageInfo { hasNextPage endCursor }
-      nodes { number title blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } } }
+      nodes { number title labels(first: 30) { nodes { name } } comments(last: 10) { nodes { body createdAt } } blockedBy(first: 50) { nodes { number state repository { nameWithOwner } } } }
     }
   }
 }";
@@ -44,6 +45,8 @@ pub(crate) struct Issue {
     /// `OPEN` or `CLOSED`.
     pub state: String,
     pub blockers: Vec<Blocker>,
+    /// Why a worker has already reported the issue cannot be staffed, from its comments and labels.
+    pub withheld: Option<String>,
 }
 
 /// The ledger and the caller, read through one connection; a replica's gh_cache writes stay in a
@@ -80,7 +83,7 @@ impl<'a> Board<'a> {
             };
             return items
                 .into_iter()
-                .map(|(number, title)| Ok(Issue { number, title, state: "OPEN".into(), blockers: self.local_blockers(&format!("{repo}#{number}"))? }))
+                .map(|(number, title)| Ok(Issue { number, title, state: "OPEN".into(), blockers: self.local_blockers(&format!("{repo}#{number}"))?, withheld: None }))
                 .collect();
         }
         if let Some(cached) = self.cached(repo)? {
@@ -99,7 +102,7 @@ impl<'a> Board<'a> {
             let page = &reply["data"]["repository"]["issues"];
             let nodes = page["nodes"].as_array().ok_or_else(|| unreadable("open issues"))?;
             for node in nodes {
-                let issue = issue_of(node, "OPEN")?;
+                let issue = issue_of(node, "OPEN", self.context.now.unix_seconds_f64())?;
                 match issues.iter_mut().find(|known| known.number == issue.number) {
                     Some(known) => *known = issue,
                     None => issues.push(issue),
@@ -120,7 +123,7 @@ impl<'a> Board<'a> {
         let item = format!("{repo}#{number}");
         if CATALOG.is_native(repo) {
             let (title, state) = self.native_item(repo, number)?;
-            return Ok(Issue { number, title, state: state.to_uppercase(), blockers: self.local_blockers(&item)? });
+            return Ok(Issue { number, title, state: state.to_uppercase(), blockers: self.local_blockers(&item)?, withheld: None });
         }
         let mut issue = match self.cached(repo)?.and_then(|issues| issues.into_iter().find(|issue| issue.number == number)) {
             Some(cached) => cached,
@@ -132,7 +135,7 @@ impl<'a> Board<'a> {
                 if !node.is_object() {
                     return Err(Failure::Refused(format!("no issue {item}")));
                 }
-                issue_of(node, node["state"].as_str().unwrap_or_default())?
+                issue_of(node, node["state"].as_str().unwrap_or_default(), self.context.now.unix_seconds_f64())?
             }
         };
         issue.blockers.extend(self.local_blockers(&item)?);
@@ -180,12 +183,16 @@ impl<'a> Board<'a> {
         let Some((_, issues)) = row.filter(|(fetched, _)| self.context.now.unix_seconds_f64() - fetched < CACHE_SECONDS) else { return Ok(None) };
         let cached = pyjson::loads(issues.as_bytes()).map_err(|_| unreadable("gh_cache"))?;
         let entries = cached.as_object().ok_or_else(|| unreadable("gh_cache"))?;
+        if entries.iter().any(|(_, issue)| issue.get("withheld").is_none()) {
+            return Ok(None);
+        }
         entries
             .iter()
             .map(|(number, issue)| {
                 let number = number.as_str().and_then(|number| number.parse().ok()).ok_or_else(|| unreadable("gh_cache"))?;
                 let blockers = issue["blockers"].as_array().unwrap_or_default().iter().map(|blocker| Blocker { reference: text(&blocker["ref"]), state: text(&blocker["state"]) }).collect();
-                Ok(Issue { number, title: text(&issue["title"]), state: "OPEN".into(), blockers })
+                let withheld = issue["withheld"].as_string().map(|reason| reason.lossy().into_owned());
+                Ok(Issue { number, title: text(&issue["title"]), state: "OPEN".into(), blockers, withheld })
             })
             .collect::<Result<_, Failure>>()
             .map(Some)
@@ -204,7 +211,7 @@ fn parsed(reply: &str) -> Result<Json, Failure> {
     serde_json::from_str(reply).map_err(|_| unreadable("reply"))
 }
 
-fn issue_of(node: &Json, state: &str) -> Result<Issue, Failure> {
+fn issue_of(node: &Json, state: &str, now: f64) -> Result<Issue, Failure> {
     let number = node["number"].as_u64().ok_or_else(|| unreadable("issue"))?;
     let blockers = node["blockedBy"]["nodes"]
         .as_array()
@@ -216,7 +223,9 @@ fn issue_of(node: &Json, state: &str) -> Result<Issue, Failure> {
             Blocker { reference: format!("{repo}#{}", blocker["number"]), state: blocker["state"].as_str().unwrap_or_default().to_owned() }
         })
         .collect();
-    Ok(Issue { number, title: node["title"].as_str().unwrap_or_default().to_owned(), state: state.to_owned(), blockers })
+    let labels: Vec<&str> = node["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| label["name"].as_str()).collect();
+    let withheld = withheld(&labels, node["comments"]["nodes"].as_array().map_or(&[][..], Vec::as_slice), now);
+    Ok(Issue { number, title: node["title"].as_str().unwrap_or_default().to_owned(), state: state.to_owned(), blockers, withheld })
 }
 
 /// The cache row bin/threads also reads: `{"N": {"title": ..., "blockers": [{"ref": ..., "state": ...}]}}`.
@@ -226,7 +235,7 @@ fn cache_value(issues: &[Issue]) -> Value {
             .iter()
             .map(|issue| {
                 let blockers = issue.blockers.iter().map(|blocker| Value::object([("ref", blocker.reference.as_str().into()), ("state", blocker.state.as_str().into())])).collect();
-                (issue.number.to_string().as_str().into(), Value::object([("title", issue.title.as_str().into()), ("blockers", Value::Array(blockers))]))
+                (issue.number.to_string().as_str().into(), Value::object([("title", issue.title.as_str().into()), ("blockers", Value::Array(blockers)), ("withheld", issue.withheld.as_deref().map_or(Value::Null, Value::from))]))
             })
             .collect(),
     )

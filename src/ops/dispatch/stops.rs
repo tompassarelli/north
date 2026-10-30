@@ -1,4 +1,4 @@
-//! A box whose last dispatched worker ended its report with `Stop: decision` stays skipped until the
+//! A box whose last dispatched worker ended its report with `Stop: decision` or `Blocked:` stays skipped until the
 //! issue gets a comment or body edit newer than that report.
 use super::issues::{Issue, IssueRef};
 use super::record::Record;
@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Stop:\s*decision\b").expect("stop pattern"));
+static STOP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*(?:Stop:\s*decision\b|Blocked:)").expect("stop pattern"));
 
 /// Each item's newest launch that started a session, which holds the report dispatch last waited on.
 pub(crate) fn last_launches(records: &[Record]) -> BTreeMap<IssueRef, &Record> {
@@ -22,7 +22,7 @@ pub(crate) fn last_launches(records: &[Record]) -> BTreeMap<IssueRef, &Record> {
     newest
 }
 
-/// When the session's final report named `Stop: decision`, from `north fleet show NAME --json`.
+/// When the session's final report named `Stop: decision` or opened `Blocked:`, from `north fleet show NAME --json`.
 pub(crate) fn stopped_at(session: &Value) -> Option<f64> {
     let report = session["entries"].as_array()?.iter().rfind(|entry| entry["kind"] == "assistant")?;
     let ended = session["turns"].as_array()?.last()?["ended_ms"].as_f64()?;

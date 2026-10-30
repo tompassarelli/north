@@ -60,11 +60,13 @@ pub(crate) struct Issue {
     pub open_blockers: Vec<IssueRef>,
     /// The newest comment, where a worker reports what the box waits on.
     pub report: String,
+    /// The newest comments, oldest first, which `Blocked:` reports are read from.
+    pub comments: Vec<serde_json::Value>,
     /// The newest of its body edit and last comment, as unix seconds.
     pub touched: f64,
     /// When it was opened, as unix seconds; dispatch staffs the oldest ready issue first.
     pub created: f64,
-    /// When the last dispatched worker's final report named `Stop: decision`.
+    /// When the last dispatched worker's final report named `Stop: decision` or opened `Blocked:`.
     pub stopped: Option<f64>,
 }
 
@@ -236,6 +238,10 @@ pub(crate) fn readiness(issue: &Issue, world: &World) -> Result<(), String> {
     }
     if let Some(sentence) = issue.waiting() {
         return Err(format!("its newest report waits: {sentence}"));
+    }
+    let labels: Vec<&str> = issue.labels.iter().map(String::as_str).collect();
+    if let Some(reason) = crate::threads::withheld::withheld(&labels, &issue.comments, world.at) {
+        return Err(format!("a worker reported it blocked: {reason}"));
     }
     let mut waiting = predecessors(issue)?;
     waiting.extend(world.planned.get(&reference).into_iter().flatten().cloned());

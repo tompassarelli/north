@@ -6,7 +6,8 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use super::branches::names_issue;
-use super::{comment_block, run};
+use super::run;
+use crate::threads::withheld::{comment_block, withheld};
 use crate::foundation::clock::Timestamp;
 use crate::threads::fake::Recorded;
 use crate::threads::verb::Context;
@@ -167,11 +168,48 @@ fn a_branch_or_commit_names_an_issue_by_its_name_headline_or_reference_line_but_
 #[test]
 fn a_comment_block_is_the_newest_blocked_comment_of_the_week_and_an_older_comment_ends_the_search() {
     let now = Timestamp::parse(NOW).unwrap();
+    let at = now.unix_seconds_f64();
     let comment = |body: &str, at: &str| json!({"body": body, "createdAt": at});
     let recent = [comment("Blocked: old reason", "2026-10-27T00:00:00Z"), comment("  Blocked:   waits on Tom \nmore", "2026-10-28T08:00:00Z")];
-    assert_eq!(comment_block(&recent, now).as_deref(), Some("waits on Tom "));
-    assert_eq!(comment_block(&[comment("Blocked:", "2026-10-28T08:00:00Z")], now).as_deref(), Some("comment"));
-    assert_eq!(comment_block(&[comment("fine now", "2026-10-28T08:00:00Z"), comment("Blocked: x", "2026-10-27T00:00:00Z")], now).as_deref(), Some("x"));
-    assert_eq!(comment_block(&[comment("Blocked: stale", "2026-10-20T00:00:00Z")], now), None);
-    assert_eq!(comment_block(&[comment("noted", "2026-10-19T00:00:00Z"), comment("Blocked: x", "2026-10-20T00:00:00Z")], now), None);
+    assert_eq!(comment_block(&recent, at).as_deref(), Some("waits on Tom "));
+    assert_eq!(comment_block(&[comment("Blocked:", "2026-10-28T08:00:00Z")], at).as_deref(), Some("comment"));
+    assert_eq!(comment_block(&[comment("fine now", "2026-10-28T08:00:00Z"), comment("Blocked: x", "2026-10-27T00:00:00Z")], at).as_deref(), Some("x"));
+    assert_eq!(comment_block(&[comment("Blocked: stale", "2026-10-20T00:00:00Z")], at), None);
+    assert_eq!(comment_block(&[comment("noted", "2026-10-19T00:00:00Z"), comment("Blocked: x", "2026-10-20T00:00:00Z")], at), None);
+}
+
+#[test]
+fn a_blocked_comment_or_the_time_gated_label_withholds_an_issue_and_nothing_else_does() {
+    let at = Timestamp::parse(NOW).unwrap().unix_seconds_f64();
+    let blocked = [json!({"body": "Blocked: needs data from a new desync", "createdAt": "2026-10-28T08:00:00Z"})];
+    assert_eq!(withheld(&["priority:next"], &blocked, at).as_deref(), Some("needs data from a new desync"));
+    assert_eq!(withheld(&["evidence:time-gated"], &[], at).as_deref(), Some("time-gated"));
+    assert_eq!(withheld(&["evidence:code"], &[json!({"body": "Progress", "createdAt": NOW})], at), None);
+}
+
+fn graph_nodes(_joined: &str) -> Option<Result<String, String>> {
+    let comment = |body: &str| json!({"body": body, "createdAt": "2026-10-28T08:00:00Z"});
+    let node = |number: u64, labels: &[&str], comments: Vec<serde_json::Value>| {
+        json!({"number": number, "title": format!("T{number}"), "labels": {"nodes": labels.iter().map(|name| json!({"name": name})).collect::<Vec<_>>()}, "comments": {"nodes": comments}, "blockedBy": {"nodes": []}})
+    };
+    let nodes = [node(732, &["bug"], vec![comment("Blocked: needs data")]), node(764, &["evidence:time-gated"], vec![comment("Progress")]), node(765, &["bug"], vec![comment("Progress")])];
+    Some(Ok(json!({"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": nodes}}}}).to_string()))
+}
+
+#[test]
+fn threads_ready_leaves_out_an_issue_a_worker_reported_blocked_or_labelled_time_gated() {
+    let mut rig = ledger();
+    rig.exec("CREATE TABLE gh_cache(repo TEXT PRIMARY KEY, fetched REAL NOT NULL, issues TEXT NOT NULL CHECK(json_valid(issues))) STRICT; CREATE TABLE item_needs(item TEXT NOT NULL, needs TEXT NOT NULL, PRIMARY KEY(item, needs)) STRICT;");
+    rig.outside.respond = Some(graph_nodes);
+    let context = Context { database: &rig.path, actor: "tester".into(), no_native: Some("test"), outside: &rig.outside, now: Timestamp::parse(NOW).unwrap(), replica: false };
+    let ready = |context: &Context| {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(crate::threads::board::run(&["ready".to_owned()], context, &mut &b""[..], &mut out, &mut err), 0, "{}", String::from_utf8_lossy(&err));
+        String::from_utf8(out).unwrap()
+    };
+    let listed = ready(&context);
+    assert!(listed.contains("smashcraft#765\tT765"), "{listed}");
+    assert!(!listed.contains("smashcraft#732") && !listed.contains("smashcraft#764"), "{listed}");
+    assert_eq!(ready(&context), listed, "the minute cache keeps the same answer");
+    assert!(rig.sql("SELECT issues FROM gh_cache WHERE repo = 'smashcraft'").contains(r#""withheld": "time-gated""#));
 }

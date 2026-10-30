@@ -155,7 +155,7 @@ fn ready(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
         for issue in issues {
             let item = format!("{repo}#{}", issue.number);
             let local = if CATALOG.is_native(repo) { Vec::new() } else { board.local_blockers(&item)? };
-            if held.contains_key(&item) || issue.blockers.iter().chain(&local).any(|blocker| blocker.state == "OPEN") {
+            if held.contains_key(&item) || issue.withheld.is_some() || issue.blockers.iter().chain(&local).any(|blocker| blocker.state == "OPEN") {
                 continue;
             }
             listed += &format!("{item}\t{}\n", issue.title);

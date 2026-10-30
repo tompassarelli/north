@@ -609,3 +609,19 @@ fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_na
     assert_eq!(item.to_string(), "smashcraft#51");
     assert!(why.contains(&format!("gex45 takes nothing: {queued}")), "{why}");
 }
+
+#[test]
+fn a_box_a_worker_reported_blocked_this_week_or_labelled_time_gated_is_not_ready() {
+    let open = BTreeSet::new();
+    let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
+    let at = crate::foundation::clock::Timestamp::parse("2026-10-30T12:00:00Z").unwrap().unix_seconds_f64();
+    let world = World { open: &open, holds: &holds, planned: &planned, at };
+    let commented = |body: &str, created: &str, labels: &[&str]| {
+        let comments = vec![serde_json::json!({"body": body, "createdAt": created})];
+        issues::readiness(&Issue { report: body.into(), comments, ..issue("smashcraft", 764, "- [ ] a", labels) }, &world)
+    };
+    assert_eq!(commented("Blocked: needs data from a new native desync", "2026-10-30T09:29:18Z", &[]), Err("a worker reported it blocked: needs data from a new native desync".into()));
+    assert_eq!(commented("Blocked: stale", "2026-10-20T09:29:18Z", &[]), Ok(()), "a Blocked: comment older than a week frees the box");
+    assert_eq!(commented("Landed abc123", "2026-10-30T09:29:18Z", &["evidence:time-gated"]), Err("a worker reported it blocked: time-gated".into()));
+    assert_eq!(commented("Landed abc123", "2026-10-30T09:29:18Z", &["evidence:code"]), Ok(()));
+}

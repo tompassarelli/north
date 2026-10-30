@@ -108,10 +108,10 @@ fn open_issues_are_read_once_a_minute_through_a_cache_bin_threads_reads_too() {
     assert_eq!(queries.len(), 9);
     assert!(queries.contains(&"cursor=c1 name=wisp".to_owned()), "{queries:?}");
     assert!(rig.calls()[0].starts_with("api graphql -f query=\nquery($owner: String!, $name: String!, $cursor: String) {\n"));
-    assert_eq!(rig.sql("SELECT issues FROM gh_cache WHERE repo = 'wisp'"), r#"{"6": {"title": "T6", "blockers": []}, "7": {"title": "T7", "blockers": []}}"#);
+    assert_eq!(rig.sql("SELECT issues FROM gh_cache WHERE repo = 'wisp'"), r#"{"6": {"title": "T6", "blockers": [], "withheld": null}, "7": {"title": "T7", "blockers": [], "withheld": null}}"#);
     assert_eq!(
         rig.sql("SELECT issues FROM gh_cache WHERE repo = 'smashcraft'"),
-        r#"{"1": {"title": "T1", "blockers": [{"ref": "smashcraft#2", "state": "OPEN"}]}, "2": {"title": "T2", "blockers": []}, "3": {"title": "T3", "blockers": []}, "4": {"title": "T4", "blockers": [{"ref": "smashcraft#5", "state": "CLOSED"}]}}"#
+        r#"{"1": {"title": "T1", "blockers": [{"ref": "smashcraft#2", "state": "OPEN"}], "withheld": null}, "2": {"title": "T2", "blockers": [], "withheld": null}, "3": {"title": "T3", "blockers": [], "withheld": null}, "4": {"title": "T4", "blockers": [{"ref": "smashcraft#5", "state": "CLOSED"}], "withheld": null}}"#
     );
     assert_eq!(rig.sql("SELECT fetched FROM gh_cache WHERE repo = 'wisp'"), Timestamp::parse(NOW).unwrap().unix_seconds_f64().to_string());
     rig.outside.calls.borrow_mut().clear();

@@ -12,17 +12,17 @@ use regex::Regex;
 use rusqlite::params;
 use serde_json::Value as Json;
 
-use self::branches::{Failed, names_issue, python_lines};
+use self::branches::{Failed, names_issue};
 use super::board::held;
 use super::verb::{Args, Context, Failure, Outcome, event, immediate, open, report};
 use crate::foundation::clock::Timestamp;
 use crate::platform::pyjson::Value;
 use crate::threads::catalog::CATALOG;
+use crate::threads::withheld::withheld;
 
 pub(crate) const VERBS: [&str; 1] = ["unowned"];
 const STAFFED: [&str; 2] = ["smashcraft", "wisp"];
 const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
-const BLOCK_DAYS: i64 = 7;
 
 static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));
 
@@ -81,7 +81,7 @@ fn unowned(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
                 claim = None;
             }
             let owner = claim.map(|claim| claim.owner.clone()).or_else(|| lanes.open.iter().find(|(branch, messages)| names_issue(branch, messages, repo, number)).map(|(branch, _)| format!("branch:{branch}")));
-            let block = blocks.get(&item).filter(|reason| !reason.is_empty()).cloned().or_else(|| comment_block(issue["comments"].as_array().map_or(&[][..], Vec::as_slice), context.now));
+            let block = blocks.get(&item).filter(|reason| !reason.is_empty()).cloned().or_else(|| withheld(&labels, issue["comments"].as_array().map_or(&[][..], Vec::as_slice), context.now.unix_seconds_f64()));
             let state = owner.unwrap_or_else(|| block.map_or_else(|| "UNOWNED".to_owned(), |block| format!("blocked:{block}")));
             let note = lane.filter(|_| state == "UNOWNED").map_or_else(String::new, |(branch, failed)| format!("\tlane failed: {} ({branch})", failed.reason));
             let title = format!("{}{note}", issue["title"].as_str().unwrap_or_default());
@@ -111,22 +111,4 @@ fn listing(rows: &[Row]) -> String {
     let blocked = now.iter().filter(|row| row.state.starts_with("blocked:")).count();
     listed += &format!("priority:now unowned={unowned} blocked={blocked} owned={}\n", now.len() - unowned - blocked);
     listed
-}
-
-/// The reason of the newest comment from the last week that starts `Blocked:`, or `comment` when
-/// it gives none; an older comment ends the search.
-fn comment_block(comments: &[Json], now: Timestamp) -> Option<String> {
-    let cutoff = now.unix_seconds_f64() - (BLOCK_DAYS * 86400) as f64;
-    let mut newest: Vec<&Json> = comments.iter().collect();
-    newest.sort_by(|left, right| right["createdAt"].as_str().cmp(&left["createdAt"].as_str()));
-    for comment in newest {
-        let created = comment["createdAt"].as_str().and_then(|at| Timestamp::parse(at).ok()).map_or(0.0, Timestamp::unix_seconds_f64);
-        if created < cutoff {
-            return None;
-        }
-        if let Some(reason) = comment["body"].as_str().unwrap_or_default().trim().strip_prefix("Blocked:") {
-            return Some(python_lines(reason.trim()).first().map_or_else(|| "comment".to_owned(), |line| (*line).to_owned()));
-        }
-    }
-    None
 }
