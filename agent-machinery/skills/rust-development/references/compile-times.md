@@ -224,9 +224,9 @@ covers `cargo test`. `dev` defaults: `opt-level = 0`, `debug = true`,
   target/ inside the lane". `build.build-dir` (stable since 1.91) moves
   intermediates elsewhere with templates such as `{workspace-path-hash}`
   [config] [cache]; that relocates lane-local state, it does not share it.
-- Recommendation to test: lane-local `target/` plus sccache with
-  `SCCACHE_BASEDIRS` set to the worktrees root; it can only cut the
-  dependency part of a cold lane build, so measure that part first.
+- Adopted 2026-10-31: a lane-local `target/` seeded by the host repository's `target-seed` command
+  (reflink copy of the newest sibling checkout's `target/` built from the same
+  `Cargo.lock`), not sccache; see "Measured: a new lane's first build".
 
 ## Nightly options, not defaults
 
@@ -363,5 +363,48 @@ build 40.4 to 28.6 s, `test --no-run` 56.1 to 36.5 s). Not adopted: mold,
 whose unpinned win did not repeat pinned and whose runs never confirmed mold
 was the linker in use. Open for the next pass, each with three runs per label
 on an idle machine: mold with `-Wl,--version` proof, `split-debuginfo`, the
-line-tables-only plus mold combination, a new lane's first build with sccache
-against a shared `CARGO_TARGET_DIR`, and `cargo build --timings`.
+line-tables-only plus mold combination and `cargo build --timings`.
+
+## Measured: a new lane's first build (31 Oct 2026, whiterabbit)
+
+Source: `cargo build -p wisp-window` in `window/` of fresh wisp worktrees and
+`cargo build` in fresh host-repository worktrees, one run per row, by hand on the laptop
+(btrfs) with other agents' builds loading it (load average 16-40 in `uptime`
+during the runs), so each row is indicative only. Times are Cargo's own
+`Finished` unless marked wall.
+
+| Setup | First lane | Next lane |
+| --- | --- | --- |
+| wisp, no cache | 101 s | |
+| wisp, sccache, `-Cmetadata=checkout:` key kept | | 98 s wall: no gain |
+| wisp, sccache, key removed | 110 s wall, 176 misses | 84 s wall, 157 hits, 19 misses |
+| wisp, the host repository's `target-seed` command | | 13.5 s (copy 0.08 s); Cargo recompiled the five `-sys`/input crates and `wisp-window` after the shell gained libraries |
+| wisp window/ shell, `target-seed`, `-j4` | 5 m 02 s, 182 units: its seed came from an unrelated lane and reused nothing | 4.9 s, 1 unit: `wisp-window` |
+| host repository, no seed | 118 s, 147 units | |
+| host repository, `target-seed` | | 71 s, 1 unit: the host crate itself, the only workspace crate |
+
+- With the per-checkout key kept, the second worktree gained nothing; with the
+  key removed it hit 157 of 176. The key goes into every crate's rustc
+  arguments, so it probably blocked reuse **(inferred from the two rows, not
+  isolated)**.
+- sccache refuses 51 compilations of this graph by `crate-type`
+  (build scripts, proc-macros and binaries, per [sccache]), so even with 157 hits
+  the next lane still spent 84 s **(cause not isolated)**. A seeded `target/` carries those units too.
+- the host repository's `target-seed` command runs from the devShell `shellHook`: when the lane has no
+  `target/` and `CARGO_TARGET_DIR` is unset, it copies (`cp -a --reflink=auto`;
+  a full copy on ext4) the newest idle sibling checkout's `target/`, a sibling
+  being the same container's `main` or `worktrees/*` with a byte-identical
+  `Cargo.lock` and a `CACHEDIR.TAG`, then deletes the fingerprints of every
+  `Cargo.lock` package without a registry or git source, in each profile and
+  `--target` directory, so none reads as fresh from another checkout's sources.
+  The copy is private to the lane, so parallel lanes never wait on one Cargo
+  lock. An equal `Cargo.lock` does not guarantee reuse: the unrelated seed above
+  was copied and rebuilt in full, most likely because that lane was built under the old per-checkout key **(not isolated)**.
+- The `-Cmetadata=checkout:` RUSTFLAGS key now applies only when
+  `CARGO_TARGET_DIR` points at a shared target; with a lane-local target it
+  probably blocked cross-checkout reuse, sccache's included **(inferred, see above)**.
+- Disk: a seed copies the sibling's whole `target/` (837 MB for a wisp
+  `window/` debug build), so a lane costs that on ext4 and shares the blocks
+  with the sibling on btrfs until they diverge **(sharing not measured)**;
+  the reclaim and `land-clean` sweeps still trim targets, so no separate cache
+  budget exists.
