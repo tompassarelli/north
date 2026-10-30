@@ -174,7 +174,7 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     fleet_tier::admit_class(&request)?;
     let started = fleet_tier::apply(&mut request, &mut overrides)?;
     let waiting = fleet_admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
-    let placed = fleet_admission::admitted(&request.name, waiting, |first| fleet_placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"))?;
+    let placed = fleet_admission::admitted(&request.name, waiting, |first| fleet_placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| fleet_admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     (request.placement, request.capacity_need) = (fleet_duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
     request.machine = placed.machine.or(request.machine);
     let record = fleet.launch(&request)?;

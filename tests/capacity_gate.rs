@@ -32,13 +32,13 @@ fn cargo(host: &Host, arguments: &[&str]) -> Command {
 #[test]
 fn a_cargo_build_outside_a_lease_on_a_lease_builds_host_waits_for_a_heavy_lease_then_builds_with_the_lease_cpus() {
     let host = host("capacity-gate-wait-", LEASED_HOST);
-    fs::write(host.path("loadavg"), "34.68 29.11 23.93 31/2210 4096\n").unwrap();
+    fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
     let mut build = Wrapper(cargo(&host, &["build", "--release"]).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
     host.until("the build's heavy ticket", |host| host.queued("heavy") == 1);
     std::thread::sleep(std::time::Duration::from_millis(500));
     assert!(!host.path("built").exists(), "the build ran before its lease");
     assert!(build.exited().is_none());
-    fs::write(host.path("loadavg"), "3.00 3.00 3.00 1/100 1\n").unwrap();
+    fs::write(host.path("pressure"), "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
     host.until("the leased build", |host| host.path("built").exists());
     assert!(build.0.wait().unwrap().success());
     assert_eq!(fs::read_to_string(host.path("built")).unwrap(), "6 build --release\n");
@@ -50,7 +50,7 @@ fn a_cargo_build_on_a_host_without_lease_builds_and_a_light_cargo_command_run_at
     assert!(cargo(&host, &["build"]).status().unwrap().success());
     assert_eq!(fs::read_to_string(host.path("built")).unwrap(), " build\n");
     let host = self::host("capacity-gate-light-", LEASED_HOST);
-    fs::write(host.path("loadavg"), "34.68 29.11 23.93 31/2210 4096\n").unwrap();
+    fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
     assert!(cargo(&host, &["fmt", "--check"]).status().unwrap().success());
     assert_eq!((fs::read_to_string(host.path("built")).unwrap(), host.queued("heavy")), (" fmt --check\n".to_owned(), 0));
 }
@@ -71,7 +71,7 @@ fn the_shim_runs_the_next_cargo_on_path_when_north_has_no_gate() {
 #[test]
 fn depbox_outside_a_lease_on_a_lease_builds_host_waits_for_a_heavy_lease_before_it_starts() {
     let host = host("capacity-gate-depbox-", LEASED_HOST);
-    fs::write(host.path("loadavg"), "34.68 29.11 23.93 31/2210 4096\n").unwrap();
+    fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north")).unwrap();
     let mut depbox = host.command(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/depbox"));
     depbox.args(["run", "--", "cargo", "test"]).current_dir(host.path("")).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("AGENT_CAPACITY_LEASE");

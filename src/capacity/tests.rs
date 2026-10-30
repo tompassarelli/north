@@ -10,6 +10,7 @@ pub(super) fn facts(class: Class) -> Facts {
         memory_available_mib: 70000.0,
         cpu_some_avg10_basis_points: 0,
         protected_cpu_some_avg10_basis_points: 0,
+        cpu_pressure_measured: false,
         leased_memory_mib: 0.0,
         leased_batch_cpus: 0.0,
         unleased_heavy_cores: 0.0,
@@ -482,4 +483,29 @@ fn once_cpu_pressure_is_calm_the_run_queue_is_the_one_minute_load_so_an_idle_hos
     let load = super::sustained_load("6.85 14.44 18.68 2/1904 88213\n", whiterabbit.cpu_some_avg10_basis_points);
     assert_eq!(load, Some(6.85));
     assert_eq!(decide(&Facts { run_queue_load: load, ..whiterabbit }), Reason::Run);
+}
+
+#[test]
+fn a_24_core_attended_host_at_load_13_and_psi_7_percent_admits_heavy_and_defers_it_over_the_threshold() {
+    let measured = |class, load, psi| Facts { run_queue_load: Some(load), cpu_pressure_measured: true, cpu_some_avg10_basis_points: psi, requested_cpus: 6.0, ..facts(class) };
+    assert_eq!(decide(&measured(Class::Heavy, 13.0, 700)), Reason::Run);
+    assert_eq!(decide(&measured(Class::Heavy, 40.0, 700)), Reason::Run);
+    assert_eq!(decide(&measured(Class::Exclusive, 13.0, 700)), Reason::Run);
+    assert_eq!(decide(&measured(Class::Heavy, 13.0, 4000)), Reason::DeferRunQueue);
+    assert_eq!(decide(&measured(Class::Exclusive, 13.0, 4000)), Reason::DeferRunQueue);
+    assert!(!super::run_queue::overloaded(&measured(Class::Heavy, 13.0, 3999)));
+    assert_eq!(decide(&measured(Class::Heavy, 13.0, 3999)), Reason::DeferCpuPressure);
+}
+
+#[test]
+fn an_unattended_host_defers_on_run_queue_pressure_only_from_sixty_percent() {
+    let unattended = |psi| Facts { profile: Profile::Unattended, cpu_pressure_measured: true, cpu_some_avg10_basis_points: psi, ..facts(Class::Exclusive) };
+    assert!(!super::run_queue::overloaded(&unattended(5999)));
+    assert!(super::run_queue::overloaded(&unattended(6000)));
+}
+
+#[test]
+fn without_a_pressure_reading_the_load_average_still_decides() {
+    let unread = Facts { run_queue_load: Some(40.0), cpu_some_avg10_basis_points: 0, requested_cpus: 6.0, ..facts(Class::Heavy) };
+    assert_eq!(decide(&unread), Reason::DeferRunQueue);
 }

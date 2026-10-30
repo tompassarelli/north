@@ -51,6 +51,8 @@ pub(crate) struct Facts {
     pub(crate) memory_available_mib: f64,
     pub(crate) cpu_some_avg10_basis_points: u32,
     pub(crate) protected_cpu_some_avg10_basis_points: u32,
+    #[serde(default)]
+    pub(crate) cpu_pressure_measured: bool,
     #[serde(rename = "leasedMemoryMiB")]
     pub(crate) leased_memory_mib: f64,
     pub(crate) leased_batch_cpus: f64,

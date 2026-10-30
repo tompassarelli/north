@@ -42,7 +42,7 @@ impl Fleet {
         Ok(())
     }
 
-    pub(super) fn tell(&self, parent: &str, text: &str, delivery: Delivery) {
+    pub fn tell(&self, parent: &str, text: &str, delivery: Delivery) {
         let told = match self.record(parent) {
             Ok(record) if record.stopped => Ok(()),
             _ => self.send_or_post(None, parent, text, delivery).map(drop),

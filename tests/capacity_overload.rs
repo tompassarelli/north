@@ -9,11 +9,10 @@ use std::process::Stdio;
 const PLACEMENT: &str = "[placement]\norder = [\"gex45\", \"anthropic-cloud\", \"nexus\", \"laptop\"]\n\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native:wisp\", \"private:smashcraft\", \"native:smashcraft\", \"warcraft:smashcraft\"]\n\n[hosts.whiterabbit]\nserves = [\"private\", \"native\", \"warcraft\"]\n";
 
 fn first_decision(host: &Host, need: &str) -> Value {
-    fs::write(host.path("loadavg"), "34.68 29.11 23.93 31/2210 4096\n").unwrap();
+    fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
     fs::write(host.path("orchestration.toml"), PLACEMENT).unwrap();
     let mut wrapper = Wrapper(
         host.helper(&["run", "--class", "heavy", "--owner", "fixture:/lagged", "--timeout-seconds", "60", "--", "true"])
-            .env("AGENT_CAPACITY_LOADAVG", host.path("loadavg"))
             .env("AGENT_CAPACITY_NEED", need)
             .env("RESIDENT_CAP_HOST", "whiterabbit")
             .env("AGENTS_ORCHESTRATION", host.path("orchestration.toml"))
@@ -39,10 +38,9 @@ fn a_heavy_run_from_a_native_smashcraft_box_above_the_thread_count_queues_naming
 #[test]
 fn a_heavy_ticket_held_by_the_run_queue_holds_no_place_for_moderate_work() {
     let host = Host::new("capacity-overload-line-", &[("systemd-run", &scope_systemd_run("\"$@\"")), ("systemctl", SCOPE_SYSTEMCTL)]);
-    fs::write(host.path("loadavg"), "34.68 29.11 23.93 31/2210 4096\n").unwrap();
+    fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
     let _heavy = Wrapper(
         host.helper(&["run", "--class", "heavy", "--owner", "fixture:/held", "--timeout-seconds", "60", "--", "sleep", "60"])
-            .env("AGENT_CAPACITY_LOADAVG", host.path("loadavg"))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

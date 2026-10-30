@@ -21,6 +21,7 @@ pub(crate) fn signals_view(signals: &Signals) -> Obj {
         .put("memoryAvailableMiB", num(signals.memory_available_mib))
         .put("cpuSomeAvg10BasisPoints", num(signals.cpu_some))
         .put("protectedCpuSomeAvg10BasisPoints", num(signals.protected_cpu_some))
+        .put("cpuPressureMeasured", true)
         .put("memoryFullAvg10BasisPoints", num(signals.memory_full))
 }
 

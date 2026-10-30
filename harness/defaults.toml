@@ -634,6 +634,20 @@ source = "measured: 10 workers launched onto the GPU host in an hour on 2026-10-
 fallback = "an unreadable queue does not skip the host"
 consumers = ["src/capacity/saturation.rs"]
 
+[run_queue_psi_attended]
+value = 40
+unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which an attended host defers a heavy or exclusive request as DEFER_RUN_QUEUE"
+source = "measured: the laptop (24 cores) at 2:10 AM on 2026-10-31 read load average 11.5 with one runnable task and PSI some avg10 6.9%, yet the load rule deferred six builds for up to 20 minutes; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some p95 at 28 and p99 at 76; heavy work is held from 30 by the batch CPU-pressure gate whatever this says, so 40 decides exclusive work and the reason heavy work shows"
+fallback = "facts stated without a CPU pressure reading defer on the run-queue load average plus the request's cores against the thread count; a live host that cannot read system pressure fails admission"
+consumers = ["src/capacity/run_queue.rs"]
+
+[run_queue_psi_unattended]
+value = 60
+unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which an unattended host defers a heavy or exclusive request as DEFER_RUN_QUEUE"
+source = "measured: same samples as run_queue_psi_attended, 2026-10-28 to 2026-10-29, n=3406: PSI some p99 76; an unattended host has no interactive session to protect, so exclusive work runs to 60 where an attended host stops at 40"
+fallback = "facts stated without a CPU pressure reading defer on the run-queue load average plus the request's cores against the thread count; a live host that cannot read system pressure fails admission"
+consumers = ["src/capacity/run_queue.rs"]
+
 [quiet_idle_cores]
 value = 0.25
 unit = "measured cores of a quiet native lease's scope below which its clients count as idle"
