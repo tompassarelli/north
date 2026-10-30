@@ -40,6 +40,27 @@ fn flagged(body: &str) -> Vec<&str> {
 fn gh(args: &[&str]) -> Result<serde_json::Value, String> {
     crate::platform::github::json(args)
 }
+fn repository(repo: &str) -> &str {
+    repo.strip_prefix("tompassarelli/").unwrap_or(repo)
+}
+fn slug(repo: &str) -> String {
+    if repo.contains('/') {
+        repo.to_owned()
+    } else {
+        format!("tompassarelli/{repo}")
+    }
+}
+fn issue(item: &str) -> Result<(&str, &str), String> {
+    item.split_once('#')
+        .filter(|(repo, number)| {
+            !repo.is_empty()
+                && repo.matches('/').count() <= 1
+                && !number.is_empty()
+                && number.bytes().all(|b| b.is_ascii_digit())
+        })
+        .map(|(repo, number)| (repository(repo), number))
+        .ok_or_else(|| format!("{item}: expected REPO#N or OWNER/REPO#N"))
+}
 fn lint(args: &[String]) -> Result<u8, String> {
     let mut items = Vec::new();
     let mut repos = Vec::new();
@@ -99,27 +120,19 @@ fn lint(args: &[String]) -> Result<u8, String> {
     }
     let mut issues = Vec::new();
     for item in items {
-        let (repo, number) = item.split_once('#').ok_or("expected REPO#N")?;
-        let value = gh(&[
-            "issue",
-            "view",
-            number,
-            "-R",
-            &format!("tompassarelli/{repo}"),
-            "--json",
-            "body",
-        ])?;
+        let (repo, number) = issue(item)?;
+        let value = gh(&["issue", "view", number, "-R", &slug(repo), "--json", "body"])?;
         issues.push((
-            item.to_owned(),
+            format!("{repo}#{number}"),
             value["body"].as_str().unwrap_or("").to_owned(),
         ));
     }
-    for repo in repos {
+    for repo in repos.into_iter().map(repository) {
         let values = gh(&[
             "issue",
             "list",
             "-R",
-            &format!("tompassarelli/{repo}"),
+            &slug(repo),
             "--state",
             "open",
             "--limit",
@@ -159,11 +172,11 @@ issue-box-lint: flag unchecked Done when boxes that hand Tom a mechanical
 check or a bar without provenance.
 
 positional arguments:
-  issues       REPO#N
+  issues       REPO#N or OWNER/REPO#N
 
 options:
   -h, --help   show this help message and exit
-  --repo REPO  lint every open issue in REPO
+  --repo REPO  lint every open issue in REPO or OWNER/REPO
 "#;
 
 pub(crate) fn run(args: &[String]) -> u8 {
@@ -215,5 +228,16 @@ mod tests {
             flagged(&body),
             vec!["9.11p: the 1,000-row query keystroke stays under 50 ms."]
         );
+    }
+    #[test]
+    fn test_owner_repo_issue_parses_like_repo_issue() {
+        assert_eq!(issue("tompassarelli/wisp#121"), Ok(("wisp", "121")));
+        assert_eq!(issue("wisp#121"), Ok(("wisp", "121")));
+        assert_eq!(issue("octo/wisp#121"), Ok(("octo/wisp", "121")));
+        assert_eq!(slug("wisp"), "tompassarelli/wisp");
+        assert_eq!(slug("octo/wisp"), "octo/wisp");
+        assert!(issue("wisp").is_err());
+        assert!(issue("a/b/c#1").is_err());
+        assert!(issue("wisp#12x").is_err());
     }
 }
