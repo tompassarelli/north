@@ -40,9 +40,16 @@ pub(crate) fn run(_arguments: &[String]) -> u8 {
     let mut status = 0;
     for (name, repo) in repositories(&home().join("code")) {
         println!("git-maintenance-nightly: {}", repo.display());
-        let ran = Command::new("bun").args(maintenance_argv(&helper, &name, &repo)).status();
-        if !ran.is_ok_and(|code| code.success()) {
-            status = 1;
+        match Command::new("bun").args(maintenance_argv(&helper, &name, &repo)).status() {
+            Ok(code) if code.success() => {}
+            Ok(code) => {
+                eprintln!("git-maintenance-nightly: {} failed: {code}", repo.display());
+                status = 1;
+            }
+            Err(error) => {
+                eprintln!("git-maintenance-nightly: {} failed to start: {error}", repo.display());
+                status = 1;
+            }
         }
     }
     status
