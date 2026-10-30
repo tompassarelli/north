@@ -468,7 +468,7 @@ pub(crate) fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Rost
 }
 
 pub(crate) fn here_in_game_reserve() -> bool {
-    agent_load::game_reserve_on(&agent_load::Host::from_env())
+    agent_load::gaming_declared(&agent_load::Host::from_env())
 }
 
 /// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet

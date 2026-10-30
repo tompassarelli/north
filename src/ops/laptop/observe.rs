@@ -11,9 +11,7 @@ use super::stamp::{iso, parse, write_atomic};
 use super::state::{GRACE_CLOSE, GRACE_DRAIN, State};
 use super::zone::Window;
 
-const WRONG: &str = "observe wants gaming/agent_gpu/sleeping/battery_low booleans, idle boolean or null, gpu_busy integer 0..100 or null";
-const GPU_BUSY_PERCENT: i64 = 40;
-const GPU_GAMING_SECONDS: i64 = 180;
+const WRONG: &str = "observe wants gaming/sleeping/battery_low booleans and idle boolean or null";
 const CLEAR_SECONDS: i64 = 600;
 const ACTIVE_SECONDS: i64 = 300;
 const OBSERVATION_FRESH_SECONDS: i64 = 120;
@@ -32,8 +30,6 @@ static IDLE_REOPEN_SECONDS: LazyLock<i64> = LazyLock::new(|| {
 struct Observations {
     at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    gpu: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     active: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     idle: Option<String>,
@@ -43,11 +39,9 @@ struct Observations {
 
 struct Sample {
     gaming: bool,
-    agent_gpu: bool,
     sleeping: bool,
     battery_low: bool,
     idle: Option<bool>,
-    gpu_busy: Option<i64>,
     battery_known: bool,
 }
 
@@ -71,24 +65,17 @@ fn sample(arguments: &[String]) -> Option<Sample> {
         Some(Value::Bool(flag)) => Some(*flag),
         Some(_) => return None,
     };
-    let gpu_busy = match object.get("gpu_busy") {
-        None | Some(Value::Null) => None,
-        Some(Value::Number(number)) => Some(number.as_i64().filter(|busy| (0..=100).contains(busy))?),
-        Some(_) => return None,
-    };
     Some(Sample {
         gaming: flag("gaming")?,
-        agent_gpu: flag("agent_gpu")?,
         sleeping: flag("sleeping")?,
         battery_low: flag("battery_low")?,
         idle,
-        gpu_busy,
         battery_known: !matches!(object.get("battery"), None | Some(Value::Null)),
     })
 }
 
-fn hold_for(state: &State, sample: &Sample, gaming: bool) -> Option<&'static str> {
-    if gaming {
+fn hold_for(state: &State, sample: &Sample) -> Option<&'static str> {
+    if sample.gaming {
         Some("gaming")
     } else if sample.sleeping && (state.state == "available" || state.reason == "sleep") {
         Some("sleep")
@@ -114,21 +101,15 @@ impl Ctx {
         let carry = |active: bool, before: &Option<String>| active.then(|| before.clone().unwrap_or_else(|| now.clone()));
         let mut seen = Observations {
             at: now.clone(),
-            gpu: carry(sample.gpu_busy.is_some_and(|busy| busy >= GPU_BUSY_PERCENT) && !sample.agent_gpu, &previous.gpu),
             active: carry(sample.idle == Some(false), &previous.active),
             idle: carry(sample.idle == Some(true), &previous.idle),
             clear: None,
         };
-        let gpu_gaming = match &seen.gpu {
-            Some(since) => at - parse(since)? >= GPU_GAMING_SECONDS,
-            None => false,
-        };
-        let gaming = sample.gaming || gpu_gaming;
-        if !gaming {
+        if !sample.gaming {
             seen.clear = Some(previous.clear.clone().unwrap_or(now));
         }
         let state = match self.load() {
-            Some(state) => Some(self.react(state, &sample, &seen, gaming, at)?),
+            Some(state) => Some(self.react(state, &sample, &seen, at)?),
             None => None,
         };
         let text = serde_json::to_string(&seen).map_err(|error| Die::new(1, error.to_string()))?;
@@ -136,14 +117,14 @@ impl Ctx {
         Ok(state.map_or_else(String::new, |state| format!("laptop: {}\n", self.describe(&state))))
     }
 
-    fn react(&self, state: State, sample: &Sample, seen: &Observations, gaming: bool, at: i64) -> Result<State, Die> {
+    fn react(&self, state: State, sample: &Sample, seen: &Observations, at: i64) -> Result<State, Die> {
         let auto = matches!(state.by.as_str(), "laptop-auto" | "window") || (state.by == "laptop tick" && AUTO_DRAINED.contains(&state.reason.as_str()));
         if state.state != "available" && !auto {
             return Ok(state);
         }
         let edge = Window::read(&self.window).last_edge(at)?;
         let frame = Frame { state, at, auto, edge, in_window: edge.is_some_and(|(_, target)| target == "available") };
-        if let Some(hold) = hold_for(&frame.state, sample, gaming) {
+        if let Some(hold) = hold_for(&frame.state, sample) {
             return self.held(&frame, hold);
         }
         if auto && AUTO_REASONS.contains(&frame.state.reason.as_str()) {

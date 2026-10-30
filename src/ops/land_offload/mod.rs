@@ -42,7 +42,7 @@ pub(crate) fn settles_fleet_here() -> bool {
 
 pub(crate) fn in_game_reserve() -> bool {
     let local = agent_load::Host::from_env();
-    agent_load::gaming_marked(&local.capacity) || agent_load::game_reserve_on(&local)
+    agent_load::gaming_declared(&local)
 }
 
 pub(crate) fn host_with_room() -> Result<gate::Machine, String> {

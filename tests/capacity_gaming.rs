@@ -91,21 +91,49 @@ fn landing_heavy_check_queues_while_gaming_instead_of_taking_a_lease_to_be_froze
 }
 
 #[test]
-fn only_a_fresh_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket() {
+fn only_a_declared_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket() {
     let host = host();
     let _holder = run(&host, "heavy", "fixture:/holder", &["sleep", "30"]);
     host.until("the heavy lease", |host| host.leases("heavy") == 1);
     let _parked = run(&host, "heavy", "fixture:/parked", &["true"]);
     host.until("the parked heavy ticket", |host| host.queued("heavy") == 1);
 
-    let stale = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() - 300;
-    fs::write(host.path("agent-capacity-v1/gaming.json"), json!({ "gaming": true, "at": stale }).to_string()).unwrap();
     let ignored = probe(&host, "moderate");
     assert_eq!(ignored["reason"], "DEFER_QUEUED", "{ignored}");
 
-    mark_gaming(&host, true);
-    let fresh = probe(&host, "moderate");
-    assert_eq!(fresh["reason"], "RUN", "{fresh}");
+    fs::write(host.path("agent-capacity-v1/gaming.json"), json!({ "gaming": true, "at": 1 }).to_string()).unwrap();
+    let declared = probe(&host, "moderate");
+    assert_eq!(declared["reason"], "RUN", "{declared}");
+}
+
+#[test]
+fn a_running_game_declares_nothing_and_the_gaming_command_declares_and_lifts_the_hold() {
+    let host = host();
+    let game = host.path("proc/999999");
+    fs::create_dir_all(&game).unwrap();
+    fs::write(game.join("stat"), "999999 (Warcraft III.ex) S 1 999999 999999 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 4242 0 0\n").unwrap();
+    fs::write(game.join("cgroup"), "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-steam-1.scope\n").unwrap();
+    fs::write(game.join("cmdline"), "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe\0").unwrap();
+    let dry = || {
+        let output = host.command(env!("CARGO_BIN_EXE_north")).args(["capacity", "laptop-auto", "--dry-run"]).env("AGENT_LOAD_PROC", host.path("proc")).env("AGENT_LOAD_POWER_SUPPLY", host.path("no-power-supply")).output().unwrap();
+        serde_json::from_slice::<Value>(&output.stdout).unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)))
+    };
+    let gaming = |verb: &str| {
+        let output = host.command(env!("CARGO_BIN_EXE_north")).args(["capacity", "gaming", verb]).output().unwrap();
+        (output.status.code(), String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    };
+    assert_eq!(dry()["gaming"], false);
+    assert_eq!(probe(&host, "gpu")["reason"], "RUN");
+    assert_eq!(gaming("status"), (Some(1), "gaming off".to_owned()));
+
+    assert_eq!(gaming("on"), (Some(0), "gaming on".to_owned()));
+    assert_eq!(dry()["gaming"], true);
+    assert_eq!(probe(&host, "gpu")["reason"], "DEFER_GAMING");
+    assert_eq!(gaming("status"), (Some(0), "gaming on".to_owned()));
+
+    assert_eq!(gaming("off"), (Some(0), "gaming off".to_owned()));
+    assert_eq!(dry()["gaming"], false);
+    assert_eq!(probe(&host, "gpu")["reason"], "RUN");
 }
 
 const WALL_CLOCK_TIMEOUT: u64 = 2;
@@ -117,22 +145,13 @@ fn wall_clock_systemd_run() -> String {
 }
 
 fn laptop_auto(host: &Host, gaming: bool) -> String {
-    let game = host.path("proc/999999");
-    if gaming {
-        fs::create_dir_all(&game).unwrap();
-        fs::write(game.join("stat"), "999999 (Warcraft III.ex) S 1 999999 999999 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 4242 0 0\n").unwrap();
-        fs::write(game.join("cgroup"), "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-steam-1.scope\n").unwrap();
-        fs::write(game.join("cmdline"), "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe\0").unwrap();
-    } else {
-        let _ = fs::remove_dir_all(&game);
-    }
+    mark_gaming(host, gaming);
     fs::write(host.path("game-reserve.json"), json!({ "on": false }).to_string()).unwrap();
     let output = host
         .command(env!("CARGO_BIN_EXE_north"))
         .args(["capacity", "laptop-auto"])
         .env("AGENT_LOAD_PROC", host.path("proc"))
         .env("AGENT_LOAD_CGROUP", host.path("user-cgroup"))
-        .env("AGENT_LOAD_DRM", host.path("no-drm"))
         .env("AGENT_LOAD_POWER_SUPPLY", host.path("no-power-supply"))
         .env("GAME_RESERVE_STATE", host.path("game-reserve.json"))
         .env("LAPTOP_AUTO_LAPTOP", "true")

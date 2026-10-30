@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::agent_load::{self, Host, Process};
+use super::agent_load::{self, Host};
 use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
@@ -14,20 +14,9 @@ const NOTIFY_WAIT: Duration = Duration::from_secs(5);
 const BATTERY_WARNED: &str = "battery-warned";
 const BATTERY_DRAIN_PERCENT: u8 = 30;
 
-pub(crate) fn sample(host: &Host, processes: &[Process], drm: &Path, idle: Option<bool>, sleeping: bool, battery: Option<u8>) -> Value {
-    let agent_gpu = processes.iter().filter(|process| process.agent_owned()).any(|process| uses_gpu(&host.proc, process.pid));
-    let busy = fs::read_dir(drm)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|card| card.file_name().to_string_lossy().starts_with("card"))
-        .filter_map(|card| fs::read_to_string(card.path().join("device/gpu_busy_percent")).ok()?.trim().parse::<u8>().ok())
-        .filter(|value| *value <= 100)
-        .max();
+pub(crate) fn sample(host: &Host, idle: Option<bool>, sleeping: bool, battery: Option<u8>) -> Value {
     json!({
-        "gaming": agent_load::tom_gaming(processes, busy, host.match_gpu_percent),
-        "agent_gpu": agent_gpu,
-        "gpu_busy": busy,
+        "gaming": agent_load::gaming_marked(&host.capacity),
         "idle": idle,
         "sleeping": sleeping,
         "battery": battery,
@@ -75,14 +64,6 @@ pub(crate) fn warn_battery_once(marker: &Path, battery: Option<u8>, notify: &mut
     }
 }
 
-fn uses_gpu(proc: &Path, pid: i32) -> bool {
-    fs::read_dir(proc.join(pid.to_string()).join("fd"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .any(|fd| fs::read_link(fd.path()).is_ok_and(|target| target.starts_with("/dev/dri/")))
-}
-
 fn preparing_for_sleep() -> bool {
     Command::new("busctl")
         .args(["get-property", "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "PreparingForSleep"])
@@ -113,10 +94,9 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     };
     let host = Host::from_env();
     let processes = agent_load::processes(&host);
-    let drm = std::env::var_os("AGENT_LOAD_DRM").unwrap_or_else(|| "/sys/class/drm".into());
     let power_supply = std::env::var_os("AGENT_LOAD_POWER_SUPPLY").unwrap_or_else(|| "/sys/class/power_supply".into());
     let battery = discharging_percent(Path::new(&power_supply));
-    let sample = sample(&host, &processes, Path::new(&drm), seat_idle(), preparing_for_sleep(), battery);
+    let sample = sample(&host, seat_idle(), preparing_for_sleep(), battery);
     if dry {
         println!("{sample}");
         return 0;

@@ -21,7 +21,7 @@ drain [until HH:MM] [REASON...]  draining with a 15-minute grace, then unavailab
 toggle                           close when available, else open
 status [--json]                  one line: state, since, until, reason, by, running and queued laptop jobs
 tick                             the window timer: apply window edges and expired words, settle draining
-observe JSON                     apply gaming, GPU, seat-idle, sleep and low-battery observations from laptop-auto
+observe JSON                     apply declared-gaming, seat-idle, sleep and low-battery observations from laptop-auto
 
 A word holds until its `until`, else until the next window edge. Draining becomes unavailable once no laptop job
 is running. Where ~/.config/threads/remote names the ledger host, every command runs there over ssh.

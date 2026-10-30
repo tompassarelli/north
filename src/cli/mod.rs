@@ -113,8 +113,9 @@ Commands:
   gate [open --session S --question Q --option O... --recommend N --default N --default-after D [--issue OWNER/REPO#N] | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity admission < FACTS.json               Decide one machine-capacity admission
-  capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
+  capacity laptop-auto [--dry-run]              Stop agent game load while Tom's declared gaming hold is on, reap orphaned scopes
   capacity seat-idle-hint [--seconds N]         Set logind IdleHint from Wayland input idle, which ignores idle inhibitors
+  capacity gaming on|off|status                 Declare Tom's gaming hold, which stays until off
   capacity game-reserve on [--auto]|off|status Reserve CPUs for Tom's game, moving it only once it has run 60 s
   capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
   capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators

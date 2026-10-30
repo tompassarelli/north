@@ -13,9 +13,7 @@ use super::lease_deadline;
 
 const WISP_DATA: &str = "/.local/share/wisp/";
 const STEAM_PREFIXES: &str = "/steamapps/compatdata/";
-const MARKER_FRESH_SECONDS: u64 = 120;
-const GPU_GAMING_PERCENT: u8 = 30;
-pub(crate) const MATCH_GPU_PERCENT: u8 = 25;
+const GAMING_MARKER: &str = "gaming.json";
 const PREFIX_VARIABLES: [&str; 2] = ["STEAM_COMPAT_DATA_PATH", "WINEPREFIX"];
 const KEPT_VARIABLES: [&str; 4] = ["XDG_RUNTIME_DIR", "PRIVATE_DESKTOP_RUN", "STEAM_COMPAT_DATA_PATH", "WINEPREFIX"];
 
@@ -25,7 +23,6 @@ pub(crate) struct Host {
     pub(crate) capacity: PathBuf,
     pub(crate) game_reserve: PathBuf,
     pub(crate) systemctl: String,
-    pub(crate) match_gpu_percent: u8,
     pub(crate) uid: u32,
 }
 
@@ -42,14 +39,9 @@ impl Host {
             capacity: capacity_root(),
             game_reserve: var("GAME_RESERVE_STATE").unwrap_or_else(|| home.join(".local/state/game-reserve/state.json")),
             systemctl: std::env::var("AGENT_LOAD_SYSTEMCTL").unwrap_or_else(|_| "systemctl".into()),
-            match_gpu_percent: match_gpu_percent(std::env::var("AGENT_LOAD_MATCH_GPU_PERCENT").ok().as_deref()),
             uid,
         }
     }
-}
-
-pub(crate) fn match_gpu_percent(setting: Option<&str>) -> u8 {
-    setting.and_then(|value| value.trim().parse().ok()).unwrap_or(MATCH_GPU_PERCENT)
 }
 
 pub(crate) fn capacity_root() -> PathBuf {
@@ -110,19 +102,6 @@ impl Process {
         ["wine", "warcraft iii", "dolphin", "slippi"].iter().any(|word| text.contains(word)) || has_word(&text, "proton")
     }
 
-    fn image_name(&self) -> String {
-        format!("{} {}", self.comm, self.executable.rsplit(['/', '\\']).next().unwrap_or_default()).to_lowercase()
-    }
-
-    fn game_executable(&self) -> bool {
-        let text = self.image_name();
-        ["warcraft iii", "dolphin-emu", "slippi"].iter().any(|word| text.contains(word)) || ["war3", "wow", "wowb"].iter().any(|word| has_word(&text, word))
-    }
-
-    fn idles_in_menu(&self) -> bool {
-        let text = self.image_name();
-        text.contains("warcraft iii") || has_word(&text, "war3")
-    }
     fn in_unit(&self, unit: &str) -> bool {
         self.segments().any(|part| part == unit)
     }
@@ -131,15 +110,6 @@ impl Process {
 fn has_word(text: &str, word: &str) -> bool {
     let boundary = |c: Option<char>| c.is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
     text.match_indices(word).any(|(at, _)| boundary(text[..at].chars().next_back()) && boundary(text[at + word.len()..].chars().next()))
-}
-
-pub(crate) fn tom_gaming(processes: &[Process], gpu_busy: Option<u8>, match_gpu_percent: u8) -> bool {
-    let loaded = gpu_busy.is_some_and(|busy| busy > GPU_GAMING_PERCENT);
-    let in_match = gpu_busy.is_none_or(|busy| busy > match_gpu_percent);
-    processes
-        .iter()
-        .filter(|process| process.toms() || !process.agent_owned())
-        .any(|process| (process.game_executable() && (in_match || !process.idles_in_menu())) || (process.game_like() && loaded))
 }
 
 pub(crate) fn processes(host: &Host) -> Vec<Process> {
@@ -321,8 +291,6 @@ pub(crate) fn enforce(host: &Host, gaming: bool, game_reserve: bool, processes: 
         |lease| wrapper_alive(host, lease),
     );
     let _ = fs::create_dir_all(&host.capacity);
-    let marker = json!({ "gaming": gaming, "at": now_seconds() });
-    let _ = write_atomic(&host.capacity.join("gaming.json"), &marker.to_string());
     let (mut unfrozen, mut unthawed) = (BTreeSet::new(), BTreeSet::new());
     for (verb, units) in [("stop", &plan.stop), ("freeze", &plan.freeze), ("thaw", &plan.thaw)] {
         for unit in units {
@@ -380,12 +348,20 @@ pub(crate) fn gaming_marked(capacity: &Path) -> bool {
     #[derive(Deserialize)]
     struct Marker {
         gaming: bool,
-        at: u64,
     }
-    fs::read(capacity.join("gaming.json"))
+    fs::read(capacity.join(GAMING_MARKER))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Marker>(&bytes).ok())
-        .is_some_and(|marker| marker.gaming && now_seconds().saturating_sub(marker.at) <= MARKER_FRESH_SECONDS)
+        .is_some_and(|marker| marker.gaming)
+}
+
+pub(crate) fn declare_gaming(capacity: &Path, gaming: bool) -> std::io::Result<()> {
+    fs::create_dir_all(capacity)?;
+    write_atomic(&capacity.join(GAMING_MARKER), &json!({ "gaming": gaming, "at": now_seconds() }).to_string())
+}
+
+pub(crate) fn gaming_declared(host: &Host) -> bool {
+    gaming_marked(&host.capacity) || game_reserve_on(host)
 }
 
 pub(crate) fn game_reserve_on(host: &Host) -> bool {

@@ -104,7 +104,7 @@ fn status_names_why_a_queued_laptop_job_still_waits() {
     assert_eq!(out, "laptop: available since 12:00, open by tester@host (0 running, 1 queued; job 5 waits 30m: no runner has polled this ledger for laptop)\n");
 }
 
-const ACTIVE: &str = r#"{"gaming":false,"agent_gpu":false,"sleeping":false,"battery_low":false,"idle":false}"#;
+const ACTIVE: &str = r#"{"gaming":false,"sleeping":false,"battery_low":false,"idle":false}"#;
 
 fn observe_active(root: &Path, stub: &str, from: i64, minutes: i64) -> Value {
     for minute in 0..=minutes {

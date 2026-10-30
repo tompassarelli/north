@@ -24,7 +24,7 @@ fn laptop(root: &Path, minute: u32, arguments: &[&str]) -> Value {
 }
 
 fn observe(root: &Path, minute: u32, observed: Value) -> Value {
-    let mut sample = json!({ "gaming": false, "agent_gpu": false, "idle": true, "gpu_busy": null, "sleeping": false, "battery": null, "battery_low": false });
+    let mut sample = json!({ "gaming": false, "idle": true, "sleeping": false, "battery": null, "battery_low": false });
     for (key, value) in observed.as_object().unwrap() {
         sample[key] = value.clone();
     }

@@ -11,7 +11,7 @@ Read this to publish a map release on Hive Workshop: replace the map file, updat
 ## Procedure
 
 - Work in `automation-chrome` on the private desktop, never Tom's own Chrome, because Tom asked for releases without taking over his screen; its profile stays signed in to the release account (south:agents/skills/battlenet-accounts/) with Stay logged in.
-- When the private desktop defers with DEFER_GAMING, ask Tom before closing Battle.net, then close it with `~/code/north/main/bin/tom-warcraft-close`, because the capacity guard counts his launcher as gaming.
+- When the private desktop defers with DEFER_GAMING, Tom has declared a gaming hold (`north capacity gaming status`): wait for `north capacity gaming off` and leave his launcher and game open, because no process is read to infer gaming and only his word sets the hold.
 - When navigation hangs on Unlock Login Keyring or Hive shows Log in, open a viewer with `run-bounded 30m -- remmina -c vnc://127.0.0.1:PORT` (the run's `port` file) and let Tom type the keyring password and Hive sign-in himself, because both are his credentials; close the viewer afterwards.
 - Replace the map on the resource edit page: click the dropzone's Delete, then `{"action":"upload","selector":".upload-map-container input[type=file]","path":"/absolute/Smashcraft X.Y.Z.w3x"}`, wait for the green check and the new file name, keep Send alert and Bump ticked, and press Post resource.
 - Update the description on the bundle edit page: press Toggle BB code (`#xfBbCode-1`), fill `textarea[name=message]` with the generated BBCode and press Post bundle; diff the live text against the previous release's file first, because Tom may have edited the page by hand.
