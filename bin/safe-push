@@ -1019,6 +1019,19 @@ run_language_gate() {
     echo 'safe-push: language gate refused the landing; NOT pushed.' >&2
     return "$status"
   }
+  run_bin_reference_gate "$root" "$base" "$head"
+}
+
+# A north landing may not delete a bin/ entry that a deployed nixos-config or south unit, or this host, still runs.
+run_bin_reference_gate() {
+  local root="$1" base="$2" head="$3"
+  case "${origin_url:-}" in *tompassarelli/north | *tompassarelli/north.git) ;; *) return 0 ;; esac
+  [ -n "$(git -C "$root" diff --no-renames --name-only --diff-filter=D "$base" "$head" -- bin)" ] || return 0
+  north bin-references --help >/dev/null 2>&1 || {
+    echo "safe-push: this host's north runtime lacks north bin-references, so a deleted bin/ entry cannot be checked against deployed units; run north runtime update; NOT pushed." >&2
+    return 1
+  }
+  north bin-references --repo "$root" --base "$base" --head "$head"
 }
 
 land_commands=()

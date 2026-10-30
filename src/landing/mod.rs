@@ -1,3 +1,4 @@
+pub(crate) mod bin_references;
 pub(crate) mod denylist;
 pub(crate) mod denylist_attest;
 mod instruction_limits;
