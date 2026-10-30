@@ -17,8 +17,11 @@ use super::state::{active_profile, dequeue, enqueue, exact_lease, read_leases, w
 use super::systemd::{apply_profile, client_environment, scope_live, scope_unit, stop_scope};
 use super::{change_lease, fail, print_to};
 use crate::capacity::Host;
+use crate::capacity::build_offload::{self, Candidate, Job};
 
 const QUEUE_POLL_MILLISECONDS: u64 = 1000;
+const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
+const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 const FROZEN_CLASSES: [&str; 3] = ["heavy", "exclusive", "gpu"];
 const USER_HZ: f64 = 100.0;
 
@@ -63,13 +66,62 @@ fn reason(result: &Obj) -> Option<String> {
     result.get("reason").and_then(Value::as_str).map(str::to_owned)
 }
 
-/// Batch work, and a native client or desktop start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or a quiet native session outlasts its timeout (REFUSED).
-async fn admit(root: &Path, request: &Request, create: &Create, host: &Host, terminations: &mut Terminations) -> Obj {
-    if !batch_class(&request.name) && request.wait_seconds.is_none() && !request.alone {
-        return decision(root, request, Some(create), None, host);
+enum Admitted {
+    Here(Obj),
+    Offloaded(u8),
+}
+
+struct Waiting<'a> {
+    root: &'a Path,
+    ticket: Option<&'a str>,
+    request: &'a Request,
+    create: &'a Create,
+    command: &'a [String],
+}
+
+/// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path.
+async fn try_offload(waiting: Waiting<'_>, deferred: &Obj, host: &Host, terminations: &mut Terminations) -> Option<u8> {
+    let Waiting { root, ticket, request, create, command } = waiting;
+    let host = *host;
+    let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
+    let (waiting_root, waiting_ticket) = (root.clone(), ticket.clone());
+    let landing = request.landing || env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty());
+    let (class, owner, command) = (request.name.clone(), create.owner.clone(), command.to_vec());
+    let timeout_seconds = create.timeout_seconds.unwrap_or(OFFLOAD_DEFAULT_TIMEOUT_SECONDS);
+    let (deferred, need) = (reason(deferred).is_some_and(|reason| reason.starts_with("DEFER_")), env("AGENT_CAPACITY_NEED").filter(|need| !need.is_empty()));
+    let offloaded_already = env(build_offload::REMOTE_MARK).is_some();
+    let work = tokio::task::spawn_blocking(move || {
+        let candidate = Candidate { class: &class, landing, need: need.as_deref(), deferred, offloaded_already };
+        let announce = |target: &str| {
+            print_to(&Obj::new().put("decision", "OFFLOADED").put("reason", build_offload::REASON).put("host", target).put("class", class.as_str()).put("owner", owner.as_str()), true);
+            if let Some(ticket) = &ticket {
+                dequeue(&root, ticket);
+            }
+        };
+        (host.build_offload)(&candidate, &Job { owner: &owner, timeout_seconds, command: &command }, &announce)
+    });
+    tokio::select! {
+        done = work => done.ok().flatten(),
+        number = terminations.next() => {
+            if let Some(ticket) = &waiting_ticket {
+                dequeue(&waiting_root, ticket);
+            }
+            std::process::exit(128 + number)
+        }
     }
-    let queued_at = now_ms();
-    let ticket = enqueue(
+}
+
+/// A heavy request its host defers on the first look runs elsewhere when a host has room; otherwise None sends it to the queue.
+async fn offer_first(root: &Path, request: &Request, create: &Create, command: &[String], host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
+    let first = decision(root, request, Some(create), None, host);
+    if first.get("decision").and_then(Value::as_str) != Some("DEFER") {
+        return Some(Admitted::Here(first));
+    }
+    try_offload(Waiting { root, ticket: None, request, create, command }, &first, host, terminations).await.map(Admitted::Offloaded)
+}
+
+fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
+    enqueue(
         root,
         Obj::new()
             .put("class", request.admitted_class())
@@ -79,7 +131,21 @@ async fn admit(root: &Path, request: &Request, create: &Create, host: &Host, ter
             .put("newClients", request.new_clients)
             .put("newDesktops", request.new_desktops)
             .put_some("alone", request.alone.then_some(true)),
-    );
+    )
+}
+
+/// Batch work, and a native client or desktop start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or a quiet native session outlasts its timeout (REFUSED).
+async fn admit(root: &Path, request: &Request, create: &Create, command: &[String], host: &Host, terminations: &mut Terminations) -> Admitted {
+    if !batch_class(&request.name) && request.wait_seconds.is_none() && !request.alone {
+        return Admitted::Here(decision(root, request, Some(create), None, host));
+    }
+    let offer = request.name == "heavy" && !request.landing;
+    if offer && let Some(admitted) = offer_first(root, request, create, command, host, terminations).await {
+        return admitted;
+    }
+    let mut offered_at = now_ms();
+    let queued_at = now_ms();
+    let ticket = wait_ticket(root, request, create);
     let mut reported = None;
     loop {
         let result = decision(root, request, Some(create), Some(&ticket), host);
@@ -88,11 +154,18 @@ async fn admit(root: &Path, request: &Request, create: &Create, host: &Host, ter
         let decided = result.get("decision").and_then(Value::as_str).unwrap_or_default();
         if decided == "RESERVED" || decided == "REFUSED" || request.wait_seconds.is_some_and(|wait| queued_seconds >= wait as f64) {
             dequeue(root, &ticket);
-            return result;
+            return Admitted::Here(result);
         }
         if reason(&result).as_deref() == Some("DEFER_NATIVE_QUIET") && create.timeout_seconds.is_some_and(|timeout| queued_seconds >= timeout as f64) {
             dequeue(root, &ticket);
-            return result.put("decision", "REFUSED");
+            return Admitted::Here(result.put("decision", "REFUSED"));
+        }
+        if offer && now_ms() - offered_at >= OFFLOAD_RETRY_MILLISECONDS {
+            offered_at = now_ms();
+            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command }, &result, host, terminations).await {
+                dequeue(root, &ticket);
+                return Admitted::Offloaded(code);
+            }
         }
         if reason(&result) != reported {
             print_to(&result.clone().put("decision", "QUEUED"), true);
@@ -294,7 +367,10 @@ pub(crate) fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_se
     let create = Create { kind: "run", owner: owner.to_owned(), timeout_seconds };
     runtime.block_on(async {
         let mut terminations = Terminations::listen();
-        let admitted = admit(root, request, &create, host, &mut terminations).await;
+        let admitted = match admit(root, request, &create, command, host, &mut terminations).await {
+            Admitted::Here(admitted) => admitted,
+            Admitted::Offloaded(code) => return code,
+        };
         print_to(&admitted, true);
         if let Some(message) = refusal(&admitted) {
             fail(&message, 75);

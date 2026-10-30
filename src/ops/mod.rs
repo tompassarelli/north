@@ -8,6 +8,7 @@ pub(crate) mod dispatch;
 pub(crate) mod dividend;
 pub(crate) mod flow;
 pub(crate) mod incident_mine;
+pub(crate) mod build_offload;
 pub(crate) mod land_offload;
 pub(crate) mod defaults_measure;
 pub(crate) mod laptop;

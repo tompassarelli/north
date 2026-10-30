@@ -16,3 +16,9 @@ fn a_host_builds_the_runtime_unless_it_declares_builds_runtime_false() {
     assert!(super::builds_runtime(&cfg, "gex45"));
     assert!(super::builds_runtime(&cfg, "unlisted"));
 }
+
+#[test]
+fn capacity_only_a_host_with_offload_builds_and_an_ssh_destination_takes_other_hosts_builds() {
+    let cfg: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\noffload_builds = true\n[hosts.nexus]\nssh = \"tom@nexus\"\n[hosts.laptop]\nssh = \"tom@laptop\"\noffload_builds = true\n[hosts.bare]\noffload_builds = true\n".parse().unwrap();
+    assert_eq!(super::build_hosts(&cfg, "laptop"), [("gex45".to_owned(), "tom@gex45".to_owned())]);
+}

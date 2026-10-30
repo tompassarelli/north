@@ -9,9 +9,9 @@ const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Room {
-    pub(super) measure: Measure,
-    pub(super) disk_free_gib: f64,
+pub(crate) struct Room {
+    pub(crate) measure: Measure,
+    pub(crate) disk_free_gib: f64,
 }
 
 pub(super) fn parse(text: &str) -> Option<Room> {
@@ -20,16 +20,25 @@ pub(super) fn parse(text: &str) -> Option<Room> {
 }
 
 pub(super) fn read(ssh: &str) -> Option<Room> {
+    read_within(ssh, LIMIT)
+}
+
+pub(crate) fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
     let disk = format!("d=\"{OFFLOAD_ROOT}\"; while [ ! -d \"$d\" ]; do d=$(dirname \"$d\"); done; df -Pk \"$d\"");
     let probe = quote(&format!("{}; {disk}", measure::PROBE));
     let command = format!("sh -c {probe}");
-    let output = run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &command], LIMIT)?;
+    let output = run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &command], limit)?;
     output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
 }
 
 pub(super) fn shortfall(room: &Room) -> Option<String> {
+    shortfall_reserving(room, 0.0)
+}
+
+/// The shortfall once `reserved` cores are counted as taken by builds already on their way to the host.
+pub(crate) fn shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
     let (cores, disk) = offload_room();
-    let free_cores = room.measure.cores - room.measure.load;
+    let free_cores = room.measure.cores - room.measure.load - reserved;
     let memory = dispatch_request_mib(Class::Heavy);
     if free_cores < cores {
         return Some(format!("{free_cores:.1} cores free of {}, needs {cores}", room.measure.cores));

@@ -4,6 +4,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use serde_json::json;
 
 pub(crate) mod admission;
+pub(crate) mod build_offload;
 mod aperture;
 pub(crate) mod agent_load;
 pub(crate) mod gaming;
@@ -23,6 +24,8 @@ mod warcraft;
 pub(crate) mod saturation;
 #[cfg(test)]
 mod admission_tests;
+#[cfg(test)]
+mod build_offload_tests;
 #[cfg(test)]
 mod agent_load_tests;
 #[cfg(test)]
@@ -44,6 +47,7 @@ pub(crate) struct Host {
     pub(crate) warcraft_clients: fn() -> Option<u32>,
     pub(crate) bar1_margin_mib: fn() -> Option<u32>,
     pub(crate) offload: fn(&[String]) -> u8,
+    pub(crate) build_offload: build_offload::Offloader,
     pub(crate) lease_builds: fn() -> bool,
     pub(crate) reclaim_disk: fn() -> Option<f64>,
 }

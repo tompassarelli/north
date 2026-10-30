@@ -35,7 +35,7 @@ cd "$slot"
 SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head timeout -k 5 "$limit" bash -euo pipefail -c "$command" 9>&-
 "#;
 
-pub(super) fn quote(word: &str) -> String {
+pub(crate) fn quote(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
 }
 

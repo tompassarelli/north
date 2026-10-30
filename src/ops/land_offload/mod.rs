@@ -2,8 +2,8 @@ use crate::capacity::agent_load;
 use crate::ops::pacing::placement::{config, gate};
 
 mod destinations;
-mod room;
-mod ship;
+pub(crate) mod room;
+pub(crate) mod ship;
 
 const USAGE: &str = "usage: north capacity offload choose | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
@@ -26,6 +26,10 @@ fn usage() -> u8 {
 
 fn machines() -> Vec<gate::Machine> {
     config().map(|cfg| gate::machines(&cfg)).unwrap_or_default()
+}
+
+pub(crate) fn build_hosts() -> Vec<(String, String)> {
+    config().map(|cfg| destinations::build_hosts(&cfg, &crate::platform::host::name())).unwrap_or_default()
 }
 
 pub(crate) fn other_destinations() -> Vec<String> {

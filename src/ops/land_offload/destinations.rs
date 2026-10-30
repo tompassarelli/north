@@ -32,3 +32,12 @@ pub(super) fn settles_fleet(cfg: &DocumentMut, here: &str) -> bool {
         .and_then(Item::as_bool)
         .unwrap_or(false)
 }
+
+pub(super) fn build_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
+    let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
+    hosts
+        .iter()
+        .filter(|(name, host)| *name != here && host.get("offload_builds").and_then(Item::as_bool) == Some(true))
+        .filter_map(|(name, host)| Some((name.to_owned(), host.get("ssh")?.as_str()?.to_owned())))
+        .collect()
+}

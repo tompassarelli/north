@@ -338,7 +338,7 @@ fn a_heavy_build_waits_while_the_root_disk_is_under_its_floor_and_names_the_free
 }
 
 fn reclaiming_host(reclaim_disk: fn() -> Option<f64>) -> super::Host {
-    super::Host { serving: |_| None, warcraft_clients: || None, bar1_margin_mib: || None, offload: |_| 0, lease_builds: || false, reclaim_disk }
+    super::Host { serving: |_| None, warcraft_clients: || None, bar1_margin_mib: || None, offload: |_| 0, build_offload: |_, _, _| None, lease_builds: || false, reclaim_disk }
 }
 
 #[test]
