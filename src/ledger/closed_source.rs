@@ -103,6 +103,13 @@ fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashSet<St
         .collect())
 }
 
+/// The runs of `category` stamped with each arm, by arm name.
+pub fn arm_runs(category: &str) -> NorthResult<BTreeMap<String, usize>> {
+    let query = format!("SELECT arm, COUNT(*) AS runs FROM runs WHERE lower(category) = '{}' AND COALESCE(arm, '') != '' GROUP BY arm", category.to_lowercase().replace('\'', ""));
+    let rows = sqlite::rows(&threads_database(), Access::ReadOnly, Duration::from_secs(5), &query)?;
+    Ok(rows.iter().map(|row| (text(row, "arm"), usize::try_from(row["runs"].as_i64().unwrap_or(0)).unwrap_or(0))).collect())
+}
+
 pub fn closed_report(window: &str) -> NorthResult<ClosedReport> {
     closed_report_between(&window_start(window)?, &Timestamp::now().iso())
 }

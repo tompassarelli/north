@@ -130,7 +130,7 @@ impl Fleet {
         if let Some(model) = request.model.as_deref().filter(|model| !runtime.models().contains(model)) {
             return Err(NorthError::Usage(format!("{} has no model {model}; launch one of {}", request.provider.label(), runtime.models().join(", "))));
         }
-        let effort = efforts::taken(runtime.as_ref(), request.effort)?;
+        let effort = efforts::taken(runtime.as_ref(), request.model.as_deref(), request.effort)?;
         let conversation = runtime.assign_conversation()?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
         let tasks = request.tasks();

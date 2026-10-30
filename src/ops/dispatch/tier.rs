@@ -80,10 +80,12 @@ impl Tier {
 }
 
 /// What the ledger holds for one category: each tier's success rate and runs there from
-/// `--recommend`, and each tier's cost per closed box from `north ledger summary`.
+/// `--recommend`, the runs stamped with each tier's arm, and each tier's cost per closed box from
+/// `north ledger summary`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Evidence {
     pub tiers: BTreeMap<String, (f64, usize)>,
+    pub arm_runs: BTreeMap<Tier, usize>,
     pub usd_per_closed: Option<BTreeMap<Tier, f64>>,
 }
 
@@ -104,7 +106,7 @@ impl Evidence {
                 Some((label.to_owned(), (rate.parse().ok()?, rest.trim().strip_prefix("of ")?.split_whitespace().next()?.parse().ok()?)))
             })
             .collect();
-        Self { tiers, usd_per_closed: None }
+        Self { tiers, ..Self::default() }
     }
 
     /// Adds each tier's cost per closed box in this category from the ledger's closed-box report,
@@ -120,7 +122,17 @@ impl Evidence {
         Self { usd_per_closed: Some(sums.into_iter().map(|(tier, (usd, closed))| (tier, usd / closed as f64)).collect()), ..self }
     }
 
+    /// Adds the runs the ledger holds stamped with each tier's arm in this category.
+    pub(crate) fn counted(self, stamped: &BTreeMap<String, usize>) -> Self {
+        let arm_runs = [Tier::Sonnet, Tier::Opus].into_iter().map(|tier| (tier, stamped.get(tier.name()).copied().unwrap_or(0))).collect();
+        Self { arm_runs, ..self }
+    }
+
     fn runs(&self, tier: Tier) -> usize {
+        self.arm_runs.get(&tier).copied().unwrap_or(0)
+    }
+
+    fn all_runs(&self, tier: Tier) -> usize {
         self.tiers.get(tier.key()).map_or(0, |(_, runs)| *runs)
     }
 
@@ -139,20 +151,20 @@ impl Evidence {
         Some(if self.cost(Tier::Opus)? < self.cost(Tier::Sonnet)? { Tier::Opus } else { Tier::Sonnet })
     }
 
-    /// The arm the category routes to once both arms hold `ARM_RUNS` runs and a cost; None while
+    /// The arm the category routes to once both arms hold `ARM_RUNS` arm-stamped runs and a cost; None while
     /// the arms still alternate.
     pub(crate) fn settled(&self) -> Option<Tier> {
         self.decided().filter(|_| self.runs(Tier::Sonnet) >= ARM_RUNS && self.runs(Tier::Opus) >= ARM_RUNS)
     }
 
-    /// Both arms' runs behind the decision.
+    /// Both arms' stamped runs behind the decision.
     pub(crate) fn arm_runs(&self) -> usize {
         self.runs(Tier::Sonnet) + self.runs(Tier::Opus)
     }
 
     pub(crate) fn figures(&self, tier: Tier) -> String {
         let cost = self.cost(tier).map_or_else(|| "no closed box".to_owned(), |usd| format!("${usd:.2} per closed box"));
-        format!("{} {:.0}% of {}, {cost}", tier.name(), self.rate(tier), self.runs(tier))
+        format!("{} {:.0}% of {}, {} of {ARM_RUNS} arm runs, {cost}", tier.name(), self.rate(tier), self.all_runs(tier), self.runs(tier))
     }
 }
 

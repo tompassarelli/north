@@ -279,6 +279,7 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut
         match run_within(&north.to_string_lossy(), &["worker-ledger", "--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
+                let read = read.counted(&crate::ledger::arm_runs(category).map_err(|why| notes.push(format!("arm runs of {category} unread, so its arms keep alternating: {}", why.user_message()))).unwrap_or_default());
                 found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)));
             }
             _ => notes.push(format!("north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),

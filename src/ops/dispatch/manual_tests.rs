@@ -127,3 +127,32 @@ fn a_hand_launch_holds_nothing_and_contests_nothing_so_a_restaff_within_two_hour
     assert!(super::record::launching(&twice, 100.0, &BTreeSet::new()).is_empty());
     assert!(super::record::contested(&twice, 100.0).is_empty());
 }
+
+#[test]
+fn a_feature_brief_launched_twice_in_a_row_stamps_sonnet_high_then_worker_and_a_third_returns_to_sonnet_high() {
+    let brief = "Item: north#9 x\nCategory: feature\nSpec: exact\n\nDo it.";
+    let mut history = History::default();
+    let mut arms = Vec::new();
+    for _ in 0..3 {
+        let started = launch(brief, None, None, &history).unwrap();
+        assert!(started.route.arm && started.prompt.contains(&format!("Arm: {}", started.route.tier.name())), "{}", started.prompt);
+        assert_eq!(started.effort.as_deref(), Some(if started.route.tier.name() == "worker" { "medium" } else { "high" }));
+        arms.push(started.route.tier.name());
+        history.chose(&started.route);
+    }
+    assert_eq!(arms, ["sonnet-high", "worker", "sonnet-high"]);
+    let recorded = History::new(&[tried("sonnet-high", "feature", true)]);
+    assert_eq!(launch(brief, None, None, &recorded).unwrap().route.tier.name(), "worker", "the next launch reads the recorded arm of the last");
+}
+
+#[test]
+fn no_start_path_runs_sonnet_at_a_lower_effort_than_high() {
+    for model in [None, Some("claude-sonnet-5-5")] {
+        let started = launch("Item: north#9 x\nCategory: bug-known-cause\nSpec: exact", model, None, &History::default()).unwrap();
+        assert_eq!((started.model.as_str(), started.effort.as_deref()), ("claude-sonnet-5-5", Some("high")));
+    }
+    let overridden = launch("Item: north#9 x\nCategory: debugging-unknown-cause", Some("claude-sonnet-5-5"), Some("trial"), &History::default()).unwrap();
+    assert_eq!((overridden.model.as_str(), overridden.effort.as_deref(), overridden.overridden.as_deref()), ("claude-sonnet-5-5", Some("high"), Some("trial")), "an overriding Sonnet is still pinned to high");
+    let opus = launch("Item: north#9 x\nCategory: bug-known-cause", Some("claude-opus-5-5"), Some("trial"), &History::default()).unwrap();
+    assert_eq!(opus.effort, None, "an overriding Opus keeps the account default");
+}

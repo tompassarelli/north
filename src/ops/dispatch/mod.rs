@@ -166,7 +166,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
                 history.chose(&launch.route);
-                if let Some(arm) = (!launch.cloud).then(|| handoffs.pick(launch.route.tier)).flatten() {
+                if let Some(arm) = (!launch.cloud && !launch.route.arm).then(|| handoffs.pick(launch.route.tier)).flatten() {
                     launch.brief = handoff::armed(&launch.brief, &arm);
                     launch.handoff = Some(arm);
                 }

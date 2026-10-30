@@ -54,7 +54,7 @@ pub(crate) fn start(ask: &Ask, body: &str, cfg: &DocumentMut, history: &History,
                     ask.item
                 ));
             };
-            (given.to_owned(), None, Some(reason.to_owned()))
+            (given.to_owned(), Tier::Sonnet.serves(given).then(|| "high".to_owned()), Some(reason.to_owned()))
         }
     };
     let stamp = (named.is_none() && overridden.is_none()).then(|| declared("Category").is_none_or(|category| !category.eq_ignore_ascii_case(&route.category)));

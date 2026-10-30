@@ -78,15 +78,15 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
     assert!(launches.iter().all(|(_, tier, arm, brief)| *arm && brief.contains(&format!("Arm: {}", tier.name()))));
     let last = Record { tier: Some("sonnet-high".into()), category: Some("tooling".into()), arm: true, name: "wisp-1-d0800".into(), item: "wisp#1".into(), ..haiku_try("wisp#1", 50.0) };
     assert_eq!(tiers(&launched(vec![tooling(5)], History::new(&[last]), BTreeMap::new())), [("wisp#5", "worker")], "the next run takes the arm after the recorded one");
-    let evidence = Evidence::parse(RECOMMEND, "tooling");
+    let evidence = Evidence::parse(RECOMMEND, "tooling").counted(&stamped(15, 15));
     assert_eq!((evidence.tiers["claude:sonnet-high"], evidence.tiers["claude:opus-medium"], evidence.tiers["claude-sonnet-5-5 medium"]), ((73.0, ARM_RUNS), (66.0, ARM_RUNS), (33.0, 6)));
     let decided = launched(vec![tooling(6), tooling(7)], History::default(), BTreeMap::from([("tooling".to_owned(), evidence.clone().priced(&closed(&[("sonnet", 5, 3.0), ("opus-medium", 5, 9.0)]), "tooling"))]));
     assert_eq!(tiers(&decided), [("wisp#6", "sonnet-high"), ("wisp#7", "sonnet-high")], "both arms at 15 runs: the cheaper arm, every time");
     assert!(decided.iter().all(|(_, tier, arm, brief)| !arm && !brief.contains(&format!("Arm: {}", tier.name()))));
-    let short = Evidence { tiers: BTreeMap::from([("claude:sonnet-high".to_owned(), (73.0, 15)), ("claude:opus-medium".to_owned(), (66.0, 14))]), ..evidence.clone() };
+    let short = evidence.clone().counted(&stamped(15, 14));
     let alternating = launched(vec![tooling(8), tooling(9)], History::default(), BTreeMap::from([("tooling".to_owned(), short.priced(&closed(&[("sonnet", 5, 3.0), ("opus-medium", 5, 1.0)]), "tooling"))]));
     assert_eq!(tiers(&alternating), [("wisp#8", "sonnet-high"), ("wisp#9", "worker")]);
-    assert!(alternating.iter().all(|(_, _, _, brief)| brief.contains("sonnet-high 73% of 15, $3.00 per closed box") && brief.contains("worker 66% of 14, $1.00 per closed box")), "an arm launch reason shows both arms' cost per closed box: {alternating:?}");
+    assert!(alternating.iter().all(|(_, _, _, brief)| brief.contains("sonnet-high 73% of 15, 15 of 15 arm runs, $3.00 per closed box") && brief.contains("worker 66% of 15, 14 of 15 arm runs, $1.00 per closed box")), "an arm launch reason shows both arms' cost per closed box: {alternating:?}");
     assert_eq!(Evidence::parse(&RECOMMEND.replace("[Category: tooling]", "[all runs]"), "tooling"), Evidence::default(), "a coarser cell is not this category's evidence");
     assert_eq!(tiers(&launched(vec![tooling(10), tooling(11)], History::default(), BTreeMap::from([("tooling".to_owned(), evidence)]))), [("wisp#10", "sonnet-high"), ("wisp#11", "worker")], "arms with 15 runs and no closed-box report keep alternating");
 }
@@ -99,7 +99,26 @@ fn closed(cells: &[(&str, usize, f64)]) -> ClosedReport {
 
 fn armed(sonnet: (f64, usize), opus: (f64, usize), report: &ClosedReport) -> BTreeMap<String, Evidence> {
     let tiers = BTreeMap::from([("claude:sonnet-high".to_owned(), sonnet), ("claude:opus-medium".to_owned(), opus)]);
-    BTreeMap::from([("tooling".to_owned(), Evidence { tiers, usd_per_closed: None }.priced(report, "tooling"))])
+    BTreeMap::from([("tooling".to_owned(), Evidence { tiers, arm_runs: BTreeMap::from([(Tier::Sonnet, sonnet.1), (Tier::Opus, opus.1)]), usd_per_closed: None }.priced(report, "tooling"))])
+}
+
+fn stamped(sonnet: usize, opus: usize) -> BTreeMap<String, usize> {
+    BTreeMap::from([("sonnet-high".to_owned(), sonnet), ("worker".to_owned(), opus)])
+}
+
+#[test]
+fn a_tier_with_many_unstamped_runs_still_alternates_until_each_arm_holds_fifteen_stamped_runs() {
+    let report = closed(&[("sonnet", 9, 3.0), ("opus-medium", 10, 9.0)]);
+    let feature = |counted: BTreeMap<String, usize>| {
+        let all = Evidence::parse(&RECOMMEND.replace("tooling", "feature").replace("73% of 15", "42% of 80").replace("66% of 15", "37% of 154"), "feature");
+        BTreeMap::from([("feature".to_owned(), all.counted(&counted).priced(&report, "feature"))])
+    };
+    let issue = |number: u64| issue("wisp", number, "- [ ] a\nCategory: feature", &[]);
+    let alternating = launched(vec![issue(1), issue(2)], History::default(), feature(stamped(16, 11)));
+    assert_eq!(tiers(&alternating), [("wisp#1", "sonnet-high"), ("wisp#2", "worker")], "80 and 154 runs overall, but the Opus arm holds 11 stamped runs");
+    assert!(alternating.iter().all(|(_, tier, arm, brief)| *arm && brief.contains(&format!("Arm: {}", tier.name()))));
+    assert!(alternating[0].3.contains("11 of 15 arm runs"), "{}", alternating[0].3);
+    assert!(launched(vec![issue(3)], History::default(), feature(BTreeMap::new())).iter().all(|(_, _, arm, _)| *arm), "no stamped run counted: both arms still run");
 }
 
 #[test]
@@ -112,7 +131,7 @@ fn the_arm_switch_takes_the_lower_cost_per_closed_box_not_the_higher_done_rate()
     let report = closed(&[("sonnet", 9, 3.0), ("opus-medium", 10, 9.0)]);
     let (tier, arm, why) = pick(armed((60.0, 15), (70.0, 15), &report));
     assert_eq!((tier, arm), ("sonnet-high", false), "Sonnet closes 60% at $3 per closed box and Opus 70% at $9: Sonnet");
-    assert!(why.contains("sonnet-high 60% of 15, $3.00 per closed box") && why.contains("worker 70% of 15, $9.00 per closed box"), "{why}");
+    assert!(why.contains("sonnet-high 60% of 15, 15 of 15 arm runs, $3.00 per closed box") && why.contains("worker 70% of 15, 15 of 15 arm runs, $9.00 per closed box"), "{why}");
     let flipped = closed(&[("sonnet", 9, 9.0), ("opus-medium", 10, 3.0)]);
     assert_eq!(pick(armed((60.0, 15), (70.0, 15), &flipped)).0, "worker", "Opus when it is the cheaper arm");
     let merged = closed(&[("sonnet", 1, 2.0), ("claude-sonnet-5-5 medium", 3, 4.0), ("opus-medium", 1, 3.4)]);
@@ -162,7 +181,9 @@ fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_e
     let lagging = super::survey::Survey { handoffs: held(30, 29), ..survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone()) };
     assert_eq!(arms(&lagging), [(off.clone(), off.clone()), (None, None), (None, None)], "only the arm under 30 runs on that tier still launches");
     let sonnet = super::survey::Survey { handoffs: held(30, 30), ..survey(boxes("bug-known-cause"), Cloud::Closed(String::new()), hosts, accounts) };
-    assert_eq!(arms(&sonnet)[0], (on.clone(), on), "each tier fills its own arms");
+    assert_eq!(arms(&sonnet)[0], (None, Some("sonnet-high".to_owned())), "a box on a tier arm carries that arm alone, since the ledger records only the first Arm line");
+    let other = super::survey::Survey { handoffs: held(30, 30), ..survey(boxes("anim"), Cloud::Closed(String::new()), vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }], vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }]) };
+    assert_eq!(arms(&other)[0], (on.clone(), on), "a Sonnet box on no tier arm fills the Sonnet tier's handoff arms");
 }
 
 #[test]

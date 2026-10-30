@@ -229,3 +229,19 @@ fn a_reboot_strands_the_unstopped_sessions_that_had_not_reported_done_or_idled_o
     assert_eq!(stranded, ["mid-turn", "silent-tool", "waiting"]);
     assert!(not_stranded.is_empty(), "a session written after the boot ran after it: {not_stranded:?}");
 }
+
+#[test]
+fn a_sonnet_session_starts_and_revives_at_high_effort_and_refuses_any_other() {
+    let sonnet = Some("claude-sonnet-5-5");
+    assert_eq!(efforts::taken(&Claude, sonnet, None).unwrap(), Some(Effort::High), "an unset effort is the account default medium, so Sonnet is pinned to high");
+    assert_eq!(efforts::taken(&Claude, sonnet, Some(Effort::High)).unwrap(), Some(Effort::High));
+    for other in [Effort::Low, Effort::Medium, Effort::Xhigh, Effort::Max] {
+        assert!(efforts::taken(&Claude, sonnet, Some(other)).unwrap_err().to_string().contains("runs only at high effort"), "{other:?}");
+    }
+    assert_eq!(efforts::taken(&Claude, Some("claude-opus-5-5"), Some(Effort::Medium)).unwrap(), Some(Effort::Medium));
+    assert_eq!(efforts::taken(&Claude, None, None).unwrap(), None);
+    let stored = |effort: Option<Effort>| SessionRecord { model: sonnet.map(str::to_owned), effort, ..serde_json::from_value(serde_json::json!({"name": "old", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null})).unwrap() };
+    assert_eq!(efforts::revived(&stored(Some(Effort::Medium)), &Claude, false, None).unwrap(), Some(Effort::High), "a stored Sonnet at medium is restored to high");
+    assert_eq!(efforts::revived(&stored(None), &Claude, false, None).unwrap(), Some(Effort::High));
+    assert!(efforts::revived(&stored(None), &Claude, false, Some(Effort::Medium)).is_err());
+}
