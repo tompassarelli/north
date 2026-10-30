@@ -752,3 +752,38 @@ fn a_gate_answered_from_inside_the_parent_session_is_closed_by_that_session_and_
     assert!(listed.contains(&format!("{by_parent}\tkid\tRent the box?\tclosed by boss: yes")), "{listed}");
     assert!(listed.contains(&format!("{by_terminal}\tboss\tRent the box?\tclosed by tom: no")), "{listed}");
 }
+
+fn per_session_claude(root: &Path, traces: &[(&str, &str)]) {
+    let arms: String = traces.iter().map(|(name, trace)| format!("{name}) trace={trace};; ")).collect();
+    executable(&root.join("bin/claude"), &format!("#!/bin/sh\ncase \"$NORTH_FLEET_SESSION\" in {arms}*) trace=idle-interrupt;; esac\nexec {} --trace \"$trace\" \"$@\"\n", support::fake_claude()));
+}
+
+fn stream_modified(root: &Path, name: &str) -> std::time::SystemTime {
+    fs::metadata(root.join(".local/state/north/fleet").join(name).join("g1/stream.jsonl")).unwrap().modified().unwrap()
+}
+
+#[test]
+fn a_childs_not_done_report_reaches_its_parent_once_within_ten_seconds_and_a_working_or_idle_child_posts_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fixture(root, "idle-interrupt");
+    per_session_claude(root, &[("kid", "not-done"), ("busy", "fold")]);
+    for (name, parent) in [("boss", "none"), ("busy", "boss"), ("quiet", "boss"), ("kid", "boss")] {
+        let launched = launch_named(root, name, parent);
+        assert!(launched.status.success(), "{name}: {}", text(&launched.stderr));
+    }
+    let shown_boss = || text(&north(root, &["fleet", "show", "boss"]).stdout);
+    until("the Not done report in the parent's transcript", || shown_boss().contains("[from kid "));
+    let heard_at = std::time::SystemTime::now();
+    let reported = stream_modified(root, "kid");
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let shown = shown_boss();
+    for name in ["boss", "busy", "quiet", "kid"] {
+        north(root, &["fleet", "forget", name]);
+    }
+    assert!(shown.contains("[from kid · turn 1 · exit completed] Not done: test\n  Stop: decision"), "{shown}");
+    assert_eq!(shown.matches("[from kid ").count(), 1, "one message per turn end: {shown}");
+    assert_eq!(shown.matches("[from busy ").count() + shown.matches("[from quiet ").count(), 0, "a working or idle child posts nothing: {shown}");
+    let lag = heard_at.duration_since(reported).expect("the report is posted after the child's last stream write");
+    assert!(lag < std::time::Duration::from_secs(10), "parent heard {lag:?} after the child's last turn ended");
+}

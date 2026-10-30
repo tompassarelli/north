@@ -7,9 +7,10 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|slow-hooks|signed-out-once|oauth-expired|crash [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|crash [ARG...]";
 const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
+const NOT_DONE_REPORT: &str = "Not done: test\nStop: decision";
 const SIGNED_OUT: &str = "Not logged in · Please run /login";
 const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could not be refreshed";
 
@@ -17,6 +18,7 @@ const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could n
 enum Trace {
     Fold,
     Done,
+    NotDone,
     IdleInterrupt,
     CancelQueued,
     SlowHooks,
@@ -30,6 +32,7 @@ impl Trace {
         match name {
             "fold" => Some(Self::Fold),
             "done" => Some(Self::Done),
+            "not-done" => Some(Self::NotDone),
             "idle-interrupt" => Some(Self::IdleInterrupt),
             "cancel-queued" => Some(Self::CancelQueued),
             "slow-hooks" => Some(Self::SlowHooks),
@@ -125,6 +128,10 @@ impl<W: Write> Fake<W> {
         self.turn.push(uuid.to_string());
         if self.trace == Trace::Done {
             self.reply(uuid, FINAL_REPORT)?;
+            return self.finish();
+        }
+        if self.trace == Trace::NotDone {
+            self.reply(uuid, NOT_DONE_REPORT)?;
             return self.finish();
         }
         if self.trace == Trace::IdleInterrupt {

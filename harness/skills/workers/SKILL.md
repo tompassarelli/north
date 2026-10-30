@@ -52,6 +52,7 @@ Every rule here holds on any provider unless marked Claude-only, so the provider
 
 ## Run and land
 
+- A child launched with `--parent` reaches that parent as one fleet message, queued behind a busy parent, when a turn with a reply ends on `Done:`, `Not done:`, `Split:`, `Stop:` or `Blocked:`, lands a commit, or fails, so restaff on that message and never on the next heartbeat; progress, interrupted and empty turns post nothing.
 - Expect a report at 45 minutes or twice the ETA, whichever is first. Long-running work continues in a fresh fleet session with `Follows:` and the prior session as parent.
 - Run anything that may take over about 45 seconds in the background (Claude `run_in_background`, Codex a background or unified-exec session), because a foreground wait delays every message to you.
 - Land as [notes](references/notes.md#landing-mechanics) describes for Autoland and other repositories. Lane lifecycle and `lane-gc` belong to `repo-safety`; every unlanded lane `lane-gc` keeps shows in its lead's tick as an `OWNED` row, which the lead continues, lands or archives, and a lead holding more than 25, or any older than 72 h, gets a supply-alert.
