@@ -25,7 +25,12 @@ rotation can still read as a static silhouette. Sources are in
   stride and match its cadence to simulated travel. Turns and brakes make the
   intended direction clear. Jump squat compresses before it extends. Airborne
   and landing poses tell rising, falling and impact apart. A floating fighter
-  moves its body, cloth or weapon instead of its feet.
+  moves its body, cloth or weapon instead of its feet. Ground gait clips play
+  at body speed over the model's drawn stride, capped at 5x
+  (GROUND_LOCOMOTION_RATE_CAP): past it the body runs ahead of the feet, which
+  reads on a floater and slides on a walker. Give a grounded walker whose run
+  slides at the cap a faster stock sequence if its model has one, else list it
+  for an authored run.
 - **Drills and spins:** turn the visible body through the attack, led by a foot
   or blade, with the pelvis and shoulders turning together. Show preparation,
   sustained rotation and a deliberate exit. A downward drill has a clear
