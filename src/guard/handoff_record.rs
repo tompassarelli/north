@@ -21,7 +21,7 @@ pub(super) fn decide(input: &HookInput) -> Verdict {
     }
 }
 
-fn edited_paths(input: &HookInput) -> Vec<String> {
+pub(super) fn edited_paths(input: &HookInput) -> Vec<String> {
     let tool_input = &input.tool_input;
     let direct = ["file_path", "filePath", "notebook_path"]
         .into_iter()

@@ -171,6 +171,7 @@ impl HookKind {
                 crate::guard::handoff_record::evaluate,
                 crate::guard::generated_policy::evaluate,
                 crate::guard::model_identity::evaluate,
+                crate::guard::file_skill::evaluate,
             ],
             Self::PreAgent => &[crate::guard::worker_tier::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate],
@@ -252,7 +253,7 @@ fn nonempty_env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.is_empty())
 }
 
-fn activation_paths(get: &impl Fn(&str) -> Option<String>) -> (PathBuf, PathBuf) {
+pub(crate) fn activation_paths(get: &impl Fn(&str) -> Option<String>) -> (PathBuf, PathBuf) {
     let root = get("NORTH_AGENT_STATE_ROOT").unwrap_or_else(|| {
         format!(
             "{}/.local/state/north/agents",

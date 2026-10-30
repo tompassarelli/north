@@ -1,0 +1,13 @@
+[[rule]]
+skill = "rust-development"
+extensions = ["rs"]
+names = ["Cargo.toml", "rust-toolchain.toml"]
+
+[[rule]]
+skill = "effect-development"
+extensions = ["ts", "tsx", "mts", "cts"]
+package = "effect"
+
+[[rule]]
+skill = "nix-development"
+extensions = ["nix"]

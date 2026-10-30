@@ -6,6 +6,9 @@ pub mod desktop_action;
 pub mod tripwire;
 pub mod git_stash;
 pub mod handoff_record;
+pub mod file_skill;
+#[cfg(test)]
+mod file_skill_tests;
 pub mod native_evidence;
 pub mod frozen_topics;
 pub mod issue_filing;
