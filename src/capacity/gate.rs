@@ -1,4 +1,4 @@
-//! `north capacity gate`: the door the cargo and bun shims and depbox go through, which holds a build for a capacity lease on a host whose `[hosts.NAME] lease_builds` is set.
+//! `north capacity gate`: the door the cargo, bun and nix shims and depbox go through, which holds a build for a capacity lease on a host whose `[hosts.NAME] lease_builds` is set.
 
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};

@@ -19,13 +19,22 @@ fn host(prefix: &str, orchestration: &str) -> Host {
     let shim = host.path("shims/cargo");
     fs::create_dir_all(shim.parent().unwrap()).unwrap();
     fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/cargo"), &shim).unwrap();
+    fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/nix"), host.path("shims/nix")).unwrap();
+    let nix = host.path("toolchain/nix");
+    fs::write(&nix, format!("#!/bin/sh\nwhile [ \"$1\" != --command ]; do shift; done\nshift\nPATH={}:$PATH exec \"$@\"\n", real.parent().unwrap().display())).unwrap();
+    fs::set_permissions(&nix, fs::Permissions::from_mode(0o755)).unwrap();
     host
 }
 
 fn cargo(host: &Host, arguments: &[&str]) -> Command {
-    let mut command = host.command(env!("CARGO_BIN_EXE_north"));
+    gated(host, "cargo", arguments)
+}
+
+fn gated(host: &Host, shim: &str, arguments: &[&str]) -> Command {
+    let _ = std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), host.path("bin/north"));
+    let mut command = host.command(host.path("shims").join(shim));
     let path = format!("{}:{}:{}:{}", host.path("shims").display(), host.path("toolchain").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default());
-    command.args(["capacity", "gate"]).arg(host.path("shims/cargo")).args(arguments).env("PATH", path).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("AGENT_CAPACITY_LEASE").env_remove("NORTH_FLEET_SESSION").env_remove("CARGO_BUILD_JOBS");
+    command.args(arguments).env("PATH", path).env("RESIDENT_CAP_HOST", "gex45").env("AGENT_CAPACITY_SELF_CGROUP", host.path("cgroup-self")).env_remove("AGENT_CAPACITY_LEASE").env_remove("NORTH_FLEET_SESSION").env_remove("CARGO_BUILD_JOBS");
     command
 }
 
@@ -42,6 +51,25 @@ fn a_cargo_build_outside_a_lease_on_a_lease_builds_host_waits_for_a_heavy_lease_
     host.until("the leased build", |host| host.path("built").exists());
     assert!(build.0.wait().unwrap().success());
     assert_eq!(fs::read_to_string(host.path("built")).unwrap(), "6 build --release\n");
+}
+
+#[test]
+fn a_cargo_build_inside_nix_develop_over_ssh_on_a_lease_builds_host_waits_for_a_heavy_lease_though_the_dev_shell_cargo_comes_first() {
+    let host = host("capacity-gate-nix-", LEASED_HOST);
+    fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
+    let mut build = Wrapper(gated(&host, "nix", &["develop", "--command", "cargo", "build", "--release", "-p", "wisp-window"]).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+    host.until("the build's heavy ticket", |host| host.queued("heavy") == 1);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert!(!host.path("built").exists(), "the build ran before its lease");
+    assert!(build.exited().is_none());
+    fs::write(host.path("pressure"), "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
+    host.until("the leased build", |host| host.path("built").exists());
+    assert!(build.0.wait().unwrap().success());
+    assert_eq!(fs::read_to_string(host.path("built")).unwrap(), "6 build --release -p wisp-window\n");
+    let host = self::host("capacity-gate-nix-shell-", LEASED_HOST);
+    fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
+    assert!(gated(&host, "nix", &["develop", "--command", "cargo", "fmt"]).status().unwrap().success());
+    assert_eq!((fs::read_to_string(host.path("built")).unwrap(), host.queued("heavy")), (" fmt\n".to_owned(), 0));
 }
 
 #[test]

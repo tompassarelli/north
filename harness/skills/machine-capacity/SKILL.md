@@ -18,7 +18,7 @@ metadata:
 - Run `machine-capacity estimate -- CMD` before staffing local work, because leases size from it by default.
 - Never set CPUQuota, CPUWeight or AllowedCPUs outside machine-capacity, because uncounted quotas defeat shared admission; `heavy-command-guard` refuses it.
 - Run cargo build, full `bun test` suites, `bun wisp map build` and headless wisp renders (`view`, `headless --render`) through `run`, because `heavy-command-guard` refuses them unwrapped. It routes cargo test, tsc --build and multi-file bun test through admission automatically; cargo check and single test files remain local.
-- Builds on a `lease_builds` host wait for a lease through the `cargo` and `bun` shims and `depbox`; `north capacity gate` states the rest.
+- Builds on a `lease_builds` host wait for a lease through the `cargo`, `bun` and `nix` shims and `depbox`, so `nix develop --command cargo build` started over ssh waits too; `north capacity gate` states the rest.
 - Never start wine, proton, steam-run or a game .exe outside a native session, because unadmitted game clients starve the desktop; `native-launch-guard` refuses it.
 - Use `run --class CLASS --owner OWNER --timeout-seconds N -- COMMAND ARG...` for batch work, with the timeout covering setup and download time, because every run needs a finite bound.
 - Use `session --class native --new-clients N --owner OWNER -- COMMAND ARG...` for Warcraft clients and private desktops (one scope per client, two per pair), because they must outlive a batch deadline.
