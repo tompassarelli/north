@@ -7,7 +7,7 @@ use super::remote::Remote;
 
 const DERIVED: &str = "derived";
 const UNPINNED: [&str; 3] = ["views", "locks", DERIVED];
-const PIN_PATHS: &str = "build-inputs ts/stage-thumbnails.json";
+const PIN_PATHS: &str = "build-inputs ts/stage-thumbnails.json tools/animations/mdl-exporter4.pin";
 const MAIN_ENDS: &str = "--main-ends--";
 
 pub(super) struct Layout {

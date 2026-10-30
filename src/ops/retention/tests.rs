@@ -166,6 +166,7 @@ const IN_LANE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 const UNNAMED: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const FRESH: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 const ON_BRANCH: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+const EXPORTER: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
 struct Store {
     home: tempfile::TempDir,
@@ -174,6 +175,10 @@ struct Store {
 
 impl Store {
     fn new(main_pin: &str) -> Self {
+        Self::pinned(main_pin, None)
+    }
+
+    fn pinned(main_pin: &str, exporter: Option<&str>) -> Self {
         let store = Self { home: tempfile::tempdir().unwrap(), archive: tempfile::tempdir().unwrap() };
         let (origin, main, other) = (store.home.path().join("origin.git"), store.home.path().join("code/main"), store.home.path().join("other"));
         let git = |dir: &Path, arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).output().unwrap().status.success());
@@ -181,6 +186,10 @@ impl Store {
         fs::create_dir_all(&origin).unwrap();
         git(&origin, &["init", "-q", "--bare"]);
         fs::write(main.join("build-inputs/hero-models"), main_pin).unwrap();
+        if let Some(pin) = exporter {
+            fs::create_dir_all(main.join("tools/animations")).unwrap();
+            fs::write(main.join("tools/animations/mdl-exporter4.pin"), format!("{pin}\n")).unwrap();
+        }
         git(&main, &["init", "-q"]);
         git(&main, &["add", "."]);
         git(&main, &["commit", "-qm", "pins"]);
@@ -251,6 +260,14 @@ fn store_versions_no_pin_on_origin_or_a_lane_names_are_archived_once_expired() {
     assert_eq!(fs::read_to_string(store.archive.path().join(format!("build-inputs/hero-models/{UNNAMED}/inner/data"))).unwrap(), format!("hero-models/{UNNAMED}"));
     assert!(!store.path("derived/thinned/key.bin").exists() && store.archived("derived/thinned/key.bin"));
     assert!(store.path(&format!("views/{UNNAMED}")).exists());
+}
+
+#[test]
+fn the_exporter_pin_outside_build_inputs_keeps_its_store_version() {
+    let store = Store::pinned(ON_MAIN, Some(EXPORTER));
+    store.sealed(&format!("mdl-exporter4/{EXPORTER}"), 100);
+    assert!(store.run().unwrap());
+    assert!(store.path(&format!("mdl-exporter4/{EXPORTER}")).exists() && !store.archived(&format!("mdl-exporter4/{EXPORTER}")));
 }
 
 #[test]
