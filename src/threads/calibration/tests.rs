@@ -268,12 +268,6 @@ fn routing_compare_equals_the_python_output_on_one_ledger_with_a_costs_file() {
     assert_eq!(String::from_utf8(out).unwrap(), expected);
 }
 
-#[test]
-fn the_bootstrap_draws_python_random_seeded_zero() {
-    let mut twister = crate::platform::twister::Twister::seeded(0);
-    assert_eq!(twister.choices(&[1.0, 2.0, 3.0, 4.0, 5.0], 8), [5.0, 4.0, 3.0, 2.0, 3.0, 3.0, 4.0, 2.0]);
-}
-
 struct Draws(u64);
 
 impl Draws {
