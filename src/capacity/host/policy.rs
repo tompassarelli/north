@@ -63,13 +63,13 @@ pub(crate) fn resource_class(kind: &str, cores: f64) -> Option<Resources> {
     let (cpus, memory_mib) = match kind {
         "agent" => (0.0, 768.0),
         "native" => (pair, 4096.0),
-        "moderate" | "tom" => (pair, 2048.0),
+        "moderate" => (pair, 2048.0),
         "heavy" if cores < 8.0 => (cores, 8192.0),
         "heavy" => (if cores > 8.0 { 6.0 } else { 3.0 }, 8192.0),
         "gpu" => (1.0, 2048.0),
         "runtime" => (if cores > 8.0 { 4.0 } else { pair }, 8192.0),
-        "critical" if cores < 8.0 => (cores, 16384.0),
-        "critical" => (cores - reserved_cpus("attended", cores), 16384.0),
+        "critical" | "tom" if cores < 8.0 => (cores, 16384.0),
+        "critical" | "tom" => (cores - reserved_cpus("attended", cores), 16384.0),
         "exclusive" => (cores, 16384.0),
         _ => return None,
     };

@@ -38,10 +38,10 @@ export function resourceClass(kind: string, cores: number): Resources {
     case 'agent': return { cpus: 0, memoryMiB: 768 };
     case 'native': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 4096 };
     case 'moderate': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 2048 };
-    case 'tom': return { cpus: cores > 1 ? 2 : 1, memoryMiB: 2048 };
     case 'heavy': return { cpus: cores < 8 ? cores : cores > 8 ? 6 : 3, memoryMiB: 8192 };
     case 'gpu': return { cpus: 1, memoryMiB: 2048 };
-    case 'critical': return { cpus: cores < 8 ? cores : cores - reservedCpus('attended', cores), memoryMiB: 16384 };
+    case 'critical':
+    case 'tom': return { cpus: cores < 8 ? cores : cores - reservedCpus('attended', cores), memoryMiB: 16384 };
     case 'exclusive': return { cpus: cores, memoryMiB: 16384 };
     default: throw new Error('Unknown resource class');
   }
