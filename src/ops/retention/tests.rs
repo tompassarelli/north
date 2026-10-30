@@ -296,3 +296,13 @@ fn one_batch_archives_every_expired_entry_and_keeps_a_differing_one() {
     }
     assert!(rig.here("clash"));
 }
+
+#[test]
+fn a_second_run_into_a_held_archive_leaves_the_work_to_the_first() {
+    let archive = tempfile::tempdir().unwrap();
+    let first = super::exclusive(archive.path()).unwrap();
+    assert!(first.is_some());
+    assert!(super::exclusive(archive.path()).unwrap().is_none());
+    drop(first);
+    assert!(super::exclusive(archive.path()).unwrap().is_some());
+}

@@ -8,7 +8,9 @@ mod store;
 mod tests;
 
 use std::env;
-use std::path::PathBuf;
+use std::fs::{self, File, TryLockError};
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use family::Family;
@@ -20,6 +22,7 @@ const USAGE: &str = "usage: north retain [--dry-run] [--host SSH_HOST] [--archiv
 const DEFAULT_HOST: &str = "gex45";
 const BATCH_BYTES: u64 = 256 << 20;
 const BATCH_ENTRIES: usize = 200;
+const LOCK: &str = ".retain.lock";
 
 struct Policy {
     dry_run: bool,
@@ -42,6 +45,17 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
+    let _held = match (!policy.dry_run).then(|| exclusive(&policy.archive)).transpose() {
+        Ok(Some(None)) => {
+            println!("another north retain is archiving into {}; this run leaves the work to it", policy.archive.display());
+            return 0;
+        }
+        Ok(held) => held.flatten(),
+        Err(error) => {
+            eprintln!("north retain: {}: {error}", policy.archive.join(LOCK).display());
+            return 1;
+        }
+    };
     let remote = Ssh { host: policy.host.clone() };
     let mut families = family::families();
     let mut failed = match store::families(&remote, &store::Layout::gex45(), family::hours("build_input_retention_hours")) {
@@ -61,6 +75,16 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
     let seconds = started.elapsed().as_secs_f64();
     println!("archived {} entries ({} MiB) in {seconds:.0} s, {:.2} MB/s", tally.entries, tally.bytes >> 20, tally.bytes as f64 / 1e6 / seconds.max(1.0));
     u8::from(failed)
+}
+
+fn exclusive(archive: &Path) -> io::Result<Option<File>> {
+    fs::create_dir_all(archive)?;
+    let lock = File::options().create(true).truncate(false).write(true).open(archive.join(LOCK))?;
+    match lock.try_lock() {
+        Ok(()) => Ok(Some(lock)),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Error(error)) => Err(error),
+    }
 }
 
 fn policy(arguments: &[String], out_of_time: Box<dyn Fn() -> bool>) -> Option<Policy> {
@@ -91,7 +115,7 @@ fn retain(remote: &dyn Remote, family: &Family, policy: &Policy, now: u64, tally
         }
     };
     let destination = policy.archive.join(&family.name);
-    if !policy.dry_run && let Err(error) = std::fs::create_dir_all(&destination) {
+    if !policy.dry_run && let Err(error) = fs::create_dir_all(&destination) {
         eprintln!("north retain: {}: {error}", destination.display());
         return false;
     }
