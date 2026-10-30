@@ -17,6 +17,7 @@ mod fleet_duplicate;
 mod fleet_lineage;
 mod fleet_list;
 mod fleet_placement;
+mod fleet_rebooted;
 mod fleet_revive;
 mod fleet_spend;
 mod fleet_waits;

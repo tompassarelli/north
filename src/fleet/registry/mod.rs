@@ -39,6 +39,7 @@ mod parents;
 mod past;
 mod senders;
 mod status;
+mod rebooting;
 mod stranding;
 mod views;
 #[cfg(test)]
@@ -282,11 +283,7 @@ impl Fleet {
     }
 
     fn status_from_index(&self, record: &SessionRecord) -> NorthResult<Status> {
-        let (path, _) = self.stream_index(record)?;
-        let observed = self.runtime(record).and_then(|runtime| {
-            status::latest_turn_status(&path, 0, record.conversation.as_deref(), &|frame| runtime.signals(frame))
-        })?.unwrap_or(Status::Starting);
-        Ok(status::settled(record, observed))
+        self.observed_status(record).map(|observed| status::settled(record, observed))
     }
 
     fn stream_index(&self, record: &SessionRecord) -> NorthResult<(PathBuf, u64)> {

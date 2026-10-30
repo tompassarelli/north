@@ -8,6 +8,7 @@ mod host;
 pub mod landings;
 pub mod lane_probe;
 pub mod prompt;
+pub mod rebooted;
 pub mod receipts;
 pub(crate) mod records;
 pub mod relay;

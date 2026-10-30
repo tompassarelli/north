@@ -189,3 +189,43 @@ fn an_unreadable_registry_is_not_an_empty_fleet() {
 
     assert_eq!(fleet.live_owners(), None);
 }
+
+fn parked(fleet: &Fleet, name: &str, stopped: bool, report: &str) {
+    parked_turn(fleet, name, stopped, report, true);
+}
+
+fn parked_turn(fleet: &Fleet, name: &str, stopped: bool, report: &str, ended: bool) {
+    let session = fleet.root.join(name);
+    fs::create_dir_all(session.join("g1")).unwrap();
+    let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": name, "host_dir": session, "stream_offset": 0, "stopped": stopped});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let assistant = serde_json::json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": report}]}});
+    let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": name});
+    let closing = if ended { format!("{result}\n") } else { String::new() };
+    fs::write(session.join("g1/stream.jsonl"), format!("{assistant}\n{closing}")).unwrap();
+    fleet.status(&fleet.session(name).unwrap());
+}
+
+#[test]
+fn a_reboot_strands_the_unstopped_sessions_that_had_not_reported_done_or_idled_out_and_only_those() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    parked(&fleet, "waiting", false, "Not done: the build is queued; I resume when it ends.");
+    parked(&fleet, "mid-turn", false, "Reading the relay code now.");
+    parked(&fleet, "finished", false, "Done: landed 4f2a9c1 on origin/main.");
+    parked(&fleet, "stopped", true, "Not done: stopped by the lead.");
+    parked(&fleet, "idle-parked", false, "Not done: waiting on the lead.");
+    let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600);
+    fs::File::options().write(true).open(fleet.root.join("idle-parked/g1/stream.jsonl")).unwrap().set_modified(two_hours_ago).unwrap();
+    parked_turn(&fleet, "silent-tool", false, "Running the full test suite.", false);
+    fs::File::options().write(true).open(fleet.root.join("silent-tool/g1/stream.jsonl")).unwrap().set_modified(two_hours_ago).unwrap();
+    let after_writes = crate::fleet::runtime::now_ms() + 60_000;
+    let before_writes = 1_000;
+
+    let mut stranded = fleet.rebooted(after_writes).unwrap();
+    stranded.sort();
+    let not_stranded = fleet.rebooted(before_writes).unwrap();
+
+    assert_eq!(stranded, ["mid-turn", "silent-tool", "waiting"]);
+    assert!(not_stranded.is_empty(), "a session written after the boot ran after it: {not_stranded:?}");
+}

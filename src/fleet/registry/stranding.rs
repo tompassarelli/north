@@ -81,7 +81,7 @@ impl Fleet {
         Ok(found)
     }
 
-    fn last_report(&self, record: &SessionRecord) -> Option<(String, u64)> {
+    pub(super) fn last_report(&self, record: &SessionRecord) -> Option<(String, u64)> {
         let follower = self.follow_recent(&record.name).ok()?;
         let transcript = follower.transcript();
         let report = transcript.entries.iter().rfind(|entry| entry.kind == EntryKind::Assistant)?;
@@ -93,7 +93,7 @@ fn machine_name(record: &SessionRecord) -> Option<String> {
     record.machine.as_ref().map(|machine| machine.name.clone())
 }
 
-fn recent(record: &SessionRecord) -> bool {
+pub(super) fn recent(record: &SessionRecord) -> bool {
     let modified = std::fs::metadata(session_stream_path(&record.host_dir, &record.name)).and_then(|meta| meta.modified());
     modified.is_ok_and(|at| SystemTime::now().duration_since(at).is_ok_and(|age| age < RECENT))
 }

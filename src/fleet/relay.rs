@@ -17,6 +17,7 @@ use super::runtime::{SESSION_ENV, binary, new_uuid, now_ms};
 const RELAY: &str = "relay";
 const LETTER: &str = "json";
 const SSH_WAIT: Duration = Duration::from_secs(20);
+const REVIVE_WAIT: Duration = Duration::from_secs(25);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Letter {
@@ -119,6 +120,8 @@ pub trait Courier: Sync {
     fn take(&self, host: &str, relay_host: &str) -> NorthResult<Vec<Letter>>;
     fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()>;
     fn snapshot(&self, host: &str) -> NorthResult<Snapshot>;
+    /// Runs again the sessions the host's reboot stranded, returning one line per session.
+    fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>>;
     fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String>;
 }
 
@@ -138,6 +141,11 @@ impl Courier for Ssh {
         Ok(serde_json::from_slice(&over_ssh(host, None, &["fleet", "outbox", "snapshot"])?)?)
     }
 
+    fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>> {
+        let output = over_ssh_within(host, None, &["fleet", "rebooted", "--revive"], REVIVE_WAIT)?;
+        Ok(String::from_utf8_lossy(&output).lines().map(str::to_owned).collect())
+    }
+
     fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String> {
         let (id, number) = (id.to_string(), number.to_string());
         let words: Vec<&str> = ["gate", "answer", id.as_str(), number.as_str()].into_iter().chain(note.into_iter().flat_map(|note| ["--note", note])).collect();
@@ -146,14 +154,18 @@ impl Courier for Ssh {
 }
 
 fn over_ssh(host: &str, caller: Option<&str>, words: &[&str]) -> NorthResult<Vec<u8>> {
+    over_ssh_within(host, caller, words, SSH_WAIT)
+}
+
+fn over_ssh_within(host: &str, caller: Option<&str>, words: &[&str], wait: Duration) -> NorthResult<Vec<u8>> {
     let signed = caller.map(|caller| format!("{SESSION_ENV}={} ", quote(caller))).unwrap_or_default();
     let command = format!("{signed}north {}", words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
     let ssh = binary("ssh");
     let argv = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "--", &command];
-    match run_within(&ssh.to_string_lossy(), &argv, SSH_WAIT) {
+    match run_within(&ssh.to_string_lossy(), &argv, wait) {
         Some(output) if output.status.success() => Ok(output.stdout),
         Some(output) => Err(NorthError::Usage(format!("ssh {host} {command}: {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()))),
-        None => Err(NorthError::Usage(format!("ssh {host} {command}: no answer within {}s", SSH_WAIT.as_secs()))),
+        None => Err(NorthError::Usage(format!("ssh {host} {command}: no answer within {}s", wait.as_secs()))),
     }
 }
 
@@ -170,6 +182,8 @@ pub struct Relayed {
     pub unreachable: Vec<(String, String)>,
     pub undropped: Vec<String>,
     pub snapshots: Vec<(String, Snapshot)>,
+    /// The lines each reachable host gave for the sessions its reboot stranded and it ran again.
+    pub revived: Vec<(String, String)>,
 }
 
 pub fn relay(courier: &dyn Courier, relay_host: &str, hosts: &[String], undropped: &BTreeSet<String>, deliver: &mut dyn FnMut(&Letter) -> NorthResult<()>) -> Relayed {
@@ -203,10 +217,12 @@ pub fn relay(courier: &dyn Courier, relay_host: &str, hosts: &[String], undroppe
             drops.push((host.clone(), dropped));
         }
     }
-    let (dropped, snapshots) = std::thread::scope(|scope| {
+    let (dropped, snapshots, revived) = std::thread::scope(|scope| {
         let snapshots = scope.spawn(|| each(&reachable, |host| courier.snapshot(host)));
-        (each(&drops, |(host, ids)| courier.drop(host, ids)), snapshots.join().unwrap_or_default())
+        let revived = scope.spawn(|| each(&reachable, |host| courier.revive_rebooted(host)));
+        (each(&drops, |(host, ids)| courier.drop(host, ids)), snapshots.join().unwrap_or_default(), revived.join().unwrap_or_default())
     });
+    relayed.note_revived(&reachable, revived);
     for ((host, dropped), outcome) in drops.iter().zip(dropped) {
         if let Err(error) = outcome {
             relayed.unreachable.push((host.clone(), format!("delivered {} but could not drop them: {}", dropped.join(" "), error.user_message())));
@@ -230,11 +246,21 @@ fn each<I: Sync, T: Send>(items: &[I], call: impl Fn(&I) -> NorthResult<T> + Syn
 }
 
 impl Relayed {
+    fn note_revived(&mut self, hosts: &[String], outcomes: Vec<NorthResult<Vec<String>>>) {
+        for (host, outcome) in hosts.iter().zip(outcomes) {
+            match outcome {
+                Ok(lines) => self.revived.extend(lines.into_iter().map(|line| (host.clone(), line))),
+                Err(error) => self.unreachable.push((host.clone(), format!("its rebooted sessions were not revived: {}", error.user_message()))),
+            }
+        }
+    }
+
     pub fn lines(&self) -> Vec<String> {
         let delivered = self.delivered.iter().map(|(host, letter)| format!("relayed {} from {host} to {}", letter.id, letter.to));
         let undelivered = self.undelivered.iter().map(|failed| format!("undelivered {} from {} to {}: {}", failed.letter.id, failed.host, failed.letter.to, failed.reason));
+        let revived = self.revived.iter().map(|(host, line)| format!("{host}: {line}"));
         let unreachable = self.unreachable.iter().map(|(host, reason)| format!("unreachable {host}: {reason}"));
-        delivered.chain(undelivered).chain(unreachable).collect()
+        delivered.chain(undelivered).chain(revived).chain(unreachable).collect()
     }
 
     pub fn newly_undelivered(&self, seen: &Path) -> NorthResult<Vec<String>> {
@@ -293,6 +319,10 @@ mod tests {
 
         fn snapshot(&self, host: &str) -> NorthResult<Snapshot> {
             Ok(Snapshot { host: host.into(), ..Snapshot::default() })
+        }
+
+        fn revive_rebooted(&self, _: &str) -> NorthResult<Vec<String>> {
+            Ok(Vec::new())
         }
 
         fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
@@ -391,9 +421,50 @@ mod tests {
             Ok(Snapshot { host: host.into(), ..Snapshot::default() })
         }
 
+        fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>> {
+            Ok(vec![format!("resumed {host}-worker")])
+        }
+
         fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
             Err(NorthError::Usage(format!("ssh {host}: unreachable")))
         }
+    }
+
+    struct Rebooting(Hosts);
+
+    impl Courier for Rebooting {
+        fn take(&self, host: &str, relay_host: &str) -> NorthResult<Vec<Letter>> {
+            self.0.take(host, relay_host)
+        }
+
+        fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()> {
+            self.0.drop(host, ids)
+        }
+
+        fn snapshot(&self, host: &str) -> NorthResult<Snapshot> {
+            self.0.snapshot(host)
+        }
+
+        fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>> {
+            Ok(vec![format!("resumed {host}-worker")])
+        }
+
+        fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String> {
+            self.0.answer(host, caller, id, number, note)
+        }
+    }
+
+    #[test]
+    fn a_host_that_answers_is_asked_to_revive_its_rebooted_sessions_and_a_host_that_does_not_is_not() {
+        let root = tempfile::tempdir().unwrap();
+        let hosts = Rebooting(far(root.path()));
+        let list = ["far".to_owned(), "down".to_owned()];
+
+        let relayed = relay(&hosts, "fleet", &list, &BTreeSet::new(), &mut |_| Ok(()));
+
+        assert_eq!(relayed.revived, [("far".to_owned(), "resumed far-worker".to_owned())]);
+        assert!(relayed.lines().contains(&"far: resumed far-worker".to_owned()), "{:?}", relayed.lines());
+        assert!(relayed.lines().iter().any(|line| line.starts_with("unreachable down:")));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::model::Effort;
+use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::registry::Fleet;
 
 use super::fleet_placement::{self, Launch, Overrides};
@@ -25,6 +25,10 @@ pub(super) fn revive_with(fleet: &Fleet, name: &str, words: &[&str]) -> NorthRes
 /// Revive re-runs placement for a stopped Claude session, keeping the reasons its launch recorded and
 /// the machine its conversation lives on.
 pub(super) fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides) -> NorthResult<()> {
+    restart(fleet, name, system_prompt, effort, overrides).map(|record| println!("{}", record.name))
+}
+
+pub(super) fn restart(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides) -> NorthResult<SessionRecord> {
     let record = fleet.session(name)?;
     if let (Some(machine), Some(_)) = (&record.machine, &overrides.local) {
         return Err(NorthError::Usage(format!("{name}'s conversation lives on {}, so it revives there; launch a new session to work here", machine.name)));
@@ -36,5 +40,5 @@ pub(super) fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, 
         let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
         placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster(), true)??.note;
     }
-    fleet.revive_placed(name, system_prompt, placement, effort).map(|record| println!("{}", record.name))
+    fleet.revive_placed(name, system_prompt, placement, effort)
 }

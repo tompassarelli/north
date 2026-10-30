@@ -101,6 +101,10 @@ mod tests {
             Ok(Snapshot::default())
         }
 
+        fn revive_rebooted(&self, _: &str) -> NorthResult<Vec<String>> {
+            Ok(Vec::new())
+        }
+
         fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
             Err(NorthError::Usage(format!("ssh {host}: unreachable")))
         }

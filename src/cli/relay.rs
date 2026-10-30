@@ -3,6 +3,8 @@ use crate::fleet::model::Delivery;
 use crate::fleet::registry::{Fleet, Sent};
 use crate::fleet::relay::Ssh;
 
+use super::fleet_rebooted;
+
 const RELAY_USAGE: &str = "Usage: north fleet relay HOST...";
 const OUTBOX_USAGE: &str = "Usage: north fleet outbox take --for HOST | north fleet outbox drop ID... | north fleet outbox snapshot";
 const SEND_USAGE: &str = "Usage: north fleet send [--now] NAME TEXT...";
@@ -46,8 +48,12 @@ fn relay(fleet: &Fleet, hosts: &[&str]) -> NorthResult<()> {
     for line in relayed.lines() {
         println!("{line}");
     }
+    let rebooted = fleet_rebooted::run(fleet, &["--revive"]);
     if fresh.is_empty() {
-        return Ok(());
+        return rebooted;
+    }
+    if let Err(error) = rebooted {
+        eprintln!("error: {}", error.user_message());
     }
     Err(NorthError::Refused(format!("north fleet relay: newly undelivered or undropped: {}", fresh.join(", "))))
 }

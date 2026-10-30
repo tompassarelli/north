@@ -32,10 +32,15 @@ impl Stop {
     }
 }
 
+/// The reply opens with `Done:`, the report of a session that finished.
+pub fn reported_done(report: &str) -> bool {
+    DONE.is_match(report.trim_start())
+}
+
 /// The stop a reply names: `Stop: capacity`, else a reply that ended on a wait; a `Done:` report
 /// names neither.
 pub fn stop(report: &str) -> Option<Stop> {
-    if DONE.is_match(report.trim_start()) {
+    if reported_done(report) {
         return None;
     }
     if CAPACITY.is_match(report) {
