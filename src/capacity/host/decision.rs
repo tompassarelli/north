@@ -84,7 +84,7 @@ fn facts(root: &Path, request: &Request, create: Option<&Create>, ticket: Option
         .put("profile", context.profile)
         .put("class", request.admitted_class())
         .put("gamingClass", request.name.as_str())
-        .put("queuedAheadClasses", context.queued.ahead.iter().map(|entry| entry.get("requestedClass").cloned().unwrap_or(Value::Null)).collect::<Vec<_>>())
+        .put("queuedAheadTickets", context.queued.ahead.iter().map(|entry| ahead_ticket(entry, observed.now)).collect::<Vec<_>>())
         .put("queuedAheadNewClients", context.queued.ahead.iter().map(|entry| entry.get("newClients").filter(|value| !value.is_null()).cloned().unwrap_or(json!(0))).collect::<Vec<_>>())
         .put("leasedMemoryMiB", num(context.leased.memory_mib))
         .put("leasedBatchCpus", num(round2(context.committed_batch_cpus - unleased_cores)))
@@ -113,6 +113,15 @@ fn facts(root: &Path, request: &Request, create: Option<&Create>, ticket: Option
         .put("quiet", request.quiet)
         .put("exclusiveLeases", runs.iter().filter(|lease| class(lease) == "exclusive").map(|lease| id(lease)).collect::<Vec<_>>())
         .put_some("ticket", ticket.map(|ticket| root.join("queue").join(ticket).to_string_lossy().into_owned()))
+}
+
+/// The class, CPUs and seconds waited of a ticket queued ahead, by which admission decides whether a smaller request may pass it.
+fn ahead_ticket(entry: &Value, now: f64) -> Value {
+    json!({
+        "requestedClass": entry.get("requestedClass").cloned().unwrap_or(Value::Null),
+        "requestedCpus": entry.get("requestedCpus").cloned().unwrap_or(Value::Null),
+        "queuedSeconds": num(round2((now - field(entry, "queuedAt").unwrap_or(now)) / 1000.0)),
+    })
 }
 
 /// Marks each lease fact with the Warcraft clients running inside its scope, and records on each native lease the most it has seen running there, so its hold doesn't return once they exit.

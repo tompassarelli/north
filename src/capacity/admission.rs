@@ -118,7 +118,7 @@ pub(crate) struct Facts {
     #[serde(default)]
     pub(crate) game_reserve_agent_cpus: Option<u32>,
     #[serde(default)]
-    pub(crate) queued_ahead_classes: Vec<Option<Class>>,
+    pub(crate) queued_ahead_tickets: Vec<AheadTicket>,
     #[serde(default)]
     pub(crate) queued_ahead_new_clients: Vec<u32>,
     #[serde(default)]
@@ -133,6 +133,14 @@ pub(crate) struct Facts {
     pub(crate) requester_lease: Option<String>,
     #[serde(skip)]
     pub(crate) client_hold: client_reserve::ClientHold,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct AheadTicket {
+    pub(crate) requested_class: Option<Class>,
+    pub(crate) requested_cpus: Option<f64>,
+    pub(crate) queued_seconds: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -299,16 +307,12 @@ fn game_memory_short(facts: &Facts) -> bool {
         && facts.memory_available_mib - facts.requested_memory_mib < default_mib("game_reserve_headroom_mib")
 }
 
-fn host_holds(facts: &Facts, class: Class) -> bool {
+pub(super) fn host_holds(facts: &Facts, class: Class) -> bool {
     (facts.gaming && gaming_deferred(facts, class)) || (class == Class::Heavy && disk_below_floor(facts))
 }
 
-fn queued_ahead(facts: &Facts) -> u32 {
-    if host_holds(facts, facts.gaming_class.unwrap_or(facts.class)) {
-        return facts.queued_ahead;
-    }
-    let held = facts.queued_ahead_classes.iter().flatten().filter(|class| host_holds(facts, **class)).count();
-    facts.queued_ahead.saturating_sub(u32::try_from(held).unwrap_or(u32::MAX))
+pub(super) fn batch_fits(facts: &Facts, cpus: f64) -> bool {
+    facts.leased_batch_cpus + facts.unleased_heavy_cores + cpus <= batch_cpus(facts)
 }
 
 fn invalid(facts: &Facts) -> bool {
@@ -481,10 +485,10 @@ fn shared(facts: &Facts) -> Reason {
     if interactive_pressure(facts) {
         return Reason::DeferInteractivePressure;
     }
-    if queued_ahead(facts) > 0 {
+    if super::queued_ahead::queued_ahead(facts) > 0 {
         return Reason::DeferQueued;
     }
-    if facts.leased_batch_cpus + facts.unleased_heavy_cores + facts.requested_cpus > batch_cpus(facts) {
+    if !batch_fits(facts, facts.requested_cpus) {
         return Reason::DeferCpuCapacity;
     }
     if facts.cpu_some_avg10_basis_points > BATCH_PRESSURE_BASIS_POINTS {

@@ -18,6 +18,7 @@ mod watchdog;
 mod native_hold;
 mod client_reserve;
 mod run_queue;
+mod queued_ahead;
 mod deadline;
 mod lease_deadline;
 mod warcraft;

@@ -126,6 +126,7 @@ fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
         Obj::new()
             .put("class", request.admitted_class())
             .put("requestedClass", request.name.as_str())
+            .put("requestedCpus", num(request.resources().cpus))
             .put("owner", create.owner.as_str())
             .put("timeoutSeconds", create.timeout_seconds)
             .put("newClients", request.new_clients)

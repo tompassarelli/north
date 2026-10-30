@@ -91,6 +91,30 @@ fn landing_heavy_check_queues_while_gaming_instead_of_taking_a_lease_to_be_froze
 }
 
 #[test]
+fn moderate_work_that_fits_passes_a_parked_heavy_ticket_the_free_share_cannot_fit() {
+    let host = host();
+    let _holder = run(&host, "heavy", "fixture:/holder", &["sleep", "30"]);
+    host.until("the heavy lease", |host| host.leases("heavy") == 1);
+    let _parked = run(&host, "heavy", "fixture:/parked", &["true"]);
+    host.until("the parked heavy ticket", |host| host.queued("heavy") == 1);
+
+    let passed = probe(&host, "moderate");
+    assert_eq!(passed["reason"], "RUN", "{passed}");
+}
+
+fn state_no_cpus(host: &Host) {
+    let queue = host.path("agent-capacity-v1/queue");
+    for entry in fs::read_dir(&queue).unwrap() {
+        let path = entry.unwrap().path();
+        let mut ticket: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        ticket.as_object_mut().unwrap().remove("requestedCpus");
+        let staged = path.with_extension("staged");
+        fs::write(&staged, ticket.to_string()).unwrap();
+        fs::rename(&staged, &path).unwrap();
+    }
+}
+
+#[test]
 fn only_a_declared_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket() {
     let host = host();
     let _holder = run(&host, "heavy", "fixture:/holder", &["sleep", "30"]);
@@ -98,6 +122,7 @@ fn only_a_declared_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket()
     let _parked = run(&host, "heavy", "fixture:/parked", &["true"]);
     host.until("the parked heavy ticket", |host| host.queued("heavy") == 1);
 
+    state_no_cpus(&host);
     let ignored = probe(&host, "moderate");
     assert_eq!(ignored["reason"], "DEFER_QUEUED", "{ignored}");
 

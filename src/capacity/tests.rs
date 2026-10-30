@@ -1,4 +1,4 @@
-use super::admission::{Admission, Class, Facts, Profile, Reason, admit, decide};
+use super::admission::{AheadTicket, Admission, Class, Facts, Profile, Reason, admit, decide};
 use super::native_hold::{LeaseFact, QuietNative};
 
 pub(super) fn facts(class: Class) -> Facts {
@@ -50,7 +50,7 @@ pub(super) fn facts(class: Class) -> Facts {
         gaming: false,
         gaming_class: None,
         game_reserve_agent_cpus: None,
-        queued_ahead_classes: Vec::new(),
+        queued_ahead_tickets: Vec::new(),
         queued_ahead_new_clients: Vec::new(),
         run_queue_load: None,
         need: None,
@@ -197,7 +197,7 @@ fn gaming_holds_a_landing_check_by_the_class_it_asked_for() {
 
 #[test]
 fn gaming_deferred_tickets_ahead_do_not_queue_light_work_behind_them() {
-    let ahead = |gaming, classes: &[Class]| Facts { gaming, queued_ahead: 2, queued_ahead_classes: classes.iter().copied().map(Some).collect(), ..facts(Class::Moderate) };
+    let ahead = |gaming, classes: &[Class]| Facts { gaming, queued_ahead: 2, queued_ahead_tickets: tickets(classes), ..facts(Class::Moderate) };
     assert_eq!(decide(&ahead(true, &[Class::Heavy, Class::Gpu])), Reason::Run);
     assert_eq!(decide(&ahead(true, &[Class::Heavy, Class::Moderate])), Reason::DeferQueued);
     assert_eq!(decide(&ahead(false, &[Class::Heavy, Class::Gpu])), Reason::DeferQueued);
@@ -401,7 +401,7 @@ fn game_reserve_counts_batch_cpus_against_the_agent_cpus_only() {
 
 #[test]
 fn game_reserve_frees_light_work_queued_behind_held_tickets_but_not_behind_heavy_ones_it_admits() {
-    let ahead = |classes: &[Class]| Facts { queued_ahead: 2, queued_ahead_classes: classes.iter().copied().map(Some).collect(), ..reserved(Class::Moderate) };
+    let ahead = |classes: &[Class]| Facts { queued_ahead: 2, queued_ahead_tickets: tickets(classes), ..reserved(Class::Moderate) };
     assert_eq!(decide(&ahead(&[Class::Native, Class::Exclusive])), Reason::Run);
     assert_eq!(decide(&ahead(&[Class::Heavy, Class::Gpu])), Reason::DeferQueued);
 }
@@ -419,7 +419,7 @@ fn gex45_on_2026_10_28(class: Class, disk_free_gib: f64, queued_ahead_classes: &
         requested_memory_mib: if class == Class::Heavy { 8192.0 } else { 2048.0 },
         peer_batch_runs: 1,
         queued_ahead: u32::try_from(queued_ahead_classes.len()).unwrap(),
-        queued_ahead_classes: queued_ahead_classes.iter().copied().map(Some).collect(),
+        queued_ahead_tickets: tickets(queued_ahead_classes),
         disk_free_gib: Some(disk_free_gib),
         ..facts(class)
     }
@@ -461,7 +461,7 @@ fn a_request_for_the_whole_host_waits_only_for_the_run_queue_to_reach_the_thread
 
 #[test]
 fn a_runtime_build_runs_past_the_run_queue_gate_full_heavy_leases_and_heavy_tickets_ahead_but_not_past_the_disk_floor() {
-    let gex45 = Facts { class: Class::Runtime, requested_cpus: 4.0, run_queue_load: Some(71.0), leased_batch_cpus: 18.0, queued_ahead: 3, queued_ahead_classes: vec![Some(Class::Heavy); 3], disk_free_gib: Some(50.0), ..heavy_beside_clients(0.0, 0) };
+    let gex45 = Facts { class: Class::Runtime, requested_cpus: 4.0, run_queue_load: Some(71.0), leased_batch_cpus: 18.0, queued_ahead: 3, queued_ahead_tickets: tickets(&[Class::Heavy; 3]), disk_free_gib: Some(50.0), ..heavy_beside_clients(0.0, 0) };
     assert_eq!(decide(&gex45), Reason::Run);
     assert_eq!(decide(&Facts { class: Class::Heavy, ..gex45.clone() }), Reason::DeferRunQueue);
     assert_eq!(decide(&Facts { disk_free_gib: Some(1.0), ..gex45 }), Reason::DeferDiskFree);
@@ -508,4 +508,33 @@ fn an_unattended_host_defers_on_run_queue_pressure_only_from_sixty_percent() {
 fn without_a_pressure_reading_the_load_average_still_decides() {
     let unread = Facts { run_queue_load: Some(40.0), cpu_some_avg10_basis_points: 0, requested_cpus: 6.0, ..facts(Class::Heavy) };
     assert_eq!(decide(&unread), Reason::DeferRunQueue);
+}
+
+fn tickets(classes: &[Class]) -> Vec<AheadTicket> {
+    classes.iter().map(|class| AheadTicket { requested_class: Some(*class), ..AheadTicket::default() }).collect()
+}
+
+fn whiterabbit_on_2026_10_31(requested_cpus: f64, leased_batch_cpus: f64, ahead: &[AheadTicket]) -> Facts {
+    Facts {
+        cores: 16,
+        leased_batch_cpus,
+        cpu_some_avg10_basis_points: 68,
+        requested_cpus,
+        queued_ahead: u32::try_from(ahead.len()).unwrap(),
+        queued_ahead_tickets: ahead.to_vec(),
+        ..facts(Class::Heavy)
+    }
+}
+
+#[test]
+fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_has_waited_past_the_bound() {
+    let head = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(6.0), queued_seconds };
+    let guard = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(2.0), queued_seconds };
+    let bound = super::admission::default_mib("backfill_seconds");
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 7.89, &[])), Reason::DeferCpuCapacity);
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(21.0)])), Reason::Run);
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(21.0), guard(21.0)])), Reason::DeferQueued);
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(bound)])), Reason::DeferQueued);
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 5.89, &[head(bound)])), Reason::DeferQueued);
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 5.89, &[])), Reason::Run);
 }

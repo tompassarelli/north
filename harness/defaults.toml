@@ -663,6 +663,14 @@ settles_when = { need = 20, count = "count_worker_runs", what = "worker runs ava
 fallback = "a lease whose scope is not measured keeps deferring until it ends or passes its declared run length"
 consumers = ["src/capacity/admission.rs"]
 
+[backfill_seconds]
+value = 300
+unit = "seconds a queued batch ticket the free CPU share cannot fit lets smaller requests behind it that do fit pass it; past them it holds its place and everything behind it waits"
+source = "prior: on the laptop at 6:30 AM +07 on 2026-10-31 a heavy build that did not fit held four 2-CPU requests that did for 21 to 550 s under strict arrival order while the watchdog read it saturated for 45 minutes (north#385); five minutes lets that work through and still reserves the share for the build well before its 737 s wait ran out"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against queued batch tickets' measured wait before admission; worker runs are the nearest existing count until queue waits are counted" }
+fallback = "a ticket that states no CPUs holds its place in arrival order"
+consumers = ["src/capacity/queued_ahead.rs"]
+
 [evidence_retention_hours]
 value = 72
 unit = "hours since the newest change after which an unpinned, unopened Smashcraft evidence folder on the GPU host is archived to the laptop and deleted there"
