@@ -14,7 +14,7 @@ use super::guards::{pin_builds, pins_verdict, reuse_verdict, wisp_row};
 use super::host::{Host, Places, iso, read_json, seconds, write_atomic};
 use super::jobs::landing_jobs;
 use super::stall::{self, Facts, Job};
-use super::stranded;
+use super::{refused, stranded};
 use crate::fleet::stranded::Stranded;
 use super::throughput::{self, Closed, Commit, DeadLane, Inputs};
 
@@ -155,12 +155,13 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     let tips = source.lane_tips()?;
     let (unlanded, cleanup) = source.live_lanes(&tips, source.unlanded(&tips));
     row.insert("cleanup".into(), json!(cleanup));
-    let states = if source.autoland { autoland::autoland_states(env.host, &source.slug, &unlanded) } else { BTreeMap::new() };
+    let states = autoland::autoland_states(env.host, &source.slug, &unlanded);
     let (lanes, dead_count, dead_oldest) = autoland::lane_counts(&unlanded, &states, now);
     let mut pending = lanes as u64;
     row.insert("dead".into(), json!(dead_count));
     row.insert("dead_oldest_minutes".into(), json!(dead_oldest));
     let dead: BTreeSet<&String> = unlanded.iter().filter(|sha| autoland::failed_since(&states, sha).is_some()).collect();
+    row.insert("refused".into(), refused::rows(&tips, &states, &dead, &refused::pushers(env.places, repo), now));
     let mut pending_since: Vec<f64> = unlanded.iter().filter(|sha| !dead.contains(sha)).map(|sha| tips[sha].0).collect();
     source.add_throughput(row, landing.as_ref(), &tips, &states, &dead, &pending_since);
     if source.autoland {

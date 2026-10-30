@@ -137,7 +137,7 @@ pub(crate) fn autoland_states(host: &dyn Host, slug: &str, shas: &[String]) -> B
         return BTreeMap::new();
     }
     let (owner, name) = slug.split_once('/').unwrap_or((slug, ""));
-    let Some(tips) = host.graphql(&tip_query(shas, "context state createdAt", owner, name)).as_ref().and_then(tips_of) else { return BTreeMap::new() };
+    let Some(tips) = host.graphql(&tip_query(shas, "context state description targetUrl createdAt", owner, name)).as_ref().and_then(tips_of) else { return BTreeMap::new() };
     tips.values()
         .filter(|tip| !tip.is_null())
         .filter_map(|tip| Some((tip["oid"].as_str()?.to_owned(), contexts(tip).filter(|status| status["context"] == "autoland").last()?.clone())))

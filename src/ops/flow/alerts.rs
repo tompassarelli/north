@@ -75,13 +75,14 @@ pub(crate) fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[No
     for row in rows {
         let repo = row["repo"].as_str().unwrap_or_default();
         let stranded = super::stranded::lines(row);
+        let refused = super::refused::lines(row, nodes);
         let verdict = serde_json::from_value::<Verdict>(row["stall"].clone()).ok();
-        if verdict.is_none() && stranded.is_empty() {
+        if verdict.is_none() && stranded.is_empty() && refused.is_empty() {
             continue;
         }
         let guards = if verdict.is_some() { guard_reasons(row) } else { Vec::new() };
         let stalled = verdict.as_ref().filter(|verdict| verdict.stalled);
-        if stalled.is_none() && guards.is_empty() && stranded.is_empty() {
+        if stalled.is_none() && guards.is_empty() && stranded.is_empty() && refused.is_empty() {
             state.remove(repo);
             continue;
         }
@@ -99,6 +100,10 @@ pub(crate) fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[No
         if !stranded.is_empty() {
             let text = format!("Lanes stranded in {repo}, unlanded with no live session: {}", stranded.join("; "));
             actions.extend(pending_actions(record, now, repo, &parent, "stranded:fleet:{node}", &text));
+        }
+        if !refused.is_empty() {
+            let text = format!("Land branches Autoland refused in {repo}, with no live session to fix them: {}", refused.join("; "));
+            actions.extend(pending_actions(record, now, repo, &parent, "refused:fleet:{node}", &text));
         }
     }
     (state, actions)

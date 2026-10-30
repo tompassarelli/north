@@ -271,3 +271,22 @@ fn a_workflow_with_hundreds_of_runs_a_day_gets_its_median_from_one_listing_page_
     assert!(jobs.is_empty());
     assert_eq!(medians["farm-test.yml"], Some(5.0));
 }
+
+#[test]
+fn test_refused_lane_reaches_proxy_only_when_its_pusher_is_gone() {
+    let sha = "a".repeat(40);
+    let tips = std::collections::BTreeMap::from([(sha.clone(), (0.0, "claude/land-x-aaaa".to_owned()))]);
+    let states = std::collections::BTreeMap::from([(sha.clone(), json!({"state": "FAILURE", "description": "rebasing onto main conflicts in a.rs", "targetUrl": "https://example.test/run", "createdAt": "2026-10-30T18:00:00Z"}))]);
+    let dead = std::collections::BTreeSet::from([&sha]);
+    let pushers = std::collections::BTreeMap::from([(sha.clone(), "wisp-114".to_owned())]);
+    let now = at("2026-10-30T18:40:00Z");
+    let row = json!({"repo": "wisp", "refused": super::refused::rows(&tips, &states, &dead, &pushers, now)});
+    let node = |active| vec![Node { id: "wisp-114".into(), parent: Some("wisp-lead".into()), active, cwd: "/home/tom/code/wisp/main".into() }];
+    let (_, live) = alert_plan(std::slice::from_ref(&row), &State::new(), now, &node(true));
+    assert!(live.is_empty());
+    let (_, gone) = alert_plan(std::slice::from_ref(&row), &State::new(), now, &node(false));
+    let mut recipients: Vec<&str> = gone.iter().map(|action| action.node.as_str()).collect();
+    recipients.sort_unstable();
+    assert_eq!(recipients, ["proxy", "wisp-parent"]);
+    assert_eq!(gone[0].text, "Land branches Autoland refused in wisp, with no live session to fix them: claude/land-x-aaaa (pushed by wisp-114, rebasing onto main conflicts in a.rs, https://example.test/run, 40m)");
+}

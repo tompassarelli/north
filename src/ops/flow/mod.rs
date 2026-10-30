@@ -24,6 +24,7 @@ mod host;
 mod jobs;
 mod measure;
 mod notes;
+mod refused;
 mod render;
 mod stall;
 mod stranded;
