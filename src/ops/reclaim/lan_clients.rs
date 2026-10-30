@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rustix::fs::{FlockOperation, flock};
 
@@ -10,9 +10,10 @@ use super::{Inputs, KEPT_PAIRS, Policy, Removal, hours, idle_for, removed, size}
 
 pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result<Vec<Removal>> {
     let mut removals = Vec::new();
+    let pooled = pooled_pairs(&inputs.lan_state);
     for (pair, clients) in pairs(inputs)? {
         let state = inputs.lan_state.join(format!("pair-{pair}"));
-        if KEPT_PAIRS.contains(&pair) || queued(&state) || clients.iter().any(|client| held.within(client)) {
+        if KEPT_PAIRS.contains(&pair) || pooled.contains(&pair) || queued(&state) || clients.iter().any(|client| held.within(client)) {
             continue;
         }
         let activity = if state.is_dir() { state.clone() } else { clients[0].clone() };
@@ -33,6 +34,12 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
         }
     }
     Ok(removals)
+}
+
+fn pooled_pairs(lan_state: &Path) -> BTreeSet<u32> {
+    let listed = fs::read(lan_state.join("pool.json")).ok().and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok());
+    let ids = listed.as_ref().and_then(|pool| pool["pairs"].as_array()).into_iter().flatten().filter_map(|pair| pair["id"].as_u64());
+    ids.filter_map(|id| u32::try_from(id).ok()).collect()
 }
 
 fn pairs(inputs: &Inputs) -> io::Result<BTreeMap<u32, Vec<PathBuf>>> {
@@ -58,6 +65,6 @@ fn pair_of(client: &str) -> Option<u32> {
     number.parse().ok()
 }
 
-fn queued(state: &std::path::Path) -> bool {
+fn queued(state: &Path) -> bool {
     fs::read_dir(state.join("queue")).is_ok_and(|mut waiting| waiting.next().is_some())
 }

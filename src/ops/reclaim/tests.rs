@@ -129,6 +129,22 @@ fn lan_pair_copies_go_only_when_idle_unqueued_unlocked_and_not_a_default_pair() 
     assert!([default, queued, recent, locked].iter().flatten().all(|client| client.exists()));
 }
 
+#[test]
+fn lan_pair_copies_a_pool_json_names_stay_however_long_the_pair_sat_idle() {
+    let machine = Machine::new();
+    let pair = |number: u32| {
+        let clients = ["a", "b"].map(|side| machine.dir(&format!("clients/lan{number}{side}"), 3 * DAY));
+        machine.dir(&format!("state/pair-{number}"), 3 * DAY);
+        clients
+    };
+    let pooled = [pair(4), pair(5)];
+    let unlisted = pair(9);
+    fs::write(machine.path("state/pool.json"), r#"{"profile":"parity","pairs":[{"id":4,"clients":"x"},{"id":5,"clients":"x"}]}"#).unwrap();
+
+    assert_eq!(machine.reclaim(false), unlisted.to_vec());
+    assert!(pooled.iter().flatten().all(|client| client.exists()));
+}
+
 fn cargo_target(machine: &Machine, relative: &str, age: Duration) -> PathBuf {
     let target = machine.dir(relative, age);
     let tag = machine.file(&format!("{relative}/CACHEDIR.TAG"), age);
