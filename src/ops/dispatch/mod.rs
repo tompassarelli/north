@@ -149,7 +149,7 @@ pub(crate) fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             continue;
         }
         let route = tier::route(issue, &history, &survey.ledger);
-        let grounds = survey.grounds.grounds(&issue.reference().to_string(), &issue.body, &route);
+        let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route);
         let eta_h = grounds.figures.as_ref().map(|figures| grounds::eta_minutes(figures) / 60.0);
         let brief = brief::brief(issue, launched_by, &route, &grounds);
         if let Some(why) = crate::router::brief::class_refusal(&brief) {

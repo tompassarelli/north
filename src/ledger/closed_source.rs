@@ -136,22 +136,25 @@ pub fn window_start_ms(window: &str) -> NorthResult<i64> {
     Ok(Timestamp::parse(&window_start(window)?)?.unix_millis())
 }
 
-pub const PRIOR_REPORTS: usize = 2;
+/// A worker's Not done or Stop report and when its run ended, as unix seconds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PriorReport {
+    pub ended: f64,
+    pub report: String,
+}
 
-/// Each item's newest Not done or Stop reports, newest first, as the ledger stored them.
-pub fn prior_reports() -> NorthResult<BTreeMap<String, Vec<String>>> {
+/// Each item's Not done or Stop reports, newest first, as the ledger stored them.
+pub fn prior_reports() -> NorthResult<BTreeMap<String, Vec<PriorReport>>> {
     let rows = sqlite::rows(
         &threads_database(),
         Access::ReadOnly,
         Duration::from_secs(5),
-        "SELECT item, report FROM runs WHERE item IS NOT NULL AND report != '' AND role = 'worker' AND (outcome = 'not done' OR report LIKE '%Stop:%') ORDER BY ended DESC",
+        "SELECT item, ended, report FROM runs WHERE item IS NOT NULL AND report != '' AND role = 'worker' AND (outcome = 'not done' OR report LIKE '%Stop:%') ORDER BY ended DESC",
     )?;
-    let mut found: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut found: BTreeMap<String, Vec<PriorReport>> = BTreeMap::new();
     for row in &rows {
-        let reports = found.entry(text(row, "item")).or_default();
-        if reports.len() < PRIOR_REPORTS {
-            reports.push(text(row, "report"));
-        }
+        let ended = Timestamp::parse_rfc3339(&text(row, "ended")).map_or(0.0, Timestamp::unix_seconds_f64);
+        found.entry(text(row, "item")).or_default().push(PriorReport { ended, report: text(row, "report") });
     }
     Ok(found)
 }

@@ -2,10 +2,11 @@
 //! required, what the last two tries reported, and the ETA and budget the ledger's closed boxes set
 //! for the box's tier and category.
 use super::tier::Route;
-use crate::ledger::{self, ClosedReport, Figures};
+use crate::ledger::{self, ClosedReport, Figures, PriorReport};
 use std::collections::BTreeMap;
 
 pub(crate) const REPORT_CHARS: usize = 600;
+const PRIOR_REPORTS: usize = 2;
 /// The closed-box window the ETA and budget are read from.
 pub(crate) const WINDOW: &str = "7d";
 pub(crate) const BUDGET_TIMES: f64 = 2.0;
@@ -16,7 +17,7 @@ const UNCALIBRATED: &str = "45 min (uncalibrated)";
 #[derive(Default)]
 pub(crate) struct Ledger {
     closed: Option<ClosedReport>,
-    prior: BTreeMap<String, Vec<String>>,
+    prior: BTreeMap<String, Vec<PriorReport>>,
 }
 
 impl Ledger {
@@ -27,15 +28,18 @@ impl Ledger {
     }
 
     #[cfg(test)]
-    pub(crate) fn new(closed: Option<ClosedReport>, prior: BTreeMap<String, Vec<String>>) -> Self {
+    pub(crate) fn new(closed: Option<ClosedReport>, prior: BTreeMap<String, Vec<PriorReport>>) -> Self {
         Self { closed, prior }
     }
 
-    /// What the brief for `item`, whose issue body is `body`, says on top of its facets.
-    pub(crate) fn grounds(&self, item: &str, body: &str, route: &Route) -> Grounds {
+    /// What the brief for `item`, whose issue body is `body` and which was opened at `created` unix
+    /// seconds, says on top of its facets; a report from before `created` was about an earlier
+    /// issue that held the same item name.
+    pub(crate) fn grounds(&self, item: &str, created: f64, body: &str, route: &Route) -> Grounds {
+        let prior = self.prior.get(item).into_iter().flatten().filter(|prior| prior.ended > created).take(PRIOR_REPORTS).map(|prior| prior.report.clone()).collect();
         Grounds {
             figures: self.closed.as_ref().and_then(|closed| closed.figures(route.tier.family(), &route.category)),
-            prior: self.prior.get(item).cloned().unwrap_or_default(),
+            prior,
             not_required: not_required(body),
         }
     }

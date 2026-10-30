@@ -134,21 +134,23 @@ pub(crate) fn begin(ask: &Ask) -> Result<Start, String> {
     let mut notes = Vec::new();
     let grounds = grounds::Ledger::read(&mut notes);
     notes.iter().for_each(|note| eprintln!("north fleet: {note}"));
-    let body = if IssueRef::parse(ask.item).is_none() {
-        String::new()
+    let (body, created) = if IssueRef::parse(ask.item).is_none() {
+        (String::new(), 0.0)
     } else {
-        issue_body(ask.item).unwrap_or_else(|why| {
-            eprintln!("north fleet: {} body unread, so its brief carries no Not required lines: {why}", ask.item);
-            String::new()
+        issue_text(ask.item).unwrap_or_else(|why| {
+            eprintln!("north fleet: {} unread, so its brief carries no Not required lines or prior reports: {why}", ask.item);
+            (String::new(), f64::INFINITY)
         })
     };
-    start(ask, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, &body, route))
+    start(ask, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route))
 }
 
-fn issue_body(item: &str) -> Result<String, String> {
+/// The issue's body and when it was opened, as unix seconds.
+fn issue_text(item: &str) -> Result<(String, f64), String> {
     let item = IssueRef::parse(item).ok_or_else(|| format!("{item} names no issue"))?;
-    let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body"])?;
-    Ok(json["body"].as_str().unwrap_or_default().to_owned())
+    let json = github::json(&["issue", "view", &item.number.to_string(), "-R", &format!("{OWNER}/{}", item.repo), "--json", "body,createdAt"])?;
+    let created = json["createdAt"].as_str().and_then(crate::pace::target::seconds).ok_or_else(|| format!("{item} carries no createdAt"))?;
+    Ok((json["body"].as_str().unwrap_or_default().to_owned(), created))
 }
 
 pub(crate) fn tier_reason(brief: &str, flag: Option<&str>) -> Option<String> {
