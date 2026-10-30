@@ -18,7 +18,6 @@ calibration -> defaults
 claude_profiles -> usage
 flow -> calibration
 flow -> defaults
-flow -> laptop_line
 flow -> project_score
 goal_eta -> calibration
 goal_eta -> flow
@@ -54,7 +53,7 @@ usage_claude -> usage
 ```
 
 `policy_stats` is `harness/scripts/policy_stats.py`. Modules not named on the left import no other
-`harness/lib` module: `billing_digitalocean`, `defaults`, `durable_events`, `laptop_line`,
+`harness/lib` module: `billing_digitalocean`, `defaults`, `durable_events`,
 `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
 `usage_agy`, `usage_codex`.
 
@@ -75,7 +74,7 @@ Five edges close the cycle, and each exists to reach one small helper:
 Moving `missed_target` into a new leaf module beside `defaults` and the three account helpers into
 another removes all five edges and leaves a graph with no cycle. In dependency order the layers are:
 
-1. `billing_digitalocean`, `claude_profiles`, `defaults`, `durable_events`, `laptop_line`, `policy_stats`,
+1. `billing_digitalocean`, `claude_profiles`, `defaults`, `durable_events`, `policy_stats`,
    `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
    `usage_agy`, `usage_codex`
 2. `calibration`, `ledger_context`, `presence`, `routing`, `usage_claude`
@@ -94,7 +93,7 @@ and `harness/scripts/policy-replay.py`.
 
 ## First port slice
 
-Port the leaves #80 owns: `defaults`, `calibration`, `run_outcome`, `ssh_transport` and `laptop_line`.
+Port the leaves #80 owns: `defaults`, `calibration`, `run_outcome` and `ssh_transport`.
 None imports a cycle module (`calibration` imports only `defaults`), so they move first without the cycle
 in the way. Callers become `north` subcommand calls in the same change, per the rules in #80.
 
