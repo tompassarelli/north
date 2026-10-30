@@ -168,6 +168,22 @@ impl ClosedReport {
         (self.closed > 0).then(|| usd / self.closed as f64)
     }
 
+    pub fn all_usd_per_closed(&self) -> Option<f64> {
+        self.per_closed(self.spend_usd)
+    }
+
+    pub fn leads_usd_per_closed(&self) -> Option<f64> {
+        self.per_closed(self.leads_usd)
+    }
+
+    /// The share of the closed boxes' spend in `categories` that cells whose tier label names
+    /// `family` hold; None when those categories closed no box.
+    pub fn family_share(&self, family: &str, categories: &[String]) -> Option<f64> {
+        let cells = || self.cells.iter().filter(|cell| categories.contains(&cell.category));
+        let total: f64 = cells().map(|cell| cell.usd).sum();
+        (total > 0.0).then(|| cells().filter(|cell| cell.tier.contains(family)).map(|cell| cell.usd).sum::<f64>() / total)
+    }
+
     /// The figures of every cell in `category` whose tier label names `family` (`haiku`, `sonnet` or
     /// `opus`), pooled; None when no box closed there or no run of it has a wall time.
     pub fn figures(&self, family: &str, category: &str) -> Option<Figures> {

@@ -4,13 +4,16 @@
 //! file, files one north issue for each cell whose cost per closed box rose more than 25% week on
 //! week unless one filed for it is open or closed in the last week, and prints the open north issue
 //! count. It keeps each staffed cell's cost per closed box once a day in the costs file and prints
-//! today's beside the last earlier day's. A failed read of the arms' evidence keeps the prior routing cells and fails the tick.
+//! today's beside the last earlier day's. It reads each landed plan issue's dividend from the same
+//! week, keeps the reading once a day in the readings file, and tells the proxy once when one turns
+//! DECAYED. A failed read of the arms' evidence keeps the prior routing cells and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport};
 use crate::ops::dispatch::{ARMED, Evidence, LEDGER_WINDOW, arm_evidence};
 use crate::platform::github;
 use cells::{Cells, Change};
 use costs::Cost;
+use dividends::{Dividend, Reading};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -18,6 +21,7 @@ use std::path::PathBuf;
 
 mod cells;
 mod costs;
+mod dividends;
 mod rises;
 #[cfg(test)]
 mod tests;
@@ -33,6 +37,8 @@ pub(crate) trait Tracker {
     fn recently_closed(&self) -> Result<Vec<String>, String>;
     /// Files an issue and returns its URL.
     fn file(&mut self, title: &str, body: &str) -> Result<String, String>;
+    /// Sends the proxy session a fleet message.
+    fn tell_proxy(&mut self, text: &str) -> Result<(), String>;
 }
 
 /// The ledger as one tick reads it; `notes` are the reads that failed.
@@ -43,36 +49,66 @@ pub(crate) struct Ledger {
     pub notes: Vec<String>,
 }
 
+/// What earlier ticks left: the cells they wrote and the costs and dividend readings they kept.
+#[derive(Default)]
+pub(crate) struct Prior {
+    pub cells: Cells,
+    pub costs: Vec<Cost>,
+    pub readings: Vec<Reading>,
+}
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct Tick {
     pub lines: Vec<String>,
     pub cells: Cells,
     pub records: Vec<Value>,
     pub costs: Vec<Value>,
+    pub readings: Vec<Value>,
     pub failed: bool,
 }
 
-pub(crate) fn tick(ledger: &Ledger, prior: &Cells, earlier: &[Cost], tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
+pub(crate) fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mut dyn Tracker, at: &str, dry_run: bool) -> Tick {
     let mut lines = vec![ledger.week.dashboard(LEDGER_WINDOW)];
     lines.extend(ledger.notes.iter().map(|note| format!("unread: {note}; prior routing cells are kept")));
     let mut decided = cells::decide(&ledger.week, &ledger.evidence);
     if !ledger.notes.is_empty() {
-        cells::carry_routes(prior, &mut decided);
+        cells::carry_routes(&prior.cells, &mut decided);
     }
-    let changes = cells::changes(prior, &decided);
+    let changes = cells::changes(&prior.cells, &decided);
     lines.extend(changes.iter().map(Change::line));
     if changes.is_empty() {
         lines.push(format!("no cell changed ({} cells)", decided.len()));
     }
-    let today = costs::today(&ledger.week, earlier, at);
+    let today = costs::today(&ledger.week, &prior.costs, at);
     lines.extend(today.lines);
+    let checked = dividends::check(&ledger.week, dividends, &prior.readings, at);
+    lines.extend(checked.lines);
+    let (readings, told_failed) = tell_decays(tracker, checked.rows, checked.alerts, dry_run, &mut lines);
     let filing = file_rises(ledger, tracker, at, dry_run, &mut lines);
     lines.push(match &filing.open {
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = !ledger.notes.is_empty() || filing.failed || filing.open.is_err();
-    Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, failed }
+    let failed = !ledger.notes.is_empty() || filing.failed || filing.open.is_err() || told_failed;
+    Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, failed }
+}
+
+/// Tells the proxy of each dividend that decayed and returns the rows to keep: a dividend whose
+/// message did not go keeps no row, so the next tick tells again. A dry run tells no one.
+fn tell_decays(tracker: &mut dyn Tracker, rows: Vec<(String, Value)>, alerts: Vec<(String, String)>, dry_run: bool, lines: &mut Vec<String>) -> (Vec<Value>, bool) {
+    let mut untold = Vec::new();
+    for (name, text) in alerts {
+        if dry_run {
+            lines.push(format!("  would tell the proxy: {text}"));
+        } else if let Err(error) = tracker.tell_proxy(&text) {
+            lines.push(format!("  proxy not told of {name}: {error}"));
+            untold.push(name);
+        } else {
+            lines.push(format!("  told the proxy: {name} decayed"));
+        }
+    }
+    let kept = rows.into_iter().filter(|(name, _)| !untold.contains(name)).map(|(_, row)| row).collect();
+    (kept, !untold.is_empty())
 }
 
 /// What filing the risen cells came to: the open issue count after it, and whether a rise went
@@ -138,7 +174,8 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     let ledger = Ledger { week, before, evidence, notes };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
-    let tick = tick(&ledger, &files.cells()?, &files.costs()?, &mut Gh, &at, dry_run);
+    let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()? };
+    let tick = tick(&ledger, &prior, &dividends::definitions()?, &mut Gh, &at, dry_run);
     tick.lines.iter().for_each(|line| println!("{line}"));
     if !dry_run {
         files.write(&tick)?;
@@ -176,6 +213,15 @@ impl Files {
         }
     }
 
+    fn readings(&self) -> Result<Vec<Reading>, String> {
+        let path = self.dir.join("dividends.jsonl");
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(text.lines().filter_map(|line| Reading::read(&serde_json::from_str(line).ok()?)).collect()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(error) => Err(format!("{}: {error}", path.display())),
+        }
+    }
+
     /// Appends the changes' provenance before the cells file moves, so a tick that dies between the
     /// two re-records a change next time rather than losing its evidence.
     fn write(&self, tick: &Tick) -> Result<(), String> {
@@ -186,6 +232,8 @@ impl Files {
         provenance.sync_all().map_err(failed)?;
         let mut costs = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("costs.jsonl")).map_err(failed)?;
         tick.costs.iter().try_for_each(|record| writeln!(costs, "{record}")).map_err(failed)?;
+        let mut readings = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join("dividends.jsonl")).map_err(failed)?;
+        tick.readings.iter().try_for_each(|record| writeln!(readings, "{record}")).map_err(failed)?;
         let staged = self.dir.join("cells.json.tmp");
         let text = serde_json::to_string_pretty(&tick.cells).map_err(|error| error.to_string())?;
         let mut file = std::fs::File::create(&staged).map_err(failed)?;
@@ -195,6 +243,12 @@ impl Files {
 }
 
 struct Gh;
+
+fn tell(text: &str) -> Result<(), String> {
+    let north = std::env::current_exe().map_err(|error| error.to_string())?;
+    let status = std::process::Command::new(north).args(["fleet", "send", "proxy"]).arg(text).status().map_err(|error| format!("cannot run north fleet send: {error}"))?;
+    status.success().then_some(()).ok_or_else(|| format!("north fleet send proxy: {status}"))
+}
 
 fn titles(state: &str, search: Option<&str>) -> Result<Vec<String>, String> {
     let mut args = vec!["issue", "list", "-R", REPO, "--state", state, "--limit", "1000", "--json", "title"];
@@ -219,5 +273,9 @@ impl Tracker for Gh {
             return Err(format!("gh issue create: {}", String::from_utf8_lossy(&out.stderr).trim()));
         }
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    }
+
+    fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
+        tell(text)
     }
 }

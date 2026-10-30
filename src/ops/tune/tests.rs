@@ -1,6 +1,6 @@
-use super::cells::Cells;
 use super::costs::Cost;
-use super::{Ledger, Tick, Tracker, tick};
+use super::dividends::{self, Reading};
+use super::{Ledger, Prior, Tick, Tracker, tick};
 use crate::ledger::pricing::PriceTable;
 use crate::ledger::{ClosedReport, SpendRun, summarize};
 use crate::ops::dispatch::Evidence;
@@ -77,6 +77,8 @@ struct Issues {
     filed: Vec<(String, String)>,
     unreadable: bool,
     refuses: bool,
+    told: Vec<String>,
+    mute: bool,
 }
 
 impl Tracker for Issues {
@@ -98,17 +100,25 @@ impl Tracker for Issues {
         self.filed.push((title.to_owned(), body.to_owned()));
         Ok(format!("https://github.com/tompassarelli/north/issues/{}", 900 + self.filed.len()))
     }
+
+    fn tell_proxy(&mut self, text: &str) -> Result<(), String> {
+        if self.mute {
+            return Err("north fleet send proxy: exit status: 1".into());
+        }
+        self.told.push(text.to_owned());
+        Ok(())
+    }
 }
 
 fn first_tick(issues: &mut Issues) -> Tick {
-    tick(&ledger(), &Cells::new(), &[], issues, AT, false)
+    tick(&ledger(), &Prior::default(), &[], issues, AT, false)
 }
 
 #[test]
 fn the_tick_prints_the_dashboard_line_first_and_the_open_north_issue_count_last() {
     let ledger = ledger();
     let mut issues = Issues { open: vec!["a".into(), "b".into()], ..Issues::default() };
-    let tick = tick(&ledger, &Cells::new(), &[], &mut issues, AT, false);
+    let tick = tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
     assert_eq!(tick.lines[0], ledger.week.dashboard("7d"));
     assert!(tick.lines[0].starts_with("cost/closed 7d: all $"), "{}", tick.lines[0]);
     assert_eq!(tick.lines.last().unwrap(), "open north issues: 3", "the two open and the one filed: {:#?}", tick.lines);
@@ -145,13 +155,13 @@ fn each_change_records_its_rows_n_and_interval_and_an_unchanged_tick_records_non
     let eta = first.records.iter().find(|record| record["cell"] == "eta_minutes sonnet feature").unwrap();
     assert_eq!((&eta["rows"], &eta["n"], &eta["interval"]), (&json!(2), &json!(2), &json!([30.0, 60.0])));
 
-    let again = tick(&ledger(), &first.cells, &[], &mut issues, AT, false);
+    let again = tick(&ledger(), &Prior { cells: first.cells.clone(), ..Prior::default() }, &[], &mut issues, AT, false);
     assert!(again.records.is_empty(), "{:?}", again.records);
     assert!(again.lines.contains(&"no cell changed (7 cells)".to_owned()), "{:#?}", again.lines);
 
-    let mut prior = first.cells.clone();
-    prior.insert("budget_usd sonnet feature".into(), json!(8.0));
-    prior.insert("route tooling".into(), json!("worker"));
+    let mut prior = Prior { cells: first.cells.clone(), ..Prior::default() };
+    prior.cells.insert("budget_usd sonnet feature".into(), json!(8.0));
+    prior.cells.insert("route tooling".into(), json!("worker"));
     let moved = tick(&ledger(), &prior, &[], &mut issues, AT, false);
     let changed: Vec<(&Value, &Value, &Value)> = moved.records.iter().map(|record| (&record["cell"], &record["from"], &record["to"])).collect();
     assert_eq!(changed, [(&json!("budget_usd sonnet feature"), &json!(8.0), &json!(10.4)), (&json!("route tooling"), &json!("worker"), &Value::Null)]);
@@ -169,7 +179,7 @@ fn a_cell_whose_cost_per_closed_box_rose_over_a_quarter_files_one_issue_and_an_o
     assert!(first.lines.contains(&"rose sonnet tooling: $5.20 (n 3) the week before -> $10.40 (n 3) this week, +100%".to_owned()), "{:#?}", first.lines);
 
     let mut held = Issues { open: vec![title.clone()], ..Issues::default() };
-    let next = tick(&ledger(), &first.cells, &[], &mut held, AT, false);
+    let next = tick(&ledger(), &Prior { cells: first.cells.clone(), ..Prior::default() }, &[], &mut held, AT, false);
     assert!(held.filed.is_empty(), "the open issue holds the cell");
     assert!(next.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", next.lines);
 }
@@ -177,12 +187,12 @@ fn a_cell_whose_cost_per_closed_box_rose_over_a_quarter_files_one_issue_and_an_o
 #[test]
 fn a_dry_run_or_an_unread_tracker_files_nothing() {
     let mut issues = Issues::default();
-    let dry = tick(&ledger(), &Cells::new(), &[], &mut issues, AT, true);
+    let dry = tick(&ledger(), &Prior::default(), &[], &mut issues, AT, true);
     assert!(issues.filed.is_empty());
     assert!(dry.lines.iter().any(|line| line.starts_with("  would file: Cost per closed box rose")), "{:#?}", dry.lines);
 
     let mut unread = Issues { unreadable: true, ..Issues::default() };
-    let blind = tick(&ledger(), &Cells::new(), &[], &mut unread, AT, false);
+    let blind = tick(&ledger(), &Prior::default(), &[], &mut unread, AT, false);
     assert!(unread.filed.is_empty(), "with no open list it cannot know an issue already holds the cell");
     assert_eq!(blind.lines.last().unwrap(), "open north issues: unread (gh: not logged in)");
     assert!(blind.failed);
@@ -208,7 +218,7 @@ fn unread_arm_evidence_keeps_the_prior_routing_cells_and_fails_the_tick() {
     let mut ledger = ledger();
     ledger.evidence.clear();
     ledger.notes.push("north worker-ledger --recommend \"Category: feature\" unread".into());
-    let prior = first_tick(&mut Issues::default()).cells;
+    let prior = Prior { cells: first_tick(&mut Issues::default()).cells, ..Prior::default() };
     let blind = tick(&ledger, &prior, &[], &mut Issues::default(), AT, false);
     assert_eq!(blind.cells.get("route feature"), Some(&json!("sonnet-high")));
     assert!(blind.records.is_empty(), "a failed read neither drops nor re-adds a route: {:?}", blind.records);
@@ -234,7 +244,7 @@ fn sonnet_closing_60_percent_at_3_dollars_a_box_beats_opus_closing_70_percent_at
     let week = report(&runs, "2026-10-20T06:00:00Z");
     let evidence = BTreeMap::from([("tooling".to_owned(), Evidence { tiers: arms((60.0, 15), (70.0, 15)), usd_per_closed: None }.priced(&week, "tooling"))]);
     let ledger = Ledger { week, before: report(&[], "2026-10-13T06:00:00Z"), evidence, notes: Vec::new() };
-    let tick = tick(&ledger, &Cells::new(), &[], &mut Issues::default(), AT, false);
+    let tick = tick(&ledger, &Prior::default(), &[], &mut Issues::default(), AT, false);
     assert_eq!(tick.cells.get("route tooling"), Some(&json!("sonnet-high")), "{:#?}", tick.lines);
     let record = tick.records.iter().find(|record| record["cell"] == "route tooling").unwrap();
     let claim = record["claim"].as_str().unwrap();
@@ -247,7 +257,7 @@ fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one
     let before = [boxes("3", 3, SONNET, "tooling", "2026-10-17", 1_000_000), boxes("4", 3, SONNET, "feature", "2026-10-17", 1_000_000)].concat();
     let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new() };
     let mut issues = Issues::default();
-    let tick = tick(&ledger, &Cells::new(), &[], &mut issues, AT, false);
+    let tick = tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
     assert_eq!(issues.filed.len(), 1, "{:#?}", tick.lines);
     assert_eq!(issues.filed[0].0, "Cost per closed box rose more than 25% week on week in sonnet tooling");
     assert!(issues.filed[0].1.contains("from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{}", issues.filed[0].1);
@@ -280,7 +290,7 @@ fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_e
     assert!((was_n, now_n, was_staffed, now_staffed) == (3, 3, true, false) && now > was * 1.25, "{was} -> {now}");
 
     let mut issues = Issues::default();
-    let quiet = tick(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new() }, &Cells::new(), &[], &mut issues, AT, false);
+    let quiet = tick(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new() }, &Prior::default(), &[], &mut issues, AT, false);
     assert!(issues.filed.is_empty(), "{:#?}", quiet.lines);
     assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
 }
@@ -292,10 +302,79 @@ fn the_next_days_cost_per_closed_box_prints_beside_the_previous_days_and_a_rerun
     assert!(!first.lines.iter().any(|line| line.starts_with("cost per closed box ")), "{:#?}", first.lines);
 
     let earlier: Vec<Cost> = first.costs.iter().filter_map(Cost::read).collect();
-    let rerun = tick(&ledger(), &first.cells, &earlier, &mut Issues::default(), AT, false);
+    let rerun = tick(&ledger(), &Prior { cells: first.cells.clone(), costs: earlier.clone(), ..Prior::default() }, &[], &mut Issues::default(), AT, false);
     assert!(rerun.costs.is_empty(), "{:?}", rerun.costs);
     assert!(!rerun.lines.iter().any(|line| line.starts_with("cost per closed box ")), "a day is not compared with itself: {:#?}", rerun.lines);
 
-    let next = tick(&ledger(), &first.cells, &earlier, &mut Issues::default(), "2026-10-28T06:00:00Z", false);
+    let next = tick(&ledger(), &Prior { cells: first.cells.clone(), costs: earlier, ..Prior::default() }, &[], &mut Issues::default(), "2026-10-28T06:00:00Z", false);
     assert!(next.lines.contains(&"cost per closed box sonnet tooling: $10.40 (n 3) today, $10.40 (n 3) on 2026-10-27".to_owned()), "{:#?}", next.lines);
+}
+
+const DIVIDENDS: &str = r#"
+[[dividend]]
+name = "cost per closed box"
+issue = "north#112"
+metric = "usd_per_closed"
+at_most = 12.0
+
+[[dividend]]
+name = "Sonnet share of feature and tooling spend"
+issue = "north#242"
+metric = "family_share"
+family = "sonnet"
+categories = ["feature", "tooling"]
+at_least = 0.9
+"#;
+
+fn readings(rows: &[Value]) -> Vec<Reading> {
+    rows.iter().filter_map(Reading::read).collect()
+}
+
+#[test]
+fn a_dividend_past_its_bar_prints_decayed_and_tells_the_proxy_once_until_it_pays_again() {
+    let dividends = dividends::parse(DIVIDENDS).unwrap();
+    let mut issues = Issues::default();
+    let first = tick(&ledger(), &Prior::default(), &dividends, &mut issues, AT, false);
+    assert!(first.lines.contains(&"dividend north#112 cost per closed box: $10.40 (at most $12.00), PAYING".to_owned()), "{:#?}", first.lines);
+    assert!(first.lines.contains(&"dividend north#242 Sonnet share of feature and tooling spend: 67% (at least 90%), DECAYED".to_owned()), "{:#?}", first.lines);
+    assert_eq!(first.readings.len(), 2, "{:?}", first.readings);
+    assert_eq!(issues.told.len(), 1, "{:?}", issues.told);
+    assert!(issues.told[0].starts_with("dividend DECAYED: Sonnet share of feature and tooling spend (north#242) reads 67% over 6 closed boxes in the 7d ledger, at least 90% wanted; it was first reading."), "{}", issues.told[0]);
+
+    let prior = Prior { readings: readings(&first.readings), ..Prior::default() };
+    let rerun = tick(&ledger(), &prior, &dividends, &mut issues, AT, false);
+    assert!(rerun.readings.is_empty() && issues.told.len() == 1, "a rerun the same day neither re-records nor re-tells: {:?} {:?}", rerun.readings, issues.told);
+
+    let next = tick(&ledger(), &prior, &dividends, &mut issues, "2026-10-28T06:00:00Z", false);
+    assert_eq!(next.readings.len(), 2);
+    assert_eq!(issues.told.len(), 1, "still decayed the next day: no second message");
+
+    let mut recovering = dividends.clone();
+    recovering[1].bar = dividends::Bar::AtLeast(0.5);
+    let paid = tick(&ledger(), &Prior { readings: readings(&next.readings), ..Prior::default() }, &recovering, &mut issues, "2026-10-29T06:00:00Z", false);
+    assert!(paid.lines.iter().any(|line| line.ends_with("PAYING")) && issues.told.len() == 1);
+    let again = tick(&ledger(), &Prior { readings: readings(&paid.readings), ..Prior::default() }, &dividends, &mut issues, "2026-10-30T06:00:00Z", false);
+    assert_eq!(issues.told.len(), 2, "decaying again after paying tells again: {:#?}", again.lines);
+    assert!(issues.told[1].contains("it was PAYING on 2026-10-29"), "{}", issues.told[1]);
+}
+
+#[test]
+fn a_decay_the_proxy_was_not_told_of_keeps_no_row_and_fails_the_tick_and_a_dry_run_tells_no_one() {
+    let dividends = dividends::parse(DIVIDENDS).unwrap();
+    let mut mute = Issues { mute: true, ..Issues::default() };
+    let missed = tick(&ledger(), &Prior::default(), &dividends, &mut mute, AT, false);
+    assert!(missed.failed && missed.readings.len() == 1, "only the paying dividend keeps its row: {:?}", missed.readings);
+    assert!(missed.lines.iter().any(|line| line.starts_with("  proxy not told of Sonnet share of feature and tooling spend:")), "{:#?}", missed.lines);
+
+    let mut issues = Issues::default();
+    let dry = tick(&ledger(), &Prior::default(), &dividends, &mut issues, AT, true);
+    assert!(issues.told.is_empty() && !dry.failed, "{:?}", issues.told);
+    assert!(dry.lines.iter().any(|line| line.starts_with("  would tell the proxy: dividend DECAYED:")), "{:#?}", dry.lines);
+}
+
+#[test]
+fn the_dividends_on_main_parse_and_each_names_one_bar() {
+    let dividends = dividends::definitions().unwrap();
+    assert!(dividends.len() >= 3 && dividends.iter().all(|dividend| dividend.issue.starts_with("north#")), "{dividends:?}");
+    assert!(dividends::parse("[[dividend]]\nname = \"x\"\nissue = \"north#1\"\nmetric = \"usd_per_closed\"\n").is_err());
 }

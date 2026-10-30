@@ -1,0 +1,23 @@
+# The metric each landed plan issue of the harness efficiency plan (2026-10-27) pays out in, read by
+# `north tune` from the 7-day ledger once a day. A dividend is DECAYED when its figure is past its
+# bar; the tick tells the proxy once when one turns from PAYING (or from unread) to DECAYED.
+
+[[dividend]]
+name = "cost per closed box"
+issue = "north#112"
+metric = "usd_per_closed"
+at_most = 42.0
+
+[[dividend]]
+name = "Opus share of closed-box spend on categories Sonnet or Haiku can close"
+issue = "north#242"
+metric = "family_share"
+family = "opus"
+categories = ["feature", "tooling", "native-check", "balance-tuning", "bug-known-cause"]
+at_most = 0.5
+
+[[dividend]]
+name = "lead and proxy spend per closed box"
+issue = "north#252"
+metric = "leads_usd_per_closed"
+at_most = 9.34
