@@ -788,3 +788,34 @@ source = "prior: covers a pair's 10-minute wait for both clients after its admis
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against native pair admissions' seconds from admission to both clients running; worker runs are the nearest existing count until native admissions are counted" }
 fallback = "none; a lease older than this holds only the clients that run in it"
 consumers = ["src/capacity/admission.rs"]
+
+[slice_weight_app_attended]
+value = 1000
+unit = "CPUWeight and IOWeight of Tom's desktop slice (app.slice, his browser and game) while the profile is attended"
+source = "prior: game-reserve.slice's weight of 1000 (src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (gitleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at weight 1000 against the same agent bursts at the old even share" }
+fallback = "an unattended profile applies slice_weight_app_unattended"
+consumers = ["src/capacity/host/systemd.rs"]
+
+[slice_weight_app_unattended]
+value = 100
+unit = "CPUWeight and IOWeight of Tom's desktop slice while the profile is unattended, the systemd default"
+source = "standard: systemd's default weight; nobody is at the desktop, so it needs no priority over agent work"
+fallback = "none: the weight is applied at every profile change and every admitted run"
+consumers = ["src/capacity/host/systemd.rs"]
+
+[slice_weight_agent]
+value = 20
+unit = "CPUWeight and IOWeight of agent.slice in either profile, so a stale runtime drop-in cannot lift it"
+source = "prior: nixos-config modules/agent-slice declares agent.slice at CPUWeight 20 and IOWeight 20; a runtime drop-in from 2026-10-29 had set both to 100 and shadowed it until 2026-10-31"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at agent.slice weight 20 against the same bursts at 100" }
+fallback = "none: the weight is applied at every profile change and every admitted run"
+consumers = ["src/capacity/host/systemd.rs"]
+
+[slice_weight_session_unattended]
+value = 300
+unit = "CPUWeight and IOWeight of session.slice (the compositor and shell) while the profile is unattended; attended it takes the desktop slice's weight so apps never outweigh the compositor"
+source = "prior: nixos-config modules/agent-slice declares session.slice at CPUWeight 300 and IOWeight 300"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose compositor stalls can be compared at session.slice weight 300 against the same bursts at 100" }
+fallback = "none: the weight is applied at every profile change and every admitted run"
+consumers = ["src/capacity/host/systemd.rs"]

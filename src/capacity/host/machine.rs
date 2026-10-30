@@ -35,7 +35,7 @@ pub(crate) fn aggregate_slice() -> String {
     format!("agent-capacity{}.slice", subslice())
 }
 
-/// Sibling of session.slice (300), app.slice (100) and agent.slice (20): game clients outrank terminals and batch work but never the compositor.
+/// Sibling of session.slice (300 unattended), app.slice (1000 attended, 100 unattended) and agent.slice (20): agents' game clients outrank batch work, yield to the desktop while attended and never outrank the compositor.
 pub(crate) fn native_slice() -> String {
     format!("native{}.slice", subslice())
 }
