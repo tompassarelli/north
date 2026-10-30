@@ -627,13 +627,6 @@ source = "measured: one north lane's target/ held 4.9 GiB when the GPU host's ro
 fallback = "none: a heavy build that would leave less than the floor after the reserves waits as DEFER_DISK_FREE"
 consumers = ["src/capacity/admission.rs"]
 
-[launch_queue_limit]
-value = 4
-unit = "jobs queued for machine-capacity admission on a host at or above which placement skips it for a new launch"
-source = "measured: 10 workers launched onto the GPU host in an hour on 2026-10-29 while 9 jobs queued for admission at load 32-47, a 2-hour stall"
-fallback = "an unreadable queue does not skip the host"
-consumers = ["src/capacity/saturation.rs"]
-
 [run_queue_psi_attended]
 value = 40
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which an attended host defers a heavy or exclusive request as DEFER_RUN_QUEUE"
@@ -827,3 +820,88 @@ source = "prior: nixos-config modules/agent-slice declares session.slice at CPUW
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose compositor stalls can be compared at session.slice weight 300 against the same bursts at 100" }
 fallback = "none: the weight is applied at every profile change and every admitted run"
 consumers = ["src/capacity/host/systemd.rs"]
+
+[admit_psi_unattended_low]
+value = 20
+unit = "percent of CPU pressure (PSI some avg10) below which an unattended host starts the next queued heavy build whatever the declared CPUs say"
+source = "measured: the laptop (24 threads) held 7 to 12 queued heavy builds for up to 35 minutes at PSI some avg10 1 to 4% and 55 GB available on 2026-10-31; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some at p95 28 and p99 76; the controller aims for a stall below the 30% batch gate this replaces and the 50% psi-notify default (references.md#psi-notify)"
+fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_psi_unattended_high]
+value = 40
+unit = "percent of CPU pressure (PSI some avg10) at or above which an unattended host starts no heavy build; between the low and high marks it starts one only if its declared CPUs fit the batch cores"
+source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% under the unattended rails (src/capacity/pressure_target_tests.rs, 2026-10-31), so this mark sits above it; the pressure-against-threads model is assumed, not measured"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
+fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_psi_attended_low]
+value = 10
+unit = "percent of CPU pressure (PSI some avg10) below which an attended host starts the next queued heavy build whatever the declared CPUs say"
+source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
+fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_psi_attended_high]
+value = 25
+unit = "percent of CPU pressure (PSI some avg10) at or above which an attended host starts no heavy build"
+source = "measured: the watchdog's PSI some p95 of 28% (n=3406, 2026-10-28 to 2026-10-29) is the stall Tom's desktop already tolerates; the attended high mark sits under it"
+fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_psi_game_low]
+value = 5
+unit = "percent of CPU pressure (PSI some avg10) below which a host running Tom's game under game reserve starts the next queued heavy build"
+source = "prior: the reserve already confines agents to their own cores, so the band drops to half the attended one; a design choice, not a measurement"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
+fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_psi_game_high]
+value = 20
+unit = "percent of CPU pressure (PSI some avg10) at or above which a host running Tom's game under game reserve starts no heavy build"
+source = "prior: a simulated agent-core host peaks at 18% on the reserve's 16 agent cores (src/capacity/pressure_target_tests.rs, 2026-10-31), so the high mark sits above that; the game cores carry none of it"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
+fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_settle_seconds]
+value = 10
+unit = "seconds after a heavy build starts before another starts, the window of PSI some avg10, so the next reading includes the last build"
+source = "standard: PSI some avg10 is an exponential average with a 10 s time constant (Linux kernel documentation, references.md#kernel-psi)"
+fallback = "none: with no heavy lease younger than this the next ticket is free to start"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_memory_ramp_seconds]
+value = 60
+unit = "seconds a heavy lease's declared memory still counts against available memory after it starts, because a build's resident set grows for a minute or more"
+source = "prior: rustc and the linker grow a build's resident set over its first minute, so its declared memory counts for that minute; no figure recorded"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose lowest MemAvailable after a heavy start can be checked against the memory floor" }
+fallback = "none: a lease older than this counts only through MemAvailable"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_overcommit_unattended]
+value = 2
+unit = "times the batch cores that the declared CPUs of running and starting heavy builds may reach on an unattended host"
+source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% CPU pressure under a rail of 2 times its cores, inside the unattended band; a rail is needed because pressure shows nothing until the threads pass the cores, so one more build can step it up by 15 points or more"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
+fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_overcommit_attended]
+value = 1.5
+unit = "times the batch cores that the declared CPUs of running and starting heavy builds may reach while Tom is at the desktop"
+source = "prior: the same simulation peaks at 18 to 21% CPU pressure under 1.5 times the batch cores, inside the attended band, and at 35% under 2 times them, outside it"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
+fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
+consumers = ["src/capacity/pressure_target.rs"]
+
+[admit_overcommit_game]
+value = 1
+unit = "times the agent cores that the declared CPUs of running and starting heavy builds may reach while Tom's game runs under game reserve"
+source = "prior: the same simulation on the reserve's 16 agent cores peaks at 18% CPU pressure at 1 times them and 25% at 1.5 times, outside the game band; the game cores stay unloaded"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
+fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
+consumers = ["src/capacity/pressure_target.rs"]

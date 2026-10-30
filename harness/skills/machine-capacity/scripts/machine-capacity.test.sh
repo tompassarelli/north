@@ -100,14 +100,14 @@ fi
 [[ $(decision unattended native 80000 0 0 2 4096 --gpu-busy-percent 95 --gpu-runs 2) == RUN ]]
 [[ $(decision attended native 80000 0 0 0 0 --gpu-clients 4 --new-clients 1 --gpu-runs 1) == DEFER_GPU_CLIENTS ]]
 
-# Peer ceilings hold batch work at the aggregate limit: 20 cores present, 24 away.
-[[ $(decision attended heavy 80000 0 0 18 21504 --peer-batch-runs 3) == DEFER_CPU_CAPACITY ]]
+# Peer ceilings hold moderate work at the aggregate limit (20 cores present, 24 away) and heavy work at 1.5 times it present, 2 times away.
+[[ $(decision attended heavy 80000 0 0 26 21504 --peer-batch-runs 3) == DEFER_CPU_CAPACITY ]]
 [[ $(decision attended heavy 80000 0 0 14 21504 --peer-batch-runs 3) == RUN ]]
 [[ $(decision unattended heavy 80000 0 0 18 21504 --peer-batch-runs 3) == RUN ]]
-[[ $(decision unattended heavy 80000 0 0 20 21504 --peer-batch-runs 4) == DEFER_CPU_CAPACITY ]]
-# System CPU pressure above 30% holds moderate and heavy work, present or away.
-[[ $(decision unattended heavy 80000 0 0 0 0 --cpu-some-avg10-basis-points 3001) == DEFER_CPU_PRESSURE ]]
-[[ $(decision unattended heavy 80000 0 0 0 0 --cpu-some-avg10-basis-points 3000) == RUN ]]
+[[ $(decision unattended heavy 80000 0 0 44 21504 --peer-batch-runs 4) == DEFER_CPU_CAPACITY ]]
+# System CPU pressure above 30% holds moderate work and at the unattended high mark (40%) heavy work, present or away.
+[[ $(decision unattended heavy 80000 0 0 0 0 --cpu-some-avg10-basis-points 4000) == DEFER_CPU_PRESSURE ]]
+[[ $(decision unattended heavy 80000 0 0 0 0 --cpu-some-avg10-basis-points 3999) == RUN ]]
 [[ $(decision attended moderate 80000 0 0 0 0 --cpu-some-avg10-basis-points 8400) == DEFER_CPU_PRESSURE ]]
 [[ $(decision unattended exclusive 80000 0 0 0 0 --cpu-some-avg10-basis-points 8400) == RUN ]]
 [[ $(decision unattended native 80000 0 0 0 0 --cpu-some-avg10-basis-points 8400) == RUN ]]
@@ -141,7 +141,7 @@ fi
 [[ $(decision attended tom 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) == RUN ]]
 [[ $(decision attended moderate 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) != RUN ]]
 [[ $(decision attended tom 80000 1000 0 0 0) == DEFER_INTERACTIVE_PRESSURE ]]
-[[ $(decision unattended heavy 80000 0 0 20 16384 --peer-batch-runs 1) == DEFER_CPU_CAPACITY ]]
+[[ $(decision unattended heavy 80000 0 0 44 16384 --peer-batch-runs 1) == DEFER_CPU_CAPACITY ]]
 [[ $(decision unattended exclusive 80000 0 0 20 16384 --peer-batch-runs 1) == DEFER_EXCLUSIVE ]]
 
 fixture_runtime="$scratch/runtime"
@@ -190,8 +190,9 @@ read -r sleeper_pid <"$sleeper_pid_file"
 ! kill -0 "$sleeper_pid" 2>/dev/null
 
 # Four heavy jobs request 24 CPU ceilings on this 24-core host. The attended
-# fixture admits three (18 of 20 cores) and queues the fourth; the kernel
-# ancestor enforces the shared cap, which keeps four cores for the desktop.
+# fixture admits three, each one settle window after the last, and queues the
+# fourth inside the third's window; the kernel ancestor enforces the shared
+# cap, which keeps four cores for the desktop.
 original_capacity_db=$AGENT_CAPACITY_DB original_usage_log=$AGENT_CAPACITY_USAGE_LOG
 export AGENT_CAPACITY_DB="$scratch/aggregate.db" AGENT_CAPACITY_USAGE_LOG="$scratch/aggregate-usage.jsonl"
 for sample in 1 2 3; do printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/capacity","shape":"read","class":"heavy","meanCores":4.8,"p90Cores":6,"peakCores":6,"peakMemoryMiB":6826,"wallSeconds":120}\n' "$sample"; done >>"$AGENT_CAPACITY_USAGE_LOG"
@@ -232,7 +233,7 @@ for number in 1 2 3; do
   [[ $(cat "/sys/fs/cgroup$group/memory.high") -eq $((8192 * 1024 * 1024)) ]]
 done
 [[ ! -s "$scratch/group-4" ]]
-[[ $(head -n 1 "$scratch/err-4" | jq -r '.decision + " " + .reason') == 'QUEUED DEFER_CPU_CAPACITY' ]]
+[[ $(head -n 1 "$scratch/err-4" | jq -r '.decision + " " + .reason') == 'QUEUED DEFER_CPU_PRESSURE' ]]
 probe=$(XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" probe --class exclusive || true)
 [[ $(jq -r '.reason' <<<"$probe") == DEFER_EXCLUSIVE ]]
 [[ $(jq -r '.leasedCpuCeilings' <<<"$probe") -eq 18 ]]
@@ -455,7 +456,7 @@ export AGENT_CAPACITY_DB="$scratch/drain.db" AGENT_CAPACITY_USAGE_LOG="$scratch/
 for sample in 1 2 3; do printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/seed","shape":"read","class":"moderate","meanCores":2,"p90Cores":2,"peakCores":2,"peakMemoryMiB":512,"wallSeconds":120}\n' "$sample"; done >>"$AGENT_CAPACITY_USAGE_LOG"
 # An exclusive request passes an earlier batch ticket held by pressure (the
 # recorded file is also the protected slices' reading).
-calm_pressure 90.00
+calm_pressure 30.00
 held_run moderate early early run --timeout-seconds 30
 IFS= read -r event <&"${event_of[early]}"
 [[ $(head -n 1 "$scratch/early-err" | jq -r '.reason') == DEFER_INTERACTIVE_PRESSURE ]]

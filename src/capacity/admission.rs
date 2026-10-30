@@ -8,7 +8,7 @@ use super::native_hold::{self, LeaseFact, PairLease, PairRefusal, QueueEntry, Qu
 
 const INTERACTIVE_PRESSURE_BASIS_POINTS: u32 = 1000;
 const BATCH_PRESSURE_BASIS_POINTS: u32 = 3000;
-const GPU_BUSY_PERCENT: u32 = 85;
+pub(super) const GPU_BUSY_PERCENT: u32 = 85;
 const ATTENDED_GPU_CLIENTS: u32 = 4;
 const GPU_SLOTS: u32 = 2;
 
@@ -199,7 +199,7 @@ pub(crate) enum Reason {
 pub(crate) fn admit(facts: &Facts, serving: impl Fn(&str) -> Option<String>) -> Admission {
     let reason = decide(facts);
     let offload = match (reason, facts.need.as_deref()) {
-        (Reason::DeferRunQueue, Some(needs)) => serving(needs),
+        (Reason::DeferRunQueue | Reason::DeferGpuBusy, Some(needs)) => serving(needs),
         _ => None,
     };
     let aperture = (reason == Reason::DeferGpuAperture)
@@ -254,7 +254,7 @@ pub(crate) fn default_mib(name: &str) -> f64 {
         .unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
-fn aperture_short(facts: &Facts) -> bool {
+pub(super) fn aperture_short(facts: &Facts) -> bool {
     starts_gpu_work(facts) && facts.bar1_free_mib.is_some_and(|free| free < bar1_need_mib(facts))
 }
 
@@ -280,11 +280,8 @@ pub(crate) fn decide(facts: &Facts) -> Reason {
     if super::run_queue::overloaded(facts) {
         return Reason::DeferRunQueue;
     }
-    if starts_gpu_work(facts) && facts.bar1_timed_out {
-        return Reason::DeferGpuApertureTimeout;
-    }
-    if aperture_short(facts) {
-        return Reason::DeferGpuAperture;
+    if let Some(reason) = super::gpu_admission::deferred(facts) {
+        return reason;
     }
     match facts.class {
         Class::Agent => Reason::Run,
@@ -324,7 +321,7 @@ fn invalid(facts: &Facts) -> bool {
 }
 
 fn memory(facts: &Facts) -> Option<Reason> {
-    if facts.memory_available_mib - facts.requested_memory_mib < memory_floor_mib(facts.profile, facts.memory_total_mib) {
+    if facts.memory_available_mib - facts.requested_memory_mib - super::pressure_target::growing_memory_mib(facts) < memory_floor_mib(facts.profile, facts.memory_total_mib) {
         return Some(Reason::DeferMemoryHeadroom);
     }
     ((facts.leased_memory_mib + facts.requested_memory_mib) * 4.0 > facts.memory_total_mib * 3.0)
@@ -344,7 +341,7 @@ fn disk_below_floor(facts: &Facts) -> bool {
     facts.disk_free_gib.is_some_and(|free| free - reserved < default_mib("build_disk_free_gib"))
 }
 
-fn memory_floor_mib(profile: Profile, total: f64) -> f64 {
+pub(super) fn memory_floor_mib(profile: Profile, total: f64) -> f64 {
     let share = match profile {
         Profile::Attended => total / 5.0,
         Profile::Unattended => total / 12.0,
@@ -375,7 +372,7 @@ pub(crate) fn memory_short(total: f64, available: f64, requested: f64) -> bool {
     available - requested < memory_floor_mib(Profile::Unattended, total)
 }
 
-fn batch_cpus(facts: &Facts) -> f64 {
+pub(super) fn batch_cpus(facts: &Facts) -> f64 {
     let all = aggregate_cpus(facts.profile, facts.cores);
     facts.game_reserve_agent_cpus.map_or(all, |agent| all.min(f64::from(agent)))
 }
@@ -487,6 +484,11 @@ fn shared(facts: &Facts) -> Reason {
     }
     if super::queued_ahead::queued_ahead(facts) > 0 {
         return Reason::DeferQueued;
+    }
+    match facts.class {
+        Class::Gpu => return Reason::Run,
+        Class::Heavy => return super::pressure_target::deferred(facts).unwrap_or(Reason::Run),
+        _ => {}
     }
     if !batch_fits(facts, facts.requested_cpus) {
         return Reason::DeferCpuCapacity;

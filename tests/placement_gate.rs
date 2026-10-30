@@ -260,7 +260,7 @@ fn a_saturated_launching_host_holds_the_box_with_the_reason_and_a_local_keep_lau
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root);
-    fs::write(root.join("hosts.json"), r#"{"here": {"saturation": {"queued": 9, "cores": 20, "load5": 3.0, "disk_free_gib": 40.0}}}"#).unwrap();
+    fs::write(root.join("hosts.json"), r#"{"here": {"saturation": {"memory_total_mib": 96000.0, "memory_available_mib": 5000.0, "disk_free_gib": 40.0}}}"#).unwrap();
     let path = root.join("private.md");
     fs::write(&path, "Item: galileo#3 private change\nSurface: rust\n").unwrap();
     let run = |args: &[&str]| {
@@ -283,15 +283,15 @@ fn a_saturated_launching_host_holds_the_box_with_the_reason_and_a_local_keep_lau
     };
     let planned = run(&["pace", "place", "place", &path.display().to_string()]);
     let plan = String::from_utf8_lossy(&planned.stdout).into_owned();
-    assert!(plan.contains("target held: here skipped: 9 queued for admission"), "{plan}");
+    assert!(plan.contains("target held: here skipped: 4.9 GiB of memory available"), "{plan}");
     let prompt = path.display().to_string();
     let refused = run(&["fleet", "launch", "--provider", "claude", "--name", "hot-box", "--parent", "none", "--system-prompt", &prompt, "--account", "a", "start the box"]);
     assert!(!refused.status.success());
     let said = String::from_utf8_lossy(&refused.stderr).into_owned();
-    assert!(said.contains("here skipped: 9 queued for admission") && said.contains("--local"), "{said}");
+    assert!(said.contains("here skipped: 4.9 GiB of memory available") && said.contains("--local"), "{said}");
     let kept = run(&["fleet", "launch", "--provider", "claude", "--name", "hot-kept", "--parent", "none", "--system-prompt", &prompt, "--account", "a", "--local", "serves the repo", "start the box"]);
     assert!(kept.status.success(), "{}", String::from_utf8_lossy(&kept.stderr));
     let said = String::from_utf8_lossy(&kept.stderr).into_owned();
-    assert!(said.contains("here skipped: 9 queued for admission"), "the reason is printed under an override: {said}");
+    assert!(said.contains("here skipped: 4.9 GiB of memory available"), "the reason is printed under an override: {said}");
     north(root, &["fleet", "stop", "hot-kept"]);
 }

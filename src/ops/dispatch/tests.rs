@@ -622,7 +622,7 @@ fn a_native_box_brief_lands_before_its_capture_and_passes_the_brief_check() {
 #[test]
 fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_native_box_waits_for_a_native_host() {
     let (mut hosts, accounts) = fleet();
-    let queued = "gex45 skipped: 8 queued for admission";
+    let queued = "gex45 skipped: 14.0 GiB free on the root disk, under 15";
     hosts[0] = hosts[0].clone().saturated(Some(queued.into()));
     let boxes = vec![issue("smashcraft", 50, "- [ ] a", &[]), issue("smashcraft", 51, "- [ ] b", &["needs:native-pair"])];
     let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");

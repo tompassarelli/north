@@ -63,7 +63,7 @@ pub(super) fn facts(class: Class) -> Facts {
 
 const OVERLOAD: &str = include_str!("../../harness/skills/machine-capacity/scripts/capacity-run-queue-overload.recorded.json");
 
-fn overload(class: &str, need: Option<&str>) -> (Facts, toml_edit::DocumentMut) {
+pub(super) fn overload(class: &str, need: Option<&str>) -> (Facts, toml_edit::DocumentMut) {
     let recorded: serde_json::Value = serde_json::from_str(OVERLOAD).unwrap();
     let mut facts = recorded["facts"].clone();
     facts["class"] = class.into();
@@ -163,8 +163,8 @@ fn four_core_history_request_admits_only_at_its_clamped_grant() {
         requested_memory_mib: 2429.0,
         ..facts(Class::Heavy)
     };
-    assert_eq!(decide(&Facts { requested_cpus: 5.0, ..host.clone() }), Reason::DeferCpuCapacity);
-    assert_eq!(decide(&Facts { requested_cpus: 4.0, ..host }), Reason::Run);
+    assert_eq!(decide(&Facts { requested_cpus: 9.0, ..host.clone() }), Reason::DeferCpuCapacity);
+    assert_eq!(decide(&Facts { requested_cpus: 8.0, ..host }), Reason::Run);
 }
 
 #[test]
@@ -373,13 +373,13 @@ fn a_disk_floor_deferral_that_one_reclaim_cannot_lift_stays_deferred_after_exact
     assert_eq!(RECLAIMS.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
-fn running(class: &str) -> LeaseFact {
-    LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, started_owners: Default::default() }
+pub(super) fn running(class: &str) -> LeaseFact {
+    LeaseFact { id: format!("{class}-lease"), class: class.to_owned(), owner: "lane".to_owned(), quiet: false, pair: None, created_at: 0.0, memory_mib: 0.0, quiet_seconds: None, usage: None, new_clients: 0, running_clients: 0, clients_seen: 0, started_owners: Default::default() }
 }
 
 #[test]
 fn a_heavy_build_reserves_a_target_for_itself_and_each_running_heavy_build_before_the_disk_floor() {
-    let on = |disk_free_gib: f64, classes: &[&str]| Facts { disk_free_gib: Some(disk_free_gib), leases: classes.iter().map(|class| running(class)).collect(), ..facts(Class::Heavy) };
+    let on = |disk_free_gib: f64, classes: &[&str]| Facts { now: 600_000.0, disk_free_gib: Some(disk_free_gib), leases: classes.iter().map(|class| running(class)).collect(), ..facts(Class::Heavy) };
     assert_eq!(decide(&on(19.9, &[])), Reason::DeferDiskFree, "15 GiB floor plus its own 5 GiB target");
     assert_eq!(decide(&on(30.0, &["heavy", "heavy"])), Reason::Run);
     assert_eq!(decide(&on(29.9, &["heavy", "heavy"])), Reason::DeferDiskFree, "two running builds still write their targets");
@@ -493,8 +493,10 @@ fn a_24_core_attended_host_at_load_13_and_psi_7_percent_admits_heavy_and_defers_
     assert_eq!(decide(&measured(Class::Exclusive, 13.0, 700)), Reason::Run);
     assert_eq!(decide(&measured(Class::Heavy, 13.0, 4000)), Reason::DeferRunQueue);
     assert_eq!(decide(&measured(Class::Exclusive, 13.0, 4000)), Reason::DeferRunQueue);
-    assert!(!super::run_queue::overloaded(&measured(Class::Heavy, 13.0, 3999)));
-    assert_eq!(decide(&measured(Class::Heavy, 13.0, 3999)), Reason::DeferCpuPressure);
+    assert!(!super::run_queue::overloaded(&measured(Class::Heavy, 13.0, 2499)));
+    assert_eq!(decide(&measured(Class::Heavy, 13.0, 2499)), Reason::Run);
+    assert_eq!(decide(&measured(Class::Heavy, 13.0, 2500)), Reason::DeferRunQueue);
+    assert!(!super::run_queue::overloaded(&measured(Class::Exclusive, 13.0, 3999)));
 }
 
 #[test]
@@ -531,7 +533,7 @@ fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_h
     let head = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(6.0), queued_seconds };
     let guard = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(2.0), queued_seconds };
     let bound = super::admission::default_mib("backfill_seconds");
-    assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 7.89, &[])), Reason::DeferCpuCapacity);
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 12.5, &[])), Reason::DeferCpuCapacity);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(21.0)])), Reason::Run);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(21.0), guard(21.0)])), Reason::DeferQueued);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(bound)])), Reason::DeferQueued);

@@ -8,12 +8,16 @@ pub(super) fn overloaded(facts: &Facts) -> bool {
         _ => return false,
     };
     if facts.cpu_pressure_measured {
-        return f64::from(facts.cpu_some_avg10_basis_points) >= pressure_floor_percent(facts.profile) * 100.0;
+        let floor = match facts.class {
+            Class::Heavy => super::pressure_target::band(facts).high_basis_points,
+            _ => exclusive_floor_percent(facts.profile) * 100.0,
+        };
+        return f64::from(facts.cpu_some_avg10_basis_points) >= floor;
     }
     facts.run_queue_load.is_some_and(|load| load + claim > cores)
 }
 
-fn pressure_floor_percent(profile: Profile) -> f64 {
+fn exclusive_floor_percent(profile: Profile) -> f64 {
     default_mib(match profile {
         Profile::Attended => "run_queue_psi_attended",
         Profile::Unattended => "run_queue_psi_unattended",

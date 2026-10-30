@@ -16,6 +16,8 @@ pub(crate) struct LeaseFact {
     #[serde(default)]
     pub(crate) pair: Option<u32>,
     pub(crate) created_at: f64,
+    #[serde(default, rename = "memoryMiB")]
+    pub(crate) memory_mib: f64,
     #[serde(default)]
     pub(crate) quiet_seconds: Option<f64>,
     #[serde(default)]

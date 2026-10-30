@@ -71,7 +71,7 @@ mod tests {
     }
 
     fn queued() -> Result<Placed, Refusal> {
-        Err(Refusal::Saturated("gex45 skipped: 9 queued for admission".into()))
+        Err(Refusal::Saturated("gex45 skipped: 14.0 GiB free on the root disk, under 15".into()))
     }
 
     #[test]
@@ -85,21 +85,21 @@ mod tests {
         .unwrap();
         assert_eq!(placed.note.as_deref(), Some("pin: x"));
         assert_eq!(firsts, [true, false, false]);
-        assert_eq!(said, ["fleet launch: box waits for admission: gex45 skipped: 9 queued for admission; checking again in 0 s"; 2]);
+        assert_eq!(said, ["fleet launch: box waits for admission: gex45 skipped: 14.0 GiB free on the root disk, under 15; checking again in 0 s"; 2]);
     }
 
     #[test]
     fn a_launch_is_refused_at_once_unless_it_waits_on_saturation_and_a_waiting_one_after_its_limit() {
         let mut said = Vec::new();
         let refused = admitted("box", None, |_| Ok(queued()), |line| said.push(line.to_owned()), |_| panic!("a refused launch that never waited reports nothing")).unwrap_err();
-        assert!(matches!(refused, NorthError::Refused(why) if why == "gex45 skipped: 9 queued for admission"));
+        assert!(matches!(refused, NorthError::Refused(why) if why == "gex45 skipped: 14.0 GiB free on the root disk, under 15"));
         assert!(said.is_empty());
         let other = admitted("box", quick(Duration::from_secs(60)), |_| Ok(Err(Refusal::Final("claude:a unavailable".into()))), |_| {}, |_| panic!("a final refusal reports nothing")).unwrap_err();
         assert!(matches!(other, NorthError::Refused(why) if why == "claude:a unavailable"));
         let mut told = Vec::new();
         let expired = admitted("box", quick(Duration::ZERO), |_| Ok(queued()), |_| {}, |text| told.push(text.to_owned())).unwrap_err();
         assert!(matches!(expired, NorthError::Refused(why) if why.ends_with("still saturated after waiting 0 min")));
-        assert_eq!(told, ["[from box · launch refused] Not done: box was not launched: gex45 skipped: 9 queued for admission; still saturated after waiting 0 min\nStop: capacity"]);
+        assert_eq!(told, ["[from box · launch refused] Not done: box was not launched: gex45 skipped: 14.0 GiB free on the root disk, under 15; still saturated after waiting 0 min\nStop: capacity"]);
     }
 
     #[test]

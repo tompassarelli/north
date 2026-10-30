@@ -37,7 +37,7 @@ fn revival(strands: Vec<Strand>, reading: Saturation, accounts: Vec<Account>) ->
     decide(&survey, "test")
 }
 
-const FULL_DISK: Saturation = Saturation { queued: 0, cores: 20.0, load5: 3.0, disk_free_gib: 0.7 };
+const FULL_DISK: Saturation = Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 0.7 };
 const FREED: Saturation = Saturation { disk_free_gib: 120.0, ..FULL_DISK };
 
 #[test]

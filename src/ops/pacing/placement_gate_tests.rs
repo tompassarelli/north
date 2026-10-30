@@ -336,7 +336,7 @@ fn a_saturated_machine_is_skipped_by_name_and_the_next_one_takes_the_box() {
     use crate::capacity::saturation::Saturation;
     let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\", \"nexus\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"private\"]\n[hosts.nexus]\nresident_cap = 8\nssh = \"tom@nexus\"\nserves = [\"private\"]\n[hosts.here]\n".parse().unwrap();
     let quota = gate(&[("claude:a", control((35.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0)))]);
-    let calm = Saturation { queued: 0, cores: 20.0, load5: 3.0, disk_free_gib: 40.0 };
+    let calm = Saturation { memory_total_mib: 96000.0, memory_available_mib: 55000.0, disk_free_gib: 40.0 };
     let place = |gex45: Saturation| {
         let mut machines = gate::machines(&cfg);
         for machine in &mut machines {
@@ -350,9 +350,8 @@ fn a_saturated_machine_is_skipped_by_name_and_the_next_one_takes_the_box() {
     };
     assert_eq!(place(calm).0.as_deref(), Some("gex45"));
     let cases = [
-        ("queue", Saturation { queued: 9, ..calm }, "gex45 skipped: 9 queued for admission"),
+        ("memory", Saturation { memory_available_mib: 5000.0, ..calm }, "gex45 skipped: 4.9 GiB of memory available, too little beside a 0.8 GiB session"),
         ("disk", Saturation { disk_free_gib: 14.0, ..calm }, "gex45 skipped: 14.0 GiB free on the root disk, under 15"),
-        ("load", Saturation { load5: 29.5, ..calm }, "gex45 skipped: 5-minute load 29.5 over 20 cores"),
     ];
     for (signal, reading, line) in cases {
         let (machine, lines) = place(reading);

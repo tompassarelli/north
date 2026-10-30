@@ -81,16 +81,14 @@ try {
   }
   console.log(`Recorded quota stall: leased=${pressure.leasedScopeSomeAvg10}, system=${pressure.systemSomeAvg10}, non-leased=${pressure.nonLeasedSomeAvg10}; moderate/heavy RUN, queued=0.`);
   psi(unleased, pressure.unleasedOverloadSomeAvg10);
-  assert.equal(invoke(['probe', '--class', 'heavy']).reason, 'DEFER_CPU_PRESSURE');
-  console.log(`Injected unleased agent overload: ${pressure.unleasedOverloadSomeAvg10}; heavy DEFER_CPU_PRESSURE.`);
-  psi(unleased, 30);
-  assert.equal(invoke(['probe', '--class', 'heavy']).reason, 'RUN');
-  psi(unleased, 30.01);
-  assert.equal(invoke(['probe', '--class', 'heavy']).reason, 'DEFER_CPU_PRESSURE');
+  assert.equal(invoke(['probe', '--class', 'heavy']).reason, 'DEFER_RUN_QUEUE');
+  console.log(`Injected unleased agent overload: ${pressure.unleasedOverloadSomeAvg10}; heavy DEFER_RUN_QUEUE.`);
+  psi(unleased, 24.99); assert.equal(invoke(['probe', '--class', 'heavy']).reason, 'RUN');
+  psi(unleased, 30.01); assert.deepEqual(['heavy', 'moderate'].map((kind) => invoke(['probe', '--class', kind]).reason), ['DEFER_RUN_QUEUE', 'DEFER_CPU_PRESSURE']);
   psi(unleased, pressure.nonLeasedSomeAvg10);
   psi(join(manager, 'session.slice'), pressure.protectedOverloadSomeAvg10);
-  assert.equal(invoke(['probe', '--class', 'heavy']).reason, 'DEFER_INTERACTIVE_PRESSURE');
-  console.log('Queue boundary remains 30%; protected pressure 25% still defers.');
+  assert.equal(invoke(['probe', '--class', 'moderate']).reason, 'DEFER_INTERACTIVE_PRESSURE');
+  console.log('Heavy holds from the attended high mark 25%, moderate from 30%; protected pressure 25% still defers moderate.');
 
   const gpuReference = {
     source: '11 Oct headless Radeon 890M shader, PID 1111436; https://www.kernel.org/doc/html/latest/gpu/drm-usage-stats.html',

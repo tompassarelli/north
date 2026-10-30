@@ -19,6 +19,8 @@ mod native_hold;
 mod client_reserve;
 mod run_queue;
 mod queued_ahead;
+mod pressure_target;
+mod gpu_admission;
 mod deadline;
 mod lease_deadline;
 mod warcraft;
@@ -39,6 +41,10 @@ mod unleased_tests;
 mod native_hold_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod pressure_target_tests;
+#[cfg(test)]
+mod gpu_admission_tests;
 
 use admission::Facts;
 

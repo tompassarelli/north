@@ -113,12 +113,12 @@ fn the_account_the_shared_rank_puts_first_is_admitted_without_a_pin_though_anoth
 fn a_launch_on_a_saturated_named_machine_needs_a_pin_and_a_local_keep_does_not() {
     let mut saturated = decision(Target::Account("claude:a".into()));
     saturated.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
-    saturated.saturated = Some("far skipped: 9 queued for admission".into());
+    saturated.saturated = Some("far skipped: 14.0 GiB free on the root disk, under 15".into());
     let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: Some("far") };
     let refused = admit(&saturated, &launch, "", &Overrides::default()).unwrap_err();
     assert!(matches!(refused, Refusal::Saturated(_)), "a saturated machine is a refusal a waiting launch outlasts: {refused:?}");
     let refused = refused.to_string();
-    assert!(refused.starts_with("far skipped: 9 queued for admission"), "{refused}");
+    assert!(refused.starts_with("far skipped: 14.0 GiB free on the root disk, under 15"), "{refused}");
     let pinned = Overrides { pin: Some("Tom named it".into()), ..Overrides::default() };
     let placed = admit(&saturated, &launch, "", &pinned).unwrap();
     assert_eq!(placed.note.as_deref(), Some("pin: Tom named it"));

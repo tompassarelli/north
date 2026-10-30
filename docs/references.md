@@ -127,6 +127,12 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Informed: the capacity watchdog's CPU pressure flag (bb9f64bd).
   Outcome: adopted; its default cut flag episodes against the earlier local value.
 
+- <a id="kernel-psi"></a>**Linux kernel documentation, PSI (Pressure Stall Information)**, https://docs.kernel.org/accounting/psi.html; accessed: not recorded, cited 2026-10-31.
+  Informed: the heavy-build pressure target and its settle time in [pressure_target.rs](../src/capacity/pressure_target.rs), `admit_psi_*` and
+  `admit_settle_seconds` in [harness/defaults.toml](../harness/defaults.toml): "some" is the share of time at least one task waited for a CPU,
+  averaged over 10, 60 and 300 s, which is why a controller must wait a window after each start before it reads again.
+  Outcome: adopted; the marks come from the laptop's own samples, the kernel text only fixes what the number means.
+
 ### Runtime and code
 
 - <a id="codex-app-server"></a>**Codex app-server documentation**, https://learn.chatgpt.com/docs/app-server, and the Codex source at the
