@@ -355,16 +355,17 @@ fn running_and_idle_sessions_hold_their_task_or_their_named_issue() {
 }
 
 #[test]
-fn an_open_gate_on_any_host_holds_each_issue_it_names() {
+fn an_open_gate_on_any_host_holds_each_issue_it_names_or_decides() {
     let listing = serde_json::json!([
         {"id": 28, "session": "sc-342b", "question": "Malfurion's dash attack (#342): which windup?", "closed_ms": null},
         {"id": 56, "session": "proxy", "question": "smashcraft#2 Hive upload is blocked again; see wisp#39 too", "closed_ms": null},
         {"id": 27, "session": "sc-293", "question": "Melee parity ledger (smashcraft #293)", "closed_ms": null},
+        {"id": 130, "session": "proxy", "question": "How should Kael'thas come back from 82%?", "issue": "tompassarelli/smashcraft#764", "closed_ms": null},
         {"id": 9, "session": "sc-300", "question": "Answered smashcraft#301?", "closed_ms": 1000}
     ]);
     let rows = super::survey::gate_rows(&listing, "whiterabbit");
     let items: Vec<String> = rows.iter().map(|(item, _)| item.to_string()).collect();
-    assert_eq!(items, ["smashcraft#342", "smashcraft#2", "wisp#39", "smashcraft#293"], "a closed gate holds nothing, and the asking session's name counts");
+    assert_eq!(items, ["smashcraft#342", "smashcraft#2", "wisp#39", "smashcraft#293", "smashcraft#764"], "a closed gate holds nothing, and the asking session's name and the gate's --issue count");
     assert_eq!(rows[1].1, "open north gate 56 on whiterabbit from proxy, for Tom");
 }
 

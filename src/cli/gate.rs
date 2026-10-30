@@ -7,8 +7,9 @@ use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::relay::Ssh;
 use crate::fleet::runtime::now_ms;
+use crate::ops::dispatch::IssueRef;
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) | north gate answer ID|HOST:ID N [--note TEXT] | north gate list [--json]";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N] | north gate answer ID|HOST:ID N [--note TEXT] | north gate list [--json]";
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
@@ -56,7 +57,7 @@ fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
 }
 
 fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
-    let mut request = GateRequest { verification: false, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0 };
+    let mut request = GateRequest { verification: false, issue: None, session: String::new(), question: String::new(), options: Vec::new(), recommend: 0, default: 0, default_after_ms: 0 };
     for pair in flags.chunks(2) {
         let [flag, value] = pair else { return Err(usage()) };
         match *flag {
@@ -66,6 +67,7 @@ fn gate_request(flags: &[&str]) -> NorthResult<GateRequest> {
             "--recommend" => request.recommend = value.parse().map_err(|_| usage())?,
             "--default" => request.default = value.parse().map_err(|_| usage())?,
             "--default-after" => request.default_after_ms = duration_ms(value).ok_or_else(usage)?,
+            "--issue" => request.issue = Some(IssueRef::parse(value).ok_or_else(usage)?.to_string()),
             _ => return Err(usage()),
         }
     }
@@ -112,6 +114,7 @@ fn gate_json(gate: &Gate) -> Value {
         "id": gate.id,
         "session": gate.request.session,
         "question": gate.request.question,
+        "issue": gate.request.issue,
         "options": gate.request.options,
         "recommend": gate.request.recommend,
         "default": gate.request.default,
@@ -148,5 +151,8 @@ mod tests {
         assert_eq!((request.options.as_slice(), request.recommend, request.default, request.default_after_ms), (&["yes".to_owned(), "no".to_owned()][..], 1, 2, 30_000));
         assert_eq!([duration_ms("10m"), duration_ms("4h"), duration_ms("1d"), duration_ms("5"), duration_ms("h")], [Some(600_000), Some(14_400_000), Some(86_400_000), None, None]);
         assert!(gate_request(&flags[..flags.len() - 2]).is_err(), "a gate without --default-after must be refused");
+        let decided = [&flags[..], &["--issue", "tompassarelli/North#370"]].concat();
+        assert_eq!(gate_request(&decided).unwrap().issue.as_deref(), Some("north#370"));
+        assert!(gate_request(&[&flags[..], &["--issue", "370"]].concat()).is_err(), "an --issue without a repository must be refused");
     }
 }

@@ -132,14 +132,15 @@ fn printed(data: &str, key: &str) -> String {
     }
 }
 
-/// Open issues with no open blocker whose claim is not live and whose owner is not alive now; a
-/// repository that cannot be read is skipped with a line on `err`.
+/// Open issues with no open blocker and no open gate deciding them, whose claim is not live and
+/// whose owner is not alive now; a repository that cannot be read is skipped with a line on `err`.
 fn ready(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
     let args = Args::parse(argv, &[], &[])?;
     if !args.positional.is_empty() {
         return Err(Failure::Usage("usage: threads ready".into()));
     }
     let held = held(context)?;
+    let gated = context.outside.gated_issues();
     let board = Board::open(context)?;
     let visible = if context.no_native.is_some() { &[][..] } else { &CATALOG.native[..] };
     let mut listed = String::new();
@@ -155,7 +156,7 @@ fn ready(argv: &[String], context: &Context, err: &mut dyn Write) -> Outcome {
         for issue in issues {
             let item = format!("{repo}#{}", issue.number);
             let local = if CATALOG.is_native(repo) { Vec::new() } else { board.local_blockers(&item)? };
-            if held.contains_key(&item) || issue.withheld.is_some() || issue.blockers.iter().chain(&local).any(|blocker| blocker.state == "OPEN") {
+            if held.contains_key(&item) || gated.contains_key(&item) || issue.withheld.is_some() || issue.blockers.iter().chain(&local).any(|blocker| blocker.state == "OPEN") {
                 continue;
             }
             listed += &format!("{item}\t{}\n", issue.title);

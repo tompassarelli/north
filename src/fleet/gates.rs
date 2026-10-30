@@ -5,6 +5,8 @@ use super::remote_view::qualified;
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GateRequest {
     pub verification: bool,
+    #[serde(default)]
+    pub issue: Option<String>,
     pub session: String,
     pub question: String,
     pub options: Vec<String>,
@@ -58,7 +60,7 @@ impl Ask {
                 options.push(filler.to_owned());
             }
         }
-        GateRequest { verification: false, session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
+        GateRequest { verification: false, issue: None, session: session.to_owned(), question: self.text.clone(), options, recommend, default: recommend, default_after_ms: ASK_DEFAULT_AFTER_MS }
     }
 }
 
@@ -263,6 +265,7 @@ mod tests {
     fn request() -> GateRequest {
         GateRequest {
             verification: false,
+            issue: None,
             session: "worker".into(),
             question: "Rent the GPU box?".into(),
             options: vec!["rent it".into(), "wait".into()],

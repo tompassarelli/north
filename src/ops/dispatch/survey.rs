@@ -67,8 +67,8 @@ fn host_table<'a>(cfg: &'a DocumentMut, name: &str) -> Option<&'a Item> {
     cfg.get("hosts")?.get(name)
 }
 
-/// The issues the open gates in one host's `north gate list --json` name, in the question or by
-/// the asking session's name, each with the gate that holds it.
+/// The issues the open gates in one host's `north gate list --json` name, by `--issue`, in the
+/// question or by the asking session's name, each with the gate that holds it.
 pub(crate) fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
     let mut found = Vec::new();
     for gate in listing.as_array().into_iter().flatten().filter(|gate| gate["closed_ms"].is_null()) {
@@ -76,7 +76,7 @@ pub(crate) fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> 
         let repo = fleets::named_items(session).first().map_or_else(String::new, |item| item.repo.clone());
         let question = gate["question"].as_str().unwrap_or_default();
         let why = format!("open north gate {} on {host} from {session}, for Tom", gate["id"]);
-        let mut items: Vec<IssueRef> = issues::references(question, &repo).into_iter().filter(|item| !item.repo.is_empty()).chain(fleets::named_items(session)).collect();
+        let mut items: Vec<IssueRef> = issues::references(question, &repo).into_iter().filter(|item| !item.repo.is_empty()).chain(fleets::named_items(session)).chain(gate["issue"].as_str().and_then(IssueRef::parse)).collect();
         items.sort();
         items.dedup();
         found.extend(items.into_iter().map(|item| (item, why.clone())));

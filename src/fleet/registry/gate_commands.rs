@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{self, Closure, Decision, Gate, GateRequest, default_overdue, settle};
 use crate::fleet::model::Delivery;
@@ -35,6 +37,20 @@ impl Fleet {
         }
         let asker = self.record(&gate.request.session)?;
         gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), |session, text| self.send(session, text, Delivery::Now))
+    }
+
+    /// Each issue an open decision gate here or on a relayed host decides, with the gate's label.
+    pub fn gated_issues(&self) -> NorthResult<BTreeMap<String, String>> {
+        let here = gates::decisions(self.ledger.gates(u64::MAX)?).into_iter().filter_map(|gate| Some((gate.request.issue?, gate.id.to_string())));
+        let mut gated: BTreeMap<String, String> = here.collect();
+        for seen in self.remote_views() {
+            for gate in &seen.snapshot.gates {
+                if let Some(issue) = &gate.issue {
+                    gated.entry(issue.clone()).or_insert_with(|| seen.qualified(gate));
+                }
+            }
+        }
+        Ok(gated)
     }
 
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {

@@ -33,7 +33,7 @@ pub(crate) struct Client {
     env: BTreeMap<String, String>,
     ssh: Vec<OsString>,
     threads: Vec<OsString>,
-    fleet: outside::FleetOwners,
+    fleet: Arc<dyn outside::FleetView>,
     record_wait: Duration,
     ingest_wait: Duration,
 }
@@ -52,7 +52,7 @@ enum Input {
     File(File),
 }
 
-pub(crate) fn run(arguments: &[String], fleet: outside::FleetOwners) -> u8 {
+pub(crate) fn run(arguments: &[String], fleet: Arc<dyn outside::FleetView>) -> u8 {
     let Some(client) = ambient_client(fleet) else {
         eprintln!("NorthThreads: no home directory");
         return 1;
@@ -92,11 +92,11 @@ pub(crate) fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
     Ok(true)
 }
 
-fn unread_fleet() -> outside::FleetOwners {
-    Arc::new(|| None)
+fn unread_fleet() -> Arc<dyn outside::FleetView> {
+    Arc::new(outside::Unread)
 }
 
-fn ambient_client(fleet: outside::FleetOwners) -> Option<Client> {
+fn ambient_client(fleet: Arc<dyn outside::FleetView>) -> Option<Client> {
     let env: BTreeMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();
@@ -109,7 +109,7 @@ fn local_threads() -> OsString {
 }
 
 impl Client {
-    fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, threads: Vec<OsString>, fleet: outside::FleetOwners) -> Self {
+    fn new(home: &Path, env: BTreeMap<String, String>, ssh: Vec<OsString>, threads: Vec<OsString>, fleet: Arc<dyn outside::FleetView>) -> Self {
         Self {
             home: home.to_path_buf(),
             remote: home.join(".config/threads/remote"),
@@ -454,7 +454,7 @@ impl Client {
             remote.push("THREADS_NO_NATIVE=1".to_owned());
         }
         let first = args.first().map(String::as_str);
-        if matches!(first, Some("unowned" | "claim" | "list")) && let Some(owners) = (self.fleet)() {
+        if matches!(first, Some("unowned" | "claim" | "list")) && let Some(owners) = self.fleet.live_owners() {
             remote.push(format!("THREADS_ALIVE_OWNERS={}", python_json(&owners.into_iter().collect::<Vec<_>>())));
         }
         if first == Some("show") {
@@ -608,6 +608,20 @@ fn python_json(items: &[String]) -> String {
 mod tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;
+    use std::collections::BTreeSet;
+
+    /// The live owners a test writes to a JSON file; it opens no gate.
+    struct FleetFile(PathBuf);
+
+    impl outside::FleetView for FleetFile {
+        fn live_owners(&self) -> Option<BTreeSet<String>> {
+            serde_json::from_slice::<Vec<String>>(&fs::read(&self.0).ok()?).ok().map(|owners| owners.into_iter().collect())
+        }
+
+        fn gated_issues(&self) -> BTreeMap<String, String> {
+            BTreeMap::new()
+        }
+    }
 
     struct Rig {
         _directory: tempfile::TempDir,
@@ -643,7 +657,7 @@ exit "$(cat "$ROOT/code")"
         let mut variables: BTreeMap<String, String> = env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect();
         variables.insert("HOME".into(), root.display().to_string());
         let fleet_file = root.join("fleet.json");
-        let fleet: outside::FleetOwners = Arc::new(move || serde_json::from_slice::<Vec<String>>(&fs::read(&fleet_file).ok()?).ok().map(|owners| owners.into_iter().collect()));
+        let fleet: Arc<dyn outside::FleetView> = Arc::new(FleetFile(fleet_file));
         let client = Client::new(
             &root,
             variables,

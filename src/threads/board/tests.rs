@@ -99,6 +99,15 @@ fn ready_lists_open_issues_minus_open_blockers_live_claims_and_claims_of_live_ow
 }
 
 #[test]
+fn ready_leaves_out_an_issue_an_open_gate_decides_until_the_gate_closes() {
+    let mut rig = ledger();
+    rig.outside.gated = vec![("smashcraft#3", "130")];
+    assert_eq!(rig.ready(), ["smashcraft#2", "smashcraft#4"]);
+    rig.outside.gated.clear();
+    assert_eq!(rig.ready(), ["smashcraft#2", "smashcraft#3", "smashcraft#4"]);
+}
+
+#[test]
 fn open_issues_are_read_once_a_minute_through_a_cache_bin_threads_reads_too() {
     let mut rig = ledger();
     rig.outside.answers.insert(0, ("cursor=c1", page(&[&node(7, &[])], None)));

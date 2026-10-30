@@ -18,6 +18,7 @@ mod fleet_placement;
 mod fleet_revive;
 mod fleet_tier;
 mod fleet_tree;
+mod fleet_view;
 mod gate;
 mod ledger;
 mod orders;
@@ -106,7 +107,7 @@ Commands:
   ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
   orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
   task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
-  gate [open --session S --question Q --option O... --recommend N --default N --default-after D | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
+  gate [open --session S --question Q --option O... --recommend N --default N --default-after D [--issue OWNER/REPO#N] | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
   follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
   capacity admission < FACTS.json               Decide one machine-capacity admission
   capacity laptop-auto [--dry-run]              Sample laptop gaming, stop agent game load while Tom plays, reap orphaned scopes
@@ -224,7 +225,7 @@ fn dispatch(command: Command) -> ExitCode {
                 }
             }
         }
-        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(|| fleet::open_fleet().ok()?.live_owners()))),
+        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet_view::Registry))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
         Command::Help => in_runtime(async {

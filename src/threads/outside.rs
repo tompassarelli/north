@@ -11,11 +11,29 @@ use serde_json::Value;
 use super::claims::Issue;
 use super::claims::issues::{GitHub, Issues};
 
-/// This host's live fleet owners, `None` when the registry could not be read.
-pub(crate) type FleetOwners = Arc<dyn Fn() -> Option<BTreeSet<String>> + Send + Sync>;
+/// What the ledger reads from this host's fleet.
+pub(crate) trait FleetView: Send + Sync {
+    /// The owners of the sessions alive here, `None` when the registry could not be read.
+    fn live_owners(&self) -> Option<BTreeSet<String>>;
+    /// Each issue an open gate here or on a relayed host decides, with the gate's label.
+    fn gated_issues(&self) -> BTreeMap<String, String>;
+}
+
+/// A fleet that cannot be read: no owner is known and no gate holds an issue.
+pub(crate) struct Unread;
+
+impl FleetView for Unread {
+    fn live_owners(&self) -> Option<BTreeSet<String>> {
+        None
+    }
+
+    fn gated_issues(&self) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
+}
 
 pub(crate) struct Live {
-    fleet: FleetOwners,
+    fleet: Arc<dyn FleetView>,
     relayed_owners: Vec<String>,
     archives: bool,
     operator: PathBuf,
@@ -25,7 +43,7 @@ impl Live {
     /// The effects as this caller's environment shapes them: where the live sessions come from,
     /// the owners a remote caller relayed, whether the caller prints archives itself, and the
     /// operator directory holding costs.toml.
-    pub(crate) fn new(env: &BTreeMap<String, String>, fleet: FleetOwners) -> Self {
+    pub(crate) fn new(env: &BTreeMap<String, String>, fleet: Arc<dyn FleetView>) -> Self {
         let var = |name: &str| env.get(name).map(String::as_str).filter(|value| !value.is_empty());
         let relayed_owners = var("THREADS_ALIVE_OWNERS")
             .and_then(|text| serde_json::from_str::<Value>(text).ok())
@@ -52,13 +70,17 @@ impl super::verb::Outside for Live {
     }
 
     fn alive_owners(&self) -> Option<BTreeSet<String>> {
-        let fleet = (self.fleet)();
+        let fleet = self.fleet.live_owners();
         if fleet.is_none() && self.relayed_owners.is_empty() {
             return None;
         }
         let mut owners = fleet.unwrap_or_default();
         owners.extend(self.relayed_owners.iter().cloned());
         Some(owners)
+    }
+
+    fn gated_issues(&self) -> BTreeMap<String, String> {
+        self.fleet.gated_issues()
     }
 
     fn archives(&self, repo: &str, number: u64) -> String {

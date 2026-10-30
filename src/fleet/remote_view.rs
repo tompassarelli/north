@@ -21,6 +21,8 @@ pub struct GateView {
     pub session: String,
     pub question: String,
     pub options: Vec<String>,
+    #[serde(default)]
+    pub issue: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

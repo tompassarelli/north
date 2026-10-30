@@ -30,7 +30,7 @@ impl Fleet {
             tasks: record.tasks().map(str::to_owned).collect(),
         });
         let open = gates::decisions(self.ledger.gates(0)?).into_iter().filter(|gate| gate.is_open());
-        let gates = open.map(|gate| GateView { id: gate.id, session: gate.request.session, question: gate.request.question, options: gate.request.options });
+        let gates = open.map(|gate| GateView { id: gate.id, session: gate.request.session, question: gate.request.question, options: gate.request.options, issue: gate.request.issue });
         Ok(Snapshot { host: relay::hostname(), sessions: views.collect(), gates: gates.collect() })
     }
 

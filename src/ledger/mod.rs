@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS gates(
   answer TEXT,
   answered_by TEXT,
   closed_ms INTEGER,
-  verification INTEGER NOT NULL DEFAULT 0
+  verification INTEGER NOT NULL DEFAULT 0,
+  issue TEXT
 ) STRICT;
 CREATE INDEX IF NOT EXISTS runs_by_session ON runs(session);
 CREATE TABLE IF NOT EXISTS events(
@@ -99,7 +100,7 @@ CREATE TABLE IF NOT EXISTS receipts(
 ) STRICT;
 ";
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(60);
 
@@ -379,6 +380,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if schema_version(&transaction)? < SCHEMA_VERSION {
         transaction.execute_batch(SCHEMA)?;
         add_missing_column(&transaction, "gates", "verification", "INTEGER NOT NULL DEFAULT 0")?;
+        add_missing_column(&transaction, "gates", "issue", "TEXT")?;
         gates::allow_session_answerers(&transaction)?;
         add_missing_column(&transaction, "tasks", "landed_ms", "INTEGER")?;
         transaction.execute_batch(LINK_RUNS)?;

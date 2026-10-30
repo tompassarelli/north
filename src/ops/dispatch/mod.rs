@@ -5,7 +5,8 @@
 use crate::error::NorthResult;
 use crate::fleet::roster::Roster;
 use crate::ops::pacing::placement::{self, gate};
-use issues::{Issue, IssueRef};
+use issues::Issue;
+pub(crate) use issues::IssueRef;
 use plan::{Candidate, Capacity, Launch, Ready};
 use slots::Pools;
 use survey::Survey;

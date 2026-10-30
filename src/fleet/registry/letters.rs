@@ -115,7 +115,7 @@ mod tests {
         let session_dir = laptop.session_dir("sc-413-d1936").unwrap();
         std::fs::create_dir_all(&session_dir).unwrap();
         write_record(&session_dir, &record).unwrap();
-        let request = GateRequest { verification: false, session: "sc-413-d1936".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 };
+        let request = GateRequest { verification: false, issue: None, session: "sc-413-d1936".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 };
 
         far.outbox().take("laptop").unwrap();
         assert!(matches!(far.open_or_post_gate(&request).unwrap(), Opened::Posted { .. }), "a session unknown here posts its gate to the relay");
