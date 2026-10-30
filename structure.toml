@@ -74,7 +74,7 @@ may_use = ["domain", "platform", "foundation"]
 
 [[module]]
 name = "landing"
-paths = ["src/landing/**", "src/dep_gate.rs", "src/review_gate.rs", "src/language_gate.rs", "src/language_gate/**", "src/provenance.rs", "src/issue_box_lint.rs", "src/autoland_status.rs", "src/autoland_status/**", "src/land_abandon.rs", "src/follows_release.rs"]
+paths = ["src/landing/**", "src/dep_gate.rs", "src/review_gate.rs", "src/language_gate.rs", "src/language_gate/**", "src/provenance.rs", "src/issue_box_lint.rs", "src/autoland_status.rs", "src/autoland_status/**", "src/land_abandon.rs", "src/land_abandon/**", "src/follows_release.rs"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
 may_use = ["shell", "threads", "domain", "platform", "foundation"]
 

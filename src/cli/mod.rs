@@ -5,6 +5,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::session_host;
 use crate::{agent_catalog, contract_probe, grounding, guard, health, hook, language_gate, work_items};
 
+mod abandon_witness;
 mod agents;
 mod cloud;
 mod cloud_handback;

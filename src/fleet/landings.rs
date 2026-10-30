@@ -8,6 +8,9 @@ use super::model::SessionRecord;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Push {
     pub at_ms: u64,
+    pub repository: String,
+    pub branch: String,
+    pub oid: String,
     pub landed: String,
     pub session: String,
     pub reviewer: String,
@@ -46,7 +49,7 @@ pub fn pushes(log: &Path) -> Vec<Push> {
             let fields: Vec<&str> = line.split('\t').collect();
             let at_secs: u64 = fields.first()?.parse().ok()?;
             let field = |index: usize| fields.get(index).copied().unwrap_or_default().to_owned();
-            Some(Push { at_ms: at_secs * 1_000, landed: field(4), session: field(5), reviewer: field(6) })
+            Some(Push { at_ms: at_secs * 1_000, repository: field(1), branch: field(2), oid: field(3), landed: field(4), session: field(5), reviewer: field(6) })
         })
         .collect()
 }

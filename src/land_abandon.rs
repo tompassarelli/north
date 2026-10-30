@@ -1,6 +1,10 @@
 use crate::autoland_status::{git_output, landed_commit, read_gh, status};
 use std::process::{Command, Stdio};
 
+mod scratch;
+
+pub use scratch::{ScratchPush, Witness};
+
 fn lane_land_branch() -> Option<String> {
     let lane = git_output(&["symbolic-ref", "--quiet", "--short", "HEAD"])?;
     let sha = git_output(&["rev-parse", "--verify", "HEAD^{commit}"])?;
@@ -56,6 +60,14 @@ fn superseded(tip: &str, destination: &str) -> Option<bool> {
 enum Abandon {
     LandBranch(Option<String>),
     Superseded(String),
+    Scratch(String),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Rule {
+    LandedOrHandedBack,
+    Superseded,
+    Scratch,
 }
 
 impl Abandon {
@@ -63,31 +75,33 @@ impl Abandon {
         match arguments {
             [] => Some(Self::LandBranch(lane_land_branch())),
             [flag, branch] if flag == "--superseded" => Some(Self::Superseded(branch.clone())),
+            [branch] if branch.starts_with("scratch/") => Some(Self::Scratch(branch.clone())),
             [branch] => Some(Self::LandBranch(Some(branch.clone()))),
             _ => None,
         }
     }
 
-    fn branch(self) -> Option<(String, bool)> {
+    fn branch(self) -> Option<(String, Rule)> {
         match self {
             Self::LandBranch(branch) => branch
                 .filter(|branch| branch.starts_with("claude/land-"))
-                .map(|branch| (branch, false)),
+                .map(|branch| (branch, Rule::LandedOrHandedBack)),
             Self::Superseded(branch) => (branch.starts_with("claude/")
                 || branch.starts_with("farm/"))
-            .then_some((branch, true)),
+            .then_some((branch, Rule::Superseded)),
+            Self::Scratch(branch) => Some((branch, Rule::Scratch)),
         }
     }
 }
 
-pub fn abandon(arguments: &[String]) -> u8 {
+pub fn abandon(arguments: &[String], witness: &dyn Witness) -> u8 {
     let Some(request) = Abandon::parse(arguments) else {
-        eprintln!("Usage: north land-abandon [BRANCH | --superseded BRANCH]");
+        eprintln!("Usage: north land-abandon [BRANCH | scratch/NAME | --superseded BRANCH]");
         return 2;
     };
-    let Some((branch, only_superseded)) = request.branch() else {
+    let Some((branch, rule)) = request.branch() else {
         eprintln!(
-            "safe-push: abandon refuses anything but a claude/land-* branch (claude/* or farm/* with --superseded); NOT deleted."
+            "safe-push: abandon refuses anything but a claude/land-* or scratch/* branch (claude/* or farm/* with --superseded); NOT deleted."
         );
         return 1;
     };
@@ -103,6 +117,23 @@ pub fn abandon(arguments: &[String]) -> u8 {
         eprintln!("safe-push: origin has no {branch} or no default branch; NOT deleted.");
         return 1;
     };
+    let verdict = match verdict(rule, &branch, &tip, &destination, witness) {
+        Ok(verdict) => verdict,
+        Err(refusal) => {
+            eprintln!("safe-push: {branch}{refusal}; NOT deleted.");
+            return 1;
+        }
+    };
+    eprintln!("safe-push: abandoning {branch}: {verdict}");
+    if !delete_remote_branch(&branch, &tip) {
+        eprintln!("safe-push: could not delete {branch} from origin.");
+        return 1;
+    }
+    println!("safe-push: deleted {branch} from origin");
+    0
+}
+
+fn verdict(rule: Rule, branch: &str, tip: &str, destination: &str, witness: &dyn Witness) -> Result<String, String> {
     let tracking = format!("refs/remotes/origin/{destination}");
     let fetched = git_output(&[
         "fetch",
@@ -112,29 +143,23 @@ pub fn abandon(arguments: &[String]) -> u8 {
         &format!("+refs/heads/{destination}:{tracking}"),
         &format!("refs/heads/{branch}"),
     ]);
-    let state = status(&tip, &branch, read_gh);
-    let verdict = if fetched.is_some() && superseded(&tip, &tracking) == Some(true) {
-        format!("every lane commit is on origin/{destination} by subject or patch")
-    } else if !only_superseded && matches!(state.split('\t').next(), Some("error" | "failure")) {
-        format!("Autoland handed it back: {}", state.replace('\t', " "))
-    } else {
-        eprintln!(
-            "safe-push: {branch} is not superseded on origin/{destination}{}; NOT deleted.",
-            if only_superseded {
-                ""
-            } else {
-                " and not handed back by Autoland"
-            }
-        );
-        return 1;
-    };
-    eprintln!("safe-push: abandoning {branch}: {verdict}");
-    if !delete_remote_branch(&branch, &tip) {
-        eprintln!("safe-push: could not delete {branch} from origin.");
-        return 1;
+    if rule == Rule::Scratch {
+        return fetched
+            .ok_or_else(|| "could not fetch its tip".to_owned())
+            .and_then(|_| scratch::verdict(&scratch::observe(branch, tip, witness)))
+            .map_err(|refusal| format!(": {refusal}"));
     }
-    println!("safe-push: deleted {branch} from origin");
-    0
+    if fetched.is_some() && superseded(tip, &tracking) == Some(true) {
+        return Ok(format!("every lane commit is on origin/{destination} by subject or patch"));
+    }
+    if rule == Rule::LandedOrHandedBack {
+        let state = status(tip, branch, read_gh);
+        if matches!(state.split('\t').next(), Some("error" | "failure")) {
+            return Ok(format!("Autoland handed it back: {}", state.replace('\t', " ")));
+        }
+        return Err(format!(" is not superseded on origin/{destination} and not handed back by Autoland"));
+    }
+    Err(format!(" is not superseded on origin/{destination}"))
 }
 
 fn delete_remote_branch(branch: &str, tip: &str) -> bool {
