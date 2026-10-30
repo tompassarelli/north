@@ -408,3 +408,31 @@ during the runs), so each row is indicative only. Times are Cargo's own
   with the sibling on btrfs until they diverge **(sharing not measured)**;
   the reclaim and `land-clean` sweeps still trim targets, so no separate cache
   budget exists.
+
+## Measured: sccache against target-seed across wisp lanes (31 Oct 2026, the 20-thread build host)
+
+Source: `cargo build -p wisp-window --locked` in `window/` of wisp worktrees on
+the 20-thread build host, one run per row, each inside a heavy capacity lease sized by
+admission (2 CPUs for the seed row; the sccache rows' size was not recorded,
+and the first row ran without a lease) while other work loaded the host;
+sccache 0.17.0 as `RUSTC_WRAPPER` and as CMake's C and C++ launcher, one
+server per host, its statistics zeroed before each row. Rows are indicative only.
+
+| Setup | Wall | Cache |
+| --- | --- | --- |
+| no wrapper, fresh `CARGO_TARGET_DIR`, no lease | 106.9 s | |
+| sccache, first lane, own `target/` | 304.4 s | 0 of 196 Rust, 11 of 659 C/C++ hits |
+| sccache, second lane, own `target/` | 361.9 s | 168 of 196 Rust, 11 of 659 C/C++ hits |
+| `target-seed` from `main/window/target` | 9.9 s | 1 unit rebuilt: `wisp-window` |
+
+- A fresh `CARGO_TARGET_DIR` per run gave 0 Rust hits on a warm cache, because
+  sccache probably hashes `CARGO_TARGET_DIR` with the other `CARGO_*` variables
+  **(not isolated)**; lanes with their own `target/` and no `CARGO_TARGET_DIR` hit.
+- The second lane missed 648 of 659 C/C++ compiles from SDL3 (built from
+  source by `sdl3-sys` through CMake) and the other C-building crates **(split
+  not counted)**, most likely because their objects and include paths sit
+  under the lane's `OUT_DIR` **(not isolated)**; with
+  them, 168 Rust hits still left the second lane slower than the first.
+- Adopted: the wisp `window/` and smashcraft-client shells now run
+  the host repository's `target-seed` command as its own shell does; before this the two shells never
+  seeded, so every lane there compiled from scratch. sccache is not adopted.
