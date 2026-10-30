@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# transient: until whiterabbit, nexus and gex45 run the north worker-ledger unit
+exec "$(dirname "$(readlink -f "$0")")/../../north" worker-ledger "$@"
