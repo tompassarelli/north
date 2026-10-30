@@ -69,6 +69,7 @@ safe_push_terminal() {
 safe_push_exit() {
   local status=$?
   if declare -F finish_push >/dev/null; then finish_push; fi
+  if declare -F stop_final_scans >/dev/null; then stop_final_scans; fi
   [ -z "${land_check_root:-}" ] || release_land_check_build "$land_check_root"
   if [ "${NORTH_NO_AUTOREAP:-0}" = 1 ]; then exit "$status"; fi
   safe_push_terminal "$status"
@@ -2217,6 +2218,32 @@ stage "language gate"
 check_instruction_limits "$head_oid"
 generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
 has_land_checks && refuse_stale_revert
+# The dependency gate and the policy, secret, deny-list and email scans read only the commits being landed, so they run beside the land checks and are reused when the lane and origin are unchanged once those pass.
+final_scans() {
+  command -v north >/dev/null 2>&1 || { echo "safe-push: north missing on PATH — refusing to push without the dependency gate; NOT pushed."; exit 1; }
+  echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
+  (cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
+    || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
+  code_health_gate "${destination_oid:-${absent_base:-}}" "$head_oid"
+  policy_scans "$branch" "$destination_branch" "$scan_range" || exit 1
+  safe_push_reviewers=$(landing_reviewers "$scan_range")
+  [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
+  echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
+  gitleaks detect --no-banner --redact --log-opts="$scan_range" \
+    || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
+  denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || exit 1
+  commit_email_scan "$scan_range" || exit 1
+}
+stop_final_scans() {
+  [ -z "$final_scans_pid" ] || { kill "$final_scans_pid" 2>/dev/null || true; wait "$final_scans_pid" 2>/dev/null || true; rm -f -- "$final_scans_log"; final_scans_pid=""; }
+}
+final_scans_pid="" final_scans_log="" final_scans_head="" final_scans_destination="" final_scans_range="" final_scans_status=0
+if has_land_checks && [ "$dry" = 0 ] && [ "$destination_branch" = main ] && command -v gitleaks >/dev/null 2>&1; then
+  final_scans_log=$(mktemp)
+  final_scans_head="$head_oid" final_scans_destination="${destination_oid:-}" final_scans_range="$scan_range"
+  (drop_lock_fd; final_scans) >"$final_scans_log" 2>&1 &
+  final_scans_pid=$!
+fi
 while :; do
   land_base="${destination_oid:-${absent_base:-}}"
   land_locked=0
@@ -2257,23 +2284,19 @@ if [ -n "$destination_oid" ] && [ "$destination_oid" = "$head_oid" ]; then
   exit 0
 fi
 
-command -v north >/dev/null 2>&1 || { echo "safe-push: north missing on PATH — refusing to push without the dependency gate; NOT pushed."; exit 1; }
-echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
-(cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
-  || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
-stage "dependency gate"
-
-code_health_gate "${destination_oid:-${absent_base:-}}" "$head_oid"
-
-policy_scans "$branch" "$destination_branch" "$scan_range" || exit 1
-safe_push_reviewers=$(landing_reviewers "$scan_range")
-[ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
-echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
-gitleaks detect --no-banner --redact --log-opts="$scan_range" \
-  || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
-denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || exit 1
-commit_email_scan "$scan_range" || exit 1
-stage "policy and secret scans"
+if [ -n "$final_scans_pid" ] && [ "$final_scans_head" = "$head_oid" ] && [ "$final_scans_destination" = "${destination_oid:-}" ] && [ "$final_scans_range" = "$scan_range" ]; then
+  wait "$final_scans_pid" || final_scans_status=$?
+  final_scans_pid=""
+  cat "$final_scans_log"
+  rm -f -- "$final_scans_log"
+  [ "$final_scans_status" -eq 0 ] || exit "$final_scans_status"
+  safe_push_reviewers=$(landing_reviewers "$scan_range")
+  stage "dependency gate and scans (ran beside the land checks)"
+else
+  stop_final_scans
+  final_scans
+  stage "dependency gate and scans"
+fi
 [ "$dry" = 1 ] || run_queue_branch_hook
 
 revalidate_repository_state
