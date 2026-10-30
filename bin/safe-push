@@ -1942,6 +1942,21 @@ touches_workflows() {
   git diff --name-only "$1" "$2" -- .github/workflows | grep -q .
 }
 
+keep_verdict_through_moves() {
+  local base="$1" checked="$2" upstream="$3" label="$4" next
+  while :; do
+    { ! exact_landing "$upstream" || touches_workflows "$base" "$checked"; } \
+      && [ -n "$base" ] && [ -n "$upstream" ] \
+      && git merge-base --is-ancestor "$base" "$upstream" 2>/dev/null \
+      && ! touches_same_files "$base" "$upstream" "$checked" || return 1
+    echo "safe-push: origin $to's new commits touch none of this change's files — keeping the $label' verdict"
+    rebase_onto_destination "$upstream"
+    next=$(fetch_destination) || exit 1
+    [ "$next" != "$upstream" ] || return 0
+    upstream="$next"
+  done
+}
+
 # hook_verified=1: the hook passed on HEAD's change against the destination it
 # will land on (or one whose new commits touch none of its files, unless the
 # repository's committed .safe-push sets landing.exact and the lane changes no
@@ -2188,18 +2203,13 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
         hook_verified=1
         break
       fi
-      if { ! exact_landing "$upstream" || touches_workflows "$checked_base" "$checked_head"; } \
-          && [ -n "$checked_base" ] && [ -n "$upstream" ] \
-          && git merge-base --is-ancestor "$checked_base" "$upstream" 2>/dev/null \
-          && ! touches_same_files "$checked_base" "$upstream" "$checked_head"; then
-        echo "safe-push: origin $to's new commits touch none of this change's files — keeping the checks' verdict"
-        rebase_onto_destination "$upstream"
+      if keep_verdict_through_moves "$checked_base" "$checked_head" "$upstream" checks; then
         hook_verified=1
         break
       fi
       if [ "$attempt" -ge 3 ]; then
         echo "safe-push: origin $to changed this change's files during $attempt check runs — running the checks under the landing lock"
-        rebase_onto_destination "$upstream"
+        rebase_onto_destination "$(fetch_destination)"
         break
       fi
       echo "safe-push: origin $to changed this change's files during the checks — re-running them ($attempt/3)"
@@ -2257,12 +2267,7 @@ while :; do
   acquire_push_lock "$lock_url"
   upstream=$(fetch_destination) || exit 1
   [ "$upstream" != "$land_base" ] || break
-  if [ -n "$land_base" ] && [ -n "$upstream" ] \
-      && { ! exact_landing "$upstream" || touches_workflows "$land_base" "$head_oid"; } \
-      && git merge-base --is-ancestor "$land_base" "$upstream" 2>/dev/null \
-      && ! touches_same_files "$land_base" "$upstream" "$head_oid"; then
-    echo "safe-push: origin $to's new commits touch none of this change's files — keeping the land checks' verdict"
-    rebase_onto_destination "$upstream"
+  if keep_verdict_through_moves "$land_base" "$head_oid" "$upstream" "land checks"; then
     capture_repository_state
     capture_destination_state
     break

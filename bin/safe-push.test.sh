@@ -1935,6 +1935,54 @@ status_a=0; wait "$pid_a" || status_a=$?
 grep -q "keeping the land checks' verdict" "$landing_root/a.out" || fail "missing kept-verdict receipt: $(cat "$landing_root/a.out")"
 printf 'PASS: recorded admitted land check runs unlocked; a disjoint main move keeps its verdict\n'
 
+for second_move in disjoint touching; do
+  new_landing_origin kept-verdict-second-move-$second_move
+  printf '1\n2\n3\n4\n5\n' >"$landing_root/seed/shared.txt"
+  "$real_git" -C "$landing_root/seed" commit -qam 'five shared lines'
+  "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+  make_landing_clone "$landing_root/a" a.txt
+  sed -i '1s/.*/a/' "$landing_root/a/shared.txt"
+  "$real_git" -C "$landing_root/a" commit -qam 'a edits the first shared line'
+  mkfifo "$landing_root/check-release"
+  land_command="printf 'DEFER_NATIVE_QUIET\\n'; printf 'run\\n' >>'$landing_root/runs'; [ -e '$landing_root/second-move' ] || read -r _ <'$landing_root/check-release'"
+  "$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity env
+  "$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt,shared.txt :: $land_command"
+  "$real_git" -C "$landing_root/a" add .safe-push
+  "$real_git" -C "$landing_root/a" commit -qm 'admitted land check'
+  if [ "$second_move" = disjoint ]; then second_edit="printf 'second\\n' >'$landing_root/seed/other2.txt'; '$real_git' -C '$landing_root/seed' add other2.txt"
+  else second_edit="sed -i '5s/.*/s/' '$landing_root/seed/shared.txt'; '$real_git' -C '$landing_root/seed' add shared.txt"; fi
+  cat >"$landing_root/a/.git/hooks/post-rewrite" <<HOOK
+#!/bin/sh
+[ ! -e '$landing_root/second-move' ] || exit 0
+touch '$landing_root/second-move'
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+$second_edit
+'$real_git' -C '$landing_root/seed' commit -qm 'second main move'
+'$real_git' -C '$landing_root/seed' push -q '$landing_remote' main
+HOOK
+  chmod +x "$landing_root/a/.git/hooks/post-rewrite"
+  run_landing "$landing_root/a" & pid_a=$!
+  wait_for "$pid_a" test -s "$landing_root/runs"
+  printf 'other\n' >"$landing_root/seed/other.txt"
+  "$real_git" -C "$landing_root/seed" add other.txt
+  "$real_git" -C "$landing_root/seed" commit -qm 'disjoint main move'
+  "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+  printf 'go\n' >"$landing_root/check-release"
+  status_a=0; wait "$pid_a" || status_a=$?
+  [ "$status_a" -eq 0 ] || fail "lane failed after a second main move ($second_move): $(cat "$landing_root/a.out")"
+  [ -e "$landing_root/second-move" ] || fail 'the second main move never happened'
+  "$real_git" --git-dir="$landing_remote" cat-file -e main:a.txt || fail "lane did not land after a $second_move second main move"
+  "$real_git" --git-dir="$landing_remote" cat-file -e main:other.txt || fail 'lane dropped the first main move'
+  ! grep -q 'non-fast-forward' "$landing_root/a.out" || fail "second main move was refused: $(cat "$landing_root/a.out")"
+  if [ "$second_move" = disjoint ]; then
+    [ "$(wc -l <"$landing_root/runs")" -eq 1 ] || fail "a disjoint second main move re-ran the land checks: $(cat "$landing_root/a.out")"
+    "$real_git" --git-dir="$landing_remote" cat-file -e main:other2.txt || fail 'lane dropped the second main move'
+  else
+    [ "$(wc -l <"$landing_root/runs")" -eq 2 ] || fail "a second main move touching a lane file did not rerun the land checks: $(cat "$landing_root/a.out")"
+  fi
+done
+printf 'PASS: main moving again before the push keeps the verdict for a disjoint move and reruns the checks for a move touching the lane files\n'
+
 new_landing_origin land-check-retry
 printf '1\n2\n3\n4\n5\n' >"$landing_root/seed/shared.txt"
 "$real_git" -C "$landing_root/seed" commit -qam 'five shared lines'
