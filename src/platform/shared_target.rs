@@ -24,6 +24,18 @@ pub(crate) fn cap_bytes(budget: &DiskBudget) -> u64 {
     budget.bytes(Share::CargoTarget).unwrap_or(CAP_BYTES)
 }
 
+pub(crate) fn mutant_cap_bytes(budget: &DiskBudget) -> u64 {
+    budget.bytes(Share::MutantCargo).unwrap_or(CAP_BYTES)
+}
+
+pub(crate) fn sweep_mutant(cache: &Path, now: SystemTime, cap: u64) -> io::Result<u64> {
+    let target = cache.join("north/mutant-cargo/target");
+    if !target.is_dir() {
+        return Ok(0);
+    }
+    sweep(&target, cap, IDLE, now)
+}
+
 pub(crate) fn run_sweep(cache: &Path, cap: u64) -> u8 {
     let mut status = 0;
     for target in shared_targets(cache) {

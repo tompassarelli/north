@@ -1,4 +1,5 @@
 mod build_output;
+mod capture_batches;
 mod cache_cap;
 mod evidence_budget;
 mod held;
@@ -42,6 +43,7 @@ pub(super) struct Inputs {
     lan_clients: PathBuf,
     lan_state: PathBuf,
     evidence: PathBuf,
+    capture_queue: PathBuf,
     disk_budget: DiskBudget,
     open_issue_text: fn() -> Result<String, String>,
     uid: u32,
@@ -62,6 +64,7 @@ impl Inputs {
             lan_clients: data.join("wisp/lan/clients"),
             lan_state: state.join("wisp/lan"),
             evidence: state.join("smashcraft/evidence"),
+            capture_queue: state.join("smashcraft/capture-queue"),
             disk_budget: DiskBudget::local(),
             open_issue_text: evidence_budget::open_issue_text,
             uid: rustix::process::getuid().as_raw(),
@@ -122,6 +125,7 @@ pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Remova
     removals.extend(build_output::sweep(inputs, policy, &held)?);
     removals.extend(cache_cap::sweep(inputs, policy, &held)?);
     removals.extend(evidence_budget::sweep(inputs, policy, &held, &evidence_budget::Budget::of(&inputs.disk_budget), 0)?);
+    removals.extend(capture_batches::sweep(inputs, policy, &held)?);
     Ok(removals)
 }
 

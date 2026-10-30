@@ -52,6 +52,7 @@ impl Machine {
             lan_clients: self.path("clients"),
             lan_state: self.path("state"),
             evidence: self.path("evidence"),
+            capture_queue: self.path("capture-queue"),
             disk_budget: DiskBudget::default(),
             open_issue_text: || Ok(String::new()),
             uid: rustix::process::getuid().as_raw(),
@@ -282,4 +283,58 @@ fn the_evidence_sweep_reads_its_budget_from_the_hosts_disk_budget() {
     let tight = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nsmashcraft_evidence = 0.001\n");
     assert_eq!(reclaim(&tight, &policy).unwrap().len(), 1);
     assert!(!run.exists());
+}
+
+#[test]
+fn the_mutant_cargo_sweep_reads_its_cap_from_the_hosts_disk_budget() {
+    let machine = Machine::new();
+    let deps = machine.dir("cache/north/mutant-cargo/target/debug/deps", 3 * DAY);
+    let binary = deps.join("north-4d5e6f");
+    fs::write(&binary, vec![0u8; 3 << 20]).unwrap();
+    fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    touch(&binary, machine.now - 3 * DAY);
+    let policy = Policy { idle: DAY, dry_run: false };
+
+    let roomy = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nmutant_cargo = 1\n");
+    assert!(reclaim(&roomy, &policy).unwrap().is_empty() && binary.exists());
+    let tight = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nmutant_cargo = 0.001\n");
+    assert_eq!(reclaim(&tight, &policy).unwrap().len(), 1);
+    assert!(!binary.exists());
+}
+
+fn batch(machine: &Machine, name: &str, jobs: &[&str], result_of: Option<&str>) -> PathBuf {
+    let directory = machine.path(&format!("capture-queue/batches/{name}"));
+    for job in jobs {
+        fs::create_dir_all(directory.join("pads-0").join(job)).unwrap();
+    }
+    fs::write(directory.join("run.log"), vec![1u8; 2 << 20]).unwrap();
+    if let Some(job) = result_of {
+        let result = machine.path(&format!("capture-queue/results/{job}"));
+        fs::create_dir_all(&result).unwrap();
+        fs::write(result.join("result.json"), format!("{{\"id\":\"{job}\",\"batch\":\"{name}\"}}")).unwrap();
+    }
+    for path in [directory.join("run.log"), directory.join("pads-0"), directory.clone()] {
+        touch(&path, machine.now - 3 * DAY);
+    }
+    directory
+}
+
+#[test]
+fn the_capture_batch_sweep_reads_its_cap_from_the_hosts_disk_budget_and_keeps_pinned_and_waiting_batches() {
+    let machine = Machine::new();
+    let finished = batch(&machine, "bold", &["done-1"], Some("done-1"));
+    let pinned = batch(&machine, "bpinned", &["done-2"], Some("done-2"));
+    fs::write(pinned.join("PINNED"), b"").unwrap();
+    touch(&pinned, machine.now - 3 * DAY);
+    let running = batch(&machine, "brunning", &["live-1", "done-3"], Some("done-3"));
+    machine.dir("capture-queue/taken", DAY);
+    fs::write(machine.path("capture-queue/taken/live-1.json"), b"{}").unwrap();
+    let unfinished = batch(&machine, "bnoresult", &["lost-1"], None);
+    let policy = Policy { idle: DAY, dry_run: false };
+
+    let roomy = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\ncapture_batches = 1\n");
+    assert!(reclaim(&roomy, &policy).unwrap().is_empty() && finished.exists());
+    let tight = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\ncapture_batches = 0.001\n");
+    assert_eq!(reclaim(&tight, &policy).unwrap().len(), 1);
+    assert!(!finished.exists() && pinned.exists() && running.exists() && unfinished.exists());
 }

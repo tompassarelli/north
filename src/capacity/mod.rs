@@ -213,7 +213,7 @@ pub(crate) fn desktop_aperture(host_margin_mib: Option<u32>) -> DesktopAperture 
 /// `north capacity disk-share SHARE`: the GiB this host's `[hosts.NAME.disk_budget_gib]` gives the store, or nothing when it names none.
 fn disk_share(name: &str) -> u8 {
     let Some(share) = crate::platform::disk_budget::Share::parse(name) else {
-        eprintln!("north capacity: disk-share is one of cargo_target, map_store, smashcraft_evidence");
+        eprintln!("north capacity: disk-share is one of cargo_target, map_store, smashcraft_evidence, mutant_cargo, capture_batches");
         return 64;
     };
     if let Some(gib) = crate::platform::disk_budget::DiskBudget::local().gib(share) {

@@ -10,11 +10,13 @@ pub(crate) enum Share {
     CargoTarget,
     MapStore,
     SmashcraftEvidence,
+    MutantCargo,
+    CaptureBatches,
 }
 
 impl Share {
     pub(crate) fn parse(name: &str) -> Option<Self> {
-        [Self::CargoTarget, Self::MapStore, Self::SmashcraftEvidence].into_iter().find(|share| share.key() == name)
+        [Self::CargoTarget, Self::MapStore, Self::SmashcraftEvidence, Self::MutantCargo, Self::CaptureBatches].into_iter().find(|share| share.key() == name)
     }
 
     fn key(self) -> &'static str {
@@ -22,6 +24,8 @@ impl Share {
             Self::CargoTarget => "cargo_target",
             Self::MapStore => "map_store",
             Self::SmashcraftEvidence => "smashcraft_evidence",
+            Self::MutantCargo => "mutant_cargo",
+            Self::CaptureBatches => "capture_batches",
         }
     }
 }
