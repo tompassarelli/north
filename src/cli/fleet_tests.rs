@@ -263,6 +263,13 @@ fn a_launch_inherits_the_calling_session_as_parent_unless_told_none() {
     assert_eq!(parent(&[], None), None);
 }
 
+#[test]
+fn a_launch_flag_never_takes_the_next_flag_as_its_value() {
+    let providers = [ProviderName::new("claude")];
+    let words = ["--provider", "claude", "--account", "c", "--local", "--name", "firn-statix", "go"];
+    assert!(launch_request(&providers, &words, None).is_err());
+}
+
 fn seconds(rollover: u64, finished_exit: u64) -> crate::fleet::idle::Policy {
     crate::fleet::idle::Policy { rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit), wake_after: [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(3)] }
 }

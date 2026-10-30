@@ -279,7 +279,7 @@ fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<Strin
             index += 1;
             continue;
         }
-        let value = words.get(index + 1).map(|value| (*value).to_owned()).ok_or_else(usage)?;
+        let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;
         flags.set(providers, flag, value)?;
         index += 2;
     }
