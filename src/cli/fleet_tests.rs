@@ -249,7 +249,7 @@ fn a_codex_question_opens_a_gate_for_its_session_and_unblocks_the_turn() {
 }
 
 #[test]
-fn a_launch_inherits_the_calling_session_as_parent_unless_told_none() {
+fn a_launch_inherits_the_calling_session_as_parent_else_the_proxy_unless_told_none() {
     let providers = [ProviderName::new("claude")];
     let test_request = launch_request(&providers, &["--provider", "claude", "--account", "c", "--test", "test prompt"], None).unwrap();
     assert!(test_request.verification);
@@ -260,7 +260,13 @@ fn a_launch_inherits_the_calling_session_as_parent_unless_told_none() {
     assert_eq!(parent(&[], Some("boss")), Some("boss".into()));
     assert_eq!(parent(&["--parent", "none"], Some("boss")), None);
     assert_eq!(parent(&["--parent", "lead"], Some("boss")), Some("lead".into()));
-    assert_eq!(parent(&[], None), None);
+    assert_eq!(parent(&[], None), Some("proxy".into()));
+    assert_eq!(parent(&["--parent", "none"], None), None);
+    let proxy = launch_request(&providers, &["--provider", "claude", "--account", "c", "--name", "proxy", "go"], None).unwrap();
+    assert_eq!(proxy.parent, None, "the proxy is never its own parent");
+    let wait = |flags: &[&str], caller: Option<&str>| launch_parts(&providers, &[&["--provider", "claude", "--account", "c"], flags, &["go"]].concat(), caller.map(str::to_owned), true).unwrap().2;
+    assert_eq!(wait(&[], None), Some(false), "a launch from outside the fleet does not hold for admission under its default proxy parent");
+    assert_eq!((wait(&[], Some("boss")), wait(&["--parent", "lead"], None), wait(&["--wait"], None)), (None, None, Some(true)));
 }
 
 #[test]

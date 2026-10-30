@@ -21,6 +21,11 @@ pub enum Opened {
 }
 
 impl Fleet {
+    /// Whether a message to `session` arrives: it lives here, or a relay carries it to the host that has it.
+    pub fn reaches(&self, session: &str) -> NorthResult<()> {
+        self.record(session).map(drop).or_else(|error| self.outbox().relay().map_or(Err(error), |_| Ok(())))
+    }
+
     pub fn outbox(&self) -> Outbox {
         Outbox::new(self.root.join(OUTBOX))
     }

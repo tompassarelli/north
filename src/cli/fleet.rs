@@ -23,6 +23,7 @@ use crate::tui;
 use super::fleet_placement::{self, Overrides};
 use super::fleet_admission;
 use super::fleet_duplicate;
+use super::fleet_lineage;
 use super::fleet_list;
 use super::fleet_revive;
 use super::fleet_tier;
@@ -166,7 +167,8 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
-    let (mut request, mut overrides, wait) = launch_parts(&fleet.providers(), words, caller)?;
+    let proxy = fleet_lineage::proxy_reachable(fleet, caller.as_deref(), words);
+    let (mut request, mut overrides, wait) = launch_parts(&fleet.providers(), words, caller, proxy)?;
     fleet_tier::admit_class(&request)?;
     let started = fleet_tier::apply(&mut request, &mut overrides)?;
     let waiting = fleet_admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
@@ -219,7 +221,7 @@ impl LaunchFlags {
         Ok(())
     }
 
-    fn request(self, prompt: String, caller: Option<String>) -> NorthResult<LaunchRequest> {
+    fn request(self, prompt: String, caller: Option<String>, proxy: bool) -> NorthResult<LaunchRequest> {
         let (Some(provider), Some(account)) = (self.provider, self.account) else { return Err(usage()) };
         if prompt.is_empty() {
             return Err(usage());
@@ -229,6 +231,7 @@ impl LaunchFlags {
             Some(name) => name,
             None => default_name(&provider, &account)?,
         };
+        let parent = fleet_lineage::parent(self.parent, caller, proxy, &name);
         Ok(LaunchRequest {
             verification: self.verification,
             name,
@@ -242,7 +245,7 @@ impl LaunchFlags {
             foreground_cap_secs: self.foreground_cap_secs,
             prompt_mode: self.prompt_mode,
             idle_exit_minutes: self.idle_exit_minutes,
-            parent: parent(self.parent, caller),
+            parent,
             task_ref: self.task_ref,
             placement: None,
             machine,
@@ -251,21 +254,13 @@ impl LaunchFlags {
     }
 }
 
-fn parent(flag: Option<String>, caller: Option<String>) -> Option<String> {
-    match flag.as_deref() {
-        Some("none") => None,
-        Some(_) => flag,
-        None => caller.filter(|name| !name.is_empty()),
-    }
-}
-
 #[cfg(test)]
 fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<LaunchRequest> {
-    launch_parts(providers, words, caller).map(|(request, _, _)| request)
+    launch_parts(providers, words, caller, true).map(|(request, _, _)| request)
 }
 
 /// The request, its placement overrides and `--wait` (Some(true)) or `--no-wait` (Some(false)).
-fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<(LaunchRequest, Overrides, Option<bool>)> {
+fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<(LaunchRequest, Overrides, Option<bool>)> {
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
@@ -283,8 +278,9 @@ fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<Strin
         flags.set(providers, flag, value)?;
         index += 2;
     }
-    let (overrides, wait) = (std::mem::take(&mut flags.overrides), flags.wait);
-    Ok((flags.request(words[index..].join(" "), caller)?, overrides, wait))
+    let wait = fleet_lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
+    let overrides = std::mem::take(&mut flags.overrides);
+    Ok((flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait))
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {

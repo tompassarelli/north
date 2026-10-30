@@ -787,3 +787,22 @@ fn a_childs_not_done_report_reaches_its_parent_once_within_ten_seconds_and_a_wor
     let lag = heard_at.duration_since(reported).expect("the report is posted after the child's last stream write");
     assert!(lag < std::time::Duration::from_secs(10), "parent heard {lag:?} after the child's last turn ended");
 }
+
+#[test]
+fn a_launch_from_outside_any_fleet_session_lists_the_proxy_as_its_parent_unless_it_opts_out() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "idle-interrupt");
+    let brief = root.join("box.md");
+    fs::write(&brief, BRIEF).unwrap();
+    for (name, parent) in [("proxy", &[][..]), ("timer", &[][..]), ("loner", &["--parent", "none"][..])] {
+        let launched = north(root, &[&["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name], parent, &["--system-prompt", &brief.display().to_string(), "start the box"]].concat());
+        assert!(launched.status.success(), "{}", text(&launched.stderr));
+    }
+    let list = text(&north(root, &["fleet", "list"]).stdout);
+    north(root, &["fleet", "forget", "timer"]);
+    north(root, &["fleet", "forget", "loner"]);
+    north(root, &["fleet", "forget", "proxy"]);
+    let parent = |name: &str| list.lines().find(|line| line.starts_with(&format!("{name}\t"))).and_then(|line| line.split('\t').nth(5)).map(str::to_owned);
+    assert_eq!((parent("proxy").as_deref(), parent("timer").as_deref(), parent("loner").as_deref()), (Some("-"), Some("proxy"), Some("-")), "{list}");
+}

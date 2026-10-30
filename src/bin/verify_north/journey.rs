@@ -160,7 +160,7 @@ fn ask_codex(journey: &mut Journey) -> Result<String, String> {
     journey.notes.note(&Note::Session(name.clone()));
     let before = processes::session_hosts();
     let directory = journey.north.directory().to_string_lossy().into_owned();
-    let launch = ["fleet", "launch", "--provider", "codex", "--account", &account, "--name", &name, "--cwd", &directory, READY];
+    let launch = ["fleet", "launch", "--provider", "codex", "--account", &account, "--name", &name, "--parent", "none", "--cwd", &directory, READY];
     journey.north.run(&launch, LAUNCH_WAIT)?;
     journey.watch_host(&name, &before)?;
     journey.await_settled(&name, CODEX_READY_WAIT)?;
