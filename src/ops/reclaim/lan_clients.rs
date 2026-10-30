@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -21,11 +21,7 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
         if idle < policy.idle {
             continue;
         }
-        fs::create_dir_all(&state)?;
-        let lock = OpenOptions::new().create(true).truncate(false).write(true).open(state.join("pool.lock"))?;
-        if flock(&lock, FlockOperation::NonBlockingLockExclusive).is_err() {
-            continue;
-        }
+        let Some(_lock) = unclaimed(&state)? else { continue };
         for client in clients {
             let bytes = size(&client);
             if policy.dry_run || removed(&client) {
@@ -36,13 +32,19 @@ pub(super) fn sweep(inputs: &Inputs, policy: &Policy, held: &Held) -> io::Result
     Ok(removals)
 }
 
+pub(super) fn unclaimed(state: &Path) -> io::Result<Option<File>> {
+    fs::create_dir_all(state)?;
+    let lock = OpenOptions::new().create(true).truncate(false).write(true).open(state.join("pool.lock"))?;
+    Ok(flock(&lock, FlockOperation::NonBlockingLockExclusive).ok().map(|()| lock))
+}
+
 fn pooled_pairs(lan_state: &Path) -> BTreeSet<u32> {
     let listed = fs::read(lan_state.join("pool.json")).ok().and_then(|text| serde_json::from_slice::<serde_json::Value>(&text).ok());
     let ids = listed.as_ref().and_then(|pool| pool["pairs"].as_array()).into_iter().flatten().filter_map(|pair| pair["id"].as_u64());
     ids.filter_map(|id| u32::try_from(id).ok()).collect()
 }
 
-fn pairs(inputs: &Inputs) -> io::Result<BTreeMap<u32, Vec<PathBuf>>> {
+pub(super) fn pairs(inputs: &Inputs) -> io::Result<BTreeMap<u32, Vec<PathBuf>>> {
     let mut pairs = BTreeMap::<u32, Vec<PathBuf>>::new();
     let entries = match fs::read_dir(&inputs.lan_clients) {
         Ok(entries) => entries,
@@ -65,6 +67,6 @@ fn pair_of(client: &str) -> Option<u32> {
     number.parse().ok()
 }
 
-fn queued(state: &Path) -> bool {
+pub(super) fn queued(state: &Path) -> bool {
     fs::read_dir(state.join("queue")).is_ok_and(|mut waiting| waiting.next().is_some())
 }

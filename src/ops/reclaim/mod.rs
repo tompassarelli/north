@@ -4,11 +4,14 @@ mod cache_cap;
 mod evidence_budget;
 mod held;
 mod lan_clients;
+mod lan_residue;
 mod scratch;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod evidence_budget_tests;
+#[cfg(test)]
+mod lan_residue_tests;
 
 use std::collections::HashSet;
 use std::env;
@@ -122,6 +125,7 @@ pub(super) fn reclaim(inputs: &Inputs, policy: &Policy) -> io::Result<Vec<Remova
     let held = held::paths(&inputs.proc_root);
     let mut removals = scratch::sweep(inputs, policy, &held)?;
     removals.extend(lan_clients::sweep(inputs, policy, &held)?);
+    removals.extend(lan_residue::sweep(inputs, policy, &held)?);
     removals.extend(build_output::sweep(inputs, policy, &held)?);
     removals.extend(cache_cap::sweep(inputs, policy, &held)?);
     removals.extend(evidence_budget::sweep(inputs, policy, &held, &evidence_budget::Budget::of(&inputs.disk_budget), 0)?);
