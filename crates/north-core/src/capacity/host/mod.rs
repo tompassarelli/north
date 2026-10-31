@@ -14,6 +14,8 @@ mod estimate;
 mod gpu;
 mod json;
 mod machine;
+#[cfg(test)]
+mod machine_tests;
 mod measure;
 mod policy;
 #[cfg(test)]
@@ -27,7 +29,7 @@ mod state;
 mod status;
 mod systemd;
 
-const USAGE: &str = "usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--alone] [--pair K] [--beside-native NATIVE-OWNER]; see machine-capacity";
+const USAGE: &str = "usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER]; see machine-capacity";
 
 pub fn fail(message: &str, status: i32) -> ! {
     eprintln!("machine-capacity: {message}");
@@ -239,7 +241,7 @@ fn renew_or_release(root: &Path, argv: &[String]) -> u8 {
     0
 }
 
-const RUN_OPTIONS: [&str; 12] = ["--class", "--owner", "--timeout-seconds", "--memory-gib", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone"];
+const RUN_OPTIONS: [&str; 13] = ["--class", "--owner", "--timeout-seconds", "--memory-gib", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone", "--latency"];
 
 fn requested(options: &args::Options, operation: &str, owner: &str, command: &[String], cores: f64) -> request::Request {
     let mut request = if options.has("--memory-gib") {
@@ -267,13 +269,19 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
         }
         request.alone = true;
     }
+    if options.has("--latency") {
+        if !native {
+            fail("--latency marks a native session whose clients measure or serve frame-timed play", 2);
+        }
+        request.latency = true;
+    }
     request.landing = operation == "run" && owner == "land-check" && machine::env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty()) && policy::batch_class(&request.name);
     request
 }
 
 fn run_or_session(root: &Path, argv: &[String], host: &Host) -> u8 {
     let operation = argv[0].as_str();
-    let options = args::Options::parse(argv, 1, &RUN_OPTIONS, &["--quiet", "--alone"]);
+    let options = args::Options::parse(argv, 1, &RUN_OPTIONS, &["--quiet", "--alone", "--latency"]);
     let command = argv.get(options.separator + 1..).unwrap_or_default();
     if options.separator == argv.len() || command.is_empty() {
         fail(&format!("{operation} requires -- COMMAND ARG..."), 2);

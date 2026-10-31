@@ -313,6 +313,7 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
         .put("kind", create.kind)
         .put_some("quiet", request.quiet.then_some(true))
         .put_some("quietSeconds", request.quiet_seconds)
+        .put_some("latency", request.latency.then_some(true))
         .put_some("pair", request.pair)
         .put("class", request.name.as_str())
         .put_some("newClients", (request.name == "native" && request.new_clients > 0).then_some(request.new_clients))

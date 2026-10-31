@@ -111,6 +111,30 @@ fn unleased_agent_pressure() -> f64 {
         .fold(0.0, f64::max)
 }
 
+/// The scope units of the live native leases that declared --latency: a playtest, a signed-in match or a run measuring rollback.
+pub fn latency_scopes(leases: &[serde_json::Value]) -> Vec<String> {
+    leases
+        .iter()
+        .filter(|lease| lease.get("class").and_then(serde_json::Value::as_str) == Some("native") && lease.get("latency").and_then(serde_json::Value::as_bool) == Some(true))
+        .filter_map(|lease| lease.get("id").and_then(serde_json::Value::as_str))
+        .map(super::systemd::scope_unit)
+        .collect()
+}
+
+/// Native clients count as CPU pressure on batch work only while a latency-sensitive session runs, and then only through its own scopes, because capture and accept clients tolerate contention.
+fn latency_native_pressure() -> f64 {
+    let Ok(entries) = fs::read_dir(super::state::runtime_root().join("leases")) else {
+        return 0.0;
+    };
+    let leases: Vec<serde_json::Value> = entries
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".json"))
+        .filter_map(|entry| serde_json::from_str(&fs::read_to_string(entry.path()).ok()?).ok())
+        .collect();
+    let native = slice_path(&native_slice());
+    latency_scopes(&leases).iter().map(|scope| slice_pressure(&format!("{native}/{scope}"))).fold(0.0, f64::max)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Signals {
     pub cores: f64,
@@ -146,7 +170,7 @@ pub fn read_signals() -> Signals {
             slice_pressure("app.slice"),
             slice_pressure("background.slice"),
             slice_pressure("session.slice"),
-            slice_pressure(&native),
+            latency_native_pressure(),
             unleased_agent_pressure(),
         ]
         .into_iter()

@@ -24,6 +24,7 @@ pub struct Request {
     pub quiet: bool,
     pub quiet_seconds: Option<u64>,
     pub alone: bool,
+    pub latency: bool,
     pub landing: bool,
 }
 
