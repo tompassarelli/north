@@ -198,7 +198,7 @@ mod tests {
     }
 
     fn cached(fleet: &Fleet, names: &[&str]) {
-        let rows: Vec<SessionRow> = names.iter().map(|name| SessionRow { name: (*name).into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into() }).collect();
+        let rows: Vec<SessionRow> = names.iter().map(|name| SessionRow { name: (*name).into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }).collect();
         cache_sessions(&fleet.root, &rows).unwrap();
     }
 

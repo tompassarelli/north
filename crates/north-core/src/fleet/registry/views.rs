@@ -6,6 +6,7 @@ use crate::fleet::gates;
 use crate::fleet::relay::{self, Courier};
 use crate::fleet::remote_view::{GateView, Seen, SessionView, Snapshot, split_qualified};
 use crate::fleet::runtime::now_ms;
+use crate::fleet::store::{SessionRow, cached_sessions};
 
 use super::Fleet;
 
@@ -13,6 +14,10 @@ const REMOTE: &str = ".remote";
 const VIEW: &str = "json";
 
 impl Fleet {
+    pub fn cached_sessions(&self) -> NorthResult<Option<Vec<SessionRow>>> {
+        cached_sessions(&self.root)
+    }
+
     pub fn snapshot(&self) -> NorthResult<Snapshot> {
         let sessions = self.sessions()?;
         let views = sessions.iter().map(|record| SessionView {

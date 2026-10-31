@@ -110,7 +110,7 @@ fn a_spooled_row_stays_spooled_until_the_ledger_host_commits_it_and_is_dropped_a
 fn a_tick_publishes_this_hosts_sessions_and_caches_the_fleet_table() {
     let host = host("nexus");
     let _frames = live(&host, "worker");
-    host.store().publish(&[SessionRow { name: "far".into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into() }]).unwrap();
+    host.store().publish(&[SessionRow { name: "far".into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
 
     host.tick();
 

@@ -24,7 +24,32 @@ pub(super) fn ensure(db: &mut Connection) -> NorthResult<()> {
         kind_list()
     ))
     .map_err(sql)?;
+    add_display_columns(&tx)?;
     tx.commit().map_err(sql)
+}
+
+const DISPLAY_COLUMNS: [(&str, &str); 7] = [
+    ("provider", "TEXT NOT NULL DEFAULT ''"),
+    ("account", "TEXT NOT NULL DEFAULT ''"),
+    ("cwd", "TEXT NOT NULL DEFAULT ''"),
+    ("parent", "TEXT"),
+    ("placement", "TEXT"),
+    ("machine", "TEXT"),
+    ("tasks", "TEXT NOT NULL DEFAULT '[]'"),
+];
+
+fn add_display_columns(tx: &Transaction) -> NorthResult<()> {
+    let held: Vec<String> = tx
+        .prepare("SELECT name FROM pragma_table_info('fleet_sessions')")
+        .map_err(sql)?
+        .query_map([], |row| row.get(0))
+        .map_err(sql)?
+        .collect::<Result<_, _>>()
+        .map_err(sql)?;
+    for (name, declared) in DISPLAY_COLUMNS.iter().filter(|(name, _)| !held.iter().any(|held| held == name)) {
+        tx.execute_batch(&format!("ALTER TABLE fleet_sessions ADD COLUMN {name} {declared};")).map_err(sql)?;
+    }
+    Ok(())
 }
 
 fn widen_events(tx: &Transaction) -> NorthResult<()> {
