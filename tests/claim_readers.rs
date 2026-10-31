@@ -92,3 +92,24 @@ fn a_void_claim_leaves_its_issue_ready_unowned_and_unheld_while_a_live_claim_hol
     assert!(line("smashcraft#4").contains("ready"), "{work}");
     assert!(line("smashcraft#3").contains("held") && line("smashcraft#3").contains("bob"), "{work}");
 }
+
+#[test]
+fn the_threads_shim_lists_void_claims_with_all_and_releases_only_the_named_holders_claim() {
+    let rig = Rig::new();
+    rig.threads(&["claim", "smashcraft#4", "--by", "ghost"]);
+    rig.threads(&["claim", "smashcraft#3", "--by", "bob"]);
+
+    let plain: serde_json::Value = serde_json::from_str(&rig.threads(&["list", "--json"])).unwrap();
+    let all: serde_json::Value = serde_json::from_str(&rig.threads(&["list", "--json", "--all"])).unwrap();
+    let standing = |rows: &serde_json::Value, item: &str| rows.as_array().unwrap().iter().find(|row| row["item"] == item).map(|row| row["standing"].as_str().unwrap().to_owned());
+
+    assert_eq!(standing(&plain, "smashcraft#4"), None);
+    assert_eq!(standing(&all, "smashcraft#4").as_deref(), Some("void"));
+    assert_eq!(standing(&all, "smashcraft#3").as_deref(), Some("live"));
+
+    rig.threads(&["release", "smashcraft#3", "--by", "ghost", "--held-by", "ghost"]);
+    rig.threads(&["release", "smashcraft#4", "--by", "ghost", "--held-by", "ghost"]);
+    let after: serde_json::Value = serde_json::from_str(&rig.threads(&["list", "--json", "--all"])).unwrap();
+    assert_eq!(standing(&after, "smashcraft#4"), None);
+    assert_eq!(standing(&after, "smashcraft#3").as_deref(), Some("live"));
+}

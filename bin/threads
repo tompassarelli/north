@@ -454,15 +454,6 @@ def open_issues(db, repo: str) -> dict:
 # Commands --------------------------------------------------------------------
 
 
-def cmd_claims(db, a):
-    """claim and list apply one live-claim rule, kept in Rust behind `north threads`."""
-    if os.environ.get("THREADS_CLAIMS_DELEGATED"):
-        raise Refused("this north predates its own claim and list; run north runtime update")
-    argv = [a.cmd, a.id, "--by", a.by, *(["--eta", str(a.eta)] if a.eta else [])] if a.cmd == "claim" else ["list", *(["--json"] if a.json else [])]
-    if code := subprocess.run([os.environ.get("NORTH_BIN") or "north", "threads", *argv], env=dict(os.environ, THREADS_DB=DB, THREADS_CLAIMS_DELEGATED="1")).returncode:
-        sys.exit(code)
-
-
 # Runs (fed by north worker-ledger) ---------------------------------------------------
 
 BRIEF_FIELD = {name: re.compile(rf"\b{name}:[ \t]*([^\s`<>]+)") for name in ("Item", "Follows", "Arm")}
@@ -606,11 +597,6 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("id", type=int)
     s.add_argument("--update-json", required=True)
 
-    s = cmd("claim", cmd_claims, "hold an issue; refused while someone else's claim is live, taking over one stale 24 h past its ETA")
-    s.add_argument("id")
-    s.add_argument("--eta", type=int, help="minutes")
-    s = cmd("list", cmd_claims, "held issues with owner, time on the clock, ETA and an OVERDUE or STALE flag; void claims are not shown")
-    s.add_argument("--json", action="store_true")
     cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and leave-one-out accuracy per input set")
     s = cmd("record-priors", cmd_record_priors, "append one calibration row of kind prior per default: cell NAME, n its "
             "settling count, value the count it needs, and the measured VALUE in source")
@@ -742,7 +728,7 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "run-ids", "recommend", "calibrate", "replay-staffing", "summary", "routing-compare")
+RUST_VERBS = ("claim", "list", "job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "run-ids", "recommend", "calibrate", "replay-staffing", "summary", "routing-compare")
 
 
 def delegate(argv) -> int:
