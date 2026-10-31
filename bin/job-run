@@ -6,7 +6,8 @@
 #   --path DIRS  prepended to PATH for the threads calls only (python3, ssh, timeout); bash's own directory is appended
 #   --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger
 #   --notify     detach CMD into its own session and log, return at once, and send its exit to the fleet session
-#                $NORTH_FLEET_SESSION, so an agent can end its turn and wake on the result;
+#                $NORTH_FLEET_SESSION, so an agent can end its turn and wake on the result; it runs in its own systemd
+#                user scope when there is one, so the caller's unit stopping does not kill it;
 #                north/jobs/*.job names that session and stays locked while the job runs, so the fleet sees the wait
 set -u
 
@@ -19,7 +20,7 @@ while [ $# -gt 0 ]; do
     --path) record_path=$2; shift 2 ;;
     --user) user=$2; shift 2 ;;
     --notify) notify=${NORTH_FLEET_SESSION:-}; [ -n "$notify" ] || { echo "job-run: --notify needs NORTH_FLEET_SESSION" >&2; exit 2; }; shift ;;
-    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) break ;;
   esac
 done
@@ -39,7 +40,8 @@ if [ -n "$notify" ] && [ -z "$log" ]; then
   mkdir -p "$logs" || exit 1
   log="$logs/${name//\//_}-$(TZ=UTC printf '%(%Y%m%dT%H%M%S)T')-$$.log"
   detach=$(PATH=${north_path#PATH=}; command -v setsid) || { echo "job-run: --notify needs setsid" >&2; exit 1; }
-  JOB_RUN_LOG=$log "$detach" -f "$BASH" "$0" "${arguments[@]}" </dev/null >"$log" 2>&1 \
+  scope=$(PATH=${north_path#PATH=}; command -v systemd-run) && "$scope" --user --scope --quiet --collect true </dev/null >/dev/null 2>&1 || scope=""
+  JOB_RUN_LOG=$log "$detach" -f ${scope:+"$scope" --user --scope --quiet --collect} "$BASH" "$0" "${arguments[@]}" </dev/null >"$log" 2>&1 \
     || { echo "job-run: could not detach $name; see $log" >&2; exit 1; }
   echo "job-run: $name runs detached with its output in $log; its exit arrives as a fleet message to $notify, so end your turn."
   exit 0

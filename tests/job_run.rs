@@ -198,3 +198,33 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
+#[test]
+fn job_run_notify_runs_its_job_in_its_own_systemd_scope_so_the_callers_unit_stopping_does_not_kill_it() {
+    let scratch = scratch();
+    let root = scratch.path();
+    let tools = root.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "mkdir", "setsid", "sh", "sleep", "flock", "rm", "true"] {
+        symlink(tool(name), tools.join(name)).unwrap();
+    }
+    fs::write(tools.join("systemd-run"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/systemd-run.log\"\nwhile [ \"${1#--}\" != \"$1\" ]; do shift; done\nexec \"$@\"\n").unwrap();
+    fs::set_permissions(tools.join("systemd-run"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::remove_file(root.join("bin/north")).unwrap();
+    fs::write(root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n").unwrap();
+    fs::set_permissions(root.join("bin/north"), fs::Permissions::from_mode(0o755)).unwrap();
+    let mut command = Command::new(tool("bash"));
+    command.arg(root.join("bin/job-run")).args(["--notify", "scoped", "--", "true"]).env("HOME", root).env_remove("XDG_STATE_HOME").env("NORTH_FLEET_SESSION", "c-test").env("PATH", &tools);
+    let mut child = {
+        let _gate = fork_gate();
+        command.spawn().unwrap()
+    };
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+    let begun = Instant::now();
+    while !fs::read_to_string(root.join("north.log")).unwrap_or_default().contains("fleet send c-test job-run: scoped exited 0") {
+        assert!(begun.elapsed() < Duration::from_secs(20), "the scoped job never sent its exit");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let scopes = fs::read_to_string(root.join("systemd-run.log")).unwrap();
+    assert!(scopes.lines().any(|line| line.starts_with("--user --scope --quiet --collect ") && line.contains("bin/job-run --notify scoped -- true")), "{scopes}");
+}
