@@ -62,6 +62,7 @@ fn a_sibling_that_is_mid_build_is_not_copied() {
     let building = File::create(main.join("sub/target/debug/.cargo-lock")).unwrap();
     building.lock().unwrap();
     assert_eq!(seed(&lane.join("sub")).unwrap(), None);
+    building.unlock().unwrap();
     drop(building);
     assert_eq!(seed(&lane.join("sub")).unwrap(), Some(main.join("sub/target")));
 }
