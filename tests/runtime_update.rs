@@ -1,142 +1,13 @@
 use std::fs::{self, File};
 use std::os::unix::fs::{PermissionsExt, symlink};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-use tempfile::TempDir;
+use std::path::Path;
 
-const PREVIOUS: &str = "2222222222222222222222222222222222222222";
-const SECRET: &str = "synthetic-fixture-bearer-token";
+#[path = "runtime_update/harness.rs"]
+mod harness;
+#[path = "runtime_update/reserve.rs"]
+mod reserve;
 
-struct Host {
-    dir: TempDir,
-    target: String,
-}
-
-fn script(path: &Path, body: &str) {
-    fs::write(path, format!("#!/usr/bin/env bash\n{body}")).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-fn git(home: &Path, dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"])
-        .args(args)
-        .env("HOME", home)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
-
-impl Host {
-    fn new() -> Self {
-        Self::landed("fixture", None)
-    }
-
-    fn landed(subject: &str, date: Option<&str>) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("home");
-        let source = dir.path().join("source");
-        fs::create_dir_all(source.join("harness/lib")).unwrap();
-        fs::create_dir_all(&home).unwrap();
-        fs::write(source.join("harness/lib/usage.py"), "").unwrap();
-        git(&home, &source, &["init", "-q", "-b", "main"]);
-        git(&home, &source, &["add", "."]);
-        match date {
-            Some(date) => {
-                let dated = Command::new("git").arg("-C").arg(&source).args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", subject]).env("HOME", &home).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_COMMITTER_DATE", date).env("GIT_AUTHOR_DATE", date).status().unwrap();
-                assert!(dated.success());
-            }
-            None => drop(git(&home, &source, &["commit", "-q", "-m", subject])),
-        }
-        let target = git(&home, &source, &["rev-parse", "HEAD"]);
-        git(&home, dir.path(), &["clone", "-q", "source", "checkout"]);
-        fs::create_dir_all(dir.path().join("bin")).unwrap();
-        script(
-            &dir.path().join("bin/agents"),
-            "[[ $1 == sync && \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_TARGET\" ]] || exit 91\n\
-             printf 'fixture sync error: Authorization: Bearer %s\\n' \"$TEST_SECRET\"\nexit \"$TEST_SYNC_STATUS\"\n",
-        );
-        script(
-            &dir.path().join("bin/north"),
-            "[[ \"$1 $2 $3\" == 'fleet send proxy' ]] || exit 94\n\
-             [[ \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_PREVIOUS\" ]] || exit 92\n\
-             printf '%s\\n' \"$@\" >>\"$TEST_ALERTS\"\nexit \"$TEST_EVENT_STATUS\"\n",
-        );
-        Self { dir, target }
-    }
-
-    fn path(&self, relative: &str) -> PathBuf {
-        self.dir.path().join(relative)
-    }
-
-    fn runtime(&self, sha: &str) -> PathBuf {
-        self.path("state/north/runtimes").join(sha)
-    }
-
-    fn built(&self, sha: &str) {
-        fs::create_dir_all(self.runtime(sha)).unwrap();
-        for program in ["north", "verify-north"] {
-            script(&self.runtime(sha).join(program), "exit 0\n");
-        }
-    }
-
-    fn select(&self, sha: &str) {
-        symlink(Path::new("runtimes").join(sha), self.path("state/north/current")).unwrap();
-    }
-
-    fn lose_agents(&self) {
-        fs::remove_file(self.path("bin/agents")).unwrap();
-        for tool in ["git", "tar", "bash", "readlink"] {
-            let found = std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|dir| dir.join(tool)).find(|path| path.is_file());
-            symlink(found.unwrap(), self.path("bin").join(tool)).unwrap();
-        }
-    }
-
-    fn current(&self) -> PathBuf {
-        fs::read_link(self.path("state/north/current")).unwrap()
-    }
-
-    fn update(&self, sync_status: u8, alert_status: u8) -> Output {
-        self.north(&["runtime", "update"], sync_status, alert_status)
-    }
-
-    fn north(&self, args: &[&str], sync_status: u8, alert_status: u8) -> Output {
-        self.run(args, sync_status, alert_status, &[])
-    }
-
-    fn north_with(&self, args: &[&str], environment: &[(&str, &str)]) -> Output {
-        self.run(args, 0, 0, environment)
-    }
-
-    fn run(&self, args: &[&str], sync_status: u8, alert_status: u8, environment: &[(&str, &str)]) -> Output {
-        let isolated = !self.path("bin/agents").exists();
-        let path = match isolated {
-            true => self.path("bin").display().to_string(),
-            false => format!("{}:{}", self.path("bin").display(), std::env::var("PATH").unwrap()),
-        };
-        Command::new(env!("CARGO_BIN_EXE_north"))
-            .args(args)
-            .env("PATH", path)
-            .env("HOME", self.path("home"))
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("XDG_STATE_HOME", self.path("state"))
-            .env("NORTH_HOME", self.path("checkout"))
-            .env("TEST_TARGET", &self.target)
-            .env("TEST_PREVIOUS", PREVIOUS)
-            .env("TEST_SECRET", SECRET)
-            .env("TEST_ALERTS", self.path("alerts"))
-            .env("TEST_SYNCED", self.path("synced"))
-            .env("TEST_SYNC_STATUS", sync_status.to_string())
-            .env("TEST_EVENT_STATUS", alert_status.to_string())
-            .envs(environment.iter().copied())
-            .output()
-            .unwrap()
-    }
-}
+use harness::*;
 
 fn skewed() -> Host {
     let host = Host::new();
@@ -301,13 +172,6 @@ fn a_deploy_step_that_hangs_on_a_host_is_stopped_and_named_with_its_host_and_lim
     assert!(stdout.contains("far: nix-store --realise"), "{stdout}");
     assert!(stderr.contains("nix-store --realise on far did not finish within 1s and was stopped"), "{stderr}");
 }
-
-fn fleet(host: &Host, hosts: &str) -> PathBuf {
-    let orchestration = host.path("orchestration.toml");
-    fs::write(&orchestration, hosts).unwrap();
-    orchestration
-}
-
 #[test]
 fn a_runtime_another_host_built_is_pulled_and_its_closure_realised_instead_of_built_here() {
     let host = Host::new();
@@ -346,59 +210,6 @@ fn a_host_that_declares_builds_runtime_false_defers_when_no_other_host_has_built
     );
     assert_eq!(output.status.code(), Some(75), "{}", String::from_utf8_lossy(&output.stderr));
     assert!(String::from_utf8_lossy(&output.stderr).contains("this host does not build runtimes"));
-    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
-}
-
-const ROOM_PROBE: &str = "20\n1.50 1.00 1.00 2/900 1\nMemTotal:       65536000 kB\nMemAvailable:   40000000 kB\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/md1 490000000 400000000 50000000 90% /\n@ADMISSION@\n{\"profile\":\"unattended\",\"aggregateCpuLimit\":20,\"committedBatchCpus\":2,\"cpuSomeAvg10\":5}\n";
-
-fn reserved_puller(host: &Host, peer_built: &Path) -> Vec<(&'static str, String)> {
-    host.built(PREVIOUS);
-    host.select(PREVIOUS);
-    script(
-        &host.path("bin/rsync"),
-        &format!("[[ -f {} ]] || exit 23\nfor program in north verify-north; do printf '#!/bin/sh\nexit 0\n'>\"${{@: -1}}/$program\"; chmod +x \"${{@: -1}}/$program\"; done\n", peer_built.display()),
-    );
-    script(&host.path("bin/nix-store"), "exit 0\n");
-    script(&host.path("bin/ssh"), &format!("case \"$*\" in *nproc*) printf '{ROOM_PROBE}'; exit 0;; esac\nexit 0\n"));
-    let orchestration = fleet(host, "[hosts.builder]\nssh = \"tom@builder\"\n");
-    fs::write(host.path("game-reserve.json"), "{\"on\":true,\"since\":99999999999}").unwrap();
-    vec![
-        ("AGENTS_ORCHESTRATION", orchestration.display().to_string()),
-        ("RESIDENT_CAP_HOST", "puller".to_owned()),
-        ("GAME_RESERVE_STATE", host.path("game-reserve.json").display().to_string()),
-    ]
-}
-
-fn tick(host: &Host, environment: &[(&'static str, String)], sync_status: u8) -> Output {
-    let borrowed: Vec<(&str, &str)> = environment.iter().map(|(key, value)| (*key, value.as_str())).collect();
-    host.run(&["runtime", "update"], sync_status, 0, &borrowed)
-}
-
-#[test]
-fn a_peer_runtime_not_yet_written_while_in_game_reserve_is_retried_next_tick_and_never_marked_failed() {
-    let host = Host::new();
-    let peer_built = host.path("peer-built");
-    let environment = reserved_puller(&host, &peer_built);
-    let first = tick(&host, &environment, 0);
-    assert_eq!(first.status.code(), Some(75), "{}", String::from_utf8_lossy(&first.stderr));
-    assert!(!host.path("state/north/runtime-failed").exists());
-    assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
-    fs::write(&peer_built, "").unwrap();
-    let second = tick(&host, &environment, 0);
-    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
-    assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
-    assert!(!host.path("state/north/runtime-failed").exists());
-}
-
-#[test]
-fn a_pulled_runtime_that_fails_its_sync_is_still_marked_failed_and_held_back() {
-    let host = Host::new();
-    let peer_built = host.path("peer-built");
-    fs::write(&peer_built, "").unwrap();
-    let environment = reserved_puller(&host, &peer_built);
-    let output = tick(&host, &environment, 42);
-    assert_eq!(output.status.code(), Some(1), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(fs::read_to_string(host.path("state/north/runtime-failed")).unwrap(), host.target);
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
 }
 
