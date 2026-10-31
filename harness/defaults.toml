@@ -868,9 +868,9 @@ fallback = "facts without a pressure reading read 0% and admit on the capacity c
 consumers = ["src/capacity/pressure_target.rs"]
 
 [admit_settle_seconds]
-value = 10
-unit = "seconds after a heavy build starts before another starts, the window of PSI some avg10, so the next reading includes the last build"
-source = "standard: PSI some avg10 is an exponential average with a 10 s time constant (Linux kernel documentation, references.md#kernel-psi)"
+value = 30
+unit = "seconds after a heavy build starts before another starts, three time constants of PSI some avg10, so the next reading includes the last build"
+source = "measured: after 10 s the average has reached 63% of its final value, and four or five heavy builds started within 40 s of each other while the laptop sat at 51 to 77% (north-admit-v2 samples, 2026-10-31); three time constants reach 95% (Linux kernel documentation, references.md#kernel-psi)"
 fallback = "none: with no heavy lease younger than this the next ticket is free to start"
 consumers = ["src/capacity/pressure_target.rs"]
 
@@ -883,17 +883,17 @@ fallback = "none: a lease older than this counts only through MemAvailable"
 consumers = ["src/capacity/pressure_target.rs"]
 
 [admit_overcommit_unattended]
-value = 2
+value = 1
 unit = "times the batch cores that the declared CPUs of running and starting heavy builds may reach on an unattended host"
-source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% CPU pressure under a rail of 2 times its cores, inside the unattended band; a rail is needed because pressure shows nothing until the threads pass the cores, so one more build can step it up by 15 points or more"
+source = "measured: a 20-core host committed 30.07 CPUs at load 125 under a rail of 2 times its cores (2026-10-31), so the rail is the host's aggregate CPU limit; a rail is needed because pressure shows nothing until the threads pass the cores, so one more build can step it up by 15 points or more"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
 consumers = ["src/capacity/pressure_target.rs"]
 
 [admit_overcommit_attended]
-value = 1.5
+value = 1
 unit = "times the batch cores that the declared CPUs of running and starting heavy builds may reach while Tom is at the desktop"
-source = "prior: the same simulation peaks at 18 to 21% CPU pressure under 1.5 times the batch cores, inside the attended band, and at 35% under 2 times them, outside it"
+source = "measured: committed CPUs past the host's aggregate CPU limit stalled a 20-core host at load 125 (2026-10-31), so the rail is that limit in every mode"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
 consumers = ["src/capacity/pressure_target.rs"]

@@ -163,8 +163,8 @@ fn four_core_history_request_admits_only_at_its_clamped_grant() {
         requested_memory_mib: 2429.0,
         ..facts(Class::Heavy)
     };
-    assert_eq!(decide(&Facts { requested_cpus: 9.0, ..host.clone() }), Reason::DeferCpuCapacity);
-    assert_eq!(decide(&Facts { requested_cpus: 8.0, ..host }), Reason::Run);
+    assert_eq!(decide(&Facts { requested_cpus: 5.0, ..host.clone() }), Reason::DeferCpuCapacity);
+    assert_eq!(decide(&Facts { requested_cpus: 4.0, ..host }), Reason::Run);
 }
 
 #[test]
