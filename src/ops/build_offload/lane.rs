@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::capacity::build_offload::ships;
+use crate::capacity::build_offload::{Declined, ships};
 
 /// A worktree as the remote host rebuilds it: the commit, the commits it holds beyond origin/main, and the uncommitted diff.
 pub(super) struct Lane {
@@ -48,7 +48,24 @@ fn repository(top: &Path) -> Result<(String, String), String> {
     Ok((relative.clone(), relative.replace('/', "-")))
 }
 
-pub(super) fn capture(directory: &Path) -> Result<Lane, String> {
+pub(super) fn capture(directory: &Path) -> Result<Lane, Declined> {
+    gather(directory).map_err(Declined::Failed)?.ship()
+}
+
+struct Gathered {
+    lane: Lane,
+    changed: Vec<String>,
+}
+
+impl Gathered {
+    fn ship(self) -> Result<Lane, Declined> {
+        let changed: Vec<&str> = self.changed.iter().map(String::as_str).collect();
+        ships(&changed, self.lane.patch.len() + self.lane.bundle.len())?;
+        Ok(self.lane)
+    }
+}
+
+fn gather(directory: &Path) -> Result<Gathered, String> {
     let top = PathBuf::from(text(directory, &["rev-parse", "--show-toplevel"])?);
     let (repo, name) = repository(&top)?;
     let head = text(&top, &["rev-parse", "HEAD"])?;
@@ -58,11 +75,9 @@ pub(super) fn capture(directory: &Path) -> Result<Lane, String> {
     let (patch, mut changed) = change(&top)?;
     let committed = git(&top, &["diff", "--name-only", "-z", &base, "HEAD"])?;
     changed.extend(String::from_utf8_lossy(&committed).split('\0').filter(|name| !name.is_empty()).map(str::to_owned));
-    let changed: Vec<&str> = changed.iter().map(String::as_str).collect();
-    ships(&changed, patch.len() + bundle.len())?;
     let lane = top.file_name().map(|lane| lane.to_string_lossy().into_owned()).unwrap_or_default();
     let subdirectory = directory.strip_prefix(&top).map(|relative| relative.to_string_lossy().into_owned()).unwrap_or_default();
-    Ok(Lane { repo, name: format!("{name}-{lane}"), head, bundle, patch, subdirectory })
+    Ok(Gathered { lane: Lane { repo, name: format!("{name}-{lane}"), head, bundle, patch, subdirectory }, changed })
 }
 
 #[cfg(test)]

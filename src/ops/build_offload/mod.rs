@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use crate::capacity::admission::offload_room;
-use crate::capacity::build_offload::{Candidate, Job, PROBE_LIMIT_SECONDS, Room, route, wants_offload};
+use crate::capacity::build_offload::{Candidate, Declined, Job, PROBE_LIMIT_SECONDS, Room, Route, refusal, route, wants_offload};
 use crate::ops::land_offload::{build_hosts, room};
 
 mod claims;
@@ -15,31 +15,32 @@ fn room_of(ssh: &str, claim: Option<&claims::Claim>) -> Room {
     room::shortfall_reserving(&read, reserved).map_or(Room::Free, Room::Short)
 }
 
-/// Some(exit code) when the build ran on another host; None leaves it to the local path.
-pub(crate) fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Option<u8> {
+/// Ok(exit code) when the build ran on another host; Err leaves it to the local path, naming why when an offload host was configured.
+pub(crate) fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Result<u8, Option<Declined>> {
     if !wants_offload(candidate) {
-        return None;
+        return Err(None);
     }
     let hosts = build_hosts();
+    if hosts.is_empty() {
+        return Err(None);
+    }
+    if let Some(refused) = refusal(candidate) {
+        return Err(Some(refused));
+    }
     let mut held: Vec<Option<claims::Claim>> = hosts.iter().map(|(name, _)| claims::Claim::take(name)).collect();
-    let chosen = route(candidate, || hosts.iter().zip(&held).map(|((name, ssh), claim)| (name.clone(), room_of(ssh, claim.as_ref()))).collect());
-    let crate::capacity::build_offload::Route::Offload { host } = chosen else { return None };
-    let position = hosts.iter().position(|(name, _)| *name == host)?;
+    let host = match route(candidate, || hosts.iter().zip(&held).map(|((name, ssh), claim)| (name.clone(), room_of(ssh, claim.as_ref()))).collect()) {
+        Route::Offload { host } => host,
+        Route::Declined(declined) => return Err(Some(declined)),
+        Route::Local => return Err(None),
+    };
+    let position = hosts.iter().position(|(name, _)| *name == host).ok_or(None)?;
     let _claim = held.swap_remove(position);
     drop(held);
-    let ssh = hosts.iter().find(|(name, _)| *name == host).map(|(_, ssh)| ssh.as_str())?;
-    let lane = match std::env::current_dir().map_err(|error| error.to_string()).and_then(|directory| lane::capture(&directory)) {
-        Ok(lane) => lane,
-        Err(why) => {
-            eprintln!("north capacity offload: {why}");
-            return None;
-        }
-    };
+    let ssh = hosts[position].1.as_str();
+    let directory = std::env::current_dir().map_err(|error| Some(Declined::Failed(error.to_string())))?;
+    let lane = lane::capture(&directory).map_err(Some)?;
     match remote::run(ssh, &lane, job, &|| announce(&host)) {
-        remote::Ran::Exit(code) => Some(code),
-        remote::Ran::NotSynced(why) => {
-            eprintln!("north capacity offload: {host}: {why}");
-            None
-        }
+        remote::Ran::Exit(code) => Ok(code),
+        remote::Ran::NotSynced(why) => Err(Some(Declined::Failed(format!("{host}: {why}")))),
     }
 }

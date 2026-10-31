@@ -17,7 +17,7 @@ use super::state::{active_profile, dequeue, enqueue, exact_lease, read_leases, w
 use super::systemd::{apply_profile, client_environment, scope_live, scope_unit, stop_scope};
 use super::{change_lease, fail, print_to};
 use crate::capacity::Host;
-use crate::capacity::build_offload::{self, Candidate, Job};
+use crate::capacity::build_offload::{self, Candidate, Declined, Job};
 
 const QUEUE_POLL_MILLISECONDS: u64 = 1000;
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
@@ -77,11 +77,20 @@ struct Waiting<'a> {
     request: &'a Request,
     create: &'a Create,
     command: &'a [String],
+    declined: &'a mut Option<String>,
 }
 
-/// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path.
+fn report_declined(why: Option<Declined>, create: &Create, last: &mut Option<String>) {
+    let Some(why) = why else { return };
+    if !why.changes(last) {
+        return;
+    }
+    print_to(&Obj::new().put("decision", "OFFLOAD_DECLINED").put("reason", why.reason()).put("detail", why.detail()).put("owner", create.owner.as_str()), true);
+}
+
+/// A heavy build this host defers runs on another host with room instead of queueing here; None leaves it on the local path, printing why once per change of reason.
 async fn try_offload(waiting: Waiting<'_>, deferred: &Obj, host: &Host, terminations: &mut Terminations) -> Option<u8> {
-    let Waiting { root, ticket, request, create, command } = waiting;
+    let Waiting { root, ticket, request, create, command, declined } = waiting;
     let host = *host;
     let (root, ticket) = (root.to_path_buf(), ticket.map(str::to_owned));
     let (waiting_root, waiting_ticket) = (root.clone(), ticket.clone());
@@ -101,7 +110,13 @@ async fn try_offload(waiting: Waiting<'_>, deferred: &Obj, host: &Host, terminat
         (host.build_offload)(&candidate, &Job { owner: &owner, timeout_seconds, command: &command }, &announce)
     });
     tokio::select! {
-        done = work => done.ok().flatten(),
+        done = work => match done.ok()? {
+            Ok(code) => Some(code),
+            Err(why) => {
+                report_declined(why, create, declined);
+                None
+            }
+        },
         number = terminations.next() => {
             if let Some(ticket) = &waiting_ticket {
                 dequeue(&waiting_root, ticket);
@@ -112,12 +127,13 @@ async fn try_offload(waiting: Waiting<'_>, deferred: &Obj, host: &Host, terminat
 }
 
 /// A heavy request its host defers on the first look runs elsewhere when a host has room; otherwise None sends it to the queue.
-async fn offer_first(root: &Path, request: &Request, create: &Create, command: &[String], host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
+async fn offer_first(waiting: Waiting<'_>, host: &Host, terminations: &mut Terminations) -> Option<Admitted> {
+    let Waiting { root, request, create, .. } = waiting;
     let first = decision(root, request, Some(create), None, host);
     if first.get("decision").and_then(Value::as_str) != Some("DEFER") {
         return Some(Admitted::Here(first));
     }
-    try_offload(Waiting { root, ticket: None, request, create, command }, &first, host, terminations).await.map(Admitted::Offloaded)
+    try_offload(waiting, &first, host, terminations).await.map(Admitted::Offloaded)
 }
 
 fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
@@ -141,7 +157,8 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         return Admitted::Here(decision(root, request, Some(create), None, host));
     }
     let offer = request.name == "heavy" && !request.landing;
-    if offer && let Some(admitted) = offer_first(root, request, create, command, host, terminations).await {
+    let mut declined = None;
+    if offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
         return admitted;
     }
     let mut offered_at = now_ms();
@@ -163,7 +180,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         }
         if offer && now_ms() - offered_at >= OFFLOAD_RETRY_MILLISECONDS {
             offered_at = now_ms();
-            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command }, &result, host, terminations).await {
+            if let Some(code) = try_offload(Waiting { root, ticket: Some(&ticket), request, create, command, declined: &mut declined }, &result, host, terminations).await {
                 dequeue(root, &ticket);
                 return Admitted::Offloaded(code);
             }
