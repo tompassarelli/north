@@ -14,6 +14,14 @@ use crate::capacity::Host;
 
 const NATIVE_GPU_SAMPLES: u32 = 10;
 
+fn native_waiting_mark(code: &str) -> Option<bool> {
+    match code {
+        "DEFER_GPU_BUSY" | "DEFER_GPU_APERTURE" | "DEFER_GPU_APERTURE_TIMEOUT" => Some(true),
+        "RUN" | "PAIR_HELD" => Some(false),
+        _ => None,
+    }
+}
+
 pub(crate) fn signals_view(signals: &Signals) -> Obj {
     Obj::new()
         .put("cores", num(signals.cores))
@@ -268,8 +276,8 @@ pub(crate) fn decision(root: &Path, request: &Request, create: Option<&Create>, 
         let observed = observe(root, gpu, before.as_ref().map(|sample| sample.at));
         let (context, granted, accounting) = context(root, request, create, ticket, &observed);
         let (code, advice) = admit(facts(root, request, create, ticket, &observed, &context), host);
-        if request.name == "native" {
-            mark_native_waiting(root, code != "RUN" && code != "PAIR_HELD");
+        if let Some(waiting) = native_waiting_mark(&code).filter(|_| request.name == "native") {
+            mark_native_waiting(root, waiting);
         }
         let mut outcome = result(request, create, &code, &observed, &context, &granted);
         if code == "DEFER_GPU_BUSY" {
@@ -327,4 +335,22 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
         record_started_owner(root, parent, &create.owner, request.new_clients);
     }
     outcome.put("lease", id).put("expiresAt", super::json::opt(expires_at))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::native_waiting_mark;
+
+    #[test]
+    fn only_a_native_start_deferred_on_the_gpu_or_its_aperture_sets_the_marker_that_holds_gpu_leases() {
+        for code in ["DEFER_GPU_BUSY", "DEFER_GPU_APERTURE", "DEFER_GPU_APERTURE_TIMEOUT"] {
+            assert_eq!(native_waiting_mark(code), Some(true), "{code}");
+        }
+        for code in ["RUN", "PAIR_HELD"] {
+            assert_eq!(native_waiting_mark(code), Some(false), "{code}");
+        }
+        for code in ["DEFER_QUEUED", "DEFER_NATIVE_CPUS", "DEFER_GPU_CLIENTS", "DEFER_NATIVE_ALONE", "DEFER_EXCLUSIVE"] {
+            assert_eq!(native_waiting_mark(code), None, "{code}");
+        }
+    }
 }
