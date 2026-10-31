@@ -3,9 +3,11 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::*;
+use super::fleet_show::entry_line;
+use serde_json::{Value, json};
 use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
-use crate::fleet::model::{Delivery, Ending};
+use crate::fleet::model::{Delivery, Ending, Entry, EntryKind};
 use crate::fleet::gates::{ASKED_REPLY, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};

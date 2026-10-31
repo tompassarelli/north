@@ -92,6 +92,15 @@ pub fn spool_ingest(batch: &[u8]) -> NorthResult<bool> {
     Ok(true)
 }
 
+pub fn ledger_path() -> NorthResult<PathBuf> {
+    ambient_client(unread_fleet()).map(|client| client.ledger()).ok_or_else(|| NorthError::Usage("no home directory".into()))
+}
+
+pub fn forward_to_ledger_host(words: &[&str], input: &[u8]) -> NorthResult<Option<i32>> {
+    let client = ambient_client(unread_fleet()).ok_or_else(|| NorthError::Usage("no home directory".into()))?;
+    client.forward(words, input, &mut io::stderr())
+}
+
 fn unread_fleet() -> Arc<dyn outside::FleetView> {
     Arc::new(outside::Unread)
 }
@@ -122,6 +131,10 @@ impl Client {
             record_wait: RECORD_WAIT,
             ingest_wait: INGEST_WAIT,
         }
+    }
+
+    fn ledger(&self) -> PathBuf {
+        self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from)
     }
 
     fn var(&self, name: &str) -> Option<&str> {
@@ -175,7 +188,7 @@ impl Client {
     fn ingest_locally(&self, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<i32> {
         let mut data = Vec::new();
         stdin.read_to_end(&mut data)?;
-        let ledger = self.var("THREADS_DB").map_or_else(|| self.home.join(".local/state/threads/threads.db"), PathBuf::from);
+        let ledger = self.ledger();
         let started = Timestamp::now();
         let log = ledger.with_file_name("ingest.log");
         let record = |acquired: Option<Timestamp>, exit: i32| {
@@ -195,7 +208,7 @@ impl Client {
     fn local(&self, argv: &[String], database: Option<&Path>, replay: Option<&[u8]>) -> NorthResult<i32> {
         let verb = argv.first().map_or("", String::as_str);
         let ledger = database.map(Path::to_path_buf).or_else(|| self.var("THREADS_DB").map(PathBuf::from));
-        let ledger = ledger.unwrap_or_else(|| self.home.join(".local/state/threads/threads.db"));
+        let ledger = ledger.unwrap_or_else(|| self.ledger());
         let actor = self.var("THREADS_ACTOR").or_else(|| self.var("USER")).unwrap_or("unknown").to_owned();
         if claims::verbs::VERBS.contains(&verb) {
             let context = claims::verbs::Context { database: &ledger, actor, no_native: self.no_native_reason(), issues: &claims::issues::GitHub, alive: verb::Outside::alive_owners(&outside::Live::new(&self.env, self.fleet.clone())), now: Timestamp::now().unix_seconds() };
@@ -490,6 +503,22 @@ impl Client {
         }
     }
 
+    fn forward(&self, words: &[&str], input: &[u8], err: &mut dyn Write) -> NorthResult<Option<i32>> {
+        if self.var("THREADS_DB").is_some() || !self.remote.exists() {
+            return Ok(None);
+        }
+        let dest = fs::read_to_string(&self.remote)?.trim().to_owned();
+        let command = words.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ");
+        let argv = self.ssh_argv(&["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", &dest, &command]);
+        match execute(&argv, Input::Bytes(input.to_vec()), Stdio::inherit(), SSH_TIMEOUT)? {
+            Some(status) => Ok(Some(code_of(status))),
+            None => {
+                writeln!(err, "NorthThreads: {dest} timed out; remote outcome unknown")?;
+                Ok(Some(TIMED_OUT))
+            }
+        }
+    }
+
     fn ssh_argv(&self, arguments: &[&str]) -> Vec<OsString> {
         crate::platform::ssh::argv(&self.ssh, &self.env, arguments)
     }
@@ -644,6 +673,7 @@ printf '%s\n' "$*" >> "$ROOT/ssh.log"
 case "$last" in
   *ingest) cat >> "$ROOT/ingest.log"; [ -f "$ROOT/ingest-code" ] && exit "$(cat "$ROOT/ingest-code")" ;;
   "north threads snapshot-pages") cat >/dev/null; cat "$ROOT/pages" ;;
+  "north fleet row put") { cat; echo; } >> "$ROOT/rows.log" ;;
 esac
 exit "$(cat "$ROOT/code")"
 "#;
@@ -792,6 +822,31 @@ exit "$(cat "$ROOT/code")"
         assert!(log(&rig, "ssh.log").is_empty());
         let stored: String = rusqlite::Connection::open(database).unwrap().query_row("SELECT item || ' ' || placement FROM job_queue", [], |row| row.get(0)).unwrap();
         assert_eq!(stored, "north#9 follows");
+    }
+
+    #[test]
+    fn a_fleet_row_put_is_forwarded_to_the_ledger_host_and_answers_the_remote_exit_code() {
+        let rig = rig(&[]);
+        let rows = b"{\"id\":\"m-1\",\"kind\":\"MESSAGE\"}";
+        let put = |rig: &Rig| rig.client.forward(&["north", "fleet", "row", "put"], rows, &mut Vec::new()).unwrap();
+
+        assert_eq!(put(&rig), Some(0));
+        fs::write(rig.root.join("code"), "255").unwrap();
+        assert_eq!(put(&rig), Some(255));
+
+        assert_eq!(log(&rig, "ssh.log"), vec![format!("{PREFIX} north fleet row put"); 2]);
+        assert_eq!(log(&rig, "rows.log"), vec![String::from_utf8_lossy(rows).into_owned(); 2]);
+    }
+
+    #[test]
+    fn a_fleet_row_put_stays_here_when_this_machine_holds_the_ledger() {
+        let local = rig(&[("THREADS_DB", "/tmp/ledger.db")]);
+        let no_remote = rig(&[]);
+        fs::remove_file(no_remote.root.join(".config/threads/remote")).unwrap();
+
+        assert_eq!(local.client.forward(&["north"], b"", &mut Vec::new()).unwrap(), None);
+        assert_eq!(no_remote.client.forward(&["north"], b"", &mut Vec::new()).unwrap(), None);
+        assert!(log(&local, "ssh.log").is_empty() && log(&no_remote, "ssh.log").is_empty());
     }
 
     #[test]

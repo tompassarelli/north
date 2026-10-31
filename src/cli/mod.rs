@@ -19,6 +19,8 @@ mod fleet_list;
 mod fleet_placement;
 mod fleet_rebooted;
 mod fleet_revive;
+mod fleet_row;
+mod fleet_show;
 mod fleet_spend;
 mod fleet_waits;
 mod fleet_tier;

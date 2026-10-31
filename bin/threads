@@ -42,7 +42,7 @@ ALIASES = {"nixos-config": "firn"}
 # Native namespaces live only in this database and never reach GitHub.
 NATIVE = ["life", "accounts", "travel", "ops"]
 NATIVE_REF = re.compile(r"\b(?:life|accounts|travel|ops)#\d+\b")
-KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen'" + ',' + ','.join(repr(kind) for kind in durable_events.KINDS)
+KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen','MESSAGE','GATE','JOB-START','JOB-BEAT','JOB-EXIT'" + ',' + ','.join(repr(kind) for kind in durable_events.KINDS)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events(

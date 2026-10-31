@@ -23,6 +23,7 @@ pub mod roster;
 pub mod runtime;
 pub mod runtimes;
 pub mod session_host;
+pub mod store;
 pub mod stranded;
 mod transcript;
 pub mod turns;
