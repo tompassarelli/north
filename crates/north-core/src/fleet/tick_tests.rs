@@ -12,7 +12,8 @@ use crate::error::NorthError;
 use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
-use crate::fleet::store::{AnswerPayload, Exchanged, FarSpools, FleetRow, RowKind, Store};
+use crate::fleet::registry::Controlled;
+use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarSpools, FleetRow, RowKind, SessionRow, Store};
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -432,4 +433,117 @@ fn a_gate_answer_row_put_on_any_host_closes_the_gate_once_on_the_sessions_host_a
     let closure = host.fleet.gate(id).unwrap().unwrap().closure.unwrap();
     assert_eq!(closure.answer, "no");
     assert_eq!(frames.lock().unwrap().len(), 1);
+}
+
+fn parked(host: &Host, name: &str, stopped: bool) {
+    let dir = host.root().join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let record = json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": CREATED_MS, "host_pid": null, "conversation": name, "host_dir": dir, "stream_offset": 0, "stopped": stopped});
+    std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
+}
+
+fn cache(host: &Host, names: &[&str]) {
+    let rows: Vec<SessionRow> = names.iter().map(|name| SessionRow { name: (*name).into(), host: "nexus".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }).collect();
+    crate::fleet::store::cache_sessions(&host.root(), &rows).unwrap();
+}
+
+fn control_rows(host: &Host) -> Vec<(String, String)> {
+    host.fleet.spool().pending().unwrap().iter().map(|row| (row.kind.label().to_owned(), format!("{} {}", row.text, row.to))).collect()
+}
+
+#[test]
+fn a_name_only_in_the_cached_fleet_table_turns_forget_stop_and_interrupt_into_one_spooled_control_row_each() {
+    let laptop = host("laptop");
+    cache(&laptop, &["worker"]);
+
+    for verb in [ControlVerb::Forget, ControlVerb::Stop, ControlVerb::Interrupt] {
+        assert!(matches!(laptop.fleet.control(verb, "worker").unwrap(), Controlled::Spooled(row) if row.kind == RowKind::Control));
+    }
+
+    let mut spooled = control_rows(&laptop);
+    spooled.sort();
+    assert_eq!(spooled, [("CONTROL".to_owned(), "forget worker".to_owned()), ("CONTROL".to_owned(), "interrupt worker".to_owned()), ("CONTROL".to_owned(), "stop worker".to_owned())]);
+}
+
+#[test]
+fn a_name_in_neither_the_registry_nor_the_cached_table_is_refused_and_spools_nothing() {
+    let laptop = host("laptop");
+    cache(&laptop, &["worker"]);
+
+    for verb in [ControlVerb::Forget, ControlVerb::Stop, ControlVerb::Interrupt] {
+        assert!(matches!(laptop.fleet.control(verb, "nobody"), Err(NorthError::Usage(why)) if why == "no session named nobody"));
+    }
+    let uncached = host("fresh");
+
+    assert!(matches!(uncached.fleet.control(ControlVerb::Forget, "worker"), Err(NorthError::Usage(why)) if why == "no session named worker"));
+    assert!(control_rows(&laptop).is_empty() && control_rows(&uncached).is_empty());
+}
+
+#[test]
+fn a_control_row_spooled_on_one_host_is_applied_once_by_the_tick_on_the_host_holding_the_session() {
+    let (laptop, nexus) = (host("laptop"), host("nexus"));
+    parked(&nexus, "worker", false);
+    cache(&laptop, &["worker"]);
+    let Controlled::Spooled(row) = laptop.fleet.control(ControlVerb::Stop, "worker").unwrap() else { panic!("a cached name is spooled") };
+
+    assert_eq!(tick(&laptop.fleet, &mut laptop.store(), &laptop.pulls(), NOW_MS, BUDGET).unwrap().flushed, 1);
+    let first = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
+    let second = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
+
+    assert_eq!(first.delivered, [(row.id.clone(), "worker".to_owned())]);
+    assert_eq!(nexus.fleet.sessions().unwrap().iter().map(|record| (record.name.as_str(), record.stopped)).collect::<Vec<_>>(), [("worker", true)]);
+    assert_eq!((second.delivered.len(), second.already, second.failed.len()), (0, 0, 0), "a journaled row is not fetched again");
+    assert_eq!(nexus.fleet.deliver_row(&row).unwrap(), HandedIn::Already);
+    assert_eq!(count(&laptop.ledger, &format!("SELECT count(*) FROM events WHERE json_extract(data, '$.id') = '{}'", row.id)), 1);
+}
+
+#[test]
+fn a_forget_row_removes_a_stopped_session_from_the_holding_host_and_a_message_to_it_is_still_not_delivered() {
+    let (laptop, nexus) = (host("laptop"), host("nexus"));
+    parked(&nexus, "worker", true);
+    cache(&laptop, &["worker"]);
+    laptop.store().put(&[message("m-1", "worker", NOW_MS)]).unwrap();
+    laptop.fleet.control(ControlVerb::Forget, "worker").unwrap();
+    tick(&laptop.fleet, &mut laptop.store(), &laptop.pulls(), NOW_MS, BUDGET).unwrap();
+
+    let ticked = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
+
+    assert_eq!(ticked.delivered.iter().map(|(_, to)| to.as_str()).collect::<Vec<_>>(), ["worker"], "{:?}", ticked.failed);
+    assert!(nexus.fleet.sessions().unwrap().is_empty());
+    let again = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
+    assert!(again.delivered.is_empty() && again.failed.is_empty());
+}
+
+fn control_row(id: &str, to: &str, verb: ControlVerb, sent_at: u64) -> FleetRow {
+    FleetRow { kind: RowKind::Control, from: "laptop".into(), text: verb.label().into(), sender: None, ..message(id, to, sent_at) }
+}
+
+#[test]
+fn a_control_row_sent_before_a_session_took_over_the_name_does_not_reach_the_successor() {
+    let host = host("nexus");
+    parked(&host, "worker", false);
+    let path = host.root().join("worker/session.json");
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record["addressed_since_ms"] = json!(CREATED_MS - 10_000);
+    std::fs::write(path, record.to_string()).unwrap();
+    host.store().put(&[control_row("c-old", "worker", ControlVerb::Stop, CREATED_MS - 1), message("m-old", "worker", CREATED_MS - 1)]).unwrap();
+    let ticked = host.tick();
+
+    let fetched: Vec<&str> = ticked.delivered.iter().chain(&ticked.failed).map(|(id, _)| id.as_str()).collect();
+
+    assert_eq!(fetched, ["m-old"], "the successor takes the message from the predecessor's window and no control row from it");
+    assert!(!host.fleet.sessions().unwrap()[0].stopped);
+}
+
+#[test]
+fn an_interrupt_row_for_a_session_with_nothing_running_is_consumed_once_and_not_retried() {
+    let host = host("nexus");
+    parked(&host, "worker", true);
+    host.store().put(&[control_row("c-int", "worker", ControlVerb::Interrupt, NOW_MS)]).unwrap();
+
+    let first = host.tick();
+    let second = host.tick();
+
+    assert_eq!((first.delivered.len(), first.failed.len()), (1, 0), "{:?}", first.failed);
+    assert_eq!((second.delivered.len(), second.already, second.failed.len()), (0, 0, 0));
 }

@@ -5,7 +5,8 @@ use std::time::Duration;
 use crate::error::{NorthError, NorthResult};
 use super::fleet_claims::{ThreadsCli, release_exited_claims};
 use crate::fleet::model::ProviderName;
-use crate::fleet::registry::{self, Fleet};
+use crate::fleet::registry::{self, Controlled, Fleet};
+use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::runtimes::Runtimes;
@@ -110,14 +111,22 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
 
 fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
     match verb {
-        "interrupt" => fleet.interrupt(name),
-        "stop" => fleet.stop(name),
-        "forget" => fleet.forget(name),
+        "interrupt" => controlled(fleet, ControlVerb::Interrupt, name),
+        "stop" => controlled(fleet, ControlVerb::Stop, name),
+        "forget" => controlled(fleet, ControlVerb::Forget, name),
         "revive" => fleet_revive::revive(fleet, name, None, None, Overrides::default()),
         "show" => fleet_show::show(fleet, name, false),
         "watchdog" => fleet.guard(name),
         _ => Err(usage()),
     }
+}
+
+
+fn controlled(fleet: &Fleet, verb: ControlVerb, name: &str) -> NorthResult<()> {
+    if let Controlled::Spooled(row) = fleet.control(verb, name)? {
+        println!("spooled CONTROL row {}: {} {name} applies on the host that holds it at its next tick", row.id, verb.label());
+    }
+    Ok(())
 }
 
 

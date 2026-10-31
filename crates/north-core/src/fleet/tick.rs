@@ -62,7 +62,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, now_ms: u
     let exchange = Exchange {
         rows,
         sessions: records.iter().map(|record| published(fleet, record, now_ms)).collect(),
-        addressees: records.iter().filter(|record| !record.stopped).map(|record| addressee(fleet, record, floor)).collect::<NorthResult<_>>()?,
+        addressees: records.iter().map(|record| addressee(fleet, record, floor)).collect::<NorthResult<_>>()?,
     };
     let exchanged = ledger.exchange(&exchange)?;
     for id in &spooled {
@@ -137,7 +137,7 @@ fn far_hosts(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls) -> Vec<Far
 }
 
 fn addressee(fleet: &Fleet, record: &SessionRecord, floor: u64) -> NorthResult<Addressee> {
-    Ok(Addressee { name: record.name.clone(), since_ms: record.addressed_since().max(floor), taken: fleet.delivered(&record.name)?.into_iter().filter(|id| sent_at(id).is_none_or(|ms| ms >= floor)).collect() })
+    Ok(Addressee { name: record.name.clone(), stopped: record.stopped, control_since_ms: Some(record.created_ms.max(floor)), since_ms: record.addressed_since().max(floor), taken: fleet.delivered(&record.name)?.into_iter().filter(|id| sent_at(id).is_none_or(|ms| ms >= floor)).collect() })
 }
 
 fn sent_at(id: &str) -> Option<u64> {

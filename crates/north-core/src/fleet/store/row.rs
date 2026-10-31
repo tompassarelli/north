@@ -20,10 +20,12 @@ pub enum RowKind {
     JobBeat,
     #[serde(rename = "JOB-EXIT")]
     JobExit,
+    #[serde(rename = "CONTROL")]
+    Control,
 }
 
 impl RowKind {
-    pub const ALL: [RowKind; 6] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit];
+    pub const ALL: [RowKind; 7] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -33,6 +35,7 @@ impl RowKind {
             Self::JobStart => "JOB-START",
             Self::JobBeat => "JOB-BEAT",
             Self::JobExit => "JOB-EXIT",
+            Self::Control => "CONTROL",
         }
     }
 }
@@ -41,6 +44,30 @@ impl RowKind {
 pub struct AnswerPayload {
     pub gate: i64,
     pub number: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ControlVerb {
+    Forget,
+    Stop,
+    Interrupt,
+}
+
+impl ControlVerb {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Forget => "forget",
+            Self::Stop => "stop",
+            Self::Interrupt => "interrupt",
+        }
+    }
+
+    pub fn parse(word: &str) -> NorthResult<Self> {
+        [Self::Forget, Self::Stop, Self::Interrupt]
+            .into_iter()
+            .find(|verb| verb.label() == word)
+            .ok_or_else(|| NorthError::Usage(format!("not a control verb: {word}")))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -109,6 +136,9 @@ impl FleetRow {
         Self::check_id(&self.id)?;
         if self.to.trim().is_empty() || self.from.trim().is_empty() {
             return Err(NorthError::Usage(format!("row {} needs a sender and a recipient", self.id)));
+        }
+        if self.kind == RowKind::Control {
+            ControlVerb::parse(&self.text)?;
         }
         Ok(())
     }

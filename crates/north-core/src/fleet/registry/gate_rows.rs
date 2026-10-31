@@ -34,6 +34,7 @@ impl Fleet {
     pub fn deliver_row(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         match row.kind {
             RowKind::Message => self.hand_in(row),
+            RowKind::Control => self.apply_control(row),
             RowKind::Gate => self.open_gate_row(row),
             RowKind::GateAnswer => self.apply_gate_answer(row),
             kind => Err(NorthError::Usage(format!("a {} row is not delivered into a session", kind.label()))),

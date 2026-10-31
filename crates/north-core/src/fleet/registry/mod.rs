@@ -27,6 +27,7 @@ use super::waits::Waits;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
 mod claiming;
+mod control;
 mod depth;
 mod efforts;
 mod first_turn;
@@ -60,6 +61,7 @@ pub use follower::Follower;
 pub use home::roster;
 use home::{fleet_root, home_dir, state_dir};
 pub use hand_in::HandedIn;
+pub use control::Controlled;
 pub use gate_rows::Opened;
 pub use letters::Sent;
 use takeover::{Predecessor, Succession};

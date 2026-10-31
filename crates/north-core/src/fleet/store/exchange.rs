@@ -10,6 +10,10 @@ use super::{FleetRow, RowKind, SessionRow, Store};
 pub struct Addressee {
     pub name: String,
     pub since_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_since_ms: Option<u64>,
+    #[serde(default)]
+    pub stopped: bool,
     #[serde(default)]
     pub taken: Vec<String>,
 }
@@ -42,14 +46,14 @@ impl LedgerHost for Store {
 
 const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_each(?1) AS addressee \
      ON json_extract(events.data, '$.to_node') = json_extract(addressee.value, '$.name') \
-     WHERE events.kind IN (?2, ?3, ?4) AND json_extract(events.data, '$.sent_at') >= json_extract(addressee.value, '$.since_ms') \
+     WHERE events.kind IN (?2, ?3, ?4, ?5) AND (events.kind = ?5 OR NOT COALESCE(json_extract(addressee.value, '$.stopped'), 0)) AND json_extract(events.data, '$.sent_at') >= CASE WHEN events.kind = ?5 THEN COALESCE(json_extract(addressee.value, '$.control_since_ms'), json_extract(addressee.value, '$.since_ms')) ELSE json_extract(addressee.value, '$.since_ms') END \
      AND NOT EXISTS (SELECT 1 FROM json_each(addressee.value, '$.taken') AS taken WHERE taken.value = json_extract(events.data, '$.id')) \
      ORDER BY events.seq";
 
 fn addressed(db: &Connection, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
     let mut statement = db.prepare(ADDRESSED).map_err(sql)?;
     let data: Vec<String> = statement
-        .query_map(rusqlite::params![serde_json::to_string(addressees)?, RowKind::Message.label(), RowKind::Gate.label(), RowKind::GateAnswer.label()], |row| row.get(0))
+        .query_map(rusqlite::params![serde_json::to_string(addressees)?, RowKind::Message.label(), RowKind::Gate.label(), RowKind::GateAnswer.label(), RowKind::Control.label()], |row| row.get(0))
         .map_err(sql)?
         .collect::<Result<_, _>>()
         .map_err(sql)?;
