@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,11 +6,10 @@ use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
 use super::fleet_claims::{ThreadsCli, release_exited_claims};
-use crate::fleet::model::{Effort, Entry, EntryKind, LaunchRequest, ProviderName, Status, Transcript};
-use crate::fleet::prompt::PromptMode;
+use crate::fleet::model::{Entry, EntryKind, ProviderName, Status, Transcript};
 use crate::fleet::registry::{self, Fleet, urgent_text};
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::{SESSION_ENV, new_uuid};
+use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::runtimes::Runtimes;
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
@@ -24,7 +22,11 @@ use super::fleet_placement::{self, Overrides};
 use super::fleet_admission;
 use super::fleet_duplicate;
 use super::fleet_lineage;
+use super::fleet_launch::launch_parts;
+#[cfg(test)]
+use super::fleet_launch::launch_request;
 use super::fleet_list;
+use super::fleet_usage::usage;
 use super::fleet_revive;
 use super::fleet_spend;
 use super::fleet_waits;
@@ -32,8 +34,6 @@ use super::fleet_tier;
 use super::fleet_tree;
 use super::{gate, orders, relay};
 
-const USAGE: &str = "Usage: north fleet [list [--json [--all]] | tree | spend [NAME | --self] | accounts | launch --provider claude|codex --account A [--cwd D] [--model M] [--effort low|medium|high|xhigh|max] [--name N] [--system-prompt FILE] [--prompt north|vanilla] [--foreground-cap SECS] [--idle-exit MINUTES] [--parent NAME|none] [--task REF [--force-dup REASON]] [--local REASON] [--pin REASON] [--tier-reason REASON] [--wait | --no-wait] [--test] PROMPT... \
-     | send [--now] NAME TEXT... | relay HOST... | outbox take --for HOST | outbox drop ID... | outbox snapshot | ask NAME QUESTION... [--timeout SECS] | interrupt NAME | stop NAME | forget NAME | stranded --json | rebooted [--revive] | revive NAME [--system-prompt FILE] [--effort LEVEL] [--local REASON] [--pin REASON] | show NAME [--follow | --json]]";
 const DEFAULT_ASK_SECS: u64 = 120;
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
@@ -142,10 +142,6 @@ fn show_with(fleet: &Fleet, name: &str, flag: &str) -> NorthResult<()> {
     }
 }
 
-fn usage() -> NorthError {
-    NorthError::Usage(USAGE.into())
-}
-
 fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     let follower = fleet.follow(name)?;
     let transcript = follower.transcript();
@@ -186,112 +182,6 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     Ok(())
 }
 
-#[derive(Default)]
-struct LaunchFlags {
-    verification: bool,
-    provider: Option<ProviderName>,
-    account: Option<String>,
-    cwd: Option<PathBuf>,
-    model: Option<String>,
-    effort: Option<Effort>,
-    name: Option<String>,
-    system_prompt: Option<PathBuf>,
-    prompt_mode: PromptMode,
-    foreground_cap_secs: Option<u64>,
-    idle_exit_minutes: Option<u64>,
-    parent: Option<String>,
-    task_ref: Option<String>,
-    overrides: Overrides,
-    wait: Option<bool>,
-}
-
-impl LaunchFlags {
-    fn set(&mut self, providers: &[ProviderName], flag: &str, value: String) -> NorthResult<()> {
-        match flag {
-            "--provider" => self.provider = Some(parse_provider(providers, &value)?),
-            "--account" => self.account = Some(value),
-            "--cwd" => self.cwd = Some(PathBuf::from(value)),
-            "--model" => self.model = Some(value),
-            "--effort" => self.effort = Some(Effort::parse(&value)?),
-            "--name" => self.name = Some(value),
-            "--system-prompt" => self.system_prompt = Some(absolute(&value)?),
-            "--prompt" => self.prompt_mode = PromptMode::parse(&value).ok_or_else(usage)?,
-            "--foreground-cap" => self.foreground_cap_secs = Some(value.parse().map_err(|_| usage())?),
-            "--idle-exit" => self.idle_exit_minutes = Some(value.parse().map_err(|_| usage())?),
-            "--parent" => self.parent = Some(value),
-            "--task" => self.task_ref = Some(value),
-            _ if self.overrides.set(flag, &value) => {}
-            _ => return Err(usage()),
-        }
-        Ok(())
-    }
-
-    fn request(self, prompt: String, caller: Option<String>, proxy: bool) -> NorthResult<LaunchRequest> {
-        let (Some(provider), Some(account)) = (self.provider, self.account) else { return Err(usage()) };
-        if prompt.is_empty() {
-            return Err(usage());
-        }
-        let (cwd, machine) = fleet_placement::working_directory(self.cwd)?;
-        let name = match self.name {
-            Some(name) => name,
-            None => default_name(&provider, &account)?,
-        };
-        let parent = fleet_lineage::parent(self.parent, caller, proxy, &name);
-        Ok(LaunchRequest {
-            verification: self.verification,
-            name,
-            provider,
-            account,
-            cwd,
-            model: self.model,
-            effort: self.effort,
-            prompt,
-            system_prompt: self.system_prompt,
-            foreground_cap_secs: self.foreground_cap_secs,
-            prompt_mode: self.prompt_mode,
-            idle_exit_minutes: self.idle_exit_minutes,
-            parent,
-            task_ref: self.task_ref,
-            placement: None,
-            machine,
-            capacity_need: None,
-        })
-    }
-}
-
-#[cfg(test)]
-fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<LaunchRequest> {
-    launch_parts(providers, words, caller, true).map(|(request, _, _)| request)
-}
-
-/// The request, its placement overrides and `--wait` (Some(true)) or `--no-wait` (Some(false)).
-fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<(LaunchRequest, Overrides, Option<bool>)> {
-    let mut flags = LaunchFlags::default();
-    let mut index = 0;
-    while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
-        if *flag == "--test" {
-            flags.verification = true;
-            index += 1;
-            continue;
-        }
-        if let wait @ ("--wait" | "--no-wait") = *flag {
-            flags.wait = Some(wait == "--wait");
-            index += 1;
-            continue;
-        }
-        let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;
-        flags.set(providers, flag, value)?;
-        index += 2;
-    }
-    let wait = fleet_lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
-    let overrides = std::mem::take(&mut flags.overrides);
-    Ok((flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait))
-}
-
-fn absolute(path: &str) -> NorthResult<PathBuf> {
-    Ok(std::fs::canonicalize(path)?)
-}
-
 fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
     let (question, timeout) = match words {
         [question @ .., "--timeout", secs] => (question, secs.parse().map_err(|_| usage())?),
@@ -308,15 +198,6 @@ fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
         }
         None => Err(NorthError::Rejected(format!("{name} did not answer within {timeout} s"))),
     }
-}
-
-fn parse_provider(providers: &[ProviderName], value: &str) -> NorthResult<ProviderName> {
-    providers.iter().find(|provider| provider.label() == value).cloned().ok_or_else(usage)
-}
-
-fn default_name(provider: &ProviderName, account: &str) -> NorthResult<String> {
-    let short: String = new_uuid()?.chars().take(6).collect();
-    Ok(format!("{}-{account}-{short}", provider.label()))
 }
 
 fn show(fleet: &Fleet, name: &str, follow: bool) -> NorthResult<()> {
