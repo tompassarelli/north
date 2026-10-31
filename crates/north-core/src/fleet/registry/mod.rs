@@ -9,6 +9,7 @@ use crate::error::{NorthError, NorthResult};
 use super::books::{Digest, FleetBooks, SessionSpend};
 use super::claims::{self, Claims};
 use super::gates;
+use super::lane_probe;
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
 use super::model::{Account, ProviderName, Delivery, Effort, EntryKind, LaunchRequest, SessionRecord, Status, Transcript};
@@ -84,7 +85,7 @@ impl Fleet {
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)))
     }
 
     pub fn waits(&self) -> Waits {

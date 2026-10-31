@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use super::silent::SILENT_AFTER;
 use super::wait::WAKE_AFTER;
 
 /// How long a session with a registered run stays up after its turn ends, so a revival message sent to it starts a turn before it parks again.
@@ -7,6 +8,7 @@ const REGISTERED_PARK_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Policy {
+    pub silent_after: Duration,
     pub rollover_after: Duration,
     pub cache_lifetime: Duration,
     pub rollover_min_tokens: u64,
@@ -16,7 +18,7 @@ pub struct Policy {
 
 impl Default for Policy {
     fn default() -> Self {
-        Self { rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60), wake_after: WAKE_AFTER }
+        Self { silent_after: SILENT_AFTER, rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60), wake_after: WAKE_AFTER }
     }
 }
 

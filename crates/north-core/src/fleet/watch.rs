@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -13,11 +14,13 @@ use super::gates::Question;
 use super::handoff;
 use super::idle::{self, Step};
 use super::landings::{self, push_log};
-use super::model::{Delivery, Ending, EntryKind, SessionRecord, Transcript};
+use super::model::{Delivery, Ending, EntryKind, Machine, SessionRecord, Transcript};
 use super::prompt::is_deepened;
 use super::receipts::{Courier, Report, deliver_report, is_final};
 use super::records::{find_session, host_sessions, parents_live, write_record};
+use super::silent::{self, Quiet, State};
 use super::runtime::{Runtime, now_ms};
+use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
 use super::wait;
@@ -40,6 +43,58 @@ pub struct TurnWatch {
     rolled_over: bool,
     nudges: HashMap<String, Option<Nudge>>,
     unaccepted: Arc<SentPrompts>,
+    lanes: Arc<dyn Lanes + Send + Sync>,
+    quiet: HashMap<String, Quiet>,
+    closing: bool,
+}
+
+struct NoLanes;
+
+impl Lanes for NoLanes {
+    fn checkout(&self, _machine: Option<&Machine>, _root: &Path) -> Option<Checkout> {
+        None
+    }
+
+    fn lanes(&self, _machine: Option<&Machine>, _trees: &[Worktree]) -> Vec<Lane> {
+        Vec::new()
+    }
+}
+
+struct Tell {
+    lanes: Arc<dyn Lanes + Send + Sync>,
+    courier: Arc<dyn Courier>,
+    ledger: Arc<dyn WatchBooks>,
+    record: SessionRecord,
+    parent: String,
+    state: State,
+    turn: u64,
+    reply: String,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl Tell {
+    fn lane(&self) -> Option<Lane> {
+        let machine = self.record.machine.as_ref();
+        let tree = self.lanes.checkout(machine, &self.record.cwd)?.worktrees.into_iter().find(|tree| tree.path == self.record.cwd).unwrap_or(Worktree { path: self.record.cwd.clone(), branch: None });
+        self.lanes.lanes(machine, std::slice::from_ref(&tree)).into_iter().next()
+    }
+
+    /// Posts the note and reports whether the turn is settled; a lane read that failed at idle is tried again at park or exit.
+    fn run(self) -> bool {
+        let wants_lane = silent::needs_lane(&self.reply);
+        let lane = if wants_lane { self.lane() } else { None };
+        let unread = wants_lane && lane.is_none();
+        let Some(text) = silent::notice(&self.record.name, self.state, self.turn, &self.reply, lane.as_ref(), unread) else { return !(unread && self.state == State::Idle) };
+        if self.cancelled.load(Ordering::SeqCst) {
+            return true;
+        }
+        match self.ledger.claim_receipt(&self.record.name, &format!("silent:{}", self.turn), now_ms()) {
+            Ok(true) => self.courier.post(&self.parent, text, Delivery::Queued),
+            Ok(false) => {}
+            Err(error) => eprintln!("north fleet: silent notice to {} not sent: {}", self.parent, error.user_message()),
+        }
+        true
+    }
 }
 
 struct SentPrompts {
@@ -113,7 +168,15 @@ impl TurnWatch {
             rolled_over: false,
             nudges: HashMap::new(),
             unaccepted,
+            lanes: Arc::new(NoLanes),
+            quiet: HashMap::new(),
+            closing: false,
         }
+    }
+
+    pub fn reading_lanes(mut self, lanes: Arc<dyn Lanes + Send + Sync>) -> Self {
+        self.lanes = lanes;
+        self
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -125,6 +188,7 @@ impl TurnWatch {
     fn follow(&mut self, signal: &TurnSignal) {
         match signal {
             TurnSignal::Prompt { conversation, text } => {
+                self.quiet.remove(conversation);
                 self.finished.insert(conversation.clone(), false);
                 if !wait::is_wake(text) {
                     self.waits.remove(conversation);
@@ -176,6 +240,7 @@ impl TurnWatch {
 
     fn stall(&mut self) {
         let Some((conversation, wait)) = self.waits.drain().next() else { return };
+        self.quiet.remove(&conversation);
         let Some(record) = find_session(&self.root, &self.host_dir, &conversation) else { return };
         if let Some(parent) = record.parent.as_deref() {
             self.courier.post(parent, wait::stalled(&record.name, &wait.reply), Delivery::Queued);
@@ -189,6 +254,38 @@ impl TurnWatch {
         let Ok(frames) = self.runtime.message(&Transcript::new(), &handoff::nudge(context, threshold, &note)) else { return };
         for frame in frames {
             self.courier.answer(&self.host_dir, frame);
+        }
+    }
+
+    fn speak_up(&mut self, state: State) {
+        if !self.closing && self.turns.in_flight() {
+            return;
+        }
+        let waits = Waits::in_root(&self.root);
+        let conversations: Vec<String> = self.quiet.keys().cloned().collect();
+        for conversation in conversations {
+            let Some(quiet) = self.quiet.get_mut(&conversation) else { continue };
+            quiet.settle();
+            if quiet.checked || quiet.probe.is_some() || (state == State::Idle && quiet.idled) {
+                continue;
+            }
+            let record = find_session(&self.root, &self.host_dir, &conversation);
+            let Some(record) = record.filter(|record| record.ended != Some(Ending::Stopped) && !self.waits.contains_key(&conversation) && waits.of(&record.name).is_empty()) else { continue };
+            let Some(parent) = record.parent.clone() else {
+                quiet.checked = true;
+                continue;
+            };
+            quiet.idled |= state == State::Idle;
+            let tell = Tell { lanes: self.lanes.clone(), courier: self.courier.clone(), ledger: self.ledger.clone(), record, parent, state, turn: quiet.turn, reply: quiet.reply.clone(), cancelled: quiet.cancelled.clone() };
+            quiet.probe = Some(std::thread::spawn(move || tell.run()));
+        }
+    }
+
+    fn finish_probes(&mut self) {
+        for quiet in self.quiet.values_mut() {
+            if let Some(probe) = quiet.probe.take() {
+                quiet.checked = probe.join().unwrap_or(true);
+            }
         }
     }
 
@@ -224,9 +321,13 @@ impl TurnWatch {
             turn,
         };
         let number = self.ledger.record_run(&run).map_err(|error| eprintln!("north ledger: {}", error.user_message())).ok();
+        let reply = self.views.get(&run.turn.conversation).and_then(|view| view.reply.clone()).unwrap_or_default();
         let Some(record) = session else { return };
         self.observe_landing(&record);
         if let Some(number) = number {
+            if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) {
+                self.quiet.insert(run.turn.conversation.clone(), Quiet::after(number, reply));
+            }
             self.report(&record, &run.turn, number);
         }
     }
@@ -294,7 +395,13 @@ impl FrameWatch for TurnWatch {
         let wakes = self.waits.values().map(|wait| wait.wakes).next();
         let registered = self.registered_wait();
         let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, wakes, registered };
-        match self.idle.step(session, park_after) {
+        let step = self.idle.step(session, park_after);
+        match step {
+            Step::Park => self.speak_up(State::Parked),
+            _ if idle >= self.idle.silent_after => self.speak_up(State::Idle),
+            _ => {}
+        }
+        match step {
             Step::Wait => Rest::Wait,
             Step::Wake => self.wake().map_or(Rest::Wait, Rest::Send),
             Step::Stall => {
@@ -306,21 +413,26 @@ impl FrameWatch for TurnWatch {
                 self.rolled_over = true;
                 self.runtime.compact().map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))
             }
-            Step::Exit if self.retire(Ending::IdleExit) => Rest::End,
+            Step::Exit if self.retire(Ending::IdleExit) => {
+                self.speak_up(State::Exited);
+                Rest::End
+            }
             Step::Exit => self.rest(idle, park_after),
         }
     }
 
     fn close(&mut self) {
+        self.closing = true;
         for turn in self.turns.abandon(now_ms()) {
             self.record(turn);
         }
-        if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() {
-            self.retire(Ending::HostEnded);
-        }
+        let retired = !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() && self.retire(Ending::HostEnded);
         let waits = Waits::in_root(&self.root);
         for record in host_sessions(&self.root, &self.host_dir).into_iter().filter(|record| record.stopped || waits.of(&record.name).is_empty()) {
             claims::release_for(self.claims.as_ref(), &record);
         }
+        self.finish_probes();
+        self.speak_up(if retired { State::Exited } else { State::Parked });
+        self.finish_probes();
     }
 }
