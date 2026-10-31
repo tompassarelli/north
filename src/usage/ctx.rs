@@ -97,9 +97,10 @@ fn accounts_from(rows: &[&Row], db: &Connection, now: Timestamp) -> Result<Map<S
     let mut latest_first = rows.to_vec();
     latest_first.sort_by(|a, b| b.text("ts").cmp(&a.text("ts")));
     let mut accounts = Map::new();
+    let mut newest: BTreeMap<String, &str> = BTreeMap::new();
     for row in latest_first {
         let provider = row.text("provider").unwrap_or_default();
-        let key = if ids[provider].len() == 1 { provider.to_owned() } else { format!("{provider}:{}", row.text("account").unwrap_or("None")) };
+        let key = key_of(provider, ids[provider].len(), row);
         let account = accounts.entry(key).or_insert_with(|| {
             json!({"id": row.text("account"), "windows": {}, "grants": [], "hasCredits": false, "extra_usage": false, "spend": false, "age_min": null, "resets": {}})
         });
@@ -112,6 +113,7 @@ fn accounts_from(rows: &[&Row], db: &Connection, now: Timestamp) -> Result<Map<S
         let window = row.number("used_pct").zip(row.text("resets_at").filter(|text| !text.is_empty()));
         if let (Some("window"), Some((used, resets_at))) = (kind, window) {
             let Some(name) = window_key(row) else { continue };
+            newest.entry(key_of(provider, ids[provider].len(), row)).or_insert_with(|| row.text("ts").unwrap_or_default());
             let headroom = 100.0 - used;
             let better = provider == "gemini" && account["windows"][&name]["headroom"].as_f64().is_some_and(|held| headroom < held);
             if account["windows"].get(&name).is_none() || better {
@@ -128,7 +130,29 @@ fn accounts_from(rows: &[&Row], db: &Connection, now: Timestamp) -> Result<Map<S
             account["plan"] = json!(row.text("source"));
         }
     }
+    for (key, read_at) in newest {
+        roll_over_expired(&mut accounts[&key], py::parse(read_at)?)?;
+    }
     Ok(accounts)
+}
+
+fn key_of(provider: &str, accounts: usize, row: &Row) -> String {
+    if accounts == 1 { provider.to_owned() } else { format!("{provider}:{}", row.text("account").unwrap_or("None")) }
+}
+
+/// A window whose reset the account's newest reading postdates has rolled over, and a provider that reports no
+/// reading for a window it has not opened leaves its last row behind: the window reads 0% used as of that reading.
+fn roll_over_expired(account: &mut Value, read_at: Timestamp) -> Result<(), String> {
+    let stamp = py::second(read_at);
+    for window in account["windows"].as_object_mut().into_iter().flat_map(Map::values_mut) {
+        let reset = py::parse(window["resets_at"].as_str().unwrap_or_default())?;
+        if reset.unix_nanos() <= read_at.unix_nanos() && window["as_of"].as_str().is_some_and(|as_of| py::parse(as_of).is_ok_and(|as_of| as_of.unix_nanos() < reset.unix_nanos())) {
+            window["headroom"] = json!(100.0);
+            window["beta"] = json!(0.0);
+            window["as_of"] = json!(stamp);
+        }
+    }
+    Ok(())
 }
 
 fn configure_accounts(accounts: &mut Map<String, Value>, cfg: &Value, defaults: &Defaults) {
