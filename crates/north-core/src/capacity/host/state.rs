@@ -43,14 +43,17 @@ pub fn active_profile(root: &Path) -> (String, &'static str) {
 }
 
 pub fn write_private(path: &Path, contents: &str, create_new: bool) -> std::io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).mode(0o600);
-    if create_new {
-        options.create_new(true);
-    } else {
-        options.create(true).truncate(true);
-    }
-    options.open(path)?.write_all(contents.as_bytes())
+    let staged = path.with_extension(format!("staged-{}", std::process::id()));
+    let placed = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&staged)
+        .and_then(|mut file| file.write_all(contents.as_bytes()))
+        .and_then(|()| if create_new { fs::hard_link(&staged, path) } else { fs::rename(&staged, path) });
+    let _ = fs::remove_file(&staged);
+    placed
 }
 
 fn or_fail<T>(result: std::io::Result<T>, what: &Path) -> T {
