@@ -270,6 +270,25 @@ fn a_job_start_registers_a_job_wait_with_its_lease_and_each_beat_extends_it_and_
 }
 
 #[test]
+fn a_session_is_leased_to_a_job_only_from_its_job_start_until_its_exit_or_its_lease_lapses() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    assert!(!store.job_leased("sc-1").unwrap());
+
+    store.put(&[job_row("j-1", RowKind::JobStart, "soak#1", Some(180), None)]).unwrap();
+    assert!(store.job_leased("sc-1").unwrap());
+    assert!(!store.job_leased("sc-2").unwrap());
+
+    store.put(&[job_row("j-2", RowKind::JobExit, "soak#1", None, Some(0))]).unwrap();
+    assert!(!store.job_leased("sc-1").unwrap());
+
+    store.put(&[job_row("j-3", RowKind::JobStart, "gone#2", Some(0), None)]).unwrap();
+    assert!(!store.job_leased("sc-1").unwrap(), "a lease that ran out with no beat is not a wait");
+    store.wait(&WaitRequest { session: "sc-1".into(), kind: WaitKind::Farm, key: "42".into(), within_secs: 3600 }).unwrap();
+    assert!(!store.job_leased("sc-1").unwrap(), "only a job wait is a job lease");
+}
+
+#[test]
 fn a_job_start_without_a_lease_takes_the_default_and_a_late_beat_or_a_repeated_start_changes_nothing() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();

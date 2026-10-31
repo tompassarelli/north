@@ -8,7 +8,7 @@ use crate::threads::client;
 use super::fleet_spool;
 use super::fleet_tick;
 
-const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY | north fleet row exchange < EXCHANGE_JSON | north fleet row wait < WAIT_JSON | north fleet row settle < WAIT_KEYS_JSON";
+const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY | north fleet row exchange < EXCHANGE_JSON | north fleet row wait < WAIT_JSON | north fleet row settle < WAIT_KEYS_JSON | north fleet row leased SESSION";
 const FORWARDED_PUT: &[&str] = &["north", "fleet", "row", "put"];
 const FORWARDED_WAIT: &[&str] = &["north", "fleet", "row", "wait"];
 
@@ -18,6 +18,7 @@ pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> 
         ("row", ["exchange"]) => serve_exchange(),
         ("row", ["wait"]) => wait(),
         ("row", ["settle"]) => settle(),
+        ("row", ["leased", session]) => leased(session),
         ("spool", _) => fleet_spool::run(fleet, words),
         ("tick", _) => fleet_tick::run(fleet, words),
         _ => Err(NorthError::Usage(USAGE.into())),
@@ -54,6 +55,11 @@ fn serve_exchange() -> NorthResult<()> {
 fn settle() -> NorthResult<()> {
     let waits: Vec<WaitKey> = serde_json::from_slice(&stdin()?)?;
     Store::open(&client::ledger_path()?)?.settle_all(&waits)
+}
+
+fn leased(session: &str) -> NorthResult<()> {
+    println!("{}", if Store::open(&client::ledger_path()?)?.job_leased(session)? { "leased" } else { "free" });
+    Ok(())
 }
 
 fn wait() -> NorthResult<()> {

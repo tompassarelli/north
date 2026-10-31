@@ -8,8 +8,7 @@
 #   --notify     detach CMD into its own session and log, return at once, and spool JOB-START, a JOB-BEAT every 60 s
 #                and JOB-EXIT to the fleet session $NORTH_FLEET_SESSION, so an agent can end its turn and wake on the
 #                result; it runs in its own systemd user scope when there is one, so the caller's unit stopping does not
-#                kill it;
-#                north/jobs/*.job names that session and stays locked while the job runs, so the fleet sees the wait
+#                kill it; the JOB-START lease is the fleet's only record that the session waits on the job
 set -u
 
 usage() { echo "usage: job-run [--path DIRS] [--user USER] [--notify] NAME -- CMD..." >&2; exit 2; }
@@ -58,28 +57,22 @@ as_user() {
 }
 recorder() { as_user timeout 30 "$here/north" threads job-run "$name" --host "$host" "$@"; }
 
-if [ -n "$notify" ] && [ -n "$log" ]; then
-  record=${log%.log}.job
-  printf "%s\n" "$notify" > "$record"
-  exec 9>>"$record"
-  flock -x 9
-fi
 spooler() { as_user "$here/north" fleet spool job "$@"; }
 if [ -n "$notify" ]; then
   key=$name@$host#$$
   spooler start "$notify" "$key" "job-run: $name started; output in $log"
   PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null || echo "job-run: spooling $name's start failed" >&2
   spooler beats "$notify" "$key" "${JOB_RUN_BEAT_SECS:-60}" $$
-  PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null 2>&1 9>&- &
+  PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
   beating=$!
 fi
 started=$(stamp)
 recorder --started "$started"
 PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
 starting=$!
-mapfile -d "" -t entered < <(env "$north_path" "$here/north" capacity dev-shell -- "$@" 2>/dev/null 9>&-)
+mapfile -d "" -t entered < <(env "$north_path" "$here/north" capacity dev-shell -- "$@" 2>/dev/null)
 [ ${#entered[@]} -gt 0 ] || entered=("$@")
-"${entered[@]}" 9>&-
+"${entered[@]}"
 rc=$?
 kill "$starting" 2>/dev/null
 recorder --started "$started" --finished "$(stamp)" --rc "$rc"
@@ -90,5 +83,4 @@ if [ -n "$notify" ]; then
   spooler exit "$notify" "$key" "$rc" "job-run: $name exited $rc; output in $log"
   PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null || echo "job-run: spooling $name's exit for $notify failed" >&2
 fi
-[ -z "${record:-}" ] || rm -f "$record"
 exit "$rc"

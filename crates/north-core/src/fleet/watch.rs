@@ -14,7 +14,7 @@ use super::detached::{Detached, NoScope, Scope};
 use super::gates::Question;
 use super::handoff;
 use super::idle::{self, Step};
-use super::jobs::Jobs;
+use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
 use super::model::{Delivery, Ending, EntryKind, Machine, SessionRecord, Transcript};
 use super::prompt::is_deepened;
@@ -48,7 +48,7 @@ pub struct TurnWatch {
     scope: Arc<dyn Scope>,
     detached: Vec<Detached>,
     quiet: HashMap<String, Quiet>,
-    jobs: Jobs,
+    jobs: Arc<dyn JobLeases>,
     closing: bool,
 }
 
@@ -68,6 +68,7 @@ struct Tell {
     lanes: Arc<dyn Lanes + Send + Sync>,
     courier: Arc<dyn Courier>,
     ledger: Arc<dyn WatchBooks>,
+    jobs: Arc<dyn JobLeases>,
     record: SessionRecord,
     parent: String,
     state: State,
@@ -85,6 +86,9 @@ impl Tell {
 
     /// Posts the note and reports whether the turn is settled; a lane read that failed at idle is tried again at park or exit.
     fn run(self) -> bool {
+        if self.jobs.leased(&self.record.name) {
+            return false;
+        }
         let wants_lane = silent::needs_lane(&self.reply);
         let lane = if wants_lane { self.lane() } else { None };
         let unread = wants_lane && lane.is_none();
@@ -170,12 +174,12 @@ impl TurnWatch {
             scope: Arc::new(NoScope),
             detached: Vec::new(),
             quiet: HashMap::new(),
-            jobs: Jobs::in_state(),
+            jobs: Arc::new(HeldLeases::default()),
             closing: false,
         }
     }
 
-    pub fn reading_jobs(mut self, jobs: Jobs) -> Self {
+    pub fn reading_jobs(mut self, jobs: Arc<dyn JobLeases>) -> Self {
         self.jobs = jobs;
         self
     }
@@ -262,13 +266,13 @@ impl TurnWatch {
                 continue;
             }
             let record = find_session(&self.root, &self.host_dir, &conversation);
-            let Some(record) = record.filter(|record| record.ended != Some(Ending::Stopped) && !(record.task_ref.is_some() && quiet.completed && wait::ended_on_a_wait(&quiet.reply)) && waits.of(&record.name).is_empty() && !self.jobs.running_for(&record.name)) else { continue };
+            let Some(record) = record.filter(|record| record.ended != Some(Ending::Stopped) && !(record.task_ref.is_some() && quiet.completed && wait::ended_on_a_wait(&quiet.reply)) && waits.of(&record.name).is_empty()) else { continue };
             let Some(parent) = record.parent.clone() else {
                 quiet.checked = true;
                 continue;
             };
             quiet.idled |= state == State::Idle;
-            let tell = Tell { lanes: self.lanes.clone(), courier: self.courier.clone(), ledger: self.ledger.clone(), record, parent, state, turn: quiet.turn, reply: quiet.reply.clone(), cancelled: quiet.cancelled.clone() };
+            let tell = Tell { lanes: self.lanes.clone(), courier: self.courier.clone(), ledger: self.ledger.clone(), jobs: self.jobs.clone(), record, parent, state, turn: quiet.turn, reply: quiet.reply.clone(), cancelled: quiet.cancelled.clone() };
             quiet.probe = Some(std::thread::spawn(move || tell.run()));
         }
     }

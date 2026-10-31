@@ -98,6 +98,10 @@ impl Store {
         tx.commit().map_err(sql)
     }
 
+    pub fn job_leased(&self, session: &str) -> NorthResult<bool> {
+        waits::job_leased(&self.db, session, Timestamp::now())
+    }
+
     pub fn waits(&self) -> NorthResult<Vec<WaitRow>> {
         waits::all(&self.db)
     }

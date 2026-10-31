@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn dropping_a_quiet_turn_cancels_the_check_still_running_for_it() {
+    fn dropping_a_quiet_turn_cancels_the_check_still_in_flight_for_it() {
         let quiet = Quiet::after(1, "x".into(), true);
         let flag = quiet.cancelled.clone();
         assert!(!flag.load(Ordering::SeqCst));

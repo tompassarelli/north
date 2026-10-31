@@ -27,16 +27,20 @@ impl Fleet {
     }
 
     pub fn decide(&self, id: i64, decision: Decision) -> NorthResult<Closure> {
-        settle(self.ledger.as_ref(), id, decision, now_ms(), |session, text| self.send(session, text, Delivery::Now))
+        settle(self.ledger.as_ref(), id, decision, now_ms(), |session, text| self.answer_session(session, text))
     }
 
     pub fn answer_gate(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<Closure> {
+        self.answer_gate_with(id, number, note, caller, |session, text| self.answer_session(session, text))
+    }
+
+    pub(super) fn answer_gate_with(&self, id: i64, number: usize, note: Option<&str>, caller: Option<&str>, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<Closure> {
         let gate = self.gate(id)?.ok_or_else(|| NorthError::Usage(format!("no gate {id}")))?;
         if gate.closure.is_some() {
-            return self.decide(id, Decision::Option(number));
+            return settle(self.ledger.as_ref(), id, Decision::Option(number), now_ms(), deliver);
         }
         let asker = self.record(&gate.request.session)?;
-        gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), |session, text| self.send(session, text, Delivery::Now))
+        gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), deliver)
     }
 
     /// Each issue an open decision gate here or on a relayed host decides, with the gate's label.
@@ -54,6 +58,6 @@ impl Fleet {
     }
 
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {
-        default_overdue(self.ledger.as_ref(), now_ms(), |session, text| self.send(session, text, Delivery::Now))
+        default_overdue(self.ledger.as_ref(), now_ms(), |session, text| self.answer_session(session, text))
     }
 }

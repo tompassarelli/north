@@ -126,7 +126,7 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     let root = scratch.path();
     let tools = root.join("tools");
     fs::create_dir_all(&tools).unwrap();
-    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "mkdir", "setsid", "sh", "sleep", "flock", "rm"] {
+    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "mkdir", "setsid", "sh", "sleep", "rm"] {
         symlink(tool(name), tools.join(name)).unwrap();
     }
     fs::remove_file(root.join("bin/north")).unwrap();
@@ -163,22 +163,8 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     assert_eq!(status.code(), Some(0), "{said}");
     assert!(said.contains("fleet message to c-test"), "{said}");
     let jobs = root.join(".local/state/north/jobs");
-    let begun = Instant::now();
-    let record = loop {
-        let found = fs::read_dir(&jobs).into_iter().flatten().flatten().map(|entry| entry.path()).find(|path| path.extension().is_some_and(|extension| extension == "job"));
-        if let Some(found) = found.filter(|path| fs::metadata(path).is_ok_and(|meta| meta.len() > 0)) {
-            break found;
-        }
-        assert!(begun.elapsed() < Duration::from_secs(10), "the running job never wrote its record");
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    assert_eq!(fs::read_to_string(&record).unwrap(), "c-test\n");
-    let locked = || matches!(fs::File::open(&record).unwrap().try_lock_shared(), Err(fs::TryLockError::WouldBlock));
-    let begun = Instant::now();
-    while !locked() {
-        assert!(begun.elapsed() < Duration::from_secs(10), "the running job never locked its record");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let records = || fs::read_dir(&jobs).into_iter().flatten().flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "job")).count();
+    assert_eq!(records(), 0, "a running job writes no .job record");
     fs::write(&release, "").unwrap();
     let log = root.join("north.log");
     let begun = Instant::now();
@@ -197,11 +183,7 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     assert!(text.lines().any(|line| line.starts_with("fleet spool job start c-test soak@") && line.contains(" job-run: soak started; output in ")), "{text:?}");
     assert!(text.lines().any(|line| line.starts_with("fleet spool job beats c-test soak@") && line.contains(" 60 ")), "{text:?}");
     assert!(text.lines().any(|line| line.contains("job-run soak") && line.ends_with("--rc 3")), "{text:?}");
-    let begun = Instant::now();
-    while record.exists() {
-        assert!(begun.elapsed() < Duration::from_secs(10), "the finished job left its record");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    assert_eq!(records(), 0, "a finished job leaves no .job record");
 }
 
 #[test]
@@ -210,7 +192,7 @@ fn job_run_notify_runs_its_job_in_its_own_systemd_scope_so_the_callers_unit_stop
     let root = scratch.path();
     let tools = root.join("tools");
     fs::create_dir_all(&tools).unwrap();
-    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "mkdir", "setsid", "sh", "sleep", "flock", "rm", "true"] {
+    for name in ["env", "timeout", "dirname", "readlink", "hostname", "id", "cat", "mkdir", "setsid", "sh", "sleep", "rm", "true"] {
         symlink(tool(name), tools.join(name)).unwrap();
     }
     fs::write(tools.join("systemd-run"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOME/systemd-run.log\"\nwhile [ \"${1#--}\" != \"$1\" ]; do shift; done\nexec \"$@\"\n").unwrap();
@@ -276,6 +258,8 @@ fn job_run_notify_spools_a_start_with_a_three_minute_lease_a_beat_each_interval_
     let exit = rows.last().unwrap();
     assert_eq!(exit.job.as_ref().and_then(|job| job.exit), Some(3));
     assert!(exit.text.starts_with("job-run: soak exited 3; output in "), "{}", exit.text);
+    let kept: Vec<String> = fs::read_dir(root.join(".local/state/north/jobs")).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    assert!(kept.iter().all(|name| name.ends_with(".log")), "no .job record is written: {kept:?}");
     let letters: Vec<String> = fs::read_dir(root.join(".local/state/north/fleet/.outbox")).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
     assert!(letters.iter().any(|name| name.starts_with(&exit.id)), "{letters:?}");
 }

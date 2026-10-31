@@ -127,3 +127,7 @@ pub(super) fn all(db: &Connection) -> NorthResult<Vec<WaitRow>> {
         .map_err(sql)?;
     rows.into_iter().map(|(session, kind, key, deadline, created)| Ok(WaitRow { session, kind: WaitKind::parse(&kind)?, key, deadline, created })).collect()
 }
+
+pub(super) fn job_leased(db: &Connection, session: &str, now: Timestamp) -> NorthResult<bool> {
+    db.query_row("SELECT EXISTS(SELECT 1 FROM fleet_waits WHERE session = ?1 AND kind = 'job' AND deadline > ?2)", params![session, now.iso()], |row| row.get(0)).map_err(sql)
+}

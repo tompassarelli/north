@@ -10,6 +10,7 @@ use super::books::{Digest, FleetBooks, SessionSpend};
 use super::claims::{self, Claims};
 use super::detached;
 use super::gates;
+use super::jobs::LedgerLeases;
 use super::lane_probe;
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
@@ -18,7 +19,7 @@ use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{PLACED, read_record, write_record};
 use super::remote;
 use super::roster::Roster;
-use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, new_uuid, now_ms};
+use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
@@ -101,7 +102,7 @@ impl Fleet {
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).reading_jobs(Arc::new(LedgerLeases)).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
     }
 
     pub fn waits(&self) -> Waits {
@@ -242,10 +243,6 @@ impl Fleet {
 
     pub fn running(&self, record: &SessionRecord) -> bool {
         session_running(record)
-    }
-
-    pub(super) fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
-        self.prompt(name, &new_uuid()?, text, delivery)
     }
 
     fn prompt(&self, name: &str, id: &str, text: &str, delivery: Delivery) -> NorthResult<()> {

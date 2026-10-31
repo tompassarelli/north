@@ -1,67 +1,38 @@
-//! The records `job-run --notify` keeps under `north/jobs`: each names the fleet session its exit is
-//! sent to, and the detached job holds a lock on it until it exits, so a record is live while it is locked.
-use std::fs::{self, File, TryLockError};
-use std::path::{Path, PathBuf};
+//! Whether a `job-run --notify` job still running will send its exit to a session: the job's JOB-START
+//! row registers a wait with a lease on the ledger host's clock, each JOB-BEAT extends it and JOB-EXIT settles it.
+use std::collections::BTreeSet;
 
-const EXTENSION: &str = "job";
+use super::store::Store;
+use crate::threads::client;
 
-pub struct Jobs {
-    dir: PathBuf,
+const LEASED: &[&str] = &["north", "fleet", "row", "leased"];
+
+pub trait JobLeases: Send + Sync {
+    fn leased(&self, session: &str) -> bool;
 }
 
-impl Jobs {
-    pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
-    }
+pub struct LedgerLeases;
 
-    pub fn in_state() -> Self {
-        let state = std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from);
-        let home = || PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state");
-        Self::new(state.unwrap_or_else(home).join("north/jobs"))
-    }
-
-    /// Whether a job still running will send its exit to `session`.
-    pub fn running_for(&self, session: &str) -> bool {
-        let mut records = fs::read_dir(&self.dir).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == EXTENSION));
-        records.any(|path| addressed_to(&path, session) && running(&path))
+impl JobLeases for LedgerLeases {
+    fn leased(&self, session: &str) -> bool {
+        let words: Vec<&str> = LEASED.iter().copied().chain([session]).collect();
+        let answered = match client::ask_ledger_host(&words, &[]) {
+            Ok(Some(answer)) => Ok(String::from_utf8_lossy(&answer).trim() == "leased"),
+            Ok(None) => client::ledger_path().and_then(|path| Store::open(&path)?.job_leased(session)),
+            Err(error) => Err(error),
+        };
+        answered.unwrap_or_else(|error| {
+            eprintln!("north fleet: the job leases of {session} were not read: {}", error.user_message());
+            false
+        })
     }
 }
 
-fn addressed_to(record: &Path, session: &str) -> bool {
-    fs::read_to_string(record).is_ok_and(|text| text.lines().next() == Some(session))
-}
+#[derive(Default)]
+pub struct HeldLeases(pub BTreeSet<String>);
 
-fn running(record: &Path) -> bool {
-    File::open(record).is_ok_and(|file| matches!(file.try_lock_shared(), Err(TryLockError::WouldBlock)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(dir: &Path, name: &str, session: &str) -> File {
-        let path = dir.join(format!("{name}.job"));
-        fs::write(&path, format!("{session}\n")).unwrap();
-        File::options().append(true).open(path).unwrap()
-    }
-
-    #[test]
-    fn a_job_holding_its_record_is_running_for_the_session_it_names_and_for_no_other() {
-        let dir = tempfile::tempdir().unwrap();
-        let held = record(dir.path(), "push-1", "kid");
-        held.lock().unwrap();
-        let jobs = Jobs::new(dir.path().to_path_buf());
-        assert!(jobs.running_for("kid"));
-        assert!(!jobs.running_for("other"));
-    }
-
-    #[test]
-    fn a_job_that_released_its_record_is_not_running() {
-        let dir = tempfile::tempdir().unwrap();
-        let held = record(dir.path(), "push-1", "kid");
-        held.lock().unwrap();
-        drop(held);
-        assert!(!Jobs::new(dir.path().to_path_buf()).running_for("kid"));
-        assert!(!Jobs::new(dir.path().join("missing")).running_for("kid"));
+impl JobLeases for HeldLeases {
+    fn leased(&self, session: &str) -> bool {
+        self.0.contains(session)
     }
 }

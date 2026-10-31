@@ -59,28 +59,56 @@ impl Fleet {
         let AnswerPayload { gate, number } = row.answer.ok_or_else(|| NorthError::Usage(format!("GATE-ANSWER row {} carries no answer", row.id)))?;
         let note = Some(row.text.as_str()).filter(|note| !note.trim().is_empty());
         let mut refusal = None;
-        let handed = self.journaled(row, || match self.answer_row_gate(row, gate, number, note) {
+        let mut answers = Vec::new();
+        let handed = self.journaled(row, || match self.answer_row_gate(row, gate, number, note, |session, text| {
+            answers.push(self.spool_answer(session, text)?);
+            Ok(())
+        }) {
             Err(error @ (NorthError::Usage(_) | NorthError::Rejected(_) | NorthError::GateAnswered { .. })) => {
                 refusal = Some(error.user_message());
                 Ok(())
             }
             outcome => outcome,
         })?;
+        for answer in &answers {
+            self.hand_in_answer(answer)?;
+        }
         if let (Some(why), Some(answerer)) = (refusal, row.sender.as_deref()) {
             self.tell(answerer, &format!("your answer {number} to gate {gate} was not applied: {why}"), Delivery::Queued);
         }
         Ok(handed)
     }
 
-    fn answer_row_gate(&self, row: &FleetRow, gate: i64, number: usize, note: Option<&str>) -> NorthResult<()> {
+    fn answer_row_gate(&self, row: &FleetRow, gate: i64, number: usize, note: Option<&str>, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<()> {
         let asked = self.gate(gate)?.ok_or_else(|| NorthError::Usage(format!("no gate {gate}")))?;
         if asked.request.session != row.to {
             return Err(NorthError::Usage(format!("gate {gate} belongs to {}, not {}", asked.request.session, row.to)));
         }
-        self.answer_gate(gate, number, note, row.sender.as_deref()).map(drop)
+        self.answer_gate_with(gate, number, note, row.sender.as_deref(), deliver).map(drop)
     }
 
-    fn new_row(&self, kind: RowKind, to: &str, text: &str, sender: Option<&str>) -> NorthResult<FleetRow> {
+    pub(super) fn answer_session(&self, session: &str, text: &str) -> NorthResult<()> {
+        let row = self.spool_answer(session, text)?;
+        self.hand_in_answer(&row)
+    }
+
+    fn spool_answer(&self, session: &str, text: &str) -> NorthResult<FleetRow> {
+        let row = FleetRow { urgent: true, ..self.new_row(RowKind::Message, session, text, None)? };
+        self.spool().put(&row)?;
+        Ok(row)
+    }
+
+    fn hand_in_answer(&self, row: &FleetRow) -> NorthResult<()> {
+        match self.hand_in(row) {
+            Ok(_) => self.spool().withdraw(&row.id),
+            Err(error) => {
+                eprintln!("north fleet: the answer to {} is spooled as row {} and the tick will hand it in: {}", row.to, row.id, error.user_message());
+                Ok(())
+            }
+        }
+    }
+
+    pub(super) fn new_row(&self, kind: RowKind, to: &str, text: &str, sender: Option<&str>) -> NorthResult<FleetRow> {
         let sent_at = now_ms();
         Ok(FleetRow {
             id: format!("{sent_at}-{}", new_uuid()?),
@@ -233,6 +261,43 @@ mod tests {
         let frames = worker.frames.lock().unwrap();
         assert_eq!(frames.len(), 1);
         assert!(frames[0].contains("Tom answered: yes"), "{}", frames[0]);
+    }
+
+    #[test]
+    fn a_gate_closed_while_its_answer_could_not_be_handed_in_still_reaches_the_session_when_the_tick_hands_the_spooled_row_in() {
+        let home = tempfile::tempdir().unwrap();
+        let laptop = fleet(home.path());
+        let worker = live(&laptop, "worker");
+        let id = laptop.open_gate(&request("worker")).unwrap();
+        let journal = laptop.root.join("worker/delivered");
+        std::fs::write(&journal, "in the way").unwrap();
+
+        laptop.answer_gate(id, 1, None, None).unwrap();
+
+        assert!(laptop.gate(id).unwrap().unwrap().closure.is_some());
+        assert!(worker.frames.lock().unwrap().is_empty());
+        let pending = spooled(&laptop);
+        assert_eq!((pending.kind, pending.to.as_str(), pending.urgent), (RowKind::Message, "worker", true));
+        std::fs::remove_file(&journal).unwrap();
+
+        assert_eq!(laptop.deliver_row(&pending).unwrap(), HandedIn::Delivered);
+        assert_eq!(laptop.deliver_row(&pending).unwrap(), HandedIn::Already);
+        let frames = worker.frames.lock().unwrap();
+        assert_eq!(frames.len(), 1);
+        assert!(frames[0].contains("Tom answered: yes"), "{}", frames[0]);
+    }
+
+    #[test]
+    fn a_gate_answer_handed_in_at_once_leaves_nothing_in_the_spool() {
+        let home = tempfile::tempdir().unwrap();
+        let laptop = fleet(home.path());
+        let worker = live(&laptop, "worker");
+        let id = laptop.open_gate(&request("worker")).unwrap();
+
+        laptop.answer_gate(id, 2, None, None).unwrap();
+
+        assert!(Spool::at(&laptop.root).pending().unwrap().is_empty());
+        assert!(worker.frames.lock().unwrap()[0].contains("Tom answered: no"));
     }
 
     #[test]
