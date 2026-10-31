@@ -1,7 +1,7 @@
 use super::bounded;
 use super::failure::{DEFERRED, Failure, code, failed};
 use super::layout::PROGRAMS;
-use crate::ops::land_offload;
+use crate::ops::pacing::placement::gate;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -12,9 +12,7 @@ const BUILD_ELSEWHERE: Duration = Duration::from_secs(30 * 60);
 const COPY: Duration = Duration::from_secs(10 * 60);
 const RSYNC_SOURCE_MISSING: u8 = 23;
 
-pub(super) fn build(target: &str, runtime: &Path) -> Result<(), Failure> {
-    let machine = land_offload::host_with_room()
-        .map_err(|why| failed(DEFERRED, format!("this host is in game-reserve and {why}; runtime unchanged")))?;
+pub(super) fn build(machine: &gate::Machine, target: &str, runtime: &Path) -> Result<(), Failure> {
     let host = &machine.name;
     println!("north runtime: building {} on {host} while this host is in game-reserve", &target[..8]);
     run(host, "north runtime update", ssh(&machine.ssh).args(["north", "runtime", "update"]), BUILD_ELSEWHERE)?;

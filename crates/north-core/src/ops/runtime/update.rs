@@ -7,6 +7,7 @@ use super::remote;
 use super::store;
 use super::supersede::{self, SUPERSEDED};
 use crate::ops::land_offload;
+use crate::ops::pacing::placement::gate;
 use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
@@ -217,12 +218,29 @@ impl Drop for Lane<'_> {
     }
 }
 
+enum Placement {
+    Elsewhere(gate::Machine),
+    Here { refused: Option<String> },
+}
+
+fn placement(reserved: bool, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
+    if !reserved {
+        return Placement::Here { refused: None };
+    }
+    match other_host() {
+        Ok(machine) => Placement::Elsewhere(machine),
+        Err(why) => Placement::Here { refused: Some(why) },
+    }
+}
+
 fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
     if pull::pull(target, runtime) {
         return Ok(());
     }
-    if land_offload::in_game_reserve() {
-        return remote::build(target, runtime);
+    match placement(land_offload::in_game_reserve(), land_offload::host_with_room) {
+        Placement::Elsewhere(machine) => return remote::build(&machine, target, runtime),
+        Placement::Here { refused: Some(why) } => println!("north runtime: this host is in game-reserve and {why}; building {} here under the runtime class admission", layout::short(target)),
+        Placement::Here { refused: None } => {}
     }
     if !land_offload::builds_runtime_here() {
         return Err(failed(DEFERRED, format!("no other host has built {} yet and this host does not build runtimes (builds_runtime = false); retrying on the next tick", layout::short(target))));
@@ -394,5 +412,31 @@ fn fetch(checkout: &Path) -> Result<(), Failure> {
     match status.success() {
         true => Ok(()),
         false => Err(failed(code(status), format!("git fetch failed: {status}"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn machine(name: &str) -> gate::Machine {
+        gate::Machine { name: name.to_owned(), ssh: name.to_owned(), serves: Vec::new(), pushes: None, cap: 0, live: None, accounts: Vec::new(), saturation: None }
+    }
+
+    #[test]
+    fn a_game_reserve_host_with_no_other_host_with_room_builds_here_under_local_admission() {
+        let refused = "no other host has room: gex45: CPU pressure 63% at the 40% admission mark".to_owned();
+        match placement(true, || Err(refused.clone())) {
+            Placement::Here { refused: Some(why) } => assert_eq!(why, refused),
+            _ => panic!("a reserved host with no room elsewhere must build locally, not defer"),
+        }
+    }
+
+    #[test]
+    fn a_game_reserve_host_builds_on_another_host_that_has_room() {
+        match placement(true, || Ok(machine("gex45"))) {
+            Placement::Elsewhere(chosen) => assert_eq!(chosen.name, "gex45"),
+            _ => panic!("a reserved host with room elsewhere must build there"),
+        }
     }
 }
