@@ -4,6 +4,8 @@ use std::path::Path;
 
 #[path = "runtime_update/harness.rs"]
 mod harness;
+#[path = "runtime_update/prune.rs"]
+mod prune;
 #[path = "runtime_update/reserve.rs"]
 mod reserve;
 

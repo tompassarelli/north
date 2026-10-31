@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const PROGRAMS: [&str; 2] = ["north", "verify-north"];
@@ -55,6 +56,20 @@ pub fn linked_sha(link: &Path) -> Option<&str> {
 
 pub fn has_programs(runtime: &Path) -> bool {
     PROGRAMS.iter().all(|program| runtime.join(program).is_file())
+}
+
+pub fn running(proc_root: &Path, runtimes: &Path) -> Vec<String> {
+    let runtimes = fs::canonicalize(runtimes).unwrap_or_else(|_| runtimes.to_path_buf());
+    let mut names = fs::read_dir(proc_root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|process| fs::read_link(process.path().join("exe")).ok())
+        .filter_map(|exe| exe.strip_prefix(&runtimes).ok()?.components().next()?.as_os_str().to_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    names
 }
 
 pub fn doomed<'a>(newest_first: &'a [String], keep: &[&str]) -> Vec<&'a str> {

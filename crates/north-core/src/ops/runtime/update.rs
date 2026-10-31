@@ -393,6 +393,8 @@ fn collect(layout: &Layout, target: &str, previous: Option<&Path>) -> std::io::R
     let names = listed.into_iter().map(|(_, name)| name).collect::<Vec<_>>();
     let mut keep = vec![target];
     keep.extend(previous.and_then(layout::linked_sha));
+    let running = layout::running(Path::new("/proc"), &layout.runtimes());
+    keep.extend(running.iter().map(String::as_str));
     let current = fs::canonicalize(layout.current()).ok();
     for name in layout::doomed(&names, &keep) {
         let doomed = layout.runtime(name);
