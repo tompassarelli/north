@@ -22,6 +22,7 @@ use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
+use super::store::SPOOL_DIR;
 use super::waits::Waits;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
@@ -31,6 +32,7 @@ mod efforts;
 mod first_turn;
 mod follower;
 mod gate_commands;
+mod hand_in;
 mod home;
 mod start_lock;
 mod stopping;
@@ -52,6 +54,7 @@ mod tests;
 pub use follower::Follower;
 pub use home::roster;
 use home::{fleet_root, home_dir, state_dir};
+pub use hand_in::HandedIn;
 pub use letters::{Opened, Sent};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
@@ -385,7 +388,7 @@ impl Fleet {
     }
 
     fn session_dir(&self, name: &str) -> NorthResult<PathBuf> {
-        let valid = !name.is_empty() && !name.starts_with('.') && !name.contains('/');
+        let valid = !name.is_empty() && !name.starts_with('.') && !name.contains('/') && name != SPOOL_DIR;
         if !valid {
             return Err(NorthError::Usage(format!("invalid session name {name:?}")));
         }

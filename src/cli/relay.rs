@@ -23,10 +23,11 @@ fn send(fleet: &Fleet, name: &str, text: &str, delivery: Delivery) -> NorthResul
     let from = signer(fleet, name);
     match fleet.send_or_post(from.as_deref(), name, text, delivery)? {
         Sent::Here => {}
-        Sent::Posted { relay, letter } => {
+        Sent::Posted { relay: Some(relay), letter } => {
             let minutes = relay.age.as_secs() / 60;
             eprintln!("north fleet: no session named {name} here; posted {} for {}, which last relayed {minutes}m ago", letter.id, relay.host);
         }
+        Sent::Posted { relay: None, letter } => eprintln!("north fleet: no session named {name} here; spooled {} for the host that has it", letter.id),
     }
     Ok(())
 }

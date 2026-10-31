@@ -6,12 +6,16 @@ use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 
+mod cache;
 mod row;
 mod schema;
 mod sessions;
+mod spool;
 
+pub use cache::{cache_sessions, cached_sessions};
 pub use row::{FleetRow, JobPayload, RowKind};
 pub use sessions::SessionRow;
+pub use spool::{SPOOL_DIR, Spool};
 
 use schema::sql;
 

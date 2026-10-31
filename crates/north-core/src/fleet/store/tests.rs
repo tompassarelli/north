@@ -146,3 +146,32 @@ fn an_events_table_declared_unquoted_is_widened_too() {
     Store::open(&path).unwrap().put(&[message("m-1", "sc-1")]).unwrap();
     assert_eq!(count(&path, "SELECT count(*) FROM events WHERE kind = 'MESSAGE'"), 1);
 }
+
+#[test]
+fn a_spooled_row_is_one_file_that_lists_until_withdrawn_and_a_bad_id_is_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let spool = Spool::at(root.path());
+
+    assert!(spool.pending().unwrap().is_empty());
+    spool.put(&message("m-2", "sc-1")).unwrap();
+    spool.put(&message("m-1", "sc-1")).unwrap();
+    spool.put(&message("m-1", "sc-1")).unwrap();
+
+    assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1"), message("m-2", "sc-1")]);
+    assert!(root.path().join("spool/m-1.json").is_file());
+    assert!(spool.put(&message("../m-3", "sc-1")).is_err());
+    spool.withdraw("m-1").unwrap();
+    spool.withdraw("m-1").unwrap();
+    assert_eq!(spool.pending().unwrap(), [message("m-2", "sc-1")]);
+}
+
+#[test]
+fn the_cached_session_table_round_trips_and_a_host_without_one_knows_no_sessions() {
+    let root = tempfile::tempdir().unwrap();
+
+    assert_eq!(cached_sessions(root.path()).unwrap(), None);
+    cache_sessions(root.path(), &[session("sc-1", "nexus", "working")]).unwrap();
+    cache_sessions(root.path(), &[session("sc-2", "gex45", "idle"), session("sc-1", "nexus", "working")]).unwrap();
+
+    assert_eq!(cached_sessions(root.path()).unwrap(), Some(vec![session("sc-2", "gex45", "idle"), session("sc-1", "nexus", "working")]));
+}

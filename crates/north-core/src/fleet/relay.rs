@@ -12,6 +12,7 @@ use crate::platform::process::run_within;
 use super::gates::GateRequest;
 use super::model::Delivery;
 use super::remote_view::Snapshot;
+use super::store::{FleetRow, RowKind};
 use super::runtime::{SESSION_ENV, binary, new_uuid, now_ms};
 
 const RELAY: &str = "relay";
@@ -43,6 +44,18 @@ impl Letter {
     }
 }
 
+impl From<&FleetRow> for Letter {
+    fn from(row: &FleetRow) -> Self {
+        Self { id: row.id.clone(), to: row.to.clone(), text: row.text.clone(), now: row.urgent, from: row.from.clone(), sender: row.sender.clone(), gate: None, at_ms: row.sent_at }
+    }
+}
+
+impl From<&Letter> for FleetRow {
+    fn from(letter: &Letter) -> Self {
+        Self { id: letter.id.clone(), kind: RowKind::Message, to: letter.to.clone(), from: letter.from.clone(), urgent: letter.now, sent_at: letter.at_ms, text: letter.text.clone(), sender: letter.sender.clone(), gate: None, job: None }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct Relay {
     pub host: String,
@@ -66,18 +79,18 @@ impl Outbox {
         (!host.is_empty()).then_some(Relay { host, age })
     }
 
-    pub fn post(&self, sender: Option<&str>, to: &str, text: &str, delivery: Delivery) -> NorthResult<Letter> {
-        self.stage(sender, to, text, delivery, None)
+    pub fn post(&self, row: &FleetRow) -> NorthResult<Letter> {
+        self.stage(Letter::from(row))
     }
 
     pub fn post_gate(&self, request: &GateRequest) -> NorthResult<Letter> {
-        self.stage(None, &request.session, &request.question, Delivery::Queued, Some(Box::new(request.clone())))
+        let at_ms = now_ms();
+        let id = format!("{at_ms}-{}", new_uuid()?);
+        self.stage(Letter { id, to: request.session.clone(), text: request.question.clone(), now: false, from: hostname(), sender: None, gate: Some(Box::new(request.clone())), at_ms })
     }
 
-    fn stage(&self, sender: Option<&str>, to: &str, text: &str, delivery: Delivery, gate: Option<Box<GateRequest>>) -> NorthResult<Letter> {
+    fn stage(&self, letter: Letter) -> NorthResult<Letter> {
         fs::create_dir_all(&self.dir)?;
-        let at_ms = now_ms();
-        let letter = Letter { id: format!("{at_ms}-{}", new_uuid()?), to: to.into(), text: text.into(), now: delivery == Delivery::Now, from: hostname(), sender: sender.map(str::to_owned), gate, at_ms };
         let staged = self.dir.join(format!(".{}.tmp", letter.id));
         fs::write(&staged, serde_json::to_vec(&letter)?)?;
         fs::rename(staged, self.letter(&letter.id)?)?;
@@ -330,6 +343,10 @@ mod tests {
         }
     }
 
+    fn message(sender: Option<&str>, to: &str, text: &str, delivery: Delivery) -> FleetRow {
+        FleetRow { id: format!("{}-{to}", now_ms()), kind: RowKind::Message, to: to.into(), from: hostname(), urgent: delivery == Delivery::Now, sent_at: now_ms(), text: text.into(), sender: sender.map(str::to_owned), gate: None, job: None }
+    }
+
     fn far(root: &Path) -> Hosts {
         Hosts(BTreeMap::from([("far".to_owned(), Outbox::new(root.join("far")))]), AtomicBool::new(false))
     }
@@ -342,7 +359,7 @@ mod tests {
         assert_eq!(outbox.relay(), None);
         assert!(outbox.take("fleet").unwrap().is_empty());
         assert_eq!(outbox.relay().map(|relay| relay.host), Some("fleet".to_owned()));
-        let posted = outbox.post(Some("wisp-lead"), "proxy", "rolled back", Delivery::Queued).unwrap();
+        let posted = outbox.post(&message(Some("wisp-lead"), "proxy", "rolled back", Delivery::Queued)).unwrap();
         let mut received = Vec::new();
         let relayed = relay(&hosts, "fleet", &["far".to_owned()], &BTreeSet::new(), &mut |letter| {
             received.push((letter.signer(), letter.to.clone(), letter.text.clone(), letter.delivery()));
@@ -360,7 +377,7 @@ mod tests {
         let seen = root.path().join("seen");
         let hosts = far(root.path());
         let outbox = &hosts.0["far"];
-        let kept = outbox.post(None, "proxy", "rolled back", Delivery::Now).unwrap();
+        let kept = outbox.post(&message(None, "proxy", "rolled back", Delivery::Now)).unwrap();
         let mut refused = |_: &Letter| Err(NorthError::Usage("no session named proxy".into()));
         let first = relay(&hosts, "fleet", &["far".to_owned()], &BTreeSet::new(), &mut refused);
         assert_eq!(first.lines(), [format!("undelivered {} from far to proxy: no session named proxy", kept.id)]);
@@ -380,7 +397,7 @@ mod tests {
         let seen = root.path().join("undropped");
         let hosts = far(root.path());
         let outbox = &hosts.0["far"];
-        let posted = outbox.post(None, "proxy", "rolled back", Delivery::Queued).unwrap();
+        let posted = outbox.post(&message(None, "proxy", "rolled back", Delivery::Queued)).unwrap();
         let mut deliveries = 0;
         hosts.1.store(true, Ordering::SeqCst);
         let first = relay(&hosts, "fleet", &["far".to_owned()], &entries(&seen), &mut |_| {

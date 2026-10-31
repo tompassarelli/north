@@ -5,6 +5,7 @@ use crate::error::NorthResult;
 use crate::fleet::model::{Delivery, LastSender, SessionRecord};
 use crate::fleet::records::{read_record, write_record};
 use crate::fleet::runtime::{SESSION_ENV, now_ms};
+use crate::fleet::store::Spool;
 use crate::fleet::transcript::stream_len;
 
 use super::{Fleet, await_reply};
@@ -35,13 +36,13 @@ impl Fleet {
     }
 
     pub fn send_signed(&self, from: Option<&str>, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
-        self.send(name, &signed(from, text), delivery)?;
-        if let Some(from) = from
-            && let Err(error) = self.note_sender(name, from)
-        {
-            eprintln!("north fleet: delivered to {name}, but its sender was not recorded: {}", error.user_message());
-        }
-        Ok(())
+        self.record(name)?;
+        let row = self.spool_message(from, name, text, delivery)?;
+        self.hand_in(&row).map(drop).inspect_err(|_| {
+            if let Err(error) = Spool::at(&self.root).withdraw(&row.id) {
+                eprintln!("north fleet: row {} was not withdrawn from the spool: {}", row.id, error.user_message());
+            }
+        })
     }
 
     pub fn ask(&self, from: Option<&str>, name: &str, question: &str, timeout: Duration) -> NorthResult<Option<String>> {
@@ -51,7 +52,7 @@ impl Fleet {
         await_reply(self.runtime(&record)?.as_ref(), &record, asked_from, question, timeout)
     }
 
-    fn note_sender(&self, name: &str, from: &str) -> NorthResult<()> {
+    pub(super) fn note_sender(&self, name: &str, from: &str) -> NorthResult<()> {
         let session_dir = self.session_dir(name)?;
         let mut record = read_record(&session_dir)?;
         record.last_sender = Some(LastSender { name: from.to_owned(), at_ms: now_ms() });
@@ -59,7 +60,7 @@ impl Fleet {
     }
 }
 
-fn signed(from: Option<&str>, text: &str) -> String {
+pub(super) fn signed(from: Option<&str>, text: &str) -> String {
     match from {
         Some(from) => format!("[from {from}] {text}"),
         None => text.to_owned(),
