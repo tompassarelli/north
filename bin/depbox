@@ -21,8 +21,8 @@ usage() {
 mode=$1
 shift
 case "$mode" in
-  fetch) net=() ;;
-  run) net=(--unshare-net) ;;
+  fetch) net=(); cache_dirs=(); cache_vars=() ;;
+  run) net=(--unshare-net); cache_dirs=(.cache/sccache); cache_vars=(RUSTC_WRAPPER SCCACHE_DIR SCCACHE_CACHE_SIZE SCCACHE_BASEDIRS CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER) ;;
   *) usage ;;
 esac
 [ "$1" = "--" ] || usage
@@ -64,7 +64,7 @@ args=(
 if [ -d /run/secrets.d ]; then args+=(--tmpfs /run/secrets.d); fi
 if [ "$HOME" != "$home" ]; then args+=(--tmpfs "$HOME"); fi
 
-for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix; do
+for dir in .bun/install/cache .cargo/registry .cargo/git .cache/nix "${cache_dirs[@]}"; do
   mkdir -p "$home/$dir"
   args+=(--bind "$home/$dir" "$home/$dir")
 done
@@ -79,7 +79,7 @@ fi
 
 args+=(--bind "$top" "$top" --ro-bind "$common" "$common")
 args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
-for var in PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
+for var in "${cache_vars[@]}" PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
 done
 args+=(--setenv CARGO_TARGET_DIR "$target")
