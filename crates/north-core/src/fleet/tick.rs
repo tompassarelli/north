@@ -73,7 +73,20 @@ fn sent_at(id: &str) -> Option<u64> {
 }
 
 fn published(fleet: &Fleet, record: &SessionRecord, now_ms: u64) -> SessionRow {
-    SessionRow { name: record.name.clone(), host: fleet.host().to_owned(), status: fleet.status(record).label().to_owned(), created: iso(record.created_ms), updated: iso(now_ms) }
+    SessionRow {
+        name: record.name.clone(),
+        host: fleet.host().to_owned(),
+        status: fleet.status(record).label().to_owned(),
+        created: iso(record.created_ms),
+        updated: iso(now_ms),
+        provider: record.provider.label().to_owned(),
+        account: record.account.clone(),
+        cwd: record.cwd.display().to_string(),
+        parent: record.parent.clone(),
+        placement: record.placement.clone(),
+        machine: record.machine.as_ref().map(|machine| machine.name.clone()),
+        tasks: record.tasks().map(str::to_owned).collect(),
+    }
 }
 
 fn iso(ms: u64) -> String {

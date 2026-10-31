@@ -23,7 +23,7 @@ fn count(path: &std::path::Path, sql: &str) -> i64 {
 }
 
 fn session(name: &str, host: &str, status: &str) -> SessionRow {
-    SessionRow { name: name.into(), host: host.into(), status: status.into(), created: "2026-10-31T10:00:00Z".into(), updated: "2026-10-31T10:00:00Z".into() }
+    SessionRow { name: name.into(), host: host.into(), status: status.into(), created: "2026-10-31T10:00:00Z".into(), updated: "2026-10-31T10:00:00Z".into(), ..SessionRow::default() }
 }
 
 #[test]
@@ -189,4 +189,37 @@ fn the_cached_session_table_round_trips_and_a_host_without_one_knows_no_sessions
     cache_sessions(root.path(), &[session("sc-2", "gex45", "idle"), session("sc-1", "nexus", "working")]).unwrap();
 
     assert_eq!(cached_sessions(root.path()).unwrap(), Some(vec![session("sc-2", "gex45", "idle"), session("sc-1", "nexus", "working")]));
+}
+
+#[test]
+fn a_published_session_keeps_the_columns_the_fleet_list_shows() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let detailed = SessionRow {
+        provider: "claude".into(),
+        account: "b".into(),
+        cwd: "/home/tom/code/north/main".into(),
+        parent: Some("lead".into()),
+        placement: Some("gex45".into()),
+        machine: Some("gex45".into()),
+        tasks: vec!["north#429".into(), "north#316".into()],
+        ..session("sc-1", "nexus", "working")
+    };
+
+    store.publish(std::slice::from_ref(&detailed)).unwrap();
+
+    assert_eq!(store.sessions().unwrap(), [detailed]);
+}
+
+#[test]
+fn a_sessions_table_that_predates_the_list_columns_gains_them_with_its_rows_kept() {
+    let (_directory, path) = ledger();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("CREATE TABLE fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL) STRICT; INSERT INTO fleet_sessions VALUES ('old', 'nexus', 'idle', 't', 't');")
+        .unwrap();
+
+    let store = Store::open(&path).unwrap();
+
+    assert_eq!(store.sessions().unwrap(), [session("old", "nexus", "idle")].map(|row| SessionRow { created: "t".into(), updated: "t".into(), ..row }));
 }

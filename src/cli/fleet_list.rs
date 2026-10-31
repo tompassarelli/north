@@ -3,14 +3,16 @@ use std::collections::BTreeSet;
 use serde_json::{Value, json};
 
 use crate::error::{NorthError, NorthResult};
+use crate::foundation::clock::Timestamp;
 use crate::fleet::model::{Effort, Ending, SessionRecord, Status};
 use crate::fleet::registry::Fleet;
-use crate::fleet::remote_view::{Seen, SessionView};
 use crate::fleet::runtime::now_ms;
+use crate::fleet::store::SessionRow;
 use crate::fleet::waits::Waits;
 
 const USAGE: &str = "Usage: north fleet list [--json [--all]] | north fleet stranded --json";
 const STALE_MINUTES: u64 = 5;
+const MISSING_MINUTES: u64 = 7 * 24 * 60;
 
 pub(super) fn list(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> {
     match (verb, words) {
@@ -30,14 +32,14 @@ fn stranded(fleet: &Fleet) -> NorthResult<()> {
 }
 
 fn list_lines(fleet: &Fleet) -> NorthResult<()> {
-    for record in fleet.sessions()? {
-        println!("{}", list_line(&record, fleet.status(&record)));
+    let records = fleet.sessions()?;
+    for record in &records {
+        println!("{}", list_line(record, fleet.status(record)));
     }
     let now = now_ms();
-    for seen in fleet.remote_views() {
-        for session in &seen.snapshot.sessions {
-            println!("{}", remote_line(&seen, session, now));
-        }
+    let named = records.iter().map(|record| record.name.clone()).collect();
+    for row in elsewhere(fleet, &named) {
+        println!("{}", remote_line(&row, now));
     }
     Ok(())
 }
@@ -50,11 +52,35 @@ fn list_line(record: &SessionRecord, status: Status) -> String {
     columns(&record.name, record.provider.label(), &record.account, status.label(), &cwd, record.parent.as_deref(), record.placement.as_deref())
 }
 
-fn remote_line(seen: &Seen, session: &SessionView, now: u64) -> String {
-    let minutes = now.saturating_sub(seen.at_ms) / 60_000;
-    let status = if minutes >= STALE_MINUTES { format!("{} (last seen {minutes}m ago)", session.status) } else { session.status.clone() };
-    let cwd = format!("{}:{}", seen.snapshot.host, session.cwd);
-    columns(&session.name, &session.provider, &session.account, &status, &cwd, session.parent.as_deref(), session.placement.as_deref())
+/// The fleet table's sessions that run on another host, as this host's last tick cached it: this host's own rows give way to its live records, and the table never makes the list wait on the ledger host.
+fn elsewhere(fleet: &Fleet, named: &BTreeSet<String>) -> Vec<SessionRow> {
+    let rows = match fleet.cached_sessions() {
+        Ok(rows) => rows.unwrap_or_default(),
+        Err(error) => {
+            eprintln!("north fleet: the cached fleet table is unreadable, so only this host's sessions are listed: {}", error.user_message());
+            Vec::new()
+        }
+    };
+    let now = now_ms();
+    rows.into_iter().filter(|row| row.host != fleet.host() && !named.contains(&row.name) && minutes_since(row, now) < MISSING_MINUTES).collect()
+}
+
+fn updated_ms(row: &SessionRow) -> u64 {
+    Timestamp::parse(&row.updated).ok().and_then(|at| u64::try_from(at.unix_millis()).ok()).unwrap_or(0)
+}
+
+fn minutes_since(row: &SessionRow, now: u64) -> u64 {
+    now.saturating_sub(updated_ms(row)) / 60_000
+}
+
+fn remote_line(row: &SessionRow, now: u64) -> String {
+    let minutes = minutes_since(row, now);
+    let status = if minutes >= STALE_MINUTES { format!("{} (last seen {minutes}m ago)", row.status) } else { row.status.clone() };
+    let cwd = match &row.machine {
+        Some(machine) => format!("{}:{machine}:{}", row.host, row.cwd),
+        None => format!("{}:{}", row.host, row.cwd),
+    };
+    columns(&row.name, &row.provider, &row.account, &status, &cwd, row.parent.as_deref(), row.placement.as_deref())
 }
 
 fn columns(name: &str, provider: &str, account: &str, status: &str, cwd: &str, parent: Option<&str>, placement: Option<&str>) -> String {
@@ -70,7 +96,7 @@ fn list_json(fleet: &Fleet, all: bool) -> NorthResult<()> {
     Ok(())
 }
 
-/// This host's sessions; `all` adds its past sessions and those every relayed host reports, a session once.
+/// This host's sessions; `all` adds its past sessions and those the fleet table holds for other hosts, a session once.
 fn listing(fleet: &Fleet, all: bool) -> NorthResult<Value> {
     let waits = fleet.waits();
     let mut sessions: Vec<Value> = fleet.sessions()?.iter().map(|record| session_json(record, fleet.status(record), &waits)).collect();
@@ -82,31 +108,29 @@ fn listing(fleet: &Fleet, all: bool) -> NorthResult<Value> {
         }
     }
     if all {
-        let mut named: BTreeSet<String> = sessions.iter().filter_map(|session| session["name"].as_str().map(str::to_owned)).collect();
-        for seen in fleet.remote_views() {
-            for session in seen.snapshot.sessions.iter().filter(|session| named.insert(session.name.clone())) {
-                sessions.push(remote_json(&seen, session));
-            }
+        let named: BTreeSet<String> = sessions.iter().filter_map(|session| session["name"].as_str().map(str::to_owned)).collect();
+        for row in elsewhere(fleet, &named) {
+            sessions.push(remote_json(&row));
         }
     }
     Ok(Value::Array(sessions))
 }
 
-fn remote_json(seen: &Seen, session: &SessionView) -> Value {
+fn remote_json(row: &SessionRow) -> Value {
     json!({
-        "name": session.name,
-        "provider": session.provider,
-        "account": session.account,
-        "status": session.status,
-        "parent": session.parent,
-        "cwd": session.cwd,
-        "task_ref": session.tasks.first(),
-        "tasks": session.tasks,
-        "placement": session.placement,
-        "machine": session.machine,
-        "host": seen.snapshot.host,
+        "name": row.name,
+        "provider": row.provider,
+        "account": row.account,
+        "status": row.status,
+        "parent": row.parent,
+        "cwd": row.cwd,
+        "task_ref": row.tasks.first(),
+        "tasks": row.tasks,
+        "placement": row.placement,
+        "machine": row.machine,
+        "host": row.host,
         "remote": true,
-        "seen_ms": seen.at_ms,
+        "seen_ms": updated_ms(row),
     })
 }
 
@@ -139,22 +163,55 @@ mod tests {
     use super::*;
     use crate::fleet::runtimes::Runtimes;
 
+    fn table_row(name: &str, host: &str, status: &str, updated_ms: u64) -> SessionRow {
+        let updated = Timestamp::from_unix_millis(i64::try_from(updated_ms).unwrap()).iso();
+        SessionRow {
+            name: name.into(),
+            host: host.into(),
+            status: status.into(),
+            created: updated.clone(),
+            updated,
+            provider: "claude".into(),
+            account: "a".into(),
+            cwd: "/home/tom/code/north/main".into(),
+            machine: Some("gex45".into()),
+            tasks: vec!["north#316".into(), "north#317".into()],
+            ..SessionRow::default()
+        }
+    }
+
+    fn fleet_at(home: &std::path::Path) -> Fleet {
+        let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
+        Fleet::at(home.into(), Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]), ledger).unwrap().hosted_as("laptop")
+    }
+
     #[test]
-    fn the_whole_fleet_view_lists_the_sessions_every_relayed_host_runs_beside_this_hosts_own() {
+    fn the_whole_fleet_view_lists_the_sessions_the_fleet_table_holds_for_other_hosts_beside_this_hosts_own() {
         let home = tempfile::tempdir().unwrap();
-        let ledger = Arc::new(crate::ledger::Ledger::open(&home.path().join("ledger.db")).unwrap());
-        let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]), ledger).unwrap();
-        let remote = home.path().join(".local/state/north/fleet/.remote");
-        std::fs::create_dir_all(&remote).unwrap();
-        let view = json!({"ssh": "nexus", "at_ms": 7, "snapshot": {"host": "nexus", "gates": [], "sessions": [
-            {"name": "north-316-d1325", "provider": "claude", "account": "a", "status": "idle", "parent": null, "cwd": "gex45:/home/tom/code/north/main", "placement": null, "machine": "gex45", "tasks": ["north#316", "north#317"]}
-        ]}});
-        std::fs::write(remote.join("nexus.json"), view.to_string()).unwrap();
+        let fleet = fleet_at(home.path());
+        let now = now_ms();
+        let rows = [table_row("north-316-d1325", "nexus", "idle", now), table_row("mine", "laptop", "working", now)];
+        crate::fleet::store::cache_sessions(&home.path().join(".local/state/north/fleet"), &rows).unwrap();
         let plain = listing(&fleet, false).unwrap();
         assert!(plain.as_array().unwrap().is_empty(), "{plain}");
         let all = listing(&fleet, true).unwrap();
         let [session] = all.as_array().unwrap().as_slice() else { panic!("{all}") };
         assert_eq!((session["name"].as_str(), session["status"].as_str(), session["host"].as_str(), session["machine"].as_str()), (Some("north-316-d1325"), Some("idle"), Some("nexus"), Some("gex45")));
         assert_eq!((session["task_ref"].as_str(), session["tasks"].clone()), (Some("north#316"), json!(["north#316", "north#317"])));
+    }
+
+    #[test]
+    fn this_hosts_live_record_wins_over_its_own_table_row_and_another_hosts_row_comes_from_the_table() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet_at(home.path());
+        let now = now_ms();
+        let rows = [table_row("mine", "laptop", "working", now), table_row("held", "nexus", "idle", now), table_row("shadow", "nexus", "idle", now - 8 * 24 * 60 * 60 * 1000)];
+        let named = BTreeSet::from(["held".to_string()]);
+        crate::fleet::store::cache_sessions(&home.path().join(".local/state/north/fleet"), &rows).unwrap();
+        assert!(elsewhere(&fleet, &named).is_empty(), "a name this host runs, this host's own row and a long-silent row are not listed from the table");
+        let [other] = elsewhere(&fleet, &BTreeSet::new()).try_into().unwrap_or_else(|rows: Vec<SessionRow>| panic!("{rows:?}"));
+        assert_eq!(other.name, "held");
+        assert_eq!(remote_line(&other, now), "held\tclaude\ta\tidle\tnexus:gex45:/home/tom/code/north/main\t-");
+        assert_eq!(remote_line(&other, now + 12 * 60_000), "held\tclaude\ta\tidle (last seen 12m ago)\tnexus:gex45:/home/tom/code/north/main\t-");
     }
 }

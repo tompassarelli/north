@@ -485,11 +485,14 @@ fn north_fleet_list_and_tree_here_show_a_session_registered_on_another_host_with
     let relayed = hosts.relay();
     assert!(relayed.status.success(), "{}{}", text(&relayed.stdout), text(&relayed.stderr));
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
+    let cached = hosts.here().join(".local/state/north/fleet/.fleet-sessions.json");
+    let row = serde_json::json!([{"name": "kid", "host": "far", "status": "working", "created": "t", "updated": "2099-01-01T00:00:00Z", "provider": "claude", "account": "a", "cwd": "/tmp", "parent": "boss"}]);
+    fs::write(cached, row.to_string()).unwrap();
     let list = text(&north(hosts.here(), &["fleet", "list"]).stdout);
     let kid = list.lines().find(|line| line.starts_with("kid\t")).unwrap_or_else(|| panic!("{list}"));
     let columns: Vec<&str> = kid.split('\t').collect();
     assert_eq!((columns[1], columns[2], columns[5]), ("claude", "a", "boss"), "{kid}");
-    assert!(columns[4].starts_with(&format!("{host}:")), "{kid}");
+    assert!(columns[4].starts_with("far:"), "{kid}");
     let tree = text(&north(hosts.here(), &["fleet", "tree"]).stdout);
     let boss = tree.lines().position(|line| line.starts_with("boss ")).unwrap_or_else(|| panic!("{tree}"));
     assert!(tree.lines().nth(boss + 1).is_some_and(|line| line.starts_with("  kid ") && line.ends_with(&format!("on {host}"))), "{tree}");
