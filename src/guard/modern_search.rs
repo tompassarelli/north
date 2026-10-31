@@ -1,1 +1,0 @@
-../../crates/north-core/src/guard/modern_search.rs

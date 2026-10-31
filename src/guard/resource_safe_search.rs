@@ -1,1 +1,0 @@
-../../crates/north-core/src/guard/resource_safe_search.rs
