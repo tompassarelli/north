@@ -6,6 +6,8 @@ use super::game_reserve::{self, Settings};
 
 const USER: &str = "/user.slice/user-1000.slice/user@1000.service";
 const UPTIME: f64 = 1000.0;
+const SLICES: [&str; 6] = ["agent.slice", "background.slice", "control.slice", "native.slice", "user.slice", "builds.slice"];
+const TOM_SLICES: [&str; 3] = ["app.slice", "session.slice", "game.slice"];
 
 fn add(proc: &Path, pid: i32, ppid: i32, cgroup: &str, args: &str, age: f64) {
     let dir = proc.join(pid.to_string());
@@ -22,15 +24,28 @@ fn settings(root: &Path) -> Settings {
     fs::create_dir_all(&proc).unwrap();
     fs::write(proc.join("uptime"), format!("{UPTIME:.2} 5000.00\n")).unwrap();
     let log = root.join("calls.log");
+    let cgroup = root.join("cgroup");
+    for slice in SLICES.iter().chain(&TOM_SLICES) {
+        fs::create_dir_all(cgroup.join(slice)).unwrap();
+        fs::write(cgroup.join(slice).join("cpuset.cpus.effective"), "0-23\n").unwrap();
+    }
+    fs::create_dir_all(cgroup.join("init.scope")).unwrap();
+    fs::create_dir_all(cgroup.join("agent.slice/agent-capacity.slice")).unwrap();
+    let kernel = format!(
+        "[ \"$2\" = set-property ] || exit 0\nslice=$4; shift 4\nfor p; do case $p in AllowedCPUs=*) printf '%s\\n' \"${{p#AllowedCPUs=}}\" > '{}'/$slice/cpuset.cpus.effective 2>/dev/null;; esac; done\n",
+        cgroup.display()
+    );
     for tool in ["systemctl", "busctl"] {
         let script = root.join(tool);
-        fs::write(&script, format!("#!/bin/sh\necho \"{tool} $*\" >> '{}'\n", log.display())).unwrap();
+        let body = if tool == "systemctl" { kernel.as_str() } else { "" };
+        fs::write(&script, format!("#!/bin/sh\necho \"{tool} $*\" >> '{}'\n{body}", log.display())).unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         crate::foundation::shim::wait_until_executable(&script);
     }
     let _ = fs::remove_file(&log);
     Settings {
         proc,
+        cgroup,
         state: root.join("state.json"),
         systemctl: root.join("systemctl").display().to_string(),
         busctl: root.join("busctl").display().to_string(),
@@ -78,3 +93,74 @@ fn a_warcraft_iii_a_minute_or_older_is_moved_and_pinned_to_the_game_cores() {
     }
 }
 
+
+fn effective(settings: &Settings, slice: &str) -> String {
+    fs::read_to_string(settings.cgroup.join(slice).join("cpuset.cpus.effective")).unwrap().trim().to_owned()
+}
+
+fn spread(spec: &str) -> Vec<usize> {
+    spec.split(',')
+        .flat_map(|part| {
+            let (low, high) = part.split_once('-').unwrap_or((part, part));
+            low.parse::<usize>().unwrap()..=high.parse::<usize>().unwrap()
+        })
+        .collect()
+}
+
+fn reserved(root: &Path) -> Settings {
+    let settings = settings(root);
+    add(&settings.proc, 50, 1, &format!("{USER}/agent.slice/agent-capacity.slice/run-1.scope"), "bun test", UPTIME);
+    add(&settings.proc, 51, 1, &format!("{USER}/user.slice/libpod-1.scope/container"), "Runner.Listener", UPTIME);
+    add(&settings.proc, 52, 1, &format!("{USER}/background.slice/gitleaks-1.scope"), "gitleaks dir", UPTIME);
+    add(&settings.proc, 53, 1, &format!("{USER}/app.slice/app-niri-ghostty-1.scope"), "bash", UPTIME);
+    game_reserve::on(&settings, true).unwrap();
+    settings
+}
+
+#[test]
+fn with_the_reserve_on_no_slice_but_toms_runs_on_a_game_cpu() {
+    let root = tempfile::tempdir().unwrap();
+    let settings = reserved(root.path());
+    let game = spread(&settings.game_cpus);
+    for slice in fs::read_dir(&settings.cgroup).unwrap().flatten().filter_map(|entry| entry.file_name().into_string().ok()) {
+        if !slice.ends_with(".slice") {
+            continue;
+        }
+        let cpus = spread(&effective(&settings, &slice));
+        if TOM_SLICES.contains(&slice.as_str()) {
+            assert_eq!(cpus, spread("0-23"), "{slice} is Tom's and keeps every CPU");
+        } else {
+            assert!(cpus.iter().all(|cpu| !game.contains(cpu)), "{slice} may run on a game CPU: {cpus:?}");
+        }
+    }
+    let pins = fs::read_to_string(root.path().join("pins.log")).unwrap();
+    assert_eq!(pins, "pin 50 4-23:16\npin 51 4-23:16\npin 52 4-23:16\n");
+    let (enforced, line) = game_reserve::status(&settings);
+    assert!(enforced, "{line}");
+}
+
+#[test]
+fn off_gives_every_confined_slice_every_cpu_again() {
+    let root = tempfile::tempdir().unwrap();
+    let settings = reserved(root.path());
+    game_reserve::off(&settings).unwrap();
+    for slice in SLICES.iter().chain(&TOM_SLICES) {
+        assert_eq!(effective(&settings, slice), "0-23", "{slice}");
+    }
+    let calls = fs::read_to_string(root.path().join("calls.log")).unwrap();
+    assert!(calls.contains("set-property --runtime agent.slice AllowedCPUs=0-23 MemoryMax=infinity"), "{calls}");
+    assert!(!calls.contains("AllowedCPUs= ") && !calls.lines().any(|line| line.ends_with("AllowedCPUs=")), "{calls}");
+}
+
+#[test]
+fn status_reports_a_reserve_whose_slices_still_reach_the_game_cpus_as_not_enforced() {
+    let root = tempfile::tempdir().unwrap();
+    let settings = settings(root.path());
+    fs::write(&settings.state, r#"{"on":true,"auto":true}"#).unwrap();
+    let (enforced, line) = game_reserve::status(&settings);
+    assert!(!enforced, "{line}");
+    assert!(
+        line.ends_with("NOT ENFORCED: game CPUs open to agent.slice, background.slice, builds.slice, control.slice, native.slice, user.slice"),
+        "{line}"
+    );
+}

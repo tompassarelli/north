@@ -3,7 +3,7 @@ set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 north=$(cd "$here/.." && realpath "${CARGO_TARGET_DIR:-target}")/debug/north
-tmp=$(mktemp -d)
+tmp=$(mktemp -d) && export GAME_RESERVE_CGROUP=$tmp/cgroup
 trap 'rm -rf -- "$tmp"' EXIT
 pass=0 fail=0
 
@@ -39,7 +39,7 @@ run() {
 }
 
 rofi=$user/app.slice/app-niri-rofi-1.scope
-mkdir -p "$proc" && echo "1000.00 9000.00" > "$proc/uptime"
+mkdir -p "$proc" "$GAME_RESERVE_CGROUP"/{agent,background,user,app}.slice && echo "1000.00 9000.00" > "$proc/uptime"
 add 1 systemd 0 /init.scope "systemd"
 add 10 steam 1 "$rofi" "steam"
 add 11 reaper 10 "$rofi" "reaper SteamLaunch"
@@ -72,8 +72,8 @@ check "status exits 0 when on and reports the game inside game-reserve.slice" \
   "$(out=$(run status); echo "$? $out")"
 
 run off >/dev/null
-check "off gives agent.slice every CPU and lifts the cap" \
-  "1" "$(rg -c '^systemctl --user set-property --runtime agent.slice AllowedCPUs= MemoryMax=infinity$' "$log")"
+check "off gives agent.slice every CPU by its full list, which the kernel accepts for a populated cpuset, and lifts the cap" \
+  "1" "$(rg -c '^systemctl --user set-property --runtime agent.slice AllowedCPUs=0-23 MemoryMax=infinity$' "$log")"
 run status >/dev/null
 check "status exits non-zero after off" "1" "$?"
 

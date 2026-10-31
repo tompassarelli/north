@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 
 const USAGE: &str = "usage: north capacity game-reserve on [--auto] | off | status";
 const GAME_SLICE: &str = "game-reserve.slice";
+const AGENT_SLICE: &str = "agent.slice";
+const TOM_SLICES: [&str; 3] = ["app.slice", "session.slice", "game.slice"];
 const GAME_ROOT: &str = "Warcraft III.exe";
 const SETTLED_SECONDS: f64 = 60.0;
 // /proc/PID/stat starttime is in USER_HZ clock ticks, which Linux fixes at 100 for userspace.
@@ -17,6 +19,7 @@ const TICKS_PER_SECOND: f64 = 100.0;
 
 pub struct Settings {
     pub proc: PathBuf,
+    pub cgroup: PathBuf,
     pub state: PathBuf,
     pub systemctl: String,
     pub busctl: String,
@@ -32,6 +35,7 @@ impl Settings {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         Self {
             proc: var("GAME_RESERVE_PROC").map_or_else(|| "/proc".into(), PathBuf::from),
+            cgroup: var("GAME_RESERVE_CGROUP").map_or_else(user_manager_cgroup, PathBuf::from),
             state: var("GAME_RESERVE_STATE").map_or_else(|| home.join(".local/state/game-reserve/state.json"), PathBuf::from),
             systemctl: var("GAME_RESERVE_SYSTEMCTL").unwrap_or_else(|| "systemctl".into()),
             busctl: var("GAME_RESERVE_BUSCTL").unwrap_or_else(|| "busctl".into()),
@@ -69,9 +73,57 @@ impl Entry {
         self.cgroup.split('/').any(|part| part == GAME_SLICE)
     }
 
-    fn agent(&self) -> bool {
-        self.cgroup.contains("/agent.slice/") || self.cgroup.contains("/native.slice/")
+    fn confined(&self) -> bool {
+        let mut parts = self.cgroup.split('/').skip_while(|part| !(part.starts_with("user@") && part.ends_with(".service")));
+        parts.next().is_some() && parts.next().is_some_and(confined_slice)
     }
+}
+
+fn user_manager_cgroup() -> PathBuf {
+    let uid = rustix::process::getuid().as_raw();
+    PathBuf::from(format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"))
+}
+
+fn confined_slice(name: &str) -> bool {
+    name.ends_with(".slice") && !TOM_SLICES.contains(&name)
+}
+
+fn confined_slices(settings: &Settings) -> Result<Vec<String>, String> {
+    let entries = fs::read_dir(&settings.cgroup).map_err(|error| format!("{}: {error}", settings.cgroup.display()))?;
+    let mut slices = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| confined_slice(name))
+        .collect::<Vec<_>>();
+    slices.sort();
+    Ok(slices)
+}
+
+fn set_agent_slices(settings: &Settings, cpus: &str, memory_max: &str) -> Result<(), String> {
+    let failed = confined_slices(settings)?
+        .into_iter()
+        .filter_map(|slice| {
+            let mut arguments = vec!["set-property".to_owned(), "--runtime".to_owned(), slice.clone(), format!("AllowedCPUs={cpus}")];
+            if slice == AGENT_SLICE {
+                arguments.push(format!("MemoryMax={memory_max}"));
+            }
+            systemctl(settings, &arguments).err().map(|error| format!("{slice}: {error}"))
+        })
+        .collect::<Vec<_>>();
+    if failed.is_empty() { Ok(()) } else { Err(failed.join("; ")) }
+}
+
+fn open_to_game(settings: &Settings) -> Vec<String> {
+    let game = cpu_set(&settings.game_cpus);
+    confined_slices(settings)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|slice| {
+            fs::read_to_string(settings.cgroup.join(slice).join("cpuset.cpus.effective"))
+                .is_ok_and(|effective| !cpu_set(effective.trim()).is_disjoint(&game))
+        })
+        .collect()
 }
 
 pub fn table(proc: &Path) -> BTreeMap<i32, Entry> {
@@ -123,6 +175,17 @@ fn cpu_set(spec: &str) -> BTreeSet<usize> {
         })
         .flatten()
         .collect()
+}
+
+fn cpu_list(cpus: &BTreeSet<usize>) -> String {
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for &cpu in cpus {
+        match ranges.last_mut() {
+            Some((_, high)) if *high + 1 == cpu => *high = cpu,
+            _ => ranges.push((cpu, cpu)),
+        }
+    }
+    ranges.iter().map(|(low, high)| if low == high { low.to_string() } else { format!("{low}-{high}") }).collect::<Vec<_>>().join(",")
 }
 
 fn pin(settings: &Settings, pids: &[i32], cpus: &BTreeSet<usize>) -> usize {
@@ -192,12 +255,7 @@ fn write_state(path: &Path, state: &Value) -> Result<(), String> {
 }
 
 pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
-    systemctl(
-        settings,
-        &["set-property", "--runtime", "agent.slice", &format!("AllowedCPUs={}", settings.agent_cpus), &format!("MemoryMax={}", settings.agent_memory_max)]
-            .map(String::from),
-    )
-    .map_err(|error| format!("confining agent.slice failed: {error}"))?;
+    set_agent_slices(settings, &settings.agent_cpus, &settings.agent_memory_max).map_err(|error| format!("confining the agent slices failed: {error}"))?;
     let table = table(&settings.proc);
     let pids = game_tree(&table);
     if !pids.is_empty() {
@@ -205,7 +263,7 @@ pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
     }
     let mut game = table.iter().filter(|(_, entry)| entry.placed()).map(|(pid, _)| *pid).collect::<Vec<_>>();
     game.extend(&pids);
-    let agents = table.iter().filter(|(_, entry)| entry.agent()).map(|(pid, _)| *pid).collect::<Vec<_>>();
+    let agents = table.iter().filter(|(_, entry)| entry.confined()).map(|(pid, _)| *pid).collect::<Vec<_>>();
     let pinned = pin(settings, &game, &cpu_set(&settings.game_cpus)) + pin(settings, &agents, &cpu_set(&settings.agent_cpus));
     let mut reserve = vec!["set-property".to_owned(), "--runtime".to_owned(), GAME_SLICE.to_owned()];
     reserve.extend(settings.game_properties());
@@ -232,11 +290,10 @@ pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
 
 pub fn off(settings: &Settings) -> Result<String, String> {
     let table = table(&settings.proc);
-    let every = cpu_set(&settings.game_cpus).union(&cpu_set(&settings.agent_cpus)).copied().collect();
-    let members = table.iter().filter(|(_, entry)| entry.agent() || entry.placed()).map(|(pid, _)| *pid).collect::<Vec<_>>();
+    let every = cpu_set(&settings.game_cpus).union(&cpu_set(&settings.agent_cpus)).copied().collect::<BTreeSet<_>>();
+    let members = table.iter().filter(|(_, entry)| entry.confined() || entry.placed()).map(|(pid, _)| *pid).collect::<Vec<_>>();
     pin(settings, &members, &every);
-    systemctl(settings, &["set-property", "--runtime", "agent.slice", "AllowedCPUs=", "MemoryMax=infinity"].map(String::from))
-        .map_err(|error| format!("releasing agent.slice failed: {error}"))?;
+    set_agent_slices(settings, &cpu_list(&every), "infinity").map_err(|error| format!("releasing the agent slices failed: {error}"))?;
     write_state(&settings.state, &json!({ "on": false }))?;
     Ok("game-reserve off: agents may use every CPU".to_owned())
 }
@@ -249,7 +306,12 @@ pub fn status(settings: &Settings) -> (bool, String) {
     let place = if games.is_empty() { "Warcraft III not running".to_owned() } else { format!("Warcraft III {placed}/{} in {GAME_SLICE}", games.len()) };
     if current["on"] == true {
         let auto = if current["auto"] == true { " (auto)" } else { "" };
-        return (true, format!("game-reserve on{auto}: game CPUs {}, agents CPUs {}; {place}", settings.game_cpus, settings.agent_cpus));
+        let line = format!("game-reserve on{auto}: game CPUs {}, agents CPUs {}; {place}", settings.game_cpus, settings.agent_cpus);
+        let open = open_to_game(settings);
+        if open.is_empty() {
+            return (true, line);
+        }
+        return (false, format!("{line}; NOT ENFORCED: game CPUs open to {}", open.join(", ")));
     }
     (false, format!("game-reserve off; {place}"))
 }
