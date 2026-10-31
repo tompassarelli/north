@@ -36,6 +36,9 @@ fn fixture(root: &Path, trace: &str) {
         "#!/bin/sh\nfor a; do last=$a; done\nunit=\"$FLEET_LAUNCH_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' --user stop '*)\n    [ -f \"$unit\" ] || { echo \"Failed to stop $last: Unit $last not loaded.\" >&2; exit 5; }\n    kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null\n    rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
     );
     executable(&root.join("bin/claude"), &format!("#!/bin/sh\nexec {} --trace {trace} \"$@\"\n", support::fake_claude()));
+    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
+    let ledger = north(root, &["threads", "release", "north#1", "--by", "setup"]);
+    assert!(String::from_utf8_lossy(&ledger.stderr).contains("has no owner"), "{}", String::from_utf8_lossy(&ledger.stderr));
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {
@@ -256,22 +259,23 @@ fn a_send_names_its_sender_in_the_receivers_transcript_and_warns_a_second_sender
 }
 
 #[test]
-fn a_letter_relayed_from_another_host_names_its_sender_and_host_and_records_them() {
+fn a_message_sent_on_another_host_is_carried_by_the_fleet_ticks_and_names_its_sender_and_host() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root, "fold");
     let far = root.join("far");
     fs::create_dir_all(far.join(".local/state")).unwrap();
-    executable(&root.join("bin/ssh"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nHOME=\"$FAR_HOME\" XDG_STATE_HOME=\"$FAR_HOME/.local/state\" exec sh -c \"$1\"\n");
-    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
     let launched = launch(root);
     assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
 
     let far_home = far.to_str().unwrap();
     let far_state = format!("{far_home}/.local/state");
-    north_as(root, "here", &[("HOME", far_home), ("XDG_STATE_HOME", &far_state)], &["fleet", "outbox", "take", "--for", "here"]);
+    let on_far = [("HOME", far_home), ("XDG_STATE_HOME", far_state.as_str())];
+    north(root, &["fleet", "tick"]);
+    north_as(root, "far", &on_far, &["fleet", "tick"]);
     let posted = north_as(root, "far", &[("HOME", far_home), ("XDG_STATE_HOME", &far_state), ("NORTH_FLEET_SESSION", "wisp-lead")], &["fleet", "send", "narrow", "rolled back"]);
-    let relayed = north_as(root, "here", &[("FAR_HOME", far_home)], &["fleet", "relay", "far"]);
+    north_as(root, "far", &on_far, &["fleet", "tick"]);
+    let ticked = north(root, &["fleet", "tick"]);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let mut shown = String::new();
     while !shown.contains("rolled back") && std::time::Instant::now() < deadline {
@@ -281,10 +285,10 @@ fn a_letter_relayed_from_another_host_names_its_sender_and_host_and_records_them
     let record: Value = serde_json::from_slice(&fs::read(root.join(".local/state/north/fleet/narrow/session.json")).unwrap()).unwrap();
     north(root, &["fleet", "forget", "narrow"]);
 
-    assert!(String::from_utf8_lossy(&posted.stderr).contains("no session named narrow here; posted "), "{}", String::from_utf8_lossy(&posted.stderr));
-    assert!(relayed.status.success(), "{}{}", String::from_utf8_lossy(&relayed.stdout), String::from_utf8_lossy(&relayed.stderr));
-    let host = record["last_sender"]["name"].as_str().and_then(|name| name.strip_prefix("wisp-lead@")).unwrap_or_else(|| panic!("{record}"));
-    assert!(shown.contains(&format!("user: [from wisp-lead@{host}] rolled back")), "{shown}");
+    assert!(String::from_utf8_lossy(&posted.stderr).contains("narrow runs on here; spooled "), "{}", String::from_utf8_lossy(&posted.stderr));
+    assert!(String::from_utf8_lossy(&ticked.stdout).contains(" to narrow"), "{}", String::from_utf8_lossy(&ticked.stdout));
+    assert_eq!(record["last_sender"]["name"], "wisp-lead@far", "{record}");
+    assert!(shown.contains("user: [from wisp-lead@far] rolled back"), "{shown}");
 }
 
 #[test]
@@ -374,7 +378,6 @@ fn a_task_launch_holds_its_item_in_the_threads_ledger_under_the_session_name_unt
     let root = scratch.path();
     fixture(root, "fold");
     executable(&root.join("bin/gh"), FAKE_GH);
-    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
     let schema = north(root, &["threads", "release", "smashcraft#4", "--by", "setup"]);
     assert!(String::from_utf8_lossy(&schema.stderr).contains("has no owner"), "{}", String::from_utf8_lossy(&schema.stderr));
     let brief = root.join("box.md");
@@ -421,6 +424,12 @@ impl TwoHosts {
         fixture(here, "idle-interrupt");
         fs::create_dir_all(far.join(".local/state")).unwrap();
         fixture(&far, "done");
+        let op = far.join("op/orchestration.toml");
+        fs::write(&op, fs::read_to_string(&op).unwrap().replace("[hosts.here]", "[hosts.far]")).unwrap();
+        for file in ["threads.db", "threads.db-wal", "threads.db-shm"] {
+            let _ = fs::remove_file(far.join(file));
+        }
+        std::os::unix::fs::symlink(here.join("threads.db"), far.join("threads.db")).unwrap();
         executable(&here.join("bin/ssh"), SSH_TO_FAR);
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), here.join("bin/north")).unwrap();
         hosts
@@ -439,12 +448,18 @@ impl TwoHosts {
         north_as(self.here(), "here", &[("FAR_HOME", far.to_str().unwrap())], &["fleet", "relay", "far"])
     }
 
+    fn tick(&self) {
+        for (root, host) in [(self.far(), "far"), (self.here().to_path_buf(), "here"), (self.far(), "far")] {
+            let ticked = north_on(&root, host, &["fleet", "tick"]);
+            assert!(ticked.status.success(), "{}", text(&ticked.stderr));
+        }
+    }
+
     fn launch_boss_here_and_kid_far(&self) {
         let launched = launch_named(self.here(), "boss", "none");
         assert!(launched.status.success(), "{}", text(&launched.stderr));
-        let armed = north(&self.far(), &["fleet", "outbox", "take", "--for", "here"]);
-        assert!(armed.status.success(), "{}", text(&armed.stderr));
-        let kid = launch_named(&self.far(), "kid", "boss");
+        self.tick();
+        let kid = launch_named_on(&self.far(), "far", "kid", "boss");
         assert!(kid.status.success(), "{}", text(&kid.stderr));
     }
 }
@@ -457,9 +472,13 @@ impl Drop for TwoHosts {
 }
 
 fn launch_named(root: &Path, name: &str, parent: &str) -> Output {
+    launch_named_on(root, "here", name, parent)
+}
+
+fn launch_named_on(root: &Path, host: &str, name: &str, parent: &str) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
-    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", parent, "--system-prompt", &brief.display().to_string(), "start the box"])
+    north_on(root, host, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", parent, "--system-prompt", &brief.display().to_string(), "start the box"])
 }
 
 #[test]
@@ -468,13 +487,14 @@ fn a_session_launched_on_another_host_for_a_parent_here_delivers_its_final_repor
     hosts.launch_boss_here_and_kid_far();
 
     until("the report in the parent's transcript", || {
-        hosts.relay();
+        hosts.tick();
         text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout).contains("[from kid · turn 1 · exit completed] Done: fake report")
     });
     let shown = text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout);
     assert!(shown.contains("user: [from "), "{shown}");
-    let letters = fs::read_dir(hosts.far().join(".local/state/north/fleet/.outbox")).unwrap().flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json")).count();
-    assert_eq!(letters, 0, "a relayed report is dropped from the host that posted it");
+    let left: Vec<serde_json::Value> = serde_json::from_slice(&north_on(&hosts.far(), "far", &["fleet", "spool", "take"]).stdout).unwrap();
+    assert!(left.is_empty(), "a delivered report leaves the spool of the host that sent it: {left:?}");
+    assert!(!hosts.far().join(".local/state/north/fleet/.outbox").exists(), "a report posts no letter");
 }
 
 #[test]
@@ -504,7 +524,7 @@ fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_an
     hosts.launch_boss_here_and_kid_far();
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
 
-    let opened = north(&hosts.far(), &["gate", "open", "--session", "kid", "--question", "Rent the box?", "--option", "yes", "--option", "no", "--recommend", "1", "--default", "2", "--default-after", "60s"]);
+    let opened = north_on(&hosts.far(), "far", &["gate", "open", "--session", "kid", "--question", "Rent the box?", "--option", "yes", "--option", "no", "--recommend", "1", "--default", "2", "--default-after", "60s"]);
     assert!(opened.status.success(), "{}", text(&opened.stderr));
     let id = text(&opened.stdout).trim().to_owned();
     let label = format!("{host}:{id}");
@@ -515,6 +535,7 @@ fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_an
     });
     until("the parent told of the gate by its qualified id", || {
         hosts.relay();
+        hosts.tick();
         text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout).contains(&format!("[gate {label} from kid]"))
     });
     let answered = north(hosts.here(), &["gate", "answer", &label, "1", "--note", "go ahead"]);
@@ -685,7 +706,6 @@ fn holder(root: &Path, name: &str, stopped: bool) {
     let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": stopped, "task_ref": "smashcraft#4"});
     fs::write(session.join("session.json"), record.to_string()).unwrap();
     executable(&root.join("bin/gh"), FAKE_GH);
-    std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
     north(root, &["threads", "release", "smashcraft#4", "--by", "setup"]);
     let claimed = north(root, &["threads", "claim", "smashcraft#4", "--by", name]);
     assert!(claimed.status.success(), "{}", text(&claimed.stderr));

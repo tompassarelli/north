@@ -23,7 +23,7 @@ use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
-use super::store::SPOOL_DIR;
+use super::store::{Claim, Registrar, SPOOL_DIR, SessionRow};
 use super::waits::Waits;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
@@ -43,7 +43,7 @@ mod stopping;
 mod takeover;
 mod table;
 pub use home::{orders_here, recorded_here};
-mod letters;
+mod messages;
 mod owners;
 mod parents;
 mod past;
@@ -65,8 +65,8 @@ use home::{fleet_root, home_dir, state_dir};
 pub use hand_in::HandedIn;
 pub use control::Controlled;
 pub use gate_rows::Opened;
-pub use letters::Sent;
-use takeover::{Predecessor, Succession};
+pub use messages::Sent;
+use takeover::Predecessor;
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const OPEN_POLL: Duration = Duration::from_millis(100);
@@ -87,18 +87,19 @@ pub struct Fleet {
     claims: Arc<dyn Claims>,
     host: String,
     arm: fn(i64) -> NorthResult<()>,
+    registrar: Arc<dyn Registrar>,
 }
 
 impl Fleet {
-    pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>) -> NorthResult<Self> {
-        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger, claims)
+    pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>) -> NorthResult<Self> {
+        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger, claims, registrar)
     }
 
-    fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>) -> NorthResult<Self> {
+    fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>) -> NorthResult<Self> {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default })
+        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
@@ -136,17 +137,17 @@ impl Fleet {
     }
 
     pub fn launch(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
-        self.launch_as(request, Succession::Refuse)
+        self.launch_as(request, Claim::Fresh)
     }
 
     /// Launches under a name a session may already hold: that session is ended and archived first, and the new one takes every message to the name the old one never took, so two sessions never answer to one name.
     pub fn take_over(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
-        self.launch_as(request, Succession::TakeOver)
+        self.launch_as(request, Claim::TakeOver)
     }
 
-    fn launch_as(&self, request: &LaunchRequest, succession: Succession) -> NorthResult<SessionRecord> {
+    fn launch_as(&self, request: &LaunchRequest, claim: Claim) -> NorthResult<SessionRecord> {
         let session_dir = self.session_dir(&request.name)?;
-        if session_dir.exists() && succession == Succession::Refuse {
+        if session_dir.exists() && claim == Claim::Fresh {
             return Err(NorthError::Usage(format!("a session named {} already exists; --take-over ends it and moves the name and its messages to the new session", request.name)));
         }
         if let Some(parent) = &request.parent {
@@ -161,12 +162,6 @@ impl Fleet {
         let conversation = runtime.assign_conversation()?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
         let tasks = request.tasks();
-        let predecessor = self.retire_for(&request.name, succession)?;
-        self.claim_before_start(request, &tasks, verification)?;
-        fs::create_dir_all(&session_dir)?;
-        if let Some(predecessor) = &predecessor {
-            hand_in::inherit_journal(&predecessor.archived, &session_dir)?;
-        }
         let mut record = SessionRecord {
             verification,
             name: request.name.clone(),
@@ -195,8 +190,17 @@ impl Fleet {
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
             handoff_at: crate::fleet::handoff::threshold(&request.prompt),
-            addressed_since_ms: predecessor.as_ref().map(Predecessor::addressed_since),
+            addressed_since_ms: None,
         };
+        let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };
+        self.registrar.register(&row, claim)?;
+        let predecessor = self.retire_for(&request.name, claim)?;
+        record.addressed_since_ms = predecessor.as_ref().map(Predecessor::addressed_since);
+        self.claim_before_start(request, &tasks, verification)?;
+        fs::create_dir_all(&session_dir)?;
+        if let Some(predecessor) = &predecessor {
+            hand_in::inherit_journal(&predecessor.archived, &session_dir)?;
+        }
         self.start_claiming(&mut record, &account, conversation.as_deref())?;
         if let Some(task_ref) = &record.task_ref {
             self.ledger.join_task(task_ref, &request.name)?;

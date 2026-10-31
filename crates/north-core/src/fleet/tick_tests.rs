@@ -13,7 +13,7 @@ use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
 use crate::fleet::registry::Controlled;
-use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarSpools, FleetRow, RowKind, SessionRow, Store, WaitKey};
+use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, HandedRow, JobPayload, RowKind, SessionRow, Store, WaitKey};
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -131,7 +131,7 @@ fn a_spooled_row_stays_spooled_until_the_ledger_host_commits_it_and_is_dropped_a
 fn a_tick_publishes_this_hosts_sessions_and_caches_the_fleet_table() {
     let host = host("nexus");
     let _frames = live(&host, "worker");
-    host.store().publish(&[SessionRow { name: "far".into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
+    host.store().publish("gex45", &[SessionRow { name: "far".into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
 
     host.tick();
 
@@ -248,6 +248,18 @@ impl FarSpools for Nobody {
     fn set_aside(&self, ssh: &str, _: &[String]) -> NorthResult<()> {
         Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
     }
+
+    fn cache(&self, ssh: &str, _: &[SessionRow]) -> NorthResult<()> {
+        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
+    }
+
+    fn registry(&self, ssh: &str) -> NorthResult<FarRegistry> {
+        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
+    }
+
+    fn deliver(&self, ssh: &str, _: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
+        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
+    }
 }
 
 #[derive(Default)]
@@ -257,6 +269,7 @@ struct Far {
     undroppable: Mutex<Vec<String>>,
     taken: Mutex<Vec<String>>,
     aside: Mutex<Vec<String>>,
+    cached: Mutex<BTreeMap<String, Vec<String>>>,
 }
 
 impl Far {
@@ -291,6 +304,19 @@ impl FarSpools for Far {
     fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
         self.aside.lock().unwrap().extend(ids.iter().cloned());
         self.drop(ssh, ids)
+    }
+
+    fn cache(&self, ssh: &str, sessions: &[SessionRow]) -> NorthResult<()> {
+        self.cached.lock().unwrap().insert(ssh.into(), sessions.iter().map(|session| session.name.clone()).collect());
+        Ok(())
+    }
+
+    fn registry(&self, _: &str) -> NorthResult<FarRegistry> {
+        Ok(FarRegistry::default())
+    }
+
+    fn deliver(&self, _: &str, _: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
+        Ok(Vec::new())
     }
 }
 
@@ -411,6 +437,18 @@ impl FarSpools for Slow {
 
     fn set_aside(&self, _: &str, _: &[String]) -> NorthResult<()> {
         Ok(())
+    }
+
+    fn cache(&self, _: &str, _: &[SessionRow]) -> NorthResult<()> {
+        Ok(())
+    }
+
+    fn registry(&self, _: &str) -> NorthResult<FarRegistry> {
+        Ok(FarRegistry::default())
+    }
+
+    fn deliver(&self, _: &str, _: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
+        Ok(Vec::new())
     }
 }
 
@@ -707,4 +745,109 @@ fn a_refused_row_on_a_machine_does_not_turn_off_its_lapse_checks() {
     assert_eq!(ticked.refused.len(), 1);
     assert_eq!(ticked.kept.woken, [("worker".to_owned(), "woken: your job capture's lease lapsed with no exit".to_owned())], "{ticked:?}");
     assert_eq!(texts(&frames).len(), 1);
+}
+
+#[test]
+fn a_tick_caches_the_fleet_table_on_each_far_machine_it_pulled_so_its_clis_can_name_any_session() {
+    let host = host("nexus");
+    let _frames = live(&host, "worker");
+    let far = Far::default();
+    far.down.lock().unwrap().push("tom@bunker".into());
+    let pulls = Pulls { spools: &far, always: vec![far_host("gex45"), far_host("bunker")] };
+
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+
+    assert_eq!(far.cached.lock().unwrap().clone(), BTreeMap::from([("tom@gex45".to_owned(), vec!["worker".to_owned()])]));
+    assert!(ticked.uncached.is_empty());
+}
+
+#[test]
+fn a_session_gone_from_this_hosts_registry_is_marked_exited_in_the_fleet_table() {
+    let host = host("nexus");
+    let _frames = live(&host, "worker");
+    host.store().publish("nexus", &[SessionRow { name: "forgotten".into(), host: "nexus".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
+    host.store().publish("gex45", &[SessionRow { name: "far".into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
+
+    host.tick();
+
+    let statuses: Vec<(String, String)> = host.store().sessions().unwrap().into_iter().map(|row| (row.name, row.status)).collect();
+    assert_eq!(statuses, [("far".to_owned(), "idle".to_owned()), ("forgotten".to_owned(), "exited".to_owned()), ("worker".to_owned(), "idle".to_owned())]);
+}
+
+#[test]
+fn a_job_exit_row_from_another_host_wakes_its_session_once_by_row_id() {
+    let host = host("nexus");
+    let frames = live(&host, "worker");
+    let exit = FleetRow { kind: RowKind::JobExit, from: "gex45".into(), sender: None, text: "job soak exited 0".into(), job: Some(JobPayload { key: "soak".into(), lease_secs: None, exit: Some(0) }), ..message("x-1", "worker", NOW_MS) };
+    let beat = FleetRow { id: "b-1".into(), kind: RowKind::JobBeat, job: Some(JobPayload { key: "soak".into(), lease_secs: Some(180), exit: None }), ..exit.clone() };
+    host.store().put(&[beat, exit.clone()]).unwrap();
+
+    let first = host.tick();
+    let second = host.tick();
+
+    assert_eq!(first.delivered, [("x-1".to_owned(), "worker".to_owned())]);
+    assert_eq!((second.delivered.len(), second.already), (0, 0));
+    assert_eq!(frame_uuids(&frames), [exit.prompt_id()]);
+    assert!(frames.lock().unwrap()[0].contains("[from gex45] job soak exited 0"), "{:?}", frames.lock().unwrap());
+}
+
+struct Legacy<'a>(&'a Host);
+
+impl FarSpools for Legacy<'_> {
+    fn take(&self, _: &str) -> NorthResult<Vec<FleetRow>> {
+        Ok(Vec::new())
+    }
+
+    fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {
+        Ok(())
+    }
+
+    fn set_aside(&self, _: &str, _: &[String]) -> NorthResult<()> {
+        Ok(())
+    }
+
+    fn cache(&self, _: &str, _: &[SessionRow]) -> NorthResult<()> {
+        Ok(())
+    }
+
+    fn registry(&self, _: &str) -> NorthResult<FarRegistry> {
+        registry(&self.0.fleet, &self.0.fleet.sessions()?, NOW_MS)
+    }
+
+    fn deliver(&self, _: &str, rows: &[FleetRow]) -> NorthResult<Vec<HandedRow>> {
+        Ok(hand_in_all(&self.0.fleet, rows, Instant::now(), BUDGET))
+    }
+}
+
+#[test]
+fn a_row_for_a_session_in_a_far_machines_own_registry_is_handed_in_there_once_by_the_tick_that_pulls_it() {
+    let (nexus, gex45) = (host("nexus"), host("gex45"));
+    let frames = live(&gex45, "perf");
+    let row = message("m-legacy", "perf", NOW_MS);
+    nexus.store().put(std::slice::from_ref(&row)).unwrap();
+    let legacy = Legacy(&gex45);
+    let pulls = Pulls { spools: &legacy, always: vec![far_host("gex45")] };
+
+    let first = tick(&nexus.fleet, &mut nexus.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    let second = tick(&nexus.fleet, &mut nexus.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+
+    assert_eq!(first.delivered, [("m-legacy".to_owned(), "perf".to_owned())], "{first:?}");
+    assert_eq!((second.delivered.len(), second.already, second.failed.len()), (0, 0, 0), "{second:?}");
+    assert_eq!(frame_uuids(&frames), [row.prompt_id()]);
+    assert_eq!(hand_in_all(&gex45.fleet, std::slice::from_ref(&row), Instant::now(), BUDGET)[0].handed, crate::fleet::store::Handed::Already, "a second puller handing the row in again is a no-op on the far machine");
+    let hosts: Vec<(String, String)> = nexus.store().sessions().unwrap().into_iter().map(|session| (session.name, session.host)).collect();
+    assert_eq!(hosts, [("perf".to_owned(), "gex45".to_owned())]);
+}
+
+#[test]
+fn a_far_machine_whose_own_registry_emptied_has_its_last_rows_marked_exited() {
+    let (nexus, gex45) = (host("nexus"), host("gex45"));
+    nexus.store().publish("gex45", &[SessionRow { name: "forgotten".into(), host: "gex45".into(), status: "parked".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
+    let legacy = Legacy(&gex45);
+    let pulls = Pulls { spools: &legacy, always: vec![far_host("gex45")] };
+
+    tick(&nexus.fleet, &mut nexus.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+
+    let statuses: Vec<(String, String)> = nexus.store().sessions().unwrap().into_iter().map(|row| (row.name, row.status)).collect();
+    assert_eq!(statuses, [("forgotten".to_owned(), "exited".to_owned())]);
 }

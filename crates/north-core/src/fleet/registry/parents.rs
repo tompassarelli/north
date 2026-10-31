@@ -45,7 +45,7 @@ impl Fleet {
     pub fn tell(&self, parent: &str, text: &str, delivery: Delivery) {
         let told = match self.record(parent) {
             Ok(record) if record.stopped => Ok(()),
-            _ => self.send_or_post(None, parent, text, delivery).map(drop),
+            _ => self.send_message(None, parent, text, delivery).map(drop),
         };
         if let Err(error) = told {
             eprintln!("north fleet: {parent} was not told: {}", error.user_message());
@@ -69,7 +69,7 @@ impl Fleet {
 }
 
 impl Courier for Fleet {
-    fn post(&self, parent: &str, text: String, delivery: Delivery) {
+    fn notify(&self, parent: &str, text: String, delivery: Delivery) {
         self.tell(parent, &text, delivery);
     }
 
@@ -87,7 +87,7 @@ impl Courier for Fleet {
 struct Inline<'a>(&'a Fleet);
 
 impl Courier for Inline<'_> {
-    fn post(&self, parent: &str, text: String, delivery: Delivery) {
+    fn notify(&self, parent: &str, text: String, delivery: Delivery) {
         self.0.tell(parent, &text, delivery);
     }
 

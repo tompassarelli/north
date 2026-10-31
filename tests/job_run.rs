@@ -260,6 +260,5 @@ fn job_run_notify_spools_a_start_with_a_three_minute_lease_a_beat_each_interval_
     assert!(exit.text.starts_with("job-run: soak exited 3; output in "), "{}", exit.text);
     let kept: Vec<String> = fs::read_dir(root.join(".local/state/north/jobs")).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
     assert!(kept.iter().all(|name| name.ends_with(".log")), "no .job record is written: {kept:?}");
-    let letters: Vec<String> = fs::read_dir(root.join(".local/state/north/fleet/.outbox")).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
-    assert!(letters.iter().any(|name| name.starts_with(&exit.id)), "{letters:?}");
+    assert!(!root.join(".local/state/north/fleet/.outbox").exists(), "an exit for a session another host runs stays spooled for the fleet tick and posts no letter");
 }

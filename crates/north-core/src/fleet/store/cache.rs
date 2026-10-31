@@ -9,7 +9,7 @@ use super::SessionRow;
 const CACHE: &str = ".fleet-sessions.json";
 
 pub fn cache_sessions(root: &Path, rows: &[SessionRow]) -> NorthResult<()> {
-    let staged = root.join(format!("{CACHE}.tmp"));
+    let staged = root.join(format!("{CACHE}.{}.{}.tmp", std::process::id(), super::super::runtime::now_ms()));
     fs::write(&staged, serde_json::to_vec(rows)?)?;
     fs::rename(staged, root.join(CACHE))?;
     Ok(())

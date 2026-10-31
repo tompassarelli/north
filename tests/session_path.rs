@@ -14,6 +14,7 @@ fn executable(path: &Path, body: &str) {
 }
 
 fn fixture(root: &Path) {
+    support::fleet_ledger(root);
     let op = root.join("op");
     let agents = root.join(".local/state/agents");
     let profile = root.join(".local/state/north/profiles/claude-a");

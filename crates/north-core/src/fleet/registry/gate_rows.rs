@@ -33,7 +33,7 @@ impl Fleet {
 
     pub fn deliver_row(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         match row.kind {
-            RowKind::Message => self.hand_in(row),
+            RowKind::Message | RowKind::JobExit => self.hand_in(row),
             RowKind::Control => self.apply_control(row),
             RowKind::Gate => self.open_gate_row(row),
             RowKind::GateAnswer => self.apply_gate_answer(row),
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn a_gate_for_a_session_this_registry_lacks_is_spooled_as_one_gate_row_and_posts_no_letter() {
+    fn a_gate_for_a_session_this_registry_lacks_is_spooled_as_one_gate_row() {
         let home = tempfile::tempdir().unwrap();
         let far = fleet(home.path());
         cached(&far, &["worker"]);
@@ -159,7 +159,6 @@ mod tests {
         assert_eq!((row.kind, row.to.as_str(), row.text.as_str()), (RowKind::Gate, "worker", "Rent the box?"));
         assert_eq!(row.gate.as_deref(), Some(&request("worker")));
         assert_eq!(spooled(&far), *row);
-        assert!(far.outbox().take("laptop").unwrap().is_empty());
         assert!(matches!(far.open_or_spool_gate(&request("nobody")), Err(NorthError::Usage(why)) if why == "no session named nobody"));
         assert!(matches!(far.open_or_spool_gate(&GateRequest { options: vec![], ..request("worker") }), Err(NorthError::Usage(_))));
         assert_eq!(Spool::at(&far.root).pending().unwrap().len(), 1);

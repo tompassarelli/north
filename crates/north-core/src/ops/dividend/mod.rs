@@ -97,13 +97,13 @@ pub fn tick(board: &mut dyn Board, facts: &Facts, date: &str, dry_run: bool) -> 
             .lines
             .extend(detail(&verdicts).lines().map(|line| format!("  {line}")));
         if standing != Standing::Unread {
-            post(board, &bet, (standing, &verdicts), (date, dry_run), &mut report);
+            post_standing(board, &bet, (standing, &verdicts), (date, dry_run), &mut report);
         }
     }
     report
 }
 
-fn post(
+fn post_standing(
     board: &mut dyn Board,
     bet: &Bet,
     (standing, verdicts): (Standing, &[(Check, Verdict)]),

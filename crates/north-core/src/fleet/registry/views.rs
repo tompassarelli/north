@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates;
-use crate::fleet::relay;
+use crate::fleet::relay::{self, Courier, Relayed};
 use crate::fleet::remote_view::{GateView, Seen, SessionView, Snapshot, split_qualified};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::{SessionRow, cached_sessions};
@@ -16,6 +16,14 @@ const VIEW: &str = "json";
 impl Fleet {
     pub fn cached_sessions(&self) -> NorthResult<Option<Vec<SessionRow>>> {
         cached_sessions(&self.root)
+    }
+
+    pub fn relay(&self, courier: &dyn Courier, hosts: &[String]) -> NorthResult<Relayed> {
+        let relayed = relay::relay(courier, hosts);
+        for (ssh, snapshot) in &relayed.snapshots {
+            self.remember(ssh, snapshot)?;
+        }
+        Ok(relayed)
     }
 
     pub fn snapshot(&self) -> NorthResult<Snapshot> {

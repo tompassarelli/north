@@ -111,7 +111,7 @@ impl<F: CommitStatuses> Attester<'_, F> {
         recorded.map_err(|e| format!("dispatched Autoland but cannot record it at {}: {e}", marker.display()))
     }
 
-    fn post(&self, repo: &str, tip: &BranchTip, state: &str, description: &str) -> Result<bool, String> {
+    fn attest_status(&self, repo: &str, tip: &BranchTip, state: &str, description: &str) -> Result<bool, String> {
         match self.forge.post_status(repo, &tip.sha, CONTEXT, state, description) {
             Ok(()) => Ok(true),
             Err(PostError::Forbidden(_)) => Ok(false),
@@ -133,10 +133,10 @@ impl<F: CommitStatuses> Attester<'_, F> {
         }
         let findings = self.scan(repo, tip).map_err(|e| format!("nothing posted: {e}"))?;
         if !findings.is_empty() {
-            let posted = self.post(repo, tip, "failure", REFUSED)?;
+            let posted = self.attest_status(repo, tip, "failure", REFUSED)?;
             return Ok(Outcome::Refused { findings, posted });
         }
-        if !self.post(repo, tip, "success", CLEAN)? {
+        if !self.attest_status(repo, tip, "success", CLEAN)? {
             return Ok(Outcome::Deferred);
         }
         self.dispatch(repo, tip)?;

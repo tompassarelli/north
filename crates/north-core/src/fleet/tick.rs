@@ -6,7 +6,7 @@ use crate::foundation::clock::Timestamp;
 use super::invariant::{self, Facts, Kept};
 use super::model::SessionRecord;
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, Exchanged, FarSpools, FleetRow, LedgerHost, SessionRow, WaitKey, WaitRow};
+use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, Handed, HandedRow, LedgerHost, SessionRow, WaitKey, WaitRow};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -27,6 +27,8 @@ pub struct Ticked {
     pub probed: Vec<String>,
     pub kept: Kept,
     pub unsettled: Option<String>,
+    pub uncached: Vec<(String, String)>,
+    pub far_failed: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,6 +66,17 @@ struct Taken {
 }
 
 impl Ticked {
+    fn note(&mut self, handed: Vec<HandedRow>) {
+        for HandedRow { id, to, handed } in handed {
+            match handed {
+                Handed::Delivered => self.delivered.push((id, to)),
+                Handed::Already => self.already += 1,
+                Handed::Deferred => self.deferred += 1,
+                Handed::Failed(why) => self.failed.push((id, why)),
+            }
+        }
+    }
+
     pub fn lines(&self) -> Vec<String> {
         let delivered = self.delivered.iter().map(|(id, to)| format!("delivered {id} to {to}"));
         let failed = self.failed.iter().map(|(id, why)| format!("not delivered {id}: {why}"));
@@ -71,9 +84,11 @@ impl Ticked {
         let unpulled = self.pull_failed.iter().map(|(name, why)| format!("not pulled from {name}: {why}"));
         let undropped = self.drop_failed.iter().map(|(name, why)| format!("not dropped or set aside on {name}: {why}"));
         let refused = self.refused.iter().map(|(name, why)| format!("set aside on {name}, the store refuses it: {why}"));
+        let uncached = self.uncached.iter().map(|(name, why)| format!("fleet table not cached on {name}: {why}"));
+        let undelivered = self.far_failed.iter().map(|(name, why)| format!("not delivered to the registry on {name}: {why}"));
         let counts = format!("flushed {}, pulled {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.pulled, self.delivered.len(), self.already, self.deferred, self.pruned);
         let unsettled = self.unsettled.iter().map(|why| format!("waits not settled in the store: {why}"));
-        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(self.probed.iter().cloned()).chain(self.kept.lines()).chain(unsettled).chain([counts]).collect()
+        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(uncached).chain(undelivered).chain(self.probed.iter().cloned()).chain(self.kept.lines()).chain(unsettled).chain([counts]).collect()
     }
 }
 
@@ -84,13 +99,9 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
     let records = fleet.sessions()?;
     let mut ticked = Ticked::default();
     let taken = take_far(fleet, &records, pulls, &mut rows, &mut ticked);
-    let floor = now_ms.saturating_sub(u64::try_from(RETENTION.as_millis()).unwrap_or(u64::MAX));
     let pulled = rows.len() - spooled.len();
-    let exchange = Exchange {
-        rows,
-        sessions: records.iter().map(|record| published(fleet, record, now_ms)).collect(),
-        addressees: records.iter().map(|record| addressee(fleet, record, floor)).collect::<NorthResult<_>>()?,
-    };
+    let FarRegistry { sessions, addressees, .. } = registry(fleet, &records, now_ms)?;
+    let exchange = Exchange { rows, host: fleet.host().to_owned(), sessions, addressees };
     let exchanged = ledger.exchange(&exchange)?;
     for id in &spooled {
         spool.withdraw(id)?;
@@ -100,18 +111,11 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
     ticked.flushed = spooled.len();
     ticked.pulled = pulled;
     ticked.held_elsewhere = exchanged.held_elsewhere.clone();
-    for row in exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)) {
-        if started.elapsed() >= budget {
-            ticked.deferred += 1;
-            continue;
-        }
-        match fleet.deliver_row(row) {
-            Ok(HandedIn::Delivered) => ticked.delivered.push((row.id.clone(), row.to.clone())),
-            Ok(HandedIn::Already) => ticked.already += 1,
-            Err(error) => ticked.failed.push((row.id.clone(), error.user_message())),
-        }
-    }
+    let here: Vec<FleetRow> = exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).cloned().collect();
+    ticked.note(hand_in_all(fleet, &here, started, budget));
     ticked.drop_failed = drop_far(pulls, &taken);
+    ticked.uncached = cache_far(pulls, &taken, &exchanged.sessions);
+    deliver_far(ledger, pulls, &taken, &mut ticked, started, budget);
     let probed = probes.settle(fleet);
     ticked.probed = probed.lines;
     let pending = fleet.unsettled_waits();
@@ -133,6 +137,51 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
     }
     ticked.pruned = fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT)?;
     Ok(ticked)
+}
+
+pub fn registry(fleet: &Fleet, records: &[SessionRecord], now_ms: u64) -> NorthResult<FarRegistry> {
+    let floor = now_ms.saturating_sub(u64::try_from(RETENTION.as_millis()).unwrap_or(u64::MAX));
+    Ok(FarRegistry { host: fleet.host().to_owned(), sessions: records.iter().map(|record| fleet.table_row(record, now_ms)).collect(), addressees: records.iter().map(|record| addressee(fleet, record, floor)).collect::<NorthResult<_>>()? })
+}
+
+pub fn hand_in_all(fleet: &Fleet, rows: &[FleetRow], started: Instant, budget: Duration) -> Vec<HandedRow> {
+    rows.iter()
+        .map(|row| {
+            let handed = if started.elapsed() >= budget {
+                Handed::Deferred
+            } else {
+                match fleet.deliver_row(row) {
+                    Ok(HandedIn::Delivered) => Handed::Delivered,
+                    Ok(HandedIn::Already) => Handed::Already,
+                    Err(error) => Handed::Failed(error.user_message()),
+                }
+            };
+            HandedRow { id: row.id.clone(), to: row.to.clone(), handed }
+        })
+        .collect()
+}
+
+fn deliver_far(ledger: &mut dyn LedgerHost, pulls: &Pulls, taken: &[Taken], ticked: &mut Ticked, started: Instant, budget: Duration) {
+    let registries = in_parallel(taken, |taken| pulls.spools.registry(&taken.host.ssh));
+    for (taken, registry) in taken.iter().zip(registries) {
+        let name = taken.host.name.clone();
+        if started.elapsed() >= budget {
+            ticked.far_failed.push((name, "deferred: the tick spent its budget".into()));
+            continue;
+        }
+        let delivered = registry.and_then(|FarRegistry { host, sessions, addressees }| {
+            if host.is_empty() {
+                return Ok(Vec::new());
+            }
+            let exchanged = ledger.exchange(&Exchange { rows: Vec::new(), host, sessions, addressees })?;
+            let rows: Vec<FleetRow> = exchanged.rows.into_iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).collect();
+            if rows.is_empty() { Ok(Vec::new()) } else { pulls.spools.deliver(&taken.host.ssh, &rows) }
+        });
+        match delivered {
+            Ok(handed) => ticked.note(handed),
+            Err(error) => ticked.far_failed.push((name, error.user_message())),
+        }
+    }
 }
 
 fn keep_invariant(fleet: &Fleet, ticked: &Ticked, exchanged: &Exchanged, waits: &[WaitRow], now_ms: u64) -> NorthResult<Kept> {
@@ -181,6 +230,11 @@ fn drop_far(pulls: &Pulls, taken: &[Taken]) -> Vec<(String, String)> {
     held.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
 }
 
+fn cache_far(pulls: &Pulls, taken: &[Taken], sessions: &[SessionRow]) -> Vec<(String, String)> {
+    let answers = in_parallel(taken, |taken| pulls.spools.cache(&taken.host.ssh, sessions));
+    taken.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
+}
+
 fn in_parallel<T: Sync, R: Send>(items: &[T], run: impl Fn(&T) -> R + Sync) -> Vec<R> {
     std::thread::scope(|scope| {
         let running: Vec<_> = items.iter().map(|item| scope.spawn(|| run(item))).collect();
@@ -205,27 +259,6 @@ fn addressee(fleet: &Fleet, record: &SessionRecord, floor: u64) -> NorthResult<A
 
 fn sent_at(id: &str) -> Option<u64> {
     id.split('-').next()?.parse().ok()
-}
-
-fn published(fleet: &Fleet, record: &SessionRecord, now_ms: u64) -> SessionRow {
-    SessionRow {
-        name: record.name.clone(),
-        host: fleet.host().to_owned(),
-        status: fleet.status(record).label().to_owned(),
-        created: iso(record.created_ms),
-        updated: iso(now_ms),
-        provider: record.provider.label().to_owned(),
-        account: record.account.clone(),
-        cwd: record.cwd.display().to_string(),
-        parent: record.parent.clone(),
-        placement: record.placement.clone(),
-        machine: record.machine.as_ref().map(|machine| machine.name.clone()),
-        tasks: record.tasks().map(str::to_owned).collect(),
-    }
-}
-
-fn iso(ms: u64) -> String {
-    Timestamp::from_unix_millis(i64::try_from(ms).unwrap_or(i64::MAX)).iso()
 }
 
 #[cfg(test)]

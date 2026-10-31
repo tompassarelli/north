@@ -97,7 +97,7 @@ impl Tell {
             return true;
         }
         match self.ledger.claim_receipt(&self.record.name, &format!("silent:{}", self.turn), now_ms()) {
-            Ok(true) => self.courier.post(&self.parent, text, Delivery::Queued),
+            Ok(true) => self.courier.notify(&self.parent, text, Delivery::Queued),
             Ok(false) => {}
             Err(error) => eprintln!("north fleet: silent notice to {} not sent: {}", self.parent, error.user_message()),
         }

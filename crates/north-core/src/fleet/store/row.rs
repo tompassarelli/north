@@ -26,6 +26,7 @@ pub enum RowKind {
 
 impl RowKind {
     pub const ALL: [RowKind; 7] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control];
+    pub const DELIVERED: [RowKind; 5] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobExit, Self::Control];
 
     pub fn label(self) -> &'static str {
         match self {

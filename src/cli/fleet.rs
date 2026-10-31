@@ -10,6 +10,8 @@ use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::runtimes::Runtimes;
+use crate::fleet::store::LedgerRegistrar;
+use crate::ops::pacing::placement::{self, config};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::ledger::Ledger;
@@ -72,7 +74,11 @@ pub(super) fn roster() -> NorthResult<Roster> {
 }
 
 pub(super) fn open_fleet() -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli), Arc::new(LedgerRegistrar::new(far_machine)))
+}
+
+fn far_machine(host: &str) -> bool {
+    config().is_ok_and(|cfg| placement::gate::spool_pulled(&cfg, host))
 }
 
 pub fn host_watch(config: &HostConfig) -> Option<Box<dyn FrameWatch>> {

@@ -111,8 +111,8 @@ fn a_launch_claims_a_new_name_and_is_refused_while_a_session_of_that_name_is_not
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
 
-    store.register(&session("sc-1", "nexus", "working")).unwrap();
-    let Err(NorthError::Refused(why)) = store.register(&session("sc-1", "gex45", "starting")) else { panic!("a live name was claimed twice") };
+    store.register(&session("sc-1", "nexus", "working"), Claim::Fresh).unwrap();
+    let Err(NorthError::Refused(why)) = store.register(&session("sc-1", "gex45", "starting"), Claim::Fresh) else { panic!("a live name was claimed twice") };
 
     assert_eq!(why, "the session name sc-1 is held fleet-wide by a working session on nexus");
     assert_eq!(store.sessions().unwrap(), [session("sc-1", "nexus", "working")]);
@@ -122,26 +122,39 @@ fn a_launch_claims_a_new_name_and_is_refused_while_a_session_of_that_name_is_not
 fn a_launch_takes_over_the_name_of_an_exited_session() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
-    store.register(&session("sc-1", "nexus", "exited")).unwrap();
+    store.register(&session("sc-1", "nexus", "exited"), Claim::Fresh).unwrap();
 
-    store.register(&session("sc-1", "gex45", "starting")).unwrap();
+    store.register(&session("sc-1", "gex45", "starting"), Claim::Fresh).unwrap();
 
     assert_eq!(store.sessions().unwrap(), [session("sc-1", "gex45", "starting")]);
+}
+
+#[test]
+fn a_take_over_replaces_a_live_row_and_a_fresh_launch_replaces_a_row_its_own_host_holds() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    store.register(&session("lead", "nexus", "working"), Claim::Fresh).unwrap();
+
+    store.register(&session("lead", "whiterabbit", "starting"), Claim::TakeOver).unwrap();
+    store.register(&session("lead", "whiterabbit", "starting"), Claim::Fresh).unwrap();
+
+    assert_eq!(store.sessions().unwrap(), [session("lead", "whiterabbit", "starting")]);
+    assert!(matches!(store.register(&session("lead", "nexus", "starting"), Claim::Fresh), Err(NorthError::Refused(_))));
 }
 
 #[test]
 fn a_host_publishes_its_registry_without_taking_a_live_name_from_another_host() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
-    store.register(&session("sc-1", "nexus", "working")).unwrap();
-    store.register(&session("sc-2", "nexus", "exited")).unwrap();
+    store.register(&session("sc-1", "nexus", "working"), Claim::Fresh).unwrap();
+    store.register(&session("sc-2", "nexus", "exited"), Claim::Fresh).unwrap();
 
-    let held = store.publish(&[session("sc-1", "gex45", "idle"), session("sc-2", "gex45", "idle"), session("sc-3", "gex45", "parked")]).unwrap();
-    let held_again = store.publish(&[session("sc-3", "gex45", "working")]).unwrap();
+    let held = store.publish("gex45", &[session("sc-1", "gex45", "idle"), session("sc-2", "gex45", "idle"), session("sc-3", "gex45", "parked")]).unwrap();
+    let held_again = store.publish("gex45", &[session("sc-3", "gex45", "working")]).unwrap();
 
     assert_eq!(held, ["sc-1"]);
     assert!(held_again.is_empty());
-    assert_eq!(store.sessions().unwrap(), [session("sc-1", "nexus", "working"), session("sc-2", "gex45", "idle"), session("sc-3", "gex45", "working")]);
+    assert_eq!(store.sessions().unwrap(), [session("sc-1", "nexus", "working"), session("sc-2", "gex45", "exited"), session("sc-3", "gex45", "working")]);
 }
 
 #[test]
@@ -223,7 +236,7 @@ fn a_published_session_keeps_the_columns_the_fleet_list_shows() {
         ..session("sc-1", "nexus", "working")
     };
 
-    store.publish(std::slice::from_ref(&detailed)).unwrap();
+    store.publish("nexus", std::slice::from_ref(&detailed)).unwrap();
 
     assert_eq!(store.sessions().unwrap(), [detailed]);
 }
@@ -331,4 +344,30 @@ fn a_wait_request_needs_a_session_and_a_key_and_a_known_kind() {
     assert_eq!(WaitRequest::parse(good).unwrap().kind, WaitKind::Capture);
     assert!(WaitRequest::parse(br#"{"session":"","kind":"farm","key":"1","within_secs":60}"#).is_err());
     assert!(WaitRequest::parse(br#"{"session":"sc-1","kind":"soak","key":"1","within_secs":60}"#).is_err());
+}
+
+#[test]
+fn a_publish_leaves_a_row_still_launching_on_its_host_and_retires_one_whose_launch_went_stale() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let now = Timestamp::now().iso();
+    store.register(&SessionRow { updated: now.clone(), ..session("fresh", "gex45", "starting") }, Claim::Fresh).unwrap();
+    store.register(&session("stale", "gex45", "starting"), Claim::Fresh).unwrap();
+
+    store.publish("gex45", &[]).unwrap();
+
+    assert_eq!(store.sessions().unwrap(), [SessionRow { updated: now, ..session("fresh", "gex45", "starting") }, session("stale", "gex45", "exited")]);
+}
+
+#[test]
+fn a_job_exit_that_reached_the_store_over_a_day_ago_is_not_delivered_and_a_fresh_one_is() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let exit = |id: &str| FleetRow { kind: RowKind::JobExit, job: Some(JobPayload { key: "soak".into(), lease_secs: None, exit: Some(0) }), ..message(id, "sc-1") };
+    store.put(&[exit("x-old"), exit("x-new")]).unwrap();
+    Connection::open(&path).unwrap().execute("UPDATE events SET ts = '2026-01-01T00:00:00Z' WHERE json_extract(data, '$.id') = 'x-old'", []).unwrap();
+
+    let exchanged = store.exchange(&Exchange { addressees: vec![Addressee { name: "sc-1".into(), ..Addressee::default() }], ..Exchange::default() }).unwrap();
+
+    assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["x-new"]);
 }

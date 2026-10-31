@@ -275,3 +275,42 @@ fn a_session_that_exited_holding_a_claim_leaves_the_issue_unowned_while_parked_a
         [("north#elsewhere", "someone-else"), ("north#parked", "parked"), ("north#running", "running")].map(|(item, owner)| (item.to_owned(), owner.to_owned()))
     );
 }
+
+#[derive(Default)]
+struct Unreachable(std::sync::Mutex<Vec<(crate::fleet::store::SessionRow, Claim)>>);
+
+impl Registrar for Unreachable {
+    fn register(&self, row: &crate::fleet::store::SessionRow, claim: Claim) -> NorthResult<()> {
+        self.0.lock().unwrap().push((row.clone(), claim));
+        Err(NorthError::Refused(format!("a launch registers {} in the fleet store on the ledger host first, and it did not answer: ssh nexus: timed out", row.name)))
+    }
+}
+
+#[test]
+fn a_launch_registers_its_fleet_row_before_it_starts_and_refuses_when_the_fleet_store_does_not_answer() {
+    let home = tempfile::tempdir().unwrap();
+    let store = Arc::new(Unreachable::default());
+    let fleet = fleet(home.path(), "").registering(store.clone());
+
+    let refused = fleet.launch(&LaunchRequest { machine: None, ..on_far() });
+
+    assert!(matches!(refused, Err(NorthError::Refused(why)) if why.contains("did not answer")));
+    assert!(!fleet.session_dir("worker").unwrap().exists(), "a refused launch starts nothing");
+    let calls = store.0.lock().unwrap();
+    assert_eq!(calls.iter().map(|(row, claim)| (row.name.as_str(), row.host.as_str(), row.status.as_str(), *claim)).collect::<Vec<_>>(), [("worker", fleet.host(), "starting", Claim::Fresh)]);
+}
+
+#[test]
+fn a_take_over_claims_the_row_under_the_name_and_a_refused_one_leaves_the_holder_in_place() {
+    let home = tempfile::tempdir().unwrap();
+    let store = Arc::new(Unreachable::default());
+    let fleet = fleet(home.path(), "").registering(store.clone());
+    let held = fleet.session_dir("worker").unwrap();
+    fs::create_dir_all(&held).unwrap();
+    fs::write(held.join("session.json"), serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "conversation": "c0ffee"}).to_string()).unwrap();
+
+    assert!(fleet.take_over(&LaunchRequest { machine: None, ..on_far() }).is_err());
+
+    assert_eq!(store.0.lock().unwrap().iter().map(|(row, claim)| (row.name.as_str(), *claim)).collect::<Vec<_>>(), [("worker", Claim::TakeOver)]);
+    assert_eq!(fleet.record("worker").unwrap().conversation.as_deref(), Some("c0ffee"), "the holder is not archived when the store refuses");
+}

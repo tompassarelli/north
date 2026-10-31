@@ -4,12 +4,7 @@ use crate::error::NorthResult;
 
 use super::Fleet;
 use super::super::model::SessionRecord;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Succession {
-    Refuse,
-    TakeOver,
-}
+use super::super::store::Claim;
 
 /// The session a takeover ended, and where its directory now lies.
 pub(super) struct Predecessor {
@@ -26,8 +21,8 @@ impl Predecessor {
 
 impl Fleet {
     /// Ends and archives the session holding `name` when this launch takes the name over; None when no session holds it.
-    pub(super) fn retire_for(&self, name: &str, succession: Succession) -> NorthResult<Option<Predecessor>> {
-        if succession != Succession::TakeOver || !self.session_dir(name)?.exists() {
+    pub(super) fn retire_for(&self, name: &str, claim: Claim) -> NorthResult<Option<Predecessor>> {
+        if claim != Claim::TakeOver || !self.session_dir(name)?.exists() {
             return Ok(None);
         }
         let record = self.record(name)?;

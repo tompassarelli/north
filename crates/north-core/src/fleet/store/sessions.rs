@@ -44,8 +44,18 @@ fn upsert(tx: &Transaction, row: &SessionRow, guard: &str) -> NorthResult<usize>
     .map_err(sql)
 }
 
-pub(super) fn register(tx: &Transaction, row: &SessionRow) -> NorthResult<()> {
-    if upsert(tx, row, "fleet_sessions.status = ?6")? == 1 {
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Claim {
+    Fresh,
+    TakeOver,
+}
+
+pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim) -> NorthResult<()> {
+    let guard = match claim {
+        Claim::Fresh => "fleet_sessions.status = ?6 OR fleet_sessions.host = excluded.host",
+        Claim::TakeOver => "1",
+    };
+    if upsert(tx, row, guard)? == 1 {
         return Ok(());
     }
     let (host, status): (String, String) =
@@ -61,6 +71,16 @@ pub(super) fn publish(tx: &Transaction, rows: &[SessionRow]) -> NorthResult<Vec<
         }
     }
     Ok(held_elsewhere)
+}
+
+pub(super) fn retire_vanished(tx: &Transaction, host: &str, rows: &[SessionRow], launching_since: &str) -> NorthResult<()> {
+    let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+    tx.execute(
+        "UPDATE fleet_sessions SET status = ?1 WHERE host = ?2 AND status != ?1 AND name NOT IN (SELECT value FROM json_each(?3)) AND NOT (status = ?4 AND updated >= ?5)",
+        params![Status::Exited.label(), host, serde_json::to_string(&names)?, Status::Starting.label(), launching_since],
+    )
+    .map_err(sql)?;
+    Ok(())
 }
 
 pub(super) fn all(db: &rusqlite::Connection) -> NorthResult<Vec<SessionRow>> {

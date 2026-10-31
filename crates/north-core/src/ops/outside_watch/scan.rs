@@ -118,7 +118,7 @@ struct Fields<'a> {
     url: &'a Value,
 }
 
-fn post(kind: &'static str, repo: &str, number: i64, node: &Value, fields: Fields) -> Option<Post> {
+fn post_of(kind: &'static str, repo: &str, number: i64, node: &Value, fields: Fields) -> Option<Post> {
     let Fields { actor, body, association, created, url } = fields;
     let id = match node.get("node_id").or_else(|| node.get("id"))? {
         Value::String(id) => id.clone(),
@@ -163,7 +163,7 @@ fn issue_posts(config: &Config, gh: &dyn Gh, since: &str) -> Result<Issues, Fail
         }
         if text(&hit, "created_at").as_str() >= since {
             let body = format!("{}\n{}", text(&hit, "title"), text(&hit, "body"));
-            found.posts.extend(post(if is_pr { "pr" } else { "issue" }, &repo, number, &hit, Fields { actor: &hit["user"], body: &body, association: &hit["author_association"], created: &text(&hit, "created_at"), url: &hit["html_url"] }));
+            found.posts.extend(post_of(if is_pr { "pr" } else { "issue" }, &repo, number, &hit, Fields { actor: &hit["user"], body: &body, association: &hit["author_association"], created: &text(&hit, "created_at"), url: &hit["html_url"] }));
         }
     }
     Ok(found)
@@ -175,7 +175,7 @@ fn comment_posts(config: &Config, gh: &dyn Gh, since: &str, repos: &BTreeSet<Str
         for (endpoint, number_key, kind) in [("issues/comments", "issue_url", "comment"), ("pulls/comments", "pull_request_url", "review comment")] {
             for item in pages(gh, &format!("repos/{}/{repo}/{endpoint}?since={since}&per_page=100", config.owner), None)? {
                 if text(&item, "created_at").as_str() >= since {
-                    found.extend(post(kind, repo, last_number(&item[number_key]), &item, Fields { actor: &item["user"], body: &text(&item, "body"), association: &item["author_association"], created: &text(&item, "created_at"), url: &item["html_url"] }));
+                    found.extend(post_of(kind, repo, last_number(&item[number_key]), &item, Fields { actor: &item["user"], body: &text(&item, "body"), association: &item["author_association"], created: &text(&item, "created_at"), url: &item["html_url"] }));
                 }
             }
         }
@@ -188,7 +188,7 @@ fn review_posts(config: &Config, gh: &dyn Gh, since: &str, prs: &BTreeSet<(Strin
     for (repo, number) in prs {
         for review in pages(gh, &format!("repos/{}/{repo}/pulls/{number}/reviews?per_page=100", config.owner), None)? {
             if text(&review, "submitted_at").as_str() >= since && review.get("user").is_some_and(|user| !user.is_null()) {
-                found.extend(post("review", repo, *number, &review, Fields { actor: &review["user"], body: &text(&review, "body"), association: &review["author_association"], created: &text(&review, "submitted_at"), url: &review["html_url"] }));
+                found.extend(post_of("review", repo, *number, &review, Fields { actor: &review["user"], body: &text(&review, "body"), association: &review["author_association"], created: &text(&review, "submitted_at"), url: &review["html_url"] }));
             }
         }
     }
@@ -213,7 +213,7 @@ fn discussion_thread(discussion: &Value, since: &str) -> Vec<Post> {
             _ => "discussion reply",
         };
         if text(node, "createdAt").as_str() >= since && node.get("author").is_some_and(|author| !author.is_null()) {
-            found.extend(post(kind, repo, number, node, Fields { actor: &node["author"], body: &body, association: &node["authorAssociation"], created: &text(node, "createdAt"), url: &node["url"] }));
+            found.extend(post_of(kind, repo, number, node, Fields { actor: &node["author"], body: &body, association: &node["authorAssociation"], created: &text(node, "createdAt"), url: &node["url"] }));
         }
     }
     found

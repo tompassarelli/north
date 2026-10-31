@@ -23,3 +23,13 @@ pub fn fake_claude() -> String {
         })
         .clone()
 }
+
+#[allow(dead_code)]
+pub fn fleet_ledger(home: &Path) {
+    let dir = home.join(".local/state/threads");
+    std::fs::create_dir_all(&dir).unwrap();
+    rusqlite::Connection::open(dir.join("threads.db"))
+        .unwrap()
+        .execute_batch("CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('claim','release')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;")
+        .unwrap();
+}

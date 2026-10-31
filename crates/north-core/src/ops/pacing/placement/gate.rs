@@ -276,7 +276,11 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
 
 /// The `[hosts.NAME]` machines marked `pulls_spool = true`: each far machine whose CLIs this fleet runs whether or not a session is placed there now.
 pub fn spool_pulls(cfg: &DocumentMut, here: &str) -> Vec<(String, String)> {
-    machines(cfg).into_iter().filter(|machine| machine.name != here).filter(|machine| cfg.get("hosts").and_then(|hosts| hosts.get(&machine.name)).and_then(|host| host.get("pulls_spool")).and_then(Item::as_bool) == Some(true)).map(|machine| (machine.name, machine.ssh)).collect()
+    machines(cfg).into_iter().filter(|machine| machine.name != here).filter(|machine| spool_pulled(cfg, &machine.name)).map(|machine| (machine.name, machine.ssh)).collect()
+}
+
+pub fn spool_pulled(cfg: &DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("pulls_spool")).and_then(Item::as_bool) == Some(true)
 }
 
 pub fn serving(cfg: &DocumentMut, needs: &str, here: &str) -> Option<String> {

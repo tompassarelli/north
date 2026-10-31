@@ -23,6 +23,7 @@ fn window(name: &str, used: f64, burn: f64, resets_at: &str) -> serde_json::Valu
 /// A HOME with South's placement policy, the credit, pace-control's gate, two Claude profiles and
 /// shims for the scope launcher and the Claude runtime, which records the prompt it was sent.
 fn fixture(root: &Path) {
+    support::fleet_ledger(root);
     let op = root.join("op");
     let agents = root.join(".local/state/agents");
     fs::create_dir_all(&op).unwrap();

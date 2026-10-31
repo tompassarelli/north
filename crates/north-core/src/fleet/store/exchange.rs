@@ -22,6 +22,7 @@ pub struct Addressee {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Exchange {
+    pub host: String,
     pub rows: Vec<FleetRow>,
     pub sessions: Vec<SessionRow>,
     pub addressees: Vec<Addressee>,
@@ -44,7 +45,7 @@ pub trait LedgerHost {
 impl LedgerHost for Store {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
         self.put(&exchange.rows)?;
-        let held_elsewhere = self.publish(&exchange.sessions)?;
+        let held_elsewhere = self.publish(&exchange.host, &exchange.sessions)?;
         let names: Vec<&str> = exchange.addressees.iter().map(|addressee| addressee.name.as_str()).collect();
         let waits = waits::all(&self.db)?.into_iter().filter(|wait| names.contains(&wait.session.as_str())).collect();
         Ok(Exchanged { held_elsewhere, sessions: self.sessions()?, rows: addressed(&self.db, &exchange.addressees)?, waits, now: Timestamp::now().iso() })
@@ -55,16 +56,23 @@ impl LedgerHost for Store {
     }
 }
 
+const JOB_EXIT_KEPT_MS: u64 = 24 * 60 * 60 * 1000;
+
 const ADDRESSED: &str = "SELECT events.data FROM events JOIN json_each(?1) AS addressee \
      ON json_extract(events.data, '$.to_node') = json_extract(addressee.value, '$.name') \
-     WHERE events.kind IN (?2, ?3, ?4, ?5) AND (events.kind = ?5 OR NOT COALESCE(json_extract(addressee.value, '$.stopped'), 0)) AND json_extract(events.data, '$.sent_at') >= CASE WHEN events.kind = ?5 THEN COALESCE(json_extract(addressee.value, '$.control_since_ms'), json_extract(addressee.value, '$.since_ms')) ELSE json_extract(addressee.value, '$.since_ms') END \
+     WHERE events.kind IN (SELECT value FROM json_each(?2)) AND (events.kind = ?3 OR NOT COALESCE(json_extract(addressee.value, '$.stopped'), 0)) AND json_extract(events.data, '$.sent_at') >= CASE WHEN events.kind = ?3 THEN COALESCE(json_extract(addressee.value, '$.control_since_ms'), json_extract(addressee.value, '$.since_ms')) ELSE json_extract(addressee.value, '$.since_ms') END \
+     AND (events.kind != ?4 OR events.ts >= ?5) \
      AND NOT EXISTS (SELECT 1 FROM json_each(addressee.value, '$.taken') AS taken WHERE taken.value = json_extract(events.data, '$.id')) \
      ORDER BY events.seq";
+
+fn exit_floor() -> String {
+    Timestamp::from_unix_millis(i64::try_from(super::super::runtime::now_ms().saturating_sub(JOB_EXIT_KEPT_MS)).unwrap_or(i64::MAX)).iso()
+}
 
 fn addressed(db: &Connection, addressees: &[Addressee]) -> NorthResult<Vec<FleetRow>> {
     let mut statement = db.prepare(ADDRESSED).map_err(sql)?;
     let data: Vec<String> = statement
-        .query_map(rusqlite::params![serde_json::to_string(addressees)?, RowKind::Message.label(), RowKind::Gate.label(), RowKind::GateAnswer.label(), RowKind::Control.label()], |row| row.get(0))
+        .query_map(rusqlite::params![serde_json::to_string(addressees)?, serde_json::to_string(&RowKind::DELIVERED)?, RowKind::Control.label(), RowKind::JobExit.label(), exit_floor()], |row| row.get(0))
         .map_err(sql)?
         .collect::<Result<_, _>>()
         .map_err(sql)?;

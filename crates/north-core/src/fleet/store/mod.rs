@@ -9,6 +9,7 @@ use crate::foundation::clock::Timestamp;
 mod cache;
 mod exchange;
 mod remote;
+mod registrar;
 mod row;
 mod schema;
 mod sessions;
@@ -17,15 +18,17 @@ mod waits;
 
 pub use cache::{cache_sessions, cached_sessions};
 pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
-pub use remote::{FarSpools, OverSsh, drop_with, set_aside_with, take_with};
+pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, drop_with, set_aside_with, take_with};
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
-pub use sessions::SessionRow;
+pub use registrar::{LedgerRegistrar, Registrar};
+pub use sessions::{Claim, SessionRow};
 pub use spool::{SPOOL_DIR, Spool};
 pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
 
 use schema::sql;
 
 const BUSY: Duration = Duration::from_secs(60);
+const LAUNCH_GRACE_MS: u64 = 10 * 60 * 1000;
 
 pub struct Store {
     db: Connection,
@@ -57,15 +60,17 @@ impl Store {
         tx.commit().map_err(sql)
     }
 
-    pub fn register(&mut self, row: &SessionRow) -> NorthResult<()> {
+    pub fn register(&mut self, row: &SessionRow, claim: Claim) -> NorthResult<()> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
-        sessions::register(&tx, row)?;
+        sessions::register(&tx, row, claim)?;
         tx.commit().map_err(sql)
     }
 
-    pub fn publish(&mut self, rows: &[SessionRow]) -> NorthResult<Vec<String>> {
+    pub fn publish(&mut self, host: &str, rows: &[SessionRow]) -> NorthResult<Vec<String>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         let held_elsewhere = sessions::publish(&tx, rows)?;
+        let launching_since = Timestamp::from_unix_millis(i64::try_from(super::runtime::now_ms().saturating_sub(LAUNCH_GRACE_MS)).unwrap_or(i64::MAX)).iso();
+        sessions::retire_vanished(&tx, host, rows, &launching_since)?;
         tx.commit().map_err(sql)?;
         Ok(held_elsewhere)
     }

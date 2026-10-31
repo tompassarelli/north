@@ -17,7 +17,7 @@ pub trait ReceiptBook: Send + Sync {
 }
 
 pub trait Courier: Send + Sync {
-    fn post(&self, parent: &str, text: String, delivery: Delivery);
+    fn notify(&self, parent: &str, text: String, delivery: Delivery);
     fn ask(&self, request: GateRequest);
     fn answer(&self, host_dir: &Path, frame: String);
 }
@@ -67,7 +67,7 @@ pub fn deliver_report(book: &dyn ReceiptBook, courier: &dyn Courier, parent: &st
     let Some((text, delivery)) = report.notice(lines) else { return Ok(false) };
     let claimed = book.claim_receipt(&report.child, &report.key(), now_ms)?;
     if claimed {
-        courier.post(parent, text, delivery);
+        courier.notify(parent, text, delivery);
     }
     Ok(claimed)
 }
@@ -93,7 +93,7 @@ pub fn deliver_death(book: &dyn ReceiptBook, courier: &dyn Courier, death: &Host
     let claimed = book.claim_receipt(&child.name, &format!("host:{}", death.host_pid), now_ms)?;
     if claimed {
         let text = format!("[from {} · host {} exited mid-task] {}", child.name, death.host_pid, last_lines(death.lines));
-        courier.post(parent, text, Delivery::Now);
+        courier.notify(parent, text, Delivery::Now);
     }
     Ok(claimed)
 }
@@ -131,7 +131,7 @@ mod tests {
     struct Inbox(Mutex<Vec<(String, String, Delivery)>>);
 
     impl Courier for Inbox {
-        fn post(&self, parent: &str, text: String, delivery: Delivery) {
+        fn notify(&self, parent: &str, text: String, delivery: Delivery) {
             self.0.lock().unwrap().push((parent.to_owned(), text, delivery));
         }
 

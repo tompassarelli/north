@@ -36,7 +36,7 @@ impl ReceiptBook for Recorded {
 }
 
 impl Courier for Recorded {
-    fn post(&self, parent: &str, text: String, delivery: Delivery) {
+    fn notify(&self, parent: &str, text: String, delivery: Delivery) {
         self.1.lock().unwrap().push((parent.to_owned(), text, delivery));
     }
 
