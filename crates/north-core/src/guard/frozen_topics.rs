@@ -110,7 +110,7 @@ impl Write {
     ) -> Option<String> {
         let repo = repository(self.repo.as_deref())?;
         let lowered = repo.to_lowercase();
-        let short = lowered.strip_prefix(OWNER)?;
+        let short = crate::threads::catalog::CATALOG.canonical(lowered.strip_prefix(OWNER)?);
         let title = match &self.target {
             Target::Created(title) => title.clone(),
             Target::Reopened(number) => title_of(&repo, number)?,
@@ -164,6 +164,7 @@ mod tests {
         let reason = denial(decide("gh issue reopen 301 -R tompassarelli/smashcraft", "x/y", "Kobold hitbox audit"));
         assert!(reason.contains("Kobold"), "{reason}");
         assert!(matches!(decide("gh issue reopen #301", "tompassarelli/smashcraft", "Kobold hitbox"), Verdict::Deny(_)));
+        assert!(matches!(decide("gh issue create --title 'Kobold rope'", "tompassarelli/makgora", ""), Verdict::Deny(_)));
     }
 
     #[test]

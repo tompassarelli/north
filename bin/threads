@@ -35,10 +35,10 @@ READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "
 UNREACHABLE, RETRY = 255, 75
 
 # Every repository under OWNER whose issues NorthThreads tracks. A ref names the
-# GitHub repository (firn#3); ALIASES lets a checkout's name stand in for it.
+# GitHub repository (firn#3); ALIASES lets a checkout's or a renamed repo's name stand in.
 OWNER = "tompassarelli"
 REPOS = ["smashcraft", "smashcraft-client", "padbridge", "wisp", "firn", "north", "gjoa", "fram", "wake", "battlecraft"]
-ALIASES = {"nixos-config": "firn"}
+ALIASES = {"nixos-config": "firn", "makgora": "smashcraft"}
 # Native namespaces live only in this database and never reach GitHub.
 NATIVE = ["life", "accounts", "travel", "ops"]
 NATIVE_REF = re.compile(r"\b(?:life|accounts|travel|ops)#\d+\b")

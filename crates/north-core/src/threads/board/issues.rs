@@ -219,7 +219,7 @@ fn issue_of(node: &Json, state: &str, now: f64) -> Result<Issue, Failure> {
         .iter()
         .map(|blocker| {
             let full = blocker["repository"]["nameWithOwner"].as_str().unwrap_or_default();
-            let repo = full.strip_prefix(&format!("{}/", CATALOG.owner)).unwrap_or(full);
+            let repo = CATALOG.canonical(full);
             Blocker { reference: format!("{repo}#{}", blocker["number"]), state: blocker["state"].as_str().unwrap_or_default().to_owned() }
         })
         .collect();

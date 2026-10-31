@@ -207,7 +207,11 @@ fn qualified(capture: &Captures, repo: &str) -> String {
 }
 
 fn key(repo: &str, number: &str) -> String {
-    format!("{}#{number}", repo.to_lowercase())
+    let lowered = repo.to_lowercase();
+    match lowered.strip_prefix(OWNER) {
+        Some(name) => format!("{OWNER}{}#{number}", crate::threads::catalog::CATALOG.canonical(name)),
+        None => format!("{lowered}#{number}"),
+    }
 }
 
 fn claim_key(item: &str) -> String {

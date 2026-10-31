@@ -31,16 +31,23 @@ impl Catalog {
         self.native.iter().any(|name| name == repo)
     }
 
+    pub fn canonical<'a>(&'a self, name: &'a str) -> &'a str {
+        let name = name.strip_prefix(&format!("{}/", self.owner)).unwrap_or(name);
+        let known = self.repos.iter().chain(&self.native).chain(self.aliases.keys()).find(|known| known.eq_ignore_ascii_case(name));
+        let name = known.map_or(name, String::as_str);
+        self.aliases.get(name).map_or(name, String::as_str)
+    }
+
     /// `smashcraft#222`, `tompassarelli/smashcraft#222` or `nixos-config#3` as a repository or
     /// namespace and number.
     pub fn parse_ref(&self, text: &str) -> Result<(String, u64), String> {
         let malformed = || format!("{text} is not an issue ref like smashcraft#222");
         let (name, number) = text.trim().rsplit_once('#').ok_or_else(malformed)?;
         let number = number.parse::<u64>().ok().filter(|number| *number > 0).ok_or_else(malformed)?;
-        let name = name.strip_prefix(&format!("{}/", self.owner)).unwrap_or(name);
-        let repo = self.aliases.get(name).map_or(name, String::as_str);
+        let repo = self.canonical(name);
         if !self.repos.iter().chain(&self.native).any(|known| known == repo) {
             let known: Vec<&str> = self.repos.iter().chain(&self.native).map(String::as_str).collect();
+            let name = name.strip_prefix(&format!("{}/", self.owner)).unwrap_or(name);
             return Err(format!("unknown repo {name} (known: {})", known.join(", ")));
         }
         Ok((repo.to_owned(), number))
@@ -57,6 +64,8 @@ mod tests {
         assert_eq!(CATALOG.parse_ref("tompassarelli/firn#9"), Ok(("firn".to_owned(), 9)));
         assert!(CATALOG.parse_ref("nowhere#9").unwrap_err().starts_with("unknown repo nowhere"));
         assert!(CATALOG.parse_ref("smashcraft#0").is_err() && CATALOG.parse_ref("smashcraft").is_err());
+        assert_eq!(CATALOG.parse_ref("tompassarelli/makgora#7"), Ok(("smashcraft".to_owned(), 7)));
+        assert_eq!(CATALOG.canonical("tompassarelli/Makgora"), "smashcraft");
         assert_eq!(CATALOG.parse_ref("smashcraft-client#26"), Ok(("smashcraft-client".to_owned(), 26)));
         assert_eq!(CATALOG.parse_ref("padbridge#1"), Ok(("padbridge".to_owned(), 1)));
         assert!(CATALOG.is_native("life") && !CATALOG.is_native("wisp"));
