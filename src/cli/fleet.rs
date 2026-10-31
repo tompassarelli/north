@@ -40,7 +40,7 @@ const FOLLOW_POLL: Duration = Duration::from_millis(250);
 pub fn run(arguments: &[String]) -> ExitCode {
     let result = open_fleet().and_then(|fleet| {
         default_overdue_gates(&fleet);
-        release_exited_claims(&fleet);
+        release_exited_claims(&fleet, arguments);
         dispatch(fleet, arguments)
     });
     match result {

@@ -25,8 +25,14 @@ fn moved(said: &str, item: &str, session: &str) -> Option<String> {
     (said != format!("{session} owns {}", canonical(item))).then(|| said.to_owned())
 }
 
-/// Clears what exited sessions left in the ledger, so no fleet command reports a claim an exited owner still appears to hold.
-pub(super) fn release_exited_claims(fleet: &Fleet) {
+/// A verb that only reads leaves the sweep to the mutating verbs and the turn watch, because the sweep asks the threads ledger, which can sit across ssh, and the hooks that call `fleet list` run on every prompt.
+const READ_VERBS: [&str; 6] = ["list", "stranded", "tree", "spend", "accounts", "show"];
+
+/// Clears what exited sessions left in the ledger before a mutating verb, so no such command reports a claim an exited owner still appears to hold.
+pub(super) fn release_exited_claims(fleet: &Fleet, arguments: &[String]) {
+    if arguments.first().is_some_and(|verb| READ_VERBS.contains(&verb.as_str())) {
+        return;
+    }
     if let Err(error) = fleet.release_exited_claims() {
         eprintln!("north fleet: exited sessions' claims not cleared: {}", error.user_message());
     }
@@ -66,6 +72,35 @@ impl Claims for ThreadsCli {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use crate::fleet::claims::Held;
+    use crate::fleet::runtimes::Runtimes;
+    use crate::ledger::Ledger;
+    use crate::providers::claude::fleet::Claude;
+
+    #[test]
+    fn reading_the_fleet_never_asks_the_claims_ledger_while_a_mutating_verb_sweeps_exited_claims() {
+        let home = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&home.path().join("ledger.db")).unwrap());
+        let claims = Arc::new(Held::default());
+        let fleet = Fleet::at_claiming(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), ledger, claims.clone()).unwrap();
+        let session = home.path().join(".local/state/north/fleet/gone");
+        std::fs::create_dir_all(&session).unwrap();
+        let record = json!({"name": "gone", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": true});
+        std::fs::write(session.join("session.json"), record.to_string()).unwrap();
+        claims.hold("north#1", "gone").unwrap();
+        let words = |verb: &[&str]| verb.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+
+        for verb in ["list", "stranded", "tree", "spend", "accounts", "show"] {
+            release_exited_claims(&fleet, &words(&[verb]));
+            assert_eq!(claims.holders().unwrap(), [("north#1".to_owned(), "gone".to_owned())], "{verb} swept claims");
+        }
+        release_exited_claims(&fleet, &words(&["waits"]));
+        assert!(claims.holders().unwrap().is_empty());
+    }
 
     #[test]
     fn an_owner_qualified_task_releases_the_item_name_the_claim_was_recorded_under() {
