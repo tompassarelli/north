@@ -19,7 +19,15 @@ pub(super) fn deploy(layout: &Layout, hosts: &[String]) -> Result<(), Failure> {
     let checkout = checkout();
     let (target, runtime) = built_main(layout, &checkout)?;
     let references = references(&runtime)?;
-    let hosts = if hosts.is_empty() { land_offload::other_destinations() } else { hosts.to_vec() };
+    let hosts = if hosts.is_empty() {
+        let plan = land_offload::deployment();
+        if let Some(line) = plan.skip_line() {
+            println!("{line}");
+        }
+        plan.destinations
+    } else {
+        hosts.to_vec()
+    };
     if hosts.is_empty() {
         return Err(failed(64, "no host to deploy to: name one or declare [hosts.NAME] with an ssh or deploy_ssh destination"));
     }

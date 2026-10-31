@@ -39,7 +39,11 @@ impl Live {
             let Ok(unit) = fs::read_to_string(entry.path().join("host.scope")) else { continue };
             let session = entry.file_name().to_string_lossy().into_owned();
             let parent = parents.get(&session).cloned().flatten();
-            owners.insert(unit.trim().to_owned(), Owner { session, parent });
+            let owner = Owner { session, parent };
+            for prior in crate::fleet::detached::Prior::all(&entry.path()) {
+                owners.insert(prior.unit, owner.clone());
+            }
+            owners.insert(unit.trim().to_owned(), owner);
         }
         let runtime = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(|| PathBuf::from("/run/user/1000"), PathBuf::from);
         for entry in fs::read_dir(runtime.join("agent-capacity-v1/leases")).into_iter().flatten().flatten() {

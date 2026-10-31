@@ -2,6 +2,8 @@
 //! the session host's own scope that are neither the host nor its descendants. The CLI's own
 //! background tasks descend from the host and are tracked from its stream instead. A process handed
 //! the host's pid (safe-push's lane reaper) watches the session rather than works for it, and is no run.
+//! A revived session's earlier hosts leave their scopes behind (`host.priors`, one `UNIT PID` per
+//! line) holding only the runs that host's tree did not own; the new host reads those scopes too.
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +13,31 @@ use super::waits::Run;
 
 const UNIT_PREFIX: &str = "north-session-";
 const COMMAND_CHARS: usize = 120;
+const PRIORS: &str = "host.priors";
+
+/// A scope an earlier host of the session left behind, and the pid of that host.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Prior {
+    pub unit: String,
+    pub host: u32,
+}
+
+impl Prior {
+    pub fn all(dir: &Path) -> Vec<Prior> {
+        let text = fs::read_to_string(dir.join(PRIORS)).unwrap_or_default();
+        text.lines().filter_map(|line| line.split_once(' ')).filter_map(|(unit, host)| Some(Prior { unit: unit.to_owned(), host: host.parse().ok()? })).collect()
+    }
+
+    pub fn remember(&self, dir: &Path) -> std::io::Result<()> {
+        let mut text = fs::read_to_string(dir.join(PRIORS)).unwrap_or_default();
+        text.push_str(&format!("{} {}\n", self.unit, self.host));
+        fs::write(dir.join(PRIORS), text)
+    }
+
+    pub fn forget_all(dir: &Path) {
+        let _ = fs::remove_file(dir.join(PRIORS));
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Detached {
@@ -48,6 +75,7 @@ pub struct Procfs {
     proc: PathBuf,
     cgroups: PathBuf,
     host: u32,
+    priors: Vec<Prior>,
 }
 
 impl Procfs {
@@ -56,14 +84,30 @@ impl Procfs {
     }
 
     pub fn new(proc: PathBuf, cgroups: PathBuf, host: u32) -> Self {
-        Self { proc, cgroups, host }
+        Self { proc, cgroups, host, priors: Vec::new() }
+    }
+
+    pub fn after(mut self, priors: Vec<Prior>) -> Self {
+        self.priors = priors;
+        self
     }
 
     fn scope(&self) -> Option<PathBuf> {
-        let membership = fs::read_to_string(self.proc.join(self.host.to_string()).join("cgroup")).ok()?;
-        let path = membership.lines().find_map(|line| line.strip_prefix("0::"))?.trim();
-        let unit = Path::new(path).file_name()?.to_str()?;
-        (unit.starts_with(UNIT_PREFIX) && unit.ends_with(".scope")).then(|| self.cgroups.join(path.trim_start_matches('/')))
+        session_scope(&self.proc, &self.cgroups, self.host)
+    }
+
+    fn runs(&self, scope: &Path, host: u32) -> Vec<Detached> {
+        let stats = members(&self.proc, scope);
+        let detached = |pid: u32| pid != host && !descends(pid, host, &stats);
+        let mut roots: Vec<Detached> = stats
+            .iter()
+            .filter(|(pid, stat)| detached(**pid) && !(stats.contains_key(&stat.parent) && detached(stat.parent)))
+            .map(|(pid, stat)| (*pid, stat.started, self.arguments(*pid)))
+            .filter(|(_, _, arguments)| !arguments.contains(&host.to_string()))
+            .map(|(pid, started, arguments)| Detached { pid, started, command: summarize(&arguments.join(" "), COMMAND_CHARS) })
+            .collect();
+        roots.sort_by_key(|run| run.pid);
+        roots
     }
 
     fn arguments(&self, pid: u32) -> Vec<String> {
@@ -75,19 +119,37 @@ impl Procfs {
 impl Scope for Procfs {
     fn detached(&self) -> Vec<Detached> {
         let Some(scope) = self.scope() else { return Vec::new() };
-        let members = fs::read_to_string(scope.join("cgroup.procs")).unwrap_or_default();
-        let stats: HashMap<u32, Stat> = members.lines().filter_map(|line| line.trim().parse().ok()).filter_map(|pid| Some((pid, stat(&self.proc, pid)?))).filter(|(_, stat)| stat.live).collect();
-        let detached = |pid: u32| pid != self.host && !descends(pid, self.host, &stats);
-        let mut roots: Vec<Detached> = stats
-            .iter()
-            .filter(|(pid, stat)| detached(**pid) && !(stats.contains_key(&stat.parent) && detached(stat.parent)))
-            .map(|(pid, stat)| (*pid, stat.started, self.arguments(*pid)))
-            .filter(|(_, _, arguments)| !arguments.contains(&self.host.to_string()))
-            .map(|(pid, started, arguments)| Detached { pid, started, command: summarize(&arguments.join(" "), COMMAND_CHARS) })
-            .collect();
-        roots.sort_by_key(|run| run.pid);
-        roots
+        let mut runs = self.runs(&scope, self.host);
+        for prior in &self.priors {
+            if let Some(slice) = scope.parent() {
+                runs.extend(self.runs(&slice.join(&prior.unit), prior.host));
+            }
+        }
+        runs
     }
+}
+
+/// The cgroup directory of the `north-session-*.scope` that `pid` runs in.
+fn session_scope(proc: &Path, cgroups: &Path, pid: u32) -> Option<PathBuf> {
+    let membership = fs::read_to_string(proc.join(pid.to_string()).join("cgroup")).ok()?;
+    let path = membership.lines().find_map(|line| line.strip_prefix("0::"))?.trim();
+    let unit = Path::new(path).file_name()?.to_str()?;
+    (unit.starts_with(UNIT_PREFIX) && unit.ends_with(".scope")).then(|| cgroups.join(path.trim_start_matches('/')))
+}
+
+/// The host `pid` and every live process that descends from it in its scope: the tree a revival stops
+/// while the runs the session detached go on.
+pub fn host_tree(proc: &Path, cgroups: &Path, host: u32) -> Vec<u32> {
+    let Some(scope) = session_scope(proc, cgroups, host) else { return Vec::new() };
+    let stats = members(proc, &scope);
+    let mut tree: Vec<u32> = stats.keys().copied().filter(|pid| *pid == host || descends(*pid, host, &stats)).collect();
+    tree.sort_unstable();
+    tree
+}
+
+fn members(proc: &Path, scope: &Path) -> HashMap<u32, Stat> {
+    let members = fs::read_to_string(scope.join("cgroup.procs")).unwrap_or_default();
+    members.lines().filter_map(|line| line.trim().parse().ok()).filter_map(|pid| Some((pid, stat(proc, pid)?))).filter(|(_, stat)| stat.live).collect()
 }
 
 /// Whether `pid` still runs the process that started at `started`.

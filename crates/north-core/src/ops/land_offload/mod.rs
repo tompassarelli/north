@@ -32,8 +32,14 @@ pub fn build_hosts() -> Vec<(String, String)> {
     config().map(|cfg| destinations::build_hosts(&cfg, &crate::platform::host::name())).unwrap_or_default()
 }
 
-pub fn other_destinations() -> Vec<String> {
+pub use destinations::Deployment;
+
+pub fn deployment() -> Deployment {
     config().map(|cfg| destinations::deploy(&cfg, &crate::platform::host::name())).unwrap_or_default()
+}
+
+pub fn other_destinations() -> Vec<String> {
+    deployment().destinations
 }
 
 pub fn builds_runtime_here() -> bool {

@@ -3,16 +3,34 @@ use toml_edit::{DocumentMut, Item};
 #[cfg(test)]
 mod tests;
 
-pub(super) fn deploy(cfg: &DocumentMut, here: &str) -> Vec<String> {
-    let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
-    let mut destinations: Vec<String> = Vec::new();
-    for (_, host) in hosts.iter().filter(|(name, _)| *name != here) {
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct Deployment {
+    pub destinations: Vec<String>,
+    pub skipped: Vec<String>,
+}
+
+impl Deployment {
+    pub fn skip_line(&self) -> Option<String> {
+        (!self.skipped.is_empty()).then(|| format!("north runtime deploy: skipping {}: it builds no runtime, and the host that settles the fleet ships to it", self.skipped.join(", ")))
+    }
+}
+
+/// Where this host ships runtimes. A host that builds no runtime (`builds_runtime = false`) is reached
+/// only from a host that settles the fleet, the one host with an ssh route to it.
+pub(super) fn deploy(cfg: &DocumentMut, here: &str) -> Deployment {
+    let mut plan = Deployment::default();
+    let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return plan };
+    let settles = settles_fleet(cfg, here);
+    for (name, host) in hosts.iter().filter(|(name, _)| *name != here) {
         let destination = ["deploy_ssh", "ssh"].iter().find_map(|key| host.get(key)?.as_str());
-        if let Some(destination) = destination.filter(|destination| !destinations.iter().any(|seen| seen == destination)) {
-            destinations.push(destination.to_owned());
+        let Some(destination) = destination.filter(|destination| !plan.destinations.iter().any(|seen| seen == destination)) else { continue };
+        if !settles && host.get("builds_runtime").and_then(Item::as_bool) == Some(false) {
+            plan.skipped.push(name.to_owned());
+        } else {
+            plan.destinations.push(destination.to_owned());
         }
     }
-    destinations
+    plan
 }
 
 pub(super) fn builds_runtime(cfg: &DocumentMut, here: &str) -> bool {
