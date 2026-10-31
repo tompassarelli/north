@@ -876,11 +876,11 @@ consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_memory_ramp_seconds]
 value = 60
-unit = "seconds a heavy lease's declared memory still counts against available memory after it starts, because a build's resident set grows for a minute or more"
+unit = "seconds a heavy lease's declared memory still counts against available memory, and a tom or critical lease's charge against the 75% leased-memory line, after it starts, because a build's resident set grows for a minute or more"
 source = "prior: rustc and the linker grow a build's resident set over its first minute, so its declared memory counts for that minute; no figure recorded"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose lowest MemAvailable after a heavy start can be checked against the memory floor" }
 fallback = "none: a lease older than this counts only through MemAvailable"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs", "crates/north-core/src/capacity/host/policy.rs"]
 
 [admit_overcommit_unattended]
 value = 1

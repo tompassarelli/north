@@ -16,6 +16,8 @@ mod json;
 mod machine;
 mod measure;
 mod policy;
+#[cfg(test)]
+mod policy_tests;
 mod quiet_holds;
 mod request;
 mod run;

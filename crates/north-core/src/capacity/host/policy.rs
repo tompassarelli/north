@@ -151,12 +151,27 @@ pub fn high_confidence_runs() -> usize {
 /// What a declared class is charged once enough of its own runs measured it.
 pub fn charged_resources(kind: &str, cores: f64, run_cores: &[f64], run_memory_mib: &[f64]) -> Option<Resources> {
     let declared = resource_class(kind, cores)?;
-    let learned = matches!(kind, "moderate" | "heavy" | "native" | "gpu");
-    if !learned || run_cores.len() < LEARNED_MINIMUM_RUNS || run_memory_mib.len() < LEARNED_MINIMUM_RUNS {
+    if run_cores.len() < LEARNED_MINIMUM_RUNS || run_memory_mib.len() < LEARNED_MINIMUM_RUNS {
         return Some(declared);
     }
-    let cpus = p90(run_cores).min(declared.cpus * 1.5).max(1.0);
-    Some(Resources { cpus: if kind == "heavy" { cpus.max(declared.cpus) } else { cpus }, memory_mib: p90(run_memory_mib) * memory_margin() })
+    let memory_mib = p90(run_memory_mib) * memory_margin();
+    match kind {
+        "moderate" | "heavy" | "native" | "gpu" => {
+            let cpus = p90(run_cores).min(declared.cpus * 1.5).max(1.0);
+            Some(Resources { cpus: if kind == "heavy" { cpus.max(declared.cpus) } else { cpus }, memory_mib })
+        }
+        "tom" | "critical" => Some(Resources { cpus: declared.cpus, memory_mib: memory_mib.min(declared.memory_mib) }),
+        _ => Some(declared),
+    }
+}
+
+/// The MiB a running lease holds against the 75% memory line: a tom or critical lease past the memory ramp holds its measured peak with margin, never more than it was charged.
+pub fn running_memory_charge(kind: &str, charged_mib: f64, age_seconds: f64, peak_mib: Option<f64>) -> f64 {
+    let ramp = crate::capacity::admission::default_mib("admit_memory_ramp_seconds");
+    match peak_mib {
+        Some(peak) if matches!(kind, "tom" | "critical") && age_seconds >= ramp && peak.is_finite() && peak > 0.0 => (peak * memory_margin()).min(charged_mib),
+        _ => charged_mib,
+    }
 }
 
 pub fn owner_prefix(owner: &str) -> &str {

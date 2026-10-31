@@ -152,10 +152,10 @@ export function learnedMinimumRuns(): number {
 }
 
 export function chargedResources(kind: string, cores: number, runCores: readonly number[], runMemoryMiB: readonly number[]): Resources {
-  const declared = resourceClass(kind, cores);
-  if (!learnedClass(kind) || runCores.length < learnedMinimumRuns() || runMemoryMiB.length < learnedMinimumRuns()) return declared;
-  const cpus = Math.max(1, Math.min(p90(runCores), declared.cpus * 1.5));
-  return { cpus: kind === 'heavy' ? Math.max(cpus, declared.cpus) : cpus, memoryMiB: p90(runMemoryMiB) * DEFAULTS["capacity_memory_margin"] };
+  const declared = resourceClass(kind, cores), capped = kind === 'tom' || kind === 'critical';
+  if (!(learnedClass(kind) || capped) || runCores.length < learnedMinimumRuns() || runMemoryMiB.length < learnedMinimumRuns()) return declared;
+  const memoryMiB = p90(runMemoryMiB) * DEFAULTS["capacity_memory_margin"], cpus = capped ? declared.cpus : Math.max(1, Math.min(p90(runCores), declared.cpus * 1.5));
+  return capped ? { cpus, memoryMiB: Math.min(memoryMiB, declared.memoryMiB) } : { cpus: kind === 'heavy' ? Math.max(cpus, declared.cpus) : cpus, memoryMiB };
 }
 
 export interface TaskSignature {

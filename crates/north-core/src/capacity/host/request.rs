@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use super::json::{Obj, field, num, round2, text};
-use super::policy::{Resources, batch_class, clamp_to_grantable, grantable_maximum, running_cpu_commitment, scope_cpu_quota};
+use super::policy::{Resources, batch_class, clamp_to_grantable, grantable_maximum, running_cpu_commitment, running_memory_charge, scope_cpu_quota};
 use super::state::read_usage;
 
 const FRESH_USAGE_MILLISECONDS: f64 = 3000.0;
@@ -80,14 +80,17 @@ pub struct Totals {
     pub memory_mib: f64,
 }
 
-pub fn totals(leases: &[Value]) -> Totals {
+pub fn totals(root: &std::path::Path, leases: &[Value], now: f64) -> Totals {
     leases.iter().fold(Totals::default(), |sum, lease| {
         let cpus = if is_run(lease) { field(lease, "cpus").unwrap_or(f64::NAN) } else { 0.0 };
+        let charged = field(lease, "memoryMiB").unwrap_or(f64::NAN);
+        let age_seconds = (now - field(lease, "createdAt").unwrap_or(now)) / 1000.0;
+        let peak = read_usage(root, id(lease)).and_then(|usage| field(&usage, "peakMemoryMiB"));
         Totals {
             cpus: sum.cpus + cpus,
             batch_cpus: sum.batch_cpus + if batch_class(class(lease)) { cpus } else { 0.0 },
             native_cpus: sum.native_cpus + if class(lease) == "native" { cpus } else { 0.0 },
-            memory_mib: sum.memory_mib + field(lease, "memoryMiB").unwrap_or(f64::NAN),
+            memory_mib: sum.memory_mib + running_memory_charge(class(lease), charged, age_seconds, peak),
         }
     })
 }

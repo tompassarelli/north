@@ -1,5 +1,5 @@
 // Property: a declared class is charged its declared size until three runs exist,
-// then the nearest-rank p90 of measured cores within [1, 1.5 x declared] and p90 peak memory + 20%.
+// then the nearest-rank p90 of measured cores within [1, 1.5 x declared] and p90 peak memory + 20% (tom and critical: declared cores, that memory up to 16 GiB).
 const policy = await import(Bun.argv[2]);
 const { chargedResources, resourceClass } = policy;
 
@@ -10,7 +10,7 @@ const random = () => {
   seed = (seed * 1103515245 + 12345) % 2147483648;
   return seed / 2147483648;
 };
-const kinds = ['moderate', 'heavy', 'native', 'gpu', 'exclusive', 'critical', 'agent'];
+const kinds = ['moderate', 'heavy', 'native', 'gpu', 'exclusive', 'critical', 'tom', 'agent'];
 const learned = new Set(['moderate', 'heavy', 'native', 'gpu']);
 
 for (let trial = 0; trial < 2000; trial += 1) {
@@ -21,7 +21,7 @@ for (let trial = 0; trial < 2000; trial += 1) {
   const runMemory = Array.from({ length: runs }, () => Math.round(random() * 20000));
   const declared = resourceClass(kind, cores);
   const charged = chargedResources(kind, cores, runCores, runMemory);
-  const expected = learned.has(kind) && runs >= 3
+  const expected = (kind === 'tom' || kind === 'critical') && runs >= 3 ? { cpus: declared.cpus, memoryMiB: Math.min(reference(runMemory) * 1.2, declared.memoryMiB) } : learned.has(kind) && runs >= 3
     ? { cpus: Math.max(Math.min(Math.max(reference(runCores), 1), declared.cpus * 1.5), kind === 'heavy' ? declared.cpus : 0), memoryMiB: reference(runMemory) * 1.2 }
     : declared;
   if (charged.cpus !== expected.cpus || Math.abs(charged.memoryMiB - expected.memoryMiB) > 1e-9) {

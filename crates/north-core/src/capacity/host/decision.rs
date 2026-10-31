@@ -258,7 +258,7 @@ fn context(root: &Path, request: &Request, create: Option<&Create>, ticket: Opti
         profile,
         mode,
         queued,
-        leased: totals(&observed.active),
+        leased: totals(root, &observed.active, now),
         committed_batch_cpus: accounting.committed_batch_cpus,
         committed_native_cpus: accounting.committed_native_cpus,
         unleased_cores: accounting.unleased_cores(),
