@@ -36,12 +36,12 @@ for source in policy ledger; do
 done
 printf 'hook prompt-grounding\n' >"$scratch/active"
 printf '{"accounts":{},"providers":{}}' >"$scratch/pace.json"
-printf '[]\n' >"$scratch/fleet.json"
-printf '#!/usr/bin/env bash\n[[ "$*" == "fleet list --json" ]] && cat "$FLEET_JSON" || exec "$NORTH_REAL" "$@"\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
+mkdir -p "$scratch/fleet/child"
+printf '#!/usr/bin/env bash\nexec "$NORTH_REAL" "$@"\n' >"$scratch/bin/north"; chmod +x "$scratch/bin/north"
 
 export NORTH_GROUNDING_CONVO_DB="$scratch/missing.db" NORTH_GROUNDING_STATE="$scratch/state" NORTH_GROUNDING_SOURCES="$scratch/sources" \
   NORTH_GROUNDING_NORTH="$north" NORTH_GROUNDING_SOUTH="$scratch/missing" NORTH_GROUNDING_HANDOFFS="$scratch/handoffs" \
-  NORTH_GROUNDING_LEDGER="$scratch/ledger.jsonl" NORTH_GROUNDING_PACE="$scratch/pace.json" FLEET_JSON="$scratch/fleet.json" \
+  NORTH_GROUNDING_LEDGER="$scratch/ledger.jsonl" NORTH_GROUNDING_PACE="$scratch/pace.json" NORTH_FLEET_DIR="$scratch/fleet" \
   NORTH_BIN="$scratch/bin/north" NORTH_REAL="$runner" NORTH_AGENT_ACTIVE="$scratch/active" NORTH_GROUNDING_BUN="$bun" NORTH_GROUNDING_BIN="$runner" CLAUDE_CODE_ENTRYPOINT=cli PATH="/etc/codex/hooks/runtime:$PATH"
 unset AGENT_NO_AUTHORING_HOOKS
 
@@ -62,9 +62,9 @@ case "$out" in *'harness/skills/kayak-paddle/SKILL.md'*) ;; *) fail "block lacks
 case "$out" in *'ledger:L1'*) ;; *) fail "block lacks the matching decision: $out" ;; esac
 echo "PASS proxy prompt gets a Grounding block naming the matching skill path and decision"
 
-printf '[{"name":"child","conversation":"s","status":"working"}]\n' >"$FLEET_JSON"
+printf '{\n  "name": "child",\n  "conversation": "s"\n}\n' >"$NORTH_FLEET_DIR/child/session.json"
 [ -z "$(hook "$(prompt 'plan a kayak paddle trip with the river gauge')")" ] || fail "fleet session"
-printf '[]\n' >"$FLEET_JSON"
+rm "$NORTH_FLEET_DIR/child/session.json"
 [ -z "$(hook "$(prompt 'plan a kayak paddle trip with the river gauge')" CLAUDE_CODE_ENTRYPOINT=sdk-cli)" ] || fail "non-cli session"
 [ -z "$(hook '{"hook_event_name":"UserPromptSubmit","agent_id":"w","prompt":"kayak paddle river gauge"}')" ] || fail "subagent payload"
 echo "PASS only Tom's top-level interactive session is grounded (fleet, sdk and subagent print nothing)"
