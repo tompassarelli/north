@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Toolchain and cargo cache
         uses: ./.github/actions/rust
+      - name: Cargo test environment
+        uses: ./.github/actions/cargo-test
       - name: cargo test catches its planted fault
         run: harness/scripts/canary.sh cargo-test
       - name: clippy catches its planted fault
