@@ -17,7 +17,7 @@ mod waits;
 
 pub use cache::{cache_sessions, cached_sessions};
 pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
-pub use remote::{drop_on, drop_with, take_from, take_with};
+pub use remote::{FarSpools, OverSsh, drop_with, take_with};
 pub use row::{FleetRow, JobPayload, RowKind};
 pub use sessions::SessionRow;
 pub use spool::{SPOOL_DIR, Spool};

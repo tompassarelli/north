@@ -24,6 +24,7 @@ pub mod runtime;
 pub mod runtimes;
 pub mod session_host;
 pub mod store;
+mod ssh;
 pub mod stranded;
 pub mod tick;
 mod transcript;

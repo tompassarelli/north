@@ -3,8 +3,9 @@ use std::time::Duration;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
-use crate::fleet::store::{Exchange, Exchanged, LedgerHost, Store};
-use crate::fleet::tick::tick;
+use crate::fleet::store::{Exchange, Exchanged, LedgerHost, OverSsh, Store};
+use crate::fleet::tick::{FarHost, Pulls, tick};
+use crate::ops::pacing::placement::{config, gate};
 use crate::threads::client;
 
 const USAGE: &str = "Usage: north fleet tick";
@@ -22,11 +23,16 @@ impl LedgerHost for Ledger {
     }
 }
 
+fn always_pulled(fleet: &Fleet) -> Vec<FarHost> {
+    config().map(|cfg| gate::spool_pulls(&cfg, fleet.host())).unwrap_or_default().into_iter().map(|(name, ssh)| FarHost { name, ssh }).collect()
+}
+
 pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if !words.is_empty() {
         return Err(NorthError::Usage(USAGE.into()));
     }
-    let ticked = tick(fleet, &mut Ledger, now_ms(), BUDGET)?;
+    let pulls = Pulls { spools: &OverSsh, always: always_pulled(fleet) };
+    let ticked = tick(fleet, &mut Ledger, &pulls, now_ms(), BUDGET)?;
     ticked.lines().iter().for_each(|line| println!("{line}"));
     Ok(())
 }

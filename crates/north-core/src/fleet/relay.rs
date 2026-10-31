@@ -7,17 +7,16 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
-use crate::platform::process::run_within;
 
 use super::gates::GateRequest;
 use super::model::Delivery;
 use super::remote_view::Snapshot;
 use super::store::{FleetRow, RowKind};
-use super::runtime::{SESSION_ENV, binary, new_uuid, now_ms};
+use super::runtime::{new_uuid, now_ms};
+use super::ssh::{over_ssh, over_ssh_within};
 
 const RELAY: &str = "relay";
 const LETTER: &str = "json";
-const SSH_WAIT: Duration = Duration::from_secs(20);
 const REVIVE_WAIT: Duration = Duration::from_secs(25);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -166,22 +165,6 @@ impl Courier for Ssh {
     }
 }
 
-pub(crate) fn over_ssh(host: &str, caller: Option<&str>, words: &[&str]) -> NorthResult<Vec<u8>> {
-    over_ssh_within(host, caller, words, SSH_WAIT)
-}
-
-fn over_ssh_within(host: &str, caller: Option<&str>, words: &[&str], wait: Duration) -> NorthResult<Vec<u8>> {
-    let signed = caller.map(|caller| format!("{SESSION_ENV}={} ", quote(caller))).unwrap_or_default();
-    let command = format!("{signed}north {}", words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));
-    let ssh = binary("ssh");
-    let argv = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, "--", &command];
-    match run_within(&ssh.to_string_lossy(), &argv, wait) {
-        Some(output) if output.status.success() => Ok(output.stdout),
-        Some(output) => Err(NorthError::Usage(format!("ssh {host} {command}: {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()))),
-        None => Err(NorthError::Usage(format!("ssh {host} {command}: no answer within {}s", wait.as_secs()))),
-    }
-}
-
 pub struct Undelivered {
     pub host: String,
     pub letter: Letter,
@@ -303,10 +286,6 @@ pub fn entries(seen: &Path) -> BTreeSet<String> {
 
 pub fn hostname() -> String {
     fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
-}
-
-fn quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]

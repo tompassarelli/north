@@ -5,7 +5,7 @@ use crate::foundation::clock::Timestamp;
 
 use super::model::SessionRecord;
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, LedgerHost, SessionRow};
+use super::store::{Addressee, Exchange, FarSpools, FleetRow, LedgerHost, SessionRow};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -19,6 +19,24 @@ pub struct Ticked {
     pub deferred: usize,
     pub held_elsewhere: Vec<String>,
     pub pruned: usize,
+    pub pulled: usize,
+    pub pull_failed: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FarHost {
+    pub name: String,
+    pub ssh: String,
+}
+
+pub struct Pulls<'a> {
+    pub spools: &'a dyn FarSpools,
+    pub always: Vec<FarHost>,
+}
+
+struct Taken {
+    host: FarHost,
+    ids: Vec<String>,
 }
 
 impl Ticked {
@@ -26,18 +44,21 @@ impl Ticked {
         let delivered = self.delivered.iter().map(|(id, to)| format!("delivered {id} to {to}"));
         let failed = self.failed.iter().map(|(id, why)| format!("not delivered {id}: {why}"));
         let held = self.held_elsewhere.iter().map(|name| format!("not delivering to {name}: another host holds the name"));
-        let counts = format!("flushed {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.delivered.len(), self.already, self.deferred, self.pruned);
-        delivered.chain(failed).chain(held).chain([counts]).collect()
+        let unpulled = self.pull_failed.iter().map(|(name, why)| format!("not pulled from {name}: {why}"));
+        let counts = format!("flushed {}, pulled {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.pulled, self.delivered.len(), self.already, self.deferred, self.pruned);
+        delivered.chain(failed).chain(held).chain(unpulled).chain([counts]).collect()
     }
 }
 
-pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, now_ms: u64, budget: Duration) -> NorthResult<Ticked> {
-    let started = Instant::now();
+pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, now_ms: u64, budget: Duration) -> NorthResult<Ticked> {
     let spool = fleet.spool();
-    let rows = spool.pending()?;
+    let mut rows = spool.pending()?;
     let spooled: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let records = fleet.sessions()?;
+    let mut pull_failed = Vec::new();
+    let taken = take_far(fleet, &records, pulls, &mut rows, &mut pull_failed);
     let floor = now_ms.saturating_sub(u64::try_from(RETENTION.as_millis()).unwrap_or(u64::MAX));
+    let pulled = rows.len() - spooled.len();
     let exchange = Exchange {
         rows,
         sessions: records.iter().map(|record| published(fleet, record, now_ms)).collect(),
@@ -48,7 +69,8 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, now_ms: u64, budget: Dur
         spool.withdraw(id)?;
     }
     fleet.cache_sessions(&exchanged.sessions)?;
-    let mut ticked = Ticked { flushed: spooled.len(), held_elsewhere: exchanged.held_elsewhere.clone(), ..Ticked::default() };
+    let started = Instant::now();
+    let mut ticked = Ticked { flushed: spooled.len(), pulled, pull_failed, held_elsewhere: exchanged.held_elsewhere.clone(), ..Ticked::default() };
     for row in exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)) {
         if started.elapsed() >= budget {
             ticked.deferred += 1;
@@ -60,8 +82,58 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, now_ms: u64, budget: Dur
             Err(error) => ticked.failed.push((row.id.clone(), error.user_message())),
         }
     }
+    ticked.pull_failed.extend(drop_far(pulls, &taken));
     ticked.pruned = fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT)?;
     Ok(ticked)
+}
+
+fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut Vec<FleetRow>, failed: &mut Vec<(String, String)>) -> Vec<Taken> {
+    let hosts = far_hosts(fleet, records, pulls);
+    let answers = in_parallel(&hosts, |host| pulls.spools.take(&host.ssh));
+    let mut taken = Vec::new();
+    for (host, answer) in hosts.into_iter().zip(answers) {
+        match answer {
+            Ok(found) => {
+                let mut ids = Vec::new();
+                for row in found {
+                    match row.validate() {
+                        Ok(()) => {
+                            ids.push(row.id.clone());
+                            rows.push(row);
+                        }
+                        Err(error) => failed.push((host.name.clone(), error.user_message())),
+                    }
+                }
+                taken.push(Taken { host, ids });
+            }
+            Err(error) => failed.push((host.name.clone(), error.user_message())),
+        }
+    }
+    taken
+}
+
+fn drop_far(pulls: &Pulls, taken: &[Taken]) -> Vec<(String, String)> {
+    let held: Vec<&Taken> = taken.iter().filter(|taken| !taken.ids.is_empty()).collect();
+    let answers = in_parallel(&held, |taken| pulls.spools.drop(&taken.host.ssh, &taken.ids));
+    held.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
+}
+
+fn in_parallel<T: Sync, R: Send>(items: &[T], run: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    std::thread::scope(|scope| {
+        let running: Vec<_> = items.iter().map(|item| scope.spawn(|| run(item))).collect();
+        running.into_iter().map(|handle| handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    })
+}
+
+fn far_hosts(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls) -> Vec<FarHost> {
+    let placed = records.iter().filter(|record| !record.stopped).filter_map(|record| record.machine.as_ref()).map(|machine| FarHost { name: machine.name.clone(), ssh: machine.ssh.clone() });
+    let mut hosts: Vec<FarHost> = Vec::new();
+    for host in placed.chain(pulls.always.iter().cloned()).filter(|host| host.name != fleet.host()) {
+        if !hosts.iter().any(|seen| seen.name == host.name || seen.ssh == host.ssh) {
+            hosts.push(host);
+        }
+    }
+    hosts
 }
 
 fn addressee(fleet: &Fleet, record: &SessionRecord, floor: u64) -> NorthResult<Addressee> {

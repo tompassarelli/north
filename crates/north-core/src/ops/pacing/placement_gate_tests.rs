@@ -409,3 +409,11 @@ fn a_declared_repository_or_an_issue_reference_outranks_the_launch_directory() {
     assert_eq!(gate::repository(&gate::anchored(referenced, cwd, Some("wisp#3"))), "north");
     assert_eq!(gate::anchored("Item: prose\n", Some(std::path::Path::new("/tmp")), None), "Item: prose\n");
 }
+
+#[test]
+fn spool_pulls_names_the_marked_hosts_with_an_ssh_destination_other_than_this_one() {
+    let cfg: DocumentMut = "[hosts.gex45]\nssh = \"tom@gex45\"\npulls_spool = true\n[hosts.nexus]\nssh = \"nexus\"\n[hosts.annex]\npulls_spool = true\n[hosts.whiterabbit]\nssh = \"tom@laptop\"\npulls_spool = true\n".parse().unwrap();
+
+    assert_eq!(gate::spool_pulls(&cfg, "whiterabbit"), [("gex45".to_owned(), "tom@gex45".to_owned())]);
+    assert!(gate::spool_pulls(&cfg, "gex45").iter().all(|(name, _)| name != "gex45"));
+}

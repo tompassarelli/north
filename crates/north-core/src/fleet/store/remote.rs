@@ -1,14 +1,23 @@
 use crate::error::NorthResult;
-use crate::fleet::relay::over_ssh;
+use crate::fleet::ssh::over_ssh;
 
 use super::FleetRow;
 
-pub fn take_from(host: &str) -> NorthResult<Vec<FleetRow>> {
-    take_with(|words| over_ssh(host, None, words))
+pub trait FarSpools: Sync {
+    fn take(&self, ssh: &str) -> NorthResult<Vec<FleetRow>>;
+    fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()>;
 }
 
-pub fn drop_on(host: &str, ids: &[String]) -> NorthResult<()> {
-    drop_with(|words| over_ssh(host, None, words), ids)
+pub struct OverSsh;
+
+impl FarSpools for OverSsh {
+    fn take(&self, ssh: &str) -> NorthResult<Vec<FleetRow>> {
+        take_with(|words| over_ssh(ssh, None, words))
+    }
+
+    fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
+        drop_with(|words| over_ssh(ssh, None, words), ids)
+    }
 }
 
 pub fn take_with(run: impl Fn(&[&str]) -> NorthResult<Vec<u8>>) -> NorthResult<Vec<FleetRow>> {
