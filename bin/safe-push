@@ -2322,7 +2322,7 @@ final_scans() {
   local -a failed=()
   if ! command -v north >/dev/null 2>&1; then
     echo "safe-push: north missing on PATH — refusing to push without the dependency gate; NOT pushed."
-    failed+=("dependency gate (north missing)")
+    failed+=("dependency gate (no north on PATH)")
   else
     echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
     (cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
