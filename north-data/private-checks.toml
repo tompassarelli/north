@@ -1,0 +1,34 @@
+[[check]]
+name = "readability"
+repo = "tompassarelli/makgora"
+checkout = "smashcraft"
+context = "readability"
+paths = [
+  "ts/src/game/presentation/",
+  "ts/src/host/loop/stageScenery.ts",
+  "ts/src/game/assets/stage*",
+  "ts/src/game/menu/stageCatalog.ts",
+  "ts/src/game/sim/stage.ts",
+  "ts/package.json",
+  "ts/wisp.lock",
+  "ts/vendor/",
+  "tools/stage/",
+  "build-inputs/stage-assets/",
+]
+
+[[check.step]]
+dir = "ts"
+command = ["bun", "install", "--frozen-lockfile"]
+class = "moderate"
+timeout_seconds = 1800
+
+[[check.step]]
+dir = "ts"
+command = ["bun", "-e", "const { Effect } = await import('effect'); const { prepareWindowLibrary } = await import('./node_modules/wisp/host/window/binding.ts'); console.log(await Effect.runPromise(prepareWindowLibrary))"]
+class = "heavy"
+timeout_seconds = 3600
+
+[[check.step]]
+command = ["bun", "tools/stage/nativeSeparation.ts"]
+class = "gpu"
+timeout_seconds = 3600

@@ -53,6 +53,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("defaults-measure", crate::ops::defaults_measure::run),
     ("worker-ledger", super::worker_ledger::run),
     ("ops", crate::ops::run),
+    ("private-check", crate::ops::private_check::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

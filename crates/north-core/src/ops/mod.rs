@@ -18,6 +18,7 @@ pub mod job_watch;
 pub mod model_watch;
 pub mod nexus_ram;
 pub mod outside_watch;
+pub mod private_check;
 pub mod pacing;
 pub mod private_desktop;
 pub mod reclaim;
