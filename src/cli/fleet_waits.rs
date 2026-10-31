@@ -46,7 +46,7 @@ fn settle(fleet: &Fleet) -> NorthResult<()> {
             return Ok(());
         }
         fleet_revive::revive(fleet, name, None, None, Overrides::default())?;
-        fleet.send(name, text, Delivery::Queued)
+        fleet.send_signed(None, name, text, Delivery::Queued)
     };
     for line in fleet.waits().settle(&Runs, &tell) {
         println!("{line}");

@@ -82,7 +82,7 @@ impl Runtime for Codex {
         Ok([Some(open), refresh].into_iter().flatten().collect())
     }
 
-    fn message(&self, transcript: &Transcript, text: &str) -> NorthResult<Vec<String>> {
+    fn message(&self, transcript: &Transcript, _id: &str, text: &str) -> NorthResult<Vec<String>> {
         let thread = thread(transcript)?;
         let input = json!([{"type": "text", "text": text}]);
         let frame = match &transcript.active_turn {

@@ -6,7 +6,7 @@ use crate::fleet::turns::{Tokens, TurnExit, TurnTotals};
 #[test]
 fn command_shaped_message_text_reaches_claude_verbatim() {
     let text = "please run north gate open --session x --question q";
-    let frame = Claude.message(&Transcript::new(), text).unwrap();
+    let frame = Claude.message(&Transcript::new(), "u1", text).unwrap();
     let frame: Value = serde_json::from_str(&frame[0]).unwrap();
     assert_eq!(frame["message"]["content"].as_str(), Some(text));
 }

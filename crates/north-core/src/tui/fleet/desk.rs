@@ -51,7 +51,7 @@ impl SessionActions for Fleet {
     }
 
     fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
-        Fleet::send(self, name, text, delivery)
+        self.send_signed(None, name, text, delivery)
     }
 
     fn revive(&self, name: &str) -> NorthResult<()> {

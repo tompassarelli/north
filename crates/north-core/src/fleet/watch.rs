@@ -21,7 +21,7 @@ use super::prompt::is_deepened;
 use super::receipts::{Courier, Report, deliver_report, is_final};
 use super::records::{find_session, host_sessions, parents_live, write_record};
 use super::silent::{self, Quiet, State};
-use super::runtime::{Runtime, now_ms};
+use super::runtime::{Runtime, new_uuid, now_ms};
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
@@ -262,7 +262,7 @@ impl TurnWatch {
 
     fn wake(&mut self) -> Option<Vec<String>> {
         let wait = self.waits.values_mut().next()?;
-        let frames = self.runtime.message(&Transcript::new(), &wait::wake(&wait.reply, wait.wakes)).ok()?;
+        let frames = fresh(self.runtime.as_ref(), &wait::wake(&wait.reply, wait.wakes))?;
         wait.wakes += 1;
         Some(frames)
     }
@@ -280,7 +280,7 @@ impl TurnWatch {
         let name = find_session(&self.root, &self.host_dir, conversation).map_or_else(|| conversation.to_owned(), |record| record.name);
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         let note = home.join(".local/state/agents/handoffs").join(format!("{name}.md"));
-        let Ok(frames) = self.runtime.message(&Transcript::new(), &handoff::nudge(context, threshold, &note)) else { return };
+        let Some(frames) = fresh(self.runtime.as_ref(), &handoff::nudge(context, threshold, &note)) else { return };
         for frame in frames {
             self.courier.answer(&self.host_dir, frame);
         }
@@ -424,7 +424,7 @@ impl FrameWatch for TurnWatch {
         let ended = detached::ended(&self.detached, &live);
         self.detached = live;
         if !ended.is_empty()
-            && let Ok(frames) = self.runtime.message(&Transcript::new(), &detached::ended_message(&ended))
+            && let Some(frames) = fresh(self.runtime.as_ref(), &detached::ended_message(&ended))
         {
             return Rest::Send(frames);
         }
@@ -476,4 +476,8 @@ impl FrameWatch for TurnWatch {
         self.speak_up(if retired { State::Exited } else { State::Parked });
         self.finish_probes();
     }
+}
+
+fn fresh(runtime: &dyn Runtime, text: &str) -> Option<Vec<String>> {
+    runtime.message(&Transcript::new(), &new_uuid().ok()?, text).ok()
 }

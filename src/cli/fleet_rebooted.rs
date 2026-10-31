@@ -49,6 +49,6 @@ impl Resumer for Revival<'_> {
     }
 
     fn send(&self, name: &str, text: &str) -> NorthResult<()> {
-        self.0.send(name, text, Delivery::Queued)
+        self.0.send_signed(None, name, text, Delivery::Queued)
     }
 }

@@ -270,7 +270,7 @@ fn a_letter_relayed_from_another_host_names_its_sender_and_host_and_records_them
     let far_home = far.to_str().unwrap();
     let far_state = format!("{far_home}/.local/state");
     north_as(root, "here", &[("HOME", far_home), ("XDG_STATE_HOME", &far_state)], &["fleet", "outbox", "take", "--for", "here"]);
-    let posted = north_as(root, "here", &[("HOME", far_home), ("XDG_STATE_HOME", &far_state), ("NORTH_FLEET_SESSION", "wisp-lead")], &["fleet", "send", "narrow", "rolled back"]);
+    let posted = north_as(root, "far", &[("HOME", far_home), ("XDG_STATE_HOME", &far_state), ("NORTH_FLEET_SESSION", "wisp-lead")], &["fleet", "send", "narrow", "rolled back"]);
     let relayed = north_as(root, "here", &[("FAR_HOME", far_home)], &["fleet", "relay", "far"]);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let mut shown = String::new();

@@ -14,4 +14,9 @@ impl Fleet {
         let policy = crate::pace::target::home_policy_path(&home);
         Self::rooted(home, policy, runtimes, ledger, claims)
     }
+
+    pub fn hosted_as(mut self, host: &str) -> Self {
+        self.host = host.into();
+        self
+    }
 }

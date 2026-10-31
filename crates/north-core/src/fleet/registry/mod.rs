@@ -18,11 +18,11 @@ use super::prompt::{PromptInputs, StandingOrders, render, variant_sha};
 use super::records::{PLACED, read_record, write_record};
 use super::remote;
 use super::roster::Roster;
-use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, now_ms};
+use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime, new_uuid, now_ms};
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
-use super::store::SPOOL_DIR;
+use super::store::{SPOOL_DIR, SessionRow, cache_sessions};
 use super::waits::Waits;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
@@ -74,6 +74,7 @@ pub struct Fleet {
     runtimes: Runtimes,
     ledger: Arc<dyn FleetBooks>,
     claims: Arc<dyn Claims>,
+    host: String,
 }
 
 impl Fleet {
@@ -85,11 +86,19 @@ impl Fleet {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger, claims })
+        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name() })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
         Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    pub fn cache_sessions(&self, rows: &[SessionRow]) -> NorthResult<()> {
+        cache_sessions(&self.root, rows)
     }
 
     pub fn waits(&self) -> Waits {
@@ -218,12 +227,16 @@ impl Fleet {
         session_running(record)
     }
 
-    pub fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+    pub(super) fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+        self.prompt(name, &new_uuid()?, text, delivery)
+    }
+
+    fn prompt(&self, name: &str, id: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
         let record = self.revive(name, None)?;
         let transcript = self.recent(self.runtime(&record)?.as_ref(), &record)?;
         match delivery {
-            Delivery::Now if transcript.status != Status::Idle => self.send_urgent(&record, &transcript, text),
-            _ => self.send_text(&record, &transcript, text),
+            Delivery::Now if transcript.status != Status::Idle => self.send_urgent(&record, &transcript, id, text),
+            _ => self.send_text(&record, &transcript, id, text),
         }
     }
 
@@ -357,16 +370,16 @@ impl Fleet {
         Ok((render(&inputs), variant_sha(&inputs)))
     }
 
-    fn send_text(&self, record: &SessionRecord, transcript: &Transcript, text: &str) -> NorthResult<()> {
-        Host::new(record.host_dir.clone()).send(&self.runtime(record)?.message(transcript, text)?)
+    fn send_text(&self, record: &SessionRecord, transcript: &Transcript, id: &str, text: &str) -> NorthResult<()> {
+        Host::new(record.host_dir.clone()).send(&self.runtime(record)?.message(transcript, id, text)?)
     }
 
-    fn send_urgent(&self, record: &SessionRecord, transcript: &Transcript, text: &str) -> NorthResult<()> {
+    fn send_urgent(&self, record: &SessionRecord, transcript: &Transcript, id: &str, text: &str) -> NorthResult<()> {
         let runtime = self.runtime(record)?;
         let interrupted_from = stream_len(&record.host_dir);
         Host::new(record.host_dir.clone()).send(&runtime.interrupt(transcript)?)?;
         let settled = await_settled(runtime.as_ref(), record, transcript.clone(), interrupted_from)?;
-        self.send_text(record, &settled, &urgent_prefixed(text))
+        self.send_text(record, &settled, id, &urgent_prefixed(text))
     }
 
     fn host_in_use(&self, stopping: &SessionRecord) -> NorthResult<bool> {

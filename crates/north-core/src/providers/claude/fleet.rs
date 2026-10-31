@@ -90,8 +90,8 @@ impl Runtime for Claude {
         Ok(Vec::new())
     }
 
-    fn message(&self, _transcript: &Transcript, text: &str) -> NorthResult<Vec<String>> {
-        Ok(vec![encode_user_message(&new_uuid()?, text)])
+    fn message(&self, _transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {
+        Ok(vec![encode_user_message(id, text)])
     }
 
     fn interrupt(&self, _transcript: &Transcript) -> NorthResult<Vec<String>> {

@@ -96,7 +96,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         [verb @ ("wait" | "waits"), rest @ ..] => fleet_waits::run(&fleet, verb, rest),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
-        [verb @ ("row" | "spool"), rest @ ..] => fleet_row::run(&fleet, verb, rest),
+        [verb @ ("row" | "spool" | "tick"), rest @ ..] => fleet_row::run(&fleet, verb, rest),
         [verb @ ("send" | "relay" | "outbox"), rest @ ..] => relay::run(&fleet, verb, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),

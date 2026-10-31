@@ -25,6 +25,7 @@ pub mod runtimes;
 pub mod session_host;
 pub mod store;
 pub mod stranded;
+pub mod tick;
 mod transcript;
 pub mod turns;
 mod unaccepted;

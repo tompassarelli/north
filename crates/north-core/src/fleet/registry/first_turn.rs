@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::host::{Host, alive};
 use crate::fleet::model::{Account, SessionRecord};
-use crate::fleet::runtime::{CredentialFailure, Opening, now_ms};
+use crate::fleet::runtime::{CredentialFailure, Opening, new_uuid, now_ms};
 use crate::fleet::transcript::{StreamTail, stream_len, stream_path};
 use crate::fleet::turns::TurnSignal;
 
@@ -57,7 +57,7 @@ impl Fleet {
     fn first_turn(&self, record: &SessionRecord, prompt: &str) -> NorthResult<FirstTurn> {
         let runtime = self.runtime(record)?;
         let mut tail = StreamTail::open(stream_path(&record.host_dir), stream_len(&record.host_dir));
-        self.send_text(record, &self.recent(runtime.as_ref(), record)?, prompt)?;
+        self.send_text(record, &self.recent(runtime.as_ref(), record)?, &new_uuid()?, prompt)?;
         let deadline = Instant::now() + FIRST_TURN_WAIT;
         let mut prompted = false;
         loop {

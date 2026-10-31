@@ -41,7 +41,7 @@ impl Fleet {
             return self.send_signed(from, name, text, delivery).map(|()| Sent::Here);
         }
         let known = match cached_sessions(&self.root)? {
-            Some(sessions) => sessions.iter().any(|session| session.name == name),
+            Some(sessions) => sessions.iter().any(|session| session.name == name) || self.remote_views().iter().any(|seen| seen.snapshot.sessions.iter().any(|session| session.name == name)),
             None => self.outbox().relay().is_some(),
         };
         if !known {
@@ -58,7 +58,7 @@ impl Fleet {
             id: format!("{sent_at}-{}", new_uuid()?),
             kind: RowKind::Message,
             to: name.into(),
-            from: relay::hostname(),
+            from: self.host.clone(),
             urgent: delivery == Delivery::Now,
             sent_at,
             text: text.into(),
@@ -224,7 +224,7 @@ mod tests {
     fn a_letter_for_a_row_already_handed_in_is_dropped_without_a_second_delivery() {
         let home = tempfile::tempdir().unwrap();
         let far_home = tempfile::tempdir().unwrap();
-        let (laptop, far) = (fleet(home.path()), fleet(far_home.path()));
+        let (laptop, far) = (fleet(home.path()).hosted_as("laptop"), fleet(far_home.path()).hosted_as("far"));
         let worker = live(&laptop, "worker");
         cached(&far, &["worker"]);
         far.outbox().take("laptop").unwrap();
@@ -269,6 +269,19 @@ mod tests {
 
         assert!(matches!(refused, Err(NorthError::Usage(why)) if why == "no session named nobody"));
         assert!(Spool::at(&fleet.root).pending().unwrap().is_empty() && fleet.outbox().take("laptop").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_send_to_a_name_only_a_relayed_hosts_view_holds_is_posted_once_the_cache_exists() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet(home.path());
+        cached(&fleet, &["elsewhere"]);
+        let view: crate::fleet::remote_view::SessionView = serde_json::from_value(serde_json::json!({"name": "legacy", "provider": "claude", "account": "b", "status": "parked", "parent": null, "cwd": "/tmp", "placement": null})).unwrap();
+        fleet.remember("tom@gex45", &Snapshot { host: "gex45".into(), sessions: vec![view], gates: Vec::new() }).unwrap();
+
+        let Sent::Posted { letter, .. } = fleet.send_or_post(None, "legacy", "hello", Delivery::Queued).unwrap() else { panic!("a name in a relayed view is posted") };
+
+        assert_eq!(letter.to, "legacy");
     }
 
     #[test]

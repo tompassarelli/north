@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
 
@@ -75,6 +76,14 @@ enum Rows {
 impl FleetRow {
     pub fn delivery(&self) -> Delivery {
         if self.urgent { Delivery::Now } else { Delivery::Queued }
+    }
+
+    pub fn prompt_id(&self) -> String {
+        let mut bytes: [u8; 16] = Sha256::digest(self.id.as_bytes())[..16].try_into().unwrap_or_default();
+        bytes[6] = (bytes[6] & 0x0f) | 0x80;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
     }
 
     pub fn signer(&self) -> String {
