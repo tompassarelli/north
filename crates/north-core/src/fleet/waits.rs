@@ -12,7 +12,7 @@ use crate::error::{NorthError, NorthResult};
 
 use super::runtime::now_ms;
 
-const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH or capture:PATH";
+const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -21,6 +21,7 @@ pub enum Run {
     Farm(String),
     Branch(String),
     Capture(PathBuf),
+    Process { pid: u32, started: u64 },
 }
 
 impl FromStr for Run {
@@ -37,6 +38,10 @@ impl FromStr for Run {
             "farm" => Ok(Self::Farm(id.into())),
             "branch" => Ok(Self::Branch(id.into())),
             "capture" => Ok(Self::Capture(id.into())),
+            "pid" => {
+                let (pid, started) = id.split_once('@').ok_or_else(usage)?;
+                Ok(Self::Process { pid: pid.parse().map_err(|_| usage())?, started: started.parse().map_err(|_| usage())? })
+            }
             _ => Err(usage()),
         }
     }
@@ -64,6 +69,7 @@ impl fmt::Display for Run {
             Self::Farm(id) => write!(out, "farm:{id}"),
             Self::Branch(branch) => write!(out, "branch:{branch}"),
             Self::Capture(path) => write!(out, "capture:{}", path.display()),
+            Self::Process { pid, started } => write!(out, "pid:{pid}@{started}"),
         }
     }
 }
@@ -74,6 +80,9 @@ pub struct Registered {
     /// Where the worker was, for the probes that read a repository.
     pub cwd: PathBuf,
     pub since_ms: u64,
+    /// What the run is, for the message that revives its session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// Whether a run is over, and how it ended.
@@ -123,10 +132,10 @@ impl Waits {
         Ok(())
     }
 
-    pub fn register(&self, session: &str, run: Run, cwd: &Path) -> NorthResult<()> {
+    pub fn register(&self, session: &str, run: Run, cwd: &Path, label: Option<&str>) -> NorthResult<()> {
         let mut waits = self.of(session);
         if waits.iter().all(|wait| wait.run != run) {
-            waits.push(Registered { run, cwd: cwd.into(), since_ms: now_ms() });
+            waits.push(Registered { run, cwd: cwd.into(), since_ms: now_ms(), label: label.map(str::to_owned) });
         }
         self.store(session, &waits)
     }
@@ -143,7 +152,8 @@ impl Waits {
         for (session, waits) in self.all() {
             for wait in waits {
                 let Some(result) = probe.result(&wait) else { continue };
-                let text = format!("[north: the run you waited on is over] {}: {result}. Read its output and continue to a final report.", wait.run);
+                let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
+                let text = format!("[north: the run you waited on is over] {named}: {result}. Read its output and continue to a final report.");
                 if tell(&session, &text).is_ok() && self.release(&session, &wait.run).is_ok() {
                     told.push(format!("{session}: {} {result}", wait.run));
                 }
@@ -175,19 +185,19 @@ mod tests {
 
     #[test]
     fn a_run_round_trips_through_its_text_and_refuses_an_unnamed_kind() {
-        for text in ["job:nexus-build", "job:build@nexus", "farm:123456", "branch:claude/land-x", "capture:/tmp/batch/done"] {
+        for text in ["job:nexus-build", "job:build@nexus", "farm:123456", "branch:claude/land-x", "capture:/tmp/batch/done", "pid:4242@99"] {
             assert_eq!(text.parse::<Run>().unwrap().to_string(), text);
         }
-        assert!("soak:1".parse::<Run>().is_err() && "job:".parse::<Run>().is_err() && "nexus".parse::<Run>().is_err());
+        assert!("soak:1".parse::<Run>().is_err() && "job:".parse::<Run>().is_err() && "pid:4242".parse::<Run>().is_err() && "nexus".parse::<Run>().is_err());
     }
 
     #[test]
     fn a_finished_run_tells_its_session_the_run_and_result_once_and_a_running_one_stays() {
         let (_root, waits) = waits();
-        waits.register("north-1", "farm:42".parse().unwrap(), Path::new("/repo")).unwrap();
-        waits.register("north-1", "farm:42".parse().unwrap(), Path::new("/repo")).unwrap();
-        waits.register("north-1", "job:soak".parse().unwrap(), Path::new("/repo")).unwrap();
-        waits.register("north-2", "branch:claude/land-y".parse().unwrap(), Path::new("/repo")).unwrap();
+        waits.register("north-1", "farm:42".parse().unwrap(), Path::new("/repo"), None).unwrap();
+        waits.register("north-1", "farm:42".parse().unwrap(), Path::new("/repo"), None).unwrap();
+        waits.register("north-1", "job:soak".parse().unwrap(), Path::new("/repo"), None).unwrap();
+        waits.register("north-2", "branch:claude/land-y".parse().unwrap(), Path::new("/repo"), None).unwrap();
         assert_eq!(waits.of("north-1").len(), 2, "one wait per run");
 
         let sent = RefCell::new(Vec::new());
@@ -208,7 +218,7 @@ mod tests {
     #[test]
     fn a_wait_whose_revival_fails_is_kept_for_the_next_tick() {
         let (_root, waits) = waits();
-        waits.register("north-1", "job:soak".parse().unwrap(), Path::new("/repo")).unwrap();
+        waits.register("north-1", "job:soak".parse().unwrap(), Path::new("/repo"), None).unwrap();
         let failing = |_: &str, _: &str| Err(NorthError::State("no such session".into()));
         assert!(waits.settle(&Over(vec!["job:soak"]), &failing).is_empty());
         assert_eq!(waits.of("north-1").len(), 1);

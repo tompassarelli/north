@@ -6,6 +6,9 @@ use super::wait::WAKE_AFTER;
 /// How long a session with a registered run stays up after its turn ends, so a revival message sent to it starts a turn before it parks again.
 const REGISTERED_PARK_AFTER: Duration = Duration::from_secs(30);
 
+/// How long a session holds off parking for a run it detached; past it the run is registered as a wait instead.
+const DETACHED_HOLD: Duration = Duration::from_secs(2 * 60 * 60);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Policy {
     pub silent_after: Duration,
@@ -14,11 +17,12 @@ pub struct Policy {
     pub rollover_min_tokens: u64,
     pub finished_exit_after: Duration,
     pub wake_after: [Duration; 3],
+    pub detached_hold: Duration,
 }
 
 impl Default for Policy {
     fn default() -> Self {
-        Self { silent_after: SILENT_AFTER, rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60), wake_after: WAKE_AFTER }
+        Self { silent_after: SILENT_AFTER, rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60), wake_after: WAKE_AFTER, detached_hold: DETACHED_HOLD }
     }
 }
 
@@ -31,6 +35,7 @@ pub struct Session {
     pub finished: bool,
     pub wakes: Option<usize>,
     pub registered: bool,
+    pub detached: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,13 +61,22 @@ impl Policy {
         if session.registered && session.idle >= REGISTERED_PARK_AFTER {
             return Step::Park;
         }
+        if session.detached {
+            let held = session.idle < self.detached_hold;
+            return if held { self.rollover(session).unwrap_or(Step::Wait) } else { Step::Park };
+        }
         if let Some(wakes) = session.wakes {
             return self.wake_step(wakes, session.idle);
         }
-        if session.context >= self.rollover_min_tokens && !session.rolled_over && session.idle < self.cache_lifetime {
-            return if session.idle >= self.rollover_after { Step::Compact } else { Step::Wait };
+        if let Some(step) = self.rollover(session) {
+            return step;
         }
         if parks { Step::Park } else { Step::Wait }
+    }
+
+    fn rollover(&self, session: Session) -> Option<Step> {
+        let due = session.context >= self.rollover_min_tokens && !session.rolled_over && session.idle < self.cache_lifetime;
+        due.then(|| if session.idle >= self.rollover_after { Step::Compact } else { Step::Wait })
     }
 
     fn wake_step(&self, wakes: usize, idle: Duration) -> Step {
@@ -126,6 +140,17 @@ mod tests {
         assert_eq!(step(Session { in_flight: true, ..registered }), Step::Wait, "never mid-turn");
         assert_eq!(step(Session { finished: true, idle: minutes(10), ..registered }), Step::Exit, "a final report still exits it");
         assert_eq!(Policy::default().step(registered, None), Step::Park, "whatever the idle limit");
+    }
+
+    #[test]
+    fn a_session_with_a_detached_run_holds_past_its_idle_limit_unwoken_until_the_hold_then_parks() {
+        let detached = Session { detached: true, wakes: Some(0), ..Session::default() };
+        assert_eq!(step(Session { idle: minutes(35), ..detached }), Step::Wait, "a 35-minute run outlasts the 10-minute idle limit and every wake");
+        assert_eq!(step(Session { idle: minutes(119), ..detached }), Step::Wait);
+        assert_eq!(step(Session { idle: minutes(120), ..detached }), Step::Park, "past the hold the run is registered and the session parks");
+        assert_eq!(step(Session { idle: minutes(55), context: 250_000, ..detached }), Step::Compact, "a held session still rolls over");
+        assert_eq!(step(Session { idle: minutes(30), registered: true, ..detached }), Step::Park, "a run the worker registered parks it as before");
+        assert_eq!(step(Session { idle: minutes(10), finished: true, ..detached }), Step::Exit, "a final report still exits it");
     }
 
     #[test]

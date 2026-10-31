@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::detached;
 use crate::fleet::model::Delivery;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::SESSION_ENV;
@@ -17,7 +18,7 @@ use crate::platform::process::run_command_within;
 use super::fleet_placement::Overrides;
 use super::fleet_revive;
 
-const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH or capture:PATH)";
+const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START)";
 const PROBE: Duration = Duration::from_secs(30);
 const JOB_STARTED_BEFORE_MS: f64 = 30.0 * 60_000.0;
 
@@ -34,7 +35,7 @@ fn register(fleet: &Fleet, run: &str, name: Option<&str>) -> NorthResult<()> {
     let name = name.filter(|name| !name.is_empty()).ok_or_else(|| NorthError::Usage(format!("{USAGE}; NAME defaults to ${SESSION_ENV}")))?;
     fleet.session(name)?;
     let run: Run = run.parse()?;
-    fleet.waits().register(name, run.clone(), &std::env::current_dir()?)?;
+    fleet.waits().register(name, run.clone(), &std::env::current_dir()?, None)?;
     println!("{name} waits on {run}: end your turn now; it parks and {run}'s end revives it with the result");
     Ok(())
 }
@@ -62,6 +63,7 @@ impl Probe for Runs {
             Run::Farm(id) => farm(id, &wait.cwd),
             Run::Branch(branch) => branch_state(branch, &wait.cwd),
             Run::Capture(path) => wait.cwd.join(path).exists().then(|| "written".to_owned()),
+            Run::Process { pid, started } => (!detached::alive(Path::new("/proc"), *pid, *started)).then(|| "ended".to_owned()),
         }
     }
 }

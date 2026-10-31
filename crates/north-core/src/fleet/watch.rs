@@ -10,6 +10,7 @@ use crate::fleet::session_host::{FrameWatch, Rest, SentLog};
 
 use super::books::WatchBooks;
 use super::claims::{self, Claims};
+use super::detached::{self, Detached, NoScope, Scope};
 use super::gates::Question;
 use super::handoff;
 use super::idle::{self, Step};
@@ -45,6 +46,8 @@ pub struct TurnWatch {
     nudges: HashMap<String, Option<Nudge>>,
     unaccepted: Arc<SentPrompts>,
     lanes: Arc<dyn Lanes + Send + Sync>,
+    scope: Arc<dyn Scope>,
+    detached: Vec<Detached>,
     quiet: HashMap<String, Quiet>,
     jobs: Jobs,
     closing: bool,
@@ -171,6 +174,8 @@ impl TurnWatch {
             nudges: HashMap::new(),
             unaccepted,
             lanes: Arc::new(NoLanes),
+            scope: Arc::new(NoScope),
+            detached: Vec::new(),
             quiet: HashMap::new(),
             jobs: Jobs::in_state(),
             closing: false,
@@ -184,6 +189,11 @@ impl TurnWatch {
 
     pub fn reading_lanes(mut self, lanes: Arc<dyn Lanes + Send + Sync>) -> Self {
         self.lanes = lanes;
+        self
+    }
+
+    pub fn reading_scope(mut self, scope: Arc<dyn Scope>) -> Self {
+        self.scope = scope;
         self
     }
 
@@ -231,6 +241,17 @@ impl TurnWatch {
             self.waits.entry(conversation.to_owned()).or_insert(Wait { wakes: 0, reply: String::new() }).reply = reply;
         } else {
             self.waits.remove(conversation);
+        }
+    }
+
+    fn register_detached(&self) {
+        let waits = Waits::in_root(&self.root);
+        for record in host_sessions(&self.root, &self.host_dir) {
+            for run in &self.detached {
+                if let Err(error) = waits.register(&record.name, run.run(), &record.cwd, Some(&run.command)) {
+                    eprintln!("north session-host: {} parked without its wait on {}: {}", record.name, run.run(), error.user_message());
+                }
+            }
         }
     }
 
@@ -399,14 +420,26 @@ impl FrameWatch for TurnWatch {
     }
 
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
+        let live = self.scope.detached();
+        let ended = detached::ended(&self.detached, &live);
+        self.detached = live;
+        if !ended.is_empty()
+            && let Ok(frames) = self.runtime.message(&Transcript::new(), &detached::ended_message(&ended))
+        {
+            return Rest::Send(frames);
+        }
         let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
         let wakes = self.waits.values().map(|wait| wait.wakes).next();
         let registered = self.registered_wait();
-        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, wakes, registered };
+        let detached = !self.detached.is_empty();
+        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, wakes, registered, detached };
         let step = self.idle.step(session, park_after);
         match step {
-            Step::Park => self.speak_up(State::Parked),
-            _ if idle >= self.idle.silent_after => self.speak_up(State::Idle),
+            Step::Park => {
+                self.register_detached();
+                self.speak_up(State::Parked);
+            }
+            _ if idle >= self.idle.silent_after && !detached => self.speak_up(State::Idle),
             _ => {}
         }
         match step {
