@@ -179,6 +179,10 @@ impl Store {
     }
 
     fn pinned(main_pin: &str, exporter: Option<&str>) -> Self {
+        Self::built(&[], main_pin, exporter)
+    }
+
+    fn built(history: &[(&str, u32)], main_pin: &str, exporter: Option<&str>) -> Self {
         let store = Self { home: tempfile::tempdir().unwrap(), archive: tempfile::tempdir().unwrap() };
         let (origin, main, other) = (store.home.path().join("origin.git"), store.home.path().join("code/main"), store.home.path().join("other"));
         let git = |dir: &Path, arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(arguments).output().unwrap().status.success());
@@ -191,6 +195,13 @@ impl Store {
             fs::write(main.join("tools/animations/mdl-exporter4.pin"), format!("{pin}\n")).unwrap();
         }
         git(&main, &["init", "-q"]);
+        for (pin, days) in history {
+            fs::write(main.join("build-inputs/hero-models"), pin).unwrap();
+            let date = format!("{} +0000", super::now() - u64::from(*days) * 24 * 3600);
+            assert!(Command::new("git").arg("-C").arg(&main).args(["-c", "user.name=t", "-c", "user.email=t@t", "add", "."]).status().unwrap().success());
+            assert!(Command::new("git").arg("-C").arg(&main).args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "earlier pin"]).env("GIT_COMMITTER_DATE", &date).env("GIT_AUTHOR_DATE", &date).status().unwrap().success());
+        }
+        fs::write(main.join("build-inputs/hero-models"), main_pin).unwrap();
         git(&main, &["add", "."]);
         git(&main, &["commit", "-qm", "pins"]);
         git(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
@@ -260,6 +271,17 @@ fn store_versions_no_pin_on_origin_or_a_lane_names_are_archived_once_expired() {
     assert_eq!(fs::read_to_string(store.archive.path().join(format!("build-inputs/hero-models/{UNNAMED}/inner/data"))).unwrap(), format!("hero-models/{UNNAMED}"));
     assert!(!store.path("derived/thinned/key.bin").exists() && store.archived("derived/thinned/key.bin"));
     assert!(store.path(&format!("views/{UNNAMED}")).exists());
+}
+
+#[test]
+fn a_pin_main_dropped_inside_the_sync_window_stays_and_an_older_one_is_archived() {
+    let store = Store::built(&[(UNNAMED, 30), (IN_LANE, 20), (FRESH, 2)], ON_MAIN, None);
+    for hash in [UNNAMED, FRESH] {
+        store.sealed(&format!("hero-models/{hash}"), 100);
+    }
+    assert!(store.run().unwrap());
+    assert!(store.path(&format!("hero-models/{FRESH}")).exists() && !store.archived(&format!("hero-models/{FRESH}")));
+    assert!(!store.path(&format!("hero-models/{UNNAMED}")).exists() && store.archived(&format!("hero-models/{UNNAMED}")));
 }
 
 #[test]

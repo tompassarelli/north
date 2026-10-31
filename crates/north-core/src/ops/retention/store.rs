@@ -9,6 +9,7 @@ const DERIVED: &str = "derived";
 const UNPINNED: [&str; 3] = ["views", "locks", DERIVED];
 const PIN_PATHS: &str = "build-inputs ts/stage-thumbnails.json tools/animations/mdl-exporter4.pin";
 const MAIN_ENDS: &str = "--main-ends--";
+const SYNC_WINDOW: &str = "7.days";
 
 pub(super) struct Layout {
     pub(super) store: String,
@@ -45,7 +46,7 @@ pub(super) fn families(remote: &dyn Remote, layout: &Layout, max_age: Duration) 
 
 fn read_pins(remote: &dyn Remote, layout: &Layout) -> io::Result<BTreeSet<String>> {
     let script = format!(
-        "set -e; cd {}; git -C main fetch -q --prune origin; git -C main grep -h -I -e '' origin/main -- {PIN_PATHS}; echo {MAIN_ENDS}; refs=$(git -C main for-each-ref --format='%(refname)' refs/remotes/origin/); for ref in $refs; do git -C main grep -h -I -e '' \"$ref\" -- {PIN_PATHS} || [ $? -eq 1 ]; done; for lane in */ worktrees/*/; do for path in {PIN_PATHS}; do [ ! -e \"$lane$path\" ] || find \"$lane$path\" -type f -exec awk 1 {{}} +; done; done",
+        "set -e; cd {}; git -C main fetch -q --prune origin; git -C main grep -h -I -e '' origin/main -- {PIN_PATHS}; echo {MAIN_ENDS}; refs=$(git -C main for-each-ref --format='%(refname)' refs/remotes/origin/); for ref in $refs; do git -C main grep -h -I -e '' \"$ref\" -- {PIN_PATHS} || [ $? -eq 1 ]; done; git -C main log --since={SYNC_WINDOW} --format= -p origin/main -- {PIN_PATHS}; for lane in */ worktrees/*/; do for path in {PIN_PATHS}; do [ ! -e \"$lane$path\" ] || find \"$lane$path\" -type f -exec awk 1 {{}} +; done; done",
         layout.checkouts
     );
     let text = String::from_utf8_lossy(&remote.output(&script)?).into_owned();
