@@ -1,5 +1,5 @@
 //! The jobs running on GitHub Actions: this account's busy-slot samples, and the landing workflows'
-//! in-progress jobs with each workflow's median duration.
+//! in-progress jobs with each workflow's and job's median duration.
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::guards::CACHE_SECONDS;
 use super::host::{Host, Places, iso, read_json, seconds, write_atomic};
-use super::stall::{Job, Medians, landing_run, workflow_median};
+use super::stall::{Job, Medians, WorkflowMedians, job_medians, landing_run, newest_run_ids, workflow_median};
 
 const MEDIAN_SECONDS: f64 = 6.0 * 3600.0;
 const DAY: f64 = 86_400.0;
@@ -101,7 +101,7 @@ fn workflows_of(host: &dyn Host, checkout: &Path) -> Option<Vec<String>> {
 
 const DAILY_SAMPLE: &str = "100";
 
-fn history_median(host: &dyn Host, slug: &str, workflow: &str, now: f64) -> Option<Option<f64>> {
+fn history_medians(host: &dyn Host, slug: &str, workflow: &str, now: f64, runs: &RunJobs) -> Option<WorkflowMedians> {
     let mut history: BTreeMap<u64, Value> = BTreeMap::new();
     for day in 0..7 {
         let bounds = format!("{}..{}", iso(now - f64::from(day + 1) * DAY), iso(now - f64::from(day) * DAY));
@@ -112,7 +112,8 @@ fn history_median(host: &dyn Host, slug: &str, workflow: &str, now: f64) -> Opti
         let samples = host.json(&command)?;
         history.extend(samples.as_array()?.iter().filter_map(|item| Some((item["databaseId"].as_u64()?, item.clone()))));
     }
-    Some(workflow_median(history.values(), now))
+    let listed: Vec<Vec<Value>> = newest_run_ids(history.values(), now).into_iter().filter_map(|run_id| runs.of(run_id)).collect();
+    Some(WorkflowMedians { run: workflow_median(history.values(), now), jobs: job_medians(&listed) })
 }
 
 fn running_jobs(host: &dyn Host, slug: &str, workflow: &str, runs: &RunJobs) -> Option<Vec<Job>> {
@@ -132,10 +133,10 @@ fn running_jobs(host: &dyn Host, slug: &str, workflow: &str, runs: &RunJobs) -> 
 
 fn saved_medians(path: &Path, now: f64) -> Medians {
     let Some(saved) = read_json(path).filter(|saved| saved["epoch"].as_f64().is_some_and(|epoch| (0.0..MEDIAN_SECONDS).contains(&(now - epoch)))) else { return Medians::new() };
-    saved["medians"].as_object().into_iter().flatten().map(|(name, median)| (name.clone(), median.as_f64())).collect()
+    serde_json::from_value(saved["medians"].clone()).unwrap_or_default()
 }
 
-/// The landing workflows' jobs in progress and each workflow's median minutes over the past week,
+/// The landing workflows' jobs in progress and each workflow's and job's median minutes over the past week,
 /// the medians cached for six hours; `None` when GitHub cannot say.
 pub(crate) fn landing_jobs(places: &Places, host: &dyn Host, checkout: &Path, slug: &str, now: f64) -> Option<(Vec<Job>, Medians)> {
     let workflows = workflows_of(host, checkout)?;
@@ -145,11 +146,11 @@ pub(crate) fn landing_jobs(places: &Places, host: &dyn Host, checkout: &Path, sl
     let mut jobs = Vec::new();
     let mut medians = Medians::new();
     for workflow in &workflows {
-        let median = match saved.get(workflow) {
-            Some(median) => *median,
-            None => history_median(host, slug, workflow, now)?,
+        let known = match saved.get(workflow) {
+            Some(known) => known.clone(),
+            None => history_medians(host, slug, workflow, now, &runs)?,
         };
-        medians.insert(workflow.clone(), median);
+        medians.insert(workflow.clone(), known);
         jobs.extend(running_jobs(host, slug, workflow, &runs)?);
     }
     if medians != saved {

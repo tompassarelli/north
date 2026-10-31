@@ -312,11 +312,22 @@ impl Source<'_> {
         row.insert("main_age_minutes".into(), json!((self.now - at as f64).max(0.0) / 60.0));
         let (jobs, medians) = landing_jobs(self.env.places, self.env.host, &self.path, &self.slug, self.now)?;
         row.insert("oldest_job".into(), oldest_job(&jobs, self.now));
+        row.insert("job_limits".into(), job_limits(&jobs, &medians, self.now));
         let landings: Vec<f64> = landing.commits.iter().map(|(_, at)| *at as f64).collect();
         let facts = Facts { now: self.now, main_at: at as f64, landings: &landings, pending, jobs: &jobs, medians: &medians, pending_since: pending_since.iter().copied().min_by(f64::total_cmp) };
         row.insert("stall".into(), json!(stall::verdict(&facts)));
         Some(())
     }
+}
+
+fn job_limits(jobs: &[Job], medians: &stall::Medians, now: f64) -> Value {
+    let limits = jobs.iter().map(|job| {
+        let mut value = json!(job);
+        value["age_minutes"] = json!((now - job.started_at).max(0.0) / 60.0);
+        value["limit_minutes"] = json!(stall::limit_minutes(medians, job));
+        value
+    });
+    Value::Array(limits.collect())
 }
 
 fn oldest_job(jobs: &[Job], now: f64) -> Value {

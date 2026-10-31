@@ -10,7 +10,7 @@ use super::alerts::{Node, State, alert_plan, stall_alert};
 use super::host::{Host, Places, iso, seconds, with_user_bin};
 use super::jobs::landing_jobs;
 use super::measure::{Env, get};
-use super::stall::{Facts, Job, Medians, landing_run, verdict, workflow_median};
+use super::stall::{Facts, Job, Medians, WorkflowMedians, job_medians, landing_run, verdict, workflow_median};
 
 pub(super) struct Fake<'a>(pub(super) &'a dyn Fn(&[&str]) -> Option<String>);
 
@@ -74,7 +74,7 @@ fn row(recorded: &Recorded, now: f64) -> Value {
         .map(|item| at(item["createdAt"].as_str().unwrap()))
         .collect();
     let latest = landings.iter().copied().fold(f64::MIN, f64::max);
-    let medians = Medians::from([("autoland.yml".to_owned(), workflow_median(&recorded.runs, now))]);
+    let medians = Medians::from([("autoland.yml".to_owned(), WorkflowMedians { run: workflow_median(&recorded.runs, now), ..Default::default() })]);
     let since = waiting.iter().copied().min_by(f64::total_cmp);
     json!({ "repo": "smashcraft", "main_sha": (latest as i64).to_string(), "stall": verdict(&facts(now, latest, &landings, waiting.len() as u64, &active, &medians, since)) })
 }
@@ -171,7 +171,7 @@ fn deliver_alerts(recorded: &Recorded) {
 
     let prolonged = first + 3600.0;
     let late = recorded.jobs.iter().map(|(job, _)| job).find(|job| job.run_id == 38_143_883_634 && job.name == "reports").unwrap();
-    let medians = Medians::from([("autoland.yml".to_owned(), workflow_median(&recorded.runs, first))]);
+    let medians = Medians::from([("autoland.yml".to_owned(), WorkflowMedians { run: workflow_median(&recorded.runs, first), ..Default::default() })]);
     let fault = json!({"repo": "smashcraft", "main_sha": "moved", "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, std::slice::from_ref(late), &medians, None))});
     assert_eq!(fault["stall"]["stalled"], true);
     assert_eq!(fault["stall"]["overdue_jobs"].as_array().unwrap().len(), 1);
@@ -202,7 +202,7 @@ fn a_lane_arriving_after_a_quiet_spell_is_not_a_stall() {
     let quiet_since = now - 215.0 * 60.0;
     let landings = [quiet_since - 600.0, quiet_since];
     let job = Job { workflow: "autoland.yml".into(), run_id: 1, name: "build".into(), started_at: now - 33.0, runner: "GitHub Actions 1".into() };
-    let medians = Medians::from([("autoland.yml".to_owned(), Some(10.0))]);
+    let medians = Medians::from([("autoland.yml".to_owned(), WorkflowMedians { run: Some(10.0), ..Default::default() })]);
     let jobs = std::slice::from_ref(&job);
     let arrived = verdict(&facts(now, quiet_since, &landings, 2, jobs, &medians, Some(now - 120.0)));
     assert!(!arrived.stalled, "{}", arrived.reason);
@@ -269,7 +269,29 @@ fn a_workflow_with_hundreds_of_runs_a_day_gets_its_median_from_one_listing_page_
     let host = Fake(&reply);
     let (jobs, medians) = landing_jobs(&places, &host, directory.path(), "owner/repo", now).expect("each listing fits one page, inside the per-command limit");
     assert!(jobs.is_empty());
-    assert_eq!(medians["farm-test.yml"], Some(5.0));
+    assert_eq!(medians["farm-test.yml"].run, Some(5.0));
+}
+
+fn rollback(minutes: f64, executed: bool) -> Vec<Value> {
+    let step = |conclusion: &str| json!({"conclusion": conclusion});
+    let steps: Vec<Value> = if executed { vec![step("success"); 6] } else { [vec![step("success"); 3], vec![step("skipped"); 3]].concat() };
+    vec![json!({"name": "rollback", "conclusion": "success", "started_at": iso(0.0), "completed_at": iso(minutes * 60.0), "steps": steps})]
+}
+
+#[test]
+fn a_job_is_held_to_twice_its_own_executed_median_not_the_cache_hit_heavy_run_median() {
+    let now = 1_793_000_000.0;
+    let history: Vec<Vec<Value>> = (0..8).map(|_| rollback(0.5, false)).chain([4.6, 4.4, 4.8].map(|minutes| rollback(minutes, true))).collect();
+    let jobs = job_medians(&history);
+    assert!((jobs["rollback"] - 4.6).abs() < 1e-9, "{jobs:?}");
+    let medians = Medians::from([("farm-test.yml".to_owned(), WorkflowMedians { run: Some(1.8), jobs })]);
+    let running = |minutes: f64, name: &str| Job { workflow: "farm-test.yml".into(), run_id: 1, name: name.into(), started_at: now - minutes * 60.0, runner: "gex45".into() };
+    let overdue = |job: Job| verdict(&facts(now, now, &[now], 0, &[job], &medians, None)).overdue_jobs;
+    assert!(overdue(running(5.0, "rollback")).is_empty());
+    let late = overdue(running(10.0, "rollback"));
+    assert_eq!(late.len(), 1);
+    assert!((late[0].limit_minutes - 9.2).abs() < 1e-9);
+    assert_eq!(overdue(running(4.0, "unseen")).len(), 1, "a job without history falls back to twice the workflow median");
 }
 
 #[test]

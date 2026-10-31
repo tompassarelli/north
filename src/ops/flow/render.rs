@@ -62,7 +62,17 @@ fn stall(row: &Value) -> String {
     } else {
         plain(verdict)
     };
-    format!(", main idle {age}, oldest landing job {oldest}, stall {verdict}")
+    format!(", main idle {age}, oldest landing job {oldest}{}, stall {verdict}", job_limits(row))
+}
+
+fn job_limits(row: &Value) -> String {
+    let listed: Vec<String> = row["job_limits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|job| format!("{} run {} {} {} of {}", plain(&job["workflow"]), plain(&job["run_id"]), plain(&job["name"]), shown(&job["age_minutes"], 1, "m"), shown(&job["limit_minutes"], 1, "m")))
+        .collect();
+    if listed.is_empty() { String::new() } else { format!(", job limits [{}]", listed.join("; ")) }
 }
 
 fn throughput(row: &Value) -> String {

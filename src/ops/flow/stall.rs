@@ -1,5 +1,5 @@
 //! The stall verdict: whether main has stopped moving while lanes wait, or a landing job has run
-//! past twice its workflow's median.
+//! past twice its own median, or its workflow's median when the job has no history.
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,18 @@ pub(crate) struct Verdict {
     pub(crate) runner: Option<String>,
 }
 
-pub(crate) type Medians = BTreeMap<String, Option<f64>>;
+/// A workflow's median whole-run minutes and, per job name, the median minutes of the runs where
+/// that job executed its steps.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(crate) struct WorkflowMedians {
+    pub(crate) run: Option<f64>,
+    pub(crate) jobs: BTreeMap<String, f64>,
+}
+
+pub(crate) type Medians = BTreeMap<String, WorkflowMedians>;
+
+/// How many of a workflow's newest successful runs have their jobs read for per-job medians.
+pub(crate) const JOB_HISTORY_RUNS: usize = 40;
 
 pub(crate) struct Facts<'a> {
     pub(crate) now: f64,
@@ -60,17 +71,52 @@ pub(crate) fn landing_run(item: &Value) -> bool {
         || (title.starts_with("Autoland ") && !title.starts_with("Autoland plan") && !title.ends_with("(push)"))
 }
 
-pub(crate) fn workflow_median<'a>(runs: impl IntoIterator<Item = &'a Value>, now: f64) -> Option<f64> {
-    let durations: Vec<f64> = runs
-        .into_iter()
+fn successful_in_week<'a>(runs: impl IntoIterator<Item = &'a Value>, now: f64) -> Vec<(f64, f64, &'a Value)> {
+    runs.into_iter()
         .filter(|item| landing_run(item) && item["conclusion"].as_str() == Some("success"))
         .filter_map(|item| {
             let updated = seconds(item["updatedAt"].as_str()?)?;
             let started = seconds(item["startedAt"].as_str()?)?;
-            (now - 7.0 * 86_400.0..=now).contains(&updated).then_some((updated - started) / 60.0)
+            (now - 7.0 * 86_400.0..=now).contains(&updated).then_some((updated, (updated - started) / 60.0, item))
         })
-        .collect();
+        .collect()
+}
+
+pub(crate) fn workflow_median<'a>(runs: impl IntoIterator<Item = &'a Value>, now: f64) -> Option<f64> {
+    let durations: Vec<f64> = successful_in_week(runs, now).into_iter().map(|(_, minutes, _)| minutes).collect();
     median(&durations)
+}
+
+/// The newest successful landing runs of the past week, the ones whose jobs are worth reading.
+pub(crate) fn newest_run_ids<'a>(runs: impl IntoIterator<Item = &'a Value>, now: f64) -> Vec<u64> {
+    let mut week = successful_in_week(runs, now);
+    week.sort_by(|a, b| b.0.total_cmp(&a.0));
+    week.into_iter().filter_map(|(_, _, item)| item["databaseId"].as_u64()).take(JOB_HISTORY_RUNS).collect()
+}
+
+/// Median minutes per job name over successful jobs of the given runs' REST job lists, counting
+/// only runs where the job ran as many steps as in any run: a cache hit skips the steps that do
+/// the work and finishes early.
+pub(crate) fn job_medians(runs: &[Vec<Value>]) -> BTreeMap<String, f64> {
+    let mut seen: BTreeMap<&str, Vec<(usize, f64)>> = BTreeMap::new();
+    for job in runs.iter().flatten().filter(|job| job["conclusion"].as_str() == Some("success")) {
+        let (Some(name), Some(started), Some(completed)) = (job["name"].as_str(), job["started_at"].as_str().and_then(seconds), job["completed_at"].as_str().and_then(seconds)) else { continue };
+        let ran = job["steps"].as_array().map_or(0, |steps| steps.iter().filter(|step| step["conclusion"].as_str() != Some("skipped")).count());
+        seen.entry(name).or_default().push((ran, (completed - started) / 60.0));
+    }
+    seen.into_iter()
+        .filter_map(|(name, samples)| {
+            let most = samples.iter().map(|(ran, _)| *ran).max()?;
+            let minutes: Vec<f64> = samples.iter().filter(|(ran, _)| *ran == most).map(|(_, minutes)| *minutes).collect();
+            Some((name.to_owned(), median(&minutes)?))
+        })
+        .collect()
+}
+
+/// Twice the job's own median minutes, or its workflow's when the job has no history.
+pub(crate) fn limit_minutes(medians: &Medians, job: &Job) -> Option<f64> {
+    let known = medians.get(&job.workflow)?;
+    Some(2.0 * known.jobs.get(&job.name).copied().or(known.run)?)
 }
 
 fn overdue(facts: &Facts) -> Vec<Overdue> {
@@ -78,7 +124,7 @@ fn overdue(facts: &Facts) -> Vec<Overdue> {
         .jobs
         .iter()
         .filter_map(|job| {
-            let limit = 2.0 * facts.medians.get(&job.workflow).copied().flatten()?;
+            let limit = limit_minutes(facts.medians, job)?;
             let minutes = (facts.now - job.started_at).max(0.0) / 60.0;
             (minutes > limit).then(|| Overdue { job: job.clone(), age_minutes: minutes, limit_minutes: limit })
         })
