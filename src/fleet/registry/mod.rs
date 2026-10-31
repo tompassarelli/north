@@ -150,6 +150,7 @@ impl Fleet {
             host_dir: PathBuf::new(),
             stream_offset: 0,
             stopped: false,
+            ended: None,
             system_prompt: request.system_prompt.clone(),
             foreground_cap_secs: request.foreground_cap_secs,
             idle_exit_minutes: request.idle_exit_minutes,
@@ -320,6 +321,7 @@ impl Fleet {
         }
         record.host_pid = host.pid();
         record.stopped = false;
+        record.ended = None;
         write_record(&self.root.join(&record.name), record)?;
         self.watch_over(record)?;
         let frames = runtime.open(&record.name, &request, opening, Instructions { text: &instructions, changed })?;

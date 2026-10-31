@@ -172,6 +172,26 @@ pub struct SessionRecord {
     pub last_sender: Option<LastSender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended: Option<Ending>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Ending {
+    IdleExit,
+    HostEnded,
+    Stopped,
+}
+
+impl Ending {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::IdleExit => "idle-exit",
+            Self::HostEnded => "host-ended",
+            Self::Stopped => "stopped",
+        }
+    }
 }
 
 impl SessionRecord {

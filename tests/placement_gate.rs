@@ -221,6 +221,9 @@ fn a_box_that_needs_native_on_smashcraft_starts_with_that_capacity_need() {
     }
     assert_eq!(fs::read_to_string(root.join("need")).unwrap_or_default(), "native:smashcraft");
     north(root, &["fleet", "stop", "lagged"]);
+    let listed: serde_json::Value = serde_json::from_slice(&north(root, &["fleet", "list", "--json"]).stdout).unwrap();
+    let lagged = listed.as_array().unwrap().iter().find(|session| session["name"] == "lagged").unwrap();
+    assert_eq!((&lagged["status"], &lagged["ended"]), (&serde_json::json!("exited"), &serde_json::json!("stopped")), "{lagged}");
 }
 
 fn placed_at(root: &Path, now: &str) -> String {

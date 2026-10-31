@@ -13,7 +13,7 @@ use super::gates::Question;
 use super::handoff;
 use super::idle::{self, Step};
 use super::landings::{self, push_log};
-use super::model::{Delivery, EntryKind, SessionRecord, Transcript};
+use super::model::{Delivery, Ending, EntryKind, SessionRecord, Transcript};
 use super::prompt::is_deepened;
 use super::receipts::{Courier, Report, deliver_report, is_final};
 use super::records::{find_session, host_sessions, parents_live, write_record};
@@ -192,7 +192,7 @@ impl TurnWatch {
         }
     }
 
-    fn retire(&mut self) -> bool {
+    fn retire(&mut self, ending: Ending) -> bool {
         let sessions = host_sessions(&self.root, &self.host_dir);
         let retirable = !sessions.is_empty() && sessions.iter().all(|record| (record.parent.is_some() || record.task_ref.is_some()) && !parents_live(&self.root, &record.name));
         if !retirable {
@@ -201,6 +201,7 @@ impl TurnWatch {
         }
         for mut record in sessions {
             record.stopped = true;
+            record.ended.get_or_insert(ending);
             if let Err(error) = write_record(&self.root.join(&record.name), &record) {
                 eprintln!("north session-host: {} not marked exited: {}", record.name, error.user_message());
             }
@@ -305,7 +306,7 @@ impl FrameWatch for TurnWatch {
                 self.rolled_over = true;
                 self.runtime.compact().map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))
             }
-            Step::Exit if self.retire() => Rest::End,
+            Step::Exit if self.retire(Ending::IdleExit) => Rest::End,
             Step::Exit => self.rest(idle, park_after),
         }
     }
@@ -315,7 +316,7 @@ impl FrameWatch for TurnWatch {
             self.record(turn);
         }
         if !self.finished.is_empty() && self.finished.values().all(|finished| *finished) && self.unaccepted.journal().is_empty() {
-            self.retire();
+            self.retire(Ending::HostEnded);
         }
         let waits = Waits::in_root(&self.root);
         for record in host_sessions(&self.root, &self.host_dir).into_iter().filter(|record| record.stopped || waits.of(&record.name).is_empty()) {

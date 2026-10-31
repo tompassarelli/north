@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
-use crate::fleet::model::Delivery;
+use crate::fleet::model::{Delivery, Ending};
 use crate::fleet::gates::{ASKED_REPLY, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};
@@ -331,7 +331,8 @@ async fn a_finished_worker_exits_at_its_idle_limit_uncompacted_and_marked_exited
     session_record(root.path(), Some("lead"));
     let (code, stdin) = rest(root.path(), 400_000, "Done: landed abc123.", seconds(1, 60), Some(Duration::from_secs(2))).await;
     assert_eq!((code, stdin.as_str()), (143, ""));
-    assert!(crate::fleet::records::read_record(&root.path().join("worker")).unwrap().stopped);
+    let record = crate::fleet::records::read_record(&root.path().join("worker")).unwrap();
+    assert_eq!((record.stopped, record.ended), (true, Some(Ending::IdleExit)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -358,7 +359,8 @@ async fn a_host_told_to_end_leaves_a_finished_worker_stopped_and_an_unfinished_o
         rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::Term).unwrap();
         let code = tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
         assert_eq!(code, 143);
-        assert_eq!(crate::fleet::records::read_record(&root.path().join("worker")).unwrap().stopped, stopped, "{reply}");
+        let record = crate::fleet::records::read_record(&root.path().join("worker")).unwrap();
+        assert_eq!((record.stopped, record.ended), (stopped, stopped.then_some(Ending::HostEnded)), "{reply}");
     }
 }
 #[test]

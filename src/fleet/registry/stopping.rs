@@ -4,6 +4,7 @@ use crate::error::NorthResult;
 
 use super::super::claims;
 use super::super::host::Host;
+use super::super::model::Ending;
 use super::super::records::{ARCHIVE, write_record};
 use super::super::runtime::now_ms;
 use super::super::unaccepted::Unaccepted;
@@ -20,11 +21,13 @@ impl Fleet {
             let _ = host.send(&runtime.close(&transcript));
         }
         let terminate = !self.host_in_use(&record)?;
-        let was_stopped = record.stopped;
+        let (was_stopped, was_ended) = (record.stopped, record.ended);
         record.stopped = true;
+        record.ended = Some(Ending::Stopped);
         write_record(&self.root.join(name), &record)?;
         if terminate && let Err(error) = host.terminate() {
             record.stopped = was_stopped;
+            record.ended = was_ended;
             write_record(&self.root.join(name), &record)?;
             return Err(error);
         }
