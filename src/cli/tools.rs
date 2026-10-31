@@ -48,6 +48,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("convo", crate::ops::convo::run),
     ("incident-mine", crate::ops::incident_mine::run),
     ("advisor-report", crate::ops::advisor_report::run),
+    ("policy-replay", crate::ops::policy_replay::run),
     ("defaults-measure", crate::ops::defaults_measure::run),
     ("worker-ledger", super::worker_ledger::run),
     ("ops", crate::ops::run),

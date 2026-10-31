@@ -108,6 +108,7 @@ Commands:
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
   worker-ledger [--session ID] [--since DATE] [--backfill] | --summary [--by LIST] | --recommend [--planner] FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
   advisor-report FILE... --incumbent ARM [--arm-key FIELD] [--codex-plan-usd ARM=VALUE]  Compare policy-replay arms against an incumbent with a verdict per challenger
+  policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
   fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
   secrets-proxy-exec SOCKET -- CMD [ARGS...]   Run CMD with a Secret-Service-only view of the user D-Bus session at SOCKET
   private-desktop [start|control|capture|type]   Run or control an isolated private desktop
