@@ -28,7 +28,7 @@ hook_error() {
 # Deciders exit 65 for an unparsable payload; any failure allows, as Claude treats exit 1 as non-blocking.
 hook_decide() {
   local out status
-  out="$(printf '%s' "${payload-}" | "$@" 2>/dev/null)"
+  out="$("$@" < <(printf '%s' "${payload-}") 2>/dev/null)"
   status=$?
   case "$status" in
     0) [ -z "$out" ] || printf '%s\n' "$out" ;;
