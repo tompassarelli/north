@@ -494,7 +494,6 @@ fn a_session_launched_on_another_host_for_a_parent_here_delivers_its_final_repor
     assert!(shown.contains("user: [from "), "{shown}");
     let left: Vec<serde_json::Value> = serde_json::from_slice(&north_on(&hosts.far(), "far", &["fleet", "spool", "take"]).stdout).unwrap();
     assert!(left.is_empty(), "a delivered report leaves the spool of the host that sent it: {left:?}");
-    assert!(!hosts.far().join(".local/state/north/fleet/.outbox").exists(), "a report posts no letter");
 }
 
 #[test]

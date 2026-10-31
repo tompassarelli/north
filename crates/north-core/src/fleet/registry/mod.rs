@@ -10,7 +10,7 @@ use super::books::{Digest, FleetBooks, SessionSpend};
 use super::claims::{self, Claims};
 use super::detached;
 use super::gates;
-use super::jobs::LedgerLeases;
+use super::jobs::JobLeases;
 use super::lane_probe;
 use super::landings::{self, push_log};
 use super::host::{Host, alive};
@@ -88,22 +88,23 @@ pub struct Fleet {
     host: String,
     arm: fn(i64) -> NorthResult<()>,
     registrar: Arc<dyn Registrar>,
+    leases: Arc<dyn JobLeases>,
 }
 
 impl Fleet {
-    pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>) -> NorthResult<Self> {
-        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger, claims, registrar)
+    pub fn open(runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>, leases: Arc<dyn JobLeases>) -> NorthResult<Self> {
+        Self::rooted(home_dir()?, crate::pace::target::policy_path(), runtimes, ledger, claims, registrar, leases)
     }
 
-    fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>) -> NorthResult<Self> {
+    fn rooted(home: PathBuf, policy: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>, registrar: Arc<dyn Registrar>, leases: Arc<dyn JobLeases>) -> NorthResult<Self> {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar })
+        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
-        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).reading_jobs(Arc::new(LedgerLeases)).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
+        Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).reading_jobs(self.leases.clone()).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
     }
 
     pub fn waits(&self) -> Waits {

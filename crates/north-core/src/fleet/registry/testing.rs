@@ -4,6 +4,7 @@ use std::sync::Arc;
 use super::{Fleet, FleetBooks, Runtimes};
 use crate::error::NorthResult;
 use crate::fleet::claims::{Claims, Held};
+use crate::fleet::jobs::HeldLeases;
 use crate::fleet::store::{Claim, Registrar, SessionRow};
 
 pub struct Unrecorded;
@@ -21,7 +22,7 @@ impl Fleet {
 
     pub fn at_claiming(home: PathBuf, runtimes: Runtimes, ledger: Arc<dyn FleetBooks>, claims: Arc<dyn Claims>) -> NorthResult<Self> {
         let policy = crate::pace::target::home_policy_path(&home);
-        Self::rooted(home, policy, runtimes, ledger, claims, Arc::new(Unrecorded))
+        Self::rooted(home, policy, runtimes, ledger, claims, Arc::new(Unrecorded), Arc::new(HeldLeases::default()))
     }
 
     pub fn arming(mut self, arm: fn(i64) -> NorthResult<()>) -> Self {

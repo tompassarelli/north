@@ -6,7 +6,6 @@ use crate::fleet::store::{Exchange, FleetRow, LedgerHost, Store, WaitKey, WaitRe
 use crate::threads::client;
 
 use super::fleet_spool;
-use super::fleet_tick;
 
 const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY | north fleet row exchange < EXCHANGE_JSON | north fleet row register < REGISTRATION_JSON | north fleet row wait < WAIT_JSON | north fleet row settle < WAIT_KEYS_JSON | north fleet row leased SESSION";
 const FORWARDED_PUT: &[&str] = &["north", "fleet", "row", "put"];
@@ -21,7 +20,6 @@ pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> 
         ("row", ["settle"]) => settle(),
         ("row", ["leased", session]) => leased(session),
         ("spool", _) => fleet_spool::run(fleet, words),
-        ("tick", _) => fleet_tick::run(fleet, words),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }

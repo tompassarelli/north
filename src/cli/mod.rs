@@ -14,6 +14,7 @@ mod fleet_admission;
 mod fleet_claims;
 mod fleet_duplicate;
 mod fleet_launch;
+mod fleet_ledger;
 mod fleet_lineage;
 mod fleet_list;
 mod fleet_placement;

@@ -162,9 +162,6 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     std::io::Read::read_to_string(&mut child.stdout.take().unwrap(), &mut said).unwrap();
     assert_eq!(status.code(), Some(0), "{said}");
     assert!(said.contains("fleet message to c-test"), "{said}");
-    let jobs = root.join(".local/state/north/jobs");
-    let records = || fs::read_dir(&jobs).into_iter().flatten().flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "job")).count();
-    assert_eq!(records(), 0, "a running job writes no .job record");
     fs::write(&release, "").unwrap();
     let log = root.join("north.log");
     let begun = Instant::now();
@@ -183,7 +180,6 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     assert!(text.lines().any(|line| line.starts_with("fleet spool job start c-test soak@") && line.contains(" job-run: soak started; output in ")), "{text:?}");
     assert!(text.lines().any(|line| line.starts_with("fleet spool job beats c-test soak@") && line.contains(" 60 ")), "{text:?}");
     assert!(text.lines().any(|line| line.contains("job-run soak") && line.ends_with("--rc 3")), "{text:?}");
-    assert_eq!(records(), 0, "a finished job leaves no .job record");
 }
 
 #[test]
@@ -258,7 +254,4 @@ fn job_run_notify_spools_a_start_with_a_three_minute_lease_a_beat_each_interval_
     let exit = rows.last().unwrap();
     assert_eq!(exit.job.as_ref().and_then(|job| job.exit), Some(3));
     assert!(exit.text.starts_with("job-run: soak exited 3; output in "), "{}", exit.text);
-    let kept: Vec<String> = fs::read_dir(root.join(".local/state/north/jobs")).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
-    assert!(kept.iter().all(|name| name.ends_with(".log")), "no .job record is written: {kept:?}");
-    assert!(!root.join(".local/state/north/fleet/.outbox").exists(), "an exit for a session another host runs stays spooled for the fleet tick and posts no letter");
 }

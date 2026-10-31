@@ -10,7 +10,6 @@ use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::runtimes::Runtimes;
-use crate::fleet::store::LedgerRegistrar;
 use crate::ops::pacing::placement::{self, config};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
@@ -21,6 +20,7 @@ use crate::tui;
 use super::fleet_placement::{self, Overrides};
 use super::fleet_admission;
 use super::fleet_duplicate;
+use super::fleet_ledger::{LedgerLeases, LedgerRegistrar};
 use super::fleet_lineage;
 use super::fleet_launch::{LaunchParts, launch_parts};
 #[cfg(test)]
@@ -32,6 +32,7 @@ use super::fleet_row;
 use super::fleet_show;
 use super::fleet_spend;
 use super::fleet_waits;
+use super::fleet_tick;
 use super::fleet_tier;
 use super::fleet_tree;
 use super::{gate, orders, relay};
@@ -74,7 +75,7 @@ pub(super) fn roster() -> NorthResult<Roster> {
 }
 
 pub(super) fn open_fleet() -> NorthResult<Fleet> {
-    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli), Arc::new(LedgerRegistrar::new(far_machine)))
+    Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases))
 }
 
 fn far_machine(host: &str) -> bool {
@@ -103,7 +104,8 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         [verb @ ("wait" | "waits"), rest @ ..] => fleet_waits::run(&fleet, verb, rest),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
-        [verb @ ("row" | "spool" | "tick"), rest @ ..] => fleet_row::run(&fleet, verb, rest),
+        [verb @ ("row" | "spool"), rest @ ..] => fleet_row::run(&fleet, verb, rest),
+        ["tick", rest @ ..] => fleet_tick::run(&fleet, rest),
         [verb @ ("send" | "relay" | "outbox"), rest @ ..] => relay::run(&fleet, verb, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),

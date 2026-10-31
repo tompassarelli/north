@@ -19,7 +19,7 @@ use crate::platform::process::run_command_within;
 
 use super::fleet_placement::Overrides;
 use super::fleet_row;
-use super::fleet_tick::Ledger;
+use super::fleet_ledger::Ledger;
 use super::fleet_revive;
 
 const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START)";
