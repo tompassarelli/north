@@ -78,6 +78,7 @@ safe_push_exit() {
 safe_push_internal=0
 safe_push_help=0
 if [ "${1:-}" = --durable-harness-paths ] && [ "$#" -eq 2 ]; then safe_push_internal=1; fi
+if [ "${1:-}" = --after-landing ]; then safe_push_internal=1; fi
 if [ "$#" -eq 1 ] && [[ "$1" = -h || "$1" = --help ]]; then safe_push_help=1; fi
 trap safe_push_exit EXIT
 drop_land_branch() { SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="refs/heads/$1:$2" origin ":refs/heads/$1"; }
@@ -208,6 +209,7 @@ plan_push() {
       tag_seen=0
       to=""
       to_seen=0
+      after_landing=()
       while [ "$#" -gt 0 ]; do
         case "$1" in
           -h|--help)
@@ -239,6 +241,11 @@ plan_push() {
             to="$2"
             to_seen=1
             shift 2
+            ;;
+          --after-landing)
+            [ "$#" -eq 4 ] || argument_error '--after-landing needs BASE HEAD REPORT_DIR and nothing else'
+            after_landing=("$2" "$3" "$4")
+            shift 4
             ;;
           -f|--force|--force-with-lease|--mirror|--delete|--prune)
             printf "safe-push: refuses '%s' — force/destructive pushes are deliberate + manual, not automatic\n" "$1" >&2
@@ -537,16 +544,16 @@ vendored_trees() {
 }
 
 test_integrity_scan() {
-  local base="${1%%..*}" head="${1##*..}" allow=0 test_kinds helper vendored
-  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
+  local phase="$1" base="${2%%..*}" head="${2##*..}" allow=0 test_kinds helper vendored
+  [ "$base" != "$2" ] && [ -n "$base" ] || return 0
   base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
   vendored=$(vendored_trees "$base")
   git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
   test_kinds=$(git log --format=%B "$base..$head" | sed -n "/^Test-kind:/p")
   helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mutant"
-  [ -z "$test_kinds" ] || "$helper" verify "$base" "$head" || return 1
+  [ "$phase" != test-kind ] || [ -z "$test_kinds" ] || "$helper" verify "$base" "$head" || return 1
   git diff --unified=2147483647 --no-color --no-ext-diff --no-renames "$base" "$head" \
-    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" VENDORED="$vendored" awk '
+    | PHASE="$phase" MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" VENDORED="$vendored" awk '
     function require_kind(name,    key, file) {
       file = path; sub(/^.*\//, "", file); key = file SUBSEP name
       if (removing) { removed[key] = 1; removed_name[name] = 1; return }
@@ -621,13 +628,14 @@ test_integrity_scan() {
     !header && /^-/ && path ~ ENVIRON["TEST_PATH_RE"] { removing = 1; test_names(substr($0, 2)); removing = 0; next }
     header || !/^\+/ { next }
     $0 ~ ENVIRON["MUTANT_RE"] {
-      print "safe-push: ✗ " path " adds a mutation marker: " substr($0, 2) " — mutants stay in scratch copies; NOT pushed."; bad = 1; next }
-    ENVIRON["SKIP_ALLOWED"] != 1 && path ~ ENVIRON["TEST_PATH_RE"] && $0 ~ ENVIRON["SKIP_RE"] {
+      if (ENVIRON["PHASE"] == "block") { print "safe-push: ✗ " path " adds a mutation marker: " substr($0, 2) " — mutants stay in scratch copies; NOT pushed."; bad = 1 }
+      next }
+    ENVIRON["PHASE"] == "block" && ENVIRON["SKIP_ALLOWED"] != 1 && path ~ ENVIRON["TEST_PATH_RE"] && $0 ~ ENVIRON["SKIP_RE"] {
       print "safe-push: ✗ " path " adds a skip or focus: " substr($0, 2) " — name the changed requirement in a Test-change: trailer; NOT pushed."; bad = 1 }
     path ~ ENVIRON["TEST_PATH_RE"] && ++plus_index <= minus_count && skeleton(substr($0, 2)) == skeleton(minus[plus_index]) { retitling = 1; test_names(substr($0, 2)); retitling = 0; candidate_nr = NR; next }
     path ~ ENVIRON["TEST_PATH_RE"] || path ~ /\.rs$/ { test_names(substr($0, 2)) }
     END {
-      for (i = 1; i <= added_count; i++) {
+      for (i = 1; i <= added_count && ENVIRON["PHASE"] == "test-kind"; i++) {
         key = order[i]
         split(key, part, SUBSEP)
         if (key in removed || part[2] in removed_name) continue
@@ -992,6 +1000,50 @@ ci_budget_scan() {
     fi
     ci_budget_clear "$workflow"
   done <<<"$budgets"
+}
+
+# Gates that judge process rather than whether main works run after the push; each failure is one issue, never a refusal.
+after_landing_gates=(test-kind:test_integrity_scan_test_kind review:review_scan)
+test_integrity_scan_test_kind() { test_integrity_scan test-kind "$1"; }
+
+run_after_landing_gates() {
+  local base="$1" head="$2" report="$3" entry name failed=0
+  repo_root=$(git rev-parse --show-toplevel) && origin_url=$(git remote get-url --push origin) || return 2
+  mkdir -p "$report"
+  for entry in "${after_landing_gates[@]}"; do
+    name=${entry%%:*}
+    if ("${entry#*:}" "$base..$head") >"$report/$name.log" 2>&1; then
+      rm -f -- "$report/$name.log"
+      printf 'safe-push: after-landing gate %s passed\n' "$name"
+    else
+      failed=1
+      printf 'safe-push: after-landing gate %s failed:\n' "$name"
+      cat -- "$report/$name.log"
+    fi
+  done
+  return "$failed"
+}
+
+if [ "${#after_landing[@]}" -eq 3 ]; then
+  run_after_landing_gates "${after_landing[@]}"
+  exit $?
+fi
+
+# After a landing, run the moved gates in the background from the repository's common Git directory, since the lane is about to be removed.
+spawn_after_landing_gates() {
+  local base="$1" head="$2" dir log repository
+  [ -n "$base" ] && [ "$base" != "$head" ] || return 0
+  if ! north after-landing --help >/dev/null 2>&1; then
+    echo "safe-push: this host's north runtime lacks north after-landing, so the after-landing gates did not run on ${head:0:12}; run north runtime update"
+    return 0
+  fi
+  repository=${origin_url:-$(git remote get-url origin)}; repository=${repository%.git}; repository=${repository##*/}
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/after-landing"
+  log="$dir/$repository-${head:0:12}.log"
+  mkdir -p "$dir" || return 0
+  (drop_lock_fd; [ -z "${output_lock_fd:-}" ] || exec {output_lock_fd}<&-; setsid -f north after-landing --git-dir "$safe_push_common_dir" --base "$base" --head "$head" \
+    --safe-push "$(readlink -f "${BASH_SOURCE[0]}")" </dev/null >"$log" 2>&1) || return 0
+  echo "safe-push: after-landing gates (${after_landing_gates[*]%%:*}) run in the background on ${head:0:12}; each failure files one issue; log $log"
 }
 
 lane_commits_missing() {
@@ -1802,6 +1854,7 @@ run_train() {
             record_push "$pushed_at" "${branches[i]}" "${oids[i]}" "$(trunk_landing "$to" "$cand")" "${sessions[i]}" "$(landing_reviewers "$base..${oids[i]}")"
             train_verdict "$i" landed "$cand"
           done
+          spawn_after_landing_gates "$base" "$cand"
         else
           for i in "${group[@]}"; do train_verdict "$i" failed "origin-$to-moved"; done
         fi
@@ -2088,6 +2141,7 @@ land_through_autoland() {
   fetch_destination >/dev/null || true
   capture_repository_state
   destination_ref="refs/heads/$to"
+  spawn_after_landing_gates "$1" "$sha"
   release_follows
   if git reset -q --keep "$landed"; then cleanup_landed_lane || true; fi
   auto_reap || true
@@ -2145,11 +2199,10 @@ policy_scans() {
   scan_range_for_native=("$range")
   native_ref_scan "$branch" "$destination" || refused=1
   tool_removal_scan "$range" || refused=1
-  test_integrity_scan "$range" || refused=1
+  test_integrity_scan block "$range" || refused=1
   generated_rewrite_scan "$range" || refused=1
   provenance_scan "$range" || refused=1
   policy_sweep_scan "$range" || refused=1
-  [ "$destination" != "$(default_branch)" ] || review_scan "$range" || refused=1
   return "$refused"
 }
 
@@ -2362,6 +2415,7 @@ if [ "$to_seen" -eq 0 ]; then
   fi
 fi
 denylist_attest "$destination_branch"
+[ "$destination_branch" != "$(default_branch)" ] || spawn_after_landing_gates "$destination_oid" "$head_oid"
 release_follows
 safe_push_published_head="$head_oid"; safe_push_landed_sha="$head_oid"
 cleanup_landed_lane || true

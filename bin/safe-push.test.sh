@@ -64,6 +64,10 @@ shim_main() {
       fi
       exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       ;;
+    north:after-landing)
+      [ -n "${SAFE_PUSH_TEST_AFTER_LANDING_TRACE:-}" ] || return 2
+      [ "${2:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_AFTER_LANDING_TRACE"
+      ;;
     north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:mutant|north:stale-revert|north:bin-references) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
@@ -302,10 +306,15 @@ expect_output 'new.py: Python files are forbidden'
 grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_base> <--head> <$language_head>" "$language_trace" || fail 'language gate lost repository or landing oids'
 printf 'PASS: language gate refusal blocks every repository\n'
 
-run_real_case '' --to main
+after_landing_trace="$real_fixture/after-landing-trace"
+SAFE_PUSH_TEST_AFTER_LANDING_TRACE="$after_landing_trace" run_real_case '' --to main
 expect_status zero
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$language_head" ] || fail 'language pass did not publish'
 printf 'PASS: language gate pass publishes\n'
+for _ in $(seq 100); do [ ! -s "$after_landing_trace" ] || break; sleep 0.05; done
+grep -Fq -- "--base $language_base --head $language_head --safe-push $TARGET" "$after_landing_trace" \
+  || fail "a landing did not hand its range to the after-landing gates: $(cat "$after_landing_trace" 2>/dev/null)"
+printf 'PASS: a landing runs the after-landing gates on its range\n'
 
 missing_north_bin="$scratch/missing-north-bin"
 mkdir -p "$missing_north_bin"
@@ -791,7 +800,11 @@ for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated inv
       "$real_git" -C "$real_repo" restore content.txt
       ;;
   esac
-  run_real_case '' --dry-run
+  if [ "$kind_case" = rust-unannotated ]; then
+    run_real_case '' --dry-run
+    expect_status zero
+  fi
+  run_real_case '' --after-landing "$kind_base" "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
   case "$kind_case" in
     *-annotated|deleted|edited-js|moved|renamed|retitled-js) expect_status zero ;;
     *)
@@ -842,6 +855,8 @@ for vendored_case in kit-tree repo-json-tree both-trees first-party sibling-pref
   "$real_git" -C "$real_repo" add -A .
   "$real_git" -C "$real_repo" commit -qm "$vendored_case"
   run_real_case '' --dry-run
+  expect_status zero
+  run_real_case '' --after-landing "$vendored_base" "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
   case "$vendored_case" in
     *-tree*) expect_status zero ;;
     *)
@@ -887,7 +902,7 @@ for mutant_case in empty real new-code shared-clone; do
   esac
   "$real_git" -C "$real_repo" commit --allow-empty -qm 'mutant evidence' -m "Test-kind: recorded boundary 3 kills $mutant_case"
   lane_before=$("$real_git" -C "$real_repo" status --porcelain)
-  run_real_case '' --dry-run
+  run_real_case '' --after-landing "$mutant_base" "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
   case "$mutant_case" in
     real|new-code|shared-clone) expect_status zero ;;
     *)
