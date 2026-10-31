@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image=${FARM_RUNNER_IMAGE:-localhost/farm-runner:2.338.0}
 owner=${FARM_RUNNER_OWNER:-tompassarelli}
 specs=${FARM_RUNNER_SPECS:-smashcraft=3}
 slice=${FARM_RUNNER_SLICE:-agent-capacity-farm.slice}
@@ -93,7 +92,7 @@ case ${1:-} in
     fi
     token=$(gh api -X POST "repos/$owner/$repo/actions/runners/registration-token" --jq .token)
     exec podman run --rm -i --name "farm-$name" --cgroup-parent "$slice" --cpus "${FARM_RUNNER_CPUS:-4}" --memory "${FARM_RUNNER_MEMORY:-12g}" \
-      "$image" bash -c 'read -r t && ./config.sh --unattended --ephemeral --replace --disableupdate --url "$0" --token "$t" --name "$1" --labels farm-big --work _work >/dev/null && exec nice -n 19 ionice -c 3 ./run.sh' \
+      "$("$here/farm-runner-image")" bash -c 'read -r t && ./config.sh --unattended --ephemeral --replace --disableupdate --url "$0" --token "$t" --name "$1" --labels farm-big --work _work >/dev/null && exec nice -n 19 ionice -c 3 ./run.sh' \
       "https://github.com/$owner/$repo" "$(hostname)-$name" <<<"$token"
     ;;
   sync)

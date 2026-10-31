@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runner_version=2.338.0
+apt_packages=(build-essential imagemagick libstorm-dev ripgrep unzip curl jq git ca-certificates gh rsync)
+containerfile="FROM ghcr.io/actions/actions-runner:$runner_version
+USER root
+RUN apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends ${apt_packages[*]} && DEBIAN_FRONTEND=noninteractive SUDO_FORCE_REMOVE=yes apt-get purge -yq sudo && rm -rf /var/lib/apt/lists/*
+USER runner"
+image=${FARM_RUNNER_IMAGE:-localhost/farm-runner:$runner_version-$(printf %s "$containerfile" | sha256sum | cut -c1-12)}
+
+if ! podman image exists "$image"; then
+  context=$(mktemp -d)
+  status=0
+  flock /run/user/"$(id -u)"/farm-runner-image.lock bash -c 'podman image exists "$0" || podman build -t "$0" -f - "$1" >&2' "$image" "$context" <<<"$containerfile" || status=$?
+  rmdir -- "$context"
+  [ "$status" -eq 0 ] || exit "$status"
+fi
+echo "$image"
