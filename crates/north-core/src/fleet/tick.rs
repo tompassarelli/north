@@ -6,7 +6,7 @@ use crate::foundation::clock::Timestamp;
 use super::invariant::{self, Facts, Kept};
 use super::model::SessionRecord;
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, Handed, HandedRow, LedgerHost, SessionRow, WaitKey, WaitRow};
+use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, Handed, HandedRow, LedgerHost, SessionRow, Undecodable, WaitKey, WaitRow};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -199,7 +199,13 @@ fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut 
         match answer {
             Ok(found) => {
                 let (mut ids, mut refused) = (Vec::new(), Vec::new());
-                for row in found {
+                for Undecodable { id, why } in found.undecodable {
+                    ticked.refused.push((host.name.clone(), format!("{id}: {why}")));
+                    if FleetRow::check_id(&id).is_ok() {
+                        refused.push(id);
+                    }
+                }
+                for row in found.rows {
                     match row.validate() {
                         Ok(()) => {
                             ids.push(row.id.clone());

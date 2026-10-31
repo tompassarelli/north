@@ -2,6 +2,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
 use crate::error::NorthResult;
 
 use super::FleetRow;
@@ -58,17 +61,46 @@ impl Spool {
     }
 
     pub fn pending(&self) -> NorthResult<Vec<FleetRow>> {
+        self.files()?.iter().filter_map(|path| read(path).transpose()).map(|bytes| Ok(serde_json::from_slice(&bytes?)?)).collect()
+    }
+
+    pub fn listing(&self) -> NorthResult<Vec<Spooled>> {
+        let mut spooled = Vec::new();
+        for path in self.files()? {
+            let Some(bytes) = read(&path)? else { continue };
+            let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else { continue };
+            let row = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            spooled.push(Spooled { id: id.to_owned(), row });
+        }
+        Ok(spooled)
+    }
+
+    fn files(&self) -> NorthResult<Vec<PathBuf>> {
         let mut paths: Vec<PathBuf> = match fs::read_dir(&self.dir) {
             Ok(entries) => entries.flatten().map(|entry| entry.path()).filter(|path| path.extension().is_some_and(|extension| extension == ROW)).collect(),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(error) => return Err(error.into()),
         };
         paths.sort();
-        paths.iter().map(|path| Ok(serde_json::from_slice(&fs::read(path)?)?)).collect()
+        Ok(paths)
     }
 
     fn path(&self, id: &str) -> NorthResult<PathBuf> {
         FleetRow::check_id(id)?;
         Ok(self.dir.join(format!("{id}.{ROW}")))
     }
+}
+
+fn read(path: &Path) -> NorthResult<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Spooled {
+    pub id: String,
+    pub row: Value,
 }

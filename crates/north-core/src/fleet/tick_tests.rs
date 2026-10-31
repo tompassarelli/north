@@ -13,7 +13,7 @@ use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
 use crate::fleet::registry::Controlled;
-use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, HandedRow, JobPayload, RowKind, SessionRow, Store, WaitKey};
+use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, HandedRow, JobPayload, Pull, RowKind, SessionRow, Store, Undecodable, WaitKey};
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -237,7 +237,7 @@ fn a_hand_in_cut_off_before_its_prompt_reached_the_session_is_delivered_once_by_
 struct Nobody;
 
 impl FarSpools for Nobody {
-    fn take(&self, ssh: &str) -> NorthResult<Vec<FleetRow>> {
+    fn take(&self, ssh: &str) -> NorthResult<Pull> {
         Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
     }
 
@@ -267,6 +267,7 @@ struct Far {
     spools: Mutex<BTreeMap<String, Vec<FleetRow>>>,
     down: Mutex<Vec<String>>,
     undroppable: Mutex<Vec<String>>,
+    undecodable: Mutex<BTreeMap<String, Vec<String>>>,
     taken: Mutex<Vec<String>>,
     aside: Mutex<Vec<String>>,
     cached: Mutex<BTreeMap<String, Vec<String>>>,
@@ -285,12 +286,14 @@ impl Far {
 }
 
 impl FarSpools for Far {
-    fn take(&self, ssh: &str) -> NorthResult<Vec<FleetRow>> {
+    fn take(&self, ssh: &str) -> NorthResult<Pull> {
         self.taken.lock().unwrap().push(ssh.into());
         if self.down.lock().unwrap().iter().any(|down| down == ssh) {
             return Err(NorthError::Refused(format!("ssh {ssh}: connection timed out")));
         }
-        Ok(self.spools.lock().unwrap().get(ssh).cloned().unwrap_or_default())
+        let rows = self.spools.lock().unwrap().get(ssh).cloned().unwrap_or_default();
+        let undecodable = self.undecodable.lock().unwrap().get(ssh).into_iter().flatten().map(|id| Undecodable { id: id.clone(), why: "this build cannot read it: unknown variant `ANSWER`".into() }).collect();
+        Ok(Pull { rows, undecodable })
     }
 
     fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
@@ -298,6 +301,7 @@ impl FarSpools for Far {
             return Err(NorthError::Refused(format!("ssh {ssh}: connection reset")));
         }
         self.spools.lock().unwrap().entry(ssh.into()).or_default().retain(|row| !ids.contains(&row.id));
+        self.undecodable.lock().unwrap().entry(ssh.into()).or_default().retain(|id| !ids.contains(id));
         Ok(())
     }
 
@@ -408,6 +412,22 @@ fn a_row_the_store_would_refuse_is_set_aside_on_its_machine_with_a_notice_and_do
 }
 
 #[test]
+fn a_row_this_build_cannot_decode_is_set_aside_on_its_machine_with_a_notice_and_the_other_rows_are_still_delivered() {
+    let host = host("nexus");
+    let far = Far::holding("tom@gex45", vec![message("m-ok", "elsewhere", NOW_MS)]);
+    far.undecodable.lock().unwrap().insert("tom@gex45".into(), vec!["m-old-answer".into()]);
+    let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
+
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+
+    assert!(ticked.pull_failed.is_empty(), "{ticked:?}");
+    assert_eq!(*far.aside.lock().unwrap(), ["m-old-answer"]);
+    assert!(far.undecodable.lock().unwrap()["tom@gex45"].is_empty() && far.left_on("tom@gex45").is_empty());
+    assert!(ticked.lines().iter().any(|line| line.starts_with("set aside on gex45, the store refuses it: m-old-answer: this build cannot read it")), "{:?}", ticked.lines());
+    assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-ok'"), 1);
+}
+
+#[test]
 fn the_machines_pulled_are_the_live_sessions_placements_and_the_configured_hosts_without_this_one() {
     let host = host("nexus");
     place(&host, "on-outpost", "outpost", false);
@@ -426,9 +446,9 @@ fn the_machines_pulled_are_the_live_sessions_placements_and_the_configured_hosts
 struct Slow(Duration);
 
 impl FarSpools for Slow {
-    fn take(&self, _: &str) -> NorthResult<Vec<FleetRow>> {
+    fn take(&self, _: &str) -> NorthResult<Pull> {
         std::thread::sleep(self.0);
-        Ok(Vec::new())
+        Ok(Pull::default())
     }
 
     fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {
@@ -794,8 +814,8 @@ fn a_job_exit_row_from_another_host_wakes_its_session_once_by_row_id() {
 struct Legacy<'a>(&'a Host);
 
 impl FarSpools for Legacy<'_> {
-    fn take(&self, _: &str) -> NorthResult<Vec<FleetRow>> {
-        Ok(Vec::new())
+    fn take(&self, _: &str) -> NorthResult<Pull> {
+        Ok(Pull::default())
     }
 
     fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {

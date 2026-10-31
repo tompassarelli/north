@@ -18,11 +18,11 @@ mod waits;
 
 pub use cache::{cache_sessions, cached_sessions};
 pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
-pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, drop_with, set_aside_with, take_with};
+pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, Pull, Undecodable, drop_with, set_aside_with, take_with};
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
 pub use registrar::{LedgerRegistrar, Registrar};
 pub use sessions::{Claim, SessionRow};
-pub use spool::{SPOOL_DIR, Spool};
+pub use spool::{SPOOL_DIR, Spool, Spooled};
 pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
 
 use schema::sql;

@@ -42,7 +42,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if !words.is_empty() {
         return Err(NorthError::Usage(USAGE.into()));
     }
-    let pulls = Pulls { spools: &OverSsh, always: always_pulled(fleet) };
+    let pulls = Pulls { spools: &OverSsh::default(), always: always_pulled(fleet) };
     let ticked = tick(fleet, &mut Ledger, &pulls, &Probes, now_ms(), BUDGET)?;
     ticked.lines().iter().for_each(|line| println!("{line}"));
     Ok(())

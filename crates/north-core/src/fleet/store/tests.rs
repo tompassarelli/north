@@ -211,6 +211,25 @@ fn withdrawing_many_ids_removes_exactly_those_rows_ignores_unknown_ids_and_refus
 }
 
 #[test]
+fn a_row_file_removed_between_listing_and_reading_is_skipped_and_a_file_this_build_cannot_decode_lists_by_its_id() {
+    let root = tempfile::tempdir().unwrap();
+    let spool = Spool::at(root.path());
+    spool.put(&message("m-1", "sc-1")).unwrap();
+    spool.put(&message("m-3", "sc-1")).unwrap();
+    std::os::unix::fs::symlink(root.path().join("spool/gone"), root.path().join("spool/m-2.json")).unwrap();
+    std::fs::write(root.path().join("spool/m-4.json"), br#"{"id":"m-4","kind":"ANSWER"}"#).unwrap();
+    std::fs::write(root.path().join("spool/m-5.json"), b"not json").unwrap();
+
+    let ids: Vec<String> = spool.listing().unwrap().into_iter().map(|spooled| spooled.id).collect();
+
+    assert_eq!(ids, ["m-1", "m-3", "m-4", "m-5"]);
+    assert!(spool.pending().is_err(), "a local spool this build cannot read still fails loudly");
+    std::fs::remove_file(root.path().join("spool/m-4.json")).unwrap();
+    std::fs::remove_file(root.path().join("spool/m-5.json")).unwrap();
+    assert_eq!(spool.pending().unwrap(), [message("m-1", "sc-1"), message("m-3", "sc-1")]);
+}
+
+#[test]
 fn the_cached_session_table_round_trips_and_a_host_without_one_knows_no_sessions() {
     let root = tempfile::tempdir().unwrap();
 

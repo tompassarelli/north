@@ -99,24 +99,24 @@ fn list_json(fleet: &Fleet, all: bool) -> NorthResult<()> {
 /// This host's sessions; `all` adds its past sessions and those the fleet table holds for other hosts, a session once.
 fn listing(fleet: &Fleet, all: bool) -> NorthResult<Value> {
     let waits = fleet.waits();
-    let mut sessions: Vec<Value> = fleet.sessions()?.iter().map(|record| session_json(record, fleet.status(record), &waits)).collect();
+    let records = fleet.sessions()?;
+    let mut sessions: Vec<Value> = records.iter().map(|record| session_json(record, fleet.status(record), &waits)).collect();
     if all {
+        let named: BTreeSet<String> = records.iter().map(|record| record.name.clone()).collect();
         for record in fleet.past_sessions() {
             let mut session = session_json(&record, Status::Exited, &waits);
             session["past"] = json!(true);
             sessions.push(session);
         }
-    }
-    if all {
-        let named: BTreeSet<String> = sessions.iter().filter_map(|session| session["name"].as_str().map(str::to_owned)).collect();
+        let now = now_ms();
         for row in elsewhere(fleet, &named) {
-            sessions.push(remote_json(&row));
+            sessions.push(remote_json(&row, now));
         }
     }
     Ok(Value::Array(sessions))
 }
 
-fn remote_json(row: &SessionRow) -> Value {
+fn remote_json(row: &SessionRow, now: u64) -> Value {
     json!({
         "name": row.name,
         "provider": row.provider,
@@ -131,6 +131,7 @@ fn remote_json(row: &SessionRow) -> Value {
         "host": row.host,
         "remote": true,
         "seen_ms": updated_ms(row),
+        "stale": minutes_since(row, now) >= STALE_MINUTES,
     })
 }
 
@@ -213,5 +214,36 @@ mod tests {
         assert_eq!(other.name, "held");
         assert_eq!(remote_line(&other, now), "held\tclaude\ta\tidle\tnexus:gex45:/home/tom/code/north/main\t-");
         assert_eq!(remote_line(&other, now + 12 * 60_000), "held\tclaude\ta\tidle (last seen 12m ago)\tnexus:gex45:/home/tom/code/north/main\t-");
+    }
+
+    #[test]
+    fn a_row_from_a_host_that_has_not_published_for_five_minutes_is_marked_stale_in_the_json() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet_at(home.path());
+        let now = now_ms();
+        let rows = [table_row("fresh", "nexus", "idle", now - 4 * 60_000), table_row("silent", "nexus", "idle", now - 6 * 60_000)];
+        crate::fleet::store::cache_sessions(&home.path().join(".local/state/north/fleet"), &rows).unwrap();
+
+        let all = listing(&fleet, true).unwrap();
+
+        let stale: Vec<(&str, bool)> = all.as_array().unwrap().iter().map(|session| (session["name"].as_str().unwrap(), session["stale"].as_bool().unwrap())).collect();
+        assert_eq!(stale, [("fresh", false), ("silent", true)]);
+    }
+
+    #[test]
+    fn an_archived_local_session_does_not_hide_a_live_session_of_the_same_name_on_another_host() {
+        let home = tempfile::tempdir().unwrap();
+        let fleet = fleet_at(home.path());
+        let root = home.path().join(".local/state/north/fleet");
+        let archived = root.join(".archive/held-1");
+        std::fs::create_dir_all(&archived).unwrap();
+        let record = serde_json::from_value(json!({"name": "held", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null})).unwrap();
+        crate::fleet::records::write_record(&archived, &record).unwrap();
+        crate::fleet::store::cache_sessions(&root, &[table_row("held", "nexus", "idle", now_ms())]).unwrap();
+
+        let all = listing(&fleet, true).unwrap();
+
+        let seen: Vec<(&str, bool)> = all.as_array().unwrap().iter().map(|session| (session["name"].as_str().unwrap(), session["remote"].as_bool().unwrap_or(false))).collect();
+        assert_eq!(seen, [("held", false), ("held", true)]);
     }
 }

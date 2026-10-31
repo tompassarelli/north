@@ -542,7 +542,7 @@ fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_an
     assert!(answered.status.success(), "{}", text(&answered.stderr));
     assert!(text(&answered.stdout).contains(&format!("gate {label}: answer 1 spooled as ")), "{}", text(&answered.stdout));
     let spooled: Vec<serde_json::Value> = serde_json::from_slice(&north(hosts.here(), &["fleet", "spool", "take"]).stdout).unwrap();
-    let rows: Vec<(&str, i64, i64, &str)> = spooled.iter().filter(|row| row["kind"] == "GATE-ANSWER").map(|row| (row["to_node"].as_str().unwrap(), row["answer"]["gate"].as_i64().unwrap(), row["answer"]["number"].as_i64().unwrap(), row["text"].as_str().unwrap())).collect();
+    let rows: Vec<(&str, i64, i64, &str)> = spooled.iter().map(|entry| &entry["row"]).filter(|row| row["kind"] == "GATE-ANSWER").map(|row| (row["to_node"].as_str().unwrap(), row["answer"]["gate"].as_i64().unwrap(), row["answer"]["number"].as_i64().unwrap(), row["text"].as_str().unwrap())).collect();
     assert_eq!(rows, [("kid", id.parse().unwrap(), 1, "go ahead")]);
 }
 

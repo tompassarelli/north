@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::Path;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -11,14 +12,14 @@ use crate::fleet::tick;
 
 const DELIVER_BUDGET: Duration = Duration::from_secs(25);
 
-const USAGE: &str = "Usage: north fleet spool take | north fleet spool drop ID... | north fleet spool set-aside ID... | north fleet spool cache < SESSIONS_JSON | north fleet spool registry | north fleet spool deliver < ROWS_JSON | north fleet spool job start SESSION KEY TEXT | north fleet spool job beat SESSION KEY | north fleet spool job beats SESSION KEY EVERY_SECS PID | north fleet spool job exit SESSION KEY CODE TEXT";
+const USAGE: &str = "Usage: north fleet spool take | north fleet spool drop < IDS | north fleet spool set-aside < IDS | north fleet spool cache < SESSIONS_JSON | north fleet spool registry | north fleet spool deliver < ROWS_JSON | north fleet spool job start SESSION KEY TEXT | north fleet spool job beat SESSION KEY | north fleet spool job beats SESSION KEY EVERY_SECS PID | north fleet spool job exit SESSION KEY CODE TEXT";
 
 pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let spool = fleet.spool();
     match words {
-        ["take"] => println!("{}", serde_json::to_string(&spool.pending()?)?),
-        ["drop", ids @ ..] if !ids.is_empty() => spool.withdraw_all(&ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>())?,
-        ["set-aside", ids @ ..] if !ids.is_empty() => spool.set_aside(&ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>())?,
+        ["take"] => println!("{}", serde_json::to_string(&spool.listing()?)?),
+        ["drop"] => spool.withdraw_all(&ids_on_stdin()?)?,
+        ["set-aside"] => spool.set_aside(&ids_on_stdin()?)?,
         ["cache"] => fleet.cache_sessions(&serde_json::from_reader::<_, Vec<SessionRow>>(std::io::stdin())?)?,
         ["registry"] => println!("{}", serde_json::to_string(&tick::registry(fleet, &fleet.sessions()?, now_ms())?)?),
         ["deliver"] => println!("{}", serde_json::to_string(&tick::hand_in_all(fleet, &serde_json::from_reader::<_, Vec<FleetRow>>(std::io::stdin())?, Instant::now(), DELIVER_BUDGET))?),
@@ -74,4 +75,10 @@ fn exit(fleet: &Fleet, session: &str, key: &str, code: i32, text: &str) -> North
         eprintln!("north fleet: job exit {} stays spooled for the next tick: {}", row.id, error.user_message());
     }
     Ok(())
+}
+
+fn ids_on_stdin() -> NorthResult<Vec<String>> {
+    let mut text = String::new();
+    std::io::stdin().read_to_string(&mut text)?;
+    Ok(text.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect())
 }

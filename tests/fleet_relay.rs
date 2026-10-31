@@ -62,7 +62,7 @@ fn a_send_on_a_host_without_the_session_spools_for_a_name_the_fleet_table_holds_
     assert!(sent.status.success(), "{}", text(&sent.stderr));
     assert!(text(&sent.stderr).contains("proxy runs on nexus; spooled "), "{}", text(&sent.stderr));
     let spooled: Vec<serde_json::Value> = serde_json::from_slice(&hosts.north("far", &["spool", "take"]).stdout).unwrap();
-    let rows: Vec<(&str, &str, &str)> = spooled.iter().map(|row| (row["kind"].as_str().unwrap(), row["to_node"].as_str().unwrap(), row["text"].as_str().unwrap())).collect();
+    let rows: Vec<(&str, &str, &str)> = spooled.iter().map(|entry| &entry["row"]).map(|row| (row["kind"].as_str().unwrap(), row["to_node"].as_str().unwrap(), row["text"].as_str().unwrap())).collect();
     assert_eq!(rows, [("MESSAGE", "proxy", "rolled back")]);
     assert!(!hosts.path("far").join(".local/state/north/fleet/.outbox").exists(), "a send posts no letter");
 }
