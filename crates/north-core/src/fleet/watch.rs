@@ -86,7 +86,11 @@ impl Tell {
 
     /// Posts the note and reports whether the turn is settled; a lane read that failed at idle is tried again at park or exit.
     fn run(self) -> bool {
-        if self.jobs.leased(&self.record.name) {
+        let leased = self.jobs.leased(&self.record.name).unwrap_or_else(|error| {
+            eprintln!("north fleet: the job leases of {} were not read: {}", self.record.name, error.user_message());
+            true
+        });
+        if leased {
             return false;
         }
         let wants_lane = silent::needs_lane(&self.reply);
@@ -435,4 +439,102 @@ impl FrameWatch for TurnWatch {
 
 fn fresh(runtime: &dyn Runtime, text: &str) -> Option<Vec<String>> {
     runtime.message(&Transcript::new(), &new_uuid().ok()?, text).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use crate::error::{NorthError, NorthResult};
+    use crate::fleet::books::{Books, Landing, SessionSpend};
+    use crate::fleet::gates::GateRequest;
+    use crate::fleet::receipts::ReceiptBook;
+    use crate::fleet::turns::RunSink;
+
+    use super::*;
+
+    struct Leases(Result<bool, &'static str>);
+
+    impl JobLeases for Leases {
+        fn leased(&self, _session: &str) -> NorthResult<bool> {
+            self.0.map_err(|why| NorthError::Refused(why.into()))
+        }
+    }
+
+    #[derive(Default)]
+    struct Told(Mutex<Vec<String>>);
+
+    impl Courier for Told {
+        fn notify(&self, parent: &str, _text: String, _delivery: Delivery) {
+            self.0.lock().unwrap().push(parent.to_owned());
+        }
+
+        fn ask(&self, _request: GateRequest) {}
+
+        fn answer(&self, _host_dir: &Path, _frame: String) {}
+    }
+
+    struct Books0;
+
+    impl RunSink for Books0 {
+        fn record_run(&self, _run: &RunRecord) -> NorthResult<u64> {
+            Ok(1)
+        }
+
+        fn join_task(&self, _task_ref: &str, _session: &str) -> NorthResult<()> {
+            Ok(())
+        }
+    }
+
+    impl ReceiptBook for Books0 {
+        fn claim_receipt(&self, _session: &str, _key: &str, _claimed_ms: u64) -> NorthResult<bool> {
+            Ok(true)
+        }
+    }
+
+    impl Books for Books0 {
+        fn spend(&self) -> NorthResult<Vec<SessionSpend>> {
+            Ok(Vec::new())
+        }
+
+        fn landed_since(&self, _since_ms: u64) -> NorthResult<Vec<Landing>> {
+            Ok(Vec::new())
+        }
+
+        fn record_landing(&self, _task_ref: &str, _sha: &str, _landed_ms: u64, _wall_ms: Option<u64>, _review: Option<&str>) -> NorthResult<bool> {
+            Ok(false)
+        }
+    }
+
+    fn tell(leases: Result<bool, &'static str>, courier: Arc<Told>) -> Tell {
+        let record = serde_json::from_value(serde_json::json!({"name": "worker", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null})).unwrap();
+        Tell {
+            lanes: Arc::new(NoLanes),
+            courier,
+            ledger: Arc::new(Books0),
+            jobs: Arc::new(Leases(leases)),
+            record,
+            parent: "lead".into(),
+            state: State::Idle,
+            turn: 1,
+            reply: "Started the push; waiting on its exit.".into(),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn a_lease_that_could_not_be_read_counts_as_leased_so_the_check_stays_unsettled_and_nothing_is_told() {
+        let courier = Arc::new(Told::default());
+        assert!(!tell(Err("ssh answered exit 255"), courier.clone()).run());
+        assert!(courier.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_held_lease_leaves_the_check_unsettled_and_a_free_one_tells_the_parent_once() {
+        let courier = Arc::new(Told::default());
+        assert!(!tell(Ok(true), courier.clone()).run());
+        assert!(courier.0.lock().unwrap().is_empty());
+        assert!(tell(Ok(false), courier.clone()).run());
+        assert_eq!(*courier.0.lock().unwrap(), ["lead"]);
+    }
 }

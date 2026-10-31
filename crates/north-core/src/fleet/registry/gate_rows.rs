@@ -1,5 +1,5 @@
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::gates::GateRequest;
+use crate::fleet::gates::{self, Answerer, GateRequest};
 use crate::fleet::model::Delivery;
 use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::store::{AnswerPayload, FleetRow, RowKind, Spool};
@@ -68,14 +68,18 @@ impl Fleet {
     fn apply_gate_answer(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         let AnswerPayload { gate, number } = row.answer.ok_or_else(|| NorthError::Usage(format!("GATE-ANSWER row {} carries no answer", row.id)))?;
         let note = Some(row.text.as_str()).filter(|note| !note.trim().is_empty());
-        let mut refusal = None;
+        let mut told = None;
         let mut answers = Vec::new();
         let handed = self.journaled(row, || match self.answer_row_gate(row, gate, number, note, |session, text| {
             answers.push(self.spool_answer(session, text)?);
             Ok(())
         }) {
+            Err(NorthError::GateAnswered { .. }) if self.closed_by_this_answer(row, gate, number, note) => {
+                told = Some(format!("your answer {number} to gate {gate} was applied"));
+                Ok(())
+            }
             Err(error @ (NorthError::Usage(_) | NorthError::Rejected(_) | NorthError::GateAnswered { .. })) => {
-                refusal = Some(error.user_message());
+                told = Some(format!("your answer {number} to gate {gate} was not applied: {}", error.user_message()));
                 Ok(())
             }
             outcome => outcome,
@@ -83,10 +87,15 @@ impl Fleet {
         for answer in &answers {
             self.hand_in_answer(answer)?;
         }
-        if let (Some(why), Some(answerer)) = (refusal, row.sender.as_deref()) {
-            self.tell(answerer, &format!("your answer {number} to gate {gate} was not applied: {why}"), Delivery::Queued);
+        if let (Some(text), Some(answerer)) = (told, row.sender.as_deref()) {
+            self.tell(answerer, &text, Delivery::Queued);
         }
         Ok(handed)
+    }
+
+    fn closed_by_this_answer(&self, row: &FleetRow, gate: i64, number: usize, note: Option<&str>) -> bool {
+        let by = row.sender.as_deref().map_or(Answerer::Tom, |name| Answerer::Session(name.to_owned()));
+        self.gate(gate).ok().flatten().is_some_and(|gate| gates::closed_by_answer(&gate, &by, number, note))
     }
 
     fn answer_row_gate(&self, row: &FleetRow, gate: i64, number: usize, note: Option<&str>, deliver: impl FnOnce(&str, &str) -> NorthResult<()>) -> NorthResult<()> {
@@ -320,6 +329,50 @@ mod tests {
         let frames = worker.frames.lock().unwrap();
         assert_eq!(frames.len(), 1, "only the gate session itself is told its answer was refused: {frames:?}");
         assert!(frames[0].contains("your answer 1 to gate 1 was not applied"), "{}", frames[0]);
+    }
+
+    #[test]
+    fn a_gate_answer_retried_after_its_journal_write_failed_tells_the_answerer_it_was_applied() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let laptop = fleet(home.path());
+        let worker = live_under(&laptop, "worker", Some("boss"));
+        let boss = live(&laptop, "boss");
+        let id = laptop.open_gate(&request("worker")).unwrap();
+        let row = laptop.spool_gate_answer("worker", id, 2, None, Some("boss")).unwrap();
+        laptop.deliver_row(&FleetRow { id: "1-other".into(), ..laptop.new_row(RowKind::Message, "worker", "hello", None).unwrap() }).unwrap();
+        let journal = laptop.root.join("worker/delivered");
+        std::fs::set_permissions(&journal, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        assert!(laptop.deliver_row(&row).is_err());
+        std::fs::set_permissions(&journal, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
+
+        assert_eq!(laptop.gate(id).unwrap().unwrap().closure.unwrap().answer, "no");
+        let frames = boss.frames.lock().unwrap();
+        let told: Vec<&String> = frames.iter().filter(|frame| frame.contains("your answer")).collect();
+        assert_eq!(told.len(), 1, "{frames:?}");
+        assert!(told[0].contains("your answer 2 to gate 1 was applied") && !told[0].contains("not applied"), "{}", told[0]);
+        let waiting = Spool::at(&laptop.root).pending().unwrap().into_iter().filter(|row| row.kind == RowKind::Message && row.to == "worker" && row.urgent).count();
+        assert_eq!(waiting, 1, "the answer itself stays spooled for the tick");
+        drop(worker);
+    }
+
+    #[test]
+    fn a_gate_answer_that_reaches_a_gate_another_answerer_closed_still_tells_its_answerer_it_was_not_applied() {
+        let home = tempfile::tempdir().unwrap();
+        let laptop = fleet(home.path());
+        let _worker = live_under(&laptop, "worker", Some("boss"));
+        let boss = live(&laptop, "boss");
+        let id = laptop.open_gate(&request("worker")).unwrap();
+        laptop.answer_gate(id, 1, None, None).unwrap();
+        let row = laptop.spool_gate_answer("worker", id, 2, None, Some("boss")).unwrap();
+
+        laptop.deliver_row(&row).unwrap();
+
+        let frames = boss.frames.lock().unwrap();
+        let told: Vec<&String> = frames.iter().filter(|frame| frame.contains("your answer")).collect();
+        assert!(told.len() == 1 && told[0].contains("your answer 2 to gate 1 was not applied"), "{frames:?}");
     }
 
     #[test]

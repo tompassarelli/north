@@ -165,10 +165,7 @@ fn settle_as(book: &dyn GateBook, id: i64, decision: Decision, by: Answerer, not
     if let Some(closure) = &gate.closure {
         return Err(already_answered(id, closure));
     }
-    let mut answer = answer(&gate, &decision)?;
-    if let Some(note) = note.filter(|note| !note.trim().is_empty()) {
-        answer.push_str(&format!("\n{}", note.trim()));
-    }
+    let answer = noted_answer(&gate, &decision, note)?;
     let closure = Closure { answer, by, closed_ms: now_ms };
     if !book.close_gate(id, &closure)? {
         let closed = book.gate(id)?.and_then(|gate| gate.closure).ok_or_else(|| NorthError::State(format!("gate {id} closed without an answer")))?;
@@ -176,6 +173,18 @@ fn settle_as(book: &dyn GateBook, id: i64, decision: Decision, by: Answerer, not
     }
     deliver(&gate.request.session, &message(&gate, &closure))?;
     Ok(closure)
+}
+
+fn noted_answer(gate: &Gate, decision: &Decision, note: Option<&str>) -> NorthResult<String> {
+    let mut answer = answer(gate, decision)?;
+    if let Some(note) = note.filter(|note| !note.trim().is_empty()) {
+        answer.push_str(&format!("\n{}", note.trim()));
+    }
+    Ok(answer)
+}
+
+pub fn closed_by_answer(gate: &Gate, by: &Answerer, number: usize, note: Option<&str>) -> bool {
+    gate.closure.as_ref().is_some_and(|closure| &closure.by == by && noted_answer(gate, &Decision::Option(number), note).is_ok_and(|answer| answer == closure.answer))
 }
 
 fn already_answered(id: i64, closure: &Closure) -> NorthError {
