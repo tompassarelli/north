@@ -84,7 +84,10 @@ shim_main() {
         return 1
       }
       ;;
-    gitleaks:detect|gitleaks:dir) ;;
+    gitleaks:detect)
+      [ "${SAFE_PUSH_TEST_GITLEAKS_LEAK:-0}" != 1 ] || { printf 'leaks found: 1\n'; return 1; }
+      ;;
+    gitleaks:dir) ;;
     gh:repo)
       [ "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}" != fail ] || return 1
       printf '%s\n' "${SAFE_PUSH_TEST_VISIBILITY:-PUBLIC}"
@@ -307,7 +310,7 @@ SAFE_PUSH_TEST_LANGUAGE_TRACE="$language_trace" SAFE_PUSH_TEST_LANGUAGE_DENY='ne
 expect_status nonzero
 expect_output 'new.py: Python files are forbidden'
 [ "$(real_remote_state)" = "$language_remote_before" ] || fail 'language refusal published'
-! grep -q '^gitleaks ' "$real_trace" || fail 'language refusal reached heavy checks'
+grep -Eq 'blocking check\(s\) failed: (.*; )?language gate' <<<"$case_output" || fail "the refusal did not name the language gate: $case_output"
 grep -Fxq "north <language-gate> <--repo> <$real_repo> <--base> <$language_base> <--head> <$language_head>" "$language_trace" || fail 'language gate lost repository or landing oids'
 printf 'PASS: language gate refusal blocks every repository\n'
 
@@ -353,7 +356,7 @@ for publication_mode in branch autoland; do
     expect_status nonzero
     expect_output 'new.py: Python files are forbidden'
     [ "$(real_remote_state)" = "$remote_before" ] || fail "$publication_mode language refusal published"
-    ! grep -q '^gitleaks ' "$real_trace" || fail "$publication_mode refusal reached heavy checks"
+    grep -Eq 'blocking check\(s\) failed: (.*; )?language gate' <<<"$case_output" || fail "$publication_mode refusal did not name the language gate: $case_output"
   fi
   SAFE_PUSH_TEST_AUTOLAND_STATUS=$'failure\tLanguage fixture\tfixture' SAFE_PUSH_TEST_PATH="$publication_missing_path" run_real_case '' "${publication_args[@]}"
   expect_status nonzero
@@ -481,9 +484,30 @@ stale_remote_before=$(real_remote_state)
 HOME="$land_home" run_real_case '' --to main
 expect_status nonzero
 expect_output 'safe-push: ✗ this landing undoes recent commits on main'
-[ ! -e "$real_repo/check-runs" ] || fail 'a stale-revert refusal still ran the land checks'
+expect_output 'stale revert of newer main'
+[ -e "$real_repo/check-runs" ] || fail 'a stale-revert refusal skipped the land checks instead of reporting them too'
 [ "$(real_remote_state)" = "$stale_remote_before" ] || fail 'a stale-revert refusal published'
-printf 'PASS: a landing that undoes recent main is refused before its land checks start\n'
+printf 'PASS: a landing that undoes recent main is refused, with its land checks still run and reported\n'
+
+make_real_fixture all-at-once
+land_home="$real_fixture/home"
+mkdir -p "$land_home"
+"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'file.txt :: printf "FAIL boundary\\n" >&2; exit 9'
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'a test that fails'
+printf 'changed\n' >"$real_repo/file.txt"
+"$real_git" -C "$real_repo" add file.txt
+"$real_git" -C "$real_repo" commit -qm 'change under test beside a secret fixture'
+all_remote_before=$(real_remote_state)
+SAFE_PUSH_TEST_GITLEAKS_LEAK=1 HOME="$land_home" run_real_case '' --to main
+expect_status nonzero
+expect_output 'safe-push: ✗ 2 blocking check(s) failed: land checks; secret scan; NOT pushed.'
+expect_output 'safe-push: ✗ SECRET DETECTED'
+[ "$(grep -c '✗ [0-9]* blocking check(s) failed' <<<"$case_output")" -eq 1 ] || fail "the refusal was not reported once: $case_output"
+[ "$(real_remote_state)" = "$all_remote_before" ] || fail 'a refused landing published'
+all_log=${case_output##*exited 9; log: }
+rm -f -- "${all_log%%; NOT pushed.*}"
+printf 'PASS: a landing with a failing test and a secret is refused once, naming both\n'
 
 make_real_fixture land-check-boundary
 land_home="$real_fixture/home"
@@ -720,7 +744,7 @@ for name in agents threads safe-push capacity-watchdog retired-tool helper.test.
   HOME="$tool_home" run_real_case '' --dry-run
   case "$name" in
     retired-tool|helper.test.sh) expect_status zero ;;
-    *) expect_status nonzero; [ ! -s "$real_trace" ] || fail 'core removal reached scan' ;;
+    *) expect_status nonzero; expect_output 'blocking check(s) failed: tool removal' ;;
   esac
   [ "$(real_remote_state)" = "$remote_before" ] || fail 'tool-removal dry-run changed origin'
 done
@@ -1521,7 +1545,7 @@ printf '{"dependencies":{"unowned-package":"1.0.0"}}\n' >"$real_repo/package.jso
 remote_before="$(real_remote_state)"
 run_real_case ''
 expect_status nonzero
-[ ! -s "$real_trace" ] || fail 'dependency refusal reached the scan'
+expect_output 'blocking check(s) failed: dependency gate'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'dependency refusal changed origin'
 
 code_health_stub="$scratch/code-health-stub"
