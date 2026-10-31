@@ -15,7 +15,7 @@ fn ledger() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 fn message(id: &str, to: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: None, gate: None, job: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: None, gate: None, answer: None, job: None }
 }
 
 fn count(path: &std::path::Path, sql: &str) -> i64 {
@@ -49,6 +49,23 @@ fn a_ledger_that_predates_the_fleet_kinds_is_widened_with_its_rows_and_indexes_k
 
     assert_eq!(count(&path, "SELECT count(*) FROM events"), 2);
     assert_eq!(count(&path, "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name IN ('events_item', 'events_fleet_id')"), 2);
+}
+
+#[test]
+fn an_id_index_built_before_gate_answer_rows_existed_is_renewed_so_a_gate_answer_commits_once() {
+    let (_directory, path) = ledger();
+    Store::open(&path).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DROP INDEX events_fleet_id; CREATE UNIQUE INDEX events_fleet_id ON events(json_extract(data,'$.id')) WHERE kind IN ('MESSAGE','GATE','ANSWER','JOB-START','JOB-BEAT','JOB-EXIT');")
+        .unwrap();
+    let answer = FleetRow { kind: RowKind::GateAnswer, answer: Some(AnswerPayload { gate: 4, number: 1 }), ..message("a-1", "sc-1") };
+
+    let mut store = Store::open(&path).unwrap();
+    store.put(std::slice::from_ref(&answer)).unwrap();
+    store.put(&[answer]).unwrap();
+
+    assert_eq!(count(&path, "SELECT count(*) FROM events WHERE kind = 'GATE-ANSWER'"), 1);
 }
 
 #[test]

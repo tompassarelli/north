@@ -1,6 +1,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use rustix::fs::{FlockOperation, flock};
@@ -27,10 +27,7 @@ impl Fleet {
     pub fn hand_in(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         row.validate()?;
         self.record(&row.to)?;
-        let journal = self.session_dir(&row.to)?.join(DELIVERED);
-        fs::create_dir_all(&journal)?;
-        let lock = OpenOptions::new().create(true).append(true).open(journal.join(LOCK))?;
-        flock(&lock, FlockOperation::LockExclusive).map_err(|error| NorthError::State(format!("{} delivery lock: {error}", row.to)))?;
+        let (journal, _lock) = self.journal_lock(&row.to)?;
         let entry = journal.join(&row.id);
         let handing = journal.join(format!("{}.{HANDING}", row.id));
         if handing.exists() {
@@ -77,6 +74,27 @@ impl Fleet {
         let record = self.record(&row.to)?;
         let id = row.prompt_id();
         Ok(Unaccepted::holds(&record.host_dir, &id) || streamed(&stream_path(&record.host_dir), &id)?)
+    }
+
+    pub(super) fn journaled(&self, row: &FleetRow, apply: impl FnOnce() -> NorthResult<()>) -> NorthResult<HandedIn> {
+        row.validate()?;
+        self.record(&row.to)?;
+        let (journal, _lock) = self.journal_lock(&row.to)?;
+        let entry = journal.join(&row.id);
+        if entry.exists() {
+            return Ok(HandedIn::Already);
+        }
+        apply()?;
+        File::create(entry)?;
+        Ok(HandedIn::Delivered)
+    }
+
+    fn journal_lock(&self, name: &str) -> NorthResult<(PathBuf, File)> {
+        let journal = self.session_dir(name)?.join(DELIVERED);
+        fs::create_dir_all(&journal)?;
+        let lock = OpenOptions::new().create(true).append(true).open(journal.join(LOCK))?;
+        flock(&lock, FlockOperation::LockExclusive).map_err(|error| NorthError::State(format!("{name} delivery lock: {error}")))?;
+        Ok((journal, lock))
     }
 
     fn deliver(&self, row: &FleetRow) -> NorthResult<()> {

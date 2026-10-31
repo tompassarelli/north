@@ -4,9 +4,7 @@ use crate::fleet::relay::{self, Courier, Letter, Outbox, Relay, Relayed};
 use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::store::{FleetRow, RowKind, Spool, cached_sessions};
 
-use crate::fleet::gates::GateRequest;
-
-use super::{Fleet, parents};
+use super::Fleet;
 
 const OUTBOX: &str = ".outbox";
 const UNDELIVERED: &str = ".relay-undelivered";
@@ -15,11 +13,6 @@ const UNDROPPED: &str = ".relay-undropped";
 pub enum Sent {
     Here,
     Posted { relay: Option<Relay>, letter: Letter },
-}
-
-pub enum Opened {
-    Here(i64),
-    Posted { relay: Relay, letter: Letter },
 }
 
 impl Fleet {
@@ -40,16 +33,19 @@ impl Fleet {
         if self.session_dir(name)?.exists() {
             return self.send_signed(from, name, text, delivery).map(|()| Sent::Here);
         }
-        let known = match cached_sessions(&self.root)? {
-            Some(sessions) => sessions.iter().any(|session| session.name == name) || self.remote_views().iter().any(|seen| seen.snapshot.sessions.iter().any(|session| session.name == name)),
-            None => self.outbox().relay().is_some(),
-        };
-        if !known {
+        if !self.known_elsewhere(name)? {
             return Err(NorthError::Usage(format!("no session named {name}")));
         }
         let row = self.spool_message(from, name, text, delivery)?;
         let letter = self.outbox().post(&row)?;
         Ok(Sent::Posted { relay: self.outbox().relay(), letter })
+    }
+
+    pub(super) fn known_elsewhere(&self, name: &str) -> NorthResult<bool> {
+        Ok(match cached_sessions(&self.root)? {
+            Some(sessions) => sessions.iter().any(|session| session.name == name) || self.remote_views().iter().any(|seen| seen.snapshot.sessions.iter().any(|session| session.name == name)),
+            None => self.outbox().relay().is_some(),
+        })
     }
 
     pub(super) fn spool_message(&self, from: Option<&str>, name: &str, text: &str, delivery: Delivery) -> NorthResult<FleetRow> {
@@ -64,32 +60,16 @@ impl Fleet {
             text: text.into(),
             sender: from.map(str::to_owned),
             gate: None,
+            answer: None,
             job: None,
         };
         Spool::at(&self.root).put(&row)?;
         Ok(row)
     }
 
-    pub fn open_or_post_gate(&self, request: &GateRequest) -> NorthResult<Opened> {
-        if !self.session_dir(&request.session)?.exists()
-            && let Some(relay) = self.outbox().relay()
-        {
-            let letter = self.outbox().post_gate(request)?;
-            return Ok(Opened::Posted { relay, letter });
-        }
-        self.open_gate(request).map(Opened::Here)
-    }
-
     pub fn relay(&self, courier: &dyn Courier, hosts: &[String]) -> NorthResult<(Relayed, Vec<String>)> {
-        self.relay_arming(courier, hosts, &parents::await_default)
-    }
-
-    pub(super) fn relay_arming(&self, courier: &dyn Courier, hosts: &[String], arm: &dyn Fn(i64) -> NorthResult<()>) -> NorthResult<(Relayed, Vec<String>)> {
         let undropped = self.root.join(UNDROPPED);
-        let relayed = relay::relay(courier, &relay::hostname(), hosts, &relay::entries(&undropped), &mut |letter| match &letter.gate {
-            Some(request) => self.open_gate_arming(request, arm).map(drop),
-            None => self.hand_in(&FleetRow::from(letter)).map(drop),
-        });
+        let relayed = relay::relay(courier, &relay::hostname(), hosts, &relay::entries(&undropped), &mut |letter| self.hand_in(&FleetRow::from(letter)).map(drop));
         for (ssh, snapshot) in &relayed.snapshots {
             self.remember(ssh, snapshot)?;
         }
@@ -102,21 +82,13 @@ impl Fleet {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     use super::*;
+    use super::super::fixtures::{fleet, live};
     use crate::fleet::remote_view::Snapshot;
     use crate::fleet::store::{SessionRow, Spool, cache_sessions};
     use crate::fleet::registry::HandedIn;
     use crate::error::NorthError;
-    use crate::fleet::runtimes::Runtimes;
-    use crate::fleet::records::write_record;
-    use crate::fleet::model::SessionRecord;
-
-    fn fleet(home: &std::path::Path) -> Fleet {
-        let ledger = Arc::new(crate::ledger::Ledger::open(&home.join("ledger.db")).unwrap());
-        Fleet::at(home.into(), Runtimes::new(vec![Arc::new(crate::providers::claude::fleet::Claude)]), ledger).unwrap()
-    }
 
     struct Hosts(BTreeMap<String, Outbox>);
 
@@ -136,65 +108,6 @@ mod tests {
         fn revive_rebooted(&self, _: &str) -> NorthResult<Vec<String>> {
             Ok(Vec::new())
         }
-
-        fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
-            Err(NorthError::Usage(format!("ssh {host}: unreachable")))
-        }
-    }
-
-    #[test]
-    fn a_gate_opened_on_the_host_that_does_not_register_its_session_is_owned_by_that_session_on_the_launching_host() {
-        let laptop_home = tempfile::tempdir().unwrap();
-        let far_home = tempfile::tempdir().unwrap();
-        let laptop = fleet(laptop_home.path());
-        let far = fleet(far_home.path());
-        let record: SessionRecord = serde_json::from_value(serde_json::json!({
-            "name": "sc-413-d1936", "provider": "claude", "account": "a", "cwd": "/tmp",
-            "model": null, "created_ms": 1, "host_pid": null, "conversation": "c0ffee",
-        }))
-        .unwrap();
-        let session_dir = laptop.session_dir("sc-413-d1936").unwrap();
-        std::fs::create_dir_all(&session_dir).unwrap();
-        write_record(&session_dir, &record).unwrap();
-        let request = GateRequest { verification: false, issue: None, session: "sc-413-d1936".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 };
-
-        far.outbox().take("laptop").unwrap();
-        assert!(matches!(far.open_or_post_gate(&request).unwrap(), Opened::Posted { .. }), "a session unknown here posts its gate to the relay");
-
-        let courier = Hosts(BTreeMap::from([("far".to_owned(), far.outbox())]));
-        let (relayed, fresh) = laptop.relay_arming(&courier, &["far".to_owned()], &|_| Ok(())).unwrap();
-        assert!(fresh.is_empty() && relayed.undelivered.is_empty(), "{:?}", relayed.lines());
-        let gates = laptop.digest(0).unwrap().gates;
-        assert_eq!(gates.iter().map(|gate| (gate.request.session.as_str(), gate.request.question.as_str(), gate.is_open())).collect::<Vec<_>>(), [("sc-413-d1936", "Rent the box?", true)]);
-        assert!(far.outbox().take("laptop").unwrap().is_empty(), "the relayed gate letter is dropped from the far host");
-    }
-
-    struct Session {
-        frames: Arc<std::sync::Mutex<Vec<String>>>,
-    }
-
-    fn live(fleet: &Fleet, name: &str) -> Session {
-        use std::io::{BufRead, BufReader, Write};
-        let dir = fleet.root.join(name);
-        std::fs::create_dir_all(dir.join("g1")).unwrap();
-        let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": std::process::id(), "conversation": name, "host_dir": dir, "stream_offset": 0});
-        std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
-        let assistant = serde_json::json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": "Not done: waiting."}]}});
-        let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": name});
-        std::fs::write(dir.join("g1/stream.jsonl"), format!("{assistant}\n{result}\n")).unwrap();
-        let listener = std::os::unix::net::UnixListener::bind(dir.join("host.sock")).unwrap();
-        let frames = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let seen = frames.clone();
-        std::thread::spawn(move || {
-            for stream in listener.incoming().flatten() {
-                let mut writer = &stream;
-                for line in BufReader::new(&stream).lines().map_while(Result::ok) {
-                    seen.lock().unwrap().push(line);
-                    writeln!(writer, "{{\"host_seq\":1}}").unwrap();
-                }
-            }
-        });
-        Session { frames }
     }
 
     fn cached(fleet: &Fleet, names: &[&str]) {
@@ -234,7 +147,7 @@ mod tests {
         assert_eq!(laptop.hand_in(&row).unwrap(), HandedIn::Delivered);
         assert!(worker.frames.lock().unwrap()[0].contains("[from lead@"), "a row from another host is signed with its host");
         let courier = Hosts(BTreeMap::from([("far".to_owned(), far.outbox())]));
-        let (relayed, fresh) = laptop.relay_arming(&courier, &["far".to_owned()], &|_| Ok(())).unwrap();
+        let (relayed, fresh) = laptop.relay(&courier, &["far".to_owned()]).unwrap();
 
         assert!(fresh.is_empty() && relayed.undelivered.is_empty(), "{:?}", relayed.lines());
         assert_eq!(worker.frames.lock().unwrap().len(), 1);

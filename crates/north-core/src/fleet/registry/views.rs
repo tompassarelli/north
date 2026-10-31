@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates;
-use crate::fleet::relay::{self, Courier};
+use crate::fleet::relay;
 use crate::fleet::remote_view::{GateView, Seen, SessionView, Snapshot, split_qualified};
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::{SessionRow, cached_sessions};
@@ -62,14 +62,19 @@ impl Fleet {
         seen
     }
 
-    pub fn answer_remote_gate(&self, courier: &dyn Courier, label: &str, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<String> {
+    pub fn answer_remote_gate(&self, label: &str, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<String> {
         let (host, id) = split_qualified(label).ok_or_else(|| NorthError::Usage(format!("not a host-qualified gate id: {label}")))?;
         let views = self.remote_views();
         let seen = views.iter().find(|seen| seen.snapshot.host == host).ok_or_else(|| {
             let known: Vec<&str> = views.iter().map(|seen| seen.snapshot.host.as_str()).collect();
             NorthError::Usage(format!("no relayed host named {host}; relayed: {}", known.join(", ")))
         })?;
-        courier.answer(&seen.ssh, caller, id, number, note)
+        let gate = seen.snapshot.gates.iter().find(|gate| gate.id == id).ok_or_else(|| NorthError::Usage(format!("no open gate {label}")))?;
+        if !(1..=gate.options.len()).contains(&number) {
+            return Err(NorthError::Usage(format!("gate {label} has no option {number}")));
+        }
+        let row = self.spool_gate_answer(&gate.session, id, number, note, caller)?;
+        Ok(format!("gate {label}: answer {number} spooled as {} for {}'s host to apply", row.id, gate.session))
     }
 }
 

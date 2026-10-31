@@ -5,7 +5,6 @@ use serde_json::{Value, json};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::{Fleet, Opened};
-use crate::fleet::relay::Ssh;
 use crate::fleet::runtime::now_ms;
 use crate::ops::dispatch::IssueRef;
 
@@ -27,7 +26,7 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>) -> NorthResult<()> {
     let caller = fleet.caller();
     if id.contains(':') {
-        println!("{}", fleet.answer_remote_gate(&Ssh, id, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
+        println!("{}", fleet.answer_remote_gate(id, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
         return Ok(());
     }
     let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number.parse().map_err(|_| usage())?, note, caller.as_deref());
@@ -45,12 +44,11 @@ fn usage() -> NorthError {
 
 fn open(fleet: &Fleet, flags: &[&str]) -> NorthResult<()> {
     let request = gate_request(flags)?;
-    match fleet.open_or_post_gate(&request)? {
+    match fleet.open_or_spool_gate(&request)? {
         Opened::Here(id) => println!("{id}"),
-        Opened::Posted { relay, letter } => {
-            let minutes = relay.age.as_secs() / 60;
-            println!("{}", letter.id);
-            eprintln!("north gate: no session named {} here; posted {} for {}, which last relayed {minutes}m ago; the gate opens there with its own id", request.session, letter.id, relay.host);
+        Opened::Spooled(row) => {
+            println!("{}", row.id);
+            eprintln!("north gate: no session named {} here; spooled GATE row {} for the host that has it, which opens the gate with its own id", request.session, row.id);
         }
     }
     Ok(())

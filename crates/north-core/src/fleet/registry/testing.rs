@@ -15,6 +15,11 @@ impl Fleet {
         Self::rooted(home, policy, runtimes, ledger, claims)
     }
 
+    pub fn arming(mut self, arm: fn(i64) -> NorthResult<()>) -> Self {
+        self.arm = arm;
+        self
+    }
+
     pub fn hosted_as(mut self, host: &str) -> Self {
         self.host = host.into();
         self

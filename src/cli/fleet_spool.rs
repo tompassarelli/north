@@ -41,6 +41,7 @@ fn spool_job(fleet: &Fleet, kind: RowKind, session: &str, key: &str, exit: Optio
         text: text.into(),
         sender: None,
         gate: None,
+        answer: None,
         job: Some(JobPayload { key: key.into(), lease_secs, exit }),
     };
     fleet.spool().put(&row)?;

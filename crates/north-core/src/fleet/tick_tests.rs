@@ -9,9 +9,10 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::error::NorthError;
+use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
-use crate::fleet::store::{Exchanged, FarSpools, FleetRow, RowKind, Store};
+use crate::fleet::store::{AnswerPayload, Exchanged, FarSpools, FleetRow, RowKind, Store};
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -28,7 +29,7 @@ struct Host {
 fn host(name: &str) -> Host {
     let home = tempfile::tempdir().unwrap();
     let books = Arc::new(crate::ledger::Ledger::open(&home.path().join("ledger.db")).unwrap());
-    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), books).unwrap().hosted_as(name);
+    let fleet = Fleet::at(home.path().into(), Runtimes::new(vec![Arc::new(Claude)]), books).unwrap().hosted_as(name).arming(|_| Ok(()));
     let ledger = home.path().join("threads.db");
     rusqlite::Connection::open(&ledger).unwrap().execute_batch(EVENTS).unwrap();
     Host { home, fleet, ledger }
@@ -76,7 +77,12 @@ fn live(host: &Host, name: &str) -> Arc<Mutex<Vec<String>>> {
 }
 
 fn message(id: &str, to: &str, sent_at: u64) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Some("lead".into()), gate: None, job: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Some("lead".into()), gate: None, answer: None, job: None }
+}
+
+fn gate(id: &str, to: &str) -> FleetRow {
+    let request = GateRequest { verification: false, issue: None, session: to.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 60_000 };
+    FleetRow { kind: RowKind::Gate, text: request.question.clone(), sender: None, gate: Some(Box::new(request)), ..message(id, to, CREATED_MS) }
 }
 
 fn count(ledger: &Path, sql: &str) -> i64 {
@@ -393,4 +399,37 @@ fn a_slow_far_pull_does_not_use_up_the_budget_for_delivering_to_this_hosts_sessi
     assert_eq!(ticked.delivered, [("m-1".to_owned(), "worker".to_owned())]);
     assert_eq!(ticked.deferred, 0);
     assert_eq!(frame_uuids(&frames).len(), 1);
+}
+
+#[test]
+fn a_gate_row_for_a_session_here_opens_one_gate_on_the_first_tick_and_none_on_the_next() {
+    let host = host("nexus");
+    let _frames = live(&host, "worker");
+    host.store().put(&[gate("g-1", "worker")]).unwrap();
+
+    let first = host.tick();
+    let second = host.tick();
+
+    assert_eq!(first.delivered, [("g-1".to_owned(), "worker".to_owned())]);
+    assert_eq!((second.delivered.len(), second.already), (0, 0));
+    assert_eq!(host.fleet.digest(0).unwrap().gates.len(), 1);
+    assert_eq!(host.fleet.deliver_row(&gate("g-1", "worker")).unwrap(), HandedIn::Already);
+}
+
+#[test]
+fn a_gate_answer_row_put_on_any_host_closes_the_gate_once_on_the_sessions_host_and_tells_the_session() {
+    let host = host("nexus");
+    let frames = live(&host, "worker");
+    let id = host.fleet.open_gate(gate("g-1", "worker").gate.as_deref().unwrap()).unwrap();
+    let answer = FleetRow { kind: RowKind::GateAnswer, text: String::new(), sender: None, gate: None, answer: Some(AnswerPayload { gate: id, number: 2 }), ..message("a-1", "worker", NOW_MS) };
+    host.store().put(&[answer]).unwrap();
+
+    let first = host.tick();
+    let second = host.tick();
+
+    assert_eq!(first.delivered, [("a-1".to_owned(), "worker".to_owned())]);
+    assert_eq!((second.delivered.len(), second.already), (0, 0));
+    let closure = host.fleet.gate(id).unwrap().unwrap().closure.unwrap();
+    assert_eq!(closure.answer, "no");
+    assert_eq!(frames.lock().unwrap().len(), 1);
 }

@@ -6,20 +6,20 @@ use crate::fleet::model::Delivery;
 use crate::fleet::relay;
 use crate::fleet::runtime::now_ms;
 
-use super::{Fleet, parents};
+use super::Fleet;
 
 impl Fleet {
     pub fn open_gate(&self, request: &GateRequest) -> NorthResult<i64> {
-        self.open_gate_arming(request, &parents::await_default)
+        let id = self.record_gate(request)?;
+        (self.arm)(id)?;
+        Ok(id)
     }
 
-    pub(super) fn open_gate_arming(&self, request: &GateRequest, arm: &dyn Fn(i64) -> NorthResult<()>) -> NorthResult<i64> {
+    pub(super) fn record_gate(&self, request: &GateRequest) -> NorthResult<i64> {
         let asker = self.record(&request.session)?;
         let request = GateRequest { verification: asker.verification, ..request.clone() };
         let abroad = asker.parent.as_deref().is_some_and(|parent| self.record(parent).is_err()).then(relay::hostname);
-        let id = gates::open(self.ledger.as_ref(), &request, asker.parent.as_deref(), abroad.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))?;
-        arm(id)?;
-        Ok(id)
+        gates::open(self.ledger.as_ref(), &request, asker.parent.as_deref(), abroad.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))
     }
 
     pub fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {

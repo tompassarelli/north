@@ -499,7 +499,7 @@ fn north_fleet_list_and_tree_here_show_a_session_registered_on_another_host_with
 }
 
 #[test]
-fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_and_answered_through_it() {
+fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_and_answered_by_a_gate_answer_row_for_its_host() {
     let hosts = TwoHosts::new();
     hosts.launch_boss_here_and_kid_far();
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
@@ -517,11 +517,12 @@ fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_an
         hosts.relay();
         text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout).contains(&format!("[gate {label} from kid]"))
     });
-    let far = hosts.far();
-    let answered = north_as(hosts.here(), "here", &[("FAR_HOME", far.to_str().unwrap())], &["gate", "answer", &label, "1"]);
+    let answered = north(hosts.here(), &["gate", "answer", &label, "1", "--note", "go ahead"]);
     assert!(answered.status.success(), "{}", text(&answered.stderr));
-    assert!(text(&answered.stdout).contains("closed by tom: yes"), "{}", text(&answered.stdout));
-    until("the answer in the asking session's transcript", || text(&north(&hosts.far(), &["fleet", "show", "kid"]).stdout).contains("Tom answered: yes"));
+    assert!(text(&answered.stdout).contains(&format!("gate {label}: answer 1 spooled as ")), "{}", text(&answered.stdout));
+    let spooled: Vec<serde_json::Value> = serde_json::from_slice(&north(hosts.here(), &["fleet", "spool", "take"]).stdout).unwrap();
+    let rows: Vec<(&str, i64, i64, &str)> = spooled.iter().filter(|row| row["kind"] == "GATE-ANSWER").map(|row| (row["to_node"].as_str().unwrap(), row["answer"]["gate"].as_i64().unwrap(), row["answer"]["number"].as_i64().unwrap(), row["text"].as_str().unwrap())).collect();
+    assert_eq!(rows, [("kid", id.parse().unwrap(), 1, "go ahead")]);
 }
 
 #[test]

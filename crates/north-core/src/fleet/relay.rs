@@ -8,11 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{NorthError, NorthResult};
 
-use super::gates::GateRequest;
 use super::model::Delivery;
 use super::remote_view::Snapshot;
 use super::store::{FleetRow, RowKind};
-use super::runtime::{new_uuid, now_ms};
 use super::ssh::{over_ssh, over_ssh_within};
 
 const RELAY: &str = "relay";
@@ -28,8 +26,6 @@ pub struct Letter {
     pub from: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gate: Option<Box<GateRequest>>,
     pub at_ms: u64,
 }
 
@@ -45,13 +41,13 @@ impl Letter {
 
 impl From<&FleetRow> for Letter {
     fn from(row: &FleetRow) -> Self {
-        Self { id: row.id.clone(), to: row.to.clone(), text: row.text.clone(), now: row.urgent, from: row.from.clone(), sender: row.sender.clone(), gate: None, at_ms: row.sent_at }
+        Self { id: row.id.clone(), to: row.to.clone(), text: row.text.clone(), now: row.urgent, from: row.from.clone(), sender: row.sender.clone(), at_ms: row.sent_at }
     }
 }
 
 impl From<&Letter> for FleetRow {
     fn from(letter: &Letter) -> Self {
-        Self { id: letter.id.clone(), kind: RowKind::Message, to: letter.to.clone(), from: letter.from.clone(), urgent: letter.now, sent_at: letter.at_ms, text: letter.text.clone(), sender: letter.sender.clone(), gate: None, job: None }
+        Self { id: letter.id.clone(), kind: RowKind::Message, to: letter.to.clone(), from: letter.from.clone(), urgent: letter.now, sent_at: letter.at_ms, text: letter.text.clone(), sender: letter.sender.clone(), gate: None, answer: None, job: None }
     }
 }
 
@@ -80,12 +76,6 @@ impl Outbox {
 
     pub fn post(&self, row: &FleetRow) -> NorthResult<Letter> {
         self.stage(Letter::from(row))
-    }
-
-    pub fn post_gate(&self, request: &GateRequest) -> NorthResult<Letter> {
-        let at_ms = now_ms();
-        let id = format!("{at_ms}-{}", new_uuid()?);
-        self.stage(Letter { id, to: request.session.clone(), text: request.question.clone(), now: false, from: hostname(), sender: None, gate: Some(Box::new(request.clone())), at_ms })
     }
 
     fn stage(&self, letter: Letter) -> NorthResult<Letter> {
@@ -134,34 +124,27 @@ pub trait Courier: Sync {
     fn snapshot(&self, host: &str) -> NorthResult<Snapshot>;
     /// Runs again the sessions the host's reboot stranded, returning one line per session.
     fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>>;
-    fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String>;
 }
 
 pub struct Ssh;
 
 impl Courier for Ssh {
     fn take(&self, host: &str, relay_host: &str) -> NorthResult<Vec<Letter>> {
-        Ok(serde_json::from_slice(&over_ssh(host, None, &["fleet", "outbox", "take", "--for", relay_host])?)?)
+        Ok(serde_json::from_slice(&over_ssh(host, &["fleet", "outbox", "take", "--for", relay_host])?)?)
     }
 
     fn drop(&self, host: &str, ids: &[String]) -> NorthResult<()> {
         let words: Vec<&str> = ["fleet", "outbox", "drop"].into_iter().chain(ids.iter().map(String::as_str)).collect();
-        over_ssh(host, None, &words).map(|_| ())
+        over_ssh(host, &words).map(|_| ())
     }
 
     fn snapshot(&self, host: &str) -> NorthResult<Snapshot> {
-        Ok(serde_json::from_slice(&over_ssh(host, None, &["fleet", "outbox", "snapshot"])?)?)
+        Ok(serde_json::from_slice(&over_ssh(host, &["fleet", "outbox", "snapshot"])?)?)
     }
 
     fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>> {
-        let output = over_ssh_within(host, None, &["fleet", "rebooted", "--revive"], REVIVE_WAIT)?;
+        let output = over_ssh_within(host, &["fleet", "rebooted", "--revive"], REVIVE_WAIT)?;
         Ok(String::from_utf8_lossy(&output).lines().map(str::to_owned).collect())
-    }
-
-    fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String> {
-        let (id, number) = (id.to_string(), number.to_string());
-        let words: Vec<&str> = ["gate", "answer", id.as_str(), number.as_str()].into_iter().chain(note.into_iter().flat_map(|note| ["--note", note])).collect();
-        Ok(String::from_utf8_lossy(&over_ssh(host, caller, &words)?).trim_end().to_owned())
     }
 }
 
@@ -294,6 +277,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::fleet::runtime::now_ms;
 
     struct Hosts(BTreeMap<String, Outbox>, AtomicBool);
 
@@ -316,14 +300,10 @@ mod tests {
         fn revive_rebooted(&self, _: &str) -> NorthResult<Vec<String>> {
             Ok(Vec::new())
         }
-
-        fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
-            Err(NorthError::Usage(format!("ssh {host}: unreachable")))
-        }
     }
 
     fn message(sender: Option<&str>, to: &str, text: &str, delivery: Delivery) -> FleetRow {
-        FleetRow { id: format!("{}-{to}", now_ms()), kind: RowKind::Message, to: to.into(), from: hostname(), urgent: delivery == Delivery::Now, sent_at: now_ms(), text: text.into(), sender: sender.map(str::to_owned), gate: None, job: None }
+        FleetRow { id: format!("{}-{to}", now_ms()), kind: RowKind::Message, to: to.into(), from: hostname(), urgent: delivery == Delivery::Now, sent_at: now_ms(), text: text.into(), sender: sender.map(str::to_owned), gate: None, answer: None, job: None }
     }
 
     fn far(root: &Path) -> Hosts {
@@ -404,7 +384,7 @@ mod tests {
     impl Courier for Slow {
         fn take(&self, host: &str, _: &str) -> NorthResult<Vec<Letter>> {
             std::thread::sleep(self.0);
-            Ok(vec![Letter { id: format!("1-{host}"), to: "proxy".into(), text: host.into(), now: false, from: host.into(), sender: None, gate: None, at_ms: 1 }])
+            Ok(vec![Letter { id: format!("1-{host}"), to: "proxy".into(), text: host.into(), now: false, from: host.into(), sender: None, at_ms: 1 }])
         }
 
         fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {
@@ -419,10 +399,6 @@ mod tests {
 
         fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>> {
             Ok(vec![format!("resumed {host}-worker")])
-        }
-
-        fn answer(&self, host: &str, _: Option<&str>, _: i64, _: usize, _: Option<&str>) -> NorthResult<String> {
-            Err(NorthError::Usage(format!("ssh {host}: unreachable")))
         }
     }
 
@@ -443,10 +419,6 @@ mod tests {
 
         fn revive_rebooted(&self, host: &str) -> NorthResult<Vec<String>> {
             Ok(vec![format!("resumed {host}-worker")])
-        }
-
-        fn answer(&self, host: &str, caller: Option<&str>, id: i64, number: usize, note: Option<&str>) -> NorthResult<String> {
-            self.0.answer(host, caller, id, number, note)
         }
     }
 

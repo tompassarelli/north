@@ -22,7 +22,7 @@ use super::runtime::{DEFAULT_FOREGROUND_CAP_SECS, Instructions, Opening, Runtime
 use super::runtimes::Runtimes;
 pub use super::watch::TurnWatch;
 use super::unaccepted::Unaccepted;
-use super::store::{SPOOL_DIR, SessionRow, cache_sessions};
+use super::store::SPOOL_DIR;
 use super::waits::Waits;
 use super::transcript::{StreamTail, current_session_stream_index, ensure_session_streams, read_window, session_stream_path, stream_len, stream_path};
 
@@ -32,11 +32,13 @@ mod efforts;
 mod first_turn;
 mod follower;
 mod gate_commands;
+mod gate_rows;
 mod hand_in;
 mod home;
 mod start_lock;
 mod stopping;
 mod takeover;
+mod table;
 pub use home::{orders_here, recorded_here};
 mod letters;
 mod owners;
@@ -50,13 +52,16 @@ mod views;
 #[cfg(any(test, feature = "test-support"))]
 mod testing;
 #[cfg(test)]
+mod fixtures;
+#[cfg(test)]
 mod tests;
 
 pub use follower::Follower;
 pub use home::roster;
 use home::{fleet_root, home_dir, state_dir};
 pub use hand_in::HandedIn;
-pub use letters::{Opened, Sent};
+pub use gate_rows::Opened;
+pub use letters::Sent;
 use takeover::{Predecessor, Succession};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
@@ -77,6 +82,7 @@ pub struct Fleet {
     ledger: Arc<dyn FleetBooks>,
     claims: Arc<dyn Claims>,
     host: String,
+    arm: fn(i64) -> NorthResult<()>,
 }
 
 impl Fleet {
@@ -88,19 +94,11 @@ impl Fleet {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name() })
+        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {
         Ok(TurnWatch::new(self.runtimes.get(provider)?, self.ledger.clone(), Arc::new(self.clone()), self.claims.clone(), self.root.clone(), host_dir.to_path_buf()).reading_lanes(Arc::new(lane_probe::Git)).reading_scope(Arc::new(detached::Procfs::here().after(detached::Prior::all(host_dir)))))
-    }
-
-    pub fn host(&self) -> &str {
-        &self.host
-    }
-
-    pub fn cache_sessions(&self, rows: &[SessionRow]) -> NorthResult<()> {
-        cache_sessions(&self.root, rows)
     }
 
     pub fn waits(&self) -> Waits {

@@ -76,7 +76,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, now_ms: u
             ticked.deferred += 1;
             continue;
         }
-        match fleet.hand_in(row) {
+        match fleet.deliver_row(row) {
             Ok(HandedIn::Delivered) => ticked.delivered.push((row.id.clone(), row.to.clone())),
             Ok(HandedIn::Already) => ticked.already += 1,
             Err(error) => ticked.failed.push((row.id.clone(), error.user_message())),

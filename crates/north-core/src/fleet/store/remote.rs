@@ -12,11 +12,11 @@ pub struct OverSsh;
 
 impl FarSpools for OverSsh {
     fn take(&self, ssh: &str) -> NorthResult<Vec<FleetRow>> {
-        take_with(|words| over_ssh(ssh, None, words))
+        take_with(|words| over_ssh(ssh, words))
     }
 
     fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
-        drop_with(|words| over_ssh(ssh, None, words), ids)
+        drop_with(|words| over_ssh(ssh, words), ids)
     }
 }
 

@@ -47,7 +47,7 @@ impl Hosts {
 }
 
 fn message(id: &str) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: None, gate: None, job: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: "hello".into(), sender: None, gate: None, answer: None, job: None }
 }
 
 fn taken(output: &Output) -> Vec<FleetRow> {

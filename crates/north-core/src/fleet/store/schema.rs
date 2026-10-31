@@ -18,6 +18,7 @@ fn kind_list() -> String {
 pub(super) fn ensure(db: &mut Connection) -> NorthResult<()> {
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
     widen_events(&tx)?;
+    renew_id_index(&tx)?;
     tx.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS fleet_sessions(name TEXT PRIMARY KEY, host TEXT NOT NULL, status TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL) STRICT;
          CREATE UNIQUE INDEX IF NOT EXISTS events_fleet_id ON events(json_extract(data,'$.id')) WHERE kind IN ({});",
@@ -48,6 +49,14 @@ fn add_display_columns(tx: &Transaction) -> NorthResult<()> {
         .map_err(sql)?;
     for (name, declared) in DISPLAY_COLUMNS.iter().filter(|(name, _)| !held.iter().any(|held| held == name)) {
         tx.execute_batch(&format!("ALTER TABLE fleet_sessions ADD COLUMN {name} {declared};")).map_err(sql)?;
+    }
+    Ok(())
+}
+
+fn renew_id_index(tx: &Transaction) -> NorthResult<()> {
+    let declared: Option<String> = tx.query_row("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'events_fleet_id'", [], |row| row.get(0)).ok();
+    if declared.is_some_and(|declared| !RowKind::ALL.iter().all(|kind| declared.contains(&format!("'{}'", kind.label())))) {
+        tx.execute_batch("DROP INDEX events_fleet_id").map_err(sql)?;
     }
     Ok(())
 }

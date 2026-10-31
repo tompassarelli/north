@@ -12,8 +12,8 @@ pub enum RowKind {
     Message,
     #[serde(rename = "GATE")]
     Gate,
-    #[serde(rename = "ANSWER")]
-    Answer,
+    #[serde(rename = "GATE-ANSWER")]
+    GateAnswer,
     #[serde(rename = "JOB-START")]
     JobStart,
     #[serde(rename = "JOB-BEAT")]
@@ -23,18 +23,24 @@ pub enum RowKind {
 }
 
 impl RowKind {
-    pub const ALL: [RowKind; 6] = [Self::Message, Self::Gate, Self::Answer, Self::JobStart, Self::JobBeat, Self::JobExit];
+    pub const ALL: [RowKind; 6] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Message => "MESSAGE",
             Self::Gate => "GATE",
-            Self::Answer => "ANSWER",
+            Self::GateAnswer => "GATE-ANSWER",
             Self::JobStart => "JOB-START",
             Self::JobBeat => "JOB-BEAT",
             Self::JobExit => "JOB-EXIT",
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AnswerPayload {
+    pub gate: i64,
+    pub number: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -62,6 +68,8 @@ pub struct FleetRow {
     pub sender: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Box<GateRequest>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<AnswerPayload>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job: Option<JobPayload>,
 }
