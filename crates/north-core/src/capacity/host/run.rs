@@ -19,6 +19,7 @@ use super::systemd::{apply_profile, client_environment, scope_live, scope_unit, 
 use super::{change_lease, fail, print_to};
 use crate::capacity::Host;
 use crate::capacity::build_offload::{self, Candidate, Declined, Job};
+use crate::capacity::dev_shell;
 
 const QUEUE_POLL_MILLISECONDS: u64 = 1000;
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
@@ -243,7 +244,11 @@ fn scope_command(root: &Path, request: &Request, admitted: &Obj, timeout_seconds
     } else {
         arguments.extend([format!("--property=RuntimeMaxSec={}", timeout_seconds.map_or_else(|| "infinity".to_owned(), |seconds| format!("{seconds}s"))), "--".to_owned()]);
     }
-    arguments.extend(command.iter().cloned());
+    if request.name == "native" {
+        arguments.extend(command.iter().cloned());
+    } else {
+        arguments.extend(dev_shell::enter(command));
+    }
     let mut child = if env("NORTH_FLEET_SCOPE").is_some_and(|scope| !scope.is_empty()) {
         let mut child = std::process::Command::new(&north);
         child.arg("session-unit");
@@ -375,7 +380,7 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
     if let Some(parent) = batch_class(&request.name).then(|| nested_parent(root)).flatten() {
         print_to(&Obj::new().put("decision", "NESTED").put("parent", parent.as_str()).put("class", request.name.as_str()).put("owner", owner), true);
         let mut arguments = vec![exact_lease(root, &parent).to_string_lossy().into_owned(), timeout_text(timeout_seconds), "--".to_owned()];
-        arguments.extend(command.iter().cloned());
+        arguments.extend(dev_shell::enter(command));
         return crate::capacity::deadline::run(&arguments);
     }
     // The parent limit and weights must exist before any admitted command executes.

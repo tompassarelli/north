@@ -40,6 +40,7 @@ fn run(root: &Path, program: &str, arguments: &[&str]) -> i32 {
     let mut command = Command::new(root.join("bin").join(program));
     command
         .args(arguments)
+        .current_dir(root)
         .env("HOME", root)
         .env_remove("THREADS_DB")
         .env_remove("XDG_RUNTIME_DIR")

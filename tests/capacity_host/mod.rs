@@ -102,6 +102,7 @@ impl Host {
 
     pub fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
         let mut command = Command::new(program);
+        command.current_dir(self.path(""));
         let path = format!("{}:{}", self.path("bin").display(), std::env::var("PATH").unwrap_or_default());
         for (key, value) in [
             ("PATH", path),

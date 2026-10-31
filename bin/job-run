@@ -67,7 +67,9 @@ started=$(stamp)
 recorder --started "$started"
 PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
 starting=$!
-"$@" 9>&-
+mapfile -d "" -t entered < <(env "$north_path" "$here/north" capacity dev-shell -- "$@" 2>/dev/null 9>&-)
+[ ${#entered[@]} -gt 0 ] || entered=("$@")
+"${entered[@]}" 9>&-
 rc=$?
 kill "$starting" 2>/dev/null
 recorder --started "$started" --finished "$(stamp)" --rc "$rc"

@@ -22,6 +22,7 @@ mod queued_ahead;
 mod pressure_target;
 mod gpu_admission;
 mod deadline;
+mod dev_shell;
 mod lease_deadline;
 mod warcraft;
 pub mod saturation;
@@ -69,12 +70,13 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("gaming") => gaming::run(&arguments[1..]),
         Some("game-reserve") => game_reserve::run(&arguments[1..]),
         Some("deadline") => deadline::run(&arguments[1..]),
+        Some("dev-shell") => dev_shell::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
         Some("unleased") if arguments.len() == 1 => unleased::run(),
         Some("watchdog") => watchdog::run(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | gaming on|off|status | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | gaming on|off|status | game-reserve on [--auto]|off|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
             2
         }
     };
