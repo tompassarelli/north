@@ -2,19 +2,21 @@ use std::io::Read;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
-use crate::fleet::store::{Exchange, FleetRow, LedgerHost, Store};
+use crate::fleet::store::{Exchange, FleetRow, LedgerHost, Store, WaitRequest};
 use crate::threads::client;
 
 use super::fleet_spool;
 use super::fleet_tick;
 
-const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY | north fleet row exchange < EXCHANGE_JSON";
-const FORWARDED: &[&str] = &["north", "fleet", "row", "put"];
+const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY | north fleet row exchange < EXCHANGE_JSON | north fleet row wait < WAIT_JSON";
+const FORWARDED_PUT: &[&str] = &["north", "fleet", "row", "put"];
+const FORWARDED_WAIT: &[&str] = &["north", "fleet", "row", "wait"];
 
 pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> {
     match (verb, words) {
         ("row", ["put"]) => put(),
         ("row", ["exchange"]) => serve_exchange(),
+        ("row", ["wait"]) => wait(),
         ("spool", _) => fleet_spool::run(fleet, words),
         ("tick", _) => fleet_tick::run(fleet, words),
         _ => Err(NorthError::Usage(USAGE.into())),
@@ -30,7 +32,7 @@ fn stdin() -> NorthResult<Vec<u8>> {
 fn put() -> NorthResult<()> {
     let input = stdin()?;
     let rows = FleetRow::parse(&input)?;
-    match client::forward_to_ledger_host(FORWARDED, &input)? {
+    match client::forward_to_ledger_host(FORWARDED_PUT, &input)? {
         Some(0) => Ok(()),
         Some(code) => Err(NorthError::Refused(format!("the ledger host did not confirm the commit (exit {code}); retry, a row id commits once"))),
         None => {
@@ -46,4 +48,21 @@ fn serve_exchange() -> NorthResult<()> {
     let exchanged = Store::open(&client::ledger_path()?)?.exchange(&exchange)?;
     println!("{}", serde_json::to_string(&exchanged)?);
     Ok(())
+}
+
+fn wait() -> NorthResult<()> {
+    let input = stdin()?;
+    record(&WaitRequest::parse(&input)?, &input)
+}
+
+pub(super) fn record_wait(request: &WaitRequest) -> NorthResult<()> {
+    record(request, &serde_json::to_vec(request)?)
+}
+
+fn record(request: &WaitRequest, input: &[u8]) -> NorthResult<()> {
+    match client::forward_to_ledger_host(FORWARDED_WAIT, input)? {
+        Some(0) => Ok(()),
+        Some(code) => Err(NorthError::Refused(format!("the ledger host did not record the wait (exit {code}); retry"))),
+        None => Store::open(&client::ledger_path()?)?.wait(request),
+    }
 }

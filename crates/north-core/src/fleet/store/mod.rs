@@ -13,6 +13,7 @@ mod row;
 mod schema;
 mod sessions;
 mod spool;
+mod waits;
 
 pub use cache::{cache_sessions, cached_sessions};
 pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
@@ -20,6 +21,7 @@ pub use remote::{drop_on, drop_with, take_from, take_with};
 pub use row::{FleetRow, JobPayload, RowKind};
 pub use sessions::SessionRow;
 pub use spool::{SPOOL_DIR, Spool};
+pub use waits::{JOB_LEASE_SECS, WaitKind, WaitRequest, WaitRow};
 
 use schema::sql;
 
@@ -34,19 +36,23 @@ impl Store {
         let mut db = Connection::open_with_flags(ledger, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(sql)?;
         db.busy_timeout(BUSY).map_err(sql)?;
         schema::ensure(&mut db)?;
+        waits::ensure(&db)?;
         Ok(Self { db })
     }
 
     pub fn put(&mut self, rows: &[FleetRow]) -> NorthResult<()> {
         rows.iter().try_for_each(FleetRow::validate)?;
-        let now = Timestamp::now().iso();
+        let now = Timestamp::now();
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         for row in rows {
-            tx.execute(
+            let inserted = tx.execute(
                 "INSERT INTO events(ts, item, kind, actor, tier, data) VALUES (?1, NULL, ?2, ?3, '', ?4) ON CONFLICT DO NOTHING",
-                rusqlite::params![now, row.kind.label(), row.from, serde_json::to_string(row)?],
+                rusqlite::params![now.iso(), row.kind.label(), row.from, serde_json::to_string(row)?],
             )
             .map_err(sql)?;
+            if inserted == 1 {
+                waits::record_job(&tx, row, now)?;
+            }
         }
         tx.commit().map_err(sql)
     }
@@ -66,6 +72,23 @@ impl Store {
 
     pub fn sessions(&self) -> NorthResult<Vec<SessionRow>> {
         sessions::all(&self.db)
+    }
+
+    pub fn wait(&mut self, request: &WaitRequest) -> NorthResult<()> {
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        waits::insert(&tx, request, Timestamp::now())?;
+        tx.commit().map_err(sql)
+    }
+
+    pub fn settle(&mut self, session: &str, kind: WaitKind, key: &str) -> NorthResult<bool> {
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        let settled = waits::settle(&tx, session, kind, key)?;
+        tx.commit().map_err(sql)?;
+        Ok(settled)
+    }
+
+    pub fn waits(&self) -> NorthResult<Vec<WaitRow>> {
+        waits::all(&self.db)
     }
 }
 

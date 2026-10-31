@@ -16,6 +16,7 @@ use crate::foundation::clock::Timestamp;
 use crate::platform::process::run_command_within;
 
 use super::fleet_placement::Overrides;
+use super::fleet_row;
 use super::fleet_revive;
 
 const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START)";
@@ -36,6 +37,11 @@ fn register(fleet: &Fleet, run: &str, name: Option<&str>) -> NorthResult<()> {
     fleet.session(name)?;
     let run: Run = run.parse()?;
     fleet.waits().register(name, run.clone(), &std::env::current_dir()?, None)?;
+    if let Some(request) = run.request(name)
+        && let Err(error) = fleet_row::record_wait(&request)
+    {
+        eprintln!("north fleet: {run} is registered here but not in the fleet store: {}", error.user_message());
+    }
     println!("{name} waits on {run}: end your turn now; it parks and {run}'s end revives it with the result");
     Ok(())
 }

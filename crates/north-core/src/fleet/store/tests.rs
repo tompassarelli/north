@@ -223,3 +223,76 @@ fn a_sessions_table_that_predates_the_list_columns_gains_them_with_its_rows_kept
 
     assert_eq!(store.sessions().unwrap(), [session("old", "nexus", "idle")].map(|row| SessionRow { created: "t".into(), updated: "t".into(), ..row }));
 }
+
+fn job_row(id: &str, kind: RowKind, key: &str, lease_secs: Option<u64>, exit: Option<i32>) -> FleetRow {
+    FleetRow { kind, job: Some(JobPayload { key: key.into(), lease_secs, exit }), ..message(id, "sc-1") }
+}
+
+fn seconds_between(from: &str, to: &str) -> i64 {
+    Timestamp::parse(to).unwrap().unix_seconds() - Timestamp::parse(from).unwrap().unix_seconds()
+}
+
+#[test]
+fn a_job_start_registers_a_job_wait_with_its_lease_and_each_beat_extends_it_and_the_exit_settles_it() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+
+    store.put(&[job_row("j-1", RowKind::JobStart, "soak@nexus#7", Some(180), None)]).unwrap();
+    let [started] = store.waits().unwrap().try_into().unwrap();
+    assert_eq!((started.session.as_str(), started.kind, started.key.as_str()), ("sc-1", WaitKind::Job, "soak@nexus#7"));
+    assert_eq!(seconds_between(&started.created, &started.deadline), 180);
+
+    store.put(&[job_row("j-2", RowKind::JobBeat, "soak@nexus#7", Some(600), None)]).unwrap();
+    let [beaten] = store.waits().unwrap().try_into().unwrap();
+    assert_eq!(seconds_between(&beaten.created, &beaten.deadline), 600);
+    assert_eq!(beaten.created, started.created);
+
+    store.put(&[job_row("j-3", RowKind::JobExit, "soak@nexus#7", None, Some(3))]).unwrap();
+    assert!(store.waits().unwrap().is_empty());
+    assert_eq!(count(&path, "SELECT count(*) FROM events WHERE kind IN ('JOB-START','JOB-BEAT','JOB-EXIT')"), 3);
+}
+
+#[test]
+fn a_job_start_without_a_lease_takes_the_default_and_a_late_beat_or_a_repeated_start_changes_nothing() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+
+    store.put(&[job_row("j-1", RowKind::JobBeat, "late#1", Some(180), None)]).unwrap();
+    assert!(store.waits().unwrap().is_empty(), "a beat with no start registers nothing");
+
+    store.put(&[job_row("j-2", RowKind::JobStart, "soak#1", None, None)]).unwrap();
+    let [first] = store.waits().unwrap().try_into().unwrap();
+    assert_eq!(seconds_between(&first.created, &first.deadline), JOB_LEASE_SECS as i64);
+
+    store.put(&[job_row("j-3", RowKind::JobExit, "soak#1", None, Some(0))]).unwrap();
+    store.put(&[job_row("j-2", RowKind::JobStart, "soak#1", None, None)]).unwrap();
+    assert!(store.waits().unwrap().is_empty(), "a start committed once is not replayed after its exit");
+}
+
+#[test]
+fn a_probe_wait_is_one_row_per_session_kind_and_key_and_a_second_registration_moves_its_deadline() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let request = |session: &str, kind, key: &str, within_secs| WaitRequest { session: session.into(), kind, key: key.into(), within_secs };
+
+    store.wait(&request("sc-1", WaitKind::Farm, "42", 3600)).unwrap();
+    store.wait(&request("sc-1", WaitKind::Farm, "42", 7200)).unwrap();
+    store.wait(&request("sc-1", WaitKind::Branch, "42", 3600)).unwrap();
+    store.wait(&request("sc-2", WaitKind::Farm, "42", 3600)).unwrap();
+
+    let waits = store.waits().unwrap();
+    assert_eq!(waits.len(), 3);
+    let farm = waits.iter().find(|wait| wait.session == "sc-1" && wait.kind == WaitKind::Farm).unwrap();
+    assert_eq!(seconds_between(&farm.created, &farm.deadline), 7200);
+    assert!(store.settle("sc-1", WaitKind::Farm, "42").unwrap());
+    assert!(!store.settle("sc-1", WaitKind::Farm, "42").unwrap());
+    assert_eq!(store.waits().unwrap().len(), 2);
+}
+
+#[test]
+fn a_wait_request_needs_a_session_and_a_key_and_a_known_kind() {
+    let good = br#"{"session":"sc-1","kind":"capture","key":"/tmp/done","within_secs":60}"#;
+    assert_eq!(WaitRequest::parse(good).unwrap().kind, WaitKind::Capture);
+    assert!(WaitRequest::parse(br#"{"session":"","kind":"farm","key":"1","within_secs":60}"#).is_err());
+    assert!(WaitRequest::parse(br#"{"session":"sc-1","kind":"soak","key":"1","within_secs":60}"#).is_err());
+}

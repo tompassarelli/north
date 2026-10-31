@@ -5,9 +5,10 @@
 # and the finish record, which writes the whole row, spools when the ledger host is slow.
 #   --path DIRS  prepended to PATH for the threads calls only (python3, ssh, timeout); bash's own directory is appended
 #   --user USER  when running as root, record as USER (runuser) so rows reach USER's ledger
-#   --notify     detach CMD into its own session and log, return at once, and send its exit to the fleet session
-#                $NORTH_FLEET_SESSION, so an agent can end its turn and wake on the result; it runs in its own systemd
-#                user scope when there is one, so the caller's unit stopping does not kill it;
+#   --notify     detach CMD into its own session and log, return at once, and spool JOB-START, a JOB-BEAT every 60 s
+#                and JOB-EXIT to the fleet session $NORTH_FLEET_SESSION, so an agent can end its turn and wake on the
+#                result; it runs in its own systemd user scope when there is one, so the caller's unit stopping does not
+#                kill it;
 #                north/jobs/*.job names that session and stays locked while the job runs, so the fleet sees the wait
 set -u
 
@@ -20,7 +21,7 @@ while [ $# -gt 0 ]; do
     --path) record_path=$2; shift 2 ;;
     --user) user=$2; shift 2 ;;
     --notify) notify=${NORTH_FLEET_SESSION:-}; [ -n "$notify" ] || { echo "job-run: --notify needs NORTH_FLEET_SESSION" >&2; exit 2; }; shift ;;
-    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) break ;;
   esac
 done
@@ -63,6 +64,15 @@ if [ -n "$notify" ] && [ -n "$log" ]; then
   exec 9>>"$record"
   flock -x 9
 fi
+spooler() { as_user "$here/north" fleet spool job "$@"; }
+if [ -n "$notify" ]; then
+  key=$name@$host#$$
+  spooler start "$notify" "$key" "job-run: $name started; output in $log"
+  PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null || echo "job-run: spooling $name's start failed" >&2
+  spooler beats "$notify" "$key" "${JOB_RUN_BEAT_SECS:-60}" $$
+  PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null 2>&1 9>&- &
+  beating=$!
+fi
 started=$(stamp)
 recorder --started "$started"
 PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
@@ -76,9 +86,9 @@ recorder --started "$started" --finished "$(stamp)" --rc "$rc"
 PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null >/dev/null || echo "job-run: recording $name finish failed; the job's result is unaffected" >&2
 wait "$starting" 2>/dev/null
 if [ -n "$notify" ]; then
-  as_user "$here/north" fleet send "$notify" "job-run: $name exited $rc; output in $log"
-  "${cmd[@]}" </dev/null \
-    || echo "job-run: sending $name's exit to $notify failed" >&2
+  kill "$beating" 2>/dev/null
+  spooler exit "$notify" "$key" "$rc" "job-run: $name exited $rc; output in $log"
+  PATH="${record_path:+$record_path:}$PATH" "${cmd[@]}" </dev/null || echo "job-run: spooling $name's exit for $notify failed" >&2
 fi
 [ -z "${record:-}" ] || rm -f "$record"
 exit "$rc"

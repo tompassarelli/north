@@ -11,8 +11,12 @@ use serde::{Deserialize, Serialize};
 use crate::error::{NorthError, NorthResult};
 
 use super::runtime::now_ms;
+use super::store::{WaitKind, WaitRequest};
 
 const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START";
+const FARM_DEADLINE_SECS: u64 = 4 * 3600;
+const BRANCH_DEADLINE_SECS: u64 = 24 * 3600;
+const CAPTURE_DEADLINE_SECS: u64 = 4 * 3600;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -44,6 +48,18 @@ impl FromStr for Run {
             }
             _ => Err(usage()),
         }
+    }
+}
+
+impl Run {
+    pub fn request(&self, session: &str) -> Option<WaitRequest> {
+        let (kind, key, within_secs) = match self {
+            Self::Farm(id) => (WaitKind::Farm, id.clone(), FARM_DEADLINE_SECS),
+            Self::Branch(branch) => (WaitKind::Branch, branch.clone(), BRANCH_DEADLINE_SECS),
+            Self::Capture(path) => (WaitKind::Capture, path.display().to_string(), CAPTURE_DEADLINE_SECS),
+            Self::Job { .. } | Self::Process { .. } => return None,
+        };
+        Some(WaitRequest { session: session.to_owned(), kind, key, within_secs })
     }
 }
 
@@ -189,6 +205,18 @@ mod tests {
             assert_eq!(text.parse::<Run>().unwrap().to_string(), text);
         }
         assert!("soak:1".parse::<Run>().is_err() && "job:".parse::<Run>().is_err() && "pid:4242".parse::<Run>().is_err() && "nexus".parse::<Run>().is_err());
+    }
+
+    #[test]
+    fn only_the_probe_runs_become_store_waits_each_with_a_default_deadline() {
+        let request = |text: &str| text.parse::<Run>().unwrap().request("north-1");
+        let farm = request("farm:42").unwrap();
+        assert_eq!((farm.kind, farm.key.as_str(), farm.within_secs), (WaitKind::Farm, "42", FARM_DEADLINE_SECS));
+        let branch = request("branch:claude/land-x").unwrap();
+        assert_eq!((branch.kind, branch.key.as_str(), branch.within_secs), (WaitKind::Branch, "claude/land-x", BRANCH_DEADLINE_SECS));
+        let capture = request("capture:/tmp/batch/done").unwrap();
+        assert_eq!((capture.kind, capture.key.as_str(), capture.within_secs), (WaitKind::Capture, "/tmp/batch/done", CAPTURE_DEADLINE_SECS));
+        assert!(request("job:soak").is_none() && request("pid:4242@99").is_none());
     }
 
     #[test]

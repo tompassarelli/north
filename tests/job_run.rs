@@ -5,6 +5,8 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use north_core::fleet::store::{RowKind, Spool};
+
 const FAKE_SSH: &str = r#"#!/bin/sh
 for a; do last=$a; done
 printf '%s\n' "$last" >> "$HOME/ssh.log"
@@ -182,16 +184,18 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
     let begun = Instant::now();
     let sent = loop {
         let text = fs::read_to_string(&log).unwrap_or_default();
-        if let Some(line) = text.lines().find(|line| line.starts_with("fleet send")) {
+        if let Some(line) = text.lines().find(|line| line.starts_with("fleet spool job exit")) {
             break line.to_owned();
         }
         assert!(begun.elapsed() < Duration::from_secs(20), "{text:?}");
         std::thread::sleep(Duration::from_millis(100));
     };
-    assert!(sent.starts_with("fleet send c-test job-run: soak exited 3; output in "), "{sent}");
+    assert!(sent.starts_with("fleet spool job exit c-test soak@") && sent.contains(" 3 job-run: soak exited 3; output in "), "{sent}");
     let job_log = sent.rsplit(' ').next().unwrap();
     assert!(fs::read_to_string(job_log).unwrap().contains("finished with no log set"), "{job_log}");
     let text = fs::read_to_string(&log).unwrap();
+    assert!(text.lines().any(|line| line.starts_with("fleet spool job start c-test soak@") && line.contains(" job-run: soak started; output in ")), "{text:?}");
+    assert!(text.lines().any(|line| line.starts_with("fleet spool job beats c-test soak@") && line.contains(" 60 ")), "{text:?}");
     assert!(text.lines().any(|line| line.contains("job-run soak") && line.ends_with("--rc 3")), "{text:?}");
     let begun = Instant::now();
     while record.exists() {
@@ -222,10 +226,56 @@ fn job_run_notify_runs_its_job_in_its_own_systemd_scope_so_the_callers_unit_stop
     };
     assert_eq!(child.wait().unwrap().code(), Some(0));
     let begun = Instant::now();
-    while !fs::read_to_string(root.join("north.log")).unwrap_or_default().contains("fleet send c-test job-run: scoped exited 0") {
+    while !fs::read_to_string(root.join("north.log")).unwrap_or_default().contains("job-run: scoped exited 0") {
         assert!(begun.elapsed() < Duration::from_secs(20), "the scoped job never sent its exit");
         std::thread::sleep(Duration::from_millis(100));
     }
     let scopes = fs::read_to_string(root.join("systemd-run.log")).unwrap();
     assert!(scopes.lines().any(|line| line.starts_with("--user --scope --quiet --collect ") && line.contains("bin/job-run --notify scoped -- true")), "{scopes}");
+}
+
+#[test]
+fn job_run_notify_spools_a_start_with_a_three_minute_lease_a_beat_each_interval_and_the_exit_with_its_code_each_addressed_to_the_session() {
+    let scratch = scratch();
+    let root = scratch.path();
+    let mut command = Command::new(root.join("bin/job-run"));
+    command
+        .args(["--notify", "soak", "--", "sh", "-c", "sleep 3.5; exit 3"])
+        .env("HOME", root)
+        .env_remove("XDG_STATE_HOME")
+        .env_remove("THREADS_DB")
+        .env_remove("XDG_RUNTIME_DIR")
+        .env("JOB_RUN_BEAT_SECS", "1")
+        .env("NORTH_FLEET_SESSION", "c-test")
+        .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()));
+    let mut child = {
+        let _gate = fork_gate();
+        command.spawn().unwrap()
+    };
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+    let spool = Spool::at(&root.join(".local/state/north/fleet"));
+    let begun = Instant::now();
+    let rows = loop {
+        let rows = spool.pending().unwrap();
+        if rows.iter().any(|row| row.kind == RowKind::JobExit) {
+            break rows;
+        }
+        assert!(begun.elapsed() < Duration::from_secs(30), "{rows:?}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let kinds: Vec<RowKind> = rows.iter().map(|row| row.kind).collect();
+    assert_eq!(kinds.first(), Some(&RowKind::JobStart), "{kinds:?}");
+    assert_eq!(kinds.last(), Some(&RowKind::JobExit), "{kinds:?}");
+    let beats = kinds.iter().filter(|kind| **kind == RowKind::JobBeat).count();
+    assert!((2..=4).contains(&beats), "{kinds:?}");
+    assert!(rows.iter().all(|row| row.to == "c-test" && row.job.as_ref().is_some_and(|job| job.key.starts_with("soak@"))), "{rows:?}");
+    let key = &rows[0].job.as_ref().unwrap().key;
+    assert!(rows.iter().all(|row| row.job.as_ref().is_some_and(|job| &job.key == key)), "{rows:?}");
+    assert_eq!(rows[0].job.as_ref().and_then(|job| job.lease_secs), Some(180));
+    assert!(rows.iter().filter(|row| row.kind == RowKind::JobBeat).all(|row| row.job.as_ref().and_then(|job| job.lease_secs) == Some(180)));
+    let exit = rows.last().unwrap();
+    assert_eq!(exit.job.as_ref().and_then(|job| job.exit), Some(3));
+    assert!(exit.text.starts_with("job-run: soak exited 3; output in "), "{}", exit.text);
+    let letters: Vec<String> = fs::read_dir(root.join(".local/state/north/fleet/.outbox")).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    assert!(letters.iter().any(|name| name.starts_with(&exit.id)), "{letters:?}");
 }
