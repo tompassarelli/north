@@ -174,6 +174,8 @@ pub struct SessionRecord {
     pub handoff_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<Ending>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addressed_since_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -198,6 +200,11 @@ impl SessionRecord {
     /// Every issue this session holds a claim on: its task and the others its Item line named.
     pub fn tasks(&self) -> impl Iterator<Item = &str> {
         self.task_ref.iter().chain(&self.extra_tasks).map(String::as_str)
+    }
+
+    /// The oldest message to this session's name it takes: its own start, or the start of the session it took the name over from.
+    pub fn addressed_since(&self) -> u64 {
+        self.addressed_since_ms.unwrap_or(self.created_ms)
     }
 
     pub fn relaunch_request(&self) -> LaunchRequest {

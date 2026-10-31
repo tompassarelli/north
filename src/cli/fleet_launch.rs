@@ -26,6 +26,7 @@ struct LaunchFlags {
     task_ref: Option<String>,
     overrides: Overrides,
     wait: Option<bool>,
+    take_over: bool,
 }
 
 impl LaunchFlags {
@@ -84,31 +85,39 @@ impl LaunchFlags {
 
 #[cfg(test)]
 pub(super) fn launch_request(providers: &[ProviderName], words: &[&str], caller: Option<String>) -> NorthResult<LaunchRequest> {
-    launch_parts(providers, words, caller, true).map(|(request, _, _)| request)
+    launch_parts(providers, words, caller, true).map(|parts| parts.request)
 }
 
-/// The request, its placement overrides and `--wait` (Some(true)) or `--no-wait` (Some(false)).
-pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<(LaunchRequest, Overrides, Option<bool>)> {
+/// A parsed `north fleet launch`.
+pub(super) struct LaunchParts {
+    pub request: LaunchRequest,
+    pub overrides: Overrides,
+    /// `--wait` (Some(true)) or `--no-wait` (Some(false)).
+    pub wait: Option<bool>,
+    /// `--take-over`: end the session holding the name and give the new one the name and its messages.
+    pub take_over: bool,
+}
+
+pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: Option<String>, proxy: bool) -> NorthResult<LaunchParts> {
     let mut flags = LaunchFlags::default();
     let mut index = 0;
     while let Some(flag) = words.get(index).filter(|word| word.starts_with("--")) {
-        if *flag == "--test" {
-            flags.verification = true;
-            index += 1;
-            continue;
+        match *flag {
+            "--test" => flags.verification = true,
+            "--take-over" => flags.take_over = true,
+            "--wait" | "--no-wait" => flags.wait = Some(*flag == "--wait"),
+            _ => {
+                let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;
+                flags.set(providers, flag, value)?;
+                index += 2;
+                continue;
+            }
         }
-        if let wait @ ("--wait" | "--no-wait") = *flag {
-            flags.wait = Some(wait == "--wait");
-            index += 1;
-            continue;
-        }
-        let value = words.get(index + 1).filter(|value| !value.starts_with("--")).map(|value| (*value).to_owned()).ok_or_else(usage)?;
-        flags.set(providers, flag, value)?;
-        index += 2;
+        index += 1;
     }
     let wait = fleet_lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
-    let overrides = std::mem::take(&mut flags.overrides);
-    Ok((flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait))
+    let (overrides, take_over) = (std::mem::take(&mut flags.overrides), flags.take_over);
+    Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over })
 }
 
 fn absolute(path: &str) -> NorthResult<PathBuf> {

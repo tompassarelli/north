@@ -54,12 +54,7 @@ impl Fleet {
     }
 
     pub fn delivered(&self, name: &str) -> NorthResult<Vec<String>> {
-        let journal = self.session_dir(name)?.join(DELIVERED);
-        let Ok(entries) = fs::read_dir(&journal) else { return Ok(Vec::new()) };
-        let names: Vec<String> = entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
-        let marker = format!(".{HANDING}");
-        let handing: Vec<&str> = names.iter().filter_map(|name| name.strip_suffix(&marker)).collect();
-        Ok(names.iter().filter(|name| !name.contains('.') && !handing.contains(&name.as_str())).cloned().collect())
+        Ok(journaled(&self.session_dir(name)?))
     }
 
     pub fn prune_delivered(&self, before: SystemTime) -> NorthResult<usize> {
@@ -94,6 +89,24 @@ impl Fleet {
         }
         Ok(())
     }
+}
+
+/// Marks in `session_dir`'s journal every row the session archived at `predecessor` took, so a takeover never hands the new session a row the old one already answered.
+pub(super) fn inherit_journal(predecessor: &Path, session_dir: &Path) -> NorthResult<()> {
+    let journal = session_dir.join(DELIVERED);
+    fs::create_dir_all(&journal)?;
+    for id in journaled(predecessor) {
+        File::create(journal.join(id))?;
+    }
+    Ok(())
+}
+
+fn journaled(session_dir: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(session_dir.join(DELIVERED)) else { return Vec::new() };
+    let names: Vec<String> = entries.flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    let marker = format!(".{HANDING}");
+    let handing: Vec<&str> = names.iter().filter_map(|name| name.strip_suffix(&marker)).collect();
+    names.iter().filter(|name| !name.contains('.') && !handing.contains(&name.as_str())).cloned().collect()
 }
 
 fn streamed(stream: &Path, id: &str) -> NorthResult<bool> {

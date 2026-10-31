@@ -65,7 +65,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, now_ms: u64, budget: Dur
 }
 
 fn addressee(fleet: &Fleet, record: &SessionRecord, floor: u64) -> NorthResult<Addressee> {
-    Ok(Addressee { name: record.name.clone(), since_ms: record.created_ms.max(floor), taken: fleet.delivered(&record.name)?.into_iter().filter(|id| sent_at(id).is_none_or(|ms| ms >= floor)).collect() })
+    Ok(Addressee { name: record.name.clone(), since_ms: record.addressed_since().max(floor), taken: fleet.delivered(&record.name)?.into_iter().filter(|id| sent_at(id).is_none_or(|ms| ms >= floor)).collect() })
 }
 
 fn sent_at(id: &str) -> Option<u64> {

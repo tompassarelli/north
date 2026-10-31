@@ -36,6 +36,7 @@ mod hand_in;
 mod home;
 mod start_lock;
 mod stopping;
+mod takeover;
 pub use home::{orders_here, recorded_here};
 mod letters;
 mod owners;
@@ -56,6 +57,7 @@ pub use home::roster;
 use home::{fleet_root, home_dir, state_dir};
 pub use hand_in::HandedIn;
 pub use letters::{Opened, Sent};
+use takeover::{Predecessor, Succession};
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const OPEN_POLL: Duration = Duration::from_millis(100);
@@ -132,9 +134,18 @@ impl Fleet {
     }
 
     pub fn launch(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
+        self.launch_as(request, Succession::Refuse)
+    }
+
+    /// Launches under a name a session may already hold: that session is ended and archived first, and the new one takes every message to the name the old one never took, so two sessions never answer to one name.
+    pub fn take_over(&self, request: &LaunchRequest) -> NorthResult<SessionRecord> {
+        self.launch_as(request, Succession::TakeOver)
+    }
+
+    fn launch_as(&self, request: &LaunchRequest, succession: Succession) -> NorthResult<SessionRecord> {
         let session_dir = self.session_dir(&request.name)?;
-        if session_dir.exists() {
-            return Err(NorthError::Usage(format!("a session named {} already exists", request.name)));
+        if session_dir.exists() && succession == Succession::Refuse {
+            return Err(NorthError::Usage(format!("a session named {} already exists; --take-over ends it and moves the name and its messages to the new session", request.name)));
         }
         if let Some(parent) = &request.parent {
             self.reaches(parent)?;
@@ -148,8 +159,12 @@ impl Fleet {
         let conversation = runtime.assign_conversation()?;
         let verification = request.verification || std::env::var_os("NORTH_FLEET_TEST").is_some() || request.parent.as_deref().and_then(|parent| self.record(parent).ok()).is_some_and(|parent| parent.verification);
         let tasks = request.tasks();
+        let predecessor = self.retire_for(&request.name, succession)?;
         self.claim_before_start(request, &tasks, verification)?;
         fs::create_dir_all(&session_dir)?;
+        if let Some(predecessor) = &predecessor {
+            hand_in::inherit_journal(&predecessor.archived, &session_dir)?;
+        }
         let mut record = SessionRecord {
             verification,
             name: request.name.clone(),
@@ -178,6 +193,7 @@ impl Fleet {
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
             handoff_at: crate::fleet::handoff::threshold(&request.prompt),
+            addressed_since_ms: predecessor.as_ref().map(Predecessor::addressed_since),
         };
         self.start_claiming(&mut record, &account, conversation.as_deref())?;
         if let Some(task_ref) = &record.task_ref {

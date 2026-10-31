@@ -19,7 +19,7 @@ use super::fleet_placement::{self, Overrides};
 use super::fleet_admission;
 use super::fleet_duplicate;
 use super::fleet_lineage;
-use super::fleet_launch::launch_parts;
+use super::fleet_launch::{LaunchParts, launch_parts};
 #[cfg(test)]
 use super::fleet_launch::launch_request;
 use super::fleet_list;
@@ -136,14 +136,14 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = fleet_lineage::proxy_reachable(fleet, caller.as_deref(), words);
-    let (mut request, mut overrides, wait) = launch_parts(&fleet.providers(), words, caller, proxy)?;
+    let LaunchParts { mut request, mut overrides, wait, take_over } = launch_parts(&fleet.providers(), words, caller, proxy)?;
     fleet_tier::admit_class(&request)?;
     let started = fleet_tier::apply(&mut request, &mut overrides)?;
     let waiting = fleet_admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
     let placed = fleet_admission::admitted(&request.name, waiting, |first| fleet_placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| fleet_admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     (request.placement, request.capacity_need) = (fleet_duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
     request.machine = placed.machine.or(request.machine);
-    let record = fleet.launch(&request)?;
+    let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
     fleet_tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())

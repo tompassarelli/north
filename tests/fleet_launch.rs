@@ -818,3 +818,35 @@ fn a_launch_from_outside_any_fleet_session_lists_the_proxy_as_its_parent_unless_
     let parent = |name: &str| list.lines().find(|line| line.starts_with(&format!("{name}\t"))).and_then(|line| line.split('\t').nth(5)).map(str::to_owned);
     assert_eq!((parent("proxy").as_deref(), parent("timer").as_deref(), parent("loner").as_deref()), (Some("-"), Some("proxy"), Some("-")), "{list}");
 }
+
+#[test]
+fn a_launch_taking_over_a_live_lead_name_ends_the_holder_and_messages_to_the_name_reach_only_the_new_session() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let fleet = root.join(".local/state/north/fleet");
+    let first = launch_named(root, "lead", "none");
+    assert!(first.status.success(), "{}", text(&first.stderr));
+    let old: Value = serde_json::from_str(&fs::read_to_string(fleet.join("lead/session.json")).unwrap()).unwrap();
+    let old_host = fs::read_to_string(fleet.join("lead/host.pid")).unwrap().trim().to_owned();
+    let brief = root.join("box.md").display().to_string();
+    let plain = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "lead", "--parent", "none", "--system-prompt", &brief, "lead now"]);
+
+    let taken = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "lead", "--parent", "none", "--system-prompt", &brief, "--take-over", "lead now"]);
+    let sent = north(root, &["fleet", "send", "lead", "report for the lead"]);
+    until("the report in the new lead's transcript", || text(&north(root, &["fleet", "show", "lead"]).stdout).contains("report for the lead"));
+    let new: Value = serde_json::from_str(&fs::read_to_string(fleet.join("lead/session.json")).unwrap()).unwrap();
+    let archived: Vec<_> = fs::read_dir(fleet.join(".archive")).unwrap().flatten().map(|entry| entry.path()).collect();
+    north(root, &["fleet", "forget", "lead"]);
+
+    assert!(!plain.status.success() && text(&plain.stderr).contains("--take-over"), "{}", text(&plain.stderr));
+    assert!(taken.status.success() && sent.status.success(), "{}{}", text(&taken.stderr), text(&sent.stderr));
+    assert_ne!(new["conversation"], old["conversation"]);
+    assert_eq!(new["addressed_since_ms"], old["created_ms"], "the new lead takes what was sent to the name since the old one started");
+    let [held] = archived.as_slice() else { panic!("one archived holder: {archived:?}") };
+    let held_record: Value = serde_json::from_str(&fs::read_to_string(held.join("session.json")).unwrap()).unwrap();
+    assert_eq!((held_record["conversation"].clone(), held_record["stopped"].clone(), held_record["ended"].clone()), (old["conversation"].clone(), Value::Bool(true), Value::from("stopped")));
+    assert!(!Path::new(&format!("/proc/{old_host}")).exists(), "the old lead's host is gone");
+    let old_streams = fs::read_dir(held.join("g1")).map(|entries| entries.flatten().map(|entry| fs::read_to_string(entry.path()).unwrap_or_default()).collect::<String>()).unwrap_or_default();
+    assert!(old_streams.contains("start the box") && !old_streams.contains("report for the lead"), "{old_streams}");
+}

@@ -147,6 +147,22 @@ fn a_row_sent_before_the_session_was_created_is_not_delivered() {
 }
 
 #[test]
+fn a_session_that_took_its_name_over_gets_the_rows_its_predecessor_never_took_and_none_older() {
+    let host = host("nexus");
+    let frames = live(&host, "lead");
+    let record = host.root().join("lead/session.json");
+    let mut held: Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
+    held["addressed_since_ms"] = json!(CREATED_MS - 10);
+    std::fs::write(&record, held.to_string()).unwrap();
+    host.store().put(&[message("m-before-both", "lead", CREATED_MS - 11), message("m-to-predecessor", "lead", CREATED_MS - 1)]).unwrap();
+
+    let ticked = host.tick();
+
+    assert_eq!(ticked.delivered, [("m-to-predecessor".to_owned(), "lead".to_owned())]);
+    assert_eq!(frames.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn the_prompt_carries_the_rows_id_and_the_cli_echo_of_its_signed_text_is_matched_by_that_id() {
     let host = host("nexus");
     let frames = live(&host, "worker");

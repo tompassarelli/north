@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 
 use crate::error::NorthResult;
 
@@ -39,10 +40,16 @@ impl Fleet {
     }
 
     pub fn forget(&self, name: &str) -> NorthResult<()> {
+        self.archive(name).map(drop)
+    }
+
+    /// Stops the session and moves its directory out of the registry, returning where it now lies.
+    pub(super) fn archive(&self, name: &str) -> NorthResult<PathBuf> {
         self.stop(name)?;
         let archive = self.root.join(ARCHIVE);
         fs::create_dir_all(&archive)?;
-        fs::rename(self.root.join(name), archive.join(format!("{name}-{}", now_ms())))?;
-        Ok(())
+        let archived = archive.join(format!("{name}-{}", now_ms()));
+        fs::rename(self.root.join(name), &archived)?;
+        Ok(archived)
     }
 }
