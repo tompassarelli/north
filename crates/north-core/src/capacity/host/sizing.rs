@@ -4,7 +4,7 @@ use super::database::{capacity_database, capacity_history, recent_usage};
 use super::estimate::{CapacityQuery, estimate_capacity, task_signature};
 use super::fail;
 use super::json::{field, num, round2, text};
-use super::policy::{Resources, charged_resources, memory_margin, owner_prefix, percentile, sized_class};
+use super::policy::{Resources, charged_resources, learned_minimum_runs, memory_margin, owner_prefix, percentile, sized_class};
 use super::request::Request;
 use super::shape::command_shape;
 
@@ -48,22 +48,24 @@ pub fn size_from_usage(command: &[String], owner: &str, cores: f64) -> Request {
     }
 }
 
+/// The runs that size a declared request, and whether they are its whole class's: a tom or critical request with too few runs of its own shape learns from every run of its class.
+pub(super) fn sizing_runs(class: &str, shape_runs: Vec<Value>, class_runs: impl FnOnce() -> Vec<Value>) -> (Vec<Value>, bool) {
+    if shape_runs.len() < learned_minimum_runs() && matches!(class, "tom" | "critical") { (class_runs(), true) } else { (shape_runs, false) }
+}
+
 /// Admission charges a declared class what this owner prefix's runs of the command measured.
 pub fn charge_from_usage(mut request: Request, owner: &str, command: &[String], cores: f64) -> Request {
     let shape = command_shape(command);
     let prefix = owner_prefix(owner).to_owned();
-    let runs = recent_usage(5000, |entry| {
-        text(entry, "class") == Some(request.name.as_str())
-            && text(entry, "shape") == Some(shape.as_str())
-            && text(entry, "owner").is_some_and(|owner| owner_prefix(owner) == prefix)
-            && field(entry, "wallSeconds").is_some_and(|wall| wall > 0.0)
-    });
+    let of_class = |entry: &Value| text(entry, "class") == Some(request.name.as_str()) && field(entry, "wallSeconds").is_some_and(|wall| wall > 0.0);
+    let shape_runs = recent_usage(5000, |entry| of_class(entry) && text(entry, "shape") == Some(shape.as_str()) && text(entry, "owner").is_some_and(|owner| owner_prefix(owner) == prefix));
+    let (runs, class_wide) = sizing_runs(&request.name, shape_runs, || recent_usage(5000, of_class));
     let run_cores: Vec<f64> = runs.iter().map(|run| field(run, "p90Cores").or_else(|| field(run, "peakCores")).unwrap_or(f64::NAN)).collect();
     let run_memory: Vec<f64> = runs.iter().map(|run| field(run, "peakMemoryMiB").unwrap_or(f64::NAN)).collect();
     let declared = request.resources();
     let charged = charged_resources(&request.name, cores, &run_cores, &run_memory).unwrap_or(declared);
     request.resources = Some(Resources { cpus: round2(charged.cpus), memory_mib: charged.memory_mib.ceil() });
     request.declared = Some(declared);
-    request.evidence = Some(json!({ "key": format!("{prefix} {shape}"), "runs": runs.len() }));
+    request.evidence = Some(json!({ "key": if class_wide { format!("{} class", request.name) } else { format!("{prefix} {shape}") }, "runs": runs.len() }));
     request
 }
