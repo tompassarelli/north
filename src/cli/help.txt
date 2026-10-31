@@ -1,0 +1,103 @@
+North — fleet session console
+
+Usage: north [COMMAND]
+
+Run north with no arguments to open the fleet screen.
+
+Commands:
+  wisp payoff [--since YYYY-MM-DD] [--json]      Measure Wisp agreement and native utilization
+  health [--dry-run]                             Check harness invariants
+  citation-check [--root DIR] [--list]          Fail on a doc, skill or hook that cites a north subcommand the CLI does not define
+  language-gate --repo DIR --base REV --head REV  Check language policy
+  code-health imports                           Resolve the imports of files given as JSON on stdin
+  guard language                                PreToolUse language guard
+  grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
+  work [list|search|show|claim|release|need|unneed|close]  Work items
+  agents [status|stale|inspect|path|on|off|sync|busy|plan|pace|usage|presence|flow|news|routines|report]  Run the agent catalog, plan, usage and routines commands
+  config agents [sync|status|on|off|path|inspect|check-hook-paths|check-owners]  Manage skills and hooks
+  session-host --name N --generation G --state-dir D -- ARGV  Host one headless runtime
+  dep-gate BASE HEAD                            Check dependency changes before landing
+  review-gate id|check BASE HEAD PATH... | reviewers BASE HEAD  Print or check the reviewed patch-id of covered paths, or list the reviewers
+  denylist scan (--config FILE | --south DIR) BASE HEAD [--ref NAME]  Scan an outgoing range, its messages, ref name and arriving files for deny-listed terms
+  denylist attest --south DIR --repo OWNER/NAME [--repo ...] [--branch claude/X]  Post the denylist status on claude/ tips and dispatch Autoland when clean
+  autoland-status --sha SHA --branch BRANCH      Read this lane's Autoland result
+  autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
+  land-abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
+  land-clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
+  landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
+  stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
+  bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry a deployed nixos-config or south unit, or this host's user units, still run
+  land-tests [--jobs N] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
+  land-actions --workflow FILE --base B --head H --timeout S -- COMMAND...
+                                                 Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
+  safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag (branches still land through bin/safe-push)
+  safe-push-result STATUS SHA REASON MINUTES URL  Print safe-push.s terminal result
+  contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
+  provenance [check|debt|audit]                  Audit grounding and target debt
+  issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
+  agent-config-check [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
+  agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses
+  agent-policy-contract --repo FIRN [--north DIR] [--local] [--write] [--codex-adapters]  Check policy surface ownership and generate or verify provider hook wiring
+  mutant record ID | verify BASE HEAD           Record a scratch-copy mutant, or run each Test-kind kill claim once under one lease
+  archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands
+  threads ARGV                                  Run a NorthThreads command on the ledger host
+  cloud [list|events|sweep|send|wait|collect]    Read, message, wait on, collect and sweep Anthropic cloud sessions
+  dispatch [--dry-run]                          Launch ready smashcraft and wisp boxes on every free worker slot
+  tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
+  ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
+  ops check [--dry-run]                         Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
+  incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
+  defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
+  worker-ledger [--session ID] [--since DATE] [--backfill] | --summary [--by LIST] | --recommend [--planner] FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
+  advisor-report FILE... --incumbent ARM [--arm-key FIELD] [--codex-plan-usd ARM=VALUE]  Compare policy-replay arms against an incumbent with a verdict per challenger
+  policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop
+  fleet [list|launch|send|ask|show|stop|forget]  Run headless agent sessions; no argument opens the screen
+  secrets-proxy-exec SOCKET -- CMD [ARGS...]   Run CMD with a Secret-Service-only view of the user D-Bus session at SOCKET
+  private-desktop [start|control|capture|type]   Run or control an isolated private desktop
+  ledger [runs|summary] [--json]                Fleet turn records, cost and task verdicts
+  orders [list|add TEXT...]                     Tom's standing orders, rendered into every fleet launch and revive
+  task [landed REF SHA | check REF -- CMD...]   Record a verdict north observed itself
+  gate [open --session S --question Q --option O... --recommend N --default N --default-after D [--issue OWNER/REPO#N] | answer ID N [--note TEXT] | list [--json]]  Open or answer a decision gate
+  follows-release [--repo-dir DIR]             Start queued boxes after predecessors land
+  capacity admission < FACTS.json               Decide one machine-capacity admission
+  capacity laptop-auto [--dry-run]              Stop agent game load while Tom's declared gaming hold is on, reap orphaned scopes
+  capacity seat-idle-hint [--seconds N]         Set logind IdleHint from Wayland input idle, which ignores idle inhibitors
+  capacity gaming on|off|status                 Declare Tom's gaming hold, which stays until off
+  capacity game-reserve on [--auto]|off|status Reserve CPUs for Tom's game, moving it only once it has run 60 s
+  capacity offload choose | run --host H --base B --head S --timeout N -- CMD  Run a held land check on another host with room, shipped by git bundle
+  capacity watchdog step < SAMPLE.json | replay SAMPLES.jsonl  On sustained host overload name the top process trees by fleet session, cap the offending session scope and tell its owner and coordinators
+  nexus-ram record                              Append one Nexus memory, CPU steal and pressure row (minutely timer)
+  nexus-ram report [--days N]                   Judge Nexus RAM headroom: UPGRADE or STAY, steal minutes and longest row gap
+  laptop open|close|drain|toggle|status|tick|observe  Set or read the laptop's placement availability on the ledger host
+  laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
+  laptop-ntfy serve|notify|press open|close     Phone signals for the laptop state: button endpoint, daily window reminder
+  agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
+  job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers
+  model-watch [--alerts-only] [--topic T] [--sources FILE]  Snapshot public model, release and market sources, rank new candidates once on the plan, send the digest; --alerts-only sends location warnings
+  model-watch news [--days N] [--noise ID|--more ID]  Show the last delivered watch digest or record feedback on an item
+  outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read
+  outside-watch status                          Show the last run and its log line
+  reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
+  retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Smashcraft evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
+  worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
+  hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
+  lane-gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Retire landed, superseded and stale lanes and origin branches behind verified archives; report unlanded work (hourly and daily timers)
+  pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
+  wt-reap [--all] [--dry-run]                   Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it
+  wt-rescue [path] [--dry-run]                  Move a dirty main checkout's changes into a new rescue lane and clean main
+  usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)
+  runtime update                                Promote origin/main as this host's north runtime with its own tree
+  supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)
+  codex-runtime-gcroots                         Root the Nix store dependencies of every installed Codex runtime
+  skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines
+  cross-project-scan [--print-bundle]           Daily cross-project overlap scan posted to Plato
+  skill-review-queue                            Open, update or close the Skill review queue issue
+  git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
+  agent-runtime-update [VERSION]                Update the Codex, North, Claude and Agy runtimes
+  nexus-run [OPTIONS] -- COMMAND...             Run a bounded CPU job on Nexus and retrieve its outputs
+  runtime deploy HOST...                        Build origin/main here, copy it to each HOST over ssh and promote it there
+  runtime health                                Check that the running binary is the current runtime with its programs and tree
+  help                                          Show this help
+
+Options:
+  -h, --help  Show this help
