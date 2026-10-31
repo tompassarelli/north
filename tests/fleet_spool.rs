@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use north_core::error::NorthError;
-use north_core::fleet::store::{FleetRow, RowKind, Spool, drop_with, take_with};
+use north_core::fleet::store::{FleetRow, RowKind, Spool, drop_with, set_aside_with, take_with};
 
 const SSH: &str = "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nHOME=\"$FAR_HOME\" exec sh -c \"$1\"\n";
 
@@ -97,4 +97,7 @@ fn the_ssh_client_takes_and_drops_a_far_hosts_spool() {
     assert_eq!(take_with(ssh).unwrap(), [message("m-2")]);
     assert!(drop_with(ssh, &["../m-2".to_owned()]).is_err());
     assert_eq!(take_with(ssh).unwrap(), [message("m-2")]);
+    set_aside_with(ssh, &["m-2".to_owned()]).unwrap();
+    assert!(take_with(ssh).unwrap().is_empty(), "a row set aside is never taken again");
+    assert!(hosts.path("far").join(".local/state/north/fleet/spool/rejected/m-2.json").is_file());
 }

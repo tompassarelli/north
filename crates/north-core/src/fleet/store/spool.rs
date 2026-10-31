@@ -8,6 +8,7 @@ use super::FleetRow;
 
 pub const SPOOL_DIR: &str = "spool";
 const ROW: &str = "json";
+const REJECTED: &str = "rejected";
 
 pub struct Spool {
     dir: PathBuf,
@@ -37,6 +38,19 @@ impl Spool {
     pub fn withdraw_all(&self, ids: &[String]) -> NorthResult<()> {
         ids.iter().try_for_each(|id| FleetRow::check_id(id))?;
         ids.iter().try_for_each(|id| self.withdraw(id))
+    }
+
+    pub fn set_aside(&self, ids: &[String]) -> NorthResult<()> {
+        ids.iter().try_for_each(|id| FleetRow::check_id(id))?;
+        let aside = self.dir.join(REJECTED);
+        fs::create_dir_all(&aside)?;
+        for id in ids {
+            match fs::rename(self.path(id)?, aside.join(format!("{id}.{ROW}"))) {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     pub fn holds(&self, id: &str) -> bool {

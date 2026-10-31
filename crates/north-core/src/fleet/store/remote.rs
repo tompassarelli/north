@@ -6,6 +6,7 @@ use super::FleetRow;
 pub trait FarSpools: Sync {
     fn take(&self, ssh: &str) -> NorthResult<Vec<FleetRow>>;
     fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()>;
+    fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()>;
 }
 
 pub struct OverSsh;
@@ -18,6 +19,10 @@ impl FarSpools for OverSsh {
     fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
         drop_with(|words| over_ssh(ssh, words), ids)
     }
+
+    fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
+        set_aside_with(|words| over_ssh(ssh, words), ids)
+    }
 }
 
 pub fn take_with(run: impl Fn(&[&str]) -> NorthResult<Vec<u8>>) -> NorthResult<Vec<FleetRow>> {
@@ -26,5 +31,10 @@ pub fn take_with(run: impl Fn(&[&str]) -> NorthResult<Vec<u8>>) -> NorthResult<V
 
 pub fn drop_with(run: impl Fn(&[&str]) -> NorthResult<Vec<u8>>, ids: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = ["fleet", "spool", "drop"].into_iter().chain(ids.iter().map(String::as_str)).collect();
+    run(&words).map(|_| ())
+}
+
+pub fn set_aside_with(run: impl Fn(&[&str]) -> NorthResult<Vec<u8>>, ids: &[String]) -> NorthResult<()> {
+    let words: Vec<&str> = ["fleet", "spool", "set-aside"].into_iter().chain(ids.iter().map(String::as_str)).collect();
     run(&words).map(|_| ())
 }

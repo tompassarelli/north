@@ -45,6 +45,19 @@ pub struct WaitRow {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WaitKey {
+    pub session: String,
+    pub kind: WaitKind,
+    pub key: String,
+}
+
+impl WaitRow {
+    pub fn key(&self) -> WaitKey {
+        WaitKey { session: self.session.clone(), kind: self.kind, key: self.key.clone() }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WaitRequest {
     pub session: String,
     pub kind: WaitKind,
@@ -53,6 +66,10 @@ pub struct WaitRequest {
 }
 
 impl WaitRequest {
+    pub fn key(&self) -> WaitKey {
+        WaitKey { session: self.session.clone(), kind: self.kind, key: self.key.clone() }
+    }
+
     pub fn parse(input: &[u8]) -> NorthResult<Self> {
         let request: Self = serde_json::from_slice(input)?;
         if request.session.trim().is_empty() || request.key.trim().is_empty() {

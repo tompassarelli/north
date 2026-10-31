@@ -3,9 +3,10 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 
+use super::invariant::{self, Facts, Kept};
 use super::model::SessionRecord;
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, FarSpools, FleetRow, LedgerHost, SessionRow};
+use super::store::{Addressee, Exchange, Exchanged, FarSpools, FleetRow, LedgerHost, SessionRow, WaitKey, WaitRow};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -21,6 +22,11 @@ pub struct Ticked {
     pub pruned: usize,
     pub pulled: usize,
     pub pull_failed: Vec<(String, String)>,
+    pub drop_failed: Vec<(String, String)>,
+    pub refused: Vec<(String, String)>,
+    pub probed: Vec<String>,
+    pub kept: Kept,
+    pub unsettled: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,9 +40,27 @@ pub struct Pulls<'a> {
     pub always: Vec<FarHost>,
 }
 
+pub struct Probed {
+    pub lines: Vec<String>,
+    pub settled: Vec<WaitKey>,
+}
+
+pub trait WaitProbes {
+    fn settle(&self, fleet: &Fleet) -> Probed;
+}
+
+pub struct NoProbes;
+
+impl WaitProbes for NoProbes {
+    fn settle(&self, _: &Fleet) -> Probed {
+        Probed { lines: Vec::new(), settled: Vec::new() }
+    }
+}
+
 struct Taken {
     host: FarHost,
     ids: Vec<String>,
+    refused: Vec<String>,
 }
 
 impl Ticked {
@@ -45,18 +69,21 @@ impl Ticked {
         let failed = self.failed.iter().map(|(id, why)| format!("not delivered {id}: {why}"));
         let held = self.held_elsewhere.iter().map(|name| format!("not delivering to {name}: another host holds the name"));
         let unpulled = self.pull_failed.iter().map(|(name, why)| format!("not pulled from {name}: {why}"));
+        let undropped = self.drop_failed.iter().map(|(name, why)| format!("not dropped or set aside on {name}: {why}"));
+        let refused = self.refused.iter().map(|(name, why)| format!("set aside on {name}, the store refuses it: {why}"));
         let counts = format!("flushed {}, pulled {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.pulled, self.delivered.len(), self.already, self.deferred, self.pruned);
-        delivered.chain(failed).chain(held).chain(unpulled).chain([counts]).collect()
+        let unsettled = self.unsettled.iter().map(|why| format!("waits not settled in the store: {why}"));
+        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(self.probed.iter().cloned()).chain(self.kept.lines()).chain(unsettled).chain([counts]).collect()
     }
 }
 
-pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, now_ms: u64, budget: Duration) -> NorthResult<Ticked> {
+pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &dyn WaitProbes, now_ms: u64, budget: Duration) -> NorthResult<Ticked> {
     let spool = fleet.spool();
     let mut rows = spool.pending()?;
     let spooled: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let records = fleet.sessions()?;
-    let mut pull_failed = Vec::new();
-    let taken = take_far(fleet, &records, pulls, &mut rows, &mut pull_failed);
+    let mut ticked = Ticked::default();
+    let taken = take_far(fleet, &records, pulls, &mut rows, &mut ticked);
     let floor = now_ms.saturating_sub(u64::try_from(RETENTION.as_millis()).unwrap_or(u64::MAX));
     let pulled = rows.len() - spooled.len();
     let exchange = Exchange {
@@ -70,7 +97,9 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, now_ms: u
     }
     fleet.cache_sessions(&exchanged.sessions)?;
     let started = Instant::now();
-    let mut ticked = Ticked { flushed: spooled.len(), pulled, pull_failed, held_elsewhere: exchanged.held_elsewhere.clone(), ..Ticked::default() };
+    ticked.flushed = spooled.len();
+    ticked.pulled = pulled;
+    ticked.held_elsewhere = exchanged.held_elsewhere.clone();
     for row in exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)) {
         if started.elapsed() >= budget {
             ticked.deferred += 1;
@@ -82,39 +111,73 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, now_ms: u
             Err(error) => ticked.failed.push((row.id.clone(), error.user_message())),
         }
     }
-    ticked.pull_failed.extend(drop_far(pulls, &taken));
+    ticked.drop_failed = drop_far(pulls, &taken);
+    let probed = probes.settle(fleet);
+    ticked.probed = probed.lines;
+    let pending = fleet.unsettled_waits();
+    let waits: Vec<WaitRow> = exchanged.waits.iter().filter(|wait| !probed.settled.contains(&wait.key()) && !pending.contains(&wait.key())).cloned().collect();
+    match keep_invariant(fleet, &ticked, &exchanged, &waits, now_ms) {
+        Ok(kept) => ticked.kept = kept,
+        Err(error) => ticked.kept.failed.push(("the invariant".into(), error.user_message())),
+    }
+    let settled: Vec<WaitKey> = pending.into_iter().chain(probed.settled).chain(ticked.kept.settled.iter().cloned()).collect();
+    if !settled.is_empty() {
+        let left = match ledger.settle(&settled) {
+            Ok(()) => Vec::new(),
+            Err(error) => {
+                ticked.unsettled = Some(error.user_message());
+                settled
+            }
+        };
+        fleet.set_unsettled_waits(&left)?;
+    }
     ticked.pruned = fleet.prune_delivered(SystemTime::now() - JOURNAL_KEPT)?;
     Ok(ticked)
 }
 
-fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut Vec<FleetRow>, failed: &mut Vec<(String, String)>) -> Vec<Taken> {
+fn keep_invariant(fleet: &Fleet, ticked: &Ticked, exchanged: &Exchanged, waits: &[WaitRow], now_ms: u64) -> NorthResult<Kept> {
+    let pull_failed: Vec<String> = ticked.pull_failed.iter().map(|(name, _)| name.clone()).collect();
+    let gated = fleet.gated_sessions(now_ms)?;
+    let records: Vec<SessionRecord> = fleet.sessions()?.into_iter().filter(|record| !exchanged.held_elsewhere.contains(&record.name)).collect();
+    Ok(invariant::keep(fleet, &records, &Facts { waits, now: Timestamp::parse(&exchanged.now)?, pull_failed: &pull_failed, gated: &gated }))
+}
+
+fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut Vec<FleetRow>, ticked: &mut Ticked) -> Vec<Taken> {
     let hosts = far_hosts(fleet, records, pulls);
     let answers = in_parallel(&hosts, |host| pulls.spools.take(&host.ssh));
     let mut taken = Vec::new();
     for (host, answer) in hosts.into_iter().zip(answers) {
         match answer {
             Ok(found) => {
-                let mut ids = Vec::new();
+                let (mut ids, mut refused) = (Vec::new(), Vec::new());
                 for row in found {
                     match row.validate() {
                         Ok(()) => {
                             ids.push(row.id.clone());
                             rows.push(row);
                         }
-                        Err(error) => failed.push((host.name.clone(), error.user_message())),
+                        Err(error) => {
+                            ticked.refused.push((host.name.clone(), format!("{}: {}", row.id, error.user_message())));
+                            if FleetRow::check_id(&row.id).is_ok() {
+                                refused.push(row.id);
+                            }
+                        }
                     }
                 }
-                taken.push(Taken { host, ids });
+                taken.push(Taken { host, ids, refused });
             }
-            Err(error) => failed.push((host.name.clone(), error.user_message())),
+            Err(error) => ticked.pull_failed.push((host.name.clone(), error.user_message())),
         }
     }
     taken
 }
 
 fn drop_far(pulls: &Pulls, taken: &[Taken]) -> Vec<(String, String)> {
-    let held: Vec<&Taken> = taken.iter().filter(|taken| !taken.ids.is_empty()).collect();
-    let answers = in_parallel(&held, |taken| pulls.spools.drop(&taken.host.ssh, &taken.ids));
+    let held: Vec<&Taken> = taken.iter().filter(|taken| !taken.ids.is_empty() || !taken.refused.is_empty()).collect();
+    let answers = in_parallel(&held, |taken| {
+        let dropped = if taken.ids.is_empty() { Ok(()) } else { pulls.spools.drop(&taken.host.ssh, &taken.ids) };
+        dropped.and_then(|()| if taken.refused.is_empty() { Ok(()) } else { pulls.spools.set_aside(&taken.host.ssh, &taken.refused) })
+    });
     held.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
 }
 

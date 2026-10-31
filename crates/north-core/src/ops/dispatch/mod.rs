@@ -273,9 +273,6 @@ pub fn run(arguments: &[String], roster: fn() -> NorthResult<Roster>) -> u8 {
             return 2;
         }
     };
-    if !dry_run {
-        effects::settle_waits();
-    }
     let survey = match roster().map_err(|error| error.to_string()).and_then(|roster| survey::survey(&roster)) {
         Ok(survey) => survey,
         Err(why) => {

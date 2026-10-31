@@ -8,13 +8,14 @@ use crate::fleet::relay::hostname;
 use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::store::{FleetRow, JOB_LEASE_SECS, JobPayload, RowKind};
 
-const USAGE: &str = "Usage: north fleet spool take | north fleet spool drop ID... | north fleet spool job start SESSION KEY TEXT | north fleet spool job beat SESSION KEY | north fleet spool job beats SESSION KEY EVERY_SECS PID | north fleet spool job exit SESSION KEY CODE TEXT";
+const USAGE: &str = "Usage: north fleet spool take | north fleet spool drop ID... | north fleet spool set-aside ID... | north fleet spool job start SESSION KEY TEXT | north fleet spool job beat SESSION KEY | north fleet spool job beats SESSION KEY EVERY_SECS PID | north fleet spool job exit SESSION KEY CODE TEXT";
 
 pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let spool = fleet.spool();
     match words {
         ["take"] => println!("{}", serde_json::to_string(&spool.pending()?)?),
         ["drop", ids @ ..] if !ids.is_empty() => spool.withdraw_all(&ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>())?,
+        ["set-aside", ids @ ..] if !ids.is_empty() => spool.set_aside(&ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>())?,
         ["job", "start", session, key, text] => spool_job(fleet, RowKind::JobStart, session, key, None, text).map(drop)?,
         ["job", "beat", session, key] => spool_job(fleet, RowKind::JobBeat, session, key, None, "").map(drop)?,
         ["job", "beats", session, key, every, pid] => beats(fleet, session, key, parse(every)?, parse(pid)?)?,

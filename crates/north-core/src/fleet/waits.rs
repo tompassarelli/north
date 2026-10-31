@@ -90,6 +90,19 @@ impl fmt::Display for Run {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Settled {
+    pub session: String,
+    pub run: Run,
+    pub result: String,
+}
+
+impl Settled {
+    pub fn line(&self) -> String {
+        format!("{}: {} {}", self.session, self.run, self.result)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Registered {
     pub run: Run,
@@ -150,9 +163,10 @@ impl Waits {
 
     pub fn register(&self, session: &str, run: Run, cwd: &Path, label: Option<&str>) -> NorthResult<()> {
         let mut waits = self.of(session);
-        if waits.iter().all(|wait| wait.run != run) {
-            waits.push(Registered { run, cwd: cwd.into(), since_ms: now_ms(), label: label.map(str::to_owned) });
+        if waits.iter().any(|wait| wait.run == run) {
+            return Ok(());
         }
+        waits.push(Registered { run, cwd: cwd.into(), since_ms: now_ms(), label: label.map(str::to_owned) });
         self.store(session, &waits)
     }
 
@@ -163,7 +177,7 @@ impl Waits {
 
     /// Tells each session whose registered run is over what it was and how it ended, then forgets
     /// the wait; `tell` revives a parked session. A wait whose message fails stays for the next tick.
-    pub fn settle(&self, probe: &dyn Probe, tell: &dyn Fn(&str, &str) -> NorthResult<()>) -> Vec<String> {
+    pub fn settle(&self, probe: &dyn Probe, tell: &dyn Fn(&str, &str) -> NorthResult<()>) -> Vec<Settled> {
         let mut told = Vec::new();
         for (session, waits) in self.all() {
             for wait in waits {
@@ -171,7 +185,7 @@ impl Waits {
                 let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
                 let text = format!("[north: the run you waited on is over] {named}: {result}. Read its output and continue to a final report.");
                 if tell(&session, &text).is_ok() && self.release(&session, &wait.run).is_ok() {
-                    told.push(format!("{session}: {} {result}", wait.run));
+                    told.push(Settled { session: session.clone(), run: wait.run.clone(), result });
                 }
             }
         }
@@ -234,7 +248,7 @@ mod tests {
             Ok(())
         };
         let told = waits.settle(&Over(vec!["farm:42"]), &tell);
-        assert_eq!(told, ["north-1: farm:42 exit 0"]);
+        assert_eq!(told.iter().map(Settled::line).collect::<Vec<_>>(), ["north-1: farm:42 exit 0"]);
         let sent = sent.into_inner();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].0 == "north-1" && sent[0].1.contains("farm:42") && sent[0].1.contains("exit 0"), "{sent:?}");

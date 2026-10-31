@@ -42,11 +42,12 @@ pub struct Quiet {
     pub probe: Option<JoinHandle<bool>>,
     /// Set once the child starts another turn, so a check still running says nothing.
     pub cancelled: Arc<AtomicBool>,
+    pub completed: bool,
 }
 
 impl Quiet {
-    pub fn after(turn: u64, reply: String) -> Self {
-        Self { turn, reply, checked: false, idled: false, probe: None, cancelled: Arc::default() }
+    pub fn after(turn: u64, reply: String, completed: bool) -> Self {
+        Self { turn, reply, checked: false, idled: false, probe: None, cancelled: Arc::default(), completed }
     }
 
     /// Takes the result of a check that has ended.
@@ -116,7 +117,7 @@ mod tests {
 
     #[test]
     fn dropping_a_quiet_turn_cancels_the_check_still_running_for_it() {
-        let quiet = Quiet::after(1, "x".into());
+        let quiet = Quiet::after(1, "x".into(), true);
         let flag = quiet.cancelled.clone();
         assert!(!flag.load(Ordering::SeqCst));
         drop(quiet);

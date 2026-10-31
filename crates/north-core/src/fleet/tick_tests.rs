@@ -13,7 +13,7 @@ use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
 use crate::fleet::registry::Controlled;
-use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarSpools, FleetRow, RowKind, SessionRow, Store};
+use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarSpools, FleetRow, RowKind, SessionRow, Store, WaitKey};
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -50,16 +50,21 @@ impl Host {
     }
 
     fn tick(&self) -> Ticked {
-        tick(&self.fleet, &mut self.store(), &self.pulls(), NOW_MS, BUDGET).unwrap()
+        tick(&self.fleet, &mut self.store(), &self.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap()
     }
 }
 
 fn live(host: &Host, name: &str) -> Arc<Mutex<Vec<String>>> {
+    live_with(host, name, "Not done: waiting.", None)
+}
+
+fn live_with(host: &Host, name: &str, reply: &str, task_ref: Option<&str>) -> Arc<Mutex<Vec<String>>> {
     let dir = host.root().join(name);
     std::fs::create_dir_all(dir.join("g1")).unwrap();
-    let record = json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": CREATED_MS, "host_pid": std::process::id(), "conversation": name, "host_dir": dir, "stream_offset": 0});
+    let mut record = json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": CREATED_MS, "host_pid": std::process::id(), "conversation": name, "host_dir": dir, "stream_offset": 0});
+    record["task_ref"] = json!(task_ref);
     std::fs::write(dir.join("session.json"), record.to_string()).unwrap();
-    let assistant = json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": "Not done: waiting."}]}});
+    let assistant = json!({"type": "assistant", "session_id": name, "message": {"content": [{"type": "text", "text": reply}]}});
     let result = json!({"type": "result", "subtype": "success", "session_id": name});
     std::fs::write(dir.join("g1/stream.jsonl"), format!("{assistant}\n{result}\n")).unwrap();
     let listener = UnixListener::bind(dir.join("host.sock")).unwrap();
@@ -100,6 +105,10 @@ impl LedgerHost for Unreachable {
     fn exchange(&mut self, _: &Exchange) -> NorthResult<Exchanged> {
         Err(NorthError::Refused("ssh nexus: timed out; remote outcome unknown".into()))
     }
+
+    fn settle(&mut self, _: &[WaitKey]) -> NorthResult<()> {
+        Err(NorthError::Refused("ssh nexus: timed out; remote outcome unknown".into()))
+    }
 }
 
 #[test]
@@ -108,7 +117,7 @@ fn a_spooled_row_stays_spooled_until_the_ledger_host_commits_it_and_is_dropped_a
     let row = message("m-1", "elsewhere", NOW_MS);
     host.fleet.spool().put(&row).unwrap();
 
-    assert!(tick(&host.fleet, &mut Unreachable, &host.pulls(), NOW_MS, BUDGET).is_err());
+    assert!(tick(&host.fleet, &mut Unreachable, &host.pulls(), &NoProbes, NOW_MS, BUDGET).is_err());
     assert_eq!(host.fleet.spool().pending().unwrap(), std::slice::from_ref(&row), "a row whose commit is unknown stays in the spool");
 
     let ticked = host.tick();
@@ -235,6 +244,10 @@ impl FarSpools for Nobody {
     fn drop(&self, ssh: &str, _: &[String]) -> NorthResult<()> {
         Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
     }
+
+    fn set_aside(&self, ssh: &str, _: &[String]) -> NorthResult<()> {
+        Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
+    }
 }
 
 #[derive(Default)]
@@ -243,6 +256,7 @@ struct Far {
     down: Mutex<Vec<String>>,
     undroppable: Mutex<Vec<String>>,
     taken: Mutex<Vec<String>>,
+    aside: Mutex<Vec<String>>,
 }
 
 impl Far {
@@ -273,6 +287,11 @@ impl FarSpools for Far {
         self.spools.lock().unwrap().entry(ssh.into()).or_default().retain(|row| !ids.contains(&row.id));
         Ok(())
     }
+
+    fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
+        self.aside.lock().unwrap().extend(ids.iter().cloned());
+        self.drop(ssh, ids)
+    }
 }
 
 fn far_host(name: &str) -> FarHost {
@@ -298,10 +317,10 @@ fn a_row_pulled_from_a_far_spool_is_dropped_there_only_after_the_ledger_host_com
     let far = Far::holding("tom@gex45", vec![message("m-far", "elsewhere", NOW_MS)]);
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 
-    assert!(tick(&host.fleet, &mut Unreachable, &pulls, NOW_MS, BUDGET).is_err());
+    assert!(tick(&host.fleet, &mut Unreachable, &pulls, &NoProbes, NOW_MS, BUDGET).is_err());
     assert_eq!(far.left_on("tom@gex45"), ["m-far"], "a row whose commit is unknown stays on its machine");
 
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
     assert_eq!(ticked.pulled, 1);
     assert!(ticked.pull_failed.is_empty());
@@ -317,7 +336,7 @@ fn a_failed_pull_is_recorded_for_its_machine_alone_and_the_others_are_still_pull
     far.down.lock().unwrap().push("tom@bunker".into());
     let pulls = Pulls { spools: &far, always: vec![far_host("bunker"), far_host("gex45")] };
 
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
     assert_eq!(ticked.pull_failed.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["bunker"]);
     assert_eq!(far.left_on("tom@bunker"), ["m-2"]);
@@ -333,28 +352,32 @@ fn a_drop_that_fails_is_recorded_and_the_next_pull_commits_the_same_row_once() {
     far.undroppable.lock().unwrap().push("tom@gex45".into());
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 
-    let first = tick(&host.fleet, &mut host.store(), &pulls, NOW_MS, BUDGET).unwrap();
+    let first = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
     far.undroppable.lock().unwrap().clear();
-    let second = tick(&host.fleet, &mut host.store(), &pulls, NOW_MS, BUDGET).unwrap();
+    let second = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
-    assert_eq!(first.pull_failed.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["gex45"]);
-    assert!(second.pull_failed.is_empty());
+    assert_eq!(first.drop_failed.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["gex45"]);
+    assert!(first.pull_failed.is_empty() && second.drop_failed.is_empty());
     assert!(far.left_on("tom@gex45").is_empty());
     assert_eq!(ledger_ids(&host), 1);
 }
 
 #[test]
-fn a_row_the_store_would_refuse_stays_on_its_machine_and_does_not_hold_back_the_rest() {
+fn a_row_the_store_would_refuse_is_set_aside_on_its_machine_with_a_notice_and_does_not_hold_back_the_rest_or_count_as_a_failed_pull() {
     let host = host("nexus");
     let mut bad = message("m-bad", "elsewhere", NOW_MS);
     bad.from = String::new();
     let far = Far::holding("tom@gex45", vec![bad, message("m-ok", "elsewhere", NOW_MS)]);
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
-    assert_eq!(far.left_on("tom@gex45"), ["m-bad"]);
-    assert_eq!(ticked.pull_failed.len(), 1);
+    assert!(far.left_on("tom@gex45").is_empty());
+    assert_eq!(*far.aside.lock().unwrap(), ["m-bad"]);
+    assert!(ticked.pull_failed.is_empty(), "{ticked:?}");
+    assert!(ticked.lines().iter().any(|line| line.starts_with("set aside on gex45, the store refuses it: m-bad")), "{:?}", ticked.lines());
+    let again = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    assert!(again.refused.is_empty(), "a row set aside never recurs");
     assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-ok'"), 1);
 }
 
@@ -367,7 +390,7 @@ fn the_machines_pulled_are_the_live_sessions_placements_and_the_configured_hosts
     let far = Far::default();
     let pulls = Pulls { spools: &far, always: vec![far_host("annex"), far_host("nexus")] };
 
-    tick(&host.fleet, &mut host.store(), &pulls, NOW_MS, BUDGET).unwrap();
+    tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
     let mut taken = far.taken.lock().unwrap().clone();
     taken.sort();
@@ -385,6 +408,10 @@ impl FarSpools for Slow {
     fn drop(&self, _: &str, _: &[String]) -> NorthResult<()> {
         Ok(())
     }
+
+    fn set_aside(&self, _: &str, _: &[String]) -> NorthResult<()> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -395,7 +422,7 @@ fn a_slow_far_pull_does_not_use_up_the_budget_for_delivering_to_this_hosts_sessi
     let slow = Slow(Duration::from_millis(400));
     let pulls = Pulls { spools: &slow, always: vec![far_host("gex45")] };
 
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, NOW_MS, Duration::from_millis(200)).unwrap();
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, Duration::from_millis(200)).unwrap();
 
     assert_eq!(ticked.delivered, [("m-1".to_owned(), "worker".to_owned())]);
     assert_eq!(ticked.deferred, 0);
@@ -486,9 +513,9 @@ fn a_control_row_spooled_on_one_host_is_applied_once_by_the_tick_on_the_host_hol
     cache(&laptop, &["worker"]);
     let Controlled::Spooled(row) = laptop.fleet.control(ControlVerb::Stop, "worker").unwrap() else { panic!("a cached name is spooled") };
 
-    assert_eq!(tick(&laptop.fleet, &mut laptop.store(), &laptop.pulls(), NOW_MS, BUDGET).unwrap().flushed, 1);
-    let first = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
-    let second = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
+    assert_eq!(tick(&laptop.fleet, &mut laptop.store(), &laptop.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap().flushed, 1);
+    let first = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
+    let second = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
 
     assert_eq!(first.delivered, [(row.id.clone(), "worker".to_owned())]);
     assert_eq!(nexus.fleet.sessions().unwrap().iter().map(|record| (record.name.as_str(), record.stopped)).collect::<Vec<_>>(), [("worker", true)]);
@@ -504,13 +531,13 @@ fn a_forget_row_removes_a_stopped_session_from_the_holding_host_and_a_message_to
     cache(&laptop, &["worker"]);
     laptop.store().put(&[message("m-1", "worker", NOW_MS)]).unwrap();
     laptop.fleet.control(ControlVerb::Forget, "worker").unwrap();
-    tick(&laptop.fleet, &mut laptop.store(), &laptop.pulls(), NOW_MS, BUDGET).unwrap();
+    tick(&laptop.fleet, &mut laptop.store(), &laptop.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
 
-    let ticked = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
+    let ticked = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
 
     assert_eq!(ticked.delivered.iter().map(|(_, to)| to.as_str()).collect::<Vec<_>>(), ["worker"], "{:?}", ticked.failed);
     assert!(nexus.fleet.sessions().unwrap().is_empty());
-    let again = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), NOW_MS, BUDGET).unwrap();
+    let again = tick(&nexus.fleet, &mut laptop.store(), &nexus.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
     assert!(again.delivered.is_empty() && again.failed.is_empty());
 }
 
@@ -546,4 +573,138 @@ fn an_interrupt_row_for_a_session_with_nothing_running_is_consumed_once_and_not_
 
     assert_eq!((first.delivered.len(), first.failed.len()), (1, 0), "{:?}", first.failed);
     assert_eq!((second.delivered.len(), second.already, second.failed.len()), (0, 0, 0));
+}
+
+fn texts(frames: &Mutex<Vec<String>>) -> Vec<String> {
+    frames.lock().unwrap().clone()
+}
+
+#[test]
+fn a_box_worker_that_ended_on_a_wait_with_no_registered_wait_is_woken_by_the_third_tick_and_only_once() {
+    let host = host("nexus");
+    let frames = live_with(&host, "worker", "Still building on nexus.", Some("north#429"));
+
+    let first = host.tick();
+    let second = host.tick();
+    assert!(texts(&frames).is_empty(), "two ticks of grace: {first:?} {second:?}");
+    let third = host.tick();
+
+    assert_eq!(third.kept.woken, [("worker".to_owned(), "woken: parked with no registered wait".to_owned())], "{third:?}");
+    assert_eq!(texts(&frames).len(), 1);
+    assert!(texts(&frames)[0].contains("woken: parked with no registered wait; wake 1 of 3"), "{:?}", texts(&frames));
+    host.tick();
+    assert_eq!(texts(&frames).len(), 1, "the same stop is never woken twice");
+}
+
+#[test]
+fn a_job_wait_whose_lease_lapsed_wakes_its_worker_in_the_tick_and_is_settled_in_the_store() {
+    let host = host("nexus");
+    let frames = live_with(&host, "worker", "Waiting on the build.", Some("north#429"));
+    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), within_secs: 0 }).unwrap();
+
+    let ticked = host.tick();
+
+    assert_eq!(ticked.kept.woken, [("worker".to_owned(), "woken: your job nexus-build's lease lapsed with no exit".to_owned())], "{ticked:?}");
+    assert!(texts(&frames)[0].contains("lease lapsed"), "{:?}", texts(&frames));
+    assert!(host.store().waits().unwrap().is_empty(), "the lapsed wait is settled");
+}
+
+#[test]
+fn a_box_worker_with_a_live_job_lease_or_a_final_report_is_left_alone() {
+    let host = host("nexus");
+    let waiting = live_with(&host, "worker", "Waiting on the build.", Some("north#429"));
+    let done = live_with(&host, "finished", "Done: landed abc123.", Some("north#430"));
+    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), within_secs: 600 }).unwrap();
+
+    for _ in 0..4 {
+        let ticked = host.tick();
+        assert_eq!(ticked.kept, Kept::default(), "{ticked:?}");
+    }
+    assert!(texts(&waiting).is_empty() && texts(&done).is_empty());
+}
+
+#[test]
+fn a_tick_wakes_at_most_its_cap_of_workers_and_the_rest_on_the_next_tick() {
+    let host = host("nexus");
+    let names: Vec<String> = (0..invariant::WAKES_PER_TICK + 1).map(|n| format!("worker-{n}")).collect();
+    let frames: Vec<_> = names.iter().map(|name| live_with(&host, name, "Still building on nexus.", Some("north#429"))).collect();
+    host.tick();
+    host.tick();
+
+    let third = host.tick();
+    let fourth = host.tick();
+
+    assert_eq!((third.kept.woken.len(), fourth.kept.woken.len()), (invariant::WAKES_PER_TICK, 1), "{third:?} {fourth:?}");
+    assert!(frames.iter().all(|frames| texts(frames).len() == 1));
+}
+
+struct SettleFails(Store);
+
+impl LedgerHost for SettleFails {
+    fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
+        self.0.exchange(exchange)
+    }
+
+    fn settle(&mut self, _: &[WaitKey]) -> NorthResult<()> {
+        Err(NorthError::Refused("ssh nexus: timed out; remote outcome unknown".into()))
+    }
+}
+
+#[test]
+fn a_settlement_the_ledger_host_did_not_confirm_is_retried_on_the_next_tick_and_not_judged_again() {
+    let host = host("nexus");
+    let frames = live_with(&host, "worker", "Waiting on the build.", Some("north#429"));
+    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), within_secs: 0 }).unwrap();
+
+    let failed = tick(&host.fleet, &mut SettleFails(host.store()), &host.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
+    assert!(failed.unsettled.is_some(), "{failed:?}");
+    assert_eq!(host.store().waits().unwrap().len(), 1);
+
+    let retried = host.tick();
+    assert_eq!(retried.unsettled, None);
+    assert!(host.store().waits().unwrap().is_empty(), "the next tick settles it");
+    assert_eq!(texts(&frames).len(), 1, "woken once for the lapse");
+}
+
+fn worker_on(host: &Host, machine: &str) -> Arc<Mutex<Vec<String>>> {
+    let frames = live_with(host, "worker", "Waiting on the capture.", Some("north#429"));
+    let path = host.root().join("worker/session.json");
+    let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record["machine"] = json!({"name": machine, "ssh": format!("tom@{machine}")});
+    std::fs::write(path, record.to_string()).unwrap();
+    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "capture".into(), within_secs: 0 }).unwrap();
+    frames
+}
+
+#[test]
+fn a_machine_whose_spool_could_not_be_taken_gets_no_lapse_check_that_tick() {
+    let host = host("nexus");
+    let frames = worker_on(&host, "gex45");
+    let far = Far::default();
+    far.down.lock().unwrap().push("tom@gex45".into());
+    let pulls = Pulls { spools: &far, always: Vec::new() };
+
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+
+    assert_eq!(ticked.kept, Kept::default(), "a beat may sit in the spool it could not take: {ticked:?}");
+    assert!(texts(&frames).is_empty());
+    far.down.lock().unwrap().clear();
+    let back = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    assert_eq!(back.kept.woken.len(), 1, "judged once the pull succeeds: {back:?}");
+}
+
+#[test]
+fn a_refused_row_on_a_machine_does_not_turn_off_its_lapse_checks() {
+    let host = host("nexus");
+    let frames = worker_on(&host, "gex45");
+    let mut bad = message("m-bad", "elsewhere", NOW_MS);
+    bad.from = String::new();
+    let far = Far::holding("tom@gex45", vec![bad]);
+    let pulls = Pulls { spools: &far, always: Vec::new() };
+
+    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+
+    assert_eq!(ticked.refused.len(), 1);
+    assert_eq!(ticked.kept.woken, [("worker".to_owned(), "woken: your job capture's lease lapsed with no exit".to_owned())], "{ticked:?}");
+    assert_eq!(texts(&frames).len(), 1);
 }

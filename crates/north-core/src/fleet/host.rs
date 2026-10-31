@@ -221,7 +221,7 @@ mod tests {
     use std::os::unix::fs::symlink;
     use std::process::Child;
 
-    use super::super::detached::{Procfs, Scope, ended, ended_message};
+    use super::super::detached::{Procfs, Scope};
     use super::*;
 
     const SLICE: &str = "user.slice/agent.slice";
@@ -278,8 +278,7 @@ mod tests {
         assert_eq!(before.iter().map(|run| run.pid).collect::<Vec<_>>(), [run.id()], "the new host counts the prior scope's run: {before:?}");
         run.kill().unwrap();
         run.wait().unwrap();
-        let ended = ended(&before, &revived.detached());
-        assert!(ended_message(&ended).contains(&format!("pid {}", before[0].pid)), "{ended:?}");
-        assert_eq!(ended.len(), 1);
+        let after = revived.detached();
+        assert!(after.iter().all(|live| live.pid != before[0].pid), "the killed run still counts: {after:?}");
     }
 }

@@ -50,10 +50,6 @@ impl Detached {
     pub fn run(&self) -> Run {
         Run::Process { pid: self.pid, started: self.started }
     }
-
-    fn same(&self, other: &Detached) -> bool {
-        self.pid == other.pid && self.started == other.started
-    }
 }
 
 /// The detached runs of one session host.
@@ -155,16 +151,6 @@ fn members(proc: &Path, scope: &Path) -> HashMap<u32, Stat> {
 /// Whether `pid` still runs the process that started at `started`.
 pub fn alive(proc: &Path, pid: u32, started: u64) -> bool {
     stat(proc, pid).is_some_and(|stat| stat.live && stat.started == started)
-}
-
-/// The runs in `before` that `now` no longer holds.
-pub fn ended(before: &[Detached], now: &[Detached]) -> Vec<Detached> {
-    before.iter().filter(|run| !now.iter().any(|live| live.same(run))).cloned().collect()
-}
-
-pub fn ended_message(runs: &[Detached]) -> String {
-    let named: Vec<String> = runs.iter().map(|run| format!("pid {} `{}`", run.pid, run.command)).collect();
-    format!("[north: a run you detached has ended] {}. Read its output and continue to a final report.", named.join("; "))
 }
 
 struct Stat {

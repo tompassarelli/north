@@ -2,13 +2,13 @@ use std::io::Read;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
-use crate::fleet::store::{Exchange, FleetRow, LedgerHost, Store, WaitRequest};
+use crate::fleet::store::{Exchange, FleetRow, LedgerHost, Store, WaitKey, WaitRequest};
 use crate::threads::client;
 
 use super::fleet_spool;
 use super::fleet_tick;
 
-const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY | north fleet row exchange < EXCHANGE_JSON | north fleet row wait < WAIT_JSON";
+const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY | north fleet row exchange < EXCHANGE_JSON | north fleet row wait < WAIT_JSON | north fleet row settle < WAIT_KEYS_JSON";
 const FORWARDED_PUT: &[&str] = &["north", "fleet", "row", "put"];
 const FORWARDED_WAIT: &[&str] = &["north", "fleet", "row", "wait"];
 
@@ -17,6 +17,7 @@ pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> 
         ("row", ["put"]) => put(),
         ("row", ["exchange"]) => serve_exchange(),
         ("row", ["wait"]) => wait(),
+        ("row", ["settle"]) => settle(),
         ("spool", _) => fleet_spool::run(fleet, words),
         ("tick", _) => fleet_tick::run(fleet, words),
         _ => Err(NorthError::Usage(USAGE.into())),
@@ -48,6 +49,11 @@ fn serve_exchange() -> NorthResult<()> {
     let exchanged = Store::open(&client::ledger_path()?)?.exchange(&exchange)?;
     println!("{}", serde_json::to_string(&exchanged)?);
     Ok(())
+}
+
+fn settle() -> NorthResult<()> {
+    let waits: Vec<WaitKey> = serde_json::from_slice(&stdin()?)?;
+    Store::open(&client::ledger_path()?)?.settle_all(&waits)
 }
 
 fn wait() -> NorthResult<()> {

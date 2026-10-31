@@ -2,8 +2,10 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::error::NorthResult;
+use crate::foundation::clock::Timestamp;
 
 use super::schema::sql;
+use super::waits::{self, WaitKey, WaitRow};
 use super::{FleetRow, RowKind, SessionRow, Store};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -30,17 +32,26 @@ pub struct Exchanged {
     pub held_elsewhere: Vec<String>,
     pub sessions: Vec<SessionRow>,
     pub rows: Vec<FleetRow>,
+    pub waits: Vec<WaitRow>,
+    pub now: String,
 }
 
 pub trait LedgerHost {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged>;
+    fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()>;
 }
 
 impl LedgerHost for Store {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
         self.put(&exchange.rows)?;
         let held_elsewhere = self.publish(&exchange.sessions)?;
-        Ok(Exchanged { held_elsewhere, sessions: self.sessions()?, rows: addressed(&self.db, &exchange.addressees)? })
+        let names: Vec<&str> = exchange.addressees.iter().map(|addressee| addressee.name.as_str()).collect();
+        let waits = waits::all(&self.db)?.into_iter().filter(|wait| names.contains(&wait.session.as_str())).collect();
+        Ok(Exchanged { held_elsewhere, sessions: self.sessions()?, rows: addressed(&self.db, &exchange.addressees)?, waits, now: Timestamp::now().iso() })
+    }
+
+    fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()> {
+        self.settle_all(waits)
     }
 }
 

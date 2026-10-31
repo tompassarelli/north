@@ -279,7 +279,7 @@ fn a_launch_flag_never_takes_the_next_flag_as_its_value() {
 }
 
 fn seconds(rollover: u64, finished_exit: u64) -> crate::fleet::idle::Policy {
-    crate::fleet::idle::Policy { silent_after: Duration::from_secs(60), rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit), wake_after: [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(3)], detached_hold: Duration::from_secs(600) }
+    crate::fleet::idle::Policy { silent_after: Duration::from_secs(60), rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit), detached_hold: Duration::from_secs(600) }
 }
 
 fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) {
@@ -406,28 +406,17 @@ async fn wait_run(root: &Path, reply: &str) -> (u8, String, Vec<(String, String,
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_box_worker_that_ended_its_turn_on_a_wait_is_woken_three_times_then_reported_stalled_to_its_lead() {
+async fn the_session_host_never_wakes_or_reports_a_box_worker_that_ended_on_a_wait_and_parks_it_for_the_tick() {
     let root = tempfile::tempdir().unwrap();
     box_worker_record(root.path());
     let (code, stdin, posted) = wait_run(root.path(), "Still building on nexus.").await;
     assert_eq!(code, 143);
-    assert_eq!(stdin.lines().filter(|line| line.contains("your turn ended on a wait")).count(), 3, "{stdin}");
-    assert!(stdin.contains("wake 3 of 3") && stdin.contains("Still building on nexus."), "{stdin}");
-    let stalls: Vec<_> = posted.iter().filter(|(parent, text, _)| parent == "lead" && text.contains("ended on a wait · woken 3 times")).collect();
-    assert_eq!(stalls.len(), 1, "{posted:?}");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_worker_with_a_final_report_or_no_box_is_never_woken() {
-    let root = tempfile::tempdir().unwrap();
-    box_worker_record(root.path());
-    let (_, stdin, posted) = wait_run(root.path(), "Done: landed abc123.").await;
-    assert_eq!(stdin, "");
-    assert!(posted.iter().all(|(_, text, _)| !text.contains("ended on a wait")), "{posted:?}");
+    assert_eq!(stdin, "", "the fleet tick wakes it, not its host");
+    assert!(posted.is_empty(), "no stall and no silent notice from the host: {posted:?}");
     let other = tempfile::tempdir().unwrap();
     session_record(other.path(), Some("lead"));
     let (_, stdin, _) = wait_run(other.path(), "Still building on nexus.").await;
-    assert_eq!(stdin, "", "a session with no box is not a worker the fleet wakes");
+    assert_eq!(stdin, "", "a session with no box is never woken");
 }
 
 #[path = "fleet_detached_tests.rs"]

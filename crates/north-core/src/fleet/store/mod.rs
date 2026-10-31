@@ -17,11 +17,11 @@ mod waits;
 
 pub use cache::{cache_sessions, cached_sessions};
 pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
-pub use remote::{FarSpools, OverSsh, drop_with, take_with};
+pub use remote::{FarSpools, OverSsh, drop_with, set_aside_with, take_with};
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
 pub use sessions::SessionRow;
 pub use spool::{SPOOL_DIR, Spool};
-pub use waits::{JOB_LEASE_SECS, WaitKind, WaitRequest, WaitRow};
+pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
 
 use schema::sql;
 
@@ -85,6 +85,17 @@ impl Store {
         let settled = waits::settle(&tx, session, kind, key)?;
         tx.commit().map_err(sql)?;
         Ok(settled)
+    }
+
+    pub fn settle_all(&mut self, keys: &[WaitKey]) -> NorthResult<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        for key in keys {
+            waits::settle(&tx, &key.session, key.kind, &key.key)?;
+        }
+        tx.commit().map_err(sql)
     }
 
     pub fn waits(&self) -> NorthResult<Vec<WaitRow>> {

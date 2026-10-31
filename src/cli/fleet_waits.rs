@@ -11,12 +11,15 @@ use crate::fleet::detached;
 use crate::fleet::model::Delivery;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::SESSION_ENV;
+use crate::fleet::store::LedgerHost;
+use crate::fleet::tick::{Probed, WaitProbes};
 use crate::fleet::waits::{Probe, Registered, Run};
 use crate::foundation::clock::Timestamp;
 use crate::platform::process::run_command_within;
 
 use super::fleet_placement::Overrides;
 use super::fleet_row;
+use super::fleet_tick::Ledger;
 use super::fleet_revive;
 
 const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START)";
@@ -47,17 +50,33 @@ fn register(fleet: &Fleet, run: &str, name: Option<&str>) -> NorthResult<()> {
 }
 
 fn settle(fleet: &Fleet) -> NorthResult<()> {
-    let tell = |name: &str, text: &str| -> NorthResult<()> {
-        if fleet.session(name).map_or(true, |record| record.stopped) {
-            return Ok(());
-        }
-        fleet_revive::revive(fleet, name, None, None, Overrides::default())?;
-        fleet.send_signed(None, name, text, Delivery::Queued)
-    };
-    for line in fleet.waits().settle(&Runs, &tell) {
-        println!("{line}");
+    let probed = Probes.settle(fleet);
+    probed.lines.iter().for_each(|line| println!("{line}"));
+    if probed.settled.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    Ledger.settle(&probed.settled).inspect_err(|_| {
+        let left: Vec<_> = fleet.unsettled_waits().into_iter().chain(probed.settled.iter().cloned()).collect();
+        if let Err(error) = fleet.set_unsettled_waits(&left) {
+            eprintln!("north fleet: waits not kept for the next tick: {}", error.user_message());
+        }
+    })
+}
+
+pub(super) struct Probes;
+
+impl WaitProbes for Probes {
+    fn settle(&self, fleet: &Fleet) -> Probed {
+        let tell = |name: &str, text: &str| -> NorthResult<()> {
+            if fleet.session(name).map_or(true, |record| record.stopped) {
+                return Ok(());
+            }
+            fleet_revive::revive(fleet, name, None, None, Overrides::default())?;
+            fleet.send_signed(None, name, text, Delivery::Queued)
+        };
+        let told = fleet.waits().settle(&Runs, &tell);
+        Probed { lines: told.iter().map(|settled| settled.line()).collect(), settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
+    }
 }
 
 struct Runs;
