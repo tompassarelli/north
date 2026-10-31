@@ -80,7 +80,7 @@ fn first_line_with_hosts(host: &Host, need: &str, hosts: &str) -> Value {
 
 #[test]
 fn a_declined_offload_prints_one_line_naming_no_room_unreachable_or_the_refused_class() {
-    let probe = "#!/bin/sh\nprintf '20\\n19.00 19.00 19.00 2/900 1\\nMemTotal: 65536000 kB\\nMemAvailable: 40000000 kB\\nFilesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/md1 490000000 400000000 90000000 90%% /\\n'\n";
+    let probe = "#!/bin/sh\nprintf '20\\n19.00 19.00 19.00 2/900 1\\nMemTotal: 65536000 kB\\nMemAvailable: 40000000 kB\\nFilesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/md1 490000000 400000000 90000000 90%% /\\n@ADMISSION@\\n{\"profile\":\"unattended\",\"aggregateCpuLimit\":20,\"committedBatchCpus\":19,\"cpuSomeAvg10\":5}\\n'\n";
     let full = Host::new("capacity-offload-full-", &[("systemd-run", &scope_systemd_run("\"$@\"")), ("systemctl", SCOPE_SYSTEMCTL), ("ssh", probe)]);
     let line = first_offload_line(&full, "");
     assert_eq!((line["decision"].as_str(), line["reason"].as_str()), (Some("OFFLOAD_DECLINED"), Some("no room")), "{line}");

@@ -1,4 +1,5 @@
 use crate::capacity::admission::{Class, dispatch_request_mib, memory_short, offload_room};
+use crate::capacity::build_offload::Admission;
 use crate::ops::dispatch::measure::{self, Measure};
 use crate::platform::process::run_within;
 use std::time::Duration;
@@ -7,16 +8,21 @@ use super::ship::{OFFLOAD_ROOT, quote};
 
 const LIMIT: Duration = Duration::from_secs(15);
 const KIB_PER_GIB: f64 = 1024.0 * 1024.0;
+const STATUS_MARK: &str = "@ADMISSION@";
+const STATUS_PROBE: &str = r#"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north} capacity host status"#;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Room {
     pub(crate) measure: Measure,
+    pub(crate) admission: Admission,
     pub(crate) disk_free_gib: f64,
 }
 
 pub(super) fn parse(text: &str) -> Option<Room> {
+    let (text, status) = text.split_once(STATUS_MARK)?;
+    let admission = Admission::from_status(&serde_json::from_str(status.trim()).ok()?)?;
     let kib: f64 = text.lines().rev().find(|line| !line.trim().is_empty())?.split_whitespace().nth(3)?.parse().ok()?;
-    Some(Room { measure: measure::parse(text)?, disk_free_gib: kib / KIB_PER_GIB })
+    Some(Room { measure: measure::parse(text)?, admission, disk_free_gib: kib / KIB_PER_GIB })
 }
 
 pub(super) fn read(ssh: &str) -> Option<Room> {
@@ -25,7 +31,7 @@ pub(super) fn read(ssh: &str) -> Option<Room> {
 
 pub(crate) fn read_within(ssh: &str, limit: Duration) -> Option<Room> {
     let disk = format!("d=\"{OFFLOAD_ROOT}\"; while [ ! -d \"$d\" ]; do d=$(dirname \"$d\"); done; df -Pk \"$d\"");
-    let probe = quote(&format!("{}; {disk}", measure::PROBE));
+    let probe = quote(&format!("{}; {disk}; echo {STATUS_MARK}; {STATUS_PROBE}", measure::PROBE));
     let command = format!("sh -c {probe}");
     let output = run_within("ssh", &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", &command], limit)?;
     output.status.success().then(|| parse(&String::from_utf8_lossy(&output.stdout))).flatten()
@@ -38,10 +44,9 @@ pub(super) fn shortfall(room: &Room) -> Option<String> {
 /// The shortfall once `reserved` cores are counted as taken by builds already on their way to the host.
 pub(crate) fn shortfall_reserving(room: &Room, reserved: f64) -> Option<String> {
     let (cores, disk) = offload_room();
-    let free_cores = room.measure.cores - room.measure.load - reserved;
     let memory = dispatch_request_mib(Class::Heavy);
-    if free_cores < cores {
-        return Some(format!("{free_cores:.1} cores free of {}, needs {cores}", room.measure.cores));
+    if let Some(short) = room.admission.shortfall(cores, reserved) {
+        return Some(short);
     }
     if memory_short(room.measure.memory_total_mib, room.measure.memory_available_mib, memory) {
         return Some(format!("{:.0} MiB memory available, needs {memory:.0} and its headroom", room.measure.memory_available_mib));
@@ -65,21 +70,34 @@ pub(super) fn first_with_room(hosts: impl IntoIterator<Item = (String, Option<Ro
 mod tests {
     use super::*;
 
-    const PROBE: &str = "20\n3.10 4.00 5.00 2/900 1\nMemTotal:       65536000 kB\nMemAvailable:   40000000 kB\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/md1 490000000 400000000 %KIB% 90% /\n";
+    const PROBE: &str = "20\n3.10 4.00 5.00 2/900 1\nMemTotal:       65536000 kB\nMemAvailable:   40000000 kB\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/md1 490000000 400000000 %KIB% 90% /\n@ADMISSION@\n{\"profile\":\"unattended\",\"aggregateCpuLimit\":20,\"committedBatchCpus\":%COMMITTED%,\"cpuSomeAvg10\":%PRESSURE%}\n";
 
-    fn room(kib: u64, load: &str) -> Room {
-        parse(&PROBE.replace("%KIB%", &kib.to_string()).replace("3.10", load)).unwrap()
+    fn reading(kib: u64, load: &str, committed: &str, pressure: &str) -> Room {
+        parse(&PROBE.replace("%KIB%", &kib.to_string()).replace("3.10", load).replace("%COMMITTED%", committed).replace("%PRESSURE%", pressure)).unwrap()
+    }
+
+    fn room(kib: u64, committed: &str) -> Room {
+        reading(kib, "3.10", committed, "5")
     }
 
     #[test]
     fn a_host_needs_cores_memory_and_twenty_gib_of_disk() {
         let gib = 1024 * 1024;
-        assert_eq!(shortfall(&room(21 * gib, "3.10")), None);
-        assert!(shortfall(&room(17 * gib, "3.10")).unwrap().contains("17.0 GiB disk free"));
-        assert!(shortfall(&room(80 * gib, "18.00")).unwrap().contains("cores free"));
-        let mut tight = room(80 * gib, "3.10");
+        assert_eq!(shortfall(&room(21 * gib, "3.1")), None);
+        assert!(shortfall(&room(17 * gib, "3.1")).unwrap().contains("17.0 GiB disk free"));
+        assert!(shortfall(&room(80 * gib, "16.00")).unwrap().contains("cores free"));
+        let mut tight = room(80 * gib, "3.1");
         tight.measure.memory_available_mib = 9000.0;
         assert!(shortfall(&tight).unwrap().contains("MiB memory available"));
+    }
+
+    #[test]
+    fn a_runtime_build_has_room_on_gex45_at_its_4_20_pm_reading_whose_load_average_is_the_ci_farm() {
+        let gib = 1024 * 1024;
+        let gex45 = reading(80 * gib, "61.00", "7.6", "35");
+        assert_eq!(shortfall(&gex45), None, "committed 7.6 of 20 CPUs at 35% pressure and load 61 is room for 6 cores");
+        assert!(shortfall(&reading(80 * gib, "3.00", "15.0", "10")).unwrap().contains("cores free of 20"));
+        assert!(shortfall(&reading(80 * gib, "3.00", "7.6", "40")).unwrap().contains("CPU pressure 40%"));
     }
 
     #[test]

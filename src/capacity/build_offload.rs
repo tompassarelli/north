@@ -4,6 +4,36 @@ pub(crate) const REASON: &str = "OFFLOAD";
 pub(crate) const REMOTE_MARK: &str = "NORTH_BUILD_OFFLOADED";
 pub(crate) const PROBE_LIMIT_SECONDS: u64 = 5;
 
+/// A host's admission state as `north capacity host status` reports it: what its own admission would let a build start against.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Admission {
+    pub(crate) limit_cpus: f64,
+    pub(crate) committed_cpus: f64,
+    pub(crate) cpu_pressure_percent: f64,
+    pub(crate) pressure_high_percent: f64,
+}
+
+impl Admission {
+    pub(crate) fn from_status(status: &serde_json::Value) -> Option<Self> {
+        let number = |key: &str| status.get(key)?.as_f64();
+        let band = match status.get("profile")?.as_str()? {
+            "attended" => "admit_psi_attended_high",
+            "unattended" => "admit_psi_unattended_high",
+            _ => return None,
+        };
+        Some(Self { limit_cpus: number("aggregateCpuLimit")?, committed_cpus: number("committedBatchCpus")?, cpu_pressure_percent: number("cpuSomeAvg10")?, pressure_high_percent: super::admission::default_mib(band) })
+    }
+
+    /// Why a build declaring `needs` CPUs would wait on this host's admission, with `reserved` CPUs counted as taken by builds already on their way; the host's load average, which its CI farm fills inside quota, never counts.
+    pub(crate) fn shortfall(&self, needs: f64, reserved: f64) -> Option<String> {
+        if self.cpu_pressure_percent >= self.pressure_high_percent {
+            return Some(format!("CPU pressure {:.0}% at the {:.0}% admission mark", self.cpu_pressure_percent, self.pressure_high_percent));
+        }
+        let free = self.limit_cpus - self.committed_cpus - reserved;
+        (free < needs).then(|| format!("{free:.1} cores free of {}, needs {needs}", self.limit_cpus))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Job<'a> {
     pub(crate) owner: &'a str,

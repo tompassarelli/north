@@ -601,7 +601,7 @@ consumers = ["src/capacity/admission.rs"]
 
 [land_offload_cpus]
 value = 6
-unit = "free cores (cores less the one-minute load) a host needs to take an offloaded land check"
+unit = "free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
 source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (machine-capacity-logic.ts resourceClass)"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
 consumers = ["src/capacity/admission.rs"]
