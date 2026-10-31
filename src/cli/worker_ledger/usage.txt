@@ -1,4 +1,5 @@
 usage: north worker-ledger [--session ID] [--since DATE] [--backfill]   record finished workers as runs in NorthThreads
+       north worker-ledger --emit [--session ID] [--since DATE] [--backfill]  print those rows against the ledger ids JSON on stdin
        north worker-ledger --summary [--since DATE] [--by LIST]         per cell x tier: runs against ETA, issues closed, flaws per Lens
        north worker-ledger --recommend [--planner] 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
   --session ID  only that session's workers (default: every provider, active in the last day)
@@ -23,6 +24,9 @@ Each run also records stage times from its transcript and git: staffed (spawned)
 report back) and landed (its commit's time on origin/main after its first commit; runs that committed are reread
 for 3 days until it lands).
 The north worker-ledger timer runs it every 15 minutes for every provider.
+On the ledger host each recording run also runs `north worker-ledger --emit` over ssh on every other
+[hosts.NAME] with an ssh destination, passing the ledger's ids, and records what it prints, so a host that
+cannot reach the ledger (gex45) is recorded once.
 Briefs carry `Item: <repo#N>`, `Follows: <agent id>`, `Category: <name>`, optional `Arm: escalate|cheap-fix|split`, the facets
 `Spec: exact|measured|judged`, `Scope: one-file|module|cross-module|cross-repo`,
 `Surface: ts|lua|nix|shell|workflow|docs|assets`, `Verify: none|local-test|farm|native|visual`, and for adversarial

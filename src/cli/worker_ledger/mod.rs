@@ -1,3 +1,4 @@
+mod pull;
 mod recalibrate;
 
 use std::collections::{HashMap, HashSet};
@@ -21,15 +22,23 @@ struct Options {
     backfill: bool,
 }
 
+/// The ledger's run ids a recording run skips or rereads: every recorded id, and the settled ones with their end.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Ids {
+    recorded: String,
+    settled: String,
+}
+
 enum Mode {
     Record,
+    Emit,
     Summary { by: String },
     Recommend { facets: String, planner: bool },
 }
 
 fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
     let (mut session, mut since, mut by) = (String::new(), String::new(), "category".to_owned());
-    let (mut summary, mut backfill, mut planner, mut facets) = (false, false, false, String::new());
+    let (mut summary, mut backfill, mut planner, mut facets, mut emit) = (false, false, false, String::new(), false);
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
@@ -47,13 +56,16 @@ fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
             }
             "--planner" => planner = true,
             "--backfill" => backfill = true,
+            "--emit" => emit = true,
             _ => return None,
         }
     }
     if planner && facets.is_empty() {
         return None;
     }
-    let mode = if summary {
+    let mode = if emit {
+        Mode::Emit
+    } else if summary {
         Mode::Summary { by }
     } else if !facets.is_empty() {
         Mode::Recommend { facets, planner }
@@ -83,6 +95,7 @@ pub(crate) fn run(arguments: &[String]) -> u8 {
         Mode::Summary { by } => threads(&[&["summary", "--group", by][..], &since].concat()),
         Mode::Recommend { facets, planner } => threads(&[&["recommend", facets][..], if *planner { &["--planner"] } else { &[] }, &since].concat()),
         Mode::Record => return record(&options),
+        Mode::Emit => return emit(&options),
     };
     let mut command = match built {
         Ok(command) => command,
@@ -151,14 +164,43 @@ fn record(options: &Options) -> u8 {
         return 2;
     }
     let (Some(recorded), Some(settled)) = (run_ids(&["run-ids"]), run_ids(&["run-ids", "--settled", "--ended"])) else { return 1 };
-    let recorded: HashSet<String> = settled_ids(&recorded).into_keys().collect();
-    let known = if options.backfill { HashMap::new() } else { settled_ids(&settled) };
+    let ids = Ids { recorded, settled };
+    let Some((mut rows, unread)) = rows(options, &ids) else { return 1 };
+    if recalibrate::owns_ledger() {
+        pull::hosts(options, &ids, &mut rows);
+    }
+    let ingested = ingest(&rows);
+    recalibrate::run();
+    if ingested == 0 && unread { 1 } else { ingested }
+}
+
+/// `--emit`: the rows this host would record against the ledger's ids read from stdin, printed instead of ingested.
+fn emit(options: &Options) -> u8 {
+    if let Err(error) = crate::providers::ledger_rows::cutoff(&options.since) {
+        eprintln!("north worker-ledger: {}", error.user_message());
+        return 2;
+    }
+    let ids: Ids = match serde_json::from_reader(std::io::stdin().lock()) {
+        Ok(ids) => ids,
+        Err(error) => {
+            eprintln!("north worker-ledger: --emit reads the ledger's ids as JSON on stdin: {error}");
+            return 2;
+        }
+    };
+    let Some((rows, unread)) = rows(options, &ids) else { return 1 };
+    if std::io::stdout().lock().write_all(&rows).is_err() || (rows.is_empty() && unread) { 1 } else { 0 }
+}
+
+/// This host's provider rows the ledger lacks, and whether a provider's store went unread.
+fn rows(options: &Options, ids: &Ids) -> Option<(Vec<u8>, bool)> {
+    let recorded: HashSet<String> = settled_ids(&ids.recorded).into_keys().collect();
+    let known = if options.backfill { HashMap::new() } else { settled_ids(&ids.settled) };
     let text = merged(&options.since);
     let mut rows = Vec::new();
     let session = Some(options.session.as_str()).filter(|session| !session.is_empty());
     if let Err(error) = claude::runs::rows(session, &options.since, known.clone(), recorded.clone(), &text, &mut rows) {
         eprintln!("error: {}", error.user_message());
-        return 1;
+        return None;
     }
     let known: HashSet<String> = known.into_keys().collect();
     let main = MainIndex::parse(&text);
@@ -171,9 +213,7 @@ fn record(options: &Options) -> u8 {
             unread = true;
         }
     }
-    let ingested = ingest(&rows);
-    recalibrate::run();
-    if ingested == 0 && unread { 1 } else { ingested }
+    Some((rows, unread))
 }
 
 fn ingest(rows: &[u8]) -> u8 {

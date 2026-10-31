@@ -591,3 +591,34 @@ fn a_recording_run_recalibrates_a_stale_ledger_once_and_records_priors_once_a_we
     lax(&rig, &[]);
     assert_eq!(calibration_batches(&rig, "="), before + 1, "the first run after Monday 00:00Z records the week's priors");
 }
+
+#[test]
+fn the_ledger_host_records_a_host_that_cannot_reach_it_once_by_pulling_its_rows_over_ssh() {
+    let mut rig = Rig::new();
+    let far = rig.path("far");
+    jsonl(
+        &far.join("claude/projects/-home-tom/session/subagents/agent-far1.jsonl"),
+        &claude_worker("Item: north#394\nCategory: tooling", vec![assistant(4, "r1", json!({"output_tokens":50,"input_tokens":700}), json!([{"type":"text","text":"Done: landed."}]))]),
+    );
+    write(&far.join("claude/projects/-home-tom/session/subagents/agent-far1.meta.json"), r#"{"agentType":"worker"}"#);
+    fs::create_dir_all(far.join("home")).unwrap();
+    script(
+        &rig.path("bin/ssh"),
+        &format!(
+            "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\n[ \"$1\" = far ] || exit 255\nshift 2\nexec env -u THREADS_DB HOME={f}/home CLAUDE_CONFIG_DIR={f}/claude RESIDENT_CAP_HOST=far {north} \"$@\"\n",
+            f = far.display(),
+            north = env!("CARGO_BIN_EXE_north")
+        ),
+    );
+    let base = fs::read_to_string(&rig.orchestration).unwrap();
+    write(&rig.path("orchestration.toml"), &format!("{base}\n[hosts.here]\nssh = \"here\"\n[hosts.far]\nssh = \"far\"\n[hosts.gone]\nssh = \"gone\"\n"));
+    rig.orchestration = rig.path("orchestration.toml");
+    let run = || rig.command().env("RESIDENT_CAP_HOST", "here").args(["--since", "2026-10-08"]).output().unwrap();
+
+    let first = run();
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    assert!(String::from_utf8_lossy(&first.stderr).contains("gone runs unread"), "an unreachable host is named and the rest still recorded");
+    assert_eq!(rig.sql("select agent || '|' || item || '|' || outcome from runs"), "far1|north#394|done");
+    assert!(run().status.success());
+    assert_eq!(rig.sql("select count(*) from runs where agent = 'far1'"), "1", "a second pull passes the ledger's ids, so the run is counted once");
+}

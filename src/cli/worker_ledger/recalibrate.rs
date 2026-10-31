@@ -16,7 +16,7 @@ fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
 }
 
-fn owns_ledger() -> bool {
+pub(super) fn owns_ledger() -> bool {
     !home().join(".config/threads/remote").exists()
 }
 
