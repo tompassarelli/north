@@ -13,7 +13,7 @@ use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
 use crate::fleet::registry::Controlled;
-use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, HandedRow, JobPayload, Pull, RowKind, SessionRow, Store, Undecodable, UnknownKind, WaitKey};
+use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, HandedRow, JobPayload, Pull, RowKind, SessionRow, Store, Undecodable, UnknownKind, WaitKey};
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -249,7 +249,7 @@ impl FarSpools for Nobody {
         Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
     }
 
-    fn cache(&self, ssh: &str, _: &[SessionRow]) -> NorthResult<()> {
+    fn cache(&self, ssh: &str, _: &FleetTable) -> NorthResult<()> {
         Err(NorthError::Refused(format!("ssh {ssh}: nobody is pulled from")))
     }
 
@@ -312,8 +312,8 @@ impl FarSpools for Far {
         self.drop(ssh, ids)
     }
 
-    fn cache(&self, ssh: &str, sessions: &[SessionRow]) -> NorthResult<()> {
-        self.cached.lock().unwrap().insert(ssh.into(), sessions.iter().map(|session| session.name.clone()).collect());
+    fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()> {
+        self.cached.lock().unwrap().insert(ssh.into(), table.sessions.iter().map(|session| session.name.clone()).collect());
         Ok(())
     }
 
@@ -485,7 +485,7 @@ impl FarSpools for Slow {
         Ok(())
     }
 
-    fn cache(&self, _: &str, _: &[SessionRow]) -> NorthResult<()> {
+    fn cache(&self, _: &str, _: &FleetTable) -> NorthResult<()> {
         Ok(())
     }
 
@@ -852,7 +852,7 @@ impl FarSpools for Legacy<'_> {
         Ok(())
     }
 
-    fn cache(&self, _: &str, _: &[SessionRow]) -> NorthResult<()> {
+    fn cache(&self, _: &str, _: &FleetTable) -> NorthResult<()> {
         Ok(())
     }
 
@@ -909,4 +909,62 @@ fn a_forgotten_session_drops_out_of_its_hosts_cached_table_so_a_second_forget_is
     assert!(matches!(nexus.fleet.control(ControlVerb::Forget, "worker"), Err(NorthError::Usage(why)) if why == "no session named worker"));
     let kept: Vec<String> = nexus.fleet.cached_sessions().unwrap().unwrap().into_iter().map(|row| row.name).collect();
     assert_eq!(kept, ["other"]);
+}
+
+#[test]
+fn a_tick_publishes_this_hosts_open_gates_into_the_store_and_caches_the_table_a_closed_gate_leaves_on_the_next_tick() {
+    let nexus = host("nexus");
+    let _worker = live(&nexus, "worker");
+    let request = |question: &str, verification: bool| GateRequest { verification, issue: Some("north#416".into()), session: "worker".into(), question: question.into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    let kept = nexus.fleet.open_gate(&request("Rent the box?", false)).unwrap();
+    let closing = nexus.fleet.open_gate(&request("Buy the disk?", false)).unwrap();
+
+    nexus.tick();
+
+    let published: Vec<(String, i64)> = nexus.store().gates().unwrap().into_iter().map(|gate| (gate.host, gate.id)).collect();
+    assert_eq!(published, [("nexus".to_owned(), kept), ("nexus".to_owned(), closing)]);
+    let cached = crate::fleet::store::cached_gates(&nexus.root()).unwrap();
+    assert_eq!(cached.iter().map(|gate| gate.label()).collect::<Vec<_>>(), [format!("nexus:{kept}"), format!("nexus:{closing}")]);
+
+    nexus.fleet.answer_gate(closing, 1, None, None).unwrap();
+    nexus.tick();
+
+    let remaining: Vec<i64> = nexus.store().gates().unwrap().into_iter().map(|gate| gate.id).collect();
+    assert_eq!(remaining, [kept]);
+    assert_eq!(crate::fleet::store::cached_gates(&nexus.root()).unwrap().len(), 1);
+}
+
+#[test]
+fn a_gate_held_on_another_host_reaches_the_laptop_through_the_store_and_its_issue_guard_and_is_answerable_by_its_qualified_id() {
+    let (nexus, laptop) = (host("nexus"), host("laptop"));
+    let _worker = live(&nexus, "worker");
+    let request = GateRequest { verification: false, issue: Some("north#416".into()), session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    let id = nexus.fleet.open_gate(&request).unwrap();
+    nexus.tick();
+
+    tick(&laptop.fleet, &mut nexus.store(), &laptop.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
+
+    let elsewhere = laptop.fleet.gates_elsewhere().unwrap();
+    assert_eq!(elsewhere.iter().map(|gate| gate.label()).collect::<Vec<_>>(), [format!("nexus:{id}")]);
+    assert_eq!(laptop.fleet.gated_issues().unwrap().get("north#416"), Some(&format!("nexus:{id}")));
+    assert!(nexus.fleet.gates_elsewhere().unwrap().is_empty(), "a host lists its own gates from its ledger, not from the cache");
+    laptop.fleet.answer_remote_gate(&format!("nexus:{id}"), None, 2, None, None).unwrap();
+    let spooled = crate::fleet::store::Spool::at(&laptop.root()).pending().unwrap();
+    assert_eq!(spooled.iter().map(|row| (row.kind, row.to.as_str(), row.answer)).collect::<Vec<_>>(), [(RowKind::GateAnswer, "worker", Some(AnswerPayload { gate: id, number: 2 }))]);
+}
+
+#[test]
+fn a_cached_gate_whose_host_stopped_ticking_a_day_past_its_default_no_longer_holds_its_issue() {
+    let laptop = host("laptop");
+    let request = GateRequest { verification: false, issue: Some("north#416".into()), session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    let at = |opened_ms: u64| crate::fleet::store::GateRow { host: "nexus".into(), id: 4, request: request.clone(), opened_ms };
+    let now = crate::fleet::runtime::now_ms();
+    let table = |opened_ms: u64| FleetTable { sessions: Vec::new(), gates: vec![at(opened_ms)] };
+
+    laptop.fleet.cache_table(&table(now - 3_600_000)).unwrap();
+    assert_eq!(laptop.fleet.gated_issues().unwrap().get("north#416"), Some(&"nexus:4".to_owned()));
+
+    laptop.fleet.cache_table(&table(now - 2 * 24 * 3_600_000)).unwrap();
+    assert!(laptop.fleet.gated_issues().unwrap().is_empty());
+    assert!(laptop.fleet.gates_elsewhere().unwrap().is_empty());
 }

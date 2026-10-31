@@ -7,7 +7,7 @@ use crate::error::NorthResult;
 use crate::fleet::runtime::binary;
 use crate::fleet::ssh::{SSH_WAIT, over_ssh_via};
 
-use super::{Addressee, FleetRow, SessionRow, Spooled};
+use super::{Addressee, FleetRow, FleetTable, GateRow, SessionRow, Spooled};
 
 const DELIVER_WAIT: Duration = Duration::from_secs(40);
 
@@ -16,6 +16,8 @@ pub struct FarRegistry {
     pub host: String,
     pub sessions: Vec<SessionRow>,
     pub addressees: Vec<Addressee>,
+    #[serde(default)]
+    pub gates: Vec<GateRow>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -62,7 +64,7 @@ pub trait FarSpools: Sync {
     fn take(&self, ssh: &str) -> NorthResult<Pull>;
     fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()>;
     fn set_aside(&self, ssh: &str, ids: &[String]) -> NorthResult<()>;
-    fn cache(&self, ssh: &str, sessions: &[SessionRow]) -> NorthResult<()>;
+    fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()>;
     fn registry(&self, ssh: &str) -> NorthResult<FarRegistry>;
     fn deliver(&self, ssh: &str, rows: &[FleetRow]) -> NorthResult<Vec<HandedRow>>;
 }
@@ -100,8 +102,8 @@ impl FarSpools for OverSsh {
         set_aside_with(|words, input| self.run(ssh, words, input), ids)
     }
 
-    fn cache(&self, ssh: &str, sessions: &[SessionRow]) -> NorthResult<()> {
-        self.run(ssh, &["fleet", "spool", "cache"], &serde_json::to_vec(sessions)?).map(drop)
+    fn cache(&self, ssh: &str, table: &FleetTable) -> NorthResult<()> {
+        self.run(ssh, &["fleet", "spool", "cache"], &serde_json::to_vec(table)?).map(drop)
     }
 
     fn registry(&self, ssh: &str) -> NorthResult<FarRegistry> {

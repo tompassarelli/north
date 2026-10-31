@@ -75,7 +75,9 @@ pub fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
         let session = gate["session"].as_str().unwrap_or_default();
         let repo = fleets::named_items(session).first().map_or_else(String::new, |item| item.repo.clone());
         let question = gate["question"].as_str().unwrap_or_default();
-        let why = format!("open north gate {} on {host} from {session}, for Tom", gate["id"]);
+        let held_on = gate["host"].as_str().unwrap_or(host);
+        let label = gate["id"].as_str().map_or_else(|| format!("{held_on}:{}", gate["id"]), str::to_owned);
+        let why = format!("open north gate {label} on {held_on} from {session}, for Tom");
         let mut items: Vec<IssueRef> = issues::references(question, &repo).into_iter().filter(|item| !item.repo.is_empty()).chain(fleets::named_items(session)).chain(gate["issue"].as_str().and_then(IssueRef::parse)).collect();
         items.sort();
         items.dedup();
@@ -303,7 +305,10 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let records = record::read(&record::directory());
     holds.extend(claims(&cfg, &here, &fleets::exited_names(&fleet_lists), &mut notes));
     holds.extend(record::holds(&records, at, &unspent(laptop.as_deref(), &records, at, &mut notes), &fleets::gone(&fleet_lists, &fleets::copy_times(&record::directory(), "fleet", laptop.as_deref()), &records, at)));
-    holds.extend(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)));
+    let mut held: Vec<(IssueRef, String)> = gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)).collect();
+    held.sort();
+    held.dedup();
+    holds.extend(held);
     let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
     let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
     let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();

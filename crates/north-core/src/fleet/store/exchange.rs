@@ -6,7 +6,7 @@ use crate::foundation::clock::Timestamp;
 
 use super::schema::sql;
 use super::waits::{self, WaitKey, WaitRow};
-use super::{FleetRow, RowKind, SessionRow, Store};
+use super::{FleetRow, GateRow, RowKind, SessionRow, Store};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Addressee {
@@ -26,6 +26,8 @@ pub struct Exchange {
     pub rows: Vec<FleetRow>,
     pub sessions: Vec<SessionRow>,
     pub addressees: Vec<Addressee>,
+    #[serde(default)]
+    pub gates: Vec<GateRow>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -33,6 +35,8 @@ pub struct Exchanged {
     pub held_elsewhere: Vec<String>,
     pub sessions: Vec<SessionRow>,
     pub rows: Vec<FleetRow>,
+    #[serde(default)]
+    pub gates: Vec<GateRow>,
     pub waits: Vec<WaitRow>,
     pub now: String,
 }
@@ -46,9 +50,10 @@ impl LedgerHost for Store {
     fn exchange(&mut self, exchange: &Exchange) -> NorthResult<Exchanged> {
         self.put(&exchange.rows)?;
         let held_elsewhere = self.publish(&exchange.host, &exchange.sessions)?;
+        self.publish_gates(&exchange.host, &exchange.gates)?;
         let names: Vec<&str> = exchange.addressees.iter().map(|addressee| addressee.name.as_str()).collect();
         let waits = waits::all(&self.db)?.into_iter().filter(|wait| names.contains(&wait.session.as_str())).collect();
-        Ok(Exchanged { held_elsewhere, sessions: self.sessions()?, rows: addressed(&self.db, &exchange.addressees)?, waits, now: Timestamp::now().iso() })
+        Ok(Exchanged { held_elsewhere, sessions: self.sessions()?, gates: self.gates()?, rows: addressed(&self.db, &exchange.addressees)?, waits, now: Timestamp::now().iso() })
     }
 
     fn settle(&mut self, waits: &[WaitKey]) -> NorthResult<()> {

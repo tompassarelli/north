@@ -1,9 +1,13 @@
 use crate::error::NorthResult;
+use crate::fleet::gates::{self, Gate};
 use crate::fleet::model::SessionRecord;
-use crate::fleet::store::{SessionRow, cache_sessions, cached_sessions};
+use crate::fleet::runtime::now_ms;
+use crate::fleet::store::{FleetTable, GateRow, SessionRow, cache_sessions, cache_table, cached_gates, cached_sessions};
 use crate::foundation::clock::Timestamp;
 
 use super::Fleet;
+
+const STALE_AFTER_DEFAULT_MS: u64 = 24 * 60 * 60 * 1000;
 
 impl Fleet {
     pub fn host(&self) -> &str {
@@ -12,6 +16,19 @@ impl Fleet {
 
     pub fn cache_sessions(&self, rows: &[SessionRow]) -> NorthResult<()> {
         cache_sessions(&self.root, rows)
+    }
+
+    pub fn cache_table(&self, table: &FleetTable) -> NorthResult<()> {
+        cache_table(&self.root, table)
+    }
+
+    pub fn open_gate_rows(&self) -> NorthResult<Vec<GateRow>> {
+        Ok(gates::decisions(self.ledger.gates(u64::MAX)?).iter().filter(|gate| Gate::is_open(gate)).map(|gate| GateRow::open(&self.host, gate)).collect())
+    }
+
+    pub fn gates_elsewhere(&self) -> NorthResult<Vec<GateRow>> {
+        let now = now_ms();
+        Ok(cached_gates(&self.root)?.into_iter().filter(|gate| gate.host != self.host && now < gate.default_at_ms().saturating_add(STALE_AFTER_DEFAULT_MS)).collect())
     }
 
     pub fn cached_sessions(&self) -> NorthResult<Option<Vec<SessionRow>>> {

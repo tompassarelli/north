@@ -42,10 +42,11 @@ impl Fleet {
         gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), deliver)
     }
 
-    /// Each issue an open decision gate here decides, with the gate's id.
+    /// Each issue an open decision gate decides, here or on another host as the cached fleet table holds it, with the gate's id.
     pub fn gated_issues(&self) -> NorthResult<BTreeMap<String, String>> {
         let here = gates::decisions(self.ledger.gates(u64::MAX)?).into_iter().filter_map(|gate| Some((gate.request.issue?, gate.id.to_string())));
-        Ok(here.collect())
+        let elsewhere = self.gates_elsewhere()?.into_iter().filter_map(|gate| Some((gate.request.issue.clone()?, gate.label())));
+        Ok(elsewhere.chain(here).collect())
     }
 
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {

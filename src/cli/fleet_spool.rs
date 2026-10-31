@@ -6,12 +6,12 @@ use std::time::{Duration, Instant};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::{new_uuid, now_ms};
-use crate::fleet::store::{FleetRow, JOB_LEASE_SECS, JobPayload, RowKind, SessionRow};
+use crate::fleet::store::{FleetRow, FleetTable, JOB_LEASE_SECS, JobPayload, RowKind};
 use crate::fleet::tick;
 
 const DELIVER_BUDGET: Duration = Duration::from_secs(25);
 
-const USAGE: &str = "Usage: north fleet spool take | north fleet spool drop < IDS | north fleet spool set-aside < IDS | north fleet spool cache < SESSIONS_JSON | north fleet spool registry | north fleet spool deliver < ROWS_JSON | north fleet spool job start SESSION KEY TEXT | north fleet spool job beat SESSION KEY | north fleet spool job beats SESSION KEY EVERY_SECS PID | north fleet spool job exit SESSION KEY CODE TEXT";
+const USAGE: &str = "Usage: north fleet spool take | north fleet spool drop < IDS | north fleet spool set-aside < IDS | north fleet spool cache < TABLE_JSON | north fleet spool registry | north fleet spool deliver < ROWS_JSON | north fleet spool job start SESSION KEY TEXT | north fleet spool job beat SESSION KEY | north fleet spool job beats SESSION KEY EVERY_SECS PID | north fleet spool job exit SESSION KEY CODE TEXT";
 
 pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let spool = fleet.spool();
@@ -19,7 +19,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         ["take"] => println!("{}", serde_json::to_string(&spool.listing()?)?),
         ["drop"] => spool.withdraw_all(&ids_on_stdin()?)?,
         ["set-aside"] => spool.set_aside(&ids_on_stdin()?)?,
-        ["cache"] => fleet.cache_sessions(&serde_json::from_reader::<_, Vec<SessionRow>>(std::io::stdin())?)?,
+        ["cache"] => fleet.cache_table(&serde_json::from_reader::<_, FleetTable>(std::io::stdin())?)?,
         ["registry"] => println!("{}", serde_json::to_string(&tick::registry(fleet, &fleet.sessions()?, now_ms())?)?),
         ["deliver"] => println!("{}", serde_json::to_string(&tick::hand_in_all(fleet, &serde_json::from_reader::<_, Vec<FleetRow>>(std::io::stdin())?, Instant::now(), DELIVER_BUDGET))?),
         ["job", "start", session, key, text] => spool_job(fleet, RowKind::JobStart, session, key, None, text).map(drop)?,

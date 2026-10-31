@@ -8,6 +8,7 @@ use crate::foundation::clock::Timestamp;
 
 mod cache;
 mod exchange;
+mod gates;
 mod remote;
 mod registrar;
 mod row;
@@ -16,7 +17,8 @@ mod sessions;
 mod spool;
 mod waits;
 
-pub use cache::{cache_sessions, cached_sessions};
+pub use cache::{FleetTable, cache_sessions, cache_table, cached_gates, cached_sessions};
+pub use gates::GateRow;
 pub use exchange::{Addressee, Exchange, Exchanged, LedgerHost};
 pub use remote::{FarRegistry, FarSpools, Handed, HandedRow, OverSsh, Pull, Undecodable, UnknownKind, drop_with, set_aside_with, take_with};
 pub use row::{AnswerPayload, ControlVerb, FleetRow, JobPayload, RowKind};
@@ -40,6 +42,7 @@ impl Store {
         db.busy_timeout(BUSY).map_err(sql)?;
         schema::ensure(&mut db)?;
         waits::ensure(&db)?;
+        gates::ensure(&db)?;
         Ok(Self { db })
     }
 
@@ -64,6 +67,16 @@ impl Store {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         sessions::register(&tx, row, claim)?;
         tx.commit().map_err(sql)
+    }
+
+    pub fn publish_gates(&mut self, host: &str, rows: &[GateRow]) -> NorthResult<()> {
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
+        gates::publish(&tx, host, rows)?;
+        tx.commit().map_err(sql)
+    }
+
+    pub fn gates(&self) -> NorthResult<Vec<GateRow>> {
+        gates::all(&self.db)
     }
 
     pub fn publish(&mut self, host: &str, rows: &[SessionRow]) -> NorthResult<Vec<String>> {

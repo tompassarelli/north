@@ -6,7 +6,7 @@ use crate::foundation::clock::Timestamp;
 use super::invariant::{self, Facts, Kept};
 use super::model::SessionRecord;
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, Handed, HandedRow, LedgerHost, SessionRow, Undecodable, UnknownKind, WaitKey, WaitRow};
+use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LedgerHost, Undecodable, UnknownKind, WaitKey, WaitRow};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -102,13 +102,14 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
     let mut ticked = Ticked::default();
     let taken = take_far(fleet, &records, pulls, &mut rows, &mut ticked);
     let pulled = rows.len() - spooled.len();
-    let FarRegistry { sessions, addressees, .. } = registry(fleet, &records, now_ms)?;
-    let exchange = Exchange { rows, host: fleet.host().to_owned(), sessions, addressees };
+    let FarRegistry { sessions, addressees, gates, .. } = registry(fleet, &records, now_ms)?;
+    let exchange = Exchange { rows, host: fleet.host().to_owned(), sessions, addressees, gates };
     let exchanged = ledger.exchange(&exchange)?;
     for id in &spooled {
         spool.withdraw(id)?;
     }
-    fleet.cache_sessions(&exchanged.sessions)?;
+    let table = FleetTable { sessions: exchanged.sessions.clone(), gates: exchanged.gates.clone() };
+    fleet.cache_table(&table)?;
     let started = Instant::now();
     ticked.flushed = spooled.len();
     ticked.pulled = pulled;
@@ -116,7 +117,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
     let here: Vec<FleetRow> = exchanged.rows.iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).cloned().collect();
     ticked.note(hand_in_all(fleet, &here, started, budget));
     ticked.drop_failed = drop_far(pulls, &taken);
-    ticked.uncached = cache_far(pulls, &taken, &exchanged.sessions);
+    ticked.uncached = cache_far(pulls, &taken, &table);
     deliver_far(ledger, pulls, &taken, &mut ticked, started, budget);
     let probed = probes.settle(fleet);
     ticked.probed = probed.lines;
@@ -143,7 +144,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
 
 pub fn registry(fleet: &Fleet, records: &[SessionRecord], now_ms: u64) -> NorthResult<FarRegistry> {
     let floor = now_ms.saturating_sub(u64::try_from(RETENTION.as_millis()).unwrap_or(u64::MAX));
-    Ok(FarRegistry { host: fleet.host().to_owned(), sessions: records.iter().map(|record| fleet.table_row(record, now_ms)).collect(), addressees: records.iter().map(|record| addressee(fleet, record, floor)).collect::<NorthResult<_>>()? })
+    Ok(FarRegistry { host: fleet.host().to_owned(), sessions: records.iter().map(|record| fleet.table_row(record, now_ms)).collect(), addressees: records.iter().map(|record| addressee(fleet, record, floor)).collect::<NorthResult<_>>()?, gates: fleet.open_gate_rows()? })
 }
 
 pub fn hand_in_all(fleet: &Fleet, rows: &[FleetRow], started: Instant, budget: Duration) -> Vec<HandedRow> {
@@ -171,11 +172,11 @@ fn deliver_far(ledger: &mut dyn LedgerHost, pulls: &Pulls, taken: &[Taken], tick
             ticked.far_failed.push((name, "deferred: the tick spent its budget".into()));
             continue;
         }
-        let delivered = registry.and_then(|FarRegistry { host, sessions, addressees }| {
+        let delivered = registry.and_then(|FarRegistry { host, sessions, addressees, gates }| {
             if host.is_empty() {
                 return Ok(Vec::new());
             }
-            let exchanged = ledger.exchange(&Exchange { rows: Vec::new(), host, sessions, addressees })?;
+            let exchanged = ledger.exchange(&Exchange { rows: Vec::new(), host, sessions, addressees, gates })?;
             let rows: Vec<FleetRow> = exchanged.rows.into_iter().filter(|row| !exchanged.held_elsewhere.contains(&row.to)).collect();
             if rows.is_empty() { Ok(Vec::new()) } else { pulls.spools.deliver(&taken.host.ssh, &rows) }
         });
@@ -241,8 +242,8 @@ fn drop_far(pulls: &Pulls, taken: &[Taken]) -> Vec<(String, String)> {
     held.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
 }
 
-fn cache_far(pulls: &Pulls, taken: &[Taken], sessions: &[SessionRow]) -> Vec<(String, String)> {
-    let answers = in_parallel(taken, |taken| pulls.spools.cache(&taken.host.ssh, sessions));
+fn cache_far(pulls: &Pulls, taken: &[Taken], table: &FleetTable) -> Vec<(String, String)> {
+    let answers = in_parallel(taken, |taken| pulls.spools.cache(&taken.host.ssh, table));
     taken.iter().zip(answers).filter_map(|(taken, answer)| answer.err().map(|error| (taken.host.name.clone(), error.user_message()))).collect()
 }
 

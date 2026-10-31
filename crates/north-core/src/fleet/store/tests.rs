@@ -421,3 +421,36 @@ fn a_session_gone_from_its_hosts_registry_loses_its_fleet_sessions_row_so_its_na
     let names: Vec<String> = store.sessions().unwrap().into_iter().map(|row| row.name).collect();
     assert_eq!(names, ["far", "kept"]);
 }
+
+fn gate_row(host: &str, id: i64, issue: Option<&str>) -> GateRow {
+    let request = crate::fleet::gates::GateRequest { verification: false, issue: issue.map(str::to_owned), session: "probe".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+    GateRow { host: host.into(), id, request, opened_ms: 1_793_000_000_000 }
+}
+
+#[test]
+fn a_hosts_published_gates_replace_its_earlier_ones_so_a_closed_gate_disappears_and_other_hosts_stay() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let exchange = |host: &str, gates: Vec<GateRow>| Exchange { host: host.into(), gates, ..Exchange::default() };
+
+    store.exchange(&exchange("nexus", vec![gate_row("nexus", 4, Some("north#416")), gate_row("nexus", 5, None)])).unwrap();
+    store.exchange(&exchange("gex45", vec![gate_row("gex45", 1, None)])).unwrap();
+    let closed = store.exchange(&exchange("nexus", vec![gate_row("nexus", 5, None)])).unwrap();
+
+    let held: Vec<(String, i64)> = closed.gates.iter().map(|gate| (gate.host.clone(), gate.id)).collect();
+    assert_eq!(held, [("gex45".to_owned(), 1), ("nexus".to_owned(), 5)]);
+    store.exchange(&exchange("nexus", vec![gate_row("gex45", 9, None)])).unwrap();
+    assert_eq!(store.gates().unwrap().iter().filter(|gate| gate.host == "nexus").count(), 0, "a host publishes only its own gates");
+}
+
+#[test]
+fn the_cached_fleet_table_round_trips_its_gates_and_a_host_without_one_knows_none() {
+    let root = tempfile::tempdir().unwrap();
+    assert_eq!(cached_gates(root.path()).unwrap(), []);
+
+    let table = FleetTable { sessions: vec![session("sc-1", "nexus", "working")], gates: vec![gate_row("nexus", 4, None)] };
+    cache_table(root.path(), &table).unwrap();
+
+    assert_eq!(cached_gates(root.path()).unwrap(), table.gates);
+    assert_eq!(cached_sessions(root.path()).unwrap(), Some(table.sessions));
+}

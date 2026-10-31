@@ -6,6 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{Decision, Gate, GateRequest, due};
 use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
+use crate::fleet::store::GateRow;
 use crate::ops::dispatch::IssueRef;
 
 const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
@@ -28,7 +29,6 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>, session: Option<&str>) -> NorthResult<()> {
     let caller = fleet.caller();
     if id.contains(':') {
-        let session = session.ok_or_else(|| NorthError::Usage(format!("a gate on another host needs the session it belongs to: north gate answer {id} {number} --session NAME")))?;
         println!("{}", fleet.answer_remote_gate(id, session, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
         return Ok(());
     }
@@ -97,9 +97,13 @@ fn duration_ms(text: &str) -> Option<u64> {
 
 fn list(fleet: &Fleet, json: bool) -> NorthResult<()> {
     let gates = fleet.digest(0)?.gates;
+    let elsewhere = fleet.gates_elsewhere()?;
     if json {
-        println!("{}", Value::Array(gates.iter().map(gate_json).collect()));
+        println!("{}", Value::Array(listed(fleet.host(), &gates, &elsewhere)));
         return Ok(());
+    }
+    for gate in &elsewhere {
+        println!("{}\t{}\t{}\topen", gate.label(), gate.request.session, gate.request.question);
     }
     for gate in &gates {
         let state = gate.closure.as_ref().map_or_else(|| "open".to_owned(), |closure| format!("closed by {}: {}", closure.by.label(), closure.answer));
@@ -108,8 +112,13 @@ fn list(fleet: &Fleet, json: bool) -> NorthResult<()> {
     Ok(())
 }
 
-fn gate_json(gate: &Gate) -> Value {
+fn listed(host: &str, gates: &[Gate], elsewhere: &[GateRow]) -> Vec<Value> {
+    gates.iter().map(|gate| gate_json(gate, host)).chain(elsewhere.iter().map(row_json)).collect()
+}
+
+fn gate_json(gate: &Gate, host: &str) -> Value {
     json!({
+        "host": host,
         "id": gate.id,
         "session": gate.request.session,
         "question": gate.request.question,
@@ -122,6 +131,24 @@ fn gate_json(gate: &Gate) -> Value {
         "answer": gate.closure.as_ref().map(|closure| &closure.answer),
         "answered_by": gate.closure.as_ref().map(|closure| closure.by.label()),
         "closed_ms": gate.closure.as_ref().map(|closure| closure.closed_ms),
+    })
+}
+
+fn row_json(gate: &GateRow) -> Value {
+    json!({
+        "host": gate.host,
+        "id": gate.label(),
+        "session": gate.request.session,
+        "question": gate.request.question,
+        "issue": gate.request.issue,
+        "options": gate.request.options,
+        "recommend": gate.request.recommend,
+        "default": gate.request.default,
+        "opened_ms": gate.opened_ms,
+        "default_at_ms": gate.default_at_ms(),
+        "answer": null,
+        "answered_by": null,
+        "closed_ms": null,
     })
 }
 
@@ -142,6 +169,19 @@ fn await_default(fleet: &Fleet, id: i64) -> NorthResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_list_carries_this_hosts_gates_beside_the_open_gates_other_hosts_hold_with_their_answerable_ids() {
+        let request = |session: &str, issue: Option<&str>| GateRequest { verification: false, issue: issue.map(str::to_owned), session: session.into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], recommend: 1, default: 2, default_after_ms: 600_000 };
+        let mine = Gate { id: 7, request: request("proxy", None), opened_ms: 1_000, closure: None };
+        let theirs = GateRow { host: "nexus".into(), id: 4, request: request("fdl-probe", Some("north#416")), opened_ms: 2_000 };
+
+        let rows = listed("laptop", &[mine], &[theirs]);
+
+        let seen: Vec<(&str, String, &str)> = rows.iter().map(|row| (row["host"].as_str().unwrap(), row["id"].to_string(), row["session"].as_str().unwrap())).collect();
+        assert_eq!(seen, [("laptop", "7".to_owned(), "proxy"), ("nexus", "\"nexus:4\"".to_owned(), "fdl-probe")]);
+        assert_eq!((rows[1]["issue"].as_str(), rows[1]["default_at_ms"].as_u64(), rows[1]["closed_ms"].is_null()), (Some("north#416"), Some(602_000), true));
+    }
 
     #[test]
     fn open_reads_repeated_options_and_a_unit_duration() {

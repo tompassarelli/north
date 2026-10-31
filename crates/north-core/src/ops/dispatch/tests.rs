@@ -383,12 +383,14 @@ fn an_open_gate_on_any_host_holds_each_issue_it_names_or_decides() {
         {"id": 56, "session": "proxy", "question": "smashcraft#2 Hive upload is blocked again; see wisp#39 too", "closed_ms": null},
         {"id": 27, "session": "sc-293", "question": "Melee parity ledger (smashcraft #293)", "closed_ms": null},
         {"id": 130, "session": "proxy", "question": "How should Kael'thas come back from 82%?", "issue": "tompassarelli/smashcraft#764", "closed_ms": null},
-        {"id": 9, "session": "sc-300", "question": "Answered smashcraft#301?", "closed_ms": 1000}
+        {"id": 9, "session": "sc-300", "question": "Answered smashcraft#301?", "closed_ms": 1000},
+        {"id": "nexus:4", "host": "nexus", "session": "probe", "question": "Rent it?", "issue": "north#416", "closed_ms": null}
     ]);
     let rows = super::survey::gate_rows(&listing, "whiterabbit");
     let items: Vec<String> = rows.iter().map(|(item, _)| item.to_string()).collect();
-    assert_eq!(items, ["smashcraft#342", "smashcraft#2", "wisp#39", "smashcraft#293", "smashcraft#764"], "a closed gate holds nothing, and the asking session's name and the gate's --issue count");
-    assert_eq!(rows[1].1, "open north gate 56 on whiterabbit from proxy, for Tom");
+    assert_eq!(items, ["smashcraft#342", "smashcraft#2", "wisp#39", "smashcraft#293", "smashcraft#764", "north#416"], "a closed gate holds nothing, and the asking session's name and the gate's --issue count");
+    assert_eq!(rows[1].1, "open north gate whiterabbit:56 on whiterabbit from proxy, for Tom");
+    assert_eq!(rows[5].1, "open north gate nexus:4 on nexus from probe, for Tom");
 }
 
 #[test]

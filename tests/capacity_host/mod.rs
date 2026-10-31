@@ -5,8 +5,38 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus};
+use std::process::{Child, Command, ExitStatus, Output};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+static EXEC: Mutex<()> = Mutex::new(());
+
+pub fn exclusive() -> MutexGuard<'static, ()> {
+    EXEC.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub trait Exclusive {
+    fn spawn_exclusive(&mut self) -> std::io::Result<Child>;
+    fn status_exclusive(&mut self) -> std::io::Result<ExitStatus>;
+    fn output_exclusive(&mut self) -> std::io::Result<Output>;
+}
+
+impl Exclusive for Command {
+    fn spawn_exclusive(&mut self) -> std::io::Result<Child> {
+        let _forking = exclusive();
+        self.spawn()
+    }
+
+    fn status_exclusive(&mut self) -> std::io::Result<ExitStatus> {
+        let mut child = self.spawn_exclusive()?;
+        child.wait()
+    }
+
+    fn output_exclusive(&mut self) -> std::io::Result<Output> {
+        self.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        self.spawn_exclusive()?.wait_with_output()
+    }
+}
 
 const SCOPE_SYSTEMD_RUN: &str = "#!/bin/sh
 for argument; do case $argument in --unit=*) unit=${argument#--unit=} ;; esac; done
@@ -60,6 +90,7 @@ pub struct Host {
 
 impl Host {
     pub fn new(prefix: &str, shims: &[(&str, &str)]) -> Self {
+        let _writing = exclusive();
         let scratch = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let bin = scratch.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
@@ -154,7 +185,7 @@ impl Host {
     }
 
     pub fn status(&self) -> Value {
-        let output = self.helper(&["status"]).output().unwrap();
+        let output = self.helper(&["status"]).output_exclusive().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         serde_json::from_slice(&output.stdout).unwrap()
     }
