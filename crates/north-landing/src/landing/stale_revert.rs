@@ -253,7 +253,7 @@ pub fn reverted(repo: &Path, base: &str, head: &str, lane: &str) -> Result<Vec<R
     if window.commits.is_empty() {
         return Ok(Vec::new());
     }
-    let patch = git(repo, &["diff", "-U0", "--no-color", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", base, head])?;
+    let patch = git(repo, &["diff", "-U0", "--no-color", "--find-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", base, head])?;
     let all = changes(&patch);
     let kept: BTreeSet<&str> = all.iter().flat_map(|change| change.added.iter().map(String::as_str)).collect();
     let touched: Vec<&FileChange> = all.iter().filter(|change| !change.path.is_empty() && change.removes_lines() && !change.submodule).collect();

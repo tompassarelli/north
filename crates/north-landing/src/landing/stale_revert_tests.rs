@@ -245,3 +245,38 @@ fn a_stale_squash_that_deletes_a_file_main_added_is_refused() {
     assert_eq!(shas(&found), [x.as_str()]);
     assert_eq!(found[0].files.keys().collect::<Vec<_>>(), ["port.txt"]);
 }
+
+fn move_file(root: &Path, from: &str, to: &str, message: &str, at: i64) -> String {
+    git_ok(root, &["mv", from, to]);
+    commit_staged(root, message, at)
+}
+
+#[test]
+fn a_pure_file_move_rebased_over_a_recent_edit_of_that_file_lands() {
+    let scratch = fixture();
+    let root = scratch.path();
+    git_ok(root, &["branch", "lane"]);
+    commit_at(root, "app.txt", "alpha\nbeta from x\ngamma\n", "x edits the file", START + HOUR);
+    git_ok(root, &["checkout", "-q", "lane"]);
+    let lane = move_file(root, "app.txt", "moved.txt", "lane moves the file", START + 2 * HOUR);
+    git_ok(root, &["checkout", "-q", "-B", "landed", "main"]);
+    move_file(root, "app.txt", "moved.txt", "lane rebased onto main", START + 3 * HOUR);
+    assert_eq!(reverted(root, "main", "landed", &lane).unwrap(), []);
+}
+
+#[test]
+fn a_file_move_that_also_rewrites_a_recent_commits_lines_is_refused() {
+    let scratch = fixture();
+    let root = scratch.path();
+    git_ok(root, &["branch", "lane"]);
+    let x = commit_at(root, "app.txt", "alpha\nbeta from x\ngamma\n", "x edits the file", START + HOUR);
+    git_ok(root, &["checkout", "-q", "lane"]);
+    let lane = move_file(root, "app.txt", "moved.txt", "lane moves the file", START + 2 * HOUR);
+    git_ok(root, &["checkout", "-q", "-B", "landed", "main"]);
+    git_ok(root, &["mv", "app.txt", "moved.txt"]);
+    std::fs::write(root.join("moved.txt"), "alpha\nbeta\ngamma\n").unwrap();
+    commit_staged(root, "move that takes the lane's side", START + 3 * HOUR);
+    let found = reverted(root, "main", "landed", &lane).unwrap();
+    assert_eq!(shas(&found), [x.as_str()]);
+    assert_eq!(found[0].files.keys().collect::<Vec<_>>(), ["app.txt"]);
+}
