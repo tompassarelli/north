@@ -1,9 +1,16 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::error::NorthResult;
+use crate::platform::process::run_within;
 
 use super::books::Books;
-use super::model::SessionRecord;
+use super::model::{Machine, SessionRecord};
+use super::runtime::binary;
+
+const REMOTE_LOG: &str = r#"cat "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/pushes.tsv""#;
+const REMOTE_WAIT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Push {
@@ -16,16 +23,52 @@ pub struct Push {
     pub reviewer: String,
 }
 
-pub fn observe(books: &dyn Books, record: &SessionRecord, push_log: &Path) -> NorthResult<Option<String>> {
-    let pushes = pushes(push_log);
-    let Some(push) = landing(&pushes, record) else { return Ok(None) };
+pub fn observe_among(books: &dyn Books, record: &SessionRecord, pushes: &[Push]) -> NorthResult<Option<String>> {
+    let Some(push) = landing(pushes, record) else { return Ok(None) };
     let task_ref = record.task_ref.as_deref().unwrap_or(&record.name);
     let recorded = books.record_landing(task_ref, &push.landed, push.at_ms, Some(push.at_ms.saturating_sub(record.created_ms)), Some(push.reviewer.as_str()).filter(|reviewer| !reviewer.is_empty()))?;
     Ok(recorded.then(|| push.landed.clone()))
 }
 
-pub fn landed_between(record: &SessionRecord, push_log: &Path, from_ms: u64, to_ms: u64) -> Option<String> {
-    landings_by(&pushes(push_log), &record.name, from_ms, to_ms).next_back().map(|push| push.landed.clone())
+pub fn landed_between(record: &SessionRecord, pushes: &[Push], from_ms: u64, to_ms: u64) -> Option<String> {
+    landings_by(pushes, &record.name, from_ms, to_ms).next_back().map(|push| push.landed.clone())
+}
+
+/// The pushes safe-push logged for a session: this machine's log, plus, for a session whose CLI runs on another machine, that machine's log, where its landings are written.
+pub struct PushLog {
+    here: Vec<Push>,
+    there: BTreeMap<String, Vec<Push>>,
+}
+
+impl PushLog {
+    pub fn read(log: &Path) -> Self {
+        Self { here: pushes(log), there: BTreeMap::new() }
+    }
+
+    pub fn of(&mut self, record: &SessionRecord) -> Vec<Push> {
+        let Some(machine) = &record.machine else { return self.here.clone() };
+        let remote = self.there.entry(machine.name.clone()).or_insert_with(|| remote_pushes(&binary("ssh"), machine));
+        self.here.iter().chain(remote.iter()).cloned().collect()
+    }
+}
+
+pub fn pushes_of(record: &SessionRecord, push_log: &Path) -> Vec<Push> {
+    PushLog::read(push_log).of(record)
+}
+
+pub fn remote_pushes(ssh: &Path, machine: &Machine) -> Vec<Push> {
+    let argv = ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", machine.ssh.as_str(), "--", REMOTE_LOG];
+    match run_within(&ssh.to_string_lossy(), &argv, REMOTE_WAIT) {
+        Some(output) if output.status.success() => parse(&String::from_utf8_lossy(&output.stdout)),
+        Some(output) => {
+            eprintln!("north ledger: pushes of {}: {}: {}", machine.name, output.status, String::from_utf8_lossy(&output.stderr).trim());
+            Vec::new()
+        }
+        None => {
+            eprintln!("north ledger: pushes of {}: no answer within {}s", machine.name, REMOTE_WAIT.as_secs());
+            Vec::new()
+        }
+    }
 }
 
 pub fn landings_by<'a>(pushes: &'a [Push], session: &'a str, from_ms: u64, to_ms: u64) -> impl DoubleEndedIterator<Item = &'a Push> + 'a {
@@ -43,7 +86,10 @@ fn landing<'a>(pushes: &'a [Push], record: &SessionRecord) -> Option<&'a Push> {
 }
 
 pub fn pushes(log: &Path) -> Vec<Push> {
-    let text = std::fs::read_to_string(log).unwrap_or_default();
+    parse(&std::fs::read_to_string(log).unwrap_or_default())
+}
+
+fn parse(text: &str) -> Vec<Push> {
     text.lines()
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\t').collect();
@@ -61,6 +107,10 @@ mod tests {
     use crate::fleet::books::{Landing, SessionSpend};
 
     use super::*;
+
+    fn observe(books: &dyn Books, record: &SessionRecord, push_log: &Path) -> NorthResult<Option<String>> {
+        observe_among(books, record, &pushes(push_log))
+    }
 
     type Landed = (String, String, u64, Option<String>);
 
@@ -110,8 +160,8 @@ mod tests {
         assert_eq!(observe(&books, &fixer, log.path()).unwrap(), Some("landed-on-main".into()));
         assert_eq!(observe(&books, &fixer, log.path()).unwrap(), None, "a landing already recorded is not recorded again");
         assert_eq!(observe(&books, &session("idle", None, 0), log.path()).unwrap(), None);
-        assert_eq!(landed_between(&fixer, log.path(), 1_999_500, 2_400_000), Some("landed-on-main".into()), "a landing in the turn's window is the turn's");
-        assert_eq!(landed_between(&fixer, log.path(), 2_001_000, 2_400_000), None);
+        assert_eq!(landed_between(&fixer, &pushes(log.path()), 1_999_500, 2_400_000), Some("landed-on-main".into()), "a landing in the turn's window is the turn's");
+        assert_eq!(landed_between(&fixer, &pushes(log.path()), 2_001_000, 2_400_000), None);
         assert_eq!(observe(&books, &session("other", None, 0), log.path()).unwrap(), Some("landed-by-other".into()), "a session without --task lands under its name");
         assert_eq!(
             books.0.into_inner().unwrap(),
@@ -120,5 +170,24 @@ mod tests {
                 ("other".to_owned(), "landed-by-other".to_owned(), 1_002_000, None)
             ]
         );
+    }
+
+    #[test]
+    fn a_session_running_on_another_machine_lands_from_that_machines_push_log() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = tempfile::tempdir().unwrap();
+        let remote_log = scratch.path().join("pushes.tsv");
+        std::fs::write(&remote_log, "2000\tnorth\tfix\tlane-sha\tlanded-remotely\tplaced\trev\n").unwrap();
+        let ssh = scratch.path().join("ssh");
+        std::fs::write(&ssh, format!("#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\ncat {}\n", remote_log.display())).unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let machine = Machine { name: "far".into(), ssh: "tom@far".into() };
+        let remote = remote_pushes(&ssh, &machine);
+        let books = Landings::default();
+        let placed = session("placed", Some("north#9"), 1_500_000);
+        assert_eq!(observe_among(&books, &placed, &[]).unwrap(), None, "the local log alone holds no landing of a placed session");
+        assert_eq!(observe_among(&books, &placed, &remote).unwrap(), Some("landed-remotely".into()));
+        assert!(remote_pushes(&scratch.path().join("absent"), &machine).is_empty(), "an unreachable machine adds no pushes");
     }
 }

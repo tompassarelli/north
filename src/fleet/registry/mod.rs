@@ -230,9 +230,9 @@ impl Fleet {
     }
 
     pub fn observe_landings(&self) -> NorthResult<()> {
-        let log = push_log();
+        let mut log = landings::PushLog::read(&push_log());
         for record in self.sessions()? {
-            landings::observe(self.ledger.as_ref(), &record, &log)?;
+            landings::observe_among(self.ledger.as_ref(), &record, &log.of(&record))?;
         }
         Ok(())
     }
