@@ -1,3 +1,4 @@
+pub mod activation;
 pub mod launch_critical;
 pub mod generated_policy;
 pub mod model_identity;

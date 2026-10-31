@@ -84,7 +84,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     };
     let home = std::env::var("HOME").unwrap_or_default();
     match refusal(command, &cwd, &home) {
-        Some(reason) if !crate::hook::authoring_guards_off(UNIT) => Verdict::Deny(reason),
+        Some(reason) if !crate::guard::activation::authoring_guards_off(UNIT) => Verdict::Deny(reason),
         _ => Verdict::Allow,
     }
 }

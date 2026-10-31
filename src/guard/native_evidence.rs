@@ -6,7 +6,7 @@ pub(super) const DENIAL: &str = "Native evidence runs go through `bun wisp accep
 pub(super) const QUIET_DENIAL: &str = "The quiet native lease is for timing checks only; `bun wisp accept` takes it per batch. Prefix NORTH_NATIVE_SOLO='<reason>' for a recorded exception.";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     decide_with(input, |reason, text| {

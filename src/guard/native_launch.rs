@@ -25,7 +25,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()) {
         Some(command)
             if launches_unwrapped_client(command)
-                && !crate::hook::authoring_guards_off("native-launch-guard") =>
+                && !crate::guard::activation::authoring_guards_off("native-launch-guard") =>
         {
             Verdict::Deny(REASON.into())
         }

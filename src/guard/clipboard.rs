@@ -20,7 +20,7 @@ static CLIPBOARD_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
 pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()) {
         Some(command)
-            if touches_clipboard(command) && !crate::hook::authoring_guards_off("clipboard-guard") =>
+            if touches_clipboard(command) && !crate::guard::activation::authoring_guards_off("clipboard-guard") =>
         {
             Verdict::Deny(REASON.into())
         }

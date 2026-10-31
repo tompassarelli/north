@@ -317,7 +317,7 @@ fn decide(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Verd
         .command()
         .and_then(|c| c.as_str())
         .is_none_or(str::is_empty)
-        || crate::hook::guards_off_in("north-hook", &present)
+        || crate::guard::activation::guards_off_in("north-hook", &present)
     {
         return Verdict::Allow;
     }

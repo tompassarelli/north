@@ -297,7 +297,7 @@ impl Hit {
     }
 }
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off(ID) {
+    if crate::guard::activation::authoring_guards_off(ID) {
         return Verdict::Allow;
     }
     let raw = String::from_utf8_lossy(&input.raw);
@@ -350,7 +350,7 @@ pub fn record_invalid_input(bytes: &[u8]) {
         return;
     }
     let input = data.get("tool_input").unwrap_or(&Value::Null);
-    if input.is_null() || input.is_object() || crate::hook::authoring_guards_off(ID) {
+    if input.is_null() || input.is_object() || crate::guard::activation::authoring_guards_off(ID) {
         return;
     }
     let raw = String::from_utf8_lossy(bytes);

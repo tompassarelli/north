@@ -14,7 +14,7 @@ pub(super) enum Decision {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("heavy-command-guard") {
+    if crate::guard::activation::authoring_guards_off("heavy-command-guard") {
         return Verdict::Allow;
     }
     let Some(command) = input.command().and_then(|s| s.as_str()) else {

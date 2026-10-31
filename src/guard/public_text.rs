@@ -9,7 +9,7 @@ const CONFIG_ENV: &str = "NORTH_PUBLIC_DENYLIST";
 const CONFIG_UNDER_HOME: &str = "code/south/main/privacy/public-denylist.toml";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     let Some(config) = config() else {

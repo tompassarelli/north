@@ -9,7 +9,7 @@ use transcript::{Kind, Task};
 const MONITOR_CEILING_MS: f64 = 3_600_000.0;
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     refusal(input).map_or(Verdict::Allow, Verdict::Deny)

@@ -5,7 +5,7 @@ use crate::shell::{ShellToken, basename, command, operator_tokens, strip_heredoc
 const OWNER: &str = "tompassarelli/";
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     let cwd = input.cwd().map(str::to_owned);

@@ -36,7 +36,7 @@ pub(super) enum Hit {
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()).and_then(decide) {
-        Some(hit) if !crate::hook::authoring_guards_off("session-kill-guard") => {
+        Some(hit) if !crate::guard::activation::authoring_guards_off("session-kill-guard") => {
             managed(input, &hit).map_or_else(|| Verdict::Deny(reason(&hit)), |updated| Verdict::Rewrite(updated, REWRITE_NOTE.into()))
         }
         _ => Verdict::Allow,

@@ -95,7 +95,7 @@ impl World for Live {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     decide_with(
@@ -109,7 +109,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 pub fn link(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     link_with(input, |new, blocked| {

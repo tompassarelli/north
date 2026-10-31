@@ -413,7 +413,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if !MENTIONS.iter().any(|mention| raw.contains(mention)) {
         return Verdict::Allow;
     }
-    if crate::hook::authoring_guards_off(ID) {
+    if crate::guard::activation::authoring_guards_off(ID) {
         return Verdict::Allow;
     }
     let home = std::env::var("HOME").unwrap_or_default();

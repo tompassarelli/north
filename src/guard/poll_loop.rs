@@ -9,7 +9,7 @@ const PREFIXES: &[&str] = &["exec", "command", "env", "nohup", "setsid", "nice",
 const KEYWORDS: &[&str] = &["do", "then", "else", "{", "(", "!"];
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("poll-loop-guard") {
+    if crate::guard::activation::authoring_guards_off("poll-loop-guard") {
         return Verdict::Allow;
     }
     verdict(input)

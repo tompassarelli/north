@@ -18,7 +18,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(command) = input.command().and_then(|s| s.as_str()) else {
         return Verdict::Allow;
     };
-    if !writes_to_github(command) || crate::hook::authoring_guards_off("native-item-guard") {
+    if !writes_to_github(command) || crate::guard::activation::authoring_guards_off("native-item-guard") {
         return Verdict::Allow;
     }
     let cwd = input

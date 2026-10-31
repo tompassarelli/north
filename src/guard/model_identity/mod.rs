@@ -152,7 +152,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     if !(raw.contains("model") || raw.contains("estimate-calibration")) {
         return Verdict::Allow;
     }
-    if crate::hook::authoring_guards_off(ID) {
+    if crate::guard::activation::authoring_guards_off(ID) {
         return Verdict::Allow;
     }
     let cwd = input

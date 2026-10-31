@@ -27,7 +27,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         None => std::env::current_dir().unwrap_or_default(),
     };
     let paths = source_files(input, &cwd);
-    if paths.is_empty() || crate::hook::authoring_guards_off("north-hook") {
+    if paths.is_empty() || crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     let limit = limit();

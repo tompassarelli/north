@@ -8,7 +8,7 @@ const DENIAL: &str = "No. The stash is shared by every worktree, so another sess
 static STASH: LazyLock<Regex> = LazyLock::new(|| invocation("stash", true));
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     decide(input)

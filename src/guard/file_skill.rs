@@ -29,7 +29,7 @@ pub struct Roots {
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     match roots() {
@@ -41,7 +41,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 fn roots() -> Option<Roots> {
     let get = |name: &str| std::env::var(name).ok().filter(|s| !s.is_empty());
     let home = get("HOME").unwrap_or_default();
-    let current = crate::hook::activation_paths(&get).0.parent()?.to_owned();
+    let current = crate::guard::activation::activation_paths(&get).0.parent()?.to_owned();
     let state = get("XDG_STATE_HOME").unwrap_or_else(|| format!("{home}/.local/state"));
     Some(Roots { skills: current.join("skills/shared"), seen: Path::new(&state).join("north/file-skills") })
 }

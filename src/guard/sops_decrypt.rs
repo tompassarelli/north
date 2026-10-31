@@ -16,7 +16,7 @@ const NESTING: usize = 4;
 static QUOTED_HEREDOC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"<<-?\s*['"\\]"#).unwrap());
 
 pub fn evaluate(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook") {
+    if crate::guard::activation::authoring_guards_off("north-hook") {
         return Verdict::Allow;
     }
     let Some(text) = input.command() else {

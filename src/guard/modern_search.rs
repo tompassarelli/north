@@ -24,7 +24,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(decision) = decide(command, &cwd, &home) else {
         return Verdict::Allow;
     };
-    if crate::hook::authoring_guards_off(UNIT) {
+    if crate::guard::activation::authoring_guards_off(UNIT) {
         return Verdict::Allow;
     }
     match decision {

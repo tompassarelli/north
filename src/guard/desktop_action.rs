@@ -396,7 +396,7 @@ fn restore_command(text: &str) -> String {
     )
 }
 pub fn decide(input: &HookInput) -> Verdict {
-    if crate::hook::authoring_guards_off("north-hook")
+    if crate::guard::activation::authoring_guards_off("north-hook")
         || !active()
         || !input.is_shell()
     {

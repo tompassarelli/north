@@ -50,7 +50,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
     let Some(reason) = refusal(input) else {
         return Verdict::Allow;
     };
-    if crate::hook::authoring_guards_off("worker-tier-guard") {
+    if crate::guard::activation::authoring_guards_off("worker-tier-guard") {
         return Verdict::Allow;
     }
     if input.data["tool_name"] == "Agent"
