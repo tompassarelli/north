@@ -1,5 +1,6 @@
 //! Usage readouts into the ledger, and each run's dollar cost: every rise of an account's weekly
 //! window, priced by the operator's costs.toml, split across the runs that sent requests during it.
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
 use rusqlite::{Connection, params, params_from_iter};
@@ -99,6 +100,7 @@ fn windows(db: &Connection) -> Result<Vec<(String, Vec<Reading>)>, Failure> {
     let mut query = db.prepare("SELECT provider, account, ts, used_pct, resets_at FROM usage WHERE kind = 'window' AND used_pct IS NOT NULL AND name IN (?, ?, ?)")?;
     let rows = query.query_map(COST_WINDOWS, |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, f64>(3)?, row.get::<_, Option<String>>(4)?)))?;
     let mut accounts: Vec<(String, Vec<Reading>)> = Vec::new();
+    let mut seen: HashMap<(usize, String), usize> = HashMap::new();
     for row in rows {
         let (provider, account, ts, used, resets) = row?;
         let account = match provider.as_str() {
@@ -111,9 +113,12 @@ fn windows(db: &Connection) -> Result<Vec<(String, Vec<Reading>)>, Failure> {
         });
         let reading = Reading { at: moment(&ts)?, ts, used, resets };
         let readings = &mut accounts[index].1;
-        match readings.iter_mut().find(|earlier| earlier.ts == reading.ts) {
-            Some(earlier) => *earlier = reading,
-            None => readings.push(reading),
+        match seen.entry((index, reading.ts.clone())) {
+            Entry::Occupied(at) => readings[*at.get()] = reading,
+            Entry::Vacant(slot) => {
+                slot.insert(readings.len());
+                readings.push(reading);
+            }
         }
     }
     Ok(accounts)
