@@ -2,7 +2,10 @@ Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
        safe-push [--dry-run] --tag NAME
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH]
 
-Check instruction limits and scan secrets, then push the current branch or one tag.
+Scan secrets and private values and run the landing checks, then push the current
+branch or one tag. Process gates (Test-kind and mutant proof, review patch-id,
+code-health, instruction limits, provenance, generated rewrites, CI budget) run
+after a landing on the default branch and file one issue per landed commit.
 Repository AGENTS.md: 100 lines.
 Move longer detail to CLI --help, help TOPIC, or indexed docs.
 
@@ -59,8 +62,8 @@ Generated records opt in through committed .safe-push:
       input = path/to/primary-source
 Repeat input for each exact tracked primary file. The base/head inventory union
 counts changed file blobs; private external assets are outside this guarantee.
-Rewriting over half the old rows with fewer than 5% of those files changed is
-refused. Missing enabled input authority is refused; undeclared files pass.
+Rewriting over half the old rows with fewer than 5% of those files changed, or
+missing enabled input authority, is reported after landing; undeclared files pass.
 
 Each running safe-push needs its own output log file; a second one writing to
 the same file is refused.

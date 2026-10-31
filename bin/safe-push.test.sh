@@ -237,6 +237,11 @@ real_remote_state() {
     --format='%(refname) %(objectname)' | sort
 }
 
+run_after_landing_case() {
+  run_real_case '' --after-landing "$("$real_git" -C "$real_repo" rev-parse refs/remotes/origin/main)" \
+    "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
+}
+
 run_real_case() {
   printf "%s\n" run_real_case >>"$scratch/cases"
   local race="$1"
@@ -1022,21 +1027,22 @@ PYRECORD
   "$real_git" -C "$real_repo" add .safe-push ts build-inputs typescript-toolchain.lock authored.tsv
   [ "$journey" != added-input ] || "$real_git" -C "$real_repo" add new-primary.ts
   "$real_git" -C "$real_repo" commit -qm "generated journey $journey"
-  for args_text in '--dry-run' '--dry-run --to main'; do
-    read -r -a parsed_args <<<"$args_text"
-    run_real_case '' "${parsed_args[@]}"
-    case "$journey" in
-      churn|missing|removed-authority|untracked-input|added-input|removed-input|unchanged-missing|unchanged-removed|absent-output)
-        expect_status nonzero
-        expect_output 'NOT pushed.'
-        if [ "$journey" = absent-output ]; then expect_output absent.tsv; else expect_output "$record_path"; fi
-        ;;
-      *) expect_status zero ;;
-    esac
-    [ "$(real_remote_state)" = "$remote_before" ] || fail 'generated dry-run changed origin'
-  done
+  if [ "$journey" = churn ]; then
+    run_real_case '' --dry-run --to main
+    expect_status zero
+  fi
+  run_after_landing_case
+  case "$journey" in
+    churn|missing|removed-authority|untracked-input|added-input|removed-input|unchanged-missing|unchanged-removed|absent-output)
+      expect_status nonzero
+      expect_output 'NOT pushed.'
+      if [ "$journey" = absent-output ]; then expect_output absent.tsv; else expect_output "$record_path"; fi
+      ;;
+    *) expect_status zero ;;
+  esac
+  [ "$(real_remote_state)" = "$remote_before" ] || fail 'generated check changed origin'
 done
-printf 'Generated rewrite recorded journey: PASS (both dry-run destinations, remote unchanged)\n'
+printf 'Generated rewrite recorded journey: PASS (after landing, a churning rewrite does not refuse the landing)\n'
 
 make_real_fixture provenance
 printf '| Box | Area | Done when | State |\n|---|---|---|---|\n| 9.10p | query view | the query view opens | open |\n' >"$real_repo/PLAN.md"
@@ -1061,7 +1067,7 @@ for target_case in unsourced unsourced-none unsourced-rationale sourced reworded
     sed -i 's/the 1,000-row query keystroke stays under 50 ms/a keystroke on the 1,000-row query renders under 50 ms/' "$real_repo/PLAN.md"
     "$real_git" -C "$real_repo" commit -qam 'reword query keystroke row'
   fi
-  run_real_case '' --dry-run
+  run_after_landing_case
   case "$target_case" in
     unsourced*)
       expect_status nonzero
@@ -1078,8 +1084,11 @@ printf '| 9.12p | query view | the 1,000-row query scroll stays under 40 ms | op
 run_real_case '' --dry-run
 expect_status nonzero
 expect_output 'names a native NorthThread item'
+! grep -Fq "add 'Provenance:" <<<"$case_output" || fail 'provenance still refused before landing'
+run_after_landing_case
+expect_status nonzero
 expect_output "add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer"
-printf 'Every refusing scan reports in one run: PASS (native ref and provenance together)\n'
+printf 'Native refs refuse before landing and provenance reports after it: PASS\n'
 
 make_real_fixture policy-sweep
 mkdir -p "$real_repo/agents/replay"
@@ -1157,7 +1166,7 @@ ci_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf 'new work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'new work'
 remote_before="$(real_remote_state)"
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 expect_output 'slowest job in most recent run: integration (280s); NOT pushed.'
@@ -1168,7 +1177,7 @@ printf '%s\n' "$case_output" | grep 'CI budget .*NOT pushed\.'
 printf 'prose\n' >"$real_repo/notes.md"
 "$real_git" -C "$real_repo" add notes.md
 "$real_git" -C "$real_repo" commit -qm 'markdown only'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'every changed path is Markdown'
 
@@ -1178,32 +1187,31 @@ printf 'new work\n' >>"$real_repo/content.txt"
 
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:20Z"}]}]\n' >"$ci_fixture/102.json"
 forget_run_measurements
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
-expect_output 'clean (--dry-run)'
 
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
 forget_run_measurements
 "$real_git" -C "$real_repo" commit --amend -qm 'speed up tests' -m 'CI-budget: farm-test.yml 300s -> 200s'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'CI budget farm-test.yml exemption'
 
 "$real_git" -C "$real_repo" commit --amend -qm 'speed up tests and add a test' \
   -m $'CI-budget: farm-test.yml 300s -> 200s\nTest-kind: 3 boundary'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 expect_output 'NOT pushed.'
 
 "$real_git" -C "$real_repo" commit --amend -qm 'fix red main' -m 'Main-red: 104'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'main is red at run 104'
 cp "$ci_fixture/runs.json" "$ci_fixture/runs.red.json"
 sed 's/"databaseId":104,"conclusion":"failure"/"databaseId":104,"conclusion":"success"/' \
   "$ci_fixture/runs.red.json" >"$ci_fixture/runs.json"
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 mv "$ci_fixture/runs.red.json" "$ci_fixture/runs.json"
@@ -1222,7 +1230,7 @@ jq --arg old "$ci_base" --arg new "$ci_speedup" \
 printf '[{"jobs":[{"name":"fast tests","started_at":"2026-10-11T07:00:00Z","completed_at":"2026-10-11T07:02:30Z"}]}]\n' >"$ci_fixture/107.json"
 printf 'new work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'new work after speed-up'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'measuring 1 main runs since CI-budget commit'
 mv "$ci_fixture/runs.before-speedup.json" "$ci_fixture/runs.json"
@@ -1233,33 +1241,33 @@ ci_hold_dir="$xdg_state/safe-push"
 "$real_git" -C "$real_repo" reset -q --hard "$ci_base"
 printf 'held work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'work held by an over-budget history'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 expect_output 'a recorded override opens at'
 ci_hold=$(ls "$ci_hold_dir"/ci-budget-hold-*farm-test.yml)
 echo $(( $(date +%s) - 1900 )) >"$ci_hold"
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'CI budget farm-test.yml override: median 300s > budget 240s'
 grep -q $'\tfarm-test.yml\t300\t240\t' "$ci_hold_dir/ci-budget-overrides.tsv" || fail 'override was not recorded'
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:03:20Z"}]}]\n' >"$ci_fixture/102.json"
 forget_run_measurements
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 [ ! -e "$ci_hold" ] || fail 'a passing budget left the hold in place'
 mv "$ci_fixture/102.json" "$ci_fixture/102.json.gone"
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 mv "$ci_fixture/102.json.gone" "$ci_fixture/102.json"
 printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","completed_at":"2026-10-11T00:05:00Z"}]}]\n' >"$ci_fixture/102.json"
 forget_run_measurements
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'a recorded override opens at'
 mv "$ci_fixture/runs.json" "$ci_fixture/runs.offline.json"
 echo $(( $(date +%s) - 1900 )) >"$ci_hold"
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'CI budget farm-test.yml override: gh failed to list completed main runs'
 mv "$ci_fixture/runs.offline.json" "$ci_fixture/runs.json"
@@ -1274,7 +1282,7 @@ printf '%s\t600\tpassed\tparser (580s)\n%s\t500\tfailed\tcompiler (480s)\n%s\t48
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 "$real_git" -C "$real_repo" commit --allow-empty -qm 'new work after local measurement'
 remote_before="$(real_remote_state)"
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'local:timings.tsv: median 500s > budget 447s'
 expect_output 'slowest job in most recent run: typechecker (450s); NOT pushed.'
@@ -1283,7 +1291,7 @@ printf '[ci]\n\tbudget = local:timings.tsv 447 600\n' >"$real_repo/.safe-push"
 "$real_git" -C "$real_repo" commit -qam 'soft CI budget with a ceiling'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 "$real_git" -C "$real_repo" commit --allow-empty -qm 'work over a soft CI budget'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'CI budget local:timings.tsv debt: median 500s over target 447s, under ceiling 600s'
 grep -q $'\tlocal:timings.tsv\t500\t447\t600\t' "$ci_hold_dir/ci-budget-debt.tsv" || fail 'CI budget debt was not recorded'
@@ -1291,7 +1299,7 @@ printf '[ci]\n\tbudget = local:timings.tsv 447 480\n' >"$real_repo/.safe-push"
 "$real_git" -C "$real_repo" commit -qam 'soft CI budget under the median'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 "$real_git" -C "$real_repo" commit --allow-empty -qm 'work over a CI budget ceiling'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'local:timings.tsv: median 500s > budget 447s'
 
@@ -1299,9 +1307,8 @@ make_real_fixture ci-unconfigured
 printf '[ci]\n\tbudget = farm-test.yml 240\n' >"$real_repo/.safe-push"
 "$real_git" -C "$real_repo" add .safe-push
 "$real_git" -C "$real_repo" commit -qm 'propose a budget for future landings'
-SAFE_PUSH_TEST_CI_FIXTURE="$scratch/absent-ci-fixture" run_real_case '' --dry-run
+SAFE_PUSH_TEST_CI_FIXTURE="$scratch/absent-ci-fixture" run_after_landing_case
 expect_status zero
-expect_output 'clean (--dry-run)'
 ! grep -Eq '^gh <(run|api)>' "$real_trace" || fail 'unconfigured main queried CI history'
 make_real_fixture ci-filtered
 mkdir -p "$real_repo/.github/workflows"
@@ -1312,14 +1319,14 @@ printf 'on:\n  push:\n    branches: [main]\n    paths:\n      - "src/**"\njobs: 
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 printf 'new work\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'outside the filter'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'farm-test.yml exemption — no changed path matches its push paths filter'
 mkdir -p "$real_repo/src/deep"
 printf 'code\n' >"$real_repo/src/deep/main.ts"
 "$real_git" -C "$real_repo" add src
 "$real_git" -C "$real_repo" commit -qm 'inside the filter'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_real_case '' --dry-run --to main
+SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
 
@@ -1406,7 +1413,7 @@ exec "${SAFE_PUSH_TEST_RUNTIME_BINARY:?}" "$@"
 SH
 chmod +x "$runtime_wrapper"
 SAFE_PUSH_TEST_REAL_NORTH="$runtime_wrapper" SAFE_PUSH_TEST_RUNTIME_BINARY="$real_north" \
-  SAFE_PUSH_TEST_RUNTIME_CALLS="$runtime_calls" SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE=1 \
+  SAFE_PUSH_TEST_RUNTIME_CALLS="$runtime_calls" SAFE_PUSH_TEST_REMOVE_NORTH_ON_DEP_GATE=1 \
   SAFE_PUSH_TEST_AUTOLAND_STATUS="$(printf 'success\tAutoland landed %s\thttps://example.test/success' "$test_landed_sha")" run_real_case '' --to main
 expect_status zero
 expect_output 'safe-push: landed '
@@ -1527,65 +1534,35 @@ code_health_case() {
   SAFE_PUSH_CODE_HEALTH="$code_health_stub" CODE_HEALTH_TEST_EXIT="$exit_code" \
     CODE_HEALTH_TEST_TRACE="$scratch/code-health-trace" run_real_case '' "$@"
 }
-make_real_fixture code-health-pass
-code_health_case 0 --dry-run --to main
-expect_status zero
-grep -Fxq "code-health gate $("$real_git" --git-dir="$real_remote" rev-parse main) $("$real_git" -C "$real_repo" rev-parse HEAD)" "$scratch/code-health-trace" \
-  || fail 'code-health gate was not called with the destination and head'
-make_real_fixture code-health-behind
-behind_base="$("$real_git" -C "$real_repo" rev-parse HEAD)"
-printf 'main moved\n' >"$real_repo/main-only.txt"
-"$real_git" -C "$real_repo" add main-only.txt
-"$real_git" -C "$real_repo" commit -qm 'main moves on'
-main_moved="$("$real_git" -C "$real_repo" rev-parse HEAD)"
-"$real_git" -C "$real_repo" push -q origin HEAD:main
-"$real_git" -C "$real_repo" reset -q --hard "$behind_base"
-printf 'lane\n' >"$real_repo/lane-only.txt"
-"$real_git" -C "$real_repo" add lane-only.txt
-"$real_git" -C "$real_repo" commit -qm 'lane work behind main'
-behind_head="$("$real_git" -C "$real_repo" rev-parse HEAD)"
-code_health_case 0 --to main
-expect_status zero
-! grep -Fxq "code-health gate $main_moved $behind_head" "$scratch/code-health-trace" \
-  || fail 'code-health gate charged a lane behind main with the main commits it lacks'
-grep -Fxq "code-health gate $behind_base $behind_head" "$scratch/code-health-trace" \
-  || fail 'code-health gate did not measure a lane behind main from its merge base'
-make_real_fixture code-health-debt
-remote_before="$(real_remote_state)"
+make_real_fixture code-health-landed
+code_health_base=$("$real_git" --git-dir="$real_remote" rev-parse main)
+code_health_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 code_health_case 1 --to main
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$code_health_head" ] || fail 'a code-health refusal still blocked the landing'
+[ ! -s "$scratch/code-health-trace" ] || fail 'code-health ran before the landing'
+printf 'PASS: a code-health refusal no longer blocks a landing\n'
+code_health_case 0 --after-landing "$code_health_base" "$code_health_head" "$real_fixture/report"
+expect_status zero
+grep -Fxq "code-health gate $code_health_base $code_health_head" "$scratch/code-health-trace" \
+  || fail 'after landing, code-health did not measure the landed range'
+code_health_case 1 --after-landing "$code_health_base" "$code_health_head" "$real_fixture/report"
 expect_status nonzero
 expect_output 'safe-push: ✗ code-health gate refused — NOT pushed.'
-[ ! -s "$real_trace" ] || fail 'code-health refusal reached the scan'
-[ "$(real_remote_state)" = "$remote_before" ] || fail 'code-health refusal changed origin'
-make_real_fixture code-health-before-land-checks
-"$real_git" -C "$real_repo" config --file .safe-push --add land.check 'file.txt :: printf "ran\\n" >> land-check-runs'
-"$real_git" -C "$real_repo" add .safe-push
-"$real_git" -C "$real_repo" commit -qm 'land check'
-printf 'changed\n' >"$real_repo/file.txt"
-"$real_git" -C "$real_repo" add file.txt
-"$real_git" -C "$real_repo" commit -qm 'changed input'
-code_health_case 1 --to main
-expect_status nonzero
-expect_output 'safe-push: ✗ code-health gate refused — NOT pushed.'
-[ ! -e "$real_repo/land-check-runs" ] || fail 'a code-health refusal ran the land checks first'
-printf 'PASS: a code-health refusal stops the landing before its land checks run\n'
-make_real_fixture code-health-error-unenrolled
-code_health_case 2 --dry-run --to main
+[ -s "$real_fixture/report/code-health.log" ] || fail 'a code-health failure left no report for its issue'
+code_health_case 2 --after-landing "$code_health_base" "$code_health_head" "$real_fixture/report"
 expect_status zero
 expect_output 'no structure.toml — continuing'
-make_real_fixture code-health-error-enrolled
 printf '[thresholds]\n' >"$real_repo/structure.toml"
 "$real_git" -C "$real_repo" add structure.toml
 "$real_git" -C "$real_repo" commit -qm 'enroll in code-health'
-remote_before="$(real_remote_state)"
-code_health_case 2 --to main
+enrolled_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
+code_health_case 2 --after-landing "$code_health_head" "$enrolled_head" "$real_fixture/report"
 expect_status nonzero
 expect_output 'code-health gate failed (exit 2) — fix the tool; NOT pushed.'
-[ "$(real_remote_state)" = "$remote_before" ] || fail 'code-health tool error changed origin'
-SAFE_PUSH_CODE_HEALTH="$scratch/absent-code-health" run_real_case '' --to main
+SAFE_PUSH_CODE_HEALTH="$scratch/absent-code-health" run_real_case '' --after-landing "$code_health_head" "$enrolled_head" "$real_fixture/report"
 expect_status nonzero
 expect_output 'code-health missing at'
-[ "$(real_remote_state)" = "$remote_before" ] || fail 'missing code-health changed origin'
 
 # Dry-run is not an escape hatch: a non-main branch with no --to is refused even
 # under --dry-run, leaving the remote and local tracking configuration untouched.

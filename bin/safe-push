@@ -119,7 +119,10 @@ Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
        safe-push [--dry-run] --tag NAME
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH]
 
-Check instruction limits and scan secrets, then push the current branch or one tag.
+Scan secrets and private values and run the landing checks, then push the current
+branch or one tag. Process gates (Test-kind and mutant proof, review patch-id,
+code-health, instruction limits, provenance, generated rewrites, CI budget) run
+after a landing on the default branch and file one issue per landed commit.
 Repository AGENTS.md: 100 lines.
 Move longer detail to CLI --help, help TOPIC, or indexed docs.
 
@@ -176,8 +179,8 @@ Generated records opt in through committed .safe-push:
       input = path/to/primary-source
 Repeat input for each exact tracked primary file. The base/head inventory union
 counts changed file blobs; private external assets are outside this guarantee.
-Rewriting over half the old rows with fewer than 5% of those files changed is
-refused. Missing enabled input authority is refused; undeclared files pass.
+Rewriting over half the old rows with fewer than 5% of those files changed, or
+missing enabled input authority, is reported after landing; undeclared files pass.
 
 Each running safe-push needs its own output log file; a second one writing to
 the same file is refused.
@@ -1002,9 +1005,36 @@ ci_budget_scan() {
   done <<<"$budgets"
 }
 
+code_health_gated=""
+code_health_gate() {
+  local base="$1" head="$2" code_health has_structure=0 status=0
+  [ "$code_health_gated" != "$base $head" ] || return 0
+  code_health="${SAFE_PUSH_CODE_HEALTH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/code-health}"
+  git cat-file -e "$head:structure.toml" 2>/dev/null && has_structure=1
+  if [ -x "$code_health" ]; then
+    (cd "$(git rev-parse --show-toplevel)" && "$code_health" gate "$base" "$head") || status=$?
+    case "$status" in
+      0) ;;
+      1) echo "safe-push: ✗ code-health gate refused — NOT pushed."; exit 1 ;;
+      *)
+        if [ "$has_structure" -eq 1 ]; then
+          echo "safe-push: ✗ code-health gate failed (exit $status) — fix the tool; NOT pushed."; exit 1
+        fi
+        echo "safe-push: code-health gate failed (exit $status) in a repo with no structure.toml — continuing"
+        ;;
+    esac
+  elif [ "$has_structure" -eq 1 ]; then
+    echo "safe-push: code-health missing at $code_health — refusing to push a repo with structure.toml ungated; NOT pushed."; exit 1
+  fi
+  code_health_gated="$base $head"
+}
+
 # Gates that judge process rather than whether main works run after the push; each failure is one issue, never a refusal.
-after_landing_gates=(test-kind:test_integrity_scan_test_kind review:review_scan)
+after_landing_gates=(test-kind:test_integrity_scan_test_kind review:review_scan code-health:code_health_landed
+  instruction-limits:instruction_limits_landed provenance:provenance_scan generated-rewrite:generated_rewrite_scan ci-budget:ci_budget_scan)
 test_integrity_scan_test_kind() { test_integrity_scan test-kind "$1"; }
+code_health_landed() { code_health_gate "${1%%..*}" "${1##*..}"; }
+instruction_limits_landed() { check_instruction_limits "${1##*..}"; }
 
 run_after_landing_gates() {
   local base="$1" head="$2" report="$3" entry name failed=0
@@ -1013,12 +1043,13 @@ run_after_landing_gates() {
   for entry in "${after_landing_gates[@]}"; do
     name=${entry%%:*}
     if ("${entry#*:}" "$base..$head") >"$report/$name.log" 2>&1; then
+      cat -- "$report/$name.log"
       rm -f -- "$report/$name.log"
       printf 'safe-push: after-landing gate %s passed\n' "$name"
     else
       failed=1
-      printf 'safe-push: after-landing gate %s failed:\n' "$name"
       cat -- "$report/$name.log"
+      printf 'safe-push: after-landing gate %s failed\n' "$name"
     fi
   done
   return "$failed"
@@ -1757,7 +1788,6 @@ check_candidate() {
   fi
   if run_language_gate "$base" "$head" 2>&1 | tee -a "$log" >&2 \
       && sync_dependencies >>"$log" 2>&1 \
-      && check_instruction_limits "$head" >>"$log" 2>&1 \
       && scan_range_for_native=("$base..$head") && native_ref_scan >>"$log" 2>&1 \
       && gitleaks detect --no-banner --redact --log-opts="$base..$head" >>"$log" 2>&1 \
       && denylist_scan "$base" "$head" "$to" >>"$log" 2>&1 \
@@ -2170,46 +2200,18 @@ if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] \
   fi
 fi
 
-code_health_gated=""
-code_health_gate() {
-  local base="$1" head="$2" code_health has_structure=0 status=0
-  [ "$code_health_gated" != "$base $head" ] || return 0
-  code_health="${SAFE_PUSH_CODE_HEALTH:-$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/code-health}"
-  git cat-file -e "$head:structure.toml" 2>/dev/null && has_structure=1
-  if [ -x "$code_health" ]; then
-    (cd "$(git rev-parse --show-toplevel)" && "$code_health" gate "$base" "$head") || status=$?
-    case "$status" in
-      0) ;;
-      1) echo "safe-push: ✗ code-health gate refused — NOT pushed."; exit 1 ;;
-      *)
-        if [ "$has_structure" -eq 1 ]; then
-          echo "safe-push: ✗ code-health gate failed (exit $status) — fix the tool; NOT pushed."; exit 1
-        fi
-        echo "safe-push: code-health gate failed (exit $status) in a repo with no structure.toml — continuing"
-        ;;
-    esac
-  elif [ "$has_structure" -eq 1 ]; then
-    echo "safe-push: code-health missing at $code_health — refusing to push a repo with structure.toml ungated; NOT pushed."; exit 1
-  fi
-  code_health_gated="$base $head"
-}
-
 policy_scans() {
   local branch="$1" destination="$2" range="$3" refused=0
   scan_range_for_native=("$range")
   native_ref_scan "$branch" "$destination" || refused=1
   tool_removal_scan "$range" || refused=1
   test_integrity_scan block "$range" || refused=1
-  generated_rewrite_scan "$range" || refused=1
-  provenance_scan "$range" || refused=1
   policy_sweep_scan "$range" || refused=1
   return "$refused"
 }
 
 if [ "$to_seen" -eq 1 ] && git rev-parse -q --verify "refs/remotes/origin/$to" >/dev/null 2>&1; then
   policy_scans "$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)" "$to" "refs/remotes/origin/$to..HEAD" || exit 1
-  ci_budget_scan "refs/remotes/origin/$to..HEAD" || exit 1
-  code_health_gate "$(git merge-base "refs/remotes/origin/$to" HEAD)" "$(git rev-parse HEAD)"
   stage "preamble scans"
 fi
 
@@ -2299,8 +2301,6 @@ capture_repository_state
 capture_destination_state
 run_language_gate "${destination_oid:-${absent_base:-}}" "$head_oid" || exit $?
 stage "language gate"
-check_instruction_limits "$head_oid"
-generated_rewrite_scan "${destination_oid:-${absent_base:-}}..$head_oid" || exit 1
 has_land_checks && refuse_stale_revert
 # The dependency gate and the policy, secret, deny-list and email scans read only the commits being landed, so they run beside the land checks and are reused when the lane and origin are unchanged once those pass.
 final_scans() {
@@ -2308,10 +2308,8 @@ final_scans() {
   echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
   (cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
     || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; exit 1; }
-  code_health_gate "${destination_oid:-${absent_base:-}}" "$head_oid"
   policy_scans "$branch" "$destination_branch" "$scan_range" || exit 1
   safe_push_reviewers=$(landing_reviewers "$scan_range")
-  [ "$to_seen" -eq 1 ] || [ "$destination_branch" != main ] || ci_budget_scan "$scan_range" || exit 1
   echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
   gitleaks detect --no-banner --redact --log-opts="$scan_range" \
     || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; exit 1; }
