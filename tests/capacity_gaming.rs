@@ -104,14 +104,16 @@ fn moderate_work_that_fits_passes_a_parked_heavy_ticket_the_free_share_cannot_fi
 
 fn state_no_cpus(host: &Host) {
     let queue = host.path("agent-capacity-v1/queue");
-    for entry in fs::read_dir(&queue).unwrap() {
-        let path = entry.unwrap().path();
-        let mut ticket: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        ticket.as_object_mut().unwrap().remove("requestedCpus");
-        let staged = path.with_extension("staged");
-        fs::write(&staged, ticket.to_string()).unwrap();
-        fs::rename(&staged, &path).unwrap();
-    }
+    // A waiting wrapper rewrites its own ticket under the admission lock to note its reason, so an unlocked edit can be lost.
+    host.with_admission_lock(|| {
+        for path in fs::read_dir(&queue).unwrap().map(|entry| entry.unwrap().path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).collect::<Vec<_>>() {
+            let mut ticket: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            ticket.as_object_mut().unwrap().remove("requestedCpus");
+            let staged = path.with_extension("staged");
+            fs::write(&staged, ticket.to_string()).unwrap();
+            fs::rename(&staged, &path).unwrap();
+        }
+    });
 }
 
 #[test]

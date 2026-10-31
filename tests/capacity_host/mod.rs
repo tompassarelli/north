@@ -158,6 +158,15 @@ impl Host {
         serde_json::from_slice(&output.stdout).unwrap()
     }
 
+    pub fn with_admission_lock<T>(&self, action: impl FnOnce() -> T) -> T {
+        let lock = rusqlite::Connection::open(self.path("agent-capacity-v1/admission.lock")).unwrap();
+        lock.busy_timeout(Duration::from_secs(20)).unwrap();
+        lock.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let result = action();
+        drop(lock);
+        result
+    }
+
     pub fn until(&self, what: &str, mut done: impl FnMut(&Self) -> bool) -> Instant {
         let deadline = Instant::now() + Duration::from_secs(20);
         while !done(self) {
