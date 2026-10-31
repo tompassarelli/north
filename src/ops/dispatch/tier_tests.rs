@@ -2,7 +2,7 @@ use super::plan::Cloud;
 use super::record::Record;
 use super::tests::{issue, survey};
 use super::tier::{ARM_RUNS, Evidence, History, Tier};
-use crate::ledger::closed::{ArmCell, Cell, ClosedReport};
+use crate::ledger::closed::{ArmBox, Cell, ClosedReport};
 use super::{alert, decide, effects, slots};
 use std::collections::BTreeMap;
 
@@ -178,8 +178,8 @@ fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_e
     assert_eq!(arms(&fresh), [(on.clone(), on.clone()), (off.clone(), off.clone()), (on.clone(), on.clone())], "the handoff arm is the brief's first Arm line, which the ledger records");
     let record = |handoff: &Option<String>| Record { tier: Some("worker".into()), handoff: handoff.clone(), ..haiku_try("smashcraft#9", 1.0) };
     let held = |on_runs: usize, off_runs: usize| super::handoff::Arms::new(&[vec![record(&on); on_runs], vec![record(&off); off_runs]].concat());
-    let lagging = super::survey::Survey { handoffs: held(30, 29), ..survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone()) };
-    assert_eq!(arms(&lagging), [(off.clone(), off.clone()), (None, None), (None, None)], "only the arm under 30 runs on that tier still launches");
+    let lagging = super::survey::Survey { handoffs: held(30, 28), ..survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone()) };
+    assert_eq!(arms(&lagging), [(off.clone(), off.clone()), (off.clone(), off.clone()), (on.clone(), on.clone())], "the arm under 30 runs on that tier fills first, then unpriced arms keep alternating");
     let sonnet = super::survey::Survey { handoffs: held(30, 30), ..survey(boxes("bug-known-cause"), Cloud::Closed(String::new()), hosts, accounts) };
     assert_eq!(arms(&sonnet)[0], (None, Some("sonnet-high".to_owned())), "a box on a tier arm carries that arm alone, since the ledger records only the first Arm line");
     let other = super::survey::Survey { handoffs: held(30, 30), ..survey(boxes("anim"), Cloud::Closed(String::new()), vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }], vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }]) };
@@ -191,7 +191,8 @@ fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_
     let (on, off) = ("handoff-150k", "no-handoff");
     let record = |handoff: &str| Record { tier: Some("worker".into()), handoff: Some(handoff.into()), ..haiku_try("smashcraft#9", 1.0) };
     let held = |on_runs: usize, off_runs: usize| super::handoff::Arms::new(&[vec![record(on); on_runs], vec![record(off); off_runs]].concat());
-    let costed = |on_usd: f64, off_usd: f64| ClosedReport { arms: vec![ArmCell { tier: "opus-medium".into(), arm: on.into(), closed: 5, usd: on_usd * 5.0 }, ArmCell { tier: "opus-medium".into(), arm: off.into(), closed: 5, usd: off_usd * 5.0 }], ..closed(&[]) };
+    let boxes = |arm: &'static str, usd: f64| (0..5).map(move |number| ArmBox { item: format!("north#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd });
+    let costed = |on_usd: f64, off_usd: f64| boxes(on, on_usd).chain(boxes(off, off_usd)).collect::<Vec<_>>();
     let mut cheaper_without = held(30, 30).priced(&costed(10.0, 6.0));
     assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off));
     assert_eq!(cheaper_without.pick(Tier::Opus).as_deref(), Some(off), "a settled tier keeps launching its winner");
@@ -204,9 +205,11 @@ fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_
     let mut lagging = held(30, 29).priced(&costed(10.0, 6.0));
     assert!(lagging.recommendations().is_empty());
     assert_eq!(lagging.pick(Tier::Opus).as_deref(), Some(off), "a tier short of 30 runs on an arm keeps filling it");
-    let mut unpriced = held(30, 30).priced(&closed(&[]));
+    let mut unpriced = held(30, 30).priced(&[]);
     assert!(unpriced.recommendations().is_empty());
-    assert_eq!(unpriced.pick(Tier::Opus), None, "30 runs each without a closed box on both arms holds the arms as they were");
+    assert_eq!([unpriced.pick(Tier::Opus), unpriced.pick(Tier::Opus)], [Some(on.to_owned()), Some(off.to_owned())], "30 runs each without a closed box on both arms keeps alternating them until both are priced");
+    let mut seen_twice = held(30, 30).priced(&[costed(10.0, 6.0), boxes(on, 1.0).collect()].concat());
+    assert_eq!(seen_twice.pick(Tier::Opus).as_deref(), Some(off), "a box two hosts' ledgers both hold is priced once, from the first");
     assert_eq!(held(30, 30).priced(&costed(10.0, 6.0)).pick(Tier::Sonnet).as_deref(), Some(on), "another tier's runs are its own");
 }
 

@@ -104,10 +104,12 @@ fn a_closed_box_costs_its_whole_spend_to_the_tier_and_arm_of_its_first_run() {
         armed("north#5", "", "2026-10-27T15:00:00Z", true),
     ];
     let report = summarize(&runs, &closed(&["north#1", "north#2", "north#3", "north#5"]), "2026-10-27T00:00:00Z", &PriceTable::load().unwrap());
-    let arms: Vec<(&str, &str, usize, f64)> = report.arms.iter().map(|cell| (cell.tier.as_str(), cell.arm.as_str(), cell.closed, cell.usd / cell.closed as f64)).collect();
-    assert_eq!(arms.len(), 2, "{arms:?}");
-    assert_eq!((arms[0].0, arms[0].1, arms[0].2), ("sonnet", "handoff-350k", 1));
+    let arms: Vec<(&str, &str, &str, f64)> = report.arms.iter().map(|closed| (closed.item.as_str(), closed.tier.as_str(), closed.arm.as_str(), closed.usd)).collect();
+    assert_eq!(arms.len(), 3, "{arms:?}");
+    assert_eq!((arms[0].0, arms[0].1, arms[0].2), ("north#1", "sonnet", "handoff-350k"));
     assert!((arms[0].3 - 2.0 * SONNET).abs() < 1e-9, "{arms:?}");
-    assert_eq!((arms[1].0, arms[1].1, arms[1].2), ("sonnet", "no-handoff", 2));
-    assert!((arms[1].3 - SONNET).abs() < 1e-9, "{arms:?}");
+    assert_eq!(arms[1..].iter().map(|closed| (closed.0, closed.2)).collect::<Vec<_>>(), [("north#2", "no-handoff"), ("north#3", "no-handoff")]);
+    assert!(arms[1..].iter().all(|closed| (closed.3 - SONNET).abs() < 1e-9), "{arms:?}");
+    let printed: Vec<ArmBox> = serde_json::from_value(report.json("7d")["arms"].clone()).unwrap();
+    assert_eq!(printed, report.arms, "ledger summary --json prints each arm box for another host's dispatch to price");
 }

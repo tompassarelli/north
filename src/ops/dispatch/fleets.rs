@@ -185,14 +185,20 @@ pub(crate) fn laptop(cfg: &DocumentMut, here: &str) -> Option<String> {
 /// from the copy it leaves in the dispatch record as `KIND-HOST.json`, any other host over ssh by name.
 pub(crate) fn others(cfg: &DocumentMut, here: &str, command: &[&str], kind: &str, at: f64, limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
     let laptop = laptop(cfg, here);
-    let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).filter(|name| name != here).collect();
+    let mut found: Vec<(String, Value)> = laptop.iter().filter(|name| name.as_str() != here && hosts(cfg).contains(name)).map(|host| (host.clone(), mirrored(&record::directory(), kind, host, at, notes))).collect();
+    found.extend(reached(cfg, here, command, limit, notes));
+    found
+}
+
+fn hosts(cfg: &DocumentMut) -> Vec<String> {
+    cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect()
+}
+
+pub(crate) fn reached(cfg: &DocumentMut, here: &str, command: &[&str], limit: Duration, notes: &mut Vec<String>) -> Vec<(String, Value)> {
+    let laptop = laptop(cfg, here);
     let machines = gate::machines(cfg);
     let mut found = Vec::new();
-    for host in names {
-        if laptop.as_deref() == Some(host.as_str()) {
-            found.push((host.clone(), mirrored(&record::directory(), kind, &host, at, notes)));
-            continue;
-        }
+    for host in hosts(cfg).into_iter().filter(|name| name != here && laptop.as_deref() != Some(name.as_str())) {
         let ssh = machines.iter().find(|machine| machine.name == host).map_or_else(|| host.clone(), |machine| machine.ssh.clone());
         match remote_json_within(Some(&ssh), command, limit) {
             Ok(listing) => found.push((host, listing)),

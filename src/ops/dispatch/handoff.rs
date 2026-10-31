@@ -1,8 +1,11 @@
 use super::record::Record;
 use super::tier::Tier;
 use crate::fleet::handoff::{NO_HANDOFF, arm};
+use super::fleets::{self, PROBE};
 use crate::ledger::ClosedReport;
-use std::collections::BTreeMap;
+use crate::ledger::closed::ArmBox;
+use toml_edit::DocumentMut;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const ARM_RUNS: usize = 30;
 const FAMILIES: [Tier; 3] = [Tier::Haiku, Tier::Sonnet, Tier::Opus];
@@ -51,12 +54,13 @@ impl Arms {
         arms
     }
 
-    pub(crate) fn priced(self, report: &ClosedReport) -> Self {
+    pub(crate) fn priced(self, boxes: &[ArmBox]) -> Self {
         let mut sums: BTreeMap<(Tier, String), (f64, usize)> = BTreeMap::new();
-        for cell in &report.arms {
-            if let Some(tier) = FAMILIES.into_iter().find(|tier| tier.serves(&cell.tier)) {
-                let sum = sums.entry((tier, cell.arm.clone())).or_default();
-                *sum = (sum.0 + cell.usd, sum.1 + cell.closed);
+        let mut seen = BTreeSet::new();
+        for closed in boxes.iter().filter(|closed| seen.insert(closed.item.as_str())) {
+            if let Some(tier) = FAMILIES.into_iter().find(|tier| tier.serves(&closed.tier)) {
+                let sum = sums.entry((tier, closed.arm.clone())).or_default();
+                *sum = (sum.0 + closed.usd, sum.1 + 1);
             }
         }
         Self { usd_per_closed: sums.into_iter().map(|(key, (usd, closed))| (key, usd / closed as f64)).collect(), ..self }
@@ -88,11 +92,17 @@ impl Arms {
     pub(crate) fn pick(&mut self, tier: Tier) -> Option<String> {
         let next = match self.winner(tier) {
             Some(winner) => winner.arm,
-            None => Self::labels().into_iter().filter(|label| self.runs(tier, label) < ARM_RUNS).min_by_key(|label| self.runs(tier, label))?,
+            None => Self::labels().into_iter().min_by_key(|label| (self.runs(tier, label) >= ARM_RUNS, self.runs(tier, label)))?,
         };
         *self.runs.entry((tier.name().to_owned(), next.clone())).or_default() += 1;
         Some(next)
     }
+}
+
+pub(crate) fn boxes(local: Option<&ClosedReport>, cfg: &DocumentMut, here: &str, notes: &mut Vec<String>) -> Vec<ArmBox> {
+    let remote = fleets::reached(cfg, here, &["ledger", "summary", "--since", super::tier::ARM_WINDOW, "--json"], PROBE, notes);
+    let remote = remote.into_iter().flat_map(|(_, listing)| serde_json::from_value::<Vec<ArmBox>>(listing["arms"].clone()).unwrap_or_default());
+    local.into_iter().flat_map(|report| report.arms.iter().cloned()).chain(remote).collect()
 }
 
 pub(crate) fn armed(brief: &str, handoff: &str) -> String {

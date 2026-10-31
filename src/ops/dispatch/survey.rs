@@ -7,7 +7,7 @@ use super::record;
 use super::slots::{Account, Host, PlanSize, Room};
 use super::projects::Projects;
 use super::tier::{self, Evidence, History};
-use super::handoff::Arms;
+use super::handoff::{self, Arms};
 use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
 use super::revive::Strand;
@@ -315,7 +315,7 @@ pub(crate) fn survey(roster: &Roster) -> Result<Survey, String> {
     let history = History::new(&records);
     let report = closed(&mut notes);
     let ledger = evidence_from(&tier::ARMED, report.as_ref(), &mut notes);
-    let handoffs = report.as_ref().map_or_else(|| Arms::new(&records), |report| Arms::new(&records).priced(report));
+    let handoffs = Arms::new(&records).priced(&handoff::boxes(report.as_ref(), &cfg, &here, &mut notes));
     notes.extend(handoffs.recommendations());
     let grounds = Ledger::read(&mut notes);
     let cloud = cloud(&cfg, &here, at);

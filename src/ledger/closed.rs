@@ -25,11 +25,11 @@ pub struct SpendRun {
     pub output: i64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct ArmCell {
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct ArmBox {
+    pub item: String,
     pub tier: String,
     pub arm: String,
-    pub closed: usize,
     pub usd: f64,
 }
 
@@ -85,7 +85,7 @@ fn interval(values: &mut [f64], percent: usize) -> (f64, f64) {
 #[derive(Debug, PartialEq)]
 pub struct ClosedReport {
     pub cells: Vec<Cell>,
-    pub arms: Vec<ArmCell>,
+    pub arms: Vec<ArmBox>,
     pub closed: usize,
     pub spend_usd: f64,
     pub leads_usd: f64,
@@ -131,8 +131,8 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
     }
     let staffed: HashSet<String> = runs.iter().filter(|run| run.role == WORKER && run.started.as_str() >= since).map(|run| tier_label(&run.tier)).collect();
     let mut cells: HashMap<(String, String), Cell> = HashMap::new();
-    let mut arms: HashMap<(String, String), ArmCell> = HashMap::new();
-    for runs in boxes.values_mut().filter(|runs| runs.iter().any(|run| run.landed)) {
+    let mut arms = Vec::new();
+    for (item, runs) in boxes.iter_mut().filter(|(_, runs)| runs.iter().any(|run| run.landed)) {
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let key = (tier_label(&runs[0].tier), category.to_owned());
@@ -143,16 +143,11 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         cell.box_usd.push(spent);
         cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
         if !runs[0].arm.is_empty() {
-            let key = (tier_label(&runs[0].tier), runs[0].arm.clone());
-            let arm = arms.entry(key.clone()).or_insert(ArmCell { tier: key.0, arm: key.1, closed: 0, usd: 0.0 });
-            arm.closed += 1;
-            arm.usd += spent;
+            arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent });
         }
     }
     let mut cells: Vec<Cell> = cells.into_values().collect();
     cells.sort_by(|a, b| (&a.tier, &a.category).cmp(&(&b.tier, &b.category)));
-    let mut arms: Vec<ArmCell> = arms.into_values().collect();
-    arms.sort_by(|a, b| (&a.tier, &a.arm).cmp(&(&b.tier, &b.arm)));
     let window = || runs.iter().filter(|run| run.ended.as_str() >= since);
     ClosedReport {
         closed: cells.iter().map(|cell| cell.closed).sum(),
@@ -224,6 +219,7 @@ impl ClosedReport {
             "cells": self.cells.iter().map(|cell| json!({
                 "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "usd_per_closed": cell.usd_per_closed(),
             })).collect::<Vec<_>>(),
+            "arms": self.arms,
         })
     }
 
