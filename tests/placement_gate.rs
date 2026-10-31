@@ -42,7 +42,14 @@ fn fixture(root: &Path) {
         fs::write(profile.join(".credentials.json"), "{}").unwrap();
     }
     executable(&root.join("bin/setsid"), "#!/bin/sh\nexec \"$@\"\n");
-    executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n");
+    executable(
+        &root.join("bin/systemd-run"),
+        "#!/bin/sh\ncase \" $* \" in *' --scope '*) while [ \"$1\" != -- ]; do shift; done; shift; exec \"$@\";; esac\nfor a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\nwhile [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\nshift\nmkdir -p \"$PLACEMENT_FIXTURE/units\"\nset -m\n\"$@\" < /dev/null > /dev/null 2>&1 &\necho $! > \"$PLACEMENT_FIXTURE/units/$unit\"\n",
+    );
+    executable(
+        &root.join("bin/systemctl"),
+        "#!/bin/sh\nfor a; do last=$a; done\nunit=\"$PLACEMENT_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' stop '*) [ -f \"$unit\" ] || exit 5; kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null; rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
+    );
     executable(&root.join("bin/claude"), &format!("#!/bin/sh\nprintf '%s' \"${{RAN_VIA_SSH:-}}\" > \"$PLACEMENT_FIXTURE/ran-via\"\nprintf '%s' \"${{AGENT_CAPACITY_NEED:-}}\" > \"$PLACEMENT_FIXTURE/need\"\ntee \"$PLACEMENT_FIXTURE/prompt\" | timeout 20 {} --trace fold \"$@\"\n", support::fake_claude()));
 }
 

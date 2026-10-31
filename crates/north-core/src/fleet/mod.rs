@@ -12,6 +12,7 @@ pub mod rebooted;
 pub mod receipts;
 pub mod records;
 pub mod relay;
+pub mod link;
 mod remote;
 pub mod remote_view;
 pub mod model;

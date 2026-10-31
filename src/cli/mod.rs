@@ -2,7 +2,6 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::fleet::session_host;
 use crate::{agent_catalog, contract_probe, grounding, guard, health, hook, language_gate, work_items};
 
 mod abandon_witness;
@@ -32,11 +31,13 @@ mod orders;
 mod probe_account;
 mod relay;
 mod safe_push_result;
+mod session;
 #[cfg(test)]
 mod tests;
 mod tools;
 mod worker_ledger;
 
+use session::Session;
 use tools::Tool;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -49,7 +50,7 @@ enum Command {
     Ledger(Vec<String>),
     Agents(Vec<String>),
     Work(Vec<String>),
-    SessionHost(Vec<String>),
+    Session(Session, Vec<String>),
     Tool(Tool, Vec<String>),
     LanguageGate(Vec<String>),
     Health(Vec<String>),
@@ -95,6 +96,9 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
     if let Some(tool) = Tool::named(command) {
         return Some(Command::Tool(tool, rest));
     }
+    if let Some(session) = Session::named(command) {
+        return Some(Command::Session(session, rest));
+    }
     Some(match command {
         "hook" => Command::Hook(rest),
         "threads" => Command::Threads(rest),
@@ -102,7 +106,6 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "ledger" | "task" => Command::Ledger([vec![command.to_owned()], rest].concat()),
         "orders" | "gate" => Command::Fleet([vec![command.to_owned()], rest].concat()),
         "work" => Command::Work(rest),
-        "session-host" => Command::SessionHost(rest),
         "language-gate" => Command::LanguageGate(rest),
         "health" => Command::Health(rest),
         "contract-probe" => Command::ContractProbe(rest),
@@ -147,9 +150,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Work(arguments) => in_runtime(async move {
             work_items::run(&arguments).await.map(|()| ExitCode::SUCCESS)
         }),
-        Command::SessionHost(arguments) => in_runtime(async move {
-            session_host::run(&arguments, fleet::host_watch).await.map(ExitCode::from)
-        }),
+        Command::Session(session, arguments) => in_runtime(async move { session.run(&arguments).await.map(ExitCode::from) }),
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
         Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments, tools::defines)) }),

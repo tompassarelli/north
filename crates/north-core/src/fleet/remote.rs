@@ -1,66 +1,92 @@
-//! Runs a session's provider CLI on another machine: the session host here spawns `ssh` instead of
-//! the CLI, so its socket, stream and transcript stay on this machine while the CLI and its tools run
-//! there. The other machine keeps the same home layout, so the working directory and the provider
-//! runtime are the same paths on both, while the account is the profile the policy declares for that
-//! machine, which the registry resolves before handing the spec here.
+//! Runs a session's provider CLI on another machine: the session host here runs `north
+//! session-link` instead of the CLI, so its socket, stream and transcript stay on this machine
+//! while the CLI and its tools run there. The other machine keeps the same home layout, so the
+//! working directory and the provider runtime are the same paths on both, while the account is the
+//! profile the policy declares for that machine, which the registry resolves before handing the
+//! spec here.
 //!
-//! There the CLI runs as one transient user service per session that relays the ssh input to it.
-//! When the connection closes, or the CLI exits, the service stops and kills every process it
-//! started, background tasks included, which a CLI waiting on them would otherwise keep alive.
-//! Starting a session first stops any earlier service of the same session, so a revive never runs
-//! two CLIs on one conversation.
+//! There the CLI runs as one transient user service per session, held apart from any ssh
+//! connection: it reads an input file and appends to an output file in the session's held
+//! directory, so a stalled link costs no frame and no background task, and the link reattaches.
+//! The service stops, with every process it started, when the CLI exits, when the link stops it,
+//! or after twelve hours with no link attached. Starting a session first stops any earlier service
+//! of the same session, so a revive never runs two CLIs on one conversation.
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
 use crate::error::{NorthError, NorthResult};
 
+use super::link::{Link, quote};
 use super::model::{Machine, SessionRecord};
 use super::records::record_file;
-use super::runtime::{HostSpec, binary};
+use super::runtime::{HostSpec, binary, new_uuid};
 
-const RELAY: &str = r#"{ cat; systemctl --user stop --no-block "$0"; } | { "$@"; systemctl --user stop --no-block "$0"; }"#;
+const DETACHED: Duration = Duration::from_secs(12 * 60 * 60);
+const HELD: &str = ".local/state/north/held";
+
+/// `sh -c HOLD DIR UNIT DETACHED_SECS CLI...`: the service's main process. It feeds the CLI the
+/// input file through a FIFO, records the CLI's status and stops the service once no link has been
+/// attached for DETACHED_SECS.
+const HOLD: &str = r#"d=$0 u=$1 limit=$2; shift 2
+mkfifo "$d/feed" || exit 70
+{ "$@" < "$d/feed" >> "$d/out" 2>> "$d/err"; echo $? > "$d/status"; } &
+cli=$!
+{ seen=$(date +%s); while sleep 60; do
+  if read -r p b < "$d/attach" && [ "$(cut -d' ' -f22 "/proc/$p/stat")" = "$b" ]; then seen=$(date +%s)
+  elif [ $(($(date +%s) - seen)) -ge "$limit" ]; then systemctl --user stop "$u"; fi
+done; } 2>/dev/null &
+tail -c +1 -f --pid="$cli" "$d/in" > "$d/feed"
+wait "$cli""#;
+
+/// `sh -c PRUNE HELD`: removes held directories untouched for three days whose service is gone.
+const PRUNE: &str = r#"for h in "$0"/*.service; do
+  [ -d "$h" ] && [ -z "$(find "$h" -maxdepth 1 -mmin -4320 -print -quit)" ] && ! systemctl --user -q is-active "${h##*/}" &&
+    rm -f "$h/in" "$h/out" "$h/err" "$h/status" "$h/attach" "$h/feed" "$h/nonce" && rmdir "$h"
+done"#;
 
 /// The session's host spec as it runs: here, or over ssh on the machine its record names.
 pub fn placed(spec: HostSpec, record: &SessionRecord) -> NorthResult<HostSpec> {
     match &record.machine {
         Some(_) if spec.shared => Err(NorthError::Usage(format!("{} runs one shared host per account, so it cannot run on another machine", record.provider.label()))),
-        Some(machine) => Ok(over_ssh(spec, machine)),
+        Some(machine) => over_ssh(spec, machine),
         None => Ok(spec),
     }
 }
 
-pub fn over_ssh(spec: HostSpec, machine: &Machine) -> HostSpec {
-    let unit = quote(&unit(&spec.key));
-    let mut command = format!(
-        "systemctl --user stop {unit} 2>/dev/null; cd {} && exec systemd-run --user --quiet --collect --pipe --wait --same-dir --unit={unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
+pub fn over_ssh(spec: HostSpec, machine: &Machine) -> NorthResult<HostSpec> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or_else(|| NorthError::State("HOME is not set".into()))?;
+    held_under(spec, machine, Path::new(&home))
+}
+
+pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path) -> NorthResult<HostSpec> {
+    let held = home.join(HELD);
+    let unit = unit(&spec.key);
+    let dir = held.join(&unit).to_string_lossy().into_owned();
+    let nonce = new_uuid()?;
+    let (q_unit, q_dir) = (quote(&unit), quote(&dir));
+    let mut launch = format!(
+        "sh -c {} {}; systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
+        quote(PRUNE),
+        quote(&held.to_string_lossy()),
+        quote(&nonce),
         quote(&spec.cwd.to_string_lossy())
     );
     for (key, value) in &spec.env {
-        command.push(' ');
-        command.push_str(&quote(&format!("--setenv={key}={}", value.to_string_lossy())));
+        launch.push(' ');
+        launch.push_str(&quote(&format!("--setenv={key}={}", value.to_string_lossy())));
     }
-    command.push_str(&format!(" -- sh -c {} {unit}", quote(RELAY)));
+    launch.push_str(&format!(" -- sh -c {} {q_dir} {q_unit} {}", quote(HOLD), DETACHED.as_secs()));
     for arg in &spec.argv {
-        command.push(' ');
-        command.push_str(&quote(arg));
+        launch.push(' ');
+        launch.push_str(&quote(arg));
     }
-    let argv = [
-        binary("ssh").display().to_string(),
-        "-T".into(),
-        "-o".into(),
-        "BatchMode=yes".into(),
-        "-o".into(),
-        "ServerAliveInterval=30".into(),
-        "-o".into(),
-        "ServerAliveCountMax=4".into(),
-        machine.ssh.clone(),
-        "--".into(),
-        command,
-    ];
-    HostSpec { argv: argv.into(), ..spec }
+    let link = Link { ssh: binary("ssh"), destination: machine.ssh.clone(), unit, dir, nonce, launch };
+    let argv = [vec![std::env::current_exe()?.display().to_string(), "session-link".into()], link.arguments()].concat();
+    Ok(HostSpec { argv, ..spec })
 }
 
 pub fn leave_record(record: &SessionRecord, placed: &Path) {
@@ -98,59 +124,12 @@ fn unit(key: &str) -> String {
     format!("north-fleet-{name}-{suffix}.service")
 }
 
-fn quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
-    use std::process::Command;
 
     use super::*;
-
-    #[test]
-    fn the_remote_service_receives_every_argument_and_variable_verbatim() {
-        let shims = tempfile::tempdir().unwrap();
-        let shim = |name: &str, body: &str| {
-            let path = shims.path().join(name);
-            fs::write(&path, body).unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        };
-        shim("systemctl", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SHIMS/stopped\"\n");
-        shim(
-            "systemd-run",
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$SHIMS/run\"\nset -- \"$@\" --end\nwhile [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\nshift\nwhile [ \"$1\" != --end ]; do set -- \"$@\" \"$1\"; shift; done\nshift\nexec \"$@\"\n",
-        );
-        let tricky = "it's \"quoted\" $HOME `id` \\ ; && newline\nend";
-        let spec = HostSpec {
-            key: "box one".into(),
-            shared: false,
-            argv: vec!["sh".into(), "-c".into(), r#"printf '%s|%s|%s' "$PWD" "$NORTH_REMOTE_PROBE" "$1""#.into(), "sh".into(), tricky.into()],
-            env: vec![("NORTH_REMOTE_PROBE".into(), tricky.into())],
-            env_remove: Vec::new(),
-            cwd: PathBuf::from("/"),
-        };
-        let remote = over_ssh(spec, &Machine { name: "far".into(), ssh: "tom@far".into() });
-        assert_eq!(&remote.argv[remote.argv.len() - 3..remote.argv.len() - 1], ["tom@far", "--"]);
-        let output = Command::new("sh")
-            .args(["-c", remote.argv.last().unwrap()])
-            .env("SHIMS", shims.path())
-            .env("PATH", format!("{}:{}", shims.path().display(), std::env::var("PATH").unwrap()))
-            .output()
-            .unwrap();
-        assert_eq!(String::from_utf8(output.stdout).unwrap(), format!("/|{tricky}|{tricky}"));
-        let unit = unit("box one");
-        let stopped = fs::read_to_string(shims.path().join("stopped")).unwrap();
-        let stops: Vec<&str> = stopped.lines().collect();
-        assert_eq!(stops[0], format!("--user stop {unit}"), "an earlier service of the session stops first");
-        assert_eq!(stops[1..], [format!("--user stop --no-block {unit}"), format!("--user stop --no-block {unit}")], "end of input and the CLI's exit each stop the service");
-        let run = fs::read_to_string(shims.path().join("run")).unwrap();
-        assert!(run.lines().any(|line| line == format!("--unit={unit}")), "{run}");
-        assert!(run.lines().any(|line| line == "--property=KillMode=control-group"), "{run}");
-    }
 
     #[test]
     fn a_placed_sessions_record_lands_on_its_machine_under_its_conversation() {

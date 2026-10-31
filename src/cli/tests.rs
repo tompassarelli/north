@@ -36,7 +36,7 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
                 }
                 [work, rest @ ..] if work == "work" => Some(Command::Work(rest.to_vec())),
                 [host, rest @ ..] if host == "session-host" => {
-                    Some(Command::SessionHost(rest.to_vec()))
+                    Some(Command::Session(Session::Host, rest.to_vec()))
                 }
                 [gate, rest @ ..] if gate == "dep-gate" => {
                     Some(Command::Tool(Tool::Uniform("dep-gate"), rest.to_vec()))
