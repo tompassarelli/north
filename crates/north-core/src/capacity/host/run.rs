@@ -11,6 +11,7 @@ use super::json::{Obj, field, num, round2, text};
 use super::machine::{env, lease_slice, now_ms, read_signals, read_text, scope_cgroup};
 use super::measure::{Usage, measure_scope};
 use super::policy::batch_class;
+use super::quiet_holds::{QuietHolds, quiet_owners};
 use super::request::{Create, Request, class, id, is_run};
 use super::shape::{command_shape, recorded_command};
 use super::state::{active_profile, dequeue, enqueue, exact_lease, read_leases, with_lock};
@@ -151,7 +152,7 @@ fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
     )
 }
 
-/// Batch work, and a native client or desktop start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or a quiet native session outlasts its timeout (REFUSED).
+/// Batch work, and a native client or desktop start given --wait-seconds, is held in arrival order until admitted, its --wait-seconds pass (ending in its last DEFER), or one quiet native session alone holds it past its timeout (REFUSED).
 async fn admit(root: &Path, request: &Request, create: &Create, command: &[String], host: &Host, terminations: &mut Terminations) -> Admitted {
     if !batch_class(&request.name) && request.wait_seconds.is_none() && !request.alone {
         return Admitted::Here(decision(root, request, Some(create), None, host));
@@ -165,6 +166,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
     let queued_at = now_ms();
     let ticket = wait_ticket(root, request, create);
     let mut reported = None;
+    let mut quiet = QuietHolds::default();
     loop {
         let result = decision(root, request, Some(create), Some(&ticket), host);
         let queued_seconds = round2((now_ms() - queued_at) / 1000.0);
@@ -174,7 +176,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
             dequeue(root, &ticket);
             return Admitted::Here(result);
         }
-        if reason(&result).as_deref() == Some("DEFER_NATIVE_QUIET") && create.timeout_seconds.is_some_and(|timeout| queued_seconds >= timeout as f64) {
+        if quiet.outlasts(&result.value(), now_ms(), create.timeout_seconds) {
             dequeue(root, &ticket);
             return Admitted::Here(result.put("decision", "REFUSED"));
         }
@@ -362,8 +364,7 @@ fn refusal(admitted: &Obj) -> Option<String> {
         return Some(format!("refused: pair {} is held by {holder}; free pair: {}", view["pair"], view["freePair"]));
     }
     (text(&view, "decision") == Some("REFUSED")).then(|| {
-        let owners: Vec<String> = view["quietOwners"].as_array().map_or_else(Vec::new, |owners| owners.iter().map(|owner| owner.as_str().unwrap_or_default().to_owned()).collect());
-        format!("refused after {}s: native evidence run {} is live; retry after it ends", view["queuedSeconds"], owners.join(", "))
+        format!("refused after {}s: native evidence run {} is live; retry after it ends", view["queuedSeconds"], quiet_owners(&view).join(", "))
     })
 }
 

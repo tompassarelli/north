@@ -16,6 +16,7 @@ mod json;
 mod machine;
 mod measure;
 mod policy;
+mod quiet_holds;
 mod request;
 mod run;
 mod shape;
