@@ -17,11 +17,16 @@ terminal input
     -> fleet screen projection
 ```
 
-`src/fleet/` owns sessions, delivery, decisions and the runtime boundary.
-`src/tui/fleet/` owns the terminal loop, transcript, launch form and fleet
-digest. `src/providers/` adapts provider protocols behind the fleet runtime.
+`crates/north-core/src/fleet/` owns sessions, delivery, decisions and the runtime boundary.
+`crates/north-core/src/tui/fleet/` owns the terminal loop, transcript, launch form and fleet
+digest. `crates/north-core/src/providers/` adapts provider protocols behind the fleet runtime.
 `src/cli/` wires commands and provider implementations. The run ledger records
 session outcomes and task verdicts; it is not a second session authority.
+
+The Cargo workspace has four packages: `crates/north-base` (error, foundation, platform, shell),
+`crates/north-core` (fleet, ledger, guard, threads, ops, providers, tui and the rest), `crates/north-landing`
+(landing and its gates) and the root `north` package (CLI, binaries, integration tests). A leaf edit rebuilds
+only its package and the root; see [crate split](rationale/crate-split.md).
 
 The fleet screen keeps session selection stable while state changes, shows
 transcripts and live token totals, and presents open decisions, usage and

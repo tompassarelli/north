@@ -1,6 +1,6 @@
 # Admission details
 
-Exact thresholds and output fields behind the rules in `SKILL.md`. `bun "$capacity" status` and `probe` print the live values; the helper source and `src/capacity/admission.rs` (the decision behind `north capacity admission`) own the thresholds, so change them there and not in a parallel calculator.
+Exact thresholds and output fields behind the rules in `SKILL.md`. `bun "$capacity" status` and `probe` print the live values; the helper source and `crates/north-core/src/capacity/admission.rs` (the decision behind `north capacity admission`) own the thresholds, so change them there and not in a parallel calculator.
 
 Contents:
 - Run sizing and charging

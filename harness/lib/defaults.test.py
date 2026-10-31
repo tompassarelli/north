@@ -6,7 +6,7 @@ from pathlib import Path
 root = Path(os.environ.get("DEFAULTS_ROOT") or Path(__file__).resolve().parents[2])
 registry = tomllib.loads((root / "harness/defaults.toml").read_text())
 KINDS = ("measured: ", "tom: ", "standard: ", "prior: ")
-counters = (root / "src/ops/defaults_measure/priors.rs").read_text()
+counters = (root / "crates/north-core/src/ops/defaults_measure/priors.rs").read_text()
 failures = []
 for name, entry in registry.items():
     source, fallback = str(entry.get("source", "")), str(entry.get("fallback", ""))

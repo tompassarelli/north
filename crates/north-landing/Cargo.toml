@@ -1,0 +1,23 @@
+[package]
+name = "north-landing"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+percent-encoding.workspace = true
+regex.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+time.workspace = true
+tokio.workspace = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true

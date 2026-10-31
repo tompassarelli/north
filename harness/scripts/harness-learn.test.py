@@ -38,7 +38,7 @@ class LearningCycle(unittest.TestCase):
             for part in ("harness/lib", "harness/scripts", "bin"):
                 (repo / part).mkdir(parents=True)
             registry = tomllib.loads((ROOT / "harness/defaults.toml").read_text())
-            for path in {"harness/defaults.toml", "harness/lib/defaults.test.py", "src/ops/defaults_measure/priors.rs"} | (consumers := {c for e in registry.values() for c in e["consumers"]}) | {
+            for path in {"harness/defaults.toml", "harness/lib/defaults.test.py", "crates/north-core/src/ops/defaults_measure/priors.rs"} | (consumers := {c for e in registry.values() for c in e["consumers"]}) | {
                     str(module.relative_to(ROOT)) for consumer in consumers if consumer.endswith(".rs") for module in (ROOT / consumer).parent.glob("*.rs")}:
                 (repo / path).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / path, repo / path)

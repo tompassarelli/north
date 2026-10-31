@@ -9,8 +9,8 @@
 [land]
 	workflow = land-check.yml
 	check = ** :: CARGO_TARGET_DIR=target nix develop -c env CARGO_INCREMENTAL=0 cargo run --offline --bin north -- config agents check-owners --north-root "$PWD" --south-root "$HOME/code/south/main" --nixos-root "$HOME/code/nixos-config/main" # hardcoded-repo-path:allow
-	check = src/,tests/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml,harness/scripts/cargo-tests.sh :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- bash harness/scripts/cargo-tests.sh
-	check = src/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --locked --offline -- -D warnings
+	check = src/,crates/,tests/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml,harness/scripts/cargo-tests.sh :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- bash harness/scripts/cargo-tests.sh
+	check = src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --locked --offline -- -D warnings
 	check = bin/,lib/,harness/,src/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh portable
 	check = bin/,lib/,harness/,src/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound
 	check = harness/defaults.toml,harness/skills/machine-capacity/scripts/ :: harness/skills/machine-capacity/scripts/build-machine-capacity --check

@@ -8,7 +8,7 @@ Read when staffing a `Category: tooling|infra|ci|harness` box or refreshing the 
 
 ## Brief line
 
-`src/guard/worker_tier.rs` refuses a `Category: tooling|infra|ci|harness` brief without one of these lines, so the price reaches the worker:
+`crates/north-core/src/guard/worker_tier.rs` refuses a `Category: tooling|infra|ci|harness` brief without one of these lines, so the price reaches the worker:
 
 - `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days`
 - `Payback: enables <what>; cost <M> min` for enabling work with no direct saving.

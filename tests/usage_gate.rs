@@ -5,8 +5,8 @@ use std::process::{Command, Output};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-const STATE: &str = include_str!("../src/usage/fixtures/gate_state.json");
-const POLICY: &str = include_str!("../src/router/fixtures/policy/orchestration.toml");
+const STATE: &str = include_str!("../crates/north-core/src/usage/fixtures/gate_state.json");
+const POLICY: &str = include_str!("../crates/north-core/src/router/fixtures/policy/orchestration.toml");
 const FROZEN: &str = "2026-10-28T12:00:00Z";
 const DRIVER: &str = "import datetime, runpy, sys\nwhen = sys.argv[1]\nclass Frozen(datetime.datetime):\n    @classmethod\n    def now(cls, tz=None):\n        moment = cls.fromisoformat(when)\n        return moment.astimezone(tz) if tz else moment.replace(tzinfo=None)\ndatetime.datetime = Frozen\nsys.argv = ['usage.py'] + sys.argv[2:]\nrunpy.run_path('harness/lib/usage.py', run_name='__main__')\n";
 

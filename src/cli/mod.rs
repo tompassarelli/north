@@ -111,7 +111,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
     })
 }
 
-pub(crate) fn main() -> ExitCode {
+pub fn main() -> ExitCode {
     match parse_command(env::args().skip(1)) {
         Ok(command) => dispatch(command),
         Err(error) => failure(error),

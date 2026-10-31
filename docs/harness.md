@@ -26,7 +26,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    expect `~/code/north/main` and `~/code/south/main`.
 2. Firn puts [bin/](../bin/) on `PATH`. Not verified here: the only trace in this repository is the
    `~/.local/share/north/bin` path in [harness/policy-owners.toml](../harness/policy-owners.toml) and
-   [src/agent_policy_contract/wiring.rs](../src/agent_policy_contract/wiring.rs).
+   [crates/north-core/src/agent_policy_contract/wiring.rs](../crates/north-core/src/agent_policy_contract/wiring.rs).
 3. `north runtime update` builds origin/main in a detached worktree, installs the binary and the
    commit's own tree under `~/.local/state/north/runtimes/<sha>/`, points `~/.local/state/north/current` at it and runs
    `north runtime health` (the new binary is the current runtime, with its programs and tree) and `agents sync`, each bounded to 5 minutes, rolling back if either fails.
@@ -36,7 +36,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    `north` command in [bin/north](../bin/north) launches that installed runtime, and scheduled jobs run
    harness code from `current/tree/bin`, so the code they run and the binary they call share a commit.
 4. `agents sync` publishes policy. It fast-forwards the south and north main checkouts, runs the
-   policy gate in [src/agent_config_check/](../src/agent_config_check/) (`north agent-config-check policy-gate session`),
+   policy gate in [crates/north-core/src/agent_config_check/](../crates/north-core/src/agent_config_check/) (`north agent-config-check policy-gate session`),
    then `north config agents sync` builds a new activation generation under
    `~/.local/state/north/agents/` from South's `catalog-config.json` and links each allowed skill into
    `~/.claude/skills` and `~/.codex/skills`. It reads north's skills, scripts and hooks from the tree of the

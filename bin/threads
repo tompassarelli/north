@@ -459,7 +459,7 @@ def open_issues(db, repo: str) -> dict:
 BRIEF_FIELD = {name: re.compile(rf"\b{name}:[ \t]*([^\s`<>]+)") for name in ("Item", "Follows", "Arm")}
 CATEGORY = re.compile(r"\bCategory:[ \t]*([A-Za-z-]+)")
 LENS = re.compile(r"\bLens:[ \t]*([^.;,\n`<>]+)")
-# Orthogonal brief facets, each a closed vocabulary; src/guard/worker_tier.rs holds the same lists.
+# Orthogonal brief facets, each a closed vocabulary; crates/north-core/src/guard/worker_tier.rs holds the same lists.
 FACETS = {
     "spec": ["exact", "measured", "judged"],
     "scope": ["one-file", "module", "cross-module", "cross-repo"],

@@ -1,0 +1,33 @@
+[package]
+name = "north-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+
+[dependencies]
+north-base = { path = "../north-base" }
+crossterm.workspace = true
+ratatui.workspace = true
+fancy-regex.workspace = true
+regex.workspace = true
+percent-encoding.workspace = true
+rusqlite.workspace = true
+rustix.workspace = true
+ryu.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+time.workspace = true
+toml_edit.workspace = true
+tokio.workspace = true
+tui-markdown.workspace = true
+tui-textarea-2.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+test-support = []

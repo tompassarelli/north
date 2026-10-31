@@ -18,7 +18,7 @@ unit = "weekly usage percentage points per hour below target burn before placeme
 source = "prior: half a point per hour avoids moving a native spawn for small burn differences"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay placement against observed account burn" }
 fallback = "without measured target and smoothed burn, keep the spawner account first"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [reservation_fallback_points]
 value = 1.0
@@ -33,42 +33,42 @@ value = 80
 unit = "percent of runs that succeed (threads run_ok)"
 source = "measured: flat over {60,70,75,80,85,90}: picked-tier success among runs on the pick 60.1-63.0%, Wilson 95% intervals overlap, n=291-354 of 801 decisions; 80 is tied-best (63.0%, n=354, $0.11/success)"
 fallback = "a tier under min_runs runs is unsampled: recommend requires sampled measured costs when no tier passes; routing uses the orchestration.toml band"
-consumers = ["src/threads/calibration/mod.rs", "src/router/ctx.rs"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs", "crates/north-core/src/router/ctx.rs"]
 
 [min_runs]
 value = 5
 unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell; recommend reports insufficient evidence without a sampled priced tier"
-consumers = ["src/threads/calibration/mod.rs", "harness/lib/plan_usage.py", "harness/lib/calibration.py"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs", "harness/lib/plan_usage.py", "harness/lib/calibration.py"]
 
 [incumbent_margin]
 value = 15
 unit = "success points a dearer challenger must gain over a cell's incumbent"
 source = "measured: flat over {0,5,10,15,20,30}: picked-tier success 59.3-63.2%, Wilson 95% intervals overlap, n=317-354 of 801 decisions; 10-20 tied-best at 62.9-63.2%"
 fallback = "with no incumbent the cheapest passing tier is picked"
-consumers = ["src/threads/calibration/mod.rs"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs"]
 
 [default_tier]
 value = "claude:opus-medium"
 unit = "tier key"
 source = "tom: south agents/orchestration.toml tiers.claude:opus-medium, hand-edited by Tom: 'The default Opus worker for the whole top range'"
 fallback = "defines the mode-allowed band baseline; recommend never selects an unsampled fallback"
-consumers = ["src/threads/calibration/mod.rs"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs"]
 
 [eta_min_samples]
 value = 3
 unit = "timed runs before recommend prints a cell's ETA"
 source = "measured: flat over {1,2,3,5,8}: walk-forward recommend_eta median |ln(actual/eta)| 1.04-1.05, p75 coverage 76-77%, n=1844-1847"
 fallback = "back off to the category cell; below it the ETA is n/a and the brief says (uncalibrated)"
-consumers = ["src/threads/calibration/mod.rs"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs"]
 
 [eta_coverage]
 value = 0.75
 unit = "quantile of actual/predicted the calibrated ETA scale covers"
 source = "measured: flat over {0.5..0.8}: OVERDUE false alarms (done runs past 2x the scaled ETA) plus unfinished runs never flagged 840-852, 866 at 0.9, n=1902 walk-forward runs; live row threads calibrate kind eta_pred, 2026-10-12, n=1889, p75 0.96"
 fallback = "below calibration_thin_n runs or older than calibration_stale_days the ETA is unscaled and marked (uncalibrated)"
-consumers = ["src/threads/calibration/mod.rs"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs"]
 
 [calibration_thin_n]
 value = 100
@@ -96,63 +96,63 @@ value = 2
 unit = "multiple of a claim's or worker's ETA before it flags OVERDUE or OVERTIME"
 source = "measured: runs minutes/eta_min (threads calibrate kind eta), workers, 7d to 2026-10-12, n=969, p90 1.30, p95 1.87, 4.1% over 2x"
 fallback = "a claim or worker with no ETA never flags by ratio; overtime_min still applies"
-consumers = ["src/threads/claims/mod.rs"]
+consumers = ["crates/north-core/src/threads/claims/mod.rs"]
 
 [overtime_min]
 value = 45
 unit = "minutes a worker runs before the leash nudge and OVERTIME flag"
 source = "measured: runs.minutes of done worker runs, 7d to 2026-10-12, n=1191, p75 20, p90 40, p95 69, 8.5% over 45"
 fallback = "applies to every worker whatever its ETA"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [handoff_ctx]
 value = 350000
 unit = "context tokens before a worker of any provider is told to hand off"
 source = "measured: runs.peak_ctx of Claude worker runs (firn#19 telemetry), 14d to 2026-10-12, n=966, p95 315k, p99 412k; done rate 58% under 200k, 18% at 300-350k, 19% at 350-400k, 0% over 400k (n=14); 3 compactions in 966 runs"
 fallback = "a run without usage records reports peak_ctx 0 and is never flagged"
-consumers = ["bin/capacity-watchdog", "src/pace/limits.rs"]
+consumers = ["bin/capacity-watchdog", "crates/north-core/src/pace/limits.rs"]
 
 [handoff_arm_ctx]
 value = 150000
 unit = "context tokens at which a worker on the handoff experiment arm (north#252) is told to hand off; handoff_ctx stays the hook and watchdog point"
 source = "measured: runs.peak_ctx of worker runs, 7d to 2026-10-29, n=1292, 29% cross 150k, 4% (51) cross 350k and no run on either experiment arm passed 291k, so a 350k arm never separated from no-handoff"
 fallback = "an unarmed brief carries no threshold and its session is never nudged"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [usage_stale_min]
 value = 30
 unit = "minutes before a usage readout is too old to route on"
 source = "measured: gaps between usage window readouts per account, 7d to 2026-10-12, n=294, p50 13, p95 16 min; 30 is two missed readouts"
 fallback = "a stale or missing readout is billed 'unknown' and only warns, never holds a spawn"
-consumers = ["src/router/ctx.rs", "harness/lib/usage.py"]
+consumers = ["crates/north-core/src/router/ctx.rs", "harness/lib/usage.py"]
 
 [money_ceiling]
 value = 92
 unit = "percent of an account's window used before overflow may cost money"
 source = "measured: rise in a window's used_pct within usage_stale_min (30 min) of each readout, 2026-10-10 to 10-12, n=1317 readouts, p99 8, p99.9 15, max 16 points (claude session p99 12); a rise past 100 from the ceiling: 29 (2.2%) at 95, 9 (0.68%) at 92; was 95 (delta -3)"
 fallback = "an account with no readout is priced as unknown"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [plan_stop]
 value = 98
 unit = "percent of an account's window used before plan-only worker admission stops"
 source = "tom: 2026-10-13 02:25 Taipei, '99% or something or 98%': Claude runs to about 98% and the proxy moves leads to Codex; revisit the cutover after observing plan exhaustion"
 fallback = "accounts whose overflow can bill money use money_ceiling instead"
-consumers = ["harness/lib/usage.py", "src/pace/limits.rs"]
+consumers = ["harness/lib/usage.py", "crates/north-core/src/pace/limits.rs"]
 
 [fast_floor]
 value = 10
 unit = "percent headroom every window keeps before fast mode is allowed"
 source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): Codex drains to 10-20%, never below the band"
 fallback = "no window readout means no fast mode"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [codex_floor]
 value = 10
 unit = "percent Codex left at Friday 23:59 ET under which Astra fallback is refused"
 source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): drain Codex to about 15% (10-20%)"
 fallback = "no Friday projection uses current headroom"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [astra_cost]
 value = 5
@@ -160,7 +160,7 @@ unit = "percent of the Codex week one Astra fallback is assumed to cost"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 20, count = "count_astra_runs", what = "gpt-6-astra medium worker runs with Codex week used_pct readouts on the same reset at or before start and at or after end" }
 fallback = "Astra is unavailable when the projection is unknown"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [late_ratio]
 value = 1.5
@@ -168,7 +168,7 @@ unit = "project urgency u at which the only admitted tier may run fast"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 10, count = "count_goal_targets", what = "distinct project targets in goal-scores.jsonl with an on-date pass or fail" }
 fallback = "a project without a target has u 1.0 and never qualifies"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [capacity_min]
 value = 15
@@ -176,7 +176,7 @@ unit = "minutes a provider-capacity error keeps the provider unavailable"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "closed Codex capacity episodes (first capacity turn to the next ok turn) in Codex rollouts over 60 days" }
 fallback = "no capacity error means the provider is available"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [explore_runs]
 value = 10
@@ -184,7 +184,7 @@ unit = "worker runs under which a tier is explorable"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
 fallback = "a tier without a run count is not explorable"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [explore_every]
 value = 10
@@ -192,14 +192,14 @@ unit = "every Nth staffing slot is an explore slot"
 source = "tom: 15 Oct 2026 17:2x local answer to picker 8500: exploration share 10%"
 settles_when = { need = 40, count = "count_explored_tier_runs", what = "worker runs of the least-run tier among tiers that reached explore_runs runs" }
 fallback = "with no explorable tier the slot staffs normally"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [successor_days]
 value = 7
 unit = "days within which a tier's announced successor holds exploration"
 source = "tom: 2026-10-12 policy-lead-status.md item 20 (via tom-48): rolling 7-day windows"
 fallback = "a tier with no model_events successor is never held"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [successor_p]
 value = 0.6
@@ -207,7 +207,7 @@ unit = "probability a successor ships before exploration is held"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 10, count = "count_successor_outcomes", what = "model_events expected or market successors whose date has passed, shipped when a released event names the model by then" }
 fallback = "a tier with no model_events successor is never held"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [priority_headroom]
 value = 0.2
@@ -222,14 +222,14 @@ value = 20
 unit = "newest matching runs machine-capacity sizes a command from"
 source = "measured: flat over {5,10,20,40,all}: capacity_runs exact signatures walk-forward, 0 under-charged, charged/peak memory 6.65-6.66, n=27"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "src/capacity/host/policy.rs"]
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "crates/north-core/src/capacity/host/policy.rs"]
 
 [capacity_memory_margin]
 value = 1.2
 unit = "multiple of p90 peak memory machine-capacity charges"
 source = "measured: capacity_runs exact signatures walk-forward, peak memory / p90 of the prior 20, to 2026-10-12, n=27, p99 1.02, none over 1.2"
 fallback = "under 3 matching runs the declared resource class applies"
-consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "src/capacity/host/policy.rs"]
+consumers = ["harness/skills/machine-capacity/scripts/machine-capacity-logic.ts", "crates/north-core/src/capacity/host/policy.rs"]
 
 [capacity_high_confidence_runs]
 value = 10
@@ -243,14 +243,14 @@ value = 5
 unit = "percent a Claude account keeps at its weekly reset when orchestration.toml sets none"
 source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): Claude accounts drain steadily to about 5% at reset"
 fallback = "orchestration.toml accounts.claude.target_left overrides it"
-consumers = ["harness/lib/plan_usage.py", "src/pace/limits.rs"]
+consumers = ["harness/lib/plan_usage.py", "crates/north-core/src/pace/limits.rs"]
 
 [pace_band]
 value = [10, 20]
 unit = "percent left band; a Thursday projection above the top flags drain_behind"
 source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): 10-20%, never above 20%, flag on Thursday"
 fallback = "orchestration.toml accounts.<provider>.band overrides it"
-consumers = ["harness/lib/plan_usage.py", "src/router/ctx.rs"]
+consumers = ["harness/lib/plan_usage.py", "crates/north-core/src/router/ctx.rs"]
 
 [plan_meter_weighting]
 value = "price"
@@ -258,171 +258,171 @@ unit = "how an account interval's plan $ splits across concurrent runs: price (e
 source = "measured: north#36 meter test 2026-10-12 (replay/advisor-2026-10-12-M-haiku.jsonl): 40 Haiku 5.5 high runs on claude:a, $0.095 at list price, moved five_hour 10 -> at most 11 and seven_day 68 -> 68, against the several points token weight predicts; token weight had given Opus kappa 0.050 and Haiku 1.31 over the same 2 days, price weight gives 0.051 and 0.028"
 settles_when = { need = 40, count = "count_meter_test_haiku_runs", what = "re-measure: Haiku policy-replay rows carrying five_hour_pct and seven_day_pct; value is the five_hour rise across the newest such file" }
 fallback = "a model without input and output list prices in model-catalog.toml takes token weight, which equals list price at $1/M input and $5/M output, and threads ingest names it"
-consumers = ["src/providers/claude/runs/telemetry.rs"]
+consumers = ["crates/north-core/src/providers/claude/runs/telemetry.rs"]
 
 [box_chain_gap_min]
 value = 30
 unit = "minutes between an item's runs that still chain them into one box"
 source = "measured: north defaults-measure box_chain_gap_min, snapshot 2026-10-12T08:13Z: 775 same-item gaps from the chain's latest end to the next run's staffing; per 10-minute bin 160, 47, 36 to 30m (57% within), then 15 per 10m to 60m and 3-5 per 10m to 120m (26% over 120m, waits on Tom or overnight); 30 closes the review-and-landing mode; box p75 50m at 10, 62m at 30, 77m at 60, 107m at 120, 566 chains at 30"
 fallback = "a longer gap starts a new chain, so idle waits on Tom or overnight never count as box time"
-consumers = ["src/threads/calibration/mod.rs"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs"]
 
 [box_calibration_n]
 value = 200
 unit = "box chains behind the box calibration ratio row before goal_eta applies it"
 source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-12T08:13Z: bootstrap 80% half-width of the walk-forward box actual/predicted p75 (1.97, pool 564 chains): 124% at 5, 35% at 50, 28% at 100, 20.3% at 150, 17% at 200; 200 is the first n under 20%, the calibration_thin_n rule"
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
-consumers = ["src/threads/calibration/mod.rs", "harness/lib/calibration.py"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs", "harness/lib/calibration.py"]
 
 [noninferiority_margin]
 value = 10
 unit = "success points a cheaper challenger arm may lose to the incumbent and still match it"
 source = "standard: a 10-percentage-point non-inferiority margin, common practice in non-inferiority trials; chosen in the north#36 design"
 fallback = "a challenger whose paired difference CI reaches below minus the margin is UNDECIDED or NO-GAIN, never MATCHES-FOR-LESS"
-consumers = ["src/ops/advisor_report/mod.rs", "harness/scripts/harness-tuner.py"]
+consumers = ["crates/north-core/src/ops/advisor_report/mod.rs", "harness/scripts/harness-tuner.py"]
 
 [plan_per_list_claude]
 value = 0.052
 unit = "plan $ per list-price $ of a Claude run"
 source = "measured: snapshot.db 2026-10-12, 139 Opus runs on claude-a, sum cost_usd 67.48 / sum list 1299.53"
 fallback = "codex rows carry no list price; their plan $ comes from --codex-plan-usd or stays unknown"
-consumers = ["src/ops/advisor_report/mod.rs"]
+consumers = ["crates/north-core/src/ops/advisor_report/mod.rs"]
 
 [pace_state_dwell_min]
 value = 10
 unit = "minutes between soft pace HOLD and RESUME changes; a hard quota crossing holds immediately"
 source = "tom: proxy 2026-10-14 item D reports seven HOLD/RESUME flips within minutes and requests a minimum ten-minute state duration except a hard cap"
 fallback = "stale usage and hard quota ceilings still refuse immediately"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [pace_burn_window_min]
 value = 60
 unit = "minutes of usage samples a window's burn is measured over once that much history exists, instead of between adjacent samples"
 source = "tom: proxy 2026-10-16 fleet-bugs item 18 reports claude:a HOLD/RESUME about every 5 minutes as the weekly burn estimate jumped between 0.0%/h and 6%/h"
 fallback = "before the window has that much history the 10-minute anchor burn applies"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [five_hour_burn_cap_pct_h]
 value = 50
 unit = "percent of an account's five-hour window used per hour, as measured, above which new launches on that account are refused"
 source = "tom: 2026-10-25 asked that a busy account spend its five-hour window in an hour or two rather than evenly, with one guardrail: the window lasts at least two hours"
 fallback = "without a measured burn only the five-hour 95% stop refuses"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [codex_route_tooling]
 value = "codex"
 unit = "engine for tooling boxes: codex or claude"
 source = "measured: Codex known success 79% [70,85] n=112 vs Claude 73% [65,79] n=135 on the recommend population since 1 Oct (codex-routing plan 15 Oct section 1)"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_tooling]
 value = ["codex:sol-high"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for tooling boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for tooling boxes"
 source = "measured: tooling sol-high 78% [69,86] n=88 vs sol-medium 68% [54,79] n=50"
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_native-check]
 value = "codex"
 unit = "engine for native-check boxes: codex or claude"
 source = "measured: Codex 50% [36,64] n=44 vs Claude 30% [18,44] n=44 (codex-routing plan 15 Oct section 1)"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_native-check]
 value = ["codex:sol-high"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for native-check boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for native-check boxes"
 source = "measured: native-check sol-high 57% [39,73] n=30 vs sol-medium 50% n=16"
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_feature]
 value = "codex"
 unit = "engine for feature boxes: codex or claude"
 source = "measured: Codex 46% [38,54] n=152 vs Claude 51% [40,61] n=91, within the 10-point margin and only in the qualifying cell (codex-routing plan 15 Oct section 1)"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_feature]
 value = ["codex:sol-medium"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for feature boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for feature boxes"
 source = "measured: feature sol-medium 48% [36,61] n=60 vs sol-high 37% [27,48] n=76"
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_docs-policy]
 value = "claude"
 unit = "engine for docs-policy boxes: codex or claude"
 source = "measured: Codex 75% [57,87] n=28 level with Claude 75% [55,88] n=24; Claude holds by Tom 15 Oct 2026 17:2x local answer to picker 8500: docs-policy on Codex no"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_docs-policy]
 value = ["codex:sol-medium"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for docs-policy boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for docs-policy boxes"
 source = "measured: docs sol-medium 81% [57,93] n=16"
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_bug-known-cause]
 value = "claude"
 unit = "engine for bug-known-cause boxes: codex or claude"
 source = "measured: Codex 72% [61,80] n=88 vs Claude 71% [60,79] n=78 but first-pass 53% [40,66] vs 73% [60,83], and exact 60% [31,83] n=10 vs 74% (codex-routing plan 15 Oct section 1)"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_bug-known-cause]
 value = ["codex:sol-medium"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for bug-known-cause boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for bug-known-cause boxes"
 source = "measured: bug-known-cause sol-medium 64% when explored"
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_debugging-unknown-cause]
 value = "claude"
 unit = "engine for debugging-unknown-cause boxes: codex or claude"
 source = "measured: Codex first-pass 24% [11,45] vs Claude 54%, known 47% [30,64] n=30 vs 56% [37,72] (codex-routing plan 15 Oct section 1)"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_debugging-unknown-cause]
 value = []
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for debugging-unknown-cause boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for debugging-unknown-cause boxes"
 source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_research]
 value = "claude"
 unit = "engine for research boxes: codex or claude"
 source = "measured: Codex 78% [55,91] n=18 vs Claude 88% [78,93] n=80 (codex-routing plan 15 Oct section 1)"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_research]
 value = []
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for research boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for research boxes"
 source = "prior: no Codex tier is used for this class (codex-routing plan 15 Oct section 1)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_mechanical]
 value = "claude"
 unit = "engine for mechanical boxes: codex or claude"
 source = "measured: Codex 81% [63,92] n=27 vs Claude 89% [79,94] n=70, and Haiku 84% for 2 min takes mechanical work (codex-routing plan 15 Oct section 1)"
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_mechanical]
 value = ["codex:luna-low"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for mechanical boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for mechanical boxes"
 source = "prior: luna-low only when Haiku is held (codex-routing plan 15 Oct section 1)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_netcode-determinism]
 value = "claude"
@@ -430,15 +430,15 @@ unit = "engine for netcode-determinism boxes: codex or claude"
 source = "prior: Codex n=9, engine and determinism risk (codex-routing plan 15 Oct section 1)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_netcode-determinism]
 value = ["codex:sol-high"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for netcode-determinism boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for netcode-determinism boxes"
 source = "tom: 15 Oct 2026 17:2x local answer to picker 8500: explore Tom-facing work on Codex at 10% on the tight leash; routing.admit still needs codex_route_netcode-determinism = codex"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_performance]
 value = "claude"
@@ -446,15 +446,15 @@ unit = "engine for performance boxes: codex or claude"
 source = "prior: Codex n=1, risk (codex-routing plan 15 Oct section 1)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_performance]
 value = ["codex:sol-high"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for performance boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for performance boxes"
 source = "tom: 15 Oct 2026 17:2x local answer to picker 8500: explore Tom-facing work on Codex at 10% on the tight leash; routing.admit still needs codex_route_performance = codex"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_route_balance-tuning]
 value = "claude"
@@ -462,15 +462,15 @@ unit = "engine for balance-tuning boxes: codex or claude"
 source = "prior: Codex n=27, Tom-facing feel risk (codex-routing plan 15 Oct section 1)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category routes to claude"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_tier_balance-tuning]
 value = ["codex:sol-high"]
-unit = "Codex tier keys the router (src/router/choose.rs admit) allows for balance-tuning boxes"
+unit = "Codex tier keys the router (crates/north-core/src/router/choose.rs admit) allows for balance-tuning boxes"
 source = "tom: 15 Oct 2026 17:2x local answer to picker 8500: explore Tom-facing work on Codex at 10% on the tight leash; routing.admit still needs codex_route_balance-tuning = codex"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "an unlisted category allows no Codex tier"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_eta_max_min]
 value = 20
@@ -478,7 +478,7 @@ unit = "largest brief ETA in minutes a Codex worker may take"
 source = "prior: Codex median wall 7 min (codex-routing plan 15 Oct C9)"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "a brief without an ETA does not qualify"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_files_max]
 value = 6
@@ -486,7 +486,7 @@ unit = "most explicit Files: paths a Codex brief may list"
 source = "prior: codex-routing plan 15 Oct C9"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "a brief without Files does not qualify"
-consumers = ["src/router/policy.rs"]
+consumers = ["crates/north-core/src/router/policy.rs"]
 
 [codex_explore_min_n]
 value = 20
@@ -494,14 +494,14 @@ unit = "runs per engine in a class before its measured Codex-vs-Claude rate may 
 source = "prior: codex-routing plan 15 Oct section 4 learning loop"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured per-class Codex rates" }
 fallback = "a class without a run count is explorable"
-consumers = ["src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [laptop_idle_reopen_sec]
 value = 1800
 unit = "seconds of continuous idle before reopening background laptop capacity"
 source = "tom: adaptive-harness Revision 1 C1c, 2026-10-15: preserve laptop observe's existing 1800-second idle reopening threshold"
 fallback = "without continuous idle evidence background capacity remains closed"
-consumers = ["src/ops/laptop/observe.rs", "harness/lib/presence.py"]
+consumers = ["crates/north-core/src/ops/laptop/observe.rs", "harness/lib/presence.py"]
 
 [presence_slot_min]
 value = 15
@@ -530,7 +530,7 @@ unit = "seconds an unconfirmed spawn reserves a proxy grant slot"
 source = "prior: release downstream hook refusals within seconds while serial spawn hooks complete"
 settles_when = { need = 20, count = "count_worker_runs", what = "20 paired reserve-to-confirm samples needed to calibrate spawn reservation expiry; worker runs are the nearest existing count until paired samples are counted" }
 fallback = "live worker measurements retain started spawns after the reservation expires"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [grant_reservation_hold_s]
 value = 30
@@ -538,21 +538,21 @@ unit = "seconds an unconfirmed proxy grant reservation holds a use"
 source = "prior: pace-control.jsonl has 377 legacy admissions without confirmation timestamps; no paired reserve-to-confirm samples, so use the 30 second floor"
 settles_when = { need = 20, count = "count_worker_runs", what = "20 paired reserve-to-confirm samples needed to calibrate the reservation hold; worker runs are the nearest existing count until paired samples are counted" }
 fallback = "late confirmations still charge once and emit grant-late-confirm"
-consumers = ["src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [bar1_desktop_mib]
 value = 1
 unit = "MiB of NVIDIA BAR1 aperture one private desktop's labwc compositor and Xwayland hold"
 source = "measured: 2026-10-27 on the GPU host, one throwaway desktop with glxinfo's Xwayland moved BAR1 Used 158, 159, 158 MiB as it started and stopped (north#254)"
 fallback = "none; admission adds this per declared desktop"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [bar1_client_mib]
 value = 113
 unit = "MiB of NVIDIA BAR1 aperture one Warcraft client holds with its BlizzardBrowser GPU processes, and one gpu-class run"
 source = "measured: 2026-10-27 on the GPU host at a 256 MiB aperture, the costliest of three pairs: a capture-classic pair's 2 clients with their BlizzardBrowser and CEF GPU processes moved BAR1 Used 5 to 230 MiB, against 48 and 108 MiB freed by two visual pairs; gpu runs are unmeasured and charged as one client (north#254)"
 fallback = "none; admission adds this per declared client and per gpu run"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [bar1_margin_mib]
 value = 16
@@ -560,14 +560,14 @@ unit = "MiB of NVIDIA BAR1 aperture admission keeps free beyond a request's meas
 source = "prior: covers sampling noise and a second start admitted before the first one's compositor maps its buffers"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted starts can be checked against BAR1 Used afterwards" }
 fallback = "bar1_margin_mib in [hosts.NAME] of agents/orchestration.toml replaces it"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [vram_client_mib]
 value = 1310
 unit = "MiB of NVIDIA VRAM one Warcraft client holds with its BlizzardBrowser and error-reporter processes"
 source = "measured: 2026-10-27 on the GPU host with 6 clients, nvidia-smi --query-compute-apps showed Warcraft III.exe at 544 to 864 MiB, BlizzardBrowser.exe at 363 to 405 MiB and the error reporter at 41 MiB; FB Used was 7837 MiB, 1306 MiB per client (north#259)"
 fallback = "none; the measured client cap counts free VRAM in these steps"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [vram_margin_mib]
 value = 1024
@@ -575,7 +575,7 @@ unit = "MiB of NVIDIA VRAM the measured client cap keeps free for compositors an
 source = "prior: about one private desktop's compositor and a sampling margin beside 24 GiB of VRAM"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted client starts can be checked against FB Used afterwards" }
 fallback = "none"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [game_reserve_headroom_mib]
 value = 24576
@@ -583,70 +583,70 @@ unit = "MiB of measured available memory batch admission leaves the game and des
 source = "prior: on the 94 GiB laptop the game slice reserves 6 GiB (MemoryLow) and Warcraft III under Proton, the compositor, browser and terminals hold about 12 GiB more; 24 GiB keeps that with a margin above the attended 19 GiB floor (Tom asked for batch beside his game, 2026-10-28)"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes admitted during game reserve whose game frame time or memory pressure can be checked afterwards" }
 fallback = "none; a batch request that leaves less defers with DEFER_GAME_MEMORY"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [dispatch_heavy_memory_mib]
 value = 8192
 unit = "MiB a dispatched box verified by a local or native test run asks of its host's memory"
 source = "standard: machine-capacity requests 8192 MiB for its heavy class (cargo test, bun test, wisp render); smashcraft suites measured 5957 MiB on 2026-10-27 (north#259)"
 fallback = "a host whose total memory cannot admit this class takes no test-verified box"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [dispatch_agent_memory_mib]
 value = 768
 unit = "MiB a dispatched box that runs no test suite asks of its host's memory"
 source = "standard: machine-capacity requests 768 MiB for its agent class"
 fallback = "a host whose total memory cannot admit this class takes no box"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [land_offload_cpus]
 value = 6
 unit = "free cores (the admission limit less the CPUs committed to batch runs) a host needs to take an offloaded land check"
 source = "standard: machine-capacity's heavy class asks 6 cores on a host above 8 cores (machine-capacity-logic.ts resourceClass)"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [land_offload_disk_free_gib]
 value = 20
 unit = "GiB free on the filesystem of a host's offload slot (~/.cache/land-offload) it needs to take an offloaded land check"
 source = "measured: the GPU host's root disk hit 100% three times on 2026-10-27 (north#259); Tom set the floor at 20 GB"
 fallback = "a host below it takes no offloaded land check, which waits for the local host"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [build_disk_free_gib]
 value = 15
 unit = "GiB free on the root filesystem below which admission defers a heavy build (cargo build/test/clippy, nix build)"
 source = "measured: the GPU host's root disk hit 100% four times on 2026-10-27/28 with about 17 sessions building at once while admission counted only CPU and memory (north#259)"
 fallback = "an unreadable disk admits, as before"
-consumers = ["src/capacity/admission.rs", "src/capacity/saturation.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs", "crates/north-core/src/capacity/saturation.rs"]
 
 [build_disk_reserve_gib]
 value = 5
 unit = "GiB of root disk admission sets aside for each heavy build already running and for the one asking, before comparing what is left with build_disk_free_gib"
 source = "measured: one north lane's target/ held 4.9 GiB when the GPU host's root disk filled at 6:12 PM on 2026-10-29 and stranded six lanes, after heavy builds admitted above the floor wrote their targets at once (north#336)"
 fallback = "none: a heavy build that would leave less than the floor after the reserves waits as DEFER_DISK_FREE"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [run_queue_psi_attended]
 value = 40
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which an attended host defers a heavy or exclusive request as DEFER_RUN_QUEUE"
 source = "measured: the laptop (24 cores) at 2:10 AM on 2026-10-31 read load average 11.5 with one runnable task and PSI some avg10 6.9%, yet the load rule deferred six builds for up to 20 minutes; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some p95 at 28 and p99 at 76; heavy work is held from 30 by the batch CPU-pressure gate whatever this says, so 40 decides exclusive work and the reason heavy work shows"
 fallback = "facts stated without a CPU pressure reading defer on the run-queue load average plus the request's cores against the thread count; a live host that cannot read system pressure fails admission"
-consumers = ["src/capacity/run_queue.rs"]
+consumers = ["crates/north-core/src/capacity/run_queue.rs"]
 
 [run_queue_psi_unattended]
 value = 60
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which an unattended host defers a heavy or exclusive request as DEFER_RUN_QUEUE"
 source = "measured: same samples as run_queue_psi_attended, 2026-10-28 to 2026-10-29, n=3406: PSI some p99 76; an unattended host has no interactive session to protect, so exclusive work runs to 60 where an attended host stops at 40"
 fallback = "facts stated without a CPU pressure reading defer on the run-queue load average plus the request's cores against the thread count; a live host that cannot read system pressure fails admission"
-consumers = ["src/capacity/run_queue.rs"]
+consumers = ["crates/north-core/src/capacity/run_queue.rs"]
 
 [quiet_idle_cores]
 value = 0.25
 unit = "measured cores of a quiet native lease's scope below which its clients count as idle"
 source = "measured: a quiet lease held at 0 measured cores for over 17 minutes while 19 batch jobs from six sessions queued behind it on the GPU host, 2026-10-26 (north#237)"
 fallback = "a lease whose scope is not measured counts as busy"
-consumers = ["src/capacity/host/policy.rs"]
+consumers = ["crates/north-core/src/capacity/host/policy.rs"]
 
 [quiet_idle_seconds]
 value = 300
@@ -654,7 +654,7 @@ unit = "seconds a quiet native lease's clients must stay idle before it stops de
 source = "prior: five minutes outlasts a screenshot read or a between-capture pause yet is far under the 17-minute hold that queued 19 jobs on the GPU host, 2026-10-26 (north#237)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against quiet native leases' measured idle seconds; worker runs are the nearest existing count until quiet leases are counted" }
 fallback = "a lease whose scope is not measured keeps deferring until it ends or passes its declared run length"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [backfill_seconds]
 value = 300
@@ -662,7 +662,7 @@ unit = "seconds a queued batch ticket the free CPU share cannot fit lets smaller
 source = "prior: on the laptop at 6:30 AM +07 on 2026-10-31 a heavy build that did not fit held four 2-CPU requests that did for 21 to 550 s under strict arrival order while the watchdog read it saturated for 45 minutes (north#385); five minutes lets that work through and still reserves the share for the build well before its 737 s wait ran out"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against queued batch tickets' measured wait before admission; worker runs are the nearest existing count until queue waits are counted" }
 fallback = "a ticket that states no CPUs holds its place in arrival order"
-consumers = ["src/capacity/queued_ahead.rs"]
+consumers = ["crates/north-core/src/capacity/queued_ahead.rs"]
 
 [evidence_retention_hours]
 value = 72
@@ -670,21 +670,21 @@ unit = "hours since the newest change after which an unpinned, unopened Smashcra
 source = "measured: evidence reached 50 GB and the root disk 96-98% on 2026-10-29 (north#309) with the oldest unmoved folders 5 days old; three days keeps a lane's recent runs at hand"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a folder's last change a lane still reads it" }
 fallback = "an unreadable setting archives nothing"
-consumers = ["src/ops/retention/family.rs"]
+consumers = ["crates/north-core/src/ops/retention/family.rs"]
 
 [evidence_budget_gib]
 value = 15
 unit = "GiB of allocated disk the GPU host's Smashcraft evidence store may hold; north reclaim, north evidence start and a disk-floor admission delete its oldest runs past it"
 source = "measured: on the GPU host at 2:35 AM on 2026-10-30 evidence held 30 GB of a 468 GB root disk at 95% full with 26 GB free; Tom set 15 GB for blocker 5 of the landing-blockers audit (2026-10-30)"
 fallback = "an unreadable setting panics; the value is compiled in from this file"
-consumers = ["src/ops/reclaim/evidence_budget.rs"]
+consumers = ["crates/north-core/src/ops/reclaim/evidence_budget.rs"]
 
 [evidence_min_age_hours]
 value = 24
 unit = "hours since its newest change under which the evidence budget never deletes a run"
 source = "measured: on the GPU host at 2:35 AM on 2026-10-30 evidence held 30 GB with the root disk 95% full; Tom set 24 h for blocker 5 of the landing-blockers audit (2026-10-30), so a lane's current runs survive the budget"
 fallback = "an unreadable setting panics; the value is compiled in from this file"
-consumers = ["src/ops/reclaim/evidence_budget.rs"]
+consumers = ["crates/north-core/src/ops/reclaim/evidence_budget.rs"]
 
 [disk_reclaim_cooldown_minutes]
 value = 10
@@ -692,7 +692,7 @@ unit = "minutes after one disk-floor reclaim during which admission returns DEFE
 source = "prior: a deferred ticket asks admission again every few seconds, and one reclaim walks /tmp, every checkout's target/ and the caches and may read open issues over gh; ten minutes lets a queue of deferred tickets share one reclaim"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how often deferred tickets ask admission and how long one reclaim takes on the GPU host" }
 fallback = "an unreadable setting panics; the value is compiled in from this file"
-consumers = ["src/ops/reclaim/mod.rs"]
+consumers = ["crates/north-core/src/ops/reclaim/mod.rs"]
 
 [capture_batch_retention_hours]
 value = 6
@@ -700,7 +700,7 @@ unit = "hours since the newest change after which an unopened Smashcraft capture
 source = "measured: 127 batches held 31 GB within two days on 2026-10-29 (north#309); a batch's frames are judged within hours of its run; on 2026-10-30 the 8 GiB batch share held 25 GB because every batch was under the 24 h floor, so six hours archives them to the laptop before the share is blown (north#357)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a batch ends its frames are last read" }
 fallback = "an unreadable setting archives nothing"
-consumers = ["src/ops/retention/family.rs"]
+consumers = ["crates/north-core/src/ops/retention/family.rs"]
 
 [build_input_retention_hours]
 value = 72
@@ -708,7 +708,7 @@ unit = "hours since the newest change after which a GPU-host build-input store v
 source = "measured: the store held 44 GB on the GPU host on 2026-10-29 (north#320), 28 GB of it derived caches; a 72 h floor listed no version origin/main names and keeps a fresh add until its lane writes the pin"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after an add a lane writes its pin, and how often derive rebuilds an archived key" }
 fallback = "an unreadable setting or pin read archives no store version"
-consumers = ["src/ops/retention/mod.rs"]
+consumers = ["crates/north-core/src/ops/retention/mod.rs"]
 
 [retention_budget_minutes]
 value = 40
@@ -716,49 +716,49 @@ unit = "minutes after which north retain starts no new archive batch and leaves 
 source = "measured: the laptop's smashcraft-retain unit was killed at its 50 min TimeoutStartSec mid-archive on 2026-10-29 (north#320, north#331); 40 min leaves 10 min for one 256 MiB batch already in flight"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how long one 256 MiB archive batch takes from the laptop" }
 fallback = "an unreadable setting panics north retain before it archives anything; the value is compiled in from this file"
-consumers = ["src/ops/retention/mod.rs"]
+consumers = ["crates/north-core/src/ops/retention/mod.rs"]
 
 [overload_psi10]
 value = 50
 unit = "percent of the 10 s CPU pressure average (PSI some avg10) at or above which a watchdog sample counts as overloaded"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi p90 7.4, p95 28, p99 76; with load per thread at 2 or more, 50 raises 5 incidents over the span and 70 raises 3; a 60 s burn of 200 spinners holds the 10 s average above 50 for 57 s, so two 30 s samples always see it"
 fallback = "without a CPU pressure reading no sample is overloaded and the watchdog only samples"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
 
 [overload_psi60]
 value = 15
 unit = "percent of the 60 s CPU pressure average (PSI some avg60) a watchdog sample must also reach to count as overloaded, so a spike the 60 s average has not registered is not"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi60 p90 9.6, p95 26, p99 72; with cpuPsi at 50 and load per thread at 2, a floor of 10, 15 or 20 raises the same 5 incidents over the span; 15 admits a 60 s burn of 200 spinners on a quiet host on its first overloaded sample"
 fallback = "without a CPU pressure reading no sample is overloaded and the watchdog only samples"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
 
 [overload_load_per_core]
 value = 2.0
 unit = "1-minute load average per CPU thread at or above which a watchdog sample counts as overloaded"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406 on 16 threads: load per thread p95 1.4, p99 2.9, max 10.2; the 2026-10-29 10:10-10:12 PM overload reached 8-10"
 fallback = "without a load reading no sample is overloaded"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
 
 [overload_sustained_samples]
 value = 2
 unit = "consecutive overloaded 30 s watchdog samples before an incident, and calm ones before a cap lifts"
 source = "standard: two samples is the least that tells a sustained overload from one spike while keeping detection plus delivery inside 2 minutes of the load rising (Tom, 2026-10-29)"
 fallback = "a single spike never raises an incident"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
 
 [overload_calm_psi60]
 value = 20
 unit = "percent of the 60 s CPU pressure average below which a watchdog sample counts as calm and lifts the caps"
 source = "measured: capacity-watchdog samples, 2026-10-28 to 2026-10-29, n=3406: cpuPsi60 p90 9.6, p95 26; below 20 is the ordinary working band"
 fallback = "caps stay until the host is calm"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
 
 [overload_offender_cores]
 value = 1.0
 unit = "peak CPU cores a fleet session scope must reach over the overloaded samples to be capped"
 source = "measured: the 2026-10-29 10:08-10:13 PM overload samples, the fleet session scope behind the fan-out used 1.9-2.4 cores of 16 while load hit 160; quieter scopes stayed under 0.5"
 fallback = "an overload with no scope over the floor is reported and nothing is capped"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
 
 [overload_cap_share]
 value = 0.5
@@ -766,21 +766,21 @@ unit = "fraction of an offending scope's measured cores that its CPU cap leaves 
 source = "prior: halving an offender's measured use is the smallest cap that visibly lowers the run queue while keeping its session responsive; replaces nothing measured yet"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes to measure load before and after a cap" }
 fallback = "the cap never goes below one core"
-consumers = ["src/capacity/watchdog/detect.rs"]
+consumers = ["crates/north-core/src/capacity/watchdog/detect.rs"]
 
 [landing_live_deadline_sec]
 value = 600
 unit = "seconds after a north landing by which its runtime must be live and healthy on every fleet host, judged once by the laptop's north runtime settle"
 source = "tom: Tom asked that a north landing count as done only once it is live and healthy on every fleet host within 10 minutes, checked automatically after each landing (2026-10-29)"
 fallback = "a landing younger than the deadline is reported but not judged"
-consumers = ["src/ops/runtime/settle.rs"]
+consumers = ["crates/north-core/src/ops/runtime/settle.rs"]
 
 [landing_north_processes_max]
 value = 100
 unit = "north processes on one host above which north runtime settle reports the host unhealthy"
 source = "measured: 2026-10-30 12:15 AM with 10 fleet sessions, 24 north processes on the laptop, 40 on the GPU host and 8 on the server host; 100 is 2.5 times the busiest host, under the per-claim north fleet list fork storm that loaded the GPU host to 71"
 fallback = "an unread count reports the host unhealthy"
-consumers = ["src/ops/runtime/probe.rs"]
+consumers = ["crates/north-core/src/ops/runtime/probe.rs"]
 
 [client_reserve_seconds]
 value = 900
@@ -788,22 +788,22 @@ unit = "seconds an admitted native lease holds its declared Warcraft client slot
 source = "prior: covers a pair's 10-minute wait for both clients after its admission plus its desktops' start; on the GPU host on 2026-10-29 pair 0's client lost its slot to a start admitted 30 s after the pair (north#358)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against native pair admissions' seconds from admission to both clients running; worker runs are the nearest existing count until native admissions are counted" }
 fallback = "none; a lease older than this holds only the clients that run in it"
-consumers = ["src/capacity/admission.rs"]
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [slice_weight_app_attended]
 value = 1000
 unit = "CPUWeight and IOWeight of Tom's desktop slice (app.slice, his browser and game) while the profile is attended"
-source = "prior: game-reserve.slice's weight of 1000 (src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (gitleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
+source = "prior: game-reserve.slice's weight of 1000 (crates/north-core/src/capacity/game_reserve.rs); the reason is that on 2026-10-31 unleased agent bursts (gitleaks at 400%, pre-push bun at 200%, rustc at 300%) held CPU pressure at 17 to 18% for 5 minutes and slowed Tom's browser while app.slice and agent.slice both stood at weight 100 by a stale runtime drop-in from 2026-10-29"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at weight 1000 against the same agent bursts at the old even share" }
 fallback = "an unattended profile applies slice_weight_app_unattended"
-consumers = ["src/capacity/host/systemd.rs"]
+consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
 
 [slice_weight_app_unattended]
 value = 100
 unit = "CPUWeight and IOWeight of Tom's desktop slice while the profile is unattended, the systemd default"
 source = "standard: systemd's default weight; nobody is at the desktop, so it needs no priority over agent work"
 fallback = "none: the weight is applied at every profile change and every admitted run"
-consumers = ["src/capacity/host/systemd.rs"]
+consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
 
 [slice_weight_agent]
 value = 20
@@ -811,7 +811,7 @@ unit = "CPUWeight and IOWeight of agent.slice in either profile, so a stale runt
 source = "prior: nixos-config modules/agent-slice declares agent.slice at CPUWeight 20 and IOWeight 20; a runtime drop-in from 2026-10-29 had set both to 100 and shadowed it until 2026-10-31"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose desktop CPU pressure can be compared at agent.slice weight 20 against the same bursts at 100" }
 fallback = "none: the weight is applied at every profile change and every admitted run"
-consumers = ["src/capacity/host/systemd.rs"]
+consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
 
 [slice_weight_session_unattended]
 value = 300
@@ -819,37 +819,37 @@ unit = "CPUWeight and IOWeight of session.slice (the compositor and shell) while
 source = "prior: nixos-config modules/agent-slice declares session.slice at CPUWeight 300 and IOWeight 300"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose compositor stalls can be compared at session.slice weight 300 against the same bursts at 100" }
 fallback = "none: the weight is applied at every profile change and every admitted run"
-consumers = ["src/capacity/host/systemd.rs"]
+consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
 
 [admit_psi_unattended_low]
 value = 20
 unit = "percent of CPU pressure (PSI some avg10) below which an unattended host starts the next queued heavy build whatever the declared CPUs say"
 source = "measured: the laptop (24 threads) held 7 to 12 queued heavy builds for up to 35 minutes at PSI some avg10 1 to 4% and 55 GB available on 2026-10-31; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some at p95 28 and p99 76; the controller aims for a stall below the 30% batch gate this replaces and the 50% psi-notify default (references.md#psi-notify)"
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_unattended_high]
 value = 40
 unit = "percent of CPU pressure (PSI some avg10) at or above which an unattended host starts no heavy build; between the low and high marks it starts one only if its declared CPUs fit the batch cores"
-source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% under the unattended rails (src/capacity/pressure_target_tests.rs, 2026-10-31), so this mark sits above it; the pressure-against-threads model is assumed, not measured"
+source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% under the unattended rails (crates/north-core/src/capacity/pressure_target_tests.rs, 2026-10-31), so this mark sits above it; the pressure-against-threads model is assumed, not measured"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_attended_low]
 value = 10
 unit = "percent of CPU pressure (PSI some avg10) below which an attended host starts the next queued heavy build whatever the declared CPUs say"
-source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
+source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in crates/north-core/src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_attended_high]
 value = 25
 unit = "percent of CPU pressure (PSI some avg10) at or above which an attended host starts no heavy build"
 source = "measured: the watchdog's PSI some p95 of 28% (n=3406, 2026-10-28 to 2026-10-29) is the stall Tom's desktop already tolerates; the attended high mark sits under it"
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_game_low]
 value = 5
@@ -857,22 +857,22 @@ unit = "percent of CPU pressure (PSI some avg10) below which a host running Tom'
 source = "prior: the reserve already confines agents to their own cores, so the band drops to half the attended one; a design choice, not a measurement"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_game_high]
 value = 20
 unit = "percent of CPU pressure (PSI some avg10) at or above which a host running Tom's game under game reserve starts no heavy build"
-source = "prior: a simulated agent-core host peaks at 18% on the reserve's 16 agent cores (src/capacity/pressure_target_tests.rs, 2026-10-31), so the high mark sits above that; the game cores carry none of it"
+source = "prior: a simulated agent-core host peaks at 18% on the reserve's 16 agent cores (crates/north-core/src/capacity/pressure_target_tests.rs, 2026-10-31), so the high mark sits above that; the game cores carry none of it"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_settle_seconds]
 value = 30
 unit = "seconds after a heavy build starts before another starts, three time constants of PSI some avg10, so the next reading includes the last build"
 source = "measured: after 10 s the average has reached 63% of its final value, and four or five heavy builds started within 40 s of each other while the laptop sat at 51 to 77% (north-admit-v2 samples, 2026-10-31); three time constants reach 95% (Linux kernel documentation, references.md#kernel-psi)"
 fallback = "none: with no heavy lease younger than this the next ticket is free to start"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_memory_ramp_seconds]
 value = 60
@@ -880,7 +880,7 @@ unit = "seconds a heavy lease's declared memory still counts against available m
 source = "prior: rustc and the linker grow a build's resident set over its first minute, so its declared memory counts for that minute; no figure recorded"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose lowest MemAvailable after a heavy start can be checked against the memory floor" }
 fallback = "none: a lease older than this counts only through MemAvailable"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_overcommit_unattended]
 value = 1
@@ -888,7 +888,7 @@ unit = "times the batch cores that the declared CPUs of running and starting hea
 source = "measured: a 20-core host committed 30.07 CPUs at load 125 under a rail of 2 times its cores (2026-10-31), so the rail is the host's aggregate CPU limit; a rail is needed because pressure shows nothing until the threads pass the cores, so one more build can step it up by 15 points or more"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_overcommit_attended]
 value = 1
@@ -896,7 +896,7 @@ unit = "times the batch cores that the declared CPUs of running and starting hea
 source = "measured: committed CPUs past the host's aggregate CPU limit stalled a 20-core host at load 125 (2026-10-31), so the rail is that limit in every mode"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_overcommit_game]
 value = 1
@@ -904,4 +904,4 @@ unit = "times the agent cores that the declared CPUs of running and starting hea
 source = "prior: the same simulation on the reserve's 16 agent cores peaks at 18% CPU pressure at 1 times them and 25% at 1.5 times, outside the game band; the game cores stay unloaded"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
-consumers = ["src/capacity/pressure_target.rs"]
+consumers = ["crates/north-core/src/capacity/pressure_target.rs"]

@@ -1,0 +1,415 @@
+//! The live inputs one dispatch run reads: South's orchestration, pace-control's samples and
+//! placement's quota verdicts, each host's resident sessions, fleet roster and open gates,
+//! NorthThreads claims, the dispatch record and the open issues of the staffed repositories.
+use super::issues::{self, Issue, IssueRef, OWNER};
+use super::plan::Cloud;
+use super::record;
+use super::slots::{Account, Host, PlanSize, Room};
+use super::projects::Projects;
+use super::tier::{self, Evidence, History};
+use super::handoff::{self, Arms};
+use super::grounds::Ledger;
+use super::fleets::{self, PROBE, Session, remote_json};
+use super::revive::Strand;
+use crate::fleet::model::ProviderName;
+use crate::ledger::ClosedReport;
+use crate::fleet::roster::{Roster, Standing};
+use crate::ops::pacing::placement::{self, gate};
+use crate::platform::process::run_within;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use toml_edit::{DocumentMut, Item};
+
+pub(super) use crate::ops::pacing::placement::room::room;
+#[cfg(test)]
+pub(super) use crate::ops::pacing::placement::room::{CATALOG, plan};
+use crate::ops::pacing::placement::room::{Basis, WEEK_H};
+const PACE_FRESH_S: f64 = 15.0 * 60.0;
+
+pub struct Survey {
+    pub here: String,
+    pub cfg: DocumentMut,
+    pub projects: Projects,
+    pub hosts: Vec<Host>,
+    pub accounts: Vec<Account>,
+    pub issues: Vec<Issue>,
+    pub open: BTreeSet<IssueRef>,
+    pub holds: BTreeMap<IssueRef, String>,
+    pub cloud: Cloud,
+    /// The host reached through the laptop job queue, when one serves `laptop`.
+    pub laptop: Option<String>,
+    /// Cloud sessions dispatch started whose boxes are still open.
+    pub cloud_running: i64,
+    pub notes: Vec<String>,
+    pub frozen: Vec<crate::platform::frozen_topics::Topic>,
+    /// Dispatch's earlier launches by tier, which a Haiku retry and the next arm read.
+    pub history: History,
+    pub handoffs: Arms,
+    /// `north worker-ledger --recommend` for each armed category.
+    pub ledger: BTreeMap<String, Evidence>,
+    /// The closed boxes and prior reports each brief grounds its ETA, budget and trace in.
+    pub grounds: Ledger,
+    /// Stopped sessions holding unlanded lanes, which dispatch revives before it launches.
+    pub strands: Vec<Strand>,
+    /// The saturation refusal of each host a strand lives on, or why it is unread.
+    pub saturated: BTreeMap<String, String>,
+    /// The report each session was last revived for, by `ended_ms`.
+    pub revived: BTreeMap<String, u64>,
+    pub at: f64,
+}
+
+
+fn strings(item: Option<&Item>) -> Vec<String> {
+    item.and_then(Item::as_array).map(|values| values.iter().filter_map(|value| value.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+}
+
+fn host_table<'a>(cfg: &'a DocumentMut, name: &str) -> Option<&'a Item> {
+    cfg.get("hosts")?.get(name)
+}
+
+/// The issues the open gates in one host's `north gate list --json` name, by `--issue`, in the
+/// question or by the asking session's name, each with the gate that holds it.
+pub fn gate_rows(listing: &Value, host: &str) -> Vec<(IssueRef, String)> {
+    let mut found = Vec::new();
+    for gate in listing.as_array().into_iter().flatten().filter(|gate| gate["closed_ms"].is_null()) {
+        let session = gate["session"].as_str().unwrap_or_default();
+        let repo = fleets::named_items(session).first().map_or_else(String::new, |item| item.repo.clone());
+        let question = gate["question"].as_str().unwrap_or_default();
+        let why = format!("open north gate {} on {host} from {session}, for Tom", gate["id"]);
+        let mut items: Vec<IssueRef> = issues::references(question, &repo).into_iter().filter(|item| !item.repo.is_empty()).chain(fleets::named_items(session)).chain(gate["issue"].as_str().and_then(IssueRef::parse)).collect();
+        items.sort();
+        items.dedup();
+        found.extend(items.into_iter().map(|item| (item, why.clone())));
+    }
+    found
+}
+
+fn host(cfg: &DocumentMut, name: &str, here: &str, hosted_elsewhere: i64, laptop_running: i64) -> Host {
+    let table = host_table(cfg, name);
+    let cap = table.and_then(|host| host.get("resident_cap")).and_then(Item::as_integer);
+    let ssh = table.and_then(|host| host.get("ssh")).and_then(Item::as_str);
+    let laptop = strings(table.and_then(|host| host.get("serves"))).iter().any(|need| need == "laptop");
+    let running = if name == here {
+        placement::resident_clis(name, "").ok_or_else(|| "resident count unreadable".to_owned())
+    } else if let Some(ssh) = ssh {
+        placement::resident_clis(name, ssh).map(|live| live + hosted_elsewhere).ok_or_else(|| format!("unreachable over ssh {ssh}"))
+    } else if laptop {
+        match placement::laptop_state().as_str() {
+            "available" => Ok(laptop_running),
+            state => Err(format!("laptop {state}")),
+        }
+    } else {
+        Err("no ssh destination".into())
+    };
+    Host { name: name.into(), cap, running, measure: super::measure::read(name == here, ssh) }.probed(here, ssh)
+}
+
+fn account_hosts(cfg: &DocumentMut, account: &str, here: &str) -> Vec<String> {
+    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
+    let profiles = cfg.get("accounts").and_then(|accounts| accounts.get(provider)).and_then(|policy| policy.get("profiles")).and_then(|profiles| profiles.get(label));
+    match profiles.and_then(Item::as_table_like) {
+        Some(hosts) => hosts.iter().map(|(name, _)| name.to_owned()).collect(),
+        None => vec![here.to_owned()],
+    }
+}
+
+/// Why dispatch gives an account no slot: a stale pace sample, the out-rule as placement's verdict
+/// applies it (`crate::pace::exhaustion`), or no usage sample to judge it by.
+pub fn refusal(name: &str, control: &Value, verdict: Option<&gate::Verdict>, at: f64) -> Option<String> {
+    let age = at - control["at"].as_f64().unwrap_or(0.0);
+    if age > PACE_FRESH_S {
+        return Some(format!("pace-control.json sampled {:.0} min ago", age / 60.0));
+    }
+    match verdict {
+        None => Some(format!("{name} has no placement verdict, so dispatch staffs it nowhere")),
+        Some(verdict) => (!verdict.available).then(|| verdict.line.clone()),
+    }
+}
+
+/// `refusal`, else the week-room rule `Room::week_short` that keeps a box off an account the
+/// provider has not yet exhausted.
+pub fn account_refusal(name: &str, control: &Value, verdict: Option<&gate::Verdict>, room: &Room, at: f64) -> Option<String> {
+    refusal(name, control, verdict, at).or_else(|| room.week_short(Room::box_reserve()).map(|why| format!("{name} unavailable: {why}")))
+}
+
+/// The hosts an account runs on: those South signs it in on, less this host when this host's
+/// roster has no login of its own for it.
+pub fn signed_in(cfg: &DocumentMut, roster: &Roster, account: &str, here: &str) -> Vec<String> {
+    let (provider, label) = account.split_once(':').unwrap_or((account, ""));
+    let own = matches!(roster.standing(&ProviderName::new(provider), label), Standing::Listed(_));
+    account_hosts(cfg, account, here).into_iter().filter(|host| own || host != here).collect()
+}
+
+/// The 5h window's measured burn in percent per hour, which usage-gate carries only for a trail of two readings.
+fn five_hour_burn(usage: &Value) -> Option<f64> {
+    usage["windows"].as_array()?.iter().find(|window| window["window"] == "5h")?["burn_pct_h"].as_f64()
+}
+
+fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut Vec<String>) -> Vec<Account> {
+    let pace = placement::pace_state("pace-control.json");
+    let usage = placement::pace_state("usage-gate.json");
+    let basis = Basis::new(cfg, pace.clone(), at);
+    pace["accounts"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(name, control)| {
+            let sampled = usage["claude"]["controls"].get(name).filter(|_| name.starts_with("claude:"));
+            let verdict = sampled.map(|usage| gate::verdict(name, usage));
+            let plan = match sampled.map(|_| basis.plan(name)) {
+                Some(Ok(plan)) => plan,
+                Some(Err(why)) => {
+                    notes.push(why);
+                    PlanSize { five_hour: 1.0, week: 1.0 }
+                }
+                None => PlanSize { five_hour: 1.0, week: 1.0 },
+            };
+            let room = sampled.map_or(Room { five_hour: 0.0, week: 0.0, week_reset_h: WEEK_H }, |usage| room(usage, at));
+            Account {
+                name: name.clone(),
+                hosts: signed_in(cfg, roster, name, here),
+                plan,
+                spending: basis.spending(name),
+                refusal: account_refusal(name, control, verdict.as_ref(), &room, at),
+                room,
+                burn: sampled.and_then(five_hour_burn),
+            }
+        })
+        .collect()
+}
+
+/// NorthThreads claims from this host's ledger and every ssh host's, since a host whose ledger is
+/// local records its workers' claims there.
+fn claims(cfg: &DocumentMut, here: &str, stopped: &BTreeSet<String>, notes: &mut Vec<String>) -> Vec<(IssueRef, String)> {
+    let remote = gate::machines(cfg).into_iter().filter(|machine| machine.name != here).map(|machine| (machine.name, Some(machine.ssh)));
+    let mut found = Vec::new();
+    for (host, ssh) in std::iter::once((here.to_owned(), None)).chain(remote) {
+        match remote_json(ssh.as_deref(), &["threads", "list", "--json"]) {
+            Ok(listing) => found.extend(claim_rows(&listing, &host, stopped)),
+            Err(why) => notes.push(format!("{host} threads list unread, so its claims are unknown: {why}")),
+        }
+    }
+    found
+}
+
+/// The holders in `threads list --json`: its live claims, the ones `threads claim` refuses on,
+/// less those a stopped fleet session made.
+pub fn claim_rows(listing: &Value, host: &str, stopped: &BTreeSet<String>) -> Vec<(IssueRef, String)> {
+    listing
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["standing"] == "live")
+        .filter(|row| !row["owner"].as_str().is_some_and(|owner| stopped.contains(owner)))
+        .filter_map(|row| Some((IssueRef::parse(row["item"].as_str()?)?, format!("threads claim by {} on {host}", row["owner"].as_str()?))))
+        .collect()
+}
+
+fn cloud(cfg: &DocumentMut, here: &str, at: f64) -> Cloud {
+    let (usable, line) = placement::cloud_credit(cfg, at);
+    if !usable {
+        return Cloud::Closed(line);
+    }
+    let host = cfg.get("placement").and_then(|rules| rules.get("cloud_host")).and_then(Item::as_str);
+    if host != Some(here) {
+        return Cloud::Unreachable(host.map_or_else(|| "no [placement] cloud_host".into(), |host| format!("the credit login is on {host}")));
+    }
+    let north = std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or_else(|_| "north".into());
+    match run_within(&north, &["cloud", "list"], PROBE) {
+        Some(output) if output.status.success() => Cloud::Reachable(line),
+        Some(output) => Cloud::Unreachable(format!("north cloud list: {}", String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("failed"))),
+        None => Cloud::Unreachable("north cloud list timed out".into()),
+    }
+}
+
+/// The laptop's working sessions: those its copied fleet list shows, or dispatch's recent launches
+/// there when they are more, since a fresh launch may not show yet.
+pub fn laptop_running(sessions: &[(Session, String)], laptop: &str, dispatched: i64) -> i64 {
+    let listed = sessions.iter().filter(|(session, host)| session.working && host == laptop).count();
+    i64::try_from(listed).unwrap_or(i64::MAX).max(dispatched)
+}
+
+/// A dispatched session's `north fleet show --json`: a launch registers where dispatch ran, except
+/// on the laptop, whose job queue starts it in the laptop's own registry.
+fn report(launch: &record::Record, laptop: Option<&str>) -> Result<Value, String> {
+    if laptop == Some(launch.host.as_str()) {
+        return Err(format!("{} runs in the laptop's registry", launch.name));
+    }
+    remote_json(None, &["fleet", "show", &launch.name, "--json"])
+}
+
+/// Marks each open box whose last dispatched session ended its report with `Stop: decision` or `Blocked:`.
+fn stopped(laptop: Option<&str>, records: &[record::Record], issues: &mut [Issue], notes: &mut Vec<String>) {
+    let launches = super::stops::last_launches(records);
+    for issue in issues.iter_mut().filter(|issue| issue.unticked() > 0) {
+        let Some(launch) = launches.get(&issue.reference()) else { continue };
+        match report(launch, laptop) {
+            Ok(session) => issue.stopped = super::stops::stopped_at(&session),
+            Err(why) => notes.push(format!("{} report unread, so {} may relaunch: {why}", launch.name, issue.reference())),
+        }
+    }
+}
+
+/// The sessions of contested tries that did no work on their item, each with why its try is not spent.
+fn unspent(laptop: Option<&str>, records: &[record::Record], at: f64, notes: &mut Vec<String>) -> BTreeMap<String, String> {
+    let mut found = BTreeMap::new();
+    for launch in record::contested(records, at) {
+        match report(launch, laptop) {
+            Ok(session) => found.extend(super::tries::unspent(&session).map(|why| (launch.name.clone(), why))),
+            Err(why) => notes.push(format!("{} report unread, so its try counts: {why}", launch.name)),
+        }
+    }
+    found
+}
+
+fn closed(notes: &mut Vec<String>) -> Option<ClosedReport> {
+    crate::ledger::closed_report(tier::ARM_WINDOW).map_err(|why| notes.push(format!("north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message()))).ok()
+}
+
+pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
+    let closed = closed(notes);
+    evidence_from(categories, closed.as_ref(), notes)
+}
+
+fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
+    let mut found = BTreeMap::new();
+    let north = crate::fleet::runtime::binary("north");
+    for category in categories {
+        let facets = format!("Category: {category}");
+        match run_within(&north.to_string_lossy(), &["worker-ledger", "--recommend", &facets], PROBE) {
+            Some(output) if output.status.success() => {
+                let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
+                let read = read.counted(&crate::ledger::arm_runs(category).map_err(|why| notes.push(format!("arm runs of {category} unread, so its arms keep alternating: {}", why.user_message()))).unwrap_or_default());
+                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)));
+            }
+            _ => notes.push(format!("north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
+        }
+    }
+    found
+}
+
+pub fn survey(roster: &Roster) -> Result<Survey, String> {
+    let cfg = placement::config()?;
+    let projects = Projects::read(&cfg)?;
+    let here = crate::platform::host::name();
+    let at = placement::now();
+    let mut notes = Vec::new();
+    let laptop = fleets::laptop(&cfg, &here);
+    let fleet_lists = fleets::everywhere(&cfg, &here, &["fleet", "list", "--json"], "fleet", at, PROBE, &mut notes);
+    let gates = fleets::everywhere(&cfg, &here, &["gate", "list", "--json"], "gates", at, PROBE, &mut notes);
+    let sessions: Vec<(Session, String)> = fleet_lists.iter().flat_map(|(host, listing)| fleets::running_sessions(listing).into_iter().map(|session| (session, host.clone()))).collect();
+    let (elsewhere, mut holds) = fleets::tally(&sessions);
+    let (mut issues, open) = github::open_issues(projects.repos(), &mut notes);
+    let records = record::read(&record::directory());
+    holds.extend(claims(&cfg, &here, &fleets::exited_names(&fleet_lists), &mut notes));
+    holds.extend(record::holds(&records, at, &unspent(laptop.as_deref(), &records, at, &mut notes), &fleets::gone(&fleet_lists, &fleets::copy_times(&record::directory(), "fleet", laptop.as_deref()), &records, at)));
+    holds.extend(gates.iter().flat_map(|(host, listing)| gate_rows(listing, host)));
+    let on_laptop = laptop.as_deref().map_or(0, |name| laptop_running(&sessions, name, record::recent_on(&records, name, &open, at)));
+    let names: Vec<String> = cfg.get("hosts").and_then(Item::as_table_like).into_iter().flat_map(|hosts| hosts.iter().map(|(name, _)| name.to_owned())).collect();
+    let hosts = names.iter().map(|name| host(&cfg, name, &here, elsewhere.get(name).copied().unwrap_or(0), on_laptop)).collect();
+    let accounts = accounts(&cfg, roster, &here, at, &mut notes);
+    if accounts.is_empty() {
+        notes.push("pace-control.json names no account, so no slot is free".into());
+    }
+    stopped(laptop.as_deref(), &records, &mut issues, &mut notes);
+    let history = History::new(&records);
+    let report = closed(&mut notes);
+    let ledger = evidence_from(&tier::ARMED, report.as_ref(), &mut notes);
+    let handoffs = Arms::new(&records).priced(&handoff::boxes(report.as_ref(), &cfg, &here, &mut notes));
+    notes.extend(handoffs.recommendations());
+    let grounds = Ledger::read(&mut notes);
+    let cloud = cloud(&cfg, &here, at);
+    let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
+    let super::strands::Read { strands, saturated, revived } = super::strands::read(&cfg, &here, at, &mut notes);
+    let frozen = crate::platform::frozen_topics::load().unwrap_or_else(|why| {
+        notes.push(why);
+        Vec::new()
+    });
+    Ok(Survey { here, cfg, projects, hosts, accounts, issues, open, holds, cloud, laptop, cloud_running, notes, frozen, history, handoffs, ledger, grounds, strands, saturated, revived, at })
+}
+
+mod github {
+    use super::*;
+
+    const QUERY: &str = "query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { issues(states: OPEN, first: 50, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { number title body createdAt labels(first: 30) { nodes { name } } blockedBy(first: 30) { nodes { number state repository { name } } } lastEditedAt comments(last: 10) { nodes { body createdAt updatedAt } } } } } }";
+
+    pub type OpenIssues = (Vec<Issue>, BTreeSet<IssueRef>);
+
+    fn touched(node: &Value) -> f64 {
+        let comment = node["comments"]["nodes"].as_array().and_then(|nodes| nodes.last()).unwrap_or(&Value::Null);
+        [&node["lastEditedAt"], &comment["createdAt"], &comment["updatedAt"]].into_iter().filter_map(|time| crate::pace::target::seconds(time.as_str()?)).fold(0.0, f64::max)
+    }
+
+    pub fn issue(repo: &str, node: &Value) -> Option<Issue> {
+        let open_blockers = node["blockedBy"]["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|blocker| blocker["state"] == "OPEN")
+            .filter_map(|blocker| Some(IssueRef::new(blocker["repository"]["name"].as_str()?, blocker["number"].as_u64()?)))
+            .collect();
+        let comments: Vec<Value> = node["comments"]["nodes"].as_array().cloned().unwrap_or_default();
+        Some(Issue {
+            repo: repo.into(),
+            number: node["number"].as_u64()?,
+            title: node["title"].as_str().unwrap_or_default().into(),
+            body: node["body"].as_str().unwrap_or_default().into(),
+            labels: node["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|label| label["name"].as_str().map(str::to_owned)).collect(),
+            open_blockers,
+            report: comments.last().and_then(|comment| comment["body"].as_str()).unwrap_or_default().into(),
+            comments,
+            touched: touched(node),
+            created: node["createdAt"].as_str().and_then(crate::pace::target::seconds).unwrap_or(0.0),
+            stopped: None,
+        })
+    }
+
+    fn page(repo: &str, cursor: Option<&str>) -> Result<Value, String> {
+        let (query, owner, name) = (format!("query={QUERY}"), format!("owner={OWNER}"), format!("name={repo}"));
+        let mut args = vec!["api", "graphql", "-f", &query, "-F", &owner, "-F", &name];
+        let after = cursor.map(|cursor| format!("cursor={cursor}"));
+        if let Some(after) = &after {
+            args.extend(["-F", after]);
+        }
+        crate::platform::github::json(&args).map(|value| value["data"]["repository"]["issues"].clone())
+    }
+
+    fn repository(repo: &str) -> Result<Vec<Issue>, String> {
+        let (mut found, mut cursor) = (Vec::new(), None::<String>);
+        loop {
+            let issues = page(repo, cursor.as_deref())?;
+            found.extend(issues["nodes"].as_array().into_iter().flatten().filter_map(|node| issue(repo, node)));
+            if issues["pageInfo"]["hasNextPage"] != true {
+                return Ok(found);
+            }
+            cursor = issues["pageInfo"]["endCursor"].as_str().map(str::to_owned);
+        }
+    }
+
+    fn still_open(reference: &IssueRef) -> Option<bool> {
+        let (number, repo) = (reference.number.to_string(), format!("{OWNER}/{}", reference.repo));
+        let state = crate::platform::github::json(&["issue", "view", &number, "-R", &repo, "--json", "state"]).ok()?;
+        Some(state["state"] == "OPEN")
+    }
+
+    /// The staffed repositories' open issues, and every open issue they or their plans wait on.
+    pub fn open_issues(repos: &[String], notes: &mut Vec<String>) -> OpenIssues {
+        let mut found = Vec::new();
+        for repo in repos {
+            match repository(repo) {
+                Ok(issues) => found.extend(issues),
+                Err(why) => notes.push(format!("{repo} issues unread: {why}")),
+            }
+        }
+        let mut open: BTreeSet<IssueRef> = found.iter().map(Issue::reference).collect();
+        let planned = issues::planned_predecessors(&found);
+        let named = found.iter().flat_map(|issue| issues::predecessors(issue).unwrap_or_default()).chain(planned.into_values().flatten());
+        let elsewhere: BTreeSet<IssueRef> = named.filter(|reference| !repos.contains(&reference.repo)).collect();
+        for reference in elsewhere {
+            if still_open(&reference) != Some(false) {
+                open.insert(reference);
+            }
+        }
+        (found, open)
+    }
+}

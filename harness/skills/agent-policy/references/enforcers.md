@@ -29,8 +29,8 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | A worker at 350k tokens of context lands what passes and hands off the rest | `north-hook` (worker-handoff) | Claude |
 | A worker never runs a foreground command that can block past 60 seconds | `worker-wait-guard` through `north-hook` | Claude |
 | Worker briefs carry Category, Spec, Scope, Surface and Verify, and tier rules hold | `worker-tier-guard` | Claude, Codex |
-| A bug brief names a `Class:` line, and a `Verify: native` worker brief names `Lands-before: native`; `north fleet launch` and dispatch refuse a missing Class, the worker-tier guard a missing Lands-before | `class_refusal` and `landing_refusal` in `src/router/brief.rs` | Claude |
-| A worker issue names a `Blocks: REPO#N` box, a `Defect:` line or its own launch item, and never splits or follows up its claimed issue or repeats an open title | `gh issue create` guard (`src/guard/issue_filing.rs`) | Claude |
+| A bug brief names a `Class:` line, and a `Verify: native` worker brief names `Lands-before: native`; `north fleet launch` and dispatch refuse a missing Class, the worker-tier guard a missing Lands-before | `class_refusal` and `landing_refusal` in `crates/north-core/src/router/brief.rs` | Claude |
+| A worker issue names a `Blocks: REPO#N` box, a `Defect:` line or its own launch item, and never splits or follows up its claimed issue or repeats an open title | `gh issue create` guard (`crates/north-core/src/guard/issue_filing.rs`) | Claude |
 | Builds on a `lease_builds` host wait for a capacity lease, however started | `cargo` and `bun` shims and `depbox` through `north capacity gate` | Claude, Codex |
 | A subagent does not finish while its background shells or Monitor watches run; a `job-run --notify` job detaches and survives it | `north-hook` (subagent-teardown) | Claude |
 | No new local worker once capacity leases hold the CPU limit or desktop pressure is above 20% | `spawn-capacity-guard` | Claude |

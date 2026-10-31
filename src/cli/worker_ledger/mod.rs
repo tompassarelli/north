@@ -85,7 +85,7 @@ fn threads(arguments: &[&str]) -> std::io::Result<Command> {
     Ok(command)
 }
 
-pub(crate) fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String]) -> u8 {
     let Some((options, mode)) = parse(arguments) else {
         eprint!("{USAGE}");
         return 2;

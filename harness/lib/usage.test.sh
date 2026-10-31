@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Account labels follow the login across hosts, and a retired provider is not gated by --write-pace-gate (the table, cost lines and snapshot recovery are cargo tests in src/usage).
+# Account labels follow the login across hosts, and a retired provider is not gated by --write-pace-gate (the table, cost lines and snapshot recovery are cargo tests in crates/north-core/src/usage).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d)"

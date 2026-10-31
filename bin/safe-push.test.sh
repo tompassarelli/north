@@ -1639,7 +1639,7 @@ expect_status nonzero
 
 # A branch landing to a public destination runs the deny-list gate with real
 # gitleaks before it pushes; the scanner and stage cases live in
-# src/landing/denylist_publication_tests.rs and safe_push_guards_tests.rs.
+# crates/north-landing/src/landing/denylist_publication_tests.rs and safe_push_guards_tests.rs.
 fixture_denylist="$scratch/denylist.toml"
 cat >"$fixture_denylist" <<'TOML'
 title = "safe-push test deny-list"
@@ -1734,7 +1734,7 @@ expect_status zero
 printf 'PASS: claude/ pushes to a public Autoland repository attest their tip\n'
 
 # A branch landing runs the email scan before it pushes; its cases live in
-# src/landing/safe_push_guards_tests.rs.
+# crates/north-landing/src/landing/safe_push_guards_tests.rs.
 private_email=someone@private.example
 expect_email_refused() {
   local role="$1" sha

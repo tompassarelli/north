@@ -13,51 +13,51 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
-| runs.eta_min | north worker-ledger | src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
+| runs.eta_min | north worker-ledger | crates/north-core/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
 | runs.minutes | north worker-ledger | bin/threads:1243 recommend_eta | read | |
 | runs.outcome, follows, landed, expects_landing | north worker-ledger | bin/threads:1408 run_ok; harness/lib/plan_usage.py:153 routing success | read | 4a58f21e |
 | runs.tier | north worker-ledger | bin/threads:1191 recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | bin/threads brief_fields | bin/threads:1191 recommend, :1243 recommend_eta | read | |
-| runs.arm | bin/threads:967 | src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
+| runs.arm | bin/threads:967 | crates/north-core/src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
 | runs.lens, flaws | north worker-ledger | bin/threads:1113 summary lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | north worker-ledger | bin/threads:1097 tokens_med, :1526 tokens_per_closed | read | |
 | runs.cost_usd | bin/threads:989 | bin/threads:1184 recommend $ per success; harness/lib/ledger_context.py delivery_metrics; harness/lib/project_score.py:51 | read | 4b71ac63 |
 | runs.staffed, review_requested, landed_at | north worker-ledger | harness/lib/ledger_context.py delivery_metrics | read | |
 | runs.landed_sha | north worker-ledger | none yet (north#51 box 2) | unread | |
-| runs.first_commit | none (tally-internal, src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
+| runs.first_commit | none (tally-internal, crates/north-core/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
 | runs.turns | none | none | dropped | 4aecdaf9 |
-| runs.peak_ctx, handoff_fires, handoff_ignored | src/providers/claude/runs/telemetry.rs (Claude); src/providers/codex/runs/usage.rs (Codex) | bin/capacity-watchdog:465 | read | |
-| runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | src/providers/claude/runs/telemetry.rs (Claude); src/providers/codex/runs/usage.rs (Codex) | bin/threads:1057 context_summary | read | |
+| runs.peak_ctx, handoff_fires, handoff_ignored | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | bin/capacity-watchdog:465 | read | |
+| runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | bin/threads:1057 context_summary | read | |
 | runs.account, model, effort, fast | bin/threads:902 | bin/threads:1131 delivery_summary | read | |
 | runs.note, report, session, role | bin/threads | `threads show`, role filters | read | |
 | calibration | bin/threads calibrate | bin/threads:1395; harness/lib/calibration.py:23 | read | ac79788c |
 | run_usage | bin/threads:897 | bin/threads allocation into run_costs | read | |
 | run_costs | bin/threads:987 | bin/threads:989 rolls into runs.cost_usd | read | |
-| usage | src/usage/refresh/ | src/usage/store.rs latest, routing and the pace gate | read | |
-| claims.eta_min | src/threads/claims/ledger.rs take | src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; src/work_items.rs:82 | read | |
+| usage | crates/north-core/src/usage/refresh/ | crates/north-core/src/usage/store.rs latest, routing and the pace gate | read | |
+| claims.eta_min | crates/north-core/src/threads/claims/ledger.rs take | crates/north-core/src/threads/claims/mod.rs stale rule, verbs.rs OVERDUE; crates/north-core/src/work_items.rs:82 | read | |
 | tier_choice | bin/threads:1431 | bin/threads:1427 incumbent | read | |
 | events kind=run | none | none | dropped | 4aecdaf9 |
 | run_events | none | none | dropped | 4aecdaf9 |
-| capacity_runs cores, memory, signature | src/capacity/host/run.rs record | src/capacity/host/estimate.rs estimate_capacity | read | |
-| capacity_runs.wallSeconds | src/capacity/host/run.rs usage_entry | src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
-| capacity_runs io, diskBusyShare | src/capacity/host/run.rs record | src/capacity/host/estimate.rs estimate output | read | |
-| capacity_runs.exitCode | src/capacity/host/run.rs usage_entry | src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
-| capacity_runs.command, cpuSeconds | src/capacity/host/run.rs usage_entry | none | held for north#17 | |
-| job_runs | bin/threads:1748 | bin/threads:1753 job-runs; src/ops/job_watch/mod.rs | read | |
-| model_events | src/ops/model_watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
-| machine-capacity-usage.jsonl | src/capacity/host/database.rs record_usage | src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
-| usage-gate.json | src/usage/gate.rs | harness/hooks/lib/spawn_capacity.py:280 | read | |
-| spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | src/ops/report/mod.rs jsonl | read | 871718bb |
+| capacity_runs cores, memory, signature | crates/north-core/src/capacity/host/run.rs record | crates/north-core/src/capacity/host/estimate.rs estimate_capacity | read | |
+| capacity_runs.wallSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 | read | 4aecdaf9 |
+| capacity_runs io, diskBusyShare | crates/north-core/src/capacity/host/run.rs record | crates/north-core/src/capacity/host/estimate.rs estimate output | read | |
+| capacity_runs.exitCode | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
+| capacity_runs.command, cpuSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | none | held for north#17 | |
+| job_runs | bin/threads:1748 | bin/threads:1753 job-runs; crates/north-core/src/ops/job_watch/mod.rs | read | |
+| model_events | crates/north-core/src/ops/model_watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
+| machine-capacity-usage.jsonl | crates/north-core/src/capacity/host/database.rs record_usage | crates/north-core/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
+| usage-gate.json | crates/north-core/src/usage/gate.rs | harness/hooks/lib/spawn_capacity.py:280 | read | |
+| spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | harness/lib/spawn_queue.py from harness/lib/spawn.py | harness/lib/spawn.py release at the end of pace_sampler.sample; oldest eligible durable worker launches automatically | read | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
-| goal-scores.jsonl | harness/lib/project_score.py | src/ops/report/mod.rs jsonl | read | 871718bb |
+| goal-scores.jsonl | harness/lib/project_score.py | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | harness/lib/plan_usage.py:79; harness/lib/usage.py:267 | read | |
 | costs/*.json | harness/lib/billing_*.py | harness/lib/usage.py:264 service lines | read | |
-| S:operating-point.toml | north policy-replay promote | src/agent_config_check/gate.rs; src/ops/timers/skill_prune.rs | read | |
-| S:incidents.jsonl | north incident-mine (src/ops/incident_mine) | src/agent_config_check/rules.rs | read | |
-| replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | src/agent_config_check/gate.rs | read | |
-| harness/model-catalog.toml | hand | harness/lib/usage.py:31; src/providers/codex/runs/usage.rs run_usage; src/providers/claude/runs/telemetry.rs Prices | read | |
+| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-core/src/ops/timers/skill_prune.rs | read | |
+| S:incidents.jsonl | north incident-mine (crates/north-core/src/ops/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
+| replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | crates/north-core/src/agent_config_check/gate.rs | read | |
+| harness/model-catalog.toml | hand | harness/lib/usage.py:31; crates/north-core/src/providers/codex/runs/usage.rs run_usage; crates/north-core/src/providers/claude/runs/telemetry.rs Prices | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
 Claude worker creation (north#35): foreground `SubagentStart` lacks the original prompt, and the child prompt is persisted only after that callback. The supported route is `Agent` with `run_in_background: true`: its `PostToolUse` result has `status=async_launched` and the actual child `agentId`, so `worker-handoff` records the original tool input at launch. `worker-tier-guard` requires this route before any `Follows:` exemption.

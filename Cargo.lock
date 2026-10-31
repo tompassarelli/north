@@ -818,6 +818,8 @@ version = "0.1.0"
 dependencies = [
  "crossterm 0.28.1",
  "fancy-regex",
+ "north-core",
+ "north-landing",
  "percent-encoding",
  "ratatui",
  "regex",
@@ -833,6 +835,64 @@ dependencies = [
  "toml_edit",
  "tui-markdown",
  "tui-textarea-2",
+]
+
+[[package]]
+name = "north-base"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "ryu",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-core"
+version = "0.1.0"
+dependencies = [
+ "crossterm 0.28.1",
+ "fancy-regex",
+ "north-base",
+ "percent-encoding",
+ "ratatui",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "ryu",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml_edit",
+ "tui-markdown",
+ "tui-textarea-2",
+]
+
+[[package]]
+name = "north-landing"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "percent-encoding",
+ "regex",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml_edit",
 ]
 
 [[package]]

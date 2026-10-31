@@ -118,7 +118,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 
 - <a id="agent-skills-spec"></a>**Agent Skills specification**, https://agentskills.io/specification; accessed: not recorded, cited 2026-10-12.
   Informed: the playbook SKILL.md body ceiling in
-  [src/agent_config_check/gate.rs](../src/agent_config_check/gate.rs) (0aa8f9fa, first in agent-config-check.sh).
+  [crates/north-core/src/agent_config_check/gate.rs](../crates/north-core/src/agent_config_check/gate.rs) (0aa8f9fa, first in agent-config-check.sh).
   Outcome: adopted as the failing ceiling, with the tighter local size kept as a reported target that fails
   nothing.
 
@@ -128,7 +128,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: adopted; its default cut flag episodes against the earlier local value.
 
 - <a id="kernel-psi"></a>**Linux kernel documentation, PSI (Pressure Stall Information)**, https://docs.kernel.org/accounting/psi.html; accessed: not recorded, cited 2026-10-31.
-  Informed: the heavy-build pressure target and its settle time in [pressure_target.rs](../src/capacity/pressure_target.rs), `admit_psi_*` and
+  Informed: the heavy-build pressure target and its settle time in [pressure_target.rs](../crates/north-core/src/capacity/pressure_target.rs), `admit_psi_*` and
   `admit_settle_seconds` in [harness/defaults.toml](../harness/defaults.toml): "some" is the share of time at least one task waited for a CPU,
   averaged over 10, 60 and 300 s, which is why a controller must wait a window after each start before it reads again.
   Outcome: adopted; the marks come from the laptop's own samples, the kernel text only fixes what the number means.

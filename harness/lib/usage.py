@@ -1,5 +1,5 @@
 """The Python remainder of `agents usage`: the helpers other harness scripts import (account labels, record, publish, latest,
-reservation) and --reservation-json. Every other verb runs in Rust, in src/usage."""
+reservation) and --reservation-json. Every other verb runs in Rust, in crates/north-core/src/usage."""
 
 import json
 import os

@@ -1,7 +1,7 @@
-diff --git a/src/shell/lexer.rs b/src/shell/lexer.rs
+diff --git a/crates/north-base/src/shell/lexer.rs b/crates/north-base/src/shell/lexer.rs
 index 193d1124..1ba022e6 100644
---- a/src/shell/lexer.rs
-+++ b/src/shell/lexer.rs
+--- a/crates/north-base/src/shell/lexer.rs
++++ b/crates/north-base/src/shell/lexer.rs
 @@ -170,7 +170,7 @@ pub fn words(cmd: &str) -> Option<Vec<String>> {
          i = close;
          search = close;

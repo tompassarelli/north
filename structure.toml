@@ -11,18 +11,18 @@ days = 3
 hotspot_score = 0
 
 [ignore]
-paths = ["target/**", "src/fixtures/**", "src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "harness/lib/routing-scenarios/**"]
+paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "crates/north-core/src/router/fixtures/**", "**/node_modules/**", "harness/**/fixtures/**", "harness/lib/routing-scenarios/**"]
 
 [[module]]
 name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
-paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "src/test_inputs.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "src/guard/launch_critical_fixtures.rs"]
+paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-core/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","code_health","learn","domain","shell","platform","foundation"]
+may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","code_health","learn","domain","shell","platform","foundation", "crate-roots"]
 
 [[module]]
 name = "foundation"
-paths = ["src/foundation/**", "src/error.rs"]
+paths = ["crates/north-base/src/foundation/**", "crates/north-base/src/error.rs", "crates/north-base/src/test_inputs.rs"]
 responsibility = "Error type, clock port and time values, identifiers."
 may_use = []
 
@@ -32,118 +32,124 @@ producer = "harness/skills/machine-capacity/scripts/build-machine-capacity"
 
 [[module]]
 name = "platform"
-paths = ["src/platform/**"]
+paths = ["crates/north-base/src/platform/**"]
 responsibility = "Adapters for processes, git, GitHub, SQLite, files and ssh."
 may_use = ["foundation"]
 
 [[module]]
 name = "shell"
-paths = ["src/shell/**", "src/shellcmd.rs"]
+paths = ["crates/north-base/src/shell/**", "crates/north-base/src/shellcmd.rs"]
 responsibility = "One shell lexer and segmenter for every guard and gate."
 may_use = ["foundation"]
 
 [[module]]
 name = "domain"
-paths = ["src/domain/**", "src/router.rs", "src/router/**", "src/pace/**"]
+paths = ["crates/north-core/src/domain/**", "crates/north-core/src/router.rs", "crates/north-core/src/router/**", "crates/north-core/src/pace/**"]
 responsibility = "Workforce members, messages, briefs, work-item refs, routing, pace and placement policy."
-may_use = ["foundation"]
+may_use = ["foundation", "crate-roots"]
 
 [[module]]
 name = "fleet"
-paths = ["src/fleet/**", "src/lead_journal.rs"]
+paths = ["crates/north-core/src/fleet/**", "crates/north-core/src/lead_journal.rs"]
 responsibility = "Headless agent sessions: Runtime port, process host, delivery journal, admission, supervision."
-may_use = ["domain", "platform", "foundation"]
+may_use = ["domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "ledger"
-paths = ["src/ledger/**"]
+paths = ["crates/north-core/src/ledger/**"]
 responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
-may_use = ["fleet", "platform", "foundation"]
+may_use = ["fleet", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "guard"
-paths = ["src/guard/**", "src/hook.rs"]
+paths = ["crates/north-core/src/guard/**", "crates/north-core/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "shell", "domain", "platform", "foundation"]
+may_use = ["ledger", "autoland_status", "shell", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "threads"
-paths = ["src/threads/**", "src/work_items.rs"]
+paths = ["crates/north-core/src/threads/**", "crates/north-core/src/work_items.rs"]
 responsibility = "NorthThreads ledger: items, holders, runs, messages, jobs, remote host access."
-may_use = ["domain", "platform", "foundation"]
+may_use = ["domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
-name = "landing"
-paths = ["src/landing/**", "src/dep_gate.rs", "src/review_gate.rs", "src/language_gate.rs", "src/language_gate/**", "src/provenance.rs", "src/issue_box_lint.rs", "src/autoland_status.rs", "src/autoland_status/**", "src/land_abandon.rs", "src/land_abandon/**", "src/follows_release.rs"]
-responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
-may_use = ["shell", "threads", "domain", "platform", "foundation"]
-
-[[module]]
-name = "catalog"
-paths = ["src/catalog/**", "src/agent_catalog.rs", "src/agent_policy_contract.rs", "src/agent_policy_contract/**", "src/agent_config_check/**"]
-responsibility = "Agent catalog, activation generations, projection port and policy checks."
-may_use = ["domain", "platform", "foundation"]
-
-[[module]]
-name = "grounding"
-paths = ["src/grounding/**"]
-responsibility = "Index and retrieval of existing infrastructure and history for prompts."
-may_use = ["threads", "domain", "platform", "foundation"]
-
-[[module]]
-name = "capacity"
-paths = ["src/capacity/**"]
-responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
-may_use = ["shell", "platform", "foundation"]
-
-[[module]]
-name = "lanes"
-paths = ["src/lanes/**"]
-responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks."
-may_use = ["threads", "platform", "foundation"]
-
-[[module]]
-name = "ops"
-paths = ["src/ops/**", "src/health.rs", "src/health/**"]
-responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
-may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation"]
-
-[[module]]
-name = "usage"
-paths = ["src/usage/**"]
-responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
-may_use = ["domain", "platform", "foundation"]
-
-[[module]]
-name = "code_health"
-paths = ["src/code_health/**"]
-responsibility = "Import resolution for the code-health report, gate and edit check."
+name = "autoland_status"
+paths = ["crates/north-base/src/autoland_status.rs", "crates/north-base/src/autoland_status/**"]
+responsibility = "Autoland run evidence and lane holds read by landing and the guards."
 may_use = ["platform", "foundation"]
 
 [[module]]
+name = "landing"
+paths = ["crates/north-landing/src/landing/**", "crates/north-landing/src/dep_gate.rs", "crates/north-landing/src/review_gate.rs", "crates/north-landing/src/language_gate.rs", "crates/north-landing/src/language_gate/**", "crates/north-landing/src/provenance.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs"]
+responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
+may_use = ["shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "catalog"
+paths = ["crates/north-core/src/catalog/**", "crates/north-core/src/agent_catalog.rs", "crates/north-core/src/agent_policy_contract.rs", "crates/north-core/src/agent_policy_contract/**", "crates/north-core/src/agent_config_check/**"]
+responsibility = "Agent catalog, activation generations, projection port and policy checks."
+may_use = ["domain", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "grounding"
+paths = ["crates/north-core/src/grounding/**"]
+responsibility = "Index and retrieval of existing infrastructure and history for prompts."
+may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "capacity"
+paths = ["crates/north-core/src/capacity/**"]
+responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
+may_use = ["shell", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "lanes"
+paths = ["crates/north-core/src/lanes/**"]
+responsibility = "Worktree and pin lifecycle: reap, rescue, gc, layout checks."
+may_use = ["threads", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "ops"
+paths = ["crates/north-core/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**"]
+responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
+may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "usage"
+paths = ["crates/north-core/src/usage/**"]
+responsibility = "Account usage readings: the latest reading of each account window from the threads ledger."
+may_use = ["domain", "platform", "foundation", "crate-roots"]
+
+[[module]]
+name = "code_health"
+paths = ["crates/north-core/src/code_health/**"]
+responsibility = "Import resolution for the code-health report, gate and edit check."
+may_use = ["platform", "foundation", "crate-roots"]
+
+[[module]]
 name = "learn"
-paths = ["src/learn/**"]
+paths = ["crates/north-core/src/learn/**"]
 responsibility = "Replay, tuning, measurement and backtests over recorded outcomes."
-may_use = ["threads", "domain", "platform", "foundation"]
+may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "providers"
-paths = ["src/providers/**", "src/claude_stream.rs", "src/contract_probe.rs", "src/daemon.rs", "src/usage_stream.rs", "src/codex.rs", "src/rpc.rs"]
+paths = ["crates/north-core/src/providers/**", "crates/north-core/src/claude_stream.rs", "crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/codex.rs", "crates/north-core/src/rpc.rs"]
 responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection, install."
-may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation"]
+may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "tui"
-paths = ["src/tui/**"]
+paths = ["crates/north-core/src/tui/**"]
 responsibility = "Fleet terminal screen, input, transcript and digest views."
-may_use = ["fleet", "catalog", "domain", "platform", "foundation"]
+may_use = ["fleet", "catalog", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["tui", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "code_health", "learn", "domain", "shell", "platform", "foundation"]
+may_use = ["tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "learn", "domain", "shell", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "verify"
@@ -163,3 +169,9 @@ thresholds = { file_lines = 1400 }
 paths = ["harness/**/*.ts", "harness/**/*.mjs", "bin/**/*.ts"]
 responsibility = "TypeScript awaiting a Rust port; may not grow."
 may_use = []
+
+[[module]]
+name = "crate-roots"
+paths = ["crates/*/src/lib.rs"]
+responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
+may_use = ["foundation", "platform", "shell", "autoland_status"]

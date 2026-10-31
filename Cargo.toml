@@ -1,13 +1,8 @@
-[package]
-name = "north"
-version = "0.1.0"
-edition = "2024"
-license = "MIT OR Apache-2.0"
-rust-version = "1.96"
-publish = false
-autobins = false
+[workspace]
+members = ["crates/north-base", "crates/north-core", "crates/north-landing"]
+default-members = [".", "crates/north-base", "crates/north-core", "crates/north-landing"]
 
-[dependencies]
+[workspace.dependencies]
 crossterm = "0.28.1"
 ratatui = "0.30.0"
 fancy-regex = "=0.11.0"
@@ -26,6 +21,42 @@ tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-
 tui-markdown = { version = "0.3.9", default-features = false }
 tui-textarea-2 = { version = "0.13.2", default-features = false, features = ["crossterm_0_28"] }
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[package]
+name = "north"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.96"
+publish = false
+autobins = false
+
+[dependencies]
+north-core = { path = "crates/north-core" }
+north-landing = { path = "crates/north-landing" }
+crossterm.workspace = true
+ratatui.workspace = true
+fancy-regex.workspace = true
+regex.workspace = true
+percent-encoding.workspace = true
+rusqlite.workspace = true
+rustix.workspace = true
+ryu.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+time.workspace = true
+toml_edit.workspace = true
+tokio.workspace = true
+tui-markdown.workspace = true
+tui-textarea-2.workspace = true
+
+[dev-dependencies]
+north-core = { path = "crates/north-core", features = ["test-support"] }
+
 [[bin]]
 name = "north"
 path = "src/main.rs"
@@ -34,8 +65,8 @@ path = "src/main.rs"
 name = "verify-north"
 path = "src/bin/verify_north/main.rs"
 
-[lints.rust]
-unsafe_code = "forbid"
+[lints]
+workspace = true
 
 [[example]]
 name = "fake_claude"
