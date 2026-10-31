@@ -40,9 +40,10 @@ Options:
                ~/.local/state/safe-push/direct-landings.tsv
   --tag NAME   push an existing annotated tag after scanning new content
   -h, --help   print this help without inspecting a repository
-  abandon      delete this lane's claude/land-<lane>-<sha>, or BRANCH, from
-               origin once main holds each of its commits by subject or patch
-               or Autoland handed it back; with --superseded, a claude/* or
+  abandon      delete this lane's claude/land-<lane>-<sha>, or a claude/*
+               BRANCH, from origin once main holds each of its commits by
+               subject or patch or Autoland handed it back (a failure or
+               error status); with --superseded, a claude/* or
                farm/* BRANCH goes only once each of its commits is on origin by
                subject or patch, whatever Autoland reported; a scratch/NAME
                goes once this session pushed its tip, the session that pushed

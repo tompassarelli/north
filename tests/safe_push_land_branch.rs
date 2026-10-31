@@ -357,7 +357,7 @@ fn origin_has(lane: &Lane, branch: &str) -> bool {
 }
 
 #[test]
-fn abandon_superseded_deletes_a_claude_or_farm_branch_only_when_main_holds_every_commit() {
+fn abandon_deletes_a_claude_or_farm_branch_main_holds_and_a_claude_branch_autoland_refused() {
     let lane = Lane::new();
     let by_subject = "claude/effect-upgrade-4.0.2-1";
     let by_patch = "farm/ll177-perf-split";
@@ -429,6 +429,19 @@ fn abandon_superseded_deletes_a_claude_or_farm_branch_only_when_main_holds_every
         assert!(!origin_has(&lane, branch));
     }
     assert!(origin_has(&lane, unlanded));
+    fs::write(
+        lane.root.join("status"),
+        "failure\tthe suite failed\thttps://example.test/run\n",
+    )
+    .unwrap();
+    let refused = lane.run(&["abandon", unlanded]);
+    assert_eq!(
+        refused.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    assert!(!origin_has(&lane, unlanded));
 }
 
 #[test]

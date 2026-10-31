@@ -85,7 +85,7 @@ impl Abandon {
     fn branch(self) -> Option<(String, Rule)> {
         match self {
             Self::LandBranch(branch) => branch
-                .filter(|branch| branch.starts_with("claude/land-"))
+                .filter(|branch| branch.starts_with("claude/"))
                 .map(|branch| (branch, Rule::LandedOrHandedBack)),
             Self::Superseded(branch) => (branch.starts_with("claude/")
                 || branch.starts_with("farm/"))
@@ -102,7 +102,7 @@ pub fn abandon(arguments: &[String], witness: &dyn Witness) -> u8 {
     };
     let Some((branch, rule)) = request.branch() else {
         eprintln!(
-            "safe-push: abandon refuses anything but a claude/land-* or scratch/* branch (claude/* or farm/* with --superseded); NOT deleted."
+            "safe-push: abandon refuses anything but a claude/* or scratch/* branch (farm/* too with --superseded); NOT deleted."
         );
         return 1;
     };
