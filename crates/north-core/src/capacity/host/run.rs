@@ -12,6 +12,7 @@ use super::machine::{env, lease_slice, now_ms, read_signals, read_text, scope_cg
 use super::measure::{Usage, measure_scope};
 use super::policy::batch_class;
 use super::quiet_holds::{QuietHolds, quiet_owners};
+use super::requeue;
 use super::request::{Create, Request, class, id, is_run};
 use super::shape::{command_shape, recorded_command};
 use super::state::{active_profile, dequeue, enqueue, exact_lease, read_leases, with_lock};
@@ -160,12 +161,13 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
     }
     let offer = request.name == "heavy" && !request.landing;
     let mut declined = None;
-    if offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
+    let resumed = requeue::resumed(root);
+    if resumed.is_none() && offer && let Some(admitted) = offer_first(Waiting { root, ticket: None, request, create, command, declined: &mut declined }, host, terminations).await {
         return admitted;
     }
     let mut offered_at = now_ms();
-    let queued_at = now_ms();
-    let ticket = wait_ticket(root, request, create);
+    let (ticket, queued_at) = resumed.map_or_else(|| (wait_ticket(root, request, create), now_ms()), |resumed| (resumed.ticket, resumed.queued_at));
+    let follow = requeue::Follow::here();
     let mut reported = None;
     let mut quiet = QuietHolds::default();
     loop {
@@ -191,6 +193,9 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         if reason(&result) != reported {
             print_to(&result.clone().put("decision", "QUEUED"), true);
             reported = reason(&result);
+        }
+        if let Some(follow) = &follow {
+            follow.follow(&ticket, queued_at);
         }
         tokio::select! {
             () = lease_change(root) => {}
@@ -264,6 +269,7 @@ fn scope_command(root: &Path, request: &Request, admitted: &Obj, timeout_seconds
         let jobs = field(&scope, "cpus").filter(|cpus| cpus.is_finite()).map_or(1.0, f64::ceil).max(1.0).to_string();
         child.env("CARGO_BUILD_JOBS", &jobs).env("RUST_TEST_THREADS", &jobs);
     }
+    requeue::forget(&mut child);
     client_environment(&mut child);
     tokio::process::Command::from(child)
 }

@@ -22,6 +22,7 @@ mod policy;
 mod policy_tests;
 mod quiet_holds;
 mod request;
+mod requeue;
 mod run;
 mod shape;
 mod sizing;
