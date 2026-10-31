@@ -110,21 +110,29 @@ fn the_ssh_client_takes_drops_and_sets_aside_through_the_real_over_ssh_quoting()
 }
 
 #[test]
-fn a_far_spool_holding_a_row_this_build_cannot_decode_still_yields_every_other_row_and_names_the_one_to_set_aside() {
+fn a_far_spool_sets_aside_only_rows_that_are_not_json_or_have_no_id_and_leaves_a_row_of_an_unknown_kind_for_a_build_that_knows_it() {
     let hosts = Hosts::new();
     ["m-1", "m-3"].iter().for_each(|id| hosts.spool().put(&message(id)).unwrap());
-    fs::write(hosts.path("far").join(".local/state/north/fleet/spool/m-2.json"), br#"{"id":"m-2","kind":"ANSWER","to":"sc-1"}"#).unwrap();
+    let dir = hosts.path("far").join(".local/state/north/fleet/spool");
+    fs::write(dir.join("m-2.json"), b"{not json").unwrap();
+    fs::write(dir.join("m-4.json"), br#"{"kind":"ANSWER","to":"sc-1"}"#).unwrap();
+    fs::write(dir.join("m-5.json"), br#"{"id":"m-5","kind":"ANSWER-V2","to":"sc-1"}"#).unwrap();
     let ssh = hosts.ssh();
 
     let pull = ssh.take("far").unwrap();
 
     assert_eq!(pull.rows, [message("m-1"), message("m-3")]);
-    let [undecodable] = pull.undecodable.as_slice() else { panic!("{pull:?}") };
-    assert_eq!(undecodable.id, "m-2");
-    ssh.set_aside("far", std::slice::from_ref(&undecodable.id)).unwrap();
+    let ids: Vec<&str> = pull.undecodable.iter().map(|undecodable| undecodable.id.as_str()).collect();
+    assert_eq!(ids, ["m-2", "m-4"]);
+    let [newer] = pull.unknown_kind.as_slice() else { panic!("{pull:?}") };
+    assert_eq!((newer.id.as_str(), newer.kind.as_str()), ("m-5", "ANSWER-V2"));
+    ssh.set_aside("far", &["m-2".to_owned(), "m-4".to_owned()]).unwrap();
     let again = ssh.take("far").unwrap();
-    assert_eq!((again.rows.len(), again.undecodable.len()), (2, 0));
-    assert!(hosts.rejected().join("m-2.json").is_file());
+    assert_eq!((again.rows.len(), again.undecodable.len(), again.unknown_kind.len()), (2, 0, 1));
+    assert!(hosts.rejected().join("m-2.json").is_file() && hosts.rejected().join("m-4.json").is_file());
+    assert!(!hosts.rejected().join("m-5.json").exists() && dir.join("m-5.json").is_file());
+    fs::write(dir.join("m-5.json"), serde_json::to_vec(&message("m-5")).unwrap()).unwrap();
+    assert_eq!(ssh.take("far").unwrap().rows, [message("m-1"), message("m-3"), message("m-5")]);
 }
 
 #[test]

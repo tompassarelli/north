@@ -37,6 +37,7 @@ pub struct HandedRow {
 pub struct Pull {
     pub rows: Vec<FleetRow>,
     pub undecodable: Vec<Undecodable>,
+    pub unknown_kind: Vec<UnknownKind>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,9 +46,15 @@ pub struct Undecodable {
     pub why: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnknownKind {
+    pub id: String,
+    pub kind: String,
+}
+
 impl From<Vec<FleetRow>> for Pull {
     fn from(rows: Vec<FleetRow>) -> Self {
-        Self { rows, undecodable: Vec::new() }
+        Self { rows, ..Self::default() }
     }
 }
 
@@ -110,6 +117,10 @@ pub fn take_with(run: impl Fn(&[&str], &[u8]) -> NorthResult<Vec<u8>>) -> NorthR
     let spooled: Vec<Spooled> = serde_json::from_slice(&run(&["fleet", "spool", "take"], &[])?)?;
     let mut pull = Pull::default();
     for Spooled { id, row } in spooled {
+        if let Some(kind) = FleetRow::unknown_kind(&row) {
+            pull.unknown_kind.push(UnknownKind { id, kind: kind.to_owned() });
+            continue;
+        }
         match serde_json::from_value::<FleetRow>(row) {
             Ok(row) => pull.rows.push(row),
             Err(error) => pull.undecodable.push(Undecodable { id, why: format!("this build cannot read it: {error}") }),

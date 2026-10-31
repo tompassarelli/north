@@ -110,6 +110,12 @@ enum Rows {
 }
 
 impl FleetRow {
+    pub fn unknown_kind(value: &serde_json::Value) -> Option<&str> {
+        value.get("id").and_then(serde_json::Value::as_str).filter(|id| !id.is_empty())?;
+        let kind = value.get("kind").and_then(serde_json::Value::as_str)?;
+        (!RowKind::ALL.iter().any(|known| known.label() == kind)).then_some(kind)
+    }
+
     pub fn delivery(&self) -> Delivery {
         if self.urgent { Delivery::Now } else { Delivery::Queued }
     }

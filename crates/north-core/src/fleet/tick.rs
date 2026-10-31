@@ -6,7 +6,7 @@ use crate::foundation::clock::Timestamp;
 use super::invariant::{self, Facts, Kept};
 use super::model::SessionRecord;
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, Handed, HandedRow, LedgerHost, SessionRow, Undecodable, WaitKey, WaitRow};
+use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, Handed, HandedRow, LedgerHost, SessionRow, Undecodable, UnknownKind, WaitKey, WaitRow};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -24,6 +24,7 @@ pub struct Ticked {
     pub pull_failed: Vec<(String, String)>,
     pub drop_failed: Vec<(String, String)>,
     pub refused: Vec<(String, String)>,
+    pub left: Vec<(String, String)>,
     pub probed: Vec<String>,
     pub kept: Kept,
     pub unsettled: Option<String>,
@@ -84,11 +85,12 @@ impl Ticked {
         let unpulled = self.pull_failed.iter().map(|(name, why)| format!("not pulled from {name}: {why}"));
         let undropped = self.drop_failed.iter().map(|(name, why)| format!("not dropped or set aside on {name}: {why}"));
         let refused = self.refused.iter().map(|(name, why)| format!("set aside on {name}, the store refuses it: {why}"));
+        let left = self.left.iter().map(|(name, why)| format!("left on {name} for a build that knows its kind: {why}"));
         let uncached = self.uncached.iter().map(|(name, why)| format!("fleet table not cached on {name}: {why}"));
         let undelivered = self.far_failed.iter().map(|(name, why)| format!("not delivered to the registry on {name}: {why}"));
         let counts = format!("flushed {}, pulled {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.pulled, self.delivered.len(), self.already, self.deferred, self.pruned);
         let unsettled = self.unsettled.iter().map(|why| format!("waits not settled in the store: {why}"));
-        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(uncached).chain(undelivered).chain(self.probed.iter().cloned()).chain(self.kept.lines()).chain(unsettled).chain([counts]).collect()
+        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(left).chain(uncached).chain(undelivered).chain(self.probed.iter().cloned()).chain(self.kept.lines()).chain(unsettled).chain([counts]).collect()
     }
 }
 
@@ -199,6 +201,9 @@ fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut 
         match answer {
             Ok(found) => {
                 let (mut ids, mut refused) = (Vec::new(), Vec::new());
+                for UnknownKind { id, kind } in found.unknown_kind {
+                    ticked.left.push((host.name.clone(), format!("{id}: kind {kind} is not known to this build")));
+                }
                 for Undecodable { id, why } in found.undecodable {
                     ticked.refused.push((host.name.clone(), format!("{id}: {why}")));
                     if FleetRow::check_id(&id).is_ok() {

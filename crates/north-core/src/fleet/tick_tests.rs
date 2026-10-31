@@ -13,7 +13,7 @@ use crate::fleet::gates::GateRequest;
 use crate::fleet::runtime::Runtime;
 use crate::fleet::runtimes::Runtimes;
 use crate::fleet::registry::Controlled;
-use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, HandedRow, JobPayload, Pull, RowKind, SessionRow, Store, Undecodable, WaitKey};
+use crate::fleet::store::{AnswerPayload, ControlVerb, Exchanged, FarRegistry, FarSpools, FleetRow, HandedRow, JobPayload, Pull, RowKind, SessionRow, Store, Undecodable, UnknownKind, WaitKey};
 use crate::providers::claude::fleet::Claude;
 
 const EVENTS: &str = "CREATE TABLE events(seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, item TEXT, kind TEXT NOT NULL CHECK(kind IN ('KICKOFF')), actor TEXT NOT NULL DEFAULT '', tier TEXT NOT NULL DEFAULT '', data TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(data))) STRICT;";
@@ -268,6 +268,7 @@ struct Far {
     down: Mutex<Vec<String>>,
     undroppable: Mutex<Vec<String>>,
     undecodable: Mutex<BTreeMap<String, Vec<String>>>,
+    newer: Mutex<BTreeMap<String, Vec<String>>>,
     taken: Mutex<Vec<String>>,
     aside: Mutex<Vec<String>>,
     cached: Mutex<BTreeMap<String, Vec<String>>>,
@@ -292,8 +293,9 @@ impl FarSpools for Far {
             return Err(NorthError::Refused(format!("ssh {ssh}: connection timed out")));
         }
         let rows = self.spools.lock().unwrap().get(ssh).cloned().unwrap_or_default();
-        let undecodable = self.undecodable.lock().unwrap().get(ssh).into_iter().flatten().map(|id| Undecodable { id: id.clone(), why: "this build cannot read it: unknown variant `ANSWER`".into() }).collect();
-        Ok(Pull { rows, undecodable })
+        let undecodable = self.undecodable.lock().unwrap().get(ssh).into_iter().flatten().map(|id| Undecodable { id: id.clone(), why: "this build cannot read it: missing field `id`".into() }).collect();
+        let unknown_kind = self.newer.lock().unwrap().get(ssh).into_iter().flatten().map(|id| UnknownKind { id: id.clone(), kind: "ANSWER-V2".into() }).collect();
+        Ok(Pull { rows, undecodable, unknown_kind })
     }
 
     fn drop(&self, ssh: &str, ids: &[String]) -> NorthResult<()> {
@@ -409,6 +411,30 @@ fn a_row_the_store_would_refuse_is_set_aside_on_its_machine_with_a_notice_and_do
     let again = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
     assert!(again.refused.is_empty(), "a row set aside never recurs");
     assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-ok'"), 1);
+}
+
+#[test]
+fn a_row_of_a_kind_only_a_newer_build_knows_stays_in_its_spool_with_one_notice_per_tick_and_a_build_that_knows_the_kind_pulls_it() {
+    let host = host("nexus");
+    let far = Far::holding("tom@gex45", vec![message("m-ok", "elsewhere", NOW_MS)]);
+    far.newer.lock().unwrap().insert("tom@gex45".into(), vec!["m-future".into()]);
+    let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
+
+    for _ in 0..2 {
+        let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+
+        assert!(ticked.pull_failed.is_empty() && ticked.drop_failed.is_empty() && ticked.refused.is_empty(), "{ticked:?}");
+        let notices: Vec<String> = ticked.lines().into_iter().filter(|line| line.contains("m-future")).collect();
+        assert_eq!(notices, ["left on gex45 for a build that knows its kind: m-future: kind ANSWER-V2 is not known to this build"]);
+        assert!(far.aside.lock().unwrap().is_empty());
+        assert_eq!(far.newer.lock().unwrap()["tom@gex45"], ["m-future"]);
+    }
+    assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-ok'"), 1);
+
+    far.newer.lock().unwrap().clear();
+    far.spools.lock().unwrap().insert("tom@gex45".into(), vec![message("m-future", "elsewhere", NOW_MS)]);
+    tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
+    assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-future'"), 1);
 }
 
 #[test]
