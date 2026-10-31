@@ -185,3 +185,18 @@ fn a_dry_run_on_a_chosen_ref_records_nothing_and_a_failed_post_leaves_the_tip_un
     assert!(judge(&world, &check, &Overrides::default(), &mut down).0.unwrap_err().contains("502"));
     assert_eq!(judge::judged_tip(&world.places, &check), None);
 }
+
+#[test]
+fn a_step_machine_capacity_never_admitted_posts_no_verdict_and_leaves_the_tip_for_the_next_run() {
+    let world = World::new();
+    let tip = git(&world.places.code.join("game/main"), &["rev-parse", "origin/main"]);
+    for steps in [vec![shell("exit 75", "moderate"), shell("echo PASS", "gpu")], vec![shell("exit 75", "gpu")]] {
+        let check = check(steps);
+        let mut statuses = Recorded::default();
+        let (outcome, runner) = judge(&world, &check, &Overrides::default(), &mut statuses);
+        assert_eq!(outcome, Ok(Outcome::Deferred(tip.clone())));
+        assert_eq!((runner.ran.len(), states(&statuses)), (1, vec![("pending", "running on gex45")]));
+        assert_eq!(judge::judged_tip(&world.places, &check), None);
+        assert_eq!(super::report(&check, Ok(Outcome::Deferred(tip.clone()))), 75);
+    }
+}

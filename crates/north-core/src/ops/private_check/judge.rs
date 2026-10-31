@@ -5,6 +5,7 @@ use std::process::Command;
 use super::config::{Check, Step};
 
 pub const DESCRIPTION_CHARS: usize = 140;
+pub const DEFERRED: i32 = 75;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StatusRequest {
@@ -53,6 +54,7 @@ pub enum Outcome {
     Current(String),
     Untouched(String),
     Judged(StatusRequest),
+    Deferred(String),
 }
 
 pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -121,19 +123,21 @@ fn verdict(code: i32, last_line: &str) -> (&'static str, String) {
     (state, description(&line))
 }
 
-fn steps(lane: &Path, check: &Check, runner: &mut dyn Steps) -> (&'static str, String) {
+fn steps(lane: &Path, check: &Check, runner: &mut dyn Steps) -> Option<(&'static str, String)> {
     let owner = format!("private-check:{}", check.name);
-    let Some((last, setup)) = check.steps.split_last() else { return ("error", "no steps".into()) };
+    let Some((last, setup)) = check.steps.split_last() else { return Some(("error", "no steps".into())) };
     for step in setup {
         match runner.run(&lane.join(&step.dir), step, &owner) {
             Ok(done) if done.code == 0 => {}
-            Ok(done) => return ("error", description(&format!("setup {} exited {}", step.command.join(" "), done.code))),
-            Err(why) => return ("error", description(&format!("setup {}: {why}", step.command.join(" ")))),
+            Ok(done) if done.code == DEFERRED => return None,
+            Ok(done) => return Some(("error", description(&format!("setup {} exited {}", step.command.join(" "), done.code)))),
+            Err(why) => return Some(("error", description(&format!("setup {}: {why}", step.command.join(" "))))),
         }
     }
     match runner.run(&lane.join(&last.dir), last, &owner) {
-        Ok(done) => verdict(done.code, &done.last_line),
-        Err(why) => ("error", description(&why)),
+        Ok(done) if done.code == DEFERRED => None,
+        Ok(done) => Some(verdict(done.code, &done.last_line)),
+        Err(why) => Some(("error", description(&why))),
     }
 }
 
@@ -155,7 +159,7 @@ pub fn judge(places: &Places, check: &Check, overrides: &Overrides, runner: &mut
     git(&lane, &["checkout", "--quiet", "--force", "--detach", &tip])?;
     let request = |state, description| StatusRequest { repo: check.repo.clone(), sha: tip.clone(), context: check.context.clone(), state, description };
     statuses.post(&request("pending", description(&format!("running on {}", places.host))))?;
-    let (state, text) = steps(&lane, check, runner);
+    let Some((state, text)) = steps(&lane, check, runner) else { return Ok(Outcome::Deferred(tip)) };
     let last = request(state, text);
     statuses.post(&last)?;
     keep(&tip)?;

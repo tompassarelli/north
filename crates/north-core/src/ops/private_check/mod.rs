@@ -119,6 +119,10 @@ fn report(check: &Check, outcome: Result<Outcome, String>) -> u8 {
     match outcome {
         Ok(Outcome::Current(tip)) => println!("private-check: {}: {tip} is already judged", check.name),
         Ok(Outcome::Untouched(tip)) => println!("private-check: {}: nothing under its paths changed up to {tip}; recorded", check.name),
+        Ok(Outcome::Deferred(tip)) => {
+            println!("private-check: {}: machine-capacity did not admit a step of {tip} before its timeout; left unjudged for the next run", check.name);
+            return 75;
+        }
         Ok(Outcome::Judged(last)) => println!("private-check: {}: {} {} on {}", check.name, last.state, last.description, last.sha),
         Err(why) => {
             eprintln!("private-check: {}: {why}", check.name);
