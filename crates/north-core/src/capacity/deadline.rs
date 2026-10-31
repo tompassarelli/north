@@ -14,6 +14,7 @@ const POLL: Duration = Duration::from_millis(250);
 const KILL_AFTER: Duration = Duration::from_secs(5);
 const TIMED_OUT: u8 = 124;
 const KILLED: u8 = 137;
+const ANCESTRY_LIMIT: usize = 256;
 
 pub fn run(arguments: &[String]) -> u8 {
     let [lease, seconds, separator, program, rest @ ..] = arguments else {
@@ -83,11 +84,27 @@ struct Clock<'a> {
     started: Instant,
     first: Option<Expiry>,
     paused: Duration,
+    queued: Duration,
+    queued_since: Option<Instant>,
 }
 
 impl<'a> Clock<'a> {
     fn start(lease: &'a Path, timeout: Duration) -> Self {
-        Self { lease, timeout, started: Instant::now(), first: Expiry::read(lease), paused: Duration::ZERO }
+        Self { lease, timeout, started: Instant::now(), first: Expiry::read(lease), paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
+    }
+
+    /// Time this command's processes spent queued for a capacity lease, which delays the deadline instead of spending it.
+    fn waiting(&mut self) -> Duration {
+        let now = Instant::now();
+        match (self.queued_since, queued_beneath(self.lease)) {
+            (None, true) => self.queued_since = Some(now),
+            (Some(since), false) => {
+                self.queued += now - since;
+                self.queued_since = None;
+            }
+            _ => {}
+        }
+        self.queued + self.queued_since.map_or(Duration::ZERO, |since| now - since)
     }
 
     fn expired(&mut self) -> bool {
@@ -95,8 +112,37 @@ impl<'a> Clock<'a> {
         if let (Some(first), Some(now)) = (self.first, now) {
             self.paused = Duration::from_millis(now.expires_at.saturating_sub(first.expires_at));
         }
-        now.is_none_or(|now| !now.frozen) && self.started.elapsed() >= self.timeout + self.paused
+        let waiting = self.waiting();
+        now.is_none_or(|now| !now.frozen) && self.started.elapsed() >= self.timeout + self.paused + waiting
     }
+}
+
+/// Whether a capacity queue ticket beside `lease` belongs to a process descended from this one.
+fn queued_beneath(lease: &Path) -> bool {
+    let Some(queue) = lease.parent().and_then(Path::parent).map(|root| root.join("queue")) else { return false };
+    let Ok(tickets) = fs::read_dir(queue) else { return false };
+    let me = std::process::id();
+    tickets.flatten().map(|ticket| ticket.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).any(|path| wrapper(&path).is_some_and(|pid| descends(pid, me)))
+}
+
+fn wrapper(ticket: &Path) -> Option<u32> {
+    serde_json::from_slice::<Value>(&fs::read(ticket).ok()?).ok()?["wrapperPid"].as_u64().and_then(|pid| u32::try_from(pid).ok())
+}
+
+fn descends(mut pid: u32, ancestor: u32) -> bool {
+    for _ in 0..ANCESTRY_LIMIT {
+        if pid == ancestor {
+            return true;
+        }
+        let Some(parent) = parent_of(pid).filter(|parent| *parent != 0) else { return false };
+        pid = parent;
+    }
+    false
+}
+
+fn parent_of(pid: u32) -> Option<u32> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    stat.rsplit_once(") ")?.1.split(' ').nth(1)?.parse().ok()
 }
 
 #[derive(Clone, Copy)]
