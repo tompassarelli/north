@@ -48,6 +48,7 @@ The full harness assumes Tom's layout and South, so it is not a public install. 
    no-op stub under that name, so a host whose Firn profile still registers it is silent, not a
    "No such file or directory" error, until it rebuilds. The same check refuses a landing while
    nixos-config `origin/main` registers a hook the landing catalog does not project.
+   South registers a north-owned guard as `{"repo": "north", "module": "guard.NAME"}`; sync, `check-owners` and the policy checks resolve it through the `[[registered]]` entry for that id in north's `structure.toml`, so moving the guard file edits that `path` and nothing in South (north#408).
 
 To try only the `north` app, follow the [README](../README.md#try-it); it needs neither South nor
 Firn.

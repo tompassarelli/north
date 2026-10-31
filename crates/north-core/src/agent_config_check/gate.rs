@@ -36,12 +36,6 @@ pub(super) struct Verdicts {
     pub(super) passed: bool,
 }
 
-fn json_file(path: &Path) -> Result<Value, String> {
-    fs::read_to_string(path)
-        .map_err(|error| format!("{}: {error}", path.display()))
-        .and_then(|body| serde_json::from_str(&body).map_err(|error| format!("{}: {error}", path.display())))
-}
-
 fn frontmatter(text: &str) -> Option<(String, usize)> {
     let pattern = Regex::new(r"(?s)\A---\n(.*?)\n---\n").unwrap();
     let found = pattern.captures(text)?;
@@ -307,7 +301,10 @@ impl Gate {
     }
 
     pub(super) fn run(&self, mode: Mode) -> Result<Verdicts, String> {
-        let catalog = json_file(&self.operator.join("catalog-config.json"))?;
+        let catalog = crate::agent_catalog::owner_modules::read_resolved_catalog(
+            &self.operator.join("catalog-config.json"),
+        )
+        .map_err(|error| error.to_string())?;
         let mut budget = self.skill_budget(&catalog)?;
         let mut lines: Vec<String> = Vec::new();
         if mode != Mode::Budget {

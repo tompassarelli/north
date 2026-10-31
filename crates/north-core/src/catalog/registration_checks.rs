@@ -8,7 +8,8 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 
-use super::{configuration, read_json, string_field};
+use super::owner_modules::{STRUCTURE_FILE, collect_owner_paths, resolve_owner_modules, valid_owner_repo};
+use super::{configuration, read_json};
 
 pub(super) enum HookProvision {
     Directory(PathBuf),
@@ -204,25 +205,35 @@ pub(super) fn check_registered_owners(arguments: &[String]) -> NorthResult<()> {
         &roots.south,
         &["show", &format!("{south_ref}:agents/catalog-config.json")],
     )?;
-    let registrations: Value = serde_json::from_slice(&catalog)?;
+    let mut registrations: Value = serde_json::from_slice(&catalog)?;
     check_nixos_hook_registrations(
         &roots.nixos,
         &nixos_ref,
         &HookProvision::Names(landing_hook_names(&registrations)),
     )?;
-    let mut owners = Vec::new();
-    collect_owner_paths(&registrations, &mut owners)?;
+    check_owner_files(&mut registrations, &roots, &current_root, &current_head)?;
+    println!("agents owner registrations resolve at their landing refs");
+    Ok(())
+}
+
+pub(super) fn check_owner_files(
+    registrations: &mut Value,
+    roots: &OwnerCheckRoots,
+    current_root: &str,
+    current_head: &str,
+) -> NorthResult<()> {
     let mut resolved = BTreeMap::new();
-    for (repo, _) in &owners {
-        if !resolved.contains_key(repo) {
-            resolved.insert(
-                repo.clone(),
-                roots.resolve(repo, &current_root, &current_head)?,
-            );
-        }
-    }
+    resolve_owner_modules(registrations, &mut |repo| {
+        let (owner_root, owner_ref) =
+            resolve_cached(&mut resolved, roots, repo, current_root, current_head)?;
+        String::from_utf8(git_object(owner_root, owner_ref, STRUCTURE_FILE)?)
+            .map_err(|error| NorthError::Configuration(error.to_string()))
+    })?;
+    let mut owners = Vec::new();
+    collect_owner_paths(registrations, &mut owners)?;
     for (repo, path) in owners {
-        let (owner_root, owner_ref) = resolved.get(&repo).expect("owner was resolved");
+        let (owner_root, owner_ref) =
+            resolve_cached(&mut resolved, roots, &repo, current_root, current_head)?;
         let object = format!("{owner_ref}:{path}");
         let result = Command::new("git")
             .arg("-C")
@@ -240,7 +251,6 @@ pub(super) fn check_registered_owners(arguments: &[String]) -> NorthResult<()> {
             owner_ref,
         )?;
     }
-    println!("agents owner registrations resolve at their landing refs");
     Ok(())
 }
 
@@ -309,10 +319,10 @@ fn git_object(root: &Path, reference: &str, path: &str) -> NorthResult<Vec<u8>> 
     git_output(root, &["show", &format!("{reference}:{path}")])
 }
 
-struct OwnerCheckRoots {
-    north: PathBuf,
-    south: PathBuf,
-    nixos: PathBuf,
+pub(super) struct OwnerCheckRoots {
+    pub(super) north: PathBuf,
+    pub(super) south: PathBuf,
+    pub(super) nixos: PathBuf,
 }
 
 impl OwnerCheckRoots {
@@ -376,48 +386,6 @@ impl OwnerCheckRoots {
         };
         Ok((root.clone(), reference))
     }
-}
-
-fn collect_owner_paths(value: &Value, owners: &mut Vec<(String, String)>) -> NorthResult<()> {
-    match value {
-        Value::Object(object) => {
-            if let Some(owner) = object.get("owner") {
-                let repo = string_field(owner, "repo")?;
-                let path = string_field(owner, "path")?;
-                if !valid_owner_repo(repo) || !valid_owner_path(path) {
-                    return configuration(format!("unsafe registered path {repo}:{path}"));
-                }
-                owners.push((repo.to_owned(), path.to_owned()));
-            }
-            for child in object.values() {
-                collect_owner_paths(child, owners)?;
-            }
-        }
-        Value::Array(items) => {
-            for child in items {
-                collect_owner_paths(child, owners)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-fn valid_owner_path(path: &str) -> bool {
-    let path = Path::new(path);
-    !path.as_os_str().is_empty()
-        && !path.is_absolute()
-        && !path
-            .components()
-            .any(|component| component.as_os_str() == "..")
-}
-
-fn valid_owner_repo(repo: &str) -> bool {
-    !repo.is_empty()
-        && !repo.contains("..")
-        && repo
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 pub(super) fn require_registered_owner(
@@ -487,3 +455,22 @@ fn git_output(root: &Path, arguments: &[&str]) -> NorthResult<Vec<u8>> {
     Ok(output.stdout)
 }
 
+
+fn resolve_cached<'a>(
+    resolved: &'a mut BTreeMap<String, (PathBuf, String)>,
+    roots: &OwnerCheckRoots,
+    repo: &str,
+    current_root: &str,
+    current_head: &str,
+) -> NorthResult<&'a (PathBuf, String)> {
+    if !valid_owner_repo(repo) {
+        return configuration(format!("unsafe registered repository {repo}"));
+    }
+    if !resolved.contains_key(repo) {
+        resolved.insert(
+            repo.to_owned(),
+            roots.resolve(repo, current_root, current_head)?,
+        );
+    }
+    Ok(&resolved[repo])
+}

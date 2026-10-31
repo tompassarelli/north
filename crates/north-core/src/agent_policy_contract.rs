@@ -127,9 +127,7 @@ enum Outcome {
 }
 
 fn load_catalog(path: &Path) -> Result<Value, String> {
-    std::fs::read_to_string(path)
-        .map_err(|error| error.to_string())
-        .and_then(|body| serde_json::from_str(&body).map_err(|error| error.to_string()))
+    crate::agent_catalog::owner_modules::read_resolved_catalog(path)
         .map_err(|error| format!("agent catalog is unreadable: {}: {error}", path.display()))
 }
 

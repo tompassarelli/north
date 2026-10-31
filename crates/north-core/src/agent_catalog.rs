@@ -8,6 +8,11 @@ mod digest;
 mod files;
 #[path = "catalog/generation.rs"]
 mod generation;
+#[path = "catalog/owner_modules.rs"]
+pub mod owner_modules;
+#[cfg(test)]
+#[path = "catalog/owner_modules_tests.rs"]
+mod owner_modules_tests;
 #[path = "catalog/paths.rs"]
 mod paths;
 #[path = "catalog/registration_checks.rs"]
@@ -149,7 +154,7 @@ pub fn run(arguments: &[String]) -> NorthResult<()> {
 
 fn sync() -> NorthResult<Value> {
     let mut activation = read_current()?;
-    let operator = read_json(&operator_catalog_path()?)?;
+    let operator = owner_modules::read_resolved_catalog(&operator_catalog_path()?)?;
     let operator_registrations = operator
         .get("registrations")
         .and_then(Value::as_object)

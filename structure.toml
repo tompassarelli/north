@@ -175,3 +175,47 @@ name = "crate-roots"
 paths = ["crates/*/src/lib.rs"]
 responsibility = "Crate roots: module declarations and the re-exports that keep crate:: paths stable across the workspace split."
 may_use = ["foundation", "platform", "shell", "autoland_status"]
+
+[[registered]]
+id = "guard.corpus_scan"
+path = "crates/north-core/src/guard/corpus_scan.rs"
+
+[[registered]]
+id = "guard.native_item"
+path = "crates/north-core/src/guard/native_item.rs"
+
+[[registered]]
+id = "guard.modern_search"
+path = "crates/north-core/src/guard/modern_search.rs"
+
+[[registered]]
+id = "guard.resource_safe_search"
+path = "crates/north-core/src/guard/resource_safe_search.rs"
+
+[[registered]]
+id = "guard.session_kill"
+path = "crates/north-core/src/guard/session_kill.rs"
+
+[[registered]]
+id = "guard.worker_wait"
+path = "crates/north-core/src/guard/worker_wait.rs"
+
+[[registered]]
+id = "guard.worker_tier"
+path = "crates/north-core/src/guard/worker_tier.rs"
+
+[[registered]]
+id = "guard.native_launch"
+path = "crates/north-core/src/guard/native_launch.rs"
+
+[[registered]]
+id = "guard.heavy_command"
+path = "crates/north-core/src/guard/heavy_command.rs"
+
+[[registered]]
+id = "guard.poll_loop"
+path = "crates/north-core/src/guard/poll_loop.rs"
+
+[[registered]]
+id = "guard.clipboard"
+path = "crates/north-core/src/guard/clipboard.rs"
