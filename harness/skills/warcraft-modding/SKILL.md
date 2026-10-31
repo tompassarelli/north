@@ -66,6 +66,8 @@ metadata:
 ## Play and recovery
 
 - Build current main for Tom with `wisp play`, and route experiments through fresh, captures or accept. Confirm the roster, stage thumbnails and gameplay before calling a build ready.
+- Open Tom's game window only with the `app.slice` launch line in wisp:docs/play.md, never under `run-bounded` or a capacity lease, which put his match in `agent.slice`, and leave `WISP_WINDOW_PRESENT` unset (2026-10-31).
+- Check a claim about game content (clip names, which animation a move plays, what landed in a build) against the code or the build before telling Tom: Maiev's run was reported as stock when Smashcraft had authored clip 78 since 2026-10-30 (2026-10-31).
 - Verify a visual fix yourself with the cheapest evidence that settles it: look at a few native captures or frames with your own vision, not a purpose-built detector, and tell Tom the auto-installed build's file name once it reaches his `Maps/00-Smashcraft`, because Tom supervises five projects and is not the visual tester.
 - Build through `bun wisp map build` with hashed private inputs in smashcraft:build-inputs.json. Add art with `bun wisp inputs add FAMILY DIR` and commit the result; never edit stored inputs in place.
 - Recover clients with `wisp client doctor`, not by hand-driving known failure states. Check `client watch --once` or `client wait CLIENT STATE` before clicking, reading or waiting on a client. Set up through in-map commands, and observe through menu sockets, status files and War3Log, not pointer clicks.

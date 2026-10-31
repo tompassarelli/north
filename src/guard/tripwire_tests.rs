@@ -185,9 +185,11 @@ fn verdict(root: &str, case: &Value, codex: bool) -> Verdict {
         return Verdict::Allow;
     };
     let env = environment(root, case);
-    decide(&input, &|key: &str| {
-        env.get(key).cloned().unwrap_or_default()
-    })
+    decide(
+        &input,
+        &|key: &str| env.get(key).cloned().unwrap_or_default(),
+        &|_, _, _, _| None,
+    )
 }
 
 #[test]
@@ -226,4 +228,63 @@ fn ported_cases_match_the_shell_guard() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     let log = fs::read_to_string(format!("{root}/tripwire.log")).unwrap();
     assert!(log.contains("rm -rf ~/Pictures/Screenshots"));
+}
+
+fn push_verdict(command: &str, env: &[(&str, &str)], hold: &super::Hold) -> Verdict {
+    let log = tempfile::tempdir().unwrap();
+    let log = log.path().display().to_string();
+    let payload = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "cwd": "/tmp"
+    });
+    let input = HookInput::parse(payload.to_string().as_bytes()).unwrap();
+    decide(
+        &input,
+        &|key: &str| match key {
+            "AGENT_NO_AUTHORING_HOOKS" => "0".to_owned(),
+            "TRIPWIRE_LOG_DIR" => log.clone(),
+            _ => env.iter().find(|(name, _)| *name == key).map_or_else(String::new, |(_, value)| (*value).to_owned()),
+        },
+        hold,
+    )
+}
+
+#[test]
+fn deleting_a_land_branch_with_an_autoland_run_in_flight_is_denied_but_other_deletes_pass() {
+    let hold = |_: std::time::Instant, _: &str, _: &str, branches: &[String]| branches.iter().find(|branch| branch.contains("window-lighting")).map(|branch| format!("{branch}: its Autoland run is queued"));
+    let queued = "claude/land-window-lighting-ea547387c6ab";
+    for command in [
+        format!("git push origin --delete {queued}"),
+        format!("git push origin :{queued}"),
+        format!("git push -q origin :refs/heads/{queued}"),
+        format!("git -C /tmp push origin --delete scratch/x {queued}"),
+        format!("git push origin --delete claude/land-landed-aaaaaaaaaaaa {queued}"),
+        format!("git push origin --delete claude/land-landed-aaaaaaaaaaaa; git push origin --delete {queued}"),
+    ] {
+        match push_verdict(&command, &[], &hold) {
+            Verdict::Deny(reason) => assert!(reason.contains("Autoland run in flight") && reason.contains(queued), "{command}: {reason}"),
+            other => panic!("{command}: {other:?}"),
+        }
+    }
+    for command in ["git push origin --delete scratch/x", "git push origin :scratch/x"] {
+        assert_eq!(push_verdict(command, &[], &hold), Verdict::Allow, "{command}");
+    }
+    let finished = |_: std::time::Instant, _: &str, _: &str, _: &[String]| None;
+    assert_eq!(push_verdict(&format!("git push origin --delete {queued}"), &[], &finished), Verdict::Allow);
+    assert_eq!(push_verdict(&format!("git push origin --delete {queued}"), &[("SAFE_PUSH_ACTIVE", "1")], &hold), Verdict::Allow);
+}
+
+#[test]
+fn deletion_reads_every_delete_form_the_remote_and_no_other_refspec() {
+    use super::publish::deletion;
+    let words = |line: &str| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let read = |line: &str| deletion(&words(line));
+    assert_eq!(read("origin --delete a b"), ("origin".to_owned(), vec!["a".to_owned(), "b".to_owned()]));
+    assert_eq!(read("-q origin :refs/heads/a :b").1, ["a", "b"]);
+    assert_eq!(read("--repo=up --delete a"), ("up".to_owned(), vec!["a".to_owned()]));
+    assert_eq!(read("--repo up --delete a"), ("up".to_owned(), vec!["a".to_owned()]));
+    assert_eq!(read("-o ci.skip git@example.com:o/r.git --delete a"), ("git@example.com:o/r.git".to_owned(), vec!["a".to_owned()]));
+    assert!(read("origin main:other HEAD").1.is_empty());
 }

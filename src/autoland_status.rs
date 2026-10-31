@@ -4,8 +4,10 @@ use std::thread;
 use std::time::Duration;
 
 mod evidence;
+mod hold;
 pub(crate) use evidence::{git_output, landed_commit};
 use evidence::{branch_gone_from_origin, landed_by_subject};
+pub(crate) use hold::{deletion_hold, hook_deadline, origin_branches_hold};
 
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
@@ -67,12 +69,16 @@ fn workflow_result(run: &Value) -> Option<String> {
     })
 }
 
-pub(crate) fn status(sha: &str, branch: &str, mut gh: impl FnMut(&[&str]) -> Option<String>) -> String {
+fn commit_status(sha: &str, gh: &mut impl FnMut(&[&str]) -> Option<String>) -> Option<String> {
     let endpoint = format!("repos/{{owner}}/{{repo}}/commits/{sha}/status");
-    let current = gh(&[
+    gh(&[
         "api", &endpoint, "--jq",
         "([.statuses[] | select(.context == \"autoland\")][0] // {}) | [.state // \"\", .description // \"\", .target_url // \"\"] | @tsv",
-    ]).unwrap_or_default();
+    ])
+}
+
+pub(crate) fn status(sha: &str, branch: &str, mut gh: impl FnMut(&[&str]) -> Option<String>) -> String {
+    let current = commit_status(sha, &mut gh).unwrap_or_default();
     if matches!(
         current.split('\t').next().unwrap_or("").trim(),
         "success" | "failure" | "error"

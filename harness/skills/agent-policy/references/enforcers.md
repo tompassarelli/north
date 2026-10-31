@@ -24,6 +24,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | No recursive searches of virtual filesystems or repository containers | `resource-safe-search-guard` through `north-hook` | Claude, Codex |
 | No session-wide kills, user-manager teardown (also inside an ssh remote command) or unmanaged background child launches | `session-kill-guard` through `north-hook` | Claude, Codex |
 | No destructive commands, unsafe Git publishing or sensitive outbound transfers | `north-hook` (tripwire) | Claude, Codex |
+| A `claude/land-*` branch Autoland has neither landed nor handed back (a run queued or running, a run started under 24 hours ago while its status is pending or under 4 hours ago while it has none, or runs it cannot read) is never deleted from origin | `safe-push abandon` (`north land-abandon`) and `north-hook` (tripwire) on `git push --delete` or `:ref` | Claude, Codex |
 | Codex prompts, plans and endings avoid the recorded delivery failures | `codex-behavior-guard` | Codex |
 | A worker at 350k tokens of context lands what passes and hands off the rest | `north-hook` (worker-handoff) | Claude |
 | A worker never runs a foreground command that can block past 60 seconds | `worker-wait-guard` through `north-hook` | Claude |

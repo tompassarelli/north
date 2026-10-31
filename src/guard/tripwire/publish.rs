@@ -66,7 +66,43 @@ fn push(rest: &[String], safe_push: bool) -> Result<(), String> {
     Ok(())
 }
 
+pub(super) fn deletion(rest: &[String]) -> (String, Vec<String>) {
+    let delete = rest.iter().any(|s| s == "--delete");
+    let mut repository = None;
+    let mut positional = Vec::new();
+    let mut arguments = rest.iter().map(|s| strip(s));
+    while let Some(argument) = arguments.next() {
+        if let Some(named) = argument.strip_prefix("--repo=") {
+            repository = Some(named);
+        } else if argument == "--repo" {
+            repository = arguments.next();
+        } else if ["-o", "--push-option", "--receive-pack", "--exec"].contains(&argument) {
+            arguments.next();
+        } else if !argument.starts_with('-') {
+            positional.push(argument);
+        }
+    }
+    let mut positional = positional.into_iter();
+    let remote = repository.or_else(|| positional.next()).unwrap_or("origin").to_owned();
+    let branches = positional
+        .filter_map(|refspec| {
+            let name = if delete { refspec } else { refspec.strip_prefix(':')? };
+            Some(name.strip_prefix("refs/heads/").unwrap_or(name).to_owned())
+        })
+        .collect();
+    (remote, branches)
+}
+
 impl<'a> State<'a> {
+    fn queued_deletion(&self, rest: &[String], directory: &str, cwd: &str) -> Result<(), String> {
+        let root = if directory.is_empty() { Some(if cwd.is_empty() { self.cwd.clone() } else { cwd.to_owned() }) } else { self.resolve(directory, cwd) };
+        let Some(root) = root else { return Ok(()) };
+        let (remote, branches) = deletion(rest);
+        match (self.hold)(self.deadline, &root, &remote, &branches) {
+            Some(hold) => Err(format!("git push deleting a land branch with an Autoland run in flight: {hold}")),
+            None => Ok(()),
+        }
+    }
     pub(super) fn git(&mut self, args: &[String], cwd: &str) -> Result<(), String> {
         let (directory, i) = global_options(args);
         let Some(sub) = args.get(i) else {
@@ -78,7 +114,7 @@ impl<'a> State<'a> {
                 self.worktree_add(&rest[1..], directory, cwd);
                 Ok(())
             }
-            "push" => push(rest, self.safe_push),
+            "push" => push(rest, self.safe_push).and_then(|()| if self.safe_push { Ok(()) } else { self.queued_deletion(rest, directory, cwd) }),
             "clean" => self.clean(rest, directory, cwd),
             _ => Ok(()),
         }

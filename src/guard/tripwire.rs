@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 
+type Hold = dyn Fn(std::time::Instant, &str, &str, &[String]) -> Option<String>;
 const OVERRIDE: &str = "deliberate path: `north config agents off north-hook`, run it, `north config agents on north-hook`";
 const SHELLS: &[&str] = &["bash", "sh", "zsh", "dash", "ksh", "source", ".", "eval"];
 static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
@@ -106,9 +107,11 @@ struct State<'a> {
     delete_seen: bool,
     secret_hit: bool,
     localhost: bool,
+    hold: &'a Hold,
+    deadline: std::time::Instant,
 }
 impl<'a> State<'a> {
-    fn new(input: &'a HookInput, get: &impl Fn(&str) -> String) -> Self {
+    fn new(input: &'a HookInput, get: &impl Fn(&str) -> String, hold: &'a Hold) -> Self {
         let home = get("HOME");
         let fallback = |key: &str, value: String| {
             let got = get(key);
@@ -157,6 +160,8 @@ impl<'a> State<'a> {
             localhost: ["localhost", "127.0.0.1", "::1"]
                 .iter()
                 .any(|s| cmd.contains(s)),
+            hold,
+            deadline: crate::autoland_status::hook_deadline(),
         }
     }
     fn expand(&self, text: &str) -> String {
@@ -287,7 +292,7 @@ impl<'a> State<'a> {
 
 const PUSH_NOTE: &str = "tripwire: rewrote a raw `git push` to the equivalent `safe-push`, which gitleaks-scans the outgoing commits first. Write safe-push directly next time.";
 
-fn pushed(input: &HookInput, get: &impl Fn(&str) -> String) -> Option<crate::platform::pyjson::Value> {
+fn pushed(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Option<crate::platform::pyjson::Value> {
     if input.data["tool_name"] != "Bash" {
         return None;
     }
@@ -299,14 +304,14 @@ fn pushed(input: &HookInput, get: &impl Fn(&str) -> String) -> Option<crate::pla
     let mut data = input.data.clone();
     data["tool_input"] = updated.clone();
     let rewritten = HookInput::parse(crate::platform::pyjson::dumps(&data).as_bytes())?;
-    matches!(decide(&rewritten, get), Verdict::Allow).then_some(updated)
+    matches!(decide(&rewritten, get, hold), Verdict::Allow).then_some(updated)
 }
 
 pub fn check(input: &HookInput) -> Verdict {
-    decide(input, &env)
+    decide(input, &env, &crate::autoland_status::origin_branches_hold)
 }
 
-fn decide(input: &HookInput, get: &impl Fn(&str) -> String) -> Verdict {
+fn decide(input: &HookInput, get: &impl Fn(&str) -> String, hold: &Hold) -> Verdict {
     let present = |key: &str| Some(get(key)).filter(|s| !s.is_empty());
     if input
         .command()
@@ -316,9 +321,9 @@ fn decide(input: &HookInput, get: &impl Fn(&str) -> String) -> Verdict {
     {
         return Verdict::Allow;
     }
-    let mut state = State::new(input, get);
+    let mut state = State::new(input, get, hold);
     match state.walk() {
-        Err(reason) if reason.starts_with("raw 'git push'") && let Some(updated) = pushed(input, get) => {
+        Err(reason) if reason.starts_with("raw 'git push'") && let Some(updated) = pushed(input, get, hold) => {
             Verdict::Rewrite(updated, PUSH_NOTE.into())
         }
         Err(reason) => {

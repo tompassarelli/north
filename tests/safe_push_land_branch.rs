@@ -66,7 +66,7 @@ impl Lane {
         executable(&tools.join("gitleaks"), "#!/bin/sh\nexit 0\n");
         executable(
             &tools.join("gh"),
-            "#!/bin/sh\ncase \"$1\" in repo) echo PUBLIC;; run) echo '[]';; api) cat \"$GH_AUTOLAND_STATUS\";; *) exit 1;; esac\n",
+            "#!/bin/sh\ncase \"$1\" in repo) echo PUBLIC;; run) cat \"$GH_AUTOLAND_RUNS\" 2>/dev/null || echo '[]';; api) cat \"$GH_AUTOLAND_STATUS\";; *) exit 1;; esac\n",
         );
         fs::write(
             root.join("status"),
@@ -92,6 +92,7 @@ impl Lane {
             .env("HOME", self.root.join("home"))
             .env("XDG_STATE_HOME", self.root.join("state"))
             .env("GH_AUTOLAND_STATUS", self.root.join("status"))
+            .env("GH_AUTOLAND_RUNS", self.root.join("runs"))
             .env("SAFE_PUSH_AUTOLAND_POLL_SECONDS", "1")
             .env_remove("SAFE_PUSH_TEST_REAL_NORTH");
         command
@@ -251,6 +252,7 @@ impl Lane {
             .env("PATH", std::env::join_paths(paths).unwrap())
             .env("HOME", self.root.join("home"))
             .env("GH_AUTOLAND_STATUS", self.root.join("status"))
+            .env("GH_AUTOLAND_RUNS", self.root.join("runs"))
             .output()
             .unwrap()
     }
@@ -279,6 +281,38 @@ fn bare_land_abandon_deletes_a_superseded_land_branch_from_origin() {
         ),
         ""
     );
+}
+
+#[test]
+fn abandon_refuses_a_superseded_land_branch_while_its_autoland_run_is_queued_or_running() {
+    let lane = Lane::new();
+    let branch = lane.supersede();
+    let tip = git(&lane.origin, &["rev-parse", &format!("refs/heads/{branch}")]);
+    let runs = |status: &str| {
+        let title = format!("Autoland test 0 {branch} {tip}");
+        let run = serde_json::json!([{"databaseId": 7, "displayTitle": title, "event": "workflow_dispatch", "status": status, "conclusion": null, "url": "https://example.test/queued"}]);
+        fs::write(lane.root.join("runs"), run.to_string()).unwrap();
+    };
+    for status in ["queued", "in_progress"] {
+        runs(status);
+        for arguments in [vec![], vec![branch.as_str()]] {
+            let output = lane.land_abandon(&arguments);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{status}: {stderr}");
+            assert!(stderr.contains("Autoland run https://example.test/queued is") && stderr.contains("NOT deleted"), "{stderr}");
+            assert_eq!(lane.land_branches(), vec![branch.clone()]);
+        }
+    }
+    let waiting = serde_json::json!([{"status": "queued", "createdAt": "2026-10-31T00:00:00Z", "headBranch": branch, "url": "https://example.test/push"}]);
+    fs::write(lane.root.join("runs"), waiting.to_string()).unwrap();
+    let output = lane.land_abandon(&[]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("Autoland run https://example.test/push is queued"), "{stderr}");
+    runs("completed");
+    let output = lane.land_abandon(&[]);
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(lane.land_branches(), Vec::<String>::new());
 }
 
 #[test]

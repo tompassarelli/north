@@ -1,4 +1,5 @@
-use crate::autoland_status::{git_output, landed_commit, read_gh, status};
+use crate::autoland_status::{deletion_hold, git_output, landed_commit, read_gh, status};
+use crate::foundation::clock::Timestamp;
 use std::process::{Command, Stdio};
 
 mod scratch;
@@ -117,6 +118,10 @@ pub fn abandon(arguments: &[String], witness: &dyn Witness) -> u8 {
         eprintln!("safe-push: origin has no {branch} or no default branch; NOT deleted.");
         return 1;
     };
+    if let Some(hold) = deletion_hold(&branch, &tip, Timestamp::now().unix_millis(), read_gh) {
+        eprintln!("safe-push: {hold}; NOT deleted.");
+        return 1;
+    }
     let verdict = match verdict(rule, &branch, &tip, &destination, witness) {
         Ok(verdict) => verdict,
         Err(refusal) => {
