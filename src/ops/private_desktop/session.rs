@@ -4,7 +4,7 @@ use super::run_state::*;
 use rustix::fs::{FlockOperation, flock};
 use std::fs::{self, File};
 use std::io;
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,7 @@ pub(super) struct Session {
     archive: PathBuf,
     desktop: Option<Child>,
     vnc: Option<Child>,
+    vnc_anchor: Option<TcpStream>,
     client: Option<Child>,
     timer_started: Option<Instant>,
     seconds: Option<u64>,
@@ -29,6 +30,7 @@ impl Session {
             archive,
             desktop: None,
             vnc: None,
+            vnc_anchor: None,
             client: None,
             timer_started: None,
             seconds,
@@ -47,6 +49,7 @@ impl Session {
         let (display, wayland) = self.configure_display(options)?;
         self.launch_vnc(port, &display, &wayland, &stopping)?;
         self.prime_keyboard(port)?;
+        self.vnc_anchor = Some(hold_vnc_devices(port)?);
         flock(port_lock, FlockOperation::Unlock)?;
         self.report_ready(port, &display, &wayland)?;
         self.launch_client(options, &display, &wayland)?;
@@ -210,6 +213,7 @@ impl Session {
     }
 
     fn cleanup(&mut self) {
+        self.vnc_anchor = None;
         let _ = fs::remove_file(self.run.join("active"));
         for child in [&mut self.client, &mut self.vnc, &mut self.desktop]
             .into_iter()
@@ -229,6 +233,11 @@ impl Session {
             println!("Session ended; logs: {}", destination.display());
         }
     }
+}
+
+// wayvnc removes its virtual pointer and keyboard when their client disconnects, and a window that re-binds its pointer after that misses a click sent meanwhile, so the run keeps one idle client connected.
+fn hold_vnc_devices(port: u16) -> io::Result<TcpStream> {
+    super::rfb::connect(port)
 }
 
 fn watch_shutdown_signals(stopping: Arc<AtomicBool>) -> io::Result<()> {
@@ -414,6 +423,31 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_vnc_anchor_stays_connected_until_it_is_dropped() {
+        use std::io::Read;
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let mut stream = super::super::rfb::accept(&listener);
+            stream
+                .set_read_timeout(Some(Duration::from_millis(300)))
+                .unwrap();
+            let mut byte = [0u8; 1];
+            let held = matches!(stream.read(&mut byte), Err(error) if error.kind() == io::ErrorKind::WouldBlock || error.kind() == io::ErrorKind::TimedOut);
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            (held, stream.read(&mut byte).unwrap())
+        });
+        let anchor = hold_vnc_devices(port).unwrap();
+        std::thread::sleep(Duration::from_millis(600));
+        drop(anchor);
+        let (held, after) = server.join().unwrap();
+        assert!(held, "the anchor disconnected while the run was live");
+        assert_eq!(after, 0, "dropping the anchor closes its connection");
+    }
 
     #[test]
     fn startup_refuses_manager_display_before_launching_clients() {

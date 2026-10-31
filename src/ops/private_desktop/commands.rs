@@ -15,6 +15,14 @@ pub(super) fn control(arguments: &[String]) -> io::Result<u8> {
             "a run directory and action are required",
         ));
     }
+    if let Some(action) = unplaced_button(&arguments[1..]) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "`{action}` comes before any `move X Y` in this control call; each call is a new VNC connection whose pointer starts at 0 0, so put the move in the same call"
+            ),
+        ));
+    }
     let (run, _) = validate_run_dir(&arguments[0])?;
     let port = read_run_value(&run, "port")?;
     checked(vncdo(&run, &port).args(&arguments[1..]))
@@ -155,4 +163,44 @@ fn finish_capture(
         }
     }
     Ok(0)
+}
+
+fn unplaced_button(actions: &[String]) -> Option<&str> {
+    let mut words = actions.iter();
+    while let Some(action) = words.next() {
+        match action.as_str() {
+            "move" | "mousemove" | "drag" => return None,
+            "click" | "mousedown" | "mouseup" => return Some(action),
+            "key" | "keydown" | "keyup" | "type" | "pause" | "sleep" | "capture" => {
+                words.next();
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unplaced_button;
+
+    fn actions(text: &str) -> Vec<String> {
+        text.split_whitespace().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_button_before_any_move_is_refused() {
+        assert_eq!(unplaced_button(&actions("click 1")), Some("click"));
+        assert_eq!(
+            unplaced_button(&actions("key a mousedown 1 move 5 5")),
+            Some("mousedown")
+        );
+    }
+
+    #[test]
+    fn a_button_after_a_move_in_the_same_call_passes() {
+        assert_eq!(unplaced_button(&actions("move 548 196 click 1")), None);
+        assert_eq!(unplaced_button(&actions("key enter")), None);
+        assert_eq!(unplaced_button(&actions("type click key move")), None);
+    }
 }

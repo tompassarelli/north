@@ -1,12 +1,12 @@
-use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::io::{self, Write};
 use std::thread::sleep;
 use std::time::Duration;
+
+use super::rfb;
 
 const SHIFT: u32 = 0xffe1;
 const ENTER: u32 = 0xff0d;
 const TAB: u32 = 0xff09;
-const TIMEOUT: Duration = Duration::from_secs(20);
 const KEY_GAP: Duration = Duration::from_millis(80);
 const PLAIN: &str = r" `-=[]\;',./";
 const SHIFTED: &str = "~!@#$%^&*()_+{}|:\"<>?";
@@ -45,13 +45,7 @@ fn key_for(character: char) -> Option<Key> {
 }
 
 pub(super) fn send(port: u16, keys: &[Key]) -> io::Result<()> {
-    let mut stream = TcpStream::connect_timeout(
-        &SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
-        TIMEOUT,
-    )?;
-    stream.set_read_timeout(Some(TIMEOUT))?;
-    stream.set_write_timeout(Some(TIMEOUT))?;
-    handshake(&mut stream)?;
+    let mut stream = rfb::connect(port)?;
     for key in keys {
         if key.shift {
             key_event(&mut stream, true, SHIFT)?;
@@ -66,34 +60,6 @@ pub(super) fn send(port: u16, keys: &[Key]) -> io::Result<()> {
     stream.shutdown(std::net::Shutdown::Write)
 }
 
-fn handshake<S: Read + Write>(stream: &mut S) -> io::Result<()> {
-    let mut version = [0u8; 12];
-    stream.read_exact(&mut version)?;
-    if &version != b"RFB 003.008\n" {
-        return Err(io::Error::other("VNC server does not speak RFB 3.8"));
-    }
-    stream.write_all(b"RFB 003.008\n")?;
-    let mut count = [0u8; 1];
-    stream.read_exact(&mut count)?;
-    let mut types = vec![0u8; usize::from(count[0])];
-    stream.read_exact(&mut types)?;
-    if !types.contains(&1) {
-        return Err(io::Error::other("VNC server requires authentication"));
-    }
-    stream.write_all(&[1])?;
-    let mut result = [0u8; 4];
-    stream.read_exact(&mut result)?;
-    if result != [0; 4] {
-        return Err(io::Error::other("VNC security handshake failed"));
-    }
-    stream.write_all(&[1])?;
-    let mut init = [0u8; 24];
-    stream.read_exact(&mut init)?;
-    let name_length = u32::from_be_bytes([init[20], init[21], init[22], init[23]]);
-    io::copy(&mut stream.take(u64::from(name_length)), &mut io::sink())?;
-    Ok(())
-}
-
 fn key_event<W: Write>(stream: &mut W, down: bool, keysym: u32) -> io::Result<()> {
     let mut message = [0u8; 8];
     message[0] = 4;
@@ -105,7 +71,8 @@ fn key_event<W: Write>(stream: &mut W, down: bool, keysym: u32) -> io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
+    use std::io::Read;
+    use std::net::{Ipv4Addr, TcpListener};
 
     fn expected(character: char) -> Key {
         let shift = character.is_ascii_uppercase() || SHIFTED.contains(character);
@@ -188,22 +155,7 @@ mod tests {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream.write_all(b"RFB 003.008\n").unwrap();
-            let mut reply = [0u8; 12];
-            stream.read_exact(&mut reply).unwrap();
-            assert_eq!(&reply, b"RFB 003.008\n");
-            stream.write_all(&[1, 1]).unwrap();
-            let mut chosen = [0u8; 1];
-            stream.read_exact(&mut chosen).unwrap();
-            assert_eq!(chosen, [1]);
-            stream.write_all(&[0; 4]).unwrap();
-            let mut shared = [0u8; 1];
-            stream.read_exact(&mut shared).unwrap();
-            let mut init = [0u8; 24];
-            init[23] = 4;
-            stream.write_all(&init).unwrap();
-            stream.write_all(b"test").unwrap();
+            let mut stream = rfb::accept(&listener);
             let mut received = Vec::new();
             stream.read_to_end(&mut received).unwrap();
             received

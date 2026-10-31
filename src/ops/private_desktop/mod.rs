@@ -1,6 +1,7 @@
 mod commands;
 mod process;
 mod reap;
+mod rfb;
 mod run_state;
 mod session;
 mod start;

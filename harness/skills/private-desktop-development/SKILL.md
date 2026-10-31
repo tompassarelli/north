@@ -46,6 +46,7 @@ Graphical work runs on a separate hardware-rendered Wayland desktop so Tom's Nir
 - Keep typed text within the supported US layout, because the launcher refuses other characters.
 - Run `cargo test private_desktop::typing` when changing key mapping, under the `verification` skill, because mapping errors type wrong characters silently.
 - Use lowercase VNC key names and control sequences shorter than eight seconds, and keydown/keyup or mousedown/mouseup for holds, because longer sequences hit the control timeout.
+- Put `move X Y` before `click`, `mousedown` or `mouseup` in the same `control` call, because each call opens a new VNC connection whose pointer starts at 0 0; `control` refuses a button that comes first.
 - Use private XTEST for X11 pointer or window queries only after VNC input fails and the private window is confirmed active, because XTEST bypasses the VNC path being diagnosed.
 - Observe the actual control change before advancing, and never infer keyboard delivery from command success or pointer coordinates, because VNC modifiers have been observed to report success without effect.
 
