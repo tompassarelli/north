@@ -14,8 +14,8 @@ export function handLines(repo: string, rev: string, cfg?: Config): number {
 function churn(repo: string, rev: string, base: string, cfg: Config) {
   const kinds = inventory(new Snapshot(repo, rev), cfg);
   let added = 0, tests = 0;
-  for (const line of git(repo, ["diff", "--numstat", "--no-renames", base, rev]).split("\n")) {
-    const [a, d, p] = line.split("\t");
+  for (let i = 0, fields = git(repo, ["diff", "--numstat", "-z", "--find-renames", base, rev]).split("\0"); i < fields.length; i++) {
+    const [a, d, named] = fields[i].split("\t"), p = named || fields[i += 2];
     if (!p || a === "-") continue;
     if (kinds.get(p) === "hand") added += Number(a); if (TEST_PATH.test(p)) tests += Number(a) + Number(d);
   }
