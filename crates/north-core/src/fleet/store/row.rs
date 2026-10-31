@@ -81,10 +81,15 @@ impl FleetRow {
         self.sender.as_ref().map_or_else(|| self.from.clone(), |sender| format!("{sender}@{}", self.from))
     }
 
-    pub fn validate(&self) -> NorthResult<()> {
-        if self.id.is_empty() || !self.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-            return Err(NorthError::Usage(format!("not a row id: {}", self.id)));
+    pub fn check_id(id: &str) -> NorthResult<()> {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            return Err(NorthError::Usage(format!("not a row id: {id}")));
         }
+        Ok(())
+    }
+
+    pub fn validate(&self) -> NorthResult<()> {
+        Self::check_id(&self.id)?;
         if self.to.trim().is_empty() || self.from.trim().is_empty() {
             return Err(NorthError::Usage(format!("row {} needs a sender and a recipient", self.id)));
         }

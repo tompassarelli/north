@@ -1,15 +1,19 @@
 use std::io::Read;
 
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::registry::Fleet;
 use crate::fleet::store::{FleetRow, Store};
 use crate::threads::client;
+
+use super::fleet_spool;
 
 const USAGE: &str = "Usage: north fleet row put < ROW_JSON_OR_ARRAY";
 const FORWARDED: &[&str] = &["north", "fleet", "row", "put"];
 
-pub(super) fn run(words: &[&str]) -> NorthResult<()> {
-    match words {
-        ["put"] => put(),
+pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> {
+    match (verb, words) {
+        ("row", ["put"]) => put(),
+        ("spool", _) => fleet_spool::run(fleet, words),
         _ => Err(NorthError::Usage(USAGE.into())),
     }
 }

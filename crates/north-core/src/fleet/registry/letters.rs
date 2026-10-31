@@ -32,6 +32,10 @@ impl Fleet {
         Outbox::new(self.root.join(OUTBOX))
     }
 
+    pub fn spool(&self) -> Spool {
+        Spool::at(&self.root)
+    }
+
     pub fn send_or_post(&self, from: Option<&str>, name: &str, text: &str, delivery: Delivery) -> NorthResult<Sent> {
         if self.session_dir(name)?.exists() {
             return self.send_signed(from, name, text, delivery).map(|()| Sent::Here);

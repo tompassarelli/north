@@ -166,7 +166,7 @@ impl Courier for Ssh {
     }
 }
 
-fn over_ssh(host: &str, caller: Option<&str>, words: &[&str]) -> NorthResult<Vec<u8>> {
+pub(crate) fn over_ssh(host: &str, caller: Option<&str>, words: &[&str]) -> NorthResult<Vec<u8>> {
     over_ssh_within(host, caller, words, SSH_WAIT)
 }
 

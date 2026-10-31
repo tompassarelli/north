@@ -166,6 +166,21 @@ fn a_spooled_row_is_one_file_that_lists_until_withdrawn_and_a_bad_id_is_refused(
 }
 
 #[test]
+fn withdrawing_many_ids_removes_exactly_those_rows_ignores_unknown_ids_and_refuses_a_path_like_id_whole() {
+    let root = tempfile::tempdir().unwrap();
+    let spool = Spool::at(root.path());
+    ["m-1", "m-2", "m-3"].iter().for_each(|id| spool.put(&message(id, "sc-1")).unwrap());
+
+    spool.withdraw_all(&["m-1".into(), "m-9".into(), "m-3".into()]).unwrap();
+    assert_eq!(spool.pending().unwrap(), [message("m-2", "sc-1")]);
+
+    assert!(spool.withdraw_all(&["m-2".into(), "../m-2".into()]).is_err());
+    assert!(spool.withdraw_all(&["a/b".into()]).is_err());
+    assert!(spool.withdraw_all(&[String::new()]).is_err());
+    assert_eq!(spool.pending().unwrap(), [message("m-2", "sc-1")]);
+}
+
+#[test]
 fn the_cached_session_table_round_trips_and_a_host_without_one_knows_no_sessions() {
     let root = tempfile::tempdir().unwrap();
 

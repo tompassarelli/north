@@ -7,12 +7,14 @@ use crate::error::NorthResult;
 use crate::foundation::clock::Timestamp;
 
 mod cache;
+mod remote;
 mod row;
 mod schema;
 mod sessions;
 mod spool;
 
 pub use cache::{cache_sessions, cached_sessions};
+pub use remote::{drop_on, drop_with, take_from, take_with};
 pub use row::{FleetRow, JobPayload, RowKind};
 pub use sessions::SessionRow;
 pub use spool::{SPOOL_DIR, Spool};
