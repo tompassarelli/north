@@ -13,6 +13,7 @@ use super::claims::{self, Claims};
 use super::gates::Question;
 use super::handoff;
 use super::idle::{self, Step};
+use super::jobs::Jobs;
 use super::landings::{self, push_log};
 use super::model::{Delivery, Ending, EntryKind, Machine, SessionRecord, Transcript};
 use super::prompt::is_deepened;
@@ -45,6 +46,7 @@ pub struct TurnWatch {
     unaccepted: Arc<SentPrompts>,
     lanes: Arc<dyn Lanes + Send + Sync>,
     quiet: HashMap<String, Quiet>,
+    jobs: Jobs,
     closing: bool,
 }
 
@@ -170,8 +172,14 @@ impl TurnWatch {
             unaccepted,
             lanes: Arc::new(NoLanes),
             quiet: HashMap::new(),
+            jobs: Jobs::in_state(),
             closing: false,
         }
+    }
+
+    pub fn reading_jobs(mut self, jobs: Jobs) -> Self {
+        self.jobs = jobs;
+        self
     }
 
     pub fn reading_lanes(mut self, lanes: Arc<dyn Lanes + Send + Sync>) -> Self {
@@ -270,7 +278,7 @@ impl TurnWatch {
                 continue;
             }
             let record = find_session(&self.root, &self.host_dir, &conversation);
-            let Some(record) = record.filter(|record| record.ended != Some(Ending::Stopped) && !self.waits.contains_key(&conversation) && waits.of(&record.name).is_empty()) else { continue };
+            let Some(record) = record.filter(|record| record.ended != Some(Ending::Stopped) && !self.waits.contains_key(&conversation) && waits.of(&record.name).is_empty() && !self.jobs.running_for(&record.name)) else { continue };
             let Some(parent) = record.parent.clone() else {
                 quiet.checked = true;
                 continue;

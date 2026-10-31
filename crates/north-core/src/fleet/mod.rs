@@ -5,6 +5,7 @@ pub mod gates;
 pub mod handoff;
 pub mod idle;
 mod host;
+pub mod jobs;
 pub mod landings;
 pub mod lane_probe;
 pub mod prompt;

@@ -17,6 +17,10 @@ async fn silent_run(reply: &str, lanes: Arc<dyn crate::fleet::stranded::Lanes + 
 }
 
 async fn silent_run_as(reply: &str, lanes: Arc<dyn crate::fleet::stranded::Lanes + Send + Sync>, policy: crate::fleet::idle::Policy, park_after: Duration, extra: serde_json::Value) -> Vec<(String, String, Delivery)> {
+    silent_run_with_jobs(reply, lanes, policy, park_after, extra, tempfile::tempdir().unwrap().path()).await
+}
+
+async fn silent_run_with_jobs(reply: &str, lanes: Arc<dyn crate::fleet::stranded::Lanes + Send + Sync>, policy: crate::fleet::idle::Policy, park_after: Duration, extra: serde_json::Value, jobs: &Path) -> Vec<(String, String, Delivery)> {
     let root = tempfile::tempdir().unwrap();
     session_record(root.path(), Some("lead"));
     let record = root.path().join("worker/session.json");
@@ -25,7 +29,7 @@ async fn silent_run_as(reply: &str, lanes: Arc<dyn crate::fleet::stranded::Lanes
     std::fs::write(&record, fields.to_string()).unwrap();
     let (config, _) = claude_turn(root.path(), 1_000, reply);
     let sink = Arc::new(Recorded::default());
-    let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker")).reading_lanes(lanes).idling_by(policy);
+    let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker")).reading_lanes(lanes).reading_jobs(crate::fleet::jobs::Jobs::new(jobs.to_path_buf())).idling_by(policy);
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
     host.rest_when_idle(Some(park_after));
     tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
@@ -106,4 +110,42 @@ async fn a_child_whose_host_ends_with_a_background_task_still_out_tells_its_pare
     tokio::time::timeout(Duration::from_secs(30), host.wait()).await.unwrap().unwrap();
     let posted = sink.1.lock().unwrap().clone();
     assert!(posted.iter().any(|(parent, text, _)| parent == "lead" && text.starts_with("[from worker · parked · turn 1] its last turn ended with no")), "{posted:?}");
+}
+
+fn job_record(dir: &Path, session: &str) -> std::fs::File {
+    let path = dir.join("push-1.job");
+    std::fs::write(&path, format!("{session}\n")).unwrap();
+    let held = std::fs::File::options().append(true).open(path).unwrap();
+    held.lock().unwrap();
+    held
+}
+
+async fn silent_with_job(addressed_to: &str, running: bool) -> Vec<(String, String, Delivery)> {
+    let jobs = tempfile::tempdir().unwrap();
+    let held = job_record(jobs.path(), addressed_to);
+    if !running {
+        drop(held);
+    }
+    let policy = crate::fleet::idle::Policy { silent_after: Duration::from_secs(1), ..seconds(600, 600) };
+    silent_run_with_jobs("Started the push; waiting on its exit.", Arc::new(Ahead(0)), policy, Duration::from_secs(3), json!({}), jobs.path()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_whose_turn_ended_with_a_live_job_run_notify_job_addressed_to_it_is_not_reported_silent() {
+    let told = silent_with_job("worker", true).await;
+    assert!(told.is_empty(), "{told:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_child_with_no_live_job_run_job_addressed_to_it_is_still_reported_silent() {
+    let told = silent_with_job("another-session", true).await;
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].1.starts_with("[from worker · idle · turn 1] its last turn ended with no"), "{}", told[0].1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finished_job_run_job_addressed_to_a_child_does_not_count_as_a_wait() {
+    let told = silent_with_job("worker", false).await;
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].1.starts_with("[from worker · idle · turn 1] its last turn ended with no"), "{}", told[0].1);
 }
