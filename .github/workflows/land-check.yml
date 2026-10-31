@@ -28,6 +28,8 @@ jobs:
     name: ${{ matrix.command }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      CARGO_INCREMENTAL: 0
     strategy:
       fail-fast: false
       matrix:

@@ -8,7 +8,7 @@
 	budget = harness.yml 80 600
 [land]
 	workflow = land-check.yml
-	check = ** :: CARGO_TARGET_DIR=target nix develop -c env CARGO_INCREMENTAL=0 cargo run --offline --bin north -- config agents check-owners --north-root "$PWD" --south-root "$HOME/code/south/main" --nixos-root "$HOME/code/nixos-config/main" # hardcoded-repo-path:allow
+	check = ** :: CARGO_TARGET_DIR=target nix develop -c cargo run --offline --bin north -- config agents check-owners --north-root "$PWD" --south-root "$HOME/code/south/main" --nixos-root "$HOME/code/nixos-config/main" # hardcoded-repo-path:allow
 	check = src/,crates/,tests/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml,harness/scripts/cargo-tests.sh :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- bash harness/scripts/cargo-tests.sh
 	check = src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --locked --offline -- -D warnings
 	check = bin/,lib/,harness/,src/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh portable
@@ -16,6 +16,6 @@
 	check = harness/defaults.toml,harness/skills/machine-capacity/scripts/ :: harness/skills/machine-capacity/scripts/build-machine-capacity --check
 	check = flake.nix,flake.lock,rust-toolchain.toml,tests/dev-shell.test.sh :: ./bin/depbox run -- bash tests/dev-shell.test.sh
 	check = "agent-machinery/ :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
-	local-only = reads the south and nixos-config checkouts beside north :: CARGO_TARGET_DIR=target nix develop -c env CARGO_INCREMENTAL=0 cargo run --offline --bin north -- config agents check-owners --north-root "$PWD" --south-root "$HOME/code/south/main" --nixos-root "$HOME/code/nixos-config/main" # hardcoded-repo-path:allow
+	local-only = reads the south and nixos-config checkouts beside north :: CARGO_TARGET_DIR=target nix develop -c cargo run --offline --bin north -- config agents check-owners --north-root "$PWD" --south-root "$HOME/code/south/main" --nixos-root "$HOME/code/nixos-config/main" # hardcoded-repo-path:allow
 	local-only = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound"
 	local-only = "tests the Nix dev shell, which the Actions runner does not build :: ./bin/depbox run -- bash tests/dev-shell.test.sh"

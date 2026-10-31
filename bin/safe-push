@@ -70,7 +70,7 @@ safe_push_exit() {
   local status=$?
   if declare -F finish_push >/dev/null; then finish_push; fi
   if declare -F stop_final_scans >/dev/null; then stop_final_scans; fi
-  [ -z "${land_check_root:-}" ] || release_land_check_build "$land_check_root"
+  [ "$status" -ne 0 ] || [ -z "${land_check_root:-}" ] || release_land_check_build "$land_check_root"
   if [ "${NORTH_NO_AUTOREAP:-0}" = 1 ]; then exit "$status"; fi
   safe_push_terminal "$status"
 }

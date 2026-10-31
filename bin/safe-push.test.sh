@@ -498,7 +498,7 @@ while IFS= read -r line; do
 done <"$real_fixture/expected-log"
 [ "$(wc -c <"$land_log")" -eq "$(wc -c <"$real_fixture/expected-log")" ] || fail 'failure log changed output bytes'
 [ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'matching check did not run exactly once'
-grep -Fxq "north <land-clean> <$real_repo>" "$land_clean_trace" || fail 'a failed land check left the lane build output'
+! grep -Fq '<land-clean>' "$land_clean_trace" || fail 'a failed land check released the lane build output its retry reuses'
 [ "$(real_remote_state)" = "$land_remote_before" ] || fail 'failing land check published'
 "$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
 land_command='printf "PASS stdout\\n"; printf "PASS stderr\\n" >&2'
