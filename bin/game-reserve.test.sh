@@ -77,21 +77,5 @@ check "off gives agent.slice every CPU by its full list, which the kernel accept
 run status >/dev/null
 check "status exits non-zero after off" "1" "$?"
 
-hook() {
-  FARM_RUNNER_GAME=$1 FARM_RUNNER_GAME_RESERVE_IDLE=$2 FARM_RUNNER_GAME_RESERVE_STATE=$tmp FARM_RUNNER_NORTH=$north GAME_RESERVE_PROC=$proc \
-    GAME_RESERVE_STATE=$tmp/state.json GAME_RESERVE_SYSTEMCTL=$tmp/systemctl GAME_RESERVE_BUSCTL=$tmp/busctl \
-    GAME_RESERVE_AFFINITY_LOG=$tmp/pins.log bash -c 'eval "$(sed -n "/^state_cache=/,/^units()/p" "$0" | head -n -1)"; game_reserve_hook' "$here/farm-runner"
-}
-
-hook '[b]ash' 600
-check "Tom's game starting switches the reserve on automatically" "true true" "$(jq -r '"\(.on) \(.auto)"' "$tmp/state.json")"
-hook 'no-such-game-zz9' 600
-check "an auto reserve stays on while the game was seen inside the idle period" "true" "$(jq -r .on "$tmp/state.json")"
-hook 'no-such-game-zz9' 0
-check "an auto reserve switches off once the game has been gone for the idle period" "false" "$(jq -r .on "$tmp/state.json")"
-run on >/dev/null
-hook 'no-such-game-zz9' 0
-check "a reserve Tom switched on by hand is never switched off by the hook" "true false" "$(jq -r '"\(.on) \(.auto)"' "$tmp/state.json")"
-
 echo "game-reserve: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

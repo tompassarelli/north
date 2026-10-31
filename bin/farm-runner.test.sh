@@ -17,7 +17,7 @@ check() {
 }
 
 decide() {
-  local state=$1 game=$2 pool=$3
+  local state=$1 playing=$2 pool=$3
   printf '{"state":"%s"}\n' "$state" > "$tmp/state.json"
   rm -rf -- "$tmp/pool"
   mkdir -p "$tmp/pool/pair-0/games/g1"
@@ -26,22 +26,17 @@ decide() {
   else
     touch -d '-10 minutes' "$tmp/pool/pair-0/games/g1/actions.log"
   fi
-  FARM_RUNNER_STATE=$tmp/state.json FARM_RUNNER_POOL_STATE=$tmp/pool FARM_RUNNER_GAME=$game \
+  printf '#!/bin/sh\nexit %s\n' "$playing" > "$tmp/north" && chmod +x "$tmp/north"
+  FARM_RUNNER_STATE=$tmp/state.json FARM_RUNNER_POOL_STATE=$tmp/pool FARM_RUNNER_NORTH=$tmp/north \
     bash -c 'eval "$(sed -n "/^state_cache=/,/^units()/p" "$0" | head -n -1)"
       if frozen; then echo freeze; elif allowed; then echo run; else echo drain; fi' "$here/farm-runner"
 }
 
-check "an available laptop with no game and no pool game takes new jobs" "run" "$(decide available 'no-such-game-zz9' idle)"
-check "a live pool capture drains: running jobs continue, no new registrations" "drain" "$(decide available 'no-such-game-zz9' live)"
-check "Tom's own game freezes the runners even during a pool capture" "freeze" "$(decide available 'systemd' live)"
-bash -c 'sleep 30; :' zz9-game-test >/dev/null 2>&1 & wrapper=$!
-check "a wrapper whose arguments name the game is not Tom's game" "run" "$(decide available 'zz9-game-test' idle)"
-kill "$wrapper"
-cp "$(command -v bash)" "$tmp/zz9-game-test"
-"$tmp/zz9-game-test" -c 'sleep 30; :' >/dev/null 2>&1 & game_pid=$!
-check "a process named as the game outside the pool slice freezes the runners" "freeze" "$(decide available 'zz9-game-test' idle)"
-kill "$game_pid"
-check "a laptop that is not available freezes the runners" "freeze" "$(decide draining 'no-such-game-zz9' idle)"
+check "an available laptop with no game and no pool game takes new jobs" "run" "$(decide available 1 idle)"
+check "a live pool capture drains: running jobs continue, no new registrations" "drain" "$(decide available 1 live)"
+check "Tom's own game freezes the runners even during a pool capture" "freeze" "$(decide available 0 live)"
+check "a north that cannot say whether Tom plays freezes the runners" "freeze" "$(decide available 2 idle)"
+check "a laptop that is not available freezes the runners" "freeze" "$(decide draining 1 idle)"
 
 echo "farm-runner: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

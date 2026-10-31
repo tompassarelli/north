@@ -8,11 +8,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rustix::process::{CpuSet, Pid, sched_getaffinity, sched_setaffinity};
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: north capacity game-reserve on [--auto] | off | status";
+const USAGE: &str = "usage: north capacity game-reserve on [--auto] | off | auto | playing | status";
 const GAME_SLICE: &str = "game-reserve.slice";
 const AGENT_SLICE: &str = "agent.slice";
 const TOM_SLICES: [&str; 3] = ["app.slice", "session.slice", "game.slice"];
 const GAME_ROOT: &str = "Warcraft III.exe";
+// The kernel truncates comm to 15 bytes, so the game's own process is named "Warcraft III.ex"; a wrapper whose arguments name the exe is not the game.
+const GAME_COMM: &str = "Warcraft III.ex";
 const SETTLED_SECONDS: f64 = 60.0;
 // /proc/PID/stat starttime is in USER_HZ clock ticks, which Linux fixes at 100 for userspace.
 const TICKS_PER_SECOND: f64 = 100.0;
@@ -27,6 +29,7 @@ pub struct Settings {
     pub game_cpus: String,
     pub agent_cpus: String,
     pub agent_memory_max: String,
+    pub idle_seconds: u64,
 }
 
 impl Settings {
@@ -43,6 +46,7 @@ impl Settings {
             game_cpus: var("GAME_RESERVE_GAME_CPUS").unwrap_or_else(|| "0-3,12-15".into()),
             agent_cpus: var("GAME_RESERVE_AGENT_CPUS").unwrap_or_else(|| "4-11,16-23".into()),
             agent_memory_max: var("GAME_RESERVE_AGENT_MEMORY_MAX").unwrap_or_else(|| "80G".into()),
+            idle_seconds: var("GAME_RESERVE_IDLE_SECONDS").and_then(|value| value.parse().ok()).unwrap_or(600),
         }
     }
 
@@ -59,6 +63,7 @@ impl Settings {
 #[derive(Debug)]
 pub struct Entry {
     pub ppid: i32,
+    pub comm: String,
     pub cgroup: String,
     pub args: String,
     pub age: Option<f64>,
@@ -67,6 +72,15 @@ pub struct Entry {
 impl Entry {
     fn outside(&self) -> bool {
         !self.cgroup.contains("/native.slice/") && !self.cgroup.contains("/agent.slice/") && !self.cgroup.contains("libpod")
+    }
+
+    fn toms_game(&self) -> bool {
+        let words = self.args.split(' ').collect::<Vec<_>>();
+        let wisp_window = words.get(1).is_some_and(|script| script.ends_with("wisp") || script.ends_with("wisp.ts"))
+            && words.get(2) == Some(&"play")
+            && words.windows(2).any(|pair| pair == ["--window", "native"])
+            && !words.contains(&"--headless");
+        self.outside() && (self.comm == GAME_COMM || wisp_window)
     }
 
     fn placed(&self) -> bool {
@@ -88,14 +102,25 @@ fn confined_slice(name: &str) -> bool {
     name.ends_with(".slice") && !TOM_SLICES.contains(&name)
 }
 
-fn confined_slices(settings: &Settings) -> Result<Vec<String>, String> {
-    let entries = fs::read_dir(&settings.cgroup).map_err(|error| format!("{}: {error}", settings.cgroup.display()))?;
-    let mut slices = entries
+fn slices_in(dir: &Path) -> std::io::Result<Vec<(String, PathBuf)>> {
+    let mut slices = fs::read_dir(dir)?
         .flatten()
         .filter(|entry| entry.path().is_dir())
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| confined_slice(name))
+        .filter_map(|entry| Some((entry.file_name().into_string().ok()?, entry.path())))
+        .filter(|(name, _)| name.ends_with(".slice"))
         .collect::<Vec<_>>();
+    slices.sort();
+    Ok(slices)
+}
+
+fn confined_slices(settings: &Settings) -> Result<Vec<(String, PathBuf)>, String> {
+    let top = slices_in(&settings.cgroup).map_err(|error| format!("{}: {error}", settings.cgroup.display()))?;
+    let mut pending = top.into_iter().filter(|(name, _)| confined_slice(name)).collect::<Vec<_>>();
+    let mut slices = Vec::new();
+    while let Some((name, dir)) = pending.pop() {
+        pending.extend(slices_in(&dir).unwrap_or_default());
+        slices.push((name, dir));
+    }
     slices.sort();
     Ok(slices)
 }
@@ -103,7 +128,7 @@ fn confined_slices(settings: &Settings) -> Result<Vec<String>, String> {
 fn set_agent_slices(settings: &Settings, cpus: &str, memory_max: &str) -> Result<(), String> {
     let failed = confined_slices(settings)?
         .into_iter()
-        .filter_map(|slice| {
+        .filter_map(|(slice, _)| {
             let mut arguments = vec!["set-property".to_owned(), "--runtime".to_owned(), slice.clone(), format!("AllowedCPUs={cpus}")];
             if slice == AGENT_SLICE {
                 arguments.push(format!("MemoryMax={memory_max}"));
@@ -119,10 +144,8 @@ fn open_to_game(settings: &Settings) -> Vec<String> {
     confined_slices(settings)
         .unwrap_or_default()
         .into_iter()
-        .filter(|slice| {
-            fs::read_to_string(settings.cgroup.join(slice).join("cpuset.cpus.effective"))
-                .is_ok_and(|effective| !cpu_set(effective.trim()).is_disjoint(&game))
-        })
+        .filter(|(_, dir)| fs::read_to_string(dir.join("cpuset.cpus.effective")).is_ok_and(|effective| !cpu_set(effective.trim()).is_disjoint(&game)))
+        .map(|(slice, _)| slice)
         .collect()
 }
 
@@ -143,7 +166,8 @@ pub fn table(proc: &Path) -> BTreeMap<i32, Entry> {
             let args = String::from_utf8_lossy(&cmdline).replace('\0', " ");
             let started = fields.get(19).and_then(|ticks| ticks.trim().parse::<f64>().ok());
             let age = uptime.zip(started).map(|(up, ticks)| up - ticks / TICKS_PER_SECOND);
-            Some((pid, Entry { ppid, cgroup, args, age }))
+            let comm = stat.get(stat.find('(')? + 1..stat.rfind(')')?)?.to_owned();
+            Some((pid, Entry { ppid, comm, cgroup, args, age }))
         })
         .collect()
 }
@@ -288,6 +312,24 @@ pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
     ))
 }
 
+pub fn playing(settings: &Settings) -> bool {
+    table(&settings.proc).values().any(Entry::toms_game)
+}
+
+pub fn auto(settings: &Settings) -> Result<String, String> {
+    let seen = settings.state.with_file_name("game-seen");
+    if playing(settings) {
+        write_state(&seen, &json!(now()))?;
+        return on(settings, true);
+    }
+    let current = read_state(&settings.state);
+    let last = read_state(&seen).as_u64().unwrap_or(0);
+    if current["on"] == true && current["auto"] == true && now().saturating_sub(last) >= settings.idle_seconds {
+        return off(settings);
+    }
+    Ok("game-reserve unchanged".to_owned())
+}
+
 pub fn off(settings: &Settings) -> Result<String, String> {
     let table = table(&settings.proc);
     let every = cpu_set(&settings.game_cpus).union(&cpu_set(&settings.agent_cpus)).copied().collect::<BTreeSet<_>>();
@@ -304,6 +346,8 @@ pub fn status(settings: &Settings) -> (bool, String) {
     let games = table.values().filter(|entry| entry.args.contains(GAME_ROOT) && !entry.cgroup.contains("/native.slice/")).collect::<Vec<_>>();
     let placed = games.iter().filter(|entry| entry.placed()).count();
     let place = if games.is_empty() { "Warcraft III not running".to_owned() } else { format!("Warcraft III {placed}/{} in {GAME_SLICE}", games.len()) };
+    let wisp = table.values().any(|entry| entry.toms_game() && entry.comm != GAME_COMM);
+    let place = if !wisp { place } else { format!("{place}; Tom's Wisp native window running") };
     if current["on"] == true {
         let auto = if current["auto"] == true { " (auto)" } else { "" };
         let line = format!("game-reserve on{auto}: game CPUs {}, agents CPUs {}; {place}", settings.game_cpus, settings.agent_cpus);
@@ -322,6 +366,8 @@ pub fn run(arguments: &[String]) -> u8 {
         ["on"] => on(&settings, false),
         ["on", "--auto"] => on(&settings, true),
         ["off"] => off(&settings),
+        ["auto"] => auto(&settings),
+        ["playing"] => return u8::from(!playing(&settings)),
         ["status"] => {
             let (live, line) = status(&settings);
             println!("{line}");

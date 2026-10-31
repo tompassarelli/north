@@ -8,13 +8,18 @@ const USER: &str = "/user.slice/user-1000.slice/user@1000.service";
 const UPTIME: f64 = 1000.0;
 const SLICES: [&str; 6] = ["agent.slice", "background.slice", "control.slice", "native.slice", "user.slice", "builds.slice"];
 const TOM_SLICES: [&str; 3] = ["app.slice", "session.slice", "game.slice"];
+const NESTED: &str = "agent.slice/agent-capacity.slice";
 
 fn add(proc: &Path, pid: i32, ppid: i32, cgroup: &str, args: &str, age: f64) {
+    named(proc, pid, ppid, &format!("proc {pid}"), cgroup, args, age);
+}
+
+fn named(proc: &Path, pid: i32, ppid: i32, comm: &str, cgroup: &str, args: &str, age: f64) {
     let dir = proc.join(pid.to_string());
     fs::create_dir_all(&dir).unwrap();
     let ticks = ((UPTIME - age) * 100.0).round() as u64;
     let fields = format!("S {ppid} 1 1 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 {ticks} 0 0");
-    fs::write(dir.join("stat"), format!("{pid} (proc {pid}) {fields}\n")).unwrap();
+    fs::write(dir.join("stat"), format!("{pid} ({comm}) {fields}\n")).unwrap();
     fs::write(dir.join("cgroup"), format!("0::{cgroup}\n")).unwrap();
     fs::write(dir.join("cmdline"), format!("{args}\0")).unwrap();
 }
@@ -30,9 +35,10 @@ fn settings(root: &Path) -> Settings {
         fs::write(cgroup.join(slice).join("cpuset.cpus.effective"), "0-23\n").unwrap();
     }
     fs::create_dir_all(cgroup.join("init.scope")).unwrap();
-    fs::create_dir_all(cgroup.join("agent.slice/agent-capacity.slice")).unwrap();
+    fs::create_dir_all(cgroup.join(NESTED)).unwrap();
+    fs::write(cgroup.join(NESTED).join("cpuset.cpus.effective"), "0-23\n").unwrap();
     let kernel = format!(
-        "[ \"$2\" = set-property ] || exit 0\nslice=$4; shift 4\nfor p; do case $p in AllowedCPUs=*) printf '%s\\n' \"${{p#AllowedCPUs=}}\" > '{}'/$slice/cpuset.cpus.effective 2>/dev/null;; esac; done\n",
+        "[ \"$2\" = set-property ] || exit 0\nslice=$4; shift 4\nfor p; do case $p in AllowedCPUs=*) printf '%s\\n' \"${{p#AllowedCPUs=}}\" > \"$(find '{}' -type d -name \"$slice\")\"/cpuset.cpus.effective 2>/dev/null;; esac; done\n",
         cgroup.display()
     );
     for tool in ["systemctl", "busctl"] {
@@ -53,6 +59,7 @@ fn settings(root: &Path) -> Settings {
         game_cpus: "0-3,12-15".into(),
         agent_cpus: "4-11,16-23".into(),
         agent_memory_max: "80G".into(),
+        idle_seconds: 600,
     }
 }
 
@@ -133,6 +140,7 @@ fn with_the_reserve_on_no_slice_but_toms_runs_on_a_game_cpu() {
             assert!(cpus.iter().all(|cpu| !game.contains(cpu)), "{slice} may run on a game CPU: {cpus:?}");
         }
     }
+    assert_eq!(effective(&settings, NESTED), "4-11,16-23", "a slice nested in an agent slice is confined too");
     let pins = fs::read_to_string(root.path().join("pins.log")).unwrap();
     assert_eq!(pins, "pin 50 4-23:16\npin 51 4-23:16\npin 52 4-23:16\n");
     let (enforced, line) = game_reserve::status(&settings);
@@ -144,7 +152,7 @@ fn off_gives_every_confined_slice_every_cpu_again() {
     let root = tempfile::tempdir().unwrap();
     let settings = reserved(root.path());
     game_reserve::off(&settings).unwrap();
-    for slice in SLICES.iter().chain(&TOM_SLICES) {
+    for slice in SLICES.iter().chain(&TOM_SLICES).chain(&[NESTED]) {
         assert_eq!(effective(&settings, slice), "0-23", "{slice}");
     }
     let calls = fs::read_to_string(root.path().join("calls.log")).unwrap();
@@ -160,7 +168,56 @@ fn status_reports_a_reserve_whose_slices_still_reach_the_game_cpus_as_not_enforc
     let (enforced, line) = game_reserve::status(&settings);
     assert!(!enforced, "{line}");
     assert!(
-        line.ends_with("NOT ENFORCED: game CPUs open to agent.slice, background.slice, builds.slice, control.slice, native.slice, user.slice"),
+        line.ends_with("NOT ENFORCED: game CPUs open to agent-capacity.slice, agent.slice, background.slice, builds.slice, control.slice, native.slice, user.slice"),
         "{line}"
     );
+}
+
+#[test]
+fn toms_game_is_warcraft_iii_or_a_wisp_native_window_outside_the_agent_slices() {
+    let app = format!("{USER}/app.slice/smashcraft-tom-1.service");
+    let agent = format!("{USER}/agent.slice/agent-capacity.slice/run-1.scope");
+    let cases = [
+        ("bun", app.as_str(), "bun scripts/wisp.ts play --standalone --window native --map current.w3x", true),
+        ("bun", app.as_str(), "bun wisp play --standalone --window native", true),
+        ("bun", agent.as_str(), "bun scripts/wisp.ts play --standalone --window native", false),
+        ("bun", app.as_str(), "bun scripts/wisp.ts play --standalone --window headless", false),
+        ("bun", app.as_str(), "bun scripts/wisp.ts net --window native", false),
+        ("bun", app.as_str(), "bun scripts/wisp.ts play --standalone --window native --headless --frames 150", false),
+        ("bun", app.as_str(), "bun machine-capacity.mjs run --class gpu -- bun scripts/wisp.ts play --standalone --window native", false),
+        ("Warcraft III.ex", app.as_str(), "C:\\Program Files (x86)\\Warcraft III\\_retail_\\x86_64\\Warcraft III.exe -launch", true),
+        ("Warcraft III.ex", &format!("{USER}/native.slice/agent-capacity-1.scope"), "Warcraft III.exe -launch", false),
+        ("bash", app.as_str(), "bash -c sleep 30; : Warcraft III.exe", false),
+    ];
+    for (comm, cgroup, args, want) in cases {
+        let root = tempfile::tempdir().unwrap();
+        let settings = settings(root.path());
+        named(&settings.proc, 40, 1, comm, cgroup, args, UPTIME);
+        assert_eq!(game_reserve::playing(&settings), want, "{comm} in {cgroup}: {args}");
+    }
+}
+
+#[test]
+fn auto_keeps_the_reserve_on_while_toms_wisp_window_runs_and_releases_it_after_the_idle_period() {
+    let root = tempfile::tempdir().unwrap();
+    let mut settings = settings(root.path());
+    let app = format!("{USER}/app.slice/smashcraft-tom-1.service");
+    named(&settings.proc, 40, 1, "bun", &app, "bun scripts/wisp.ts play --standalone --window native", UPTIME);
+    game_reserve::auto(&settings).unwrap();
+    let state = || fs::read_to_string(root.path().join("state.json")).unwrap();
+    assert!(state().contains(r#""on":true"#) && state().contains(r#""auto":true"#), "{}", state());
+    assert!(game_reserve::status(&settings).1.ends_with("Tom's Wisp native window running"), "{}", game_reserve::status(&settings).1);
+    settings.idle_seconds = 0;
+    game_reserve::auto(&settings).unwrap();
+    assert!(state().contains(r#""on":true"#), "a running window keeps the reserve on: {}", state());
+    fs::remove_dir_all(settings.proc.join("40")).unwrap();
+    settings.idle_seconds = 600;
+    game_reserve::auto(&settings).unwrap();
+    assert!(state().contains(r#""on":true"#), "the reserve outlasts a window gone for less than the idle period: {}", state());
+    settings.idle_seconds = 0;
+    game_reserve::auto(&settings).unwrap();
+    assert_eq!(state(), r#"{"on":false}"#);
+    game_reserve::on(&settings, false).unwrap();
+    game_reserve::auto(&settings).unwrap();
+    assert!(state().contains(r#""auto":false"#), "a reserve switched on by hand is never switched off by auto: {}", state());
 }
