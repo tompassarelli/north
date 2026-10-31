@@ -97,3 +97,27 @@ fn concurrent_landings_take_separate_incremental_slots_seeded_from_a_warm_snapsh
     assert!(first.2 < second.3 && second.2 < first.3, "slots ran one after the other: {slots:?}");
     assert_eq!(fs::read_to_string(machine.path("cache/north/mutant-cargo/slot-1/target/debug/dep")).unwrap(), "warm");
 }
+
+#[test]
+fn a_bun_test_claim_runs_in_each_tree_and_records_its_verdict_without_cargo() {
+    let root = tempfile::tempdir().unwrap();
+    let name = "adds (1 + 1), then checks";
+    for (tree, expected) in [("change", 2), ("mutant", 3)] {
+        fs::create_dir_all(root.path().join(tree).join("harness")).unwrap();
+        let source = format!("import {{ expect, test }} from \"bun:test\";\ntest(\"{name}\", () => expect(1 + 1).toBe({expected}));\n");
+        fs::write(root.path().join(tree).join("harness/sum.test.ts"), source).unwrap();
+    }
+    let status = Command::new("bash")
+        .arg(SCRIPT)
+        .env("XDG_CACHE_HOME", root.path().join("cache"))
+        .env("MUTANT_TESTS", name)
+        .env("MUTANT_TREES", format!("{}\n{}", root.path().join("change").display(), root.path().join("mutant").display()))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let read = |tree: &str| fs::read_to_string(root.path().join(tree).join(".mutant-results")).unwrap();
+    assert_eq!((read("change"), read("mutant")), (format!("pass\t{name}\n"), format!("fail\t{name}\n")));
+    assert!(!root.path().join("cache/north/mutant-cargo/slot-0").exists(), "a bun-only claim takes no cargo slot");
+}

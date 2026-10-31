@@ -3,10 +3,22 @@ set -euo pipefail
 root=${XDG_CACHE_HOME:-$HOME/.cache}/north/mutant-cargo
 slots=${MUTANT_SLOTS:-4}
 mkdir -p "$root"
-mapfile -t names <<<"$MUTANT_TESTS"
-for name in "${names[@]}"; do
-  [[ $name =~ ^[A-Za-z0-9_:]+$ ]] || { printf 'mutant-cargo-tests: %s is not a cargo test name\n' "$name" >&2; exit 2; }
+mapfile -t claimed <<<"$MUTANT_TESTS"
+names=() bun=()
+for name in "${claimed[@]}"; do
+  if [[ $name =~ ^[A-Za-z0-9_:]+$ ]]; then names+=("$name"); else bun+=("$name"); fi
 done
+while IFS= read -r tree; do
+  for name in "${bun[@]}"; do
+    mapfile -t files < <(cd "$tree" && grep -rlF --include='*.test.ts' -- "$name" .)
+    ((${#files[@]})) || continue
+    log=$(cd "$tree" && bun test -t "$(sed 's/[][\\.*^$()+?{}|]/\\&/g' <<<"$name")\$" "${files[@]}" </dev/null 2>&1) || true
+    printf '%s\n' "$log"
+    if grep -qE '^ *[1-9][0-9]* fail$' <<<"$log"; then verdict=fail; elif grep -qE '^ *[1-9][0-9]* pass$' <<<"$log"; then verdict=pass; else continue; fi
+    printf '%s\t%s\n' "$verdict" "$name" >>"$tree/.mutant-results"
+  done
+done <<<"$MUTANT_TREES"
+((${#names[@]})) || exit 0
 if [ -d "$root/target" ] && [ ! -e "$root/slot-0" ]; then
   exec {legacy}>"$root/lock"
   if flock -n "$legacy" && [ -d "$root/target" ] && [ ! -e "$root/slot-0" ]; then mkdir "$root/slot-0" && mv "$root/target" "$root/slot-0/target"; fi
