@@ -289,7 +289,7 @@ fn the_evidence_sweep_reads_its_budget_from_the_hosts_disk_budget() {
 #[test]
 fn the_mutant_cargo_sweep_reads_its_cap_from_the_hosts_disk_budget() {
     let machine = Machine::new();
-    let deps = machine.dir("cache/north/mutant-cargo/target/debug/deps", 3 * DAY);
+    let deps = machine.dir("cache/north/mutant-cargo/slot-1/target/debug/deps", 3 * DAY);
     let binary = deps.join("north-4d5e6f");
     fs::write(&binary, vec![0u8; 3 << 20]).unwrap();
     fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();

@@ -28,12 +28,23 @@ pub(crate) fn mutant_cap_bytes(budget: &DiskBudget) -> u64 {
     budget.bytes(Share::MutantCargo).unwrap_or(CAP_BYTES)
 }
 
-pub(crate) fn sweep_mutant(cache: &Path, now: SystemTime, cap: u64) -> io::Result<u64> {
-    let target = cache.join("north/mutant-cargo/target");
-    if !target.is_dir() {
-        return Ok(0);
+pub(crate) fn sweep_mutant(cache: &Path, now: SystemTime, cap: u64) -> io::Result<Vec<(PathBuf, u64)>> {
+    let root = cache.join("north/mutant-cargo");
+    let mut targets = vec![root.join("target")];
+    if let Ok(entries) = fs::read_dir(&root) {
+        targets.extend(entries.flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with("slot-")).map(|entry| entry.path().join("target")));
     }
-    sweep(&target, cap, IDLE, now)
+    targets.retain(|target| target.is_dir());
+    targets.sort();
+    let share = cap / targets.len().max(1) as u64;
+    let mut trimmed = Vec::new();
+    for target in targets {
+        let freed = sweep(&target, share, IDLE, now)?;
+        if freed > 0 {
+            trimmed.push((target, freed));
+        }
+    }
+    Ok(trimmed)
 }
 
 pub(crate) fn run_sweep(cache: &Path, cap: u64) -> u8 {
