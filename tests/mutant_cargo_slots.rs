@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
-const SCRIPT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/harness/scripts/mutant-cargo-tests.sh");
+const SCRIPT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/harness/scripts/mutant-tests.sh");
 const STUB: &str = "#!/usr/bin/env bash\n\
 printf '%s %s start %s\\n' \"$CARGO_TARGET_DIR\" \"$CARGO_INCREMENTAL\" \"$(date +%s%N)\" >>\"$STUB_LOG\"\n\
 sleep 1\n\
