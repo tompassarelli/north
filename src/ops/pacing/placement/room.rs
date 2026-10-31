@@ -102,15 +102,23 @@ pub(crate) struct Rank {
     spending: bool,
     expiring: f64,
     five_hour: f64,
+    /// What one more point of week room would add to `expiring`.
+    per_week_point: f64,
 }
 
 impl Rank {
     pub(crate) fn of(room: Room, plan: PlanSize, spending: bool) -> Self {
-        Self { spending, expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour }
+        Self { spending, expiring: room.expiring(plan), five_hour: room.five_hour * plan.five_hour, per_week_point: Room { week: 1.0, ..room }.expiring(plan) }
     }
 
     pub(crate) fn order(&self, other: &Self) -> Ordering {
         self.spending.cmp(&other.spending).then(self.expiring.total_cmp(&other.expiring)).then(self.five_hour.total_cmp(&other.five_hour))
+    }
+
+    /// Whether this account would rank with `best` given `points` more week room, so a launch that names
+    /// it keeps the caller's choice instead of flipping on the next quota sample.
+    pub(crate) fn ties(&self, best: &Self, points: f64) -> bool {
+        self.spending == best.spending && self.expiring + points * self.per_week_point >= best.expiring
     }
 }
 

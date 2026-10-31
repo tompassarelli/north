@@ -175,3 +175,16 @@ fn an_account_that_is_out_refuses_even_a_pin_and_names_the_account_placement_pic
     all_out.verdicts.retain(|verdict| verdict.exhausted);
     assert!(admit(&all_out, &launch, "", &revived).unwrap_err().to_string().ends_with("no Claude account is available; wait for a window to reset"));
 }
+
+#[test]
+fn a_named_account_within_the_tie_band_of_the_best_is_admitted_without_a_pin_and_one_ten_points_behind_is_not() {
+    let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: None };
+    let tied = |best: &str| Decision { verdicts: vec![verdict("claude:a", Some(28.0)), verdict("claude:c", Some(30.0)), verdict("claude:b", Some(20.0))], ..decision(Target::Account(best.into())) };
+    for best in ["claude:a", "claude:c"] {
+        for account in ["a", "c"] {
+            assert_eq!(admit(&tied(best), &launch(account), "", &Overrides::default()), noted(None), "--account {account} when placement picks {best}");
+        }
+    }
+    let refused = admit(&tied("claude:c"), &launch("b"), "", &Overrides::default()).unwrap_err().to_string();
+    assert!(refused.contains("placement picks claude:c") && refused.contains("--pin"), "{refused}");
+}

@@ -193,6 +193,10 @@ fn picked(decision: &Decision) -> Option<&gate::Verdict> {
     }
 }
 
+/// Week points a named account may trail placement's pick and keep the launch, since quota samples
+/// move a point or two between tries (north#389).
+const TIE_WEEK_POINTS: f64 = 5.0;
+
 fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
     let name = format!("claude:{account}");
     let chosen = decision.verdict(&name);
@@ -200,7 +204,7 @@ fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
     if chosen.is_none() && best.is_none() {
         return None;
     }
-    let fits = chosen.is_some_and(|v| v.available) && best.is_none_or(|b| chosen.is_some_and(|v| b.rank.order(&v.rank).is_le()));
+    let fits = chosen.is_some_and(|v| v.available) && best.is_none_or(|b| chosen.is_some_and(|v| b.rank.order(&v.rank).is_le() || v.rank.ties(&b.rank, TIE_WEEK_POINTS)));
     if fits {
         return None;
     }
