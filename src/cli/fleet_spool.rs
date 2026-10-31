@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::registry::Fleet;
-use crate::fleet::relay::hostname;
 use crate::fleet::runtime::{new_uuid, now_ms};
 use crate::fleet::store::{FleetRow, JOB_LEASE_SECS, JobPayload, RowKind, SessionRow};
 use crate::fleet::tick;
@@ -43,7 +42,7 @@ fn spool_job(fleet: &Fleet, kind: RowKind, session: &str, key: &str, exit: Optio
         id: format!("{sent_at}-{}", new_uuid()?),
         kind,
         to: session.into(),
-        from: hostname(),
+        from: fleet.host().to_owned(),
         urgent: false,
         sent_at,
         text: text.into(),

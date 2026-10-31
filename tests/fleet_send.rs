@@ -47,11 +47,8 @@ fn text(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn a_send_on_a_host_without_the_session_spools_for_a_name_the_fleet_table_holds_and_refuses_any_other_whatever_a_relay_reads() {
+fn a_send_on_a_host_without_the_session_spools_for_a_name_the_fleet_table_holds_and_refuses_any_other() {
     let hosts = Hosts::new();
-    let relayed = hosts.north("fleet", &["relay", "far"]);
-    assert!(relayed.status.success(), "{}{}", text(&relayed.stdout), text(&relayed.stderr));
-
     let alone = hosts.north("far", &["send", "proxy", "rolled", "back"]);
     assert!(!alone.status.success());
     assert!(text(&alone.stderr).contains("no session named proxy"), "{}", text(&alone.stderr));

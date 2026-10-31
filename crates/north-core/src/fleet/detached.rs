@@ -143,6 +143,13 @@ pub fn host_tree(proc: &Path, cgroups: &Path, host: u32) -> Vec<u32> {
     tree
 }
 
+/// How many live processes run below the host's own children in its scope: the work its CLI started and has not seen end.
+pub fn cli_work(proc: &Path, cgroups: &Path, host: u32) -> usize {
+    let Some(scope) = session_scope(proc, cgroups, host) else { return 0 };
+    let stats = members(proc, &scope);
+    stats.iter().filter(|(pid, stat)| **pid != host && stat.parent != host && descends(**pid, host, &stats)).count()
+}
+
 fn members(proc: &Path, scope: &Path) -> HashMap<u32, Stat> {
     let members = fs::read_to_string(scope.join("cgroup.procs")).unwrap_or_default();
     members.lines().filter_map(|line| line.trim().parse().ok()).filter_map(|pid| Some((pid, stat(proc, pid)?))).filter(|(_, stat)| stat.live).collect()
@@ -215,6 +222,17 @@ mod tests {
         ];
         let (_root, procfs) = tree(SCOPE, &processes);
         assert_eq!(procfs.detached(), [Detached { pid: 200, started: 20, command: "bash job-run land -- safe-push".into() }]);
+    }
+
+    #[test]
+    fn the_work_below_the_clis_own_process_counts_and_the_cli_itself_a_zombie_and_a_detached_run_do_not() {
+        let (root, _) = tree(SCOPE, &[(HOST, 1, "S", 10, "north session-host"), (101, HOST, "S", 11, "claude -p"), (200, 892, "S", 20, "job-run")]);
+        let (proc, cgroups) = (root.path().join("proc"), root.path().join("cgroup"));
+        assert_eq!(cli_work(&proc, &cgroups, HOST), 0);
+
+        let (root, _) = tree(SCOPE, &[(HOST, 1, "S", 10, "north session-host"), (101, HOST, "S", 11, "claude -p"), (102, 101, "S", 12, "bash -c cargo test"), (103, 102, "S", 13, "cargo test"), (104, 101, "Z", 14, ""), (200, 892, "S", 20, "job-run")]);
+        let (proc, cgroups) = (root.path().join("proc"), root.path().join("cgroup"));
+        assert_eq!(cli_work(&proc, &cgroups, HOST), 2);
     }
 
     #[test]

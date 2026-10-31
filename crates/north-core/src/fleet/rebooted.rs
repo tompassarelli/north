@@ -1,7 +1,6 @@
 //! Sessions a host reboot stranded: the machine went down under a session that was neither stopped
 //! nor finished, so its host process is gone and nothing runs it again. `north fleet rebooted
-//! --revive` runs each one again with the turn that tells it why, from the fleet-relay timer once
-//! the host answers ssh.
+//! --revive` runs each one again with the turn that tells it why, from every fleet tick on the host.
 use std::time::{Duration, Instant};
 
 use crate::error::NorthResult;

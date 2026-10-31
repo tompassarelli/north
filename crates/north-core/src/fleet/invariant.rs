@@ -15,6 +15,7 @@ pub const WAKES: u32 = 3;
 pub const GRACE_TICKS: u32 = 2;
 pub const JUDGED_FOR: Duration = Duration::from_secs(48 * 3600);
 pub const WAKES_PER_TICK: usize = 4;
+pub const CLI_WORK_HELD: Duration = Duration::from_secs(2 * 3600);
 const QUOTE_CHARS: usize = 240;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -78,6 +79,12 @@ pub fn judge(worker: &Worker, mark: Mark, now: Timestamp) -> (Verdict, Mark) {
         return (Verdict::Stalled { settled }, acted);
     }
     (Verdict::Wake { reason, settled }, Mark { wakes: mark.wakes + 1, ..acted })
+}
+
+/// Whether work still running below the CLI may hold a stopped turn: it holds for `CLI_WORK_HELD`, so a watcher left running forever cannot disable the wake for good.
+pub(super) fn held_by_cli_work(turn: &LastTurn, now: Timestamp) -> bool {
+    let age = now.unix_millis().saturating_sub(i64::try_from(turn.ended_ms).unwrap_or(i64::MAX));
+    age < i64::try_from(CLI_WORK_HELD.as_millis()).unwrap_or(i64::MAX)
 }
 
 fn recent(turn: &LastTurn, now: Timestamp) -> bool {
@@ -146,8 +153,10 @@ fn keep_one(fleet: &Fleet, record: &SessionRecord, facts: &Facts, kept: &mut Kep
     if !fleet.active_within(record, JUDGED_FOR) {
         return Ok(());
     }
-    let running = matches!(fleet.status(record), Status::Starting | Status::Working);
-    let turn = if running { None } else { fleet.last_turn(record) };
+    let live = matches!(fleet.status(record), Status::Starting | Status::Working);
+    let turn = if live { None } else { fleet.last_turn(record) };
+    let running = live || turn.as_ref().is_some_and(|turn| held_by_cli_work(turn, facts.now) && fleet.cli_is_working(record));
+    let turn = if running { None } else { turn };
     let worker = Worker {
         running,
         gated: facts.gated.contains(&record.name),
@@ -162,7 +171,7 @@ fn keep_one(fleet: &Fleet, record: &SessionRecord, facts: &Facts, kept: &mut Kep
         Verdict::Holds | Verdict::Grace => {}
         Verdict::Wake { reason, settled } => {
             let ended_ms = worker.turn.as_ref().map_or(0, |turn| turn.ended_ms);
-            let row = wake_row(fleet, &record.name, after, ended_ms, &reason);
+            let row = wake_row(fleet.host(), &record.name, after, ended_ms, &reason);
             if fleet.hand_in(&row)? == HandedIn::Delivered {
                 kept.woken.push((record.name.clone(), reason));
             }
@@ -183,13 +192,13 @@ fn keep_one(fleet: &Fleet, record: &SessionRecord, facts: &Facts, kept: &mut Kep
     Ok(())
 }
 
-fn wake_row(fleet: &Fleet, name: &str, mark: Mark, ended_ms: u64, reason: &str) -> FleetRow {
+pub(super) fn wake_row(host: &str, name: &str, mark: Mark, ended_ms: u64, reason: &str) -> FleetRow {
     let tag: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
     FleetRow {
-        id: format!("{ended_ms}-wake{}-{}-{tag}", mark.wakes, mark.turn),
+        id: format!("wake{}-{}-{tag}", mark.wakes, mark.turn),
         kind: RowKind::Message,
         to: name.to_owned(),
-        from: fleet.host().to_owned(),
+        from: host.to_owned(),
         urgent: false,
         sent_at: ended_ms,
         text: wake_prompt(reason, mark.wakes),

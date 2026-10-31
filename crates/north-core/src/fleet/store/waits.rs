@@ -49,11 +49,18 @@ pub struct WaitKey {
     pub session: String,
     pub kind: WaitKind,
     pub key: String,
+    pub created: Option<String>,
+}
+
+impl WaitKey {
+    pub fn same_wait(&self, other: &Self) -> bool {
+        (&self.session, self.kind, &self.key) == (&other.session, other.kind, &other.key)
+    }
 }
 
 impl WaitRow {
     pub fn key(&self) -> WaitKey {
-        WaitKey { session: self.session.clone(), kind: self.kind, key: self.key.clone() }
+        WaitKey { session: self.session.clone(), kind: self.kind, key: self.key.clone(), created: Some(self.created.clone()) }
     }
 }
 
@@ -67,7 +74,7 @@ pub struct WaitRequest {
 
 impl WaitRequest {
     pub fn key(&self) -> WaitKey {
-        WaitKey { session: self.session.clone(), kind: self.kind, key: self.key.clone() }
+        WaitKey { session: self.session.clone(), kind: self.kind, key: self.key.clone(), created: None }
     }
 
     pub fn parse(input: &[u8]) -> NorthResult<Self> {
@@ -93,15 +100,15 @@ fn deadline_after(now: Timestamp, secs: u64) -> String {
 
 pub(super) fn insert(tx: &Transaction, request: &WaitRequest, now: Timestamp) -> NorthResult<()> {
     tx.execute(
-        "INSERT INTO fleet_waits(session, kind, key, deadline, created) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session, kind, key) DO UPDATE SET deadline = excluded.deadline",
+        "INSERT INTO fleet_waits(session, kind, key, deadline, created) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session, kind, key) DO UPDATE SET deadline = excluded.deadline, created = excluded.created",
         params![request.session, request.kind.label(), request.key, deadline_after(now, request.within_secs), now.iso()],
     )
     .map_err(sql)?;
     Ok(())
 }
 
-pub(super) fn settle(tx: &Transaction, session: &str, kind: WaitKind, key: &str) -> NorthResult<bool> {
-    Ok(tx.execute("DELETE FROM fleet_waits WHERE session = ?1 AND kind = ?2 AND key = ?3", params![session, kind.label(), key]).map_err(sql)? == 1)
+pub(super) fn settle(tx: &Transaction, session: &str, kind: WaitKind, key: &str, created: Option<&str>) -> NorthResult<bool> {
+    Ok(tx.execute("DELETE FROM fleet_waits WHERE session = ?1 AND kind = ?2 AND key = ?3 AND (?4 IS NULL OR created = ?4)", params![session, kind.label(), key, created]).map_err(sql)? == 1)
 }
 
 pub(super) fn record_job(tx: &Transaction, row: &FleetRow, now: Timestamp) -> NorthResult<()> {
@@ -113,7 +120,7 @@ pub(super) fn record_job(tx: &Transaction, row: &FleetRow, now: Timestamp) -> No
             .execute("UPDATE fleet_waits SET deadline = MAX(deadline, ?3) WHERE session = ?1 AND kind = 'job' AND key = ?2", params![row.to, job.key, deadline_after(now, lease)])
             .map(drop)
             .map_err(sql),
-        RowKind::JobExit => settle(tx, &row.to, WaitKind::Job, &job.key).map(drop),
+        RowKind::JobExit => settle(tx, &row.to, WaitKind::Job, &job.key, None).map(drop),
         _ => Ok(()),
     }
 }

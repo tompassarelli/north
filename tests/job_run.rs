@@ -80,9 +80,9 @@ fn job_run_starts_its_job_and_returns_with_it_while_the_start_record_stalls() {
     let root = scratch.path();
     fs::write(root.join("stall-start"), "").unwrap();
     let begun = Instant::now();
-    assert_eq!(run(root, "job-run", &["fleet-relay", "--", "sh", "-c", "sleep 1; exit 4"]), 4);
+    assert_eq!(run(root, "job-run", &["fleet-tick", "--", "sh", "-c", "sleep 1; exit 4"]), 4);
     assert!(begun.elapsed() < Duration::from_secs(6), "{:?}", begun.elapsed());
-    assert!(ssh_log(root).iter().any(|line| line.contains("job-run fleet-relay") && line.ends_with("--rc 4")), "{:?}", ssh_log(root));
+    assert!(ssh_log(root).iter().any(|line| line.contains("job-run fleet-tick") && line.ends_with("--rc 4")), "{:?}", ssh_log(root));
 }
 
 fn tool(name: &str) -> std::path::PathBuf {

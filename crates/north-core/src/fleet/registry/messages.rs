@@ -36,7 +36,7 @@ impl Fleet {
         Ok(self.held_elsewhere(name)?.is_some())
     }
 
-    fn held_elsewhere(&self, name: &str) -> NorthResult<Option<SessionRow>> {
+    pub(super) fn held_elsewhere(&self, name: &str) -> NorthResult<Option<SessionRow>> {
         Ok(cached_sessions(&self.root)?.unwrap_or_default().into_iter().find(|session| session.name == name && session.host != self.host && session.status != Status::Exited.label()))
     }
 

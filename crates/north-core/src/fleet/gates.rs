@@ -1,7 +1,5 @@
 use crate::error::{NorthError, NorthResult};
 
-use super::remote_view::qualified;
-
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GateRequest {
     pub verification: bool,
@@ -137,7 +135,7 @@ pub fn open(book: &dyn GateBook, request: &GateRequest, parent: Option<&str>, ho
     request.validate()?;
     let id = book.open_gate(request, now_ms)?;
     if let Some(parent) = parent {
-        let label = host.map_or_else(|| id.to_string(), |host| qualified(host, id));
+        let label = host.map_or_else(|| id.to_string(), |host| format!("{host}:{id}"));
         notify(parent, &opened_notice(&label, request));
     }
     Ok(id)

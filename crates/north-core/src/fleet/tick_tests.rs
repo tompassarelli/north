@@ -782,7 +782,7 @@ fn a_tick_caches_the_fleet_table_on_each_far_machine_it_pulled_so_its_clis_can_n
 }
 
 #[test]
-fn a_session_gone_from_this_hosts_registry_is_marked_exited_in_the_fleet_table() {
+fn a_session_gone_from_this_hosts_registry_loses_its_row_in_the_fleet_table() {
     let host = host("nexus");
     let _frames = live(&host, "worker");
     host.store().publish("nexus", &[SessionRow { name: "forgotten".into(), host: "nexus".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
@@ -791,7 +791,7 @@ fn a_session_gone_from_this_hosts_registry_is_marked_exited_in_the_fleet_table()
     host.tick();
 
     let statuses: Vec<(String, String)> = host.store().sessions().unwrap().into_iter().map(|row| (row.name, row.status)).collect();
-    assert_eq!(statuses, [("far".to_owned(), "idle".to_owned()), ("forgotten".to_owned(), "exited".to_owned()), ("worker".to_owned(), "idle".to_owned())]);
+    assert_eq!(statuses, [("far".to_owned(), "idle".to_owned()), ("worker".to_owned(), "idle".to_owned())]);
 }
 
 #[test]
@@ -860,7 +860,7 @@ fn a_row_for_a_session_in_a_far_machines_own_registry_is_handed_in_there_once_by
 }
 
 #[test]
-fn a_far_machine_whose_own_registry_emptied_has_its_last_rows_marked_exited() {
+fn a_far_machine_whose_own_registry_emptied_has_its_last_rows_removed() {
     let (nexus, gex45) = (host("nexus"), host("gex45"));
     nexus.store().publish("gex45", &[SessionRow { name: "forgotten".into(), host: "gex45".into(), status: "parked".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
     let legacy = Legacy(&gex45);
@@ -869,5 +869,18 @@ fn a_far_machine_whose_own_registry_emptied_has_its_last_rows_marked_exited() {
     tick(&nexus.fleet, &mut nexus.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
 
     let statuses: Vec<(String, String)> = nexus.store().sessions().unwrap().into_iter().map(|row| (row.name, row.status)).collect();
-    assert_eq!(statuses, [("forgotten".to_owned(), "exited".to_owned())]);
+    assert!(statuses.is_empty(), "{statuses:?}");
+}
+
+#[test]
+fn a_forgotten_session_drops_out_of_its_hosts_cached_table_so_a_second_forget_is_refused() {
+    let nexus = host("nexus");
+    parked(&nexus, "worker", true);
+    nexus.fleet.cache_sessions(&[SessionRow { name: "worker".into(), host: "nexus".into(), status: "exited".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }, SessionRow { name: "other".into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }]).unwrap();
+
+    assert!(matches!(nexus.fleet.control(ControlVerb::Forget, "worker").unwrap(), Controlled::Here));
+
+    assert!(matches!(nexus.fleet.control(ControlVerb::Forget, "worker"), Err(NorthError::Usage(why)) if why == "no session named worker"));
+    let kept: Vec<String> = nexus.fleet.cached_sessions().unwrap().unwrap().into_iter().map(|row| row.name).collect();
+    assert_eq!(kept, ["other"]);
 }

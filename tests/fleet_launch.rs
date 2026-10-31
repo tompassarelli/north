@@ -443,11 +443,6 @@ impl TwoHosts {
         self.root.path().join("far")
     }
 
-    fn relay(&self) -> Output {
-        let far = self.far();
-        north_as(self.here(), "here", &[("FAR_HOME", far.to_str().unwrap())], &["fleet", "relay", "far"])
-    }
-
     fn tick(&self) {
         for (root, host) in [(self.far(), "far"), (self.here().to_path_buf(), "here"), (self.far(), "far")] {
             let ticked = north_on(&root, host, &["fleet", "tick"]);
@@ -501,9 +496,7 @@ fn north_fleet_list_and_tree_here_show_a_session_registered_on_another_host_with
     let hosts = TwoHosts::new();
     hosts.launch_boss_here_and_kid_far();
 
-    let relayed = hosts.relay();
-    assert!(relayed.status.success(), "{}{}", text(&relayed.stdout), text(&relayed.stderr));
-    let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
+    hosts.tick();
     let cached = hosts.here().join(".local/state/north/fleet/.fleet-sessions.json");
     let row = serde_json::json!([{"name": "kid", "host": "far", "status": "working", "created": "t", "updated": "2099-01-01T00:00:00Z", "provider": "claude", "account": "a", "cwd": "/tmp", "parent": "boss"}]);
     fs::write(cached, row.to_string()).unwrap();
@@ -514,30 +507,24 @@ fn north_fleet_list_and_tree_here_show_a_session_registered_on_another_host_with
     assert!(columns[4].starts_with("far:"), "{kid}");
     let tree = text(&north(hosts.here(), &["fleet", "tree"]).stdout);
     let boss = tree.lines().position(|line| line.starts_with("boss ")).unwrap_or_else(|| panic!("{tree}"));
-    assert!(tree.lines().nth(boss + 1).is_some_and(|line| line.starts_with("  kid ") && line.ends_with(&format!("on {host}"))), "{tree}");
+    assert!(tree.lines().nth(boss + 1).is_some_and(|line| line.starts_with("  kid ") && line.ends_with("on far")), "{tree}");
 }
 
 #[test]
-fn a_gate_a_session_opens_on_another_host_is_listed_here_by_host_qualified_id_and_answered_by_a_gate_answer_row_for_its_host() {
+fn a_gate_a_session_opens_on_another_host_is_answered_here_by_host_qualified_id_and_session_as_a_gate_answer_row_for_its_host() {
     let hosts = TwoHosts::new();
     hosts.launch_boss_here_and_kid_far();
-    let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
 
     let opened = north_on(&hosts.far(), "far", &["gate", "open", "--session", "kid", "--question", "Rent the box?", "--option", "yes", "--option", "no", "--recommend", "1", "--default", "2", "--default-after", "60s"]);
     assert!(opened.status.success(), "{}", text(&opened.stderr));
     let id = text(&opened.stdout).trim().to_owned();
-    let label = format!("{host}:{id}");
+    let label = format!("far:{id}");
 
-    until("the gate in this host's gate list", || {
-        hosts.relay();
-        text(&north(hosts.here(), &["gate", "list"]).stdout).contains(&format!("{label}\tkid\tRent the box?\topen"))
-    });
     until("the parent told of the gate by its qualified id", || {
-        hosts.relay();
         hosts.tick();
         text(&north(hosts.here(), &["fleet", "show", "boss"]).stdout).contains(&format!("[gate {label} from kid]"))
     });
-    let answered = north(hosts.here(), &["gate", "answer", &label, "1", "--note", "go ahead"]);
+    let answered = north(hosts.here(), &["gate", "answer", &label, "1", "--session", "kid", "--note", "go ahead"]);
     assert!(answered.status.success(), "{}", text(&answered.stderr));
     assert!(text(&answered.stdout).contains(&format!("gate {label}: answer 1 spooled as ")), "{}", text(&answered.stdout));
     let spooled: Vec<serde_json::Value> = serde_json::from_slice(&north(hosts.here(), &["fleet", "spool", "take"]).stdout).unwrap();

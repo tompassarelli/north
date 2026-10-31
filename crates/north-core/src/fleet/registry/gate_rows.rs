@@ -31,6 +31,16 @@ impl Fleet {
         Ok(row)
     }
 
+    pub fn answer_remote_gate(&self, label: &str, session: &str, number: usize, note: Option<&str>, caller: Option<&str>) -> NorthResult<String> {
+        let (host, id) = label.rsplit_once(':').and_then(|(host, id)| Some((host, id.parse::<i64>().ok()?))).filter(|(host, _)| !host.is_empty()).ok_or_else(|| NorthError::Usage(format!("not a host-qualified gate id: {label}")))?;
+        let held = self.held_elsewhere(session)?.ok_or_else(|| NorthError::Usage(format!("no session named {session} on another host")))?;
+        if held.host != host {
+            return Err(NorthError::Usage(format!("{session} runs on {}, not {host}", held.host)));
+        }
+        let row = self.spool_gate_answer(session, id, number, note, caller)?;
+        Ok(format!("gate {label}: answer {number} spooled as {} for {session}'s host to apply", row.id))
+    }
+
     pub fn deliver_row(&self, row: &FleetRow) -> NorthResult<HandedIn> {
         match row.kind {
             RowKind::Message | RowKind::JobExit => self.hand_in(row),
@@ -130,7 +140,6 @@ impl Fleet {
 mod tests {
     use super::super::fixtures::{fleet, live, live_under};
     use super::*;
-    use crate::fleet::remote_view::{GateView, Snapshot};
     use crate::fleet::store::{SessionRow, cache_sessions};
 
     fn request(session: &str) -> GateRequest {
@@ -235,20 +244,15 @@ mod tests {
         assert!(laptop.digest(0).unwrap().gates.is_empty());
     }
 
-    fn remembered(far: &Fleet, id: i64) {
-        let gate = GateView { id, session: "worker".into(), question: "Rent the box?".into(), options: vec!["yes".into(), "no".into()], issue: None };
-        far.remember("tom@laptop", &Snapshot { host: "laptop".into(), sessions: Vec::new(), gates: vec![gate] }).unwrap();
-    }
-
     #[test]
     fn an_answer_given_on_any_host_is_a_gate_answer_row_that_the_sessions_host_applies_once() {
         let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
         let worker = live(&laptop, "worker");
         let id = laptop.open_gate(&request("worker")).unwrap();
-        remembered(&far, id);
+        cached(&far, &["worker"]);
 
-        far.answer_remote_gate(&format!("laptop:{id}"), 1, Some("but only today"), None).unwrap();
+        far.answer_remote_gate(&format!("laptop:{id}"), "worker", 1, Some("but only today"), None).unwrap();
         let row = spooled(&far);
 
         assert_eq!((row.kind, row.to.as_str(), row.answer, row.text.as_str(), row.sender.as_deref()), (RowKind::GateAnswer, "worker", Some(AnswerPayload { gate: id, number: 1 }), "but only today", None));
@@ -334,21 +338,21 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_row_for_a_gate_of_another_session_is_refused_and_a_remote_answer_needs_an_open_gate_and_an_option() {
+    fn an_answer_row_for_a_gate_of_another_session_is_refused_and_a_remote_answer_needs_a_host_qualified_gate_and_a_session_that_host_runs() {
         let (far_home, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (far, laptop) = (fleet(far_home.path()), fleet(home.path()));
         let _worker = live(&laptop, "worker");
         let _other = live(&laptop, "other");
         let id = laptop.open_gate(&request("worker")).unwrap();
         let wrong = laptop.spool_gate_answer("other", id, 1, None, None).unwrap();
-        remembered(&far, id);
+        cached(&far, &["worker"]);
 
         laptop.deliver_row(&wrong).unwrap();
 
         assert!(laptop.gate(id).unwrap().unwrap().is_open());
-        assert!(matches!(far.answer_remote_gate(&format!("laptop:{}", id + 1), 1, None, None), Err(NorthError::Usage(_))));
-        assert!(matches!(far.answer_remote_gate(&format!("laptop:{id}"), 3, None, None), Err(NorthError::Usage(_))));
-        assert!(matches!(far.answer_remote_gate(&format!("mars:{id}"), 1, None, None), Err(NorthError::Usage(_))));
+        assert!(matches!(far.answer_remote_gate("laptop", "worker", 1, None, None), Err(NorthError::Usage(_))));
+        assert!(matches!(far.answer_remote_gate(&format!("mars:{id}"), "worker", 1, None, None), Err(NorthError::Usage(_))));
+        assert!(matches!(far.answer_remote_gate(&format!("laptop:{id}"), "nobody", 1, None, None), Err(NorthError::Usage(_))));
         assert_eq!(Spool::at(&far.root).pending().unwrap().len(), 0);
     }
 }

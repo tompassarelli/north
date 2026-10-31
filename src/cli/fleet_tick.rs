@@ -8,6 +8,7 @@ use crate::fleet::tick::{FarHost, Pulls, tick};
 use crate::ops::pacing::placement::{config, gate};
 
 use super::fleet_ledger::Ledger;
+use super::fleet_rebooted;
 use super::fleet_waits::Probes;
 
 const USAGE: &str = "Usage: north fleet tick";
@@ -22,7 +23,8 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
         return Err(NorthError::Usage(USAGE.into()));
     }
     let pulls = Pulls { spools: &OverSsh::default(), always: always_pulled(fleet) };
-    let ticked = tick(fleet, &mut Ledger, &pulls, &Probes, now_ms(), BUDGET)?;
-    ticked.lines().iter().for_each(|line| println!("{line}"));
-    Ok(())
+    let ticked = tick(fleet, &mut Ledger, &pulls, &Probes, now_ms(), BUDGET);
+    let revived = fleet_rebooted::run(fleet, &["--revive"]);
+    ticked?.lines().iter().for_each(|line| println!("{line}"));
+    revived
 }

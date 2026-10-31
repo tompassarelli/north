@@ -8,14 +8,16 @@ use crate::fleet::registry::{Fleet, Opened};
 use crate::fleet::runtime::now_ms;
 use crate::ops::dispatch::IssueRef;
 
-const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N] | north gate answer ID|HOST:ID N [--note TEXT] | north gate list [--json]";
+const USAGE: &str = "Usage: north gate open --session NAME --question TEXT --option TEXT --option TEXT... --recommend N --default N --default-after DURATION (30s, 10m, 4h, 1d) [--issue OWNER/REPO#N] | north gate answer ID|HOST:ID N [--note TEXT] [--session NAME] | north gate list [--json]";
 const WAIT_POLL: Duration = Duration::from_secs(2);
 
 pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     match words {
         ["open", flags @ ..] => open(fleet, flags),
-        ["answer", id, number] => answer(fleet, id, number, None),
-        ["answer", id, number, "--note", note] => answer(fleet, id, number, Some(note)),
+        ["answer", id, number] => answer(fleet, id, number, None, None),
+        ["answer", id, number, "--note", note] => answer(fleet, id, number, Some(note), None),
+        ["answer", id, number, "--session", session] => answer(fleet, id, number, None, Some(session)),
+        ["answer", id, number, "--note", note, "--session", session] | ["answer", id, number, "--session", session, "--note", note] => answer(fleet, id, number, Some(note), Some(session)),
         ["list"] => list(fleet, false),
         ["list", "--json"] => list(fleet, true),
         ["await", id] => await_default(fleet, id.parse().map_err(|_| usage())?),
@@ -23,11 +25,15 @@ pub fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     }
 }
 
-fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>) -> NorthResult<()> {
+fn answer(fleet: &Fleet, id: &str, number: &str, note: Option<&str>, session: Option<&str>) -> NorthResult<()> {
     let caller = fleet.caller();
     if id.contains(':') {
-        println!("{}", fleet.answer_remote_gate(id, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
+        let session = session.ok_or_else(|| NorthError::Usage(format!("a gate on another host needs the session it belongs to: north gate answer {id} {number} --session NAME")))?;
+        println!("{}", fleet.answer_remote_gate(id, session, number.parse().map_err(|_| usage())?, note, caller.as_deref())?);
         return Ok(());
+    }
+    if session.is_some() {
+        return Err(usage());
     }
     let result = fleet.answer_gate(id.parse().map_err(|_| usage())?, number.parse().map_err(|_| usage())?, note, caller.as_deref());
     let closure = match result {
@@ -98,11 +104,6 @@ fn list(fleet: &Fleet, json: bool) -> NorthResult<()> {
     for gate in &gates {
         let state = gate.closure.as_ref().map_or_else(|| "open".to_owned(), |closure| format!("closed by {}: {}", closure.by.label(), closure.answer));
         println!("{}\t{}\t{}\t{state}", gate.id, gate.request.session, gate.request.question);
-    }
-    for seen in fleet.remote_views() {
-        for gate in &seen.snapshot.gates {
-            println!("{}\t{}\t{}\topen", seen.qualified(gate), gate.session, gate.question);
-        }
     }
     Ok(())
 }

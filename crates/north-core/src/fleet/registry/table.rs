@@ -1,6 +1,6 @@
 use crate::error::NorthResult;
 use crate::fleet::model::SessionRecord;
-use crate::fleet::store::{SessionRow, cache_sessions};
+use crate::fleet::store::{SessionRow, cache_sessions, cached_sessions};
 use crate::foundation::clock::Timestamp;
 
 use super::Fleet;
@@ -12,6 +12,17 @@ impl Fleet {
 
     pub fn cache_sessions(&self, rows: &[SessionRow]) -> NorthResult<()> {
         cache_sessions(&self.root, rows)
+    }
+
+    pub fn cached_sessions(&self) -> NorthResult<Option<Vec<SessionRow>>> {
+        cached_sessions(&self.root)
+    }
+
+    pub(super) fn uncache_session(&self, name: &str) -> NorthResult<()> {
+        match cached_sessions(&self.root)? {
+            Some(rows) if rows.iter().any(|row| row.name == name) => cache_sessions(&self.root, &rows.into_iter().filter(|row| row.name != name).collect::<Vec<_>>()),
+            _ => Ok(()),
+        }
     }
 
     pub fn table_row(&self, record: &SessionRecord, now_ms: u64) -> SessionRow {

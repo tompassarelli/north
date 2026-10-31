@@ -53,7 +53,7 @@ fn list_line(record: &SessionRecord, status: Status) -> String {
 }
 
 /// The fleet table's sessions that run on another host, as this host's last tick cached it: this host's own rows give way to its live records, and the table never makes the list wait on the ledger host.
-fn elsewhere(fleet: &Fleet, named: &BTreeSet<String>) -> Vec<SessionRow> {
+pub(super) fn elsewhere(fleet: &Fleet, named: &BTreeSet<String>) -> Vec<SessionRow> {
     let rows = match fleet.cached_sessions() {
         Ok(rows) => rows.unwrap_or_default(),
         Err(error) => {

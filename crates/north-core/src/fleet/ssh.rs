@@ -5,17 +5,8 @@ use crate::error::{NorthError, NorthResult};
 use crate::platform::process::run_with_input_within;
 
 use super::link::quote;
-use super::runtime::binary;
 
 pub(crate) const SSH_WAIT: Duration = Duration::from_secs(20);
-
-pub(crate) fn over_ssh(host: &str, words: &[&str]) -> NorthResult<Vec<u8>> {
-    over_ssh_within(host, words, None, SSH_WAIT)
-}
-
-pub(crate) fn over_ssh_within(host: &str, words: &[&str], input: Option<&[u8]>, wait: Duration) -> NorthResult<Vec<u8>> {
-    over_ssh_via(&binary("ssh"), host, words, input, wait)
-}
 
 pub(crate) fn over_ssh_via(ssh: &Path, host: &str, words: &[&str], input: Option<&[u8]>, wait: Duration) -> NorthResult<Vec<u8>> {
     let command = format!("north {}", words.iter().map(|word| quote(word)).collect::<Vec<_>>().join(" "));

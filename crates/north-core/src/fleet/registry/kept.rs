@@ -1,7 +1,9 @@
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::NorthResult;
+use crate::fleet::detached;
 use crate::fleet::invariant::{LastTurn, Mark};
 use crate::fleet::model::{EntryKind, SessionRecord};
 use crate::fleet::store::WaitKey;
@@ -21,6 +23,10 @@ impl Fleet {
         let id = fs::metadata(session_stream_path(&record.host_dir, &record.name)).ok()?.len();
         let ended_ms = u64::try_from(written(record)?.duration_since(UNIX_EPOCH).ok()?.as_millis()).ok()?;
         Some(LastTurn { reply, id, ended_ms, exit: turn.exit })
+    }
+
+    pub fn cli_is_working(&self, record: &SessionRecord) -> bool {
+        record.machine.is_none() && record.host_pid.is_some_and(|host| detached::cli_work(Path::new("/proc"), Path::new("/sys/fs/cgroup"), host) > 0)
     }
 
     pub fn active_within(&self, record: &SessionRecord, window: Duration) -> bool {

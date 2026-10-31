@@ -76,8 +76,8 @@ pub(super) fn publish(tx: &Transaction, rows: &[SessionRow]) -> NorthResult<Vec<
 pub(super) fn retire_vanished(tx: &Transaction, host: &str, rows: &[SessionRow], launching_since: &str) -> NorthResult<()> {
     let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
     tx.execute(
-        "UPDATE fleet_sessions SET status = ?1 WHERE host = ?2 AND status != ?1 AND name NOT IN (SELECT value FROM json_each(?3)) AND NOT (status = ?4 AND updated >= ?5)",
-        params![Status::Exited.label(), host, serde_json::to_string(&names)?, Status::Starting.label(), launching_since],
+        "DELETE FROM fleet_sessions WHERE host = ?1 AND name NOT IN (SELECT value FROM json_each(?2)) AND NOT (status = ?3 AND updated >= ?4)",
+        params![host, serde_json::to_string(&names)?, Status::Starting.label(), launching_since],
     )
     .map_err(sql)?;
     Ok(())

@@ -34,7 +34,7 @@ mod gate;
 mod ledger;
 mod orders;
 mod probe_account;
-mod relay;
+mod send;
 mod safe_push_result;
 mod session;
 #[cfg(test)]

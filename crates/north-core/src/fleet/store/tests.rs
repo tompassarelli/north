@@ -154,7 +154,7 @@ fn a_host_publishes_its_registry_without_taking_a_live_name_from_another_host() 
 
     assert_eq!(held, ["sc-1"]);
     assert!(held_again.is_empty());
-    assert_eq!(store.sessions().unwrap(), [session("sc-1", "nexus", "working"), session("sc-2", "gex45", "exited"), session("sc-3", "gex45", "working")]);
+    assert_eq!(store.sessions().unwrap(), [session("sc-1", "nexus", "working"), session("sc-3", "gex45", "working")]);
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn a_wait_request_needs_a_session_and_a_key_and_a_known_kind() {
 }
 
 #[test]
-fn a_publish_leaves_a_row_still_launching_on_its_host_and_retires_one_whose_launch_went_stale() {
+fn a_publish_leaves_a_row_still_launching_on_its_host_and_removes_one_whose_launch_went_stale() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
     let now = Timestamp::now().iso();
@@ -375,7 +375,7 @@ fn a_publish_leaves_a_row_still_launching_on_its_host_and_retires_one_whose_laun
 
     store.publish("gex45", &[]).unwrap();
 
-    assert_eq!(store.sessions().unwrap(), [SessionRow { updated: now, ..session("fresh", "gex45", "starting") }, session("stale", "gex45", "exited")]);
+    assert_eq!(store.sessions().unwrap(), [SessionRow { updated: now, ..session("fresh", "gex45", "starting") }]);
 }
 
 #[test]
@@ -389,4 +389,35 @@ fn a_job_exit_that_reached_the_store_over_a_day_ago_is_not_delivered_and_a_fresh
     let exchanged = store.exchange(&Exchange { addressees: vec![Addressee { name: "sc-1".into(), ..Addressee::default() }], ..Exchange::default() }).unwrap();
 
     assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["x-new"]);
+}
+
+#[test]
+fn a_settlement_decided_on_a_wait_does_not_remove_the_wait_a_worker_registered_again_under_its_key() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    let request = WaitRequest { session: "sc-1".into(), kind: WaitKind::Farm, key: "42".into(), within_secs: 60 };
+    store.wait(&request).unwrap();
+    let judged = store.waits().unwrap()[0].key();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    store.wait(&request).unwrap();
+
+    store.settle_all(std::slice::from_ref(&judged)).unwrap();
+
+    assert_eq!(store.waits().unwrap().len(), 1, "the settle named the earlier registration");
+    let current = store.waits().unwrap()[0].key();
+    store.settle_all(&[current]).unwrap();
+    assert!(store.waits().unwrap().is_empty());
+}
+
+#[test]
+fn a_session_gone_from_its_hosts_registry_loses_its_fleet_sessions_row_so_its_name_is_free() {
+    let (_directory, path) = ledger();
+    let mut store = Store::open(&path).unwrap();
+    store.publish("nexus", &[session("kept", "nexus", "idle"), session("forgotten", "nexus", "idle")]).unwrap();
+    store.publish("gex45", &[session("far", "gex45", "idle")]).unwrap();
+
+    store.publish("nexus", &[session("kept", "nexus", "idle")]).unwrap();
+
+    let names: Vec<String> = store.sessions().unwrap().into_iter().map(|row| row.name).collect();
+    assert_eq!(names, ["far", "kept"]);
 }

@@ -40,7 +40,8 @@ impl Fleet {
     }
 
     pub fn forget(&self, name: &str) -> NorthResult<()> {
-        self.archive(name).map(drop)
+        self.archive(name)?;
+        self.uncache_session(name)
     }
 
     /// Stops the session and moves its directory out of the registry, returning where it now lies.

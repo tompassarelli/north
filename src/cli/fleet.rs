@@ -35,7 +35,7 @@ use super::fleet_waits;
 use super::fleet_tick;
 use super::fleet_tier;
 use super::fleet_tree;
-use super::{gate, orders, relay};
+use super::{gate, orders, send};
 
 const DEFAULT_ASK_SECS: u64 = 120;
 
@@ -106,7 +106,7 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["launch", rest @ ..] => launch(&fleet, rest),
         [verb @ ("row" | "spool"), rest @ ..] => fleet_row::run(&fleet, verb, rest),
         ["tick", rest @ ..] => fleet_tick::run(&fleet, rest),
-        [verb @ ("send" | "relay" | "outbox"), rest @ ..] => relay::run(&fleet, verb, rest),
+        ["send", rest @ ..] => send::run(&fleet, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
@@ -174,7 +174,7 @@ fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
     if question.is_empty() {
         return Err(usage());
     }
-    let from = relay::signer(fleet, name);
+    let from = send::signer(fleet, name);
     match fleet.ask(from.as_deref(), name, &question.join(" "), Duration::from_secs(timeout))? {
         Some(reply) => {
             println!("{reply}");

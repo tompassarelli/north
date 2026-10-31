@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::gates::{self, Closure, Decision, Gate, GateRequest, default_overdue, settle};
 use crate::fleet::model::Delivery;
-use crate::fleet::relay;
 use crate::fleet::runtime::now_ms;
 
 use super::Fleet;
@@ -18,7 +17,7 @@ impl Fleet {
     pub(super) fn record_gate(&self, request: &GateRequest) -> NorthResult<i64> {
         let asker = self.record(&request.session)?;
         let request = GateRequest { verification: asker.verification, ..request.clone() };
-        let abroad = asker.parent.as_deref().is_some_and(|parent| self.record(parent).is_err()).then(relay::hostname);
+        let abroad = asker.parent.as_deref().is_some_and(|parent| self.record(parent).is_err()).then(|| self.host.clone());
         gates::open(self.ledger.as_ref(), &request, asker.parent.as_deref(), abroad.as_deref(), now_ms(), |parent, text| self.tell(parent, text, Delivery::Queued))
     }
 
@@ -43,18 +42,10 @@ impl Fleet {
         gates::answer_gate(self.ledger.as_ref(), id, number, note, gates::Authority { caller, parent: asker.parent.as_deref() }, now_ms(), deliver)
     }
 
-    /// Each issue an open decision gate here or on a relayed host decides, with the gate's label.
+    /// Each issue an open decision gate here decides, with the gate's id.
     pub fn gated_issues(&self) -> NorthResult<BTreeMap<String, String>> {
         let here = gates::decisions(self.ledger.gates(u64::MAX)?).into_iter().filter_map(|gate| Some((gate.request.issue?, gate.id.to_string())));
-        let mut gated: BTreeMap<String, String> = here.collect();
-        for seen in self.remote_views() {
-            for gate in &seen.snapshot.gates {
-                if let Some(issue) = &gate.issue {
-                    gated.entry(issue.clone()).or_insert_with(|| seen.qualified(gate));
-                }
-            }
-        }
-        Ok(gated)
+        Ok(here.collect())
     }
 
     pub fn default_overdue_gates(&self) -> NorthResult<Vec<(i64, NorthResult<Closure>)>> {

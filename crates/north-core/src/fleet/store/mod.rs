@@ -87,7 +87,7 @@ impl Store {
 
     pub fn settle(&mut self, session: &str, kind: WaitKind, key: &str) -> NorthResult<bool> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
-        let settled = waits::settle(&tx, session, kind, key)?;
+        let settled = waits::settle(&tx, session, kind, key, None)?;
         tx.commit().map_err(sql)?;
         Ok(settled)
     }
@@ -98,7 +98,7 @@ impl Store {
         }
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         for key in keys {
-            waits::settle(&tx, &key.session, key.kind, &key.key)?;
+            waits::settle(&tx, &key.session, key.kind, &key.key, key.created.as_deref())?;
         }
         tx.commit().map_err(sql)
     }

@@ -116,3 +116,25 @@ fn a_stop_older_than_the_judged_window_is_left_alone() {
     let day_old = Worker { turn: Some(LastTurn { ended_ms: ENDED_MS - 24 * 3600 * 1000, ..turn("Waiting on the landing.").unwrap() }), ..parked(vec![&late]) };
     assert_eq!(reason_of(&judge(&day_old, Mark::default(), now()).0), "woken: wait branch:claude/land-x passed its deadline", "the longest default deadline still falls inside the window");
 }
+
+#[test]
+fn a_wake_keeps_its_row_id_for_the_same_turn_however_the_streams_write_time_moves() {
+    let mark = Mark { turn: 7, wakes: 1, acted: true, ..Mark::default() };
+
+    let first = wake_row("nexus", "box-1", mark, ENDED_MS, "woken: parked with no registered wait");
+    let later = wake_row("nexus", "box-1", mark, ENDED_MS + 90_000, "woken: parked with no registered wait");
+    let next_wake = wake_row("nexus", "box-1", Mark { wakes: 2, ..mark }, ENDED_MS, "woken: parked with no registered wait");
+
+    assert_eq!(first.id, later.id);
+    assert_ne!(first.id, next_wake.id);
+    assert_ne!(first.id, wake_row("nexus", "box-1", Mark { turn: 8, ..mark }, ENDED_MS, "woken: parked with no registered wait").id);
+}
+
+#[test]
+fn work_running_below_the_cli_holds_a_stopped_turn_for_two_hours_and_then_the_wake_resumes() {
+    let held = turn("Still building.").unwrap();
+    let after = |millis: i64| Timestamp::from_unix_millis(i64::try_from(ENDED_MS).unwrap() + millis);
+
+    assert!(held_by_cli_work(&held, after(2 * 3_600_000 - 1)));
+    assert!(!held_by_cli_work(&held, after(2 * 3_600_000)));
+}

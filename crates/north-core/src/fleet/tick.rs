@@ -119,7 +119,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
     let probed = probes.settle(fleet);
     ticked.probed = probed.lines;
     let pending = fleet.unsettled_waits();
-    let waits: Vec<WaitRow> = exchanged.waits.iter().filter(|wait| !probed.settled.contains(&wait.key()) && !pending.contains(&wait.key())).cloned().collect();
+    let waits: Vec<WaitRow> = exchanged.waits.iter().filter(|wait| !probed.settled.iter().chain(&pending).any(|key| key.same_wait(&wait.key()))).cloned().collect();
     match keep_invariant(fleet, &ticked, &exchanged, &waits, now_ms) {
         Ok(kept) => ticked.kept = kept,
         Err(error) => ticked.kept.failed.push(("the invariant".into(), error.user_message())),
