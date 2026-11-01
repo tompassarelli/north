@@ -113,3 +113,13 @@ fn a_closed_box_costs_its_whole_spend_to_the_tier_and_arm_of_its_first_run() {
     let printed: Vec<ArmBox> = serde_json::from_value(report.json("7d")["arms"].clone()).unwrap();
     assert_eq!(printed, report.arms, "ledger summary --json prints each arm box for another host's dispatch to price");
 }
+
+#[test]
+fn the_json_lists_each_closed_box_of_a_cell_with_its_spend() {
+    let prices = PriceTable::load().unwrap();
+    let report = summarize(&fixture(), &closed(&["north#2", "north#3"]), "2026-10-27T00:00:00Z", &prices);
+    let cell = &report.json("7d")["cells"][0];
+    let items: Vec<&str> = cell["boxes"].as_array().unwrap().iter().map(|entry| entry["item"].as_str().unwrap()).collect();
+    assert_eq!(items, ["north#2", "north#3"]);
+    assert!(cell["boxes"].as_array().unwrap().iter().all(|entry| (entry["usd"].as_f64().unwrap() - SONNET).abs() < 1e-9));
+}

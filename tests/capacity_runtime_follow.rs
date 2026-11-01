@@ -25,6 +25,12 @@ fn point_current(host: &Host, binary: &Path) {
     fs::rename(staged, state.join("current")).unwrap();
 }
 
+fn set_pressure(host: &Host, reading: &str) {
+    let staged = host.path("pressure.next");
+    fs::write(&staged, reading).unwrap();
+    fs::rename(staged, host.path("pressure")).unwrap();
+}
+
 fn ticket(host: &Host) -> Option<(String, u64)> {
     let entry = fs::read_dir(host.path("agent-capacity-v1/queue")).ok()?.flatten().next()?;
     let ticket: serde_json::Value = serde_json::from_str(&fs::read_to_string(entry.path()).ok()?).ok()?;
@@ -55,7 +61,7 @@ fn a_queued_wrapper_follows_a_runtime_update_keeping_its_ticket_and_is_then_admi
     host.until("the wrapper to exec the new runtime", |_| fs::read_link(format!("/proc/{pid}/exe")).is_ok_and(|exe| exe == new.canonicalize().unwrap()));
     assert_eq!(ticket(&host), Some((name, pid)), "the wrapper kept its ticket across the exec");
 
-    fs::write(host.path("pressure"), "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
+    set_pressure(&host, "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n");
     host.until("the wrapper to be admitted and finish", |_| wrapper.0.try_wait().unwrap().is_some());
     assert!(wrapper.0.try_wait().unwrap().unwrap().success(), "{}", host.helper_stderr());
     assert_eq!(ticket(&host), None);
