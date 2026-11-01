@@ -10,7 +10,7 @@ the existing issues (#180 quality, #171 recovery, #181 pain, #156 original
 fighter swings, #152 drills, #163 jabs, #82 effects) rather than creating a
 ticket per pose. Declare the finite action sample before running it.
 
-Send one stable candidate and batched action scripts to the native owner;
+For the release acceptance pass, send one stable candidate and batched action scripts to the native owner;
 do not mutate another owner's clients. Existing recovery scripts are in
 smashcraft:ts/test/native/pads/171/. Native evidence must show gameplay zoom,
 both facings, contact/stop/release and action completion, with the simulation's
