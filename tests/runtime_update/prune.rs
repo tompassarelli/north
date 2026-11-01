@@ -21,14 +21,15 @@ fn a_runtime_a_live_session_host_runs_from_survives_pruning_until_that_host_exit
     }
     aged(PREVIOUS, 3_000);
     let session = host.path("session");
-    let mut session_host = Command::new(host.runtime(old).join("north"))
-        .args(["session-host", "--name", "fixture", "--generation", "1", "--state-dir"])
-        .arg(&session)
-        .arg("--socket")
-        .arg(session.join("host.sock"))
-        .args(["--", "sleep", "600"])
-        .spawn()
-        .unwrap();
+    let mut command = Command::new(host.runtime(old).join("north"));
+    command.args(["session-host", "--name", "fixture", "--generation", "1", "--state-dir"]).arg(&session).arg("--socket").arg(session.join("host.sock")).args(["--", "sleep", "600"]);
+    // Another test thread's fork can hold the copied binary's write fd until its child execs.
+    let mut session_host = loop {
+        match command.spawn() {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => std::thread::sleep(Duration::from_millis(5)),
+            spawned => break spawned.unwrap(),
+        }
+    };
     while !session.join("host.sock").exists() {
         assert!(session_host.try_wait().unwrap().is_none(), "the fake session host exited before the prune");
         std::thread::sleep(Duration::from_millis(20));
