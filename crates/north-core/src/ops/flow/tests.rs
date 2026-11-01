@@ -10,7 +10,7 @@ use super::alerts::{Node, State, alert_plan, stall_alert};
 use super::host::{Host, Places, iso, seconds, with_user_bin};
 use super::jobs::landing_jobs;
 use super::measure::{Env, get};
-use super::stall::{Facts, Job, Medians, WorkflowMedians, job_medians, landing_run, verdict, workflow_median};
+use super::stall::{Facts, Job, Medians, WorkflowMedians, job_medians, landing_run, pool_medians, verdict, workflow_median};
 
 pub(super) struct Fake<'a>(pub(super) &'a dyn Fn(&[&str]) -> Option<String>);
 
@@ -59,7 +59,7 @@ fn job_of(fields: &Value, values: &Value) -> (Job, Option<f64>) {
     let raw: serde_json::Map<String, Value> = fields.as_array().unwrap().iter().zip(values.as_array().unwrap()).map(|(field, value)| (field.as_str().unwrap().to_owned(), value.clone())).collect();
     let runner = raw["runner"].as_str().filter(|runner| !runner.is_empty()).unwrap_or("waiting");
     let done = raw["completed_at"].as_str().filter(|done| !done.is_empty()).map(at);
-    let job = Job { workflow: "autoland.yml".into(), run_id: raw["run_id"].as_u64().unwrap(), name: raw["name"].as_str().unwrap().into(), started_at: at(raw["started_at"].as_str().unwrap()), runner: runner.into() };
+    let job = Job { workflow: "autoland.yml".into(), run_id: raw["run_id"].as_u64().unwrap(), name: raw["name"].as_str().unwrap().into(), started_at: at(raw["started_at"].as_str().unwrap()), runner: runner.into(), pool: None };
     (job, done)
 }
 
@@ -201,7 +201,7 @@ fn a_lane_arriving_after_a_quiet_spell_is_not_a_stall() {
     let now = 1_793_000_000.0;
     let quiet_since = now - 215.0 * 60.0;
     let landings = [quiet_since - 600.0, quiet_since];
-    let job = Job { workflow: "autoland.yml".into(), run_id: 1, name: "build".into(), started_at: now - 33.0, runner: "GitHub Actions 1".into() };
+    let job = Job { workflow: "autoland.yml".into(), run_id: 1, name: "build".into(), started_at: now - 33.0, runner: "GitHub Actions 1".into(), pool: None };
     let medians = Medians::from([("autoland.yml".to_owned(), WorkflowMedians { run: Some(10.0), ..Default::default() })]);
     let jobs = std::slice::from_ref(&job);
     let arrived = verdict(&facts(now, quiet_since, &landings, 2, jobs, &medians, Some(now - 120.0)));
@@ -284,14 +284,38 @@ fn a_job_is_held_to_twice_its_own_executed_median_not_the_cache_hit_heavy_run_me
     let history: Vec<Vec<Value>> = (0..8).map(|_| rollback(0.5, false)).chain([4.6, 4.4, 4.8].map(|minutes| rollback(minutes, true))).collect();
     let jobs = job_medians(&history);
     assert!((jobs["rollback"] - 4.6).abs() < 1e-9, "{jobs:?}");
-    let medians = Medians::from([("farm-test.yml".to_owned(), WorkflowMedians { run: Some(1.8), jobs })]);
-    let running = |minutes: f64, name: &str| Job { workflow: "farm-test.yml".into(), run_id: 1, name: name.into(), started_at: now - minutes * 60.0, runner: "gex45".into() };
+    let medians = Medians::from([("farm-test.yml".to_owned(), WorkflowMedians { run: Some(1.8), jobs, ..Default::default() })]);
+    let running = |minutes: f64, name: &str| Job { workflow: "farm-test.yml".into(), run_id: 1, name: name.into(), started_at: now - minutes * 60.0, runner: "gex45".into(), pool: None };
     let overdue = |job: Job| verdict(&facts(now, now, &[now], 0, &[job], &medians, None)).overdue_jobs;
     assert!(overdue(running(5.0, "rollback")).is_empty());
     let late = overdue(running(10.0, "rollback"));
     assert_eq!(late.len(), 1);
     assert!((late[0].limit_minutes - 9.2).abs() < 1e-9);
     assert_eq!(overdue(running(4.0, "unseen")).len(), 1, "a job without history falls back to twice the workflow median");
+}
+
+fn computer(pool: &str, seconds: f64) -> Vec<Value> {
+    let (labels, group) = if pool == "hosted" { (json!(["ubuntu-latest"]), "GitHub Actions") } else { (json!(["self-hosted", "gex45"]), "Default") };
+    let steps = vec![json!({"conclusion": "success"}); 13];
+    vec![json!({"name": "computer-1", "conclusion": "success", "labels": labels, "runner_group_name": group, "started_at": iso(0.0), "completed_at": iso(seconds), "steps": steps})]
+}
+
+#[test]
+fn a_farm_job_is_held_to_twice_the_farm_median_not_the_faster_hosted_one() {
+    let now = 1_793_000_000.0;
+    let history: Vec<Vec<Value>> = (0..10).map(|_| computer("hosted", 25.0)).chain((0..4).map(|_| computer("self-hosted", 90.0))).collect();
+    let jobs = job_medians(&history);
+    let pools = pool_medians(&history);
+    assert!((pools["computer-1"]["hosted"] - 25.0 / 60.0).abs() < 1e-9 && (pools["computer-1"]["self-hosted"] - 1.5).abs() < 1e-9, "{pools:?}");
+    let medians = Medians::from([("farm-test.yml".to_owned(), WorkflowMedians { run: Some(1.0), jobs, pools })]);
+    let running = |minutes: f64, pool: Option<&str>| Job { workflow: "farm-test.yml".into(), run_id: 1, name: "computer-1".into(), started_at: now - minutes * 60.0, runner: "gex45-smashcraft-2".into(), pool: pool.map(str::to_owned) };
+    let overdue = |job: Job| verdict(&facts(now, now, &[now], 0, &[job], &medians, None)).overdue_jobs;
+    assert!(overdue(running(2.0, Some("self-hosted"))).is_empty());
+    let late = overdue(running(4.0, Some("self-hosted")));
+    assert_eq!(late.len(), 1);
+    assert!((late[0].limit_minutes - 3.0).abs() < 1e-9);
+    assert_eq!(overdue(running(2.0, Some("hosted"))).len(), 1);
+    assert_eq!(overdue(running(2.0, None)).len(), 1, "a job whose pool is unknown falls back to the job-wide median");
 }
 
 #[test]

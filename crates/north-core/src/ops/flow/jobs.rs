@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::guards::CACHE_SECONDS;
 use super::host::{Host, Places, iso, read_json, seconds, write_atomic};
-use super::stall::{Job, Medians, WorkflowMedians, job_medians, landing_run, newest_run_ids, workflow_median};
+use super::stall::{Job, Medians, WorkflowMedians, job_medians, landing_run, newest_run_ids, pool_medians, pool_of, workflow_median};
 
 const MEDIAN_SECONDS: f64 = 6.0 * 3600.0;
 const DAY: f64 = 86_400.0;
@@ -113,7 +113,7 @@ fn history_medians(host: &dyn Host, slug: &str, workflow: &str, now: f64, runs: 
         history.extend(samples.as_array()?.iter().filter_map(|item| Some((item["databaseId"].as_u64()?, item.clone()))));
     }
     let listed: Vec<Vec<Value>> = newest_run_ids(history.values(), now).into_iter().filter_map(|run_id| runs.of(run_id)).collect();
-    Some(WorkflowMedians { run: workflow_median(history.values(), now), jobs: job_medians(&listed) })
+    Some(WorkflowMedians { run: workflow_median(history.values(), now), jobs: job_medians(&listed), pools: pool_medians(&listed) })
 }
 
 fn running_jobs(host: &dyn Host, slug: &str, workflow: &str, runs: &RunJobs) -> Option<Vec<Job>> {
@@ -122,10 +122,11 @@ fn running_jobs(host: &dyn Host, slug: &str, workflow: &str, runs: &RunJobs) -> 
     for item in active.as_array()?.iter().filter(|item| landing_run(item)) {
         let run_id = item["databaseId"].as_u64()?;
         let view = host.json(&["gh", "run", "view", &run_id.to_string(), "--repo", slug, "--json", "jobs"])?;
-        let runners: BTreeMap<u64, String> = runs.of(run_id)?.iter().filter_map(|job| Some((job["id"].as_u64()?, job["runner_name"].as_str()?.to_owned()))).collect();
+        let rest = runs.of(run_id)?;
+        let runners: BTreeMap<u64, (String, Option<&str>)> = rest.iter().filter_map(|job| Some((job["id"].as_u64()?, (job["runner_name"].as_str()?.to_owned(), pool_of(job))))).collect();
         for job in view["jobs"].as_array()?.iter().filter(|job| job["status"] == "in_progress") {
-            let runner = runners.get(&job["databaseId"].as_u64()?).filter(|runner| !runner.is_empty()).cloned();
-            jobs.push(Job { workflow: workflow.into(), run_id, name: job["name"].as_str()?.into(), started_at: seconds(job["startedAt"].as_str()?)?, runner: runner.unwrap_or_else(|| "waiting".into()) });
+            let (runner, pool) = runners.get(&job["databaseId"].as_u64()?).map_or((None, None), |(runner, pool)| (Some(runner).filter(|runner| !runner.is_empty()).cloned(), *pool));
+            jobs.push(Job { workflow: workflow.into(), run_id, name: job["name"].as_str()?.into(), started_at: seconds(job["startedAt"].as_str()?)?, runner: runner.unwrap_or_else(|| "waiting".into()), pool: pool.map(str::to_owned) });
         }
     }
     Some(jobs)

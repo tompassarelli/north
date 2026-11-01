@@ -1,5 +1,5 @@
 //! The stall verdict: whether main has stopped moving while lanes wait, or a landing job has run
-//! past twice its own median, or its workflow's median when the job has no history.
+//! past twice its own median on its runner pool, or the job's or workflow's median when it has no history there.
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,7 @@ pub struct Job {
     pub name: String,
     pub started_at: f64,
     pub runner: String,
+    pub pool: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -37,11 +38,29 @@ pub struct Verdict {
 }
 
 /// A workflow's median whole-run minutes and, per job name, the median minutes of the runs where
-/// that job executed its steps.
+/// that job executed its steps, over all runners and again per runner pool.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct WorkflowMedians {
     pub run: Option<f64>,
     pub jobs: BTreeMap<String, f64>,
+    pub pools: BTreeMap<String, BTreeMap<String, f64>>,
+}
+
+pub const HOSTED: &str = "hosted";
+pub const SELF_HOSTED: &str = "self-hosted";
+
+/// The runner pool of a REST job: self-hosted when it asks for the `self-hosted` label or ran in a
+/// runner group other than GitHub's own, hosted otherwise; `None` for a job with neither labels nor a group.
+pub fn pool_of(job: &Value) -> Option<&'static str> {
+    let labels: Vec<&str> = job["labels"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let group = job["runner_group_name"].as_str().unwrap_or_default();
+    if labels.iter().any(|label| label.eq_ignore_ascii_case("self-hosted")) || (!group.is_empty() && group != "GitHub Actions") {
+        Some(SELF_HOSTED)
+    } else if group == "GitHub Actions" || !labels.is_empty() {
+        Some(HOSTED)
+    } else {
+        None
+    }
 }
 
 pub type Medians = BTreeMap<String, WorkflowMedians>;
@@ -94,29 +113,45 @@ pub fn newest_run_ids<'a>(runs: impl IntoIterator<Item = &'a Value>, now: f64) -
     week.into_iter().filter_map(|(_, _, item)| item["databaseId"].as_u64()).take(JOB_HISTORY_RUNS).collect()
 }
 
-/// Median minutes per job name over successful jobs of the given runs' REST job lists, counting
-/// only runs where the job ran as many steps as in any run: a cache hit skips the steps that do
-/// the work and finishes early.
-pub fn job_medians(runs: &[Vec<Value>]) -> BTreeMap<String, f64> {
-    let mut seen: BTreeMap<&str, Vec<(usize, f64)>> = BTreeMap::new();
+fn executed_medians<'a>(runs: &'a [Vec<Value>], key: impl Fn(&'a Value) -> Option<(&'a str, &'a str)>) -> BTreeMap<(&'a str, &'a str), f64> {
+    let mut seen: BTreeMap<(&str, &str), Vec<(usize, f64)>> = BTreeMap::new();
     for job in runs.iter().flatten().filter(|job| job["conclusion"].as_str() == Some("success")) {
-        let (Some(name), Some(started), Some(completed)) = (job["name"].as_str(), job["started_at"].as_str().and_then(seconds), job["completed_at"].as_str().and_then(seconds)) else { continue };
+        let (Some(key), Some(started), Some(completed)) = (key(job), job["started_at"].as_str().and_then(seconds), job["completed_at"].as_str().and_then(seconds)) else { continue };
         let ran = job["steps"].as_array().map_or(0, |steps| steps.iter().filter(|step| step["conclusion"].as_str() != Some("skipped")).count());
-        seen.entry(name).or_default().push((ran, (completed - started) / 60.0));
+        seen.entry(key).or_default().push((ran, (completed - started) / 60.0));
     }
     seen.into_iter()
-        .filter_map(|(name, samples)| {
+        .filter_map(|(key, samples)| {
             let most = samples.iter().map(|(ran, _)| *ran).max()?;
             let minutes: Vec<f64> = samples.iter().filter(|(ran, _)| *ran == most).map(|(_, minutes)| *minutes).collect();
-            Some((name.to_owned(), median(&minutes)?))
+            Some((key, median(&minutes)?))
         })
         .collect()
 }
 
-/// Twice the job's own median minutes, or its workflow's when the job has no history.
+/// Median minutes per job name over successful jobs of the given runs' REST job lists, counting
+/// only runs where the job ran as many steps as in any run: a cache hit skips the steps that do
+/// the work and finishes early.
+pub fn job_medians(runs: &[Vec<Value>]) -> BTreeMap<String, f64> {
+    executed_medians(runs, |job| Some((job["name"].as_str()?, ""))).into_iter().map(|((name, _), minutes)| (name.to_owned(), minutes)).collect()
+}
+
+/// The same medians per job name and runner pool, each pool's step count judged on its own: a
+/// hosted runner and a farm runner run the same job at different speeds.
+pub fn pool_medians(runs: &[Vec<Value>]) -> BTreeMap<String, BTreeMap<String, f64>> {
+    let mut pools: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
+    for ((name, pool), minutes) in executed_medians(runs, |job| Some((job["name"].as_str()?, pool_of(job)?))) {
+        pools.entry(name.to_owned()).or_default().insert(pool.to_owned(), minutes);
+    }
+    pools
+}
+
+/// Twice the median minutes of the job on its own runner pool, else of the job on any pool, else
+/// of its workflow.
 pub fn limit_minutes(medians: &Medians, job: &Job) -> Option<f64> {
     let known = medians.get(&job.workflow)?;
-    Some(2.0 * known.jobs.get(&job.name).copied().or(known.run)?)
+    let own_pool = job.pool.as_ref().and_then(|pool| known.pools.get(&job.name)?.get(pool)).copied();
+    Some(2.0 * own_pool.or_else(|| known.jobs.get(&job.name).copied()).or(known.run)?)
 }
 
 fn overdue(facts: &Facts) -> Vec<Overdue> {
