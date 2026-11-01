@@ -24,6 +24,8 @@ mod quiet_holds;
 mod request;
 mod requeue;
 mod run;
+#[cfg(test)]
+mod run_tests;
 mod shape;
 mod sizing;
 mod state;

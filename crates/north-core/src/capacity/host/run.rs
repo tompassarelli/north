@@ -23,6 +23,7 @@ use crate::capacity::build_offload::{self, Candidate, Declined, Job};
 use crate::capacity::dev_shell;
 
 const QUEUE_POLL_MILLISECONDS: u64 = 1000;
+const BEHIND_POLL_MILLISECONDS: u64 = 10_000;
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
 const FROZEN_CLASSES: [&str; 3] = ["heavy", "exclusive", "gpu"];
@@ -51,16 +52,32 @@ impl Terminations {
     }
 }
 
-fn leases_changed(root: &Path) -> Option<std::time::SystemTime> {
-    std::fs::metadata(root.join("leases")).and_then(|metadata| metadata.modified()).ok()
+fn modified(directory: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(directory).and_then(|metadata| metadata.modified()).ok()
 }
 
-/// Waits until a lease file appears or goes, or the jittered poll interval passes.
-async fn lease_change(root: &Path) {
+/// How a waiting ticket watches for the next decision: one held behind an earlier ticket (DEFER_QUEUED) can only move once a lease or a ticket appears, goes or records a new reason, so it decides again on such a change or every 10 s; any other waits on lease changes or the 1 s poll that reads falling pressure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Watch {
+    pub poll: Duration,
+    pub queue: bool,
+}
+
+pub(super) fn watch(reason: Option<&str>) -> Watch {
+    if reason == Some("DEFER_QUEUED") {
+        Watch { poll: Duration::from_millis(BEHIND_POLL_MILLISECONDS), queue: true }
+    } else {
+        Watch { poll: Duration::from_millis(QUEUE_POLL_MILLISECONDS), queue: false }
+    }
+}
+
+/// Waits until the watched state changes or the jittered poll interval passes.
+pub(super) async fn state_change(root: &Path, watch: Watch) {
     let jitter = u64::from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.subsec_nanos())) % QUEUE_POLL_MILLISECONDS;
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(QUEUE_POLL_MILLISECONDS + jitter);
-    let before = leases_changed(root);
-    while tokio::time::Instant::now() < deadline && leases_changed(root) == before {
+    let deadline = tokio::time::Instant::now() + watch.poll + Duration::from_millis(jitter);
+    let state = || (modified(&root.join("leases")), watch.queue.then(|| modified(&root.join("queue"))).flatten());
+    let before = state();
+    while tokio::time::Instant::now() < deadline && state() == before {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -198,7 +215,7 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
             follow.follow(&ticket, queued_at);
         }
         tokio::select! {
-            () = lease_change(root) => {}
+            () = state_change(root, watch(reason(&result).as_deref())) => {}
             number = terminations.next() => {
                 dequeue(root, &ticket);
                 std::process::exit(128 + number);
