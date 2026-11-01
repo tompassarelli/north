@@ -165,11 +165,11 @@ pub fn charged_resources(kind: &str, cores: f64, run_cores: &[f64], run_memory_m
     }
 }
 
-/// The MiB a running lease holds against the 75% memory line: a tom or critical lease past the memory ramp holds its measured peak with margin, never more than it was charged.
+/// The MiB a running lease holds against the 75% memory line: a tom, critical, moderate or gpu lease past the memory ramp holds its measured peak with margin, never more than it was charged; heavy, exclusive and runtime builds keep their charge, since their peak comes late at link time.
 pub fn running_memory_charge(kind: &str, charged_mib: f64, age_seconds: f64, peak_mib: Option<f64>) -> f64 {
     let ramp = crate::capacity::admission::default_mib("admit_memory_ramp_seconds");
     match peak_mib {
-        Some(peak) if matches!(kind, "tom" | "critical") && age_seconds >= ramp && peak.is_finite() && peak > 0.0 => (peak * memory_margin()).min(charged_mib),
+        Some(peak) if matches!(kind, "tom" | "critical" | "moderate" | "gpu") && age_seconds >= ramp && peak.is_finite() && peak > 0.0 => (peak * memory_margin()).min(charged_mib),
         _ => charged_mib,
     }
 }

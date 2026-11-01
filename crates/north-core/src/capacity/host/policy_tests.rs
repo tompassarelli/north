@@ -16,14 +16,16 @@ fn tom_and_critical_keep_their_cores_and_are_charged_measured_memory_up_to_their
 }
 
 #[test]
-fn a_running_tom_or_critical_lease_past_the_ramp_holds_its_measured_peak_up_to_its_charge() {
-    for kind in ["tom", "critical"] {
+fn a_running_tom_critical_moderate_or_gpu_lease_past_the_ramp_holds_its_measured_peak_up_to_its_charge() {
+    for kind in ["tom", "critical", "moderate", "gpu"] {
         assert!((running_memory_charge(kind, 16384.0, 424.0, Some(2832.0)) - 2832.0 * memory_margin()).abs() < 1e-9, "{kind} past the ramp");
         assert_eq!(running_memory_charge(kind, 16384.0, 30.0, Some(158.0)), 16384.0, "{kind} inside the ramp keeps its charge");
         assert_eq!(running_memory_charge(kind, 16384.0, 424.0, None), 16384.0, "{kind} with no measurement keeps its charge");
         assert_eq!(running_memory_charge(kind, 16384.0, 424.0, Some(20000.0)), 16384.0, "{kind} never holds past its charge");
     }
-    assert_eq!(running_memory_charge("heavy", 8192.0, 424.0, Some(900.0)), 8192.0, "other classes keep their charge");
+    for kind in ["heavy", "exclusive", "runtime", "native"] {
+        assert_eq!(running_memory_charge(kind, 8192.0, 424.0, Some(900.0)), 8192.0, "{kind} keeps its charge");
+    }
 }
 
 #[test]
