@@ -18,9 +18,9 @@ pub fn tom_class_refusal(owner: Option<&str>) -> Option<String> {
         return None;
     }
     Some(format!(
-        "--class tom is the play path's own lane ({}) and admits {} past the queue and pressure; use heavy for builds and tests, gpu for renders or native --latency for frame-timed play, and add --priority tom-ask when Tom is waiting on the work",
+        "{} may not use --class tom: it admits past the queue and pressure, so only the play path's own builds ({}) use it; use heavy for builds and tests, gpu for renders or native --latency for frame-timed play, and add --priority tom-ask when Tom is waiting on the work",
+        owner.map_or_else(|| "a run with no owner".to_owned(), |owner| format!("owner {owner}")),
         owners.join(", "),
-        owner.map_or_else(|| "no other owner".to_owned(), |owner| format!("no other owner, not {owner}")),
     ))
 }
 
