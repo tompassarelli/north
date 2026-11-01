@@ -43,3 +43,32 @@ rework is high on a category while its cost per closed box still wins.
 
 Evidence: north#247 (runs per closed item); threads summary --since 2026-10-29 (feature 99 Sonnet to 10 Opus-arm runs
 before the fix).
+
+## The planner's effort band is not predicted from planning-time facets
+
+Reasoning: north#54 asked whether an item's category, scope, surface, summed box ETA, prior Not dones and repository
+predict which items go off the rails (two or more Not done, an escalation, or over 2x the summed ETA), so a planner
+could start on high, xhigh or max effort from them. Measured with `north ledger planner-band` on 2026-11-01 over 613
+finished items: the held-out check ranks 5 of 54 off-rails items in the top decile, 9.26% against 10% chance
+(binomial p=0.64), where 357 items on 2026-10-28 had read 17.14% (p=0.13); the best leave-one-out rule (band vote over
+those facets) names the realized band for 366 of 613 items, 59.7% against 51.2% for always guessing high, and no item
+falls in the max band. The two boxes were retired on 2026-11-01 when Tom's gate on north#242 took its default.
+
+Trade-off accepted: `recommend --planner` still prints a band, but nothing routes on it; planner effort stays high by
+default and rises only from an issue's own Not dones.
+
+Overturned by: a planning-time input (box count, files named, issue text) that lifts the held-out check above chance
+at alpha 0.05 on a later ledger.
+
+## Offline model replay for tier arms is superseded by ledger routing
+
+Reasoning: north#38 asked for a 120-run `policy-replay` sweep over 40 Test-kind scenarios with worker, worker-sonnet and
+Haiku arms, then a 20-box confirmation set, to choose the middle tier. The live arms above now make that choice from
+the ledger's cost per closed box on real boxes, so the replay would spend about 120 model runs to answer a question
+already answered on the work itself. Its two boxes were retired on north#242 on 2026-11-01 with the planner boxes.
+
+Overturned by: a category whose live arms cannot reach 15 stamped runs each in a month, where a replay is the only
+way to compare tiers.
+
+Evidence: north#242 comment of 2026-11-01 01:55 UTC (planner-band reading); north#38 and north#54 for the original
+questions.
