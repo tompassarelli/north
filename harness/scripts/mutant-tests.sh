@@ -43,7 +43,7 @@ if [ ! -d "$dir/target" ] && [ -d "$seed" ]; then
 fi
 while IFS= read -r tree; do
   rsync -rlpc --delete --exclude=.mutant-results "$tree/" "$dir/src/" </dev/null
-  log=$(cd "$dir/src" && CARGO_TARGET_DIR="$dir/target" CARGO_INCREMENTAL=1 cargo test --locked --offline --no-fail-fast --tests -- "${names[@]}" </dev/null 2>&1 {held}>&-) || true
+  log=$(cd "$dir/src" && CARGO_TARGET_DIR="$dir/target" CARGO_BUILD_INCREMENTAL=true cargo test --locked --offline --no-fail-fast --tests -- "${names[@]}" </dev/null 2>&1 {held}>&-) || true
   printf '%s\n' "$log"
   for name in "${names[@]}"; do
     printf '%s\n' "$log" | sed -nE "s/^test (.+::)?${name}( - should panic)? \.\.\. (ok|FAILED)$/\3/p" | while IFS= read -r verdict; do

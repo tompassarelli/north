@@ -4,7 +4,7 @@ use north_core::{
     agent_catalog, agent_config_check, agent_policy_contract, autoland_status, capacity, code_health, contract_probe, error, fleet,
     foundation, grounding, guard, health, hook, lanes, ledger, ops, platform, providers, router, threads, tui, usage, work_items,
 };
-use north_landing::{dep_gate, follows_release, issue_box_lint, land_abandon, landing, language_gate, provenance, review_gate};
+use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land_abandon, landing, language_gate, provenance, review_gate};
 
 fn main() -> std::process::ExitCode {
     platform::stdio::with_blocking_outputs(|| {

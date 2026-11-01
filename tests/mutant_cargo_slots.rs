@@ -4,9 +4,9 @@ use std::process::{Child, Command, Stdio};
 
 const SCRIPT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/harness/scripts/mutant-tests.sh");
 const STUB: &str = "#!/usr/bin/env bash\n\
-printf '%s %s start %s\\n' \"$CARGO_TARGET_DIR\" \"$CARGO_INCREMENTAL\" \"$(date +%s%N)\" >>\"$STUB_LOG\"\n\
+printf '%s %s start %s\\n' \"$CARGO_TARGET_DIR\" \"$CARGO_BUILD_INCREMENTAL\" \"$(date +%s%N)\" >>\"$STUB_LOG\"\n\
 sleep 1\n\
-printf '%s %s end %s\\n' \"$CARGO_TARGET_DIR\" \"$CARGO_INCREMENTAL\" \"$(date +%s%N)\" >>\"$STUB_LOG\"\n\
+printf '%s %s end %s\\n' \"$CARGO_TARGET_DIR\" \"$CARGO_BUILD_INCREMENTAL\" \"$(date +%s%N)\" >>\"$STUB_LOG\"\n\
 printf 'test m::kills_it ... %s\\n' \"$(grep -q mutated src.txt && echo FAILED || echo ok)\"\n";
 
 struct Machine {
@@ -92,7 +92,7 @@ fn concurrent_landings_take_separate_incremental_slots_seeded_from_a_warm_snapsh
     assert_eq!(slots.len(), 2, "{slots:?}");
     let used: Vec<&str> = slots.iter().map(|slot| slot.0.rsplit('/').nth(1).unwrap()).collect();
     assert!(used.contains(&"slot-0") && used.contains(&"slot-1"), "{used:?}");
-    assert!(slots.iter().all(|slot| slot.1 == "1"), "{slots:?}");
+    assert!(slots.iter().all(|slot| slot.1 == "true"), "{slots:?}");
     let (first, second) = (&slots[0], &slots[1]);
     assert!(first.2 < second.3 && second.2 < first.3, "slots ran one after the other: {slots:?}");
     assert_eq!(fs::read_to_string(machine.path("cache/north/mutant-cargo/slot-1/target/debug/dep")).unwrap(), "warm");

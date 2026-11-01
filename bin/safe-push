@@ -1121,6 +1121,11 @@ run_language_gate() {
     echo 'safe-push: language gate refused the landing; NOT pushed.' >&2
     return "$status"
   }
+  north build-cache-gate --repo "$root" --base "$base" --head "$head" || {
+    status=$?
+    echo 'safe-push: build-cache gate refused the landing; NOT pushed.' >&2
+    return "$status"
+  }
   run_bin_reference_gate "$root" "$base" "$head"
 }
 

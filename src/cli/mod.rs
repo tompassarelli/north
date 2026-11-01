@@ -2,7 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 use crate::error::{NorthError, NorthResult};
-use crate::{agent_catalog, contract_probe, grounding, guard, health, hook, language_gate, work_items};
+use crate::{agent_catalog, build_cache_gate, contract_probe, grounding, guard, health, hook, language_gate, work_items};
 
 mod abandon_witness;
 mod agents;
@@ -58,6 +58,7 @@ enum Command {
     Session(Session, Vec<String>),
     Tool(Tool, Vec<String>),
     LanguageGate(Vec<String>),
+    BuildCacheGate(Vec<String>),
     Health(Vec<String>),
     GuardLanguage,
     ContractProbe(Vec<String>),
@@ -112,6 +113,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
         "orders" | "gate" => Command::Fleet([vec![command.to_owned()], rest].concat()),
         "work" => Command::Work(rest),
         "language-gate" => Command::LanguageGate(rest),
+        "build-cache-gate" => Command::BuildCacheGate(rest),
         "health" => Command::Health(rest),
         "contract-probe" => Command::ContractProbe(rest),
         "grounding" => Command::Grounding(rest),
@@ -158,6 +160,7 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Session(session, arguments) => in_runtime(async move { session.run(&arguments).await.map(ExitCode::from) }),
         Command::Tool(tool, arguments) => tool.run(&arguments),
         Command::LanguageGate(arguments) => in_runtime(async move { Ok(language_gate::run_gate(&arguments)) }),
+        Command::BuildCacheGate(arguments) => in_runtime(async move { Ok(build_cache_gate::run_gate(&arguments)) }),
         Command::Health(arguments) => in_runtime(async move { Ok(health::run(&arguments, tools::defines)) }),
         Command::GuardLanguage => in_runtime(async { Ok(language_gate::run_guard()) }),
         Command::ContractProbe(arguments) => in_runtime(async move {
