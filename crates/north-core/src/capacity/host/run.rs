@@ -256,7 +256,12 @@ pub fn north_command() -> String {
         .unwrap_or_else(|| format!("{}/.local/state/north/current/north", env("HOME").unwrap_or_default()))
 }
 
-fn scope_command(root: &Path, request: &Request, admitted: &Obj, timeout_seconds: Option<u64>, command: &[String]) -> tokio::process::Command {
+/// The lease's own compiler-cache server socket: sccache forks every compile from its server, so one server shared by every lease ran each lease's compiles in the scope of whichever process started it, outside the lease's CPU quota and measurement.
+pub(super) fn cache_server_socket(root: &Path, lease: &str) -> std::path::PathBuf {
+    root.join("sccache").join(format!("{lease}.sock"))
+}
+
+pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, timeout_seconds: Option<u64>, command: &[String]) -> tokio::process::Command {
     let lease = text(&admitted.value(), "lease").unwrap_or_default().to_owned();
     let unit = scope_unit(&lease);
     let north = north_command();
@@ -295,6 +300,11 @@ fn scope_command(root: &Path, request: &Request, admitted: &Obj, timeout_seconds
     if request.name != "native" {
         let jobs = field(&scope, "cpus").filter(|cpus| cpus.is_finite()).map_or(1.0, f64::ceil).max(1.0).to_string();
         child.env("CARGO_BUILD_JOBS", &jobs).env("RUST_TEST_THREADS", &jobs);
+        let socket = cache_server_socket(root, &lease);
+        if let Some(directory) = socket.parent() {
+            let _ = std::fs::create_dir_all(directory);
+        }
+        child.env("SCCACHE_SERVER_UDS", socket);
     }
     requeue::forget(&mut child);
     client_environment(&mut child);
@@ -387,6 +397,7 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
         }
     };
     stop_scope(&unit);
+    let _ = std::fs::remove_file(cache_server_socket(root, &lease));
     if scope_live(&lease) {
         eprintln!("machine-capacity: lease cleanup failed: scope still live; retained lease {lease}");
     } else {

@@ -1,6 +1,26 @@
 use std::time::{Duration, Instant};
 
-use super::run::{state_change, watch};
+use super::json::Obj;
+use super::request::Request;
+use super::run::{cache_server_socket, scope_command, state_change, watch};
+
+fn server_socket(root: &std::path::Path, class: &str) -> Option<std::ffi::OsString> {
+    let request = Request { name: class.to_owned(), ..Request::default() };
+    let admitted = Obj::new().put("lease", "00000000-0000-4000-8000-000000000001").put("scope", serde_json::json!({ "cpus": 6, "memoryMiB": 8192 }));
+    let command = scope_command(root, &request, &admitted, Some(60), &["cargo".to_owned(), "build".to_owned()]);
+    command.as_std().get_envs().find(|(name, _)| *name == "SCCACHE_SERVER_UDS").and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+}
+
+#[test]
+fn each_batch_lease_compiles_through_its_own_cache_server_inside_its_scope() {
+    let root = tempfile::tempdir().expect("scratch");
+    for class in ["heavy", "moderate", "tom"] {
+        let socket = server_socket(root.path(), class).unwrap_or_else(|| panic!("{class} lease shares the host's cache server"));
+        assert_eq!(std::path::PathBuf::from(&socket), cache_server_socket(root.path(), "00000000-0000-4000-8000-000000000001"), "{class}");
+    }
+    assert!(root.path().join("sccache").is_dir());
+    assert_eq!(server_socket(root.path(), "native"), None);
+}
 
 #[test]
 fn a_ticket_behind_an_earlier_one_watches_the_queue_and_polls_rarely_while_the_head_polls_each_second() {
