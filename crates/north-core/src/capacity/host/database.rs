@@ -37,7 +37,20 @@ fn private_parent(path: &Path) -> std::io::Result<()> {
     path.parent().map_or(Ok(()), |parent| fs::DirBuilder::new().recursive(true).mode(0o700).create(parent))
 }
 
+/// Whether the schema is already in place, read without a write lock: every capacity command opens the database, and a write transaction per open queued forty queued wrappers behind each other's history reads past the busy timeout when a runtime update re-ran them at once.
+fn current(db: &Connection) -> bool {
+    let named = |kind: &str, name: &str| db.query_row("SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?", [kind, name], |_| Ok(())).is_ok();
+    let has_command = db
+        .prepare("PRAGMA table_info(capacity_runs)")
+        .and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().any(|name| name == "command")))
+        .unwrap_or(false);
+    has_command && named("table", "capacity_imports") && named("index", "capacity_runs_signature")
+}
+
 fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
+    if current(db) {
+        return Ok(false);
+    }
     let transaction = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let first_open = transaction.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'capacity_runs'", [], |_| Ok(())).is_err();
     let legacy = state_root().join("threads/threads.db");
@@ -174,3 +187,7 @@ pub fn recent_usage(lines: usize, matches: impl Fn(&Value) -> bool) -> Vec<Value
     let keep = matching.len().saturating_sub(sizing_runs());
     matching.into_iter().skip(keep).collect()
 }
+
+#[cfg(test)]
+#[path = "database_tests.rs"]
+mod tests;
