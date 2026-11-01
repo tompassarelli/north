@@ -192,8 +192,8 @@ async fn admit(root: &Path, request: &Request, create: &Create, command: &[Strin
         return admitted;
     }
     let mut offered_at = now_ms();
-    let (ticket, queued_at) = resumed.map_or_else(|| (wait_ticket(root, request, create), now_ms()), |resumed| (resumed.ticket, resumed.queued_at));
     let follow = requeue::Follow::here();
+    let (ticket, queued_at) = resumed.map_or_else(|| (wait_ticket(root, request, create), now_ms()), |resumed| (resumed.ticket, resumed.queued_at));
     let mut reported = None;
     let mut quiet = QuietHolds::default();
     loop {
