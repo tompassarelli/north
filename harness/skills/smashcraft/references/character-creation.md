@@ -8,7 +8,7 @@ Read this to design, build and test a Smashcraft fighter or move: role, move pha
 - Query source or move data for tuning numbers, because remembered numbers drift from the code.
 - Follow smashcraft:docs/gameplay-design.md and smashcraft:docs/delivery-goal.md, and keep windows within Tom's accepted gameplay-design.md bounds, because those are his accepted design.
 - Author original regions and capsules while citing Melee rows only for factual timing or trade-off relations under `external-code`, because only facts, not expression, may be taken.
-- Keep the fighter's coverage checklist in its issue until an agent on a VM pair can select it and play its moves under native capture, because that is when the fighter is done.
+- Keep the fighter's coverage checklist in its issue until an agent can select it and play its moves under a Wisp window capture (the Classic pair pass belongs to release acceptance), because that is when the fighter is done.
 - Read [source map](character-source-map.md) when locating fighter implementation files and [moveset](character-moveset.md) when listing required actions.
 - Read [design reading list](character-design-reading-list.md) for fighting-game, Melee or interaction-graph design questions.
 

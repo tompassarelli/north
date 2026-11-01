@@ -33,7 +33,6 @@ Tom lost track of his fighter on Stratholme, which passed the old whole-frame co
 ## Judging
 
 - Complete Classic scenes at both camera extremes with side platforms inside the frame and no clipped edges, and judge near and far match views at 16:9 beside the chosen reference, because the camera moves between them.
-- Accept a look only from captures on Tom's client profile (south:agents/skills/battlenet-accounts/) as well as the pool, because 3.0.1-only fog, light and water levers fall back silently on his build.
-- Capture Wisp frames, then one native LAN-pool capture, in Classic.
+- Judge a look from Wisp window captures taken as [SKILL.md](../SKILL.md) says; the release candidate's acceptance pass adds one Classic pool capture and one on Tom's client profile (south:agents/skills/battlenet-accounts/), because 3.0.1-only fog, light and water levers fall back silently on his Warcraft build.
 - Measure below-horizon backdrop-only pixels against the limit in visual-quality.md, inspect grayscale frames at about 320 pixels wide for readable fighters and ledges without large empty fields, and judge composition visually as well, because contrast numbers alone pass empty scenes.
 - Post before and after images beside the reference on the issue, naming the reference and rule each change serves, because review needs the comparison.

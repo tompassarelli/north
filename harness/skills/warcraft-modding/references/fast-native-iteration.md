@@ -16,6 +16,8 @@ and map compilation have different costs and must not be mixed into its ratio.
 
 ## Record only useful chains
 
+A look, animation or VFX capture for iteration or Tom's review is a Wisp window capture, not a client run; `smashcraft` (shared rules) owns that rule and its command, and a Warcraft client or pair is for desync, net and release-acceptance checks only.
+
 Keep game-specific procedures in the consuming repository, such as
 `smashcraft-tools wc3-procedure` (smashcraft:tools/smashcraft-tools) and smashcraft:tools/wc3-procedures/ records. The
 generic private-desktop skill continues to own private display/capture transport.

@@ -1,5 +1,7 @@
 # Pad batches, pose captures and keyboard timing
 
+Pose and look captures for iteration take the Wisp window (`smashcraft` skill, shared rules); the pad batches below run on pairs for parity, press-to-screen timing and release acceptance.
+
 - Run compatible pad parity scripts as one batch per pair, or shard one
   immutable candidate's batch across explicitly selected pairs:
   `bun wisp pad SCRIPT|DIR... --helper H --out DIR --map MAP.w3x

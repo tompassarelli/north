@@ -79,6 +79,8 @@ Hitlag, released hitstun and released shieldstun are distinct intervals. Body
 hue during them is unresolved, so capture consecutive contact, stop and release
 frames before claiming a match.
 
+Capture a take's strip in the Wisp window per [SKILL.md](../SKILL.md); send it to the native owner's Warcraft pair only when the question is what Warcraft draws or the release acceptance pass.
+
 ## Make the change and ship
 
 1. Author in private output with the family's generator ([animation tools](animation-tools.md)). Materialize model-input symlinks before changing them, and keep the old indices, because live families are shared by every build.
