@@ -95,6 +95,7 @@ fn slice_pressure(slice: &str) -> f64 {
     if path.exists() { parse_psi(&path, "some") } else { 0.0 }
 }
 
+/// Agent work in agent.slice that no lease accounts for, such as bounded jobs; agent sessions and their private-desktop helpers are left out, because at agent.slice's weight their stalls are what leased batch work causes them.
 fn unleased_agent_pressure() -> f64 {
     let path = user_manager_cgroup().join("agent.slice");
     let aggregate = slice_path(&aggregate_slice());
@@ -106,9 +107,17 @@ fn unleased_agent_pressure() -> f64 {
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| *name != aggregate && !(name.starts_with("agent-capacity-") && name.ends_with(".scope")))
+        .filter(|name| unleased_agent_work(name, &aggregate))
         .map(|name| slice_pressure(&format!("agent.slice/{name}")))
         .fold(0.0, f64::max)
+}
+
+const AGENT_SESSION_UNITS: [(&str, &str); 3] = [("north-session-", ".scope"), ("north-fleet-", ".service"), ("private-desktop-client-", ".scope")];
+
+pub fn unleased_agent_work(unit: &str, aggregate: &str) -> bool {
+    let leased = unit == aggregate || (unit.starts_with("agent-capacity-") && unit.ends_with(".scope"));
+    let session = AGENT_SESSION_UNITS.iter().any(|(prefix, suffix)| unit.starts_with(prefix) && unit.ends_with(suffix));
+    !leased && !session
 }
 
 /// The scope units of the live native leases that declared --latency: a playtest, a signed-in match or a run measuring rollback.

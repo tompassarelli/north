@@ -41,7 +41,7 @@ if [ -n "$notify" ] && [ -z "$log" ]; then
   log="$logs/${name//\//_}-$(TZ=UTC printf '%(%Y%m%dT%H%M%S)T')-$$.log"
   detach=$(PATH=${north_path#PATH=}; command -v setsid) || { echo "job-run: --notify needs setsid" >&2; exit 1; }
   scope=$(PATH=${north_path#PATH=}; command -v systemd-run) && "$scope" --user --scope --quiet --collect true </dev/null >/dev/null 2>&1 || scope=""
-  JOB_RUN_LOG=$log "$detach" -f ${scope:+"$scope" --user --scope --quiet --collect} "$BASH" "$0" "${arguments[@]}" </dev/null >"$log" 2>&1 \
+  JOB_RUN_LOG=$log "$detach" -f ${scope:+"$scope" --user --scope --quiet --collect --slice=agent.slice} "$BASH" "$0" "${arguments[@]}" </dev/null >"$log" 2>&1 \
     || { echo "job-run: could not detach $name; see $log" >&2; exit 1; }
   echo "job-run: $name runs detached with its output in $log; its exit arrives as a fleet message to $notify, so end your turn."
   exit 0

@@ -69,7 +69,7 @@ pub(super) fn held_under(spec: HostSpec, machine: &Machine, home: &Path) -> Nort
     let nonce = new_uuid()?;
     let (q_unit, q_dir) = (quote(&unit), quote(&dir));
     let mut launch = format!(
-        "sh -c {} {}; systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
+        "sh -c {} {}; systemctl --user stop {q_unit} 2>/dev/null; mkdir -p {q_dir} && cd {q_dir} && rm -f in out err status attach feed nonce && : > in && : > out && : > err && printf %s {} > nonce && cd {} && systemd-run --user --quiet --collect --same-dir --slice=agent.slice --unit={q_unit} --property=KillMode=control-group \"--setenv=PATH=$PATH\"",
         quote(PRUNE),
         quote(&held.to_string_lossy()),
         quote(&nonce),
