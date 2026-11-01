@@ -56,7 +56,16 @@ fn modified(directory: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(directory).and_then(|metadata| metadata.modified()).ok()
 }
 
-/// How a waiting ticket watches for the next decision: one held behind an earlier ticket (DEFER_QUEUED) can only move once a lease or a ticket appears, goes or records a new reason, so it decides again on such a change or every 10 s; any other waits on lease changes or the 1 s poll that reads falling pressure.
+/// The lease files present, by name: each running lease's usage sample is rewritten beside them about twice a second, so the directory's modification time says nothing about a lease appearing or going.
+fn lease_names(root: &Path) -> Vec<std::ffi::OsString> {
+    let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(root.join("leases"))
+        .map(|entries| entries.flatten().map(|entry| entry.file_name()).filter(|name| Path::new(name).extension().is_some_and(|extension| extension == "json")).collect())
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// How a waiting ticket watches for the next decision: one held behind an earlier ticket (DEFER_QUEUED) can only move once a lease or a ticket appears, goes or records a new reason, so it decides again on such a change or every 10 s; any other waits for a lease to appear or go or the 1 s poll that reads falling pressure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Watch {
     pub poll: Duration,
@@ -75,7 +84,7 @@ pub(super) fn watch(reason: Option<&str>) -> Watch {
 pub(super) async fn state_change(root: &Path, watch: Watch) {
     let jitter = u64::from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.subsec_nanos())) % QUEUE_POLL_MILLISECONDS;
     let deadline = tokio::time::Instant::now() + watch.poll + Duration::from_millis(jitter);
-    let state = || (modified(&root.join("leases")), watch.queue.then(|| modified(&root.join("queue"))).flatten());
+    let state = || (lease_names(root), watch.queue.then(|| modified(&root.join("queue"))).flatten());
     let before = state();
     while tokio::time::Instant::now() < deadline && state() == before {
         tokio::time::sleep(Duration::from_millis(50)).await;
