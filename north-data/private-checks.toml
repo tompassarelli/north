@@ -29,6 +29,11 @@ class = "heavy"
 timeout_seconds = 3600
 
 [[check.step]]
-command = ["bun", "tools/stage/nativeSeparation.ts"]
+command = ["bun", "tools/stage/nativeSeparation.ts", "--render-only", "--out", "build/readability-gate"]
 class = "gpu"
+timeout_seconds = 3600
+
+[[check.step]]
+command = ["bun", "tools/stage/nativeSeparation.ts", "--judge-only", "--out", "build/readability-gate"]
+class = "moderate"
 timeout_seconds = 3600
