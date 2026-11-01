@@ -89,13 +89,14 @@ fn states(statuses: &Recorded) -> Vec<(&str, &str)> {
 }
 
 #[test]
-fn the_shipped_config_names_the_readability_check_with_its_gpu_step_last() {
+fn the_shipped_config_renders_the_readability_check_on_the_gpu_then_judges_it_on_a_moderate_lease() {
     let checks = config::parse(SOURCE).unwrap();
     let readability = checks.iter().find(|check| check.name == "readability").unwrap();
     assert_eq!((readability.repo.as_str(), readability.checkout.as_str(), readability.context.as_str()), ("tompassarelli/makgora", "smashcraft", "readability"));
     let classes: Vec<&str> = readability.steps.iter().map(|step| step.class.as_str()).collect();
-    assert_eq!(classes, ["moderate", "heavy", "gpu"]);
-    assert_eq!(readability.steps[2].command, ["bun", "tools/stage/nativeSeparation.ts"]);
+    assert_eq!(classes, ["moderate", "heavy", "gpu", "moderate"]);
+    assert!(readability.steps[2].command.iter().any(|argument| argument == "--render-only"));
+    assert!(readability.steps[3].command.iter().any(|argument| argument == "--judge-only"));
 }
 
 #[test]
