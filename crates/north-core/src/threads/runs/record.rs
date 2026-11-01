@@ -19,7 +19,6 @@ const FINISHED: &str = "INSERT INTO runs(agent, item, follows, session, tier, ca
 const BACKFILL: &str = "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?), verify = coalesce(verify, ?), lens = coalesce(lens, ?), flaws = coalesce(flaws, ?), expects_landing = coalesce(?, expects_landing), landed = CASE WHEN coalesce(?, landed_sha) IS NOT NULL THEN 1 ELSE coalesce(?, landed) END, landed_sha = coalesce(?, landed_sha), staffed = coalesce(?, staffed), review_requested = coalesce(?, review_requested), landed_at = coalesce(?, landed_at), item = coalesce(?, item, ?), eta_min = coalesce(eta_min, ?), category = CASE category WHEN 'unknown' THEN coalesce(?, category) ELSE category END WHERE agent = ?";
 
 struct Recorded {
-    category: Sql,
     outcome: Sql,
     model: Sql,
     effort: Sql,
@@ -78,12 +77,11 @@ fn issue_ref(item: &Value) -> Option<String> {
     CATALOG.parse_ref(text).ok().map(|(repo, number)| format!("{repo}#{number}"))
 }
 
-/// What one ingest recorded, and the runs whose category waits on their issue's labels.
+/// What one ingest recorded.
 #[derive(Default)]
 pub(super) struct Tally {
     pub added: usize,
     pub backfilled: usize,
-    pub unlabeled: Vec<(Value, String)>,
     pub unpriced: BTreeSet<String>,
 }
 
@@ -150,8 +148,8 @@ impl Ingest<'_> {
         let id = r.require("id")?.clone();
         let recorded = self
             .db
-            .query_row("SELECT category, outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started, ended FROM runs WHERE agent = ?", [bind(Some(&id))?], |row| {
-                Ok(Recorded { category: row.get(0)?, outcome: row.get(1)?, model: row.get(2)?, effort: row.get(3)?, brief: [row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?], started: row.get(8)?, ended: row.get(9)? })
+            .query_row("SELECT outcome, model, effort, brief_text, brief_origin, brief_path, brief_sha256, started, ended FROM runs WHERE agent = ?", [bind(Some(&id))?], |row| {
+                Ok(Recorded { outcome: row.get(0)?, model: row.get(1)?, effort: row.get(2)?, brief: [row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?], started: row.get(7)?, ended: row.get(8)? })
             })
             .optional()?;
         let mut original = false;
@@ -209,9 +207,6 @@ impl Ingest<'_> {
         values.push(agent.clone());
         self.db.execute(&format!("UPDATE runs SET {} WHERE agent = ?", sets.join(", ")), params_from_iter(values))?;
         let item = run.attributed();
-        if let Some(item) = item.as_ref().filter(|_| run.worker() && !run.original && known.is_none() && prior.category == Sql::Text("unknown".into())) {
-            self.tally.unlabeled.push((run.id.clone(), item.clone()));
-        }
         if run.original {
             self.db.execute(
                 "UPDATE runs SET category=?,spec=?,scope=?,surface=?,verify=? WHERE agent=?",
@@ -294,9 +289,6 @@ impl Ingest<'_> {
     fn finished(&mut self, run: &Run, item: Option<&str>, follows: Value) -> Result<(), Failure> {
         let raw = run.either(run.f.category.as_deref(), "category");
         let raw = if truthy(&raw) { raw } else { Value::from("unknown") };
-        if let Some(item) = item.filter(|_| run.worker() && raw == "unknown" && !run.original) {
-            self.tally.unlabeled.push((run.id.clone(), item.to_owned()));
-        }
         let category = raw.as_str().filter(|raw| CATEGORIES.contains(raw)).unwrap_or("unknown");
         let mut prev = Value::Null;
         if let Some(item) = item.filter(|_| run.worker()) {

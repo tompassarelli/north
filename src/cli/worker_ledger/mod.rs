@@ -170,6 +170,9 @@ fn record(options: &Options) -> u8 {
         pull::hosts(options, &ids, &mut rows);
     }
     let ingested = ingest(&rows);
+    if recalibrate::owns_ledger() {
+        label_runs();
+    }
     recalibrate::run();
     if ingested == 0 && unread { 1 } else { ingested }
 }
@@ -214,6 +217,14 @@ fn rows(options: &Options, ids: &Ids) -> Option<(Vec<u8>, bool)> {
         }
     }
     Some((rows, unread))
+}
+
+fn label_runs() {
+    match threads(&["label-runs"]).and_then(|mut command| command.status()) {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!("north worker-ledger: north threads label-runs exited {status}"),
+        Err(error) => eprintln!("north worker-ledger: cannot run north threads label-runs: {error}"),
+    }
 }
 
 fn ingest(rows: &[u8]) -> u8 {

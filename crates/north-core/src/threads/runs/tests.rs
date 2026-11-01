@@ -197,10 +197,10 @@ fn a_worker_taking_a_held_item_is_a_handoff_finishing_releases_it_and_a_later_ru
 }
 
 #[test]
-fn an_unlabeled_run_takes_its_category_from_its_issue_labels_with_one_listing_per_repo() {
+fn an_unlabeled_run_takes_its_category_from_its_issue_labels_with_one_listing_per_repo_and_none_during_ingest() {
     let ledger = ledger();
     let done = |id: &str, extra: Json| {
-        let mut row = json!({"id": id, "ended": "2026-10-09T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done"});
+        let mut row = json!({"id": id, "ended": "2026-10-27T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done"});
         row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         row
     };
@@ -211,11 +211,28 @@ fn an_unlabeled_run_takes_its_category_from_its_issue_labels_with_one_listing_pe
         done("u4", json!({"brief": "Item: ops#1"})),
         done("u5", json!({"brief": "Item: wisp#3 Category: research"})),
     ]);
-    let categories: Vec<Vec<Value>> = ledger.rows("SELECT agent, category FROM runs ORDER BY agent");
+    let categories = || -> Vec<Vec<Value>> { ledger.rows("SELECT agent, category FROM runs ORDER BY agent") };
     let text = |value: &str| Value::Text(value.into());
-    assert_eq!(categories, [["u1", "bug-known-cause"], ["u2", "balance-tuning"], ["u3", "unknown"], ["u4", "unknown"], ["u5", "research"]].map(|row| row.map(text).to_vec()));
+    assert!(ledger.outside.calls.borrow().is_empty(), "ingest holds the exclusive lock and makes no gh call");
+    assert_eq!(categories(), [["u1", "unknown"], ["u2", "unknown"], ["u3", "unknown"], ["u4", "unknown"], ["u5", "research"]].map(|row| row.map(text).to_vec()));
+    let (code, _, err) = ledger.call(&["label-runs"], "");
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("2 of 4 unknown runs labeled"), "{err}");
+    assert_eq!(categories(), [["u1", "bug-known-cause"], ["u2", "balance-tuning"], ["u3", "unknown"], ["u4", "unknown"], ["u5", "research"]].map(|row| row.map(text).to_vec()));
     let listed: Vec<String> = ledger.outside.calls.borrow().iter().map(|call| call[3].clone()).collect();
     assert_eq!(listed, ["tompassarelli/wisp", "tompassarelli/smashcraft"]);
+}
+
+#[test]
+fn label_runs_leaves_alone_a_run_older_than_the_landing_window_and_a_run_that_already_has_a_category() {
+    let ledger = ledger();
+    ledger.ingest(&[
+        json!({"id": "old", "ended": "2026-10-09T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done", "brief": "Item: wisp#3"}),
+        json!({"id": "set", "ended": "2026-10-27T00:00:00Z", "tier": "medium", "actual_min": 5, "outcome": "done", "brief": "Item: wisp#3 Category: research"}),
+    ]);
+    let (code, _, err) = ledger.call(&["label-runs"], "");
+    assert_eq!((code, ledger.row("SELECT group_concat(category) FROM (SELECT category FROM runs ORDER BY agent)")), (0, "unknown,research".to_owned()), "{err}");
+    assert!(ledger.outside.calls.borrow().is_empty(), "nothing pending, so no listing");
 }
 
 #[test]
