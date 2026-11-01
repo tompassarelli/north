@@ -115,7 +115,7 @@ fi
 
 usage() {
   cat <<'USAGE'
-Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
+Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct] [--message FILE | --several-commits REASON]
        safe-push [--dry-run] --tag NAME
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH]
 
@@ -139,7 +139,7 @@ Options:
                one hook run, halves re-run on red) and tells each its verdict;
                a lane already on origin BRANCH counts as landed; while the
                open "BRANCH is red" issue is #N, a lane with #N in a commit
-               subject queues ahead of the others, and a holder hands its
+               subject (or a subject the fold lists) queues ahead of the others, and a holder hands its
                undecided lanes back behind it before its next check run;
                when main's .safe-push sets landing.queue = autoland, or sets
                none and main has .github/workflows/autoland.yml,
@@ -155,6 +155,14 @@ Options:
   --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
                keep the lane instead of removing it and its branch, and keep
                the cargo target its land checks otherwise remove
+  --message FILE
+               with --to main, the message of the one commit the lane lands as
+               (default: the first lane commit's message, the other subjects
+               listed below it); the lane's trailers are appended, de-duplicated
+  --several-commits REASON
+               with --to main, land the lane's unpublished commits as they are
+               instead of as one commit; logged with REASON in
+               ~/.local/state/safe-push/several-commit-landings.tsv
   --direct     with --to main in an Autoland repository, push main directly
                instead of joining the queue; emergencies only, logged in
                ~/.local/state/safe-push/direct-landings.tsv
@@ -209,6 +217,8 @@ plan_push() {
       keep_lane=0
       direct=0
       tag=""
+      message_file=""
+      several_commits=""
       tag_seen=0
       to=""
       to_seen=0
@@ -225,6 +235,19 @@ plan_push() {
           --dry-run) [ "$dry" -eq 0 ] || argument_error 'duplicate --dry-run'; dry=1; shift ;;
           --keep-lane) [ "$keep_lane" -eq 0 ] || argument_error 'duplicate --keep-lane'; keep_lane=1; shift ;;
           --direct) [ "$direct" -eq 0 ] || argument_error 'duplicate --direct'; direct=1; shift ;;
+          --message)
+            [ -z "$message_file" ] || argument_error 'duplicate --message'
+            [ "$#" -ge 2 ] || argument_error '--message needs a file'
+            case "$2" in ''|-*) argument_error '--message needs a file' ;; esac
+            message_file="$2"
+            shift 2
+            ;;
+          --several-commits)
+            [ -z "$several_commits" ] || argument_error 'duplicate --several-commits'
+            case "${2:-}" in ''|-*) argument_error '--several-commits needs a reason' ;; esac
+            several_commits="$2"
+            shift 2
+            ;;
           --tag)
             [ "$tag_seen" -eq 0 ] || argument_error 'duplicate --tag'
             [ "$#" -ge 2 ] || argument_error '--tag needs a name'
@@ -264,6 +287,10 @@ plan_push() {
         || argument_error '--to cannot be combined with --tag'
       [ "$keep_lane" -eq 0 ] || [ "$to_seen" -eq 1 ] \
         || argument_error '--keep-lane needs --to'
+      [ -z "$message_file$several_commits" ] || [ "$to_seen" -eq 1 ] \
+        || argument_error '--message and --several-commits need --to'
+      [ -z "$message_file" ] || [ -z "$several_commits" ] \
+        || argument_error '--message cannot be combined with --several-commits'
 
       if [ "$to_seen" -eq 1 ]; then
         case "$to" in
@@ -1594,7 +1621,7 @@ red_fix_issue() {
   local named issue
   [ -n "$1" ] || return 0
   if git log --format=%B "$1..HEAD" | grep -qE '^Main-red:[[:space:]]+[^[:space:]]'; then printf 'marker\n'; return 0; fi
-  named=$(git log --format=%s "$1..HEAD" | grep -oE '#[0-9]+') || return 0
+  named=$({ git log --format=%s "$1..HEAD"; git log --format=%b "$1..HEAD" | grep -E '^- '; } | grep -oE '#[0-9]+') || return 0
   issue=$(timeout 10 gh issue list --state open --search "\"$to is red\" in:title" --json number,title \
       --jq '.[] | "\(.number)\t\(.title)"' 2>/dev/null \
     | awk -F'\t' -v title="$to is red" '$2 == title { print $1; exit }') || return 0
@@ -2208,6 +2235,23 @@ if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] \
   fi
 fi
 
+land_as_one_commit() {
+  local base="$1"
+  [ -n "$base" ] || return 0
+  if [ -n "$several_commits" ]; then
+    mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$lock_url" "$(git rev-parse --short HEAD)" \
+      "$(git symbolic-ref --quiet --short HEAD || true)" "$several_commits" >>"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/several-commit-landings.tsv"
+    echo "safe-push: --several-commits: landing the lane's commits as they are ($several_commits); logged in several-commit-landings.tsv"
+    return 0
+  fi
+  [ -n "$message_file" ] || [ "$(git rev-list --count "$base..HEAD")" -ge 2 ] || return 0
+  north lane-squash --help >/dev/null 2>&1 \
+    || { echo "safe-push: this host's north runtime lacks north lane-squash, which lands a lane as one commit; run north runtime update; NOT pushed." >&2; exit 1; }
+  north lane-squash --repo "$(git rev-parse --show-toplevel)" ${message_file:+--message "$message_file"} "$base" || exit 1
+  lane_tip=$(git rev-parse HEAD)
+}
+
 policy_failures=()
 policy_scans() {
   local branch="$1" destination="$2" range="$3"
@@ -2244,6 +2288,7 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; fi
   if [ "$to" = "$(default_branch)" ]; then
     autoland_base=$(fetch_destination) || exit 1
+    land_as_one_commit "$autoland_base"
     if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then
       mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
       printf '%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$lock_url" "$(git rev-parse --short HEAD)" \

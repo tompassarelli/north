@@ -1,4 +1,4 @@
-Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct]
+Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct] [--message FILE | --several-commits REASON]
        safe-push [--dry-run] --tag NAME
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH]
 
@@ -22,7 +22,7 @@ Options:
                one hook run, halves re-run on red) and tells each its verdict;
                a lane already on origin BRANCH counts as landed; while the
                open "BRANCH is red" issue is #N, a lane with #N in a commit
-               subject queues ahead of the others, and a holder hands its
+               subject (or a subject the fold lists) queues ahead of the others, and a holder hands its
                undecided lanes back behind it before its next check run;
                when main's .safe-push sets landing.queue = autoland, or sets
                none and main has .github/workflows/autoland.yml,
@@ -38,6 +38,14 @@ Options:
   --keep-lane  after landing --to main from ~/code/<project>/worktrees/<slug>,
                keep the lane instead of removing it and its branch, and keep
                the cargo target its land checks otherwise remove
+  --message FILE
+               with --to main, the message of the one commit the lane lands as
+               (default: the first lane commit's message, the other subjects
+               listed below it); the lane's trailers are appended, de-duplicated
+  --several-commits REASON
+               with --to main, land the lane's unpublished commits as they are
+               instead of as one commit; logged with REASON in
+               ~/.local/state/safe-push/several-commit-landings.tsv
   --direct     with --to main in an Autoland repository, push main directly
                instead of joining the queue; emergencies only, logged in
                ~/.local/state/safe-push/direct-landings.tsv

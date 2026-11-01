@@ -38,6 +38,12 @@ zero|--dry-run --tag release-a
 zero|--tag release-a --dry-run
 zero|--keep-lane --to main
 zero|--direct --to main
+nonzero|--message
+nonzero|--message m.txt
+nonzero|--several-commits --to main
+nonzero|--message m.txt --several-commits why --to main
+zero|--message m.txt --to main
+zero|--several-commits why --to main
 zero|--keep-lane -h";
 
 struct Observed {

@@ -5,6 +5,7 @@ pub mod denylist_attest;
 mod instruction_limits;
 pub mod land_actions;
 pub mod landed_tree;
+pub mod lane_squash;
 pub mod land_test_runner;
 pub mod lane_target;
 mod mutant;

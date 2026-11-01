@@ -16,6 +16,8 @@ pub struct Arguments {
     pub dry_run: bool,
     pub keep_lane: bool,
     pub direct: bool,
+    pub message: Option<String>,
+    pub several_commits: Option<String>,
     pub tag: Option<String>,
     pub to: Option<String>,
 }
@@ -92,6 +94,10 @@ pub fn arguments(arguments: &[String]) -> Result<Plan, Refusal> {
             "--direct" => set_once(&mut parsed.direct, "--direct")?,
             "--tag" => rest = take_value(&mut parsed.tag, "--tag", "--tag needs a name", tail)?,
             "--to" => rest = take_value(&mut parsed.to, "--to", "--to needs a branch name", tail)?,
+            "--message" => rest = take_value(&mut parsed.message, "--message", "--message needs a file", tail)?,
+            "--several-commits" => {
+                rest = take_value(&mut parsed.several_commits, "--several-commits", "--several-commits needs a reason", tail)?
+            }
             other if DESTRUCTIVE.contains(&other) => return Err(Refusal::Destructive(other.to_owned())),
             other => return Err(usage_error(format!("unknown argument '{other}'"))),
         }
@@ -132,6 +138,12 @@ fn check_combination(parsed: &Arguments) -> Result<(), Refusal> {
     }
     if parsed.keep_lane && parsed.to.is_none() {
         return Err(usage_error("--keep-lane needs --to"));
+    }
+    if (parsed.message.is_some() || parsed.several_commits.is_some()) && parsed.to.is_none() {
+        return Err(usage_error("--message and --several-commits need --to"));
+    }
+    if parsed.message.is_some() && parsed.several_commits.is_some() {
+        return Err(usage_error("--message cannot be combined with --several-commits"));
     }
     match &parsed.to {
         Some(to) if !plausible_branch(to) => Err(usage_error(format!("invalid destination branch '{to}'"))),

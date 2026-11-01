@@ -68,7 +68,7 @@ shim_main() {
       [ -n "${SAFE_PUSH_TEST_AFTER_LANDING_TRACE:-}" ] || return 2
       [ "${2:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_AFTER_LANDING_TRACE"
       ;;
-    north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:lane-squash|north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -103,12 +103,12 @@ shim_main() {
     gh:api)
       case "${2:-}" in
         repos/*/commits/*/status)
+          local landed_sha="${2#*/commits/}"
+          landed_sha="${landed_sha%/status}"
           if [[ "${SAFE_PUSH_TEST_AUTOLAND_STATUS:-}" == success$'\t'* ]]; then
-            local landed_sha="${2#*/commits/}"
-            landed_sha="${landed_sha%/status}"
             git --git-dir="${SAFE_PUSH_TEST_REMOTE:?}" update-ref refs/heads/main "$landed_sha"
           fi
-          printf '%s\n' "${SAFE_PUSH_TEST_AUTOLAND_STATUS:?}"
+          printf '%s\n' "${SAFE_PUSH_TEST_AUTOLAND_STATUS//@SHA@/$landed_sha}"
           return 0
           ;;
         repos/*/actions/runs/*/jobs\?*) ;;
@@ -609,9 +609,9 @@ make_real_fixture land-publish
 printf 'published\n' >"$real_repo/file.txt"
 "$real_git" -C "$real_repo" add .safe-push file.txt
 "$real_git" -C "$real_repo" commit -qm 'publish for the land check'
-publish_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 HOME="$real_fixture" run_real_case '' --to main
 expect_status zero
+publish_head=$("$real_git" --git-dir="$real_remote" rev-parse main)
 [ "$(cat "$real_fixture/published-ref")" = "farm/${publish_head:0:12}" ] || fail 'land check did not get the published ref'
 [ "$(cat "$real_fixture/published-head")" = "$publish_head" ] || fail 'published ref did not hold the lane head while the land check ran'
 ! "$real_git" --git-dir="$real_remote" rev-parse -q --verify "refs/heads/farm/${publish_head:0:12}" >/dev/null || fail 'published ref outlived the land checks'
@@ -1425,9 +1425,11 @@ for hook_verdict in 0 1; do
   rm -f "$real_repo/.git/hooks/pre-push"
 done
 printf 'PASS: an Autoland queue push runs the pre-push hook to completion before opening the push, then pushes with --no-verify\n'
+printf 'queued with the train\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'queued with the train'
 printf 'landed by train\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'landed by train'
-test_landed_sha=$("$real_git" -C "$real_repo" rev-parse HEAD)
+train_main_before=$("$real_git" --git-dir="$real_remote" rev-parse main)
 runtime_calls="$scratch/runtime-calls"
 runtime_wrapper="$scratch/north-runtime-wrapper"
 cat >"$runtime_wrapper" <<'SH'
@@ -1438,10 +1440,11 @@ SH
 chmod +x "$runtime_wrapper"
 SAFE_PUSH_TEST_REAL_NORTH="$runtime_wrapper" SAFE_PUSH_TEST_RUNTIME_BINARY="$real_north" \
   SAFE_PUSH_TEST_RUNTIME_CALLS="$runtime_calls" SAFE_PUSH_TEST_REMOVE_NORTH_ON_DEP_GATE=1 \
-  SAFE_PUSH_TEST_AUTOLAND_STATUS="$(printf 'success\tAutoland landed %s\thttps://example.test/success' "$test_landed_sha")" run_real_case '' --to main
+  SAFE_PUSH_TEST_AUTOLAND_STATUS=$'success\tAutoland landed @SHA@\thttps://example.test/success' run_real_case '' --to main
 expect_status zero
 expect_output 'safe-push: landed '
 grep -Eq 'safe-push: landed [0-9a-f]{40}$' <<<"$case_output" || fail 'successful landing omitted its terminal sha'
+[ "$("$real_git" --git-dir="$real_remote" rev-list --count "$train_main_before..main")" = 1 ] || fail 'the Autoland queue branch did not carry the lane as one commit'
 grep -Fxq follows-release "$runtime_calls" || fail 'follows-release was not invoked through the runtime after PATH lost north'
 printf 'PASS: safe_push_follows_release_uses_runtime_without_path_north\n'
 printf 'PASS: safe_push_landing_emits_terminal_sha\n'
@@ -1454,8 +1457,6 @@ SAFE_PUSH_TEST_AUTOLAND_STATUS=$'pending\tAutoland workflow queued\thttps://exam
 expect_output 'safe-push: timed out after 1m (run https://example.test/pending)'
 printf 'stopped wait\n' >>"$real_repo/content.txt"
 "$real_git" -C "$real_repo" commit -qam 'stopped while queued'
-stopped_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
-stopped_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${stopped_tip:0:12}"
 stopped_pid="$scratch/stopped-safe-push.pid"
 printf '#!/usr/bin/env bash\nread -r host _ </proc/self/stat\nprintf "%%s %%s\\n" "$$" "$host" >%q\nexec %q "$@"\n' "$stopped_pid" "$TARGET" >"$real_fixture/pid-target"
 chmod +x "$real_fixture/pid-target"
@@ -1477,6 +1478,8 @@ done
 stopped_started=$SECONDS
 kill -TERM "$stopped_ns"
 wait "$stopped_case" || true
+stopped_tip=$("$real_git" -C "$real_repo" rev-parse HEAD)
+stopped_branch="claude/land-$("$real_git" -C "$real_repo" symbolic-ref --short HEAD)-${stopped_tip:0:12}"
 TARGET="$stopped_target"
 [ "$((SECONDS - stopped_started))" -lt 20 ] || fail 'a stopped Autoland wait did not end promptly'
 [ "$(cat "$scratch/stopped.status")" = 130 ] || fail "a stopped Autoland wait exited $(cat "$scratch/stopped.status"): $(cat "$scratch/stopped.out")"
@@ -1608,9 +1611,9 @@ make_real_fixture explicit-main
 remote_main_before="$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)"
 "$real_git" -C "$real_repo" switch -q -c feature
 "$real_git" -C "$real_repo" commit --allow-empty -qm feature
-feature_oid="$("$real_git" -C "$real_repo" rev-parse feature)"
 run_real_case '' --to main
 expect_status zero
+feature_oid="$("$real_git" -C "$real_repo" rev-parse feature)"
 [ "$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)" = "$feature_oid" ] \
   || fail '--to main did not advance the explicit destination'
 if "$real_git" -C "$real_repo" rev-parse --verify '@{upstream}' >/dev/null 2>&1; then
@@ -1762,7 +1765,7 @@ expect_email_refused() {
 }
 
 make_real_fixture email-to-main
-GIT_AUTHOR_EMAIL="$private_email" "$real_git" -C "$real_repo" commit --allow-empty -qm 'private author for main'
+"$real_git" -C "$real_repo" commit --amend --allow-empty -qm 'private author for main' --author="safe-push-test <$private_email>"
 remote_before="$(real_remote_state)"
 run_real_case '' --to main
 expect_email_refused author
@@ -1861,7 +1864,7 @@ run_landing() {
       SAFE_PUSH_TEST_SCAN_GATE="${landing_gate:+$dir}" \
       XDG_STATE_HOME="${landing_state:-${xdg_state:?}}" \
       PATH="${SAFE_PUSH_TEST_PATH:-$real_bin:$PATH}" \
-      env --default-signal=INT "$TARGET" --to "${landing_to:-main}"
+      env --default-signal=INT "$TARGET" --to "${landing_to:-main}" ${landing_several:+--several-commits "$landing_several"}
   ) >"$dir.out" 2>&1
 }
 
@@ -2145,7 +2148,7 @@ cp "$landing_root/a/a.txt" "$landing_root/a/b.txt" "$landing_root/seed/"
 "$real_git" -C "$landing_root/seed" commit -qm 'squash of the lane'
 "$real_git" -C "$landing_root/seed" push -q -f "$landing_remote" main
 main_before=$("$real_git" --git-dir="$landing_remote" rev-parse main)
-status_a=0; run_landing "$landing_root/a" || status_a=$?
+status_a=0; landing_several='each relanded commit is checked against main' run_landing "$landing_root/a" || status_a=$?
 [ "$status_a" -ne 0 ] || fail "a relanded lane whose commits the rebase dropped exited 0: $(cat "$landing_root/a.out")"
 ! grep -q "ambiguous argument ''" "$landing_root/a.out" || fail "the empty lane range reached git as '': $(cat "$landing_root/a.out")"
 grep -q "lane commits missing from .*: .*$first_lane_commit.*; NOT pushed\." "$landing_root/a.out" || fail "missing dropped-commit refusal: $(cat "$landing_root/a.out")"
@@ -2165,7 +2168,7 @@ printf 'other\n' >"$landing_root/seed/other.txt"
 "$real_git" -C "$landing_root/seed" commit -qm 'a.txt and more from elsewhere'
 "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
 main_before=$("$real_git" --git-dir="$landing_remote" rev-parse main)
-status_a=0; run_landing "$landing_root/a" || status_a=$?
+status_a=0; landing_several='each lane commit is checked against main' run_landing "$landing_root/a" || status_a=$?
 [ "$status_a" -ne 0 ] || fail "a lane whose rebase dropped a commit exited 0: $(cat "$landing_root/a.out")"
 grep -q "lane commits missing from .*: .*$dropped_commit.*; NOT pushed\." "$landing_root/a.out" || fail "the dropped commit was not named: $(cat "$landing_root/a.out")"
 ! grep -q '^safe-push: landed ' "$landing_root/a.out" || fail 'a lane whose rebase dropped a commit was reported as landed'
@@ -2547,7 +2550,7 @@ red_order="$("$real_git" --git-dir="$landing_remote" log --reverse --format=%s "
 red_runs="$(sort "$landing_root/hook-runs" | uniq -c | awk '{ printf "%s%s %s", sep, $1, $2; sep = ", " }')"
 printf 'red-fix scenario: exits h w f = %s; landed %s; checks %s\n' "${red_status[*]}" "${red_order:-nothing}" "$red_runs"
 [ "${red_status[*]}" = '0 0 0' ] || fail "red fix: a lane did not land (${red_status[*]}): $case_output"
-[ "$red_order" = 'change from f,fix #399: main is red,change from h,change from w' ] \
+[ "$red_order" = 'change from f,change from h,change from w' ] \
   || fail "red fix: the fix did not land first with the held lanes behind it in arrival order ($red_order)"
 [ "$(grep -c red "$landing_root/hook-runs")" -eq 1 ] \
   || fail "red fix: a check ran on red main after the fix queued ($red_runs): $case_output"
@@ -2757,6 +2760,70 @@ expect_status zero
 remote_lane_exists || fail 'remote lane branch with unlanded work was deleted'
 
 } >"$scratch/section-3.log" 2>&1 &
+sections+=($!)
+
+{ xdg_state="$scratch/xdg-state-4"
+squash_trace="$scratch/squash-after-landing-trace"
+squash_commit() {
+  printf '%s\n' "$1" >>"$real_repo/content.txt"
+  "$real_git" -C "$real_repo" commit -qam "$1" ${2:+--trailer "$2"} ${3:+--trailer "$3"}
+}
+
+make_real_fixture squash-one
+squash_base=$("$real_git" --git-dir="$real_remote" rev-parse main)
+squash_commit 'add the first lane line' 'Refs: #7' 'Lane-note: first'
+squash_commit 'add the second lane line' 'Refs: #7' 'Lane-note: second'
+squash_tree=$("$real_git" -C "$real_repo" rev-parse 'HEAD^{tree}')
+SAFE_PUSH_TEST_AFTER_LANDING_TRACE="$squash_trace" run_real_case '' --to main
+expect_status zero
+squash_main=$("$real_git" --git-dir="$real_remote" rev-parse main)
+[ "$("$real_git" --git-dir="$real_remote" rev-list --count "$squash_base..$squash_main")" = 1 ] \
+  || fail 'a three-commit lane did not land as one commit'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse "$squash_main^")" = "$squash_base" ] || fail 'the landed commit does not sit on origin main'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse "$squash_main^{tree}")" = "$squash_tree" ] || fail 'the landed commit lost the lane tree'
+squash_message=$("$real_git" --git-dir="$real_remote" show -s --format=%B "$squash_main")
+[ "$(sed -n 1p <<<"$squash_message")" = outgoing ] || fail "the landed commit does not carry the first lane subject: $squash_message"
+grep -Fxq -- '- add the second lane line' <<<"$squash_message" || fail "the landed commit does not list the other lane subjects: $squash_message"
+[ "$("$real_git" --git-dir="$real_remote" show -s --format='%(trailers:only,unfold)' "$squash_main" | grep -v '^$')" = $'Refs: #7\nLane-note: first\nLane-note: second' ] \
+  || fail "the landed commit did not keep each lane trailer once: $squash_message"
+printf 'PASS: a multi-commit lane lands as one commit keeping its trailers once each\n'
+
+make_real_fixture squash-published
+"$real_git" -C "$real_repo" push -q origin HEAD:refs/heads/shared
+squash_published=$("$real_git" -C "$real_repo" rev-parse HEAD)
+squash_commit 'add a line after the published commit'
+squash_commit 'add another line after the published commit'
+SAFE_PUSH_TEST_AFTER_LANDING_TRACE="$squash_trace" run_real_case '' --to main
+expect_status zero
+squash_main=$("$real_git" --git-dir="$real_remote" rev-parse main)
+"$real_git" --git-dir="$real_remote" merge-base --is-ancestor "$squash_published" "$squash_main" \
+  || fail 'squashing rewrote a commit already on origin'
+[ "$("$real_git" --git-dir="$real_remote" rev-list --count "$squash_published..$squash_main")" = 1 ] \
+  || fail 'the unpublished lane commits did not land as one commit after the published one'
+printf 'PASS: squashing leaves commits already on origin untouched\n'
+
+make_real_fixture squash-several
+squash_base=$("$real_git" --git-dir="$real_remote" rev-parse main)
+squash_commit 'add a line kept as its own commit'
+squash_commit 'add another line kept as its own commit'
+SAFE_PUSH_TEST_AFTER_LANDING_TRACE="$squash_trace" run_real_case '' --to main --several-commits 'each commit is a bisect point'
+expect_status zero
+expect_output 'each commit is a bisect point'
+[ "$("$real_git" --git-dir="$real_remote" rev-list --count "$squash_base..main")" = 3 ] \
+  || fail '--several-commits did not land the lane commits as they are'
+grep -Fq 'each commit is a bisect point' "$xdg_state/safe-push/several-commit-landings.tsv" \
+  || fail '--several-commits did not log its reason'
+printf 'PASS: --several-commits lands several commits and logs why\n'
+
+make_real_fixture squash-message
+printf 'Name the change once\n\nWhy it lands.\n\nLane-note: supplied\n' >"$real_fixture/message.txt"
+"$real_git" -C "$real_repo" commit --amend --allow-empty -qm 'outgoing' --trailer 'Refs: #9'
+SAFE_PUSH_TEST_AFTER_LANDING_TRACE="$squash_trace" run_real_case '' --to main --message "$real_fixture/message.txt"
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" show -s --format=%B main)" = $'Name the change once\n\nWhy it lands.\n\nLane-note: supplied\nRefs: #9' ] \
+  || fail "--message did not name a one-commit lane's landing: $("$real_git" --git-dir="$real_remote" show -s --format=%B main)"
+printf 'PASS: --message names the landed commit and keeps the lane trailers\n'
+} >"$scratch/section-4.log" 2>&1 &
 sections+=($!)
 
 status=0
