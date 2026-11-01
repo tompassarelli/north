@@ -96,3 +96,13 @@ fn worker_wait_decisions_hold() {
     only_foreground_worker_calls_are_bound();
     recorded_decisions_of_the_retired_shell_guard_still_hold();
 }
+
+#[test]
+fn a_worker_monitor_call_is_not_a_foreground_wait() {
+    let payload = json!({
+        "tool_name": "Bash",
+        "agent_type": "worker",
+        "tool_input": {"command": "until grep -q done f; do sleep 20; done", "description": "f done", "timeout_ms": 600000},
+    });
+    assert!(refusal(&HookInput::parse(payload.to_string().as_bytes()).unwrap()).is_none());
+}

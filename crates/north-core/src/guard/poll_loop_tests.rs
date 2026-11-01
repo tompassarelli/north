@@ -87,3 +87,13 @@ fn a_refusal_quotes_the_measured_p75_and_advises_by_it() {
     assert!(!refuse("sleep 300").contains("p75"));
     assert!(decide_with("cargo test && sleep 20", f64::INFINITY, &capacity).is_none());
 }
+
+#[test]
+fn a_monitor_until_loop_passes_because_its_events_arrive_without_holding_a_request() {
+    let monitor = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": {"command": "until [ -s out ]; do sleep 5; done; echo done", "description": "run finished", "timeout_ms": 1800000},
+    });
+    assert!(matches!(verdict(&HookInput::parse(monitor.to_string().as_bytes()).unwrap()), Verdict::Allow));
+    assert!(matches!(verdict(&input("until [ -s out ]; do sleep 5; done", Some(1800000), false)), Verdict::Deny(_)));
+}

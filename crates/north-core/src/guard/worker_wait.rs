@@ -66,7 +66,7 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
         .is_some_and(|kind| kind.starts_with("worker"));
     if input.data["tool_name"] != "Bash"
         || !is_worker
-        || input.tool_input["run_in_background"] == Value::Bool(true)
+        || input.runs_in_background()
     {
         return None;
     }

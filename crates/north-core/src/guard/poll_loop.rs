@@ -16,7 +16,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
 }
 
 fn verdict(input: &HookInput) -> Verdict {
-    if input.tool_input["run_in_background"].as_bool() == Some(true) {
+    if input.runs_in_background() {
         return Verdict::Allow;
     }
     let Some(command) = input.command().and_then(|s| s.as_str()) else {

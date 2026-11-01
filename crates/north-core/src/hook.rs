@@ -51,6 +51,15 @@ impl HookInput {
             .unwrap_or("")
     }
 
+    pub fn runs_in_background(&self) -> bool {
+        self.tool_input["run_in_background"].as_bool() == Some(true) || self.is_monitor()
+    }
+
+    // Claude Code hands a Monitor call to Bash hooks as tool Bash; only Monitor's input carries timeout_ms.
+    fn is_monitor(&self) -> bool {
+        self.data["tool_name"] == "Bash" && self.tool_input.get("timeout_ms").is_some()
+    }
+
     pub fn is_shell(&self) -> bool {
         crate::guard::shell_call::is_shell_tool(self.tool_name())
     }
