@@ -206,18 +206,6 @@ pub fn read_queue(root: &Path) -> Vec<Value> {
     waiting
 }
 
-/// Admission order: critical, tom and runtime, then exclusive, then the rest, each part in arrival order.
-pub fn priority_order(queue: Vec<Value>) -> Vec<Value> {
-    let rank = |ticket: &Value| match text(ticket, "class") {
-        Some("critical" | "tom" | "runtime") => 0,
-        Some("exclusive") => 1,
-        _ => 2,
-    };
-    let mut ordered = queue;
-    ordered.sort_by_key(rank);
-    ordered
-}
-
 pub fn native_waiting(root: &Path, now: f64) -> u32 {
     let modified = fs::metadata(root.join("native-waiting")).and_then(|metadata| metadata.modified());
     match modified {

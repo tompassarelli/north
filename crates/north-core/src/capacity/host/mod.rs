@@ -20,6 +20,7 @@ mod measure;
 mod policy;
 #[cfg(test)]
 mod policy_tests;
+mod priority;
 mod quiet_holds;
 mod request;
 mod requeue;
@@ -32,7 +33,7 @@ mod state;
 mod status;
 mod systemd;
 
-const USAGE: &str = "usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER]; see machine-capacity";
+const USAGE: &str = "usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 
 pub fn fail(message: &str, status: i32) -> ! {
     eprintln!("machine-capacity: {message}");
@@ -209,6 +210,9 @@ fn probe(root: &Path, argv: &[String], host: &Host) -> u8 {
     let beside_native = options.has("--beside-native").then(|| options.owner("--beside-native"));
     let owner = options.has("--owner").then(|| options.owner("--owner"));
     let request = request::Request { beside_native, owner, ..options.class(signals.cores) };
+    if request.name == "tom" && let Some(message) = priority::tom_class_refusal(request.owner.as_deref()) {
+        fail(&message, 2);
+    }
     let result = decision::decision(root, &request, None, None, host);
     print_to(&result, false);
     if result.get("decision").and_then(Value::as_str) == Some("RUN") { 0 } else { 75 }
@@ -244,9 +248,14 @@ fn renew_or_release(root: &Path, argv: &[String]) -> u8 {
     0
 }
 
-const RUN_OPTIONS: [&str; 13] = ["--class", "--owner", "--timeout-seconds", "--memory-gib", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone", "--latency"];
+const RUN_OPTIONS: [&str; 14] = [
+    "--class", "--owner", "--timeout-seconds", "--memory-gib", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone", "--latency", "--priority",
+];
 
 fn requested(options: &args::Options, operation: &str, owner: &str, command: &[String], cores: f64) -> request::Request {
+    if options.get("--class") == Some("tom") && let Some(message) = priority::tom_class_refusal(Some(owner)) {
+        fail(&message, 2);
+    }
     let mut request = if options.has("--memory-gib") {
         options.class(cores)
     } else if options.has("--class") {
@@ -279,6 +288,12 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
         request.latency = true;
     }
     request.landing = operation == "run" && owner == "land-check" && machine::env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty()) && policy::batch_class(&request.name);
+    if let Some(asked) = options.get("--priority") {
+        if let Some(message) = priority::priority_refusal(asked, &request.name) {
+            fail(&message, 2);
+        }
+        request.priority = (!request.landing).then_some(priority::TOM_ASK);
+    }
     request
 }
 

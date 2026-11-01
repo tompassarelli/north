@@ -905,3 +905,18 @@ source = "prior: the same simulation on the reserve's 16 agent cores peaks at 18
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
 consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+
+[tom_class_owners]
+value = ["smashcraft:tom-build-window", "smashcraft:play-helper", "tom-preview"]
+unit = "machine-capacity owners admitted to --class tom: the Tom-build watcher's window build, wisp play's controller helper build and the proxy's tom-window and preview build"
+source = "tom: the tom class admits in seconds past pressure and the queue, so it serves only the build Tom is waiting to play; on the 20-thread build host 62 runs from 22:50 to 00:10 UTC on 2026-11-01 used it for other work while heavy leases waited 3740 to 4975 s, none of them that build (south's record of the 2026-11-01 CPU drain, north#460)"
+fallback = "every other owner is refused and told to use heavy, gpu or native --latency, with --priority tom-ask when Tom is waiting on the work"
+consumers = ["crates/north-core/src/capacity/host/priority.rs"]
+
+[priority_lease_cap]
+value = 2
+unit = "running leases per host admitted with --priority tom-ask; past them a priority ticket keeps its arrival place"
+source = "prior: two front-of-line leases leave a 20-thread host's queue moving while work Tom waits on goes first; on the 20-thread build host on 2026-11-01 60 queue-jumping runs in 80 minutes held heavy leases back for over an hour (north#460)"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against priority uses in capacity.db; worker runs are the nearest existing count until priority waits are counted" }
+fallback = "none: the cap is always read"
+consumers = ["crates/north-core/src/capacity/host/priority.rs"]

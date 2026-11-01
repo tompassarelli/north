@@ -18,7 +18,10 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS capacity_runs (
     peakMemoryMiB REAL, gpuSeconds REAL, wallSeconds REAL, exitCode INTEGER,
     ioReadBytes REAL, ioWriteBytes REAL, ioPressureSomeUsec REAL, diskBusyShare REAL);
     CREATE INDEX IF NOT EXISTS capacity_runs_signature ON capacity_runs(family, repo, package, class, at);
-    CREATE TABLE IF NOT EXISTS capacity_imports (source TEXT PRIMARY KEY, rows INTEGER NOT NULL)";
+    CREATE TABLE IF NOT EXISTS capacity_imports (source TEXT PRIMARY KEY, rows INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS capacity_priority (
+    lease TEXT PRIMARY KEY, at TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, priority TEXT NOT NULL,
+    placed INTEGER NOT NULL, queuedSeconds REAL NOT NULL, command TEXT)";
 
 const MEASUREMENT_COLUMNS: [&str; 19] = [
     "owner", "shape", "reservedCpus", "reservedMemoryMiB", "chargedCpus", "chargedMemoryMiB", "cpuSeconds", "meanCores", "p90Cores", "peakCores",
@@ -44,7 +47,7 @@ fn current(db: &Connection) -> bool {
         .prepare("PRAGMA table_info(capacity_runs)")
         .and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().any(|name| name == "command")))
         .unwrap_or(false);
-    has_command && named("table", "capacity_imports") && named("index", "capacity_runs_signature")
+    has_command && named("table", "capacity_imports") && named("table", "capacity_priority") && named("index", "capacity_runs_signature")
 }
 
 fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
@@ -52,6 +55,9 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
         return Ok(false);
     }
     let transaction = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    if current(&transaction) {
+        return Ok(false);
+    }
     let first_open = transaction.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'capacity_runs'", [], |_| Ok(())).is_err();
     let legacy = state_root().join("threads/threads.db");
     let attached = first_open && legacy.exists();
@@ -133,6 +139,25 @@ pub fn insert_capacity_run(db: &Connection, source: &str, entry: &Value, signatu
     ];
     values.extend(MEASUREMENT_COLUMNS.iter().map(|key| sql(entry.get(*key))));
     db.execute(&format!("INSERT OR IGNORE INTO capacity_runs ({}) VALUES ({placeholders})", columns.join(",")), params_from_iter(values))?;
+    Ok(())
+}
+
+/// One admitted run that asked for a priority, and whether it was placed first or, past the cap, kept its arrival place.
+pub struct PriorityUse<'a> {
+    pub lease: &'a str,
+    pub owner: &'a str,
+    pub class: &'a str,
+    pub priority: &'a str,
+    pub placed: bool,
+    pub queued_seconds: f64,
+    pub command: &'a str,
+}
+
+pub fn insert_priority_use(db: &Connection, row: &PriorityUse<'_>) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT OR IGNORE INTO capacity_priority (lease, at, owner, class, priority, placed, queuedSeconds, command) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![row.lease, crate::foundation::clock::Timestamp::now().iso_millis(), row.owner, row.class, row.priority, row.placed, row.queued_seconds, row.command],
+    )?;
     Ok(())
 }
 

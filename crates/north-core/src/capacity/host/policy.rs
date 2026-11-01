@@ -19,9 +19,15 @@ impl Resources {
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
 
-fn default_number(name: &str) -> f64 {
+pub(super) fn default_number(name: &str) -> f64 {
     let value = &DEFAULTS[name]["value"];
     value.as_float().or_else(|| value.as_integer().map(|whole| whole as f64)).unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
+}
+
+pub(super) fn default_strings(name: &str) -> Vec<String> {
+    let value = &DEFAULTS[name]["value"];
+    let list = value.as_array().unwrap_or_else(|| panic!("harness/defaults.toml has no list for {name}"));
+    list.iter().map(|item| item.as_str().unwrap_or_else(|| panic!("harness/defaults.toml {name} holds a non-string")).to_owned()).collect()
 }
 
 pub const CLASS_NAMES: [&str; 9] = ["agent", "native", "moderate", "heavy", "exclusive", "gpu", "critical", "tom", "runtime"];

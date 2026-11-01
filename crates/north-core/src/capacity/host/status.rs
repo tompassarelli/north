@@ -7,7 +7,7 @@ use super::json::{Obj, field, num, round2, text};
 use super::machine::{now_ms, read_gpu, read_signals};
 use super::policy::{aggregate_cpus, batch_class};
 use super::request::{class, cpu_accounting, id, is_run, lease_facts};
-use super::state::{active_profile, priority_order, read_leases, read_queue, read_usage, record_gpu_busy, with_lock};
+use super::state::{active_profile, read_leases, read_queue, read_usage, record_gpu_busy, with_lock};
 
 fn seconds(milliseconds: f64) -> Value {
     num((milliseconds / 1000.0 + 0.5).floor())
@@ -48,13 +48,14 @@ fn holding(root: &Path, lease: &Value, accounting: &super::request::Accounting, 
         .put("cpuBasis", basis)
         .put("measured", if run { measured_view(read_usage(root, id(lease))) } else { Value::Null })
         .put_some("pair", lease.get("pair").cloned())
+        .put_some("priority", lease.get("priority").cloned())
         .put_some("quiet", quiet.iter().find(|entry| text(entry, "id") == Some(id(lease))).cloned())
         .put("heldSeconds", seconds(now - field(lease, "createdAt").unwrap_or(f64::NAN)))
         .put("remainingSeconds", field(lease, "expiresAt").map_or(Value::Null, |expires| seconds(expires - now)))
 }
 
-fn queued(queue: Vec<Value>, draining: &[Value], now: f64) -> Vec<Obj> {
-    priority_order(queue)
+fn queued(queue: &[Value], open: bool, draining: &[Value], now: f64) -> Vec<Obj> {
+    super::priority::admission_order(queue, open)
         .iter()
         .enumerate()
         .map(|(index, ticket)| {
@@ -63,6 +64,7 @@ fn queued(queue: Vec<Value>, draining: &[Value], now: f64) -> Vec<Obj> {
                 .put("position", index + 1)
                 .put("owner", get("owner"))
                 .put("class", get("class"))
+                .put_some("priority", ticket.get("priority").cloned())
                 .put("reason", get("reason"))
                 .put("waitingSeconds", seconds(now - field(ticket, "queuedAt").unwrap_or(f64::NAN)))
                 .put_some("newClients", ticket.get("newClients").cloned())
@@ -101,7 +103,7 @@ pub fn status(root: &Path) -> Obj {
             .put("committedBatchCpus", num(accounting.committed_batch_cpus))
             .put("committedNativeCpus", num(accounting.committed_native_cpus))
             .put("holding", holding.iter().map(Obj::value).collect::<Vec<_>>())
-            .put("queued", queued(read_queue(root), &draining, now).iter().map(Obj::value).collect::<Vec<_>>())
+            .put("queued", queued(&read_queue(root), super::priority::open(&active), &draining, now).iter().map(Obj::value).collect::<Vec<_>>())
             .put("unleasedHeavy", accounting.unleased.clone())
             .put("reclaimed", reclaimed)
     })

@@ -26,6 +26,7 @@ pub struct Request {
     pub alone: bool,
     pub latency: bool,
     pub landing: bool,
+    pub priority: Option<&'static str>,
 }
 
 impl Request {

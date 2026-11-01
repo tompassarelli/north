@@ -8,6 +8,7 @@ use super::json::{Obj, field, num, round2, text};
 use super::machine::{Gpu, Signals, enclosing_lease, env, lease_slice, now_ms, read_gpu, read_signals, scope_cgroup, wrapper_identity};
 use super::policy::{GPU_BUSY_LIMIT_PERCENT, aggregate_cpus, batch_class};
 use super::request::{Create, Request, Totals, class, cpu_accounting, grant, granted_view, id, is_run, lease_facts, totals};
+use super::priority;
 use super::state::{RUN_LEASE_GRACE_MILLISECONDS, active_profile, dequeue, lease_path, mark_native_waiting, native_waiting, read_leases, read_queue, record_gpu_busy, with_lock, write_lease};
 use super::systemd::scope_unit;
 use crate::capacity::Host;
@@ -45,12 +46,14 @@ pub fn admit(facts: Obj, host: &Host) -> (String, Value) {
     (reason, advice)
 }
 
-struct Queued {
-    ahead: Vec<Value>,
-    exclusive_waiting: usize,
+pub(super) struct Queued {
+    pub ahead: Vec<Value>,
+    pub exclusive_waiting: usize,
 }
 
-fn queued_ahead(queue: &[Value], request: &Request, ticket: Option<&str>, before_drain: &dyn Fn(Option<f64>) -> bool) -> Queued {
+/// The tickets that wait ahead of this request in its line, each placed by arrival or, while priorities are `open`, by its tom-ask priority.
+pub(super) fn queued_ahead(queue: &[Value], request: &Request, ticket: Option<&str>, open: bool, before_drain: &dyn Fn(Option<f64>) -> bool) -> Queued {
+    let own = priority::request_place(queue, request, ticket, open);
     let earlier = |entry: &Value| ticket.is_none_or(|ticket| text(entry, "name").is_some_and(|name| name < ticket));
     let exclusive_waiting = queue.iter().filter(|entry| text(entry, "class") == Some("exclusive") && (request.name != "exclusive" || earlier(entry))).count();
     // Gpu tickets wait for render slots and native tickets for client slots, each in their own line, so they hold no CPU work.
@@ -58,7 +61,7 @@ fn queued_ahead(queue: &[Value], request: &Request, ticket: Option<&str>, before
         .iter()
         .filter(|entry| {
             let entry_class = text(entry, "class").unwrap_or_default();
-            earlier(entry)
+            priority::ticket_place(queue, entry, open) < own
                 && (entry_class == "gpu") == (request.name == "gpu")
                 && (entry_class == "native") == (request.name == "native")
                 && entry_class != "exclusive"
@@ -190,6 +193,7 @@ struct Context {
     unleased_cores: Option<f64>,
     charged: (f64, f64),
     before_drain_create: bool,
+    priority_open: bool,
 }
 
 fn result(request: &Request, create: Option<&Create>, code: &str, observed: &Observed, context: &Context, granted: &super::request::Granted) -> Obj {
@@ -209,6 +213,8 @@ fn result(request: &Request, create: Option<&Create>, code: &str, observed: &Obs
         .put("mode", context.mode.as_str())
         .put("class", request.name.as_str())
         .merge(granted_view(granted))
+        .put_some("priority", request.priority)
+        .put_some("priorityPlaced", request.priority.map(|_| context.priority_open))
         .put("scope", scope)
         .put("leasedCpuCeilings", num(context.leased.cpus))
         .put("leasedBatchCpus", num(context.leased.batch_cpus))
@@ -248,7 +254,8 @@ fn context(root: &Path, request: &Request, create: Option<&Create>, ticket: Opti
     let now = observed.now;
     let drain_ends_at = runs.iter().filter(|lease| batch_class(class(lease))).filter_map(|lease| field(lease, "expiresAt")).fold(now, f64::max);
     let before_drain = |seconds: Option<f64>| seconds.is_some_and(|seconds| seconds.fract() == 0.0 && now + seconds * 1000.0 + RUN_LEASE_GRACE_MILLISECONDS <= drain_ends_at);
-    let queued = queued_ahead(&observed.queue, request, ticket, &before_drain);
+    let priority_open = priority::open(&observed.active);
+    let queued = queued_ahead(&observed.queue, request, ticket, priority_open, &before_drain);
     let accounting = cpu_accounting(root, &observed.active, now);
     let signals = read_signals();
     let (mode, profile) = active_profile(root);
@@ -263,6 +270,7 @@ fn context(root: &Path, request: &Request, create: Option<&Create>, ticket: Opti
         committed_native_cpus: accounting.committed_native_cpus,
         unleased_cores: accounting.unleased_cores(),
         charged: (granted.charged.cpus, granted.charged.memory_mib),
+        priority_open,
         before_drain_create: before_drain(create.and_then(|create| create.timeout_seconds).map(|seconds| seconds as f64)),
     };
     (context, granted, accounting)
@@ -315,6 +323,7 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
         .put_some("quietSeconds", request.quiet_seconds)
         .put_some("latency", request.latency.then_some(true))
         .put_some("pair", request.pair)
+        .put_some("priority", request.priority.filter(|_| outcome.get("priorityPlaced") == Some(&Value::Bool(true))))
         .put("class", request.name.as_str())
         .put_some("newClients", (request.name == "native" && request.new_clients > 0).then_some(request.new_clients))
         .put_some("parentLease", parent.as_deref())

@@ -176,7 +176,8 @@ fn wait_ticket(root: &Path, request: &Request, create: &Create) -> String {
             .put("timeoutSeconds", create.timeout_seconds)
             .put("newClients", request.new_clients)
             .put("newDesktops", request.new_desktops)
-            .put_some("alone", request.alone.then_some(true)),
+            .put_some("alone", request.alone.then_some(true))
+            .put_some("priority", request.priority),
     )
 }
 
@@ -434,6 +435,7 @@ pub fn run_scoped(root: &Path, request: &Request, owner: &str, timeout_seconds: 
         if admitted.get("decision").and_then(Value::as_str) != Some("RESERVED") {
             return 75;
         }
+        super::priority::record_use(owner, request, &admitted, command);
         u8::try_from(run_admitted(root, request, owner, timeout_seconds, command, &admitted, &mut terminations).await & 0xff).unwrap_or(1)
     })
 }
