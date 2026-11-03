@@ -1,8 +1,11 @@
 use std::path::Path;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::error::NorthResult;
 
-use super::gates::GateRequest;
+use super::gates::{Gate, GateBook, GateRequest};
 use super::model::{Delivery, Entry, SessionRecord};
 use super::runtime::summarize;
 use super::turns::TurnExit;
@@ -11,6 +14,16 @@ const REPORT_CHARS: usize = 4_000;
 const LINE_CHARS: usize = 300;
 const LAST_LINES: usize = 5;
 const FINAL_OPENINGS: [&str; 5] = ["Done", "Not done", "Split", "Stop", "Blocked"];
+const DECISION_REPLY_KEY: &str = "decision-reply";
+const DECISION_REPLY: &str = "North did not pass your report to your parent: it stops on a decision but names no open gate. \
+Routine calls are decided, not asked: pick the option you would recommend, do the work and report the result. \
+If only Tom can decide, open a gate and report again naming its id (`gate <id>`): \
+`north gate open --session <your session> --question <question> --option <option> --option <option> --recommend N --default N --default-after D` \
+(D is 30s, 10m, 4h or 1d; it prints the gate id, and the default applies when nobody answers in time). \
+If you report again unchanged, the report goes to your parent with a warning.";
+const DECISION_WARNING: &str = "[warning: this report stops on a decision but names no open gate; the child was told to decide routine calls or open one, and reported again]";
+static DECISION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(?:\A\W*Blocked:\s*decision\b|(?m:^\W*Stop:\s*decision\b))").expect("decision stop pattern"));
+static GATE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bgate\s*#?\s*(\d+)\b").expect("gate id pattern"));
 
 pub trait ReceiptBook: Send + Sync {
     fn claim_receipt(&self, session: &str, key: &str, claimed_ms: u64) -> NorthResult<bool>;
@@ -45,6 +58,10 @@ impl Report {
         }
     }
 
+    fn asks_a_decision(&self) -> bool {
+        self.exit == TurnExit::Completed && DECISION.is_match(self.reply.as_deref().unwrap_or_default().trim_start())
+    }
+
     fn key(&self) -> String {
         format!("turn:{}", self.turn)
     }
@@ -63,13 +80,41 @@ impl Report {
     }
 }
 
-pub fn deliver_report(book: &dyn ReceiptBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
+pub fn deliver_report(book: &dyn ReceiptBook, gates: &dyn GateBook, courier: &dyn Courier, parent: &str, report: &Report, lines: &[Entry], now_ms: u64) -> NorthResult<bool> {
     let Some((text, delivery)) = report.notice(lines) else { return Ok(false) };
+    let text = if report.asks_a_decision() {
+        match open_gate_named(gates, report.reply.as_deref().unwrap_or_default())? {
+            Some(gate) => format!("{text}\n{}", gate_line(&gate, now_ms)),
+            None if book.claim_receipt(&report.child, DECISION_REPLY_KEY, now_ms)? => {
+                courier.notify(&report.child, DECISION_REPLY.to_owned(), Delivery::Now);
+                return Ok(false);
+            }
+            None => format!("{text}\n{DECISION_WARNING}"),
+        }
+    } else {
+        text
+    };
     let claimed = book.claim_receipt(&report.child, &report.key(), now_ms)?;
     if claimed {
         courier.notify(parent, text, delivery);
     }
     Ok(claimed)
+}
+
+fn open_gate_named(gates: &dyn GateBook, reply: &str) -> NorthResult<Option<Gate>> {
+    for id in GATE_ID.captures_iter(reply).filter_map(|found| found[1].parse::<i64>().ok()) {
+        if let Some(gate) = gates.gate(id)?.filter(Gate::is_open) {
+            return Ok(Some(gate));
+        }
+    }
+    Ok(None)
+}
+
+fn gate_line(gate: &Gate, now_ms: u64) -> String {
+    let option = |number: usize| gate.option(number).unwrap_or_default();
+    let request = &gate.request;
+    let left = gate.default_at_ms().saturating_sub(now_ms) / 60_000;
+    format!("[gate {} is open: recommends {} ({}); defaults to {} ({}) in {left}m unless answered with `north gate answer {} N`]", gate.id, request.recommend, option(request.recommend), request.default, option(request.default), gate.id)
 }
 
 pub struct HostDeath<'a> {
@@ -114,6 +159,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Mutex;
 
+    use crate::fleet::gates::Closure;
     use crate::fleet::model::EntryKind;
 
     use super::*;
@@ -124,6 +170,26 @@ mod tests {
     impl ReceiptBook for Book {
         fn claim_receipt(&self, session: &str, key: &str, _claimed_ms: u64) -> NorthResult<bool> {
             Ok(self.0.lock().unwrap().insert((session.to_owned(), key.to_owned())))
+        }
+    }
+
+    struct Gates(Vec<Gate>);
+
+    impl GateBook for Gates {
+        fn open_gate(&self, _request: &GateRequest, _opened_ms: u64) -> NorthResult<i64> {
+            Ok(0)
+        }
+
+        fn gate(&self, id: i64) -> NorthResult<Option<Gate>> {
+            Ok(self.0.iter().find(|gate| gate.id == id).cloned())
+        }
+
+        fn gates(&self, _closed_since_ms: u64) -> NorthResult<Vec<Gate>> {
+            Ok(self.0.clone())
+        }
+
+        fn close_gate(&self, _id: i64, _closure: &Closure) -> NorthResult<bool> {
+            Ok(false)
         }
     }
 
@@ -159,11 +225,11 @@ mod tests {
     #[test]
     fn a_completed_turn_reports_its_reply_to_the_parent_once_and_a_long_one_points_at_show() {
         let (book, inbox) = (Book::default(), Inbox::default());
-        assert!(deliver_report(&book, &inbox, "boss", &report(TurnExit::Completed, " done: 4 files \n"), &[], 1).unwrap());
-        assert!(!deliver_report(&book, &inbox, "boss", &report(TurnExit::Completed, "done again"), &[], 2).unwrap());
-        assert!(!deliver_report(&book, &inbox, "boss", &report(TurnExit::Interrupted, "partial"), &[], 3).unwrap());
+        assert!(deliver_report(&book, &Gates(vec![]), &inbox, "boss", &report(TurnExit::Completed, " done: 4 files \n"), &[], 1).unwrap());
+        assert!(!deliver_report(&book, &Gates(vec![]), &inbox, "boss", &report(TurnExit::Completed, "done again"), &[], 2).unwrap());
+        assert!(!deliver_report(&book, &Gates(vec![]), &inbox, "boss", &report(TurnExit::Interrupted, "partial"), &[], 3).unwrap());
         let long = Report { turn: 4, landed: None, ..report(TurnExit::Completed, &format!("Done: {}", "x".repeat(REPORT_CHARS))) };
-        deliver_report(&book, &inbox, "boss", &long, &[], 4).unwrap();
+        deliver_report(&book, &Gates(vec![]), &inbox, "boss", &long, &[], 4).unwrap();
         let posted = inbox.0.into_inner().unwrap();
         assert_eq!(posted[0], ("boss".to_owned(), "[from kid · turn 3 · exit completed · landed abc123] done: 4 files".to_owned(), Delivery::Queued));
         assert_eq!(posted.len(), 2);
@@ -185,23 +251,78 @@ mod tests {
             (Report { reply: Some("Done: 4 files".into()), ..progress.clone() }, true),
             (Report { reply: Some("Not done: the run failed\nStop: landing".into()), ..progress.clone() }, true),
             (Report { reply: Some("Split: two parts".into()), ..progress.clone() }, true),
-            (Report { reply: Some("Stop: decision".into()), ..progress.clone() }, true),
             (Report { reply: Some("Blocked: needs a sign-in".into()), ..progress.clone() }, true),
             (Report { reply: Some("**Done:** 4 files".into()), ..progress }, true),
         ];
         for (n, (report, posted)) in turns.into_iter().enumerate() {
             let (book, inbox) = (Book::default(), Inbox::default());
-            assert_eq!(deliver_report(&book, &inbox, "boss", &report, &lines(2), n as u64).unwrap(), posted, "{report:?}");
+            assert_eq!(deliver_report(&book, &Gates(vec![]), &inbox, "boss", &report, &lines(2), n as u64).unwrap(), posted, "{report:?}");
             assert_eq!(inbox.0.into_inner().unwrap().len(), usize::from(posted), "{report:?}");
         }
+    }
+
+    fn gate(id: i64, closure: Option<Closure>) -> Gate {
+        let request = GateRequest { verification: false, issue: None, session: "kid".into(), question: "Rent the box?".into(), options: vec!["rent".into(), "wait".into()], recommend: 1, default: 2, default_after_ms: 1_800_000 };
+        Gate { id, request, opened_ms: 0, closure }
+    }
+
+    fn stopped(reply: &str) -> Report {
+        Report { landed: None, ..report(TurnExit::Completed, reply) }
+    }
+
+    #[test]
+    fn a_decision_stop_with_no_open_gate_is_answered_by_the_fleet_once_and_not_forwarded() {
+        let (book, inbox) = (Book::default(), Inbox::default());
+        let closed = Closure { answer: "wait".into(), by: crate::fleet::gates::Answerer::Default, closed_ms: 1 };
+        let gates = Gates(vec![gate(7, Some(closed))]);
+        for (n, reply) in ["Not done: needs a call\nStop: decision", "Blocked: decision on the port", "Not done: asked in gate 7\nStop: decision", "Not done: x\nStop: decision (gate 99)"].into_iter().enumerate() {
+            let book = Book::default();
+            let inbox = Inbox::default();
+            let report = Report { turn: n as u64, ..stopped(reply) };
+            assert!(!deliver_report(&book, &gates, &inbox, "boss", &report, &[], 1).unwrap(), "{reply}");
+            let posted = inbox.0.into_inner().unwrap();
+            assert_eq!(posted.len(), 1, "{reply}");
+            let (to, text, delivery) = &posted[0];
+            assert_eq!((to.as_str(), *delivery), ("kid", Delivery::Now));
+            assert!(text.contains("north gate open --session <your session> --question <question> --option <option> --option <option> --recommend N --default N --default-after D"), "{text}");
+            assert!(text.contains("decided, not asked"), "{text}");
+        }
+        assert!(deliver_report(&book, &gates, &inbox, "boss", &stopped("Done: fine\nnot a stop"), &[], 1).unwrap());
+        assert!(deliver_report(&book, &gates, &inbox, "boss", &Report { turn: 9, ..stopped("Not done: x. Blocked: decision is not the opening.") }, &[], 2).unwrap());
+    }
+
+    #[test]
+    fn a_decision_stop_naming_an_open_gate_is_forwarded_with_its_recommendation_and_default_time() {
+        let (book, inbox) = (Book::default(), Inbox::default());
+        let gates = Gates(vec![gate(7, None)]);
+        assert!(deliver_report(&book, &gates, &inbox, "boss", &stopped("Not done: the box needs Tom.\nStop: decision (gate 7)"), &[], 60_000).unwrap());
+        let posted = inbox.0.into_inner().unwrap();
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].0, "boss");
+        assert!(posted[0].1.starts_with("[from kid · turn 3 · exit completed] Not done: the box needs Tom.\nStop: decision (gate 7)\n"), "{}", posted[0].1);
+        assert!(posted[0].1.ends_with("[gate 7 is open: recommends 1 (rent); defaults to 2 (wait) in 29m unless answered with `north gate answer 7 N`]"), "{}", posted[0].1);
+    }
+
+    #[test]
+    fn a_second_decision_stop_without_a_gate_is_forwarded_with_a_warning_so_nothing_deadlocks() {
+        let (book, inbox) = (Book::default(), Inbox::default());
+        let gates = Gates(vec![]);
+        let first = stopped("Not done: x\nStop: decision");
+        assert!(!deliver_report(&book, &gates, &inbox, "boss", &first, &[], 1).unwrap());
+        assert!(deliver_report(&book, &gates, &inbox, "boss", &Report { turn: 4, ..first }, &[], 2).unwrap());
+        let posted = inbox.0.into_inner().unwrap();
+        assert_eq!(posted.len(), 2);
+        assert_eq!(posted[0].0, "kid");
+        assert_eq!(posted[1].0, "boss");
+        assert!(posted[1].1.contains("Stop: decision") && posted[1].1.ends_with(DECISION_WARNING), "{}", posted[1].1);
     }
 
     #[test]
     fn a_failed_turn_is_queued_like_any_receipt_and_carries_the_last_five_transcript_lines() {
         let (book, inbox) = (Book::default(), Inbox::default());
         let failed = report(TurnExit::Failed, "ignored");
-        assert!(!deliver_report(&book, &inbox, "boss", &Report { reply: None, ..failed.clone() }, &lines(7), 0).unwrap());
-        deliver_report(&book, &inbox, "boss", &failed, &lines(7), 1).unwrap();
+        assert!(!deliver_report(&book, &Gates(vec![]), &inbox, "boss", &Report { reply: None, ..failed.clone() }, &lines(7), 0).unwrap());
+        deliver_report(&book, &Gates(vec![]), &inbox, "boss", &failed, &lines(7), 1).unwrap();
         let posted = inbox.0.into_inner().unwrap();
         assert_eq!(posted.len(), 1);
         let (_, text, delivery) = &posted[0];

@@ -25,9 +25,9 @@ pub trait Books: Send + Sync {
     fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>, review: Option<&str>) -> NorthResult<bool>;
 }
 
-pub trait WatchBooks: RunSink + Books + ReceiptBook {}
+pub trait WatchBooks: RunSink + Books + ReceiptBook + GateBook {}
 
-impl<T: RunSink + Books + ReceiptBook> WatchBooks for T {}
+impl<T: RunSink + Books + ReceiptBook + GateBook> WatchBooks for T {}
 
 pub trait FleetBooks: WatchBooks + GateBook {}
 

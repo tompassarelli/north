@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 use crate::fleet::model::{Delivery, Ending, Entry, EntryKind};
-use crate::fleet::gates::{ASKED_REPLY, GateRequest};
+use crate::fleet::gates::{ASKED_REPLY, Closure, Gate, GateBook, GateRequest};
 use crate::fleet::registry::TurnWatch;
 use crate::fleet::receipts::{Courier, ReceiptBook};
 use crate::fleet::turns::{RunRecord, RunSink, TurnExit};
@@ -46,6 +46,24 @@ impl Courier for Recorded {
 
     fn answer(&self, host_dir: &Path, frame: String) {
         self.3.lock().unwrap().push((host_dir.to_path_buf(), frame));
+    }
+}
+
+impl GateBook for Recorded {
+    fn open_gate(&self, _request: &GateRequest, _opened_ms: u64) -> NorthResult<i64> {
+        Ok(0)
+    }
+
+    fn gate(&self, _id: i64) -> NorthResult<Option<Gate>> {
+        Ok(None)
+    }
+
+    fn gates(&self, _closed_since_ms: u64) -> NorthResult<Vec<Gate>> {
+        Ok(Vec::new())
+    }
+
+    fn close_gate(&self, _id: i64, _closure: &Closure) -> NorthResult<bool> {
+        Ok(false)
     }
 }
 

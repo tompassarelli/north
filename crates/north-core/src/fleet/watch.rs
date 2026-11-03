@@ -343,7 +343,7 @@ impl TurnWatch {
         let (reply, lines) = view.map(|view| (view.reply, view.transcript.entries)).unwrap_or_default();
         let landed = landings::landed_between(record, &landings::pushes_of(record, &push_log()), turn.started_ms, turn.ended_ms);
         let report = Report { child: record.name.clone(), turn: number, exit: turn.exit, landed, reply };
-        if let Err(error) = deliver_report(self.ledger.as_ref(), self.courier.as_ref(), parent, &report, &lines, now_ms()) {
+        if let Err(error) = deliver_report(self.ledger.as_ref(), self.ledger.as_ref(), self.courier.as_ref(), parent, &report, &lines, now_ms()) {
             eprintln!("north fleet: receipt to {parent} not sent: {}", error.user_message());
         }
     }
@@ -452,7 +452,7 @@ mod tests {
 
     use crate::error::{NorthError, NorthResult};
     use crate::fleet::books::{Books, Landing, SessionSpend};
-    use crate::fleet::gates::GateRequest;
+    use crate::fleet::gates::{Closure, Gate, GateBook, GateRequest};
     use crate::fleet::receipts::ReceiptBook;
     use crate::fleet::turns::RunSink;
 
@@ -494,6 +494,24 @@ mod tests {
     impl ReceiptBook for Books0 {
         fn claim_receipt(&self, _session: &str, _key: &str, _claimed_ms: u64) -> NorthResult<bool> {
             Ok(true)
+        }
+    }
+
+    impl GateBook for Books0 {
+        fn open_gate(&self, _request: &GateRequest, _opened_ms: u64) -> NorthResult<i64> {
+            Ok(0)
+        }
+
+        fn gate(&self, _id: i64) -> NorthResult<Option<Gate>> {
+            Ok(None)
+        }
+
+        fn gates(&self, _closed_since_ms: u64) -> NorthResult<Vec<Gate>> {
+            Ok(Vec::new())
+        }
+
+        fn close_gate(&self, _id: i64, _closure: &Closure) -> NorthResult<bool> {
+            Ok(false)
         }
     }
 

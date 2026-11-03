@@ -44,5 +44,6 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 ## Reports
 
 - Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`, so the ledger can classify it. The last message is the report: keep no status files and never resume a worker to check on it.
+- Decide routine calls yourself. A `Stop: decision` or `Blocked: decision` report must name an open gate from `north gate open ... --recommend N --default N --default-after D`; the fleet answers the first ungated one instead of forwarding it, and forwards a later one with a warning (Tom, 2026-10-29).
 - Report a fix as landed only after fetching origin and verifying its SHA is an ancestor of `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <branch>`.
 - A `Split:` puts its parts as boxes on its own issue, never new issues; read [run-and-land.md](references/run-and-land.md#reports) when a worker splits or reports findings.

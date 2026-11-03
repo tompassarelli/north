@@ -800,7 +800,7 @@ fn a_childs_not_done_report_reaches_its_parent_once_within_ten_seconds_and_a_wor
     for name in ["boss", "busy", "quiet", "kid"] {
         north(root, &["fleet", "forget", name]);
     }
-    assert!(shown.contains("[from kid · turn 1 · exit completed] Not done: test\n  Stop: decision"), "{shown}");
+    assert!(shown.contains("[from kid · turn 1 · exit completed] Not done: test\n  Stop: landing"), "{shown}");
     assert_eq!(shown.matches("[from kid ").count(), 1, "one message per turn end: {shown}");
     assert_eq!(shown.matches("[from busy ").count() + shown.matches("[from quiet ").count(), 0, "a working or idle child posts nothing: {shown}");
     let lag = heard_at.duration_since(reported).expect("the report is posted after the child's last stream write");

@@ -10,7 +10,7 @@ const TASK: &str = "fake-task";
 const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|crash [ARG...]";
 const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
-const NOT_DONE_REPORT: &str = "Not done: test\nStop: decision";
+const NOT_DONE_REPORT: &str = "Not done: test\nStop: landing";
 const SIGNED_OUT: &str = "Not logged in · Please run /login";
 const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could not be refreshed";
 
