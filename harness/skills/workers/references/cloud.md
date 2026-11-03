@@ -1,8 +1,17 @@
 # Cloud workers (Claude-only)
 
-Read this when `north fleet launch` refuses a box for `anthropic-cloud` (or `agents plan --place` prints `target anthropic-cloud`), or when you write a RemoteTrigger routine. Both lanes run Claude in Anthropic's cloud.
+Read [Placement](#placement) for where a box runs. Read the rest when `north fleet launch` refuses a box for `anthropic-cloud` (or `agents plan --place` prints `target anthropic-cloud`), or when you write a RemoteTrigger routine. Both lanes run Claude in Anthropic's cloud.
 
 The launcher enforces placement: `north fleet launch` of a code-only box on a public repository exits nonzero with the cloud-host `north cloud launch` command below and how the box lands, unless `--local "REASON"` is given, which the session records and `north fleet list` shows. A box is code-only only when its brief declares a code `Surface:` (rust, ts, lua, shell...), no local `Needs:` (warcraft, native, sign-ins, private, local-state, tui, fleet, live) and a public repository (`Repository:` or the `Item:` repo); an undeclared box stays local.
+
+## Placement
+
+Read this section when a box may need a local client, a GPU or the laptop, when placement holds it, or when you override it.
+
+- Send every code-only item in every repository (north, south, nixos-config, firn, makgora, wisp) to a cloud worker first, builds and ports included, because local cores are reserved for clients and native work; a direct `codex exec` or cargo run on the laptop is a local worker. Staff local workers only for real-game clients, private game assets, the LAN pool or unpushed local state. A broken or slow cloud lane is an incident to fix the same tick, never a reason to run code-only work on the laptop.
+- `north fleet launch` places each box before it starts (`agents plan --place BRIEF` prints the same verdict): `anthropic-cloud` per this file for a code-only public box while the credit lasts, otherwise the Claude account with the most headroom, or `held: <reason>`. An account is out only when its 5h window is at or over 95%, its measured 5h burn is over 50%/h (the `five_hour_burn_cap_pct_h` default, so a window lasts at least two hours), or the provider reports its week exhausted; pace lines, projections and the pace controller's held, over and allowed workers never hold, in `north fleet launch` and the Agent-tool spawn gate alike. Declare `Surface:` on every brief and mark a box that is not code-only with `Needs: warcraft|native|sign-ins|private|local-state|tui|fleet`, because an undeclared box stays local. Override only with `--local "REASON"` or `--account A --pin "REASON"`, which the session records.
+- Tell a worker whose output Tom is waiting on to add `--priority tom-ask` to its capacity runs, and never to use `--class tom`, because the tom class belongs to the play path's own builds and machine-capacity refuses it for other owners, while the priority places the ticket first in its class and still obeys pressure (north#460).
+- Send a worker's native-window or GPU work to the remote Warcraft host (south:agents/skills/battlenet-accounts/) while Tom is present, because an agent's 5696x3680 native window held the laptop GPU at 100% and made his desktop choppy (2026-10-31); capacity admission queues it on the laptop.
 
 ## Cloud credit lane
 

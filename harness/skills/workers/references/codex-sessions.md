@@ -4,6 +4,8 @@ Read this for a Codex Fleet session, when you write a Codex brief, route a box t
 
 ## Tiers and routing
 
+- Tom has staffed Claude alone since 2026-10-16 (standing order: no Codex subscription for the foreseeable future); every workers rule holds on any provider unless marked Claude-only, so the provider seam survives a provider switch.
+- A Codex session runs anything that may take over about 45 seconds as a background or unified-exec session.
 - Set model and effort explicitly on every Codex spawn, because defaults drift. Never use Codex low (except luna-low) or max.
   - luna-low: `spawn_agent`, model `gpt-6-luna`, reasoning_effort `low`; mechanical work only (exact edits, lookups, triage, named checks), after Haiku. The unlabeled `gpt-6-luna medium` runs of 1-5 Oct are not outcome evidence.
   - medium, high: `spawn_agent`, model `gpt-6.1-sol`, reasoning_effort `medium` or `high`. Sol takes a middle-band box only when `the Codex brief check in crates/north-core/src/router/brief.rs` passes it.
