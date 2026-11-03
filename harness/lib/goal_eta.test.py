@@ -43,7 +43,7 @@ class Scale(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             path = Path(scratch) / "ledger.db"
             db = goal_eta.sqlite3.connect(path)
-            db.execute("CREATE TABLE runs (agent TEXT, role TEXT, item TEXT, category TEXT, outcome TEXT, staffed TEXT, started TEXT, ended TEXT, landed INT, landed_at TEXT, cost_usd REAL)")
+            db.execute("CREATE TABLE runs (agent TEXT, role TEXT, brief_text TEXT, minutes REAL, item TEXT, category TEXT, outcome TEXT, staffed TEXT, started TEXT, ended TEXT, landed INT, landed_at TEXT, cost_usd REAL)")
             db.execute("CREATE TABLE calibration (at TEXT, kind TEXT, cell TEXT, n INT, p25 REAL, median REAL, p75 REAL, value REAL, source TEXT)")
             at = goal_eta.datetime.now(goal_eta.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             db.execute("INSERT INTO calibration VALUES (?, 'box', 'all', 563, 0.31, 0.78, 1.99, 1.99, 'measured')", (at,))
