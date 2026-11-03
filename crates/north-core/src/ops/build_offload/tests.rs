@@ -136,3 +136,18 @@ fn capacity_a_command_naming_the_lanes_or_the_main_checkouts_laptop_path_stays_l
     let relative = ["cargo".to_owned(), "test".to_owned(), "--manifest-path".to_owned(), "crates/a/Cargo.toml".to_owned()];
     assert!(gather(&lane_dir, &hosts.laptop).unwrap().ship(&relative).is_ok());
 }
+
+#[test]
+fn capacity_a_command_that_moves_into_another_lane_of_the_project_stays_local_instead_of_shipping_the_callers_tree() {
+    let hosts = hosts();
+    let caller = hosts.lane("caller");
+    let other = hosts.lane("other");
+    let tilde = format!("~/{}", other.strip_prefix(&hosts.laptop).unwrap().display());
+    for directory in [caller.clone(), hosts.main()] {
+        for target in [other.display().to_string(), tilde.clone()] {
+            let words = ["bash".to_owned(), "-c".to_owned(), format!("cd {target} && cargo test")];
+            let declined = gather(&directory, &hosts.laptop).unwrap().ship(&words).err();
+            assert_eq!(declined.map(|declined| declined.reason()), Some("refused: absolute path".to_owned()), "{} shipped for {target}", directory.display());
+        }
+    }
+}
