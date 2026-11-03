@@ -104,7 +104,7 @@ fn lease_whose_wrapper_pid_the_host_cannot_resolve_is_reclaimed_once_its_scope_i
     let id = "60e7e7e1-9443-44ba-9fb9-eff794cca57f";
     let lease = json!({
         "schema": "agent-capacity-lease/v1", "id": id, "kind": "run", "class": "heavy", "aggregateSlice": "agent-capacity.slice",
-        "owner": "smashcraft:inputs-derive", "cpus": 6.01, "memoryMiB": 9834, "createdAt": now - 600_000,
+        "owner": "makgora:inputs-derive", "cpus": 6.01, "memoryMiB": 9834, "createdAt": now - 600_000,
         "expiresAt": now + 3_000_000, "wrapperPid": 839, "wrapperStart": null,
     });
     fs::create_dir_all(host.path("agent-capacity-v1/leases")).unwrap();

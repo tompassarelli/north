@@ -41,7 +41,7 @@ struct Recorded {
 }
 
 fn recorded() -> Recorded {
-    let fixture: Value = serde_json::from_str(include_str!("fixtures/smashcraft-2026-10-11.json")).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/makgora-2026-10-11.json")).unwrap();
     let named = |fields: &Value, values: &Value| -> Value {
         let mut item: serde_json::Map<String, Value> = fields.as_array().unwrap().iter().zip(values.as_array().unwrap()).map(|(field, value)| (field.as_str().unwrap().to_owned(), value.clone())).collect();
         item.insert("workflowName".into(), "Autoland".into());
@@ -80,7 +80,7 @@ fn row(recorded: &Recorded, now: f64) -> Value {
 }
 
 fn parent() -> Vec<Node> {
-    vec![Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }]
+    vec![Node { id: "makgora-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }]
 }
 
 #[test]
@@ -134,8 +134,8 @@ fn replay_alerts(recorded: &Recorded) {
     assert!((at("2026-10-11T13:36:00Z")..=at("2026-10-11T14:10:00Z")).contains(&first), "{first}");
     let mut recipients: Vec<(&str, &str)> = events["stall"].iter().filter(|(at, _)| *at == first).map(|(_, action)| (action.channel, action.node.as_str())).collect();
     recipients.sort_unstable();
-    assert_eq!(recipients, [("fleet", "proxy"), ("fleet", "smashcraft-parent")]);
-    assert_eq!(row(recorded, first)["stall"]["runner"], "vast-smashcraft-8");
+    assert_eq!(recipients, [("fleet", "makgora-parent"), ("fleet", "proxy")]);
+    assert_eq!(row(recorded, first)["stall"]["runner"], "vast-makgora-8");
 }
 
 fn deliver_alerts(recorded: &Recorded) {
@@ -144,7 +144,7 @@ fn deliver_alerts(recorded: &Recorded) {
     let directory = tempfile::tempdir().unwrap();
     let places = places(directory.path());
     let sends = RefCell::new(Vec::<String>::new());
-    let fleet = json!([{"name": "smashcraft-parent", "conversation": "smashcraft-session", "parent": null, "provider": "claude", "status": "working", "cwd": "/home/tom/code/makgora/main"}]).to_string();
+    let fleet = json!([{"name": "makgora-parent", "conversation": "makgora-session", "parent": null, "provider": "claude", "status": "working", "cwd": "/home/tom/code/makgora/main"}]).to_string();
     let reply = |argv: &[&str]| match argv {
         ["north", "fleet", "list", "--json"] => Some(fleet.clone()),
         ["north", "fleet", "send", node, text] => {
@@ -164,7 +164,7 @@ fn deliver_alerts(recorded: &Recorded) {
     stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 1200.0).unwrap();
     assert_eq!(sends.borrow().len(), 4);
     assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send proxy ")));
-    assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send smashcraft-parent ")));
+    assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send makgora-parent ")));
     let initial = std::fs::read_to_string(&state_path).unwrap();
     stall_alert(&places, &host, &[json!({"repo": "makgora", "stall": "error"})], first + 600.0).unwrap();
     assert_eq!(std::fs::read_to_string(&state_path).unwrap(), initial);
@@ -308,7 +308,7 @@ fn a_farm_job_is_held_to_twice_the_farm_median_not_the_faster_hosted_one() {
     let pools = pool_medians(&history);
     assert!((pools["computer-1"]["hosted"] - 25.0 / 60.0).abs() < 1e-9 && (pools["computer-1"]["self-hosted"] - 1.5).abs() < 1e-9, "{pools:?}");
     let medians = Medians::from([("farm-test.yml".to_owned(), WorkflowMedians { run: Some(1.0), jobs, pools })]);
-    let running = |minutes: f64, pool: Option<&str>| Job { workflow: "farm-test.yml".into(), run_id: 1, name: "computer-1".into(), started_at: now - minutes * 60.0, runner: "gex45-smashcraft-2".into(), pool: pool.map(str::to_owned) };
+    let running = |minutes: f64, pool: Option<&str>| Job { workflow: "farm-test.yml".into(), run_id: 1, name: "computer-1".into(), started_at: now - minutes * 60.0, runner: "gex45-makgora-2".into(), pool: pool.map(str::to_owned) };
     let overdue = |job: Job| verdict(&facts(now, now, &[now], 0, &[job], &medians, None)).overdue_jobs;
     assert!(overdue(running(2.0, Some("self-hosted"))).is_empty());
     let late = overdue(running(4.0, Some("self-hosted")));

@@ -433,6 +433,6 @@ server per host, its statistics zeroed before each row. Rows are indicative only
   not counted)**, most likely because their objects and include paths sit
   under the lane's `OUT_DIR` **(not isolated)**; with
   them, 168 Rust hits still left the second lane slower than the first.
-- Adopted: the wisp `window/` and smashcraft-client shells now run
+- Adopted: the wisp `window/` and makgora-client shells now run
   the host repository's `target-seed` command as its own shell does; before this the two shells never
   seeded, so every lane there compiled from scratch. sccache is not adopted.

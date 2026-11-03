@@ -4,7 +4,7 @@ Read this to publish a map release on Hive Workshop: replace the map file, updat
 
 ## Where things are
 
-- Mak'gora's bundle thread is https://www.hiveworkshop.com/threads/smashcraft.375492/ and its page editor is https://www.hiveworkshop.com/bundles/smashcraft.375492/edit (title, description, images, tags).
+- Mak'gora's bundle thread is https://www.hiveworkshop.com/threads/smashcraft.375492/ and its page editor is https://www.hiveworkshop.com/bundles/makgora.375492/edit (title, description, images, tags).
 - The map file lives in a resource inside the bundle, edited at `/resources/<slug>.<id>/edit` (Mak'gora: id 170520); find the current slug through the thread page's `Edit` link under the resource, because Hive renames the slug after the uploaded map's title.
 - The page text is makgora:docs/hive-post.md; `bun run hive:post` from makgora's `ts/` prints it as Hive BBCode.
 

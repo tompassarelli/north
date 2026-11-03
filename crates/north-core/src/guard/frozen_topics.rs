@@ -172,7 +172,7 @@ mod tests {
         for (command, repo, title) in [
             ("gh issue create --title 'Anub-arak scorecard'", "tompassarelli/makgora", ""),
             ("gh issue create --title 'Kobold rope'", "tompassarelli/wisp", ""),
-            ("gh issue create --title 'Kobold rope'", "someone/smashcraft", ""),
+            ("gh issue create --title 'Kobold rope'", "someone/makgora", ""),
             ("gh issue reopen 5", "tompassarelli/makgora", "Anub-arak slam"),
             ("gh issue comment 5 --body 'kobold'", "tompassarelli/makgora", "Kobold"),
             ("gh issue create --title ok --body 'mentions kobold'", "tompassarelli/makgora", ""),

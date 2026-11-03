@@ -53,7 +53,7 @@ test("a stale lock with no live review node is retaken", () => {
 });
 
 test("a launch the first account cannot take is retried once on the account placement names", () => {
-  const { root, env } = scratch(`echo "FIRE days 7"`); writeFileSync(join(root, "fleet.json"), JSON.stringify([{ name: "code-health-review-smashcraft" }, { name: reviewName("makgora", new Date(env.now().getTime() - 3_600_000)) }]));
+  const { root, env } = scratch(`echo "FIRE days 7"`); writeFileSync(join(root, "fleet.json"), JSON.stringify([{ name: "code-health-review-makgora" }, { name: reviewName("makgora", new Date(env.now().getTime() - 3_600_000)) }]));
   expect(tickRepo("makgora", { ...env, dryRun: false }, () => {}).result).toBe("started");
   const launches = readFileSync(join(root, "north-calls"), "utf8").split("\n").filter((line) => line.startsWith("fleet launch"));
   expect(launches).toHaveLength(2); expect(launches[0]).toContain("--account b"); expect(launches[1]).toContain("--account c");

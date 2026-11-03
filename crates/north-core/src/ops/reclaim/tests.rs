@@ -343,8 +343,8 @@ fn the_capture_batch_sweep_reads_its_cap_from_the_hosts_disk_budget_and_keeps_pi
 #[test]
 fn a_mutant_checkout_a_landing_run_left_goes_once_idle_and_held_by_no_process() {
     let machine = Machine::new();
-    let left = machine.dir("cache/north/mutant/smashcraft/4242-1700000000", 3 * DAY);
-    let fresh = machine.dir("cache/north/mutant/smashcraft/4243-1700000001", Duration::from_secs(600));
+    let left = machine.dir("cache/north/mutant/makgora/4242-1700000000", 3 * DAY);
+    let fresh = machine.dir("cache/north/mutant/makgora/4243-1700000001", Duration::from_secs(600));
     let held = machine.dir("cache/north/mutant/north/4244-1700000002", 3 * DAY);
     machine.dir("proc/4244/fd", DAY);
     symlink(&held, machine.path("proc/4244/fd/3")).unwrap();

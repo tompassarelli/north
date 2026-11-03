@@ -10,7 +10,7 @@
     "quiet": false
   },
   {
-    "report": "I scored 1 move and wrote it to `/home/tom/.local/share/smashcraft-animation-reference/sc344-j10/scores-23.jsonl`. The batch file named `scores-1.jsonl`, but I used your path instead.\n\n```json\n{\"look\":\"classic\",\"fighter\":\"grom-hellscream\",\"move\":\"dash-attack\",\"judge\":\"judge-344-23-claude\",\"readability\":3,\"weight\":2,\"anticipation\":2,\"followThrough\":3,\"character\":3,\"note\":\"The axe swings in a slow a",
+    "report": "I scored 1 move and wrote it to `/home/tom/.local/share/makgora-animation-reference/sc344-j10/scores-23.jsonl`. The batch file named `scores-1.jsonl`, but I used your path instead.\n\n```json\n{\"look\":\"classic\",\"fighter\":\"grom-hellscream\",\"move\":\"dash-attack\",\"judge\":\"judge-344-23-claude\",\"readability\":3,\"weight\":2,\"anticipation\":2,\"followThrough\":3,\"character\":3,\"note\":\"The axe swings in a slow a",
     "outcome": "done",
     "quiet": false
   },

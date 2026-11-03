@@ -222,7 +222,7 @@ personal blog) that teams delete whole suites.
 ## Lessons from exemplary suites
 
 Chosen because someone outside the code, or its maintainers in a published
-write-up, credit the suite; each with what maps onto Smashcraft and Wisp.
+write-up, credit the suite; each with what maps onto Mak'gora and Wisp.
 
 - [E1] SQLite. Claim: "How SQLite Is Tested", https://sqlite.org/testing.html,
   D. Richard Hipp et al., updated 2026-04-21; Hipp on CoRecursive #066,
@@ -327,7 +327,7 @@ nightly cluster, TigerBeetle's 1,000-core fuzzing.
 - [R1] Test-lean reviews of the seven repositories south:agents/references/test-lean.md
   lists, one handoff file per repository. Took:
   the PATTERN lines summed into the delete-on-sight counts; the wisp and
-  smashcraft "empty file" censuses were refuted by the runner.
+  makgora "empty file" censuses were refuted by the runner.
 - [R2] `agent-test-failure-research.md` in the same directory, top gaps 1-5.
   Took: the five gaps and their candidate checks.
 - [R3] `codex-lessons.md`, agent-CLI lead lines of 2026-10-11. Took: a reviewer
@@ -355,7 +355,7 @@ product code ignores test literals (gap 4); both are review-only today.
   frequency measure flow, while change failure rate and time to restore measure
   safety. A fast gate with auto-revert trades a slightly higher change failure
   rate for a much shorter lead time.
-- [F3] Measured in Smashcraft on 11 Oct: each landing ran about 30 hosted jobs,
+- [F3] Measured in Mak'gora on 11 Oct: each landing ran about 30 hosted jobs,
   about 100 job-minutes and 20 minutes of compute (6 of them on reports), took
   35-53 minutes of wall time in 2 serial slots, and landed about 5 an hour
   against about 13 pushes an hour. 22 were waiting, and push to land took about
@@ -373,7 +373,7 @@ product code ignores test literals (gap 4); both are review-only today.
   opencode 267 merged, 2.7 h; OpenHands 142, 12.1 h, CI 14 min; Zed 144,
   17.8 h; Cline 54, 16.3 h, CI 10.3 min; Goose 38, 19.5 h, CI 9.1 min; Bun CI
   6.4 min. openai/codex merges through a sync bot, so it isn't comparable.
-  Smashcraft main took 3,988 commits in the same week, more than any of them,
+  Mak'gora main took 3,988 commits in the same week, more than any of them,
   but push to land took about 4-6 h on 11 Oct. Their latency is mostly human
   review, which we don't have, so our push to land should be bounded by check
   time alone. Aim for parity with AI-heavy projects up to an order of magnitude

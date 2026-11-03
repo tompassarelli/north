@@ -175,7 +175,7 @@ fn status_reports_a_reserve_whose_slices_still_reach_the_game_cpus_as_not_enforc
 
 #[test]
 fn toms_game_is_warcraft_iii_or_a_wisp_native_window_outside_the_agent_slices() {
-    let app = format!("{USER}/app.slice/smashcraft-tom-1.service");
+    let app = format!("{USER}/app.slice/makgora-tom-1.service");
     let agent = format!("{USER}/agent.slice/agent-capacity.slice/run-1.scope");
     let cases = [
         ("bun", app.as_str(), "bun scripts/wisp.ts play --standalone --window native --map current.w3x", true),
@@ -201,7 +201,7 @@ fn toms_game_is_warcraft_iii_or_a_wisp_native_window_outside_the_agent_slices() 
 fn auto_keeps_the_reserve_on_while_toms_wisp_window_runs_and_releases_it_after_the_idle_period() {
     let root = tempfile::tempdir().unwrap();
     let mut settings = settings(root.path());
-    let app = format!("{USER}/app.slice/smashcraft-tom-1.service");
+    let app = format!("{USER}/app.slice/makgora-tom-1.service");
     named(&settings.proc, 40, 1, "bun", &app, "bun scripts/wisp.ts play --standalone --window native", UPTIME);
     game_reserve::auto(&settings).unwrap();
     let state = || fs::read_to_string(root.path().join("state.json")).unwrap();

@@ -8,7 +8,7 @@ Read this to design, dress or judge a stage's look: backdrop, scenery, set piece
 - Read ~/.local/share/makgora-stage-references/README.md and view its images before changing art, because judgment needs the reference beside the work.
 - Use Nintendo reference captures only for judgment, never committing, importing or tracing them, because they are Nintendo's art.
 - Choose a reference matching the stage's layout (horizon band, close set pieces, enclosed arena, large object, or floating island over vivid sky), because a mismatched reference misjudges composition.
-- Inspect `00-anti-smashcraft-tomb-0.0.100.png` as the rejected empty composition, because it is the failure to avoid.
+- Inspect `00-anti-makgora-tomb-0.0.100.png` as the rejected empty composition, because it is the failure to avoid.
 
 ## Composition
 

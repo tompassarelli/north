@@ -155,7 +155,7 @@ units = [{"scope": "system", "name": "getty@tty1.service", "cores": 0, "csPerSec
          {"scope": "user", "name": "niri.service", "cores": 0.05, "csPerSec": 9}, {"scope": "user", "name": "worker-ledger.timer"},
          {"scope": "user", "name": "worker-ledger.service", "cores": 0.01, "csPerSec": 2},
          {"scope": "user", "name": "app-niri-ghostty-1.scope", "cores": 0.3, "csPerSec": 150, "agent": "claude"}]
-extra = [{"scope": "user", "name": "smashcraft-green-builds.timer"}, {"scope": "user", "name": "smashcraft-vm-retention.timer"},
+extra = [{"scope": "user", "name": "makgora-green-builds.timer"}, {"scope": "user", "name": "makgora-vm-retention.timer"},
          {"scope": "user", "name": "agent-capacity-presence.service", "cores": 0.01, "csPerSec": 29},
          {"scope": "system", "name": "getty@tty1.service", "cores": 0.03, "csPerSec": 5}]
 sockets = ["tcp 127.0.0.1:7070 kanata-main.service", "udp 0.0.0.0:51820 -"]
@@ -163,7 +163,7 @@ json.dump({"seconds": 30, "units": units[1:] + extra, "sockets": sockets + ["tcp
 json.dump({"seconds": 30, "units": units, "sockets": sockets}, open(f"{d}/rest-observed.json", "w"))
 PY
 "$target" rest-check --expected "$scratch/rest.json" --observed "$scratch/busy.json" >"$scratch/busy.out"; code=$?
-[ "$code" = 1 ] && [ "$(grep -c '^extra user unit: \(smashcraft-green-builds.timer\|smashcraft-vm-retention.timer\|agent-capacity-presence.service\)' "$scratch/busy.out")" = 3 ] \
+[ "$code" = 1 ] && [ "$(grep -c '^extra user unit: \(makgora-green-builds.timer\|makgora-vm-retention.timer\|agent-capacity-presence.service\)' "$scratch/busy.out")" = 3 ] \
   && grep -q '^extra socket: tcp 0.0.0.0:22 sshd.service$' "$scratch/busy.out" && grep -q '^over budget: system getty@tty1.service 0.03 cores > 0.02' "$scratch/busy.out" \
   && grep -q '^agent: user app-niri-ghostty-1.scope' "$scratch/busy.out" && ! grep -q 'extra.*\(ghostty\|niri\|worker-ledger\|51820\)' "$scratch/busy.out" \
   && check ok 'rest-check exits 1 naming extra units, sockets and over-budget units, and lists agents apart' || check bad 'rest-check extras' "exit $code: $(cat "$scratch/busy.out")"

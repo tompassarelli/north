@@ -217,7 +217,7 @@ fn a_label_logged_in_to_another_labels_account_is_omitted_from_accounts_and_refu
 }
 
 #[test]
-fn a_box_that_needs_native_on_smashcraft_starts_with_that_capacity_need() {
+fn a_box_that_needs_native_on_makgora_starts_with_that_capacity_need() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root);

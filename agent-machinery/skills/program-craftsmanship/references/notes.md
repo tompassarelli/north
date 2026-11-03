@@ -72,7 +72,7 @@ reproduced defect. Restating the implementation, pinning incidental constants
 or duplicating what the differential check already covers makes the result
 harder to change without making it safer.
 
-Evidence: requested by the owner on 5 October 2026 during the Smashcraft
+Evidence: requested by the owner on 5 October 2026 during the Mak'gora
 Wurst-to-TypeScript port, after a deterministic converter produced compiling
 but Java-shaped TypeScript; the owner asked for idiomatic target code with no
 source-language cosplay.

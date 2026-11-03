@@ -978,7 +978,7 @@ def pre_scaffold(event):
         "B. The build or run fails without it: name the command and its error.\n"
         "C. Traceability, safety or readiness for later: stop and drop that part. On 8 Oct "
         "the #168 worker committed tapes.sha256, a generator SHA256 and 384 KB of samples, "
-        "and 20 of 180 Smashcraft commits only added such records (evidence/ is 391 MB).\n"
+        "and 20 of 180 Mak'gora commits only added such records (evidence/ is 391 MB).\n"
         "D. Another tool requires this format: treat it as B.\n"
         "To proceed with B or D, run `: justify scaffold B \"<command and its error>\"`, then "
         "retry the patch. Otherwise put the result in the issue comment. " + PEER_LINE

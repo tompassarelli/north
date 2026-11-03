@@ -6,7 +6,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 
-const PLACEMENT: &str = "[placement]\norder = [\"gex45\", \"anthropic-cloud\", \"nexus\", \"laptop\"]\n\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native:wisp\", \"private:smashcraft\", \"native:smashcraft\", \"warcraft:smashcraft\"]\n\n[hosts.whiterabbit]\nserves = [\"private\", \"native\", \"warcraft\"]\n";
+const PLACEMENT: &str = "[placement]\norder = [\"gex45\", \"anthropic-cloud\", \"nexus\", \"laptop\"]\n\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native:wisp\", \"private:makgora\", \"native:makgora\", \"warcraft:makgora\"]\n\n[hosts.whiterabbit]\nserves = [\"private\", \"native\", \"warcraft\"]\n";
 
 fn first_decision(host: &Host, need: &str) -> Value {
     fs::write(host.path("pressure"), "some avg10=90.00 avg60=0.00 avg300=0.00 total=0\n").unwrap();
@@ -27,9 +27,9 @@ fn first_decision(host: &Host, need: &str) -> Value {
 }
 
 #[test]
-fn a_heavy_run_from_a_native_smashcraft_box_above_the_thread_count_queues_naming_gex45() {
+fn a_heavy_run_from_a_native_makgora_box_above_the_thread_count_queues_naming_gex45() {
     let host = Host::new("capacity-overload-", &[("systemd-run", &scope_systemd_run("\"$@\"")), ("systemctl", SCOPE_SYSTEMCTL)]);
-    let line = first_decision(&host, "native:smashcraft");
+    let line = first_decision(&host, "native:makgora");
     assert_eq!((line["decision"].as_str(), line["reason"].as_str(), line["offload"].as_str()), (Some("QUEUED"), Some("DEFER_RUN_QUEUE"), Some("gex45")), "{line}");
     let unserved = first_decision(&host, "private:galileo");
     assert_eq!((unserved["reason"].as_str(), unserved.get("offload")), (Some("DEFER_RUN_QUEUE"), None), "{unserved}");

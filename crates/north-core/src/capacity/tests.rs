@@ -80,8 +80,8 @@ fn overload_admission(class: &str, need: Option<&str>) -> Admission {
 fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_host() {
     for class in ["heavy", "exclusive"] {
         let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None, pair: None, quiet_owners: Vec::new() };
-        assert_eq!(overload_admission(class, Some("native:smashcraft")), refused(Some("gpu-host")), "{class}");
-        assert_eq!(overload_admission(class, Some("private:smashcraft")), refused(Some("gpu-host")), "{class}");
+        assert_eq!(overload_admission(class, Some("native:makgora")), refused(Some("gpu-host")), "{class}");
+        assert_eq!(overload_admission(class, Some("private:makgora")), refused(Some("gpu-host")), "{class}");
         assert_eq!(overload_admission(class, Some("private:galileo")), refused(None), "{class}");
         assert_eq!(overload_admission(class, None), refused(None), "{class}");
     }
@@ -90,22 +90,22 @@ fn run_queue_over_thread_count_refuses_heavy_and_exclusive_naming_the_serving_ho
 #[test]
 fn run_queue_offload_names_only_another_host_that_serves_every_need() {
     let refused = |offload: Option<&str>| Admission { reason: Reason::DeferRunQueue, offload: offload.map(str::to_owned), aperture: None, disk_free_gib: None, pair: None, quiet_owners: Vec::new() };
-    assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:smashcraft")), refused(Some("gpu-host")));
-    assert_eq!(overload_admission("heavy", Some("native:smashcraft,private:galileo")), refused(None));
-    let (facts, hosts) = overload("heavy", Some("native:smashcraft"));
+    assert_eq!(overload_admission("heavy", Some("native:makgora,private:makgora")), refused(Some("gpu-host")));
+    assert_eq!(overload_admission("heavy", Some("native:makgora,private:galileo")), refused(None));
+    let (facts, hosts) = overload("heavy", Some("native:makgora"));
     assert_eq!(admit(&facts, |needs| crate::ops::pacing::placement::gate::serving(&hosts, needs, "gpu-host")), refused(None));
 }
 
 #[test]
 fn run_queue_over_thread_count_still_admits_moderate_critical_and_tom() {
     for class in ["moderate", "critical", "tom"] {
-        assert_eq!(overload_admission(class, Some("native:smashcraft")), Admission { reason: Reason::Run, offload: None, aperture: None, disk_free_gib: None, pair: None, quiet_owners: Vec::new() }, "{class}");
+        assert_eq!(overload_admission(class, Some("native:makgora")), Admission { reason: Reason::Run, offload: None, aperture: None, disk_free_gib: None, pair: None, quiet_owners: Vec::new() }, "{class}");
     }
 }
 
 #[test]
 fn heavy_runs_only_while_the_run_queue_leaves_room_for_its_cpus_under_the_thread_count() {
-    let (mut facts, _) = overload("heavy", Some("native:smashcraft"));
+    let (mut facts, _) = overload("heavy", Some("native:makgora"));
     facts.run_queue_load = Some(f64::from(facts.cores) - facts.requested_cpus);
     assert_eq!(decide(&facts), Reason::Run);
     facts.run_queue_load = Some(f64::from(facts.cores) - facts.requested_cpus + 0.5);

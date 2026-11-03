@@ -104,7 +104,7 @@ fn session_start_lists_the_holders_archives_and_the_stale_lane_count() {
     assert!(!context.contains("archive/feature/other-10"), "{context}");
 
     let report = rig.scratch.path().join("unlanded.txt");
-    std::fs::write(&report, "48h\tsmashcraft\tfixture\tfeature/resume-10\n").unwrap();
+    std::fs::write(&report, "48h\tmakgora\tfixture\tfeature/resume-10\n").unwrap();
     let context = rig.start(&rig.payload(), &[("LANE_GC_UNLANDED", &report)], None).unwrap();
     assert!(context.starts_with("1 unlanded worktrees/branches older than 24 h"), "{context}");
     assert!(context.contains("archived: archive/feature/resume-10"), "{context}");

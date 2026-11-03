@@ -8,7 +8,7 @@ fn gpu_work_waits_for_a_busy_laptop_gpu_while_tom_is_present_and_names_the_host_
         (facts.profile, facts.gpu_busy_percent, facts.gpu_runs, facts.run_queue_load) = (profile, busy, gpu_runs, Some(0.0));
         admit(&facts, |needs| crate::ops::pacing::placement::gate::serving(&hosts, needs, "here"))
     };
-    let native = Some("native:smashcraft");
+    let native = Some("native:makgora");
     let deferred = admitted("heavy", native, Profile::Attended, 100, 0);
     assert_eq!((deferred.reason, deferred.offload.as_deref()), (Reason::DeferGpuBusy, Some("gpu-host")));
     assert_eq!(admitted("gpu", None, Profile::Attended, 100, 0).reason, Reason::DeferGpuBusy);
@@ -47,7 +47,7 @@ fn a_tom_class_request_is_admitted_while_the_busy_gpu_defers_native_and_gpu_work
         (facts.profile, facts.gpu_busy_percent, facts.gpu_runs, facts.run_queue_load) = (Profile::Attended, 100, 0, Some(0.0));
         admit(&facts, |needs| crate::ops::pacing::placement::gate::serving(&hosts, needs, "here")).reason
     };
-    let native = Some("native:smashcraft");
+    let native = Some("native:makgora");
     assert_eq!(admitted("tom", native), Reason::Run);
     assert_eq!(admitted("tom", None), Reason::Run);
     assert_eq!(admitted("heavy", native), Reason::DeferGpuBusy);

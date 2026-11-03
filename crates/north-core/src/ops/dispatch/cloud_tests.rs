@@ -16,5 +16,5 @@ fn a_cloud_launch_with_an_item_records_it_so_dispatch_holds_that_issue() {
     let holds = record::holds(&record::read(pace.path()), 1_000.0 + 3600.0, &Default::default(), &Default::default());
     let reason = holds.get(&IssueRef::new("makgora", 7)).expect("makgora#7 is held");
     assert!(reason.contains("session_01AbcXyz") && reason.contains(super::HOST), "{reason}");
-    assert!(super::item("smashcraft 7").is_err() && super::item("see makgora#7").is_err());
+    assert!(super::item("makgora 7").is_err() && super::item("see makgora#7").is_err());
 }

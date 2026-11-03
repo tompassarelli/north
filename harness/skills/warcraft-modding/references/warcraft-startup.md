@@ -50,7 +50,7 @@ started against a live prefix stays unable to create the game process; restart
 it as the prefix's only runtime.
 
 Custom Games "Join game name" is case-sensitive: "Mak'gora" returned GAME NOT
-FOUND for a lobby named "smashcraft"; the exact name and its password joined.
+FOUND for a lobby named "makgora"; the exact name and its password joined.
 A passworded lobby never appears in another client's Custom Games list.
 
 ## Manual startup and recovery detail

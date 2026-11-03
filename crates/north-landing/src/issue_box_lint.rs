@@ -192,7 +192,7 @@ pub fn run(args: &[String]) -> u8 {
 mod tests {
     use super::*;
     #[test]
-    fn test_smashcraft_12_oct_boxes_flag_only_mechanical_checks_routed_to_tom() {
+    fn test_makgora_12_oct_boxes_flag_only_mechanical_checks_routed_to_tom() {
         let body=[
             "- [ ] Tom's play session on the current patch build (findings go into the next patch). Product proof (laptop, Tom).",
             "- [ ] Product proof (laptop, Tom's next launch): the controller helper builds on Tom's laptop for the current build (`bun wisp play` prints a helper path, not \"keyboard\").",

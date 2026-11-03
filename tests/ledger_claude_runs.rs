@@ -69,7 +69,7 @@ fn claude_runs_lists_the_fleet_once_and_records_only_transcripts_with_a_fleet_ro
 fn a_fleet_or_worker_subagent_run_is_a_worker_run_on_its_model_and_efforts_tier_whether_dispatched_or_forgotten() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
-    let projects = root.join("home/.claude/projects/-home-tom-code-smashcraft-main");
+    let projects = root.join("home/.claude/projects/-home-tom-code-makgora-main");
     transcript_of(&projects.join("dispatched.jsonl"), "Item: makgora#459 back-air", "claude-opus-5-5");
     transcript_of(&projects.join("child.jsonl"), "Item: north#240 ledger", "claude-sonnet-5-5");
     transcript_of(&projects.join("deep.jsonl"), "Item: north#241 plan", "claude-opus-5-5");

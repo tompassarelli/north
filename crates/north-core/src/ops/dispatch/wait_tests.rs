@@ -25,7 +25,7 @@ fn placed(body: &str, hosts: Vec<Host>) -> Result<String, String> {
 }
 
 #[test]
-fn a_heavy_smashcraft_box_goes_to_gex45_or_the_laptop_and_never_to_a_7_gb_host() {
+fn a_heavy_makgora_box_goes_to_gex45_or_the_laptop_and_never_to_a_7_gb_host() {
     let heavy = "- [ ] (headless run) hit regions";
     let free_gex45 = || host("gex45", Ok(0), Some(GEX45));
     let nexus = || host("nexus", Ok(0), Some(NEXUS));

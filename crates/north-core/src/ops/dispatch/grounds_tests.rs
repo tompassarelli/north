@@ -82,7 +82,7 @@ fn a_dispatch_brief_carries_the_not_required_lines_two_prior_reports_the_ledgers
 
 #[test]
 fn a_brief_carries_no_prior_report_from_before_its_issue_was_opened() {
-    let stale = reported(BEFORE, "Not done: smashcraft-dev#192's feature index waits on Tom");
+    let stale = reported(BEFORE, "Not done: makgora-dev#192's feature index waits on Tom");
     let at_opening = reported(OPENED, "Not done: reported the second the issue opened");
     let ledger = ledger(&[("wisp#83", vec![reported(AFTER, "Not done: the pair stayed leased"), at_opening, stale.clone(), stale])]);
     let grounds = ledger.grounds("wisp#83", OPENED, BODY, &route());

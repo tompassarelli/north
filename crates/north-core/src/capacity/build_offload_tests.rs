@@ -32,7 +32,7 @@ fn capacity_a_host_without_room_or_unreachable_declines_naming_which() {
 
 #[test]
 fn capacity_gpu_native_warcraft_private_and_landing_work_never_offloads_is_never_probed_and_names_its_class() {
-    let refused = [("gpu", Candidate { need: Some("gpu"), ..heavy() }), ("native:wisp", Candidate { need: Some("native:wisp"), ..heavy() }), ("warcraft:wisp", Candidate { need: Some("warcraft:wisp"), ..heavy() }), ("private:smashcraft", Candidate { need: Some("private:smashcraft"), ..heavy() }), ("landing", Candidate { landing: true, ..heavy() }), ("already offloaded", Candidate { offloaded_already: true, ..heavy() })];
+    let refused = [("gpu", Candidate { need: Some("gpu"), ..heavy() }), ("native:wisp", Candidate { need: Some("native:wisp"), ..heavy() }), ("warcraft:wisp", Candidate { need: Some("warcraft:wisp"), ..heavy() }), ("private:makgora", Candidate { need: Some("private:makgora"), ..heavy() }), ("landing", Candidate { landing: true, ..heavy() }), ("already offloaded", Candidate { offloaded_already: true, ..heavy() })];
     for (class, candidate) in refused {
         let probed = std::cell::Cell::new(false);
         let route = route(&candidate, || {

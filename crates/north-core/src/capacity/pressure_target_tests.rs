@@ -166,8 +166,8 @@ fn heavy_admission_reads_pressure_the_settle_window_the_overcommit_rail_and_the_
     let heavy = |game_cpus| Facts { leased_batch_cpus: 14.0, requested_cpus: 6.0, game_reserve_agent_cpus: game_cpus, memory_available_mib: 80000.0, ..facts(Class::Heavy) };
     assert_eq!(decide(&heavy(None)), Reason::Run);
     assert_eq!(decide(&heavy(Some(16))), Reason::DeferCpuCapacity);
-    let busy = Facts { cpu_some_avg10_basis_points: 6570, cpu_pressure_measured: true, memory_available_mib: 48000.0, need: Some("native:smashcraft".into()), ..facts(Class::Heavy) };
-    let advice = admit(&busy, |needs| (needs == "native:smashcraft").then(|| "gex45".to_owned()));
+    let busy = Facts { cpu_some_avg10_basis_points: 6570, cpu_pressure_measured: true, memory_available_mib: 48000.0, need: Some("native:makgora".into()), ..facts(Class::Heavy) };
+    let advice = admit(&busy, |needs| (needs == "native:makgora").then(|| "gex45".to_owned()));
     assert_eq!((advice.reason, advice.offload.as_deref()), (Reason::DeferRunQueue, Some("gex45")));
     let next = |age_seconds: f64| Facts { now: 100_000.0, leases: vec![LeaseFact { created_at: 100_000.0 - age_seconds * 1000.0, ..running("heavy") }], ..facts(Class::Heavy) };
     assert_eq!(decide(&next(9.0)), Reason::DeferCpuPressure);

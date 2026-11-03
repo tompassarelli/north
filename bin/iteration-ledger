@@ -96,7 +96,7 @@ export function repoOf(text: string, repos = REPOS): string | null {
   const item = t.match(/\b([a-z-]+)#\d+/);
   if (item && repos.includes(item[1])) return item[1];
   for (const r of [...repos].sort((a, b) => b.length - a.length)) if (t.includes(r)) return r;
-  if (/\b(fighter|hero|stage|lich|thrall|cairne|peon|chen|paladin|sylvanas|tinker|illidan|blademaster|kobold|map|w3x|smash|special|hitbox|knockback|tom's maps|smashcraft)\b/.test(t)) return "makgora";
+  if (/\b(fighter|hero|stage|lich|thrall|cairne|peon|chen|paladin|sylvanas|tinker|illidan|blademaster|kobold|map|w3x|smash|special|hitbox|knockback|tom's maps|makgora)\b/.test(t)) return "makgora";
   return null;
 }
 

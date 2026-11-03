@@ -67,7 +67,7 @@ drain = { codex = "tom: 2026-10-12 fixture grant to drain Codex for this target"
 priority = 2
 target = "2999-01-01T00:00:00Z"
 
-[projects.smashcraft]
+[projects.makgora]
 priority = 3
 
 [projects.wisp]

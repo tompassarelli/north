@@ -588,7 +588,7 @@ consumers = ["crates/north-core/src/capacity/admission.rs"]
 [dispatch_heavy_memory_mib]
 value = 8192
 unit = "MiB a dispatched box verified by a local or native test run asks of its host's memory"
-source = "standard: machine-capacity requests 8192 MiB for its heavy class (cargo test, bun test, wisp render); smashcraft suites measured 5957 MiB on 2026-10-27 (north#259)"
+source = "standard: machine-capacity requests 8192 MiB for its heavy class (cargo test, bun test, wisp render); makgora suites measured 5957 MiB on 2026-10-27 (north#259)"
 fallback = "a host whose total memory cannot admit this class takes no test-verified box"
 consumers = ["crates/north-core/src/capacity/admission.rs"]
 
@@ -666,7 +666,7 @@ consumers = ["crates/north-core/src/capacity/queued_ahead.rs"]
 
 [evidence_retention_hours]
 value = 72
-unit = "hours since the newest change after which an unpinned, unopened Smashcraft evidence folder on the GPU host is archived to the laptop and deleted there"
+unit = "hours since the newest change after which an unpinned, unopened Mak'gora evidence folder on the GPU host is archived to the laptop and deleted there"
 source = "measured: evidence reached 50 GB and the root disk 96-98% on 2026-10-29 (north#309) with the oldest unmoved folders 5 days old; three days keeps a lane's recent runs at hand"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a folder's last change a lane still reads it" }
 fallback = "an unreadable setting archives nothing"
@@ -674,7 +674,7 @@ consumers = ["crates/north-core/src/ops/retention/family.rs"]
 
 [evidence_budget_gib]
 value = 15
-unit = "GiB of allocated disk the GPU host's Smashcraft evidence store may hold; north reclaim, north evidence start and a disk-floor admission delete its oldest runs past it"
+unit = "GiB of allocated disk the GPU host's Mak'gora evidence store may hold; north reclaim, north evidence start and a disk-floor admission delete its oldest runs past it"
 source = "measured: on the GPU host at 2:35 AM on 2026-10-30 evidence held 30 GB of a 468 GB root disk at 95% full with 26 GB free; Tom set 15 GB for blocker 5 of the landing-blockers audit (2026-10-30)"
 fallback = "an unreadable setting panics; the value is compiled in from this file"
 consumers = ["crates/north-core/src/ops/reclaim/evidence_budget.rs"]
@@ -696,7 +696,7 @@ consumers = ["crates/north-core/src/ops/reclaim/mod.rs"]
 
 [capture_batch_retention_hours]
 value = 6
-unit = "hours since the newest change after which an unopened Smashcraft capture-queue batch on the GPU host is archived to the laptop and deleted there"
+unit = "hours since the newest change after which an unopened Mak'gora capture-queue batch on the GPU host is archived to the laptop and deleted there"
 source = "measured: 127 batches held 31 GB within two days on 2026-10-29 (north#309); a batch's frames are judged within hours of its run; on 2026-10-30 the 8 GiB batch share held 25 GB because every batch was under the 24 h floor, so six hours archives them to the laptop before the share is blown (north#357)"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after a batch ends its frames are last read" }
 fallback = "an unreadable setting archives nothing"
@@ -704,7 +704,7 @@ consumers = ["crates/north-core/src/ops/retention/family.rs"]
 
 [build_input_retention_hours]
 value = 72
-unit = "hours since the newest change after which a GPU-host build-input store version no pin on Smashcraft origin/main or a lane checkout names, or a derived step cache entry, is archived to the laptop and deleted there"
+unit = "hours since the newest change after which a GPU-host build-input store version no pin on Mak'gora origin/main or a lane checkout names, or a derived step cache entry, is archived to the laptop and deleted there"
 source = "measured: the store held 44 GB on the GPU host on 2026-10-29 (north#320), 28 GB of it derived caches; a 72 h floor listed no version origin/main names and keeps a fresh add until its lane writes the pin"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how soon after an add a lane writes its pin, and how often derive rebuilds an archived key" }
 fallback = "an unreadable setting or pin read archives no store version"
@@ -713,7 +713,7 @@ consumers = ["crates/north-core/src/ops/retention/mod.rs"]
 [retention_budget_minutes]
 value = 40
 unit = "minutes after which north retain starts no new archive batch and leaves the remaining expired entries for the next hourly run"
-source = "measured: the laptop's smashcraft-retain unit was killed at its 50 min TimeoutStartSec mid-archive on 2026-10-29 (north#320, north#331); 40 min leaves 10 min for one 256 MiB batch already in flight"
+source = "measured: the laptop's makgora-retain unit was killed at its 50 min TimeoutStartSec mid-archive on 2026-10-29 (north#320, north#331); 40 min leaves 10 min for one 256 MiB batch already in flight"
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against how long one 256 MiB archive batch takes from the laptop" }
 fallback = "an unreadable setting panics north retain before it archives anything; the value is compiled in from this file"
 consumers = ["crates/north-core/src/ops/retention/mod.rs"]

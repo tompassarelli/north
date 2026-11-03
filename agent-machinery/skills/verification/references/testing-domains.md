@@ -15,7 +15,7 @@ justify. Tags name entries in [testing sources](testing-sources.md).
 - Reference: TigerBeetle [E2], FoundationDB [E3], SQLite as the coverage end
   [E1].
 
-## Deterministic games and simulations (Smashcraft, Wisp)
+## Deterministic games and simulations (Mak'gora, Wisp)
 - Failure cost: a broken match or desync is visible and annoying, rarely
   permanent; feel and readability matter as much as correctness.
 - Weight: seeded headless matches as the simulator [E2], with invariants per
@@ -47,7 +47,7 @@ justify. Tags name entries in [testing sources](testing-sources.md).
   diagnostics [E7].
 - Reference: Lua 5.4 `testes/` [E8], rust-analyzer [E7], Go [E6].
 
-## Desktop and UI apps (smashcraft-client)
+## Desktop and UI apps (makgora-client)
 - Failure cost: a confusing or broken screen; the user sees it at once.
 - Weight: the page logic as a pure state core with properties; one end-to-end
   smoke per platform; screenshots judged by a viewer for layout; render from

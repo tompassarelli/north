@@ -19,7 +19,7 @@ struct Ledger {
     outside: Recorded,
 }
 
-/// wisp's issues carry labels, smashcraft's listing is unreadable, any other repo has none.
+/// wisp's issues carry labels, makgora's listing is unreadable, any other repo has none.
 fn github(joined: &str) -> Option<Result<String, String>> {
     let reply = if joined.contains("-R tompassarelli/wisp") {
         json!([{"number": 3, "labels": [{"name": "bug"}]}, {"number": 9, "labels": [{"name": "enhancement"}, {"name": "theme:balance"}]}]).to_string()

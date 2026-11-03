@@ -8,7 +8,7 @@ breach_when = "below"
 threshold = 1
 window = "24h"
 owner = "dispatch"
-fix = "north dispatch places every code-only smashcraft or wisp box in the cloud lane while the credit lasts, and says why when it does not"
+fix = "north dispatch places every code-only makgora or wisp box in the cloud lane while the credit lasts, and says why when it does not"
 on = "nexus"
 until = "2026-11-05"
 

@@ -24,7 +24,7 @@ const SESSIONS: &[(&str, &[(&str, &str)])] = &[
         ("user", "why do you keep losing the battle.net connection?"),
     ]),
     ("lead", &[
-        ("user", "Read /h/.local/state/agents/handoffs/smashcraft-lead-brief.md and follow it."),
+        ("user", "Read /h/.local/state/agents/handoffs/makgora-lead-brief.md and follow it."),
         ("user", "you keep asking; we need to land everything now"),
     ]),
     ("oneshot", &[("user", "Do NOT regenerate the token. We need to keep the scope.")]),
