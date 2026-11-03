@@ -38,3 +38,16 @@ Symptom, cause, rule. Smashcraft, 6-7 Oct 2026.
   pointer, and concurrent builders shared an output folder, a `.next` file and
   a build worktree. Content-address shared inputs and name them per revision in
   Git; build into private staging, publish by one rename under a per-key lock.
+- A panel button draws and passes every headless test, but clicks are dead or
+  partly live (Controls "Done" took clicks on its leftmost ~5% at 2880x1920,
+  2026-11-03; smashcraft#1047): Warcraft's stock command, item, hero, minimap
+  and system-button frames lie over the panel and take clicks even when not
+  drawn; `BlzHideOriginFrames(true)` leaves them in place, and the headless
+  frame model holds only map-made frames, so it cannot see them. Hide and
+  disable each stock frame by name at startup (smashcraft:ts/src/host/loop/stockFrames.ts)
+  and click every panel button natively at several points across its width.
+  Never hide a stock frame as a group: `ConsoleUIBackdrop` is the parent of our
+  full-window backdrops, the pause screen and the fighter markers, the game UI
+  holds our panels, and the chat box and world view stop working when the stock
+  UI is hidden wholesale (smashcraft:docs/stock-frames.md). Test the all-hidden
+  state before shipping.
