@@ -74,6 +74,7 @@ mod tests {
             gate: None,
             answer: None,
             job: Some(JobPayload { key: key.into(), lease_secs: None, exit: None }),
+            origin: None,
         }
     }
 

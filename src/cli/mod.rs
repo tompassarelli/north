@@ -19,6 +19,10 @@ mod safe_push_result;
 mod session;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod laptop_runner_tests;
+#[cfg(test)]
+mod fleet_peer_row_tests;
 mod tools;
 mod worker_ledger;
 

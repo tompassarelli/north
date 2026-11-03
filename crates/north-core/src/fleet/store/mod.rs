@@ -30,7 +30,7 @@ pub use waits::{JOB_LEASE_SECS, WaitKey, WaitKind, WaitRequest, WaitRow};
 use schema::sql;
 
 const BUSY: Duration = Duration::from_secs(60);
-const LAUNCH_GRACE_MS: u64 = 10 * 60 * 1000;
+pub const LAUNCH_GRACE_MS: u64 = 10 * 60 * 1000;
 
 pub struct Store {
     db: Connection,
@@ -83,8 +83,12 @@ impl Store {
     }
 
     pub fn publish(&mut self, host: &str, rows: &[SessionRow]) -> NorthResult<Vec<String>> {
+        self.publish_over(host, rows, &[])
+    }
+
+    pub fn publish_over(&mut self, host: &str, rows: &[SessionRow], outranks: &[String]) -> NorthResult<Vec<String>> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
-        let held_elsewhere = sessions::publish(&tx, rows)?;
+        let held_elsewhere = sessions::publish(&tx, rows, outranks)?;
         let launching_since = Timestamp::from_unix_millis(i64::try_from(super::runtime::now_ms().saturating_sub(LAUNCH_GRACE_MS)).unwrap_or(i64::MAX)).iso();
         sessions::retire_vanished(&tx, host, rows, &launching_since)?;
         tx.commit().map_err(sql)?;

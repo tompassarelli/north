@@ -83,7 +83,11 @@ fn live_with(host: &Host, name: &str, reply: &str, task_ref: Option<&str>) -> Ar
 }
 
 fn message(id: &str, to: &str, sent_at: u64) -> FleetRow {
-    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Some("lead".into()), gate: None, answer: None, job: None }
+    FleetRow { id: id.into(), kind: RowKind::Message, to: to.into(), from: "whiterabbit".into(), urgent: false, sent_at, text: "hello".into(), sender: Some("lead".into()), gate: None, answer: None, job: None, origin: None }
+}
+
+fn far_message(id: &str, machine: &str) -> FleetRow {
+    FleetRow { from: machine.into(), sender: None, ..message(id, "elsewhere", NOW_MS) }
 }
 
 fn gate(id: &str, to: &str) -> FleetRow {
@@ -346,7 +350,7 @@ fn ledger_ids(host: &Host) -> i64 {
 #[test]
 fn a_row_pulled_from_a_far_spool_is_dropped_there_only_after_the_ledger_host_commits_it() {
     let host = host("nexus");
-    let far = Far::holding("tom@gex45", vec![message("m-far", "elsewhere", NOW_MS)]);
+    let far = Far::holding("tom@gex45", vec![far_message("m-far", "gex45")]);
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 
     assert!(tick(&host.fleet, &mut Unreachable, &pulls, &NoProbes, NOW_MS, BUDGET).is_err());
@@ -363,8 +367,8 @@ fn a_row_pulled_from_a_far_spool_is_dropped_there_only_after_the_ledger_host_com
 #[test]
 fn a_failed_pull_is_recorded_for_its_machine_alone_and_the_others_are_still_pulled() {
     let host = host("nexus");
-    let far = Far::holding("tom@gex45", vec![message("m-1", "elsewhere", NOW_MS)]);
-    far.spools.lock().unwrap().insert("tom@bunker".into(), vec![message("m-2", "elsewhere", NOW_MS)]);
+    let far = Far::holding("tom@gex45", vec![far_message("m-1", "gex45")]);
+    far.spools.lock().unwrap().insert("tom@bunker".into(), vec![far_message("m-2", "bunker")]);
     far.down.lock().unwrap().push("tom@bunker".into());
     let pulls = Pulls { spools: &far, always: vec![far_host("bunker"), far_host("gex45")] };
 
@@ -380,7 +384,7 @@ fn a_failed_pull_is_recorded_for_its_machine_alone_and_the_others_are_still_pull
 #[test]
 fn a_drop_that_fails_is_recorded_and_the_next_pull_commits_the_same_row_once() {
     let host = host("nexus");
-    let far = Far::holding("tom@gex45", vec![message("m-1", "elsewhere", NOW_MS)]);
+    let far = Far::holding("tom@gex45", vec![far_message("m-1", "gex45")]);
     far.undroppable.lock().unwrap().push("tom@gex45".into());
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 
@@ -397,9 +401,9 @@ fn a_drop_that_fails_is_recorded_and_the_next_pull_commits_the_same_row_once() {
 #[test]
 fn a_row_the_store_would_refuse_is_set_aside_on_its_machine_with_a_notice_and_does_not_hold_back_the_rest_or_count_as_a_failed_pull() {
     let host = host("nexus");
-    let mut bad = message("m-bad", "elsewhere", NOW_MS);
+    let mut bad = far_message("m-bad", "gex45");
     bad.from = String::new();
-    let far = Far::holding("tom@gex45", vec![bad, message("m-ok", "elsewhere", NOW_MS)]);
+    let far = Far::holding("tom@gex45", vec![bad, far_message("m-ok", "gex45")]);
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 
     let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
@@ -416,7 +420,7 @@ fn a_row_the_store_would_refuse_is_set_aside_on_its_machine_with_a_notice_and_do
 #[test]
 fn a_row_of_a_kind_only_a_newer_build_knows_stays_in_its_spool_with_one_notice_per_tick_and_a_build_that_knows_the_kind_pulls_it() {
     let host = host("nexus");
-    let far = Far::holding("tom@gex45", vec![message("m-ok", "elsewhere", NOW_MS)]);
+    let far = Far::holding("tom@gex45", vec![far_message("m-ok", "gex45")]);
     far.newer.lock().unwrap().insert("tom@gex45".into(), vec!["m-future".into()]);
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 
@@ -432,7 +436,7 @@ fn a_row_of_a_kind_only_a_newer_build_knows_stays_in_its_spool_with_one_notice_p
     assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-ok'"), 1);
 
     far.newer.lock().unwrap().clear();
-    far.spools.lock().unwrap().insert("tom@gex45".into(), vec![message("m-future", "elsewhere", NOW_MS)]);
+    far.spools.lock().unwrap().insert("tom@gex45".into(), vec![far_message("m-future", "gex45")]);
     tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
     assert_eq!(count(&host.ledger, "SELECT count(*) FROM events WHERE json_extract(data, '$.id') = 'm-future'"), 1);
 }
@@ -440,7 +444,7 @@ fn a_row_of_a_kind_only_a_newer_build_knows_stays_in_its_spool_with_one_notice_p
 #[test]
 fn a_row_this_build_cannot_decode_is_set_aside_on_its_machine_with_a_notice_and_the_other_rows_are_still_delivered() {
     let host = host("nexus");
-    let far = Far::holding("tom@gex45", vec![message("m-ok", "elsewhere", NOW_MS)]);
+    let far = Far::holding("tom@gex45", vec![far_message("m-ok", "gex45")]);
     far.undecodable.lock().unwrap().insert("tom@gex45".into(), vec!["m-old-answer".into()]);
     let pulls = Pulls { spools: &far, always: vec![far_host("gex45")] };
 

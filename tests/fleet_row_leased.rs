@@ -30,7 +30,7 @@ fn north(home: &Path, args: &[&str], input: &str) -> Output {
 
 fn job_row(id: &str, kind: RowKind, key: &str) -> String {
     let job = JobPayload { key: key.into(), lease_secs: (kind != RowKind::JobExit).then_some(180), exit: (kind == RowKind::JobExit).then_some(0) };
-    let row = FleetRow { id: id.into(), kind, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: String::new(), sender: None, gate: None, answer: None, job: Some(job) };
+    let row = FleetRow { id: id.into(), kind, to: "sc-1".into(), from: "far".into(), urgent: false, sent_at: 1_793_000_000_000, text: String::new(), sender: None, gate: None, answer: None, job: Some(job), origin: None };
     serde_json::to_string(&row).unwrap()
 }
 

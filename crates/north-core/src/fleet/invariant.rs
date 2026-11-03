@@ -206,6 +206,7 @@ pub(super) fn wake_row(host: &str, name: &str, mark: Mark, ended_ms: u64, reason
         gate: None,
         answer: None,
         job: None,
+        origin: None,
     }
 }
 

@@ -31,6 +31,7 @@ impl Fleet {
             gate: None,
             answer: None,
             job: None,
+            origin: None,
         };
         self.spool().put(&row)?;
         Ok(Controlled::Spooled(Box::new(row)))

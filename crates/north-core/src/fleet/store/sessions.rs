@@ -63,10 +63,12 @@ pub(super) fn register(tx: &Transaction, row: &SessionRow, claim: Claim) -> Nort
     Err(NorthError::Refused(format!("the session name {} is held fleet-wide by a {status} session on {host}", row.name)))
 }
 
-pub(super) fn publish(tx: &Transaction, rows: &[SessionRow]) -> NorthResult<Vec<String>> {
+pub(super) fn publish(tx: &Transaction, rows: &[SessionRow], outranks: &[String]) -> NorthResult<Vec<String>> {
     let mut held_elsewhere = Vec::new();
+    let outranked: Vec<String> = outranks.iter().map(|host| format!("'{}'", host.replace('\'', "''"))).collect();
+    let guard = format!("fleet_sessions.host = excluded.host OR fleet_sessions.status = ?6 OR fleet_sessions.host IN ({})", if outranked.is_empty() { "NULL".to_owned() } else { outranked.join(", ") });
     for row in rows {
-        if upsert(tx, row, "fleet_sessions.host = excluded.host OR fleet_sessions.status = ?6")? == 0 {
+        if upsert(tx, row, &guard)? == 0 {
             held_elsewhere.push(row.name.clone());
         }
     }

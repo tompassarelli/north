@@ -17,6 +17,7 @@ pub mod records;
 pub mod link;
 mod remote;
 pub mod model;
+pub mod peer_row;
 pub mod registry;
 pub mod roster;
 pub mod runtime;

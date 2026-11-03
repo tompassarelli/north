@@ -146,6 +146,7 @@ impl Fleet {
             gate: None,
             answer: None,
             job: None,
+            origin: None,
         })
     }
 }

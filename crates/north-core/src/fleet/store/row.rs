@@ -100,6 +100,8 @@ pub struct FleetRow {
     pub answer: Option<AnswerPayload>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job: Option<JobPayload>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 #[derive(Deserialize)]

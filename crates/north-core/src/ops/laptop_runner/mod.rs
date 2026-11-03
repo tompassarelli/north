@@ -3,6 +3,7 @@ mod tests;
 #[cfg(test)]
 mod ssh_destination_tests;
 
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -13,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use rustix::fs::{FlockOperation, flock};
 use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
+use toml_edit::DocumentMut;
 
 use crate::ops::agent_contain;
 use crate::ops::pacing::placement::{config, gate};
@@ -45,15 +47,14 @@ impl Ledger {
     }
 }
 
-fn ledgers(local: Vec<String>) -> Vec<Ledger> {
-    let machines = config().map(|cfg| gate::machines(&cfg)).unwrap_or_default();
-    let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    ledgers_among(local, machines, &crate::platform::host::name(), &env)
+pub fn ledgers(local: Vec<String>, cfg: Option<&DocumentMut>, here: &str, ssh_program: &str, env: &BTreeMap<String, String>) -> Vec<Ledger> {
+    let machines = cfg.map(|cfg| gate::machines(cfg).into_iter().filter(|machine| gate::job_source(cfg, &machine.name)).collect()).unwrap_or_default();
+    ledgers_among(local, machines, here, ssh_program, env)
 }
 
-fn ledgers_among(local: Vec<String>, machines: Vec<gate::Machine>, here: &str, env: &std::collections::BTreeMap<String, String>) -> Vec<Ledger> {
+fn ledgers_among(local: Vec<String>, machines: Vec<gate::Machine>, here: &str, ssh_program: &str, env: &BTreeMap<String, String>) -> Vec<Ledger> {
     let remote = machines.into_iter().filter(|machine| machine.name != here).map(|machine| {
-        let command = ssh::argv(&["ssh".into()], env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", &machine.ssh, "north", "threads"]);
+        let command = ssh::argv(&[ssh_program.into()], env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", &machine.ssh, "north", "threads"]);
         Ledger { host: Some(machine.name), command: command.into_iter().map(|word| word.to_string_lossy().into_owned()).collect() }
     });
     std::iter::once(Ledger { host: None, command: local }).chain(remote).collect()
@@ -83,7 +84,7 @@ impl Inputs {
             runtime: set("XDG_RUNTIME_DIR").map_or_else(|| "/tmp".into(), PathBuf::from),
             logs: set("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("laptop-runner"),
             power_supply: set("AGENT_LOAD_POWER_SUPPLY").map_or_else(|| "/sys/class/power_supply".into(), PathBuf::from),
-            ledgers: ledgers(shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default()),
+            ledgers: ledgers(shlex_split(&set("LAPTOP_THREADS").unwrap_or_else(|| "threads".into())).unwrap_or_default(), config().ok().as_ref(), &crate::platform::host::name(), "ssh", &std::env::vars().collect()),
             job_run: "job-run".into(),
             north,
             bun: "bun".into(),
@@ -159,7 +160,7 @@ pub fn run(arguments: &[String]) -> u8 {
     drain(&inputs)
 }
 
-fn drain(inputs: &Inputs) -> u8 {
+pub fn drain(inputs: &Inputs) -> u8 {
     let lock_path = inputs.runtime.join("laptop-runner.lock");
     let Ok(lock) = OpenOptions::new().create(true).append(true).open(&lock_path) else {
         eprintln!("laptop-runner: {}: cannot open the lock", lock_path.display());

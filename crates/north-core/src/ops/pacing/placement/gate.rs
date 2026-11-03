@@ -301,6 +301,10 @@ pub fn spool_pulled(cfg: &DocumentMut, host: &str) -> bool {
     cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("pulls_spool")).and_then(Item::as_bool) == Some(true)
 }
 
+pub fn job_source(cfg: &DocumentMut, host: &str) -> bool {
+    cfg.get("hosts").and_then(|hosts| hosts.get(host)).and_then(|host| host.get("job_source")).and_then(Item::as_bool) == Some(true)
+}
+
 pub fn serving(cfg: &DocumentMut, needs: &str, here: &str) -> Option<String> {
     let needs: Vec<(&str, &str)> = needs.split(',').map(|need| need.split_once(':').unwrap_or((need, ""))).collect();
     machines(cfg)

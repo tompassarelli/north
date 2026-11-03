@@ -54,6 +54,7 @@ impl Fleet {
             gate: None,
             answer: None,
             job: None,
+            origin: None,
         };
         Spool::at(&self.root).put(&row)?;
         Ok(row)

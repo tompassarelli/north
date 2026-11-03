@@ -25,7 +25,7 @@ fn ssh_destination_from_orchestration_toml_refuses_an_ssh_option_before_ssh_runs
     let cfg = planted(root.path());
     assert!(gate::machines(&cfg).is_empty());
     assert_eq!(land_offload::pull_sources_in(&cfg, "whiterabbit"), ["nexus"]);
-    let ledgers = ledgers_among(vec!["threads".into()], gate::machines(&cfg), "whiterabbit", &BTreeMap::new());
+    let ledgers = ledgers_among(vec!["threads".into()], gate::machines(&cfg), "whiterabbit", "ssh", &BTreeMap::new());
     assert_eq!(ledgers.len(), 1);
     assert!(ledgers[0].host.is_none());
     for ledger in ledgers.iter().filter(|ledger| ledger.host.is_some()) {
@@ -43,7 +43,7 @@ fn ssh_destination_keeps_the_real_hosts_machine_and_deploy_destinations() {
     let machines = gate::machines(&cfg);
     assert_eq!(machines.iter().map(|machine| (machine.name.as_str(), machine.ssh.as_str())).collect::<Vec<_>>(), [("gex45", "tom@gex45")]);
     assert_eq!(land_offload::pull_sources_in(&cfg, "whiterabbit"), ["nexus", "tom@gex45"]);
-    let ledgers = ledgers_among(vec!["threads".into()], machines, "whiterabbit", &BTreeMap::new());
+    let ledgers = ledgers_among(vec!["threads".into()], machines, "whiterabbit", "ssh", &BTreeMap::new());
     assert_eq!(ledgers[1].command, ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "tom@gex45", "north", "threads"]);
 }
 
