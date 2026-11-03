@@ -9,7 +9,7 @@ pub(super) const CHUNK: usize = 1 << 20;
 pub(super) const HEAD_BYTES: usize = 4096;
 
 /// Calls `visit(start, end, line)` once per complete line; `line` is `None` past `cap` bytes.
-pub(super) fn scan_lines<R: Read>(
+pub(crate) fn scan_lines<R: Read>(
     reader: &mut R,
     start: u64,
     chunk: usize,
@@ -47,14 +47,14 @@ pub(super) fn scan_lines<R: Read>(
     }
 }
 
-pub(super) struct Source {
+pub(crate) struct Source {
     reader: Box<dyn Read>,
     child: Option<Child>,
     head: Option<Vec<u8>>,
 }
 
 impl Source {
-    pub(super) fn open(zstd: &str, disk: &str, start: u64) -> io::Result<Self> {
+    pub(crate) fn open(zstd: &str, disk: &str, start: u64) -> io::Result<Self> {
         if disk.ends_with(".zst") {
             let mut child = Command::new(zstd).args(["-dcq", "--", disk]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
             let stdout: ChildStdout = child.stdout.take().ok_or_else(|| io::Error::other("zstd gave no stdout"))?;
@@ -71,7 +71,7 @@ impl Source {
         hex(&Sha256::digest(self.head.as_deref().unwrap_or(&[])))
     }
 
-    pub(super) fn close(self) -> bool {
+    pub(crate) fn close(self) -> bool {
         drop(self.reader);
         self.child.is_none_or(|mut child| child.wait().is_ok_and(|status| status.success()))
     }

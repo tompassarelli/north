@@ -282,3 +282,9 @@ fn worktree_layout(context: &Context, report: &mut Report) {
 fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_default()
 }
+
+pub fn startup_tokens() -> Result<usize, String> {
+    let roots = Roots::from_env();
+    let (repo, operator) = (roots.checkout("nixos-config"), operator_dir(&roots));
+    gate_for(repo, operator, roots).startup_total()
+}

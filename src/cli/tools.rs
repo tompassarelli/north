@@ -52,6 +52,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("advisor-report", crate::ops::advisor_report::run),
     ("policy-replay", crate::ops::policy_replay::run),
     ("defaults-measure", crate::ops::defaults_measure::run),
+    ("context", |arguments| crate::ops::context_audit::run(arguments, agent_config_check::startup_tokens)),
     ("worker-ledger", super::worker_ledger::run),
     ("ops", crate::ops::run),
     ("private-check", crate::ops::private_check::run),

@@ -49,6 +49,7 @@ Commands:
   ops check [--dry-run]                         Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
   incident-mine [--days N] [--chunks N] [--per-thread N] [--out DIR]  Mine transcript incident candidates through convo into classifier chunks
   defaults-measure DB KIND | --priors DB | DB --propose --train-until DATE --json  Sweep a measured default walk-forward over the ledger, count prior settling data, or propose read-only defaults
+  context audit [--since 7d] [--json] [--session ID]  Measure injected context per session by source: startup, skills, references, grounding, other hooks
   worker-ledger [--session ID] [--since DATE] [--backfill] | --summary [--by LIST] | --recommend [--planner] FACETS  Record finished workers as runs, summarize them per cell and tier, or recommend a tier
   advisor-report FILE... --incumbent ARM [--arm-key FIELD] [--codex-plan-usd ARM=VALUE]  Compare policy-replay arms against an incumbent with a verdict per challenger
   policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]  Copy a sweep candidate into the operating point, refusing a missed scenario, a flip or a drop

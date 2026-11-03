@@ -208,3 +208,14 @@ pub(super) fn discover(roots: &[Root]) -> Result<Vec<Found>> {
     }
     Ok(found)
 }
+
+pub(crate) fn claude_session_files(base: &Path) -> std::result::Result<Vec<std::path::PathBuf>, String> {
+    let folders = claude_dirs(base).map_err(|failure| failure.to_string())?;
+    Ok(folders
+        .into_iter()
+        .flat_map(|folder| {
+            let dir = std::path::PathBuf::from(folder.dir);
+            folder.names.into_iter().filter(|name| name.ends_with(".jsonl") || name.ends_with(".jsonl.zst")).map(move |name| dir.join(name))
+        })
+        .collect())
+}

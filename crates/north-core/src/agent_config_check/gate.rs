@@ -300,6 +300,12 @@ impl Gate {
         Ok(())
     }
 
+    pub(super) fn startup_total(&self) -> Result<usize, String> {
+        let catalog = crate::agent_catalog::owner_modules::read_resolved_catalog(&self.operator.join("catalog-config.json")).map_err(|error| error.to_string())?;
+        let budget = self.skill_budget(&catalog)?;
+        Ok(self.startup_tokens(&catalog, budget.claude_listing)?.0)
+    }
+
     pub(super) fn run(&self, mode: Mode) -> Result<Verdicts, String> {
         let catalog = crate::agent_catalog::owner_modules::read_resolved_catalog(
             &self.operator.join("catalog-config.json"),
