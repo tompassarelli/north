@@ -1,23 +1,78 @@
 use super::*;
 
+const HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
+const NEXT: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
 fn failure(gate: &str) -> Failure {
     Failure { gate: gate.to_owned(), output: format!("safe-push: ✗ {gate} refused") }
 }
 
+fn created(head: &str, date: &str, failures: &[Failure]) -> String {
+    let Filing::Create { title, body } = filing(head, date, None, failures) else {
+        panic!("a failure with no open rolling issue creates it");
+    };
+    assert_eq!(title, "After-landing gate debt");
+    body
+}
+
 #[test]
-fn a_landed_commit_gets_one_issue_and_each_failed_gate_is_filed_on_it_once() {
-    let head = "0123456789abcdef0123456789abcdef01234567";
-    let Filing::Create { title, body } = filing("o/r", head, None, &[failure("code-health"), failure("test-kind")]) else {
-        panic!("a first failure files an issue");
+fn the_first_failure_creates_the_rolling_issue_with_one_section_for_the_commit() {
+    let body = created(HEAD, "2026-11-04", &[failure("code-health"), failure("test-kind")]);
+    assert!(body.starts_with("Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit."), "{body}");
+    assert!(body.contains("<!-- after-landing-gate: 0123456789ab code-health -->\n<!-- after-landing-gate: 0123456789ab test-kind -->\n"), "{body}");
+    assert!(body.contains("### 0123456789ab (2026-11-04) gates: code-health, test-kind\n"), "{body}");
+    assert!(body.contains("safe-push: ✗ code-health refused"), "{body}");
+}
+
+#[test]
+fn a_later_commit_is_edited_in_as_a_new_section_above_the_older_one() {
+    let first = created(HEAD, "2026-11-03", &[failure("code-health")]);
+    let filed = Filed { number: 7, body: first };
+    let Filing::Edit { number: 7, body } = filing(NEXT, "2026-11-04", Some(&filed), &[failure("review")]) else {
+        panic!("a new commit edits the open issue");
     };
-    assert_eq!(title, "After-landing gates failed on 0123456789ab");
-    assert!(body.contains("failed on it: code-health, test-kind."), "{body}");
-    let filed = Filed { number: 7, text: body };
-    assert_eq!(filing("o/r", head, Some(&filed), &[failure("test-kind")]), Filing::Nothing);
-    let Filing::Comment { number: 7, body } = filing("o/r", head, Some(&filed), &[failure("test-kind"), failure("review")]) else {
-        panic!("a new gate on the same commit comments on its issue");
+    let newer = body.find("### fedcba987654 (2026-11-04) gates: review").expect("new section");
+    let older = body.find("### 0123456789ab (2026-11-03) gates: code-health").expect("older section kept");
+    assert!(newer < older, "{body}");
+    assert_eq!(body.matches("### ").count(), 2, "{body}");
+}
+
+#[test]
+fn a_gate_already_marked_for_the_commit_is_not_added_again_but_a_new_gate_is() {
+    let filed = Filed { number: 7, body: created(HEAD, "2026-11-04", &[failure("code-health"), failure("test-kind")]) };
+    assert_eq!(filing(HEAD, "2026-11-04", Some(&filed), &[failure("test-kind")]), Filing::Nothing);
+    let Filing::Edit { number: 7, body } = filing(HEAD, "2026-11-04", Some(&filed), &[failure("test-kind"), failure("review")]) else {
+        panic!("a new gate on the same commit edits the issue");
     };
-    assert!(body.contains("failed on it: review.") && !body.contains("### test-kind"), "{body}");
+    assert_eq!(body.matches("0123456789ab review -->").count(), 1, "{body}");
+    assert_eq!(body.matches("0123456789ab test-kind -->").count(), 1, "{body}");
+    assert!(filing(NEXT, "2026-11-04", Some(&filed), &[failure("test-kind")]) != Filing::Nothing);
+}
+
+#[test]
+fn each_gate_keeps_only_its_last_fifteen_output_lines() {
+    let output = (1..=40).map(|line| format!("line {line}")).collect::<Vec<_>>().join("\n");
+    let body = created(HEAD, "2026-11-04", &[Failure { gate: "g".to_owned(), output }]);
+    assert!(body.contains("line 40") && body.contains("line 26") && !body.contains("line 25\n"), "{body}");
+}
+
+#[test]
+fn the_size_cap_drops_the_oldest_sections_and_the_header_counts_them() {
+    let big = |gate: &str| Failure { gate: gate.to_owned(), output: "x".repeat(2000) + "\n" + &"y".repeat(2000) };
+    let mut body = created(&format!("{:012}{}", 0, "a".repeat(28)), "2026-11-01", &[big("g")]);
+    for index in 1..=30 {
+        let head = format!("{index:012}{}", "a".repeat(28));
+        let filed = Filed { number: 7, body };
+        let Filing::Edit { body: edited, .. } = filing(&head, "2026-11-02", Some(&filed), &[big("g")]) else {
+            panic!("a new commit edits the issue");
+        };
+        assert!(edited.chars().count() <= 60_000, "{}", edited.chars().count());
+        body = edited;
+    }
+    assert!(body.contains("### 000000000030 "), "the newest section stays");
+    assert!(!body.contains("### 000000000000 "), "the oldest section is dropped");
+    let dropped: usize = body.lines().find_map(|line| line.strip_prefix("Older sections dropped: ")?.trim_end_matches('.').parse().ok()).expect("header names the drop count");
+    assert_eq!(dropped + body.matches("### ").count(), 31, "{body}");
 }
 
 #[test]
@@ -35,10 +90,6 @@ fn a_failing_repo_check_files_its_output_on_the_landed_commit_and_a_passing_one_
     let tree = std::env::temp_dir();
     let failures = repo_check_failures(&tree, &checks);
     assert_eq!(failures.iter().map(|failure| failure.gate.as_str()).collect::<Vec<_>>(), ["standalone-parity"]);
-    let head = "fedcba9876543210fedcba9876543210fedcba98";
-    let Filing::Create { title, body } = filing("o/r", head, None, &failures) else {
-        panic!("a failed repo check files an issue");
-    };
-    assert_eq!(title, "After-landing gates failed on fedcba987654");
-    assert!(body.contains("failed on it: standalone-parity.") && body.contains("first divergent frame 412"), "{body}");
+    let body = created(NEXT, "2026-11-04", &failures);
+    assert!(body.contains("gates: standalone-parity") && body.contains("first divergent frame 412"), "{body}");
 }

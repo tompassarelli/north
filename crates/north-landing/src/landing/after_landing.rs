@@ -1,17 +1,22 @@
 use std::fs;
+use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::platform::github;
 
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH
 
 Run safe-push's after-landing gates and each `after-landing.check = NAME :: COMMAND`
-in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, then file one issue for HEAD naming every gate that failed; a gate already filed
-for HEAD is not filed again.";
+in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
+for HEAD is not added again.";
 const MARKER: &str = "<!-- after-landing-gate: ";
-const TAIL_LINES: usize = 60;
+const TAIL_LINES: usize = 15;
+const BODY_LIMIT: usize = 60_000;
+const TITLE: &str = "After-landing gate debt";
+const HEADER: &str = "Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit.";
+const DROPPED: &str = "Older sections dropped: ";
 const RUNNER: &str = "after-landing-runner";
 
 #[derive(Debug, Eq, PartialEq)]
@@ -24,44 +29,90 @@ pub struct Failure {
 pub enum Filing {
     Nothing,
     Create { title: String, body: String },
-    Comment { number: u64, body: String },
+    Edit { number: u64, body: String },
 }
 
 pub struct Filed {
     pub number: u64,
-    pub text: String,
+    pub body: String,
 }
 
-pub fn title(head: &str) -> String {
-    format!("After-landing gates failed on {}", &head[..head.len().min(12)])
-}
-
-pub fn filing(repo: &str, head: &str, existing: Option<&Filed>, failures: &[Failure]) -> Filing {
-    let new: Vec<&Failure> = failures
-        .iter()
-        .filter(|failure| existing.is_none_or(|filed| !filed.text.contains(&marker(&failure.gate))))
-        .collect();
+pub fn filing(head: &str, date: &str, existing: Option<&Filed>, failures: &[Failure]) -> Filing {
+    let sha = short(head);
+    let current = existing.map_or("", |filed| filed.body.as_str());
+    let new: Vec<&Failure> = failures.iter().filter(|failure| !current.contains(&marker(sha, &failure.gate))).collect();
     if new.is_empty() {
         return Filing::Nothing;
     }
-    let gates: Vec<&str> = new.iter().map(|failure| failure.gate.as_str()).collect();
-    let mut body = format!(
-        "{repo}@{head} landed on main: it built and its tests passed. These gates run after landing and failed on it: {}. Fix forward in a follow-up commit; nothing was refused.\n",
-        gates.join(", ")
-    );
-    for failure in new {
-        let lines: Vec<&str> = failure.output.lines().collect();
-        let tail = lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n");
-        body.push_str(&format!("\n{}{} -->\n### {}\n\n```\n{tail}\n```\n", MARKER, failure.gate, failure.gate));
+    let mut sections = split_sections(current);
+    sections.insert(0, section(sha, date, &new));
+    let mut dropped = dropped_before(current);
+    while sections.len() > 1 && render(dropped, &sections).chars().count() > BODY_LIMIT {
+        sections.pop();
+        dropped += 1;
     }
+    let body = render(dropped, &sections);
     match existing {
-        Some(filed) => Filing::Comment { number: filed.number, body },
-        None => Filing::Create { title: title(head), body },
+        Some(filed) => Filing::Edit { number: filed.number, body },
+        None => Filing::Create { title: TITLE.to_owned(), body },
     }
 }
 
-fn marker(gate: &str) -> String {
-    format!("{MARKER}{gate} -->")
+fn short(head: &str) -> &str {
+    &head[..head.len().min(12)]
+}
+
+fn marker(sha: &str, gate: &str) -> String {
+    format!("{MARKER}{sha} {gate} -->")
+}
+
+fn section(sha: &str, date: &str, failures: &[&Failure]) -> String {
+    let gates: Vec<&str> = failures.iter().map(|failure| failure.gate.as_str()).collect();
+    let mut text = String::new();
+    for failure in failures {
+        text.push_str(&marker(sha, &failure.gate));
+        text.push('\n');
+    }
+    text.push_str(&format!("### {sha} ({date}) gates: {}\n", gates.join(", ")));
+    for failure in failures {
+        let lines: Vec<&str> = failure.output.lines().collect();
+        let tail = lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n");
+        text.push_str(&format!("\n{}\n```\n{tail}\n```\n", failure.gate));
+    }
+    text
+}
+
+fn split_sections(body: &str) -> Vec<String> {
+    let mut sections: Vec<String> = Vec::new();
+    let mut after_marker = false;
+    for line in body.lines() {
+        let is_marker = line.starts_with(MARKER);
+        if is_marker && !after_marker {
+            sections.push(String::new());
+        }
+        if let Some(last) = sections.last_mut() {
+            last.push_str(line);
+            last.push('\n');
+        }
+        after_marker = is_marker;
+    }
+    sections
+}
+
+fn dropped_before(body: &str) -> usize {
+    body.lines().find_map(|line| line.strip_prefix(DROPPED)?.trim_end_matches('.').parse().ok()).unwrap_or(0)
+}
+
+fn render(dropped: usize, sections: &[String]) -> String {
+    let mut body = format!("{HEADER}\n");
+    if dropped > 0 {
+        body.push_str(&format!("{DROPPED}{dropped}.\n"));
+    }
+    for section in sections {
+        body.push('\n');
+        body.push_str(section);
+    }
+    body
 }
 
 struct Args {
@@ -115,11 +166,12 @@ fn gate_and_file(args: &Args) -> Result<String, String> {
     if failures.is_empty() {
         return Ok(format!("every gate passed on {}", args.head));
     }
-    let existing = filed(&repo, &args.head)?;
-    match filing(&repo, &args.head, existing.as_ref(), &failures) {
+    let existing = filed(&repo)?;
+    let date = git(&main, &["log", "-1", "--format=%cs", &args.head])?;
+    match filing(&args.head, date.trim(), existing.as_ref(), &failures) {
         Filing::Nothing => Ok(format!("{repo}#{} already names every failed gate", existing.map_or(0, |filed| filed.number))),
-        Filing::Comment { number, body } => {
-            gh(&["issue", "comment", &number.to_string(), "-R", &repo, "--body", &body])?;
+        Filing::Edit { number, body } => {
+            gh_with_input(&["issue", "edit", &number.to_string(), "-R", &repo, "--body-file", "-"], &body)?;
             Ok(format!("added the new failures to {repo}#{number}"))
         }
         Filing::Create { title, body } => {
@@ -211,14 +263,11 @@ pub fn repo_check_failures(tree: &Path, checks: &[(String, String)]) -> Vec<Fail
         .collect()
 }
 
-fn filed(repo: &str, head: &str) -> Result<Option<Filed>, String> {
-    let title = title(head);
-    let search = format!("\"{title}\" in:title");
-    let listed = github::json(&["issue", "list", "-R", repo, "--state", "all", "--search", &search, "--json", "number,title,body,comments"])?;
-    Ok(listed.as_array().into_iter().flatten().find(|issue| issue["title"] == title.as_str()).and_then(|issue| {
-        let comments = issue["comments"].as_array().into_iter().flatten().filter_map(|comment| comment["body"].as_str());
-        let text = std::iter::once(issue["body"].as_str().unwrap_or_default()).chain(comments).collect::<Vec<_>>().join("\n");
-        Some(Filed { number: issue["number"].as_u64()?, text })
+fn filed(repo: &str) -> Result<Option<Filed>, String> {
+    let search = format!("\"{TITLE}\" in:title");
+    let listed = github::json(&["issue", "list", "-R", repo, "--state", "open", "--search", &search, "--json", "number,title,body"])?;
+    Ok(listed.as_array().into_iter().flatten().find(|issue| issue["title"] == TITLE).and_then(|issue| {
+        Some(Filed { number: issue["number"].as_u64()?, body: issue["body"].as_str().unwrap_or_default().to_owned() })
     }))
 }
 
@@ -250,6 +299,23 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         return Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn gh_with_input(args: &[&str], input: &str) -> Result<(), String> {
+    let verb = args[..2].join(" ");
+    let mut child = Command::new("gh")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("gh {verb}: {error}"))?;
+    child.stdin.take().ok_or_else(|| format!("gh {verb}: stdin is not piped"))?.write_all(input.as_bytes()).map_err(|error| format!("gh {verb}: {error}"))?;
+    let output = child.wait_with_output().map_err(|error| format!("gh {verb}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("gh {verb}: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(())
 }
 
 fn gh(args: &[&str]) -> Result<String, String> {
