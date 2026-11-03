@@ -37,7 +37,7 @@ export NORTH_BIN="$SCRATCH/bin/north" FLEET_JSON="$SCRATCH/fleet.json"
 printf '[]\n' >"$FLEET_JSON"
 cat >"$SCRATCH/offline-bin/agents" <<'SH'
 #!/usr/bin/env bash
-if [ "$1 $2 $3" = "flow row smashcraft" ] && [ -f "${FLOW_CACHE:-}" ]; then
+if [ "$1 $2 $3" = "flow row makgora" ] && [ -f "${FLOW_CACHE:-}" ]; then
   jq -c '{row: ., line: "\(.repo): pending \(.pending), landed \(.landed_per_hour)/h over 3h, push-to-land median \(.push_to_land_minutes)m p90 \(.push_to_land_p90_minutes)m over 24h"}' "$FLOW_CACHE"
   exit 0
 fi
@@ -236,13 +236,13 @@ printf '[]\n' >"$FLEET_JSON"
 CALL_ENV=()
 gate null
 
-flow_cache="$SCRATCH/home/.local/state/agents/flow/smashcraft.json"
+flow_cache="$SCRATCH/home/.local/state/agents/flow/makgora.json"
 export FLOW_CACHE="$flow_cache"
 mkdir -p "${flow_cache%/*}"
 flow_status() { printf '{"repo":"makgora","epoch":%s,"pending":%s,"landed_per_hour":%s,"push_to_land_minutes":12,"push_to_land_p90_minutes":20}\n' "$(date +%s)" "$1" "$2" >"$flow_cache"; }
-flow_brief() { agent "{\"subagent_type\":\"worker\",\"prompt\":\"Lane: ~/code/smashcraft/worktrees/fix. $1\"}"; }
+flow_brief() { agent "{\"subagent_type\":\"worker\",\"prompt\":\"Lane: ~/code/makgora/worktrees/fix. $1\"}"; }
 flow_status 3 1
-expect_deny "$(flow_brief 'Fix the fighter.')" 'landing WIP refuses smashcraft above the floor of two'
+expect_deny "$(flow_brief 'Fix the fighter.')" 'landing WIP refuses makgora above the floor of two'
 mkdir -p "$SCRATCH/projected/lib" "$SCRATCH/bin"
 cp "$HOOK" "$SCRATCH/projected/spawn-capacity-guard.sh"
 cp "$HERE/lib/spawn_capacity.py" "$SCRATCH/projected/lib/"
@@ -257,12 +257,12 @@ expect_allow "$(flow_brief 'CASE=URGENT Fix the fighter.')" 'CASE=URGENT passes 
 expect_allow "$(flow_brief '\nLanding-path: yes\nPick checks per landing.')" 'a Landing-path brief passes the landing WIP limit'
 expect_allow "$(flow_brief '\nClosing: yes\nRerun Done when on origin/main and tick the boxes.')" 'a closing pass that pushes no lane passes the landing WIP limit'
 expect_deny "$(flow_brief 'Closing: the fighter fix.')" 'only a Closing: yes line exempts a brief'
-expect_deny "$(agent '{"subagent_type":"worker","prompt":"Read /home/tom/code/north/main/agent-machinery/skills/verification/SKILL.md. Lane: ~/code/smashcraft/worktrees/fix. Fix the fighter."}')" 'the lane path, not an earlier north path, names the repository'
-expect_deny '{"session_id":"s","cwd":"/home/test/code/smashcraft/worktrees/fix","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Fix the fighter."}}' \
+expect_deny "$(agent '{"subagent_type":"worker","prompt":"Read /home/tom/code/north/main/agent-machinery/skills/verification/SKILL.md. Lane: ~/code/makgora/worktrees/fix. Fix the fighter."}')" 'the lane path, not an earlier north path, names the repository'
+expect_deny '{"session_id":"s","cwd":"/home/test/code/makgora/worktrees/fix","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Fix the fighter."}}' \
   'Codex cwd uses the same landing WIP limit' "$HERE/codex-behavior-guard.sh"
-expect_allow '{"session_id":"s","cwd":"/home/test/code/smashcraft/main","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Read the firn tests and judge ten of them."}}' \
+expect_allow '{"session_id":"s","cwd":"/home/test/code/makgora/main","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"message":"Read the firn tests and judge ten of them."}}' \
   'a spawn from a main checkout with no lane is not a code worker' "$HERE/codex-behavior-guard.sh"
-expect_allow "$(agent '{"subagent_type":"worker","prompt":"Category: research\nLane: ~/code/smashcraft/worktrees/fix. Survey the tests."}')" 'a research brief is outside the landing WIP limit'
+expect_allow "$(agent '{"subagent_type":"worker","prompt":"Category: research\nLane: ~/code/makgora/worktrees/fix. Survey the tests."}')" 'a research brief is outside the landing WIP limit'
 expect_allow "$(agent '{"subagent_type":"worker","prompt":"Fix the fighter in ~/code/north/worktrees/fix."}')" 'the brief lane takes precedence over unrelated repositories'
 flow_status 4 4
 expect_allow "$(flow_brief 'Fix the fighter.')" 'pending exactly at one hour of landing throughput allows'

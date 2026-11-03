@@ -14,7 +14,7 @@ pub(super) struct Family {
     pub(super) files_are_entries: bool,
 }
 
-const BASE: &str = "\"$HOME/.local/state/smashcraft\"";
+const BASE: &str = "\"$HOME/.local/state/makgora\"";
 
 fn setting(name: &str) -> f64 {
     let defaults: DocumentMut = DEFAULTS.parse().expect("harness/defaults.toml parses");

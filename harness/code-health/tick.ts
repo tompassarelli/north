@@ -62,7 +62,7 @@ function fill(template: string, values: Record<string, string>): string {
 }
 
 export function tickRepo(repo: string, env: TickEnv, print: (line: string) => void): Outcome {
-  const checkout = join(env.codeRoot, ({ firn: "nixos-config", makgora: "smashcraft", "makgora-client": "smashcraft-client" } as Record<string, string>)[repo] ?? repo, "main");
+  const checkout = join(env.codeRoot, ({ firn: "nixos-config" } as Record<string, string>)[repo] ?? repo, "main");
   if (!existsSync(checkout)) return { repo, result: "missing", detail: `no checkout at ${checkout}` };
   const name = reviewName(repo, env.now());
   const state = join(env.stateRoot, repo), lock = join(state, "review.lock");

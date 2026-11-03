@@ -6,7 +6,7 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/threads-resume-test.XXXXXX")
 trap 'rm -rf "${scratch:?}"' EXIT
 export HOME=$scratch/home THREADS_DB=$scratch/threads.db
 export NORTH_AGENT_ACTIVE=$scratch/activation.active NORTH_BIN=$scratch/bin/north PATH=$scratch/bin:$PATH BUILT_NORTH=${NORTH_PACE_BIN:-$repo/target/debug/north}
-mkdir -p "$scratch/bin" "$HOME/code/smashcraft"
+mkdir -p "$scratch/bin" "$HOME/code/makgora"
 printf 'hook north-hook\n' >"$NORTH_AGENT_ACTIVE"
 ln -s "$repo/bin/threads" "$scratch/bin/threads"
 cat >"$scratch/bin/north" <<'NORTH'
@@ -40,7 +40,7 @@ git -C "$scratch/seed" checkout -qb feature/other-10
 git -C "$scratch/seed" commit -qm $'Other repository fixture\n\nRefs wisp#10' --allow-empty
 git -C "$scratch/seed" tag -a archive/feature/other-10 -m 'archived fixture'
 git -C "$scratch/seed" push -q origin refs/tags/archive/feature/other-10
-git clone -q --no-tags "$scratch/origin.git" "$HOME/code/smashcraft/main"
+git clone -q --no-tags "$scratch/origin.git" "$HOME/code/makgora/main"
 fleet() { local stopped=false; [[ $1 == exited ]] && stopped=true; mkdir -p "$HOME/.local/state/north/fleet/holder"; printf '{"name":"holder","provider":"codex","account":"a","cwd":"/tmp","model":null,"created_ms":1,"host_pid":%s,"conversation":"fixture-session","stopped":%s}\n' "$$" "$stopped" >"$HOME/.local/state/north/fleet/holder/session.json"; }
 fleet working
 threads claim makgora#10 --by codex:fixture-session --eta 5 >/dev/null
@@ -74,7 +74,7 @@ grep -q $'makgora#10\tpriority:now\tUNOWNED\t' <<<"$out"
 out=$(env -u THREADS_DB threads show makgora#10)
 grep -q 'archive/feature/resume-10' <<<"$out"
 restore='archive/feature/resume-10:refs/heads/feature/resume-10'
-git -C "$HOME/code/smashcraft/main" push -q origin "$restore"
+git -C "$HOME/code/makgora/main" push -q origin "$restore"
 [ "$(git -C "$scratch/origin.git" rev-parse refs/heads/feature/resume-10)" = "$(git -C "$scratch/origin.git" rev-parse refs/tags/archive/feature/resume-10)" ]
 printf 'PASS [integration] proxy relays exact caller liveness without PIDs, discovers local archives, and the printed restore works on the scratch remote\n'
 printf 'threads resume: 2 passed, 0 failed\n'

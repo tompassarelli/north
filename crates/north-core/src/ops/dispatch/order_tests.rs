@@ -289,7 +289,7 @@ fn holds_and_claims_obey_the_rules_over_every_generated_order_of_events() {
 
 #[test]
 fn a_session_spends_a_try_when_it_committed_or_checked_and_otherwise_only_when_its_report_is_no_capacity_wait() {
-    let commit = "Bash git -C ~/code/smashcraft/sc-1 commit -m 'x'";
+    let commit = "Bash git -C ~/code/makgora/sc-1 commit -m 'x'";
     let push = "Bash safe-push --to main";
     let check = "Bash cargo test --locked";
     let idle = "Bash ls";

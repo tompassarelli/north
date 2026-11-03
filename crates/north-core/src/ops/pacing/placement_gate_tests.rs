@@ -393,7 +393,7 @@ fn a_prose_item_takes_its_repository_from_the_launch_directory_then_the_task() {
     let by_directory = gate::anchored(prose, Some(std::path::Path::new("/home/tom/code/wisp/main")), None);
     assert_eq!(gate::repository(&by_directory), "wisp");
     assert_eq!(placed_on(&by_directory).as_deref(), Some("gex45"));
-    let in_lane = gate::anchored(prose, Some(std::path::Path::new("/home/tom/code/smashcraft/worktrees/x/ts")), None);
+    let in_lane = gate::anchored(prose, Some(std::path::Path::new("/home/tom/code/makgora/worktrees/x/ts")), None);
     assert_eq!(gate::repository(&in_lane), "makgora");
     let by_task = gate::anchored(prose, Some(std::path::Path::new("/tmp/scratch")), Some("tompassarelli/makgora#518"));
     assert_eq!(gate::repository(&by_task), "makgora");

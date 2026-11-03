@@ -172,7 +172,7 @@ enum Pool {
 }
 
 fn wisp_pool(host: &dyn Host, home: &Path) -> Pool {
-    let tree = home.join("code/smashcraft/main/ts");
+    let tree = home.join("code/makgora/main/ts");
     let Some(output) = host.output(&WISP_STATUS, Some(&tree), None, Duration::from_secs(40)) else { return Pool::Error };
     let stdout = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() {

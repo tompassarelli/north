@@ -21,6 +21,6 @@ north nexus-run --cwd ts --install ts --pull ts/scripts/wisp/cue-models.tsv \
   'bun scripts/cueModels.ts --record --stock-cache "$CLASSIC_EFFECT_CACHE"'
 ```
 
-The shared stock cache is outside Git at `~/.local/share/smashcraft-render-assets/stock/65794b789a867a5f745f0cfb3e6d089b197a7bf239fdb43cfd75e5e251015705`; `CLASSIC_EFFECT_CACHE` points there. It is the private 3.0.0.24268 cache mirrored over SSH. `WC3_STORAGE` points at `~/.local/share/nexus-stock-storage`, containing its original `.build.info`. Raw CASC extraction additionally needs the required archive data and a runnable `casc-extract`; the metadata and extracted cache alone cannot supply uncached assets.
+The shared stock cache is outside Git at `~/.local/share/makgora-render-assets/stock/65794b789a867a5f745f0cfb3e6d089b197a7bf239fdb43cfd75e5e251015705`; `CLASSIC_EFFECT_CACHE` points there. It is the private 3.0.0.24268 cache mirrored over SSH. `WC3_STORAGE` points at `~/.local/share/nexus-stock-storage`, containing its original `.build.info`. Raw CASC extraction additionally needs the required archive data and a runnable `casc-extract`; the metadata and extracted cache alone cannot supply uncached assets.
 
 The timeout defaults to 900 seconds; `--timeout-seconds N` accepts 1–3600. The command's exit status is returned. Interruption stops the exact remote capacity wrapper, which stops its scope and releases its lease before workspace cleanup. No credentials or environment variables are forwarded.

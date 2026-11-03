@@ -16,7 +16,7 @@ export type Change = {
 const HOME = homedir();
 const env = process.env;
 const CODE = env.ITERATION_LEDGER_CODE_ROOT ?? join(HOME, "code");
-const checkoutOf = (repo: string): string => ({ firn: "nixos-config", makgora: "smashcraft", "makgora-client": "smashcraft-client" } as Record<string, string>)[repo] ?? repo;
+const checkoutOf = (repo: string): string => ({ firn: "nixos-config" } as Record<string, string>)[repo] ?? repo;
 const AGENTS = env.ITERATION_LEDGER_AGENTS_STATE ?? join(HOME, ".local/state/agents");
 const OUT_DIR = env.ITERATION_LEDGER_OUT ?? join(AGENTS, "iteration-ledger");
 const THREADS_DB = env.ITERATION_LEDGER_THREADS_DB ?? join(HOME, ".local/state/threads/snapshot.db");

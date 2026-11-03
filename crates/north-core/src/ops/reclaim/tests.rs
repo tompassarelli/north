@@ -159,10 +159,10 @@ fn cargo_target(machine: &Machine, relative: &str, age: Duration) -> PathBuf {
 fn idle_cargo_targets_go_from_north_main_and_every_containers_worktrees_but_not_other_mains_or_node_modules() {
     let machine = Machine::new();
     let main = cargo_target(&machine, "code/north/main/target", 3 * DAY);
-    let lane = cargo_target(&machine, "code/smashcraft/worktrees/sc-1/target", 3 * DAY);
+    let lane = cargo_target(&machine, "code/makgora/worktrees/sc-1/target", 3 * DAY);
     let wisp_lane = cargo_target(&machine, "code/wisp/worktrees/w1/target", 3 * DAY);
-    let installed = machine.dir("code/smashcraft/worktrees/sc-1/node_modules", 3 * DAY);
-    let smashcraft_main = cargo_target(&machine, "code/smashcraft/main/target", 3 * DAY);
+    let installed = machine.dir("code/makgora/worktrees/sc-1/node_modules", 3 * DAY);
+    let makgora_main = cargo_target(&machine, "code/makgora/main/target", 3 * DAY);
     let wisp_main = cargo_target(&machine, "code/wisp/main/target", 3 * DAY);
     let north_modules = machine.dir("code/north/main/node_modules", 3 * DAY);
     let busy = cargo_target(&machine, "code/north/worktrees/busy/target", 3 * DAY);
@@ -174,12 +174,12 @@ fn idle_cargo_targets_go_from_north_main_and_every_containers_worktrees_but_not_
     let other = cargo_target(&machine, "code/casclib/worktrees/c1/target", 3 * DAY);
     let hours_old = cargo_target(&machine, "code/north/worktrees/hours/target", Duration::from_secs(5 * 3600));
     let recent = cargo_target(&machine, "code/north/worktrees/recent/target", Duration::from_secs(3600));
-    let source = machine.file("code/smashcraft/worktrees/sc-1/src.rs", 3 * DAY);
+    let source = machine.file("code/makgora/worktrees/sc-1/src.rs", 3 * DAY);
 
-    assert_eq!(machine.reclaim(false), vec![other.clone(), main.clone(), hours_old.clone(), lane.clone(), wisp_lane.clone()]);
+    assert_eq!(machine.reclaim(false), vec![other.clone(), lane.clone(), main.clone(), hours_old.clone(), wisp_lane.clone()]);
     assert!(!main.exists() && !lane.exists() && !wisp_lane.exists() && !other.exists());
     assert!(!hours_old.exists());
-    assert!(installed.exists() && smashcraft_main.exists() && wisp_main.exists() && north_modules.exists());
+    assert!(installed.exists() && makgora_main.exists() && wisp_main.exists() && north_modules.exists());
     assert!(busy.exists() && held.exists() && recent.exists() && untagged.exists() && source.exists());
 }
 

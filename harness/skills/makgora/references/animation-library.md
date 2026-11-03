@@ -95,13 +95,13 @@ These are authored standards, not claims that Nintendo uses exactly them:
 
 ## Private visual resource and acquisition notes
 
-Private cache: ~/.local/share/smashcraft-animation-reference/.
+Private cache: ~/.local/share/makgora-animation-reference/.
 The official Damage Animations thumbnail is retained there as
 damage-thumbnail.jpg (480×360, 40,507 bytes), solely for private reference.
 It is not an animation-frame sequence and cannot establish timing.
 Source URL: https://i.ytimg.com/vi/0xHE3ypX96U/hqdefault.jpg.
 The linked Fox drill animation is retained privately at
-~/.local/share/smashcraft-animation-reference/fox-down-air.gif (200×144).
+~/.local/share/makgora-animation-reference/fox-down-air.gif (200×144).
 Source URL:
 https://ssb.wiki.gallery/images/thumb/a/a3/Fox_Down_Aerial_Hitbox_Melee.gif/200px-Fox_Down_Aerial_Hitbox_Melee.gif.
 It is useful for the spinning-body/leading-feet sequence; the superimposed

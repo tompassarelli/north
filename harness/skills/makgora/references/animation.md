@@ -2,7 +2,7 @@
 
 Read this to author or improve fighter animation: readable silhouettes, drills, locomotion, rolls, get-up attacks, grabs and throws, nine-way damage reactions, for quality and action coverage. Read makgora:docs/fighter-animation-work.md first. An animation repair never retunes combat timing or collision, because those belong to [character creation](character-creation.md) and their fixtures.
 
-The deliverable is a fighter whose action reads at the gameplay side-view zoom, in both facings. A mapped clip, a rotating effect or a nonzero vertex delta does not prove that it reads. Keep private art, reference stills and recordings under `~/.local/share/smashcraft-animation-reference/` or in the private build-input store, outside Git, because they are private or licensed inputs.
+The deliverable is a fighter whose action reads at the gameplay side-view zoom, in both facings. A mapped clip, a rotating effect or a nonzero vertex delta does not prove that it reads. Keep private art, reference stills and recordings under `~/.local/share/makgora-animation-reference/` or in the private build-input store, outside Git, because they are private or licensed inputs.
 ## Author the action
 
 Block three silhouettes: preparation, contact and recovery. Read each one with

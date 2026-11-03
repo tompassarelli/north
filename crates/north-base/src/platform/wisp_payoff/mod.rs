@@ -126,7 +126,7 @@ pub fn collect(since: Option<Date>) -> NorthResult<Report> {
         .map(PathBuf::from)
         .ok_or_else(|| NorthError::Configuration("HOME missing".into()))?;
     let roots = [
-        home.join(".local/state/smashcraft/evidence"),
+        home.join(".local/state/makgora/evidence"),
         home.join(".local/state/wisp"),
         home.join("code/wisp/main/evidence"),
         home.join("code/wisp/main/builds"),

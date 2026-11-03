@@ -29,7 +29,7 @@ on first use), `bun scripts/unused-code.ts`, `bun wisp oracle`,
 ## Map build
 
 **Map build.** Reuse the newest candidate's private inputs: the first
-line of ~/.local/share/smashcraft-build-inputs/playable-00NN/build*.log is
+line of ~/.local/share/makgora-build-inputs/playable-00NN/build*.log is
 its exact command (makgora:docs/playable-00NN.md can lag behind it):
 `bun wisp build --profile main|playable --base BASE.w3m --container CONTAINER.w3x --assets DIR --summon DIR --name NAME --out OUT.w3x`.
 A diagnostic build takes its own name and folder, never the next

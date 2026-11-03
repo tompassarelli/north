@@ -13,7 +13,7 @@ import tempfile
 hook = sys.argv[1]
 with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     root = Path(temporary)
-    game = root / 'code/smashcraft/main'
+    game = root / 'code/makgora/main'
     game.mkdir(parents=True)
     subprocess.run(['git', 'init', '-q', str(game)], check=True)
     source = game / 'arc.ts'

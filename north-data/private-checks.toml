@@ -1,7 +1,7 @@
 [[check]]
 name = "readability"
 repo = "tompassarelli/makgora"
-checkout = "smashcraft"
+checkout = "makgora"
 context = "readability"
 paths = [
   "ts/src/game/presentation/",

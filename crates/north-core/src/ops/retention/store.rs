@@ -18,7 +18,7 @@ pub(super) struct Layout {
 
 impl Layout {
     pub(super) fn gex45() -> Self {
-        Self { store: "\"$HOME/.local/share/smashcraft-build-inputs/store\"".into(), checkouts: "\"$HOME/code/smashcraft\"".into() }
+        Self { store: "\"$HOME/.local/share/makgora-build-inputs/store\"".into(), checkouts: "\"$HOME/code/makgora\"".into() }
     }
 }
 

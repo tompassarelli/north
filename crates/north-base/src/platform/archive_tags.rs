@@ -23,8 +23,6 @@ pub fn repo_alias(name: &str) -> &str {
 pub fn checkout_name(repo: &str) -> &str {
     match repo {
         "firn" => "nixos-config",
-        "makgora" => "smashcraft",
-        "makgora-client" => "smashcraft-client",
         other => other,
     }
 }

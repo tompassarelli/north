@@ -42,7 +42,7 @@ fn an_evidence_store_over_budget_loses_its_oldest_runs_but_never_a_fresh_held_or
     let [oldest, linked, held, older, newer, fresh] = store(&machine);
     machine.dir("proc/4242/fd", DAY);
     symlink(held.join("frame.png"), machine.path("proc/4242/fd/3")).unwrap();
-    let inputs = Inputs { open_issue_text: || Ok("[{\"body\":\"frames in ~/.local/state/smashcraft/evidence/linked/frame.png\"}]".into()), ..machine.inputs() };
+    let inputs = Inputs { open_issue_text: || Ok("[{\"body\":\"frames in ~/.local/state/makgora/evidence/linked/frame.png\"}]".into()), ..machine.inputs() };
 
     assert_eq!(swept(&machine, &inputs, 4), vec![older.clone(), oldest.clone()]);
     assert!(!oldest.exists() && !older.exists() && linked.exists() && held.exists() && newer.exists() && fresh.exists());

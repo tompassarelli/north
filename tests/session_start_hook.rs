@@ -24,7 +24,7 @@ impl Rig {
         let root = scratch.path();
         let origin = root.join("origin.git");
         let seed = root.join("seed");
-        let clone = root.join("home/code/smashcraft/main");
+        let clone = root.join("home/code/makgora/main");
         std::fs::create_dir_all(clone.parent().unwrap()).unwrap();
         git(root, &["init", "-q", "--bare", "--initial-branch=main", origin.to_str().unwrap()]);
         git(root, &["init", "-q", "--initial-branch=main", seed.to_str().unwrap()]);
@@ -85,7 +85,7 @@ impl Rig {
         json!({
             "hook_event_name": "SessionStart",
             "session_id": "fixture-session",
-            "cwd": self.scratch.path().join("home/code/smashcraft/main"),
+            "cwd": self.scratch.path().join("home/code/makgora/main"),
         })
         .to_string()
     }

@@ -47,7 +47,7 @@ Read this to design, build and test a Mak'gora fighter or move: role, move phase
 ## Assets and selection
 
 - Generate fighterAssetInfo.ts through `smashcraft-tools build-animation-assets` (makgora:tools/smashcraft-tools) and package.ts from tools/animations/ Blender clips, because the module is generated.
-- Keep proprietary models under ~/.local/share/smashcraft-build-inputs/ under `repo-safety`, because they never enter Git.
+- Keep proprietary models under ~/.local/share/makgora-build-inputs/ under `repo-safety`, because they never enter Git.
 - Register new model families in ts/scripts/wisp/mapInputs.ts and expectations in ts/scripts/wisp/playerView.ts, because the build and view checks read them.
 - Supply roster chip, portrait, name, HUD plate, mirror match, rematch and off-screen indicator with text in the game's language, because a fighter is selectable only with all of them.
 - Assign a campaign-appropriate home stage, native assets first, with a one-line lore reason in ts/src/game/menu/homeStages.ts and docs/design/home-stages.md, and satisfy ts/test/home-stages.test.ts for every selectable fighter (shared stages allowed), because that test gates selection.

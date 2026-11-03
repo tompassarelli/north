@@ -92,7 +92,7 @@ fn states(statuses: &Recorded) -> Vec<(&str, &str)> {
 fn the_shipped_config_renders_the_readability_check_on_the_gpu_then_judges_it_on_a_moderate_lease() {
     let checks = config::parse(SOURCE).unwrap();
     let readability = checks.iter().find(|check| check.name == "readability").unwrap();
-    assert_eq!((readability.repo.as_str(), readability.checkout.as_str(), readability.context.as_str()), ("tompassarelli/makgora", "smashcraft", "readability"));
+    assert_eq!((readability.repo.as_str(), readability.checkout.as_str(), readability.context.as_str()), ("tompassarelli/makgora", "makgora", "readability"));
     let classes: Vec<&str> = readability.steps.iter().map(|step| step.class.as_str()).collect();
     assert_eq!(classes, ["moderate", "heavy", "gpu", "moderate"]);
     assert!(readability.steps[2].command.iter().any(|argument| argument == "--render-only"));

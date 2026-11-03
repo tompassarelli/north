@@ -8,9 +8,9 @@ setDefaultTimeout(30_000);
 
 function scratch(signal: string) {
   const root = mkdtempSync(join(tmpdir(), "code-health-tick-")), start = new Date();
-  mkdirSync(join(root, "code/smashcraft/main"), { recursive: true });
-  Bun.spawnSync(["git", "init", "-q", join(root, "code/smashcraft/main")]); Bun.spawnSync(["git", "init", "-q", "--bare", join(root, "origin.git")]);
-  Bun.spawnSync(["git", "-C", join(root, "code/smashcraft/main"), "remote", "add", "origin", join(root, "origin.git")]);
+  mkdirSync(join(root, "code/makgora/main"), { recursive: true });
+  Bun.spawnSync(["git", "init", "-q", join(root, "code/makgora/main")]); Bun.spawnSync(["git", "init", "-q", "--bare", join(root, "origin.git")]);
+  Bun.spawnSync(["git", "-C", join(root, "code/makgora/main"), "remote", "add", "origin", join(root, "origin.git")]);
   const fake = join(root, "code-health");
   writeFileSync(fake, `#!/usr/bin/env bash\necho "$*" >> ${root}/calls\ncase $1 in\n  signal) ${signal} ;;\n  report) echo "hotspots: sim/physics.ts 412" ;;\nesac\n`); chmodSync(fake, 0o755);
   const fleet = join(root, "north"), fleetSessions = join(root, "fleet.json"); writeFileSync(fleetSessions, "[]\n"); writeFileSync(fleet, `#!/usr/bin/env bash\necho "$*" >> ${root}/north-calls\ncase "$1 $2" in\n  "fleet list") cat ${fleetSessions} ;;\n  "fleet accounts") printf "claude\\tb\\nclaude\\ta\\n" ;;\n  "fleet launch") name=$(echo "$*" | sed "s/.*--name \\([^ ]*\\).*/\\1/"); grep -q "\"$name\"" ${fleetSessions} && { echo "error: a session named $name already exists" >&2; exit 1; }; [[ " $* " == *" --account b "* ]] && { echo "claude:b is out; placement picks claude:c; launch with --account c, or keep claude:b with --pin" >&2; exit 1; }; echo ok ;;\n  *) exit 2 ;;\nesac\n`); chmodSync(fleet, 0o755);
@@ -67,7 +67,7 @@ test("a launch placement refuses on every account is an error, and one refused b
 
 test("a failed fetch is an error that releases the lock, not quiet", () => {
   const { root, env } = scratch("echo quiet; exit 1");
-  Bun.spawnSync(["git", "-C", join(root, "code/smashcraft/main"), "remote", "set-url", "origin", join(root, "missing.git")]);
+  Bun.spawnSync(["git", "-C", join(root, "code/makgora/main"), "remote", "set-url", "origin", join(root, "missing.git")]);
   expect(tickRepo("makgora", env, () => {}).result).toBe("error");
   expect(existsSync(join(env.stateRoot, "makgora/review.lock"))).toBe(false);
 });

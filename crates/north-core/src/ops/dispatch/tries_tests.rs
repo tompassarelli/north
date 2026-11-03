@@ -27,7 +27,7 @@ fn a_try_whose_session_only_waited_on_admission_does_not_count_toward_the_two_tr
     for (spent_nothing, why) in [(&waited, "still waiting for pair 10"), (&deferred, "DEFER_GPU_CLIENTS"), (&limited, "hit your session limit"), (&host_died, "failed before any report")] {
         assert!(super::tries::unspent(spent_nothing).is_some_and(|unspent| unspent.contains(why)), "{spent_nothing}");
     }
-    let committed = session(&["Bash git -C ~/code/smashcraft/sc-518 commit -m 'Fix the dash'", "Bash safe-push --to main"], Some("Still in the queue."), "completed");
+    let committed = session(&["Bash git -C ~/code/makgora/sc-518 commit -m 'Fix the dash'", "Bash safe-push --to main"], Some("Still in the queue."), "completed");
     let checked = session(&["Bash cargo test --locked --offline"], Some("Waiting on pair 3 for the native half."), "completed");
     let reported = session(&[], Some("Not done: the box asks for two frame counts that contradict each other."), "completed");
     for did_work in [&committed, &checked, &reported] {

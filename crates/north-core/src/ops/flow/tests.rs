@@ -80,7 +80,7 @@ fn row(recorded: &Recorded, now: f64) -> Value {
 }
 
 fn parent() -> Vec<Node> {
-    vec![Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/smashcraft/main".into() }]
+    vec![Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }]
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn deliver_alerts(recorded: &Recorded) {
     let directory = tempfile::tempdir().unwrap();
     let places = places(directory.path());
     let sends = RefCell::new(Vec::<String>::new());
-    let fleet = json!([{"name": "smashcraft-parent", "conversation": "smashcraft-session", "parent": null, "provider": "claude", "status": "working", "cwd": "/home/tom/code/smashcraft/main"}]).to_string();
+    let fleet = json!([{"name": "smashcraft-parent", "conversation": "smashcraft-session", "parent": null, "provider": "claude", "status": "working", "cwd": "/home/tom/code/makgora/main"}]).to_string();
     let reply = |argv: &[&str]| match argv {
         ["north", "fleet", "list", "--json"] => Some(fleet.clone()),
         ["north", "fleet", "send", node, text] => {

@@ -60,7 +60,7 @@ fn test_a_fresh_unlanded_lane_still_counts_beside_the_cleanup() {
 fn stranded_listing() -> String {
     let session = |name: &str, lane: &str, minutes_ago: f64, ahead: u32| {
         json!({"name": name, "provider": "claude", "account": "a", "status": "exited", "repo": "makgora", "tasks": [], "machine": "gex45", "stop": "capacity", "ended_ms": ((NOW - minutes_ago * 60.0) * 1000.0) as u64,
-            "lanes": [{"path": format!("/home/tom/code/smashcraft/worktrees/{lane}"), "branch": lane, "ahead": ahead, "dirty": false, "landed": false}]})
+            "lanes": [{"path": format!("/home/tom/code/makgora/worktrees/{lane}"), "branch": lane, "ahead": ahead, "dirty": false, "landed": false}]})
     };
     json!([session("sc-b1", "sc-1-lane", 190.0, 2), session("sc-b2", "sc-2-lane", 5.0, 1), session("sc-b3", "sc-3-lane", 300.0, 0)]).to_string()
 }
@@ -79,7 +79,7 @@ fn test_a_lane_stranded_over_fifteen_minutes_is_listed_with_its_stop_and_alerts(
     let [lane] = row["stranded"].as_array().unwrap().as_slice() else { panic!("{row}") };
     assert_eq!((lane["session"].as_str(), lane["lane"].as_str(), lane["stop"].as_str()), (Some("sc-b1"), Some("sc-1-lane"), Some("Stop: capacity")), "a five-minute stop and a lane with nothing unlanded are not listed");
     assert!(format_row(&row, None).contains("stranded 1 lanes: sc-b1 sc-1-lane (Stop: capacity, 190m)"), "{}", format_row(&row, None));
-    let nodes = [super::alerts::Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/smashcraft/main".into() }];
+    let nodes = [super::alerts::Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }];
     let (state, actions) = super::alerts::alert_plan(std::slice::from_ref(&row), &Default::default(), NOW, &nodes);
     assert!(state.contains_key("makgora"));
     let texts: Vec<&str> = actions.iter().map(|action| action.text.as_str()).collect();
