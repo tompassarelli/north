@@ -1,7 +1,7 @@
 ---
 name: planning
 description: >-
-  Plan a change when a concrete interface, durable state, dependency, or external boundary makes the decision costly to reverse; write a consequential brief; investigate prior art when evidence must decide a protocol, representation, dependency, interface or infrastructure choice; decide how much hardening, security, signing, compatibility or test isolation a change needs and harden one named guarantee; price an infra, tooling, CI or harness box against feature work before staffing it and size the recurring code-health review; scope delivery work, diagnose stalled completion, choose engineering investment, and consolidate issues without losing independently finishable outcomes. Use when tempted to add process, safeguards or "while I'm here" fixes. Skip routine changes with a clear method and check.
+  Plan costly-to-reverse changes (interfaces, state, dependencies, boundaries); consequential briefs; prior art; hardening, security or compatibility level; price infra, CI or harness work vs features; code-health review size; delivery scope, stalled work, merging issues; resist extra process. Skip routine changes.
 grounded: 2026-10-15
 written: 2026-10-15
 ---

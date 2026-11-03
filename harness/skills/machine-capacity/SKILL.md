@@ -1,7 +1,7 @@
 ---
 name: machine-capacity
 description: >-
-  Wrap builds, full test suites, renders, Warcraft clients or other sustained multi-core or >1 GiB work in capacity admission; diagnose a DEFER or resource pressure. Skip edits and small checks.
+  Run builds, full suites, renders, Warcraft clients or other multi-core or >1 GiB work under capacity admission; DEFER or resource pressure. Skip small checks.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

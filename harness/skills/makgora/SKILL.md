@@ -1,7 +1,7 @@
 ---
 name: makgora
 description: >-
-  Mak'gora fighter and stage work. Use to author and improve fighter animation for quality and action coverage; to design, build and test a Mak'gora fighter or move for a new fighter or move change, not other Warcraft maps; and to design, dress and judge a stage's look with the Classic models, for any stage art, composition, look issue or new stage.
+  Mak'gora fighters, moves, animation and stages: design, build, test, judge. Not other Warcraft maps.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

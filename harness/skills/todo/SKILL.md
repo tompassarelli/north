@@ -1,7 +1,7 @@
 ---
 name: todo
 description: >-
-  Keep restart-grade records for cross-turn work, external waits, parked tasks, and handoffs, and recall past agent work, decisions, commands or session IDs across Claude Code and Codex transcripts with the indexed convo CLI instead of searching transcript storage.
+  Restart-grade records for cross-turn work, waits, parked tasks, handoffs; recall past agent work, decisions or session IDs from transcripts via convo.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

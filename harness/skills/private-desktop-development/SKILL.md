@@ -1,7 +1,7 @@
 ---
 name: private-desktop-development
 description: >-
-  Run GPU games and graphical tools on a private Wayland desktop beside Niri (private-desktop.sh start, control, type, capture) without touching Tom's input or focus. Also use before repeated screenshots or capture loops, after an image request-size failure, and for unattended web work in automation-chrome (Playwright actions, screenshots, page-to-page secret transfer).
+  GPU games or graphical tools on a private desktop beside Niri; repeated screenshots; image request-size failures; unattended automation-chrome or Playwright work.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

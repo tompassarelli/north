@@ -1,7 +1,7 @@
 ---
 name: nix-development
 description: >-
-  Create or repair project-local Nix environments and consumed flake outputs outside nixos-config.
+  Project-local Nix environments and flake outputs outside nixos-config.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

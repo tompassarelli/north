@@ -1,10 +1,7 @@
 ---
 name: warcraft-modding
 description: >-
-  Use for any Warcraft III map work: Wisp TypeScript maps and Mak'gora's ts/,
-  native LAN or Battle.net clients, captures, playtests and desyncs,
-  TypeScriptToLua frame cost or GC on PUC Lua 5.3 (Lua32 ceilings, failing
-  `bun wisp perf compare`), and WurstScript projects.
+  Warcraft III map work: Wisp, Mak'gora ts/, LAN or Battle.net clients, captures, playtests, desyncs, TypeScriptToLua frame cost or GC, Lua32, WurstScript.
 grounded: 2026-10-15
 written: 2026-11-04
 metadata:

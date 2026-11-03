@@ -1,9 +1,7 @@
 ---
 name: game-ip
 description: >-
-  Respect Blizzard's and Nintendo's IP in any game-modding or game-feel work
-  (Warcraft III, Wisp, Mak'gora, Melee): where engine or game facts may come
-  from, and what to do when a task seems to need the game's internals.
+  Blizzard and Nintendo IP rules for Warcraft III, Wisp, Mak'gora or Melee work: allowed sources of game facts, tasks needing internals.
 grounded: 2026-10-31
 written: 2026-10-31
 metadata:

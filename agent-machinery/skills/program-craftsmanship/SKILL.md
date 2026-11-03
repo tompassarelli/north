@@ -1,7 +1,7 @@
 ---
 name: program-craftsmanship
 description: >-
-  Refactor, clean up or port established code while preserving observable behavior, and keep module structure within the repo's structure.toml when a code-health gate or edit-time message fires. Also organize project files by real authority, lifecycle and retrieval needs, including data pipelines and handoff layouts.
+  Refactor, clean up or port code preserving behavior; structure.toml code-health messages; organize project files, pipelines, handoff layouts.
 grounded: 2026-10-15
 written: 2026-10-15
 ---

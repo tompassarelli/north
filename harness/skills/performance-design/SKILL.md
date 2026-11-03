@@ -1,10 +1,7 @@
 ---
 name: performance-design
 description: >-
-  Design or improve code with a frame, tick, latency or throughput budget;
-  measure its hot paths, organize passes and choose a runtime-specific data layout.
-  Also measure and improve a named repeated edit-to-result development loop when
-  its latency materially affects iteration speed.
+  Code under a frame, tick, latency or throughput budget: hot paths, data layout; a slow edit-to-result loop.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

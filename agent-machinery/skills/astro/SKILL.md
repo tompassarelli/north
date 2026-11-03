@@ -1,6 +1,7 @@
 ---
 name: astro
-description: Build, upgrade or debug Astro sites, covering .astro pages, components and layouts, routing, content collections, the Fonts API, images, islands, astro.config, the astro CLI, static builds, adapters and deployment.
+description: >-
+  Build, upgrade or debug Astro sites: .astro files, routing, content collections, islands, adapters, deploys.
 grounded: 2026-10-19
 written: 2026-10-19
 ---

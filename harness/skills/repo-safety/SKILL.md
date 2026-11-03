@@ -1,7 +1,7 @@
 ---
 name: repo-safety
 description: >-
-  Edit and publish ~/code repositories through owned worktrees, enumerated staging, and safe-push; preserve main checkouts, pins, and peer work; keep disc images and extracted game files out of Git trees. Also select bounded filesystem roots before searching repository containers or virtual filesystems, and use native process metadata for process discovery.
+  Edit and publish ~/code repos via worktrees and safe-push; protect main checkouts, pins and peer work; keep disc images and game files out of Git; bound file and process searches.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

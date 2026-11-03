@@ -1,7 +1,7 @@
 ---
 name: babashka-development
 description: >-
-  Develop Babashka scripts, tasks, runtime upgrades, and C interop using the consumer's runtime and current official capabilities.
+  Develop Babashka (bb) scripts, tasks, runtime upgrades and C interop.
 grounded: 2026-10-15
 written: 2026-10-15
 ---

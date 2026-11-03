@@ -1,7 +1,7 @@
 ---
 name: workers
 description: >-
-  Lead-side staffing router: before you spawn, restaff, review, place or land a worker or lead, pick its tier and ETA, write its brief and read its report. Points to the full brief format, review, cloud workers (cloud credit lane, RemoteTrigger routines) and local placement, parking and auto-wake (the fleet tick that revives sessions through usage limits), fleet org and take-over, and Codex leads and sessions.
+  Lead-side staffing: spawn, restaff, review, park or land workers or leads; tiers, ETAs, briefs, reports; cloud workers, RemoteTrigger; auto-wake; fleet take-over; Codex leads.
 grounded: 2026-10-15
 written: 2026-11-04
 ---

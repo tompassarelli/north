@@ -1,11 +1,7 @@
 ---
 name: agent-policy
 description: >-
-  Author, locate, register, or activate source-owned agent instructions, skills, hooks, and modules;
-  turn explicit lasting instructions, repeated corrections or demonstrated recurring lessons into scoped policy;
-  import third-party skills into the shared catalog; implement or change a command/write guard;
-  audit or redesign the harness against the
-  authoring guides; review a followed outside source on its monthly cycle.
+  Author or change agent instructions, skills, hooks, guards or modules; turn lasting corrections into policy; import skills; audit the harness; review a followed source.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:

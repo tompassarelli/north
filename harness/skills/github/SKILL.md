@@ -1,7 +1,7 @@
 ---
 name: github
 description: >-
-  GitHub work through `gh`. Use to create or edit GitHub issues, including issue labels and Done-when boxes, using the repository's existing ticket and tagging conventions; and to write or change GitHub Actions workflows, dispatch or wait on runs, or run many agents against GitHub within the account's job limit and hourly API budget.
+  GitHub via `gh`: issues, labels, Done-when boxes; Actions workflows and runs; many agents within job and API limits.
 grounded: 2026-10-15
 written: 2026-10-15
 metadata:
