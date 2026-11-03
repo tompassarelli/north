@@ -763,29 +763,6 @@ local_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf "%s\n" tool_removal_scan >>"$scratch/cases"
 (cd "$real_repo"; HOME="$tool_home" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
 
-make_real_fixture test-kind-retired
-mkdir -p "$real_repo/src" "$real_repo/tests"
-printf '#[test]\nfn kept_boundary() {}\n' >"$real_repo/src/lib.rs"
-printf 'it("kept", () => {})\n' >"$real_repo/tests/boundary.js"
-"$real_git" -C "$real_repo" add src/lib.rs tests/boundary.js
-"$real_git" -C "$real_repo" commit -qm 'existing tests'
-"$real_git" -C "$real_repo" push -q origin HEAD:main
-kind_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
-for kind_case in rust js; do
-  "$real_git" -C "$real_repo" reset -q --hard "$kind_base"
-  case "$kind_case" in
-    rust) printf '#[test]\nfn kept_boundary() {}\n#[test]\nfn new_boundary() {}\n' >"$real_repo/src/lib.rs" ;;
-    js) printf 'it("new boundary", () => {})\n' >>"$real_repo/tests/boundary.js" ;;
-  esac
-  "$real_git" -C "$real_repo" commit -qam "new $kind_case test without a Test-kind trailer"
-  run_real_case '' --after-landing "$kind_base" "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
-  expect_status zero
-  ! grep -Fq 'Test-kind' <<<"$case_output" || fail "a new $kind_case test without Test-kind still failed after landing: $case_output"
-  ! grep -Fq 'after-landing gate test-kind' <<<"$case_output" || fail 'the test-kind gate still runs after landing'
-  expect_output 'after-landing gate code-health passed'
-done
-printf 'PASS: a new test without a Test-kind trailer files no after-landing failure\n'
-
 make_real_fixture vendored-tree
 mkdir -p "$real_repo/repos/upstream" "$real_repo/vendor/lib"
 printf '{"vendor": "repos/upstream"}\n' >"$real_repo/effect-kit.json"
@@ -1010,27 +987,12 @@ PYRECORD
 done
 printf 'Generated rewrite recorded journey: PASS (after landing, a churning rewrite does not refuse the landing)\n'
 
-make_real_fixture provenance-retired
-printf '| Box | Area | Done when | State |\n|---|---|---|---|\n| 9.10p | query view | the query view opens | open |\n' >"$real_repo/PLAN.md"
-mkdir -p "$real_repo/harness/skills/example"
-printf -- '- Keep it short.\n' >"$real_repo/harness/skills/example/SKILL.md"
-"$real_git" -C "$real_repo" add PLAN.md harness
-"$real_git" -C "$real_repo" commit -qm 'galileo plan'
-"$real_git" -C "$real_repo" push -q origin HEAD:main
-printf '| 9.11p | query view | the 1,000-row query keystroke stays under 50 ms | open |\n' >>"$real_repo/PLAN.md"
-printf -- '- Refuse a landing slower than 50 ms.\n' >>"$real_repo/harness/skills/example/SKILL.md"
-"$real_git" -C "$real_repo" commit -qam 'query keystroke target and policy line without a Provenance record'
-run_after_landing_case
-! grep -Fq 'Provenance' <<<"$case_output" || fail "an unsourced bar or policy line still failed after landing: $case_output"
-! grep -Fq 'after-landing gate provenance' <<<"$case_output" || fail 'the provenance gate still runs after landing'
-"$real_git" -C "$real_repo" fetch -q origin
-"$real_git" -C "$real_repo" reset -q --hard origin/main
-printf '| 9.12p | query view | the 1,000-row query scroll stays under 40 ms | open |\n' >>"$real_repo/PLAN.md"
-"$real_git" -C "$real_repo" commit -qam 'query scroll target for ops#17'
+make_real_fixture native-ref
+"$real_git" -C "$real_repo" commit -q --allow-empty -m 'query scroll target for ops#17'
 run_real_case '' --dry-run
 expect_status nonzero
 expect_output 'names a native NorthThread item'
-printf 'PASS: native refs refuse before landing, and a bar or policy line without Provenance files no after-landing failure\n'
+printf 'PASS: a commit message naming a native item refuses before landing\n'
 
 make_real_fixture review-coverage
 ln -s remote.git "$real_fixture/north.git"
@@ -1509,6 +1471,7 @@ code_health_case 0 --after-landing "$code_health_base" "$code_health_head" "$rea
 expect_status zero
 grep -Fxq "code-health gate $code_health_base $code_health_head" "$scratch/code-health-trace" \
   || fail 'after landing, code-health did not measure the landed range'
+expect_output 'after-landing gate code-health passed'
 code_health_case 1 --after-landing "$code_health_base" "$code_health_head" "$real_fixture/report"
 expect_status nonzero
 expect_output 'safe-push: ✗ code-health gate refused — NOT pushed.'

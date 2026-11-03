@@ -391,15 +391,20 @@ fn a_job_exit_that_reached_the_store_over_a_day_ago_is_not_delivered_and_a_fresh
     assert_eq!(exchanged.rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["x-new"]);
 }
 
+fn wait_at(store: &mut Store, request: &WaitRequest, unix_seconds: i64) {
+    let tx = store.db.transaction().unwrap();
+    waits::insert(&tx, request, Timestamp::from_unix_seconds(unix_seconds)).unwrap();
+    tx.commit().unwrap();
+}
+
 #[test]
 fn a_settlement_decided_on_a_wait_does_not_remove_the_wait_a_worker_registered_again_under_its_key() {
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
     let request = WaitRequest { session: "sc-1".into(), kind: WaitKind::Farm, key: "42".into(), within_secs: 60 };
-    store.wait(&request).unwrap();
+    wait_at(&mut store, &request, 1_793_000_000);
     let judged = store.waits().unwrap()[0].key();
-    std::thread::sleep(std::time::Duration::from_millis(1100));
-    store.wait(&request).unwrap();
+    wait_at(&mut store, &request, 1_793_000_001);
 
     store.settle_all(std::slice::from_ref(&judged)).unwrap();
 

@@ -1,8 +1,8 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::json::Obj;
 use super::request::Request;
-use super::run::{cache_server_socket, scope_command, state_change, watch};
+use super::run::{cache_server_socket, scope_command, watch, watched_state};
 
 fn server_socket(root: &std::path::Path, class: &str) -> Option<std::ffi::OsString> {
     let request = Request { name: class.to_owned(), ..Request::default() };
@@ -42,42 +42,33 @@ fn state_root() -> tempfile::TempDir {
     root
 }
 
-#[tokio::test]
-async fn a_rewritten_usage_sample_does_not_wake_a_waiter_but_a_new_lease_does() {
-    let root = state_root();
-    let leases = root.path().join("leases");
-    let usage = leases.join("aaaa.usage");
-    let started = Instant::now();
-    let writer = tokio::spawn(async move {
-        for sample in 0..12 {
-            std::fs::write(&usage, format!("{sample}\n")).expect("usage sample");
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    });
-    state_change(root.path(), watch(Some("DEFER_RUN_QUEUE"))).await;
-    writer.await.expect("writer");
-    assert!(started.elapsed() >= Duration::from_millis(950), "a usage sample woke the waiter after {:?}", started.elapsed());
-
-    let started = Instant::now();
-    let lease = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        std::fs::write(leases.join("bbbb.json"), "{}\n").expect("lease");
-    });
-    state_change(root.path(), watch(Some("DEFER_RUN_QUEUE"))).await;
-    lease.await.expect("lease writer");
-    assert!(started.elapsed() < Duration::from_millis(900), "a new lease woke the waiter only after {:?}", started.elapsed());
+fn age_queue(root: &std::path::Path) {
+    std::fs::File::open(root.join("queue")).expect("queue directory").set_modified(std::time::UNIX_EPOCH).expect("age the queue");
 }
 
-#[tokio::test]
-async fn a_ticket_behind_decides_again_as_soon_as_the_queue_changes() {
+#[test]
+fn a_new_lease_or_a_new_ticket_changes_what_a_waiter_watches_but_a_rewritten_usage_sample_does_not() {
     let root = state_root();
-    let queue = root.path().join("queue");
-    let started = Instant::now();
-    let change = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        std::fs::write(queue.join("000000000000001-a.json"), "{}\n").expect("ticket");
-    });
-    state_change(root.path(), watch(Some("DEFER_QUEUED"))).await;
-    change.await.expect("writer");
-    assert!(started.elapsed() < Duration::from_secs(3), "woke after {:?}", started.elapsed());
+    age_queue(root.path());
+    let head = watch(Some("DEFER_RUN_QUEUE"));
+    let behind = watch(Some("DEFER_QUEUED"));
+    let (head_before, behind_before) = (watched_state(root.path(), head), watched_state(root.path(), behind));
+
+    let leases = root.path().join("leases");
+    for sample in 0..3 {
+        std::fs::write(leases.join("aaaa.usage"), format!("{sample}\n")).expect("usage sample");
+    }
+    assert_eq!(watched_state(root.path(), head), head_before, "a usage sample woke a waiting head");
+    assert_eq!(watched_state(root.path(), behind), behind_before, "a usage sample woke a waiting ticket");
+
+    std::fs::write(leases.join("bbbb.json"), "{}\n").expect("lease");
+    assert_ne!(watched_state(root.path(), head), head_before, "a new lease did not wake a waiting head");
+    let (head_leased, behind_leased) = (watched_state(root.path(), head), watched_state(root.path(), behind));
+    assert_ne!(behind_leased, behind_before, "a new lease did not wake a waiting ticket");
+
+    age_queue(root.path());
+    let behind_aged = watched_state(root.path(), behind);
+    std::fs::write(root.path().join("queue").join("000000000000001-a.json"), "{}\n").expect("ticket");
+    assert_eq!(watched_state(root.path(), head), head_leased, "a head watches no queue");
+    assert_ne!(watched_state(root.path(), behind), behind_aged, "a new ticket did not wake a ticket behind");
 }

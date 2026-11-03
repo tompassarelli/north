@@ -80,13 +80,17 @@ pub(super) fn watch(reason: Option<&str>) -> Watch {
     }
 }
 
+/// What a waiter compares to see a decision-relevant change: the lease file names, plus the queue directory's modification time for a ticket held behind an earlier one.
+pub(super) fn watched_state(root: &Path, watch: Watch) -> (Vec<std::ffi::OsString>, Option<std::time::SystemTime>) {
+    (lease_names(root), watch.queue.then(|| modified(&root.join("queue"))).flatten())
+}
+
 /// Waits until the watched state changes or the jittered poll interval passes.
 pub(super) async fn state_change(root: &Path, watch: Watch) {
     let jitter = u64::from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.subsec_nanos())) % QUEUE_POLL_MILLISECONDS;
     let deadline = tokio::time::Instant::now() + watch.poll + Duration::from_millis(jitter);
-    let state = || (lease_names(root), watch.queue.then(|| modified(&root.join("queue"))).flatten());
-    let before = state();
-    while tokio::time::Instant::now() < deadline && state() == before {
+    let before = watched_state(root, watch);
+    while tokio::time::Instant::now() < deadline && watched_state(root, watch) == before {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
