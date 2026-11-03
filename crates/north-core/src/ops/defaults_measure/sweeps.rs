@@ -30,7 +30,7 @@ pub(super) fn knobs(defaults: &Registry) -> Knobs {
         success_threshold: defaults.number("success_threshold"),
         min_runs,
         incumbent_margin: defaults.number("incumbent_margin") as i64,
-        usd_min: min_runs,
+        usd_min: crate::ops::dispatch::ARM_RUNS,
         eta_min_samples: defaults.number("eta_min_samples") as usize,
         eta_coverage: defaults.number("eta_coverage"),
         box_chain_gap_min: defaults.number("box_chain_gap_min"),

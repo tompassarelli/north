@@ -45,6 +45,7 @@ fn run_of(row: &Value) -> Run {
         tier: tier_key(text(row, "tier").unwrap_or_default()),
         minutes: row.get("minutes").and_then(Value::as_f64),
         cost_usd: row.get("cost_usd").and_then(Value::as_f64),
+        api_usd: row.get("api_usd").and_then(Value::as_f64),
         outcome: text(row, "outcome").unwrap_or_default().to_owned(),
         ok: row.get("ok").and_then(Value::as_bool).unwrap_or(false),
         ..Run::default()
@@ -74,7 +75,7 @@ pub(super) fn recommend_cases(stdin: &mut dyn Read) -> Outcome {
                 None => held.remove(&pick.cell),
             };
         }
-        let stats: Vec<Value> = pick.stats.iter().map(|(tier, stat)| json!({"tier": tier, "rank": tier_rank(tier), "n": stat.n, "rate": stat.rate, "ok": stat.ok, "usd_n": stat.usd_n, "usd": stat.usd})).collect();
+        let stats: Vec<Value> = pick.stats.iter().map(|(tier, stat)| json!({"tier": tier, "rank": tier_rank(tier), "n": stat.n, "rate": stat.rate, "ok": stat.ok, "shrunk": stat.shrunk, "usd_n": stat.usd_n, "usd": stat.usd})).collect();
         picks.push(json!({"cell": pick.cell, "n": pick.n, "tier": pick.tier, "rule": pick.rule, "stats": stats}));
     }
     Ok(format!("{}\n", json!({"picks": picks})))
@@ -83,6 +84,6 @@ pub(super) fn recommend_cases(stdin: &mut dyn Read) -> Outcome {
 /// Every settled worker run's tier, cost and minutes, as `threads calibrate` reads them.
 pub(super) fn runs(context: &Context) -> Outcome {
     let db = open(context.database, false)?;
-    let rows: Vec<Value> = calibration_runs(&db)?.into_iter().map(|run| json!({"tier": run.tier, "cost_usd": run.cost_usd, "minutes": run.minutes})).collect();
+    let rows: Vec<Value> = calibration_runs(&db)?.into_iter().map(|run| json!({"tier": run.tier, "cost_usd": run.cost_usd, "api_usd": run.api_usd, "minutes": run.minutes})).collect();
     Ok(format!("{}\n", Value::Array(rows)))
 }

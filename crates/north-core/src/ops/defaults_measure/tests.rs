@@ -14,7 +14,8 @@ fn fixture(path: &Path) {
             agent TEXT PRIMARY KEY, item TEXT, follows TEXT, tier TEXT, category TEXT,
             started TEXT, ended TEXT, minutes INTEGER, eta_min INTEGER, outcome TEXT,
             spec TEXT, scope TEXT, surface TEXT, verify TEXT, role TEXT,
-            expects_landing INTEGER, landed INTEGER, landed_at TEXT, cost_usd REAL);
+            expects_landing INTEGER, landed INTEGER, landed_at TEXT, cost_usd REAL,
+            model TEXT, input_tokens INTEGER, cache_read_tokens INTEGER, tokens INTEGER);
          CREATE TABLE calibration (at TEXT, value REAL);
          CREATE TABLE usage (ts TEXT, used_pct REAL);",
     )
@@ -26,7 +27,7 @@ fn fixture(path: &Path) {
         let surface = if i % 3 != 0 { "shell" } else { "api" };
         let held = i == 45 || i == 85;
         db.execute(
-            "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,NULL,NULL)",
             rusqlite::params![
                 format!("synthetic-{i}"),
                 "fixture#1",
@@ -133,7 +134,7 @@ fn held_out_evidence_cannot_change_proposals_and_the_ledger_copy_stays_byte_iden
     for (i, at) in ["2026-10-12T00:00:00Z", "2026-10-12T05:00:00+05:00", "2026-10-12T00:00:00.000001Z", "2026-10-14T00:00:00Z"].iter().enumerate() {
         db.execute(
             "INSERT INTO runs SELECT ?1, item, ?2, tier, category, ?3, ?3, 10000, eta_min, 'not done',
-             spec, scope, surface, verify, role, 0, 0, NULL, 1000 FROM runs WHERE agent = 'synthetic-50'",
+             spec, scope, surface, verify, role, 0, 0, NULL, 1000, NULL, NULL, NULL, NULL FROM runs WHERE agent = 'synthetic-50'",
             rusqlite::params![format!("future-{i}"), if i % 2 == 0 { None } else { Some("synthetic-70") }, at],
         )
         .unwrap();

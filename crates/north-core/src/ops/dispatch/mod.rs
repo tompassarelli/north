@@ -18,7 +18,7 @@ pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, tier_reason, untasked};
 pub use survey::evidence as arm_evidence;
 pub use record::{Record as LaunchRecord, read as launch_records};
-pub use tier::{ARMED, Evidence, Tier};
+pub use tier::{ARM_RUNS, ARMED, Evidence, Tier};
 #[cfg(test)]
 pub use survey::claim_rows;
 
@@ -43,6 +43,7 @@ mod stops;
 mod strands;
 mod survey;
 mod tier;
+mod tuned;
 mod tries;
 mod wait;
 #[cfg(test)]

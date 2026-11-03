@@ -183,6 +183,15 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
     Ok(tick)
 }
 
+pub fn directory() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or("HOME is not set")?;
+    Ok(PathBuf::from(home).join(".local/state/north/tune"))
+}
+
+pub fn cells_file() -> Result<PathBuf, String> {
+    Ok(directory()?.join("cells.json"))
+}
+
 /// The cells file dispatch's decisions are written to and the provenance file each change of them
 /// is appended to, in north's state directory.
 struct Files {
@@ -191,8 +200,7 @@ struct Files {
 
 impl Files {
     fn here() -> Result<Self, String> {
-        let home = std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or("HOME is not set")?;
-        Ok(Self { dir: PathBuf::from(home).join(".local/state/north/tune") })
+        Ok(Self { dir: directory()? })
     }
 
     fn cells(&self) -> Result<Cells, String> {

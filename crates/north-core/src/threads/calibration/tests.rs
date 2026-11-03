@@ -11,7 +11,7 @@ use crate::foundation::clock::Timestamp;
 use crate::threads::runs::brief::Fields;
 
 fn run(tier: &str, ok: bool, cost: Option<f64>) -> Run {
-    Run { cells: ["research", "measured", "-", "-", "-"].map(str::to_owned), tier: tier.to_owned(), ok, cost_usd: cost, outcome: if ok { "done" } else { "not done" }.to_owned(), ..Run::default() }
+    Run { cells: ["research", "measured", "-", "-", "-"].map(str::to_owned), tier: tier.to_owned(), ok, cost_usd: cost, api_usd: cost, outcome: if ok { "done" } else { "not done" }.to_owned(), ..Run::default() }
 }
 
 fn many(count: usize, tier: &str, wins: usize, cost: f64) -> Vec<Run> {
@@ -60,8 +60,8 @@ fn recommend_backs_off_to_the_finest_cell_with_min_runs_and_names_it() {
 
 #[test]
 fn recommend_prefers_the_cheapest_dollars_per_success_when_every_passing_tier_is_priced() {
-    let mut runs = many(5, "claude:haiku", 5, 1.0);
-    runs.extend(many(5, "codex:sol-medium", 5, 0.5));
+    let mut runs = many(15, "claude:haiku", 15, 1.0);
+    runs.extend(many(15, "codex:sol-medium", 15, 0.5));
     let (_, _, tier, rule) = pick(&runs, "Category: research", &[], true);
     assert_eq!((tier.as_deref(), rule.as_str()), (Some("codex:sol-medium"), "$ per success"));
     let (_, _, tier, rule) = pick(&runs, "Category: research", &[], false);
@@ -70,38 +70,38 @@ fn recommend_prefers_the_cheapest_dollars_per_success_when_every_passing_tier_is
 
 #[test]
 fn recommend_falls_back_to_rank_and_says_which_tiers_have_thin_dollars() {
-    let mut runs = many(5, "claude:haiku", 5, 1.0);
-    runs.extend((0..5).map(|_| run("codex:sol-medium", true, None)));
+    let mut runs = many(15, "claude:haiku", 15, 1.0);
+    runs.extend((0..15).map(|_| run("codex:sol-medium", true, None)));
     let (_, _, tier, rule) = pick(&runs, "Category: research", &[], true);
-    assert_eq!((tier.as_deref(), rule.as_str()), (Some("claude:haiku"), "rank (uncalibrated: thin $ codex:sol-medium n=0 < 5)"));
+    assert_eq!((tier.as_deref(), rule.as_str()), (Some("claude:haiku"), "rank (uncalibrated: thin $ codex:sol-medium n=0 < 15)"));
 }
 
 #[test]
 fn recommend_keeps_the_incumbent_unless_a_dearer_challenger_beats_it_by_the_margin() {
-    let mut runs = many(10, "claude:haiku", 7, 1.0);
-    runs.extend(many(5, "claude:opus-medium", 4, 1.0));
+    let mut runs = many(30, "claude:haiku", 21, 1.0);
+    runs.extend(many(30, "claude:opus-medium", 27, 1.0));
     let (cell, _, tier, _) = pick(&runs, "Category: research", &[], true);
     assert_eq!(tier.as_deref(), Some("claude:opus-medium"));
     let (_, _, held, _) = pick(&runs, "Category: research", &[(&cell, "haiku")], true);
     assert_eq!(held.as_deref(), Some("claude:haiku"));
-    let mut sure = many(10, "claude:opus-medium", 10, 1.0);
-    sure.extend(many(10, "claude:haiku", 7, 1.0));
+    let mut sure = many(30, "claude:opus-medium", 30, 1.0);
+    sure.extend(many(30, "claude:haiku", 21, 1.0));
     let (_, _, moved, _) = pick(&sure, "Category: research", &[(&cell, "claude:haiku")], true);
     assert_eq!(moved.as_deref(), Some("claude:opus-medium"));
 }
 
 #[test]
-fn recommend_with_no_passing_tier_takes_the_lowest_measured_cost_or_admits_it_has_none() {
+fn recommend_with_no_passing_tier_takes_the_lowest_measured_cost_or_the_workers_skill_default() {
     with_no_passing_tier_the_pick_is_the_lowest_measured_cost_among_sampled_tiers_for_any_run_mix();
-    let mut runs = many(5, "claude:haiku", 1, 1.0);
-    runs.extend(many(5, "codex:sol-medium", 2, 1.0));
+    let mut runs = many(15, "claude:haiku", 3, 1.0);
+    runs.extend(many(15, "codex:sol-medium", 6, 1.0));
     let (_, _, tier, rule) = pick(&runs, "Category: research", &[], true);
     assert_eq!(tier.as_deref(), Some("codex:sol-medium"));
-    assert!(rule.starts_with("$ per success (no tier passes"));
+    assert!(rule.starts_with("$ per expected success (no tier passes"));
     let unpriced: Vec<Run> = (0..5).map(|_| run("claude:haiku", false, None)).collect();
     let (_, _, tier, rule) = pick(&unpriced, "Category: research", &[], true);
-    assert_eq!(tier, None);
-    assert!(rule.starts_with("insufficient evidence"));
+    assert_eq!(tier.as_deref(), Some("claude:opus-medium"));
+    assert!(rule.starts_with("workers-skill default for research"));
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn a_knob_override_moves_the_pick_without_touching_the_registry() {
     let held = BTreeMap::new();
     let strict = recommend(&Knobs::registry(), &runs, &asked("Category: research"), &held, true);
     let relaxed = recommend(&Knobs { min_runs: 3, usd_min: 3, ..Knobs::registry() }, &runs, &asked("Category: research"), &held, true);
-    assert_eq!((strict.tier, relaxed.tier.as_deref()), (None, Some("claude:haiku")));
+    assert_eq!((strict.tier.as_deref(), relaxed.tier.as_deref()), (Some("claude:opus-medium"), Some("claude:haiku")));
 }
 
 fn timed(minutes: &[f64]) -> Vec<Run> {
@@ -223,7 +223,8 @@ fn recommend_verb_prints_the_pick_the_stats_and_the_eta_and_remembers_the_choice
         text,
         "tier claude:haiku  cell [Category: research, Spec: measured]  n 5\n\
          success threshold 80%  rule rank (one tier passes)\n\
-         \x20 claude:haiku       100% of 5  $0.50/success (priced n=5)\n\
+         success claude:haiku 100% shrunk (n=5, 5 ok, toward the category's pooled 100% with a prior of 15 runs)\n\
+         \x20 claude:haiku       100% of 5  shrunk 100%  $ n/a (priced n=0)\n\
          eta 40m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)  $0.50 (median of n=5, uncalibrated: no usd calibration)\n"
     );
     let held: String = db.query_row("SELECT tier FROM tier_choice WHERE cell = 'Category: research, Spec: measured'", [], |row| row.get(0)).unwrap();
@@ -311,9 +312,9 @@ fn with_no_passing_tier_the_pick_is_the_lowest_measured_cost_among_sampled_tiers
         }
         let asked = asked("Category: research, Spec: measured");
         let found = recommend(&knobs, &runs, &asked, &BTreeMap::new(), true);
-        let expected = found.stats.iter().filter(|(_, stat)| stat.n >= knobs.min_runs && stat.usd.is_some()).min_by(|(x, a), (y, b)| a.usd.partial_cmp(&b.usd).unwrap().then(tier_rank(x).cmp(&tier_rank(y)))).map(|(tier, _)| tier.clone());
+        let expected = found.stats.iter().filter(|(_, stat)| stat.n >= knobs.min_runs && stat.usd.is_some()).min_by(|(x, a), (y, b)| a.usd.partial_cmp(&b.usd).unwrap().then(tier_rank(x).cmp(&tier_rank(y)))).map(|(tier, _)| tier.clone()).or_else(|| Some("claude:opus-medium".to_owned()));
         assert_eq!(found.tier, expected, "case {case}");
-        if let Some(tier) = &found.tier {
+        if let Some(tier) = found.tier.as_ref().filter(|_| found.rule.starts_with("$ per expected success")) {
             let stat = &found.stats.iter().find(|(key, _)| key == tier).unwrap().1;
             assert!(stat.n >= knobs.min_runs && stat.usd_n >= knobs.usd_min, "case {case}");
         }
@@ -349,4 +350,44 @@ fn calibrating_the_walk_forward_eta_brings_its_coverage_closer_to_the_target_on_
             .count(),
     );
     assert!(!pairs.is_empty() && (calibrated - 0.75).abs() < (raw - 0.75).abs(), "raw {raw} calibrated {calibrated} over {}", pairs.len());
+}
+
+fn tooling(count: usize, tier: &str, wins: usize, cost: f64) -> Vec<Run> {
+    many(count, tier, wins, cost).into_iter().map(|run| Run { cells: ["tooling", "exact", "-", "-", "-"].map(str::to_owned), ..run }).collect()
+}
+
+#[test]
+fn an_escalation_only_tier_is_never_a_first_assignment_however_cheap_or_sure() {
+    for escalation in ["claude:opus-high", "claude:opus-xhigh"] {
+        let mut runs = tooling(30, escalation, 30, 0.01);
+        runs.extend(tooling(20, "claude:sonnet-high", 12, 1.0));
+        runs.extend(tooling(20, "claude:opus-medium", 13, 2.0));
+        let (_, _, tier, rule) = pick(&runs, "Category: tooling, Spec: exact", &[], true);
+        assert_eq!(tier.as_deref(), Some("claude:sonnet-high"), "{escalation}: {rule}");
+        let (_, _, held, _) = pick(&runs, "Category: tooling, Spec: exact", &[("Category: tooling, Spec: exact", escalation)], true);
+        assert_eq!(held.as_deref(), Some("claude:sonnet-high"), "{escalation} held");
+        let alone = tooling(30, escalation, 30, 0.01);
+        let (_, _, tier, rule) = pick(&alone, "Category: tooling, Spec: exact", &[], true);
+        assert_eq!((tier.as_deref(), rule.as_str()), (Some("claude:sonnet-high"), "workers-skill default for tooling (no tier passes; no first-assignment tier has 15 priced runs)"));
+    }
+}
+
+#[test]
+fn a_tier_under_the_minimum_runs_cannot_win_on_cost_and_success_is_shrunk_toward_the_pooled_rate() {
+    let mut runs = tooling(14, "claude:haiku", 9, 0.01);
+    runs.extend(tooling(32, "claude:sonnet-high", 19, 1.0));
+    runs.extend(tooling(20, "claude:opus-medium", 13, 2.0));
+    let found = recommend(&Knobs::registry(), &runs, &asked("Category: tooling, Spec: exact"), &BTreeMap::new(), true);
+    assert_eq!(found.tier.as_deref(), Some("claude:sonnet-high"), "{}", found.rule);
+    assert_eq!(found.rule, "$ per expected success (no tier passes; cheapest first-assignment tier with 15 priced runs)");
+    let stat = |tier: &str| found.stats.iter().find(|(key, _)| key == tier).unwrap().1.clone();
+    assert_eq!(stat("claude:haiku").usd, None);
+    assert!((found.pooled - 41.0 / 66.0).abs() < 1e-12);
+    let sonnet = stat("claude:sonnet-high");
+    assert!((sonnet.shrunk - (19.0 + 15.0 * found.pooled) / 47.0).abs() < 1e-12);
+    assert!((sonnet.usd.unwrap() - 1.0 / sonnet.shrunk).abs() < 1e-12);
+    let mut grown = runs.clone();
+    grown.extend(tooling(1, "claude:haiku", 1, 0.01));
+    let found = recommend(&Knobs::registry(), &grown, &asked("Category: tooling, Spec: exact"), &BTreeMap::new(), true);
+    assert_eq!(found.tier.as_deref(), Some("claude:haiku"), "{}", found.rule);
 }

@@ -87,6 +87,7 @@ pub struct Evidence {
     pub tiers: BTreeMap<String, (f64, usize)>,
     pub arm_runs: BTreeMap<Tier, usize>,
     pub usd_per_closed: Option<BTreeMap<Tier, f64>>,
+    pub tuned: Option<Tier>,
 }
 
 impl Evidence {
@@ -120,6 +121,10 @@ impl Evidence {
             }
         }
         Self { usd_per_closed: Some(sums.into_iter().map(|(tier, (usd, closed))| (tier, usd / closed as f64)).collect()), ..self }
+    }
+
+    pub fn tuned(self, routes: &BTreeMap<String, Tier>, category: &str) -> Self {
+        Self { tuned: routes.get(category).copied(), ..self }
     }
 
     /// Adds the runs the ledger holds stamped with each tier's arm in this category.
@@ -241,6 +246,9 @@ pub fn route_for(item: &str, facet: &dyn Fn(&str) -> String, history: &History, 
         return on(Tier::Opus, format!("{category} stays on worker"));
     }
     let evidence = ledger.get(&category).cloned().unwrap_or_default();
+    if let Some(tier) = evidence.tuned {
+        return on(tier, format!("{category} goes to {} by north tune's route cell, written within {}h", tier.name(), super::tuned::FRESH_HOURS));
+    }
     if let Some(tier) = evidence.settled() {
         return on(tier, format!("{category} goes to {} by the ledger's cost per closed box ({}; {})", tier.name(), evidence.figures(Tier::Sonnet), evidence.figures(Tier::Opus)));
     }

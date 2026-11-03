@@ -35,6 +35,7 @@ const TIER_ORDER: [&str; 10] = [
     "claude:haiku", "codex:luna-low", "claude:sonnet-high", "codex:sol-medium", "codex:sol-high", "codex:sol-xhigh",
     "claude:opus-medium", "claude:opus-high", "claude:opus-xhigh", "codex:astra",
 ];
+pub const ESCALATION_ONLY: [&str; 2] = ["claude:opus-high", "claude:opus-xhigh"];
 const RUN_TIERS: [(&str, &str); 10] = [
     ("claude:haiku", "haiku"),
     ("claude:sonnet-high", "sonnet"),
@@ -85,7 +86,7 @@ impl Knobs {
             success_threshold: registry("success_threshold"),
             min_runs,
             incumbent_margin: registry("incumbent_margin") as i64,
-            usd_min: min_runs,
+            usd_min: crate::ops::dispatch::ARM_RUNS,
             eta_min_samples: registry("eta_min_samples") as usize,
             eta_coverage: registry("eta_coverage"),
             box_chain_gap_min: registry("box_chain_gap_min"),
@@ -104,6 +105,7 @@ pub struct Run {
     pub minutes: Option<f64>,
     pub eta_min: Option<f64>,
     pub cost_usd: Option<f64>,
+    pub api_usd: Option<f64>,
     pub outcome: String,
     pub ended: String,
     pub first: bool,

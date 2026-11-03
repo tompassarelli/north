@@ -1,7 +1,10 @@
 //! Worker runs and calibration rows as the ledger holds them.
 use std::collections::BTreeSet;
+use std::sync::LazyLock;
 
 use rusqlite::{Connection, Row as SqlRow};
+
+use crate::ledger::pricing::PriceTable;
 
 use super::boxes::BoxRun;
 use super::{GROUPS, Run, cell_value, tier_key};
@@ -20,14 +23,21 @@ pub struct Raw {
     pub minutes: Option<f64>,
     pub eta_min: Option<f64>,
     pub cost_usd: Option<f64>,
+    pub api_usd: Option<f64>,
     pub started: Option<String>,
     pub ended: String,
 }
 
-const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended";
+const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0)";
+
+static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("ledger/prices.json parses"));
 
 impl Raw {
     fn read(row: &SqlRow) -> rusqlite::Result<Self> {
+        let tier: String = row.get(6)?;
+        let (input, cache_read, output): (i64, i64, i64) = (row.get(18)?, row.get(19)?, row.get(20)?);
+        let model: Option<String> = row.get(17)?;
+        let api_usd = (input + output > 0).then(|| PRICES.run_usd(model.as_deref(), &tier, input, cache_read, output));
         let cell = |index: usize| -> rusqlite::Result<String> {
             let value: Option<String> = row.get(7 + index)?;
             Ok(cell_value(GROUPS[index], value.as_deref()))
@@ -39,11 +49,12 @@ impl Raw {
             outcome: row.get(3)?,
             expects_landing: row.get::<_, Option<i64>>(4)?.is_some_and(|expects| expects != 0),
             landed: row.get(5)?,
-            tier: row.get(6)?,
+            tier,
             cells: [cell(0)?, cell(1)?, cell(2)?, cell(3)?, cell(4)?],
             minutes: row.get(12)?,
             eta_min: row.get(13)?,
             cost_usd: row.get(14)?,
+            api_usd,
             started: row.get(15)?,
             ended: row.get::<_, Option<String>>(16)?.unwrap_or_default(),
         })
@@ -60,7 +71,7 @@ impl Raw {
 
     /// The core's view of this run, its tier as a tier key.
     pub fn recommend_run(&self, ok: bool) -> Run {
-        Run { cells: self.cells.clone(), tier: tier_key(&self.tier), minutes: self.minutes, cost_usd: self.cost_usd, outcome: self.outcome.clone(), ok, ..Run::default() }
+        Run { cells: self.cells.clone(), tier: tier_key(&self.tier), minutes: self.minutes, cost_usd: self.cost_usd, api_usd: self.api_usd, outcome: self.outcome.clone(), ok, ..Run::default() }
     }
 }
 
@@ -89,6 +100,7 @@ pub fn calibration_runs(db: &Connection) -> rusqlite::Result<Vec<Run>> {
             minutes: raw.minutes,
             eta_min: raw.eta_min,
             cost_usd: raw.cost_usd,
+            api_usd: raw.api_usd,
             outcome: raw.outcome,
             ended: raw.ended,
         })

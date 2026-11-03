@@ -276,15 +276,21 @@ pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String
 fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
     let mut found = BTreeMap::new();
     let north = crate::fleet::runtime::binary("north");
+    let routes = super::tuned::current();
     for category in categories {
         let facets = format!("Category: {category}");
         match run_within(&north.to_string_lossy(), &["worker-ledger", "--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
                 let read = read.counted(&crate::ledger::arm_runs(category).map_err(|why| notes.push(format!("arm runs of {category} unread, so its arms keep alternating: {}", why.user_message()))).unwrap_or_default());
-                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)));
+                found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned(&routes, category));
             }
-            _ => notes.push(format!("north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms")),
+            _ => {
+                notes.push(format!("north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms unless north tune routed it"));
+                if routes.contains_key(*category) {
+                    found.insert((*category).to_owned(), Evidence::default().tuned(&routes, category));
+                }
+            }
         }
     }
     found

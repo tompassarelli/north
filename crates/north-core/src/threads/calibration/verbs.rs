@@ -137,10 +137,15 @@ fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, r
         None => text += &format!("insufficient evidence  cell [{}]  n {}\n", pick.cell, pick.n),
     }
     text += &format!("success threshold {}%  rule {}\n", knobs.success_threshold, pick.rule);
+    if let Some((tier, stat)) = pick.tier.as_deref().and_then(|tier| pick.stats.iter().find(|(key, _)| key == tier)) {
+        text += &format!("success {tier} {:.0}% shrunk (n={}, {} ok, toward the category's pooled {:.0}% with a prior of {} runs)\n", stat.shrunk * 100.0, stat.n, stat.ok, pick.pooled * 100.0, crate::ops::dispatch::ARM_RUNS);
+    } else if let Some(tier) = &pick.tier {
+        text += &format!("success {tier} unmeasured in this cell (n=0)\n");
+    }
     let mut stats = pick.stats.clone();
     stats.sort_by_key(|(tier, _)| tier_rank(tier));
     for (tier, stat) in stats {
-        text += &format!("  {tier:<18} {}% of {}  {} (priced n={})\n", stat.rate, stat.n, stat_usd(stat.usd), stat.usd_n);
+        text += &format!("  {tier:<18} {}% of {}  shrunk {:.0}%  {} (priced n={})\n", stat.rate, stat.n, stat.shrunk * 100.0, stat_usd(stat.usd), stat.usd_n);
     }
     let Some(tier) = pick.tier.as_deref() else { return Ok(text) };
     let by_ref: Vec<&super::Run> = runs.iter().collect();

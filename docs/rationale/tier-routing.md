@@ -28,6 +28,11 @@ routing's selection bias and counting them settled every category on 31 Oct with
 runs only at high effort: a launch without an effort takes the account default, medium, so the session registry pins
 Sonnet to high and refuses any other effort.
 
+`north tune` writes each settled category's route to `~/.local/state/north/tune/cells.json` once a day, and dispatch
+follows that cell while the file is under 36 h old (one missed daily tick plus slack); with no cell for the category or
+an older file it settles the same rule live. The decision is `Evidence::settled` in both places, so the cell is a dated
+copy of it, not a second rule.
+
 Implemented: arm-stamped run counts (a box on a tier arm carries that one `Arm:` line, because the ledger records only the first), alternation, the cost per closed box decision and the Sonnet effort pin.
 Not yet implemented: the rework terms; routing currently decides on cost per closed box alone.
 
@@ -43,6 +48,27 @@ rework is high on a category while its cost per closed box still wins.
 
 Evidence: north#247 (runs per closed item); threads summary --since 2026-10-29 (feature 99 Sonnet to 10 Opus-arm runs
 before the fix).
+
+## Per-brief recommendations shrink success and price in API-equivalent dollars
+
+`north worker-ledger --recommend` (the per-cell pick dispatch reads its tier rates from) decides as follows:
+- Dollars are API-equivalent list-price dollars from `ledger/prices.json`, the definition the closed-box report, dispatch
+  and tune use, not the allocated plan `cost_usd`. Haiku 5.5's $0.10/$0.50 per M tokens was checked against the cited
+  pricing page on 2026-11-04; it holds for prompts up to 100k tokens, and longer prompts cost 5x.
+- Each tier's success is the Beta-binomial posterior mean with a prior worth 15 runs (`ARM_RUNS`) at the category's
+  pooled rate: (successes + 15 x pooled) / (runs + 15). The pass test against `success_threshold` and the incumbent
+  margin use that estimate. A posterior mean was chosen over a lower credible bound because the bound penalises every
+  small tier toward failure, while the mean only pulls it toward its category.
+- A tier wins on cost only with 15 priced runs; cost is mean API $ per run divided by the shrunk success.
+- Escalation-only tiers (Opus high and xhigh) are printed but never picked, as the workers skill reserves them for a
+  second reasoning stop.
+- When no tier passes and none has 15 priced runs, the pick is the workers skill's default for the category
+  (mechanical on Haiku; known-cause bugs, tooling and features on sonnet-high; the rest on Opus medium), with that reason
+  printed.
+
+Evidence: on 2026-11-04 the old rule (raw rate, allocated $, 5 runs) picked Opus high for tooling/exact/cross-module on
+2 successes of 6 runs over Sonnet high at 19 of 32 and Opus medium at 13 of 20; 23 of the 35 ledger cells then held
+under 5 closed boxes.
 
 ## The planner's effort band is not predicted from planning-time facets
 

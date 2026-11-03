@@ -1,31 +1,41 @@
 //! Which tier a brief's cell should run on, and the ETA and $ that go with it.
 use std::collections::BTreeMap;
 
-use super::{BACKOFF, GROUPS, Knobs, Run, quantile, tier_key, tier_rank};
+use super::{BACKOFF, ESCALATION_ONLY, GROUPS, Knobs, Run, quantile, tier_key, tier_rank};
+use crate::ops::dispatch::ARM_RUNS;
 use crate::threads::runs::brief::Fields;
 
-/// What the runs of one tier say: success rate in whole percent, run count, successes, priced runs and $ per success.
+/// What the runs of one tier say: raw success rate in whole percent, run count, successes, the success rate shrunk
+/// toward the category's pooled rate, priced runs, their API-equivalent spend and $ per expected success.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TierStat {
     pub rate: i64,
     pub n: usize,
     pub ok: usize,
+    pub shrunk: f64,
     pub usd_n: usize,
+    pub spent: f64,
     pub usd: Option<f64>,
 }
 
-/// A recommendation: the cell it was measured on, that cell's run count, the tier (None for insufficient evidence),
-/// every tier's stats in first-seen order, and the rule that chose.
+/// A recommendation: the cell it was measured on, that cell's run count, the tier, every tier's stats in first-seen
+/// order, the category's pooled success rate the stats shrink toward, and the rule that chose.
 #[derive(Clone, Debug)]
 pub struct Pick {
     pub cell: String,
     pub n: usize,
     pub tier: Option<String>,
     pub stats: Vec<(String, TierStat)>,
+    pub pooled: f64,
     pub rule: String,
 }
 
 pub fn tier_stats(knobs: &Knobs, runs: &[&Run]) -> Vec<(String, TierStat)> {
+    let pooled = runs.iter().filter(|run| run.ok).count() as f64 / runs.len().max(1) as f64;
+    shrunk_stats(knobs, runs, pooled)
+}
+
+fn shrunk_stats(knobs: &Knobs, runs: &[&Run], pooled: f64) -> Vec<(String, TierStat)> {
     let mut by: Vec<(String, Vec<&Run>)> = Vec::new();
     for run in runs {
         let key = tier_key(&run.tier);
@@ -36,14 +46,22 @@ pub fn tier_stats(knobs: &Knobs, runs: &[&Run]) -> Vec<(String, TierStat)> {
     }
     by.into_iter()
         .map(|(tier, group)| {
-            let priced: Vec<&&Run> = group.iter().filter(|run| run.cost_usd.is_some()).collect();
-            let wins = priced.iter().filter(|run| run.ok).count();
+            let priced: Vec<&&Run> = group.iter().filter(|run| run.api_usd.is_some()).collect();
             let ok = group.iter().filter(|run| run.ok).count();
-            let spent = compensated_sum(priced.iter().filter_map(|run| run.cost_usd));
-            let usd = (priced.len() >= knobs.usd_min && wins > 0).then(|| spent / wins as f64);
-            (tier, TierStat { rate: (ok * 100 / group.len()) as i64, n: group.len(), ok, usd_n: priced.len(), usd })
+            let shrunk = (ok as f64 + ARM_RUNS as f64 * pooled) / (group.len() + ARM_RUNS) as f64;
+            let spent = compensated_sum(priced.iter().filter_map(|run| run.api_usd));
+            let usd = (priced.len() >= knobs.usd_min && shrunk > 0.0).then(|| spent / priced.len() as f64 / shrunk);
+            (tier, TierStat { rate: (ok * 100 / group.len()) as i64, n: group.len(), ok, shrunk, usd_n: priced.len(), spent, usd })
         })
         .collect()
+}
+
+pub fn skill_default(category: &str) -> &'static str {
+    match category {
+        "mechanical" => "claude:haiku",
+        "bug-known-cause" | "tooling" | "feature" => "claude:sonnet-high",
+        _ => "claude:opus-medium",
+    }
 }
 
 fn keys_of(asked: &[Option<String>; 5]) -> Vec<usize> {
@@ -61,35 +79,40 @@ pub(super) fn capitalized(word: &str) -> String {
     letters.next().map(|first| first.to_uppercase().chain(letters).collect()).unwrap_or_default()
 }
 
-/// The finest cell holding `min_runs` runs of some tier, backing off along BACKOFF; in it the cheapest passing tier by
-/// measured $ per success, or by tier rank when a passing tier has under `usd_min` priced runs or `priced` is false,
-/// kept at the incumbent unless a dearer challenger beats it by `incumbent_margin` points. With no passing tier, the
-/// lowest measured cost among sampled tiers, or no tier for insufficient evidence.
+/// The finest cell holding `min_runs` runs of some tier, backing off along BACKOFF. Each tier's success is shrunk
+/// toward the category's pooled rate with a prior worth ARM_RUNS runs, and escalation-only tiers never start a box.
+/// In the cell the cheapest passing tier by API-equivalent $ per expected success, or by tier rank when a passing
+/// tier has under `usd_min` priced runs or `priced` is false, kept at the incumbent unless a dearer challenger beats
+/// it by `incumbent_margin` points. With no passing tier, the cheapest tier with `usd_min` priced runs, else the
+/// workers skill's default for the category.
 pub fn recommend(knobs: &Knobs, runs: &[Run], asked: &[Option<String>; 5], incumbent: &BTreeMap<String, String>, priced: bool) -> Pick {
+    let category: Vec<&Run> = runs.iter().filter(|run| Some(&run.cells[0]) == asked[0].as_ref()).collect();
+    let pooled = category.iter().filter(|run| run.ok).count() as f64 / category.len().max(1) as f64;
     let mut keys = keys_of(asked);
     let (members, stats) = loop {
         let members: Vec<&Run> = runs.iter().filter(|run| keys.iter().all(|index| Some(&run.cells[*index]) == asked[*index].as_ref())).collect();
-        let stats = tier_stats(knobs, &members);
+        let stats = shrunk_stats(knobs, &members, pooled);
         if stats.iter().any(|(_, stat)| stat.n >= knobs.min_runs) || keys.len() == 1 {
             break (members, stats);
         }
         keys.pop();
     };
     let name = cell_name(&keys, |index| asked[index].clone().unwrap_or_default());
-    let sampled: Vec<&(String, TierStat)> = stats.iter().filter(|(_, stat)| stat.n >= knobs.min_runs).collect();
+    let sampled: Vec<&(String, TierStat)> = stats.iter().filter(|(tier, stat)| stat.n >= knobs.min_runs && !ESCALATION_ONLY.contains(&tier.as_str())).collect();
     let stat_of = |tier: &str| sampled.iter().find(|(key, _)| key == tier).map(|(_, stat)| stat);
-    let passing: Vec<&str> = sampled.iter().filter(|(_, stat)| stat.rate as f64 >= knobs.success_threshold).map(|(tier, _)| tier.as_str()).collect();
+    let passing: Vec<&str> = sampled.iter().filter(|(_, stat)| stat.shrunk * 100.0 >= knobs.success_threshold).map(|(tier, _)| tier.as_str()).collect();
     let mut thin: Vec<&str> = passing.iter().copied().filter(|tier| stat_of(tier).is_some_and(|stat| stat.usd.is_none())).collect();
     thin.sort_by_key(|tier| tier_rank(tier));
-    let finish = |tier: Option<String>, rule: String| Pick { cell: name.clone(), n: members.len(), tier, stats: stats.clone(), rule };
+    let finish = |tier: Option<String>, rule: String| Pick { cell: name.clone(), n: members.len(), tier, stats: stats.clone(), pooled, rule };
     if passing.is_empty() {
         let best = sampled.iter().filter(|(_, stat)| stat.usd.is_some()).min_by(|(x, a), (y, b)| a.usd.partial_cmp(&b.usd).expect("measured $ is a number").then(tier_rank(x).cmp(&tier_rank(y))));
-        let rule = if best.is_some() {
-            "$ per success (no tier passes; lowest measured cost among sampled tiers)"
-        } else {
-            "insufficient evidence (no tier passes; no sampled tier has measured $ per success)"
+        return match best {
+            Some((tier, _)) => finish(Some(tier.clone()), format!("$ per expected success (no tier passes; cheapest first-assignment tier with {} priced runs)", knobs.usd_min)),
+            None => {
+                let category = asked[0].clone().unwrap_or_default();
+                finish(Some(skill_default(&category).to_owned()), format!("workers-skill default for {category} (no tier passes; no first-assignment tier has {} priced runs)", knobs.usd_min))
+            }
         };
-        return finish(best.map(|(tier, _)| tier.clone()), rule.to_owned());
     }
     let rule = if passing.len() == 1 {
         "rank (one tier passes)".to_owned()
@@ -112,8 +135,8 @@ pub fn recommend(knobs: &Knobs, runs: &[Run], asked: &[Option<String>; 5], incum
     let held = incumbent.get(&name).filter(|held| !held.is_empty()).map(|held| tier_key(held));
     if let Some(held) = held.filter(|held| *held != best && stat_of(held).is_some() && stat_of(&best).is_some()) {
         let dearer = if by_usd && passing.contains(&best.as_str()) && passing.contains(&held.as_str()) { usd_of(&best) > usd_of(&held) } else { tier_rank(&best) > tier_rank(&held) };
-        let rate = |tier: &str| stat_of(tier).map_or(0, |stat| stat.rate);
-        if dearer && rate(&best) < rate(&held) + knobs.incumbent_margin {
+        let rate = |tier: &str| stat_of(tier).map_or(0.0, |stat| stat.shrunk * 100.0);
+        if dearer && rate(&best) < rate(&held) + knobs.incumbent_margin as f64 {
             best = held;
         }
     }

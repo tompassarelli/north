@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
 
-use super::pricing::{Price, PriceTable, TokenUse};
+use super::pricing::PriceTable;
 
 const LEADS: [&str; 2] = ["parent", "proxy"];
 const WORKER: &str = "worker";
@@ -105,20 +105,7 @@ impl SpendRun {
     }
 
     fn usd(&self, prices: &PriceTable) -> f64 {
-        let price = self.model.as_deref().and_then(|model| prices.price(model)).or_else(|| prices.price(fallback_model(&self.tier)));
-        price.map_or(0.0, |price: Price| {
-            price.of(TokenUse { input: 0, output: self.output, cache_read: self.cache_read, cache_write: (self.input - self.cache_read).max(0) })
-        })
-    }
-}
-
-fn fallback_model(tier: &str) -> &'static str {
-    if tier.contains("haiku") {
-        "haiku"
-    } else if tier.contains("sonnet") {
-        "sonnet"
-    } else {
-        "opus"
+        prices.run_usd(self.model.as_deref(), &self.tier, self.input, self.cache_read, self.output)
     }
 }
 

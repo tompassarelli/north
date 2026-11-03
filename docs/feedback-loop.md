@@ -22,7 +22,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.lens, flaws | north worker-ledger | crates/north-core/src/threads/calibration/summary.rs lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | north worker-ledger | crates/north-core/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |
-| runs.cost_usd | bin/threads:989 | crates/north-core/src/threads/calibration/recommend.rs recommend $ per success; harness/lib/ledger_context.py delivery_metrics; harness/lib/project_score.py:51 | read | 4b71ac63 |
+| runs.cost_usd | bin/threads:989 | crates/north-core/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); harness/lib/ledger_context.py delivery_metrics; harness/lib/project_score.py:51 | read | 4b71ac63 |
 | runs.staffed, review_requested, landed_at | north worker-ledger | harness/lib/ledger_context.py delivery_metrics | read | |
 | runs.landed_sha | north worker-ledger | none yet (north#51 box 2) | unread | |
 | runs.first_commit | none (tally-internal, crates/north-core/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |

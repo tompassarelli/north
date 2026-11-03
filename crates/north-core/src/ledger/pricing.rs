@@ -20,6 +20,21 @@ impl PriceTable {
         let id = self.aliases.get(base).map_or(base, String::as_str);
         self.models.get(id).copied()
     }
+
+    pub fn run_usd(&self, model: Option<&str>, tier: &str, input: i64, cache_read: i64, output: i64) -> f64 {
+        let price = model.and_then(|model| self.price(model)).or_else(|| self.price(fallback_model(tier)));
+        price.map_or(0.0, |price| price.of(TokenUse { input: 0, output, cache_read, cache_write: (input - cache_read).max(0) }))
+    }
+}
+
+fn fallback_model(tier: &str) -> &'static str {
+    if tier.contains("haiku") {
+        "haiku"
+    } else if tier.contains("sonnet") {
+        "sonnet"
+    } else {
+        "opus"
+    }
 }
 
 #[derive(Clone, Copy, Deserialize)]
