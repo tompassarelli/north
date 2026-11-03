@@ -258,7 +258,7 @@ fn a_row_follows_stands_when_its_brief_names_none_even_when_empty() {
 fn run_ids_settled_leaves_out_running_and_recent_unlanded_runs_that_expect_to_land() {
     let ledger = ledger();
     let done = |id: &str, ended: &str, extra: Json| {
-        let mut row = json!({"id": id, "ended": ended, "tier": "medium", "actual_min": 5, "outcome": "done", "expects_landing": 1});
+        let mut row = json!({"id": id, "ended": ended, "tier": "medium", "actual_min": 5, "active_min": 4, "outcome": "done", "expects_landing": 1});
         row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         row
     };
@@ -270,6 +270,27 @@ fn run_ids_settled_leaves_out_running_and_recent_unlanded_runs_that_expect_to_la
     ]);
     assert_eq!(ledger.run_ids(false), ["landed", "old", "parent", "recent"]);
     assert_eq!(ledger.run_ids(true), ["landed", "old"]);
+}
+
+#[test]
+fn run_ids_settled_leaves_a_claude_run_without_active_minutes_for_the_ingest_to_re_read_but_not_a_codex_or_gemini_one() {
+    let ledger = ledger();
+    let run = |id: &str, tier: &str, extra: Json| {
+        let mut row = json!({"id": id, "ended": "2026-10-20T00:00:00Z", "tier": tier, "actual_min": 5, "outcome": "done"});
+        row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        row
+    };
+    ledger.ingest(&[
+        run("claude-bare", "medium", json!({})),
+        run("claude-measured", "medium", json!({"active_min": 3, "wait_min": 2})),
+        run("codex-bare", "gpt-6.1-sol high", json!({"model": "gpt-6.1-sol"})),
+        run("gemini-bare", "gemini-4-argon high", json!({})),
+    ]);
+    assert_eq!(ledger.run_ids(false), ["claude-bare", "claude-measured", "codex-bare", "gemini-bare"]);
+    assert_eq!(ledger.run_ids(true), ["claude-measured", "codex-bare", "gemini-bare"]);
+    ledger.ingest(&[run("claude-bare", "medium", json!({"backfill": true, "status": "finished", "active_min": 4, "wait_min": 1, "turns": 6, "tool_calls": 9}))]);
+    assert_eq!(ledger.row("SELECT active_min, wait_min, turns, tool_calls FROM runs WHERE agent = 'claude-bare'"), "4|1|6|9");
+    assert_eq!(ledger.run_ids(true), ["claude-bare", "claude-measured", "codex-bare", "gemini-bare"]);
 }
 
 fn readout(provider: &str, account: &str, minute: u32, used: f64) -> Json {

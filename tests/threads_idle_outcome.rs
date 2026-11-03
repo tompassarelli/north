@@ -50,7 +50,7 @@ fn the_runs_table_takes_an_idle_outcome_and_a_backfill_relabels_only_a_recorded_
 
 fn row_ending(id: &str, outcome: &str, ended: &str) -> String {
     format!(
-        r#"{{"id":"{id}","backfill":true,"status":"finished","ended":"{ended}","tier":"haiku","actual_min":9,"outcome":"{outcome}","report":"{outcome} report","brief":"Item: makgora#7 Category: native-check"}}"#
+        r#"{{"id":"{id}","backfill":true,"status":"finished","ended":"{ended}","tier":"haiku","actual_min":9,"active_min":7,"outcome":"{outcome}","report":"{outcome} report","brief":"Item: makgora#7 Category: native-check"}}"#
     ) + "\n"
 }
 

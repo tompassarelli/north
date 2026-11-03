@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use super::boxes::{BoxRun, box_chains, box_duration};
 use super::forward::{calibrate_box, calibrate_eta_pred, walk_forward_eta};
 use super::recommend::{asked_of, recommend, recommend_eta, recommend_usd};
-use super::verbs::since_start;
+use super::verbs::{eta_line, since_start};
 use super::{Knobs, Run, median, quantile, scaled, tier_key, tier_rank};
 use crate::foundation::clock::Timestamp;
 use crate::threads::runs::brief::Fields;
@@ -131,6 +131,22 @@ fn walk_forward_eta_predicts_each_run_from_strictly_earlier_runs_of_its_tier() {
 }
 
 #[test]
+fn the_eta_line_gives_the_active_minute_spread_with_wall_p75_and_median_wait_and_falls_back_to_wall_alone() {
+    let mut runs = timed(&[100.0, 200.0, 300.0, 400.0, 500.0]);
+    for (run, (active, wait)) in runs.iter_mut().zip([(10.0, 90.0), (15.0, 185.0), (20.0, 280.0), (25.0, 375.0), (60.0, 440.0)]) {
+        run.active_min = Some(active);
+        run.wait_min = Some(wait);
+    }
+    let refs: Vec<&Run> = runs.iter().collect();
+    let knobs = Knobs::registry();
+    let eta = recommend_eta(&knobs, &refs, "Category: mechanical", "medium");
+    assert_eq!(eta_line(&eta, eta.wall_p75.unwrap(), "claude:opus-medium", "uncalibrated"), "eta active 20m (p25 15\u{2013}p90 60, n=5) wall p75 400m wait median 280m (cell Category: mechanical, tier claude:opus-medium, uncalibrated, wall n=5)");
+    let few: Vec<&Run> = runs.iter().take(2).collect();
+    let thin = recommend_eta(&Knobs { eta_min_samples: 3, ..Knobs::registry() }, &few, "Category: mechanical", "medium");
+    assert_eq!(eta_line(&thin, 200.0, "claude:opus-medium", "uncalibrated"), "eta wall 200m (p75 of n=2, cell Category: mechanical, tier claude:opus-medium, uncalibrated; too few runs with active minutes)");
+}
+
+#[test]
 fn eta_prediction_backs_off_a_facet_until_enough_samples_and_ignores_other_tiers() {
     eta_p75_takes_the_third_of_three_durations_and_backs_off_the_two_run_scope_cell();
     let mut runs = timed(&[10.0, 20.0, 30.0, 99.0]);
@@ -138,8 +154,12 @@ fn eta_prediction_backs_off_a_facet_until_enough_samples_and_ignores_other_tiers
     runs[0].cells[1] = "measured".into();
     let refs: Vec<&Run> = runs.iter().collect();
     let knobs = Knobs::registry();
-    assert_eq!(recommend_eta(&knobs, &refs, "Category: mechanical, Spec: measured", "claude:opus-medium"), (Some(30.0), 3, "Category: mechanical".to_owned()));
-    assert_eq!(recommend_eta(&knobs, &refs, "Category: mechanical", "haiku"), (Some(99.0), 1, "Category: mechanical".to_owned()));
+    let wall = |cell: &str, tier: &str| {
+        let eta = recommend_eta(&knobs, &refs, cell, tier);
+        (eta.wall_p75, eta.wall_n, eta.cell)
+    };
+    assert_eq!(wall("Category: mechanical, Spec: measured", "claude:opus-medium"), (Some(30.0), 3, "Category: mechanical".to_owned()));
+    assert_eq!(wall("Category: mechanical", "haiku"), (Some(99.0), 1, "Category: mechanical".to_owned()));
 }
 
 #[test]
@@ -225,7 +245,7 @@ fn recommend_verb_prints_the_pick_the_stats_and_the_eta_and_remembers_the_choice
          success threshold 80%  rule rank (one tier passes)\n\
          success claude:haiku 100% shrunk (n=5, 5 ok, toward the category's pooled 100% with a prior of 15 runs)\n\
          \x20 claude:haiku       100% of 5  shrunk 100%  $ n/a (priced n=0)\n\
-         eta 40m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)  $0.50 (median of n=5, uncalibrated: no usd calibration)\n"
+         eta wall 40m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration; too few runs with active minutes)  $0.50 (median of n=5, uncalibrated: no usd calibration)\n"
     );
     let held: String = db.query_row("SELECT tier FROM tier_choice WHERE cell = 'Category: research, Spec: measured'", [], |row| row.get(0)).unwrap();
     assert_eq!(held, "claude:haiku");
@@ -295,7 +315,9 @@ fn eta_p75_takes_the_third_of_three_durations_and_backs_off_the_two_run_scope_ce
     let refs: Vec<&Run> = runs.iter().collect();
     let knobs = Knobs::registry();
     for cell in ["Category: research, Spec: measured", "Category: research, Spec: measured, Scope: one-file"] {
-        assert_eq!(recommend_eta(&knobs, &refs, cell, "medium"), (Some(20.0), 3, "Category: research, Spec: measured".to_owned()), "{cell}");
+        let eta = recommend_eta(&knobs, &refs, cell, "medium");
+        assert_eq!((eta.wall_p75, eta.wall_n, eta.cell.as_str()), (Some(20.0), 3, "Category: research, Spec: measured"), "{cell}");
+        assert_eq!((eta.active, eta.wait_median), (None, None));
     }
 }
 

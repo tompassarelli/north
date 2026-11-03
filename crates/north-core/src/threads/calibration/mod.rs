@@ -103,6 +103,8 @@ pub struct Run {
     pub cells: [String; 5],
     pub tier: String,
     pub minutes: Option<f64>,
+    pub active_min: Option<f64>,
+    pub wait_min: Option<f64>,
     pub eta_min: Option<f64>,
     pub cost_usd: Option<f64>,
     pub api_usd: Option<f64>,

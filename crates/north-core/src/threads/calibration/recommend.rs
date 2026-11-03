@@ -1,7 +1,7 @@
 //! Which tier a brief's cell should run on, and the ETA and $ that go with it.
 use std::collections::BTreeMap;
 
-use super::{BACKOFF, ESCALATION_ONLY, GROUPS, Knobs, Run, quantile, tier_key, tier_rank};
+use super::{BACKOFF, ESCALATION_ONLY, GROUPS, Knobs, Run, median, quantile, tier_key, tier_rank};
 use crate::ops::dispatch::ARM_RUNS;
 use crate::threads::runs::brief::Fields;
 
@@ -143,22 +143,43 @@ pub fn recommend(knobs: &Knobs, runs: &[Run], asked: &[Option<String>; 5], incum
     finish(Some(best), rule)
 }
 
-/// p75 minutes of the tier's runs in the finest cell of `cell` (a brief's facet text) with `eta_min_samples` runs,
-/// backing off along BACKOFF; (p75, n, cell name).
-pub fn recommend_eta(knobs: &Knobs, runs: &[&Run], cell: &str, tier: &str) -> (Option<f64>, usize, String) {
+/// What the tier's runs in one cell say about time: wall p75 over their `minutes`, and the active-minute spread and median
+/// wait over the runs that recorded them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Eta {
+    pub wall_p75: Option<f64>,
+    pub wall_n: usize,
+    pub active: Option<Active>,
+    pub wait_median: Option<f64>,
+    pub cell: String,
+}
+
+/// Median and p25 to p90 of the active minutes of `n` runs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Active {
+    pub median: f64,
+    pub p25: f64,
+    pub p90: f64,
+    pub n: usize,
+}
+
+/// The tier's runs in the finest cell of `cell` (a brief's facet text) with `eta_min_samples` timed runs, backing off
+/// along BACKOFF. The active spread needs `eta_min_samples` runs that recorded active minutes in that same cell.
+pub fn recommend_eta(knobs: &Knobs, runs: &[&Run], cell: &str, tier: &str) -> Eta {
     let fields = Fields::read(cell);
     let wanted = tier_key(tier);
     let asked = asked_of(&fields);
     let mut keys = keys_of(&asked);
     loop {
-        let samples: Vec<f64> = runs
-            .iter()
-            .filter(|run| tier_key(&run.tier) == wanted && keys.iter().all(|index| Some(&run.cells[*index]) == asked[*index].as_ref()))
-            .filter_map(|run| run.minutes)
-            .collect();
+        let members: Vec<&&Run> = runs.iter().filter(|run| tier_key(&run.tier) == wanted && keys.iter().all(|index| Some(&run.cells[*index]) == asked[*index].as_ref())).collect();
+        let samples: Vec<f64> = members.iter().filter_map(|run| run.minutes).collect();
         if samples.len() >= knobs.eta_min_samples || keys.len() == 1 {
-            let name = cell_name(&keys, |index| asked[index].clone().unwrap_or_default());
-            return (quantile(&samples, 0.75), samples.len(), name);
+            let active: Vec<f64> = members.iter().filter_map(|run| run.active_min).collect();
+            let waits: Vec<f64> = members.iter().filter_map(|run| run.wait_min).collect();
+            let active = (active.len() >= knobs.eta_min_samples)
+                .then(|| Some(Active { median: median(&active)?, p25: quantile(&active, 0.25)?, p90: quantile(&active, 0.9)?, n: active.len() }))
+                .flatten();
+            return Eta { wall_p75: quantile(&samples, 0.75), wall_n: samples.len(), active, wait_median: median(&waits), cell: cell_name(&keys, |index| asked[index].clone().unwrap_or_default()) };
         }
         keys.pop();
     }

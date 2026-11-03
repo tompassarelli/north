@@ -7,7 +7,7 @@ use rusqlite::{Connection, params};
 
 use super::mode::{self, Mode};
 use super::read::{escalated, raw_runs};
-use super::recommend::{asked_of, recommend, recommend_eta, recommend_usd};
+use super::recommend::{Eta, asked_of, recommend, recommend_eta, recommend_usd};
 use super::{Knobs, Pick, median, provider, scaled, tier_rank};
 use crate::foundation::clock::Timestamp;
 use crate::threads::runs::brief::{CATEGORIES, Fields};
@@ -169,11 +169,27 @@ fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, r
         }
         return Ok(text);
     }
-    let (eta, eta_n, eta_cell) = recommend_eta(knobs, &by_ref, &pick.cell, tier);
+    let eta = recommend_eta(knobs, &by_ref, &pick.cell, tier);
     let (scale, label) = latest_calibration(db, knobs, context.now, "eta_pred", tier, false)?;
-    match eta.filter(|_| eta_n > 0) {
-        Some(eta) => text += &format!("eta {}m (p75 of n={eta_n}, cell {eta_cell}, tier {tier}, {label}){cost}\n", scaled(eta, scale, true)),
-        None => text += &format!("eta n/a (n=0){cost}\n"),
-    }
+    let Some(wall) = eta.wall_p75.filter(|_| eta.wall_n > 0) else {
+        text += &format!("eta n/a (n=0){cost}\n");
+        return Ok(text);
+    };
+    text += &eta_line(&eta, scaled(wall, scale, true), tier, &label);
+    text += &cost;
+    text.push('\n');
     Ok(text)
+}
+
+/// The recommend verb's eta line: the active-minute spread, wall p75 and median wait when enough runs recorded active
+/// minutes, else the wall p75 alone labelled as such.
+pub(super) fn eta_line(eta: &Eta, wall: f64, tier: &str, label: &str) -> String {
+    let place = format!("cell {}, tier {tier}, {label}", eta.cell);
+    match &eta.active {
+        Some(active) => {
+            let wait = eta.wait_median.map_or_else(String::new, |wait| format!(" wait median {wait:.0}m"));
+            format!("eta active {:.0}m (p25 {:.0}\u{2013}p90 {:.0}, n={}) wall p75 {wall}m{wait} ({place}, wall n={})", active.median, active.p25, active.p90, active.n, eta.wall_n)
+        }
+        None => format!("eta wall {wall}m (p75 of n={}, {place}; too few runs with active minutes)", eta.wall_n),
+    }
 }

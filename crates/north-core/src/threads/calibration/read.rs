@@ -22,6 +22,8 @@ pub struct Raw {
     pub tier: String,
     pub cells: [String; 5],
     pub minutes: Option<f64>,
+    pub active_min: Option<f64>,
+    pub wait_min: Option<f64>,
     pub eta_min: Option<f64>,
     pub cost_usd: Option<f64>,
     pub api_usd: Option<f64>,
@@ -29,7 +31,7 @@ pub struct Raw {
     pub ended: String,
 }
 
-const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0)";
+const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min";
 
 static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("ledger/prices.json parses"));
 
@@ -53,6 +55,8 @@ impl Raw {
             tier,
             cells: [cell(0)?, cell(1)?, cell(2)?, cell(3)?, cell(4)?],
             minutes: row.get(12)?,
+            active_min: row.get(21)?,
+            wait_min: row.get(22)?,
             eta_min: row.get(13)?,
             cost_usd: row.get(14)?,
             api_usd,
@@ -72,7 +76,7 @@ impl Raw {
 
     /// The core's view of this run, its tier as a tier key.
     pub fn recommend_run(&self, ok: bool) -> Run {
-        Run { cells: self.cells.clone(), tier: tier_key(&self.tier), minutes: self.minutes, cost_usd: self.cost_usd, api_usd: self.api_usd, outcome: self.outcome.clone(), ok, ..Run::default() }
+        Run { cells: self.cells.clone(), tier: tier_key(&self.tier), minutes: self.minutes, active_min: self.active_min, wait_min: self.wait_min, cost_usd: self.cost_usd, api_usd: self.api_usd, outcome: self.outcome.clone(), ok, ..Run::default() }
     }
 }
 
@@ -125,6 +129,8 @@ pub fn calibration_runs(db: &Connection) -> rusqlite::Result<Vec<Run>> {
             cells: raw.cells,
             tier: raw.tier,
             minutes: raw.minutes,
+            active_min: raw.active_min,
+            wait_min: raw.wait_min,
             eta_min: raw.eta_min,
             cost_usd: raw.cost_usd,
             api_usd: raw.api_usd,

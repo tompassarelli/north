@@ -14,7 +14,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | signal | writer | reader on main | verdict | commit |
 |---|---|---|---|---|
 | runs.eta_min | north worker-ledger | crates/north-core/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
-| runs.minutes | north worker-ledger | crates/north-core/src/threads/calibration/recommend.rs recommend_eta | read | |
+| runs.minutes | north worker-ledger | crates/north-core/src/threads/calibration/recommend.rs recommend_eta (the wall p75 printed after the active-minute figures) | read | |
 | runs.outcome, follows, landed, expects_landing | north worker-ledger | crates/north-core/src/threads/calibration/read.rs succeeded; harness/lib/plan_usage.py routing success | read | 4a58f21e |
 | runs.tier | north worker-ledger | crates/north-core/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | bin/threads brief_fields | crates/north-core/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
@@ -26,7 +26,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.staffed, review_requested, landed_at | north worker-ledger | harness/lib/ledger_context.py delivery_metrics | read | |
 | runs.landed_sha | north worker-ledger | none yet (north#51 box 2) | unread | |
 | runs.first_commit | none (tally-internal, crates/north-core/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
-| runs.turns, tool_calls, active_min, wait_min | crates/north-core/src/providers/claude/runs/activity.rs (Claude workers; recorded by crates/north-core/src/threads/runs/record.rs, filled on `north worker-ledger --backfill` where null); null on rows before 2026-11-04 and on Codex rows | none yet | unread | |
+| runs.turns, tool_calls, active_min, wait_min | crates/north-core/src/providers/claude/runs/activity.rs (Claude workers; recorded by crates/north-core/src/threads/runs/record.rs; `threads run-ids --settled` leaves out a Claude run with a null active_min so the next ingest re-reads its transcript and fills the four columns, and Codex and Gemini rows stay out of that re-read) | crates/north-core/src/threads/calibration/recommend.rs recommend_eta: the `eta` line of `north worker-ledger --recommend` prints `eta active <median>m (p25 <a>–p90 <b>, n=<N>) wall p75 <W>m wait median <X>m` from the cell's runs that recorded active minutes (at least `eta_min_samples` of them), and `eta wall <W>m (p75 of n=<N>, ...; too few runs with active minutes)` otherwise; active minutes are work, the wall p75 includes the waits | read | |
 | runs.peak_ctx, handoff_fires, handoff_ignored | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | bin/capacity-watchdog:465 | read | |
 | runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | crates/north-core/src/threads/calibration/summary.rs context_summary | read | |
 | runs.account, model, effort, fast | bin/threads:902 | crates/north-core/src/threads/calibration/summary.rs delivery_summary | read | |

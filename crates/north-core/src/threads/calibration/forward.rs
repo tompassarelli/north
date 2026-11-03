@@ -71,8 +71,8 @@ pub fn walk_forward_eta<'a>(knobs: &Knobs, runs: &'a [Run], start: &str, end: &s
         .filter_map(|run| {
             let tier_runs = by_tier.get(run.tier.as_str())?;
             let earlier = &tier_runs[..tier_runs.partition_point(|earlier| earlier.ended < run.ended)];
-            let (eta, n, _) = recommend_eta(knobs, earlier, &run_cell(run), &run.tier);
-            eta.filter(|eta| n > 0 && *eta != 0.0).map(|eta| (run, eta))
+            let eta = recommend_eta(knobs, earlier, &run_cell(run), &run.tier);
+            eta.wall_p75.filter(|wall| eta.wall_n > 0 && *wall != 0.0).map(|wall| (run, wall))
         })
         .collect()
 }
