@@ -1,9 +1,16 @@
-use super::worker_tier::refusal;
+use super::worker_tier::{brief_refusal, is_native, spawn_parts};
 use crate::hook::HookInput;
 use serde_json::{Value, json};
 
 const FACETS: &str = "\nSpec: measured\nScope: module\nSurface: shell\nVerify: local-test";
 const PAYBACK: &str = "Payback: saves 4 min/change (Tom 0.3, agent 1), 20 changes/day, cost 45 min, payback 0.5 days";
+
+pub(super) fn refusal(input: &HookInput) -> Option<String> {
+    let (kind, prompt) = spawn_parts(input)?;
+    let native = is_native(input);
+    let foreground = !native && input.tool_input.get("run_in_background").is_some_and(|value| *value != crate::platform::pyjson::Value::Bool(true));
+    brief_refusal(kind, native, foreground, prompt)
+}
 
 fn input(agent: &str, background: Value, prompt: &str) -> HookInput {
     let payload = if agent == "codex" {
@@ -127,11 +134,15 @@ fn other_tools_and_malformed_inputs_pass() {
 }
 
 #[test]
-fn decisions_match_the_recorded_shell_guard_on_254_briefs_and_name_its_reason_first_among_all() {
+fn decisions_match_the_recorded_guard_on_257_briefs_and_name_its_reason_first_among_all() {
     let recorded: Vec<Value> = serde_json::from_str(include_str!("fixtures/worker_tier.json")).unwrap();
-    assert_eq!(recorded.len(), 254);
+    assert_eq!(recorded.len(), 257);
     for case in recorded {
         let agent = case["agent"].as_str().unwrap();
+        if case.get("decision").is_some() {
+            assert_eq!(decided(agent, case["background"].clone(), case["prompt"].as_str().unwrap()), case["decision"], "{case}");
+            continue;
+        }
         let brief = input(agent, case["background"].clone(), case["prompt"].as_str().unwrap());
         let now = refusal(&brief);
         match case["reason"].as_str() {
@@ -158,29 +169,42 @@ fn a_native_worker_brief_must_land_before_its_capture() {
     assert_eq!(verdict("worker", &format!("{native}\nLands-before: native")), None);
 }
 
+fn decided(agent: &str, background: Value, prompt: &str) -> Value {
+    use super::worker_tier::{Decision, decision};
+    match decision(&input(agent, background, prompt), &|_| None) {
+        None => json!({"reason": null}),
+        Some(Decision::Deny(reason)) => json!({"reason": reason}),
+        Some(Decision::Rewrite(updated, context)) => {
+            let updated: Value = serde_json::from_str(&crate::platform::pyjson::dumps(&updated)).unwrap();
+            json!({"reason": null, "updatedInput": updated, "additionalContext": context})
+        }
+    }
+}
+
 #[test]
 fn a_foreground_spawn_or_facet_synonym_is_repaired_when_nothing_else_is_wrong() {
-    use super::worker_repair::repaired;
-    let foreground = input("worker", json!(false), &feature());
-    let updated = repaired(&foreground).unwrap();
-    assert_eq!(updated["run_in_background"], crate::platform::pyjson::Value::Bool(true));
-    assert_eq!(updated["prompt"].as_str(), foreground.tool_input["prompt"].as_str());
+    let research = || feature().replace("Category: feature", "Category: research");
+    let updated = decided("worker", json!(false), &research());
+    assert_eq!(updated["updatedInput"]["run_in_background"], json!(true));
+    assert_eq!(updated["updatedInput"]["prompt"].as_str(), Some(research().as_str()));
 
-    let synonyms = feature()
+    let synonyms = research()
         .replace("Scope: module", "Scope: single-repo")
         .replace("Verify: local-test", "Verify: read-only");
-    let updated = repaired(&input("worker", json!(true), &synonyms)).unwrap();
-    let prompt = updated["prompt"].as_str().unwrap();
+    let updated = decided("worker", json!(true), &synonyms);
+    let prompt = updated["updatedInput"]["prompt"].as_str().unwrap();
     assert!(prompt.contains("Scope: cross-module") && prompt.contains("Verify: none"), "{prompt}");
-    assert_eq!(updated["run_in_background"], crate::platform::pyjson::Value::Bool(true));
+    assert_eq!(updated["updatedInput"]["run_in_background"], json!(true));
+    assert_eq!(decided("worker", json!(true), &research().replace("Scope: module", "Scope: one-file")), json!({"reason": null}));
 
     for (agent, background, prompt) in [
-        ("worker", json!(false), feature().replace("Spec: measured", "Spec: Peon")),
-        ("worker", json!(true), feature().replace("Scope: module", "Scope: read-only")),
+        ("worker", json!(false), research().replace("Spec: measured", "Spec: Peon")),
+        ("worker", json!(true), research().replace("Scope: module", "Scope: read-only")),
         ("worker", json!(false), "Item: x".to_owned()),
-        ("worker-high", json!(false), feature()),
+        ("worker-high", json!(false), research()),
+        ("worker", json!(false), feature()),
     ] {
-        assert!(repaired(&input(agent, background, &prompt)).is_none(), "{prompt}");
+        assert!(decided(agent, background, &prompt)["reason"].is_string(), "{prompt}");
     }
 }
 
@@ -205,7 +229,7 @@ fn a_brief_breaking_several_rules_gets_every_refusal_in_one_message() {
 
 mod routing {
     use super::{FACETS, input};
-    use crate::guard::worker_tier::routing_refusal;
+    use crate::guard::worker_tier::{is_native, routing_refusal, spawn_parts};
     use crate::ops::dispatch::Tier;
     use serde_json::json;
 
@@ -214,7 +238,11 @@ mod routing {
     }
 
     fn verdict(agent: &str, prompt: &str, pick: Option<Tier>) -> Option<String> {
-        routing_refusal(&input(agent, json!(true), prompt), &|_| pick)
+        {
+        let brief = input(agent, json!(true), prompt);
+        let (kind, prompt) = spawn_parts(&brief)?;
+        routing_refusal(kind, is_native(&brief), prompt, &|_| pick)
+    }
     }
 
     #[test]
@@ -249,8 +277,13 @@ mod routing {
 
 mod placement {
     use super::{FACETS, input};
-    use crate::guard::worker_tier::placement_refusal;
+    use crate::guard::worker_tier::{is_native, spawn_parts};
     use serde_json::json;
+
+    fn placement_refusal(brief: &crate::hook::HookInput) -> Option<String> {
+        let (kind, prompt) = spawn_parts(brief)?;
+        crate::guard::worker_tier::placement_refusal(kind, is_native(brief), prompt)
+    }
 
     #[test]
     fn a_box_that_builds_waits_or_lands_is_sent_to_a_fleet_session_and_read_only_research_stays_a_subagent() {

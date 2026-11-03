@@ -1522,5 +1522,39 @@
   "background": true,
   "prompt": "Follows: worker run c3 failed.\nCategory: Mechanical\nPayback: enables x; cost 5 min\nSpec: \nScope: module\nSurface: shell\nVerify: local-test",
   "reason": "Spec: (empty) is not a facet value; use one of exact | measured | judged, so north worker-ledger can group runs by it."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "decision": {
+   "reason": "Scope: makgora is a repository name, not a facet value; put it on a `Repo: makgora` line and declare Scope as one of one-file | module | cross-module | cross-repo.\nVerify: map is not a facet value; use one of none | local-test | farm | native | visual, so north worker-ledger can group runs by it."
+  },
+  "name": "makgora four-error brief",
+  "prompt": "Item: makgora arrow streak drifts after a hero swap.\nCategory: bug-known-cause\nClass: projectile state outlives its owner\nSpec: exact\nScope: makgora\nSurface: makgora\nVerify: map\nFiles: ts/src/combat/arrow.ts, ts/src/combat/hero.ts\nDone when: the swap replay holds the streak."
+ },
+ {
+  "agent": "worker",
+  "background": false,
+  "decision": {
+   "additionalContext": "worker-tier-guard corrected the worker brief before spawning: set run_in_background: true; Spec: Exact -> exact; Scope: cross module -> cross-module; Surface: makgora -> ts; moved the repository name to `Repo: makgora`, inferring Surface from the Files: line; added `Lands-before: native` (the standing rule for a Verify: native box). Use the exact values next time.",
+   "reason": null,
+   "updatedInput": {
+    "description": "d",
+    "prompt": "Item: makgora arrow streak drifts after a hero swap.\nCategory: research\nClass: projectile state outlives its owner\nSpec: exact\nScope: cross-module\nSurface: ts\nRepo: makgora\nVerify: native\nLands-before: native\nFiles: ts/src/combat/arrow.ts, ts/src/combat/hero.tsx\nDone when: the swap capture holds the streak.",
+    "run_in_background": true,
+    "subagent_type": "worker"
+   }
+  },
+  "name": "only deterministic problems",
+  "prompt": "Item: makgora arrow streak drifts after a hero swap.\nCategory: research\nClass: projectile state outlives its owner\nSpec: Exact\nScope: cross module\nSurface: makgora\nVerify: native\nFiles: ts/src/combat/arrow.ts, ts/src/combat/hero.tsx\nDone when: the swap capture holds the streak."
+ },
+ {
+  "agent": "worker",
+  "background": true,
+  "decision": {
+   "reason": "Scope: makgora is a repository name, not a facet value; put it on a `Repo: makgora` line and declare Scope as one of one-file | module | cross-module | cross-repo.\nSurface: makgora is a repository name, not a facet value; put it on a `Repo: makgora` line and declare Surface as one of ts | rust | lua | nix | shell | workflow | docs | assets. Surface is inferred for you only when every path on the Files: line maps to one surface.\nCategory: tooling needs a Payback: line priced with the planning skill: `Payback: saves <N> min/change (Tom <a>, agent <b>), <C> changes/day, cost <M> min, payback <D> days` or, for enabling work, `Payback: enables <what>; cost <M> min`."
+  },
+  "name": "mixed deterministic and judgment problems",
+  "prompt": "Item: wire the arrow capture into the farm.\nCategory: tooling\nSpec: Measured\nScope: makgora\nSurface: makgora\nVerify: Native\nFiles: ts/src/combat/arrow.ts, crates/farm/src/capture.rs\nDone when: the farm run captures the streak."
  }
 ]

@@ -1,15 +1,17 @@
 use crate::hook::{HookInput, Verdict};
 use crate::ops::dispatch::Tier;
+use crate::platform::pyjson::Value;
 use regex::Regex;
 use std::sync::LazyLock;
 
-const FACETS: [(&str, &[&str]); 4] = [
+pub(super) const FACETS: [(&str, &[&str]); 4] = [
     ("Spec", &["exact", "measured", "judged"]),
     ("Scope", &["one-file", "module", "cross-module", "cross-repo"]),
     ("Surface", &["ts", "rust", "lua", "nix", "shell", "workflow", "docs", "assets"]),
     ("Verify", &["none", "local-test", "farm", "native", "visual"]),
 ];
 const DECLARED: [&str; 5] = ["Category", "Spec", "Scope", "Surface", "Verify"];
+pub(super) const REPOS: [&str; 6] = ["makgora", "wisp", "north", "south", "nixos-config", "firn"];
 const VALUE: &str = r"[ \t]*([^\s.,;`'<>|)]*)";
 
 struct Field {
@@ -68,12 +70,10 @@ fn asked_tier(kind: &str) -> Option<Tier> {
 
 /// Refuses a worker brief with no `Item:` line, and a Claude worker whose tier is not the one
 /// `route()` picks for the brief unless the brief gives a `Tier-reason:`; escalations are exempt.
-pub(super) fn routing_refusal(input: &HookInput, pick: &dyn Fn(&str) -> Option<Tier>) -> Option<String> {
-    let (kind, prompt) = spawn_parts(input)?;
+pub(super) fn routing_refusal(kind: &str, native: bool, prompt: &str, pick: &dyn Fn(&str) -> Option<Tier>) -> Option<String> {
     if !ITEM.is_match(prompt) {
         return Some("Missing Item: name the issue or box the worker is for on an `Item:` line in the brief, so the ledger groups the run under it.".into());
     }
-    let native = input.data["tool_name"].as_str().unwrap_or("").ends_with("spawn_agent");
     if native || FOLLOWS.is_match(prompt) || TIER_REASON.is_match(prompt) {
         return None;
     }
@@ -83,31 +83,52 @@ pub(super) fn routing_refusal(input: &HookInput, pick: &dyn Fn(&str) -> Option<T
 
 /// Refuses a Claude Agent worker whose brief is not `Category: research`: a box that builds,
 /// waits on a run or lands runs as a fleet session, and an in-process subagent only reads.
-pub(super) fn placement_refusal(input: &HookInput) -> Option<String> {
-    let (kind, prompt) = spawn_parts(input)?;
-    let native = input.data["tool_name"].as_str().unwrap_or("").ends_with("spawn_agent");
+pub(super) fn placement_refusal(kind: &str, native: bool, prompt: &str) -> Option<String> {
     (!native && !RESEARCH.is_match(prompt)).then(|| format!("{kind} runs in-process, which is for read-only research (`Category: research`); a box that builds, waits on a run or lands is a fleet session: launch it with `north fleet launch` and this brief."))
 }
 
+pub(super) enum Decision {
+    Deny(String),
+    Rewrite(Value, String),
+}
+
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let Some(reason) = refusal(input).or_else(|| routing_refusal(input, &routed_tier)).or_else(|| placement_refusal(input)) else {
+    let Some(decision) = decision(input, &routed_tier) else {
         return Verdict::Allow;
     };
     if crate::guard::activation::authoring_guards_off("worker-tier-guard") {
         return Verdict::Allow;
     }
-    if input.data["tool_name"] == "Agent"
-        && let Some(updated) = super::worker_repair::repaired(input)
+    match decision {
+        Decision::Rewrite(updated, note) => Verdict::Rewrite(updated, note),
+        Decision::Deny(reason) => {
+            if let (Some(session), Some(tool_use_id)) = (
+                input.data["session_id"].as_str().filter(|id| !id.is_empty()),
+                input.data["tool_use_id"].as_str().filter(|id| !id.is_empty()),
+            ) {
+                super::spawn_state::release_pending_use(session, tool_use_id);
+            }
+            Verdict::Deny(reason)
+        }
+    }
+}
+
+pub(super) fn decision(input: &HookInput, pick: &dyn Fn(&str) -> Option<Tier>) -> Option<Decision> {
+    let (kind, prompt) = spawn_parts(input)?;
+    let native = is_native(input);
+    let (updated, changes) = super::worker_repair::corrected(input, native, prompt);
+    let fixed = updated[if native { "message" } else { "prompt" }].as_str().unwrap_or(prompt);
+    if let Some(reason) = brief_refusal(kind, native, false, fixed)
+        .or_else(|| routing_refusal(kind, native, fixed, pick))
+        .or_else(|| placement_refusal(kind, native, fixed))
     {
-        return Verdict::Rewrite(updated, super::worker_repair::NOTE.into());
+        return Some(Decision::Deny(reason));
     }
-    if let (Some(session), Some(tool_use_id)) = (
-        input.data["session_id"].as_str().filter(|id| !id.is_empty()),
-        input.data["tool_use_id"].as_str().filter(|id| !id.is_empty()),
-    ) {
-        super::spawn_state::release_pending_use(session, tool_use_id);
-    }
-    Verdict::Deny(reason)
+    (!changes.is_empty()).then(|| Decision::Rewrite(updated.clone(), super::worker_repair::note(&changes)))
+}
+
+pub(super) fn is_native(input: &HookInput) -> bool {
+    input.data["tool_name"].as_str().unwrap_or("").ends_with("spawn_agent")
 }
 
 pub(super) fn spawn_parts(input: &HookInput) -> Option<(&str, &str)> {
@@ -125,17 +146,6 @@ pub(super) fn spawn_parts(input: &HookInput) -> Option<(&str, &str)> {
         )
     };
     kind.starts_with("worker").then_some((kind, prompt))
-}
-
-pub(super) fn refusal(input: &HookInput) -> Option<String> {
-    let (kind, prompt) = spawn_parts(input)?;
-    let native = input.data["tool_name"].as_str().unwrap_or("").ends_with("spawn_agent");
-    let foreground = !native
-        && input
-            .tool_input
-            .get("run_in_background")
-            .is_some_and(|value| *value != crate::platform::pyjson::Value::Bool(true));
-    brief_refusal(kind, native, foreground, prompt)
 }
 
 pub(super) fn brief_refusal(kind: &str, native: bool, foreground: bool, prompt: &str) -> Option<String> {
@@ -171,9 +181,17 @@ fn unknown_facets(prompt: &str) -> Vec<String> {
     FIELDS.iter().filter(|field| !field.allowed.is_empty()).filter_map(|field| {
         field.value.captures_iter(prompt).find_map(|found| {
             let value = &found[1];
-            (!field.allowed.contains(&value.to_lowercase().as_str())).then(|| {
+            let lower = value.to_lowercase();
+            if field.allowed.contains(&lower.as_str()) {
+                return None;
+            }
+            let allowed = field.allowed.join(" | ");
+            Some(if REPOS.contains(&lower.as_str()) {
+                let inferred = if field.name == "Surface" { " Surface is inferred for you only when every path on the Files: line maps to one surface." } else { "" };
+                format!("{}: {value} is a repository name, not a facet value; put it on a `Repo: {lower}` line and declare {} as one of {allowed}.{inferred}", field.name, field.name)
+            } else {
                 let shown = if value.is_empty() { "(empty)" } else { value };
-                format!("{}: {shown} is not a facet value; use one of {}, so north worker-ledger can group runs by it.", field.name, field.allowed.join(" | "))
+                format!("{}: {shown} is not a facet value; use one of {allowed}, so north worker-ledger can group runs by it.", field.name)
             })
         })
     }).collect()
