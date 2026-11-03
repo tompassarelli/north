@@ -8,6 +8,8 @@ use crate::ops::land_offload::{build_hosts, room};
 mod claims;
 mod lane;
 mod remote;
+#[cfg(test)]
+mod tests;
 
 fn room_of(ssh: &str, claim: Option<&claims::Claim>) -> Room {
     let Some(read) = room::read_within(ssh, Duration::from_secs(PROBE_LIMIT_SECONDS)) else { return Room::Unreachable };
@@ -38,7 +40,7 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Res
     drop(held);
     let ssh = hosts[position].1.as_str();
     let directory = std::env::current_dir().map_err(|error| Some(Declined::Failed(error.to_string())))?;
-    let lane = lane::capture(&directory).map_err(Some)?;
+    let lane = lane::capture(&directory, job.command).map_err(Some)?;
     match remote::run(ssh, &lane, job, &|| announce(&host)) {
         remote::Ran::Exit(code) => Ok(code),
         remote::Ran::NotSynced(why) => Err(Some(Declined::Failed(format!("{host}: {why}")))),

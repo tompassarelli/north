@@ -48,7 +48,7 @@ pub(super) enum Ran {
 }
 
 /// The script and its arguments that rebuild the lane on the host and run the job there under that host's capacity run, which enters the lane's flake dev shell.
-fn invocation(lane: &Lane, job: &Job) -> (String, Vec<String>) {
+pub(super) fn invocation(lane: &Lane, job: &Job) -> (String, Vec<String>) {
     let script = SCRIPT.replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK);
     let mut words = vec![lane.repo.clone(), lane.head.clone(), lane.name.clone(), lane.bundle.len().to_string(), lane.patch.len().to_string(), lane.subdirectory.clone(), job.owner.to_owned(), job.timeout_seconds.to_string()];
     words.extend(job.command.iter().cloned());

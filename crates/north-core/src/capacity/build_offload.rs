@@ -164,3 +164,9 @@ pub fn ships(changed: &[&str], diff_bytes: usize) -> Result<(), Declined> {
 
 /// Runs a candidate's job on another host and returns its exit code, calling the notifier with the host once the command starts there; Err leaves it to the local path, with the reason when an offload was declined.
 pub type Offloader = fn(&Candidate, &Job, &dyn Fn(&str)) -> Result<u8, Option<Declined>>;
+
+/// The host keeps its own trees at the lane's and the main checkout's absolute paths, so a command that names either would run there against them instead of the shipped lane.
+pub fn names_a_path_here(command: &[String], paths: &[&str]) -> Result<(), Declined> {
+    let found = command.iter().find_map(|word| paths.iter().find(|path| word.contains(**path)));
+    found.map_or(Ok(()), |path| Err(Declined::refused("absolute path", format!("the command names {path}, which the host keeps its own checkout at; use paths relative to the lane"))))
+}
