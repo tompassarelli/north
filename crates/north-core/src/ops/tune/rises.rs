@@ -13,6 +13,7 @@ pub struct Rise {
     pub category: String,
     pub before: (f64, usize),
     pub after: (f64, usize),
+    pub boxes: Vec<(String, f64)>,
 }
 
 pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
@@ -27,6 +28,7 @@ pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
                 category: cell.category.clone(),
                 before: (was, earlier.closed),
                 after: (now, cell.closed),
+                boxes: cell.boxes_dearest_first(),
             })
         })
         .collect()
@@ -58,7 +60,7 @@ impl Rise {
     pub fn body(&self, at: &str) -> String {
         format!(
             "Category: tooling\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
-             `north tune` on {at}: cost per closed box in {tier} {category} rose from ${:.2} over {} closed boxes the week before to ${:.2} over {} this week (+{:.0}%), past the {:.0}% bar (each week holds at least {RISE_MIN_BOXES} closed boxes).\n\n\
+             `north tune` on {at}: cost per closed box in {tier} {category} rose from ${:.2} over {} closed boxes the week before to ${:.2} over {} this week (+{:.0}%), past the {:.0}% bar (each week holds at least {RISE_MIN_BOXES} closed boxes).\n\n{boxes}\
              ## Done when\n- [ ] (headless run) The rise is traced to its runs in `north ledger summary --since 7d`, and either a fix lands or `north tune` shows the cell back within 25% of the week before.\n",
             self.before.0,
             self.before.1,
@@ -68,6 +70,15 @@ impl Rise {
             RISE * 100.0,
             tier = self.tier,
             category = self.category,
+            boxes = self.boxes_paragraph(),
         )
+    }
+
+    fn boxes_paragraph(&self) -> String {
+        if self.boxes.is_empty() {
+            return String::new();
+        }
+        let spent: Vec<String> = self.boxes.iter().map(|(item, usd)| format!("{item} ${usd:.2}")).collect();
+        format!("Closed boxes behind this week's figure, dearest first: {}.\n\n", spent.join(", "))
     }
 }

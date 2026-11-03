@@ -53,6 +53,13 @@ impl Cell {
     pub fn usd_per_closed(&self) -> f64 {
         self.usd / self.closed as f64
     }
+
+    /// The closed boxes of the cell with what each cost, dearest first.
+    pub fn boxes_dearest_first(&self) -> Vec<(String, f64)> {
+        let mut boxes = self.boxes.clone();
+        boxes.sort_by(|a, b| b.1.total_cmp(&a.1));
+        boxes
+    }
 }
 
 /// What a closed-box cell says about its next box: the median cost of a closed box and the p75 wall

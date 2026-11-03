@@ -265,6 +265,7 @@ fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one
     assert_eq!(issues.filed.len(), 1, "{:#?}", tick.lines);
     assert_eq!(issues.filed[0].0, "Cost per closed box rose more than 25% week on week in sonnet tooling");
     assert!(issues.filed[0].1.contains("from $10.00 over 3 closed boxes the week before to $13.00 over 3 this week (+30%)"), "{}", issues.filed[0].1);
+    assert!(issues.filed[0].1.contains("Closed boxes behind this week's figure, dearest first: north#10 $"), "{}", issues.filed[0].1);
 }
 
 #[test]
