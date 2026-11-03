@@ -154,6 +154,55 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   [agent-machinery/PROVENANCE.md](../agent-machinery/PROVENANCE.md).
   Outcome: adopted under its stated MIT terms, with corrections and rationale added.
 
+### Scheduling and capacity
+
+Sources behind [docs/rationale/capacity-scheduler.md](rationale/capacity-scheduler.md#prior-art), which states the
+claim taken from each; all accessed 2026-11-04. PSI is [kernel-psi](#kernel-psi) above.
+
+- <a id="borg"></a>**Verma et al., Large-scale cluster management at Google with Borg (EuroSys 2015)**,
+  https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43438.pdf.
+  Informed: admission on measured use with reclamation for batch, and classes that never rely on reclaimed capacity.
+  Outcome: prior only.
+- <a id="autopilot"></a>**Rzadca et al., Autopilot: workload autoscaling at Google Scale (EuroSys 2020)**,
+  https://research.google/pubs/autopilot-workload-autoscaling-at-google-scale/.
+  Informed: MemoryHigh from a learned quantile of use. Outcome: prior only.
+- <a id="slurm-backfill"></a>**Slurm scheduling configuration guide (backfill)**, https://slurm.schedmd.com/sched_config.html;
+  EASY origin: Lifka, The ANL/IBM SP scheduling system (JSSPP 1995),
+  https://link.springer.com/chapter/10.1007/3-540-60153-8_35.
+  Informed: the reservation backfill box. Outcome: prior only.
+- <a id="tsafrir-backfill"></a>**Tsafrir, Etsion and Feitelson, Backfilling using system-generated predictions rather
+  than user runtime estimates (IEEE TPDS 2007)**, abstract at https://manuscript.isc.ac/Inventory/49/827041.htm.
+  Informed: predicted ends drive the reservation, overruns correct the estimate. Outcome: prior only.
+- <a id="heft"></a>**Topcuoglu, Hariri and Wu, Performance-effective and low-complexity task scheduling for
+  heterogeneous computing (IEEE TPDS 2002)**,
+  https://experts.arizona.edu/en/publications/performance-effective-and-low-complexity-task-scheduling-for-hete/.
+  Informed: placement by earliest predicted finish time. Outcome: prior only.
+- <a id="senpai-tmo"></a>**senpai**, https://github.com/facebookincubator/senpai, and **Weiner et al., TMO:
+  Transparent Memory Offloading in Datacenters (ASPLOS 2022)**, https://par.nsf.gov/servlets/purl/10332477.
+  Informed: memory need learned from pressure, not from a limit-capped peak. Outcome: prior only.
+- <a id="cgroup-v2-cpu"></a>**Linux kernel cgroup v2 documentation** and **systemd.resource-control(5)**,
+  https://docs.kernel.org/admin-guide/cgroup-v2.html,
+  https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html.
+  Informed: the elastic-cpu shape (cpu.weight, cpu.idle via `CPUWeight=idle`, memory.high, cgroup.freeze) and its
+  sibling-relative idle correction. Outcome: prior only.
+- <a id="bazel-remote-cache"></a>**Bazel remote caching** and the **Remote Execution API**,
+  https://bazel.build/remote/caching, https://github.com/bazelbuild/remote-apis.
+  Informed: land-check verdicts keyed by input tree and tool identity. Outcome: prior only.
+- <a id="buck2"></a>**Buck2: why Buck2** and **remote execution**, https://buck2.build/docs/about/why/,
+  https://buck2.build/docs/users/remote_execution/.
+  Informed: one placement function for local and remote hosts. Outcome: prior only.
+- <a id="sccache-capacity"></a>**sccache** (README and docs/Rust.md), https://github.com/mozilla/sccache.
+  Informed: no laptop-shared compiler cache, per-host caches only. Outcome: prior only; see also
+  [build-cost.md](rationale/build-cost.md).
+- <a id="quasar"></a>**Delimitrou and Kozyrakis, Quasar: resource-efficient and QoS-aware cluster management
+  (ASPLOS 2014)**, https://www.csl.cornell.edu/~delimitrou/papers/2014.asplos.quasar.pdf.
+  Informed: sizing from measured behaviour with backoff to similar workloads. Outcome: prior only.
+- <a id="claude-cloud-sessions"></a>**Claude Code: use Claude Code in the cloud**,
+  https://code.claude.com/docs/en/claude-code-on-the-web, and **GitHub Actions billing**,
+  https://docs.github.com/en/billing/concepts/product-billing/github-actions.
+  Informed: the anthropic-cloud and Actions placement rows (cloud sessions draw plan usage with no VM charge;
+  standard hosted runners are free in public repositories). Outcome: adopted as placement facts.
+
 ### Skill bibliographies
 
 Skills that cite many sources keep them beside the skill, so they are not repeated here:
