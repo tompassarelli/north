@@ -1,11 +1,5 @@
 # Tests that need ~/code checkouts, a systemd user manager, /etc/codex/hooks/runtime, live agent state or shellcheck 0.11, so GitHub Actions cannot run them.
-bin/agents-plan.test.sh
 bin/threads.test.sh
-bin/convo.test.sh
 bin/run-bounded.test.sh
-harness/hooks/launch-critical-worktree-guard.test.sh
-harness/hooks/launch-critical-worktree-guard.test.py
-harness/hooks/lead-regrounding.test.sh
 harness/lib/routing.test.sh
-harness/skills/todo/scripts/cross-supervisor-mailbox.test.sh
 harness/skills/machine-capacity/scripts/machine-capacity.test.sh

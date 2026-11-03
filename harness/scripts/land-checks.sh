@@ -8,11 +8,12 @@ PATH=$(IFS=:; printf '%s' "${pinned[*]}")
 export PATH
 unset THREADS_ACTOR
 mode=${1:-}
-case "$mode" in ""|portable|machine-bound) ;; *) printf "usage: land-checks.sh [portable|machine-bound]\n" >&2; exit 2 ;; esac
+all=${2:-}
+case "$mode:$all" in :|portable:|machine-bound:|:--all|portable:--all|machine-bound:--all) ;; *) printf "usage: land-checks.sh [portable|machine-bound] [--all]\n" >&2; exit 2 ;; esac
 declare -A machine_bound=()
 while IFS= read -r test; do machine_bound[$test]=1; done < <(grep -v "^#" "$(dirname "$0")/../machine-bound-tests")
-base=${SAFE_PUSH_LAND_BASE:?}
-head=${SAFE_PUSH_LAND_HEAD:?}
+missing=$(for test in "${!machine_bound[@]}"; do [ -f "$(dirname "$0")/../../$test" ] || printf "%s\n" "$test"; done)
+[ -z "$missing" ] || { printf "land check: harness/machine-bound-tests lists files that do not exist: %s\n" "$missing" >&2; exit 1; }
 scratch=$(mktemp -d)
 trap 'rm -rf "${scratch:?}"' EXIT
 search() {
@@ -20,9 +21,7 @@ search() {
   rg "$@" >"$scratch/matches" || status=$?
   [ "$status" -le 1 ] || { printf 'land check: rg failed (status %s)\n' "$status" >&2; exit "$status"; }
 }
-git diff --name-only --no-renames -z "$base" "$head" >"$scratch/changes" || {
-  printf 'land check: git diff failed\n' >&2; exit 1;
-}
+if [ -n "$all" ]; then : >"$scratch/changes"; else git diff --name-only --no-renames -z "${SAFE_PUSH_LAND_BASE:?}" "${SAFE_PUSH_LAND_HEAD:?}" >"$scratch/changes" || { printf "land check: git diff failed\n" >&2; exit 1; }; fi
 declare -A seen=() visited=()
 selected=() queue=()
 add_test() {
@@ -41,9 +40,10 @@ mapfile -d '' -t -O "${#files[@]}" files <"$scratch/matches"
 while IFS= read -r -d '' path; do
   case "$path" in
     bin/*|lib/*|harness/hooks/*|harness/lib/*|harness/scripts/*|harness/*.toml) enqueue "$path" ;;
-    src/*|crates/north-core/src/threads/*|crates/north-core/src/ledger/*|Cargo.toml|Cargo.lock|build.rs) enqueue "$path"; enqueue NORTH_PACE_BIN; enqueue NORTH_BIN; enqueue debug/north ;;
+    src/*|crates/*|Cargo.toml|Cargo.lock|build.rs|rust-toolchain.toml) enqueue "$path"; enqueue NORTH_PACE_BIN; enqueue NORTH_BIN; enqueue debug/north ;;
   esac
 done <"$scratch/changes"
+[ -z "$all" ] || for path in "${files[@]}"; do case "$path" in *.test.sh|*.test.py) add_test "$path" ;; esac; done
 for ((next = 0; next < ${#queue[@]}; next++)); do
   path=${queue[next]}
   stem=${path%.sh}; stem=${stem%.py}; stem=${stem%.ts}; stem=${stem%.mjs}
