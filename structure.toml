@@ -64,7 +64,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots"]
 name = "guard"
 paths = ["crates/north-core/src/guard/**", "crates/north-core/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "autoland_status", "shell", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["ledger", "fleet", "autoland_status", "shell", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "threads"
