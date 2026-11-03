@@ -1,5 +1,6 @@
 [landing]
 	capacity = bun \"$PWD/harness/skills/machine-capacity/scripts/machine-capacity.mjs\" run --class moderate --owner land-check --timeout-seconds 3600 --
+	exact = true
 [mutant]
 	class = heavy
 	run = nix develop --no-update-lock-file -c bash harness/scripts/mutant-tests.sh
