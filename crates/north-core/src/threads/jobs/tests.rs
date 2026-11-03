@@ -70,7 +70,7 @@ fn shell_words(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn two_concurrent_takes_claim_the_one_job_once_and_its_result_is_commented_on_its_issue_once() {
+fn two_concurrent_takes_claim_the_one_job_once_and_a_successful_result_posts_no_comment_on_its_issue() {
     let rig = ledger();
     let id = rig.out("queue add laptop smashcraft#3 -- echo hi");
     let id = id.trim();
@@ -85,7 +85,7 @@ fn two_concurrent_takes_claim_the_one_job_once_and_its_result_is_commented_on_it
     assert_eq!(rig.out(&format!("queue msg {id} done said hi")), format!("job {id} done\n"));
     let (code, _, err) = rig.run(&format!("queue msg {id} done again"));
     assert_eq!((code, err), (1, format!("NorthThreads: queue msg: job {id} is not taken\n")));
-    assert_eq!(*rig.outside.calls.borrow(), [["issue", "comment", "3", "-R", "tompassarelli/smashcraft", "--body", format!("Job {id} done:\n\nsaid hi").as_str()].map(str::to_owned).to_vec()]);
+    assert!(rig.outside.calls.borrow().is_empty());
     assert_eq!(rig.sql(&format!("SELECT state || '|' || result FROM job_queue WHERE id = {id}")), "done|said hi");
 }
 

@@ -215,7 +215,9 @@ fn msg(argv: &[String], context: &Context, by: &str) -> Outcome {
         context.outside.scan(&text)?;
         let (repo, number) = item_ref(item, context)?;
         let (number, full) = (number.to_string(), format!("{}/{repo}", crate::threads::catalog::CATALOG.owner));
-        context.gh(&["issue", "comment", &number, "-R", &full, "--body", &format!("Job {id} {status}:\n\n{text}")])?;
+        if status != "done" {
+            context.gh(&["issue", "comment", &number, "-R", &full, "--body", &format!("Job {id} {status}:\n\n{text}")])?;
+        }
     }
     Ok(format!("job {id} {status}\n"))
 }
