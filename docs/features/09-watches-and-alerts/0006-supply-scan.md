@@ -1,0 +1,1 @@
+- Supply scan: `north supply-chain-scan` (daily user timer `supply-chain-scan.timer`) runs osv-scanner on origin/main lockfiles of makgora, wisp, north and nixos-config, alerts through `supply-alert` on new malware (urgent) or new fixable advisories (normal), and records seen IDs in `~/.local/state/supply-chain/seen.json`.

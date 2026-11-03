@@ -1,0 +1,1 @@
+- Split outcome: a worker report starting `Split:` is recorded as `split`, counts in no tier rate, lends its `Arm:` to its parts (runs whose `Follows:` names it), and `north worker-ledger --summary` adds a per-category table of splits, parts, parts closure, summed part minutes and minutes from the split to the last part.

@@ -1,0 +1,1 @@
+- Supply alert: `supply-alert normal|urgent TEXT [TITLE]` posts one phone alert through `ssh nexus nexus-alert`, so the ntfy publisher token stays on nexus.

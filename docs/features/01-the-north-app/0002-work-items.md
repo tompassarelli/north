@@ -1,0 +1,1 @@
+- Work items: `north work list`, `north work search TEXT`, and `north work show REPO#N`. Search includes matching open and closed issues. Work edits use `north work claim REPO#N [--by NAME] [--eta MINUTES]`, `release REPO#N [--to NAME]`, `need REPO#N BLOCKER#N`, `unneed REPO#N BLOCKER#N`, and `close REPO#N --comment RESULT`. Changes are recorded on the GitHub issue.

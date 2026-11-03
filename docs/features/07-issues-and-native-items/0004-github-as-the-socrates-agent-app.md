@@ -1,0 +1,1 @@
+- GitHub as the Socrates Agent app: `gh-app-token` prints a cached installation token (decrypted from south's `secrets/github-app.yaml`), and `gh-as-app ARGS` runs `gh` with it.

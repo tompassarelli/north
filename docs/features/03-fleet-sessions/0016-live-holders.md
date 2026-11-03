@@ -1,0 +1,1 @@
+- Live holders: `threads ready` and `threads unowned` keep a stale claim held when its exact owner matches an active Fleet session; a registered launcher PID must still be alive. A proxying client relays proven local owner identifiers to the remote ledger; PIDs are checked only on their own host. Finished or dead holders' stale claims no longer hold.

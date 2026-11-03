@@ -26,7 +26,7 @@ Build output stays in the worktree's `target/`.
 
 - `docs/harness.md` for install, where policy lives, staffing and landing.
 - `docs/architecture.md` for the owning boundaries.
-- `docs/features.md` for commands and the feature surface.
+- `docs/features.md` for commands and the feature surface; it is generated, so add a file under `docs/features/` and run `north docs features-index` instead of editing it.
 - `docs/feedback-loop.md` for each recorded signal, its writer and the reader that acts on it.
 - `agent-machinery/README.md` for the provider-independent doctrine, contracts and procedures.
 - `bin/` holds every harness agent command, and `harness/` holds its hooks, skills and policy owners.

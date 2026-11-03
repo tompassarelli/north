@@ -1,0 +1,1 @@
+- Issue box lint: `north issue-box-lint [REPO#N...] [--repo REPO]` (each also as `OWNER/REPO`) prints each unchecked Done when box that hands Tom a mechanical check (input, sizes, frames, sounds, menus, launches), which agents verify on VM pairs and native capture instead, or names a bar without an origin or `soft`; it exits 1 when any box is flagged.

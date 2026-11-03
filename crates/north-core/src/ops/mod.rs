@@ -7,6 +7,7 @@ pub mod context_audit;
 pub mod convo;
 pub mod dispatch;
 pub mod dividend;
+pub mod features_index;
 pub mod flow;
 pub mod incident_mine;
 pub mod build_offload;

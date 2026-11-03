@@ -1,0 +1,1 @@
+- Watch scenario: `cargo test model_watch` replays recorded public fixture inputs against an isolated ledger with a recorded host (fake claude, ssh and feeds); it never posts to any topic.

@@ -1,0 +1,1 @@
+- Fleet landings: fleet exports `NORTH_FLEET_SESSION` to every command a session runs, `safe-push` logs that name in `pushes.tsv` with the default-branch commit it landed, and north records that commit as the landing of the session's task (its `--task`, else the session name) when each turn ends and every 30 s while the fleet screen is open, so `north task landed` is optional.

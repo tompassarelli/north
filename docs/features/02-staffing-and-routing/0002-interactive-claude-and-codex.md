@@ -1,0 +1,1 @@
+- Interactive Claude and Codex: `claude` and `codex` are the installed vendor runtimes (`~/.local/lib/{claude,codex}/current`) on their default homes; sessions on other accounts run through `north fleet launch --provider claude|codex --account LABEL`.

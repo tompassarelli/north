@@ -1,0 +1,1 @@
+- Follows boxes: `threads queue follow REF --tier T --parent NAME` queues a brief from stdin, whose `Follows:` line names the predecessor commit subject, SHA or issue ref. `follows-release` releases a box when its predecessor reaches origin/main, then sends the assignment to its Fleet parent with `north fleet send`.

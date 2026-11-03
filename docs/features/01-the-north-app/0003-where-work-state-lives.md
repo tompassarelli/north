@@ -1,0 +1,1 @@
+- Where work state lives: GitHub holds titles, bodies, checklist, state and blockers. NorthThreads holds current holders, elapsed time and ETA, handoffs and worker runs. North reads both and writes through their commands.

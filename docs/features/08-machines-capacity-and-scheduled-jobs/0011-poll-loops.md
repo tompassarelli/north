@@ -1,0 +1,1 @@
+- Poll loops: `poll-loop-guard` (Rust PreBash, Claude Bash and Codex exec) refuses a foreground call that can wait over 60 s in `sleep` or in an `until`/`while` loop that sleeps, unless `timeout` or the tool's own timeout bounds it at 60 s; the refusal names `job-run --notify` and Monitor. Background calls pass, since their exit notifies the session.
