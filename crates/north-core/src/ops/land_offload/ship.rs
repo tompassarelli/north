@@ -5,17 +5,31 @@ use std::process::{Command, Stdio};
 
 pub(super) const TRANSPORT_FAILED: u8 = 255;
 const LOCK_WAIT_SECONDS: u32 = 600;
+const SLOTS: u32 = 3;
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const REMOTE: &str = r#"set -eu
 repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6
 root=@ROOT@
 ref=refs/land-offload/$head
-bundle=$root/$name.bundle
-slot=$root/$name
 mkdir -p "$root"
-exec 9>"$root/$name.lock"
-flock -w @LOCK_WAIT@ 9 || { echo "offload: another landing has held the $name slot for @LOCK_WAIT@ s" >&2; exit 96; }
+waited=0
+while :; do
+  i=0
+  while [ "$i" -lt @SLOTS@ ]; do
+    s=$name
+    [ "$i" -eq 0 ] || s=$name-$i
+    exec 9>"$root/$s.lock"
+    if flock -n 9; then break 2; fi
+    exec 9>&-
+    i=$((i + 1))
+  done
+  [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: all @SLOTS@ $name slots stayed busy for @LOCK_WAIT@ s" >&2; exit 96; }
+  sleep 2
+  waited=$((waited + 2))
+done
+bundle=$root/$s.bundle
+slot=$root/$s
 cleanup() {
   rm -f "$bundle"
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
@@ -93,7 +107,7 @@ pub(super) fn run(land: &Land) -> u8 {
         Ok(file) => file,
         Err(why) => return fail(&why),
     };
-    let script = REMOTE.replace("@ROOT@", OFFLOAD_ROOT).replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string());
+    let script = REMOTE.replace("@ROOT@", OFFLOAD_ROOT).replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string()).replace("@SLOTS@", &SLOTS.to_string());
     let words = [relative.as_str(), land.base, land.head, &land.timeout_seconds.to_string(), &name, land.command].map(quote);
     let remote = format!("sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
