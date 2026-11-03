@@ -15,18 +15,20 @@ const COST_WINDOWS: [&str; 3] = ["week", "weekly_all", "Gemini Models/weekly"];
 const SAME_WINDOW_NANOS: i128 = 60_000_000_000;
 
 /// Appends each readout no earlier readout of the same window at the same time recorded.
-pub fn record(db: &mut Connection, readouts: &[Row]) -> Result<(), Failure> {
+pub fn record(db: &mut Connection, readouts: &[Row]) -> Result<usize, Failure> {
     usage_table::ensure(db)?;
     let tx = db.transaction()?;
+    let mut recorded = 0;
     {
         let same = COLUMNS[..5].iter().map(|column| format!("{column} IS ?")).collect::<Vec<_>>().join(" AND ");
         let mut insert = tx.prepare(&format!("INSERT INTO usage({}) SELECT {} WHERE NOT EXISTS (SELECT 1 FROM usage WHERE {same})", COLUMNS.join(", "), ["?"; 10].join(", ")))?;
         for readout in readouts {
             let values = COLUMNS.iter().chain(&COLUMNS[..5]).map(|column| readout.sql(column)).collect::<Result<Vec<_>, _>>()?;
-            insert.execute(params_from_iter(values))?;
+            recorded += insert.execute(params_from_iter(values))?;
         }
     }
-    Ok(tx.commit()?)
+    tx.commit()?;
+    Ok(recorded)
 }
 
 struct Reading {
@@ -170,10 +172,14 @@ fn intervals(db: &Connection, prices: &BTreeMap<String, f64>) -> Result<Costs, F
 
 fn split(fresh: &mut Costs, (account, started, ended): (&str, &str, &str), cost: f64, events: &[Sample]) {
     let mut weights: Vec<(&str, f64)> = Vec::new();
+    let mut place: HashMap<&str, usize> = HashMap::new();
     for sample in events {
-        match weights.iter_mut().find(|(agent, _)| *agent == sample.agent) {
-            Some((_, weight)) => *weight += sample.weight,
-            None => weights.push((&sample.agent, 0.0 + sample.weight)),
+        match place.entry(&sample.agent) {
+            Entry::Occupied(at) => weights[*at.get()].1 += sample.weight,
+            Entry::Vacant(slot) => {
+                slot.insert(weights.len());
+                weights.push((&sample.agent, 0.0 + sample.weight));
+            }
         }
     }
     let total = weights.iter().fold(0.0, |sum, (_, weight)| sum + weight);

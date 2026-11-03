@@ -82,6 +82,7 @@ fn issue_ref(item: &Value) -> Option<String> {
 pub(super) struct Tally {
     pub added: usize,
     pub backfilled: usize,
+    pub samples: usize,
     pub unpriced: BTreeSet<String>,
 }
 
@@ -123,8 +124,8 @@ impl Ingest<'_> {
         }
         for sample in r.get("usage_samples").and_then(Value::as_array).unwrap_or_default() {
             let field = |key: &str| bind(Some(sample.get(key).ok_or_else(|| Failure::Refused(format!("a usage sample has no {key}")))?));
-            self.db.execute(
-                "INSERT INTO run_usage(agent, request, ts, account, weight) VALUES (?,?,?,?,?) ON CONFLICT(agent, request) DO UPDATE SET ts=excluded.ts, account=excluded.account, weight=excluded.weight",
+            self.tally.samples += self.db.execute(
+                "INSERT INTO run_usage(agent, request, ts, account, weight) VALUES (?,?,?,?,?) ON CONFLICT(agent, request) DO UPDATE SET ts=excluded.ts, account=excluded.account, weight=excluded.weight WHERE ts IS NOT excluded.ts OR account IS NOT excluded.account OR weight IS NOT excluded.weight",
                 params![r.required("id")?, field("request")?, field("ts")?, r.required("account")?, field("weight")?],
             )?;
         }

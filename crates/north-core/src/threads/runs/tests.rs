@@ -486,3 +486,18 @@ fn the_run_costs_of_changing_readouts_keep_the_bytes_the_shell_allocator_printed
     let control = r#"[{"account": "claude-b", "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:10:00Z", "agent": "a", "cost_usd": 1.46}, {"account": "claude-b", "started": "2026-10-11T00:00:00Z", "ended": "2026-10-11T00:10:00Z", "agent": "b", "cost_usd": 0.54}, {"account": "claude-b", "started": "2026-10-11T00:10:00Z", "ended": "2026-10-11T00:20:00Z", "agent": "b", "cost_usd": 3.0}]"#;
     assert_eq!(format!("[{text}]"), control);
 }
+
+#[test]
+fn an_ingest_that_changes_no_usage_input_does_not_reprice_the_ledger() {
+    let ledger = ledger();
+    let batch = [first_batch(), second_batch()].concat();
+    ledger.ingest(&batch);
+    let priced = ledger.rows("SELECT * FROM run_costs").len();
+    assert!(priced >= 5);
+    let db = Connection::open(&ledger.path).unwrap();
+    db.execute("DELETE FROM run_costs WHERE agent = 'a'", []).unwrap();
+    ledger.ingest(&batch);
+    assert_eq!(ledger.rows("SELECT * FROM run_costs").len(), priced - 1, "an ingest that changed no readout, run or sample repriced the whole ledger");
+    ledger.ingest(&[readout("claude", "b", 40, 26.0)]);
+    assert!(!ledger.rows("SELECT * FROM run_costs WHERE agent = 'a'").is_empty(), "a new readout did not reprice the ledger");
+}
