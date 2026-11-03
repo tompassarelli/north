@@ -493,11 +493,11 @@ fn a_measured_interval_cost_is_allocated_to_tracked_runs_once_and_replays_idempo
     ingest(&rig, std::slice::from_ref(&second));
     assert!((rig.sql("select sum(cost_usd) from runs").parse::<f64>().unwrap() - 5.0).abs() < 1e-9);
     assert_eq!(rig.sql("select fast || '=' || count(*) from runs group by fast order by fast"), "0=1\n1=1");
-    readouts.extend([first.clone(), second.clone()]);
+    readouts.extend([first.clone(), second]);
     ingest(&rig, &readouts);
     assert_eq!(rig.sql("select count(*) from run_usage"), "3", "a replay adds no sample twice");
     let before = rig.sql("select fast || '|' || ifnull(role,'') || '|' || outcome || '|' || minutes || '|' || ifnull(landed_at,'') from runs where agent='a'");
-    let mut telemetry = first.clone();
+    let mut telemetry = first;
     telemetry["telemetry_only"] = json!(true);
     telemetry["actual_min"] = json!(999);
     telemetry["outcome"] = json!("unclear");

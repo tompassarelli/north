@@ -74,7 +74,7 @@ fn the_callers_checkout_decides_the_result_not_the_first_one() {
     assert!(failure.0.starts_with("missing allowlist"), "{}", failure.0);
 
     let mut environment = checkouts.environment(&checkouts.path("beta"), &alpha);
-    environment.root_override = Some(alpha.clone());
+    environment.root_override = Some(alpha);
     assert_eq!(check(&environment, false).ok(), Some(0));
 }
 

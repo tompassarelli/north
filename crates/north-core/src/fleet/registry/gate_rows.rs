@@ -211,7 +211,7 @@ mod tests {
 
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Delivered);
         assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
-        assert_eq!(laptop.deliver_row(&row.clone()).unwrap(), HandedIn::Already);
+        assert_eq!(laptop.deliver_row(&row).unwrap(), HandedIn::Already);
 
         let gates = laptop.digest(0).unwrap().gates;
         assert_eq!(gates.iter().map(|gate| (gate.request.session.as_str(), gate.request.question.as_str(), gate.is_open())).collect::<Vec<_>>(), [("worker", "Rent the box?", true)]);

@@ -126,7 +126,8 @@ mod guard {
             } else {
                 json!({"command":command,"timeout":1000,"description":"Desktop step","run_in_background":false})
             };
-            let mut payload = json!({"hook_event_name":"PreToolUse","tool_name":if field == "cmd" {provider} else {"Bash"},"cwd":std::env::var("HOME").unwrap(),"session_id":format!("{provider}-fixture"),"tool_input":if field == "cmd" {json!(input.to_string())} else {input.clone()},"tool_use_id":"call_fixture"});
+            let tool_input = if field == "cmd" { json!(input.to_string()) } else { input.clone() };
+            let mut payload = json!({"hook_event_name":"PreToolUse","tool_name":if field == "cmd" {provider} else {"Bash"},"cwd":std::env::var("HOME").unwrap(),"session_id":format!("{provider}-fixture"),"tool_input":tool_input,"tool_use_id":"call_fixture"});
             if provider != "claude" {
                 payload["turn_id"] = json!("fixture-turn");
                 payload["permission_mode"] = json!("bypassPermissions");

@@ -154,7 +154,7 @@ fn an_account_runs_only_where_it_is_signed_in_and_here_only_with_a_login_of_its_
 fn a_ready_box_is_open_unticked_unheld_not_toms_and_after_its_closed_predecessors() {
     let plan = issue("makgora", 1, "## Order of work\n1. #10 first\n2. wisp#3 then\n3. #12 last\n## After\n- [ ] ship", &["roadmap"]);
     let issues = vec![
-        plan.clone(),
+        plan,
         issue("makgora", 10, "- [ ] a", &[]),
         issue("makgora", 11, "- [x] done", &[]),
         issue("makgora", 12, "- [ ] c", &[]),
@@ -266,7 +266,7 @@ fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_u
         [
             ("makgora#20".into(), "gex45".into(), "claude:b".into(), false, why.clone()),
             ("makgora#21".into(), "gex45".into(), "claude:b".into(), false, why.clone()),
-            ("makgora#22".into(), "nexus".into(), "claude:a".into(), false, why.clone()),
+            ("makgora#22".into(), "nexus".into(), "claude:a".into(), false, why),
         ]
     );
     let outcome = decide(&unreachable, "test");
@@ -300,7 +300,7 @@ fn native_boxes_go_only_where_their_needs_are_served() {
     let (mut hosts, accounts) = fleet();
     let native = issue("makgora", 30, "- [ ] a", &["needs:native-pair"]);
     let wisp_native = issue("wisp", 31, "- [ ] b", &["needs:native-single"]);
-    let launched = placed(&survey(vec![native.clone(), wisp_native.clone()], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()));
+    let launched = placed(&survey(vec![native, wisp_native.clone()], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()));
     assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str())).collect::<Vec<_>>(), [("makgora#30", "gex45")]);
     hosts[2].running = Ok(0);
     let launched = placed(&survey(vec![wisp_native], Cloud::Closed(String::new()), hosts, accounts));

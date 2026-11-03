@@ -183,11 +183,11 @@ fn the_task_line_shows_the_brief_title_not_the_launch_prompt() {
     let record = family("tui", None, 1, Status::Working, 0).record;
     let prompt = format!("Read and do the box brief at {}", brief.display());
     let mut transcript = Transcript::new();
-    transcript.entries = vec![Entry { kind: EntryKind::User, text: prompt.clone() }];
+    transcript.entries = vec![Entry { kind: EntryKind::User, text: prompt }];
     assert_eq!(SessionFacts::of(&record, Some(&transcript)).task.as_deref(), Some("Box: fleet TUI transcript tables"));
     transcript.entries = vec![Entry { kind: EntryKind::User, text: "Read and do the box brief at /nonexistent/brief.md".into() }];
     assert_eq!(SessionFacts::of(&record, Some(&transcript)).task.as_deref(), Some("Read and do the box brief at /nonexistent/brief.md"));
-    let mut tagged = record.clone();
+    let mut tagged = record;
     tagged.task_ref = Some("T-42".into());
     assert_eq!(SessionFacts::of(&tagged, Some(&transcript)).task.as_deref(), Some("T-42"));
 }

@@ -277,7 +277,7 @@ fn diagnose(queries: &[Query], db: &Path, now: f64) -> NorthResult<Vec<Miss>> {
         .map(|q| (q, q.refs.iter().filter(|r| !q.block.contains(r.as_str())).collect::<Vec<_>>()))
         .filter(|(_, m)| !m.is_empty())
         .collect();
-    let refs: HashSet<String> = missed.iter().flat_map(|(_, m)| m.iter().map(|r| r.to_string())).collect();
+    let refs: HashSet<String> = missed.iter().flat_map(|(_, m)| m.iter().map(|r| (*r).clone())).collect();
     let place = containing(&refs, db)?;
     let mut out = Vec::new();
     for (q, misses) in missed {
@@ -473,7 +473,7 @@ fn score(path: &Path, o: &Options) -> NorthResult<Scored> {
     let items: Vec<Item> = read_rows(path)?;
     let real = state_dir();
     let excluded = if !o.exclude.is_empty() && !o.leaky { Some(exclude_session_tree(&o.exclude, &real.join("index.db"))?) } else { None };
-    let state = excluded.as_ref().map_or(real.clone(), |(dir, _)| dir.clone());
+    let state = excluded.as_ref().map_or(real, |(dir, _)| dir.clone());
     let result = score_in(&items, path, o, excluded.as_ref().map(|(_, r)| r.clone()), &state);
     if let Some((dir, _)) = excluded {
         let _ = fs::remove_file(dir.join("index.db"));

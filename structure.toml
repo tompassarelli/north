@@ -64,7 +64,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots"]
 name = "guard"
 paths = ["crates/north-core/src/guard/**", "crates/north-core/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "shell", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "code_health", "shell", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "threads"
@@ -123,7 +123,7 @@ may_use = ["domain", "platform", "foundation", "crate-roots"]
 [[module]]
 name = "code_health"
 paths = ["crates/north-core/src/code_health/**"]
-responsibility = "Import resolution for the code-health report, gate and edit check."
+responsibility = "Import resolution for the code-health report, gate and edit check; the Rust habit checks."
 may_use = ["platform", "foundation", "crate-roots"]
 
 [[module]]
@@ -235,3 +235,61 @@ workspace = "."
 leaf = "crates/north-core/src/code_health/source.rs"
 hub = "crates/north-base/src/foundation/mod.rs"
 test_no_run_seconds = 88
+
+[rust_habits]
+checks = ["shared-mutability", "single-impl-trait"]
+
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-core/src/fleet/session_host.rs"
+reason = "Activity, the prompt counter and the frame watcher are shared between the stdin writer and stdout reader threads of one session."
+
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-core/src/ops/flow/jobs.rs"
+reason = "Memo of fetched run jobs behind a &self read API; candidate for &mut self."
+
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-core/src/ops/flow/measure.rs"
+reason = "Lazy claim and stranded caches behind a &self Env shared by every measure; candidate for &mut self."
+
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "crates/north-core/src/threads/board/issues.rs"
+reason = "rusqlite needs &mut Connection for transactions while Board hands out &self reads."
+
+[[rust_habits.allow]]
+rule = "shared-mutability"
+path = "src/bin/verify_north/notes.rs"
+reason = "One driver stdin pipe written from the observer threads of verify-north."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-core/src/fleet/books.rs"
+item = "WatchBooks"
+reason = "Trait alias bundling the RunSink, Books, ReceiptBook and GateBook ports through a blanket impl; each port has its own test double."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-core/src/fleet/books.rs"
+item = "FleetBooks"
+reason = "Trait alias over WatchBooks and GateBook through a blanket impl; each port has its own test double."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-core/src/fleet/session_host.rs"
+item = "SentLog"
+reason = "Keeps the process host free of the turn watcher's parsing; candidate to make concrete."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-core/src/fleet/session_host.rs"
+item = "FrameWatch"
+reason = "Keeps the process host free of the turn watcher's parsing; candidate to make concrete."
+
+[[rust_habits.allow]]
+rule = "single-impl-trait"
+path = "crates/north-landing/src/land_abandon/scratch.rs"
+item = "Witness"
+reason = "north-landing cannot depend on the root crate's fleet reader that implements it."

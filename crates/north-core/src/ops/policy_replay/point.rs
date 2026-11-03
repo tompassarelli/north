@@ -235,10 +235,10 @@ pub fn promote(args: &PromoteArgs) -> Result<String, NorthError> {
     if let Some(reason) = args.accept_drop.filter(|reason| !reason.is_empty()) {
         anchor = vec![
             ("anchor_conformance", Some(conformance.clone())),
-            ("anchor_n", Some(n.clone())),
+            ("anchor_n", Some(n)),
             ("anchor_date", Some(date.clone())),
             ("accepted_drop", Some(Scalar::Str(reason.to_owned()))),
-            ("accepted_drop_date", Some(date.clone())),
+            ("accepted_drop_date", Some(date)),
         ];
     } else {
         let basis: [(&str, Option<Scalar>); 3] = [anchor[0].clone(), anchor[1].clone(), anchor[2].clone()];

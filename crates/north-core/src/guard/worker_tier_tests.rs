@@ -45,7 +45,7 @@ fn tiers_follow_the_category_and_escalation_rules() {
         (false, "worker-haiku", mechanical()),
         (false, "worker", docs.clone()),
         (true, "worker-haiku", docs.clone()),
-        (true, "worker-high", docs.clone()),
+        (true, "worker-high", docs),
         (false, "worker", escalation()),
         (true, "worker-high", feature()),
         (true, "worker-xhigh", feature()),

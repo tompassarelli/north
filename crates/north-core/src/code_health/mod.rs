@@ -1,5 +1,9 @@
+mod habits;
+#[cfg(test)]
+mod habits_tests;
 mod imports;
 mod rust_modules;
+mod rust_text;
 mod source;
 #[cfg(test)]
 mod tests;
@@ -44,7 +48,8 @@ pub fn run(arguments: &[String]) -> u8 {
             Ok(()) => 0,
             Err(error) => fail(&error),
         },
-        _ => fail("usage: north code-health imports (JSON request on stdin, JSON response on stdout)"),
+        Some("habits") => habits_command(&arguments[1..]),
+        _ => fail("usage: north code-health imports (JSON request on stdin, JSON response on stdout) | habits [--repo DIR]"),
     }
 }
 
@@ -79,4 +84,26 @@ fn answer(request: Request) -> Response {
         .map(|file| imports_of(&file.path, &file.text, &source, &crates))
         .collect();
     Response { imports }
+}
+
+pub fn habits(root: &std::path::Path, edited: &str) -> Vec<String> {
+    habits::findings(root, Some(edited)).unwrap_or_default()
+}
+
+fn habits_command(arguments: &[String]) -> u8 {
+    let root = match arguments {
+        [] => std::path::PathBuf::from("."),
+        [flag, dir] if flag == "--repo" => std::path::PathBuf::from(dir),
+        _ => return fail("usage: north code-health habits [--repo DIR]"),
+    };
+    match habits::findings(&root, None) {
+        Ok(lines) if lines.is_empty() => 0,
+        Ok(lines) => {
+            for line in lines {
+                println!("{line}");
+            }
+            1
+        }
+        Err(error) => fail(&error),
+    }
 }

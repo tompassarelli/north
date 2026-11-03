@@ -197,7 +197,7 @@ fn box_chains_join_runs_staffed_within_the_gap_and_count_only_landed_boxes() {
     let chains = box_chains(&knobs, &rows);
     assert_eq!(chains.iter().map(|chain| (chain.item.as_str(), chain.runs, chain.minutes)).collect::<Vec<_>>(), [("north#1", 2, 55.0), ("north#1", 1, 10.0)]);
     assert_eq!(chains[0].category.as_deref(), Some("feature"));
-    let wider = box_chains(&Knobs { box_chain_gap_min: 180.0, ..knobs.clone() }, &rows);
+    let wider = box_chains(&Knobs { box_chain_gap_min: 180.0, ..knobs }, &rows);
     assert_eq!(wider.iter().map(|chain| chain.minutes).collect::<Vec<_>>(), [190.0]);
     assert_eq!(box_duration(&knobs, &chains, Some("feature")), (Some(55.0), 2, "box p75 all categories".to_owned()));
     let enough = Knobs { eta_min_samples: 2, ..knobs };

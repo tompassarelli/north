@@ -196,3 +196,27 @@ fn an_overflowing_timeout_falls_back_to_the_default_instead_of_panicking() {
         assert!(output.status.success() && output.stderr.is_empty(), "{value}: {}", String::from_utf8_lossy(&output.stderr));
     }
 }
+
+fn context(rig: &Rig, name: &str) -> Option<String> {
+    let edit = payload("Edit", json!({"file_path": rig.repo.join(name)}), &rig.repo);
+    let (output, _) = rig.run(&edit, &[]);
+    assert!(output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).ok()?;
+    response["hookSpecificOutput"]["additionalContext"].as_str().map(str::to_owned)
+}
+
+#[test]
+fn an_edit_adding_shared_mutability_or_a_single_impl_trait_is_advised_at_edit_time() {
+    let rig = Rig::new();
+    let habits = "[rust_habits]\nchecks = [\"shared-mutability\", \"single-impl-trait\"]\n";
+    std::fs::write(rig.repo.join("structure.toml"), habits).unwrap();
+    std::fs::write(rig.repo.join("src/state.rs"), "// clean\npub struct S(std::cell::RefCell<u8>);\n").unwrap();
+    std::fs::write(rig.repo.join("src/port.rs"), "// clean\npub trait Port {}\npub struct Live;\nimpl Port for Live {}\n").unwrap();
+    let state = context(&rig, "src/state.rs").expect("shared mutability advised");
+    assert!(state.contains("shared-mutability src/state.rs:2 RefCell<..> in non-test code"), "{state}");
+    let port = context(&rig, "src/port.rs").expect("single-impl trait advised");
+    assert!(port.contains("single-impl-trait src/port.rs:2 trait Port has one implementation"), "{port}");
+    let allowed = format!("{habits}\n[[rust_habits.allow]]\nrule = \"shared-mutability\"\npath = \"src/state.rs\"\nreason = \"fixture\"\n");
+    std::fs::write(rig.repo.join("structure.toml"), allowed).unwrap();
+    assert_eq!(context(&rig, "src/state.rs"), None);
+}

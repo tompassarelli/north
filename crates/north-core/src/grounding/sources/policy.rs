@@ -467,8 +467,8 @@ pub fn iter_docs() -> Vec<Doc> {
     let north_files = tracked(&north, ".");
     let south_files = tracked(&south, "agents");
     let corpora = vec![
-        (north.clone(), north_files.clone()),
-        (south.clone(), south_files.clone()),
+        (north, north_files),
+        (south, south_files),
     ];
     let code = corpora
         .iter()

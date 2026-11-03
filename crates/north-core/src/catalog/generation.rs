@@ -18,7 +18,7 @@ pub(super) fn publish(mut activation: Value) -> NorthResult<Value> {
     object_mut(&mut activation)?.remove("generationId");
     let generation_id = format!("sha256:{}", sha256(&serde_json::to_vec(&activation)?));
     object_mut(&mut activation)?
-        .insert("generationId".into(), Value::String(generation_id.clone()));
+        .insert("generationId".into(), Value::String(generation_id));
 
     publish_generation(&activation, &agents_root()?)?;
     publish_skill_links(&activation)?;

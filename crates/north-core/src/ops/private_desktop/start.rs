@@ -45,7 +45,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
         .mode(0o600)
         .open(run.join("lifecycle.lock"))?;
     flock(&lock, FlockOperation::LockExclusive)?;
-    let mut session = Session::new(run.clone(), archive.clone(), options.seconds);
+    let mut session = Session::new(run.clone(), archive, options.seconds);
     fs::write(run.join("lifecycle-owned"), b"")?;
     fs::write(
         run.join("launcher-pid"),

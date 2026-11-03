@@ -279,11 +279,11 @@ impl Policy {
         let here = (state.base.clone(), state.fuzzy);
         let mut stack = state.stack.clone();
         let target = if name == "popd" {
-            stack.pop().unwrap_or((state.base.clone(), true))
+            stack.pop().unwrap_or((state.base, true))
         } else if operands.is_empty() {
             (self.home.clone(), false)
         } else if operands[0] == "-" {
-            state.previous.clone().unwrap_or((state.base.clone(), true))
+            state.previous.clone().unwrap_or((state.base, true))
         } else {
             self.changed_dir(operands[0], &state.base, state.fuzzy)
         };

@@ -7,7 +7,7 @@ fn heavy_command_policy_routes_both_provider_payloads_only_when_active() {
     let scratch = tempfile::tempdir().unwrap();
     let activation = scratch.path().join("activation.json");
     let unit = json!({"id":"heavy-command-guard", "kind":"hook", "permission":"on", "active":true});
-    let valid = json!({"schema":"north.agent-activation/v1", "catalogDigest":format!("sha256:{}", "a".repeat(64)), "generationId":format!("sha256:{}", "b".repeat(64)), "units":[unit.clone()]});
+    let valid = json!({"schema":"north.agent-activation/v1", "catalogDigest":format!("sha256:{}", "a".repeat(64)), "generationId":format!("sha256:{}", "b".repeat(64)), "units":[unit]});
     let mut inactive = valid.clone();
     inactive["units"][0]["active"] = json!(false);
     let mut duplicate = valid.clone();

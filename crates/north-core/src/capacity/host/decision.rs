@@ -204,7 +204,7 @@ fn result(request: &Request, create: Option<&Create>, code: &str, observed: &Obs
         _ => "DEFER",
     };
     let declared = granted.declared.map(|declared| declared.json());
-    let scope = declared.clone().unwrap_or_else(|| granted.charged.json());
+    let scope = declared.unwrap_or_else(|| granted.charged.json());
     let signals = &context.signals;
     Obj::new()
         .put("decision", decision)

@@ -275,7 +275,7 @@ fn health_failing_units_share_one_rolling_issue_per_host_that_it_edits_and_close
     let body = tracker.created[0].1.clone();
     assert!(body.contains("`a.service`") && body.contains("`b.service`") && body.contains("\nNeeds: laptop\n"));
 
-    let mut tracker = recorder(Some(rolling_issue::Issue { number: 7, body: body.clone() }));
+    let mut tracker = recorder(Some(rolling_issue::Issue { number: 7, body }));
     units::reconcile(&mut tracker, "whiterabbit", &two).unwrap();
     assert!(tracker.created.is_empty() && tracker.edited.is_empty() && tracker.closed.is_empty(), "an unchanged set touches nothing");
 

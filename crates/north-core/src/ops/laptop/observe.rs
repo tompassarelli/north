@@ -106,7 +106,7 @@ impl Ctx {
             clear: None,
         };
         if !sample.gaming {
-            seen.clear = Some(previous.clear.clone().unwrap_or(now));
+            seen.clear = Some(previous.clear.unwrap_or(now));
         }
         let state = match self.load() {
             Some(state) => Some(self.react(state, &sample, &seen, at)?),

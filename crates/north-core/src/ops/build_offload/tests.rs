@@ -240,7 +240,7 @@ fn capacity_a_slots_first_offload_is_cold_and_the_next_on_the_same_slot_is_warm_
     let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
     let cost = |report: &[String]| ShipCost::read(|name| line(report, match name { "NORTH_OFFLOAD_SHIP_SECONDS" => "ship", "NORTH_OFFLOAD_SLOT_TARGET" => "target", _ => "slothead" }).first().map(|value| (*value).to_owned()), "gex45").unwrap();
     let cold = cost(&ran_remotely_with(&hosts, &lane, COST));
-    assert_eq!((cold.cache_state.as_str(), cold.slot_head.clone()), ("cold", None));
+    assert_eq!((cold.cache_state.as_str(), cold.slot_head), ("cold", None));
     write(&lane_dir.join("a.txt"), "next\n");
     git(&lane_dir, &["commit", "-q", "-am", "next"]);
     let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();

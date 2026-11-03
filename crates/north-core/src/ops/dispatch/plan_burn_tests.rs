@@ -28,7 +28,7 @@ fn a_launch_whose_eta_at_the_accounts_measured_burn_would_cross_its_five_hour_st
     let (account, burn) = placed(&[burning.clone(), steady.clone()], Some(1.0)).unwrap();
     assert_eq!(account, "claude:a", "b's 12 points over an hour pass its 10 left; a's 2 of 8 do not");
     assert_eq!(burn.unwrap(), "claude:a measured burn 2.0%/h over a 60 min ETA spends 2.0 of the 8 points left to its 5h stop");
-    assert_eq!(placed(&[burning.clone(), steady], Some(0.5)).unwrap().0, "claude:b", "half an hour at 12%/h spends 6 of b's 10, and b has the room that ranks higher");
+    assert_eq!(placed(&[burning, steady], Some(0.5)).unwrap().0, "claude:b", "half an hour at 12%/h spends 6 of b's 10, and b has the room that ranks higher");
 }
 
 #[test]

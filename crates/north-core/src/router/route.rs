@@ -117,7 +117,7 @@ impl Ctx {
         let name = account
             .map(str::to_owned)
             .or_else(|| self.route_account(p))
-            .unwrap_or_else(|| first.to_string());
+            .unwrap_or_else(|| (*first).clone());
         let acct = &self.accounts[&name];
         let m = self.metrics(acct);
         if m.used_pct.is_none() {

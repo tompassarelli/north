@@ -179,7 +179,7 @@ fn a_cell_whose_cost_per_closed_box_rose_over_a_quarter_files_one_issue_and_an_o
     assert!(first.lines.contains(&"rose sonnet tooling: $5.20 (n 3) the week before -> $10.40 (n 3) this week, +100%".to_owned()), "{:#?}", first.lines);
 
     let mut held = Issues { open: vec![title.clone()], ..Issues::default() };
-    let next = tick(&ledger(), &Prior { cells: first.cells.clone(), ..Prior::default() }, &[], &mut held, AT, false);
+    let next = tick(&ledger(), &Prior { cells: first.cells, ..Prior::default() }, &[], &mut held, AT, false);
     assert!(held.filed.is_empty(), "the open issue holds the cell");
     assert!(next.lines.contains(&format!("  held by an issue filed for it: {title}")), "{:#?}", next.lines);
 }
@@ -311,7 +311,7 @@ fn the_next_days_cost_per_closed_box_prints_beside_the_previous_days_and_a_rerun
     assert!(rerun.costs.is_empty(), "{:?}", rerun.costs);
     assert!(!rerun.lines.iter().any(|line| line.starts_with("cost per closed box ")), "a day is not compared with itself: {:#?}", rerun.lines);
 
-    let next = tick(&ledger(), &Prior { cells: first.cells.clone(), costs: earlier, ..Prior::default() }, &[], &mut Issues::default(), "2026-10-28T06:00:00Z", false);
+    let next = tick(&ledger(), &Prior { cells: first.cells, costs: earlier, ..Prior::default() }, &[], &mut Issues::default(), "2026-10-28T06:00:00Z", false);
     assert!(next.lines.contains(&"cost per closed box sonnet tooling: $10.40 (n 3) today, $10.40 (n 3) on 2026-10-27".to_owned()), "{:#?}", next.lines);
 }
 

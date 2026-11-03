@@ -104,7 +104,7 @@ pub fn status(root: &Path) -> Obj {
             .put("committedNativeCpus", num(accounting.committed_native_cpus))
             .put("holding", holding.iter().map(Obj::value).collect::<Vec<_>>())
             .put("queued", queued(&read_queue(root), super::priority::open(&active), &draining, now).iter().map(Obj::value).collect::<Vec<_>>())
-            .put("unleasedHeavy", accounting.unleased.clone())
+            .put("unleasedHeavy", accounting.unleased)
             .put("reclaimed", reclaimed)
     })
 }

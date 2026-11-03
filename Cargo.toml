@@ -24,6 +24,15 @@ tui-textarea-2 = { version = "0.13.2", default-features = false, features = ["cr
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
+[workspace.lints.clippy]
+redundant_clone = "warn"
+implicit_clone = "warn"
+unnecessary_to_owned = "warn"
+redundant_allocation = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+cloned_instead_of_copied = "warn"
+
 [package]
 name = "north"
 version = "0.1.0"

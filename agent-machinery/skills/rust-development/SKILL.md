@@ -9,11 +9,14 @@ written: 2026-10-15
 # Rust development
 
 1. Preserve repository edition, MSRV, features, targets, APIs, formats and unsafe policy within the requested scope, because consumers depend on them and a silent shift breaks builds downstream.
-2. Borrow temporary data and own retained data without compiler-silencing `clone`, `Arc` or `Mutex`, because those hide the ownership mistake and add cost or deadlock risk.
-3. Use `Option` for absence, `Result` for expected failure and panic for invariant failures, so callers can tell recoverable cases from bugs.
-4. Preserve error sources and document public error, panic and safety contracts, so callers can diagnose failures and uphold obligations the types cannot express.
-5. Respect `forbid(unsafe_code)` or isolate unsafe invariants with relevant supported Miri checks, because the compiler cannot verify them.
-6. Keep async work owned, bounded and cancellation-safe without blocking executors or holding locks across `.await`, because blocked executors stall every task and held locks deadlock.
+2. Borrow temporary data and own retained data without compiler-silencing `clone`, `Rc<RefCell>`, `RefCell` or `Arc<Mutex>`; pass `&mut` down, split borrows by field, index into a `Vec` or arena, or move ownership to the caller, because shared mutability hides the ownership mistake and adds cost, runtime panics or deadlock risk.
+3. Add a trait or generic parameter only for a second real implementation or a test seam in use, because a single-implementation abstraction costs every reader and compile time; split crates for parallel builds per [compile times](references/compile-times.md), not into chains.
+4. Use `Option` for absence, `Result` for expected failure and panic for invariant failures, so callers can tell recoverable cases from bugs.
+5. Preserve error sources and document public error, panic and safety contracts, so callers can diagnose failures and uphold obligations the types cannot express.
+6. Respect `forbid(unsafe_code)` or isolate unsafe invariants with relevant supported Miri checks, because the compiler cannot verify them.
+7. Keep async work owned, bounded and cancellation-safe without blocking executors or holding locks across `.await`, because blocked executors stall every task and held locks deadlock.
+
+Clippy's clone lints and the code-health Rust habit checks enforce rules 2 and 3 at edit time and landing; a justified exception is an `#[allow(clippy::x, reason = "...")]` or a `[[rust_habits.allow]]` entry in `structure.toml`.
 
 ## Data-oriented hot paths
 

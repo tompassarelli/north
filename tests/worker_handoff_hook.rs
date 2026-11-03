@@ -131,7 +131,7 @@ fn worker_handoff_records_async_worker_spawns() {
         let skipped = spawn_payload(response);
         assert_eq!(lab.run(skipped.to_string().as_bytes(), &active, &env("0")), None);
     }
-    let mut plain = spawn_payload(launched.clone());
+    let mut plain = spawn_payload(launched);
     plain["tool_input"]["subagent_type"] = json!("worker");
     assert_eq!(lab.run(plain.to_string().as_bytes(), &active, &env("0")), None);
     assert_eq!(serde_json::from_str::<Value>(&std::fs::read_to_string(&sink).unwrap()).unwrap()["tier"], "medium");

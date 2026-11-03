@@ -101,7 +101,7 @@ fn a_sleep_closes_only_an_open_laptop_and_waking_restores_it() {
     held(&observe(root, 17, json!({ "idle": false })), "draining", "active");
 
     laptop(root, 18, &["open"]);
-    held(&observe(root, 19, asleep.clone()), "unavailable", "sleep");
+    held(&observe(root, 19, asleep), "unavailable", "sleep");
     held(&laptop(root, 125, &["tick"]), "unavailable", "sleep");
     held(&laptop(root, 1445, &["tick"]), "unavailable", "sleep");
     held(&observe(root, 1446, json!({})), "available", "window");

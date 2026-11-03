@@ -112,7 +112,7 @@ fn cloud_turn_ends_on_a_result_or_an_end_turn_reply_and_not_between_tool_calls()
         &[assistant(json!("end_turn")), tool_result.clone()],
         None
     ));
-    assert!(!turn_ended(&[result.clone(), tool_result, system], None));
+    assert!(!turn_ended(&[result, tool_result, system], None));
     assert!(!turn_ended(&[assistant(Value::Null)], None));
     assert!(!turn_ended(&[], None));
 }

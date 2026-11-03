@@ -116,7 +116,7 @@ fn a_session_launched_from_a_claude_child_session_does_not_inherit_its_child_mar
     let launched = north_as(root, "here", &parent, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--system-prompt", &brief.display().to_string(), "start the box"]);
     let host = fs::read_to_string(root.join(".local/state/north/fleet/narrow/host.pid")).unwrap_or_default().trim().to_owned();
     let children = fs::read_to_string(format!("/proc/{host}/task/{host}/children")).unwrap_or_default();
-    let environs: Vec<(String, String)> = std::iter::once(host.clone())
+    let environs: Vec<(String, String)> = std::iter::once(host)
         .chain(children.split_whitespace().map(str::to_owned))
         .map(|pid| (pid.clone(), String::from_utf8_lossy(&fs::read(format!("/proc/{pid}/environ")).unwrap_or_default()).into_owned()))
         .collect();

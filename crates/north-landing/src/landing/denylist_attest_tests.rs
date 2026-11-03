@@ -164,7 +164,7 @@ fn denylist_attest_retries_a_failed_autoland_dispatch_once_without_posting_again
     forge.refuse_dispatch.set(true);
     assert_eq!(fixture.attest(&forge, "rules.toml", None), 2);
     assert_eq!(forge.posted.borrow().len(), 1);
-    forge.states = vec![(clean.sha.clone(), "denylist".into(), "success".into())];
+    forge.states = vec![(clean.sha, "denylist".into(), "success".into())];
     forge.refuse_dispatch.set(false);
     assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);
     assert_eq!(fixture.attest(&forge, "rules.toml", None), 0);

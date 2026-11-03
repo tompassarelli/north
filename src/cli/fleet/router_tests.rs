@@ -148,7 +148,7 @@ fn a_deepened_turn_is_tagged_with_its_session_prompt_sha() {
     });
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
-    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session.clone());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session);
     let prompt = crate::fleet::prompt::deepened("fix the parser");
     for frame in [
         json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": "u", "message": {"content": prompt}}),
@@ -201,7 +201,7 @@ fn a_child_delivers_each_finished_turn_in_order_while_its_parent_is_busy() {
     });
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
-    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session.clone());
+    let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session);
     let user = |turn: u8| json!({"type": "user", "isReplay": true, "session_id": "s", "uuid": format!("u{turn}"), "message": {"content": format!("run step {turn}")}});
     let said = |text: &str| json!({"type": "assistant", "session_id": "s", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": text}]}});
     let task = json!({"type": "system", "subtype": "task_started", "session_id": "s", "task_id": "t1"});

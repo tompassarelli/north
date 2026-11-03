@@ -248,7 +248,7 @@ fn feedback_pre_scores_only_shared_terms_of_the_same_source_and_stays_inside_the
     assert!((digest::pre_score("hn", "godot rendering news", &[noise("a", "godot rendering")]) + 0.25).abs() < 1e-9);
     assert!((digest::pre_score("hn", "godot news", &[noise("a", "godot rendering")]) + 0.125).abs() < 1e-9);
     assert_eq!(digest::pre_score("other", "godot rendering news", &[noise("a", "godot rendering")]), 0.0);
-    assert!((digest::pre_score("hn", "godot rendering", &[noise("a", "godot rendering"), more.clone()]) - -0.15).abs() < 1e-9);
+    assert!((digest::pre_score("hn", "godot rendering", &[noise("a", "godot rendering"), more]) - -0.15).abs() < 1e-9);
     assert!((digest::pre_score("hn", "godot rendering", &[noise("a", "godot rendering"), json!({"id": "a", "source": "hn", "title": "godot rendering", "feedback": "more"})]) - 0.1).abs() < 1e-9);
     let many: Vec<Value> = (0..5).map(|index| noise(&format!("n{index}"), "godot rendering")).collect();
     assert_eq!(digest::pre_score("hn", "godot rendering", &many), -0.75);

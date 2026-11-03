@@ -58,7 +58,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     let tiered = Overrides { tier: Some("the cause spans two engines".into()), ..given(None, Some("y")) };
     let note = admit(&local, &launch("b"), "", &tiered).unwrap().note;
     assert_eq!(note.as_deref(), Some("pin: y; tier: the cause spans two engines"));
-    assert_eq!(Overrides::default().recorded(note.as_deref()), tiered.clone(), "revive keeps the tier reason");
+    assert_eq!(Overrides::default().recorded(note.as_deref()), tiered, "revive keeps the tier reason");
 
     let mut remote = decision(Target::Account("claude:a".into()));
     remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()], saturation: None });
@@ -84,7 +84,7 @@ fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_
     let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: Some("far") };
     assert_eq!(admit(&remote, &launch("a"), "", &Overrides::default()).unwrap().note, None);
     let here = decision(Target::Account("claude:a".into()));
-    let mut roomier = here.clone();
+    let mut roomier = here;
     roomier.verdicts.push(verdict("claude:b", Some(90.0)));
     assert!(admit(&roomier, &launch("c"), "", &Overrides::default()).unwrap_err().to_string().contains("placement picks claude:a"));
     let mut cloud = decision(cloud("a", "here"));
@@ -167,7 +167,7 @@ fn an_account_that_is_out_refuses_even_a_pin_and_names_the_account_placement_pic
     assert!(refused.starts_with("claude:c unavailable: burning: 5h 86.0%/h"), "{refused}");
     assert!(refused.contains("placement picks claude:a (claude:a available") && refused.ends_with("launch with --account a"), "{refused}");
 
-    let mut week = placed.clone();
+    let mut week = placed;
     week.verdicts[1] = Verdict { line: "claude:c unavailable: exhausted: provider week 100%".into(), ..week.verdicts[1].clone() };
     let local = Overrides { local: Some("x".into()), pin: Some("y".into()), ..Overrides::default() };
     assert!(admit(&week, &launch, "", &local).unwrap_err().to_string().starts_with("claude:c unavailable: exhausted: provider week 100%; placement picks claude:a"));

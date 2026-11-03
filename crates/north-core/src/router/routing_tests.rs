@@ -431,6 +431,6 @@ fn a_codex_tier_admits_by_the_brief_category_and_explores_within_the_shape_it_ma
         let visual = item("bug-known-cause", facing.brief.clone().unwrap().replace("Surface: shell", "Surface: assets").replace("Verify: local-test", "Verify: visual"));
         assert!(under.explorable(&sol_high, &visual), "{category}");
     }
-    let lua = item("bug-known-cause", bug.brief.clone().unwrap().replace("shell", "lua"));
+    let lua = item("bug-known-cause", bug.brief.unwrap().replace("shell", "lua"));
     assert!(!under.explorable(&sol_medium, &lua));
 }

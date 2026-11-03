@@ -80,7 +80,7 @@ pub fn fixture() -> Fixture {
         (format!("{root}/proj/worktrees"), false),
         (format!("{root}/proj/pins"), false),
         (format!("{pin}/index.html"), true),
-        (sidecar.clone(), false),
+        (sidecar, false),
         (format!("{pin}/nested.pin"), true),
         (format!("{pin}/build/out.js"), true),
         (format!("{root}/runtime-data/state.json"), false),

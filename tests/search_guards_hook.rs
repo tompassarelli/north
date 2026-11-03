@@ -120,7 +120,7 @@ fn modern_search_rewrites_pattern_file_greps_and_keeps_every_other_tool_input_fi
         "provider_extra": {"preserve": [1, 2]},
     });
     let output = call(&setup, &tool_input);
-    let mut expected = tool_input.clone();
+    let mut expected = tool_input;
     expected["command"] = json!(command.replacen("grep -qFf", "rg -qF -f", 1));
     assert_eq!(output["permissionDecision"], "allow");
     assert_eq!(output["updatedInput"], expected);

@@ -420,7 +420,7 @@ pub fn search(
                 hay.contains(&if ulen(w) > 5 {
                     cut(w, ulen(w) - 2)
                 } else {
-                    w.to_string()
+                    (*w).clone()
                 })
             })
             .cloned()

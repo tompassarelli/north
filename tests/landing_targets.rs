@@ -97,7 +97,7 @@ fn any_other_cargo_target_is_ignored_with_a_warning_and_never_created() {
     let outside = scratch.path().join("outside");
     let checkout = scratch.path().join("lane");
     let home = fake_home(&checkout);
-    for chosen in [outside.clone(), checkout.join("custom"), home.join(".cache/cargo-target"), home.join(".cache/cargo-target/north")] {
+    for chosen in [outside, checkout.join("custom"), home.join(".cache/cargo-target"), home.join(".cache/cargo-target/north")] {
         let output = run(&depbox, &checkout, Some(&chosen), METADATA);
         assert_eq!(target(&output), checkout.join("target").display().to_string(), "{}", chosen.display());
         let stderr = String::from_utf8_lossy(&output.stderr);
