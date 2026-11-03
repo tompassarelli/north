@@ -395,3 +395,35 @@ Decisions that are Tom's (credentials, cost):
 | 7 | `Rebased-patch-id:` author-writable; context drift | Moot: the trailer gate was retired on 2026-11-04 (step 10) |
 | 8 | 40 jobs account-wide with no free-slot API; per-SHA main CI doubles load; Nexus 3 cores; public push before scan | D from own runs, B = 16 (L122-126); main CI keeps cancel, lander status plus 6-hourly run (L157-159, L205); p50 is a target priced from sources, B4 replaces it (L189-193); scan before any public push (L98-101) |
 | 9 | Waves 1-4 deliver nothing before Wave 5; weak oracle | Exact mode as delivered Wave 0 (L53-73); one standalone-value line per wave (L217, L255, L290, L321, L343); judge and telemetry inside today's safe-push (Wave 1, L253); B20 oracle with flake, same-file, stale-south and the 08cde981f base (L308) |
+
+## Wave 0 results
+
+### B5 Machine-bound tests under a clean HOME on Nexus (2026-11-04)
+
+Measured on Nexus (3 cores) at origin/main 489bc7cbd, cloned into a fresh `/tmp/b5-*` directory, each
+test run as `env -i HOME=$(mktemp -d) PATH=/run/current-system/sw/bin:/home/tom/.nix-profile/bin bash
+<test>`. Pass 2 added only `PATH=<dir with north>:...`, `NORTH_PACE_BIN` and `AGENT_CAPACITY_NORTH`
+pointing at Nexus's installed runtime (`~/.local/state/north/current/north`, built 2026-11-03, not
+489bc7cbd). Pass 3 also set `XDG_RUNTIME_DIR=/run/user/1000`. Four of the ten listed entries exist;
+the other six are B2's dead entries.
+
+| Test | Clean HOME | + north binary | + XDG_RUNTIME_DIR | Host state it reads | Fixture that makes it host-free |
+|---|---|---|---|---|---|
+| bin/threads.test.sh | 1 (25 of 27 fail) | 0 (27 of 27, 40 s) | 0 | `$repo/target/debug/north` (absent without a build); python3, sqlite3, jq; `~/.local/state/threads` and `~/.config/threads/ssh-config` under its scratch HOME with a fake ssh | None beyond a north build at the tested SHA (`NORTH_PACE_BIN`); already host-free otherwise, so it can move to Actions after `cargo build` |
+| harness/lib/routing.test.sh | 1 (`north` not on PATH) | 0 | 0 | `north pace` from PATH or `NORTH_PACE_BIN`; python3 | Same: a north build at the tested SHA through `NORTH_PACE_BIN` |
+| bin/run-bounded.test.sh | 1 (`systemctl --user`: no `XDG_RUNTIME_DIR`/`DBUS_SESSION_BUS_ADDRESS`) | 1 | 1 (capacity-wrapped case); 0 once `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus` is also set (all six cases) | Real user systemd manager and session bus (`agent-bounded.slice`, `systemd-run --user --scope`); `/run/user/1000/systemd` and `agent-capacity-v1/mode`; `$HOME/.local/state/north/current/north` via the capacity helper | Already HOME-free given the bus address and `AGENT_CAPACITY_NORTH`; host-free only inside a container or VM running `systemd --user` |
+| harness/skills/machine-capacity/scripts/machine-capacity.test.sh | 1 (helper spawns `$HOME/.local/state/north/current/north`: ENOENT) | 1 (`matchLevel` `family`, expected `family-repo`, first recorded case) | 1 (same) | `$HOME/.local/state/north/current/north` (or `AGENT_CAPACITY_NORTH`); real `systemctl --user` slices `agent-capacity-test$$`; `/sys/fs/cgroup` of those slices; a 24-core fixture (`AGENT_CAPACITY_CORES=24`); bun | Also exit 1 under Tom's real env on Nexus with the installed runtime, so the remaining failure is runtime skew (or a red at this SHA), not HOME; host-free needs a north build at the SHA plus a fake cgroup root (`AGENT_CAPACITY_CGROUP_ROOT`, already used by the recorded cases) in place of the real-slice cases |
+
+Reading: two of four (threads, routing) are host-free once the lander builds north at the tested SHA
+and passes it by env; they belong in the portable set. run-bounded and machine-capacity need a real
+user systemd manager and stay machine-bound on Nexus, run with the lander's own user bus.
+
+### B6 Ruleset bypass actors and north's deploy keys (2026-11-04)
+
+Already measured by B6: a user-owned repository's ruleset accepts an Integration (GitHub App) and the
+RepositoryRole admin as bypass actors; north had no rulesets (`gh api repos/tompassarelli/north/rulesets
+--jq length` returns 0); the north lander App (id 5603348, installation 178367738) holds
+`workflows: write`, so it can push `.github/workflows` changes under the ruleset.
+
+`gh api repos/tompassarelli/north/keys --jq '.[]|{title,read_only}'` returns nothing (raw response
+`[]`): north has no deploy keys, so no deploy key can write main around the ruleset.
