@@ -57,6 +57,7 @@ CREATE TABLE runs(
   cost_usd REAL,
   model TEXT,
   effort TEXT,
+  provider TEXT,
   fast INTEGER CHECK(fast IN (0, 1)),
   brief_text TEXT,
   brief_origin TEXT

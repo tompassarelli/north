@@ -116,3 +116,28 @@ fn a_subagent_transcript_yields_its_turns_tool_calls_and_active_and_wait_minutes
     assert_eq!(row["active_min"], 13.7);
     assert_eq!(row["wait_min"], 42.0);
 }
+
+fn lines(text: &str) -> Vec<Value> {
+    text.lines().map(|line| serde_json::from_str(line).unwrap()).collect()
+}
+
+#[test]
+fn a_subagent_with_an_agent_type_takes_its_model_from_the_transcript_and_its_effort_from_the_agent_definition() {
+    let prices = Prices::parse(CATALOG, DEFAULTS);
+    let usage = run_usage(&lines(include_str!("fixtures/identity_subagent.jsonl")), "claude-b", &prices);
+    assert_eq!((usage["provider"].as_str(), usage["model"].as_str()), (Some("claude"), Some("claude-sonnet-5-5")));
+    assert_eq!(usage["effort"], Value::Null);
+    assert_eq!(super::effort(None, Some(&json!({"agentType": "worker-sonnet"})), None, &usage), json!("high"));
+    assert_eq!(super::effort(None, Some(&json!({"agentType": "worker-xhigh"})), None, &usage), json!("xhigh"));
+    assert_eq!(super::effort(None, Some(&json!({"agentType": "worker", "effort": "low"})), None, &usage), json!("low"));
+}
+
+#[test]
+fn a_fleet_session_takes_the_requests_logged_effort_over_its_launch_effort_and_a_synthetic_message_keeps_the_real_model() {
+    let prices = Prices::parse(CATALOG, DEFAULTS);
+    let usage = run_usage(&lines(include_str!("fixtures/identity_fleet.jsonl")), "claude-a", &prices);
+    assert_eq!((usage["model"].as_str(), usage["effort"].as_str()), (Some("claude-opus-5-5"), Some("xhigh")));
+    assert_eq!(super::effort(None, None, Some("medium"), &usage), json!("xhigh"));
+    let unlogged = run_usage(&lines(include_str!("fixtures/identity_subagent.jsonl")), "claude-a", &prices);
+    assert_eq!(super::effort(None, None, Some("medium"), &unlogged), json!("medium"));
+}

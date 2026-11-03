@@ -199,6 +199,9 @@ pub(super) fn run_usage(records: &[Value], account: &str, prices: &Prices) -> Ma
     let mut positions: HashMap<String, usize> = HashMap::new();
     let mut unpriced = BTreeSet::new();
     for (index, record) in records.iter().enumerate() {
+        if let Some(asked) = record["params"]["output_config"]["effort"].as_str().filter(|asked| record["type"] == "api-request" && !asked.is_empty()) {
+            effort = json!(asked);
+        }
         let message = &record["message"];
         let usage = &message["usage"];
         if record["type"] != "assistant" || usage.is_null() {
@@ -229,10 +232,8 @@ pub(super) fn run_usage(records: &[Value], account: &str, prices: &Prices) -> Ma
             }
         }
     }
-    if effort.is_null() {
-        effort = prices.effort(model);
-    }
     let mut out = Map::new();
+    out.insert("provider".into(), json!("claude"));
     out.insert("account".into(), json!(account));
     out.insert("model".into(), json!(model));
     out.insert("effort".into(), effort);

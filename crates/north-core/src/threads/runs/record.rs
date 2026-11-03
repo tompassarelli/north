@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use super::brief::{CATEGORIES, Fields};
 use super::row::{Row, bind, python_repr, text, truthy, value};
 use crate::platform::pyjson::Value;
+use crate::platform::run_roles;
 use crate::threads::catalog::CATALOG;
 use crate::threads::verb::{Context, Failure, event_as};
 
@@ -47,6 +48,15 @@ impl Run {
         bind(Some(&self.id))
     }
 
+    /// The row's provider, else the one its native spawn hook names.
+    fn provider(&self) -> Result<Sql, Failure> {
+        let hooked = self.r.get("brief_origin").and_then(Value::as_str).and_then(|origin| origin.split('.').next()).filter(|provider| matches!(*provider, "claude" | "codex"));
+        match self.r.get("provider") {
+            Some(provider) => bind(Some(provider)),
+            None => Ok(text(hooked)),
+        }
+    }
+
     /// The brief's Item, else the first issue the row's commits and issue commands name (encrypted Codex briefs).
     fn item(&self) -> Option<String> {
         issue_ref(&self.either(self.f.item.as_deref(), "item")).or_else(|| self.landed_item()).or_else(|| self.r.get("refs").and_then(Value::as_array).and_then(|refs| refs.iter().find_map(issue_ref)))
@@ -70,6 +80,15 @@ impl Run {
     fn facets(&self) -> impl Iterator<Item = Sql> + '_ {
         self.f.facets.iter().map(|facet| text(facet.as_deref())).chain([text(self.f.lens.as_deref())])
     }
+}
+
+/// A finished worker's stored role: reviewer or judge by the rule that reads old rows, else worker.
+fn stored_role(r: &Row, f: &Fields, brief: &Value) -> String {
+    let raw = f.category.as_deref().map(str::to_owned).or_else(|| r.get("category").and_then(Value::as_str).map(str::to_lowercase));
+    let category = raw.as_deref().filter(|category| CATEGORIES.contains(category)).unwrap_or("unknown");
+    let text = r.get("brief_text").or(Some(brief)).and_then(Value::as_str).unwrap_or_default();
+    let minutes = r.get("actual_min").and_then(Value::as_f64).map_or(-1, |minutes| minutes as i64);
+    run_roles::ingest_role(category, text, r.get("outcome").and_then(Value::as_str).unwrap_or_default(), minutes).to_owned()
 }
 
 /// Canonical repo#N, or None when the value is not an issue ref.
@@ -131,8 +150,8 @@ impl Ingest<'_> {
             )?;
         }
         self.db.execute(
-            "UPDATE runs SET account=?, model=coalesce(?, model), effort=coalesce(?, effort), fast=? WHERE agent=?",
-            params![r.required("account")?, r.sql("model")?, r.sql("effort")?, r.fast()?, r.required("id")?],
+            "UPDATE runs SET account=?, model=coalesce(?, model), effort=coalesce(?, effort), fast=?, provider=coalesce(?, provider) WHERE agent=?",
+            params![r.required("account")?, r.sql("model")?, r.sql("effort")?, r.fast()?, r.sql("provider")?, r.required("id")?],
         )?;
         Ok(())
     }
@@ -174,6 +193,7 @@ impl Ingest<'_> {
                 }
             }
         }
+        let role = if role == "worker" && status == "finished" { stored_role(&r, &f, &brief) } else { role };
         Ok((Run { r, f, id, role, status, original }, recorded))
     }
 
@@ -186,8 +206,8 @@ impl Ingest<'_> {
     fn backfill(&mut self, run: &Run, prior: &Recorded) -> Result<(), Failure> {
         let (r, agent) = (&run.r, run.agent()?);
         self.db.execute(
-            "UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), tier=coalesce(?, tier), outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?",
-            params![r.sql("model")?, r.sql("effort")?, r.sql("tier")?, r.sql("outcome")?, agent],
+            "UPDATE runs SET model=coalesce(?, model), effort=coalesce(?, effort), provider=coalesce(?, provider), tier=coalesce(?, tier), outcome=CASE WHEN outcome='unclear' THEN coalesce(?, outcome) ELSE outcome END WHERE agent=?",
+            params![r.sql("model")?, r.sql("effort")?, run.provider()?, r.sql("tier")?, r.sql("outcome")?, agent],
         )?;
         if run.worker() && run.status == "finished" && matches!((&prior.ended, r.get("ended").and_then(Value::as_str)), (Sql::Text(recorded), Some(ended)) if ended > recorded.as_str()) {
             self.db.execute(
@@ -283,10 +303,10 @@ impl Ingest<'_> {
         let category = run.f.category.as_deref().unwrap_or("unknown");
         let f = &run.f.facets;
         self.db.execute(
-            "INSERT INTO runs(agent,item,follows,session,tier,category,started,ended,minutes,eta_min,outcome,spec,scope,surface,verify,staffed,role,model,effort,brief_text,brief_origin,brief_path,brief_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO runs(agent,item,follows,session,tier,category,started,ended,minutes,eta_min,outcome,spec,scope,surface,verify,staffed,role,model,effort,provider,brief_text,brief_origin,brief_path,brief_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![
                 run.agent()?, item, bind(Some(follows))?, r.sql("session")?, r.required("tier")?, category, r.sql("started")?, "", 0, r.sql("eta_min")?, "running", f[0], f[1], f[2], f[3],
-                r.sql("staffed")?, run.role, r.sql("model")?, r.sql("effort")?, r.required("brief_text")?, r.required("brief_origin")?, r.sql("brief_path")?, r.sql("brief_sha256")?,
+                r.sql("staffed")?, run.role, r.sql("model")?, r.sql("effort")?, run.provider()?, r.required("brief_text")?, r.required("brief_origin")?, r.sql("brief_path")?, r.sql("brief_sha256")?,
             ],
         )?;
         self.tally.added += 1;
@@ -308,7 +328,7 @@ impl Ingest<'_> {
         }
         self.db.execute(FINISHED, params_from_iter(finished_values(run, item, &follows, category)?))?;
         let r = &run.r;
-        self.db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=? WHERE agent=?", params![r.sql("account")?, r.sql("model")?, r.sql("effort")?, r.fast()?, r.sql("landed_sha")?, run.agent()?])?;
+        self.db.execute("UPDATE runs SET account=?, model=?, effort=?, fast=?, landed_sha=?, provider=? WHERE agent=?", params![r.sql("account")?, r.sql("model")?, r.sql("effort")?, r.fast()?, r.sql("landed_sha")?, run.provider()?, run.agent()?])?;
         self.db.execute(
             "UPDATE runs SET brief_text=?, brief_origin=?, brief_path=?, brief_sha256=? WHERE agent=?",
             params![r.sql("brief_text")?, r.sql("brief_origin")?, r.sql("brief_path")?, r.sql("brief_sha256")?, run.agent()?],

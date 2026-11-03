@@ -1,0 +1,4 @@
+{"type": "user", "timestamp": "2026-11-04T11:00:00.000Z", "sessionId": "s2", "message": {"role": "user", "content": "Item: north#255 identity"}}
+{"type": "api-request", "timestamp": "2026-11-04T11:00:01.000Z", "sessionId": "s2", "params": {"model": "claude-opus-5-5", "output_config": {"effort": "xhigh"}}}
+{"type": "assistant", "timestamp": "2026-11-04T11:00:20.000Z", "sessionId": "s2", "requestId": "req_1", "message": {"id": "m1", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "Done: recorded."}], "usage": {"input_tokens": 10, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 0, "output_tokens": 50}}}
+{"type": "assistant", "timestamp": "2026-11-04T11:00:30.000Z", "sessionId": "s2", "requestId": "req_2", "message": {"id": "m2", "model": "<synthetic>", "content": [{"type": "text", "text": "limit"}], "usage": {"input_tokens": 0, "output_tokens": 0}}}

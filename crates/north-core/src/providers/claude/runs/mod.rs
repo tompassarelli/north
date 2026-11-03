@@ -279,11 +279,11 @@ fn record(ledger: &Ledger, options: &Options, root: &Root, path: &Path) -> Optio
     let text = fs::read_to_string(path).ok()?;
     let lines: Vec<Value> = text.lines().filter_map(|line| serde_json::from_str(line).ok()).filter(Value::is_object).collect();
     let mut usage = telemetry::run_usage(&lines, &root.account, &ledger.prices);
-    if let Some(metadata) = &metadata {
-        usage.insert("effort".into(), effort(ledger.policy.as_ref(), metadata, &usage));
-    } else if let Some(effort) = session.and_then(|session| session.effort.as_ref()) {
-        usage.insert("effort".into(), json!(effort));
+    let mut effort = effort(ledger.policy.as_ref(), metadata.as_ref(), session.and_then(|session| session.effort.as_deref()), &usage);
+    if effort.is_null() {
+        effort = ledger.prices.effort(usage["model"].as_str());
     }
+    usage.insert("effort".into(), effort);
     let tier = if role == "worker" { worker_tier(ledger.policy.as_ref(), metadata.as_ref(), &usage)? } else { String::new() };
     let transcript = row::Transcript { lines: &lines, id: &id, role, tier: &tier, since: &options.since, backfill: options.recorded.contains(&id), now: ledger.now };
     let mut row = row::build(&transcript)?;
@@ -338,18 +338,41 @@ fn tiers(policy: Option<&DocumentMut>) -> impl Iterator<Item = &dyn toml_edit::T
         .flat_map(|table| table.iter().filter_map(|(_, tier)| tier.as_table_like()))
 }
 
-fn effort(policy: Option<&DocumentMut>, metadata: &Value, usage: &Map<String, Value>) -> Value {
+const AGENTS: [(&str, &str); 6] = [
+    ("planner", include_str!("../../../../../../harness/claude/agents/planner.md")),
+    ("worker", include_str!("../../../../../../harness/claude/agents/worker.md")),
+    ("worker-haiku", include_str!("../../../../../../harness/claude/agents/worker-haiku.md")),
+    ("worker-high", include_str!("../../../../../../harness/claude/agents/worker-high.md")),
+    ("worker-sonnet", include_str!("../../../../../../harness/claude/agents/worker-sonnet.md")),
+    ("worker-xhigh", include_str!("../../../../../../harness/claude/agents/worker-xhigh.md")),
+];
+
+fn definition_effort(agent: &str) -> Option<&'static str> {
+    let (_, text) = AGENTS.iter().find(|(name, _)| *name == agent)?;
+    let head = text.strip_prefix("---\n")?.split("\n---").next()?;
+    head.lines().find_map(|line| line.strip_prefix("effort:")).map(str::trim).filter(|effort| !effort.is_empty())
+}
+
+/// The effort a run actually ran at: the request's `output_config.effort` the transcript logged, else
+/// what launched it (a subagent's recorded effort, its agent definition's or its tier's; a fleet session's).
+fn effort(policy: Option<&DocumentMut>, metadata: Option<&Value>, session: Option<&str>, usage: &Map<String, Value>) -> Value {
+    let observed = Some(&usage["effort"]).filter(|effort| truthy(effort));
+    let Some(metadata) = metadata else { return observed.cloned().or_else(|| session.map(|effort| json!(effort))).unwrap_or(Value::Null) };
     if truthy(&metadata["effort"]) {
         return metadata["effort"].clone();
     }
-    let agent = metadata["agentType"].as_str();
-    let model = usage["model"].as_str();
-    for tier in tiers(policy) {
-        if tier.get("agent").and_then(Item::as_str) == agent && tier.get("model").and_then(Item::as_str) == model {
-            return tier.get("effort").and_then(|effort| effort.as_str()).map_or(Value::Null, Value::from);
-        }
+    if let Some(observed) = observed {
+        return observed.clone();
     }
-    usage["effort"].clone()
+    let agent = metadata["agentType"].as_str();
+    if let Some(defined) = agent.and_then(definition_effort) {
+        return json!(defined);
+    }
+    let model = usage["model"].as_str();
+    tiers(policy)
+        .find(|tier| tier.get("agent").and_then(Item::as_str) == agent && tier.get("model").and_then(Item::as_str) == model)
+        .and_then(|tier| tier.get("effort")?.as_str().map(Value::from))
+        .unwrap_or(Value::Null)
 }
 
 #[cfg(test)]

@@ -293,6 +293,29 @@ fn run_ids_settled_leaves_a_claude_run_without_active_minutes_for_the_ingest_to_
     assert_eq!(ledger.run_ids(true), ["claude-bare", "claude-measured", "codex-bare", "gemini-bare"]);
 }
 
+#[test]
+fn a_finished_worker_is_stored_as_reviewer_or_judge_by_the_read_rule_and_a_claude_run_missing_its_identity_is_not_settled() {
+    let ledger = ledger();
+    let done = |id: &str, minutes: u32, brief: &str, extra: Json| {
+        let mut row = json!({"id": id, "ended": "2026-10-20T00:00:00Z", "tier": "medium", "actual_min": minutes, "outcome": "done", "brief": brief, "account": "claude-b", "provider": "claude", "model": "claude-opus-5-5", "effort": "medium", "active_min": 3, "wait_min": 2});
+        row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        row
+    };
+    ledger.ingest(&[
+        done("reviewer", 9, "Item: north#1\nCategory: review", json!({})),
+        done("judge", 0, "Item: north#1", json!({})),
+        done("worker", 9, "Item: north#1\nCategory: tooling", json!({})),
+        done("bare", 9, "Item: north#2", json!({"model": null, "effort": null, "provider": null})),
+    ]);
+    assert_eq!(ledger.rows("SELECT agent, role, provider, model, effort FROM runs ORDER BY agent").len(), 4);
+    assert_eq!(ledger.row("SELECT group_concat(role || ':' || provider, ',') FROM (SELECT * FROM runs WHERE provider IS NOT NULL ORDER BY agent)"), "judge:claude,reviewer:claude,worker:claude");
+    assert_eq!(ledger.row("SELECT role FROM runs WHERE agent = 'bare'"), "worker");
+    assert_eq!(ledger.run_ids(true), ["judge", "reviewer", "worker"]);
+    ledger.ingest(&[done("bare", 9, "Item: north#2", json!({"backfill": true}))]);
+    assert_eq!(ledger.row("SELECT provider, model, effort FROM runs WHERE agent = 'bare'"), "claude|claude-opus-5-5|medium");
+    assert_eq!(ledger.run_ids(true), ["bare", "judge", "reviewer", "worker"]);
+}
+
 fn readout(provider: &str, account: &str, minute: u32, used: f64) -> Json {
     json!({"type": "usage", "ts": format!("2026-10-11T00:{minute:02}:00Z"), "provider": provider, "account": account, "kind": "window",
            "name": if provider == "codex" { "week" } else { "weekly_all" }, "used_pct": used, "resets_at": "2026-10-15T00:00:00Z"})

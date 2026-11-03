@@ -46,7 +46,10 @@ pub fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut d
 /// Claude worker rows recorded before activity columns existed keep a null active_min; leaving them out of --settled makes the ingest re-read their transcripts, and Codex and Gemini rows stay out of that re-read.
 const UNMEASURED_CLAUDE: &str = "NOT (active_min IS NULL AND coalesce(tier, '') NOT LIKE 'gpt-%' AND coalesce(tier, '') NOT LIKE 'gemini%' AND coalesce(tier, '') NOT LIKE 'codex%' AND coalesce(model, '') NOT LIKE 'gpt-%' AND coalesce(model, '') NOT LIKE 'gemini%')";
 
-/// Every recorded run's agent id; with --settled, only finished worker runs not still waiting to land and not a Claude run still missing its activity columns, and with --ended each id is followed by a tab and the time its run was recorded as ending.
+/// A Claude run recorded without its model, effort or provider is left out of --settled so the ingest re-reads its transcript; Codex and Gemini rows carry no such account.
+const UNIDENTIFIED_CLAUDE: &str = "(coalesce(account, '') NOT LIKE 'claude%' OR (model IS NOT NULL AND effort IS NOT NULL AND provider IS NOT NULL))";
+
+/// Every recorded run's agent id; with --settled, only finished worker, reviewer and judge runs not still waiting to land and not a Claude run still missing its activity columns or, for Claude runs, a model, effort or provider, and with --ended each id is followed by a tab and the time its run was recorded as ending.
 fn run_ids(argv: &[String], context: &Context) -> Outcome {
     let args = Args::parse(argv, &[], &["--settled", "--ended"])?;
     if !args.positional.is_empty() || (args.has("--ended") && !args.has("--settled")) {
@@ -55,7 +58,7 @@ fn run_ids(argv: &[String], context: &Context) -> Outcome {
     let db = open(context.database, false)?;
     let since = Timestamp::from_unix_seconds(context.now.unix_seconds() - LANDING_DAYS * 86400).iso();
     let settled = args.has("--settled");
-    let filter = if settled { format!(" WHERE role = \"worker\" AND outcome != \"running\" AND NOT (expects_landing = 1 AND landed_at IS NULL AND ended >= ?) AND {UNMEASURED_CLAUDE}") } else { String::new() };
+    let filter = if settled { format!(" WHERE role IN (\"worker\", \"reviewer\", \"judge\") AND outcome != \"running\" AND NOT (expects_landing = 1 AND landed_at IS NULL AND ended >= ?) AND {UNMEASURED_CLAUDE} AND {UNIDENTIFIED_CLAUDE}") } else { String::new() };
     let mut query = db.prepare(&format!("SELECT agent, ended FROM runs{filter} ORDER BY agent"))?;
     let agents = query.query_map(params_from_iter(settled.then_some(since)), |row| Ok((row.get::<_, Sql>(0)?, row.get::<_, Sql>(1)?)))?;
     let mut shown = String::new();

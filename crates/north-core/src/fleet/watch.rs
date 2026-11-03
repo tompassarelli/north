@@ -312,9 +312,7 @@ impl TurnWatch {
 
     fn record(&mut self, mut turn: Turn) {
         let session = find_session(&self.root, &self.host_dir, &turn.conversation);
-        if turn.model.is_none() {
-            turn.model = session.as_ref().and_then(|record| record.model.clone());
-        }
+        identify(&mut turn, session.as_ref());
         let run = RunRecord {
             session: session.as_ref().map_or_else(|| turn.conversation.clone(), |record| record.name.clone()),
             task_ref: session.as_ref().and_then(|record| record.task_ref.clone()),
@@ -446,6 +444,16 @@ fn fresh(runtime: &dyn Runtime, text: &str) -> Option<Vec<String>> {
     runtime.message(&Transcript::new(), &new_uuid().ok()?, text).ok()
 }
 
+/// A turn's model and effort as observed, else as its session was launched.
+fn identify(turn: &mut Turn, session: Option<&SessionRecord>) {
+    if turn.model.is_none() {
+        turn.model = session.and_then(|record| record.model.clone());
+    }
+    if turn.effort.is_none() {
+        turn.effort = session.and_then(|record| record.effort).map(|effort| effort.label().to_owned());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -527,6 +535,24 @@ mod tests {
         fn record_landing(&self, _task_ref: &str, _sha: &str, _landed_ms: u64, _wall_ms: Option<u64>, _review: Option<&str>) -> NorthResult<bool> {
             Ok(false)
         }
+    }
+
+    fn turn_of(model: Option<&str>, effort: Option<&str>) -> Turn {
+        Turn { conversation: "c".into(), model: model.map(str::to_owned), effort: effort.map(str::to_owned), prompt: None, started_ms: 0, ended_ms: 1, wall_ms: 1, turns: 1, tokens: Default::default(), exit: TurnExit::Completed }
+    }
+
+    #[test]
+    fn a_turn_without_an_observed_model_or_effort_takes_its_sessions_launch_identity() {
+        let record: SessionRecord = serde_json::from_value(serde_json::json!({"name": "w", "provider": "claude", "account": "a", "cwd": "/tmp", "model": "claude-opus-5-5", "effort": "medium", "created_ms": 1, "host_pid": null})).unwrap();
+        let mut bare = turn_of(None, None);
+        identify(&mut bare, Some(&record));
+        assert_eq!((bare.model.as_deref(), bare.effort.as_deref()), (Some("claude-opus-5-5"), Some("medium")));
+        let mut seen = turn_of(Some("claude-sonnet-5-5"), Some("high"));
+        identify(&mut seen, Some(&record));
+        assert_eq!((seen.model.as_deref(), seen.effort.as_deref()), (Some("claude-sonnet-5-5"), Some("high")));
+        let mut orphan = turn_of(None, None);
+        identify(&mut orphan, None);
+        assert_eq!((orphan.model, orphan.effort), (None, None));
     }
 
     fn tell(leases: Result<bool, &'static str>, courier: Arc<Told>) -> Tell {
