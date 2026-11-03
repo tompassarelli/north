@@ -8,6 +8,7 @@ use crate::router::pricing::PriceTable;
 use crate::platform::run_roles::worker_where;
 
 use super::boxes::{BoxRun, item_chains};
+use super::rework::{Rework, Sources};
 use super::{GROUPS, Run, cell_value, tier_key};
 
 /// A runs-table row with the columns the calibration core reads.
@@ -110,10 +111,16 @@ pub fn attempts(db: &Connection) -> rusqlite::Result<Attempts> {
     Ok(found)
 }
 
-/// The agents some later worker run follows, by its Follows line or by re-running the same item within a day.
+/// The agents some later worker run follows, by its Follows line or by re-running the same item within a day,
+/// and the agents whose landing was reworked on main.
 pub fn escalated(db: &Connection) -> rusqlite::Result<BTreeSet<String>> {
+    escalated_with(db, &Rework::read(db, &Sources::live())?)
+}
+
+pub fn escalated_with(db: &Connection, rework: &Rework) -> rusqlite::Result<BTreeSet<String>> {
     let mut followed: BTreeSet<String> = db.prepare(&format!("SELECT follows FROM runs WHERE {} AND follows IS NOT NULL", worker_where()))?.query_map([], |row| row.get(0))?.collect::<Result<_, _>>()?;
     followed.extend(attempts(db)?.reruns.into_keys());
+    followed.extend(rework.reworked().cloned());
     Ok(followed)
 }
 

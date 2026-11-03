@@ -10,6 +10,7 @@ mod mode;
 mod read;
 mod recommend;
 mod replay;
+pub mod rework;
 mod routing;
 mod summary;
 #[cfg(test)]

@@ -5,7 +5,8 @@ use std::io::Write;
 use rusqlite::{Connection, Row};
 
 use super::boxes::{BoxRun, box_groups, moment};
-use super::read::{attempts, escalated};
+use super::read::{attempts, escalated_with};
+use super::rework::{Rework, Sources};
 use crate::platform::run_roles::ROLE_SQL;
 use super::{GROUPS, Knobs, cell_value, median, tier_rank};
 use crate::threads::board::issues::Board;
@@ -348,7 +349,7 @@ fn group_keys(text: &str) -> Result<Vec<&str>, Failure> {
     Ok(keys.into_iter().filter(|key| key.to_lowercase() != "arm").collect())
 }
 
-fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escalated: &BTreeSet<String>, numbers: &BTreeMap<String, usize>) -> String {
+fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escalated: &BTreeSet<String>, numbers: &BTreeMap<String, usize>, rework: &Rework) -> String {
     let columns: Vec<usize> = keys.iter().filter_map(|key| GROUPS.iter().position(|group| group.eq_ignore_ascii_case(key))).collect();
     let mut groups: Vec<(Vec<String>, Vec<&Run>)> = Vec::new();
     for run in rows.iter().filter(|run| !splits.contains_key(run.agent.as_str())) {
@@ -364,7 +365,7 @@ fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escal
         let cells = left.len() - 2;
         left[..cells].cmp(&right[..cells]).then(tier_rank(&left[cells]).cmp(&tier_rank(&right[cells]))).then(left[cells + 1].cmp(&right[cells + 1]))
     });
-    let mut out = vec![[keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>(), strings(&["tier", "arm", "n", "attempts", "done", "success", "ok", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med", "over_2x_eta", "tokens_med", "no_landing", "usd_per_done"])].concat()];
+    let mut out = vec![[keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>(), strings(&["tier", "arm", "n", "attempts", "done", "success", "ok", "rework", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med", "over_2x_eta", "tokens_med", "no_landing", "usd_per_done"])].concat()];
     let knobs = Knobs::registry();
     for (key, runs) in groups {
         let n = runs.len();
@@ -385,6 +386,7 @@ fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escal
                     done.to_string(),
                     format!("{}%", done * 100 / n),
                     format!("{}%", ok * 100 / n),
+                    rework_cell(&runs, rework),
                     medians(runs.iter().filter_map(|run| run.eta_min)).filter(|eta| *eta != 0).map_or_else(|| "-".into(), |eta| eta.to_string()),
                     dash(medians(runs.iter().map(|run| run.minutes))),
                     spans(|run| run.staffed.as_deref(), |run| run.review_requested.as_deref()),
@@ -402,11 +404,21 @@ fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escal
     table(&out)
 }
 
+/// Reworked landings and their share of the cell's landings found on main, or - when none was found.
+fn rework_cell(runs: &[&Run], rework: &Rework) -> String {
+    let judged: Vec<bool> = runs.iter().filter_map(|run| rework.judged.get(&run.agent)).map(|judged| judged.cause.is_some()).collect();
+    if judged.is_empty() {
+        return "-".into();
+    }
+    let reworked = judged.iter().filter(|reworked| **reworked).count();
+    format!("{reworked} {}%", reworked * 100 / judged.len())
+}
+
 fn has_table(db: &Connection, name: &str) -> rusqlite::Result<bool> {
     db.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |_| Ok(())).map(|()| true).or_else(|error| if error == rusqlite::Error::QueryReturnedNoRows { Ok(false) } else { Err(error) })
 }
 
-fn summarise(args: &Args, context: &Context, err: &mut dyn Write) -> Result<String, Failure> {
+fn summarise(args: &Args, context: &Context, sources: &Sources, err: &mut dyn Write) -> Result<String, Failure> {
     let since = args.get("--since").unwrap_or("");
     let keys = group_keys(args.get("--group").unwrap_or("category"))?;
     let db = open(context.database, false)?;
@@ -416,11 +428,12 @@ fn summarise(args: &Args, context: &Context, err: &mut dyn Write) -> Result<Stri
         return Err(Failure::Refused(format!("no runs in {}", context.database.display())));
     }
     let knobs = Knobs::registry();
-    let escalated = escalated(&db)?;
+    let rework = Rework::read(&db, sources)?;
+    let escalated = escalated_with(&db, &rework)?;
     let numbers = attempts(&db)?.numbers;
     let rows: Vec<&Run> = all.iter().filter(|run| run.role == "worker" && !run.unjudged()).collect();
     let splits: BTreeMap<&str, &Run> = rows.iter().filter(|run| run.outcome == "split").map(|run| (run.agent.as_str(), *run)).collect();
-    let mut text = runs_table(&rows, &splits, &keys, &escalated, &numbers);
+    let mut text = runs_table(&rows, &splits, &keys, &escalated, &numbers, &rework);
     text += &format!("\n{}\n{}", context_summary(&all), delivery_summary(&knobs, &rows));
     if has_table(&db, "run_costs")? {
         let mut costs = db.prepare("SELECT account, SUM(cost_usd) FROM run_costs WHERE agent = ?1 AND ended >= ?2 GROUP BY account ORDER BY account")?;
@@ -457,6 +470,10 @@ fn summarise(args: &Args, context: &Context, err: &mut dyn Write) -> Result<Stri
 }
 
 pub(super) fn run(argv: &[String], context: &Context, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let result = Args::parse(argv, &["--since", "--group"], &[]).and_then(|args| summarise(&args, context, err));
+    run_with(argv, context, &Sources::live(), out, err)
+}
+
+pub(super) fn run_with(argv: &[String], context: &Context, sources: &Sources, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
+    let result = Args::parse(argv, &["--since", "--group"], &[]).and_then(|args| summarise(&args, context, sources, err));
     report("summary", result, out, err)
 }

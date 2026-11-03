@@ -34,7 +34,8 @@ an older file it settles the same rule live. The decision is `Evidence::settled`
 copy of it, not a second rule.
 
 Implemented: arm-stamped run counts (a box on a tier arm carries that one `Arm:` line, because the ledger records only the first), alternation, the cost per closed box decision and the Sonnet effort pin.
-Not yet implemented: the rework terms; routing currently decides on cost per closed box alone.
+Implemented 2026-11-04: the rework signal (`threads/calibration/rework.rs`). A landed run is reworked when, within 48 h of its `landed_sha` reaching main, a main commit reverts it (a `This reverts commit <sha>` body or a `Revert "<subject>"` subject), a later commit names its item or sha with fix intent (`Follows:`, `fixes`, `fix forward`) or has a subject starting `Fix` and touches at least half its files, or red-main-notify recorded it as a red issue's first failing commit. A reworked run is not kept, so it lowers `ok` and the success rate recommend uses, and `north health` fails when a repository's 7-day rework rate passes `rework_alarm_pct`. This is the quality watch the landing-gate retirement of 2026-11-04 relied on: a sustained alarm is the evidence for bringing a gate back.
+Not yet implemented: a rework term inside the cost per closed box decision; routing still decides on cost per closed box alone.
 
 Alternatives that lost:
 - Per-run done rate: counts a retried or reworked box as several chances and rewards cheap runs that need a follow-up.

@@ -458,3 +458,68 @@ fn reviewer_and_zero_minute_judge_runs_leave_the_worker_cells_in_every_reader() 
     assert_eq!(boxes, ["w1", "m1", "u1"]);
     assert_eq!(super::read::attempts(&db).unwrap().numbers.get("w1"), Some(&1));
 }
+
+fn git(checkout: &std::path::Path, at: i64, args: &[&str]) -> String {
+    let date = format!("@{at} +0000");
+    let output = std::process::Command::new("git").arg("-C").arg(checkout).args(args).env("GIT_AUTHOR_DATE", &date).env("GIT_COMMITTER_DATE", &date).env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@t").env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@t").output().unwrap();
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+fn land(checkout: &std::path::Path, at: i64, files: &[&str], message: &str) -> String {
+    for file in files {
+        let path = checkout.join(file);
+        let before = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(&path, format!("{before}{at}\n")).unwrap();
+    }
+    git(checkout, at, &["add", "-A"]);
+    git(checkout, at, &["commit", "-q", "-m", message]);
+    git(checkout, at, &["rev-parse", "HEAD"])
+}
+
+#[test]
+fn rework_marks_reverted_fixed_forward_and_culprit_landings_within_48_hours_and_the_summary_counts_them() {
+    use super::rework::{Cause, Rework, Sources};
+    let directory = tempfile::tempdir().unwrap();
+    let checkout = directory.path().join("code/proj/main");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let hour = 3600;
+    let t0 = Timestamp::parse("2026-10-20T00:00:00Z").unwrap().unix_seconds();
+    git(&checkout, t0, &["init", "-q", "-b", "main"]);
+    land(&checkout, t0, &["a.rs", "b.rs", "c.rs", "d.rs", "e.rs", "f.rs"], "Start");
+    let reverted = land(&checkout, t0 + hour, &["a.rs"], "Add one");
+    let fixed = land(&checkout, t0 + 2 * hour, &["b.rs", "c.rs"], "Add two");
+    let culprit = land(&checkout, t0 + 3 * hour, &["d.rs"], "Add three");
+    let late = land(&checkout, t0 + 4 * hour, &["e.rs"], "Add four (proj#9)");
+    let followed = land(&checkout, t0 + 5 * hour, &["f.rs"], "Add five (proj#5)");
+    let clean = land(&checkout, t0 + 6 * hour, &["c.rs"], "Add six");
+    land(&checkout, t0 + 7 * hour, &["a.rs"], &format!("Revert \"Add one\"\n\nThis reverts commit {reverted}."));
+    land(&checkout, t0 + 8 * hour, &["b.rs"], "Fix two's edge case");
+    land(&checkout, t0 + 9 * hour, &["f.rs"], "Finish five\n\nFollows: proj#5");
+    land(&checkout, t0 + 80 * hour, &["e.rs"], "Rework four, fixes proj#9");
+    git(&checkout, t0, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let culprits = directory.path().join("red-main");
+    std::fs::create_dir_all(&culprits).unwrap();
+    std::fs::write(culprits.join(format!("tompassarelli_proj-12-{culprit}")), "").unwrap();
+    let rows: Vec<String> = [("rw1", 1, &reverted), ("rw2", 2, &fixed), ("rw3", 3, &culprit), ("rw4", 9, &late), ("rw5", 5, &followed), ("rw6", 6, &clean)]
+        .iter()
+        .map(|(agent, number, sha)| format!("('{agent}','proj#{number}','high','bug-known-cause','2026-10-19T23:00:00Z','2026-10-20T10:00:00Z',60,30,'done',1,1,'worker','{sha}','exact','module','rust','local-test')"))
+        .collect();
+    let extra = format!("INSERT INTO runs(agent,item,tier,category,started,ended,minutes,eta_min,outcome,landed,expects_landing,role,landed_sha,spec,scope,surface,verify) VALUES {};", rows.join(","));
+    let database = fixture_ledger(directory.path(), &extra);
+    let sources = Sources { code_root: Some(directory.path().join("code")), culprits: Some(culprits) };
+    let rework = Rework::read(&Connection::open(&database).unwrap(), &sources).unwrap();
+    let causes: Vec<(&str, Option<Cause>)> = rework.judged.iter().map(|(agent, judged)| (agent.as_str(), judged.cause)).collect();
+    assert_eq!(causes, [("rw1", Some(Cause::Reverted)), ("rw2", Some(Cause::FixedForward)), ("rw3", Some(Cause::Culprit)), ("rw4", None), ("rw5", Some(Cause::FixedForward)), ("rw6", None)]);
+    assert_eq!(rework.rates(t0), BTreeMap::from([("proj".to_owned(), (4, 6))]));
+    let outside = crate::threads::fake::Recorded::default();
+    let context = crate::threads::verb::Context { database: &database, actor: "tester".into(), no_native: None, outside: &outside, now: Timestamp::parse("2026-10-25T00:00:00Z").unwrap(), replica: false };
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = super::summary::run_with(&["--since".into(), "2026-10-19".into()], &context, &sources, &mut out, &mut err);
+    assert_eq!((code, String::from_utf8(err).unwrap()), (0, String::new()));
+    let text = String::from_utf8(out).unwrap();
+    let header = text.lines().next().unwrap();
+    let row = text.lines().find(|line| line.starts_with("bug-known-cause")).unwrap();
+    let column = |name: &str| row[header.find(name).unwrap()..].split("  ").next().unwrap().trim().to_owned();
+    assert_eq!((column("n "), column("ok"), column("rework")), ("6".to_owned(), "33%".to_owned(), "4 66%".to_owned()));
+}

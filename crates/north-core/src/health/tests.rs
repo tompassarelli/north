@@ -395,3 +395,13 @@ fn health_loops_flags_written_but_unread_signal_files() {
     let missing_stamp = loops::unread_signals(LOOP_DOC, &|path| (path == "agents/fed.json").then_some(100 * day));
     assert_eq!(missing_stamp.stale.len(), 1);
 }
+
+#[test]
+fn health_rework_prints_each_repository_rate_and_fails_above_the_alarm() {
+    let rates = BTreeMap::from([("north".to_owned(), (1, 10)), ("wisp".to_owned(), (3, 10))]);
+    let (line, result) = rework::verdict(&rates, 20.0);
+    assert_eq!(line, "north 1/10 10%, wisp 3/10 30%");
+    assert_eq!(result.unwrap_err(), "7-day rework rate over 20%: wisp 30%");
+    assert!(rework::verdict(&rates, 30.0).1.is_ok());
+    assert_eq!(rework::verdict(&BTreeMap::new(), 20.0), ("no landings on main in 7 days".to_owned(), Ok(())));
+}

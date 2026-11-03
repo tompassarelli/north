@@ -906,3 +906,11 @@ source = "prior: two front-of-line leases leave a 20-thread host's queue moving 
 settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available to replay against priority uses in capacity.db; worker runs are the nearest existing count until priority waits are counted" }
 fallback = "none: the cap is always read"
 consumers = ["crates/north-core/src/capacity/host/priority.rs"]
+
+[rework_alarm_pct]
+value = 20
+unit = "percent of a repository's worker landings in the last 7 days reworked on main (reverted, fixed forward or a red-main culprit within 48 h) above which north health fails"
+source = "prior: one landing in five reworked is past the quality a retired landing gate was traded for (2026-11-04)"
+settles_when = { need = 100, count = "count_worker_runs", what = "judged first worker runs, so the per-repository weekly rework rate has a measured spread" }
+fallback = "with no landing found on main in 7 days the check passes"
+consumers = ["crates/north-core/src/threads/calibration/rework.rs"]

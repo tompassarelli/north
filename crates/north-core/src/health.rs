@@ -419,6 +419,9 @@ fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
         println!("health: loops: unverifiable (no reader stamp): {}", unverifiable.join(", "));
     }
     results.push(("ci".into(), ci(CiInput { runs })));
+    let (rates, verdict) = rework::live(&home.join(".local/state/threads/snapshot.db"), now);
+    println!("health: rework 7d: {rates}");
+    results.push(("rework".into(), verdict));
     let output = if land_due(now, &state) {
         Some(match std::env::var_os("XDG_RUNTIME_DIR") {
             Some(path) => landing_probe(&repo, &PathBuf::from(path)),
@@ -495,6 +498,7 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> ExitCode {
 mod issues;
 mod loops;
 mod main_red;
+mod rework;
 mod units;
 
 #[cfg(test)]
