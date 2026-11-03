@@ -143,14 +143,6 @@ impl Ctx {
                 .all(|w| w.headroom > self.knobs.fast_floor)
     }
 
-    pub fn cap_pct(&self, name: &str) -> &Value {
-        if self.overflow_money(name) {
-            &self.knobs.money_ceiling
-        } else {
-            &self.knobs.plan_stop
-        }
-    }
-
     pub fn money_refusal(&self, name: &str) -> Option<String> {
         let Some(acct) = self.accounts.get(name) else {
             return Some(format!(

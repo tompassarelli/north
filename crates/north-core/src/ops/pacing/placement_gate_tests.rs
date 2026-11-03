@@ -77,6 +77,20 @@ fn placement_ignores_the_pace_hold_and_refuses_only_the_five_hour_stop_burn_cap_
 }
 
 #[test]
+fn a_plan_only_account_at_week_97_with_five_workers_and_no_calibration_is_placed() {
+    let cfg = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
+    let mut c = control((30.0, 5.0, "2026-10-19T03:00:00Z"), (97.0, 1.0));
+    c["held"] = json!(true);
+    c["over"] = json!(true);
+    c["workers"] = json!(5);
+    c["allowed_workers"] = json!(0);
+    let quota = gate(&[("claude:b", c)]);
+    let decision = decide(WARCRAFT, &cfg, &quota, (false, "cloud credit: spent".to_owned()), &[], "here");
+    assert_eq!(target(&decision), "claude:b");
+    assert_eq!(decision.verdict("claude:b").unwrap().line, "claude:b available: 5h 30%, week 97% (3% headroom)");
+}
+
+#[test]
 fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_a_burn_above_the_cap() {
     let cfg = "[placement]\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let credit = || (true, "cloud credit: unread, expires in 19 days".to_owned());

@@ -8,11 +8,11 @@ consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [reservation_fallback_points]
 value = 1.0
-unit = "weekly usage percentage points per running or new worker when reservation calibration is unavailable"
-source = "prior: reserve one point per worker so unavailable calibration warns below the cap and holds near it"
+unit = "weekly usage percentage points one box dispatch plans on an account charges it before the next box is ranked"
+source = "prior: one point per box, so one dispatch tick spreads its launches across accounts"
 settles_when = { need = 20, count = "count_worker_runs", what = "ledger worker runs available for measured tier reservation means" }
-fallback = "the largest calibrated tier mean replaces this value whenever the ledger supplies one"
-consumers = ["harness/hooks/lib/spawn_capacity.py"]
+fallback = "every box charges one point"
+consumers = ["crates/north-core/src/ops/pacing/placement/room.rs"]
 
 [success_threshold]
 value = 80

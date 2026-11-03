@@ -1,5 +1,5 @@
 """The Python remainder of `agents usage`: the helpers other harness scripts import (account labels, record, publish, latest,
-reservation) and --reservation-json. Every other verb runs in Rust, in crates/north-core/src/usage."""
+reservation). Every other verb runs in Rust, in crates/north-core/src/usage."""
 
 import json
 import os
@@ -339,9 +339,6 @@ def cost_lines(now):
 
 
 def main(argv):
-    if "--reservation-json" in argv:
-        print(json.dumps(ledger_reservation(**json.load(sys.stdin), details=True)))
-        return 0
     try:
         db = open_readout_db()
     except sqlite3.DatabaseError as error:

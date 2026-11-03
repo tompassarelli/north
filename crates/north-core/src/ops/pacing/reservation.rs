@@ -4,69 +4,6 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use storage::{load, number, rows, save};
 
-fn fallback<'a>(table: &'a Value, account: &str, provider: &str) -> &'a Value {
-    if table[account].is_null() {
-        &table[provider]
-    } else {
-        &table[account]
-    }
-}
-
-fn cap_hold(
-    row: &Value,
-    control: &Control,
-    account: &str,
-    reservation: &[Value],
-) -> Result<Option<String>, String> {
-    let (Some(used), Some(cap)) = (row["used_pct"].as_f64(), row["cap_pct"].as_f64()) else {
-        return Ok(None);
-    };
-    let Some(workers) = control.workers else {
-        return Ok(Some(format!(
-            "Hold: {account} live worker attribution unavailable."
-        )));
-    };
-    let expected = reservation
-        .first()
-        .and_then(Value::as_f64)
-        .ok_or("expected reservation required")?;
-    let existing = reservation
-        .get(1)
-        .and_then(Value::as_f64)
-        .ok_or("existing reservation required")?;
-    let projected = used + expected + existing * workers as f64;
-    if used >= cap || projected - cap > 1e-9 {
-        return Ok(Some(format!(
-            "Hold: {account} projected account reservation exceeds cap {cap}%."
-        )));
-    }
-    Ok(None)
-}
-
-fn account_hold(
-    verdict: &Value,
-    provider: &str,
-    account: &str,
-    reservation: &[Value],
-    at: f64,
-) -> Result<Option<String>, String> {
-    let row = fallback(&verdict["accounts"], account, provider);
-    let raw = fallback(&verdict["controls"], account, provider);
-    let control: Control = serde_json::from_value(raw.clone()).unwrap_or_default();
-    if !admission::is_fresh(&control, at) {
-        return Ok(Some(format!(
-            "Hold: {account} pace controller reading is not fresh."
-        )));
-    }
-    if raw["held_reason"].as_str().is_some() || raw.get("held_reason").is_none() {
-        return Ok(Some(format!(
-            "Hold: {account} controller held: {}.",
-            raw["held_reason"].as_str().unwrap_or("stale")
-        )));
-    }
-    cap_hold(row, &control, account, reservation)
-}
-
 fn awaiting_live(entry: &Value, at: f64) -> bool {
     (0.0..crate::pace::limits::reservation_ttl_seconds()).contains(&(at - number(&entry["at"], at)))
         && entry["counted_live"] != true
@@ -189,10 +126,6 @@ pub(super) fn reserve(
     let mut gate = load(path);
     let state_path = directory.join("pace-control.json");
     let mut state = load(&state_path);
-    if let Some(reservation) = request["reservation"].as_array()
-        && let Some(hold) = account_hold(&gate[provider], provider, account, reservation, at)? {
-            return Ok(Some(hold));
-        }
     if let Some(grant) = grants::find(
         &state,
         account,

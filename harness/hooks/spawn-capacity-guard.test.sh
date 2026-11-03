@@ -8,8 +8,9 @@
 # for the priority headroom rule.
 # A fresh usage-gate.json refusal (firn#12 money gate) denies with its own text.
 # No pace hold: an account at or over its pace line with no target or drain grant
-# admits the spawn; only the money refusal and the reservation cap hold it, and a
-# signed-in Claude spawn reads its account label, the account it bills.
+# admits the spawn; only the money refusal and the out-rule (5h at 95%, 5h burn over
+# 50%/h, provider-exhausted week) hold it, and a signed-in Claude spawn reads its
+# account label, the account it bills.
 set -uo pipefail
 if [ "${1:-}" != --isolated ]; then
   # shellcheck source-path=SCRIPTDIR source=../lib/tree-north.sh
@@ -178,21 +179,6 @@ gate null '{"claude:a":"No: a new claude:a worker could spend money: test."}'
 dodeny "$(agent "$worker")" 'the refusal entry for the session account denies though the shared refusal is null'
 gate null
 
-export THREADS_DB="$SCRATCH/initial-reservation.db" AGENTS_OPERATOR_DIR="$SCRATCH"
-python3 - "$SCRATCH" "$HERE/../../bin/threads" <<'PYFIX'
-import sqlite3, subprocess, sys
-from pathlib import Path
-root = Path(sys.argv[1])
-subprocess.run([sys.argv[2], "record-priors", "fixture:1:1"], capture_output=True, check=True)
-db = sqlite3.connect(root / "initial-reservation.db")
-for tier in ("medium", "gpt-6.1-sol high"):
-    db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
-               (tier, tier, "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .001))
-db.commit()
-db.close()
-(root / "costs.toml").write_text(''.join('[[service]]\nid="' + name + '"\nkind="ai-plan"\nusd_per_week=100\n' for name in ("claude-a", "claude-b", "codex")))
-PYFIX
-
 # pace PACE_JSON: write a fresh claude verdict carrying routing's pace reading.
 pace() { printf '{"claude":{"epoch":%s,"stale_min":30,"refusal":null,"pace":%s}}\n' "$(date +%s)" "$1" >"$GATE"; }
 # said JSON: the deny reason, else the warning shown while the spawn proceeds.
@@ -279,153 +265,50 @@ assert any("makgora: pending 3, landed 1/h over 3h, push-to-land median 12m" in 
            and "widen the landing path first" in reason for reason in reasons)
 PY
 
-python3 - "$SCRATCH" "$HERE/../../bin/threads" <<'PY'
-import os, sqlite3, subprocess, sys, time
-from pathlib import Path
-root = Path(sys.argv[1])
-subprocess.run([sys.argv[2], "record-priors", "fixture:1:1"], env=dict(os.environ, THREADS_DB=str(root / "reservation.db")), capture_output=True, check=True)
-db = sqlite3.connect(root / "reservation.db")
-db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
-           ("priced", "medium", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .105))
-db.commit()
-db.close()
-(root / "costs.toml").write_text('[[service]]\nid="claude-a"\nkind="ai-plan"\nusd_per_week=100\n')
-for n in range(30):
-    path = root / f"home/.claude/projects/p/s/subagents/agent-reserved-{n}.jsonl"
-    path.touch()
-    os.utime(path, (time.time(), time.time()))
-PY
-CALL_ENV=("THREADS_DB=$SCRATCH/reservation.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
-reserved_worker='{"subagent_type":"worker","model":"opus","effort":"medium","prompt":"Item: firn#19"}'
-reserve_gate() {
-  python3 - "$GATE" "$1" <<'PY'
-import json, sys, time
-from pathlib import Path
-row = {"epoch": time.time(), "stale_min": 30, "refusal": None,
-       "pace": {"account": "claude:b", "state": "under pace", "used_pct": 40, "pace_pct": 99, "stale": None},
-       "accounts": {"claude:a": {"used_pct": float(sys.argv[2]), "cap_pct": 88}}}
-Path(sys.argv[1]).write_text(json.dumps({"claude": row}))
-PY
-}
+for n in 1 2 3; do touch "$SCRATCH/home/.claude/projects/p/s/subagents/agent-flight-$n.jsonl"; done
 status 2 5
 sed -i 's/^enforce_from = .*/enforce_from = { "claude:a" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
-cp "$SCRATCH/orchestration.toml" "$SCRATCH/orchestration.before-plan-stop.toml"
-sed -i '/^\[accounts.claude\]/a target_left = 0' "$SCRATCH/orchestration.toml"
+sed -i '/^\[accounts.claude\]/a target_left = 5' "$SCRATCH/orchestration.toml"
+RESET=$(( $(date +%s) + 3600 ))
 meter_gate() {
   AGENTS_ORCHESTRATION="$SCRATCH/orchestration.toml" XDG_STATE_HOME="$SCRATCH/home/.local/state" \
-    python3 - "$HERE/../lib" "$SCRATCH/reservation.db" "$1" "$2" <<'PYMETER'
-import sqlite3, sys
-from datetime import datetime, timedelta, timezone
+    python3 - "$HERE/../lib" "$SCRATCH/meter.db" "$RESET" "$@" <<'PYMETER'
+import json, os, sqlite3, subprocess, sys
+from datetime import datetime, timezone
 sys.path.insert(0, sys.argv[1])
 import usage
-import json, os, subprocess
 now = datetime.now(timezone.utc)
-rows = []
-for account, used in (("a", float(sys.argv[3])), ("b", 40)):
-    rows.append(dict(ts=now.isoformat(), provider="claude", account=account, kind="window", name="week",
-                     used_pct=used, window_min=10080, resets_at=(now + timedelta(hours=1)).isoformat(),
-                     source="sanitized Claude plan-stop spawn journey"))
-    for name in ("extra_usage", "spend"):
-        rows.append(dict(ts=now.isoformat(), provider="claude", account=account, kind="billing", name=name,
-                         amount=int(sys.argv[4]) if account == "a" and name == "extra_usage" else 0,
-                         source="sanitized Claude plan-stop spawn journey"))
+reset = datetime.fromtimestamp(int(sys.argv[3]), timezone.utc).isoformat()
+five, burn, week, extra = float(sys.argv[4]), float(sys.argv[5]), float(sys.argv[6]), int(sys.argv[7])
+rows = [dict(ts=now.isoformat(), provider="claude", account="a", kind="window", name=name, used_pct=used, window_min=minutes,
+             resets_at=reset, source="sanitized one out-rule spawn journey") for name, used, minutes in (("5h", five, 300), ("week", week, 10080))]
+rows += [dict(ts=now.isoformat(), provider="claude", account="a", kind="billing", name=name, amount=extra if name == "extra_usage" else 0,
+              source="sanitized one out-rule spawn journey") for name in ("extra_usage", "spend")]
 with sqlite3.connect(sys.argv[2]) as db:
     usage.record(db, rows)
     verdicts = usage.write_gate(db, ["claude"])
-    verdict = verdicts["claude"]
-    verdict["controls"] = {account: json.loads(subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace"], input=json.dumps(dict(op="advance", previous={}, windows=windows, workers=32, at=now.timestamp(), initial=64, margin=10, target=None)), capture_output=True, text=True, check=True).stdout)
-                           for account, windows in verdict["projections"].items()}
-    usage.gate_path().write_text(__import__("json").dumps(verdicts))
+verdict = verdicts["claude"]
+for windows in verdict["projections"].values():
+    for window in windows:
+        window["burn_pct_h"] = burn if window["window"] == "5h" else 0.0
+verdict["controls"] = {account: json.loads(subprocess.run([os.environ.get("NORTH_PACE_BIN", "north"), "pace"], input=json.dumps(dict(op="advance", previous={}, windows=windows, workers=5, at=now.timestamp(), initial=64, margin=10, target=None)), capture_output=True, text=True, check=True).stdout)
+                       for account, windows in verdict["projections"].items()}
+usage.gate_path().write_text(json.dumps(verdicts))
 PYMETER
 }
-meter_gate 91 0
-expect_said "$(agent "$reserved_worker")" 'allow|' 'Tom 2026-10-13 plan-only 91% admits with 32 in flight toward the 98% stop'
-meter_gate 94.535 0
-expect_said "$(agent "$reserved_worker")" 'allow|' 'plan-only measured reserve plus next exactly fits the 98% stop'
-meter_gate 94.536 0
-expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 94.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 98%.' \
-  'plan-only measured reserve plus next crossing 98% refuses'
-meter_gate 88.535 1
-expect_said "$(agent "$reserved_worker")" 'allow|' 'monetary overflow measured reserve plus next exactly fits the unchanged 92% ceiling'
-meter_gate 88.536 1
-expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a used 88.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 92%.' \
-  'monetary overflow measured reserve plus next crossing 92% refuses'
-mv "$SCRATCH/orchestration.before-plan-stop.toml" "$SCRATCH/orchestration.toml"
-reserve_gate 84.535
-expect_said "$(agent "$reserved_worker")" 'allow|' "account reserve: reading plus 32 in flight and next exactly fits"
-reserve_gate 84.536
-wanted="Hold: claude:a used 84.536% + reserve 3.36 points (32 in flight) + next 0.105 points > cap 88%."
-expect_said "$(agent "$reserved_worker")" "deny|$wanted" "account reserve: prospective spend plus existing work crosses cap"
-python3 - "$SCRATCH/reservation.db" <<'PY'
-import sqlite3, sys
-with sqlite3.connect(sys.argv[1]) as db:
-    db.execute("INSERT INTO runs(agent,tier,category,ended,minutes,outcome,role,cost_usd) VALUES (?,?,?,?,?,?,?,?)",
-               ("expensive", "high", "tooling", "2026-10-12T00:00:00Z", 1, "done", "worker", .2))
-PY
-reserve_gate 81.495
-expect_said "$(agent "$reserved_worker")" 'allow|' "account reserve: a cheaper prospective worker retains the higher measured in-flight reserve"
-reserve_gate 81.496
-wanted="Hold: claude:a used 81.496% + reserve 6.4 points (32 in flight) + next 0.105 points > cap 88%."
-expect_said "$(agent "$reserved_worker")" "deny|$wanted" "account reserve: existing expensive work cannot be priced as the cheaper next worker"
-reserve_gate 81.399
-expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: unsampled next tier uses largest calibrated mean below fallback boundary"
-reserve_gate 81.4
-expect_said "$(agent "${reserved_worker/medium/xhigh}")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: unsampled next tier refuses at calibrated fallback boundary"
-python3 - "$SCRATCH/reservation.db" <<'PYFIX'
-import sqlite3, sys
-with sqlite3.connect(sys.argv[1]) as db:
-    db.execute("DELETE FROM runs")
-PYFIX
-reserve_gate 87.999
-expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: unpriced calibration stops capped admission"
-CALL_ENV=("THREADS_DB=$SCRATCH/absent.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
-python3 - "$GATE" <<'PYGATE'
-import json, sys, time
-from pathlib import Path
-Path(sys.argv[1]).write_text(json.dumps({"codex": {"epoch": time.time(), "stale_min": 30, "refusal": None,
-    "accounts": {"codex": {"used_pct": 7, "cap_pct": 92}},
-    "pace": {"account": "codex", "state": "at or over pace", "used_pct": 7, "pace_pct": 2.56, "stale": None}}}))
-PYGATE
-sed -i 's/^enforce_from = .*/enforce_from = { "codex" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
-codex_unavailable='{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"model":"gpt-6.1-sol","reasoning_effort":"medium","message":"Item: firn#19"}}'
-unavailable_warning='warning only, nothing blocked: codex reservation unavailable: no ledger-measured points per run.'
-expect_said "${codex_unavailable/Item: firn#19/CASE=URGENT FACT=\\\"main red blocks every landing\\\" Item: firn#19}" "allow|$unavailable_warning" 'unavailable Codex 7% account cap 92% pace 2.56% URGENT admits' "$HERE/codex-behavior-guard.sh"
-expect_said "$codex_unavailable" "allow|$unavailable_warning" 'unavailable Codex above pace with no target or grant admits with only the reservation warning' "$HERE/codex-behavior-guard.sh"
-sed -i 's/^enforce_from = .*/enforce_from = { "claude:a" = "2000-01-01T00:00:00Z" }/' "$SCRATCH/orchestration.toml"
-reserve_gate 5
-expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: missing ledger far below cap warns"
-reserve_gate 54.999
-expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: default one point per running and new worker allows below boundary"
-reserve_gate 55
-expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: default reserve refuses at boundary"
-reserve_gate 87.999
-expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: no ledger-measured points per run.' "account reserve: missing ledger stops capped admission"
-mkdir -p "$SCRATCH/home/.config/threads"
-printf 'fixture-host\n' >"$SCRATCH/home/.config/threads/remote"
-cat >"$SCRATCH/bin/ssh" <<SH
-#!/usr/bin/env bash
-printf 'refresh\n' >>"$SCRATCH/ssh-calls"
-exit 1
-SH
-chmod +x "$SCRATCH/bin/ssh"
-export PATH="$SCRATCH/bin:$PATH"
-CALL_ENV=("THREADS_DB=$SCRATCH/home/.local/state/threads/snapshot.db" "AGENTS_OPERATOR_DIR=$SCRATCH" "CLAUDE_CONFIG_DIR=$SCRATCH/home")
-for present in missing stale; do
-  if [ "$present" = stale ]; then
-    mkdir -p "$SCRATCH/home/.local/state/threads"
-    cp "$SCRATCH/initial-reservation.db" "$SCRATCH/home/.local/state/threads/snapshot.db"
-    touch -d @0 "$SCRATCH/home/.local/state/threads/snapshot.db"
-  fi
-  : >"$SCRATCH/ssh-calls"; rm -f "$SCRATCH/home/.local/state/threads/snapshot.db.tried"
-  reserve_gate 5
-  expect_said "$(agent "$reserved_worker")" 'allow|warning only, nothing blocked: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "account reserve: $present snapshot far below cap warns"
-  reserve_gate 87.999
-  expect_said "$(agent "$reserved_worker")" 'deny|Hold: claude:a reservation unavailable: seven-day reservation unavailable: NorthThreads snapshot missing or stale.' "account reserve: $present snapshot stops capped admission"
-  [ "$(wc -l <"$SCRATCH/ssh-calls")" -eq 1 ] && check ok "account reserve: $present snapshot refresh attempted once" || check bad "account reserve: $present snapshot refresh attempted once" "$(cat "$SCRATCH/ssh-calls")"
-done
-gate null
-expect_said "$(agent "$reserved_worker")" 'allow|' 'uncapped admission retains its empty output with unavailable calibration'
-CALL_ENV=()
+reset_at="$(date -u -d "@$RESET" '+%-I:%M %p')"
+worker_brief='{"subagent_type":"worker","model":"opus","effort":"medium","prompt":"Item: firn#19"}'
+meter_gate 30 5 97 0
+expect_said "$(agent "$worker_brief")" 'allow|' 'a plan-only account at week 97% with 5 workers in flight and no ledger calibration is admitted'
+meter_gate 95 5 60 0
+expect_said "$(agent "$worker_brief")" "deny|Hold: claude:a exhausted: 5h 95% >= 95%; the 5h window resets at $reset_at." 'the 5h window at 95% holds and names its reset'
+meter_gate 30 50.5 60 0
+expect_said "$(agent "$worker_brief")" "deny|Hold: claude:a burning: 5h 50.5%/h > the 50%/h cap that keeps the window two hours; the 5h window resets at $reset_at." '5h burn over 50%/h holds and names its reset'
+meter_gate 30 5 100 0
+expect_said "$(agent "$worker_brief")" "deny|Hold: claude:a exhausted: provider week 100%; the week window resets at $reset_at." 'a provider-reported exhausted week holds and names its reset'
+meter_gate 30 5 93 1
+out="$(said "$(agent "$worker_brief")")"
+[[ "$out" == "deny|No: a new claude"*" worker could spend money: "*"(ceiling 92%) and extra_usage would bill money past it."* ]] && check ok 'an account whose overflow bills money past the money ceiling is denied by the usage-gate money refusal' || check bad 'an account whose overflow bills money past the money ceiling is denied by the usage-gate money refusal' "$out"
 gate null
 
 printf 'spawn-capacity-guard: %d passed, %d failed\n' "$pass" "$fail"

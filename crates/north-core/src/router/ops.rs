@@ -65,7 +65,7 @@ fn gate(ctx: &Ctx, p: &str) -> Value {
         .map(|n| {
             (
                 (*n).clone(),
-                json!({"used_pct": used(&ctx.accounts[n.as_str()]), "cap_pct": ctx.cap_pct(n)}),
+                json!({"used_pct": used(&ctx.accounts[n.as_str()])}),
             )
         })
         .collect();

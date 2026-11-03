@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use storage::{number, rows};
 use toml_edit::{DocumentMut, Item};
 
-mod candidates;
 pub mod gate;
 mod hosts;
 mod inputs;
@@ -14,7 +13,6 @@ mod repository;
 pub mod room;
 mod survey;
 mod tiers;
-use candidates::admit;
 use hosts::{credit, here_saturation, laptop, resident, saturation, signed_in};
 pub(super) use launch::{Probes, Routing, spawn};
 pub(super) use tiers::routing_defaults;
@@ -278,7 +276,6 @@ pub(super) fn operation(request: &Value) -> Result<Option<Value>, String> {
                 },
             )
         }
-        "admit" => admit(request, at)?,
         _ => return Ok(None),
     }))
 }

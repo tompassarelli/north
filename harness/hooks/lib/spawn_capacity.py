@@ -43,7 +43,6 @@ PRIORITY_HEADROOM = DEFAULTS["priority_headroom"]
 LANDING_PATH = re.compile(r"(?mi)^\W*Landing-path:\s*yes\b")
 CLOSING = re.compile(r"(?mi)^\W*Closing:\s*yes\b")
 LANDER = re.compile(r"(?i)\blander\b")
-NOT_BLOCKED = "warning only, nothing blocked: "
 URGENT = re.compile(r"(?m)^\W*CASE=URGENT\s+FACT=(?:[\"“”]([^\"“”]*)[\"“”]|['‘’]([^'‘’]*)['‘’])", re.IGNORECASE)
 
 
@@ -322,43 +321,6 @@ def confirm_spawn(event, *, launched=True):
     pace_call("confirm", directory=str(state / "agents"), session=event.get("session_id"), tool_use_id=event.get("tool_use_id"), launched=launched)
 
 
-def spawn_reservation(event, verdict, provider):
-    try:
-        north_lib()
-        import usage
-        account = billed_account(provider)
-        pace = (verdict.get("paces") or {}).get(account) or verdict.get("pace") or {}
-        label = str(account or pace.get("account") or provider).partition(":")[2]
-        data = event.get("tool_input") or {}
-        if isinstance(data, str):
-            data = json.loads(data)
-        if not isinstance(data, dict):
-            data = {}
-        measured = usage.ledger_reservation(provider, data.get("model"), data.get("reasoning_effort") or data.get("effort"),
-                                            label=label, details=True) or {}
-        expected, existing = measured.get("expected"), measured.get("existing")
-        in_flight = local_workers(provider)
-        if expected is None:
-            return None, in_flight, existing, "no ledger-measured points per run"
-        if in_flight and existing is None:
-            return expected, in_flight, None, "no ledger-measured points per in-flight run"
-        return expected, in_flight, existing if existing is not None else expected, None
-    except (ImportError, OSError, ValueError, RuntimeError, StopIteration) as error:
-        return None, 0, None, str(error).removeprefix("harness-tuner: cap reached: ")
-
-
-def account_reservation(event, verdict, provider, expected, in_flight, existing):
-    north_lib()
-    from usage import reservation_stop
-    name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
-    row = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
-    used, cap = number(row.get("used_pct")), number(row.get("cap_pct"))
-    if used is not None and cap is not None and used < cap and reservation_stop(used, cap, expected, in_flight, existing):
-        return (f"Hold: {name} used {used:g}% + reserve {existing * in_flight:g} points "
-                f"({in_flight} in flight) + next {expected:g} points > cap {cap:g}%.")
-    return None
-
-
 def flow_gate(event, texts):
     tool = str(event.get("tool_name") or "")
     tool_input = event.get("tool_input") or {}
@@ -445,41 +407,17 @@ def evaluate_spawn(event):
         if hold:
             log_denial(event, "projection", hold)
             return hold, None
-    def admitted(warning=None):
+    def admitted():
         if verdict.get("pace_control") or grant:
-            home = os.environ.get("SPAWN_CAPACITY_HOME")
-            state = Path(home) / ".local/state" if home else Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
             return pace_call("reserve", path=str(state / "agents/usage-gate.json"), provider=provider, account=name, session=session, task=task,
-                                        tool_use_id=event.get("tool_use_id")), warning
-        return None, warning
+                                        tool_use_id=event.get("tool_use_id")), None
+        return None, None
     if any(EXEMPT_MARKER in t for t in texts):
         return admitted()
     reason = capacity_refusal(event, texts)
     if reason:
         return reason, None
-    provider = "claude" if event.get("tool_name") == "Agent" else "codex"
-    expected, in_flight, existing, unavailable = spawn_reservation(event, verdict, provider)
-    unavailable_warning = None
-    if unavailable:
-        name = billed_account(provider) or str((verdict.get("pace") or {}).get("account") or provider)
-        account = (verdict.get("accounts") or {}).get(name) or (verdict.get("accounts") or {}).get(provider) or {}
-        used, cap = number(account.get("used_pct")), number(account.get("cap_pct"))
-        if cap is not None:
-            hold = f"Hold: {name} reservation unavailable: {unavailable}."
-            fallback = existing if existing is not None else DEFAULTS["reservation_fallback_points"]
-            in_flight = local_workers(provider)
-            if used is not None and cap is not None and used >= cap - fallback * (in_flight + 1):
-                log_denial(event, "account", hold)
-                return hold, None
-            unavailable_warning = NOT_BLOCKED + hold.removeprefix("Hold: ")
-            expected, existing = fallback, fallback
-        else:
-            expected, in_flight, existing = 0.0, 0, 0.0
-    hold = account_reservation(event, verdict, provider, expected, in_flight, existing)
-    if hold:
-        log_denial(event, "account", hold)
-        return hold, None
-    return admitted(unavailable_warning)
+    return admitted()
 
 
 def capacity_refusal(event, texts):

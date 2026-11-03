@@ -336,7 +336,7 @@ fn the_ctx_built_for_the_router_equals_plan_usage_live_ctx_on_a_recorded_ledger_
 fn arguments_only_the_python_verbs_serve_are_left_to_them() {
     let handled = |text: &str| Action::parse(&text.split_whitespace().map(str::to_owned).collect::<Vec<_>>()).is_some();
     assert!(handled("--refresh --local --json") && handled("--fast claude --cached --domain lead") && handled("--write-pace-gate --fast claude"));
-    assert!(!handled("--reservation-json") && !handled("--fast") && !handled("--gate claude"));
+    assert!(!handled("--fast") && !handled("--gate claude"));
 }
 
 #[test]

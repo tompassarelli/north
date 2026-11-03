@@ -259,7 +259,8 @@ fn a_held_week_admits_until_the_provider_exhausts_it() {
         assert_eq!(policy.refusal("claude:a", &control, at), None);
     }
     let control = step(&Control::default(), vec![week(100.0, None, 12.0, &resets, at)], Some(0), at);
-    assert_eq!(policy.refusal("claude:a", &control, at).as_deref(), Some("Hold: claude:a exhausted: provider week 100%."));
+    let reset = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at + 12.0 * 3600.0).local_twelve_hour();
+    assert_eq!(policy.refusal("claude:a", &control, at), Some(format!("Hold: claude:a exhausted: provider week 100%; the week window resets at {reset}.")));
 }
 
 #[test]
@@ -278,11 +279,12 @@ fn a_spawn_is_refused_only_at_the_five_hour_stop_or_over_the_burn_cap() {
         ..Control::default()
     };
     assert_eq!(policy.refusal("claude:b", &held(40.0, 30.0), at), None);
+    let reset = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at + 4.0 * 3600.0).local_twelve_hour();
     assert_eq!(
-        policy.refusal("claude:b", &held(20.0, 70.0), at).as_deref(),
-        Some("Hold: claude:b burning: 5h 70.0%/h > the 50%/h cap that keeps the window two hours.")
+        policy.refusal("claude:b", &held(20.0, 70.0), at),
+        Some(format!("Hold: claude:b burning: 5h 70.0%/h > the 50%/h cap that keeps the window two hours; the 5h window resets at {reset}."))
     );
-    assert_eq!(policy.refusal("claude:b", &held(96.0, 1.0), at).as_deref(), Some("Hold: claude:b exhausted: 5h 96% >= 95%."));
+    assert_eq!(policy.refusal("claude:b", &held(96.0, 1.0), at), Some(format!("Hold: claude:b exhausted: 5h 96% >= 95%; the 5h window resets at {reset}.")));
     let other = |name: &str, used: f64| Control {
         at: Some(at),
         windows: vec![window(json!({"window": name, "used_pct": used, "burn_pct_h": 80.0, "reset_h": 4.0, "age_s": 0, "as_of": stamp(at)}))],
@@ -290,7 +292,7 @@ fn a_spawn_is_refused_only_at_the_five_hour_stop_or_over_the_burn_cap() {
     };
     assert_eq!(policy.refusal("codex", &other("43200m", 99.0), at), None);
     assert_eq!(policy.refusal("codex", &other("lim:week", 96.0), at), None);
-    assert_eq!(policy.refusal("codex", &other("lim:week", 100.0), at).as_deref(), Some("Hold: codex exhausted: provider lim:week 100%."));
+    assert_eq!(policy.refusal("codex", &other("lim:week", 100.0), at), Some(format!("Hold: codex exhausted: provider lim:week 100%; the lim:week window resets at {reset}.")));
 }
 
 #[test]

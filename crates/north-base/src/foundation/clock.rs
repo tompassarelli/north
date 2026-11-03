@@ -104,6 +104,12 @@ impl Timestamp {
         format!("{:02}:{:02}", minutes.div_euclid(60).rem_euclid(24), minutes.rem_euclid(60))
     }
 
+    pub fn local_twelve_hour(self) -> String {
+        let minutes = (self.unix_seconds() + local_offset_seconds()).div_euclid(60);
+        let (hour, minute) = (minutes.div_euclid(60).rem_euclid(24), minutes.rem_euclid(60));
+        format!("{}:{minute:02} {}", (hour + 11) % 12 + 1, if hour < 12 { "AM" } else { "PM" })
+    }
+
     pub fn day_and_minute(self) -> String {
         let at = self.moment();
         format!("{:02} {} {:02}:{:02}Z", at.day(), MONTHS[usize::from(u8::from(at.month())) - 1], at.hour(), at.minute())

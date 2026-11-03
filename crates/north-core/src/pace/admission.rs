@@ -1,6 +1,7 @@
 use super::control::Control;
 use super::exhaustion;
-use super::window::MAX_AGE_SECONDS;
+use super::target::seconds;
+use super::window::{MAX_AGE_SECONDS, Window};
 
 const MIN_INTERVAL_SECONDS: f64 = 60.0;
 const SLOW_READ_SECONDS: f64 = 20.0;
@@ -30,9 +31,17 @@ pub fn refusal(account: &str, control: &Control, now: f64) -> Option<String> {
             return Some(format!("Hold: {account} {} usage is {age:.0}s old; needs <=120s after refresh.", w.window));
         }
     }
-    control
-        .windows
-        .iter()
-        .find_map(|w| exhaustion::refusal(&w.window, w.used_pct, w.burn_pct_h))
-        .map(|why| format!("Hold: {account} {why}."))
+    control.windows.iter().find_map(|w| {
+        let why = exhaustion::refusal(&w.window, w.used_pct, w.burn_pct_h)?;
+        Some(match resets(w, now) {
+            Some(at) => format!("Hold: {account} {why}; the {} window resets at {at}.", w.window),
+            None => format!("Hold: {account} {why}."),
+        })
+    })
+}
+
+/// When `window` resets, in local 12-hour time, from its reset stamp or its hours to reset.
+pub fn resets(window: &Window, now: f64) -> Option<String> {
+    let at = window.resets_at.as_deref().and_then(seconds).or_else(|| (window.reset_h > 0.0).then_some(now + window.reset_h * 3600.0))?;
+    Some(crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).local_twelve_hour())
 }
