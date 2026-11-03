@@ -26,10 +26,11 @@ pub(super) fn priors(db: &Connection, context: &Context) -> Result<Vec<String>, 
                 measured
             }
         };
-        lines.push(if n as i64 >= settles.need {
-            format!("SETTLED {} n={n}{}", entry.name, value.map(|value| format!(" value={}", general(value))).unwrap_or_default())
-        } else {
-            format!("WAIT {} n={n}/{}", entry.name, settles.need)
+        let shown = value.map(|value| format!(" value={}", general(value))).unwrap_or_default();
+        lines.push(match (n as i64 >= settles.need, &settles.measured) {
+            (false, _) => format!("WAIT {} n={n}/{}", entry.name, settles.need),
+            (true, Some(_)) => format!("SETTLED {} n={n}/{}{shown}", entry.name, settles.need),
+            (true, None) => format!("MEASURABLE-NOT-MEASURED {} n={n}/{}{shown}", entry.name, settles.need),
         });
     }
     Ok(lines)

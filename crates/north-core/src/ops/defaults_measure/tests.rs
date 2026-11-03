@@ -223,11 +223,33 @@ fn every_prior_reports_a_count_against_its_need() {
     assert_eq!(lines.len(), names.len());
     for (line, name) in lines.iter().zip(&names) {
         let words: Vec<&str> = line.split(' ').collect();
-        assert!(matches!(words[0], "SETTLED" | "WAIT"), "{line}");
+        assert!(matches!(words[0], "SETTLED" | "MEASURABLE-NOT-MEASURED" | "WAIT"), "{line}");
         assert_eq!(words[1], *name);
         assert!(words[2].strip_prefix("n=").is_some_and(|n| n.split('/').next().unwrap().parse::<usize>().is_ok()), "{line}");
     }
     assert!(lines.iter().any(|line| line.contains("n=120")), "count_worker_runs counts every judged first run: {lines:?}");
+}
+
+#[test]
+fn a_prior_settles_only_on_a_recorded_measurement_not_on_enough_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ledger.db");
+    fixture(&path);
+    let prior = |name: &str, need: i64, measured: &str| {
+        format!("[{name}]\nvalue = 1.0\nsource = \"prior: test\"\nsettles_when = {{ need = {need}, count = \"count_worker_runs\", what = \"runs\"{measured} }}\n")
+    };
+    let text = [
+        prior("unmeasured", 20, ""),
+        prior("measured", 20, ", measured = \"2026-11-04: sweep n=120 kept 1.0\""),
+        prior("blank", 20, ", measured = \" \""),
+        prior("thin", 500, ", measured = \"2026-11-04: sweep\""),
+    ]
+    .concat();
+    let lines = priors::priors(&training::open_read_only(&path).unwrap(), &context(Registry::parse(&text).unwrap(), "2026-10-05")).unwrap();
+    assert_eq!(
+        lines,
+        ["MEASURABLE-NOT-MEASURED unmeasured n=120/20", "SETTLED measured n=120/20", "MEASURABLE-NOT-MEASURED blank n=120/20", "WAIT thin n=120/500"]
+    );
 }
 
 #[test]

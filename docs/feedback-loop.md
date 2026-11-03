@@ -6,7 +6,10 @@ those signals: the learned routing backtest and the goal ETA replay. Reader cell
 operator directory in south, mc/ is `harness/skills/machine-capacity/scripts`.
 
 Every threshold and prior these loops apply lives in `harness/defaults.toml` with its value, source
-(measured, a dated Tom decision, a named standard, or a prior with a `settles_when` count the weekly `north defaults-measure --priors` check reads) and thin-data fallback; consumers read it
+(measured, a dated Tom decision, a named standard, or a prior with a `settles_when` count the weekly `north defaults-measure --priors` check reads) and thin-data fallback.
+`--priors` prints `WAIT` below the count's `need`, `MEASURABLE-NOT-MEASURED` once the rows are there but nobody has measured
+the value, and `SETTLED` only for a prior whose `settles_when.measured` records the dated sweep result that measured it;
+enough rows alone never settle a prior. Consumers read each default
 there and `harness/lib/defaults.test.py` fails on a hard-coded value or a blank source. The weekly review
 re-runs the measured sources with `north defaults-measure <copy of snapshot.db> <default>`, which
 sweeps one default over a grid by walk-forward replay and prints n and the score per value.

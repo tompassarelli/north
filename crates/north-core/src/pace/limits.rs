@@ -16,6 +16,15 @@ pub fn default(name: &str) -> f64 {
         .unwrap_or_else(|| panic!("harness/defaults.toml has no number for {name}"))
 }
 
+pub fn prior_measured(name: &str) -> bool {
+    DEFAULTS
+        .get(name)
+        .and_then(|entry| entry.get("settles_when"))
+        .and_then(|settles| settles.get("measured"))
+        .and_then(|measured| measured.as_str())
+        .is_some_and(|measured| !measured.trim().is_empty())
+}
+
 pub(super) fn plan_stop() -> f64 {
     default("plan_stop")
 }

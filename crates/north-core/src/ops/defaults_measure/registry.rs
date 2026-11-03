@@ -13,6 +13,7 @@ pub(super) struct Entry {
 pub(super) struct Settles {
     pub(super) count: String,
     pub(super) need: i64,
+    pub(super) measured: Option<String>,
 }
 
 pub(super) struct Registry(Vec<Entry>);
@@ -31,7 +32,11 @@ impl Registry {
                 value: item.get("value").map_or(Value::Null, scalar),
                 source: item.get("source").and_then(Item::as_str).unwrap_or_default().to_owned(),
                 settles: item.get("settles_when").and_then(|settles| {
-                    Some(Settles { count: settles.get("count")?.as_str()?.to_owned(), need: settles.get("need")?.as_integer()? })
+                    Some(Settles {
+                        count: settles.get("count")?.as_str()?.to_owned(),
+                        need: settles.get("need")?.as_integer()?,
+                        measured: settles.get("measured").and_then(Item::as_str).map(str::trim).filter(|measured| !measured.is_empty()).map(str::to_owned),
+                    })
                 }),
             })
             .collect();

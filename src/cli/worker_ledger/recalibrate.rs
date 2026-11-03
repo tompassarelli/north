@@ -77,7 +77,7 @@ fn prior_specs(printed: &str, needs: &[(String, i64)]) -> Vec<String> {
         let (Some(state), Some(name), Some(count)) = (words.next(), words.next(), words.next()) else { continue };
         let Some((_, need)) = needs.iter().find(|(known, _)| known == name) else { continue };
         let Some(count) = count.strip_prefix("n=") else { continue };
-        if !matches!(state, "SETTLED" | "WAIT") {
+        if !matches!(state, "SETTLED" | "MEASURABLE-NOT-MEASURED" | "WAIT") {
             continue;
         }
         let value = words.find_map(|word| word.strip_prefix("value=")).filter(|value| !value.is_empty());

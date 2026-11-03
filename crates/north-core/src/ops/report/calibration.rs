@@ -69,10 +69,21 @@ fn latest(rows: &[Row]) -> BTreeMap<&str, Vec<&Row>> {
 }
 
 fn prior_lines(batch: &[&Row], now: f64) -> Vec<String> {
-    let settled = |row: &Row| row.n.is_some_and(|n| row.value.is_some_and(|value| n as f64 >= value));
-    let count = batch.iter().filter(|row| settled(row)).count();
-    let mut lines = vec![format!("  prior {} ago: {count}/{} settled", age(now - stamp(&batch[0].at).unwrap_or(now)), batch.len())];
-    lines.extend(batch.iter().map(|row| format!("    {} {} n={}/{}", if settled(row) { "SETTLED" } else { "WAIT" }, row.cell, row.n.unwrap_or(0), crate::router::moment::python_g(row.value.unwrap_or(0.0)))));
+    let enough = |row: &Row| row.n.is_some_and(|n| row.value.is_some_and(|value| n as f64 >= value));
+    let state = |row: &Row| match (enough(row), crate::pace::limits::prior_measured(&row.cell)) {
+        (false, _) => "WAIT",
+        (true, true) => "SETTLED",
+        (true, false) => "MEASURABLE-NOT-MEASURED",
+    };
+    let count = |wanted: &str| batch.iter().filter(|row| state(row) == wanted).count();
+    let mut lines = vec![format!(
+        "  prior {} ago: {}/{} settled, {} measurable but not measured",
+        age(now - stamp(&batch[0].at).unwrap_or(now)),
+        count("SETTLED"),
+        batch.len(),
+        count("MEASURABLE-NOT-MEASURED")
+    )];
+    lines.extend(batch.iter().map(|row| format!("    {} {} n={}/{}", state(row), row.cell, row.n.unwrap_or(0), crate::router::moment::python_g(row.value.unwrap_or(0.0)))));
     lines
 }
 
