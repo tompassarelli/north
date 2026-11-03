@@ -412,6 +412,12 @@ fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
         .collect();
     let north_runs = runs.get("north").and_then(|text| text.clone().ok());
     results.push(("citations".into(), citation_check::verdict(&repo, defined)));
+    let loop_root = std::env::var_os("NORTH_HEALTH_REPO").map_or_else(|| repo.clone(), PathBuf::from);
+    let (loop_result, unverifiable) = loops::verdict(&loop_root, home.join(".local/state"));
+    results.push(("loops".into(), loop_result));
+    if !unverifiable.is_empty() {
+        println!("health: loops: unverifiable (no reader stamp): {}", unverifiable.join(", "));
+    }
     results.push(("ci".into(), ci(CiInput { runs })));
     let output = if land_due(now, &state) {
         Some(match std::env::var_os("XDG_RUNTIME_DIR") {
@@ -487,6 +493,7 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> ExitCode {
 }
 
 mod issues;
+mod loops;
 mod main_red;
 mod units;
 

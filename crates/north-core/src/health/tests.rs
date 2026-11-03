@@ -360,3 +360,38 @@ fn health_closes_the_main_red_issue_only_when_every_workflows_newest_run_is_gree
     assert!(settle(&run_list(&[("Cargo", "fix", "success")]), None).closed.is_empty());
     assert!(settle("[]", issue()).closed.is_empty());
 }
+
+const LOOP_DOC: &str = "# Feedback loop\n\n| signal | writer | reader on main | verdict | commit |\n|---|---|---|---|---|\n| a | w | src/live.rs pick_tier; src/live.rs:2 | read | |\n| b | w | src/live.rs:9 | read | |\n| c | w | src/gone.rs | read | |\n| d | w | src/live.rs missing_name | read | |\n| e | w | none | dropped | |\n\n## File signals\n\n| signal file | reader stamp |\n|---|---|\n| `agents/fed.json` | `north/fed-stamp` |\n| `agents/starved.json` | `north/starved-stamp` |\n| `agents/opaque.json` | unverifiable |\n";
+
+#[test]
+fn health_loops_flags_reader_cells_that_no_longer_resolve() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(dir.path().join("src/live.rs"), "fn pick_tier() {}\nlet x = 1;\n").unwrap();
+    let faults = loops::stale_readers(dir.path(), LOOP_DOC);
+    assert_eq!(
+        faults,
+        vec![
+            "b: src/live.rs:9 is past the end (2 lines)".to_owned(),
+            "c: src/gone.rs does not exist".to_owned(),
+            "d: missing_name is not in src/live.rs".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn health_loops_flags_written_but_unread_signal_files() {
+    let day = 24 * 60 * 60;
+    let times = BTreeMap::from([
+        ("agents/fed.json", 100 * day),
+        ("north/fed-stamp", 99 * day),
+        ("agents/starved.json", 100 * day),
+        ("north/starved-stamp", 92 * day),
+        ("agents/opaque.json", 100 * day),
+    ]);
+    let report = loops::unread_signals(LOOP_DOC, &|path| times.get(path).copied());
+    assert_eq!(report.stale, vec!["agents/starved.json: written 8 days after its reader's north/starved-stamp".to_owned()]);
+    assert_eq!(report.unverifiable, vec!["agents/opaque.json".to_owned()]);
+    let missing_stamp = loops::unread_signals(LOOP_DOC, &|path| (path == "agents/fed.json").then_some(100 * day));
+    assert_eq!(missing_stamp.stale.len(), 1);
+}
