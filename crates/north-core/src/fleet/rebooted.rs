@@ -8,7 +8,7 @@ use crate::foundation::clock::Timestamp;
 
 /// How a rebooted host's sessions are run again and told so.
 pub trait Resumer {
-    fn revive(&self, name: &str) -> NorthResult<()>;
+    fn revive(&self, name: &str) -> NorthResult<Revived>;
     fn send(&self, name: &str, text: &str) -> NorthResult<()>;
 }
 
@@ -18,10 +18,19 @@ pub fn message(host: &str, booted_ms: u64) -> String {
     format!("host {host} rebooted at {}; resume from your last checkpoint", at.iso_minute())
 }
 
+/// A revive that started the session, or one its account's spent window holds until it resets.
+#[derive(Debug, Eq, PartialEq)]
+pub enum Revived {
+    Started,
+    Waiting(String),
+}
+
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Resumed {
     pub resumed: Vec<String>,
     pub failed: Vec<(String, String)>,
+    /// Sessions whose account is out, which a later run revives once its window resets.
+    pub waiting: Vec<(String, String)>,
     /// Sessions the time budget left for the next run.
     pub deferred: Vec<String>,
 }
@@ -30,8 +39,9 @@ impl Resumed {
     pub fn lines(&self) -> Vec<String> {
         let resumed = self.resumed.iter().map(|name| format!("resumed {name}"));
         let failed = self.failed.iter().map(|(name, why)| format!("not resumed {name}: {why}"));
+        let waiting = self.waiting.iter().map(|(name, why)| format!("waiting {name}: {why}"));
         let deferred = self.deferred.iter().map(|name| format!("deferred {name} to the next run"));
-        resumed.chain(failed).chain(deferred).collect()
+        resumed.chain(failed).chain(waiting).chain(deferred).collect()
     }
 }
 
@@ -46,8 +56,13 @@ pub fn resume(resumer: &dyn Resumer, names: &[String], host: &str, booted_ms: u6
             outcome.deferred.push(name.clone());
             continue;
         }
-        match resumer.revive(name).and_then(|()| resumer.send(name, &text)) {
-            Ok(()) => outcome.resumed.push(name.clone()),
+        let revived = resumer.revive(name).and_then(|revived| match revived {
+            Revived::Started => resumer.send(name, &text).map(|()| Revived::Started),
+            waiting => Ok(waiting),
+        });
+        match revived {
+            Ok(Revived::Started) => outcome.resumed.push(name.clone()),
+            Ok(Revived::Waiting(why)) => outcome.waiting.push((name.clone(), why)),
             Err(error) => outcome.failed.push((name.clone(), error.user_message())),
         }
     }

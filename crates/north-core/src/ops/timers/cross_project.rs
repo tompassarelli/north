@@ -1,10 +1,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::{date, env_or, home, north_program, text};
+use crate::fleet::model::Account;
+use crate::fleet::runtimes::Runtimes;
 use crate::platform::{git, github, process};
+use crate::providers::claude::{self, fleet::Claude};
 
 const REPOS: [&str; 4] = ["smashcraft", "wisp", "north", "firn"];
 const CHECKOUTS: [&str; 4] = ["smashcraft", "wisp", "north", "nixos-config"];
@@ -130,11 +134,22 @@ fn claude_accounts() -> Vec<String> {
     }).collect()
 }
 
-fn claude_once(config_dir: Option<&Path>, input: &str) -> Reply {
-    let setting = config_dir.map(|dir| format!("CLAUDE_CONFIG_DIR={}", dir.display()));
-    let mut args: Vec<&str> = setting.iter().map(String::as_str).collect();
+/// The `env` words that start `claude` as the profile at `config_dir`: through its account's
+/// invocation when the roster lists one there, since a token-file account is not logged in otherwise.
+pub(super) fn account_words(config_dir: Option<&Path>, accounts: &[Account]) -> Vec<String> {
+    let fast = "CLAUDE_CODE_DISABLE_FAST_MODE=1".to_owned();
+    let Some(dir) = config_dir else { return vec![fast] };
+    let Some(account) = accounts.iter().find(|account| account.home == dir) else { return vec![format!("CLAUDE_CONFIG_DIR={}", dir.display()), fast] };
+    let invocation = claude::invocation(account);
+    let unset = invocation.env_remove.iter().flat_map(|name| ["-u".to_owned(), name.clone()]);
+    let set = invocation.env.iter().map(|(name, value)| format!("{name}={}", value.to_string_lossy()));
+    unset.chain(set).chain([fast]).chain(invocation.prefix).collect()
+}
+
+fn claude_once(words: &[String], input: &str) -> Reply {
+    let mut args: Vec<&str> = words.iter().map(String::as_str).collect();
     args.extend([
-        "CLAUDE_CODE_DISABLE_FAST_MODE=1", "claude", "-p", "--model", "claude-opus-5-5", "--effort", "medium", "--tools", "",
+        "claude", "-p", "--model", "claude-opus-5-5", "--effort", "medium", "--tools", "",
         "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence",
     ]);
     match process::run_with_input_within("env", &args, Some(input.as_bytes()), MODEL_LIMIT) {
@@ -147,7 +162,8 @@ fn scan(handoffs: &Path, report: &Path) -> Result<bool, String> {
     fs::create_dir_all(handoffs).map_err(|error| error.to_string())?;
     let input = format!("{PROMPT}\n\n{}\n", bundle());
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
-    let asked = ask(&profiles, &claude_accounts(), &mut |dir| claude_once(dir, &input), &mut |line| eprintln!("{line}"));
+    let accounts = crate::fleet::registry::roster(&Runtimes::new(vec![Arc::new(Claude)])).map(|roster| roster.accounts).unwrap_or_default();
+    let asked = ask(&profiles, &claude_accounts(), &mut |dir| claude_once(&account_words(dir, &accounts), &input), &mut |line| eprintln!("{line}"));
     let answer = match asked {
         Asked::Answer(answer) => answer,
         Asked::AtLimit => {

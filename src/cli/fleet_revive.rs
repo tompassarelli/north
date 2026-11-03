@@ -5,7 +5,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::registry::Fleet;
 
-use super::fleet_placement::{self, Launch, Overrides};
+use super::fleet_placement::{self, Launch, Overrides, Refusal};
 
 const USAGE: &str = "Usage: north fleet revive NAME [--system-prompt FILE] [--effort low|medium|high|xhigh|max] [--local REASON] [--pin REASON]";
 
@@ -29,6 +29,11 @@ pub(super) fn revive(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, 
 }
 
 pub(super) fn restart(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides) -> NorthResult<SessionRecord> {
+    Ok(restart_placed(fleet, name, system_prompt, effort, overrides)??)
+}
+
+/// Restart, keeping placement's refusal apart from the errors of the restart itself.
+pub(super) fn restart_placed(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>, effort: Option<Effort>, overrides: Overrides) -> NorthResult<Result<SessionRecord, Refusal>> {
     let record = fleet.session(name)?;
     if let (Some(machine), Some(_)) = (&record.machine, &overrides.local) {
         return Err(NorthError::Usage(format!("{name}'s conversation lives on {}, so it revives there; launch a new session to work here", machine.name)));
@@ -38,7 +43,10 @@ pub(super) fn restart(fleet: &Fleet, name: &str, system_prompt: Option<PathBuf>,
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
         let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
-        placement = fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster(), true)??.note;
+        placement = match fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster(), true)? {
+            Ok(placed) => placed.note,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
     }
-    fleet.revive_placed(name, system_prompt, placement, effort)
+    fleet.revive_placed(name, system_prompt, placement, effort).map(Ok)
 }

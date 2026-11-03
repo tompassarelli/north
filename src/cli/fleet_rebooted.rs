@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Delivery;
-use crate::fleet::rebooted::{Resumer, resume};
+use crate::fleet::rebooted::{Resumer, Revived, resume};
 use crate::fleet::registry::Fleet;
 use crate::platform::host;
 
-use super::fleet_placement::Overrides;
+use super::fleet_placement::{Overrides, Refusal};
 use super::fleet_revive;
 
 const USAGE: &str = "Usage: north fleet rebooted [--revive]";
@@ -40,12 +40,16 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
 struct Revival<'a>(&'a Fleet);
 
 impl Resumer for Revival<'_> {
-    fn revive(&self, name: &str) -> NorthResult<()> {
+    fn revive(&self, name: &str) -> NorthResult<Revived> {
         let mut overrides = Overrides::default();
         if self.0.session(name)?.machine.is_none() {
             overrides.local = Some(format!("north fleet rebooted revives {name} where its conversation lives"));
         }
-        fleet_revive::restart(self.0, name, None, None, overrides).map(drop)
+        match fleet_revive::restart_placed(self.0, name, None, None, overrides)? {
+            Ok(_) => Ok(Revived::Started),
+            Err(Refusal::Exhausted(why)) => Ok(Revived::Waiting(why)),
+            Err(refusal) => Err(refusal.into()),
+        }
     }
 
     fn send(&self, name: &str, text: &str) -> NorthResult<()> {

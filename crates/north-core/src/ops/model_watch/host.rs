@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::models::Source;
+use crate::fleet::runtime::Invocation;
 use crate::foundation::clock::Timestamp;
 
 pub(super) struct Finished {
@@ -20,8 +21,12 @@ pub(super) trait Host {
     fn account(&self) -> Option<String>;
 }
 
+/// The host model-watch runs on: `claude` starts through the chosen account's invocation, and
+/// `config_dir` is that account's profile unless it is the default one.
+#[derive(Default)]
 pub(super) struct Real {
     pub(super) config_dir: Option<PathBuf>,
+    pub(super) claude: Invocation,
 }
 
 const LIMIT: usize = 8_000_000;
@@ -60,8 +65,13 @@ impl Host for Real {
 
 impl Real {
     fn command_bytes(&self, program: &str, args: &[String], input: Option<&[u8]>, timeout: Duration, env: &[(&str, &str)]) -> Result<(i32, Vec<u8>), String> {
-        let mut command = Command::new(program);
-        command.args(args).envs(env.iter().copied()).envs(self.config_dir.iter().map(|dir| ("CLAUDE_CONFIG_DIR", dir))).stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::null());
+        let invocation = if program == "claude" { self.claude.clone() } else { Invocation::default() };
+        let mut argv = invocation.prefix.into_iter().chain([program.to_owned()]).chain(args.iter().cloned());
+        let mut command = Command::new(argv.next().unwrap_or_default());
+        invocation.env_remove.iter().for_each(|name| {
+            command.env_remove(name);
+        });
+        command.args(argv).envs(env.iter().copied()).envs(self.config_dir.iter().map(|dir| ("CLAUDE_CONFIG_DIR", dir))).envs(invocation.env).stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::null());
         let mut child = command.spawn().map_err(|_| "OSError".to_owned())?;
         let writer = child.stdin.take().zip(input.map(<[u8]>::to_vec)).map(|(mut stdin, bytes)| thread::spawn(move || {
             let _ = stdin.write_all(&bytes);
@@ -107,10 +117,6 @@ pub(super) fn shell_quote(text: &str) -> String {
     } else {
         format!("'{}'", text.replace('\'', "'\"'\"'"))
     }
-}
-
-pub(super) fn preferred_profile(accounts: &str, profiles: &Path) -> Option<PathBuf> {
-    accounts.lines().filter_map(|line| line.strip_prefix("claude\t")).map(|label| profiles.join(format!("claude-{}", label.trim()))).find(|dir| dir.is_dir())
 }
 
 fn claude_account(config_dir: Option<&Path>) -> Option<String> {

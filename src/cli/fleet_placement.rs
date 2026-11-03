@@ -74,17 +74,19 @@ pub(super) fn brief_text(system_prompt: Option<&Path>, prompt: &str) -> NorthRes
 }
 
 /// Why placement does not start a launch: a saturated host may take it once its admission queue,
-/// disk or load eases, while anything else needs a different launch.
+/// disk or load eases, an exhausted account once its window resets, while anything else needs a
+/// different launch.
 #[derive(Debug, PartialEq)]
 pub(super) enum Refusal {
     Saturated(String),
+    Exhausted(String),
     Final(String),
 }
 
 impl std::fmt::Display for Refusal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Saturated(why) | Self::Final(why) => formatter.write_str(why),
+            Self::Saturated(why) | Self::Exhausted(why) | Self::Final(why) => formatter.write_str(why),
         }
     }
 }
@@ -150,7 +152,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
         _ => None,
     };
     if let Some(out) = exhausted_refusal(decision, launch.account) {
-        return Err(Refusal::Final(out));
+        return Err(Refusal::Exhausted(out));
     }
     let saturated = decision.saturated.as_ref().filter(|_| machine.is_some()).map(|why| format!("{why}; launch it elsewhere, or keep it on that machine with --pin \"<reason>\", or here with --local \"<reason>\""));
     let hot = decision.here_saturated.as_ref().filter(|_| machine.is_none() && overrides.local.is_none()).map(|why| format!("{why}; launch from another host, or keep it here with --local \"<reason>\" or --pin \"<reason>\""));
