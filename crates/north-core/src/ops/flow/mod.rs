@@ -30,6 +30,8 @@ mod stall;
 mod stranded;
 mod throughput;
 #[cfg(test)]
+mod alerts_tests;
+#[cfg(test)]
 mod capacity_tests;
 #[cfg(test)]
 mod lanes_tests;

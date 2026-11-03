@@ -160,9 +160,9 @@ fn deliver_alerts(recorded: &Recorded) {
     stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 600.0).unwrap();
     assert_eq!(sends.borrow().len(), 2);
     stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 900.0).unwrap();
-    assert_eq!(sends.borrow().len(), 4);
+    assert_eq!(sends.borrow().len(), 2);
     stall_alert(&places, &host, std::slice::from_ref(&stalled), first + 1200.0).unwrap();
-    assert_eq!(sends.borrow().len(), 4);
+    assert_eq!(sends.borrow().len(), 2);
     assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send proxy ")));
     assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send makgora-parent ")));
     let initial = std::fs::read_to_string(&state_path).unwrap();
@@ -177,12 +177,12 @@ fn deliver_alerts(recorded: &Recorded) {
     assert_eq!(fault["stall"]["overdue_jobs"].as_array().unwrap().len(), 1);
     stall_alert(&places, &host, std::slice::from_ref(&fault), prolonged).unwrap();
     stall_alert(&places, &host, std::slice::from_ref(&fault), prolonged + 300.0).unwrap();
-    assert_eq!(sends.borrow().len(), 6);
+    assert_eq!(sends.borrow().len(), 4);
     let healthy = json!({"repo": "makgora", "main_sha": stalled["main_sha"], "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, &[], &Medians::new(), None))});
     stall_alert(&places, &host, std::slice::from_ref(&healthy), prolonged).unwrap();
     assert_eq!(std::fs::read_to_string(&state_path).unwrap().trim(), "{}");
     stall_alert(&places, &host, std::slice::from_ref(&stalled), prolonged + 300.0).unwrap();
-    assert_eq!(sends.borrow().len(), 8);
+    assert_eq!(sends.borrow().len(), 6);
 }
 
 fn events_first(recorded: &Recorded) -> f64 {

@@ -39,3 +39,8 @@ pub fn lines(row: &Value) -> Vec<String> {
         .map(|lane| format!("{} {} ({}, {:.0}m)", lane["session"].as_str().unwrap_or_default(), lane["lane"].as_str().unwrap_or_default(), lane["stop"].as_str().unwrap_or_default(), lane["minutes"].as_f64().unwrap_or(0.0)))
         .collect()
 }
+
+/// `session lane stop` for each lane the row lists, without the minutes that change every run.
+pub fn identities(row: &Value) -> Vec<String> {
+    row["stranded"].as_array().into_iter().flatten().map(|lane| ["session", "lane", "stop"].map(|field| lane[field].as_str().unwrap_or_default()).join(" ")).collect()
+}

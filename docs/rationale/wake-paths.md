@@ -85,7 +85,7 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
   a session with a detached run parks at 30 s with its pid wait registered.
 - [ ] Remove the 24-hour wait expiry message; the silence check reaches the parent first. Done when:
   `rg -n "never ended" crates/north-core/src/fleet/waits.rs` prints nothing and `cargo test -p north-core fleet::waits` passes.
-- [ ] Send each `north flow` stall, stranded or refused alert once per episode instead of every 15 minutes, and
+- [x] Send each `north flow` stall, stranded or refused alert once per episode instead of every 15 minutes, and
   update the workers skill line that promises the repeat. Done when: an alerts.rs test shows an unchanged stall
   across two runs 15 minutes apart sends one message, and a cleared then renewed stall sends a second.
 - [ ] Stop leads from waking on timers: the workers skill tells a lead to end its turn and wake on child reports,

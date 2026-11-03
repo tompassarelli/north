@@ -37,14 +37,19 @@ pub fn rows(tips: &BTreeMap<String, (f64, String)>, states: &BTreeMap<String, Va
     Value::Array(rows)
 }
 
+fn unattended<'a>(row: &'a Value, nodes: &'a [Node]) -> impl Iterator<Item = &'a Value> {
+    row["refused"].as_array().into_iter().flatten().filter(|lane| lane["session"].as_str().is_none_or(|session| !nodes.iter().any(|node| node.active && node.id == session)))
+}
+
+/// `branch reason url` for each such lane, without the minutes that change every run.
+pub fn identities(row: &Value, nodes: &[Node]) -> Vec<String> {
+    unattended(row, nodes).map(|lane| ["branch", "reason", "url"].map(|field| lane[field].as_str().unwrap_or_default()).join(" ")).collect()
+}
+
 /// `claude/land-x (pushed by s, rebasing onto main conflicts in a.rs, URL, 40m)` for each refused
 /// lane whose pusher is not a live Fleet session.
 pub fn lines(row: &Value, nodes: &[Node]) -> Vec<String> {
-    row["refused"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|lane| lane["session"].as_str().is_none_or(|session| !nodes.iter().any(|node| node.active && node.id == session)))
+    unattended(row, nodes)
         .map(|lane| {
             let pusher = lane["session"].as_str().map_or_else(|| "pushed outside safe-push".to_owned(), |session| format!("pushed by {session}"));
             let details = [lane["reason"].as_str().unwrap_or_default(), lane["url"].as_str().unwrap_or_default()].into_iter().filter(|text| !text.is_empty()).collect::<Vec<_>>().join(", ");

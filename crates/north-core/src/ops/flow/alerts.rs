@@ -1,17 +1,21 @@
-//! Telling the Fleet parent and the proxy of a stall, a broken guard or a saturated host, and again
-//! every fifteen minutes while it lasts.
-use std::collections::BTreeMap;
+//! Telling the Fleet parent and the proxy of a stall, a stranded or refused lane, a broken guard or a
+//! saturated host. A stall, stranded or refused alert goes out once per episode, keyed on its kind
+//! and the facts that make it actionable, and again only after a run stops seeing it; the others
+//! repeat every fifteen minutes while they last.
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::OpenOptions;
 use std::path::Path;
 
 use rustix::fs::{FlockOperation, flock};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use super::host::{Host, Places, valid_name, write_atomic};
 use super::stall::Verdict;
 
 const GUARDS: [&str; 4] = ["actions", "wisp", "reuse", "pins"];
+const EPISODES: [&str; 3] = ["notice", "stranded", "refused"];
 const REPEAT_SECONDS: f64 = 900.0;
 const TIMER_SLACK_SECONDS: f64 = 60.0;
 
@@ -61,12 +65,41 @@ impl Record {
     }
 }
 
-fn pending_actions(record: &Record, now: f64, repo: &str, parent: &str, key: &str, text: &str) -> Vec<Action> {
+fn candidates(repo: &str, parent: &str, key: &str, text: &str) -> Vec<Action> {
     [parent, "proxy"]
         .iter()
         .map(|node| Action { repo: repo.into(), key: key.replace("{node}", node), node: (*node).into(), channel: "fleet", text: text.into() })
-        .filter(|action| record.due(&action.key, now))
         .collect()
+}
+
+fn pending_actions(record: &Record, now: f64, repo: &str, parent: &str, key: &str, text: &str) -> Vec<Action> {
+    candidates(repo, parent, key, text).into_iter().filter(|action| record.due(&action.key, now)).collect()
+}
+
+fn digest(parts: &[String]) -> String {
+    let mut parts = parts.to_vec();
+    parts.sort_unstable();
+    let hash = Sha256::digest(parts.join("\n").as_bytes());
+    hash.iter().take(6).map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The alert's actions for the nodes that have not heard this episode; every key of the episode joins `seen`.
+fn episode_actions(record: &Record, seen: &mut BTreeSet<String>, repo: &str, parent: &str, kind: &str, identity: &[String], text: &str) -> Vec<Action> {
+    let all = candidates(repo, parent, &format!("{kind}:{}:fleet:{{node}}", digest(identity)), text);
+    seen.extend(all.iter().map(|action| action.key.clone()));
+    all.into_iter().filter(|action| !record.sent.contains_key(&action.key)).collect()
+}
+
+fn episode_key(key: &str) -> bool {
+    EPISODES.iter().any(|kind| key.strip_prefix(kind).is_some_and(|rest| rest.starts_with(':')))
+}
+
+fn stall_identity(verdict: &Verdict) -> Vec<String> {
+    let mut identity: Vec<String> = verdict.overdue_jobs.iter().map(|late| format!("job {} {} {}", late.job.workflow, late.job.run_id, late.job.name)).collect();
+    if verdict.reason.starts_with("oldest pending lane") {
+        identity.push("pending".into());
+    }
+    identity
 }
 
 pub fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[Node]) -> (State, Vec<Action>) {
@@ -88,6 +121,7 @@ pub fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[Node]) ->
         }
         let parent = parent_of(nodes, repo);
         let record = state.entry(repo.to_owned()).or_insert_with(|| Record { since: now, sent: BTreeMap::new() });
+        let mut seen = BTreeSet::new();
         for (kind, reason) in &guards {
             let what = if *kind == "pins" { "Broken pin" } else { "Underused capacity" };
             actions.extend(pending_actions(record, now, repo, &parent, &format!("guard:{kind}:fleet:{{node}}"), &format!("{what} in {repo}: {reason}")));
@@ -95,16 +129,17 @@ pub fn alert_plan(rows: &[Value], previous: &State, now: f64, nodes: &[Node]) ->
         if let Some(verdict) = stalled {
             let runner = verdict.runner.as_deref().map_or(String::new(), |runner| format!("; oldest landing job runner {runner}"));
             let text = format!("Landing stalled in {repo}: {}{runner}", verdict.reason);
-            actions.extend(pending_actions(record, now, repo, &parent, "notice:fleet:{node}", &text));
+            actions.extend(episode_actions(record, &mut seen, repo, &parent, "notice", &stall_identity(verdict), &text));
         }
         if !stranded.is_empty() {
             let text = format!("Lanes stranded in {repo}, unlanded with no live session: {}", stranded.join("; "));
-            actions.extend(pending_actions(record, now, repo, &parent, "stranded:fleet:{node}", &text));
+            actions.extend(episode_actions(record, &mut seen, repo, &parent, "stranded", &super::stranded::identities(row), &text));
         }
         if !refused.is_empty() {
             let text = format!("Land branches Autoland refused in {repo}, with no live session to fix them: {}", refused.join("; "));
-            actions.extend(pending_actions(record, now, repo, &parent, "refused:fleet:{node}", &text));
+            actions.extend(episode_actions(record, &mut seen, repo, &parent, "refused", &super::refused::identities(row, nodes), &text));
         }
+        record.sent.retain(|key, _| !episode_key(key) || seen.contains(key));
     }
     (state, actions)
 }
