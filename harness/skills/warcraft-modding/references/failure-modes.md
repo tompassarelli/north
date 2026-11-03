@@ -43,9 +43,12 @@ Symptom, cause, rule. Smashcraft, 6-7 Oct 2026.
   2026-11-03; smashcraft#1047): Warcraft's stock command, item, hero, minimap
   and system-button frames lie over the panel and take clicks even when not
   drawn; `BlzHideOriginFrames(true)` leaves them in place, and the headless
-  frame model holds only map-made frames, so it cannot see them. Hide and
-  disable each stock frame by name at startup (smashcraft:ts/src/host/loop/stockFrames.ts)
-  and click every panel button natively at several points across its width.
+  frame model holds only map-made frames, so it cannot see them. A native
+  bisect at 3:2 found `ConsoleUI` children 1, 5 and 7 (the command bar and two
+  sibling bars) as the frames that swallowed the clicks. Hide and disable each
+  stock frame by name at startup (smashcraft:ts/src/game/ui/stockClicks.ts and
+  stockFrames.ts) and click every panel button natively at several points
+  across its width.
   Never hide a stock frame as a group: `ConsoleUIBackdrop` is the parent of our
   full-window backdrops, the pause screen and the fighter markers, the game UI
   holds our panels, and the chat box and world view stop working when the stock
