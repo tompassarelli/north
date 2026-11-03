@@ -181,3 +181,5 @@ one 1-12 minute run that the worker landed itself under a lead watching the lane
 `Item:` chains (makgora, wisp and north issues with review, retries and lead landings), and the plan's 9-deep
 dependency path multiplies that per-box gap. A goal run that way is better estimated per run; the box duration fits
 goals whose boxes are tracked issues.
+
+Every mechanism that wakes an agent turn, its 7-day wake and no-op counts, and the cut to one event path and one silence check: [wake paths](rationale/wake-paths.md) (2026-11-04).
