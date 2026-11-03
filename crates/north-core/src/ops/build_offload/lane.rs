@@ -80,8 +80,9 @@ pub(super) fn gather(directory: &Path, home: &Path) -> Result<Gathered, String> 
     changed.extend(String::from_utf8_lossy(&committed).split('\0').filter(|name| !name.is_empty()).map(str::to_owned));
     let lane = top.file_name().map(|lane| lane.to_string_lossy().into_owned()).unwrap_or_default();
     let subdirectory = directory.strip_prefix(&top).map(|relative| relative.to_string_lossy().into_owned()).unwrap_or_default();
-    let projects = container.strip_prefix(home).ok().filter(|relative| !relative.as_os_str().is_empty()).map(|relative| format!("~/{}", relative.display()));
-    let paths = [top.to_string_lossy().into_owned(), container.to_string_lossy().into_owned()].into_iter().chain(projects).collect();
+    let checkouts = container.parent().unwrap_or(&container);
+    let projects = checkouts.strip_prefix(home).ok().filter(|relative| !relative.as_os_str().is_empty()).map(|relative| format!("~/{}/", relative.display()));
+    let paths = [top.to_string_lossy().into_owned(), format!("{}/", checkouts.display())].into_iter().chain(projects).collect();
     Ok(Gathered { lane: Lane { repo, paths, name: format!("{name}-{lane}"), head, bundle, patch, subdirectory }, changed })
 }
 
