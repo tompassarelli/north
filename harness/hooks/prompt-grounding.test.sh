@@ -23,7 +23,7 @@ printf '# Gauge brief\nThe river gauge feed is cached hourly.\n' >"$scratch/hand
 for i in $(seq 1 200); do
   printf '{"id":"L%s","at":"2026-10-15T06:00:00Z","kind":"decision","topic":"gauge","quote":"river gauge kayak decision number %s with padding text to fill the block","source":"tom convo:%s session:s","superseded_by":null}\n' "$i" "$i" "$i"
 done >"$scratch/ledger-big.jsonl"
-printf '{"id":"L1","at":"2026-10-15T06:00:00Z","kind":"decision","topic":"gauge","quote":"use the river gauge before any kayak trip","source":"tom convo:1 session:s","superseded_by":null}\n' >"$scratch/ledger.jsonl"
+printf '{"id":"L1","at":"2026-10-15T06:00:00Z","kind":"decision","topic":"gauge","quote":"plan every kayak paddle trip with the river gauge first","source":"tom convo:1 session:s","superseded_by":null}\n' >"$scratch/ledger.jsonl"
 long="$(printf 'river gauge kayak cache detail %.0s' $(seq 1 12))"
 for i in $(seq 1 60); do
   mkdir -p "$north/harness/skills/gauge-$i"
@@ -81,9 +81,9 @@ NORTH_GROUNDING_LEDGER="$scratch/ledger-big.jsonl" "$runner" grounding refresh -
 "$bun" -e 'const a = {}; for (let i = 0; i < 60; i++) a[`claude:${i}`] = { windows: [{ window: "5h", used_pct: i, resets_at: "2026-10-15T09:00:00Z", as_of: "2026-10-15T07:00:00Z" }, { window: "week", used_pct: i, resets_at: "2026-10-20T09:00:00Z", as_of: "2026-10-15T07:00:00Z" }], allowed_workers: 1 }; console.log(JSON.stringify({ accounts: a }))' >"$scratch/pace-big.json"
 out="$(hook "$(prompt 'river gauge kayak cache detail decision usage')" NORTH_GROUNDING_PACE="$scratch/pace-big.json")"
 size="$(printf '%s' "$out" | "$bun" -e 'const d = JSON.parse(await Bun.stdin.text()); console.log(d.hookSpecificOutput.additionalContext.length)')"
-[ "$size" -gt 0 ] && [ "$size" -le 6000 ] || fail "block size $size outside 1..6000"
-[ "$size" -gt 5000 ] || fail "cap test did not fill the block ($size chars)"
-echo "PASS block stays within the 6000-character cap with 120 matching docs, 200 decisions and 60 accounts ($size chars)"
+[ "$size" -gt 0 ] && [ "$size" -le 1500 ] || fail "block size $size outside 1..1500"
+[ "$size" -gt 1200 ] || fail "cap test did not fill the block ($size chars)"
+echo "PASS block stays within the 1500-character cap with 120 matching docs, 200 decisions and 60 accounts ($size chars)"
 
 out="$(PATH=/etc/codex/hooks/runtime "$runner" grounding --tier B --query "didn't we already build the zebra quokka harmonica thing")"
 case "$out" in *'searched '*" for '"*'zebra'*'this one?'*) ;; *) fail "tier B without hits lacks the ask format: $out" ;; esac
