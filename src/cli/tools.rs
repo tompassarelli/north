@@ -136,7 +136,7 @@ impl Tool {
             Self::CodeHealth => ExitCode::from(crate::code_health::run(arguments)),
             Self::SecretsProxyExec => super::in_runtime(async move { Ok(ExitCode::from(crate::platform::secrets_proxy::run(arguments).await)) }),
             Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
-            Self::Timer(timer) => ExitCode::from(timer.run(arguments)),
+            Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),
         }
     }
 }

@@ -1,7 +1,7 @@
 use super::costs::Cost;
 use super::dividends::{self, Reading};
 use super::{Ledger, Prior, Tick, Tracker, tick};
-use crate::ledger::pricing::PriceTable;
+use crate::router::pricing::PriceTable;
 use crate::ledger::{ClosedReport, SpendRun, summarize};
 use crate::ops::dispatch::{Evidence, Tier};
 use serde_json::{Value, json};

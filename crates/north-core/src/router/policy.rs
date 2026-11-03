@@ -3,6 +3,9 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use toml_edit::{DocumentMut, Item};
 
+/// Runs each arm needs in a category before dispatch routes it by the ledger's pick.
+pub const ARM_RUNS: usize = 15;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RouteValue {

@@ -138,7 +138,7 @@ fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, r
     }
     text += &format!("success threshold {}%  rule {}\n", knobs.success_threshold, pick.rule);
     if let Some((tier, stat)) = pick.tier.as_deref().and_then(|tier| pick.stats.iter().find(|(key, _)| key == tier)) {
-        text += &format!("success {tier} {:.0}% shrunk (n={}, {} ok, toward the category's pooled {:.0}% with a prior of {} runs)\n", stat.shrunk * 100.0, stat.n, stat.ok, pick.pooled * 100.0, crate::ops::dispatch::ARM_RUNS);
+        text += &format!("success {tier} {:.0}% shrunk (n={}, {} ok, toward the category's pooled {:.0}% with a prior of {} runs)\n", stat.shrunk * 100.0, stat.n, stat.ok, pick.pooled * 100.0, crate::router::policy::ARM_RUNS);
     } else if let Some(tier) = &pick.tier {
         text += &format!("success {tier} unmeasured in this cell (n=0)\n");
     }

@@ -86,7 +86,7 @@ impl Knobs {
             success_threshold: registry("success_threshold"),
             min_runs,
             incumbent_margin: registry("incumbent_margin") as i64,
-            usd_min: crate::ops::dispatch::ARM_RUNS,
+            usd_min: crate::router::policy::ARM_RUNS,
             eta_min_samples: registry("eta_min_samples") as usize,
             eta_coverage: registry("eta_coverage"),
             box_chain_gap_min: registry("box_chain_gap_min"),

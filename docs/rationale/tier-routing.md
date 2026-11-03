@@ -52,7 +52,7 @@ before the fix).
 ## Per-brief recommendations shrink success and price in API-equivalent dollars
 
 `north worker-ledger --recommend` (the per-cell pick dispatch reads its tier rates from) decides as follows:
-- Dollars are API-equivalent list-price dollars from `ledger/prices.json`, the definition the closed-box report, dispatch
+- Dollars are API-equivalent list-price dollars from `router/prices.json`, the definition the closed-box report, dispatch
   and tune use, not the allocated plan `cost_usd`. Haiku 5.5's $0.10/$0.50 per M tokens was checked against the cited
   pricing page on 2026-11-04; it holds for prompts up to 100k tokens, and longer prompts cost 5x.
 - Each tier's success is the Beta-binomial posterior mean with a prior worth 15 runs (`ARM_RUNS`) at the category's

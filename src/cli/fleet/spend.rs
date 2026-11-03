@@ -5,7 +5,7 @@ use crate::fleet::books::SessionSpend;
 use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::turns::Tokens;
-use crate::ledger::pricing::{PriceTable, TokenUse};
+use crate::router::pricing::{PriceTable, TokenUse};
 
 const USAGE: &str = "Usage: north fleet spend [NAME | --self] (--self and no NAME read the session name from $NORTH_FLEET_SESSION)";
 

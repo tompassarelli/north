@@ -11,7 +11,7 @@ use crate::platform::sqlite::{self, Access};
 use crate::platform::github;
 
 use super::closed::{ClosedReport, SpendRun, summarize};
-use super::pricing::PriceTable;
+use crate::router::pricing::PriceTable;
 
 const OWNER: &str = "tompassarelli";
 const ISSUE_LIMIT: &str = "1000";

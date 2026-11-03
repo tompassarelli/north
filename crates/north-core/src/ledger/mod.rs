@@ -15,7 +15,6 @@ pub mod closed;
 mod closed_source;
 mod gates;
 pub mod planner;
-pub mod pricing;
 mod report;
 mod verdict;
 

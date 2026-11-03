@@ -37,7 +37,7 @@ fn ledger() -> Ledger {
     let real = (6..=11).map(|n| run(&format!("north#{n}"), "opus-medium", "claude-opus-5-5", "feature", 1_000_000));
     let runs: Vec<SpendRun> = trivial.chain(real).collect();
     let closed: HashSet<String> = runs.iter().filter_map(|run| run.item.clone()).collect();
-    Ledger::new(Some(summarize(&runs, &closed, "2026-10-27T00:00:00Z", &crate::ledger::pricing::PriceTable::load().unwrap())), BTreeMap::new())
+    Ledger::new(Some(summarize(&runs, &closed, "2026-10-27T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap())), BTreeMap::new())
 }
 
 fn spend(budget: &str) -> f64 {

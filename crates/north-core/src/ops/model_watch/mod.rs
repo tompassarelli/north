@@ -14,15 +14,13 @@ mod xml;
 
 use std::env;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use serde_json::Value;
 
 use self::host::{Host, Real, expand_home};
 use crate::fleet::model::ProviderName;
-use crate::fleet::runtimes::Runtimes;
 use crate::ops::pacing::placement::gate;
-use crate::providers::claude::{self, fleet::Claude};
+use crate::ops::runtime_access::RuntimeAccess;
 
 const SOURCES: &str = include_str!("../../../../../harness/model-watch-sources.toml");
 const USAGE: &str = "usage: north model-watch [--interests PATH] [--feedback PATH] [--topic TOPIC] [--alerts-only] [--location PATH] [--sources PATH] [--timeout SECONDS] [--proposals DIR]
@@ -134,7 +132,7 @@ pub(super) fn load_sources(options: &Options) -> Result<Value, String> {
     Ok(toml_json(document.as_item()))
 }
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
     if arguments.first().map(String::as_str) == Some("news") {
         return news::run(&arguments[1..], &Real::default(), &state_db());
     }
@@ -145,19 +143,18 @@ pub fn run(arguments: &[String]) -> u8 {
             return 2;
         }
     };
-    execute(&roomiest_claude(), &options)
+    execute(&roomiest_claude(access), &options)
 }
 
 /// The ranking runs as the Claude account here that the placement gate rates with the most headroom,
 /// so an exhausted week on the first listed account does not fail it.
-fn roomiest_claude() -> Real {
+fn roomiest_claude(access: &RuntimeAccess) -> Real {
     if let Some(dir) = present("CLAUDE_CONFIG_DIR") {
         return Real { config_dir: Some(dir.into()), ..Real::default() };
     }
-    let runtimes = Runtimes::new(vec![Arc::new(Claude)]);
-    let Ok(roster) = crate::fleet::registry::roster(&runtimes) else { return Real::default() };
+    let Ok(roster) = crate::fleet::registry::roster(&access.runtimes) else { return Real::default() };
     let account = gate::roomiest_here(&gate::live_gate(), &roster).and_then(|label| roster.account(&ProviderName::new("claude"), &label).ok());
-    let claude = account.as_ref().map(claude::invocation).unwrap_or_default();
+    let claude = account.as_ref().map(access.invocation).unwrap_or_default();
     let config_dir = claude.env.iter().find(|(name, _)| name == "CLAUDE_CONFIG_DIR").map(|(_, dir)| PathBuf::from(dir));
     Real { config_dir, claude }
 }

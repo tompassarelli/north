@@ -1,7 +1,8 @@
 use super::plan::Cloud;
 use super::record::Record;
 use super::tests::{issue, survey};
-use super::tier::{ARM_RUNS, Evidence, History, Tier};
+use crate::router::policy::ARM_RUNS;
+use super::tier::{Evidence, History, Tier};
 use crate::ledger::closed::{ArmBox, Cell, ClosedReport};
 use super::{alert, decide, effects, slots};
 use std::collections::BTreeMap;

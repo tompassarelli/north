@@ -85,7 +85,7 @@ out=$(t recommend 'Category: research, Spec: measured, Scope: one-file'; t summa
 check '[spec] recommend backs off to the finest cell with 5 runs and names it and n'   'grep -qx "tier claude:haiku  cell \[Category: research, Spec: measured\]  n 7" <<<"$out" && grep -qx "success threshold 80%  rule rank (one tier passes)" <<<"$out" && grep -qE "^research +measured +one-file +medium +- +2 " <<<"$out"'
 row '{id:"eta-coarse",ended:"2026-10-09T00:00:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: research. Spec: measured. Scope: cross-module."}' | "$threads" ingest 2>/dev/null
 check '[measurement] ETA p75 backs off the two-run scope cell to the five haiku runs, and a category with no runs gets the workers-skill default with n 0' \
-  't recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^success threshold 80%  rule workers-skill default for balance-tuning (no tier passes; no first-assignment tier has 15 priced runs)$"'
+  't recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta wall 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration; too few runs with active minutes)" && t recommend "Category: balance-tuning" | grep -q "^success threshold 80%  rule workers-skill default for balance-tuning (no tier passes; no first-assignment tier has 15 priced runs)$"'
 
 python3 - "$threads" "$scratch/planner.db" "$scratch/planner-state" <<'PYBAND' >"$scratch/planner.out" 2>&1
 import hashlib, importlib.machinery, importlib.util, math, os, re, sqlite3, subprocess, sys
@@ -185,7 +185,7 @@ success threshold 80%  rule rank (uncalibrated: thin $ claude:haiku n=0, codex:s
 success claude:haiku 100% shrunk (n=5, 5 ok, toward the category's pooled 100% with a prior of 15 runs)
   claude:haiku       100% of 5  shrunk 100%  $ n/a (priced n=0)
   codex:sol-medium   100% of 5  shrunk 100%  $ n/a (priced n=0)
-eta 8m (p75 of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier claude:haiku, uncalibrated: no eta_pred calibration)  $ n/a (uncalibrated: no usd calibration)
+eta wall 8m (p75 of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier claude:haiku, uncalibrated: no eta_pred calibration; too few runs with active minutes)  $ n/a (uncalibrated: no usd calibration)
 """
 assert split == expected, repr(split)
 print("split unchanged")

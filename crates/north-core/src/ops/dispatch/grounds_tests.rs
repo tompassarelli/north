@@ -35,7 +35,7 @@ fn run(item: &str, minutes: u32) -> SpendRun {
 fn ledger(prior: &[(&str, Vec<PriorReport>)]) -> Ledger {
     let runs: Vec<SpendRun> = [("north#1", 10), ("north#2", 20), ("north#3", 30), ("north#4", 40)].map(|(item, minutes)| run(item, minutes)).into();
     let closed: HashSet<String> = runs.iter().filter_map(|run| run.item.clone()).collect();
-    let report = summarize(&runs, &closed, "2026-10-27T00:00:00Z", &crate::ledger::pricing::PriceTable::load().unwrap());
+    let report = summarize(&runs, &closed, "2026-10-27T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap());
     Ledger::new(Some(report), prior.iter().map(|(item, reports)| ((*item).to_owned(), reports.clone())).collect())
 }
 
@@ -129,7 +129,7 @@ fn a_cell_with_no_closed_box_keeps_the_declared_eta_or_the_uncalibrated_default_
 fn the_eta_and_budget_change_with_the_ledgers_closed_boxes() {
     let slow: Vec<SpendRun> = [("north#1", 50), ("north#2", 60)].map(|(item, minutes)| run(item, minutes)).into();
     let closed: HashSet<String> = slow.iter().filter_map(|run| run.item.clone()).collect();
-    let report = summarize(&slow, &closed, "2026-10-27T00:00:00Z", &crate::ledger::pricing::PriceTable::load().unwrap());
+    let report = summarize(&slow, &closed, "2026-10-27T00:00:00Z", &crate::router::pricing::PriceTable::load().unwrap());
     let later = Ledger::new(Some(report), BTreeMap::new()).grounds("north#7", OPENED, BODY, &route());
     let first = ledger(&[]).grounds("north#7", OPENED, BODY, &route());
     assert!(later.eta(None, &route()).starts_with("60 min (p75 of n=2 runs") && first.eta(None, &route()).starts_with("30 min (p75 of n=4 runs"));

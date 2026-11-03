@@ -1,14 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
 use std::time::Duration;
 
 use super::{date, env_or, home, north_program, text};
 use crate::fleet::model::Account;
-use crate::fleet::runtimes::Runtimes;
 use crate::platform::{git, github, process};
-use crate::providers::claude::{self, fleet::Claude};
+use crate::fleet::runtime::Invocation;
+use crate::ops::runtime_access::RuntimeAccess;
 
 const REPOS: [&str; 4] = ["makgora", "wisp", "north", "firn"];
 const ISSUE_ROW: &str = r##".[] | "#\(.number) \(.title) [\([.labels[].name] | join(","))]""##;
@@ -20,7 +19,7 @@ assumption; a contended shared resource (machine, client, account, repository pa
 For each finding give: the two projects, the evidence (issue numbers or SHAs from the data), and the org lead who should act.
 If nothing qualifies, answer exactly: No findings. Plain Markdown, no preamble. No tools.";
 
-pub fn run(arguments: &[String]) -> u8 {
+pub fn run(arguments: &[String], access: &RuntimeAccess) -> u8 {
     let handoffs = env_or("AGENTS_HANDOFFS", || home().join(".local/state/agents/handoffs"));
     let report = handoffs.join("cross-project-scan.md");
     match arguments.first().map(String::as_str) {
@@ -34,7 +33,7 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("{}", bundle());
             0
         }
-        _ => scan(&handoffs, &report).map_or_else(
+        _ => scan(&handoffs, &report, access).map_or_else(
             |error| {
                 eprintln!("cross-project-scan: {error}");
                 1
@@ -135,11 +134,11 @@ fn claude_accounts() -> Vec<String> {
 
 /// The `env` words that start `claude` as the profile at `config_dir`: through its account's
 /// invocation when the roster lists one there, since a token-file account is not logged in otherwise.
-pub(super) fn account_words(config_dir: Option<&Path>, accounts: &[Account]) -> Vec<String> {
+pub(super) fn account_words(config_dir: Option<&Path>, accounts: &[Account], invocation_of: fn(&Account) -> Invocation) -> Vec<String> {
     let fast = "CLAUDE_CODE_DISABLE_FAST_MODE=1".to_owned();
     let Some(dir) = config_dir else { return vec![fast] };
     let Some(account) = accounts.iter().find(|account| account.home == dir) else { return vec![format!("CLAUDE_CONFIG_DIR={}", dir.display()), fast] };
-    let invocation = claude::invocation(account);
+    let invocation = invocation_of(account);
     let unset = invocation.env_remove.iter().flat_map(|name| ["-u".to_owned(), name.clone()]);
     let set = invocation.env.iter().map(|(name, value)| format!("{name}={}", value.to_string_lossy()));
     unset.chain(set).chain([fast]).chain(invocation.prefix).collect()
@@ -157,12 +156,12 @@ fn claude_once(words: &[String], input: &str) -> Reply {
     }
 }
 
-fn scan(handoffs: &Path, report: &Path) -> Result<bool, String> {
+fn scan(handoffs: &Path, report: &Path, access: &RuntimeAccess) -> Result<bool, String> {
     fs::create_dir_all(handoffs).map_err(|error| error.to_string())?;
     let input = format!("{PROMPT}\n\n{}\n", bundle());
     let profiles = env_or("NORTH_PROFILES", || home().join(".local/state/north/profiles"));
-    let accounts = crate::fleet::registry::roster(&Runtimes::new(vec![Arc::new(Claude)])).map(|roster| roster.accounts).unwrap_or_default();
-    let asked = ask(&profiles, &claude_accounts(), &mut |dir| claude_once(&account_words(dir, &accounts), &input), &mut |line| eprintln!("{line}"));
+    let accounts = crate::fleet::registry::roster(&access.runtimes).map(|roster| roster.accounts).unwrap_or_default();
+    let asked = ask(&profiles, &claude_accounts(), &mut |dir| claude_once(&account_words(dir, &accounts, access.invocation), &input), &mut |line| eprintln!("{line}"));
     let answer = match asked {
         Asked::Answer(answer) => answer,
         Asked::AtLimit => {

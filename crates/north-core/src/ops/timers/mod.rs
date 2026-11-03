@@ -13,6 +13,8 @@ use std::env;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use super::runtime_access::RuntimeAccess;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Timer {
     AgentRuntimeUpdate,
@@ -46,14 +48,14 @@ impl Timer {
         })
     }
 
-    pub fn run(self, arguments: &[String]) -> u8 {
+    pub fn run(self, arguments: &[String], access: &RuntimeAccess) -> u8 {
         match self {
             Self::AgentRuntimeUpdate => runtime_update::run(arguments),
             Self::CodexRuntimeGcroots => gcroots::run(arguments),
-            Self::CrossProjectScan => cross_project::run(arguments),
+            Self::CrossProjectScan => cross_project::run(arguments, access),
             Self::GitMaintenanceNightly => git_maintenance::run(arguments),
             Self::JobWatch => crate::ops::job_watch::run(arguments),
-            Self::ModelWatch => crate::ops::model_watch::run(arguments),
+            Self::ModelWatch => crate::ops::model_watch::run(arguments, access),
             Self::OutsideWatch => crate::ops::outside_watch::run(arguments),
             Self::SkillPrune => skill_prune::run(arguments),
             Self::SkillReviewQueue => skill_review::run(arguments),

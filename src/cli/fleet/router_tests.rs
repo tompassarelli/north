@@ -162,7 +162,7 @@ fn a_host_that_ends_releases_the_claim_of_each_session_it_ran_for_a_task() {
 
 #[test]
 fn every_model_fleet_can_launch_has_a_price() {
-    let prices = crate::ledger::pricing::PriceTable::load().unwrap();
+    let prices = crate::router::pricing::PriceTable::load().unwrap();
     let launchable: Vec<(String, &str)> = runtimes().providers().into_iter().flat_map(|provider| {
         let runtime = runtimes().get(&provider).unwrap();
         runtime.models().iter().map(move |model| (provider.label().to_owned(), *model)).collect::<Vec<_>>()

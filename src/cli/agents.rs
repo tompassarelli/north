@@ -1,12 +1,20 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::agent_catalog::{self, sync_gate};
 use crate::error::{NorthError, NorthResult};
 use crate::ops::agents::{self, Verb, plan, script};
+use crate::fleet::runtimes::Runtimes;
+use crate::ops::runtime_access::RuntimeAccess;
 use crate::ops::{flow, pacing, report};
 use crate::platform::harness;
+use crate::providers::claude::{self, fleet::Claude};
 
 use super::{fleet, token_usage};
+
+pub(super) fn claude_access() -> RuntimeAccess {
+    RuntimeAccess { runtimes: Runtimes::new(vec![Arc::new(Claude)]), invocation: claude::invocation }
+}
 
 pub(super) fn run(arguments: &[String]) -> u8 {
     let Some(verb) = arguments.first().and_then(|name| Verb::named(name)) else {
@@ -30,7 +38,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
             )
         }),
         Verb::Command("flow") => flow::run(rest),
-        Verb::Command("news") => crate::ops::model_watch::run(&[vec!["news".to_owned()], rest.to_vec()].concat()),
+        Verb::Command("news") => crate::ops::model_watch::run(&[vec!["news".to_owned()], rest.to_vec()].concat(), &claude_access()),
         Verb::Command(_) => report::run(rest),
         Verb::Script("usage.py") => usage(rest),
         Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),

@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
 
-use super::pricing::PriceTable;
+use crate::router::pricing::PriceTable;
 
 const LEADS: [&str; 2] = ["parent", "proxy"];
 const WORKER: &str = "worker";

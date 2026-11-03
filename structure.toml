@@ -58,7 +58,7 @@ may_use = ["domain", "platform", "foundation", "crate-roots"]
 name = "ledger"
 paths = ["crates/north-core/src/ledger/**"]
 responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
-may_use = ["fleet", "platform", "foundation", "crate-roots"]
+may_use = ["fleet", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "guard"

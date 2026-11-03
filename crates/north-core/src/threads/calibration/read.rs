@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, Row as SqlRow};
 
-use crate::ledger::pricing::PriceTable;
+use crate::router::pricing::PriceTable;
 use crate::platform::run_roles::worker_where;
 
 use super::boxes::{BoxRun, item_chains};
@@ -33,7 +33,7 @@ pub struct Raw {
 
 const COLUMNS: &str = "agent, follows, item, outcome, expects_landing, landed, tier, category, spec, scope, surface, verify, minutes, eta_min, cost_usd, started, ended, model, COALESCE(input_tokens, 0), COALESCE(cache_read_tokens, 0), COALESCE(tokens, 0), active_min, wait_min";
 
-static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("ledger/prices.json parses"));
+static PRICES: LazyLock<PriceTable> = LazyLock::new(|| PriceTable::load().expect("router/prices.json parses"));
 
 impl Raw {
     fn read(row: &SqlRow) -> rusqlite::Result<Self> {

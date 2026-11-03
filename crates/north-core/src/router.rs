@@ -8,6 +8,7 @@ pub mod moment;
 pub mod ops;
 pub mod plan;
 pub mod policy;
+pub mod pricing;
 pub mod route;
 
 #[cfg(test)]

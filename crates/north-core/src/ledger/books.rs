@@ -5,7 +5,7 @@ use rusqlite::{Row, params};
 use crate::error::NorthResult;
 use crate::fleet::books::{Books, Landing, SessionSpend};
 
-use super::pricing::{PriceTable, TokenUse};
+use crate::router::pricing::{PriceTable, TokenUse};
 use super::{LANDING_CHECK, LINK_RUNS, Ledger, millis};
 
 impl Books for Ledger {

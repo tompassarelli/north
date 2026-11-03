@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use crate::error::NorthResult;
 
-use super::pricing::{Price, PriceTable, TokenUse};
+use crate::router::pricing::{Price, PriceTable, TokenUse};
 use super::{Ledger, Run, Task};
 
 const UNMEASURED: &str = "unmeasured";

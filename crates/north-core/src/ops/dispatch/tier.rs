@@ -5,11 +5,10 @@ use super::facets;
 use super::issues::Issue;
 use super::record::Record;
 use crate::ledger::closed::ClosedReport;
+use crate::router::policy::ARM_RUNS;
 use std::collections::BTreeMap;
 use toml_edit::DocumentMut;
 
-/// Runs each arm needs in a category before dispatch routes it by the ledger's pick.
-pub const ARM_RUNS: usize = 15;
 /// Window of the ledger's closed boxes whose cost per closed box decides an armed category.
 pub const ARM_WINDOW: &str = "7d";
 /// Categories whose Sonnet and Opus arms dispatch compares.
