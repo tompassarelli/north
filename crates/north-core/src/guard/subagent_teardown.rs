@@ -2,9 +2,14 @@ pub mod transcript;
 
 use crate::hook::{HookInput, Verdict};
 use crate::platform::pyjson::Value;
+use regex::Regex;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use transcript::{Kind, Task};
+
+static LANDING: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|[^A-Za-z0-9_.-])safe-push(?:$|[^A-Za-z0-9_.-])").unwrap());
 
 const MONITOR_CEILING_MS: f64 = 3_600_000.0;
 
@@ -33,6 +38,11 @@ fn transcript_path(input: &HookInput) -> Option<&str> {
 }
 
 pub fn refusal(input: &HookInput) -> Option<String> {
+    let fleet = std::env::var("NORTH_FLEET_SESSION").is_ok_and(|session| !session.is_empty());
+    refusal_in(input, fleet)
+}
+
+pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
     let path = transcript_path(input)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs_f64();
     let scan = transcript::scan(path, now)?;
@@ -52,6 +62,7 @@ pub fn refusal(input: &HookInput) -> Option<String> {
         (Kind::Bash, Some(out)) => held.contains(out),
         _ => true,
     });
+    pending.retain(|task| !landing(task));
     if pending.is_empty() {
         return None;
     }
@@ -62,10 +73,16 @@ pub fn refusal(input: &HookInput) -> Option<String> {
             format!("{} ({label})", task.id)
         })
         .collect();
-    Some(format!(
-        "You still have background tasks running: {}. Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.",
-        names.join(", ")
-    ))
+    let advice = if fleet {
+        "Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report."
+    } else {
+        "Stop each with TaskStop, then finish your report. A background `safe-push` landing is the one task you may leave running: you resume when it completes."
+    };
+    Some(format!("You still have background tasks running: {}. {advice}", names.join(", ")))
+}
+
+fn landing(task: &Task) -> bool {
+    task.kind == Kind::Bash && LANDING.is_match(&task.command)
 }
 
 fn expired(task: &Task, now: f64) -> bool {

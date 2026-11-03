@@ -41,6 +41,7 @@ impl Kind {
 struct Use {
     kind: Kind,
     description: String,
+    command: String,
     start: f64,
     limit: f64,
 }
@@ -49,6 +50,7 @@ pub struct Task {
     pub id: String,
     pub kind: Kind,
     pub description: String,
+    pub command: String,
     pub output: Option<String>,
     pub start: f64,
     pub limit: f64,
@@ -225,6 +227,7 @@ impl Scan {
             Use {
                 kind,
                 description,
+                command: py_str(input.and_then(|i| i.get("command"))),
                 start: epoch(&stamp, now),
                 limit: limit_of(input.and_then(|i| i.get("timeout_ms"))),
             },
@@ -262,6 +265,7 @@ impl Scan {
             id,
             kind: used.kind,
             description: used.description,
+            command: used.command,
             start: used.start,
             limit: used.limit,
         };

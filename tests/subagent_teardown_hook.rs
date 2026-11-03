@@ -7,6 +7,7 @@ fn run(payload: &Value, activation: &Path, disabled: &str) -> String {
     let mut child = Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["hook", "subagent-stop"])
         .env_remove("NORTH_HOOK_ID")
+        .env("NORTH_FLEET_SESSION", "worker")
         .env("NORTH_AGENT_ACTIVE", activation)
         .env("AGENT_NO_AUTHORING_HOOKS", disabled)
         .stdin(Stdio::piped())

@@ -1,4 +1,4 @@
-use super::subagent_teardown::{refusal, transcript};
+use super::subagent_teardown::{refusal_in, transcript};
 use crate::hook::HookInput;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -33,7 +33,11 @@ fn civil(days: i64) -> (i64, i64, i64) {
 }
 
 fn shell_start(at: &str, output: &Path) -> String {
-    let started = json!({"type":"assistant","timestamp":at,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sh","name":"Bash","input":{"command":"run the soak","description":"Long soak run","run_in_background":true}}]}});
+    shell_command(at, output, "run the soak")
+}
+
+fn shell_command(at: &str, output: &Path, command: &str) -> String {
+    let started = json!({"type":"assistant","timestamp":at,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sh","name":"Bash","input":{"command":command,"description":"Long soak run","run_in_background":true}}]}});
     let body = format!(
         "Command running in background with ID: bshell001. Output is being written to: {}. You will be notified when it completes.",
         output.display()
@@ -101,8 +105,12 @@ impl Lane {
     }
 
     fn payload(&self, transcript: &str, active: bool) -> Option<String> {
+        self.payload_in(transcript, active, true)
+    }
+
+    fn payload_in(&self, transcript: &str, active: bool, fleet: bool) -> Option<String> {
         let payload = json!({"session_id":"s","hook_event_name":"SubagentStop","agent_id":"a1","agent_type":"worker","stop_hook_active":active,"transcript_path":format!("{}/main.jsonl", self.dir.path().display()),"agent_transcript_path":transcript});
-        refusal(&HookInput::parse(payload.to_string().as_bytes()).unwrap())
+        refusal_in(&HookInput::parse(payload.to_string().as_bytes()).unwrap(), fleet)
     }
 
     fn stop(&self, transcript: &str) -> Option<String> {
@@ -198,4 +206,47 @@ fn transcript_lines_are_bounded_and_scanned_in_a_stream() {
     assert!(transcript::scan_reader(first.as_bytes(), 0.0).unwrap().ended.contains("bshell001"));
     let tail = format!("{}\n{notice}", "y".repeat(100));
     assert!(transcript::scan_reader(tail.as_bytes(), 0.0).unwrap().ended.contains("bshell001"));
+}
+
+#[test]
+fn a_running_landing_may_outlive_the_turn_and_everything_else_still_refuses() {
+    let mut lane = Lane::new();
+    let now = stamp(0);
+    lane.hold_output();
+    let held = |command: &str| lane.fixture("cmd", &shell_command(&now, &lane.output(), command));
+    for command in [
+        "safe-push --to main",
+        "safe-push",
+        "cd ~/code/north/worktrees/x && bin/safe-push --to main",
+        "~/.local/share/north/bin/safe-push --keep-lane --to main 2>&1",
+        "FOO=1 safe-push --to main; echo done",
+    ] {
+        assert_eq!(lane.stop(&held(command)), None, "{command}");
+        assert_eq!(lane.payload_in(&held(command), false, false), None, "{command}");
+    }
+    for command in [
+        "cargo test --locked",
+        "echo unsafe-push",
+        "safe-push-helper --to main",
+        "my.safe-push.sh",
+        "run the soak",
+    ] {
+        assert!(lane.stop(&held(command)).is_some(), "{command}");
+    }
+    let live = lane.fixture("monitor", &monitor(&now, json!(600_000)));
+    assert!(lane.stop(&live).is_some());
+    let both = format!("{}\n{}", monitor(&now, json!(600_000)), shell_command(&now, &lane.output(), "safe-push --to main"));
+    let refused = lane.stop(&lane.fixture("both", &both)).unwrap();
+    assert!(refused.contains("bmon0001") && !refused.contains("bshell001"), "{refused}");
+}
+
+#[test]
+fn the_refusal_names_only_what_works_without_a_fleet_session() {
+    let lane = Lane::new();
+    let live = lane.fixture("monitor", &monitor(&stamp(0), json!(600_000)));
+    let fleet = lane.payload_in(&live, false, true).unwrap();
+    assert!(fleet.contains("job-run --notify"));
+    let solo = lane.payload_in(&live, false, false).unwrap();
+    assert!(!solo.contains("job-run"), "{solo}");
+    assert!(solo.contains("TaskStop") && solo.contains("safe-push"), "{solo}");
 }
