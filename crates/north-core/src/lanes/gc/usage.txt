@@ -25,4 +25,7 @@ parents with more than 25 or any over 72h get supply-alert. --dry-run prints eac
 then git worktree prune and git fetch --prune. Everything with unique commits or dirty
 state is kept and written to the unlanded report (default
 ~/.local/state/agents/lane-gc/unlanded.txt): age, container, path, branch, ahead count,
-dirty, first commit subject, Refs. --unlanded prints that report.
+dirty, first commit subject, Refs, class. The report class is landed-by-tree (landed-elsewhere),
+superseded or lost (owned and stale-dirty); a local branch with no worktree in the superseded
+class is archived and deleted only once idle 14 days, a lost one never. --unlanded prints that
+report and the count of each class per container.

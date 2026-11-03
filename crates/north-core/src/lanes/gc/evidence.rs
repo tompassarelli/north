@@ -150,3 +150,27 @@ pub(super) fn lane_class(facts: &LaneFacts) -> LaneClass {
         LaneClass::Owned
     }
 }
+
+pub(super) const SUPERSEDED_BRANCH_HOURS: f64 = 14.0 * 24.0;
+
+impl LaneClass {
+    pub(super) fn report_label(self) -> &'static str {
+        match self {
+            Self::LandedElsewhere => "landed-by-tree",
+            Self::Superseded => "superseded",
+            Self::StaleDirty | Self::Owned => "lost",
+        }
+    }
+}
+
+pub(super) fn branch_hold(class: LaneClass, checked_out: bool, idle_hours: f64) -> &'static str {
+    if checked_out {
+        "has a worktree"
+    } else if matches!(class, LaneClass::Owned | LaneClass::StaleDirty) {
+        "lost work"
+    } else if class == LaneClass::Superseded && idle_hours < SUPERSEDED_BRANCH_HOURS {
+        "superseded under 14 days"
+    } else {
+        ""
+    }
+}

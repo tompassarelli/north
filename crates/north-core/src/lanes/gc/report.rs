@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::Gc;
-use super::evidence::cited_issues;
+use super::evidence::{LaneClass, cited_issues};
 use super::exec::{command, git};
 use super::state::Owned;
 use crate::foundation::clock::Timestamp;
@@ -14,11 +14,30 @@ pub(super) struct Row<'a> {
     pub(super) branch: &'a str,
     pub(super) ahead: u64,
     pub(super) dirty: &'a str,
+    pub(super) class: LaneClass,
 }
 
 fn leading_hours(row: &str) -> i64 {
     let digits = row.bytes().enumerate().take_while(|(i, b)| b.is_ascii_digit() || (*i == 0 && *b == b'-')).count();
     row[..digits].parse().unwrap_or(0)
+}
+
+const CLASSES: [&str; 3] = ["landed-by-tree", "superseded", "lost"];
+
+pub(super) fn class_summary(rows: &[String]) -> Vec<String> {
+    let mut repos: BTreeMap<&str, [usize; 3]> = BTreeMap::new();
+    for row in rows.iter().filter(|row| !row.is_empty() && !row.starts_with('#')) {
+        let fields: Vec<&str> = row.split('\t').collect();
+        let class = fields.get(8).and_then(|label| CLASSES.iter().position(|known| known == label)).unwrap_or(2);
+        repos.entry(fields.get(1).copied().unwrap_or("-")).or_default()[class] += 1;
+    }
+    repos
+        .into_iter()
+        .map(|(repo, counts)| {
+            let cells: Vec<String> = CLASSES.iter().zip(counts).map(|(class, count)| format!("{class}={count}")).collect();
+            format!("# classes {repo}: {}", cells.join(" "))
+        })
+        .collect()
 }
 
 pub(super) fn sorted(rows: &[String]) -> Vec<String> {
@@ -44,6 +63,7 @@ impl Gc {
             if row.dirty.is_empty() { "-".into() } else { row.dirty.to_string() },
             first.to_string(),
             if refs.is_empty() { "-".into() } else { refs },
+            row.class.report_label().to_string(),
         ];
         self.rows.push(fields.join("\t"));
         self.counts.unlanded += 1;

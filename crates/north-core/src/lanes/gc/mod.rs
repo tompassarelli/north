@@ -8,6 +8,9 @@ mod report;
 mod state;
 mod trees;
 
+#[cfg(test)]
+mod classes_tests;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -114,6 +117,10 @@ fn print_unlanded(home: &Path, state: &Path) -> u8 {
     match std::fs::read_to_string(state) {
         Ok(text) => {
             print!("{text}");
+            let rows: Vec<String> = text.lines().map(str::to_string).collect();
+            for line in report::class_summary(&rows) {
+                println!("{line}");
+            }
             0
         }
         Err(_) => {
@@ -206,10 +213,11 @@ impl Gc {
             return 1;
         }
         let header = format!(
-            "# lane-gc {}: unlanded worktrees and branches (age of last commit, container, path, branch, ahead, dirty, first subject, refs)\n",
+            "# lane-gc {}: unlanded worktrees and branches (age of last commit, container, path, branch, ahead, dirty, first subject, refs, class)\n",
             Timestamp::now().iso_millis()
         );
         let body = report::sorted(&self.rows).join("\n");
+        let summary = report::class_summary(&self.rows).join("\n");
         if !self.options.dry_run && self.options.repos.is_empty() {
             let text = format!("{header}{body}{}", if body.is_empty() { "" } else { "\n" });
             if let Err(error) = write_atomically(&self.options.state, &text) {
@@ -218,6 +226,9 @@ impl Gc {
             }
         } else if self.options.dry_run {
             println!("{header}{body}");
+            if !summary.is_empty() {
+                println!("{summary}");
+            }
         }
         let c = &self.counts;
         println!(
