@@ -123,3 +123,26 @@ fn the_json_lists_each_closed_box_of_a_cell_with_its_spend() {
     assert_eq!(items, ["north#2", "north#3"]);
     assert!(cell["boxes"].as_array().unwrap().iter().all(|entry| (entry["usd"].as_f64().unwrap() - SONNET).abs() < 1e-9));
 }
+
+#[test]
+fn spend_on_boxes_started_in_the_window_that_never_closed_joins_the_cost_per_closed_box_of_their_cell() {
+    let prices = PriceTable::load().unwrap();
+    let (sonnet, opus) = ("claude-sonnet-5-5", "claude-opus-5-5");
+    let runs = vec![
+        run(Some("north#2"), "worker", "sonnet", "tooling", sonnet, "2026-10-27T11:00:00Z", true),
+        run(Some("north#8"), "worker", "sonnet", "tooling", sonnet, "2026-10-27T13:00:00Z", false),
+        run(Some("north#8"), "worker", "sonnet", "tooling", sonnet, "2026-10-27T14:00:00Z", false),
+        run(Some("north#9"), "worker", "medium", "feature", opus, "2026-10-27T15:00:00Z", false),
+        run(Some("north#7"), "worker", "sonnet", "tooling", sonnet, "2026-10-20T12:00:00Z", false),
+        run(Some("north#6"), "worker", "sonnet", "tooling", sonnet, "2026-10-27T16:00:00Z", false),
+        run(Some("north#6"), "reviewer", "sonnet", "unknown", sonnet, "2026-10-27T16:30:00Z", false),
+    ];
+    let report = summarize(&runs, &closed(&["north#2"]), "2026-10-27T00:00:00Z", &prices);
+    let cell = &report.cells[0];
+    assert_eq!((cell.tier.as_str(), cell.category.as_str(), cell.closed), ("sonnet", "tooling", 1));
+    let approx = |left: f64, right: f64| (left - right).abs() < 1e-9;
+    assert!(approx(cell.usd, SONNET), "{}", cell.usd);
+    assert!(approx(cell.unclosed_usd, 3.0 * SONNET), "{}", cell.unclosed_usd);
+    assert!(approx(cell.usd_per_closed(), 4.0 * SONNET), "{}", cell.usd_per_closed());
+    assert_eq!(report.cells.len(), 1);
+}

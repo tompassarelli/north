@@ -5,7 +5,8 @@ use std::io::Write;
 use rusqlite::{Connection, Row};
 
 use super::boxes::{BoxRun, box_groups, moment};
-use super::read::escalated;
+use super::read::{attempts, escalated};
+use crate::platform::run_roles::ROLE_SQL;
 use super::{GROUPS, Knobs, cell_value, median, tier_rank};
 use crate::threads::board::issues::Board;
 use crate::threads::catalog::CATALOG;
@@ -71,7 +72,7 @@ impl Run {
             staffed: row.get("staffed")?,
             review_requested: row.get("review_requested")?,
             landed_at: row.get("landed_at")?,
-            role: row.get("role")?,
+            role: row.get("kind")?,
             category: row.get("category")?,
             compactions: row.get("compactions")?,
             handoff_fires: row.get("handoff_fires")?,
@@ -95,6 +96,7 @@ impl Run {
 
     fn box_run(&self) -> BoxRun {
         BoxRun {
+            agent: self.agent.clone(),
             item: self.item.clone().unwrap_or_default(),
             category: self.category.clone(),
             outcome: self.outcome.clone(),
@@ -346,7 +348,7 @@ fn group_keys(text: &str) -> Result<Vec<&str>, Failure> {
     Ok(keys.into_iter().filter(|key| key.to_lowercase() != "arm").collect())
 }
 
-fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escalated: &BTreeSet<String>) -> String {
+fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escalated: &BTreeSet<String>, numbers: &BTreeMap<String, usize>) -> String {
     let columns: Vec<usize> = keys.iter().filter_map(|key| GROUPS.iter().position(|group| group.eq_ignore_ascii_case(key))).collect();
     let mut groups: Vec<(Vec<String>, Vec<&Run>)> = Vec::new();
     for run in rows.iter().filter(|run| !splits.contains_key(run.agent.as_str())) {
@@ -362,12 +364,13 @@ fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escal
         let cells = left.len() - 2;
         left[..cells].cmp(&right[..cells]).then(tier_rank(&left[cells]).cmp(&tier_rank(&right[cells]))).then(left[cells + 1].cmp(&right[cells + 1]))
     });
-    let mut out = vec![[keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>(), strings(&["tier", "arm", "n", "done", "success", "ok", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med", "over_2x_eta", "tokens_med", "no_landing", "usd_per_done"])].concat()];
+    let mut out = vec![[keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>(), strings(&["tier", "arm", "n", "attempts", "done", "success", "ok", "eta_med", "actual_med", "work_med", "wait_med", "x_eta_med", "over_2x_eta", "tokens_med", "no_landing", "usd_per_done"])].concat()];
     let knobs = Knobs::registry();
     for (key, runs) in groups {
         let n = runs.len();
         let done = runs.iter().filter(|run| run.outcome == "done").count();
         let ok = runs.iter().filter(|run| run.succeeded(escalated.contains(&run.agent))).count();
+        let ranks: Vec<f64> = runs.iter().filter_map(|run| numbers.get(&run.agent).map(|rank| *rank as f64)).collect();
         let timed: Vec<&&Run> = runs.iter().filter(|run| run.eta_min.is_some_and(|eta| eta != 0)).collect();
         let ratios: Vec<f64> = timed.iter().map(|run| run.minutes as f64 / run.eta_min.unwrap_or(1) as f64).collect();
         let spans = |from: fn(&Run) -> Option<&str>, to: fn(&Run) -> Option<&str>| dash(medians(runs.iter().filter_map(|run| span(from(run), to(run)))));
@@ -378,6 +381,7 @@ fn runs_table(rows: &[&Run], splits: &BTreeMap<&str, &Run>, keys: &[&str], escal
                 key,
                 vec![
                     n.to_string(),
+                    if ranks.is_empty() { "-".into() } else { format!("{:.1}", ranks.iter().sum::<f64>() / ranks.len() as f64) },
                     done.to_string(),
                     format!("{}%", done * 100 / n),
                     format!("{}%", ok * 100 / n),
@@ -406,16 +410,17 @@ fn summarise(args: &Args, context: &Context, err: &mut dyn Write) -> Result<Stri
     let since = args.get("--since").unwrap_or("");
     let keys = group_keys(args.get("--group").unwrap_or("category"))?;
     let db = open(context.database, false)?;
-    let mut statement = db.prepare("SELECT * FROM runs WHERE outcome != 'running' AND ended >= ?1")?;
+    let mut statement = db.prepare(&format!("SELECT *, {ROLE_SQL} AS kind FROM runs WHERE outcome != 'running' AND ended >= ?1"))?;
     let all: Vec<Run> = statement.query_map([since], Run::read)?.collect::<Result<_, _>>()?;
     if all.is_empty() {
         return Err(Failure::Refused(format!("no runs in {}", context.database.display())));
     }
     let knobs = Knobs::registry();
     let escalated = escalated(&db)?;
+    let numbers = attempts(&db)?.numbers;
     let rows: Vec<&Run> = all.iter().filter(|run| run.role == "worker" && !run.unjudged()).collect();
     let splits: BTreeMap<&str, &Run> = rows.iter().filter(|run| run.outcome == "split").map(|run| (run.agent.as_str(), *run)).collect();
-    let mut text = runs_table(&rows, &splits, &keys, &escalated);
+    let mut text = runs_table(&rows, &splits, &keys, &escalated, &numbers);
     text += &format!("\n{}\n{}", context_summary(&all), delivery_summary(&knobs, &rows));
     if has_table(&db, "run_costs")? {
         let mut costs = db.prepare("SELECT account, SUM(cost_usd) FROM run_costs WHERE agent = ?1 AND ended >= ?2 GROUP BY account ORDER BY account")?;

@@ -1,7 +1,8 @@
 //! `north threads replay-staffing`: the tier the old and the new rule would have picked for each first-assignment run.
 use std::collections::BTreeMap;
 
-use super::read::{Raw, escalated, raw_runs};
+use super::read::{Raw, attempts, escalated, raw_runs};
+use crate::platform::run_roles::worker_where;
 use super::recommend::recommend;
 use super::verbs::{since_start, stat_usd};
 use super::{Knobs, Pick, Run, tier_key};
@@ -47,7 +48,8 @@ pub(super) fn run(argv: &[String], context: &Context) -> Outcome {
     let mut rows: Vec<Raw> = raw_runs(&db, "follows IS NULL AND outcome != 'split'", &[])?.into_iter().filter(|raw| !raw.unjudged()).collect();
     rows.sort_by(|x, y| x.ended.cmp(&y.ended));
     let mut followed: BTreeMap<String, String> = BTreeMap::new();
-    for (follows, ended) in db.prepare("SELECT follows, ended FROM runs WHERE role = 'worker' AND follows IS NOT NULL")?.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?.collect::<Result<Vec<_>, _>>()? {
+    let linked = db.prepare(&format!("SELECT follows, ended FROM runs WHERE {} AND follows IS NOT NULL", worker_where()))?.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?.collect::<Result<Vec<_>, _>>()?;
+    for (follows, ended) in linked.into_iter().chain(attempts(&db)?.reruns) {
         followed.entry(follows).and_modify(|first| *first = (*first).clone().min(ended.clone())).or_insert(ended);
     }
     let escalated = escalated(&db)?;

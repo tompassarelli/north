@@ -40,6 +40,7 @@ pub struct Cell {
     pub closed: usize,
     pub usd: f64,
     pub staffed: bool,
+    pub unclosed_usd: f64,
     boxes: Vec<(String, f64)>,
     run_minutes: Vec<f64>,
 }
@@ -47,11 +48,11 @@ pub struct Cell {
 impl Cell {
     #[cfg(test)]
     pub fn priced(tier: &str, category: &str, closed: usize, usd: f64) -> Self {
-        Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, boxes: Vec::new(), run_minutes: Vec::new() }
+        Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, unclosed_usd: 0.0, boxes: Vec::new(), run_minutes: Vec::new() }
     }
 
     pub fn usd_per_closed(&self) -> f64 {
-        self.usd / self.closed as f64
+        (self.usd + self.unclosed_usd) / self.closed as f64
     }
 
     /// The closed boxes of the cell with what each cost, dearest first.
@@ -130,7 +131,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let key = (tier_label(&runs[0].tier), category.to_owned());
-        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, boxes: Vec::new(), run_minutes: Vec::new() });
+        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, boxes: Vec::new(), run_minutes: Vec::new() });
         let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         cell.closed += 1;
         cell.usd += spent;
@@ -138,6 +139,22 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
         if !runs[0].arm.is_empty() {
             arms.push(ArmBox { item: (*item).to_owned(), tier: tier_label(&runs[0].tier), arm: runs[0].arm.clone(), usd: spent });
+        }
+    }
+    let mut open: BTreeMap<&str, Vec<&SpendRun>> = BTreeMap::new();
+    for run in runs.iter().filter(|run| run.role == WORKER) {
+        if let Some(item) = run.item.as_deref().filter(|item| !boxes.get(*item).is_some_and(|runs| runs.iter().any(|run| run.landed))) {
+            open.entry(item).or_default().push(run);
+        }
+    }
+    for runs in open.values_mut() {
+        runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
+        if runs[0].started.as_str() < since {
+            continue;
+        }
+        let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
+        if let Some(cell) = cells.get_mut(&(tier_label(&runs[0].tier), category.to_owned())) {
+            cell.unclosed_usd += runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         }
     }
     let mut cells: Vec<Cell> = cells.into_values().collect();
@@ -211,7 +228,7 @@ impl ClosedReport {
             "all_usd_per_closed": self.per_closed(self.spend_usd),
             "leads_usd_per_closed": self.per_closed(self.leads_usd),
             "cells": self.cells.iter().map(|cell| json!({
-                "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "usd_per_closed": cell.usd_per_closed(),
+                "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "unclosed_usd": cell.unclosed_usd, "usd_per_closed": cell.usd_per_closed(),
                 "boxes": cell.boxes.iter().map(|(item, usd)| json!({"item": item, "usd": usd})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "arms": self.arms,
@@ -219,9 +236,9 @@ impl ClosedReport {
     }
 
     pub fn print_table(&self) {
-        println!("tier\tcategory\tclosed\tusd\tusd_per_closed");
+        println!("tier\tcategory\tclosed\tusd\tunclosed_usd\tusd_per_closed");
         for cell in &self.cells {
-            println!("{}\t{}\t{}\t{:.2}\t{:.2}", cell.tier, cell.category, cell.closed, cell.usd, cell.usd_per_closed());
+            println!("{}\t{}\t{}\t{:.2}\t{:.2}\t{:.2}", cell.tier, cell.category, cell.closed, cell.usd, cell.unclosed_usd, cell.usd_per_closed());
         }
     }
 }

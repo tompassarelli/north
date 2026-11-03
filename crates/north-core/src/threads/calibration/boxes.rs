@@ -8,6 +8,7 @@ use crate::threads::runs::brief::CATEGORIES;
 /// A finished worker run on an item, as the runs table holds it.
 #[derive(Clone, Debug, Default)]
 pub struct BoxRun {
+    pub agent: String,
     pub item: String,
     pub category: String,
     pub outcome: String,
@@ -40,8 +41,8 @@ fn minutes_between(from: Timestamp, to: Timestamp) -> f64 {
 }
 
 /// The runs of each item in staffed order, split where a run is staffed more than `gap` minutes after the latest end so
-/// far; a chain is a box only when one of its runs landed. Each run is paired with when it began.
-pub(super) fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
+/// far. Each run is paired with when it began.
+pub(super) fn item_chains(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
     let mut order: Vec<&str> = Vec::new();
     let mut by_item: BTreeMap<&str, Vec<(Timestamp, &BoxRun)>> = BTreeMap::new();
     for run in runs.iter().filter(|run| !run.item.is_empty() && run.outcome != "split" && !run.ended.is_empty()) {
@@ -55,7 +56,7 @@ pub(super) fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxR
     let mut groups: Vec<Vec<(Timestamp, &BoxRun)>> = Vec::new();
     for item in order {
         let mut rs = by_item.remove(item).unwrap_or_default();
-        rs.sort_by_key(|(begin, _)| *begin);
+        rs.sort_by(|(left, a), (right, b)| left.cmp(right).then_with(|| a.agent.cmp(&b.agent)));
         let mut end: Option<Timestamp> = None;
         for (begin, run) in rs {
             if end.is_none_or(|end| minutes_between(end, begin) > gap) {
@@ -67,6 +68,12 @@ pub(super) fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxR
             end = Some(end.map_or(ended, |end| end.max(ended)));
         }
     }
+    groups
+}
+
+/// The chains that are boxes: those where one run landed.
+pub(super) fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
+    let mut groups = item_chains(runs, gap);
     groups.retain(|group| group.iter().any(|(_, run)| run.landed));
     groups
 }

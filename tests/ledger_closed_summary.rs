@@ -28,7 +28,7 @@ fn ledger_summary_since_prints_usd_per_closed_for_each_tier_and_category_from_th
     let db = Connection::open(&database).unwrap();
     db.execute_batch(
         "CREATE TABLE runs(agent TEXT PRIMARY KEY, item TEXT, tier TEXT, category TEXT, arm TEXT, started TEXT, ended TEXT, outcome TEXT, role TEXT, model TEXT, \
-         landed INTEGER, landed_sha TEXT, input_tokens INTEGER, cache_read_tokens INTEGER, tokens INTEGER);
+         landed INTEGER, landed_sha TEXT, input_tokens INTEGER, cache_read_tokens INTEGER, tokens INTEGER, minutes INTEGER, brief_text TEXT);
          CREATE TABLE items(ns TEXT, number INTEGER, state TEXT, closed TEXT);",
     )
     .unwrap();

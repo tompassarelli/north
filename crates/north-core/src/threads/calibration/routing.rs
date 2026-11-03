@@ -10,6 +10,7 @@ use super::boxes::moment;
 use super::{cell_value, median, provider, quantile, tier_rank};
 use crate::foundation::clock::Timestamp;
 use crate::platform::pystats::float_sum;
+use crate::platform::run_roles::ROLE_SQL;
 use crate::platform::pystats::wilson;
 use crate::platform::twister::Twister;
 use crate::threads::verb::{Context, Failure, Outcome, open, report, table};
@@ -47,7 +48,7 @@ impl Run {
     fn read(row: &Row) -> rusqlite::Result<Self> {
         Ok(Self {
             agent: row.get("agent")?,
-            role: row.get("role")?,
+            role: row.get("kind")?,
             outcome: row.get("outcome")?,
             item: row.get("item")?,
             follows: row.get("follows")?,
@@ -275,7 +276,7 @@ fn arm_section(arm: &Arm, costs: &Costs, prices: &BTreeMap<String, f64>, out: &m
 
 fn routing_compare(context: &Context) -> Outcome {
     let db = open(context.database, false)?;
-    let rows: Vec<Run> = db.prepare("SELECT * FROM runs")?.query_map([], Run::read)?.collect::<Result<_, _>>()?;
+    let rows: Vec<Run> = db.prepare(&format!("SELECT *, {ROLE_SQL} AS kind FROM runs"))?.query_map([], Run::read)?.collect::<Result<_, _>>()?;
     let prices = context.outside.prices().map_err(|why| Failure::Refused(format!("cannot read account costs {why}")))?;
     let costs = costs(&db)?;
     let parse = |text: &str| moment(text).ok_or_else(|| Failure::Refused(format!("{text} is not a time")));

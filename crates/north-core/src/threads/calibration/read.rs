@@ -1,12 +1,13 @@
 //! Worker runs and calibration rows as the ledger holds them.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, Row as SqlRow};
 
 use crate::ledger::pricing::PriceTable;
+use crate::platform::run_roles::worker_where;
 
-use super::boxes::BoxRun;
+use super::boxes::{BoxRun, item_chains};
 use super::{GROUPS, Run, cell_value, tier_key};
 
 /// A runs-table row with the columns the calibration core reads.
@@ -77,13 +78,39 @@ impl Raw {
 
 /// Worker runs matching `condition`, in table order.
 pub fn raw_runs(db: &Connection, condition: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<Vec<Raw>> {
-    let mut statement = db.prepare(&format!("SELECT {COLUMNS} FROM runs WHERE role = 'worker' AND {condition}"))?;
+    let mut statement = db.prepare(&format!("SELECT {COLUMNS} FROM runs WHERE {} AND {condition}", worker_where()))?;
     statement.query_map(params, Raw::read)?.collect()
 }
 
-/// The agents some later worker run follows.
+/// A Done run counts as kept only when no other run on its item was staffed within this long of its end.
+pub const RERUN_WINDOW_MIN: f64 = 24.0 * 60.0;
+
+/// How an item's worker runs chain: each run's attempt number, and for each run that a later run on the item
+/// re-ran within [`RERUN_WINDOW_MIN`], when that re-run ended.
+pub struct Attempts {
+    pub numbers: BTreeMap<String, usize>,
+    pub reruns: BTreeMap<String, String>,
+}
+
+pub fn attempts(db: &Connection) -> rusqlite::Result<Attempts> {
+    let rows = box_rows(db)?;
+    let mut found = Attempts { numbers: BTreeMap::new(), reruns: BTreeMap::new() };
+    for chain in item_chains(&rows, RERUN_WINDOW_MIN) {
+        for (index, (_, run)) in chain.iter().enumerate() {
+            found.numbers.insert(run.agent.clone(), index + 1);
+            if let Some((_, next)) = chain.get(index + 1) {
+                found.reruns.insert(run.agent.clone(), next.ended.clone());
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// The agents some later worker run follows, by its Follows line or by re-running the same item within a day.
 pub fn escalated(db: &Connection) -> rusqlite::Result<BTreeSet<String>> {
-    db.prepare("SELECT follows FROM runs WHERE role = 'worker' AND follows IS NOT NULL")?.query_map([], |row| row.get(0))?.collect()
+    let mut followed: BTreeSet<String> = db.prepare(&format!("SELECT follows FROM runs WHERE {} AND follows IS NOT NULL", worker_where()))?.query_map([], |row| row.get(0))?.collect::<Result<_, _>>()?;
+    followed.extend(attempts(db)?.reruns.into_keys());
+    Ok(followed)
 }
 
 /// Every settled worker run with its success and whether it was a first assignment, for walk-forward calibration.
@@ -109,19 +136,20 @@ pub fn calibration_runs(db: &Connection) -> rusqlite::Result<Vec<Run>> {
 
 /// Finished worker runs that name an item, for box chains.
 pub fn box_rows(db: &Connection) -> rusqlite::Result<Vec<BoxRun>> {
-    let mut statement = db.prepare("SELECT item, category, outcome, staffed, started, ended, landed, landed_at, cost_usd FROM runs WHERE role = 'worker' AND outcome != 'running' AND item IS NOT NULL")?;
+    let mut statement = db.prepare(&format!("SELECT agent, item, category, outcome, staffed, started, ended, landed, landed_at, cost_usd FROM runs WHERE {} AND outcome != 'running' AND item IS NOT NULL", worker_where()))?;
     statement
         .query_map([], |row| {
             Ok(BoxRun {
-                item: row.get(0)?,
-                category: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                outcome: row.get(2)?,
-                staffed: row.get(3)?,
-                started: row.get(4)?,
-                ended: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-                landed: row.get::<_, Option<i64>>(6)?.is_some_and(|landed| landed != 0),
-                landed_at: row.get(7)?,
-                cost_usd: row.get(8)?,
+                agent: row.get(0)?,
+                item: row.get(1)?,
+                category: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                outcome: row.get(3)?,
+                staffed: row.get(4)?,
+                started: row.get(5)?,
+                ended: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                landed: row.get::<_, Option<i64>>(7)?.is_some_and(|landed| landed != 0),
+                landed_at: row.get(8)?,
+                cost_usd: row.get(9)?,
             })
         })?
         .collect()

@@ -12,7 +12,7 @@ run that lands once, and the ledger's per-run and per-closure figures disagreed 
 closed item, Opus medium 2.9, while its per-run rate looked worse).
 
 The unit is a landed, kept outcome in a category. Its cost is the API-equivalent spend of every run that closed the box
-(`north ledger summary`, cost per closed box) plus the spend the work later caused:
+(`north ledger summary`, cost per closed box, which also carries the spend of boxes started in the window that did not close, 2026-11-04) plus the spend the work later caused:
 - follow-up fix commits on the same files within 48 h of the landing;
 - reverts of the landing;
 - landings named as the culprit of a red main;

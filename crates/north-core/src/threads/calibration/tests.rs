@@ -391,3 +391,48 @@ fn a_tier_under_the_minimum_runs_cannot_win_on_cost_and_success_is_shrunk_toward
     let found = recommend(&Knobs::registry(), &grown, &asked("Category: tooling, Spec: exact"), &BTreeMap::new(), true);
     assert_eq!(found.tier.as_deref(), Some("claude:haiku"), "{}", found.rule);
 }
+
+fn chain_ledger(rows: &str) -> Connection {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(include_str!("../runs/fixtures/ledger.sql")).unwrap();
+    db.execute_batch(&format!("INSERT INTO runs(agent, item, tier, category, started, ended, minutes, outcome, landed, expects_landing, role, brief_text) VALUES {rows};")).unwrap();
+    db
+}
+
+#[test]
+fn a_done_run_followed_by_another_run_on_the_item_within_a_day_is_not_kept_and_each_run_ranks_in_its_chain() {
+    let db = chain_ledger(
+        "('a1','north#1','sonnet','feature','2026-10-01T00:00:00Z','2026-10-01T01:00:00Z',60,'done',1,1,'worker',NULL),\
+         ('a2','north#1','sonnet','feature','2026-10-01T23:30:00Z','2026-10-02T00:30:00Z',60,'done',1,1,'worker',NULL),\
+         ('a3','north#1','sonnet','feature','2026-10-04T00:00:00Z','2026-10-04T01:00:00Z',60,'done',1,1,'worker',NULL),\
+         ('b1','north#2','sonnet','feature','2026-10-01T00:00:00Z','2026-10-01T01:00:00Z',60,'done',1,1,'worker',NULL),\
+         ('c1','north#3','sonnet','feature','2026-10-01T00:00:00Z','2026-10-01T01:00:00Z',60,'done',1,1,'worker',NULL),\
+         ('c2','north#3','sonnet','feature','2026-10-02T01:00:01Z','2026-10-02T02:00:00Z',60,'done',1,1,'worker',NULL)",
+    );
+    let found = super::read::attempts(&db).unwrap();
+    let ranks: Vec<(&str, usize)> = found.numbers.iter().map(|(agent, rank)| (agent.as_str(), *rank)).collect();
+    assert_eq!(ranks, [("a1", 1), ("a2", 2), ("a3", 1), ("b1", 1), ("c1", 1), ("c2", 1)]);
+    let followed = super::read::escalated(&db).unwrap();
+    assert_eq!(followed.iter().map(String::as_str).collect::<Vec<_>>(), ["a1"]);
+    let raws = super::read::raw_runs(&db, "1 = 1", &[]).unwrap();
+    let kept = |agent: &str| raws.iter().find(|raw| raw.agent == agent).unwrap().succeeded(followed.contains(agent));
+    assert_eq!((kept("a1"), kept("a2"), kept("a3"), kept("b1")), (false, true, true, true));
+}
+
+#[test]
+fn reviewer_and_zero_minute_judge_runs_leave_the_worker_cells_in_every_reader() {
+    let db = chain_ledger(
+        "('w1','north#1','sonnet','feature','2026-10-01T00:00:00Z','2026-10-01T01:00:00Z',60,'done',1,1,'worker','Category: feature'),\
+         ('r1','north#1','sonnet','unknown','2026-10-01T02:00:00Z','2026-10-01T02:10:00Z',10,'done',NULL,NULL,'worker','Item: north#1 Category: review'),\
+         ('j1','north#1','haiku','unknown','2026-10-01T03:00:00Z','2026-10-01T03:00:20Z',0,'done',NULL,NULL,'worker',NULL),\
+         ('m1','north#4','haiku','mechanical','2026-10-01T04:00:00Z','2026-10-01T04:00:20Z',0,'done',NULL,NULL,'worker',NULL),\
+         ('u1','north#5','haiku','unknown','2026-10-01T05:00:00Z','2026-10-01T05:08:00Z',8,'done',NULL,NULL,'worker',NULL)",
+    );
+    let workers: Vec<String> = super::read::raw_runs(&db, "1 = 1", &[]).unwrap().into_iter().map(|raw| raw.agent).collect();
+    assert_eq!(workers, ["w1", "m1", "u1"]);
+    let roles: Vec<String> = db.prepare(&format!("SELECT {} FROM runs ORDER BY agent", crate::platform::run_roles::ROLE_SQL)).unwrap().query_map([], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
+    assert_eq!(roles, ["judge", "worker", "reviewer", "worker", "worker"]);
+    let boxes: Vec<String> = super::read::box_rows(&db).unwrap().into_iter().map(|row| row.agent).collect();
+    assert_eq!(boxes, ["w1", "m1", "u1"]);
+    assert_eq!(super::read::attempts(&db).unwrap().numbers.get("w1"), Some(&1));
+}

@@ -20,6 +20,7 @@ fn box_run(row: &Value) -> Option<BoxRun> {
         return None;
     }
     Some(BoxRun {
+        agent: text(row, "agent").unwrap_or_default(),
         item: text(row, "item")?,
         category: text(row, "category").unwrap_or_default(),
         outcome: text(row, "outcome")?,
