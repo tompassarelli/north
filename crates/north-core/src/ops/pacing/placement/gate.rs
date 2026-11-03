@@ -7,7 +7,7 @@ use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
 pub use super::repository::{anchored, repository};
 use super::room::{Basis, Rank};
-use super::{credit, facets, field, here_saturation, local, resident, saturation, signed_in, strings};
+use super::{credit, facets, field, here_saturation, local, strings};
 use crate::capacity::agent_load;
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
@@ -491,11 +491,5 @@ pub fn here_in_game_reserve() -> bool {
 /// Each machine's live load: the resident CLIs it reports over ssh, which never include fleet
 /// sessions hosted elsewhere, plus the fleet sessions given by machine name.
 pub fn probed(cfg: &DocumentMut, fleet_load: &BTreeMap<String, i64>) -> Vec<Machine> {
-    machines(cfg)
-        .into_iter()
-        .map(|machine| {
-            let hosted = fleet_load.get(&machine.name).copied().unwrap_or(0);
-            Machine { live: resident(&machine.name, &machine.ssh).map(|live| live + hosted), accounts: signed_in(&machine.name, &machine.ssh), saturation: saturation(&machine.name, &machine.ssh), ..machine }
-        })
-        .collect()
+    super::hosts::probed_machines(machines(cfg), fleet_load)
 }

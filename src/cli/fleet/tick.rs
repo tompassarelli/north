@@ -5,7 +5,7 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::runtime::now_ms;
 use crate::fleet::store::OverSsh;
 use crate::fleet::tick::{FarHost, Pulls, tick};
-use crate::ops::pacing::placement::{config, gate};
+use crate::ops::pacing::placement::{config, gate, pass};
 
 use super::ledger::Ledger;
 use super::rebooted;
@@ -22,6 +22,7 @@ pub(super) fn run(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     if !words.is_empty() {
         return Err(NorthError::Usage(USAGE.into()));
     }
+    let _pass = pass();
     let pulls = Pulls { spools: &OverSsh::default(), always: always_pulled(fleet) };
     let ticked = tick(fleet, &mut Ledger, &pulls, &Probes, now_ms(), BUDGET);
     let revived = rebooted::run(fleet, &["--revive"]);
