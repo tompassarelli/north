@@ -67,6 +67,7 @@ mod tests {
         assert_eq!(CATALOG.parse_ref("tompassarelli/makgora#7"), Ok(("smashcraft".to_owned(), 7)));
         assert_eq!(CATALOG.canonical("tompassarelli/Makgora"), "smashcraft");
         assert_eq!(CATALOG.parse_ref("smashcraft-client#26"), Ok(("smashcraft-client".to_owned(), 26)));
+        assert_eq!(CATALOG.parse_ref("tompassarelli/makgora-client#26"), Ok(("smashcraft-client".to_owned(), 26)));
         assert_eq!(CATALOG.parse_ref("padbridge#1"), Ok(("padbridge".to_owned(), 1)));
         assert!(CATALOG.is_native("life") && !CATALOG.is_native("wisp"));
     }
