@@ -17,10 +17,10 @@ fn created(head: &str, date: &str, failures: &[Failure]) -> String {
 
 #[test]
 fn the_first_failure_creates_the_rolling_issue_with_one_section_for_the_commit() {
-    let body = created(HEAD, "2026-11-04", &[failure("code-health"), failure("test-kind")]);
+    let body = created(HEAD, "2026-11-04", &[failure("code-health"), failure("ci-budget")]);
     assert!(body.starts_with("Gates that run after landing and failed; fix forward in the next landing of the same lane; each row is one landed commit."), "{body}");
-    assert!(body.contains("<!-- after-landing-gate: 0123456789ab code-health -->\n<!-- after-landing-gate: 0123456789ab test-kind -->\n"), "{body}");
-    assert!(body.contains("### 0123456789ab (2026-11-04) gates: code-health, test-kind\n"), "{body}");
+    assert!(body.contains("<!-- after-landing-gate: 0123456789ab code-health -->\n<!-- after-landing-gate: 0123456789ab ci-budget -->\n"), "{body}");
+    assert!(body.contains("### 0123456789ab (2026-11-04) gates: code-health, ci-budget\n"), "{body}");
     assert!(body.contains("safe-push: ✗ code-health refused"), "{body}");
 }
 
@@ -39,14 +39,14 @@ fn a_later_commit_is_edited_in_as_a_new_section_above_the_older_one() {
 
 #[test]
 fn a_gate_already_marked_for_the_commit_is_not_added_again_but_a_new_gate_is() {
-    let filed = Filed { number: 7, body: created(HEAD, "2026-11-04", &[failure("code-health"), failure("test-kind")]) };
-    assert_eq!(filing(HEAD, "2026-11-04", Some(&filed), &[failure("test-kind")]), Filing::Nothing);
-    let Filing::Edit { number: 7, body } = filing(HEAD, "2026-11-04", Some(&filed), &[failure("test-kind"), failure("review")]) else {
+    let filed = Filed { number: 7, body: created(HEAD, "2026-11-04", &[failure("code-health"), failure("ci-budget")]) };
+    assert_eq!(filing(HEAD, "2026-11-04", Some(&filed), &[failure("ci-budget")]), Filing::Nothing);
+    let Filing::Edit { number: 7, body } = filing(HEAD, "2026-11-04", Some(&filed), &[failure("ci-budget"), failure("review")]) else {
         panic!("a new gate on the same commit edits the issue");
     };
     assert_eq!(body.matches("0123456789ab review -->").count(), 1, "{body}");
-    assert_eq!(body.matches("0123456789ab test-kind -->").count(), 1, "{body}");
-    assert!(filing(NEXT, "2026-11-04", Some(&filed), &[failure("test-kind")]) != Filing::Nothing);
+    assert_eq!(body.matches("0123456789ab ci-budget -->").count(), 1, "{body}");
+    assert!(filing(NEXT, "2026-11-04", Some(&filed), &[failure("ci-budget")]) != Filing::Nothing);
 }
 
 #[test]

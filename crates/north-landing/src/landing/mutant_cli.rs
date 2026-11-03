@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use super::mutant::{Env, Lease, Stop, git_bytes, repo_name, valid_id};
 
 const USAGE: &str = "Usage: north mutant record <id> | north mutant verify <base> <head>
-Record the scratch copy diff against HEAD; verify each Test-kind kill claim before landing.";
+Record the scratch copy diff against HEAD; verify each Test-kind kill claim on demand.";
 
 fn process_env() -> Env {
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());

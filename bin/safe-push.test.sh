@@ -51,12 +51,6 @@ shim_main() {
       if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_ON_DEP_GATE:-0}" = 1 ]; then rm -f -- "$0"; fi
       return "$status"
       ;;
-    north:provenance)
-      "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
-      local status=$?
-      if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_PROVENANCE:-0}" = 1 ]; then rm -f -- "$0"; fi
-      return "$status"
-      ;;
     north:denylist)
       if [ "${2:-}" = attest ]; then
         printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ATTEST_TRACE:?}"
@@ -455,7 +449,8 @@ printf '{\n  "lockfileVersion": 1,\n  "workspaces": {"": {"name": "agent-machine
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check 'agent-machinery/ :: test -d agent-machinery/node_modules'
 "$real_git" -C "$real_repo" add .safe-push agent-machinery
 "$real_git" -C "$real_repo" commit -qm 'agent-machinery project'
-reviewed_id="$(cd "$real_repo" && "$real_north" review-gate id refs/remotes/origin/main HEAD harness/ agent-machinery/ bin/ lib/)"
+mapfile -t review_paths < <("$TARGET" --durable-harness-paths north)
+reviewed_id="$(cd "$real_repo" && "$real_north" review-gate id refs/remotes/origin/main HEAD "${review_paths[@]}")"
 "$real_git" -C "$real_repo" commit -q --amend -m 'agent-machinery project' -m "Reviewed: approves; reviewer: fixture-reviewer; patch-id $reviewed_id"
 cp "$deps_bin/bun" "$real_bin/bun"
 HOME="$land_home" run_real_case '' --dry-run --to main
@@ -768,80 +763,28 @@ local_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf "%s\n" tool_removal_scan >>"$scratch/cases"
 (cd "$real_repo"; HOME="$tool_home" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
 
-make_real_fixture test-kind
+make_real_fixture test-kind-retired
 mkdir -p "$real_repo/src" "$real_repo/tests"
-printf '#[test]\nfn deleted_boundary() {}\nfn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
-printf 'it("kept", () => {\n  check()\n})\n' >"$real_repo/tests/boundary.js"
+printf '#[test]\nfn kept_boundary() {}\n' >"$real_repo/src/lib.rs"
+printf 'it("kept", () => {})\n' >"$real_repo/tests/boundary.js"
 "$real_git" -C "$real_repo" add src/lib.rs tests/boundary.js
 "$real_git" -C "$real_repo" commit -qm 'existing tests'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 kind_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
-for kind_case in rust-unannotated js-unannotated rust-annotated js-annotated invalid-kind empty-mutant deleted edited-js moved moved-js-unannotated renamed retitled-js replaced-js; do
+for kind_case in rust js; do
   "$real_git" -C "$real_repo" reset -q --hard "$kind_base"
-  trailer=''
   case "$kind_case" in
-    rust-annotated) trailer='Test-kind: rust_boundary 3 kills rust-trailer-pass' ;;
-    js-annotated) trailer='Test-kind: js boundary 3 kills js-trailer-pass' ;;
-    invalid-kind) trailer='Test-kind: rust_boundary 6 kills invalid-kind' ;;
-    empty-mutant) trailer='Test-kind: rust_boundary 3 kills ' ;;
+    rust) printf '#[test]\nfn kept_boundary() {}\n#[test]\nfn new_boundary() {}\n' >"$real_repo/src/lib.rs" ;;
+    js) printf 'it("new boundary", () => {})\n' >>"$real_repo/tests/boundary.js" ;;
   esac
-  if [ -n "$trailer" ]; then
-    "$real_git" -C "$real_repo" commit --allow-empty -qm 'test evidence' -m "$trailer"
-  fi
-  case "$kind_case" in
-    js-*)
-      printf 'it("js boundary", () => {})\n' >"$real_repo/tests/boundary.js"
-      case_path=tests/boundary.js; case_name='js boundary'
-      ;;
-    deleted)
-      printf 'fn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
-      ;;
-    edited-js)
-      printf 'it("kept", async () => {})\n' >"$real_repo/tests/boundary.js"
-      ;;
-    retitled-js)
-      printf 'it("kept, retitled", () => {\n  check()\n})\n' >"$real_repo/tests/boundary.js"
-      ;;
-    replaced-js)
-      printf 'it("replaced", () => {\n  other()\n})\n' >"$real_repo/tests/boundary.js"
-      case_path=tests/boundary.js; case_name=replaced
-      ;;
-    renamed)
-      "$real_git" -C "$real_repo" mv src/lib.rs src/state.rs
-      ;;
-    moved*)
-      mkdir -p "$real_repo/tests/moved"
-      "$real_git" -C "$real_repo" mv tests/boundary.js tests/moved/boundary.js
-      [ "$kind_case" = moved ] || printf '%s("js boundary", () => {})\n' it >>"$real_repo/tests/moved/boundary.js"
-      case_path=tests/moved/boundary.js; case_name='js boundary'
-      ;;
-    *)
-      printf '#[test]\nfn deleted_boundary() {}\n#[tokio::test]\nfn rust_boundary() {}\n' >"$real_repo/src/lib.rs"
-      case_path=src/lib.rs; case_name=rust_boundary
-      ;;
-  esac
-  "$real_git" -C "$real_repo" add -A src tests
-  "$real_git" -C "$real_repo" commit -qm "$kind_case"
-  case "$kind_case" in
-    *-annotated)
-      printf 'mutated\n' >"$real_repo/content.txt"
-      (cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$real_north" mutant record "${trailer##* }")
-      "$real_git" -C "$real_repo" restore content.txt
-      ;;
-  esac
-  if [ "$kind_case" = rust-unannotated ]; then
-    run_real_case '' --dry-run
-    expect_status zero
-  fi
+  "$real_git" -C "$real_repo" commit -qam "new $kind_case test without a Test-kind trailer"
   run_real_case '' --after-landing "$kind_base" "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
-  case "$kind_case" in
-    *-annotated|deleted|edited-js|moved|renamed|retitled-js) expect_status zero ;;
-    *)
-      expect_status nonzero
-      expect_output "safe-push: ✗ $case_path adds test $case_name without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
-      ;;
-  esac
+  expect_status zero
+  ! grep -Fq 'Test-kind' <<<"$case_output" || fail "a new $kind_case test without Test-kind still failed after landing: $case_output"
+  ! grep -Fq 'after-landing gate test-kind' <<<"$case_output" || fail 'the test-kind gate still runs after landing'
+  expect_output 'after-landing gate code-health passed'
 done
+printf 'PASS: a new test without a Test-kind trailer files no after-landing failure\n'
 
 make_real_fixture vendored-tree
 mkdir -p "$real_repo/repos/upstream" "$real_repo/vendor/lib"
@@ -857,40 +800,37 @@ for vendored_case in kit-tree repo-json-tree both-trees first-party sibling-pref
   "$real_git" -C "$real_repo" reset -q --hard "$vendored_base"
   mkdir -p "$real_repo/repos/upstream/test" "$real_repo/vendor/lib/test" "$real_repo/tests" "$real_repo/repos/upstream-extra/test"
   case "$vendored_case" in
-    kit-tree) printf '%s("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts" ;;
-    repo-json-tree) printf '%s("library boundary", () => {})\n' it >"$real_repo/vendor/lib/test/Lib.test.ts" ;;
+    kit-tree) printf '%s.skip("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts" ;;
+    repo-json-tree) printf '%s.skip("library boundary", () => {})\n' it >"$real_repo/vendor/lib/test/Lib.test.ts" ;;
     both-trees)
-      printf '%s("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts"
-      printf '%s("library boundary", () => {})\n' it >"$real_repo/vendor/lib/test/Lib.test.ts"
-      printf '%s.skip("upstream skipped", () => {})\n' it >>"$real_repo/vendor/lib/test/Lib.test.ts"
+      printf '%s.skip("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts"
+      printf '%s.skip("library boundary", () => {})\n' it >"$real_repo/vendor/lib/test/Lib.test.ts"
       ;;
     first-party)
-      printf '%s("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts"
-      printf '%s("first party boundary", () => {})\n' it >"$real_repo/tests/Own.test.ts"
-      case_path=tests/Own.test.ts; case_name='first party boundary'
+      printf '%s.skip("upstream boundary", () => {})\n' it >"$real_repo/repos/upstream/test/Dns.integration.test.ts"
+      printf '%s.skip("first party boundary", () => {})\n' it >"$real_repo/tests/Own.test.ts"
+      case_path=tests/Own.test.ts
       ;;
     sibling-prefix)
-      printf '%s("sibling boundary", () => {})\n' it >"$real_repo/repos/upstream-extra/test/Own.test.ts"
-      case_path=repos/upstream-extra/test/Own.test.ts; case_name='sibling boundary'
+      printf '%s.skip("sibling boundary", () => {})\n' it >"$real_repo/repos/upstream-extra/test/Own.test.ts"
+      case_path=repos/upstream-extra/test/Own.test.ts
       ;;
     self-declared)
       printf '{"vendor": "repos/upstream", "other": "own"}\n' >"$real_repo/effect-kit.json"
       printf '{"prefix": "own"}\n' >"$real_repo/repos/own.json"
       mkdir -p "$real_repo/own"
-      printf '%s("own boundary", () => {})\n' it >"$real_repo/own/Own.test.ts"
-      case_path=own/Own.test.ts; case_name='own boundary'
+      printf '%s.skip("own boundary", () => {})\n' it >"$real_repo/own/Own.test.ts"
+      case_path=own/Own.test.ts
       ;;
   esac
   "$real_git" -C "$real_repo" add -A .
   "$real_git" -C "$real_repo" commit -qm "$vendored_case"
   run_real_case '' --dry-run
-  expect_status zero
-  run_real_case '' --after-landing "$vendored_base" "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
   case "$vendored_case" in
     *-tree*) expect_status zero ;;
     *)
       expect_status nonzero
-      expect_output "safe-push: ✗ $case_path adds test $case_name without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
+      expect_output "safe-push: ✗ $case_path adds a skip or focus:"
       ;;
   esac
 done
@@ -902,6 +842,7 @@ mutant_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
 for mutant_case in empty real new-code shared-clone; do
   "$real_git" -C "$real_repo" reset -q --hard "$mutant_base"
   patch="$xdg_state/agents/mutants/remote/$mutant_case.patch"
+  mkdir -p "$(dirname "$patch")"
   if [ "$mutant_case" = new-code ]; then
     printf 'new code\n' >"$real_repo/new.txt"
     "$real_git" -C "$real_repo" add new.txt
@@ -931,7 +872,8 @@ for mutant_case in empty real new-code shared-clone; do
   esac
   "$real_git" -C "$real_repo" commit --allow-empty -qm 'mutant evidence' -m "Test-kind: recorded boundary 3 kills $mutant_case"
   lane_before=$("$real_git" -C "$real_repo" status --porcelain)
-  run_real_case '' --after-landing "$mutant_base" "$("$real_git" -C "$real_repo" rev-parse HEAD)" "$real_fixture/report"
+  case_status=0
+  case_output=$(cd "$real_repo"; XDG_STATE_HOME="$xdg_state" "$real_north" mutant verify "$mutant_base" HEAD 2>&1) || case_status=$?
   case "$mutant_case" in
     real|new-code|shared-clone) expect_status zero ;;
     *)
@@ -1068,39 +1010,19 @@ PYRECORD
 done
 printf 'Generated rewrite recorded journey: PASS (after landing, a churning rewrite does not refuse the landing)\n'
 
-make_real_fixture provenance
+make_real_fixture provenance-retired
 printf '| Box | Area | Done when | State |\n|---|---|---|---|\n| 9.10p | query view | the query view opens | open |\n' >"$real_repo/PLAN.md"
-"$real_git" -C "$real_repo" add PLAN.md
+mkdir -p "$real_repo/harness/skills/example"
+printf -- '- Keep it short.\n' >"$real_repo/harness/skills/example/SKILL.md"
+"$real_git" -C "$real_repo" add PLAN.md harness
 "$real_git" -C "$real_repo" commit -qm 'galileo plan'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
-target_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
-for target_case in unsourced unsourced-none unsourced-rationale sourced reworded; do
-  "$real_git" -C "$real_repo" reset -q --hard "$target_base"
-  printf '| 9.11p | query view | the 1,000-row query keystroke stays under 50 ms | open |\n' >>"$real_repo/PLAN.md"
-  case "$target_case" in
-    sourced) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' \
-      -m 'Provenance: keystroke under 50 ms; origin experiment; pointer galileo bench/keystroke.json plus just bench keystroke; rationale docs/rationale/targets.md#soft-targets; revisit 2026-11-01' ;;
-    unsourced-rationale) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' \
-      -m 'Provenance: keystroke under 50 ms; origin experiment; pointer galileo bench/keystroke.json plus just bench keystroke; revisit 2026-11-01' ;;
-    unsourced-none) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' \
-      -m 'Provenance: keystroke under 50 ms; origin none; pointer none; rationale not recorded; revisit 2026-11-01' ;;
-    *) "$real_git" -C "$real_repo" commit -qam 'query keystroke target' ;;
-  esac
-  if [ "$target_case" = reworded ]; then
-    "$real_git" -C "$real_repo" push -q origin HEAD:main
-    sed -i 's/the 1,000-row query keystroke stays under 50 ms/a keystroke on the 1,000-row query renders under 50 ms/' "$real_repo/PLAN.md"
-    "$real_git" -C "$real_repo" commit -qam 'reword query keystroke row'
-  fi
-  run_after_landing_case
-  case "$target_case" in
-    unsourced*)
-      expect_status nonzero
-      expect_output 'under 50 ms'
-      expect_output "add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer"
-      ;;
-    *) expect_status zero ;;
-  esac
-done
+printf '| 9.11p | query view | the 1,000-row query keystroke stays under 50 ms | open |\n' >>"$real_repo/PLAN.md"
+printf -- '- Refuse a landing slower than 50 ms.\n' >>"$real_repo/harness/skills/example/SKILL.md"
+"$real_git" -C "$real_repo" commit -qam 'query keystroke target and policy line without a Provenance record'
+run_after_landing_case
+! grep -Fq 'Provenance' <<<"$case_output" || fail "an unsourced bar or policy line still failed after landing: $case_output"
+! grep -Fq 'after-landing gate provenance' <<<"$case_output" || fail 'the provenance gate still runs after landing'
 "$real_git" -C "$real_repo" fetch -q origin
 "$real_git" -C "$real_repo" reset -q --hard origin/main
 printf '| 9.12p | query view | the 1,000-row query scroll stays under 40 ms | open |\n' >>"$real_repo/PLAN.md"
@@ -1108,11 +1030,33 @@ printf '| 9.12p | query view | the 1,000-row query scroll stays under 40 ms | op
 run_real_case '' --dry-run
 expect_status nonzero
 expect_output 'names a native NorthThread item'
-! grep -Fq "add 'Provenance:" <<<"$case_output" || fail 'provenance still refused before landing'
-run_after_landing_case
-expect_status nonzero
-expect_output "add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer"
-printf 'Native refs refuse before landing and provenance reports after it: PASS\n'
+printf 'PASS: native refs refuse before landing, and a bar or policy line without Provenance files no after-landing failure\n'
+
+make_real_fixture review-coverage
+ln -s remote.git "$real_fixture/north.git"
+"$real_git" -C "$real_repo" config remote.origin.pushurl "$real_remote"
+"$real_git" -C "$real_repo" config remote.origin.url "$real_fixture/north.git"
+review_base=$("$real_git" -C "$real_repo" rev-parse refs/remotes/origin/main)
+mapfile -t review_paths < <("$TARGET" --durable-harness-paths north)
+for review_case in bin/tool harness/lib/helper.sh harness/skills/example/SKILL.md harness/hooks/guard.sh \
+    harness/claude/agents/worker.md agent-machinery/doctrine.md AGENTS.md harness/code/AGENTS.md reviewed:harness/hooks/guard.sh; do
+  "$real_git" -C "$real_repo" reset -q --hard "$review_base"
+  review_path=${review_case#reviewed:}
+  mkdir -p "$real_repo/$(dirname "$review_path")"
+  printf 'changed\n' >>"$real_repo/$review_path"
+  "$real_git" -C "$real_repo" add -- "$review_path"
+  "$real_git" -C "$real_repo" commit -qm "change $review_path"
+  if [ "$review_case" != "$review_path" ]; then
+    review_id=$(cd "$real_repo" && "$real_north" review-gate id "$review_base" HEAD "${review_paths[@]}")
+    "$real_git" -C "$real_repo" commit -q --amend -m "change $review_path" -m "Reviewed: approves; reviewer: fixture-reviewer; patch-id $review_id"
+  fi
+  run_after_landing_case
+  case "$review_case" in
+    bin/* | harness/lib/* | reviewed:*) expect_output 'after-landing gate review passed' ;;
+    *) expect_output 'after-landing gate review failed'; expect_output 'the covered harness diff lacks a review of its final patch-id' ;;
+  esac
+done
+printf 'PASS: review covers policy prose, hooks, agent definitions and AGENTS.md, and not bin/ or harness/lib code\n'
 
 make_real_fixture policy-sweep
 mkdir -p "$real_repo/agents/replay"
@@ -1144,8 +1088,7 @@ for policy_case in no-row row row-one-trial row-other-sha row-in-state-only no-p
     esac
   fi
   "$real_git" -C "$real_repo" add -A agents NOTES.md
-  "$real_git" -C "$real_repo" commit -qm "policy sweep case $policy_case" \
-    -m 'Provenance: agents/AGENTS.md: ask once on the policy fixture; origin experiment; pointer agents/replay/sweep-2026-10-28.jsonl plus the fixture sweep; rationale not recorded; revisit 2026-11-01'
+  "$real_git" -C "$real_repo" commit -qm "policy sweep case $policy_case"
   run_real_case '' --dry-run
   case "$policy_case" in
     row | no-policy-change) expect_status zero ;;
@@ -1220,13 +1163,6 @@ forget_run_measurements
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status zero
 expect_output 'CI budget farm-test.yml exemption'
-
-"$real_git" -C "$real_repo" commit --amend -qm 'speed up tests and add a test' \
-  -m $'CI-budget: farm-test.yml 300s -> 200s\nTest-kind: 3 boundary'
-SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
-expect_status nonzero
-expect_output 'farm-test.yml: median 300s > budget 240s'
-expect_output 'NOT pushed.'
 
 "$real_git" -C "$real_repo" commit --amend -qm 'fix red main' -m 'Main-red: 104'
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case

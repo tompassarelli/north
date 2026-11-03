@@ -1,14 +1,16 @@
 # Targets rationale
 
 Cold-path reasoning behind numeric performance, time and size targets. Agents do not load this file with rules;
-a `Provenance:` record's `rationale` field points at an entry here.
+a bar's box or `north provenance check` output points at an entry here.
+
+The `Provenance:` landing gate is retired. Tom approved retiring the test-kind and provenance gates and narrowing review to policy prose and hooks (2026-11-04): their after-landing failures were fixed by editing a trailer, a record or the runner, never landed code, so a rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and can bring a gate back on evidence.
 
 ## Soft targets
 
 Reasoning: most gating numbers had no recorded source; an inventory found no source for 207 of 254 bars. Ungrounded
 bars blocked delivery: galileo 9.11p measured 57.8 ms against a 50 ms bar and could not land. Tom (12 Oct 2026): a
-target can be missed temporarily "as long as you circle back to it later, like intentional debt". So a bar gates only
-with a `Provenance:` record naming its origin; a soft bar does not gate, and a miss lands with a `Target-debt:`
+target can be missed temporarily "as long as you circle back to it later, like intentional debt". So a bar gated only
+with a `Provenance:` record naming its origin until that gate was retired on 2026-11-04; a soft bar does not gate, and a miss lands with a `Target-debt:`
 trailer naming the measured value, owner and revisit trigger, retired by `Target-paid:`.
 
 Alternatives that lost:

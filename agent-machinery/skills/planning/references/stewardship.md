@@ -104,19 +104,12 @@ Useful events include a second implementation, repeated coordinated edits,
 promotion to a persisted/public boundary, an incident, or measured maintenance
 cost. “Revisit later” lacks an executable trigger.
 
-A commit that adds a numeric performance, time or size bar to a PLAN*.md table
-row, a Done when line, a `- [ ]` box or a test carries one record trailer:
-`Provenance: <claim>; origin <tom|experiment|prior-art|incident|none>; pointer
-<quote with date | run file plus rerun command | link | issue>; rationale <repo
-path#anchor | not recorded>; revisit <date YYYY-MM-DD | closed REPO#N | event
-text>`. The claim names the bar's number and unit. The rationale points into
-`docs/rationale/<topic>.md`, a cold-path store agents do not load with rules,
+A numeric performance, time or size bar names its source (an owner decision
+with its date, a run file plus rerun command, a link or an issue) in its box or
+in `docs/rationale/<topic>.md`, a cold-path store agents do not load with rules,
 whose entry holds the reasoning, the alternatives that lost and why, the
-trade-off accepted, what would overturn it and links to its evidence; `not
-recorded` is accepted and ranks first in a later audit. A bar that does not
-gate ends the record with `; soft`, and only a soft record may have origin
-`none`. `safe-push` refuses a new gating bar without a matching record; a
-reworded line keeping its bar needs none. A box that lands over a soft target,
+trade-off accepted, what would overturn it and links to its evidence. A landing
+needs no `Provenance:` trailer; Tom approved retiring that gate (2026-11-04) because its failures were fixed by editing a trailer, a record or the runner, never landed code; a rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and brings a gate back on evidence. A box that lands over a soft target,
 or a gate moved to debt, carries `Target-debt: <bar>; measured <value>; owner
 <lead or org name>; revisit <date YYYY-MM-DD | closed REPO#N>`; `Target-paid:
 <commit of the Target-debt>` retires it and names what was measured.

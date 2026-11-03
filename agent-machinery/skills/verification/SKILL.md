@@ -39,7 +39,7 @@ Iteration speed is everything, so every test names the guarantee it protects, in
 ## Five kinds of test worth keeping
 1. **Recorded scenarios**: real or seeded input through the whole system, checking invariants and agreement; keep one injected fault that must trip it.
 2. **Properties over a pure core**: generated inputs against bounds, round-trips or a reference model; locally a fixed seed and a few hundred cases; wide search after landing; keep shrunk failures named.
-3. **Product measurements**: owner-decided numbers with their `Provenance:` record ([planning](../planning/SKILL.md), the `Provenance:` rule); a missed soft one lands with `Target-debt:`.
+3. **Product measurements**: owner-decided numbers whose source the box or a rationale doc names; a missed soft one lands with `Target-debt:` ([planning](../planning/SKILL.md)).
 4. **External references**: truth from a spec, reference implementation or recorded real output, cited in the title or fixture.
 5. **One integration check per real boundary**, run end to end.
 
@@ -62,7 +62,8 @@ Example matrices re-testing one rule a property should own; our own prose, const
 ## Mutation and landing-tool rules
 - A mutant settles doubt about whether a test is the only one protecting a guarantee; it is not a toll on every deletion.
 - Mutate only in a scratch copy, never the lane, and mark every mutated line `MUTANT:<rule-id>`, because reviewers have committed product mutants; the landing tool refuses an added line with that token.
-- Record the mutant patch in the scratch copy before claiming a kill; the landing tool refuses an empty record, requires the patch to apply to the landing base or head and, where the repository configures a mutant runner, runs the claimed test itself and refuses unless it passes on the change and fails on the mutant.
+- Check a doubted kill on demand: `mutant record <id>` in the scratch copy, then `mutant verify BASE HEAD`, which refuses an empty record or a patch that applies to neither side and, where the repository configures a mutant runner, requires the claimed test to pass on the change and fail on the mutant.
+- A landing needs no `Test-kind:` trailer or recorded mutant per new test; Tom approved retiring that gate (2026-11-04) because its failures were fixed by editing a trailer, a record or the runner, never landed code; a rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and brings a gate back on evidence.
 - Product code never branches on a test's literal inputs, because that passes tests while breaking the product.
 
 ## Landing fast

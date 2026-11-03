@@ -224,7 +224,7 @@ pub fn publication(head_oid: &str, destination_ref: &str, destination_oid: &str)
 
 pub fn durable_harness_paths(repository: &str) -> Vec<String> {
     match repository {
-        "north" => ["harness/", "agent-machinery/", "bin/", "lib/"].map(str::to_owned).to_vec(),
+        "north" => ["harness/skills/", "harness/hooks/", "harness/claude/agents/", "agent-machinery/", "AGENTS.md", "harness/code/AGENTS.md"].map(str::to_owned).to_vec(),
         "south" => vec!["agents/".to_owned()],
         "firn" | "nixos-config" => DURABLE_FIRN_MODULES.iter().map(|module| format!("modules/{module}/")).collect(),
         _ => Vec::new(),

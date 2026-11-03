@@ -98,7 +98,7 @@ safe_push_common_dir=""
 
 durable_harness_paths() {
   case "$1" in
-    north) printf '%s\n' harness/ agent-machinery/ bin/ lib/ ;;
+    north) printf '%s\n' harness/skills/ harness/hooks/ harness/claude/agents/ agent-machinery/ AGENTS.md harness/code/AGENTS.md ;;
     south) printf '%s\n' agents/ ;;
     firn|nixos-config)
       printf 'modules/%s/\n' agent-runtime-update agent-slice agents-flow-stall \
@@ -120,9 +120,9 @@ Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct] [--message F
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH]
 
 Scan secrets and private values and run the landing checks, then push the current
-branch or one tag. Process gates (Test-kind and mutant proof, review patch-id,
-code-health, instruction limits, provenance, generated rewrites, CI budget) run
-after a landing on the default branch and file one issue per landed commit.
+branch or one tag. Process gates (review patch-id, code-health, instruction
+limits, generated rewrites, CI budget) run after a landing on the default branch
+and file one issue per landed commit.
 Repository AGENTS.md: 100 lines.
 Move longer detail to CLI --help, help TOPIC, or indexed docs.
 
@@ -582,109 +582,25 @@ vendored_trees() {
 }
 
 test_integrity_scan() {
-  local phase="$1" base="${2%%..*}" head="${2##*..}" allow=0 test_kinds helper vendored
-  [ "$base" != "$2" ] && [ -n "$base" ] || return 0
+  local base="${1%%..*}" head="${1##*..}" allow=0 vendored
+  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
   base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
   vendored=$(vendored_trees "$base")
   git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
-  test_kinds=$(git log --format=%B "$base..$head" | sed -n "/^Test-kind:/p")
-  helper="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/mutant"
-  [ "$phase" != test-kind ] || [ -z "$test_kinds" ] || "$helper" verify "$base" "$head" || return 1
-  git diff --unified=2147483647 --no-color --no-ext-diff --no-renames "$base" "$head" \
-    | PHASE="$phase" MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow TEST_KINDS="$test_kinds" VENDORED="$vendored" awk '
-    function require_kind(name,    key, file) {
-      file = path; sub(/^.*\//, "", file); key = file SUBSEP name
-      if (removing) { removed[key] = 1; removed_name[name] = 1; return }
-      if (retitling) candidate[key] = 1
-      if (!(key in added)) { order[++added_count] = key; shown[key] = path }
-      added[key] = 1
-    }
+  git diff --unified=0 --no-color --no-ext-diff --no-renames "$base" "$head" \
+    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow VENDORED="$vendored" awk '
     function in_vendored(file,    i) {
       for (i = 1; i <= vendored_count; i++) if (file == vendored_tree[i] || index(file, vendored_tree[i] "/") == 1) return 1
       return 0
     }
-    function skeleton(line) { gsub(/"[^"]*"|\047[^\047]*\047/, "\"\"", line); return line }
-    function test_names(line,    name, quote, escaped, j, char) {
-      if (match(line, /(^|[^[:alnum:]_])def[[:space:]]+test_[[:alnum:]_]+/)) {
-        name = substr(line, RSTART, RLENGTH); sub(/^.*def[[:space:]]+/, "", name); require_kind(name)
-      }
-      while (match(line, /(^|[^[:alnum:]_$])(test|it)[[:space:]]*\([[:space:]]*["\047]/)) {
-        quote = substr(line, RSTART + RLENGTH - 1, 1)
-        line = substr(line, RSTART + RLENGTH); name = ""; escaped = 0
-        for (j = 1; j <= length(line); j++) {
-          char = substr(line, j, 1)
-          if (!escaped && char == quote) break
-          if (!escaped && char == "\\") { escaped = 1; continue }
-          name = name char; escaped = 0
-        }
-        if (j <= length(line)) require_kind(name)
-        line = substr(line, j + 1)
-      }
-    }
-    BEGIN {
-      vendored_count = split(ENVIRON["VENDORED"], vendored_tree, "\n")
-      count = split(ENVIRON["TEST_KINDS"], trailers, "\n")
-      for (i = 1; i <= count; i++) {
-        trailer = trailers[i]
-        sub(/^Test-kind:[[:space:]]*/, "", trailer)
-        if (match(trailer, /[[:space:]]+[1-5][[:space:]]+kills[[:space:]]+[^[:space:]].*$/))
-          justified[substr(trailer, 1, RSTART - 1)] = 1
-      }
-    }
-    /^diff --git / { header = 1; vendored = 0; new_file = 0; deleted_file = 0; rust_test = 0; next }
-    header && /^new file mode / { new_file = 1; next }
-    header && /^deleted file mode / { deleted_file = 1; next }
-    header && /^--- / { old_path = substr($0, 7); next }
-    header && /^\+\+\+ / {
-      path = substr($0, 7); header = 0
-      if (deleted_file) path = old_path
-      vendored = in_vendored(path)
-      if (vendored) next
-      if ((new_file || deleted_file) && path ~ /\.test\.(sh|py|ts)$/) {
-        name = path; sub(/^.*\//, "", name); removing = deleted_file; require_kind(name); removing = 0
-      }
-      next
-    }
-    !header && vendored { next }
-    !header && path ~ /\.rs$/ && /^[+ ]/ {
-      if (/#\[(tokio::)?test\]/) { rust_test = 1; rust_added = /^\+/ }
-      if (rust_test && match($0, /(^|[^[:alnum:]_])fn[[:space:]]+[[:alnum:]_]+/)) {
-        name = substr($0, RSTART, RLENGTH)
-        sub(/^.*fn[[:space:]]+/, "", name)
-        if (rust_added || /^\+/) require_kind(name)
-        rust_test = 0
-      }
-    }
-    !header && path ~ /\.rs$/ && /^-/ && match($0, /(^|[^[:alnum:]_])fn[[:space:]]+[[:alnum:]_]+/) {
-      name = substr($0, RSTART, RLENGTH); sub(/^.*fn[[:space:]]+/, "", name)
-      removing = 1; require_kind(name); removing = 0
-    }
-    !header && NR == candidate_nr + 1 { if (/^ /) for (key in candidate) retitled[key] = 1; delete candidate }
-    !header && !/^[-+]/ { minus_count = 0; plus_index = 0 }
-    !header && /^-/ { if (!last_minus) { minus_count = 0; plus_index = 0 } minus[++minus_count] = substr($0, 2) }
-    !header { last_minus = /^-/ }
-    !header && /^-/ && path ~ ENVIRON["TEST_PATH_RE"] { removing = 1; test_names(substr($0, 2)); removing = 0; next }
-    header || !/^\+/ { next }
-    $0 ~ ENVIRON["MUTANT_RE"] {
-      if (ENVIRON["PHASE"] == "block") { print "safe-push: ✗ " path " adds a mutation marker: " substr($0, 2) " — mutants stay in scratch copies; NOT pushed."; bad = 1 }
-      next }
-    ENVIRON["PHASE"] == "block" && ENVIRON["SKIP_ALLOWED"] != 1 && path ~ ENVIRON["TEST_PATH_RE"] && $0 ~ ENVIRON["SKIP_RE"] {
+    BEGIN { vendored_count = split(ENVIRON["VENDORED"], vendored_tree, "\n") }
+    /^diff --git / { header = 1; next }
+    header && /^\+\+\+ / { path = substr($0, 7); header = 0; vendored = in_vendored(path); next }
+    header || vendored || !/^\+/ { next }
+    $0 ~ ENVIRON["MUTANT_RE"] { print "safe-push: ✗ " path " adds a mutation marker: " substr($0, 2) " — mutants stay in scratch copies; NOT pushed."; bad = 1; next }
+    ENVIRON["SKIP_ALLOWED"] != 1 && path ~ ENVIRON["TEST_PATH_RE"] && $0 ~ ENVIRON["SKIP_RE"] {
       print "safe-push: ✗ " path " adds a skip or focus: " substr($0, 2) " — name the changed requirement in a Test-change: trailer; NOT pushed."; bad = 1 }
-    path ~ ENVIRON["TEST_PATH_RE"] && ++plus_index <= minus_count && skeleton(substr($0, 2)) == skeleton(minus[plus_index]) { retitling = 1; test_names(substr($0, 2)); retitling = 0; candidate_nr = NR; next }
-    path ~ ENVIRON["TEST_PATH_RE"] || path ~ /\.rs$/ { test_names(substr($0, 2)) }
-    END {
-      for (i = 1; i <= added_count && ENVIRON["PHASE"] == "test-kind"; i++) {
-        key = order[i]
-        split(key, part, SUBSEP)
-        if (key in removed || part[2] in removed_name) continue
-        if (key in retitled) continue
-        if (!(part[2] in justified)) {
-          print "safe-push: ✗ " shown[key] " adds test " part[2] " without a Test-kind: trailer naming its kind (1-5) and a mutant only it kills; NOT pushed."
-          bad = 1
-        }
-      }
-      exit bad
-    }'
+    END { exit bad }'
 }
 
 generated_rewrite_scan() {
@@ -762,14 +678,6 @@ except (ValueError, OSError) as error:
     print(f"safe-push: ✗ {error}; NOT pushed.", file=sys.stderr)
     sys.exit(1)
 PYGENERATED
-}
-
-provenance_scan() {
-  local base="${1%%..*}" head="${1##*..}"
-  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
-  command -v north >/dev/null 2>&1 || return 0; north provenance check "$base" "$head" && return 0
-  echo "safe-push: ✗ a new gating bar, hook or policy line has no Provenance record; add 'Provenance: <claim with the bar>; origin <tom|experiment|prior-art|incident>; pointer <quote with date | run file plus rerun command | link | issue>; rationale <repo path#anchor | not recorded>; revisit <YYYY-MM-DD | closed REPO#N | event text>', or end it '; soft' (origin none allowed) for a bar that does not gate, whose miss lands with 'Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>'; NOT pushed."
-  return 1
 }
 
 policy_sweep_scan() {
@@ -891,7 +799,7 @@ ci_budget_scan() {
     return 0
   fi
 
-  local commits test_kind=0 workflow budget ceiling extra commit trailers name before arrow after matched improved
+  local commits workflow budget ceiling extra commit trailers name before arrow after matched improved
   local source rows sha wall result slowest runs ids id jobs measurement median since need head_sha
   local newest_job newest_seconds job_seconds attempt measure_cache measure_dir
   local -a walls
@@ -903,7 +811,6 @@ ci_budget_scan() {
     if [ -z "$red" ] || { [ -n "$main_red" ] && [ "$red" != "$main_red" ]; }; then main_red=''; break; fi
     main_red=$red
   done <<<"$commits"
-  if git log --format='%(trailers:key=Test-kind)' "$range" | grep . >/dev/null; then test_kind=1; fi
   while read -r workflow budget ceiling extra; do
     if [ -z "$workflow" ] || [[ ! "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || [ -n "$extra" ] \
         || { [ -n "$ceiling" ] && { [[ ! "$ceiling" =~ ^[0-9]+([.][0-9]+)?$ ]] \
@@ -916,7 +823,7 @@ ci_budget_scan() {
       continue
     fi
     improved=0
-    if [ "$test_kind" = 0 ] && [ -n "$commits" ]; then
+    if [ -n "$commits" ]; then
       improved=1
       while IFS= read -r commit; do
         matched=0
@@ -932,7 +839,7 @@ ci_budget_scan() {
       done <<<"$commits"
     fi
     if [ "$improved" = 1 ]; then
-      printf 'safe-push: CI budget %s exemption — every commit records a measured speed-up and none carries Test-kind:.\n' "$workflow"
+      printf 'safe-push: CI budget %s exemption — every commit records a measured speed-up.\n' "$workflow"
       continue
     fi
 
@@ -1065,9 +972,8 @@ code_health_gate() {
 }
 
 # Gates that judge process rather than whether main works run after the push; each failure is one issue, never a refusal.
-after_landing_gates=(test-kind:test_integrity_scan_test_kind review:review_scan code-health:code_health_landed
-  instruction-limits:instruction_limits_landed provenance:provenance_scan generated-rewrite:generated_rewrite_scan ci-budget:ci_budget_scan)
-test_integrity_scan_test_kind() { test_integrity_scan test-kind "$1"; }
+after_landing_gates=(review:review_scan code-health:code_health_landed instruction-limits:instruction_limits_landed
+  generated-rewrite:generated_rewrite_scan ci-budget:ci_budget_scan)
 code_health_landed() { code_health_gate "${1%%..*}" "${1##*..}"; }
 instruction_limits_landed() { check_instruction_limits "${1##*..}"; }
 
@@ -2267,7 +2173,7 @@ policy_scans() {
   scan_range_for_native=("$range")
   native_ref_scan "$branch" "$destination" || policy_failures+=("native item reference")
   tool_removal_scan "$range" || policy_failures+=("tool removal")
-  test_integrity_scan block "$range" || policy_failures+=("test integrity")
+  test_integrity_scan "$range" || policy_failures+=("test integrity")
   policy_sweep_scan "$range" || policy_failures+=("policy sweep")
   [ "${#policy_failures[@]}" -eq 0 ]
 }
