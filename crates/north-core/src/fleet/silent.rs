@@ -1,16 +1,50 @@
 //! The note a parent gets once when a child stops with nothing to show for its last turn: no final
 //! report, or a `Done:` report while its lane still holds commits origin/main lacks. It goes out
-//! when the child has sat idle for `SILENT_AFTER`, or when it parks or exits first.
+//! when the child has gone quiet for twice its brief's ETA, or when it parks or exits first.
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use super::receipts::is_final;
+use super::model::Entry;
+use super::receipts::{is_final, last_lines};
 use super::stranded::{Lane, reported_done};
 
-/// How long a child may sit idle before its parent is told it stopped without a report.
-pub const SILENT_AFTER: Duration = Duration::from_secs(4 * 60);
+/// The ETA a child is held to when its brief names none.
+pub const DEFAULT_ETA_MIN: u64 = 45;
+
+/// How many ETAs a child may stay quiet before its parent is told.
+const QUIET_ETAS: u32 = 2;
+
+/// The minutes of the `ETA:` line of a brief, such as `ETA: 20 min (uncalibrated)` or `ETA: 1.5 h`.
+pub fn eta_minutes(brief: &str) -> Option<u64> {
+    let rest = brief.lines().find_map(|line| line.trim().strip_prefix("ETA:"))?.trim_start();
+    let end = rest.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(rest.len());
+    let amount: f64 = rest[..end].parse().ok()?;
+    let hours = rest[end..].trim_start().to_ascii_lowercase().starts_with('h');
+    let minutes = (amount * if hours { 60.0 } else { 1.0 }).round();
+    (minutes >= 1.0).then_some(minutes as u64)
+}
+
+/// How long a child with this ETA (`DEFAULT_ETA_MIN` when none) may stay quiet, an ETA minute lasting `minute`.
+pub fn quiet_after(eta_min: Option<u64>, minute: Duration) -> Duration {
+    minute.saturating_mul(u32::try_from(eta_min.unwrap_or(DEFAULT_ETA_MIN)).unwrap_or(u32::MAX).saturating_mul(QUIET_ETAS))
+}
+
+/// How long the child has been quiet, for the note to its parent.
+pub struct Silence<'a> {
+    pub quiet: Duration,
+    pub eta_min: Option<u64>,
+    pub lines: &'a [Entry],
+}
+
+impl Silence<'_> {
+    fn text(&self) -> String {
+        let quiet = self.quiet.as_secs() / 60;
+        let eta = self.eta_min.map_or_else(|| format!("{DEFAULT_ETA_MIN} min (its brief names none)"), |eta| format!("{eta} min"));
+        format!(" Quiet for {quiet} min against its ETA of {eta}.")
+    }
+}
 
 /// Where the child stood when it was found silent.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,11 +77,21 @@ pub struct Quiet {
     /// Set once the child starts another turn, so a check still running says nothing.
     pub cancelled: Arc<AtomicBool>,
     pub completed: bool,
+    pub since: Instant,
+    /// How long the child may stay quiet before the idle check tells its parent.
+    pub after: Duration,
+    pub eta_min: Option<u64>,
+    pub lines: Vec<Entry>,
 }
 
 impl Quiet {
-    pub fn after(turn: u64, reply: String, completed: bool) -> Self {
-        Self { turn, reply, checked: false, idled: false, probe: None, cancelled: Arc::default(), completed }
+    pub fn after(turn: u64, reply: String, completed: bool, eta_min: Option<u64>, minute: Duration, lines: Vec<Entry>) -> Self {
+        Self { turn, reply, checked: false, idled: false, probe: None, cancelled: Arc::default(), completed, since: Instant::now(), after: quiet_after(eta_min, minute), eta_min, lines }
+    }
+
+    /// Whether the child has been quiet past twice its ETA and has not been told about yet.
+    pub fn due(&self, idle: Duration) -> bool {
+        !self.checked && !self.idled && idle >= self.after
     }
 
     /// Takes the result of a check that has ended.
@@ -70,7 +114,7 @@ pub fn needs_lane(reply: &str) -> bool {
 }
 
 /// The note for the parent, or nothing when the child reported or holds nothing unlanded.
-pub fn notice(child: &str, state: State, turn: u64, reply: &str, lane: Option<&Lane>, unread: bool) -> Option<String> {
+pub fn notice(child: &str, state: State, turn: u64, reply: &str, lane: Option<&Lane>, unread: bool, silence: Option<&Silence>) -> Option<String> {
     let held = lane.filter(|lane| lane.ahead > 0 && !lane.landed);
     let what = if !is_final(reply) {
         let lane = held.map(|lane| format!("; its lane {} holds {} not on origin/main", lane.label(), commits(lane.ahead))).unwrap_or_default();
@@ -81,7 +125,9 @@ pub fn notice(child: &str, state: State, turn: u64, reply: &str, lane: Option<&L
     } else {
         return None;
     };
-    Some(format!("[from {child} · {} · turn {turn}] {what}. Read it with `north fleet show {child}`.", state.label()))
+    let quiet = silence.map(Silence::text).unwrap_or_default();
+    let tail = silence.filter(|silence| !silence.lines.is_empty()).map(|silence| format!("\n{}", last_lines(silence.lines))).unwrap_or_default();
+    Some(format!("[from {child} · {} · turn {turn}] {what}.{quiet} Read it with `north fleet show {child}`.{tail}", state.label()))
 }
 
 /// A `Done: queued BRANCH` report, made while the branch waits for Autoland to land it.
@@ -101,7 +147,7 @@ mod tests {
     use super::*;
 
     fn note(child: &str, state: State, turn: u64, reply: &str, lane: Option<&Lane>) -> Option<String> {
-        notice(child, state, turn, reply, lane, false)
+        notice(child, state, turn, reply, lane, false, None)
     }
 
     fn lane(ahead: u32, landed: bool) -> Lane {
@@ -117,7 +163,7 @@ mod tests {
 
     #[test]
     fn dropping_a_quiet_turn_cancels_the_check_still_in_flight_for_it() {
-        let quiet = Quiet::after(1, "x".into(), true);
+        let quiet = Quiet::after(1, "x".into(), true, None, Duration::from_secs(60), Vec::new());
         let flag = quiet.cancelled.clone();
         assert!(!flag.load(Ordering::SeqCst));
         drop(quiet);
@@ -126,9 +172,9 @@ mod tests {
 
     #[test]
     fn a_lane_that_could_not_be_read_is_said_so_for_a_turn_with_no_report() {
-        let said = notice("kid", State::Idle, 2, "Landing now.", None, true).unwrap();
+        let said = notice("kid", State::Idle, 2, "Landing now.", None, true, None).unwrap();
         assert!(said.contains("report; its lane could not be read."), "{said}");
-        assert_eq!(notice("kid", State::Idle, 2, "Done: x", None, true), None, "a Done: with an unread lane is left to the retry");
+        assert_eq!(notice("kid", State::Idle, 2, "Done: x", None, true, None), None, "a Done: with an unread lane is left to the retry");
     }
 
     #[test]
@@ -148,5 +194,55 @@ mod tests {
             assert!(!needs_lane(reply), "{reply}");
         }
         assert!(needs_lane("Done: x") && needs_lane("working on it"));
+    }
+
+    const MINUTE: Duration = Duration::from_secs(60);
+
+    fn quiet_with(eta_min: Option<u64>) -> Quiet {
+        Quiet::after(1, "Landing now.".into(), true, eta_min, MINUTE, Vec::new())
+    }
+
+    fn at(eta_min: u64, ratio: f64) -> Duration {
+        Duration::from_secs_f64(eta_min as f64 * 60.0 * ratio)
+    }
+
+    #[test]
+    fn a_child_quiet_for_1_9_etas_is_not_due_and_one_quiet_for_2_1_etas_is_due_once() {
+        let mut quiet = quiet_with(Some(20));
+        assert!(!quiet.due(at(20, 1.9)));
+        assert!(quiet.due(at(20, 2.1)));
+        quiet.idled = true;
+        assert!(!quiet.due(at(20, 2.1)), "told once for this quiet stretch");
+        assert!(!quiet.due(at(20, 5.0)));
+    }
+
+    #[test]
+    fn a_child_with_no_eta_is_held_to_45_minutes() {
+        let quiet = quiet_with(None);
+        assert!(!quiet.due(at(45, 1.9)));
+        assert!(quiet.due(at(45, 2.1)));
+        assert_eq!(quiet_after(None, MINUTE), Duration::from_secs(90 * 60));
+    }
+
+    #[test]
+    fn the_eta_comes_from_the_brief_eta_line_in_minutes_or_hours() {
+        assert_eq!(eta_minutes("Item: x\nETA: 20 min (uncalibrated)\nFiles: a"), Some(20));
+        assert_eq!(eta_minutes("ETA: 1.5 h"), Some(90));
+        assert_eq!(eta_minutes("ETA: 2 hours"), Some(120));
+        assert_eq!(eta_minutes("ETA: 45"), Some(45));
+        assert_eq!(eta_minutes("Item: x\nFiles: a"), None);
+        assert_eq!(eta_minutes("ETA: soon"), None);
+    }
+
+    #[test]
+    fn the_note_names_how_long_the_child_was_quiet_its_eta_and_its_last_transcript_lines() {
+        use crate::fleet::model::EntryKind;
+        let lines = vec![Entry { kind: EntryKind::Assistant, text: "Running the suite.".into() }];
+        let silence = Silence { quiet: Duration::from_secs(95 * 60), eta_min: Some(45), lines: &lines };
+        let said = notice("kid", State::Idle, 3, "Landing now.", None, false, Some(&silence)).unwrap();
+        assert!(said.starts_with("[from kid · idle · turn 3]") && said.contains("Quiet for 95 min against its ETA of 45 min."), "{said}");
+        assert!(said.contains("Last 1 transcript lines:\n") && said.contains("Running the suite."), "{said}");
+        let none = Silence { quiet: Duration::from_secs(90 * 60), eta_min: None, lines: &[] };
+        assert!(notice("kid", State::Idle, 3, "Landing now.", None, false, Some(&none)).unwrap().contains("ETA of 45 min (its brief names none)"));
     }
 }

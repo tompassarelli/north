@@ -16,11 +16,11 @@ use super::handoff;
 use super::idle::{self, Step};
 use super::jobs::{HeldLeases, JobLeases};
 use super::landings::{self, push_log};
-use super::model::{Delivery, Ending, EntryKind, Machine, SessionRecord, Transcript};
+use super::model::{Delivery, Ending, Entry, EntryKind, Machine, SessionRecord, Transcript};
 use super::prompt::is_deepened;
 use super::receipts::{Courier, Report, deliver_report, is_final};
 use super::records::{find_session, host_sessions, parents_live, write_record};
-use super::silent::{self, Quiet, State};
+use super::silent::{self, Quiet, Silence, State};
 use super::runtime::{Runtime, new_uuid, now_ms};
 use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
@@ -75,6 +75,9 @@ struct Tell {
     turn: u64,
     reply: String,
     cancelled: Arc<AtomicBool>,
+    quiet: Duration,
+    eta_min: Option<u64>,
+    lines: Vec<Entry>,
 }
 
 impl Tell {
@@ -96,7 +99,8 @@ impl Tell {
         let wants_lane = silent::needs_lane(&self.reply);
         let lane = if wants_lane { self.lane() } else { None };
         let unread = wants_lane && lane.is_none();
-        let Some(text) = silent::notice(&self.record.name, self.state, self.turn, &self.reply, lane.as_ref(), unread) else { return !(unread && self.state == State::Idle) };
+        let silence = Silence { quiet: self.quiet, eta_min: self.eta_min, lines: &self.lines };
+        let Some(text) = silent::notice(&self.record.name, self.state, self.turn, &self.reply, lane.as_ref(), unread, Some(&silence)) else { return !(unread && self.state == State::Idle) };
         if self.cancelled.load(Ordering::SeqCst) {
             return true;
         }
@@ -257,7 +261,7 @@ impl TurnWatch {
         }
     }
 
-    fn speak_up(&mut self, state: State) {
+    fn speak_up(&mut self, state: State, idle: Duration) {
         if !self.closing && self.turns.in_flight() {
             return;
         }
@@ -266,7 +270,7 @@ impl TurnWatch {
         for conversation in conversations {
             let Some(quiet) = self.quiet.get_mut(&conversation) else { continue };
             quiet.settle();
-            if quiet.checked || quiet.probe.is_some() || (state == State::Idle && quiet.idled) {
+            if quiet.checked || quiet.probe.is_some() || (state == State::Idle && (quiet.idled || !quiet.due(idle))) {
                 continue;
             }
             let record = find_session(&self.root, &self.host_dir, &conversation);
@@ -276,7 +280,7 @@ impl TurnWatch {
                 continue;
             };
             quiet.idled |= state == State::Idle;
-            let tell = Tell { lanes: self.lanes.clone(), courier: self.courier.clone(), ledger: self.ledger.clone(), jobs: self.jobs.clone(), record, parent, state, turn: quiet.turn, reply: quiet.reply.clone(), cancelled: quiet.cancelled.clone() };
+            let tell = Tell { lanes: self.lanes.clone(), courier: self.courier.clone(), ledger: self.ledger.clone(), jobs: self.jobs.clone(), record, parent, state, turn: quiet.turn, reply: quiet.reply.clone(), cancelled: quiet.cancelled.clone(), quiet: quiet.since.elapsed(), eta_min: quiet.eta_min, lines: quiet.lines.clone() };
             quiet.probe = Some(std::thread::spawn(move || tell.run()));
         }
     }
@@ -322,11 +326,12 @@ impl TurnWatch {
         };
         let number = self.ledger.record_run(&run).map_err(|error| eprintln!("north ledger: {}", error.user_message())).ok();
         let reply = self.views.get(&run.turn.conversation).and_then(|view| view.reply.clone()).unwrap_or_default();
+        let lines = self.views.get(&run.turn.conversation).map(|view| view.transcript.entries.clone()).unwrap_or_default();
         let Some(record) = session else { return };
         self.observe_landing(&record);
         if let Some(number) = number {
             if matches!(run.turn.exit, TurnExit::Completed | TurnExit::Interrupted) {
-                self.quiet.insert(run.turn.conversation.clone(), Quiet::after(number, reply, run.turn.exit == TurnExit::Completed));
+                self.quiet.insert(run.turn.conversation.clone(), Quiet::after(number, reply, run.turn.exit == TurnExit::Completed, record.eta_min, self.idle.eta_minute, lines));
             }
             self.report(&record, &run.turn, number);
         }
@@ -401,9 +406,9 @@ impl FrameWatch for TurnWatch {
         let step = self.idle.step(session, park_after);
         match step {
             Step::Park => {
-                self.speak_up(State::Parked);
+                self.speak_up(State::Parked, idle);
             }
-            _ if idle >= self.idle.silent_after && !detached => self.speak_up(State::Idle),
+            _ if !detached && self.quiet.values().any(|quiet| quiet.due(idle)) => self.speak_up(State::Idle, idle),
             _ => {}
         }
         match step {
@@ -414,7 +419,7 @@ impl FrameWatch for TurnWatch {
                 self.runtime.compact().map_or(Rest::Wait, |frame| Rest::Send(vec![frame]))
             }
             Step::Exit if self.retire(Ending::IdleExit) => {
-                self.speak_up(State::Exited);
+                self.speak_up(State::Exited, idle);
                 Rest::End
             }
             Step::Exit => self.rest(idle, park_after),
@@ -432,7 +437,7 @@ impl FrameWatch for TurnWatch {
             claims::release_for(self.claims.as_ref(), &record);
         }
         self.finish_probes();
-        self.speak_up(if retired { State::Exited } else { State::Parked });
+        self.speak_up(if retired { State::Exited } else { State::Parked }, Duration::ZERO);
         self.finish_probes();
     }
 }
@@ -519,6 +524,9 @@ mod tests {
             turn: 1,
             reply: "Started the push; waiting on its exit.".into(),
             cancelled: Arc::new(AtomicBool::new(false)),
+            quiet: Duration::from_secs(60),
+            eta_min: None,
+            lines: Vec::new(),
         }
     }
 

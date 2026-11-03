@@ -190,6 +190,7 @@ impl Fleet {
             capacity_need: request.capacity_need.clone(),
             last_sender: None,
             handoff_at: crate::fleet::handoff::threshold(&request.prompt),
+            eta_min: request.eta_min(),
             addressed_since_ms: None,
         };
         let row = SessionRow { status: Status::Starting.label().to_owned(), ..self.table_row(&record, record.created_ms) };

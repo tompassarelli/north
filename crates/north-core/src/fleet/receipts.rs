@@ -103,7 +103,7 @@ pub(super) fn is_final(reply: &str) -> bool {
     FINAL_OPENINGS.iter().any(|word| opening.strip_prefix(word).is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric())))
 }
 
-fn last_lines(lines: &[Entry]) -> String {
+pub(super) fn last_lines(lines: &[Entry]) -> String {
     let tail = &lines[lines.len().saturating_sub(LAST_LINES)..];
     let rendered: Vec<String> = tail.iter().map(|entry| format!("{}: {}", entry.kind.label(), summarize(&entry.text.replace('\n', " "), LINE_CHARS))).collect();
     format!("Last {} transcript lines:\n{}", tail.len(), rendered.join("\n"))

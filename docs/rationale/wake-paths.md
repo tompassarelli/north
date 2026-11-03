@@ -36,7 +36,7 @@ session quiet past twice its ETA to its parent.
 | 9 | Detached-run hold: a session with a live detached process is held unparked and unwoken for up to 2 h before its pid waits are registered | `crates/north-core/src/fleet/idle.rs:9` (`DETACHED_HOLD`), `:59`; `crates/north-core/src/fleet/detached.rs:86` | 0 (it suppresses wakes) | n/a | yes: the pid wait (8) delivers the same end, and holds no slot | cut |
 | 10 | Wait expiry: a wait unresolved after 24 h is dropped with a message | `crates/north-core/src/fleet/waits.rs:20` (`EXPIRY_SECS`), `:192` | 0 | n/a | no; the silence check (12) reaches the parent long before 24 h | cut |
 | 11 | Parent report delivery: a child's `Done:`, `Not done:`, `Split:`, `Stop:` or `Blocked:` turn, landing or failure reaches its parent | `crates/north-core/src/fleet/receipts.rs:66` (`deliver_report`); `crates/north-core/src/fleet/registry/parents.rs:45` (`tell`) | 736 | 517 (70%, the parent only acknowledged) | is the message event | keep |
-| 12 | Silent notice: a child idle 4 min, parked or exited with no final report, or a `Done:` with an unlanded lane, is reported to its parent | `crates/north-core/src/fleet/silent.rs:13` (`SILENT_AFTER`), `:73` (`notice`); `crates/north-core/src/fleet/watch.rs:99` | 227 | 198 (87%) | no; it is the only silence check | keep, retimed to twice the ETA |
+| 12 | Silent notice: a child quiet twice its brief's ETA (45 min when none), parked or exited with no final report, or a `Done:` with an unlanded lane, is reported to its parent | `crates/north-core/src/fleet/silent.rs` (`quiet_after`, `notice`); `crates/north-core/src/fleet/watch.rs:99` | 227 | 198 (87%) | no; it is the only silence check | keep, retimed to twice the ETA |
 | 13 | Idle park and revive-on-message: an idle session parks at 10 min (30 s with a registered wait) and its next fleet message revives it | `crates/north-core/src/fleet/idle.rs:47` (`step`), `:6`; `crates/north-core/src/fleet/session_host.rs:340`; `crates/north-core/src/fleet/registry/senders.rs:49` | carrier of rows 7, 8, 11, 14 to 18 | n/a | is how a message event reaches a parked session | keep |
 | 14 | Other fleet messages (`north fleet send` between leads, workers and the proxy) | `crates/north-core/src/fleet/registry/senders.rs:38` | 1,001 | 602 (60%) | is the message event | keep |
 | 15 | `job-run --notify`: the detached job's exit spooled to its session | `bin/job-run:83`; lease `crates/north-core/src/fleet/jobs.rs:1` | 78 | 31 (40%) | is the process event | keep |
@@ -72,7 +72,7 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
 
 ## Cut list
 
-- [ ] Retime the silent notice to the one silence check: a session whose last output is older than twice its
+- [x] Retime the silent notice to the one silence check: a session whose last output is older than twice its
   brief's ETA (45 min when the brief has none) and that has no live registered wait is reported to its parent
   once per quiet stretch, replacing the 4-minute idle trigger. Done when: `cargo test -p north-core fleet::silent`
   passes with a test that a child quiet 1.9x its ETA is not reported and one quiet 2.1x its ETA is reported once.
@@ -83,7 +83,7 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
 - [ ] Remove the detached-run hold: a session with a live detached process registers its pid waits and parks at
   the registered-wait park time. Done when: `rg -n DETACHED_HOLD crates` prints nothing and an idle.rs test shows
   a session with a detached run parks at 30 s with its pid wait registered.
-- [ ] Remove the 24-hour wait expiry message; the silence check reaches the parent first. Done when:
+- [x] Remove the 24-hour wait expiry message; the silence check reaches the parent first. Done when:
   `rg -n "never ended" crates/north-core/src/fleet/waits.rs` prints nothing and `cargo test -p north-core fleet::waits` passes.
 - [x] Send each `north flow` stall, stranded or refused alert once per episode instead of every 15 minutes, and
   update the workers skill line that promises the repeat. Done when: an alerts.rs test shows an unchanged stall

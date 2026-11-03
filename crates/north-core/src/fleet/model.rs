@@ -79,6 +79,11 @@ impl LaunchRequest {
         self.named_brief().map(|brief| item_issues(&brief)).unwrap_or_default()
     }
 
+    /// The minutes of the brief's `ETA:` line, in the prompt or else in the brief it points at.
+    pub fn eta_min(&self) -> Option<u64> {
+        super::silent::eta_minutes(&self.prompt).or_else(|| self.named_brief().and_then(|brief| super::silent::eta_minutes(&brief)))
+    }
+
     pub fn named_brief(&self) -> Option<String> {
         let brief = self
             .prompt
@@ -172,6 +177,8 @@ pub struct SessionRecord {
     pub last_sender: Option<LastSender>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eta_min: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<Ending>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

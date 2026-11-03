@@ -48,7 +48,7 @@ async fn a_child_that_parks_with_no_report_line_tells_its_parent_once_which_stat
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_child_idle_past_the_silent_limit_is_told_as_idle_before_it_parks_and_not_told_again_when_it_does() {
-    let policy = crate::fleet::idle::Policy { silent_after: Duration::from_secs(1), ..seconds(600, 600) };
+    let policy = crate::fleet::idle::Policy { eta_minute: Duration::from_millis(11), ..seconds(600, 600) };
     let told = silent_run("Landing now.", Arc::new(Ahead(3)), policy, Duration::from_secs(4)).await;
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].1.starts_with("[from worker · idle · turn 1]") && told[0].1.contains("its lane g1 holds 3 commits not on origin/main"), "{}", told[0].1);
@@ -81,7 +81,7 @@ impl crate::fleet::stranded::Lanes for FlakyOnce {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_lane_that_could_not_be_read_at_idle_is_read_again_when_the_child_exits() {
-    let policy = crate::fleet::idle::Policy { silent_after: Duration::from_secs(1), ..seconds(600, 3) };
+    let policy = crate::fleet::idle::Policy { eta_minute: Duration::from_millis(11), ..seconds(600, 3) };
     let told = silent_run("Done: landed abc123.", Arc::new(FlakyOnce(Default::default(), Ahead(2))), policy, Duration::from_secs(3)).await;
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].1.starts_with("[from worker · exited · turn 1] it reported Done: but its lane g1 holds 2 commits"), "{}", told[0].1);
@@ -114,7 +114,7 @@ async fn a_child_whose_host_ends_with_a_background_task_still_out_tells_its_pare
 
 async fn silent_with_job(addressed_to: &str, leased: bool) -> Vec<(String, String, Delivery)> {
     let held: std::collections::BTreeSet<String> = leased.then(|| addressed_to.to_owned()).into_iter().collect();
-    let policy = crate::fleet::idle::Policy { silent_after: Duration::from_secs(1), ..seconds(600, 600) };
+    let policy = crate::fleet::idle::Policy { eta_minute: Duration::from_millis(11), ..seconds(600, 600) };
     silent_run_with_jobs("Started the push; waiting on its exit.", Arc::new(Ahead(0)), policy, Duration::from_secs(3), json!({}), Arc::new(crate::fleet::jobs::HeldLeases(held))).await
 }
 
