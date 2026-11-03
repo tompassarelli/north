@@ -6,7 +6,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::Delivery;
 use crate::fleet::registry::Fleet;
 
-use super::fleet_placement::{Placed, Refusal};
+use super::placement::{Placed, Refusal};
 
 const POLL: Duration = Duration::from_secs(60);
 const LIMIT: Duration = Duration::from_secs(2 * 60);

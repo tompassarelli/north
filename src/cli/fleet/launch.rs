@@ -5,9 +5,9 @@ use crate::fleet::model::{Effort, LaunchRequest, ProviderName};
 use crate::fleet::prompt::PromptMode;
 use crate::fleet::runtime::new_uuid;
 
-use super::fleet_usage::usage;
-use super::fleet_lineage;
-use super::fleet_placement::{self, Overrides};
+use super::usage::usage;
+use super::lineage;
+use super::placement::{self, Overrides};
 
 #[derive(Default)]
 struct LaunchFlags {
@@ -55,12 +55,12 @@ impl LaunchFlags {
         if prompt.is_empty() {
             return Err(usage());
         }
-        let (cwd, machine) = fleet_placement::working_directory(self.cwd)?;
+        let (cwd, machine) = placement::working_directory(self.cwd)?;
         let name = match self.name {
             Some(name) => name,
             None => default_name(&provider, &account)?,
         };
-        let parent = fleet_lineage::parent(self.parent, caller, proxy, &name);
+        let parent = lineage::parent(self.parent, caller, proxy, &name);
         Ok(LaunchRequest {
             verification: self.verification,
             name,
@@ -115,7 +115,7 @@ pub(super) fn launch_parts(providers: &[ProviderName], words: &[&str], caller: O
         }
         index += 1;
     }
-    let wait = fleet_lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
+    let wait = lineage::wait(flags.wait, flags.parent.as_deref(), caller.as_deref());
     let (overrides, take_over) = (std::mem::take(&mut flags.overrides), flags.take_over);
     Ok(LaunchParts { request: flags.request(words[index..].join(" "), caller, proxy)?, overrides, wait, take_over })
 }

@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use crate::error::NorthResult;
 use crate::fleet::registry::Fleet;
 
-use super::fleet_list::elsewhere;
+use super::list::elsewhere;
 
 struct Node {
     name: String,

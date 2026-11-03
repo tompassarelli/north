@@ -2,13 +2,13 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, LaunchRequest};
 use crate::ops::dispatch::{Ask, Start, start_hand, tier_reason, untasked};
 
-use super::fleet_placement::{self, Overrides};
+use super::placement::{self, Overrides};
 
 pub(super) fn apply(request: &mut LaunchRequest, overrides: &mut Overrides) -> NorthResult<Option<Start>> {
     if request.provider.label() != "claude" || request.verification {
         return Ok(None);
     }
-    let mut brief = fleet_placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
+    let mut brief = placement::brief_text(request.system_prompt.as_deref(), &request.prompt)?;
     brief.extend(request.named_brief());
     let reason = tier_reason(&brief, overrides.tier.as_deref());
     let header = header(request)?;
@@ -49,7 +49,7 @@ pub(super) fn recorded(start: Option<Start>, request: &LaunchRequest, name: &str
 }
 
 fn header(request: &LaunchRequest) -> NorthResult<String> {
-    Ok(headers(&[&fleet_placement::brief_text(request.system_prompt.as_deref(), "")?, &request.prompt, &request.named_brief().unwrap_or_default()]))
+    Ok(headers(&[&placement::brief_text(request.system_prompt.as_deref(), "")?, &request.prompt, &request.named_brief().unwrap_or_default()]))
 }
 
 fn headers(texts: &[&str]) -> String {

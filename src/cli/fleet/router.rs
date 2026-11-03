@@ -3,39 +3,39 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::{NorthError, NorthResult};
-use super::fleet_claims::{ThreadsCli, release_exited_claims};
+use super::claims::{ThreadsCli, release_exited_claims};
 use crate::fleet::model::ProviderName;
 use crate::fleet::registry::{self, Controlled, Fleet};
 use crate::fleet::store::ControlVerb;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::runtimes::Runtimes;
-use crate::ops::pacing::placement::{self, config};
+use crate::ops::pacing::placement::{self as pacing_placement, config};
 use crate::providers::claude::fleet::Claude;
 use crate::providers::codex::fleet::Codex;
 use crate::ledger::Ledger;
 use crate::fleet::session_host::{FrameWatch, HostConfig};
 use crate::tui;
 
-use super::fleet_placement::{self, Overrides};
-use super::fleet_admission;
-use super::fleet_duplicate;
-use super::fleet_ledger::{LedgerLeases, LedgerRegistrar};
-use super::fleet_lineage;
-use super::fleet_launch::{LaunchParts, launch_parts};
+use super::placement::{self, Overrides};
+use super::admission;
+use super::duplicate;
+use super::ledger::{LedgerLeases, LedgerRegistrar};
+use super::lineage;
+use super::launch::{LaunchParts, launch_parts};
 #[cfg(test)]
-use super::fleet_launch::launch_request;
-use super::fleet_list;
-use super::fleet_usage::usage;
-use super::fleet_revive;
-use super::fleet_row;
-use super::fleet_show;
-use super::fleet_spend;
-use super::fleet_waits;
-use super::fleet_tick;
-use super::fleet_tier;
-use super::fleet_tree;
-use super::{gate, orders, send};
+use super::launch::launch_request;
+use super::list;
+use super::usage::usage;
+use super::revive;
+use super::row;
+use super::show;
+use super::spend;
+use super::waits;
+use super::tick;
+use super::tier;
+use super::tree;
+use crate::cli::{gate, orders, send};
 
 const DEFAULT_ASK_SECS: u64 = 120;
 
@@ -70,16 +70,16 @@ fn runtimes() -> Runtimes {
     Runtimes::new(vec![Arc::new(Claude), Arc::new(Codex)])
 }
 
-pub(super) fn roster() -> NorthResult<Roster> {
+pub(in crate::cli) fn roster() -> NorthResult<Roster> {
     registry::roster(&runtimes())
 }
 
-pub(super) fn open_fleet() -> NorthResult<Fleet> {
+pub(in crate::cli) fn open_fleet() -> NorthResult<Fleet> {
     Fleet::open(runtimes(), Arc::new(Ledger::open_default()?), Arc::new(ThreadsCli), Arc::new(LedgerRegistrar::new(far_machine)), Arc::new(LedgerLeases))
 }
 
 fn far_machine(host: &str) -> bool {
-    config().is_ok_and(|cfg| placement::gate::spool_pulled(&cfg, host))
+    config().is_ok_and(|cfg| pacing_placement::gate::spool_pulled(&cfg, host))
 }
 
 pub fn host_watch(config: &HostConfig) -> Option<Box<dyn FrameWatch>> {
@@ -98,21 +98,21 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         [] => tui::fleet::run(fleet),
-        [verb @ ("list" | "stranded" | "rebooted"), rest @ ..] => fleet_list::list(&fleet, verb, rest),
-        ["tree"] => fleet_tree::tree(&fleet),
-        ["spend", rest @ ..] => fleet_spend::run(&fleet, rest),
-        [verb @ ("wait" | "waits"), rest @ ..] => fleet_waits::run(&fleet, verb, rest),
+        [verb @ ("list" | "stranded" | "rebooted"), rest @ ..] => list::list(&fleet, verb, rest),
+        ["tree"] => tree::tree(&fleet),
+        ["spend", rest @ ..] => spend::run(&fleet, rest),
+        [verb @ ("wait" | "waits"), rest @ ..] => waits::run(&fleet, verb, rest),
         ["accounts"] => accounts(&fleet),
         ["launch", rest @ ..] => launch(&fleet, rest),
-        [verb @ ("row" | "spool"), rest @ ..] => fleet_row::run(&fleet, verb, rest),
-        ["tick", rest @ ..] => fleet_tick::run(&fleet, rest),
+        [verb @ ("row" | "spool"), rest @ ..] => row::run(&fleet, verb, rest),
+        ["tick", rest @ ..] => tick::run(&fleet, rest),
         ["send", rest @ ..] => send::run(&fleet, rest),
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
         [verb, name] => session_verb(&fleet, verb, name),
-        ["revive", name, rest @ ..] => fleet_revive::revive_with(&fleet, name, rest),
-        ["show", name, flag] => fleet_show::run(&fleet, name, flag),
+        ["revive", name, rest @ ..] => revive::revive_with(&fleet, name, rest),
+        ["show", name, flag] => show::run(&fleet, name, flag),
         _ => Err(usage()),
     }
 }
@@ -122,8 +122,8 @@ fn session_verb(fleet: &Fleet, verb: &str, name: &str) -> NorthResult<()> {
         "interrupt" => controlled(fleet, ControlVerb::Interrupt, name),
         "stop" => controlled(fleet, ControlVerb::Stop, name),
         "forget" => controlled(fleet, ControlVerb::Forget, name),
-        "revive" => fleet_revive::revive(fleet, name, None, None, Overrides::default()),
-        "show" => fleet_show::show(fleet, name, false),
+        "revive" => revive::revive(fleet, name, None, None, Overrides::default()),
+        "show" => show::show(fleet, name, false),
         "watchdog" => fleet.guard(name),
         _ => Err(usage()),
     }
@@ -152,16 +152,16 @@ fn accounts(fleet: &Fleet) -> NorthResult<()> {
 fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
-    let proxy = fleet_lineage::proxy_reachable(fleet, caller.as_deref(), words);
+    let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
     let LaunchParts { mut request, mut overrides, wait, take_over } = launch_parts(&fleet.providers(), words, caller, proxy)?;
-    fleet_tier::admit_class(&request)?;
-    let started = fleet_tier::apply(&mut request, &mut overrides)?;
-    let waiting = fleet_admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
-    let placed = fleet_admission::admitted(&request.name, waiting, |first| fleet_placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| fleet_admission::tell_parent(fleet, request.parent.as_deref(), text))?;
-    (request.placement, request.capacity_need) = (fleet_duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
+    tier::admit_class(&request)?;
+    let started = tier::apply(&mut request, &mut overrides)?;
+    let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
+    let placed = admission::admitted(&request.name, waiting, |first| placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
+    (request.placement, request.capacity_need) = (duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
     request.machine = placed.machine.or(request.machine);
     let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
-    fleet_tier::recorded(started, &request, &record.name);
+    tier::recorded(started, &request, &record.name);
     println!("{}", record.name);
     Ok(())
 }
@@ -185,5 +185,5 @@ fn ask(fleet: &Fleet, name: &str, words: &[&str]) -> NorthResult<()> {
 }
 
 #[cfg(test)]
-#[path = "fleet_tests.rs"]
+#[path = "router_tests.rs"]
 mod tests;

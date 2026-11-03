@@ -5,7 +5,7 @@ use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{Effort, SessionRecord};
 use crate::fleet::registry::Fleet;
 
-use super::fleet_placement::{self, Launch, Overrides, Refusal};
+use super::placement::{self, Launch, Overrides, Refusal};
 
 const USAGE: &str = "Usage: north fleet revive NAME [--system-prompt FILE] [--effort low|medium|high|xhigh|max] [--local REASON] [--pin REASON]";
 
@@ -43,7 +43,7 @@ pub(super) fn restart_placed(fleet: &Fleet, name: &str, system_prompt: Option<Pa
         let overrides = overrides.recorded(record.placement.as_deref());
         let brief = system_prompt.clone().or_else(|| record.system_prompt.clone());
         let launch = Launch { name, account: &record.account, brief: brief.as_deref(), cwd: None, machine: record.machine.as_ref().map(|machine| machine.name.as_str()) };
-        placement = match fleet_placement::check(&launch, &fleet_placement::brief_text(brief.as_deref(), "")?, &overrides, &fleet_placement::machine_load(fleet)?, &fleet.roster(), true)? {
+        placement = match placement::check(&launch, &placement::brief_text(brief.as_deref(), "")?, &overrides, &placement::machine_load(fleet)?, &fleet.roster(), true)? {
             Ok(placed) => placed.note,
             Err(refusal) => return Ok(Err(refusal)),
         };

@@ -18,10 +18,10 @@ use crate::fleet::waits::{Probe, Registered, Run};
 use crate::foundation::clock::Timestamp;
 use crate::platform::process::run_command_within;
 
-use super::fleet_placement::Overrides;
-use super::fleet_row;
-use super::fleet_ledger::Ledger;
-use super::fleet_revive;
+use super::placement::Overrides;
+use super::row;
+use super::ledger::Ledger;
+use super::revive;
 
 const USAGE: &str = "Usage: north fleet wait RUN [NAME] | north fleet waits (RUN is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, capture:PATH or pid:PID@START)";
 const PROBE: Duration = Duration::from_secs(30);
@@ -42,7 +42,7 @@ fn register(fleet: &Fleet, run: &str, name: Option<&str>) -> NorthResult<()> {
     let run: Run = run.parse()?;
     fleet.waits().register(name, run.clone(), &std::env::current_dir()?, None)?;
     if let Some(request) = run.request(name)
-        && let Err(error) = fleet_row::record_wait(&request)
+        && let Err(error) = row::record_wait(&request)
     {
         eprintln!("north fleet: {run} is registered here but not in the fleet store: {}", error.user_message());
     }
@@ -72,7 +72,7 @@ impl WaitProbes for Probes {
             if fleet.session(name).map_or(true, |record| record.stopped) {
                 return Ok(());
             }
-            fleet_revive::revive(fleet, name, None, None, Overrides::default())?;
+            revive::revive(fleet, name, None, None, Overrides::default())?;
             fleet.send_signed(None, name, text, Delivery::Queued)
         };
         let exists = |name: &str| fleet.session(name).is_ok();

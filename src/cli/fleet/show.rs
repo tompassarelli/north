@@ -7,8 +7,8 @@ use crate::fleet::model::{Entry, EntryKind, Status, Transcript};
 use crate::fleet::registry::{Fleet, urgent_text};
 use crate::fleet::turns::Turn;
 
-use super::fleet_list;
-use super::fleet_usage::usage;
+use super::list;
+use super::usage::usage;
 
 const FOLLOW_POLL: Duration = Duration::from_millis(250);
 
@@ -24,7 +24,7 @@ fn show_json(fleet: &Fleet, name: &str) -> NorthResult<()> {
     let follower = fleet.follow(name)?;
     let transcript = follower.transcript();
     let entries: Vec<Value> = transcript.entries.iter().map(|entry| json!({"kind": entry.kind.label(), "text": entry.text})).collect();
-    let mut session = fleet_list::session_json(follower.record(), transcript.status, &fleet.waits());
+    let mut session = list::session_json(follower.record(), transcript.status, &fleet.waits());
     session["active_turn"] = json!(transcript.active_turn);
     session["entries"] = Value::Array(entries);
     session["turns"] = transcript.turns.iter().map(turn_json).collect();

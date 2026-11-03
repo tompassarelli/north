@@ -2,10 +2,10 @@
 //! gates decide, opened afresh on each read.
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::fleet::open_fleet;
+use super::router::open_fleet;
 use crate::threads::outside::FleetView;
 
-pub(super) struct Registry;
+pub(in crate::cli) struct Registry;
 
 impl FleetView for Registry {
     fn live_owners(&self) -> Option<BTreeSet<String>> {

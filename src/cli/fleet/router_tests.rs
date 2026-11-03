@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::*;
-use super::fleet_show::entry_line;
+use super::show::entry_line;
 use serde_json::{Value, json};
 use crate::fleet::claims::Held;
 use crate::fleet::books::{Books, Landing, SessionSpend};
@@ -215,7 +215,7 @@ fn progress_questions_and_empty_turns_stay_in_the_ledger_while_only_final_report
     std::fs::write(session.join("session.json"), record.to_string()).unwrap();
     let sink = Arc::new(Recorded::default());
     let mut watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink.clone(), Arc::new(Held::default()), root.path().to_path_buf(), session);
-    for frame in include_str!("../fixtures/claude-stream/wake-receipts.jsonl").lines() {
+    for frame in include_str!("../../fixtures/claude-stream/wake-receipts.jsonl").lines() {
         watch.line(frame.as_bytes());
     }
     assert_eq!(sink.0.lock().unwrap().len(), 8);
@@ -419,8 +419,8 @@ async fn the_session_host_never_wakes_or_reports_a_box_worker_that_ended_on_a_wa
     assert_eq!(stdin, "", "a session with no box is never woken");
 }
 
-#[path = "fleet_detached_tests.rs"]
+#[path = "detached_tests.rs"]
 mod detached;
 
-#[path = "fleet_silent_tests.rs"]
+#[path = "silent_tests.rs"]
 mod silent;

@@ -8,8 +8,8 @@ use crate::fleet::rebooted::{Resumer, Revived, resume};
 use crate::fleet::registry::Fleet;
 use crate::platform::host;
 
-use super::fleet_placement::{Overrides, Refusal};
-use super::fleet_revive;
+use super::placement::{Overrides, Refusal};
+use super::revive;
 
 const USAGE: &str = "Usage: north fleet rebooted [--revive]";
 const REVIVE_BUDGET: Duration = Duration::from_secs(15);
@@ -45,7 +45,7 @@ impl Resumer for Revival<'_> {
         if self.0.session(name)?.machine.is_none() {
             overrides.local = Some(format!("north fleet rebooted revives {name} where its conversation lives"));
         }
-        match fleet_revive::restart_placed(self.0, name, None, None, overrides)? {
+        match revive::restart_placed(self.0, name, None, None, overrides)? {
             Ok(_) => Ok(Revived::Started),
             Err(Refusal::Exhausted(why)) => Ok(Revived::Waiting(why)),
             Err(refusal) => Err(refusal.into()),

@@ -10,8 +10,8 @@ use crate::fleet::model::LaunchRequest;
 use crate::fleet::registry::Fleet;
 use crate::ops::dispatch::{IssueRef, task_holder};
 
-use super::fleet_list;
-use super::fleet_placement::Overrides;
+use super::list;
+use super::placement::Overrides;
 
 /// The note the session records: placement's, then `dup: REASON` when it runs beside a holder;
 /// Err naming the open gate or the holder when nothing says why. `--test` sessions skip the rule.
@@ -24,7 +24,7 @@ pub(super) fn noted(fleet: &Fleet, request: &LaunchRequest, overrides: &Override
         return Err(NorthError::Refused(refusal));
     }
     let task = tasks.join(" ");
-    let local = Value::Array(fleet.sessions()?.iter().map(|record| fleet_list::session_json(record, fleet.status(record), &fleet.waits())).collect());
+    let local = Value::Array(fleet.sessions()?.iter().map(|record| list::session_json(record, fleet.status(record), &fleet.waits())).collect());
     let mut notes = Vec::new();
     let held = task_holder(&task, local, &mut notes);
     for note in notes {

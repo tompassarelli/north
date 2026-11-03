@@ -10,26 +10,6 @@ mod cloud;
 mod cloud_handback;
 mod token_usage;
 mod fleet;
-mod fleet_admission;
-mod fleet_claims;
-mod fleet_duplicate;
-mod fleet_launch;
-mod fleet_ledger;
-mod fleet_lineage;
-mod fleet_list;
-mod fleet_placement;
-mod fleet_rebooted;
-mod fleet_revive;
-mod fleet_row;
-mod fleet_tick;
-mod fleet_show;
-mod fleet_spool;
-mod fleet_spend;
-mod fleet_waits;
-mod fleet_tier;
-mod fleet_tree;
-mod fleet_usage;
-mod fleet_view;
 mod gate;
 mod ledger;
 mod orders;
@@ -144,7 +124,7 @@ fn dispatch(command: Command) -> ExitCode {
                 }
             }
         }
-        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet_view::Registry))),
+        Command::Threads(arguments) => ExitCode::from(crate::threads::client::run(&arguments, std::sync::Arc::new(fleet::Registry))),
         Command::Fleet(arguments) => fleet::run(&arguments),
         Command::Ledger(arguments) => ledger::run(&arguments),
         Command::Help => in_runtime(async {

@@ -6,7 +6,7 @@ use crate::ops::agents::{self, Verb, plan, script};
 use crate::ops::{flow, pacing, report};
 use crate::platform::harness;
 
-use super::{fleet, fleet_placement, token_usage};
+use super::{fleet, token_usage};
 
 pub(super) fn run(arguments: &[String]) -> u8 {
     let Some(verb) = arguments.first().and_then(|name| Verb::named(name)) else {
@@ -82,7 +82,7 @@ fn pace(arguments: &[String]) -> u8 {
         arguments,
         pacing::FleetFacts {
             roster: fleet::roster,
-            machine_load: fleet_placement::fleet_load,
+            machine_load: fleet::fleet_load,
         },
         token_usage::read,
     )
