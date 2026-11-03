@@ -1,4 +1,4 @@
-//! `north threads unowned`: the open smashcraft and wisp issues with an unchecked box, each with
+//! `north threads unowned`: the open makgora and wisp issues with an unchecked box, each with
 //! its owner, its block or UNOWNED, priority:now first.
 pub mod branches;
 #[cfg(test)]

@@ -43,7 +43,7 @@ Commands:
   archives REPO NUMBER                           Print the archive tags whose commits reference REPO#NUMBER, with restore commands
   threads ARGV                                  Run a NorthThreads command on the ledger host
   cloud [list|events|sweep|send|wait|collect]    Read, message, wait on, collect and sweep Anthropic cloud sessions
-  dispatch [--dry-run]                          Launch ready smashcraft and wisp boxes on every free worker slot
+  dispatch [--dry-run]                          Launch ready makgora and wisp boxes on every free worker slot
   tune [--dry-run]                              Daily learning tick: write the ledger-decided routing, ETA and budget cells and file cost rises
   ops dividend [--dry-run] [CHECK]              Evaluate each bet issue's dividend over 7 days, comment PAYING or DECAYED daily and message the proxy on DECAYED
   ops check [--dry-run]                         Run the core expectations from north-data/expectations.toml, alert once per breach and once per clear, and leave a heartbeat
@@ -79,7 +79,7 @@ Commands:
   outside-watch run [--dry-run] [--days N]       Minimize and block promotional spam on Tom's GitHub repos, report real outside people to the proxy inbox, mark our own notifications read
   outside-watch status                          Show the last run and its log line
   reclaim [--dry-run] [--idle-hours H]          Remove /tmp scratch and Wisp LAN pair copies idle 24 h, cargo targets of north main and of every repository's worktrees and lane-private cargo-target-* caches idle 4 h, all held by no process or pool, and trim the shared cargo target to 10 GB (hourly timer)
-  retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Smashcraft evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
+  retain [--dry-run] [--host H] [--archive DIR]  Archive gex45 Mak'gora evidence and capture batches past their retention age to the laptop, sha256 verified, then delete the gex45 copy; a PINNED file or an open process keeps an entry
   worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   lane-gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Retire landed, superseded and stale lanes and origin branches behind verified archives; report unlanded work (hourly and daily timers)

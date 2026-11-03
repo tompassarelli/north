@@ -21,7 +21,7 @@ const AGENTS = env.ITERATION_LEDGER_AGENTS_STATE ?? join(HOME, ".local/state/age
 const OUT_DIR = env.ITERATION_LEDGER_OUT ?? join(AGENTS, "iteration-ledger");
 const THREADS_DB = env.ITERATION_LEDGER_THREADS_DB ?? join(HOME, ".local/state/threads/snapshot.db");
 const CONVO_DB = env.ITERATION_LEDGER_CONVO_DB ?? join(HOME, ".local/state/convo/index-v4.db");
-const MAPS = env.ITERATION_LEDGER_MAPS ?? join(HOME, ".local/share/Steam/steamapps/compatdata/3516115571/pfx/drive_c/users/steamuser/Documents/Warcraft III/Maps/00-Smashcraft");
+const MAPS = env.ITERATION_LEDGER_MAPS ?? join(HOME, ".local/share/Steam/steamapps/compatdata/3516115571/pfx/drive_c/users/steamuser/Documents/Warcraft III/Maps/00-Makgora");
 const REPOS = (env.ITERATION_LEDGER_REPOS ?? "makgora,wisp,padbridge,makgora-client,north").split(",");
 const OWNER = env.ITERATION_LEDGER_OWNER ?? "tompassarelli";
 const GH_TTL_MS = Number(env.ITERATION_LEDGER_GH_TTL_MIN ?? 20) * 60_000;
@@ -254,7 +254,7 @@ function mapsBuilds(): number[] {
   const out: number[] = [];
   for (const dir of [MAPS, join(MAPS, "older")]) {
     if (!existsSync(dir)) continue;
-    for (const f of readdirSync(dir)) if (/^Smashcraft .*\.w3x$/.test(f)) out.push(statSync(join(dir, f)).mtimeMs);
+    for (const f of readdirSync(dir)) if (/^Mak'gora .*\.w3x$/.test(f)) out.push(statSync(join(dir, f)).mtimeMs);
   }
   return out.sort((a, b) => a - b);
 }

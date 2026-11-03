@@ -111,3 +111,18 @@ async fn a_stalled_command_is_killed_at_its_bound_instead_of_waiting() {
     assert!(result.is_err_and(|message| message.contains("timed out")));
     assert!(started.elapsed() < Duration::from_secs(5));
 }
+
+#[test]
+fn the_remote_job_reads_the_classic_effect_cache_from_the_makgora_render_assets() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let source = root.path().join("job/source");
+    std::fs::create_dir_all(&source).expect("tree");
+    let output = std::process::Command::new("sh")
+        .args(["-c", &super::plan::job_script(), "nexus-job"])
+        .arg(&source)
+        .args([".", "0", "sh", "-c", r#"printf %s "$CLASSIC_EFFECT_CACHE""#])
+        .env("HOME", "/h")
+        .output()
+        .expect("run job");
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("/h/.local/share/makgora-render-assets/stock/"));
+}

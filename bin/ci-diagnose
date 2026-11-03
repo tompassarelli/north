@@ -2,7 +2,7 @@
 set -euo pipefail
 case ${1:-} in
   -h|--help) echo "usage: ci-diagnose [--dry-run OWNER/REPO RUN_ID]"
-    echo "Comments once per failed run on each open \"main is red\" issue in north, firn and smashcraft: Haiku extracts"
+    echo "Comments once per failed run on each open \"main is red\" issue in north, firn and makgora: Haiku extracts"
     echo "the failing step, errors and culprit from the failed log, Opus judges the cause. --dry-run prints without posting."; exit 0 ;;
 esac
 exec bun "$(dirname "$(readlink -f "$0")")/../harness/scripts/ci-diagnose.ts" "$@"

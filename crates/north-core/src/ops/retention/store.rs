@@ -53,7 +53,7 @@ fn read_pins(remote: &dyn Remote, layout: &Layout) -> io::Result<BTreeSet<String
     let (main, others) = text.split_once(&format!("{MAIN_ENDS}\n")).ok_or_else(|| io::Error::other("pin read did not finish"))?;
     let on_main = hashes(main);
     if on_main.is_empty() {
-        return Err(io::Error::other("smashcraft origin/main names no build-input pin; no store entry is archived"));
+        return Err(io::Error::other("makgora origin/main names no build-input pin; no store entry is archived"));
     }
     Ok(on_main.into_iter().chain(hashes(others)).collect())
 }

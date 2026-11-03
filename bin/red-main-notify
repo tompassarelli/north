@@ -5,7 +5,7 @@ case ${1:-} in
     echo "Sends each open \"main is red\" issue's culprit lane's session and the proxy one north fleet send, once per culprit commit."
     echo "Reads the issue's \"Culprit lane:\" and \"First failing commit:\" lines (wisp:host/checks/mainRed.ts); the revert deadline is 15 minutes after the red run."; exit 0 ;;
 esac
-repos=${RED_MAIN_REPOS:-tompassarelli/wisp tompassarelli/north tompassarelli/firn tompassarelli/smashcraft}
+repos=${RED_MAIN_REPOS:-tompassarelli/wisp tompassarelli/north tompassarelli/firn tompassarelli/makgora}
 gh=${RED_MAIN_GH:-gh}; north=${RED_MAIN_NORTH:-north}
 state=${RED_MAIN_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/north/red-main-notify}
 mkdir -p "$state"

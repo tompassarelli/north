@@ -1,5 +1,5 @@
 import { tmpdir } from "node:os";
-export const REPOS = ["tompassarelli/north", "tompassarelli/firn", "tompassarelli/smashcraft"];
+export const REPOS = ["tompassarelli/north", "tompassarelli/firn", "tompassarelli/makgora"];
 export const TITLE = "main is red";
 const MAX_ERRORS = 20;
 const LOG_LINES = 400;
