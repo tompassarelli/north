@@ -121,8 +121,7 @@ Agents edit in `~/code/<project>/worktrees/<slug>`, never in `main/`, and land w
 `safe-push --to main` ([bin/safe-push](../bin/safe-push); `safe-push --help` is the full contract;
 the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure). It:
 
-1. obtains the capacity scope named by committed `landing.capacity` before joining the landing
-   queue, then rebases onto origin/main and takes the per-origin lock; commits naming an open
+1. fetches and rebases onto origin/main and takes the per-origin lock, holding no capacity lease while it does; commits naming an open
    red-main issue or carrying `Main-red:` take priority, and queued lanes can land as one train;
 2. runs the checks that the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness scripts
@@ -146,7 +145,7 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
    (`north dep-gate BASE HEAD`), the stale-revert gate (`north stale-revert`, by git blame on main: a landing may not remove lines of a main commit the lane never saw, nor, per file, restore, in the hunks that touch its lines, half the lines a commit of the last 48 h removed, or delete outright four fifths of the lines it added from a file that stays without re-adding them elsewhere, so deleting a whole file undoes only commits the lane never saw; it runs before the land checks and again after the rebase; `linguist-generated` files are skipped and a `Reverts: SHA` trailer excuses the named commit), the bin-reference gate (`north bin-references`, north only: a landing may not delete `bin/NAME` while nixos-config or south `origin/main`, or this host's own `systemctl --user cat`, still names `tree/bin/NAME`; remote hosts' live units are not read), and the CI time budgets in `.safe-push`; it never force-pushes;
 4. pushes to main, removes the clean lane and its branch, and runs `follows-release`.
 
-North's land checks share that capacity scope and run with the landing lock released, on every
+Each land check that runs here takes its own capacity lease (committed `landing.capacity`, the `north capacity deadline` timeout inside it) and releases it when the check ends, so the fetch, rebase, queue wait and the wait on GitHub Actions hold no cores. Checks run with the landing lock released, on every
 retry; the lock covers only the fetch, rebase, scans and push, so two landings' checks overlap. If main moved during the checks, a lane whose files
 the new commits do not touch rebases and keeps its verdict; any other lane requeues and rechecks. Cancellation prints `safe-push: cancelled` and
 exits 130; a landed receipt names the lane head verified on the destination.

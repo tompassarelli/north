@@ -58,6 +58,11 @@ shim_main() {
       fi
       exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       ;;
+    north:land-actions)
+      [ -n "${SAFE_PUSH_TEST_ACTIONS_RELEASE:-}" ] || return 0
+      touch "$SAFE_PUSH_TEST_ACTIONS_RELEASE.waiting"
+      read -r _ <"$SAFE_PUSH_TEST_ACTIONS_RELEASE"
+      ;;
     north:after-landing)
       [ -n "${SAFE_PUSH_TEST_AFTER_LANDING_TRACE:-}" ] || return 2
       [ "${2:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_AFTER_LANDING_TRACE"
@@ -1937,8 +1942,65 @@ status_b=0; wait "$pid_b" || status_b=$?
 [ "$("$real_git" --git-dir="$landing_remote" log --reverse --format=%s main | sed -n '2p')" = 'repair red main' ] || fail 'main-red marker did not take priority'
 printf 'PASS: recorded Main-red marker takes the landing lock before an ordinary waiting lane\n'
 
+write_lease_probe() {
+  printf '#!/usr/bin/env bash\ntouch "%s/held"\n"$@" && lease_status=0 || lease_status=$?\nrm -f "%s/held"\nexit "$lease_status"\n' "$landing_root" "$landing_root" >"$landing_root/lease-probe.sh"
+}
+
+lease_queue_dir() {
+  printf '%s/safe-push/%s.queue' "$xdg_state" "$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)"
+}
+
+new_landing_origin lease-around-local-check
+make_landing_clone "$landing_root/a" a.txt
+write_lease_probe
+mkfifo "$landing_root/check-release"
+"$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity "bash $landing_root/lease-probe.sh"
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: [ -e '$landing_root/held' ] && touch '$landing_root/check-held'; touch '$landing_root/check-started'; read -r _ <'$landing_root/check-release'"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'lease probe'
+hold_landing_lock
+run_landing "$landing_root/a" & pid_a=$!
+wait_for "$pid_a" bash -c 'compgen -G "$1/*" >/dev/null' _ "$(lease_queue_dir)"
+[ ! -e "$landing_root/held" ] || { release_landing_lock; fail 'the lease was held while the landing waited for the lock'; }
+[ ! -e "$landing_root/check-started" ] || { release_landing_lock; fail 'the land check ran while the landing waited for the lock'; }
+release_landing_lock
+wait_for "$pid_a" test -e "$landing_root/check-started"
+[ -e "$landing_root/check-held" ] || fail 'the land check ran without the lease'
+rm -f "$landing_root/lock-release" "$landing_root/lock-ready"
+hold_landing_lock
+printf 'go\n' >"$landing_root/check-release"
+wait_for "$pid_a" bash -c '[ ! -e "$1/held" ]' _ "$landing_root"
+release_landing_lock
+status_a=0; wait "$pid_a" || status_a=$?
+[ "$status_a" -eq 0 ] || fail "lease probe lane failed: $(cat "$landing_root/a.out")"
+printf 'PASS: recorded capacity lease is held only around the local land check, not the lock wait before or after it\n'
+
+new_landing_origin lease-released-for-actions-wait
+make_landing_clone "$landing_root/a" a.txt
+write_lease_probe
+mkfifo "$landing_root/actions-release"
+local_check="touch '$landing_root/local-ran'; [ -e '$landing_root/held' ] && touch '$landing_root/local-held'"
+"$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity "bash $landing_root/lease-probe.sh"
+"$real_git" -C "$landing_root/a" config --file .safe-push land.workflow land-check.yml
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: $local_check"
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: true"
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.local-only "needs this host :: $local_check"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'lease released for the Actions wait'
+SAFE_PUSH_TEST_ACTIONS_RELEASE="$landing_root/actions-release" run_landing "$landing_root/a" & pid_a=$!
+wait_for "$pid_a" test -e "$landing_root/actions-release.waiting"
+wait_for "$pid_a" test -e "$landing_root/local-ran"
+wait_for "$pid_a" bash -c '[ ! -e "$1/held" ]' _ "$landing_root"
+[ -e "$landing_root/local-held" ] || { printf 'go\n' >"$landing_root/actions-release"; wait "$pid_a" || true; fail 'the local land check ran without the lease'; }
+kill -0 "$pid_a" 2>/dev/null || fail "the landing ended before the Actions wait: $(cat "$landing_root/a.out")"
+printf 'go\n' >"$landing_root/actions-release"
+status_a=0; wait "$pid_a" || status_a=$?
+[ "$status_a" -eq 0 ] || fail "Actions lease lane failed: $(cat "$landing_root/a.out")"
+printf 'PASS: recorded capacity lease is released before the GitHub Actions wait\n'
+
 new_landing_origin cancelled-admission
 make_landing_clone "$landing_root/a" a.txt
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: true"
 mkfifo "$landing_root/cancel-wait"
 "$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity "bash -c 'printf \"%s\\n\" \"\$PPID\" >\"$landing_root/cancel-pid\"; read -r _ <\"$landing_root/cancel-wait\"'"
 "$real_git" -C "$landing_root/a" add .safe-push

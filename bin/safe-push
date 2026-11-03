@@ -1001,7 +1001,7 @@ if [ "${#after_landing[@]}" -eq 3 ]; then
   exit $?
 fi
 
-# The moved gates run from the common Git directory in a user scope of their own, because the lane is removed and the landing's capacity lease reaps its cgroup.
+# The moved gates run from the common Git directory in a user scope of their own, because the lane is removed.
 spawn_after_landing_gates() {
   local base="$1" head="$2" dir log repository scope
   [ -n "$base" ] && [ "$base" != "$head" ] || return 0
@@ -1156,6 +1156,13 @@ land_offload_host() {
   printf '%s\n' "$host"
 }
 
+land_check_runner() {
+  local seconds="$1"
+  shift
+  runner=(bash -euo pipefail -c 'exec north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "$@"' safe-push-deadline "$seconds" -- "$@")
+  [ -z "${SAFE_PUSH_LAND_CAPACITY:-}" ] || runner=(bash -euo pipefail -c "exec $SAFE_PUSH_LAND_CAPACITY \"\$@\"" safe-push-capacity "${runner[@]}")
+}
+
 run_land_checks() {
   local base="$1" head="$2" command status root log_dir log
   local stdout_fd stderr_fd stdout_pid stderr_pid
@@ -1193,13 +1200,14 @@ run_land_checks() {
     if [ -n "$workflow" ] && reason=$(land_check_local_reason "$command" "$head"); then
       printf "safe-push: land check runs on this host because it %s\n" "$reason"
     fi
-    local -a runner=(north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- bash -euo pipefail -c "$command")
+    local -a runner
+    land_check_runner "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" bash -euo pipefail -c "$command"
     if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ]; then
       if land_check_is_local_only "$command" "$head"; then
         printf 'safe-push: land check %s needs this host, which is in game-reserve; NOT pushed.\n' "$command" >&2
         return 1
       fi
-      runner=(north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" -- north capacity offload run --host "$SAFE_PUSH_LAND_OFFLOAD_HOST" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command")
+      land_check_runner "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" north capacity offload run --host "$SAFE_PUSH_LAND_OFFLOAD_HOST" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command"
       printf 'safe-push: offloading to %s while this host is in game-reserve\n' "$SAFE_PUSH_LAND_OFFLOAD_HOST"
     fi
     log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
@@ -2129,23 +2137,12 @@ land_through_autoland() {
 
 safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 lane_tip=$(git rev-parse -q --verify HEAD) || lane_tip=""
-if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ] \
-    && [ "${SAFE_PUSH_CAPACITY_ADMITTED:-}" != "$(git rev-parse --show-toplevel)" ]; then
-  capacity_command=$(git config --blob HEAD:.safe-push --get landing.capacity 2>/dev/null) || capacity_command=''
+SAFE_PUSH_LAND_CAPACITY=''
+if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ]; then
+  SAFE_PUSH_LAND_CAPACITY=$(git config --blob HEAD:.safe-push --get landing.capacity 2>/dev/null) || SAFE_PUSH_LAND_CAPACITY=''
   if offloaded_command=$(git config --blob HEAD:.safe-push --get landing.offloaded-capacity 2>/dev/null) && offload_host=$(land_offload_host); then
-    capacity_command=$offloaded_command
+    SAFE_PUSH_LAND_CAPACITY=$offloaded_command
     export SAFE_PUSH_LAND_OFFLOAD_HOST=$offload_host
-  fi
-  if [ -n "$capacity_command" ]; then
-    capacity_status=0
-    SAFE_PUSH_LAND_HEAD=$(git rev-parse HEAD) bash -euo pipefail -c \
-      "exec $capacity_command env SAFE_PUSH_CAPACITY_ADMITTED=\"\$PWD\" bash \"\$@\"" \
-      safe-push-capacity "$(readlink -f "${BASH_SOURCE[0]}")" "${original_arguments[@]}" &
-    safe_push_child=$!
-    wait "$safe_push_child" || capacity_status=$?
-    safe_push_child=""
-    safe_push_internal=1
-    exit "$capacity_status"
   fi
 fi
 
