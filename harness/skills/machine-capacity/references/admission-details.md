@@ -16,6 +16,11 @@ Contents:
 - A heavy run is charged and committed at least its declared 6 CPUs, so at most three heavy builds share the 20-CPU line.
 - A running batch lease commits 1.25x the larger of its measured cores and its estimate (heavy: at least its charge), never more than its scope's CPUQuota, so a 1-CPU gpu render commits at most 1 CPU whatever its command family's history estimates; `status` marks a capped lease `cpuBasis: scope-quota`.
 - Agent leases charge 768 MiB without reserving local CPU.
+- critical: all cores minus the attended desktop reserve, 16 GiB, one-hour batch limits, front of the queue, no CPU-capacity or pressure wait.
+- tom: critical sizing (all cores minus the attended desktop reserve, 16 GiB; front of the queue with critical, no CPU-capacity or pressure wait), because a 2-CPU grant left Tom's cold wisp-window build at 121 of 348 crates after 5 minutes on 24 threads (2026-10-31); `tom_class_owners` names the Tom-build watcher's window build, wisp play's controller helper and the proxy's preview build, and `run` and `session` refuse the class for any other owner, since 62 other runs used it on the 20-thread build host in 80 minutes while heavy leases waited over an hour (2026-11-01).
+- `--priority tom-ask` (moderate, heavy or gpu, any owner) exists so the lane moves Tom's ask without starving the queue; past `priority_lease_cap` (2) running priority leases on the host it keeps its arrival place, and each use is recorded with its owner and wait in capacity.db's `capacity_priority` table, so misuse shows.
+- runtime: 4 CPUs, 8 GiB, front of the queue with critical, no run-queue, CPU-capacity or pressure wait, still held by the build disk floor, because heavy work once queued the runtime build for hours (north#308).
+- native: no CPU quota.
 - Lease lifetimes: batch `session` default 30 minutes, batch maximum one hour, exclusive maximum 15 minutes; only native sessions have no default deadline.
 - Native-only `--memory-gib 1.5` (positive whole-MiB values, memory and CPU admission rules still apply) charges that client 1536 MiB instead of 4096 MiB and applies the same MemoryHigh to that client only; for measured smaller offline clients.
 

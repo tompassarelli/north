@@ -137,3 +137,10 @@ Manual process censuses are neither atomic admission nor process ownership.
 A daemon, dashboard, temperature poller, or recurring census adds no needed
 guarantee to this protocol. Pay for admission at start and release at settlement.
 Do not mistake a large timeout for evidence that useful progress continues.
+
+## Lease rules
+
+- Reserve an agent lease before compute-using workers, renew before expiry and release at settlement, because the lease is the only record that frees the allowance; it charges 768 MiB without reserving local CPU.
+- Give worker local commands their own run scopes and persist reservations only for the agent class, because larger classes cannot outlive their wrapper.
+- Keep every descendant inside its scope and never detach work or renewal processes, because a forcibly killed wrapper cannot clean up and its allowance stays charged until its scope ends.
+- Retain allowances while a wrapper or scope is live and within its deadline, including native sessions, because a live scope is real load; a run lease past its deadline has its scope killed and is reclaimed.
