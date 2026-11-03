@@ -68,7 +68,7 @@ mod tests {
     use crate::fleet::registry::HandedIn;
 
     fn cached(fleet: &Fleet, names: &[&str]) {
-        let rows: Vec<SessionRow> = names.iter().map(|name| SessionRow { name: (*name).into(), host: "gex45".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }).collect();
+        let rows: Vec<SessionRow> = names.iter().map(|name| SessionRow { name: (*name).into(), host: "far-host".into(), status: "idle".into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() }).collect();
         cache_sessions(&fleet.root, &rows).unwrap();
     }
 
@@ -141,7 +141,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let fleet = fleet(home.path()).hosted_as("laptop");
         let row = |name: &str, host: &str, status: &str| SessionRow { name: name.into(), host: host.into(), status: status.into(), created: "t".into(), updated: "t".into(), ..SessionRow::default() };
-        cache_sessions(&fleet.root, &[row("gone", "gex45", "exited"), row("forgotten", "laptop", "idle")]).unwrap();
+        cache_sessions(&fleet.root, &[row("gone", "far-host", "exited"), row("forgotten", "laptop", "idle")]).unwrap();
 
         for name in ["gone", "forgotten"] {
             assert!(matches!(fleet.send_message(None, name, "hello", Delivery::Queued), Err(NorthError::Usage(_))), "{name}");
@@ -158,7 +158,7 @@ mod tests {
 
         let Sent::Spooled { id, host } = fleet.send_message(Some("lead"), "elsewhere", "hello", Delivery::Now).unwrap() else { panic!("a cached name is spooled") };
 
-        assert_eq!(host, "gex45");
+        assert_eq!(host, "far-host");
         let spooled = Spool::at(&fleet.root).pending().unwrap();
         assert_eq!(spooled.iter().map(|row| (row.id.as_str(), row.to.as_str(), row.urgent)).collect::<Vec<_>>(), [(id.as_str(), "elsewhere", true)]);
         assert!(fleet.reaches("elsewhere").is_ok());
