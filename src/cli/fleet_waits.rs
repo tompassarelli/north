@@ -1,5 +1,6 @@
 //! `north fleet wait RUN [NAME]` registers a long run and parks the worker; `north fleet waits`
 //! revives each worker whose run is over with the run and its result.
+use std::cell::OnceCell;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -74,17 +75,32 @@ impl WaitProbes for Probes {
             fleet_revive::revive(fleet, name, None, None, Overrides::default())?;
             fleet.send_signed(None, name, text, Delivery::Queued)
         };
-        let told = fleet.waits().settle(&Runs, &tell);
+        let exists = |name: &str| fleet.session(name).is_ok();
+        let told = fleet.waits().settle(&Runs::default(), &exists, &tell);
         Probed { lines: told.iter().map(|settled| settled.line()).collect(), settled: told.iter().filter_map(|settled| settled.run.request(&settled.session)).map(|request| request.key()).collect() }
     }
 }
 
-struct Runs;
+#[derive(Default)]
+struct Runs {
+    job_rows: OnceCell<Option<Value>>,
+}
+
+impl Runs {
+    fn job_rows(&self, load: impl FnOnce() -> Option<Value>) -> Option<&Value> {
+        self.job_rows.get_or_init(load).as_ref()
+    }
+}
+
+fn load_job_rows() -> Option<Value> {
+    let north = std::env::current_exe().ok()?;
+    output(&north.to_string_lossy(), &["threads", "job-runs", "--json"], Path::new("."))
+}
 
 impl Probe for Runs {
     fn result(&self, wait: &Registered) -> Option<String> {
         match &wait.run {
-            Run::Job { name, host } => job(name, host.as_deref(), wait.since_ms),
+            Run::Job { name, host } => job(self.job_rows(load_job_rows)?, name, host.as_deref(), wait.since_ms),
             Run::Farm(id) => farm(id, &wait.cwd),
             Run::Branch(branch) => branch_state(branch, &wait.cwd),
             Run::Capture(path) => wait.cwd.join(path).exists().then(|| "written".to_owned()),
@@ -100,9 +116,7 @@ fn output(program: &str, args: &[&str], cwd: &Path) -> Option<Value> {
     serde_json::from_slice(&out.stdout).ok()
 }
 
-fn job(name: &str, host: Option<&str>, since_ms: u64) -> Option<String> {
-    let north = std::env::current_exe().ok()?;
-    let rows = output(&north.to_string_lossy(), &["threads", "job-runs", "--json"], Path::new("."))?;
+fn job(rows: &Value, name: &str, host: Option<&str>, since_ms: u64) -> Option<String> {
     let row = rows.as_array()?.iter().filter(|row| row["name"] == name && host.is_none_or(|host| row["host"] == host)).max_by_key(|row| row["last_started"].as_str().unwrap_or_default().to_owned())?;
     let started = Timestamp::parse(row["last_started"].as_str()?).ok()?.unix_seconds_f64() * 1000.0;
     let began_after = started + JOB_STARTED_BEFORE_MS >= since_ms as f64;
@@ -120,5 +134,32 @@ fn branch_state(branch: &str, cwd: &Path) -> Option<String> {
         "MERGED" => Some(format!("landed {}", pull["mergeCommit"]["oid"].as_str().unwrap_or_default()).trim_end().to_owned()),
         "CLOSED" => Some("closed unmerged".to_owned()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn the_job_ledger_is_fetched_once_for_every_job_wait_of_a_pass() {
+        let runs = Runs::default();
+        let fetched = Cell::new(0);
+        let load = || {
+            fetched.set(fetched.get() + 1);
+            Some(serde_json::json!([]))
+        };
+        assert!(runs.job_rows(load).is_some() && runs.job_rows(load).is_some() && runs.job_rows(load).is_some());
+        assert_eq!(fetched.get(), 1);
+        let failed = Runs::default();
+        let tries = Cell::new(0);
+        let load = || {
+            tries.set(tries.get() + 1);
+            None
+        };
+        assert!(failed.job_rows(load).is_none() && failed.job_rows(load).is_none());
+        assert_eq!(tries.get(), 1, "a failed fetch is not retried within the pass");
     }
 }

@@ -55,7 +55,7 @@ async fn a_session_parked_at_the_hold_registers_its_detached_run_and_the_runs_en
         }
     }
     let told = Mutex::new(Vec::new());
-    waits.settle(&Ended, &|session, text| {
+    waits.settle(&Ended, &|_| true, &|session, text| {
         told.lock().unwrap().push((session.to_owned(), text.to_owned()));
         Ok(())
     });

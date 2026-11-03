@@ -17,6 +17,7 @@ const USAGE: &str = "a run is job:NAME[@HOST], farm:RUN_ID, branch:BRANCH, captu
 const FARM_DEADLINE_SECS: u64 = 4 * 3600;
 const BRANCH_DEADLINE_SECS: u64 = 24 * 3600;
 const CAPTURE_DEADLINE_SECS: u64 = 4 * 3600;
+const EXPIRY_SECS: u64 = 24 * 3600;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -177,12 +178,24 @@ impl Waits {
 
     /// Tells each session whose registered run is over what it was and how it ended, then forgets
     /// the wait; `tell` revives a parked session. A wait whose message fails stays for the next tick.
-    pub fn settle(&self, probe: &dyn Probe, tell: &dyn Fn(&str, &str) -> NorthResult<()>) -> Vec<Settled> {
+    pub fn settle(&self, probe: &dyn Probe, exists: &dyn Fn(&str) -> bool, tell: &dyn Fn(&str, &str) -> NorthResult<()>) -> Vec<Settled> {
         let mut told = Vec::new();
+        let now = now_ms();
         for (session, waits) in self.all() {
+            if !exists(&session) {
+                let _ = self.store(&session, &[]);
+                continue;
+            }
             for wait in waits {
-                let Some(result) = probe.result(&wait) else { continue };
                 let named = wait.label.as_ref().map_or_else(|| wait.run.to_string(), |label| format!("{} `{label}`", wait.run));
+                if now.saturating_sub(wait.since_ms) > EXPIRY_SECS * 1000 {
+                    let text = format!("[north: the run you waited on never ended] {named}: still unresolved after {} h, so the wait is dropped. Check the run yourself and continue to a final report.", EXPIRY_SECS / 3600);
+                    if tell(&session, &text).is_ok() {
+                        let _ = self.release(&session, &wait.run);
+                    }
+                    continue;
+                }
+                let Some(result) = probe.result(&wait) else { continue };
                 let text = format!("[north: the run you waited on is over] {named}: {result}. Read its output and continue to a final report.");
                 if tell(&session, &text).is_ok() && self.release(&session, &wait.run).is_ok() {
                     told.push(Settled { session: session.clone(), run: wait.run.clone(), result });
@@ -247,14 +260,14 @@ mod tests {
             sent.borrow_mut().push((session.to_owned(), text.to_owned()));
             Ok(())
         };
-        let told = waits.settle(&Over(vec!["farm:42"]), &tell);
+        let told = waits.settle(&Over(vec!["farm:42"]), &|_| true, &tell);
         assert_eq!(told.iter().map(Settled::line).collect::<Vec<_>>(), ["north-1: farm:42 exit 0"]);
         let sent = sent.into_inner();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].0 == "north-1" && sent[0].1.contains("farm:42") && sent[0].1.contains("exit 0"), "{sent:?}");
         assert_eq!(waits.of("north-1").iter().map(|wait| wait.run.to_string()).collect::<Vec<_>>(), ["job:soak"]);
         assert_eq!(waits.of("north-2").len(), 1);
-        assert!(waits.settle(&Over(vec!["farm:42"]), &|_, _| Ok(())).is_empty(), "a told wait is not told twice");
+        assert!(waits.settle(&Over(vec!["farm:42"]), &|_| true, &|_, _| Ok(())).is_empty(), "a told wait is not told twice");
     }
 
     #[test]
@@ -262,9 +275,65 @@ mod tests {
         let (_root, waits) = waits();
         waits.register("north-1", "job:soak".parse().unwrap(), Path::new("/repo"), None).unwrap();
         let failing = |_: &str, _: &str| Err(NorthError::State("no such session".into()));
-        assert!(waits.settle(&Over(vec!["job:soak"]), &failing).is_empty());
+        assert!(waits.settle(&Over(vec!["job:soak"]), &|_| true, &failing).is_empty());
         assert_eq!(waits.of("north-1").len(), 1);
-        assert_eq!(waits.settle(&Over(vec!["job:soak"]), &|_, _| Ok(())).len(), 1);
+        assert_eq!(waits.settle(&Over(vec!["job:soak"]), &|_| true, &|_, _| Ok(())).len(), 1);
         assert!(waits.all().is_empty());
+    }
+
+    struct Counting(RefCell<u32>);
+
+    impl Probe for Counting {
+        fn result(&self, _: &Registered) -> Option<String> {
+            *self.0.borrow_mut() += 1;
+            None
+        }
+    }
+
+    fn registered_at(waits: &Waits, session: &str, run: &str, since_ms: u64) {
+        let wait = Registered { run: run.parse().unwrap(), cwd: "/repo".into(), since_ms, label: None };
+        let mut kept = waits.of(session);
+        kept.push(wait);
+        waits.store(session, &kept).unwrap();
+    }
+
+    #[test]
+    fn a_wait_of_a_vanished_session_is_dropped_unprobed_and_its_neighbours_stay() {
+        let (_root, waits) = waits();
+        waits.register("gone", "job:soak".parse().unwrap(), Path::new("/repo"), None).unwrap();
+        waits.register("here", "job:soak".parse().unwrap(), Path::new("/repo"), None).unwrap();
+        let probe = Counting(RefCell::new(0));
+        let told = RefCell::new(Vec::new());
+        waits.settle(&probe, &|session| session == "here", &|session, _| {
+            told.borrow_mut().push(session.to_owned());
+            Ok(())
+        });
+        assert_eq!(*probe.0.borrow(), 1);
+        assert!(told.borrow().is_empty());
+        assert!(waits.of("gone").is_empty() && waits.of("here").len() == 1);
+    }
+
+    #[test]
+    fn a_wait_older_than_the_expiry_is_dropped_unprobed_after_telling_its_session_once() {
+        let (_root, waits) = waits();
+        let old = now_ms() - (EXPIRY_SECS + 60) * 1000;
+        registered_at(&waits, "north-1", "job:bn840hmwm", old);
+        registered_at(&waits, "north-1", "job:fresh", now_ms());
+        let probe = Counting(RefCell::new(0));
+        let sent = RefCell::new(Vec::new());
+        let tell = |session: &str, text: &str| {
+            sent.borrow_mut().push((session.to_owned(), text.to_owned()));
+            Ok(())
+        };
+        assert!(waits.settle(&probe, &|_| true, &tell).is_empty());
+        assert_eq!(*probe.0.borrow(), 1, "only the fresh wait is probed");
+        let sent = sent.into_inner();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].0 == "north-1" && sent[0].1.contains("job:bn840hmwm") && sent[0].1.contains("never ended"), "{sent:?}");
+        assert_eq!(waits.of("north-1").iter().map(|wait| wait.run.to_string()).collect::<Vec<_>>(), ["job:fresh"]);
+
+        registered_at(&waits, "north-1", "job:stale", old);
+        assert!(waits.settle(&probe, &|_| true, &|_, _| Err(NorthError::State("down".into()))).is_empty());
+        assert_eq!(waits.of("north-1").len(), 2, "an expiry whose message fails is kept for the next tick");
     }
 }
