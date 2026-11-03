@@ -1021,12 +1021,21 @@ spawn_after_landing_gates() {
 }
 
 lane_commits_missing() {
-  local fork present id commit
+  local fork present id commit missing="" destination tree
   [ -n "$lane_tip" ] && fork=$(git merge-base "$lane_tip" "$head_oid") || return 0
   present=$(git log -p -U0 --no-merges "$fork..$head_oid" | git patch-id --stable | cut -d' ' -f1)
   while read -r id commit; do
-    grep -qxF "$id" <<<"$present" || printf '%s\n' "$commit"
+    grep -qxF "$id" <<<"$present" || missing+="$commit"$'\n'
   done < <(git log -p -U0 --no-merges "$fork..$lane_tip" | git patch-id --stable)
+  [ -n "$missing" ] || return 0
+  destination=${destination_oid:-$(git rev-parse -q --verify "refs/remotes/origin/${destination_branch:-$to}^{commit}" || true)}
+  if [ -n "$destination" ]; then
+    [ -n "$(git cherry "$destination" "$lane_tip" | sed -n '/^+/p')" ] || return 0
+    tree=$(git merge-tree --write-tree "$destination" "$lane_tip" 2>/dev/null | head -n1) || tree=""
+    [ "$tree" = "$(git rev-parse "$head_oid^{tree}")" ] \
+      && [ "$(git rev-list --count --no-merges "$destination..$head_oid")" = "$(git rev-list --count --no-merges "$fork..$lane_tip")" ] && return 0
+  fi
+  printf '%s' "$missing"
 }
 
 refuse_dropped_lane_commits() {

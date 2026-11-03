@@ -2136,6 +2136,47 @@ grep -q "lane commits missing from .*: .*$dropped_commit.*; NOT pushed\." "$land
 [ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$main_before" ] || fail 'the refused lane moved main'
 printf 'PASS: recorded rebase that drops a lane commit is refused naming it\n'
 
+new_landing_origin lane-already-on-main
+make_landing_clone "$landing_root/a" a.txt
+printf 'second\n' >"$landing_root/a/b.txt"
+"$real_git" -C "$landing_root/a" add b.txt
+"$real_git" -C "$landing_root/a" commit -qm 'second change from a'
+cp "$landing_root/a/a.txt" "$landing_root/seed/a.txt"
+"$real_git" -C "$landing_root/seed" add a.txt
+"$real_git" -C "$landing_root/seed" commit -qm 'change from a'
+cp "$landing_root/a/b.txt" "$landing_root/seed/b.txt"
+"$real_git" -C "$landing_root/seed" add b.txt
+"$real_git" -C "$landing_root/seed" commit -qm 'second change from a'
+printf 'other\n' >"$landing_root/seed/other.txt"
+"$real_git" -C "$landing_root/seed" add other.txt
+"$real_git" -C "$landing_root/seed" commit -qm 'main moves on'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+main_before=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+status_a=0; landing_several='each lane commit is checked against main' run_landing "$landing_root/a" || status_a=$?
+! grep -q 'lane commits missing' "$landing_root/a.out" || fail "a lane already on main was refused as dropped: $(cat "$landing_root/a.out")"
+[ "$status_a" -eq 0 ] || fail "a lane already on main exited $status_a: $(cat "$landing_root/a.out")"
+[ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$main_before" ] || fail 'a lane already on main moved main'
+printf 'PASS: recorded lane already on main is not refused as dropped\n'
+
+new_landing_origin rebase-context-only
+seq 1 20 >"$landing_root/seed/shared.txt"
+"$real_git" -C "$landing_root/seed" commit -qam 'twenty shared lines'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+make_landing_clone "$landing_root/a" a.txt
+sed -i -e '2s/.*/two/' -e '18s/.*/eighteen/' "$landing_root/a/shared.txt"
+"$real_git" -C "$landing_root/a" commit -qam 'a edits two shared lines'
+sed -i '2s/.*/two/' "$landing_root/seed/shared.txt"
+printf 'other\n' >"$landing_root/seed/other.txt"
+"$real_git" -C "$landing_root/seed" add other.txt
+"$real_git" -C "$landing_root/seed" commit -qam 'main edits the first of them'
+"$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+status_a=0; landing_several='each lane commit is checked against main' run_landing "$landing_root/a" || status_a=$?
+! grep -q 'lane commits missing' "$landing_root/a.out" || fail "a lane whose diff changed only in rebase context was refused as dropped: $(cat "$landing_root/a.out")"
+[ "$status_a" -eq 0 ] || fail "a lane whose diff changed only in rebase context exited $status_a: $(cat "$landing_root/a.out")"
+"$real_git" --git-dir="$landing_remote" show main:shared.txt | grep -qx eighteen || fail 'the rebased lane edit did not land'
+"$real_git" --git-dir="$landing_remote" cat-file -e main:a.txt || fail 'the rebased lane file did not land'
+printf 'PASS: recorded lane whose diff changed only in rebase context lands\n'
+
 # Concurrent landings from lanes cut at the same base serialize on the
 # per-origin lock; the later one rebases onto the earlier, so both land in
 # order with no non-fast-forward rejection.
