@@ -5,7 +5,8 @@ Pose and look captures for iteration take the Wisp window (`makgora` skill, shar
 - Run compatible pad parity scripts as one batch per pair, or shard one
   immutable candidate's batch across explicitly selected pairs:
   `bun wisp pad SCRIPT|DIR... --helper H --out DIR --map MAP.w3x
-  --pair K...` (clients per the skill's "Native testing" section). It starts
+  --pair K...` (clients per the skill's "Native testing" section; start the
+  pool and the batch the one way lan-pair-batching.md gives). It starts
   one game per pair, types `-dev reset` between scripts (it restores the
   boot match state; makgora:ts/test/dev-reset.test.ts holds the next
   match's checksums and moments equal to a new game's), starts every

@@ -51,7 +51,7 @@ pub(super) fn run(arguments: &[String]) -> io::Result<u8> {
         run.join("launcher-pid"),
         format!("{}\n", std::process::id()),
     )?;
-    fs::create_dir(run.join("runtime"))?;
+    create_private_runtime(&run, &runtime)?;
     fs::create_dir(run.join("config"))?;
     fs::create_dir(run.join("x11-sockets"))?;
     fs::write(run.join("startup.sh"), startup_script(&env::current_exe()?))?;
@@ -331,6 +331,11 @@ fn prepare_vnc_environment() -> io::Result<PathBuf> {
     Ok(venv)
 }
 
+fn create_private_runtime(run: &Path, user_runtime: &Path) -> io::Result<()> {
+    fs::create_dir(run.join("runtime"))?;
+    symlink_dir(&user_runtime.join("systemd"), &run.join("runtime/systemd"))
+}
+
 fn startup_script(executable: &Path) -> String {
     let quoted = format!("'{}'", executable.to_string_lossy().replace("'", "'\\''"));
     format!("#!/bin/sh\nexec {quoted} private-desktop record-display\n")
@@ -338,7 +343,20 @@ fn startup_script(executable: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_render_node;
+    use super::{create_private_runtime, resolve_render_node};
+
+    #[test]
+    fn clients_reach_the_user_manager_through_the_private_runtime() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_runtime = directory.path().join("user");
+        std::fs::create_dir_all(user_runtime.join("systemd")).unwrap();
+        std::fs::write(user_runtime.join("systemd/private"), b"").unwrap();
+        let run = directory.path().join("run");
+        std::fs::create_dir(&run).unwrap();
+        create_private_runtime(&run, &user_runtime).unwrap();
+        assert!(run.join("runtime/systemd/private").exists());
+        assert!(!run.join("runtime/bus").exists());
+    }
 
     #[test]
     fn render_node_links_resolve_only_to_render_nodes() {

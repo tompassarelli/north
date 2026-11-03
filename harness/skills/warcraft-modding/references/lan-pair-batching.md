@@ -15,6 +15,12 @@ only the choice of a free pair; leased pairs run concurrently.
 Do not let simultaneous acceptance runs rebuild the same mutable map path;
 prepare their immutable candidates or use independent lane-owned fixtures.
 
+## One way to run a pool with a pad, capture or check
+
+- From Mak'gora's `ts/`, in one script: `bun wisp lan pool --pair K --pool-profile parity`, which returns once the user unit `makgora-lan-pool-K` runs, then the pad, capture or accept with `--pair K`, then `bun wisp lan stop`.
+- `bun wisp lan check --pair K` starts and stops its pair itself; run it alone.
+- Run that script from a plain shell or as one `private-desktop.sh start -- SCRIPT`: every pair client gets its own private desktop, and inside a launcher desktop `systemctl --user` reaches the user manager through the runtime's `systemd/` link. A foreground Wisp pool (`Ctrl-C stops it.`) runs in the same script as its pad, never in another desktop, because the launcher ends its command's scope when the command exits.
+
 Serialize operations on the same pair or shared mutable fixture. A measured
 capacity or timing constraint may limit concurrent pairs for that workload;
 name the measurement and affected interval. Do not create a global single
