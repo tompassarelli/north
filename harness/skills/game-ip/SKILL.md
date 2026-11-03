@@ -2,7 +2,7 @@
 name: game-ip
 description: >-
   Blizzard and Nintendo IP rules for Warcraft III, Wisp, Mak'gora or Melee work: allowed sources of game facts, tasks needing internals.
-grounded: 2026-10-31
+grounded: 2026-11-04
 written: 2026-10-31
 metadata:
   kind: domain
@@ -18,7 +18,7 @@ Tom's standing policy for Wisp, Mak'gora, padbridge and every other project that
 - Use decomp output: decomp-style function names, addresses, struct offsets or decomp code excerpts, because it is the same derivation by another route.
 - Read values from Melee's disc files, or from game binaries, to decide behaviour, because behaviour must come from observation and public facts, not extracted data.
 - Commit, post in issues or PRs, or quote in docs any address, offset, byte pattern, dump or procedure for reading or changing a game's internals, because publishing it distributes the forbidden knowledge.
-- Copy or distribute the game's code, art, models, textures, sounds, music, data tables, script bodies or text, because they belong to Blizzard and Nintendo; players load art from their own install at run time.
+- Copy or distribute the game's code, art, models, textures, sounds, music, data tables, script bodies or text, because they belong to Blizzard and Nintendo; players load art from their own install at run time. The one exception: credited Hive Workshop models, including ones their authors ported from other Blizzard games, may ship inside the Mak'gora map, because that map ships only on Hive Workshop and Battle.net as the Warcraft III community's maps do (Tom's decision, 2026-11-04); they never enter Git or a GitHub release (makgora's after-landing `release-assets` check), and Wisp's standalone engine keeps the ban.
 - Bypass DRM, emulate Battle.net sign-in, cheat, evade anti-cheat, or touch other players' games or Blizzard's or Nintendo's services, because that harms players and the owners' services and breaks their terms.
 
 ## Where facts come from
