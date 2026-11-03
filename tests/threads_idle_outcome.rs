@@ -28,7 +28,7 @@ fn outcome(root: &Path, id: &str) -> String {
 
 fn row(id: &str, outcome: &str, backfill: bool) -> String {
     format!(
-        r#"{{"id":"{id}","backfill":{backfill},"ended":"2026-10-09T00:00:00Z","tier":"haiku","actual_min":5,"outcome":"{outcome}","brief":"Item: smashcraft#7 Category: native-check"}}"#
+        r#"{{"id":"{id}","backfill":{backfill},"ended":"2026-10-09T00:00:00Z","tier":"haiku","actual_min":5,"outcome":"{outcome}","brief":"Item: makgora#7 Category: native-check"}}"#
     ) + "\n"
 }
 
@@ -50,7 +50,7 @@ fn the_runs_table_takes_an_idle_outcome_and_a_backfill_relabels_only_a_recorded_
 
 fn row_ending(id: &str, outcome: &str, ended: &str) -> String {
     format!(
-        r#"{{"id":"{id}","backfill":true,"status":"finished","ended":"{ended}","tier":"haiku","actual_min":9,"outcome":"{outcome}","report":"{outcome} report","brief":"Item: smashcraft#7 Category: native-check"}}"#
+        r#"{{"id":"{id}","backfill":true,"status":"finished","ended":"{ended}","tier":"haiku","actual_min":9,"outcome":"{outcome}","report":"{outcome} report","brief":"Item: makgora#7 Category: native-check"}}"#
     ) + "\n"
 }
 

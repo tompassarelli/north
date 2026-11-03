@@ -22,8 +22,8 @@ fn a_session_launched_without_task_holds_the_issue_its_briefs_first_item_line_na
         capacity_need: None,
     };
     assert_eq!(request("Item: wisp#39 relay NAT run\nCategory: native-check\nItem: wisp#40", None).task().as_deref(), Some("wisp#39"));
-    assert_eq!(request("Category: tooling\n  Item: tompassarelli/smashcraft#342: dash attack", None).task().as_deref(), Some("tompassarelli/smashcraft#342"));
-    assert_eq!(request("Item: smashcraft#342", Some("smashcraft#7")).task().as_deref(), Some("smashcraft#7"), "--task wins");
+    assert_eq!(request("Category: tooling\n  Item: tompassarelli/makgora#342: dash attack", None).task().as_deref(), Some("tompassarelli/makgora#342"));
+    assert_eq!(request("Item: makgora#342", Some("makgora#7")).task().as_deref(), Some("makgora#7"), "--task wins");
     assert_eq!(request("Item: north dispatch places almost nothing\nFollows: north#12", None).task(), None, "an Item line naming no issue holds none");
     assert_eq!(request("Item: #342 dash attack", None).task(), None, "a bare #N names no repository");
 }
@@ -71,7 +71,7 @@ fn every_issue_the_first_item_line_names_is_held_up_to_a_word_that_marks_the_res
     assert_eq!(item_issues("Category: bug\nItem: north#306, north#314 and #315 close the duplicates\nItem: north#9"), ["north#306", "north#314", "north#315"]);
     assert_eq!(item_issues("Item: close north#306 (see north#12)"), ["north#306"]);
     assert_eq!(item_issues("Item: fix north#7 follows north#6"), ["north#7"]);
-    assert_eq!(item_issues("Item: tompassarelli/smashcraft#342 and north#9, north#9"), ["tompassarelli/smashcraft#342", "north#9"]);
+    assert_eq!(item_issues("Item: tompassarelli/makgora#342 and north#9, north#9"), ["tompassarelli/makgora#342", "north#9"]);
     assert!(item_issues("Item: #342 dash attack").is_empty());
     assert!(item_issues("Done when: north#1").is_empty());
 }

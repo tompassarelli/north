@@ -17,7 +17,7 @@ pub const PROBE: Duration = Duration::from_secs(30);
 const MIRROR_FRESH_S: f64 = 10.0 * 60.0;
 const WORKING: [&str; 2] = ["starting", "working"];
 const HOLDING: [&str; 3] = ["starting", "working", "idle"];
-static SESSION_ITEMS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|w|wisp|north)-(\d+[a-z]?(?:-\d+[a-z]?)*)(?:-|$)").expect("session pattern"));
+static SESSION_ITEMS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(sc|smashcraft|makgora|w|wisp|north)-(\d+[a-z]?(?:-\d+[a-z]?)*)(?:-|$)").expect("session pattern"));
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Session {
@@ -29,12 +29,12 @@ pub struct Session {
     pub working: bool,
 }
 
-/// The issues a session's name starts with: `sc-277-d1435` holds smashcraft#277 and
-/// `sc-560-562-illidan` holds smashcraft#560 and #562.
+/// The issues a session's name starts with: `sc-277-d1435` holds makgora#277 and
+/// `sc-560-562-illidan` holds makgora#560 and #562.
 pub fn named_items(name: &str) -> Vec<IssueRef> {
     let Some(found) = SESSION_ITEMS.captures(name) else { return Vec::new() };
     let repo = match &found[1] {
-        "sc" | "smashcraft" => "smashcraft",
+        "sc" | "smashcraft" | "makgora" => "makgora",
         "north" => "north",
         _ => "wisp",
     };

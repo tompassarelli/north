@@ -21,7 +21,7 @@ pub const REVIVED: &str = "revived.json";
 
 /// `sc-277-d1435`: the session name `north fleet list` shows and the hold reads back.
 pub fn session_name(launch: &Launch, at: f64) -> String {
-    let short = if launch.item.repo == "smashcraft" { "sc" } else { launch.item.repo.as_str() };
+    let short = if launch.item.repo == "makgora" { "sc" } else { launch.item.repo.as_str() };
     let clock = crate::foundation::clock::Timestamp::from_unix_seconds_f64(at).iso_micros_utc_offset();
     let hhmm: String = clock.get(11..16).unwrap_or_default().chars().filter(char::is_ascii_digit).collect();
     format!("{short}-{}-d{hhmm}", launch.item.number)
@@ -30,7 +30,7 @@ pub fn session_name(launch: &Launch, at: f64) -> String {
 /// The program and arguments that start `launch`: `north fleet launch` here or on an ssh host, or
 /// a laptop job that runs it there.
 pub fn command(launch: &Launch, name: &str, survey: &Survey, home: &str, north: &str) -> Result<(String, Vec<String>), String> {
-    let directory = format!("{home}/code/{}/main", launch.item.repo);
+    let directory = format!("{home}/code/{}/main", crate::threads::catalog::checkout(&launch.item.repo));
     let remote = launch.host != survey.here && survey.laptop.as_deref() != Some(launch.host.as_str());
     let cwd = if remote { format!("{}:{directory}", launch.host) } else { directory };
     let (provider, label) = launch.account.split_once(':').unwrap_or((launch.account.as_str(), "pooled"));

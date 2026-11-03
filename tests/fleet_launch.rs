@@ -7,7 +7,7 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 
-const BRIEF: &str = "Item: smashcraft#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
+const BRIEF: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
 
 fn executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap();
@@ -300,7 +300,7 @@ fn a_second_task_launch_on_a_held_item_is_refused_unless_it_says_why_it_runs_bes
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
     let task = |name: &str, extra: &[&str]| {
-        let mut words = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "none", "--task", "smashcraft#4"];
+        let mut words = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--parent", "none", "--task", "makgora#4"];
         words.extend(extra);
         words.extend(["--system-prompt", &brief, "start the box"]);
         north(root, &words)
@@ -316,7 +316,7 @@ fn a_second_task_launch_on_a_held_item_is_refused_unless_it_says_why_it_runs_bes
     assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
     let refused = String::from_utf8_lossy(&second.stderr);
     assert!(!second.status.success(), "{refused}");
-    assert!(refused.contains("smashcraft#4 is held by fleet session narrow on here") && refused.contains("--force-dup"), "{refused}");
+    assert!(refused.contains("makgora#4 is held by fleet session narrow on here") && refused.contains("--force-dup"), "{refused}");
     assert!(forced.status.success(), "{}", String::from_utf8_lossy(&forced.stderr));
     let show: Value = serde_json::from_slice(&show.stdout).unwrap();
     assert!(show["placement"].as_str().is_some_and(|note| note.contains("dup: a second judge of the same capture")), "{show}");
@@ -378,23 +378,23 @@ fn a_task_launch_holds_its_item_in_the_threads_ledger_under_the_session_name_unt
     let root = scratch.path();
     fixture(root, "fold");
     executable(&root.join("bin/gh"), FAKE_GH);
-    let schema = north(root, &["threads", "release", "smashcraft#4", "--by", "setup"]);
+    let schema = north(root, &["threads", "release", "makgora#4", "--by", "setup"]);
     assert!(String::from_utf8_lossy(&schema.stderr).contains("has no owner"), "{}", String::from_utf8_lossy(&schema.stderr));
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
     let brief = brief.display().to_string();
 
-    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "smashcraft#4", "--system-prompt", &brief, "start the box"]);
+    let launched = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
     assert!(launched.status.success() && !String::from_utf8_lossy(&launched.stderr).contains("does not hold"), "{}", String::from_utf8_lossy(&launched.stderr));
     let held = held_by_name(root);
-    let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "beside", "--parent", "none", "--task", "smashcraft#4", "--system-prompt", &brief, "start the box"]);
+    let refused = north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "beside", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief, "start the box"]);
     let stopped = north(root, &["fleet", "stop", "narrow"]);
     let after = held_by_name(root);
     north(root, &["fleet", "forget", "narrow"]);
 
     assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
-    assert_eq!(held, ["smashcraft#4 narrow"]);
-    assert!(!refused.status.success() && String::from_utf8_lossy(&refused.stderr).contains("smashcraft#4 is held by"), "{}", String::from_utf8_lossy(&refused.stderr));
+    assert_eq!(held, ["makgora#4 narrow"]);
+    assert!(!refused.status.success() && String::from_utf8_lossy(&refused.stderr).contains("makgora#4 is held by"), "{}", String::from_utf8_lossy(&refused.stderr));
     assert!(stopped.status.success(), "{}", String::from_utf8_lossy(&stopped.stderr));
     assert!(after.is_empty(), "{after:?}");
 }
@@ -689,18 +689,18 @@ fn a_launch_whose_session_exits_before_its_first_turn_exits_non_zero_naming_why_
 fn holder(root: &Path, name: &str, stopped: bool) {
     let session = root.join(".local/state/north/fleet").join(name);
     fs::create_dir_all(&session).unwrap();
-    let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": stopped, "task_ref": "smashcraft#4"});
+    let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null, "stopped": stopped, "task_ref": "makgora#4"});
     fs::write(session.join("session.json"), record.to_string()).unwrap();
     executable(&root.join("bin/gh"), FAKE_GH);
-    north(root, &["threads", "release", "smashcraft#4", "--by", "setup"]);
-    let claimed = north(root, &["threads", "claim", "smashcraft#4", "--by", name]);
+    north(root, &["threads", "release", "makgora#4", "--by", "setup"]);
+    let claimed = north(root, &["threads", "claim", "makgora#4", "--by", name]);
     assert!(claimed.status.success(), "{}", text(&claimed.stderr));
 }
 
 fn launch_on_item(root: &Path) -> Output {
     let brief = root.join("box.md");
     fs::write(&brief, BRIEF).unwrap();
-    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "smashcraft#4", "--system-prompt", &brief.display().to_string(), "start the box"])
+    north(root, &["fleet", "launch", "--provider", "claude", "--account", "a", "--name", "narrow", "--parent", "none", "--task", "makgora#4", "--system-prompt", &brief.display().to_string(), "start the box"])
 }
 
 #[test]
@@ -715,8 +715,8 @@ fn a_launch_finds_the_claim_an_exited_session_left_already_cleared_and_takes_the
     let said = text(&launched.stderr);
     assert!(launched.status.success(), "{said}");
     assert!(!said.contains("gone"), "{said}");
-    assert_eq!(held, ["smashcraft#4 narrow"]);
-    let released: i64 = rusqlite::Connection::open(root.join("threads.db")).unwrap().query_row("SELECT count(*) FROM events WHERE item = 'smashcraft#4' AND kind = 'release' AND data LIKE '%gone%'", [], |row| row.get(0)).unwrap();
+    assert_eq!(held, ["makgora#4 narrow"]);
+    let released: i64 = rusqlite::Connection::open(root.join("threads.db")).unwrap().query_row("SELECT count(*) FROM events WHERE item = 'makgora#4' AND kind = 'release' AND data LIKE '%gone%'", [], |row| row.get(0)).unwrap();
     assert_eq!(released, 1);
 }
 
@@ -732,13 +732,13 @@ fn a_parked_holder_refuses_a_launch_until_its_claim_is_past_its_eta_and_then_the
     let taken = launch_on_item(root);
     let held = held_by_name(root);
     north(root, &["fleet", "forget", "narrow"]);
-    let handoffs: i64 = ledger.query_row("SELECT count(*) FROM events WHERE item = 'smashcraft#4' AND kind = 'handoff' AND actor = 'narrow' AND data LIKE '%\"from\":\"resting\"%'", [], |row| row.get(0)).unwrap();
+    let handoffs: i64 = ledger.query_row("SELECT count(*) FROM events WHERE item = 'makgora#4' AND kind = 'handoff' AND actor = 'narrow' AND data LIKE '%\"from\":\"resting\"%'", [], |row| row.get(0)).unwrap();
 
     assert!(!refused.status.success(), "{}", text(&refused.stderr));
-    assert!(text(&refused.stderr).contains("smashcraft#4 is already owned by resting"), "{}", text(&refused.stderr));
+    assert!(text(&refused.stderr).contains("makgora#4 is already owned by resting"), "{}", text(&refused.stderr));
     assert!(taken.status.success(), "{}", text(&taken.stderr));
-    assert!(text(&taken.stderr).contains("narrow owns smashcraft#4, taken over from resting: stale"), "{}", text(&taken.stderr));
-    assert_eq!(held, ["smashcraft#4 narrow"]);
+    assert!(text(&taken.stderr).contains("narrow owns makgora#4, taken over from resting: stale"), "{}", text(&taken.stderr));
+    assert_eq!(held, ["makgora#4 narrow"]);
     assert_eq!(handoffs, 1);
 }
 

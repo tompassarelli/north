@@ -139,7 +139,7 @@ mod tests {
         fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
         let record: SessionRecord = serde_json::from_value(serde_json::json!({
             "name": "sc-459", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null,
-            "conversation": "it's-a-conversation", "task_ref": "smashcraft#459", "machine": {"name": "far", "ssh": "tom@far"}
+            "conversation": "it's-a-conversation", "task_ref": "makgora#459", "machine": {"name": "far", "ssh": "tom@far"}
         }))
         .unwrap();
         let placed = scratch.path().join("fleet/.placed");

@@ -32,7 +32,7 @@ impl Rig {
         git(&seed, &["commit", "-q", "--allow-empty", "-m", "base"]);
         git(&seed, &["push", "-q", "origin", "main"]);
         git(&seed, &["checkout", "-qb", "feature/resume-10"]);
-        git(&seed, &["commit", "-q", "--allow-empty", "-m", "Resume fixture\n\nRefs smashcraft#10"]);
+        git(&seed, &["commit", "-q", "--allow-empty", "-m", "Resume fixture\n\nRefs makgora#10"]);
         git(&seed, &["tag", "archive/feature/resume-10"]);
         git(&seed, &["push", "-q", "origin", "refs/tags/archive/feature/resume-10"]);
         git(&seed, &["checkout", "-q", "main"]);
@@ -47,7 +47,7 @@ impl Rig {
 
     fn fleet(&self, status: &str) {
         let root = self.scratch.path();
-        let nodes = json!([{"name": "holder", "conversation": "fixture-session", "task_ref": "smashcraft#10", "status": status}]);
+        let nodes = json!([{"name": "holder", "conversation": "fixture-session", "task_ref": "makgora#10", "status": status}]);
         std::fs::write(root.join("fleet.json"), nodes.to_string()).unwrap();
         let stub = root.join("north-stub");
         std::fs::write(&stub, format!("#!/bin/sh\ncat {}\n", root.join("fleet.json").display())).unwrap();

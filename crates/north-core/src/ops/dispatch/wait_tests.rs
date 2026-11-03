@@ -20,7 +20,7 @@ fn accounts() -> Vec<Account> {
 }
 
 fn placed(body: &str, hosts: Vec<Host>) -> Result<String, String> {
-    let outcome = decide(&survey(vec![issue("smashcraft", 597, body, &[])], Cloud::Closed(String::new()), hosts, accounts()), "test");
+    let outcome = decide(&survey(vec![issue("makgora", 597, body, &[])], Cloud::Closed(String::new()), hosts, accounts()), "test");
     outcome.launches.first().map(|launch| launch.host.clone()).ok_or_else(|| outcome.skipped.first().map(|(_, why)| why.clone()).unwrap_or_default())
 }
 

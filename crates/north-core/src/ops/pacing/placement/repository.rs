@@ -5,7 +5,8 @@ pub fn repository(text: &str) -> String {
     let declared = field(text, "Repository");
     let source = if declared.is_empty() { issue_repository(field(text, "Item")) } else { declared.split_whitespace().next().unwrap_or_default() };
     let last = source.trim_end_matches('/').rsplit('/').next().unwrap_or_default();
-    last.trim_end_matches(".git").trim().to_lowercase()
+    let name = last.trim_end_matches(".git").trim().to_lowercase();
+    crate::threads::catalog::CATALOG.canonical(&name).to_owned()
 }
 
 /// The `REPO` of an `[OWNER/]REPO#N` reference at the start of `text`; prose has none.

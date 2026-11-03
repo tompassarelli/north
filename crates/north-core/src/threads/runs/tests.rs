@@ -23,7 +23,7 @@ struct Ledger {
 fn github(joined: &str) -> Option<Result<String, String>> {
     let reply = if joined.contains("-R tompassarelli/wisp") {
         json!([{"number": 3, "labels": [{"name": "bug"}]}, {"number": 9, "labels": [{"name": "enhancement"}, {"name": "theme:balance"}]}]).to_string()
-    } else if joined.contains("-R tompassarelli/smashcraft") {
+    } else if joined.contains("-R tompassarelli/makgora") {
         "not json".to_owned()
     } else {
         "[]".to_owned()
@@ -88,7 +88,7 @@ impl Ledger {
     }
 }
 
-const CREATION: &str = "Item: smashcraft#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell";
+const CREATION: &str = "Item: makgora#4\nCategory: tooling\nSpec: measured\nScope: module\nSurface: shell";
 
 fn creation() -> Json {
     json!({"id": "a333", "status": "running", "model": "gpt-6.1-sol", "effort": "medium", "tier": "medium", "started": "2026-10-08T03:00:00.511000Z", "staffed": "2026-10-08T03:00:00.511000Z",
@@ -109,7 +109,7 @@ fn a_native_creation_row_keeps_its_brief_model_and_effort_while_running_and_hold
     let ledger = ledger();
     ledger.ingest(&[creation()]);
     assert_eq!(ledger.row("SELECT outcome, category, verify, model, effort FROM runs WHERE agent = 'a333'"), "running|tooling||gpt-6.1-sol|medium");
-    assert_eq!(ledger.row("SELECT item, owner, since, eta_min FROM claims"), "smashcraft#4|a333|2026-10-08T03:00:00.511000Z|30");
+    assert_eq!(ledger.row("SELECT item, owner, since, eta_min FROM claims"), "makgora#4|a333|2026-10-08T03:00:00.511000Z|30");
     assert!(!ledger.run_ids(true).contains(&"a333".to_owned()));
 }
 
@@ -124,7 +124,7 @@ fn a_creation_row_keeps_observed_model_effort_and_original_brief_through_replace
     assert_eq!(model(&ledger), "gpt-6-sol|high", "a partial replacement takes an explicit model and effort");
     let mut done = collected(None, "2026-10-08T03:20:00Z", 20, "done");
     done["staffed"] = json!("2026-10-08T02:59:59Z");
-    done["brief"] = json!("Item: smashcraft#4\nVerify: native");
+    done["brief"] = json!("Item: makgora#4\nVerify: native");
     ledger.ingest(&[done]);
     assert_eq!(model(&ledger), "gpt-6-sol|high", "completion keeps the latest observed model and effort");
     let promoted = ledger.row("SELECT outcome, category, verify, brief_origin, brief_path, brief_sha256, started, staffed FROM runs WHERE agent = 'a333'");
@@ -207,7 +207,7 @@ fn an_unlabeled_run_takes_its_category_from_its_issue_labels_with_one_listing_pe
     ledger.ingest(&[
         done("u1", json!({"brief": "Item: wisp#3"})),
         done("u2", json!({"refs": ["nope", "wisp#9"]})),
-        done("u3", json!({"brief": "Item: smashcraft#8"})),
+        done("u3", json!({"brief": "Item: makgora#8"})),
         done("u4", json!({"brief": "Item: ops#1"})),
         done("u5", json!({"brief": "Item: wisp#3 Category: research"})),
     ]);
@@ -220,7 +220,7 @@ fn an_unlabeled_run_takes_its_category_from_its_issue_labels_with_one_listing_pe
     assert!(err.contains("2 of 4 unknown runs labeled"), "{err}");
     assert_eq!(categories(), [["u1", "bug-known-cause"], ["u2", "balance-tuning"], ["u3", "unknown"], ["u4", "unknown"], ["u5", "research"]].map(|row| row.map(text).to_vec()));
     let listed: Vec<String> = ledger.outside.calls.borrow().iter().map(|call| call[3].clone()).collect();
-    assert_eq!(listed, ["tompassarelli/wisp", "tompassarelli/smashcraft"]);
+    assert_eq!(listed, ["tompassarelli/wisp", "tompassarelli/makgora"]);
 }
 
 #[test]

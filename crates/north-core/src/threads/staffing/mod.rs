@@ -21,7 +21,7 @@ use crate::threads::catalog::CATALOG;
 use crate::threads::withheld::withheld;
 
 pub const VERBS: [&str; 1] = ["unowned"];
-const STAFFED: [&str; 2] = ["smashcraft", "wisp"];
+const STAFFED: [&str; 2] = ["makgora", "wisp"];
 const PRIORITIES: [&str; 4] = ["priority:now", "-", "priority:next", "priority:later"];
 
 static BOX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*[-*] \[ \]").expect("box pattern"));

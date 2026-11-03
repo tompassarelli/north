@@ -1783,13 +1783,13 @@ collect_train() {
 # worktree whose node_modules were installed for another commit; the checks
 # would then judge the new code against old dependencies. Reinstall each
 # installed Bun project whose package.json or bun.lock no longer matches. In
-# smashcraft, wisp and north a fresh worktree's top-level projects get their first
+# makgora, wisp and north a fresh worktree's top-level projects get their first
 # install too, since their pre-push and land checks import from node_modules.
 sync_dependencies() {
   local lock dir want stamp top first_install=0
   top=$(git rev-parse --show-toplevel)
   case "$(basename "$(git remote get-url origin 2>/dev/null)" .git)" in
-    smashcraft|wisp|north) first_install=1 ;;
+    makgora|wisp|north) first_install=1 ;;
   esac
   while IFS= read -r lock; do
     dir="$top/$(dirname "$lock")"

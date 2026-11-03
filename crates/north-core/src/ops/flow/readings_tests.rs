@@ -46,8 +46,8 @@ fn test_failed_autoland_lanes_are_dead_not_pending() {
     let lanes = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
     assert_eq!(lane_counts(&lanes(&["a", "b", "c", "d"]), &states, now), (2, 2, Some(840.0)));
     assert_eq!(lane_counts(&lanes(&["c", "d"]), &states, now), (2, 0, None));
-    let row = json!({"repo": "smashcraft", "pending": 2, "dead": 2, "dead_oldest_minutes": 840.0, "landed_per_hour": 1, "push_to_land_minutes": 12, "push_to_land_p90_minutes": 30});
-    assert!(format_row(&row, None).contains("smashcraft: pending 2, dead 2 (oldest 840m), landed 1/h"), "{}", format_row(&row, None));
+    let row = json!({"repo": "makgora", "pending": 2, "dead": 2, "dead_oldest_minutes": 840.0, "landed_per_hour": 1, "push_to_land_minutes": 12, "push_to_land_p90_minutes": 30});
+    assert!(format_row(&row, None).contains("makgora: pending 2, dead 2 (oldest 840m), landed 1/h"), "{}", format_row(&row, None));
 }
 
 fn lan_lines() -> Vec<Value> {
@@ -74,7 +74,7 @@ struct Capacity<'a> {
 fn capacity_row(now: f64, case: &Capacity) -> Value {
     let stall = verdict(&Facts { now, main_at: now, landings: &[now], pending: case.pending, jobs: &[], medians: &Medians::new(), pending_since: None });
     json!({
-        "repo": "smashcraft", "main_sha": "tip", "pending": case.pending, "stall": stall,
+        "repo": "makgora", "main_sha": "tip", "pending": case.pending, "stall": stall,
         "actions": actions_verdict(Some(case.pending), case.samples, now),
         "wisp": wisp_verdict(Some(case.pairs), Some(1), now),
         "reuse": reuse_verdict(Some(case.flags)),
@@ -149,17 +149,17 @@ fn test_recorded_11_12_oct_landings_without_closures() {
     let config = directory.path().join("orchestration.toml");
     std::fs::write(&config, "[projects.smashcraft]\ntarget = \"2026-10-13T03:45:00Z\"\n[projects.north]\ntarget = \"2026-10-12T15:45:00Z\"\n[projects.wisp]\n").unwrap();
     let targets = project_targets(&config);
-    assert_eq!(targets.keys().map(String::as_str).collect::<Vec<_>>(), ["north", "smashcraft"]);
+    assert_eq!(targets.keys().map(String::as_str).collect::<Vec<_>>(), ["makgora", "north"]);
     let claims = BTreeMap::new();
     let inputs = |repo, open, closed, log, landings, pushes, pending_since| Inputs { repo, now, open_count: Some(open), closed, main_log: log, landings, pushes, target: targets.get(repo).copied(), dead_lanes: &[], claims: &claims, pending_since };
     let waiting = [now - 900.0];
-    let row = throughput(&inputs("smashcraft", 78, &closed, &main_log, &landings, &pushes, &waiting));
+    let row = throughput(&inputs("makgora", 78, &closed, &main_log, &landings, &pushes, &waiting));
     assert!((row.closed_per_hour.unwrap() - 1.0 / 3.0).abs() < 1e-9);
     assert!((row.needed_per_hour.unwrap() - 78.0 / 24.0).abs() < 1e-9);
     assert_eq!(throughput(&inputs("north", 24, &[], &[], &[], &[], &[])).needed_per_hour, Some(2.0));
     assert_eq!((row.land_to_close_minutes, row.land_ratio_3h), (Some(10.0), Some(1.0)));
     assert_eq!((row.failed_unowned, row.oldest_lane_wait_minutes), (0, Some(15.0)));
-    let mut formatted = json!({"repo": "smashcraft", "pending": 1, "landed_per_hour": 3, "push_to_land_minutes": 12, "push_to_land_p90_minutes": 20});
+    let mut formatted = json!({"repo": "makgora", "pending": 1, "landed_per_hour": 3, "push_to_land_minutes": 12, "push_to_land_p90_minutes": 20});
     formatted.as_object_mut().unwrap().extend(serde_json::to_value(&row).unwrap().as_object().unwrap().clone());
     formatted["goal_finish"] = json!(row.target.unwrap() + 3600.0);
     let services = [json!({"id": "build", "kind": "cloud", "usd_per_week": 12.5}), json!({"id": "host", "kind": "cloud", "billing": "fixed", "usd_per_week": 7})];
@@ -175,7 +175,7 @@ fn test_recorded_11_12_oct_landings_without_closures() {
     let failed = now - 3600.0;
     let lanes: Vec<DeadLane> = [(failed, 513), (failed, 514), (now - 300.0, 515)].into_iter().map(|(failed_at, number)| DeadLane { failed_at, issues: BTreeSet::from([number]) }).collect();
     let claimed = BTreeMap::from([(514, failed + 60.0)]);
-    let stuck = throughput(&Inputs { repo: "smashcraft", now, open_count: Some(78), closed: &closed, main_log: &main_log, landings: &landings, pushes: &pushes, target: None, dead_lanes: &lanes, claims: &claimed, pending_since: &[] });
+    let stuck = throughput(&Inputs { repo: "makgora", now, open_count: Some(78), closed: &closed, main_log: &main_log, landings: &landings, pushes: &pushes, target: None, dead_lanes: &lanes, claims: &claimed, pending_since: &[] });
     assert_eq!((stuck.needed_per_hour, stuck.failed_unowned), (None, 1));
 }
 
@@ -208,7 +208,7 @@ fn recorded_autoland_latency() {
     assert_eq!(samples, [4313.0 / 60.0, 3500.0 / 60.0, 3657.0 / 60.0, 3013.0 / 60.0]);
     let (median, p90) = percentiles(&samples);
     assert_eq!((median, p90), (Some((3500.0 + 3657.0) / 120.0), Some(4313.0 / 60.0)));
-    let row = json!({"repo": "smashcraft", "pending": 23, "landed_per_hour": 8, "push_to_land_minutes": median, "push_to_land_p90_minutes": p90});
+    let row = json!({"repo": "makgora", "pending": 23, "landed_per_hour": 8, "push_to_land_minutes": median, "push_to_land_p90_minutes": p90});
     assert!(format_row(&row, None).contains("push-to-land median 59.6417m p90 71.8833m over 24h"), "{}", format_row(&row, None));
 }
 

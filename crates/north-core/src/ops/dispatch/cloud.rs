@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const SOURCES: &str = "/tmp/cloud/src";
-pub const AUTOLAND: [&str; 2] = ["smashcraft", "wisp"];
+pub const AUTOLAND: [&str; 2] = ["makgora", "wisp"];
 pub const HOST: &str = "anthropic-cloud";
 pub const SESSIONS: i64 = 6;
 const LAUNCH_WAIT: Duration = Duration::from_secs(180);

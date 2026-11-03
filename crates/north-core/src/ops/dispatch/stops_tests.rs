@@ -22,13 +22,13 @@ fn a_box_whose_last_session_stopped_for_a_decision_is_skipped_until_the_issue_ch
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
     let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
-    let box_at = |touched: f64| Issue { stopped, touched, ..issue("smashcraft", 587, "- [ ] a", &[]) };
+    let box_at = |touched: f64| Issue { stopped, touched, ..issue("makgora", 587, "- [ ] a", &[]) };
     assert_eq!(issues::readiness(&box_at(900.0), &world), Err("last worker stopped for a decision".into()));
     assert_eq!(issues::readiness(&box_at(1000.0), &world), Err("last worker stopped for a decision".into()), "the worker's own comment lands at or before its report");
     assert_eq!(issues::readiness(&box_at(1001.0), &world), Ok(()), "a newer comment or body edit launches it again");
     assert_eq!(issues::readiness(&Issue { stopped: None, ..box_at(0.0) }, &world), Ok(()));
 
     let launch = |item: &str, name: &str, at: f64, launched: bool| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:c".into(), name: name.into(), cloud: false, launched, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false };
-    let records = [launch("smashcraft#587", "sc-587-d0740", 10.0, true), launch("smashcraft#587", "sc-587-d0750", 20.0, true), launch("smashcraft#587", "sc-587-d0800", 30.0, false)];
-    assert_eq!(super::stops::last_launches(&records)[&IssueRef::new("smashcraft", 587)].name, "sc-587-d0750", "a failed launch started no session");
+    let records = [launch("makgora#587", "sc-587-d0740", 10.0, true), launch("makgora#587", "sc-587-d0750", 20.0, true), launch("makgora#587", "sc-587-d0800", 30.0, false)];
+    assert_eq!(super::stops::last_launches(&records)[&IssueRef::new("makgora", 587)].name, "sc-587-d0750", "a failed launch started no session");
 }

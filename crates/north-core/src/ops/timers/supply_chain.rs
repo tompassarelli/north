@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::{env_or, home};
 
-const PROJECTS: [&str; 4] = ["smashcraft", "wisp", "north", "nixos-config"];
+const PROJECTS: [&str; 4] = ["makgora", "wisp", "north", "nixos-config"];
 const ALERT_FAILED: &str = "supply-alert failed";
 const LOCKFILE: &str = r"(^|/)(bun\.lock|Cargo\.lock|uv\.lock|requirements[^/]*\.txt|package-lock\.json)$";
 
@@ -54,7 +54,7 @@ pub(super) fn lockfile_names(ls_tree: &[u8]) -> Vec<String> {
 fn fetch_lockfiles(scratch: &Path) -> Result<Vec<String>, String> {
     let mut paths = Vec::new();
     for project in PROJECTS {
-        let repo = home().join("code").join(project).join("main");
+        let repo = home().join("code").join(crate::threads::catalog::checkout(project)).join("main");
         if !repo.is_dir() {
             eprintln!("supply-chain-scan: skipping {project}: {} is missing", repo.display());
             continue;

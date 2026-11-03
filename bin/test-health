@@ -27,7 +27,7 @@ const fetch = !argv.includes("--no-fetch");
 
 const southRepos = join(HOME, "code/south/main/agents/test-health-repos.json");
 const LEAN_REPOS: Repo[] = existsSync(southRepos) ? JSON.parse(readFileSync(southRepos, "utf8")).lean : [];
-const CHECKOUT: Record<Repo, string> = Object.fromEntries([...REPOS, ...LEAN_REPOS].map((r) => [r, join(HOME, "code", r === "firn" ? "nixos-config" : r, "main")])) as any;
+const CHECKOUT: Record<Repo, string> = Object.fromEntries([...REPOS, ...LEAN_REPOS].map((r) => [r, join(HOME, "code", ({ firn: "nixos-config", makgora: "smashcraft", "makgora-client": "smashcraft-client" } as Record<string, string>)[r] ?? r, "main")])) as any;
 
 function sh(cmd: string[], cwd?: string): string {
   const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });

@@ -2,7 +2,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statS
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const ENROLLED = ["north", "smashcraft", "wisp", "padbridge", "smashcraft-client"];
+export const ENROLLED = ["north", "makgora", "wisp", "padbridge", "makgora-client"];
 const LAUNCH_GRACE_MS = 60 * 60 * 1000;
 const PLACEMENT_PICK = /launch with --account ([\w-]+)/;
 
@@ -62,7 +62,7 @@ function fill(template: string, values: Record<string, string>): string {
 }
 
 export function tickRepo(repo: string, env: TickEnv, print: (line: string) => void): Outcome {
-  const checkout = join(env.codeRoot, repo, "main");
+  const checkout = join(env.codeRoot, ({ firn: "nixos-config", makgora: "smashcraft", "makgora-client": "smashcraft-client" } as Record<string, string>)[repo] ?? repo, "main");
   if (!existsSync(checkout)) return { repo, result: "missing", detail: `no checkout at ${checkout}` };
   const name = reviewName(repo, env.now());
   const state = join(env.stateRoot, repo), lock = join(state, "review.lock");

@@ -21,7 +21,8 @@ fn strings(item: Option<&Item>) -> Vec<String> {
 
 impl Projects {
     pub fn read(cfg: &DocumentMut) -> Result<Self, String> {
-        let private = strings(cfg.get("placement").and_then(|rules| rules.get("private_repos")));
+        let canonical = |names: Vec<String>| names.into_iter().map(|name| crate::threads::catalog::CATALOG.canonical(&name).to_owned()).collect::<Vec<_>>();
+        let private = canonical(strings(cfg.get("placement").and_then(|rules| rules.get("private_repos"))));
         let mut named: Vec<(i64, String, &Item)> = cfg
             .get("projects")
             .and_then(Item::as_table_like)
@@ -33,7 +34,7 @@ impl Projects {
         let mut found = Self::default();
         for (_, name, project) in named {
             let staffed = project.get("dispatch_repos").or_else(|| project.get("repos"));
-            for repo in strings(staffed).into_iter().filter(|repo| !private.contains(repo)) {
+            for repo in canonical(strings(staffed)).into_iter().filter(|repo| !private.contains(repo)) {
                 if !found.repos.contains(&repo) {
                     found.repos.push(repo.clone());
                 }

@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn refuses_unlabelled_create_naming_missing_families() {
         let reason = denial(decide(
-            "gh issue create -R tompassarelli/smashcraft --title t --body b",
+            "gh issue create -R tompassarelli/makgora --title t --body b",
             "x/y",
             &WITH_EVIDENCE,
         ));
@@ -215,7 +215,7 @@ mod tests {
     fn names_only_the_families_still_missing() {
         let reason = denial(decide(
             "gh issue create --title t --label bug,priority:now",
-            "tompassarelli/smashcraft",
+            "tompassarelli/makgora",
             &WITH_EVIDENCE,
         ));
         assert!(reason.contains("evidence:*"), "{reason}");
@@ -232,7 +232,7 @@ mod tests {
             "cd x && gh issue create --title 't' --label 'bug' -l 'priority:now' -l evidence:code",
         ] {
             assert_eq!(
-                decide(command, "tompassarelli/smashcraft", &WITH_EVIDENCE),
+                decide(command, "tompassarelli/makgora", &WITH_EVIDENCE),
                 Verdict::Allow,
                 "{command}"
             );

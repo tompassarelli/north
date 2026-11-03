@@ -110,7 +110,7 @@ fn health_ci_ignores_running_and_older_runs_but_reports_newest_completed_failure
     ]);
     let mut runs = BTreeMap::from([
         ("north".into(), Ok(rows.to_string())),
-        ("smashcraft".into(), Ok(rows.to_string())),
+        ("makgora".into(), Ok(rows.to_string())),
     ]);
     assert!(ci(CiInput { runs: runs.clone() }).is_ok());
     let mut failing = rows.clone();
@@ -121,7 +121,7 @@ fn health_ci_ignores_running_and_older_runs_but_reports_newest_completed_failure
         ci(CiInput {
             runs: BTreeMap::from([
                 ("north".into(), Ok("[]".into())),
-                ("smashcraft".into(), Ok(rows.to_string())),
+                ("makgora".into(), Ok(rows.to_string())),
             ])
         })
         .is_err()

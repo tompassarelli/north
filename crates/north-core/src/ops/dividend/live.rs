@@ -12,7 +12,7 @@ use std::time::Duration;
 use toml_edit::{DocumentMut, Item};
 
 const REPO: &str = "tompassarelli/north";
-const RELEASE_REPO: &str = "tompassarelli/smashcraft";
+const RELEASE_REPO: &str = "tompassarelli/makgora";
 const RELEASE_LABEL: &str = "priority:now";
 const USAGE_LOG: &str = ".local/state/agents/machine-capacity-usage.jsonl";
 const SSH_WAIT: Duration = Duration::from_secs(60);

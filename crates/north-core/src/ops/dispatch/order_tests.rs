@@ -57,7 +57,7 @@ fn event(rng: &mut Rng) -> Event {
 }
 
 fn item(number: u64) -> IssueRef {
-    IssueRef::new("smashcraft", number)
+    IssueRef::new("makgora", number)
 }
 
 #[derive(Clone, Default)]
@@ -240,7 +240,7 @@ fn check_claims(world: &World, trail: &str, broken: &mut Broken) {
 fn check_decide(world: &World, rng: &mut Rng, trail: &str, broken: &mut Broken) {
     let holds = world.all_holds();
     let gated = rng.chance(50);
-    let boxes: Vec<Issue> = (1..=3).map(|number| issue("smashcraft", number, &format!("- [ ] build it{}", if gated && number == 2 { format!(" (not before {GATE})") } else { String::new() }), &[])).collect();
+    let boxes: Vec<Issue> = (1..=3).map(|number| issue("makgora", number, &format!("- [ ] build it{}", if gated && number == 2 { format!(" (not before {GATE})") } else { String::new() }), &[])).collect();
     let (hosts, accounts) = fleet();
     let mut surveyed = survey(boxes, Cloud::Closed(String::new()), hosts, accounts);
     let before = rng.chance(50);

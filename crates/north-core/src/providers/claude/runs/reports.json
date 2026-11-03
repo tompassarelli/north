@@ -40,7 +40,7 @@
     "quiet": false
   },
   {
-    "report": "Split: I changed nothing on Sylvanas' up tilt and landed nothing. The Done-when box stays unticked, and I released the claim on smashcraft#588.\n\nThree takes are already done on branch `claude/sc-588-uptilt` (commits 78cd7c57e4 and 3546a61d13, local only). The issue's own comments record the results:\n- **Rule:** the animation scorecard allows two takes. The proxy granted a third, under Tom's delega",
+    "report": "Split: I changed nothing on Sylvanas' up tilt and landed nothing. The Done-when box stays unticked, and I released the claim on makgora#588.\n\nThree takes are already done on branch `claude/sc-588-uptilt` (commits 78cd7c57e4 and 3546a61d13, local only). The issue's own comments record the results:\n- **Rule:** the animation scorecard allows two takes. The proxy granted a third, under Tom's delega",
     "outcome": "split",
     "quiet": false
   },
@@ -80,7 +80,7 @@
     "quiet": false
   },
   {
-    "report": "Not done: smashcraft#497 is still open, and nothing new landed this session.\n\n**Stop:** two things block the remaining boxes, and one of them needs Tom's decision.\n\n- **Scorecard box:** jab, jab 2, forward tilt and down-angled forward tilt pass scorecard lines 1–4. Line 5 (character) stays at 3 after five Blender takes. Judges name the thin spear crossing his crest, which is how the model is built",
+    "report": "Not done: makgora#497 is still open, and nothing new landed this session.\n\n**Stop:** two things block the remaining boxes, and one of them needs Tom's decision.\n\n- **Scorecard box:** jab, jab 2, forward tilt and down-angled forward tilt pass scorecard lines 1–4. Line 5 (character) stays at 3 after five Blender takes. Judges name the thin spear crossing his crest, which is how the model is built",
     "outcome": "not done",
     "quiet": false
   },

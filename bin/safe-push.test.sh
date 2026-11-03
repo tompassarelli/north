@@ -419,7 +419,7 @@ make_deps_repo() {
   "$real_git" -C "$deps_repo" -c user.name=t -c user.email=t@example.invalid commit -qm 'ts project'
 }
 : >"$deps_root/bun-runs"
-make_deps_repo from-subdirectory smashcraft
+make_deps_repo from-subdirectory makgora
 deps_output="$(cd "$deps_repo/ts" && PATH="$deps_bin:$PATH" sync_dependencies 2>&1)" || fail "sync_dependencies from a subdirectory failed: $deps_output"
 [ "$(cat "$deps_root/bun-runs")" = "$deps_repo/ts" ] || fail "sync_dependencies from ts/ did not install in ts/: $deps_output"
 [ ! -e "$deps_repo/node_modules" ] || fail 'sync_dependencies from ts/ installed at the repository root'

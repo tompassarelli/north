@@ -48,7 +48,7 @@ pub fn guard_reasons(row: &Value) -> Vec<(&'static str, String)> {
 }
 
 fn parent_of(nodes: &[Node], repo: &str) -> String {
-    let fragment = format!("/code/{repo}/");
+    let fragment = format!("/code/{}/", crate::threads::catalog::checkout(repo));
     nodes
         .iter()
         .find(|node| node.active && node.cwd.contains(&fragment))

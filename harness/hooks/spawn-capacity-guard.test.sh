@@ -239,7 +239,7 @@ gate null
 flow_cache="$SCRATCH/home/.local/state/agents/flow/smashcraft.json"
 export FLOW_CACHE="$flow_cache"
 mkdir -p "${flow_cache%/*}"
-flow_status() { printf '{"repo":"smashcraft","epoch":%s,"pending":%s,"landed_per_hour":%s,"push_to_land_minutes":12,"push_to_land_p90_minutes":20}\n' "$(date +%s)" "$1" "$2" >"$flow_cache"; }
+flow_status() { printf '{"repo":"makgora","epoch":%s,"pending":%s,"landed_per_hour":%s,"push_to_land_minutes":12,"push_to_land_p90_minutes":20}\n' "$(date +%s)" "$1" "$2" >"$flow_cache"; }
 flow_brief() { agent "{\"subagent_type\":\"worker\",\"prompt\":\"Lane: ~/code/smashcraft/worktrees/fix. $1\"}"; }
 flow_status 3 1
 expect_deny "$(flow_brief 'Fix the fighter.')" 'landing WIP refuses smashcraft above the floor of two'
@@ -275,7 +275,7 @@ python3 - "$SCRATCH/home/.local/state/agents/spawn-gate-denials.jsonl" <<'PY' \
   || check bad 'landing WIP denial logs the repository and all three measurements' 'missing reason'
 import json, sys
 reasons = [json.loads(line).get("reason") or "" for line in open(sys.argv[1])]
-assert any("smashcraft: pending 3, landed 1/h over 3h, push-to-land median 12m" in reason
+assert any("makgora: pending 3, landed 1/h over 3h, push-to-land median 12m" in reason
            and "widen the landing path first" in reason for reason in reasons)
 PY
 

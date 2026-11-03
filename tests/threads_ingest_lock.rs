@@ -61,7 +61,7 @@ fn a_backfilled_run_takes_its_reread_role_tier_and_item() {
     let root = scratch.path();
     let row = |role: &str, tier: &str, backfill: bool| {
         format!(
-            r#"{{"id":"sc-459","role":"{role}","tier":"{tier}","backfill":{backfill},"brief":"Item: smashcraft#459 back-air\nCategory: feature","status":"finished","outcome":"done","started":"2026-10-26T11:00:00Z","ended":"2026-10-26T11:05:00Z","actual_min":5}}"#
+            r#"{{"id":"sc-459","role":"{role}","tier":"{tier}","backfill":{backfill},"brief":"Item: makgora#459 back-air\nCategory: feature","status":"finished","outcome":"done","started":"2026-10-26T11:00:00Z","ended":"2026-10-26T11:05:00Z","actual_min":5}}"#
         )
     };
     for line in [row("proxy", "claude-opus-5-5", false), row("worker", "medium", true)] {
@@ -72,7 +72,7 @@ fn a_backfilled_run_takes_its_reread_role_tier_and_item() {
     }
     let query = "select role, tier, item, category from runs where agent = 'sc-459'";
     let run = Command::new("sqlite3").arg(root.join("threads.db")).arg(query).output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "worker|medium|smashcraft#459|feature");
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "worker|medium|makgora#459|feature");
 }
 
 #[test]

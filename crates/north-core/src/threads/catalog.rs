@@ -14,6 +14,14 @@ pub struct Catalog {
 
 pub static CATALOG: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(include_str!("../../../../bin/threads")));
 
+pub fn checkout(repo: &str) -> &str {
+    crate::platform::archive_tags::checkout_name(repo)
+}
+
+pub fn canonical_topics(topics: Vec<crate::platform::frozen_topics::Topic>) -> Vec<crate::platform::frozen_topics::Topic> {
+    topics.into_iter().map(|mut topic| { topic.repo = CATALOG.canonical(&topic.repo).to_owned(); topic }).collect()
+}
+
 impl Catalog {
     fn parse(source: &str) -> Self {
         let quoted = Regex::new(r#""([^"]+)""#).expect("quoted pattern");
@@ -38,10 +46,10 @@ impl Catalog {
         self.aliases.get(name).map_or(name, String::as_str)
     }
 
-    /// `smashcraft#222`, `tompassarelli/smashcraft#222` or `nixos-config#3` as a repository or
+    /// `makgora#222`, `tompassarelli/makgora#222` or `nixos-config#3` as a repository or
     /// namespace and number.
     pub fn parse_ref(&self, text: &str) -> Result<(String, u64), String> {
-        let malformed = || format!("{text} is not an issue ref like smashcraft#222");
+        let malformed = || format!("{text} is not an issue ref like makgora#222");
         let (name, number) = text.trim().rsplit_once('#').ok_or_else(malformed)?;
         let number = number.parse::<u64>().ok().filter(|number| *number > 0).ok_or_else(malformed)?;
         let repo = self.canonical(name);
@@ -63,12 +71,17 @@ mod tests {
         assert_eq!(CATALOG.parse_ref("nixos-config#9"), Ok(("firn".to_owned(), 9)));
         assert_eq!(CATALOG.parse_ref("tompassarelli/firn#9"), Ok(("firn".to_owned(), 9)));
         assert!(CATALOG.parse_ref("nowhere#9").unwrap_err().starts_with("unknown repo nowhere"));
-        assert!(CATALOG.parse_ref("smashcraft#0").is_err() && CATALOG.parse_ref("smashcraft").is_err());
-        assert_eq!(CATALOG.parse_ref("tompassarelli/makgora#7"), Ok(("smashcraft".to_owned(), 7)));
-        assert_eq!(CATALOG.canonical("tompassarelli/Makgora"), "smashcraft");
-        assert_eq!(CATALOG.parse_ref("smashcraft-client#26"), Ok(("smashcraft-client".to_owned(), 26)));
-        assert_eq!(CATALOG.parse_ref("tompassarelli/makgora-client#26"), Ok(("smashcraft-client".to_owned(), 26)));
+        assert!(CATALOG.parse_ref("makgora#0").is_err() && CATALOG.parse_ref("makgora").is_err());
+        assert_eq!(CATALOG.canonical("smashcraft"), "makgora");
+        assert_eq!(CATALOG.parse_ref("smashcraft#7"), Ok(("makgora".to_owned(), 7)));
+        assert_eq!(CATALOG.parse_ref("tompassarelli/smashcraft#7"), Ok(("makgora".to_owned(), 7)));
+        assert_eq!(CATALOG.canonical("tompassarelli/Makgora"), "makgora");
+        assert_eq!(CATALOG.parse_ref("smashcraft-client#26"), Ok(("makgora-client".to_owned(), 26)));
+        assert_eq!(CATALOG.parse_ref("makgora-client#26"), Ok(("makgora-client".to_owned(), 26)));
+        assert_eq!((super::checkout("makgora"), super::checkout("firn"), super::checkout("wisp")), ("smashcraft", "nixos-config", "wisp"));
         assert_eq!(CATALOG.parse_ref("padbridge#1"), Ok(("padbridge".to_owned(), 1)));
         assert!(CATALOG.is_native("life") && !CATALOG.is_native("wisp"));
+        let topic = crate::platform::frozen_topics::Topic { repo: "smashcraft".into(), name: "Kobold".into(), terms: vec!["kobold".into()], since: "2026-10-26".into(), reason: "x".into() };
+        assert_eq!(super::canonical_topics(vec![topic])[0].repo, "makgora");
     }
 }

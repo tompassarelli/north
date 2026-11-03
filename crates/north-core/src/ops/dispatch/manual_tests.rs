@@ -100,7 +100,7 @@ fn a_brief_without_a_category_is_a_feature_and_a_prompt_without_a_header_gets_on
 
 #[test]
 fn a_dispatched_brief_that_names_its_tier_keeps_it_and_is_not_stamped_or_recorded_again() {
-    let brief = "Item: smashcraft#3 x\nCategory: tooling\nTier: worker\nArm: worker";
+    let brief = "Item: makgora#3 x\nCategory: tooling\nTier: worker\nArm: worker";
     let dispatched = launch(brief, Some("claude-opus-5-5"), None, &History::default()).unwrap();
     assert_eq!((dispatched.routed, dispatched.prompt.as_str(), dispatched.overridden), (true, brief, None));
     assert!(launch(brief, Some("claude-sonnet-5-5"), None, &History::default()).unwrap_err().contains("worker"), "the named tier is the pick");

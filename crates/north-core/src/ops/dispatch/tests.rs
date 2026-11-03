@@ -17,7 +17,7 @@ resident_cap = 6
 [hosts.gex45]
 resident_cap = 24
 ssh = "tom@gex45"
-serves = ["native:smashcraft", "warcraft:smashcraft"]
+serves = ["native:makgora", "warcraft:makgora"]
 [hosts.whiterabbit]
 resident_cap = 8
 serves = ["native", "warcraft", "sign-ins", "laptop"]
@@ -27,10 +27,10 @@ private_repos = ["galileo"]
 [projects.galileo]
 priority = 2
 repos = ["galileo"]
-[projects.smashcraft]
+[projects.makgora]
 priority = 3
-repos = ["smashcraft", "south"]
-dispatch_repos = ["smashcraft"]
+repos = ["makgora", "south"]
+dispatch_repos = ["makgora"]
 [projects.nexus]
 priority = 5
 repos = ["firn"]
@@ -152,36 +152,36 @@ fn an_account_runs_only_where_it_is_signed_in_and_here_only_with_a_login_of_its_
 
 #[test]
 fn a_ready_box_is_open_unticked_unheld_not_toms_and_after_its_closed_predecessors() {
-    let plan = issue("smashcraft", 1, "## Order of work\n1. #10 first\n2. wisp#3 then\n3. #12 last\n## After\n- [ ] ship", &["roadmap"]);
+    let plan = issue("makgora", 1, "## Order of work\n1. #10 first\n2. wisp#3 then\n3. #12 last\n## After\n- [ ] ship", &["roadmap"]);
     let issues = vec![
         plan.clone(),
-        issue("smashcraft", 10, "- [ ] a", &[]),
-        issue("smashcraft", 11, "- [x] done", &[]),
-        issue("smashcraft", 12, "- [ ] c", &[]),
-        issue("smashcraft", 13, "- [ ] d", &["evidence:tom"]),
-        issue("smashcraft", 14, "- [ ] e\nBlocked by #10", &[]),
-        issue("smashcraft", 15, "- [ ] f\nFollows: wisp#9", &[]),
-        issue("smashcraft", 16, "- [ ] g\nFollows: the landing of the relay port", &[]),
-        issue("smashcraft", 17, "- [ ] h", &[]),
-        Issue { open_blockers: vec![IssueRef::new("north", 190)], ..issue("smashcraft", 18, "- [ ] i", &[]) },
+        issue("makgora", 10, "- [ ] a", &[]),
+        issue("makgora", 11, "- [x] done", &[]),
+        issue("makgora", 12, "- [ ] c", &[]),
+        issue("makgora", 13, "- [ ] d", &["evidence:tom"]),
+        issue("makgora", 14, "- [ ] e\nBlocked by #10", &[]),
+        issue("makgora", 15, "- [ ] f\nFollows: wisp#9", &[]),
+        issue("makgora", 16, "- [ ] g\nFollows: the landing of the relay port", &[]),
+        issue("makgora", 17, "- [ ] h", &[]),
+        Issue { open_blockers: vec![IssueRef::new("north", 190)], ..issue("makgora", 18, "- [ ] i", &[]) },
         issue("wisp", 3, "- [ ] j", &[]),
     ];
     let open: BTreeSet<IssueRef> = issues.iter().map(Issue::reference).chain([IssueRef::new("north", 190)]).collect();
-    let holds = BTreeMap::from([(IssueRef::new("smashcraft", 17), "fleet session sc-17-a on gex45".to_owned())]);
+    let holds = BTreeMap::from([(IssueRef::new("makgora", 17), "fleet session sc-17-a on gex45".to_owned())]);
     let planned = issues::planned_predecessors(&issues);
     let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
     let verdict = |number: usize| issues::readiness(&issues[number], &world);
     assert_eq!(verdict(0), Err("labelled roadmap: its child issues are the boxes".into()));
     assert_eq!(verdict(1), Ok(()), "the first planned box is ready");
     assert_eq!(verdict(2), Err("no unticked Done-when box".into()));
-    assert_eq!(verdict(3), Err("waits on open smashcraft#10, wisp#3".into()), "plan order holds the later box");
+    assert_eq!(verdict(3), Err("waits on open makgora#10, wisp#3".into()), "plan order holds the later box");
     assert_eq!(verdict(4), Err("labelled evidence:tom, so Tom decides".into()));
-    assert_eq!(verdict(5), Err("waits on open smashcraft#10".into()));
+    assert_eq!(verdict(5), Err("waits on open makgora#10".into()));
     assert_eq!(verdict(6), Ok(()), "a closed Follows: predecessor releases the box");
     assert!(verdict(7).unwrap_err().contains("follows-release starts it"));
     assert_eq!(verdict(8), Err("held by fleet session sc-17-a on gex45".into()));
     assert_eq!(verdict(9), Err("waits on open north#190".into()));
-    assert_eq!(verdict(10), Err("waits on open smashcraft#10".into()), "a plan in another repository orders it too");
+    assert_eq!(verdict(10), Err("waits on open makgora#10".into()), "a plan in another repository orders it too");
 }
 
 #[test]
@@ -207,7 +207,7 @@ fn placed(survey: &Survey) -> Vec<(String, String, String, bool, Option<String>)
 }
 
 pub(super) fn chosen(hosts: Vec<Host>, accounts: Vec<Account>, boxes: u64) -> Vec<(String, Option<String>)> {
-    let boxes = (0..boxes).map(|number| issue("smashcraft", 20 + number, "- [ ] a", &[])).collect();
+    let boxes = (0..boxes).map(|number| issue("makgora", 20 + number, "- [ ] a", &[])).collect();
     let unreachable = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts);
     decide(&unreachable, "test").launches.into_iter().map(|launch| (launch.account, launch.pin)).collect()
 }
@@ -249,7 +249,7 @@ fn one_tick_charges_each_launch_to_its_account_so_launches_spread_and_stop_at_th
     ];
     let hosts = vec![host("gex45", 24, Ok(0))];
     assert_eq!(accounts_of(&chosen(hosts.clone(), accounts.clone(), 6)), ["claude:a", "claude:b", "claude:a", "claude:b", "claude:c"]);
-    let boxes = (0..6).map(|number| issue("smashcraft", 20 + number, "- [ ] a", &[])).collect();
+    let boxes = (0..6).map(|number| issue("makgora", 20 + number, "- [ ] a", &[])).collect();
     let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
     let (_, last) = outcome.skipped.last().unwrap();
     assert!(last.contains("gex45 has no account with a free worker slot"), "{last}");
@@ -258,15 +258,15 @@ fn one_tick_charges_each_launch_to_its_account_so_launches_spread_and_stop_at_th
 #[test]
 fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_unreachable_or_its_sessions_are_out() {
     let (hosts, accounts) = fleet();
-    let boxes = vec![issue("smashcraft", 20, "- [ ] a", &[]), issue("smashcraft", 21, "- [ ] b", &[]), issue("smashcraft", 22, "- [ ] c", &[]), issue("smashcraft", 23, "- [ ] d", &[])];
+    let boxes = vec![issue("makgora", 20, "- [ ] a", &[]), issue("makgora", 21, "- [ ] b", &[]), issue("makgora", 22, "- [ ] c", &[]), issue("makgora", 23, "- [ ] d", &[])];
     let unreachable = survey(boxes.clone(), Cloud::Unreachable("the credit login is on nexus".into()), hosts.clone(), accounts.clone());
     let why = Some("north dispatch: cloud lane unreachable from nexus: the credit login is on nexus".to_owned());
     assert_eq!(
         placed(&unreachable),
         [
-            ("smashcraft#20".into(), "gex45".into(), "claude:b".into(), false, why.clone()),
-            ("smashcraft#21".into(), "gex45".into(), "claude:b".into(), false, why.clone()),
-            ("smashcraft#22".into(), "nexus".into(), "claude:a".into(), false, why.clone()),
+            ("makgora#20".into(), "gex45".into(), "claude:b".into(), false, why.clone()),
+            ("makgora#21".into(), "gex45".into(), "claude:b".into(), false, why.clone()),
+            ("makgora#22".into(), "nexus".into(), "claude:a".into(), false, why.clone()),
         ]
     );
     let outcome = decide(&unreachable, "test");
@@ -283,10 +283,10 @@ fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_u
     assert_eq!(
         placed(&reachable),
         [
-            ("smashcraft#20".into(), "anthropic-cloud".into(), "claude login on nexus".into(), true, None),
-            ("smashcraft#21".into(), "gex45".into(), "claude:b".into(), false, full.clone()),
-            ("smashcraft#22".into(), "gex45".into(), "claude:b".into(), false, full.clone()),
-            ("smashcraft#23".into(), "nexus".into(), "claude:a".into(), false, full),
+            ("makgora#20".into(), "anthropic-cloud".into(), "claude login on nexus".into(), true, None),
+            ("makgora#21".into(), "gex45".into(), "claude:b".into(), false, full.clone()),
+            ("makgora#22".into(), "gex45".into(), "claude:b".into(), false, full.clone()),
+            ("makgora#23".into(), "nexus".into(), "claude:a".into(), false, full),
         ],
         "a cloud launch takes no host slot"
     );
@@ -298,10 +298,10 @@ fn code_only_boxes_fall_back_to_a_host_with_a_free_slot_when_the_cloud_lane_is_u
 #[test]
 fn native_boxes_go_only_where_their_needs_are_served() {
     let (mut hosts, accounts) = fleet();
-    let native = issue("smashcraft", 30, "- [ ] a", &["needs:native-pair"]);
+    let native = issue("makgora", 30, "- [ ] a", &["needs:native-pair"]);
     let wisp_native = issue("wisp", 31, "- [ ] b", &["needs:native-single"]);
     let launched = placed(&survey(vec![native.clone(), wisp_native.clone()], Cloud::Closed(String::new()), hosts.clone(), accounts.clone()));
-    assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str())).collect::<Vec<_>>(), [("smashcraft#30", "gex45")]);
+    assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str())).collect::<Vec<_>>(), [("makgora#30", "gex45")]);
     hosts[2].running = Ok(0);
     let launched = placed(&survey(vec![wisp_native], Cloud::Closed(String::new()), hosts, accounts));
     assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str())).collect::<Vec<_>>(), [("wisp#31", "whiterabbit")], "the open laptop serves native wisp");
@@ -314,10 +314,10 @@ fn tom_hears_once_only_when_ready_work_and_free_slots_coexist_and_nothing_launch
     let outcome = decide(&stuck, "test");
     let line = alert(&outcome, &[], "nexus").unwrap();
     assert!(line.starts_with("north dispatch on nexus: 1 ready, 3 free slots, none launched: wisp#40 ready, not placed: gex45 does not serve native"), "{line}");
-    let busy = survey(vec![issue("smashcraft", 41, "- [ ] a", &[])], Cloud::Closed(String::new()), hosts.clone(), accounts.clone());
+    let busy = survey(vec![issue("makgora", 41, "- [ ] a", &[])], Cloud::Closed(String::new()), hosts.clone(), accounts.clone());
     let launched = decide(&busy, "test");
     assert_eq!(alert(&launched, &[], "nexus"), None, "a launch went out");
-    assert!(alert(&launched, &["smashcraft#41 on gex45: refused".into()], "nexus").unwrap().ends_with("none launched: smashcraft#41 on gex45: refused"));
+    assert!(alert(&launched, &["makgora#41 on gex45: refused".into()], "nexus").unwrap().ends_with("none launched: makgora#41 on gex45: refused"));
     let idle = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
     assert_eq!(alert(&decide(&idle, "test"), &[], "nexus"), None, "no ready work is no alert");
 }
@@ -326,14 +326,14 @@ fn tom_hears_once_only_when_ready_work_and_free_slots_coexist_and_nothing_launch
 fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
     let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let now = 100_000.0;
-    let records = vec![entry("smashcraft#1", now - 600.0), entry("smashcraft#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
+    let records = vec![entry("makgora#1", now - 600.0), entry("makgora#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
     let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
-    assert!(holds[&IssueRef::new("smashcraft", 1)].starts_with("north dispatch launch sc-1-d0000 on gex45 10 min ago"));
-    assert!(!holds.contains_key(&IssueRef::new("smashcraft", 2)), "an old single launch whose session ended frees the box");
+    assert!(holds[&IssueRef::new("makgora", 1)].starts_with("north dispatch launch sc-1-d0000 on gex45 10 min ago"));
+    assert!(!holds.contains_key(&IssueRef::new("makgora", 2)), "an old single launch whose session ended frees the box");
     assert!(holds[&IssueRef::new("wisp", 3)].contains("2 tries in 24 h"));
-    let open = BTreeSet::from([IssueRef::new("smashcraft", 1)]);
+    let open = BTreeSet::from([IssueRef::new("makgora", 1)]);
     assert_eq!(record::recent_on(&records, "gex45", &open, now), 1);
-    let listed_by_now = vec![entry("smashcraft#1", now - 20.0 * 60.0)];
+    let listed_by_now = vec![entry("makgora#1", now - 20.0 * 60.0)];
     assert_eq!(record::recent_on(&listed_by_now, "gex45", &open, now), 0, "a launch old enough to show in the copied fleet list no longer counts on its own");
 }
 
@@ -347,7 +347,7 @@ fn running_and_idle_sessions_hold_their_task_or_their_named_issue() {
     ]);
     let sessions = super::fleets::running_sessions(&listing);
     let items: Vec<Vec<String>> = sessions.iter().map(|session| session.items.iter().map(ToString::to_string).collect()).collect();
-    assert_eq!(items, [vec!["smashcraft#256".to_owned()], vec!["wisp#21".to_owned()], vec![]]);
+    assert_eq!(items, [vec!["makgora#256".to_owned()], vec!["wisp#21".to_owned()], vec![]]);
     let hosted: Vec<_> = sessions.into_iter().map(|session| (session, "nexus".to_owned())).collect();
     let (elsewhere, holds) = super::fleets::tally(&hosted);
     assert_eq!(holds[&IssueRef::new("wisp", 21)], "fleet session fixer on nexus", "an idle session still holds its issue");
@@ -370,7 +370,7 @@ fn idle_and_parked_sessions_take_no_slot_and_dispatch_fills_the_host_to_its_work
     assert_eq!(held, ["w-1", "w-2", "w-3", "w-4", "w-5"], "an idle session and a parked one with a registered wait keep their claims, a plain parked one does not");
     let working = super::survey::laptop_running(&hosted, "whiterabbit", 0);
     assert_eq!(working, 2, "only the starting and working sessions fill the host");
-    let boxes = (0..10).map(|number| issue("smashcraft", 20 + number, "- [ ] a", &[])).collect();
+    let boxes = (0..10).map(|number| issue("makgora", 20 + number, "- [ ] a", &[])).collect();
     let (_, accounts) = fleet();
     let filling = survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), vec![host("whiterabbit", 8, Ok(working))], vec![Account { hosts: vec!["whiterabbit".into()], ..accounts[0].clone() }]);
     assert_eq!(decide(&filling, "test").launches.len(), 6, "launches stop when working sessions reach the target of 8");
@@ -380,15 +380,15 @@ fn idle_and_parked_sessions_take_no_slot_and_dispatch_fills_the_host_to_its_work
 fn an_open_gate_on_any_host_holds_each_issue_it_names_or_decides() {
     let listing = serde_json::json!([
         {"id": 28, "session": "sc-342b", "question": "Malfurion's dash attack (#342): which windup?", "closed_ms": null},
-        {"id": 56, "session": "proxy", "question": "smashcraft#2 Hive upload is blocked again; see wisp#39 too", "closed_ms": null},
-        {"id": 27, "session": "sc-293", "question": "Melee parity ledger (smashcraft #293)", "closed_ms": null},
-        {"id": 130, "session": "proxy", "question": "How should Kael'thas come back from 82%?", "issue": "tompassarelli/smashcraft#764", "closed_ms": null},
-        {"id": 9, "session": "sc-300", "question": "Answered smashcraft#301?", "closed_ms": 1000},
+        {"id": 56, "session": "proxy", "question": "makgora#2 Hive upload is blocked again; see wisp#39 too", "closed_ms": null},
+        {"id": 27, "session": "sc-293", "question": "Melee parity ledger (makgora #293)", "closed_ms": null},
+        {"id": 130, "session": "proxy", "question": "How should Kael'thas come back from 82%?", "issue": "tompassarelli/makgora#764", "closed_ms": null},
+        {"id": 9, "session": "sc-300", "question": "Answered makgora#301?", "closed_ms": 1000},
         {"id": "nexus:4", "host": "nexus", "session": "probe", "question": "Rent it?", "issue": "north#416", "closed_ms": null}
     ]);
     let rows = super::survey::gate_rows(&listing, "whiterabbit");
     let items: Vec<String> = rows.iter().map(|(item, _)| item.to_string()).collect();
-    assert_eq!(items, ["smashcraft#342", "smashcraft#2", "wisp#39", "smashcraft#293", "smashcraft#764", "north#416"], "a closed gate holds nothing, and the asking session's name and the gate's --issue count");
+    assert_eq!(items, ["makgora#342", "makgora#2", "wisp#39", "makgora#293", "makgora#764", "north#416"], "a closed gate holds nothing, and the asking session's name and the gate's --issue count");
     assert_eq!(rows[1].1, "open north gate whiterabbit:56 on whiterabbit from proxy, for Tom");
     assert_eq!(rows[5].1, "open north gate nexus:4 on nexus from probe, for Tom");
 }
@@ -398,7 +398,7 @@ fn a_box_whose_newest_report_waits_on_tom_or_the_laptop_is_not_ready() {
     let open = BTreeSet::new();
     let (holds, planned) = (BTreeMap::new(), BTreeMap::new());
     let world = World { open: &open, holds: &holds, planned: &planned, at: 0.0 };
-    let reported = |report: &str| issues::readiness(&Issue { report: report.into(), ..issue("smashcraft", 2, "- [ ] upload", &[]) }, &world);
+    let reported = |report: &str| issues::readiness(&Issue { report: report.into(), ..issue("makgora", 2, "- [ ] upload", &[]) }, &world);
     let why = reported("Upload attempt blocked again.\n\nThe fix waits on Tom's decision in laptop gate 56: bridge or unlock. Nothing was uploaded.").unwrap_err();
     assert_eq!(why, "its newest report waits: The fix waits on Tom's decision in laptop gate 56: bridge or unlock");
     assert!(reported("Not done: the relay run needs the laptop on home Wi-Fi.").unwrap_err().contains("needs the laptop"));
@@ -416,13 +416,13 @@ fn code_only_boxes_go_to_the_open_laptop_when_the_cloud_lane_and_other_hosts_are
     hosts[0].running = Ok(24);
     hosts[1].running = Ok(6);
     hosts[2].running = Ok(7);
-    let boxes = vec![issue("smashcraft", 50, "- [ ] a", &[]), issue("smashcraft", 51, "- [ ] b", &[])];
+    let boxes = vec![issue("makgora", 50, "- [ ] a", &[]), issue("makgora", 51, "- [ ] b", &[])];
     let mut open = survey(boxes, Cloud::Reachable("cloud credit: unread".into()), hosts.clone(), accounts.clone());
     open.cloud_running = super::cloud::SESSIONS;
     let launched = placed(&open);
-    assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str(), row.2.as_str(), row.3)).collect::<Vec<_>>(), [("smashcraft#50", "whiterabbit", "claude:a", false)]);
+    assert_eq!(launched.iter().map(|row| (row.0.as_str(), row.1.as_str(), row.2.as_str(), row.3)).collect::<Vec<_>>(), [("makgora#50", "whiterabbit", "claude:a", false)]);
     hosts[2].running = Err("laptop busy".into());
-    let busy = survey(vec![issue("smashcraft", 50, "- [ ] a", &[])], Cloud::Closed(String::new()), hosts, accounts);
+    let busy = survey(vec![issue("makgora", 50, "- [ ] a", &[])], Cloud::Closed(String::new()), hosts, accounts);
     let outcome = decide(&busy, "test");
     assert!(outcome.launches.is_empty() && outcome.skipped[0].1.contains("whiterabbit takes nothing: laptop busy"), "{:?}", outcome.skipped);
 }
@@ -431,11 +431,11 @@ fn code_only_boxes_go_to_the_open_laptop_when_the_cloud_lane_and_other_hosts_are
 fn a_live_threads_claim_on_any_hosts_ledger_holds_its_issue_and_a_stale_one_does_not() {
     let listing = serde_json::json!([
         {"item": "wisp#21", "owner": "sc-21-a", "standing": "live"},
-        {"item": "smashcraft#9", "owner": "w4", "standing": "live"},
-        {"item": "smashcraft#10", "owner": "w5", "standing": "stale"},
+        {"item": "makgora#9", "owner": "w4", "standing": "live"},
+        {"item": "makgora#10", "owner": "w5", "standing": "stale"},
     ]);
     let rows = super::survey::claim_rows(&listing, "gex45", &Default::default());
-    assert_eq!(rows, [(IssueRef::new("wisp", 21), "threads claim by sc-21-a on gex45".to_owned()), (IssueRef::new("smashcraft", 9), "threads claim by w4 on gex45".to_owned())]);
+    assert_eq!(rows, [(IssueRef::new("wisp", 21), "threads claim by sc-21-a on gex45".to_owned()), (IssueRef::new("makgora", 9), "threads claim by w4 on gex45".to_owned())]);
     assert!(super::survey::claim_rows(&serde_json::json!([]), "nexus", &Default::default()).is_empty());
 }
 
@@ -455,32 +455,32 @@ fn the_laptops_copied_lists_hold_their_issues_even_when_old() {
     let mut notes = Vec::new();
     assert!(super::fleets::mirrored(directory.path(), "fleet", "whiterabbit", 0.0, &mut notes).is_null());
     assert!(notes[0].starts_with("whiterabbit fleet list unread"), "{notes:?}");
-    let listing = serde_json::json!([{"name": "fixer", "provider": "claude", "account": "a", "status": "working", "task_ref": "tompassarelli/smashcraft#350", "machine": null}]);
+    let listing = serde_json::json!([{"name": "fixer", "provider": "claude", "account": "a", "status": "working", "task_ref": "tompassarelli/makgora#350", "machine": null}]);
     std::fs::write(directory.path().join("fleet-whiterabbit.json"), listing.to_string()).unwrap();
-    let gates = serde_json::json!([{"id": 56, "session": "sc-2-hive2", "question": "smashcraft#2 upload", "closed_ms": null}]);
+    let gates = serde_json::json!([{"id": 56, "session": "sc-2-hive2", "question": "makgora#2 upload", "closed_ms": null}]);
     std::fs::write(directory.path().join("gates-whiterabbit.json"), gates.to_string()).unwrap();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
     let mut notes = Vec::new();
     let old = super::fleets::running_sessions(&super::fleets::mirrored(directory.path(), "fleet", "whiterabbit", now + 3600.0, &mut notes));
-    assert_eq!(old.iter().map(|session| session.items.clone()).collect::<Vec<_>>(), [vec![IssueRef::new("smashcraft", 350)]]);
+    assert_eq!(old.iter().map(|session| session.items.clone()).collect::<Vec<_>>(), [vec![IssueRef::new("makgora", 350)]]);
     let hosted: Vec<_> = old.into_iter().map(|session| (session, "whiterabbit".to_owned())).collect();
     assert_eq!((super::survey::laptop_running(&hosted, "whiterabbit", 0), super::survey::laptop_running(&hosted, "whiterabbit", 3)), (1, 3), "the copied list counts the laptop's sessions, and a fresh launch not yet listed still counts");
     assert!(notes[0].starts_with("whiterabbit fleet list copied 60 min ago"), "{notes:?}");
     let gated = super::survey::gate_rows(&super::fleets::mirrored(directory.path(), "gates", "whiterabbit", now, &mut notes), "whiterabbit");
-    assert_eq!(gated[0].0, IssueRef::new("smashcraft", 2));
+    assert_eq!(gated[0].0, IssueRef::new("makgora", 2));
 }
 
 #[test]
 fn an_unticked_native_done_when_box_or_native_evidence_label_keeps_a_box_out_of_the_cloud_lane() {
     let (hosts, accounts) = fleet();
-    let tagged = issue("smashcraft", 50, "- [x] (headless run) checks pass\n- [ ] (native) three cold viewers call it one chop", &[]);
-    let labelled = issue("smashcraft", 51, "- [ ] a", &["evidence:native"]);
-    let landed = issue("smashcraft", 52, "- [x] (native) captured\n- [ ] (headless run) checks pass", &[]);
+    let tagged = issue("makgora", 50, "- [x] (headless run) checks pass\n- [ ] (native) three cold viewers call it one chop", &[]);
+    let labelled = issue("makgora", 51, "- [ ] a", &["evidence:native"]);
+    let landed = issue("makgora", 52, "- [x] (native) captured\n- [ ] (headless run) checks pass", &[]);
     let reachable = survey(vec![tagged, labelled, landed], Cloud::Reachable("cloud credit: unread".into()), hosts, accounts);
     let launched = placed(&reachable);
     let couriers: Vec<&str> = launched.iter().filter(|row| row.3).map(|row| row.0.as_str()).collect();
-    assert_eq!(couriers, ["smashcraft#52"], "only the box whose native box is ticked is code-only: {launched:?}");
-    assert!(launched.iter().filter(|row| !row.3).all(|row| row.1 == "gex45"), "native smashcraft boxes go to the host serving native: {launched:?}");
+    assert_eq!(couriers, ["makgora#52"], "only the box whose native box is ticked is code-only: {launched:?}");
+    assert!(launched.iter().filter(|row| !row.3).all(|row| row.1 == "gex45"), "native makgora boxes go to the host serving native: {launched:?}");
 }
 
 #[test]
@@ -488,7 +488,7 @@ fn a_box_launched_on_the_laptop_or_here_is_held_to_that_host_and_a_remote_one_na
     let (hosts, accounts) = fleet();
     let survey = survey(Vec::new(), Cloud::Closed(String::new()), hosts, accounts);
     let launch = |host: &str, local: Option<&str>| super::plan::Launch {
-        item: issue("smashcraft", 7, "- [ ] a", &[]).reference(),
+        item: issue("makgora", 7, "- [ ] a", &[]).reference(),
         host: host.into(),
         account: "claude:c".into(),
         brief: "brief".into(),
@@ -515,27 +515,27 @@ fn an_autoland_cloud_launch_runs_from_its_repo_checkout_with_trust_written_and_a
     let home = tempfile::tempdir().unwrap();
     let config = home.path().join(".claude.json");
     std::fs::write(&config, r#"{"oauthAccount":{"organizationUuid":"org"},"projects":{"/elsewhere":{"hasTrustDialogAccepted":true}}}"#).unwrap();
-    let box_brief = super::brief::brief(&issue("smashcraft", 60, "- [ ] a\nSurface: rust", &[]), "test", &super::tier_tests::route(super::tier::Tier::Opus), &Grounds::default());
-    let text = super::brief::cloud(&box_brief, "smashcraft", &super::cloud::branch("sc-60-d1200"), ORDERS);
+    let box_brief = super::brief::brief(&issue("makgora", 60, "- [ ] a\nSurface: rust", &[]), "test", &super::tier_tests::route(super::tier::Tier::Opus), &Grounds::default());
+    let text = super::brief::cloud(&box_brief, "makgora", &super::cloud::branch("sc-60-d1200"), ORDERS);
     let mut calls: Vec<(String, String, Vec<String>)> = Vec::new();
     let mut trusted_at_launch = None;
     let mut run = |cwd: &std::path::Path, program: &str, args: &[String]| -> Result<String, String> {
         calls.push((cwd.display().to_string(), program.to_owned(), args.to_vec()));
         if program == "claude" {
             let written: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
-            trusted_at_launch = Some(written["projects"]["/tmp/cloud/src/smashcraft"]["hasTrustDialogAccepted"].clone());
+            trusted_at_launch = Some(written["projects"]["/tmp/cloud/src/makgora"]["hasTrustDialogAccepted"].clone());
             return Ok("Created cloud session: https://claude.ai/code/session_01AbcXyz\n".into());
         }
         Ok(String::new())
     };
-    let launched = super::cloud::launch("smashcraft", "sc-60-d1200", &text, &[], std::path::Path::new(super::cloud::SOURCES), home.path(), &mut run).unwrap();
+    let launched = super::cloud::launch("makgora", "sc-60-d1200", &text, &[], std::path::Path::new(super::cloud::SOURCES), home.path(), &mut run).unwrap();
 
-    assert_eq!(launched, super::cloud::Launched { session: "session_01AbcXyz".into(), branch: "claude/land-sc-60-d1200".into(), directory: "/tmp/cloud/src/smashcraft".into() });
+    assert_eq!(launched, super::cloud::Launched { session: "session_01AbcXyz".into(), branch: "claude/land-sc-60-d1200".into(), directory: "/tmp/cloud/src/makgora".into() });
     assert_eq!(trusted_at_launch, Some(serde_json::Value::Bool(true)), "trust is written before claude --cloud starts");
     let (cwd, program, args) = calls.last().unwrap();
-    assert_eq!((cwd.as_str(), program.as_str(), args[0].as_str(), args[1].as_str()), ("/tmp/cloud/src/smashcraft", "claude", "--cloud", text.as_str()));
+    assert_eq!((cwd.as_str(), program.as_str(), args[0].as_str(), args[1].as_str()), ("/tmp/cloud/src/makgora", "claude", "--cloud", text.as_str()));
     let git: Vec<String> = calls.iter().filter(|(_, program, _)| program == "git").map(|(_, _, args)| args.join(" ")).collect();
-    let dir = "-C /tmp/cloud/src/smashcraft";
+    let dir = "-C /tmp/cloud/src/makgora";
     assert_eq!(
         git[git.len() - 4..],
         [
@@ -577,10 +577,10 @@ fn a_north_cloud_brief_pushes_its_land_branch_for_a_courier_and_does_not_close_t
 fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
     let now = 100_000.0;
     let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false };
-    let records = vec![cloud("smashcraft#7", now - 5.0 * 3600.0), cloud("smashcraft#8", now - 7.0 * 3600.0)];
+    let records = vec![cloud("makgora#7", now - 5.0 * 3600.0), cloud("makgora#8", now - 7.0 * 3600.0)];
     let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
-    assert!(holds.contains_key(&IssueRef::new("smashcraft", 7)) && !holds.contains_key(&IssueRef::new("smashcraft", 8)));
-    let open = BTreeSet::from([IssueRef::new("smashcraft", 7), IssueRef::new("smashcraft", 8)]);
+    assert!(holds.contains_key(&IssueRef::new("makgora", 7)) && !holds.contains_key(&IssueRef::new("makgora", 8)));
+    let open = BTreeSet::from([IssueRef::new("makgora", 7), IssueRef::new("makgora", 8)]);
     assert_eq!(record::recent_on(&records, "anthropic-cloud", &open, now), 1);
 }
 
@@ -604,19 +604,19 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
     let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false, handoff: None, hand: false };
     let now = 100_000.0;
-    let records = vec![failed("smashcraft#9", now - 3600.0), failed("smashcraft#9", now - 1800.0), failed("wisp#4", now - 300.0)];
+    let records = vec![failed("makgora#9", now - 3600.0), failed("makgora#9", now - 1800.0), failed("wisp#4", now - 300.0)];
     let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
-    assert!(!holds.contains_key(&IssueRef::new("smashcraft", 9)), "two failed launches are no tries and their brief hold has passed: {holds:?}");
+    assert!(!holds.contains_key(&IssueRef::new("makgora", 9)), "two failed launches are no tries and their brief hold has passed: {holds:?}");
     assert!(holds[&IssueRef::new("wisp", 4)].starts_with("north dispatch launch sc-9-d0000"), "a fresh failure still holds the box for a few minutes");
 }
 
 #[test]
 fn a_native_box_brief_lands_before_its_capture_and_passes_the_brief_check() {
     let route = super::tier_tests::route(super::tier::Tier::Opus);
-    let native = super::brief::brief(&issue("smashcraft", 60, "- [ ] (native) capture the arrow streak\nSurface: ts", &[]), "test", &route, &Grounds::default());
+    let native = super::brief::brief(&issue("makgora", 60, "- [ ] (native) capture the arrow streak\nSurface: ts", &[]), "test", &route, &Grounds::default());
     assert!(native.contains("\nVerify: native\nLands-before: native\n"), "{native}");
     assert_eq!(crate::router::brief::landing_refusal(&native), None);
-    let release = super::brief::brief(&issue("smashcraft", 66, "Category: native-check\nVerify: native\n- [ ] a", &[]), "test", &route, &Grounds::default());
+    let release = super::brief::brief(&issue("makgora", 66, "Category: native-check\nVerify: native\n- [ ] a", &[]), "test", &route, &Grounds::default());
     assert!(!release.contains("Lands-before:"), "{release}");
     assert_eq!(crate::router::brief::landing_refusal(&release), None);
 }
@@ -626,12 +626,12 @@ fn a_saturated_host_takes_nothing_so_a_code_box_places_on_the_next_host_and_a_na
     let (mut hosts, accounts) = fleet();
     let queued = "gex45 skipped: 14.0 GiB free on the root disk, under 15";
     hosts[0] = hosts[0].clone().saturated(Some(queued.into()));
-    let boxes = vec![issue("smashcraft", 50, "- [ ] a", &[]), issue("smashcraft", 51, "- [ ] b", &["needs:native-pair"])];
+    let boxes = vec![issue("makgora", 50, "- [ ] a", &[]), issue("makgora", 51, "- [ ] b", &["needs:native-pair"])];
     let outcome = decide(&survey(boxes, Cloud::Unreachable("the credit login is on nexus".into()), hosts, accounts), "test");
     let launched: Vec<(String, &str)> = outcome.launches.iter().map(|launch| (launch.item.to_string(), launch.host.as_str())).collect();
-    assert_eq!(launched, [("smashcraft#50".to_owned(), "nexus")]);
+    assert_eq!(launched, [("makgora#50".to_owned(), "nexus")]);
     let (item, why) = outcome.skipped.last().unwrap();
-    assert_eq!(item.to_string(), "smashcraft#51");
+    assert_eq!(item.to_string(), "makgora#51");
     assert!(why.contains(&format!("gex45 takes nothing: {queued}")), "{why}");
 }
 
@@ -643,7 +643,7 @@ fn a_box_a_worker_reported_blocked_this_week_or_labelled_time_gated_is_not_ready
     let world = World { open: &open, holds: &holds, planned: &planned, at };
     let commented = |body: &str, created: &str, labels: &[&str]| {
         let comments = vec![serde_json::json!({"body": body, "createdAt": created})];
-        issues::readiness(&Issue { report: body.into(), comments, ..issue("smashcraft", 764, "- [ ] a", labels) }, &world)
+        issues::readiness(&Issue { report: body.into(), comments, ..issue("makgora", 764, "- [ ] a", labels) }, &world)
     };
     assert_eq!(commented("Blocked: needs data from a new native desync", "2026-10-30T09:29:18Z", &[]), Err("a worker reported it blocked: needs data from a new native desync".into()));
     assert_eq!(commented("Blocked: stale", "2026-10-20T09:29:18Z", &[]), Ok(()), "a Blocked: comment older than a week frees the box");

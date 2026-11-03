@@ -127,8 +127,8 @@ fn the_five_recorded_steps_match_the_python_tool_and_keep_its_guarantees() {
     }
     let (dry, live, again) = (&steps[1], &steps[2], &steps[3]);
     assert_eq!(steps[0].stdout, "last run: never\n");
-    assert!(dry.stdout.lines().any(|line| line.starts_with("SPAM smashcraft#422 AILIFE1:")));
-    assert!(dry.stdout.lines().any(|line| line.starts_with("EXTERNAL smashcraft#600 newbie:")));
+    assert!(dry.stdout.lines().any(|line| line.starts_with("SPAM makgora#422 AILIFE1:")));
+    assert!(dry.stdout.lines().any(|line| line.starts_with("EXTERNAL makgora#600 newbie:")));
     assert!(dry.calls.iter().all(|call| !call.iter().any(|arg| arg == "PUT" || arg == "PATCH" || arg.contains("minimizeComment"))));
     assert_eq!((dry.inbox.as_str(), &dry.state), ("earlier line\n", &Value::Null));
     assert!(live.calls.iter().any(|call| call.iter().any(|arg| arg == "id=IC_1")));
@@ -142,7 +142,7 @@ fn the_five_recorded_steps_match_the_python_tool_and_keep_its_guarantees() {
 fn user_post(body: &str) -> Post {
     Post {
         kind: "comment",
-        repo: "smashcraft".into(),
+        repo: "makgora".into(),
         number: 1,
         id: "IC_9".into(),
         actor: "someone".into(),

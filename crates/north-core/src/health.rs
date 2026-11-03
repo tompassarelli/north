@@ -158,7 +158,7 @@ struct CiInput {
 
 fn ci(input: CiInput) -> Verdict {
     let mut failures = Vec::new();
-    for repo in ["north", "smashcraft"] {
+    for repo in ["north", "makgora"] {
         let output = input
             .runs
             .get(repo)
@@ -385,7 +385,7 @@ fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
             results.push((check, verdict));
         }
     }
-    let runs: BTreeMap<String, Output> = ["north", "smashcraft"]
+    let runs: BTreeMap<String, Output> = ["north", "makgora"]
         .into_iter()
         .map(|repo| {
             (

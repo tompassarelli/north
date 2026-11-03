@@ -178,7 +178,7 @@ fn codex(rig: &Rig) {
     let mut repeater = vec![
         worker_meta("repeater"),
         at("turn_context", json!({"model":"gpt-6.1-sol","effort":"high"}), 0),
-        message("assistant", "commentary", "Item: smashcraft#250\nCategory: balance-tuning\nETA: 20 minutes", 0),
+        message("assistant", "commentary", "Item: makgora#250\nCategory: balance-tuning\nETA: 20 minutes", 0),
     ];
     for n in 1..=3 {
         repeater.extend(exec_call(&format!("c{n}"), farm, n));
@@ -206,7 +206,7 @@ fn claude(rig: &Rig) {
     };
     put(
         "haiku1",
-        &claude_worker("Item: smashcraft#255\nCategory: mechanical\nETA: 15 minutes", vec![assistant(4, "r1", json!({"output_tokens":50,"input_tokens":700}), json!([{"type":"text","text":"Done: landed."}]))]),
+        &claude_worker("Item: makgora#255\nCategory: mechanical\nETA: 15 minutes", vec![assistant(4, "r1", json!({"output_tokens":50,"input_tokens":700}), json!([{"type":"text","text":"Done: landed."}]))]),
     );
     for (name, command) in [
         ("commit1", "cd /w && git -c gc.auto=0 commit -qm fix"),
@@ -214,7 +214,7 @@ fn claude(rig: &Rig) {
         ("commit3", "cd /w && git -c gc.auto=0 commit -q -F - <<EOF\nfix\nEOF"),
     ] {
         let rows = vec![
-            json!({"type":"user","timestamp":"2026-10-08T00:00:00Z","sessionId":"session","message":{"content":"Item: smashcraft#256\nCategory: mechanical"}}),
+            json!({"type":"user","timestamp":"2026-10-08T00:00:00Z","sessionId":"session","message":{"content":"Item: makgora#256\nCategory: mechanical"}}),
             assistant(1, "r1", json!({"output_tokens":5}), json!([{"type":"tool_use","id":"t1","name":"Bash","input":{"command":command}}])),
             json!({"type":"user","timestamp":"2026-10-08T00:02:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}),
             assistant(3, "r2", json!({"output_tokens":5}), json!([{"type":"text","text":"Done: committed."}])),
@@ -319,7 +319,7 @@ fn every_provider_is_recorded_with_its_brief_stages_landing_and_roles_and_the_su
         "running|wisp#70||gpt-6.1-sol medium|native-check|5|20|321|900|done",
         "untracked|firn#9||gpt-6.1-sol medium|unknown|5||321|900|done",
         "escaped|firn#9||gpt-6.1-sol medium|unknown|5||321|900|done",
-        "repeater|smashcraft#250||gpt-6.1-sol high|balance-tuning|5|20|0|0|done",
+        "repeater|makgora#250||gpt-6.1-sol high|balance-tuning|5|20|0|0|done",
     ]
     .join("\n");
     assert_eq!(lines(&codex_rows), lines(&wanted), "a Codex spawn brief records fields, model, effort, timing and tokens once; an unreadable brief derives its Item from the commit");

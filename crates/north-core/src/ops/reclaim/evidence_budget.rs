@@ -82,10 +82,10 @@ fn linked_runs(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// The bodies and comments of the open issues in every catalogued repository that writes or cites Smashcraft evidence.
+/// The bodies and comments of the open issues in every catalogued repository that writes or cites Mak'gora evidence.
 pub(super) fn open_issue_text() -> Result<String, String> {
     let owner = &crate::threads::catalog::CATALOG.owner;
-    ["smashcraft", "north", "wisp"]
+    ["makgora", "north", "wisp"]
         .iter()
         .map(|repo| crate::platform::github::json(&["issue", "list", "-R", &format!("{owner}/{repo}"), "--state", "open", "--limit", "500", "--json", "body,comments"]).map(|issues| issues.to_string()))
         .collect::<Result<Vec<_>, _>>()

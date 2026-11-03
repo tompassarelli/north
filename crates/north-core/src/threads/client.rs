@@ -915,7 +915,7 @@ exit "$(cat "$ROOT/code")"
 
     fn batch(id: &str) -> Vec<u8> {
         format!(
-            "{{\"id\":\"{id}\",\"role\":\"worker\",\"tier\":\"medium\",\"status\":\"finished\",\"outcome\":\"done\",\"started\":\"2026-10-26T11:00:00Z\",\"ended\":\"2026-10-26T11:05:00Z\",\"actual_min\":5,\"brief\":\"Item: smashcraft#459 x\\nCategory: feature\"}}\n"
+            "{{\"id\":\"{id}\",\"role\":\"worker\",\"tier\":\"medium\",\"status\":\"finished\",\"outcome\":\"done\",\"started\":\"2026-10-26T11:00:00Z\",\"ended\":\"2026-10-26T11:05:00Z\",\"actual_min\":5,\"brief\":\"Item: makgora#459 x\\nCategory: feature\"}}\n"
         ).into_bytes()
     }
 

@@ -326,7 +326,7 @@ pub fn survey(roster: &Roster) -> Result<Survey, String> {
     let cloud = cloud(&cfg, &here, at);
     let cloud_running = record::recent_on(&records, super::cloud::HOST, &open, at);
     let super::strands::Read { strands, saturated, revived } = super::strands::read(&cfg, &here, at, &mut notes);
-    let frozen = crate::platform::frozen_topics::load().unwrap_or_else(|why| {
+    let frozen = crate::platform::frozen_topics::load().map(crate::threads::catalog::canonical_topics).unwrap_or_else(|why| {
         notes.push(why);
         Vec::new()
     });

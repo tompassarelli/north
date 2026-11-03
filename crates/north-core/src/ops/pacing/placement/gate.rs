@@ -18,7 +18,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use toml_edit::{DocumentMut, Item};
 
-const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "smashcraft"];
+const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "makgora"];
 const GAMING_NEEDS: [&str; 2] = ["native", "private"];
 const LOCAL_NEEDS: [&str; 12] = [
     "warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop",

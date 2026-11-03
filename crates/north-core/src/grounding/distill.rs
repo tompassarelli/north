@@ -186,7 +186,7 @@ const SUBJECT_TABLE: &[(&str, &str)] = &[
     ("codex", "codex"), ("sol", "codex"), ("gpt", "codex"), ("openai", "codex"),
     ("claude", "claude"), ("anthropic", "anthropic"), ("opus", "opus"), ("sonnet", "sonnet"), ("haiku", "haiku"),
     ("nexus", "nexus"), ("laptop", "laptop"), ("cloud", "cloud"), ("farm", "farm"),
-    ("smashcraft", "smashcraft"), ("wisp", "wisp"), ("wc3", "wc3"), ("warcraft", "wc3"), ("bnet", "bnet"),
+    ("makgora", "makgora"), ("smashcraft", "makgora"), ("wisp", "wisp"), ("wc3", "wc3"), ("warcraft", "wc3"), ("bnet", "bnet"),
     ("north", "north"), ("south", "south"), ("firn", "firn"), ("nixos", "firn"), ("galileo", "galileo"),
     ("telemetry", "telemetry"), ("proton", "proton"), ("convo", "convo"),
     ("proxy", "proxy"), ("lead", "lead"), ("leads", "lead"), ("worker", "worker"), ("workers", "worker"),

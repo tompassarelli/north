@@ -72,14 +72,14 @@ fn shell_words(text: &str) -> Vec<String> {
 #[test]
 fn two_concurrent_takes_claim_the_one_job_once_and_a_successful_result_posts_no_comment_on_its_issue() {
     let rig = ledger();
-    let id = rig.out("queue add laptop smashcraft#3 -- echo hi");
+    let id = rig.out("queue add laptop makgora#3 -- echo hi");
     let id = id.trim();
     let path = rig.path.as_path();
     let takes: Vec<String> = std::thread::scope(|scope| {
         let handles: Vec<_> = (0..2).map(|_| scope.spawn(move || ledger_take(path))).collect();
         handles.into_iter().map(|handle| handle.join().unwrap()).collect()
     });
-    let wanted = format!("{{\"id\": {id}, \"placement\": \"laptop\", \"item\": \"smashcraft#3\", \"cmd\": [\"echo\", \"hi\"]}}\n");
+    let wanted = format!("{{\"id\": {id}, \"placement\": \"laptop\", \"item\": \"makgora#3\", \"cmd\": [\"echo\", \"hi\"]}}\n");
     assert_eq!(takes.iter().filter(|out| **out == wanted).count(), 1, "{takes:?}");
     assert!(takes.iter().any(String::is_empty), "{takes:?}");
     assert_eq!(rig.out(&format!("queue msg {id} done said hi")), format!("job {id} done\n"));
@@ -127,14 +127,14 @@ fn a_dropped_job_keeps_its_reason_and_a_ledger_note_and_taken_or_dropped_jobs_ar
     let rig = ledger();
     let taken = rig.out("queue add dropq - -- echo d0").trim().to_owned();
     rig.out("queue take dropq");
-    let queued = rig.out("queue add dropq smashcraft#3 -- echo d1").trim().to_owned();
+    let queued = rig.out("queue add dropq makgora#3 -- echo d1").trim().to_owned();
     assert_eq!(rig.out(&format!("queue --by hand drop {queued} superseded by hand")), format!("job {queued} dropped\n"));
     assert_eq!(rig.run(&format!("queue drop {queued} again")), (1, String::new(), format!("NorthThreads: queue drop: job {queued} is dropped, not queued\n")));
     assert_eq!(rig.run(&format!("queue drop {taken} busy")), (1, String::new(), format!("NorthThreads: queue drop: job {taken} is taken, not queued\n")));
     assert_eq!(rig.run("queue drop 99 gone"), (1, String::new(), "NorthThreads: queue drop: job 99 is unknown, not queued\n".into()));
     assert_eq!(rig.out("queue take dropq"), "");
     assert_eq!(rig.sql(&format!("SELECT state || '|' || result || '|' || finished FROM job_queue WHERE id = {queued}")), format!("dropped|superseded by hand|{NOW}"));
-    assert_eq!(rig.sql("SELECT item || '|' || actor || '|' || data FROM events WHERE kind = 'note'"), format!("smashcraft#3|hand|{{\"job\": {queued}, \"text\": \"job {queued} dropped: superseded by hand\"}}"));
+    assert_eq!(rig.sql("SELECT item || '|' || actor || '|' || data FROM events WHERE kind = 'note'"), format!("makgora#3|hand|{{\"job\": {queued}, \"text\": \"job {queued} dropped: superseded by hand\"}}"));
     assert_eq!(rig.sql(&format!("SELECT state FROM job_queue WHERE id = {taken}")), "taken");
 }
 

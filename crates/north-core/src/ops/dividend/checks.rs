@@ -7,7 +7,7 @@ pub const DAY_S: f64 = 86_400.0;
 pub const LAPTOP_SHARE_BELOW: f64 = 0.8;
 pub const GAME_SHARE_AT_LEAST: f64 = 0.6;
 pub const RELEASE_CLOSED_PER_DAY: f64 = 1.0;
-const GAME_REPOS: [&str; 2] = ["smashcraft", "wisp"];
+const GAME_REPOS: [&str; 2] = ["makgora", "wisp"];
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Check {

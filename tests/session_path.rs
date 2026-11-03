@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-const BRIEF: &str = "Item: smashcraft#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
+const BRIEF: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
 
 fn executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap();

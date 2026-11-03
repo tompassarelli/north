@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use toml_edit::DocumentMut;
 
 const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: code\n";
-const WARCRAFT: &str = "Item: smashcraft#4 LAN check\nSurface: rust\nNeeds: warcraft, native\n";
+const WARCRAFT: &str = "Item: makgora#4 LAN check\nSurface: rust\nNeeds: warcraft, native\n";
 const PRIVATE: &str = "Item: galileo#3 private change\nSurface: rust\n";
 const UNDECLARED: &str = "Item: wisp#7 a box without facets\n";
 
@@ -112,7 +112,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_a
     assert!(!a.available && a.line.contains("exhausted: 5h 96% >= 95%"), "{}", a.line);
     assert!(decision.verdicts.iter().all(|v| !v.line.contains('\n') && v.line.starts_with(&v.account)));
 
-    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"near\", \"far\"]\nprivate_repos = [\"galileo\"]\n[hosts.near]\nresident_cap = 2\nssh = \"tom@near\"\n[hosts.far]\nresident_cap = 4\nssh = \"tom@far\"\nserves = [\"private\", \"native\"]\n[hosts.nossh]\nresident_cap = 9\n[hosts.here]\nserves = [\"warcraft\", \"native\", \"private:smashcraft\"]\n".parse().unwrap();
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"near\", \"far\"]\nprivate_repos = [\"galileo\"]\n[hosts.near]\nresident_cap = 2\nssh = \"tom@near\"\n[hosts.far]\nresident_cap = 4\nssh = \"tom@far\"\nserves = [\"private\", \"native\"]\n[hosts.nossh]\nresident_cap = 9\n[hosts.here]\nserves = [\"warcraft\", \"native\", \"private:makgora\"]\n".parse().unwrap();
     let spent = || (false, "cloud credit: spent".to_owned());
     let gate = gate(&[("claude:a", control((35.0, 1.0, "2026-10-16T16:00:00Z"), (50.0, 1.0)))]);
     let probed = |near: Option<i64>, far: Option<i64>| {
@@ -130,7 +130,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_a
         let summary = super::placement::gate::summary(&decision);
         (decision.machine.map(|m| m.ssh), decision.machine_lines, summary)
     };
-    let native = "Item: smashcraft#9 render\nSurface: lua\nVerify: native\nNeeds: private\n";
+    let native = "Item: makgora#9 render\nSurface: lua\nVerify: native\nNeeds: private\n";
     let cases = [
         ("code-only box takes the first machine with room", PRIVATE, Some(0), Some(0), Some("tom@near")),
         ("a full machine is passed over", PRIVATE, Some(2), Some(3), Some("tom@far")),
@@ -153,13 +153,13 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_a
 
 #[test]
 fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
-    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"private:wisp\"]\n[hosts.laptop]\nserves = [\"private:smashcraft\", \"native\"]\n".parse().unwrap();
+    let cfg: toml_edit::DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"private:wisp\"]\n[hosts.laptop]\nserves = [\"private:makgora\", \"native\"]\n".parse().unwrap();
     let gate = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
     let mut machines = super::placement::gate::machines(&cfg);
     machines[0].live = Some(0);
     machines[0].accounts = vec!["c".into()];
     let spent = || (false, "cloud credit: spent".to_owned());
-    let camera = "Item: smashcraft#96 (scorecard tool)\nSurface: ts\nVerify: visual\nNeeds: private\n";
+    let camera = "Item: makgora#96 (scorecard tool)\nSurface: ts\nVerify: visual\nNeeds: private\n";
     let wisp = "Item: wisp#5 private pool change\nSurface: ts\nNeeds: private\n";
 
     let placed = decide(camera, &cfg, &gate, spent(), &machines, "laptop");
@@ -175,7 +175,7 @@ fn a_private_box_goes_only_to_a_host_that_holds_its_repository_store() {
 
     let refused = decide(camera, &cfg, &gate, spent(), &[], "gex45");
     assert_eq!(refused.machine_lines, ["gex45 skipped: needs private"]);
-    assert_eq!(super::placement::gate::summary(&refused), "target unserved: no host serves private for smashcraft");
+    assert_eq!(super::placement::gate::summary(&refused), "target unserved: no host serves private for makgora");
 }
 
 #[test]
@@ -232,7 +232,7 @@ fn placement_never_pairs_a_machine_with_a_label_not_signed_in_there() {
 
 #[test]
 fn a_box_declares_every_local_need_with_its_repository_as_its_capacity_need() {
-    assert_eq!(gate::capacity_need(WARCRAFT).as_deref(), Some("native:smashcraft,warcraft:smashcraft"));
+    assert_eq!(gate::capacity_need(WARCRAFT).as_deref(), Some("native:makgora,warcraft:makgora"));
     assert_eq!(gate::capacity_need(CODE_ONLY), None);
 }
 
@@ -296,16 +296,16 @@ fn the_probe_runs_on_an_account_whose_burn_refuses_a_launch_but_not_one_whose_we
 
 #[test]
 fn a_box_without_a_surface_leaves_a_host_in_game_reserve_for_one_serving_its_repositorys_native_and_private_work() {
-    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native:smashcraft\", \"private:smashcraft\"]\n[hosts.laptop]\nserves = [\"private\", \"native\"]\n".parse().unwrap();
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\nserves = [\"native:makgora\", \"private:makgora\"]\n[hosts.laptop]\nserves = [\"private\", \"native\"]\n".parse().unwrap();
     let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
     let mut machines = gate::machines(&cfg);
     machines[0].live = Some(0);
     machines[0].accounts = vec!["c".into()];
     let listed = roster(&[("c", None)]);
     let placed = |text: &str, gaming: bool| gate::summary(&gate::decide(text, &cfg, verdicts(&quota, &listed), (false, "cloud credit: spent".to_owned()), &machines, "laptop", gaming));
-    let smashcraft = "Item: smashcraft#9 Frostbolt startup\n";
-    assert_eq!(placed(smashcraft, false), "target laptop claude:c (no Surface: declared, not cloud)");
-    assert_eq!(placed(smashcraft, true), "target gex45 claude:c (no Surface: declared, not cloud)");
+    let makgora = "Item: makgora#9 Frostbolt startup\n";
+    assert_eq!(placed(makgora, false), "target laptop claude:c (no Surface: declared, not cloud)");
+    assert_eq!(placed(makgora, true), "target gex45 claude:c (no Surface: declared, not cloud)");
     assert_eq!(placed(UNDECLARED, true), "target laptop claude:c (no Surface: declared, not cloud)");
 }
 
@@ -377,7 +377,7 @@ fn placement_picks_the_week_that_expires_soonest_then_a_live_spend_target_ahead_
 }
 
 fn gex45() -> Machine {
-    Machine { name: "gex45".into(), ssh: "gex45".into(), cap: 8, live: Some(0), serves: vec!["native:wisp".into(), "native:smashcraft".into()], pushes: None, accounts: vec!["a".into()], saturation: None }
+    Machine { name: "gex45".into(), ssh: "gex45".into(), cap: 8, live: Some(0), serves: vec!["native:wisp".into(), "native:makgora".into()], pushes: None, accounts: vec!["a".into()], saturation: None }
 }
 
 fn placed_on(text: &str) -> Option<String> {
@@ -394,9 +394,9 @@ fn a_prose_item_takes_its_repository_from_the_launch_directory_then_the_task() {
     assert_eq!(gate::repository(&by_directory), "wisp");
     assert_eq!(placed_on(&by_directory).as_deref(), Some("gex45"));
     let in_lane = gate::anchored(prose, Some(std::path::Path::new("/home/tom/code/smashcraft/worktrees/x/ts")), None);
-    assert_eq!(gate::repository(&in_lane), "smashcraft");
-    let by_task = gate::anchored(prose, Some(std::path::Path::new("/tmp/scratch")), Some("tompassarelli/smashcraft#518"));
-    assert_eq!(gate::repository(&by_task), "smashcraft");
+    assert_eq!(gate::repository(&in_lane), "makgora");
+    let by_task = gate::anchored(prose, Some(std::path::Path::new("/tmp/scratch")), Some("tompassarelli/makgora#518"));
+    assert_eq!(gate::repository(&by_task), "makgora");
     assert_eq!(placed_on(&by_task).as_deref(), Some("gex45"));
 }
 
@@ -404,7 +404,7 @@ fn a_prose_item_takes_its_repository_from_the_launch_directory_then_the_task() {
 fn a_declared_repository_or_an_issue_reference_outranks_the_launch_directory() {
     let cwd = Some(std::path::Path::new("/home/tom/code/wisp/main"));
     let declared = "Repository: smashcraft\nItem: prose\nNeeds: native\n";
-    assert_eq!(gate::repository(&gate::anchored(declared, cwd, None)), "smashcraft");
+    assert_eq!(gate::repository(&gate::anchored(declared, cwd, None)), "makgora");
     let referenced = "Item: north#12 tidy\nNeeds: native\n";
     assert_eq!(gate::repository(&gate::anchored(referenced, cwd, Some("wisp#3"))), "north");
     assert_eq!(gate::anchored("Item: prose\n", Some(std::path::Path::new("/tmp")), None), "Item: prose\n");

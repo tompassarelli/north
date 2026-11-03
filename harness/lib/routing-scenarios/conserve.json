@@ -134,7 +134,7 @@
   "codex:sol-medium|netcode": 55
  },
  "projects": {
-  "smashcraft": {
+  "makgora": {
    "priority": 2,
    "u": 1.0
   },
@@ -146,7 +146,7 @@
  "boxes": [
   {
    "id": "n1",
-   "project": "smashcraft",
+   "project": "makgora",
    "category": "netcode",
    "difficulty": 85,
    "sensitivity": "private",

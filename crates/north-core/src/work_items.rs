@@ -155,9 +155,9 @@ async fn rows(query: Option<&str>) -> NorthResult<Vec<WorkRow>> {
 }
 
 async fn issue_ref(reference: &str) -> NorthResult<(String, String)> {
-    let (repo, number) = reference.split_once('#').ok_or_else(|| NorthError::Usage("Use an issue reference like smashcraft#247".into()))?;
+    let (repo, number) = reference.split_once('#').ok_or_else(|| NorthError::Usage("Use an issue reference like makgora#247".into()))?;
     if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(NorthError::Usage("Use an issue reference like smashcraft#247".into()));
+        return Err(NorthError::Usage("Use an issue reference like makgora#247".into()));
     }
     let repo = repo.strip_prefix("tompassarelli/").unwrap_or(repo);
     let repo = if repo == "nixos-config" { "firn" } else { repo };

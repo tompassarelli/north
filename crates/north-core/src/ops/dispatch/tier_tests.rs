@@ -40,17 +40,17 @@ fn haiku_try(item: &str, at: f64) -> Record {
 #[test]
 fn known_cause_bugs_and_judged_art_start_on_sonnet_mechanical_work_on_haiku_and_unknown_causes_on_opus() {
     let boxes = vec![
-        issue("smashcraft", 1, "- [ ] a\nCategory: bug-known-cause\nClass: a stale frame", &[]),
-        issue("smashcraft", 2, "- [ ] a\nCategory: feature\nSpec: judged\nSurface: assets\nVerify: visual", &[]),
-        issue("smashcraft", 3, "- [ ] a\nCategory: mechanical", &[]),
-        issue("smashcraft", 4, "- [ ] a\nCategory: debugging-unknown-cause\nClass: a lost input", &[]),
-        issue("smashcraft", 5, "- [ ] a\nCategory: anim", &[]),
-        issue("smashcraft", 6, "- [ ] a\nCategory: netcode-determinism", &[]),
+        issue("makgora", 1, "- [ ] a\nCategory: bug-known-cause\nClass: a stale frame", &[]),
+        issue("makgora", 2, "- [ ] a\nCategory: feature\nSpec: judged\nSurface: assets\nVerify: visual", &[]),
+        issue("makgora", 3, "- [ ] a\nCategory: mechanical", &[]),
+        issue("makgora", 4, "- [ ] a\nCategory: debugging-unknown-cause\nClass: a lost input", &[]),
+        issue("makgora", 5, "- [ ] a\nCategory: anim", &[]),
+        issue("makgora", 6, "- [ ] a\nCategory: netcode-determinism", &[]),
     ];
     let launches = launched(boxes, History::default(), BTreeMap::new());
     assert_eq!(
         tiers(&launches),
-        [("smashcraft#1", "sonnet-high"), ("smashcraft#2", "sonnet-high"), ("smashcraft#3", "worker-haiku"), ("smashcraft#4", "worker"), ("smashcraft#5", "sonnet-high"), ("smashcraft#6", "worker")]
+        [("makgora#1", "sonnet-high"), ("makgora#2", "sonnet-high"), ("makgora#3", "worker-haiku"), ("makgora#4", "worker"), ("makgora#5", "sonnet-high"), ("makgora#6", "worker")]
     );
     assert!(launches[0].2 && launches[0].3.contains("Arm: sonnet-high"), "a known-cause bug is an arm, Sonnet first");
     assert!(launches.iter().skip(1).all(|(_, tier, arm, brief)| !arm && !brief.contains(&format!("Arm: {}", tier.name()))), "only the armed categories run as arms");
@@ -60,14 +60,14 @@ fn known_cause_bugs_and_judged_art_start_on_sonnet_mechanical_work_on_haiku_and_
 
 #[test]
 fn a_mechanical_box_haiku_missed_retries_on_sonnet_following_the_haiku_session() {
-    let records = [haiku_try("smashcraft#3", 100.0)];
-    let launches = launched(vec![issue("smashcraft", 3, "- [ ] a\nCategory: mechanical", &[])], History::new(&records), BTreeMap::new());
-    assert_eq!(tiers(&launches), [("smashcraft#3", "sonnet-high")]);
+    let records = [haiku_try("makgora#3", 100.0)];
+    let launches = launched(vec![issue("makgora", 3, "- [ ] a\nCategory: mechanical", &[])], History::new(&records), BTreeMap::new());
+    assert_eq!(tiers(&launches), [("makgora#3", "sonnet-high")]);
     assert!(launches[0].3.contains("Follows: sc-3-d0900 (worker-haiku)"), "{}", launches[0].3);
-    let old: Record = serde_json::from_str(r#"{"at":1.0,"item":"smashcraft#3","host":"gex45","account":"claude:b","name":"sc-3","launched":true,"detail":""}"#).unwrap();
+    let old: Record = serde_json::from_str(r#"{"at":1.0,"item":"makgora#3","host":"gex45","account":"claude:b","name":"sc-3","launched":true,"detail":""}"#).unwrap();
     assert_eq!((old.tier, old.arm), (None, false), "records from before tiers still read");
-    let never = Record { launched: false, ..haiku_try("smashcraft#3", 100.0) };
-    assert_eq!(tiers(&launched(vec![issue("smashcraft", 3, "- [ ] a\nCategory: mechanical", &[])], History::new(&[never]), BTreeMap::new())), [("smashcraft#3", "worker-haiku")], "a launch that never started is no miss");
+    let never = Record { launched: false, ..haiku_try("makgora#3", 100.0) };
+    assert_eq!(tiers(&launched(vec![issue("makgora", 3, "- [ ] a\nCategory: mechanical", &[])], History::new(&[never]), BTreeMap::new())), [("makgora#3", "worker-haiku")], "a launch that never started is no miss");
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn a_launch_runs_its_tiers_model_and_effort_and_an_unnamed_tier_fails_it() {
     let launches = {
         let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
         let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
-        let survey = survey(vec![issue("smashcraft", 3, "- [ ] a\nCategory: mechanical", &[]), issue("smashcraft", 1, "- [ ] a\nCategory: tooling", &[])], Cloud::Closed(String::new()), hosts, accounts);
+        let survey = survey(vec![issue("makgora", 3, "- [ ] a\nCategory: mechanical", &[]), issue("makgora", 1, "- [ ] a\nCategory: tooling", &[])], Cloud::Closed(String::new()), hosts, accounts);
         let outcome = decide(&survey, "test");
         outcome.launches.iter().map(|launch| effects::command(launch, "sc-1", &survey, "/home/tom", "north").unwrap().1.join(" ")).collect::<Vec<_>>()
     };
@@ -157,7 +157,7 @@ fn a_launch_runs_its_tiers_model_and_effort_and_an_unnamed_tier_fails_it() {
     assert!(launches[1].contains("--model claude-haiku-5-5 --effort high"), "{}", launches[1]);
     let bare = survey(Vec::new(), Cloud::Closed(String::new()), Vec::new(), Vec::new());
     let bare = super::survey::Survey { cfg: "[hosts.gex45]\n".parse().unwrap(), ..bare };
-    let launch = super::plan::Launch { item: issue("smashcraft", 1, "", &[]).reference(), host: "gex45".into(), account: "claude:b".into(), brief: String::new(), route: route(Tier::Opus), cloud: false, local: None, pin: None, handoff: None, burn: None };
+    let launch = super::plan::Launch { item: issue("makgora", 1, "", &[]).reference(), host: "gex45".into(), account: "claude:b".into(), brief: String::new(), route: route(Tier::Opus), cloud: false, local: None, pin: None, handoff: None, burn: None };
     assert!(effects::command(&launch, "sc-1", &bare, "/home/tom", "north").unwrap_err().contains("claude:opus-medium"), "a tier orchestration does not name fails the launch, never falls back to the default model");
 }
 
@@ -169,14 +169,14 @@ pub(super) fn route(tier: Tier) -> super::tier::Route {
 fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_each_tier_holds_thirty() {
     let hosts = vec![slots::Host { name: "gex45".into(), cap: Some(24), running: Ok(0), measure: None }];
     let accounts = vec![slots::Account { name: "claude:b".into(), hosts: vec!["gex45".into()], plan: slots::PlanSize { five_hour: 4.0, week: 2.0 }, room: slots::Room { five_hour: 90.0, week: 90.0, week_reset_h: 100.0 }, spending: false, refusal: None, burn: None }];
-    let boxes = |category: &str| (1..=3).map(|number| issue("smashcraft", number, &format!("- [ ] a\nCategory: {category}\nClass: a lost input"), &[])).collect::<Vec<_>>();
+    let boxes = |category: &str| (1..=3).map(|number| issue("makgora", number, &format!("- [ ] a\nCategory: {category}\nClass: a lost input"), &[])).collect::<Vec<_>>();
     let arms = |survey: &super::survey::Survey| -> Vec<(Option<String>, Option<String>)> {
         decide(survey, "test").launches.into_iter().map(|launch| (launch.handoff, launch.brief.lines().find_map(|line| line.strip_prefix("Arm: ")).map(str::to_owned))).collect()
     };
     let (on, off) = (Some("handoff-150k".to_owned()), Some("no-handoff".to_owned()));
     let fresh = survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone());
     assert_eq!(arms(&fresh), [(on.clone(), on.clone()), (off.clone(), off.clone()), (on.clone(), on.clone())], "the handoff arm is the brief's first Arm line, which the ledger records");
-    let record = |handoff: &Option<String>| Record { tier: Some("worker".into()), handoff: handoff.clone(), ..haiku_try("smashcraft#9", 1.0) };
+    let record = |handoff: &Option<String>| Record { tier: Some("worker".into()), handoff: handoff.clone(), ..haiku_try("makgora#9", 1.0) };
     let held = |on_runs: usize, off_runs: usize| super::handoff::Arms::new(&[vec![record(&on); on_runs], vec![record(&off); off_runs]].concat());
     let lagging = super::survey::Survey { handoffs: held(30, 28), ..survey(boxes("debugging-unknown-cause"), Cloud::Closed(String::new()), hosts.clone(), accounts.clone()) };
     assert_eq!(arms(&lagging), [(off.clone(), off.clone()), (off.clone(), off.clone()), (on.clone(), on.clone())], "the arm under 30 runs on that tier fills first, then unpriced arms keep alternating");
@@ -189,7 +189,7 @@ fn fleet_launches_alternate_the_handoff_arms_per_tier_first_in_the_brief_until_e
 #[test]
 fn both_handoff_arms_at_thirty_runs_go_to_the_lower_cost_per_closed_box_and_the_north_57_recommendation_is_emitted() {
     let (on, off) = ("handoff-150k", "no-handoff");
-    let record = |handoff: &str| Record { tier: Some("worker".into()), handoff: Some(handoff.into()), ..haiku_try("smashcraft#9", 1.0) };
+    let record = |handoff: &str| Record { tier: Some("worker".into()), handoff: Some(handoff.into()), ..haiku_try("makgora#9", 1.0) };
     let held = |on_runs: usize, off_runs: usize| super::handoff::Arms::new(&[vec![record(on); on_runs], vec![record(off); off_runs]].concat());
     let boxes = |arm: &'static str, usd: f64| (0..5).map(move |number| ArmBox { item: format!("north#{arm}-{number}"), tier: "opus-medium".into(), arm: arm.into(), usd });
     let costed = |on_usd: f64, off_usd: f64| boxes(on, on_usd).chain(boxes(off, off_usd)).collect::<Vec<_>>();
@@ -241,9 +241,9 @@ fn a_box_without_a_category_line_takes_one_from_its_labels_and_one_nothing_categ
 
 #[test]
 fn a_feature_box_launches_on_worker_after_a_recorded_sonnet_feature_launch_until_both_arms_hold_fifteen_runs() {
-    let feature = |number: u64| issue("smashcraft", number, "- [ ] a\nCategory: feature", &[]);
-    let last = Record { tier: Some("sonnet-high".into()), category: Some("feature".into()), arm: true, name: "sc-1-d0800".into(), item: "smashcraft#1".into(), ..haiku_try("smashcraft#1", 50.0) };
+    let feature = |number: u64| issue("makgora", number, "- [ ] a\nCategory: feature", &[]);
+    let last = Record { tier: Some("sonnet-high".into()), category: Some("feature".into()), arm: true, name: "sc-1-d0800".into(), item: "makgora#1".into(), ..haiku_try("makgora#1", 50.0) };
     let launches = launched(vec![feature(2), feature(3)], History::new(&[last]), BTreeMap::new());
-    assert_eq!(tiers(&launches), [("smashcraft#2", "worker"), ("smashcraft#3", "sonnet-high")]);
+    assert_eq!(tiers(&launches), [("makgora#2", "worker"), ("makgora#3", "sonnet-high")]);
     assert!(launches.iter().all(|(_, tier, arm, brief)| *arm && brief.contains(&format!("Arm: {}", tier.name()))));
 }

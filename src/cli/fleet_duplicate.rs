@@ -53,11 +53,11 @@ mod tests {
 
     #[test]
     fn a_launch_naming_an_issue_an_open_gate_decides_is_refused_with_the_gate_id() {
-        let open = BTreeMap::from([("smashcraft#764".to_owned(), "130".to_owned()), ("north#9".to_owned(), "nexus:4".to_owned())]);
+        let open = BTreeMap::from([("makgora#764".to_owned(), "130".to_owned()), ("north#9".to_owned(), "nexus:4".to_owned())]);
         let tasks = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
-        let refusal = gated(&tasks(&["wisp#3", "tompassarelli/smashcraft#764"]), &open).expect("a gated issue refuses the launch");
-        assert!(refusal.starts_with("smashcraft#764 waits on open gate 130"), "{refusal}");
+        let refusal = gated(&tasks(&["wisp#3", "tompassarelli/makgora#764"]), &open).expect("a gated issue refuses the launch");
+        assert!(refusal.starts_with("makgora#764 waits on open gate 130"), "{refusal}");
         assert!(gated(&tasks(&["North#9"]), &open).is_some_and(|refusal| refusal.contains("gate nexus:4")), "a relayed host's gate counts");
-        assert_eq!(gated(&tasks(&["smashcraft#765", "wisp#3"]), &open), None);
+        assert_eq!(gated(&tasks(&["makgora#765", "wisp#3"]), &open), None);
     }
 }

@@ -1,10 +1,10 @@
-export const REPOS = ["smashcraft", "wisp", "north", "firn", "south", "padbridge", "smashcraft-client"];
+export const REPOS = ["makgora", "wisp", "north", "firn", "south", "padbridge", "makgora-client"];
 export type Repo = string;
 
 export type Gate = { workflow: string; name: string; budget_s: number | null; budget_source: string | null; debt_to_s?: number };
 
 export const GATES: Record<Repo, Gate[]> = {
-  smashcraft: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: 240, budget_source: "T1" }],
+  makgora: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: 240, budget_source: "T1" }],
   wisp: [{ workflow: "farm-test.yml", name: "farm-test", budget_s: null, budget_source: null }],
   north: [
     { workflow: "cargo.yml", name: "cargo", budget_s: null, budget_source: null },
@@ -13,7 +13,7 @@ export const GATES: Record<Repo, Gate[]> = {
   firn: [{ workflow: "tests.yml", name: "Tests", budget_s: 345, budget_source: "T2" }],
   south: [],
   "padbridge": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
-  "smashcraft-client": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
+  "makgora-client": [{ workflow: "ci.yml", name: "ci", budget_s: null, budget_source: null }],
 };
 
 export type Link = { value: number | string | null; href: string | null; source?: string };

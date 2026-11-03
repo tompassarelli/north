@@ -9,7 +9,7 @@ pub fn evaluate(input: &HookInput) -> Verdict {
         return Verdict::Allow;
     }
     let cwd = input.cwd().map(str::to_owned);
-    let Ok(topics) = frozen_topics::load() else {
+    let Ok(topics) = frozen_topics::load().map(crate::threads::catalog::canonical_topics) else {
         return Verdict::Allow;
     };
     decide_with(
@@ -126,7 +126,7 @@ mod tests {
 
     fn topics() -> Vec<Topic> {
         vec![Topic {
-            repo: "smashcraft".into(),
+            repo: "makgora".into(),
             name: "Kobold".into(),
             terms: vec!["kobold".into(), "forsaken paladin".into(), "forsaken-paladin".into()],
             since: "2026-10-26".into(),
@@ -151,32 +151,32 @@ mod tests {
     fn refuses_creating_an_issue_titled_with_a_frozen_topic() {
         for command in [
             "gh issue create --title 'Kobold rope misses' --label bug",
-            "gh issue create -t \"Fix FORSAKEN PALADIN shield\" -R tompassarelli/smashcraft",
+            "gh issue create -t \"Fix FORSAKEN PALADIN shield\" -R tompassarelli/makgora",
             "cd x && gh issue create --title=forsaken-paladin-slam",
         ] {
-            let reason = denial(decide(command, "tompassarelli/smashcraft", ""));
+            let reason = denial(decide(command, "tompassarelli/makgora", ""));
             assert!(reason.contains("frozen") && reason.contains("until Tom permits"), "{reason}");
         }
     }
 
     #[test]
     fn refuses_reopening_an_issue_whose_title_names_a_frozen_topic() {
-        let reason = denial(decide("gh issue reopen 301 -R tompassarelli/smashcraft", "x/y", "Kobold hitbox audit"));
+        let reason = denial(decide("gh issue reopen 301 -R tompassarelli/makgora", "x/y", "Kobold hitbox audit"));
         assert!(reason.contains("Kobold"), "{reason}");
-        assert!(matches!(decide("gh issue reopen #301", "tompassarelli/smashcraft", "Kobold hitbox"), Verdict::Deny(_)));
+        assert!(matches!(decide("gh issue reopen #301", "tompassarelli/makgora", "Kobold hitbox"), Verdict::Deny(_)));
         assert!(matches!(decide("gh issue create --title 'Kobold rope'", "tompassarelli/makgora", ""), Verdict::Deny(_)));
     }
 
     #[test]
     fn passes_other_titles_repositories_and_commands() {
         for (command, repo, title) in [
-            ("gh issue create --title 'Anub-arak scorecard'", "tompassarelli/smashcraft", ""),
+            ("gh issue create --title 'Anub-arak scorecard'", "tompassarelli/makgora", ""),
             ("gh issue create --title 'Kobold rope'", "tompassarelli/wisp", ""),
             ("gh issue create --title 'Kobold rope'", "someone/smashcraft", ""),
-            ("gh issue reopen 5", "tompassarelli/smashcraft", "Anub-arak slam"),
-            ("gh issue comment 5 --body 'kobold'", "tompassarelli/smashcraft", "Kobold"),
-            ("gh issue create --title ok --body 'mentions kobold'", "tompassarelli/smashcraft", ""),
-            ("echo gh issue create --title kobold", "tompassarelli/smashcraft", ""),
+            ("gh issue reopen 5", "tompassarelli/makgora", "Anub-arak slam"),
+            ("gh issue comment 5 --body 'kobold'", "tompassarelli/makgora", "Kobold"),
+            ("gh issue create --title ok --body 'mentions kobold'", "tompassarelli/makgora", ""),
+            ("echo gh issue create --title kobold", "tompassarelli/makgora", ""),
         ] {
             assert_eq!(decide(command, repo, title), Verdict::Allow, "{command}");
         }

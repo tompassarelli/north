@@ -16,12 +16,13 @@ export type Change = {
 const HOME = homedir();
 const env = process.env;
 const CODE = env.ITERATION_LEDGER_CODE_ROOT ?? join(HOME, "code");
+const checkoutOf = (repo: string): string => ({ firn: "nixos-config", makgora: "smashcraft", "makgora-client": "smashcraft-client" } as Record<string, string>)[repo] ?? repo;
 const AGENTS = env.ITERATION_LEDGER_AGENTS_STATE ?? join(HOME, ".local/state/agents");
 const OUT_DIR = env.ITERATION_LEDGER_OUT ?? join(AGENTS, "iteration-ledger");
 const THREADS_DB = env.ITERATION_LEDGER_THREADS_DB ?? join(HOME, ".local/state/threads/snapshot.db");
 const CONVO_DB = env.ITERATION_LEDGER_CONVO_DB ?? join(HOME, ".local/state/convo/index-v4.db");
 const MAPS = env.ITERATION_LEDGER_MAPS ?? join(HOME, ".local/share/Steam/steamapps/compatdata/3516115571/pfx/drive_c/users/steamuser/Documents/Warcraft III/Maps/00-Smashcraft");
-const REPOS = (env.ITERATION_LEDGER_REPOS ?? "smashcraft,wisp,padbridge,smashcraft-client,north").split(",");
+const REPOS = (env.ITERATION_LEDGER_REPOS ?? "makgora,wisp,padbridge,makgora-client,north").split(",");
 const OWNER = env.ITERATION_LEDGER_OWNER ?? "tompassarelli";
 const GH_TTL_MS = Number(env.ITERATION_LEDGER_GH_TTL_MIN ?? 20) * 60_000;
 const BUILD_MIN = 6;
@@ -54,7 +55,7 @@ export const isRecordSubject = (s: string) => RECORD_RE.test(s);
 
 type Commit = { sha: string; parents: string[]; author: number; committer: number; subject: string; authorName: string };
 function gitLog(repo: string, extra: string[]): Commit[] {
-  const out = sh(["git", "-C", join(CODE, repo, "main"), "log", "origin/main", ...extra, `--since=${iso(SINCE_MS)}`, "--format=%H%x1f%P%x1f%aI%x1f%cI%x1f%an%x1f%s"]);
+  const out = sh(["git", "-C", join(CODE, checkoutOf(repo), "main"), "log", "origin/main", ...extra, `--since=${iso(SINCE_MS)}`, "--format=%H%x1f%P%x1f%aI%x1f%cI%x1f%an%x1f%s"]);
   return out.split("\n").filter(Boolean).map((l) => {
     const [sha, p, a, c, an, s] = l.split("\x1f");
     return { sha, parents: p.split(" ").filter(Boolean), author: ms(a), committer: ms(c), authorName: an, subject: s };
@@ -62,7 +63,7 @@ function gitLog(repo: string, extra: string[]): Commit[] {
 }
 function mergedCommits(repo: string, merge: Commit): Commit[] {
   if (merge.parents.length < 2) return [];
-  const out = sh(["git", "-C", join(CODE, repo, "main"), "log", `${merge.parents[0]}..${merge.sha}`, "--no-merges", "--format=%H%x1f%P%x1f%aI%x1f%cI%x1f%an%x1f%s"]);
+  const out = sh(["git", "-C", join(CODE, checkoutOf(repo), "main"), "log", `${merge.parents[0]}..${merge.sha}`, "--no-merges", "--format=%H%x1f%P%x1f%aI%x1f%cI%x1f%an%x1f%s"]);
   return out.split("\n").filter(Boolean).map((l) => {
     const [sha, p, a, c, an, s] = l.split("\x1f");
     return { sha, parents: p.split(" "), author: ms(a), committer: ms(c), authorName: an, subject: s };
@@ -95,7 +96,7 @@ export function repoOf(text: string, repos = REPOS): string | null {
   const item = t.match(/\b([a-z-]+)#\d+/);
   if (item && repos.includes(item[1])) return item[1];
   for (const r of [...repos].sort((a, b) => b.length - a.length)) if (t.includes(r)) return r;
-  if (/\b(fighter|hero|stage|lich|thrall|cairne|peon|chen|paladin|sylvanas|tinker|illidan|blademaster|kobold|map|w3x|smash|special|hitbox|knockback|tom's maps)\b/.test(t)) return "smashcraft";
+  if (/\b(fighter|hero|stage|lich|thrall|cairne|peon|chen|paladin|sylvanas|tinker|illidan|blademaster|kobold|map|w3x|smash|special|hitbox|knockback|tom's maps|smashcraft)\b/.test(t)) return "makgora";
   return null;
 }
 
@@ -289,7 +290,7 @@ function buildRepo(repo: string, runsBySha: Map<string, Run[]>, links: Map<strin
   const med = flowMedians(repo);
   const ghAutoland = med["autoland.yml"] !== undefined ? ghRuns(repo, "autoland.yml", 1000).filter((r) => r.conclusion === "success" && r.displayTitle !== "Autoland plan") : [];
   const ghFarm = med["farm-test.yml"] !== undefined ? ghRuns(repo, "farm-test.yml", 300).filter((r) => r.status === "completed") : [];
-  const repoPath = join(CODE, repo, "main");
+  const repoPath = join(CODE, checkoutOf(repo), "main");
   const repoChecks = checks.filter((c) => c.repoPath === repoPath);
   const checkBySha = new Map(repoChecks.map((c) => [c.sha, c]));
   const checkMedian = median(repoChecks.map((c) => c.seconds / 60));
@@ -362,7 +363,7 @@ function buildRepo(repo: string, runsBySha: Map<string, Run[]>, links: Map<strin
     stages.push(recRuns.length ? stage("record_refresh", recStart, Math.max(recStart, ...recRuns.map((p) => p.author)), "git:last work commit->last record commit in landing") : stage("record_refresh", NaN, NaN, "none:no record commit"));
     stages.push(alRow);
     let inBuild: number | null = null;
-    if (repo === "smashcraft") {
+    if (repo === "makgora") {
       inBuild = builds.find((b) => b >= landed + BUILD_MIN * 60_000) ?? null;
       stages.push(inBuild ? stage("build", landed, inBuild - 60_000, "maps-mtime:first Maps build after land, includes wait to start") : stage("build", NaN, NaN, "none:not yet in a Maps build"));
       stages.push(inBuild ? estimate("install", inBuild, 1, "build writes into Maps folder") : stage("install", NaN, NaN, "none:not yet installed"));
@@ -410,7 +411,7 @@ function main() {
   const projects: Record<string, unknown> = {};
   const changes: Change[] = [];
   for (const repo of REPOS) {
-    if (!existsSync(join(CODE, repo, "main"))) continue;
+    if (!existsSync(join(CODE, checkoutOf(repo), "main"))) continue;
     const { all, firstParent, changes: cs } = buildRepo(repo, runsBySha, links, checks, builds, measureRows);
     const real = cs.filter((c) => c.kind === "change");
     const half = NOW - (DAYS / 2) * 86_400_000;

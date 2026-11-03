@@ -114,7 +114,7 @@ mod tests {
     fn a_prose_done_report_is_done_and_a_notice_acknowledgement_is_idle() {
         let labels = [
             ("The Cairne fix is on origin/main as 02865f8e6 and the issue is closed; it passes all five scorecard lines.", false, "done"),
-            ("Noted the spawn hold. This session runs no workers, so nothing needs pausing.\n\nDone: smashcraft#239 is closed.", true, "idle"),
+            ("Noted the spawn hold. This session runs no workers, so nothing needs pausing.\n\nDone: makgora#239 is closed.", true, "idle"),
             ("You've hit your weekly limit · resets Oct 31, 12pm (UTC)", true, "idle"),
             ("Peak is 0.0152, just over the limit.", false, "unclear"),
             ("Done: the handoff hook fix landed on origin/main.", false, "done"),

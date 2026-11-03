@@ -48,7 +48,7 @@ fn paying() -> Facts {
             unmeasured: Vec::new(),
         }),
         landings: Ok(vec![
-            (NOW - 100.0, "smashcraft".into()),
+            (NOW - 100.0, "makgora".into()),
             (NOW - 200.0, "wisp".into()),
             (NOW - 300.0, "north".into()),
         ]),
@@ -255,7 +255,7 @@ fn laptop_share_decays_at_eighty_percent_and_is_unread_without_measurements() {
 fn game_share_needs_sixty_percent_of_the_landings_of_the_last_seven_days() {
     let landed = |games: usize, others: usize| {
         let rows = (0..games)
-            .map(|i| (NOW - i as f64, "smashcraft".to_owned()))
+            .map(|i| (NOW - i as f64, "makgora".to_owned()))
             .chain((0..others).map(|i| (NOW - i as f64, "north".to_owned())))
             .chain([(NOW - 9.0 * DAY_S, "north".to_owned())]);
         Facts {

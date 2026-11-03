@@ -19,17 +19,17 @@ fn the_notice_counts_only_lanes_older_than_a_day_and_abbreviates_home() {
 #[test]
 fn an_archive_mentions_an_item_only_on_a_refs_line_naming_it() {
     for (message, repo, number, expected) in [
-        ("Resume fixture\n\nRefs smashcraft#10", "smashcraft", 10, true),
-        ("Resume\n\nrefs: tompassarelli/smashcraft#10, wisp#3", "smashcraft", 10, true),
-        ("Resume\n\nREFS wisp#3 smashcraft#10", "smashcraft", 10, true),
+        ("Resume fixture\n\nRefs makgora#10", "makgora", 10, true),
+        ("Resume\n\nrefs: tompassarelli/makgora#10, wisp#3", "makgora", 10, true),
+        ("Resume\n\nREFS wisp#3 makgora#10", "makgora", 10, true),
         ("Resume\n\nRefs nixos-config#7", "firn", 7, true),
-        ("Resume\n\nRefs smashcraft#10", "wisp", 10, false),
-        ("Resume\n\nRefs smashcraft#100", "smashcraft", 10, false),
-        ("Resume\n\nRefs smashcraft#10", "smashcraft", 1, false),
-        ("Mentions smashcraft#10 outside a Refs line", "smashcraft", 10, false),
-        ("Refs x/smashcraft#10", "smashcraft", 10, false),
-        ("Refs other/smashcraft#10", "smashcraft", 10, false),
-        ("Refs smashcraft#", "smashcraft", 10, false),
+        ("Resume\n\nRefs makgora#10", "wisp", 10, false),
+        ("Resume\n\nRefs makgora#100", "makgora", 10, false),
+        ("Resume\n\nRefs makgora#10", "makgora", 1, false),
+        ("Mentions makgora#10 outside a Refs line", "makgora", 10, false),
+        ("Refs x/makgora#10", "makgora", 10, false),
+        ("Refs other/makgora#10", "makgora", 10, false),
+        ("Refs makgora#", "makgora", 10, false),
     ] {
         assert_eq!(mentions(message, repo, number), expected, "{message:?} for {repo}#{number}");
     }

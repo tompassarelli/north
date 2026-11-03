@@ -12,7 +12,21 @@ const TAGS: &str = "refs/tags/archive/";
 static REFS_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bRefs\s*:?\s+(.+)").unwrap());
 
 pub fn repo_alias(name: &str) -> &str {
-    if name == "nixos-config" { "firn" } else { name }
+    match name {
+        "nixos-config" => "firn",
+        "smashcraft" => "makgora",
+        "smashcraft-client" => "makgora-client",
+        other => other,
+    }
+}
+
+pub fn checkout_name(repo: &str) -> &str {
+    match repo {
+        "firn" => "nixos-config",
+        "makgora" => "smashcraft",
+        "makgora-client" => "smashcraft-client",
+        other => other,
+    }
 }
 
 fn is_name_char(c: char) -> bool {
@@ -71,9 +85,8 @@ fn git(path: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn checkout(repo: &str, cwd: Option<&Path>) -> PathBuf {
-    let name = if repo == "firn" { "nixos-config" } else { repo };
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let container = home.join("code").join(name);
+    let container = home.join("code").join(checkout_name(repo));
     let current = cwd
         .map(Path::to_path_buf)
         .or_else(|| std::env::current_dir().ok())

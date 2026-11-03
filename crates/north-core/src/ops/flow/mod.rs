@@ -40,7 +40,7 @@ mod tests;
 
 const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm] | north flow row REPO [FIELD]...";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];
-const DEFAULT_REPOS: [&str; 4] = ["smashcraft", "wisp", "north", "smashcraft-client"];
+const DEFAULT_REPOS: [&str; 4] = ["makgora", "wisp", "north", "makgora-client"];
 const USAGE_STALE_HOURS: f64 = 7.0;
 
 struct Options {

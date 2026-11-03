@@ -70,7 +70,7 @@ fn a_fleet_or_worker_subagent_run_is_a_worker_run_on_its_model_and_efforts_tier_
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     let projects = root.join("home/.claude/projects/-home-tom-code-smashcraft-main");
-    transcript_of(&projects.join("dispatched.jsonl"), "Item: smashcraft#459 back-air", "claude-opus-5-5");
+    transcript_of(&projects.join("dispatched.jsonl"), "Item: makgora#459 back-air", "claude-opus-5-5");
     transcript_of(&projects.join("child.jsonl"), "Item: north#240 ledger", "claude-sonnet-5-5");
     transcript_of(&projects.join("deep.jsonl"), "Item: north#241 plan", "claude-opus-5-5");
     transcript(&projects.join("proxy.jsonl"), "hello");
@@ -86,7 +86,7 @@ fn a_fleet_or_worker_subagent_run_is_a_worker_run_on_its_model_and_efforts_tier_
     )
     .unwrap();
     let fleet = r#"[{"name":"proxy","conversation":"proxy","parent":null,"task_ref":null,"effort":null},
-        {"name":"sc-459","conversation":"dispatched","parent":null,"task_ref":"smashcraft#459","effort":null,"past":true},
+        {"name":"sc-459","conversation":"dispatched","parent":null,"task_ref":"makgora#459","effort":null,"past":true},
         {"name":"n-240","conversation":"child","parent":"lead","task_ref":null,"effort":"high","past":true},
         {"name":"n-241","conversation":"deep","parent":"lead","task_ref":"north#241","effort":"max"}]"#;
     let (rows, calls) = claude_runs(root, &fleet.replace('\n', ""), &policy);
@@ -97,7 +97,7 @@ fn a_fleet_or_worker_subagent_run_is_a_worker_run_on_its_model_and_efforts_tier_
         let row = by_id(id);
         assert_eq!((row["role"].as_str(), row["tier"].as_str(), row["effort"].as_str(), row["outcome"].as_str()), (Some("worker"), Some(tier), Some(effort), Some("done")), "{id}");
     }
-    assert!(by_id("dispatched")["brief"].as_str().unwrap().starts_with("Item: smashcraft#459"));
+    assert!(by_id("dispatched")["brief"].as_str().unwrap().starts_with("Item: makgora#459"));
     assert_eq!((by_id("proxy")["role"].as_str(), by_id("proxy")["tier"].as_str()), (Some("proxy"), Some("claude-opus-5-5")));
 }
 

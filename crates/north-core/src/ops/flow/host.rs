@@ -90,7 +90,7 @@ impl Places {
     }
 
     pub fn checkout(&self, repo: &str) -> PathBuf {
-        self.home.join("code").join(repo).join("main")
+        self.home.join("code").join(crate::threads::catalog::checkout(repo)).join("main")
     }
 }
 

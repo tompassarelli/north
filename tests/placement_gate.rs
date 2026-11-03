@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 const NOW: &str = "2026-10-16T12:00:00Z";
 const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: code\nDone when: `cargo test` exits 0\n";
-const WARCRAFT: &str = "Item: smashcraft#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
-const NATIVE: &str = "Item: smashcraft#207 remote lag\nSurface: lua\nNeeds: native\n";
+const WARCRAFT: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
+const NATIVE: &str = "Item: makgora#207 remote lag\nSurface: lua\nNeeds: native\n";
 
 fn executable(path: &Path, body: &str) {
     fs::write(path, body).unwrap();
@@ -227,7 +227,7 @@ fn a_box_that_needs_native_on_smashcraft_starts_with_that_capacity_need() {
     while !fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box") && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert_eq!(fs::read_to_string(root.join("need")).unwrap_or_default(), "native:smashcraft");
+    assert_eq!(fs::read_to_string(root.join("need")).unwrap_or_default(), "native:makgora");
     north(root, &["fleet", "stop", "lagged"]);
     let listed: serde_json::Value = serde_json::from_slice(&north(root, &["fleet", "list", "--json"]).stdout).unwrap();
     let lagged = listed.as_array().unwrap().iter().find(|session| session["name"] == "lagged").unwrap();

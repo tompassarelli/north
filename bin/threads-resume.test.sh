@@ -17,7 +17,7 @@ chmod +x "$scratch/bin/north"
 cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash
 case "$*" in
-  "issue list -R tompassarelli/smashcraft"*) printf '[{"number":10,"title":"Resume","labels":[{"name":"priority:now"}],"body":"- [ ] finish","comments":[]}]' ;;
+  "issue list -R tompassarelli/makgora"*) printf '[{"number":10,"title":"Resume","labels":[{"name":"priority:now"}],"body":"- [ ] finish","comments":[]}]' ;;
   "issue list"*) printf '[]' ;;
   *refPrefix*) printf '{"data":{"repository":{"refs":{"nodes":[]}}}}' ;;
   *) printf '{"data":{"repository":{"issue":{"number":10,"title":"Resume","state":"OPEN","blockedBy":{"nodes":[]}}}}}' ;;
@@ -43,16 +43,16 @@ git -C "$scratch/seed" push -q origin refs/tags/archive/feature/other-10
 git clone -q --no-tags "$scratch/origin.git" "$HOME/code/smashcraft/main"
 fleet() { local stopped=false; [[ $1 == exited ]] && stopped=true; mkdir -p "$HOME/.local/state/north/fleet/holder"; printf '{"name":"holder","provider":"codex","account":"a","cwd":"/tmp","model":null,"created_ms":1,"host_pid":%s,"conversation":"fixture-session","stopped":%s}\n' "$$" "$stopped" >"$HOME/.local/state/north/fleet/holder/session.json"; }
 fleet working
-threads claim smashcraft#10 --by codex:fixture-session --eta 5 >/dev/null
+threads claim makgora#10 --by codex:fixture-session --eta 5 >/dev/null
 sqlite3 "$THREADS_DB" "UPDATE claims SET since = '2020-01-01T00:00:00Z'; UPDATE events SET ts = '2020-01-01T00:00:00Z'"
 out=$(threads unowned)
-grep -q $'smashcraft#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
+grep -q $'makgora#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
 fleet exited
 out=$(threads unowned)
-grep -q $'smashcraft#10\tpriority:now\tUNOWNED\t' <<<"$out"
+grep -q $'makgora#10\tpriority:now\tUNOWNED\t' <<<"$out"
 fleet working
 out=$(threads unowned)
-grep -q $'smashcraft#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
+grep -q $'makgora#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
 printf 'PASS [integration] expired claims stay held for exact active holders and expire for dead or finished holders\n'
 mkdir -p "$HOME/.config/threads" "$HOME/.local/state/threads" "$scratch/remote-home"
 printf 'fixture-host\n' >"$HOME/.config/threads/remote"
@@ -65,13 +65,13 @@ HOME=$REMOTE_HOME THREADS_DB=$REMOTE_DB NORTH_BIN=$NORTH_BIN exec bash -c "${@: 
 SSH
 chmod +x "$scratch/bin/ssh"
 out=$(env -u THREADS_DB threads unowned)
-grep -q $'smashcraft#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
+grep -q $'makgora#10\tpriority:now\tcodex:fixture-session\t' <<<"$out"
 grep -q 'THREADS_ALIVE_OWNERS=' "$SSH_TRACE"
 ! grep -q 'pid' "$SSH_TRACE"
 fleet exited
 out=$(env -u THREADS_DB threads unowned)
-grep -q $'smashcraft#10\tpriority:now\tUNOWNED\t' <<<"$out"
-out=$(env -u THREADS_DB threads show smashcraft#10)
+grep -q $'makgora#10\tpriority:now\tUNOWNED\t' <<<"$out"
+out=$(env -u THREADS_DB threads show makgora#10)
 grep -q 'archive/feature/resume-10' <<<"$out"
 restore='archive/feature/resume-10:refs/heads/feature/resume-10'
 git -C "$HOME/code/smashcraft/main" push -q origin "$restore"

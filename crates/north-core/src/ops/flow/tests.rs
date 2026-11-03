@@ -76,7 +76,7 @@ fn row(recorded: &Recorded, now: f64) -> Value {
     let latest = landings.iter().copied().fold(f64::MIN, f64::max);
     let medians = Medians::from([("autoland.yml".to_owned(), WorkflowMedians { run: workflow_median(&recorded.runs, now), ..Default::default() })]);
     let since = waiting.iter().copied().min_by(f64::total_cmp);
-    json!({ "repo": "smashcraft", "main_sha": (latest as i64).to_string(), "stall": verdict(&facts(now, latest, &landings, waiting.len() as u64, &active, &medians, since)) })
+    json!({ "repo": "makgora", "main_sha": (latest as i64).to_string(), "stall": verdict(&facts(now, latest, &landings, waiting.len() as u64, &active, &medians, since)) })
 }
 
 fn parent() -> Vec<Node> {
@@ -166,19 +166,19 @@ fn deliver_alerts(recorded: &Recorded) {
     assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send proxy ")));
     assert!(sends.borrow().iter().any(|message| message.starts_with("fleet send smashcraft-parent ")));
     let initial = std::fs::read_to_string(&state_path).unwrap();
-    stall_alert(&places, &host, &[json!({"repo": "smashcraft", "stall": "error"})], first + 600.0).unwrap();
+    stall_alert(&places, &host, &[json!({"repo": "makgora", "stall": "error"})], first + 600.0).unwrap();
     assert_eq!(std::fs::read_to_string(&state_path).unwrap(), initial);
 
     let prolonged = first + 3600.0;
     let late = recorded.jobs.iter().map(|(job, _)| job).find(|job| job.run_id == 38_143_883_634 && job.name == "reports").unwrap();
     let medians = Medians::from([("autoland.yml".to_owned(), WorkflowMedians { run: workflow_median(&recorded.runs, first), ..Default::default() })]);
-    let fault = json!({"repo": "smashcraft", "main_sha": "moved", "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, std::slice::from_ref(late), &medians, None))});
+    let fault = json!({"repo": "makgora", "main_sha": "moved", "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, std::slice::from_ref(late), &medians, None))});
     assert_eq!(fault["stall"]["stalled"], true);
     assert_eq!(fault["stall"]["overdue_jobs"].as_array().unwrap().len(), 1);
     stall_alert(&places, &host, std::slice::from_ref(&fault), prolonged).unwrap();
     stall_alert(&places, &host, std::slice::from_ref(&fault), prolonged + 300.0).unwrap();
     assert_eq!(sends.borrow().len(), 6);
-    let healthy = json!({"repo": "smashcraft", "main_sha": stalled["main_sha"], "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, &[], &Medians::new(), None))});
+    let healthy = json!({"repo": "makgora", "main_sha": stalled["main_sha"], "stall": verdict(&facts(prolonged, prolonged, &[prolonged], 0, &[], &Medians::new(), None))});
     stall_alert(&places, &host, std::slice::from_ref(&healthy), prolonged).unwrap();
     assert_eq!(std::fs::read_to_string(&state_path).unwrap().trim(), "{}");
     stall_alert(&places, &host, std::slice::from_ref(&stalled), prolonged + 300.0).unwrap();
@@ -222,19 +222,19 @@ fn a_cached_row_is_recomputed_once_main_has_moved() {
     let now = 1_793_000_000.0;
     let directory = tempfile::tempdir().unwrap();
     let places = places(directory.path());
-    let cached = json!({"repo": "smashcraft", "epoch": now - 60.0, "target": null, "main_sha": "old", "reuse": null, "closed_per_hour": 0});
+    let cached = json!({"repo": "makgora", "epoch": now - 60.0, "target": null, "main_sha": "old", "reuse": null, "closed_per_hour": 0});
     std::fs::create_dir_all(places.flow()).unwrap();
-    std::fs::write(places.flow().join("smashcraft.json"), cached.to_string()).unwrap();
+    std::fs::write(places.flow().join("makgora.json"), cached.to_string()).unwrap();
     let tip = RefCell::new("old\n");
     let reply = |argv: &[&str]| (argv == ["git", "rev-parse", "origin/main"]).then(|| (*tip.borrow()).to_owned());
     let host = Fake(&reply);
     let env = Env::new(&places, &host, Default::default());
-    assert_eq!(get(&env, "smashcraft", now, &["reuse", "closed_per_hour"])["main_sha"], "old");
+    assert_eq!(get(&env, "makgora", now, &["reuse", "closed_per_hour"])["main_sha"], "old");
     *tip.borrow_mut() = "new\n";
-    let fresh = get(&env, "smashcraft", now, &["reuse", "closed_per_hour"]);
+    let fresh = get(&env, "makgora", now, &["reuse", "closed_per_hour"]);
     assert_eq!(fresh["epoch"], now);
     assert_eq!(fresh["stall"], "error");
-    let saved: Value = serde_json::from_str(&std::fs::read_to_string(places.flow().join("smashcraft.json")).unwrap()).unwrap();
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(places.flow().join("makgora.json")).unwrap()).unwrap();
     assert_eq!(saved["epoch"], now);
 }
 

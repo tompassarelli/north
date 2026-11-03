@@ -13,18 +13,18 @@ export THREADS_DB=$scratch/threads.db GH_TRACE=$scratch/gh.trace PATH=$scratch/b
 export AGENTS_ORCHESTRATION=$scratch/orchestration.toml NORTH_BIN=${NORTH_PACE_BIN:-$repo/target/debug/north} THREADS_ALIVE_OWNERS='["alice","bob","fixture"]' NORTH_HOME=$repo
 : >"$AGENTS_ORCHESTRATION"
 
-# smashcraft: #1 blocked by open #2, #2 open, #3 open, #4 blocked by closed #5.
+# makgora: #1 blocked by open #2, #2 open, #3 open, #4 blocked by closed #5.
 mkdir "$scratch/bin"
 cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$GH_TRACE"
 issue() { printf '{"number":%s,"title":"T%s","blockedBy":{"nodes":[%s]}}' "$1" "$1" "${2:-}"; }
-blocker() { printf '{"number":%s,"state":"%s","repository":{"nameWithOwner":"tompassarelli/smashcraft"}}' "$1" "$2"; }
+blocker() { printf '{"number":%s,"state":"%s","repository":{"nameWithOwner":"tompassarelli/makgora"}}' "$1" "$2"; }
 case "$*" in
-  *name=smashcraft*number=3*) printf '{"data":{"repository":{"issue":{"number":3,"title":"T3","state":"OPEN","blockedBy":{"nodes":[]}}}}}\n'; exit ;;
+  *name=makgora*number=3*) printf '{"data":{"repository":{"issue":{"number":3,"title":"T3","state":"OPEN","blockedBy":{"nodes":[]}}}}}\n'; exit ;;
 esac
 case "$*" in
-  *name=smashcraft*)
+  *name=makgora*)
     nodes="$(issue 1 "$(blocker 2 OPEN)"),$(issue 2),$(issue 3),$(issue 4 "$(blocker 5 CLOSED)")" ;;
   *) nodes="" ;;
 esac

@@ -28,17 +28,17 @@
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/issues/comments?since=2026-10-07T09:30:00Z&per_page=100"
+    "repos/tompassarelli/makgora/issues/comments?since=2026-10-07T09:30:00Z&per_page=100"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/pulls/comments?since=2026-10-07T09:30:00Z&per_page=100"
+    "repos/tompassarelli/makgora/pulls/comments?since=2026-10-07T09:30:00Z&per_page=100"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/pulls/600/reviews?per_page=100"
+    "repos/tompassarelli/makgora/pulls/600/reviews?per_page=100"
    ],
    [
     "graphql",
@@ -51,23 +51,23 @@
     "users/AILIFE1"
    ],
    [
-    "repos/tompassarelli/smashcraft/issues/422"
+    "repos/tompassarelli/makgora/issues/422"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+    "repos/tompassarelli/makgora/issues/422/comments?per_page=100"
    ],
    [
     "users/carol"
    ],
    [
-    "repos/tompassarelli/smashcraft/issues/422"
+    "repos/tompassarelli/makgora/issues/422"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+    "repos/tompassarelli/makgora/issues/422/comments?per_page=100"
    ],
    [
     "--paginate",
@@ -75,20 +75,20 @@
     "notifications?per_page=50"
    ],
    [
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/550"
    ],
    [
     "--paginate",
     "--slurp",
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550/comments?per_page=100"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/550/comments?per_page=100"
    ],
    [
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/450"
    ],
    [
     "--paginate",
     "--slurp",
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
    ]
   ],
   "inbox": "earlier line\n",
@@ -97,7 +97,7 @@
   "rc": 0,
   "state": null,
   "stderr": "",
-  "stdout": "EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nSPAM smashcraft#422 AILIFE1: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nEXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nEXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\nsince=2026-10-07T09:30:00Z spam=1 external=3 would mark-read=2\n"
+  "stdout": "EXTERNAL makgora#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/makgora/pull/600\nSPAM makgora#422 AILIFE1: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-1\nEXTERNAL makgora#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/makgora/issues/450\" https://github.com/tompassarelli/makgora/issues/450#issuecomment-2\nEXTERNAL makgora#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-3\nsince=2026-10-07T09:30:00Z spam=1 external=3 would mark-read=2\n"
  },
  {
   "args": [
@@ -112,17 +112,17 @@
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/issues/comments?since=2026-10-14T09:15:00Z&per_page=100"
+    "repos/tompassarelli/makgora/issues/comments?since=2026-10-14T09:15:00Z&per_page=100"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/pulls/comments?since=2026-10-14T09:15:00Z&per_page=100"
+    "repos/tompassarelli/makgora/pulls/comments?since=2026-10-14T09:15:00Z&per_page=100"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/pulls/600/reviews?per_page=100"
+    "repos/tompassarelli/makgora/pulls/600/reviews?per_page=100"
    ],
    [
     "graphql",
@@ -135,12 +135,12 @@
     "users/AILIFE1"
    ],
    [
-    "repos/tompassarelli/smashcraft/issues/422"
+    "repos/tompassarelli/makgora/issues/422"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+    "repos/tompassarelli/makgora/issues/422/comments?per_page=100"
    ],
    [
     "graphql",
@@ -161,12 +161,12 @@
     "users/carol"
    ],
    [
-    "repos/tompassarelli/smashcraft/issues/422"
+    "repos/tompassarelli/makgora/issues/422"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/issues/422/comments?per_page=100"
+    "repos/tompassarelli/makgora/issues/422/comments?per_page=100"
    ],
    [
     "--paginate",
@@ -179,12 +179,12 @@
     "notifications/threads/n-ci"
    ],
    [
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/550"
    ],
    [
     "--paginate",
     "--slurp",
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550/comments?per_page=100"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/550/comments?per_page=100"
    ],
    [
     "-X",
@@ -192,17 +192,17 @@
     "notifications/threads/n-ours"
    ],
    [
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/450"
    ],
    [
     "--paginate",
     "--slurp",
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
    ]
   ],
-  "inbox": "earlier line\nOPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nOPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nOPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nOPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n",
+  "inbox": "earlier line\nOPS EXTERNAL makgora#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/makgora/pull/600\nOPS SPAM makgora#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-1\nOPS EXTERNAL makgora#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/makgora/issues/450\" https://github.com/tompassarelli/makgora/issues/450#issuecomment-2\nOPS EXTERNAL makgora#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-3\n",
   "label": "live",
-  "log": "2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\n2026-10-14T09:30:00Z OPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n",
+  "log": "2026-10-14T09:30:00Z OPS EXTERNAL makgora#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/makgora/pull/600\n2026-10-14T09:30:00Z OPS SPAM makgora#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL makgora#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/makgora/issues/450\" https://github.com/tompassarelli/makgora/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL makgora#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n",
   "rc": 0,
   "state": {
    "last_run": "2026-10-14T09:30:00Z",
@@ -229,17 +229,17 @@
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/issues/comments?since=2026-10-14T09:15:00Z&per_page=100"
+    "repos/tompassarelli/makgora/issues/comments?since=2026-10-14T09:15:00Z&per_page=100"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/pulls/comments?since=2026-10-14T09:15:00Z&per_page=100"
+    "repos/tompassarelli/makgora/pulls/comments?since=2026-10-14T09:15:00Z&per_page=100"
    ],
    [
     "--paginate",
     "--slurp",
-    "repos/tompassarelli/smashcraft/pulls/600/reviews?per_page=100"
+    "repos/tompassarelli/makgora/pulls/600/reviews?per_page=100"
    ],
    [
     "graphql",
@@ -259,12 +259,12 @@
     "notifications/threads/n-ci"
    ],
    [
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/550"
    ],
    [
     "--paginate",
     "--slurp",
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/550/comments?per_page=100"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/550/comments?per_page=100"
    ],
    [
     "-X",
@@ -272,17 +272,17 @@
     "notifications/threads/n-ours"
    ],
    [
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/450"
    ],
    [
     "--paginate",
     "--slurp",
-    "https://api.github.com/repos/tompassarelli/smashcraft/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
+    "https://api.github.com/repos/tompassarelli/makgora/issues/450/comments?since=2026-10-14T08:00:00Z&per_page=100"
    ]
   ],
-  "inbox": "earlier line\nOPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nOPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nOPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nOPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n",
+  "inbox": "earlier line\nOPS EXTERNAL makgora#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/makgora/pull/600\nOPS SPAM makgora#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-1\nOPS EXTERNAL makgora#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/makgora/issues/450\" https://github.com/tompassarelli/makgora/issues/450#issuecomment-2\nOPS EXTERNAL makgora#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-3\n",
   "label": "again",
-  "log": "2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\n2026-10-14T09:30:00Z OPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n",
+  "log": "2026-10-14T09:30:00Z OPS EXTERNAL makgora#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/makgora/pull/600\n2026-10-14T09:30:00Z OPS SPAM makgora#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL makgora#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/makgora/issues/450\" https://github.com/tompassarelli/makgora/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL makgora#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n",
   "rc": 0,
   "state": {
    "last_run": "2026-10-14T09:30:00Z",
@@ -301,9 +301,9 @@
    "status"
   ],
   "calls": [],
-  "inbox": "earlier line\nOPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\nOPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\nOPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\nOPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n",
+  "inbox": "earlier line\nOPS EXTERNAL makgora#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/makgora/pull/600\nOPS SPAM makgora#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-1\nOPS EXTERNAL makgora#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/makgora/issues/450\" https://github.com/tompassarelli/makgora/issues/450#issuecomment-2\nOPS EXTERNAL makgora#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-3\n",
   "label": "status",
-  "log": "2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/smashcraft/pull/600\n2026-10-14T09:30:00Z OPS SPAM smashcraft#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/smashcraft/issues/450\" https://github.com/tompassarelli/smashcraft/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL smashcraft#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/smashcraft/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n",
+  "log": "2026-10-14T09:30:00Z OPS EXTERNAL makgora#600 newbie: pr \"Add launcher Packaged at newbie-tools.io\" https://github.com/tompassarelli/makgora/pull/600\n2026-10-14T09:30:00Z OPS SPAM makgora#422 AILIFE1: minimized and blocked: comment \"Can you share more? API is at cathedral-ai.com, docs at cathedral-ai.com/docs.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-1\n2026-10-14T09:30:00Z OPS EXTERNAL makgora#450 515: comment \"OCR output like @515,460 pings accounts named 515; see https://github.com/tompassarelli/makgora/issues/450\" https://github.com/tompassarelli/makgora/issues/450#issuecomment-2\n2026-10-14T09:30:00Z OPS EXTERNAL makgora#422 carol: comment \"Same crash here with the build from stormlib.org, happy to send a log.\" https://github.com/tompassarelli/makgora/issues/422#issuecomment-3\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=1 external=3 marked-read=2\n2026-10-14T09:30:00Z clean run since=2026-10-14T09:15:00Z spam=0 external=0 marked-read=2\n",
   "rc": 0,
   "state": {
    "last_run": "2026-10-14T09:30:00Z",

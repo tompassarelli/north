@@ -222,7 +222,7 @@ fn safe_push_publishes_only_from_the_default_branch_unless_a_destination_is_name
 
 #[test]
 fn safe_push_durable_harness_paths_match_the_shell_list() {
-    for repository in ["north", "south", "firn", "nixos-config", "smashcraft"] {
+    for repository in ["north", "south", "firn", "nixos-config", "makgora"] {
         let paths = durable_harness_paths(repository);
         let new = Observed {
             status: 0,

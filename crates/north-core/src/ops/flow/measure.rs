@@ -22,7 +22,7 @@ pub type Row = Map<String, Value>;
 
 const CACHE_SECONDS: f64 = 300.0;
 const DAY: f64 = 86_400.0;
-const WISP_REPO: &str = "smashcraft";
+const WISP_REPO: &str = "makgora";
 const THROUGHPUT: [&str; 6] = ["closed_per_hour", "needed_per_hour", "land_to_close_minutes", "land_ratio_3h", "failed_unowned", "oldest_lane_wait_minutes"];
 
 static GITHUB: LazyLock<Regex> =
@@ -80,7 +80,7 @@ pub fn project_targets(path: &Path) -> BTreeMap<String, f64> {
         .filter_map(|(name, project)| {
             let target = project.get("target")?;
             let text = target.as_datetime().map_or_else(|| target.as_str().map(str::to_owned), |at| Some(at.to_string()))?;
-            Some((name.to_owned(), seconds(&text)?))
+            Some((crate::threads::catalog::CATALOG.canonical(name).to_owned(), seconds(&text)?))
         })
         .collect()
 }

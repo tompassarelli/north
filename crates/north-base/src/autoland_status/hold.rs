@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn the_repository_comes_from_the_remote_the_push_names() {
-        assert_eq!(repository_slug("git@github.com:tompassarelli/smashcraft.git").as_deref(), Some("tompassarelli/smashcraft"));
+        assert_eq!(repository_slug("git@github.com:tompassarelli/makgora.git").as_deref(), Some("tompassarelli/makgora"));
         assert_eq!(repository_slug("https://github.com/tompassarelli/wisp").as_deref(), Some("tompassarelli/wisp"));
     }
 }

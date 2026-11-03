@@ -907,7 +907,7 @@ fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
 consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [tom_class_owners]
-value = ["smashcraft:tom-build-window", "smashcraft:play-helper", "tom-preview"]
+value = ["makgora:tom-build-window", "makgora:play-helper", "smashcraft:tom-build-window", "smashcraft:play-helper", "tom-preview"]
 unit = "machine-capacity owners admitted to --class tom: the Tom-build watcher's window build, wisp play's controller helper build and the proxy's tom-window and preview build"
 source = "tom: the tom class admits in seconds past pressure and the queue, so it serves only the build Tom is waiting to play; on the 20-thread build host 62 runs from 22:50 to 00:10 UTC on 2026-11-01 used it for other work while heavy leases waited 3740 to 4975 s, none of them that build (south's record of the 2026-11-01 CPU drain, north#460)"
 fallback = "every other owner is refused and told to use heavy, gpu or native --latency, with --priority tom-ask when Tom is waiting on the work"
