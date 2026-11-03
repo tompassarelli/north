@@ -290,7 +290,7 @@ fn a_lane_that_names_a_land_workflow_sends_its_checks_to_github_actions_while_ga
 
     assert!(text(&output).contains("running 1 land check(s) on GitHub Actions (land-check.yml)"), "{}", text(&output));
     assert!(!text(&output).contains("offloading to"), "{}", text(&output));
-    assert_eq!(landing.capacity(), ["held"], "the landing is admitted as the ordinary class, which game reserve does not defer");
+    assert_eq!(landing.capacity(), Vec::<String>::new(), "a landing whose checks all run on GitHub Actions takes no laptop lease, so game reserve has nothing to defer");
     assert!(landing.checks().is_empty(), "no check ran on this host or the offload host");
     assert_ne!(landing.landed(), head, "the fixture has no Actions, so nothing landed");
 }
