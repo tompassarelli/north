@@ -201,7 +201,7 @@ unit = "share of the CPU limit a lower-priority project's spawns leave free"
 source = "prior: proxy decision 2026-10-12, thin data"
 settles_when = { need = 50, count = "count_capacity_denials", what = "spawn-gate-denials.jsonl capacity-gate denials with an at timestamp, joinable to CPU pressure samples" }
 fallback = "a project with no priority rank uses the whole limit"
-consumers = ["harness/hooks/lib/spawn_capacity.py"]
+consumers = ["crates/north-core/src/guard/spawn_capacity.rs"]
 
 [capacity_sizing_runs]
 value = 20

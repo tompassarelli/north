@@ -18,10 +18,14 @@ pub(super) fn python_file<S: AsRef<OsStr>>(
     arguments: impl IntoIterator<Item = S>,
 ) -> u8 {
     let path = harness.join("harness/lib").join(script);
-    exit_code(
-        Command::new("python3").arg("-I").arg(&path).args(arguments),
-        script,
-    )
+    let mut command = Command::new("python3");
+    command.arg("-I").arg(&path).args(arguments);
+    if std::env::var_os("NORTH_BIN").is_none()
+        && let Ok(north) = std::env::current_exe()
+    {
+        command.env("NORTH_BIN", north);
+    }
+    exit_code(&mut command, script)
 }
 
 pub fn run(harness: &Path, script: &str, arguments: &[String]) -> u8 {

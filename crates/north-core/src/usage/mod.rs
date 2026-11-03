@@ -104,6 +104,12 @@ fn clock() -> Timestamp {
     std::env::var("USAGE_NOW").ok().and_then(|text| Timestamp::parse_rfc3339(&text)).unwrap_or_else(Timestamp::now)
 }
 
+pub fn billed_account(provider: &str) -> Option<String> {
+    let document = std::fs::read_to_string(crate::pace::target::policy_path()).ok().and_then(|text| text.parse::<toml_edit::DocumentMut>().ok());
+    let cfg = document.map_or(serde_json::Value::Null, |document| crate::router::policy::json_value(document.as_item()));
+    gate::local_account(provider, &cfg)
+}
+
 pub fn write_pace_gate(db: &Connection) -> Result<serde_json::Value, String> {
     gate::write(db, &PACED, &Places::from_env(), Timestamp::now())
 }

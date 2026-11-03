@@ -106,13 +106,8 @@ with tempfile.TemporaryDirectory(prefix='behavior-boundary-') as temporary:
     (gate_hooks / 'lib').mkdir(parents=True)
     shutil.copy2(hook, gate_hooks / 'codex-behavior-guard.sh')
     for name in ('codex_behavior.py', 'shellcmd.py'):
-        shutil.copy2(Path(hook).parent / 'lib' / name, gate_hooks / 'lib' / name)
+        (gate_hooks / 'lib' / name).symlink_to(Path(hook).resolve().parent / 'lib' / name)
     (gate_hooks / 'lib/authoring-killswitch.sh').symlink_to(Path(hook).parent.parent / 'lib/authoring-killswitch.sh')
-    (gate_hooks / 'lib/spawn_capacity.py').write_text(
-        'import sys\n'
-        'def evaluate(event):\n    return None, None\n'
-        f'def north_lib():\n    sys.path.insert(0, {str(Path(hook).resolve().parents[2] / "harness/lib")!r})\n'
-    )
     gate_hook = str(gate_hooks / 'codex-behavior-guard.sh')
     env['XDG_STATE_HOME'] = str(root / 'gate-xdg')
     (root / 'gate-xdg/agents').mkdir(parents=True)

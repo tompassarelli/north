@@ -64,7 +64,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots"]
 name = "guard"
 paths = ["crates/north-core/src/guard/**", "crates/north-core/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "fleet", "autoland_status", "shell", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "shell", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "threads"
@@ -203,6 +203,10 @@ path = "crates/north-core/src/guard/worker_wait.rs"
 [[registered]]
 id = "guard.worker_tier"
 path = "crates/north-core/src/guard/worker_tier.rs"
+
+[[registered]]
+id = "guard.spawn_capacity"
+path = "crates/north-core/src/guard/spawn_capacity.rs"
 
 [[registered]]
 id = "guard.native_launch"

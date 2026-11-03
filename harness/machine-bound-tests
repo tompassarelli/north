@@ -6,7 +6,6 @@ bin/run-bounded.test.sh
 harness/hooks/launch-critical-worktree-guard.test.sh
 harness/hooks/launch-critical-worktree-guard.test.py
 harness/hooks/lead-regrounding.test.sh
-harness/hooks/spawn-capacity-guard.test.sh
 harness/lib/routing.test.sh
 harness/skills/todo/scripts/cross-supervisor-mailbox.test.sh
 harness/skills/machine-capacity/scripts/machine-capacity.test.sh

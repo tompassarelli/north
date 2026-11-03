@@ -77,7 +77,7 @@ fn claude_tier(tier: &str) -> bool {
         .iter()
         .any(|prefix| tier.starts_with(prefix))
 }
-fn gate(root: &Path, b: &Value, repo: &Path) -> Result<Option<String>, String> {
+fn gate(b: &Value, repo: &Path) -> Result<Option<String>, String> {
     let tier = field(b, "tier");
     let tool = if claude_tier(tier) {
         json!({"tool_name":"Agent","tool_input":{"subagent_type":tier,"description":b["item"],"prompt":b["brief"],"run_in_background":true}})
@@ -87,8 +87,8 @@ fn gate(root: &Path, b: &Value, repo: &Path) -> Result<Option<String>, String> {
     let mut event = tool;
     event["hook_event_name"] = json!("PreToolUse");
     event["cwd"] = json!(repo);
-    let mut child = Command::new("python3")
-        .arg(root.join("harness/hooks/lib/spawn_capacity.py"))
+    let mut child = Command::new("north")
+        .args(["hook", "spawn-capacity"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -287,7 +287,7 @@ fn execute(only: Option<PathBuf>) -> Result<u8, String> {
             .transpose()
             .map_err(|e| e.to_string())?
             .unwrap_or_else(|| Timestamp::now().unix_seconds_f64());
-        if let Some(denied) = gate(&root, b, &repo)?.filter(|s| !s.is_empty()) {
+        if let Some(denied) = gate(b, &repo)?.filter(|s| !s.is_empty()) {
             alert(
                 &root,
                 b,

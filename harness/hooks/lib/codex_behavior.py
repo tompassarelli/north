@@ -16,8 +16,8 @@ JSON object or nothing, and a malformed event allows.
   close, and a new issue while the session has opened more than it closed.
   Edits to existing issues pass. One timing check may confirm once under an
   exclusive capacity lease.
-- PreToolUse(spawn_agent) refuses a local worker once capacity leases hold
-  the CPU limit (lib/spawn_capacity.py) and a measure-only brief, and PreToolUse of a
+- PreToolUse(spawn_agent) refuses a measure-only brief (`north hook` holds the
+  CPU and usage spawn gate, guard/spawn_capacity.rs), and PreToolUse of a
   patch or shell write refuses a new manifest, provenance, attestation,
   inventory or checksum file in a prototype repo unless a prompt asked.
 - PostToolUse(Bash) says to close an issue whose boxes are all ticked.
@@ -886,11 +886,8 @@ def codex_box_denial(event):
     if not isinstance(message, str):
         return None
     try:
-        spawn_capacity_dir = str(Path(__file__).resolve().parent)
-        if spawn_capacity_dir not in sys.path:
-            sys.path.insert(0, spawn_capacity_dir)
-        import spawn_capacity
-        spawn_capacity.north_lib()
+        agents = Path(shutil.which("agents") or Path.home() / ".local/share/north/bin/agents").resolve()
+        sys.path.insert(0, str(next(p for p in (Path(__file__).resolve().parents[2] / "lib", agents.parent.parent / "harness/lib") if (p / "routing.py").is_file())))
         import routing
         failed = routing.ask("codex_box", brief=message)
     except Exception:
@@ -912,18 +909,7 @@ def pre_spawn(event):
             "number. To retry, add one line to the brief: \"End with a fix you land, or a "
             "PEER line.\""
         )
-    decision = codex_box_denial(event)
-    if decision:
-        return decision
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import spawn_capacity
-        reason, warning = spawn_capacity.evaluate(event)
-    except Exception:
-        reason, warning = None, None
-    if reason:
-        return deny(reason)
-    return context("PreToolUse", warning) if warning else None
+    return codex_box_denial(event)
 
 
 SCAFFOLD_WORDS = (
@@ -1114,12 +1100,6 @@ def unlanded(cwd):
 
 
 def post_spawn(event):
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import spawn_capacity
-        spawn_capacity.confirm_spawn(event)
-    except Exception:
-        pass
     with State(agent_key(event)) as state:
         state["spawned"] = state.get("spawned", 0) + 1
     return None

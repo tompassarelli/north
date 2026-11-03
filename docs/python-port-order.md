@@ -87,7 +87,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 
 These import the cycle's modules directly and change in the same commit as the module they import:
 `bin/agents`, `bin/threads`,
-`harness/hooks/lib/codex_behavior.py`, `harness/hooks/lib/spawn_capacity.py`,
+`harness/hooks/lib/codex_behavior.py`,
 `harness/scripts/codex-route-propose.py`, `harness/scripts/harness-tuner.py`,
 and `harness/scripts/policy-replay.py`.
 

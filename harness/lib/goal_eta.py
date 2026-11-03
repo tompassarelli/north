@@ -157,21 +157,12 @@ def line(result, target):
 
 
 def gate_width(project, concurrency):
-    """(width, note): the measured concurrency while the spawn gate admits this project's spawns (CPU and pressure
-    below the capacity gate's limits and at least one account without a usage refusal), else 1 (queued behind a lease)."""
-    hooks = LIB.parent / "hooks/lib"
-    if str(hooks) not in sys.path:
-        sys.path.insert(0, str(hooks))
-    import spawn_capacity
-    reading = spawn_capacity.capacity()
-    cpu = reading is None or (reading[0] < reading[1] and reading[2] <= spawn_capacity.PROTECTED_PRESSURE_LIMIT)
-    accounts = []
-    verdict = spawn_capacity.usage_verdict({"tool_name": "Agent"})
-    for account in verdict.get("paces") or {}:
-        accounts.append((account, verdict.get("refusal") is None))
-    open_accounts = [a for a, ok in accounts if ok]
-    width = max(1, concurrency) if cpu and (open_accounts or not accounts) else 1
-    return width, f"gate: cpu {'open' if cpu else 'full'}, accounts open {','.join(open_accounts) or 'none'}"
+    """(width, note): the measured concurrency while the spawn gate (`north hook spawn-gate`) admits this project's spawns (CPU and
+    pressure below the capacity gate's limits and at least one account without a usage refusal), else 1 (queued behind a lease)."""
+    shown = json.loads(subprocess.run([os.environ.get("NORTH_BIN") or "north", "hook", "spawn-gate"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, check=True).stdout)
+    open_accounts = [account for account, ok in shown["accounts"] if ok]
+    width = max(1, concurrency) if shown["cpu"] and (open_accounts or not shown["accounts"]) else 1
+    return width, f"gate: cpu {'open' if shown['cpu'] else 'full'}, accounts open {','.join(open_accounts) or 'none'}"
 
 
 def landing_minutes(project):

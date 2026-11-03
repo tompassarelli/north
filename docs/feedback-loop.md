@@ -50,8 +50,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-core/src/ops/job_watch/mod.rs | read | |
 | model_events | crates/north-core/src/ops/model_watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-core/src/capacity/host/database.rs record_usage | crates/north-core/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
-| usage-gate.json | crates/north-core/src/usage/gate.rs | harness/hooks/lib/spawn_capacity.py:280 | read | |
-| spawn-gate-denials.jsonl | harness/hooks/lib/spawn_capacity.py | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
+| usage-gate.json | crates/north-core/src/usage/gate.rs | crates/north-core/src/guard/spawn_capacity/usage.rs | read | |
+| spawn-gate-denials.jsonl | crates/north-core/src/guard/spawn_capacity/logs.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
 | goal-scores.jsonl | harness/lib/project_score.py | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |

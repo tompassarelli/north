@@ -38,6 +38,9 @@ pub mod lead_timer;
 #[cfg(test)]
 mod lead_timer_tests;
 pub mod worker_tier;
+pub mod spawn_capacity;
+#[cfg(test)]
+mod spawn_capacity_tests;
 mod spawn_state;
 #[cfg(test)]
 mod worker_tier_tests;
