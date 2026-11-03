@@ -1,6 +1,6 @@
 use super::bounded;
 use super::failure::{DEFERRED, Failure, code, failed};
-use super::layout::{self, Layout, PROGRAMS, TREE};
+use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::peers;
 use super::pull;
 use super::remote;
@@ -45,6 +45,9 @@ pub(super) fn update(layout: &Layout) -> Result<(), Failure> {
 }
 
 pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
+    if !land_offload::accepts_peer_runtimes_here() {
+        return Err(failed(1, format!("this host builds its own runtime and does not promote {} shipped from another host", layout::short(target))));
+    }
     let _lock = lock_waiting(layout, remote::limit(PINNED_LOCK_WAIT), "north runtime update --sha")?;
     let checkout = checkout();
     fetch(&checkout)?;
@@ -53,7 +56,7 @@ pub(super) fn update_to(layout: &Layout, target: &str) -> Result<(), Failure> {
         println!("north runtime current: {}", layout::short(target));
         return Ok(());
     }
-    if !layout::has_programs(&layout.runtime(target)) {
+    if !usable(&layout.runtime(target)) {
         return Err(failed(1, format!("{} was not shipped to this host; runtime unchanged", layout::short(target))));
     }
     advance(layout, &checkout, target, previous.as_deref()).map(|_| ())
@@ -119,7 +122,7 @@ fn catch_up(layout: &Layout, checkout: &Path, main: &str, previous: Option<&Path
         return Ok(None);
     };
     let runtime = layout.runtime(&newest.sha);
-    if !layout::has_programs(&runtime) && !pull::pull_from(&newest.host, &newest.sha, &runtime) {
+    if !usable(&runtime) && !pull::pull_from(&newest.host, &newest.sha, &runtime) {
         return Ok(None);
     }
     println!("north runtime: {} is not built anywhere yet; catching up to {}, promoted on {}", layout::short(main), layout::short(&newest.sha), newest.host);
@@ -156,7 +159,7 @@ pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<
 
 pub(super) fn built_main(layout: &Layout, checkout: &Path) -> Result<(String, PathBuf), Failure> {
     let target = main_commit(checkout)?;
-    if !layout::has_programs(&layout.runtime(&target)) {
+    if !usable(&layout.runtime(&target)) {
         println!("north runtime deploy: building {} (up to 25 min under a heavy capacity lease)", layout::short(&target));
     }
     let runtime = built(layout, checkout, &target)?;
@@ -170,10 +173,14 @@ pub(super) fn main_commit(checkout: &Path) -> Result<String, Failure> {
 
 fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Failure> {
     let runtime = layout.runtime(target);
-    if !layout::has_programs(&runtime) {
+    if !usable(&runtime) {
         build(layout, checkout, target, &runtime)?;
     }
     Ok(runtime)
+}
+
+fn usable(runtime: &Path) -> bool {
+    layout::usable(runtime, land_offload::settles_fleet_here())
 }
 
 pub(super) fn checkout() -> PathBuf {
@@ -221,11 +228,15 @@ impl Drop for Lane<'_> {
 enum Placement {
     Elsewhere(gate::Machine),
     Here { refused: Option<String> },
+    Held,
 }
 
-fn placement(reserved: bool, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
+fn placement(reserved: bool, builds_only_here: bool, other_host: impl FnOnce() -> Result<gate::Machine, String>) -> Placement {
     if !reserved {
         return Placement::Here { refused: None };
+    }
+    if builds_only_here {
+        return Placement::Held;
     }
     match other_host() {
         Ok(machine) => Placement::Elsewhere(machine),
@@ -237,8 +248,13 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     if pull::pull(target, runtime) {
         return Ok(());
     }
-    match placement(land_offload::in_game_reserve(), land_offload::host_with_room) {
+    let other_host = || match land_offload::accepts_peer_runtimes_here() {
+        true => land_offload::host_with_room(),
+        false => Err("it never takes a runtime built on another host".to_owned()),
+    };
+    match placement(land_offload::in_game_reserve(), land_offload::settles_fleet_here(), other_host) {
         Placement::Elsewhere(machine) => return remote::build(&machine, target, runtime),
+        Placement::Held => return Err(failed(DEFERRED, format!("this host builds its own runtime and is in game-reserve; {} waits for the reserve to end and the live runtime stays", layout::short(target)))),
         Placement::Here { refused: Some(why) } => println!("north runtime: this host is in game-reserve and {why}; building {} here under the runtime class admission", layout::short(target)),
         Placement::Here { refused: None } => {}
     }
@@ -274,6 +290,7 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     for program in PROGRAMS {
         install(&release.join(program), &runtime.join(program))?;
     }
+    fs::write(runtime.join(BUILT_HERE), layout::short(target))?;
     fs::write(layout.build_seconds(), started.elapsed().as_secs().to_string())?;
     Ok(())
 }
@@ -451,15 +468,24 @@ mod tests {
     #[test]
     fn a_game_reserve_host_with_no_other_host_with_room_builds_here_under_local_admission() {
         let refused = "no other host has room: gex45: CPU pressure 63% at the 40% admission mark".to_owned();
-        match placement(true, || Err(refused.clone())) {
+        match placement(true, false, || Err(refused.clone())) {
             Placement::Here { refused: Some(why) } => assert_eq!(why, refused),
             _ => panic!("a reserved host with no room elsewhere must build locally, not defer"),
         }
     }
 
     #[test]
+    fn a_game_reserve_host_that_builds_only_its_own_runtime_holds_the_build_without_asking_another_host() {
+        match placement(true, true, || panic!("no other host is asked")) {
+            Placement::Held => {}
+            _ => panic!("a reserved settler must hold its build until reserve ends"),
+        }
+        assert!(matches!(placement(false, true, || panic!("not asked")), Placement::Here { refused: None }));
+    }
+
+    #[test]
     fn a_game_reserve_host_builds_on_another_host_that_has_room() {
-        match placement(true, || Ok(machine("gex45"))) {
+        match placement(true, false, || Ok(machine("gex45"))) {
             Placement::Elsewhere(chosen) => assert_eq!(chosen.name, "gex45"),
             _ => panic!("a reserved host with room elsewhere must build there"),
         }

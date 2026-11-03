@@ -19,6 +19,18 @@ pub(super) fn pull(target: &str, runtime: &Path) -> bool {
 }
 
 pub(super) fn pull_from(host: &str, target: &str, runtime: &Path) -> bool {
+    admitted(land_offload::accepts_peer_runtimes_here(), host, || fetch_reported(host, target, runtime))
+}
+
+fn admitted(accepts: bool, host: &str, fetch: impl FnOnce() -> bool) -> bool {
+    if !accepts {
+        eprintln!("north runtime: this host builds its own runtime and takes none built on {host}");
+        return false;
+    }
+    fetch()
+}
+
+fn fetch_reported(host: &str, target: &str, runtime: &Path) -> bool {
     let short = layout::short(target);
     match fetch(host, target, runtime) {
         Ok(()) => {

@@ -4,6 +4,8 @@ use std::path::Path;
 
 #[path = "runtime_update/harness.rs"]
 mod harness;
+#[path = "runtime_update/laptop.rs"]
+mod laptop;
 #[path = "runtime_update/prune.rs"]
 mod prune;
 #[path = "runtime_update/reserve.rs"]
@@ -366,7 +368,7 @@ fn settings(home: &Path, hooks: &[&Path]) {
 #[test]
 fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue_and_tells_its_session_and_the_proxy_once() {
     let host = Host::landed("Break the runtime-follow livelock (north#308)", Some("2026-10-29T12:00:00Z"));
-    host.built(&host.target);
+    host.built_here(&host.target);
     host.built(PREVIOUS);
     host.select(PREVIOUS);
     let far = host.path("far");
@@ -432,11 +434,13 @@ fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue
 fn a_pinned_update_promotes_exactly_the_shipped_commit_and_refuses_one_that_was_not_shipped() {
     let host = skewed();
     let unshipped = "3333333333333333333333333333333333333333";
-    let refused = host.north(&["runtime", "update", "--sha", unshipped], 0, 0);
+    let orchestration = fleet(&host, "[hosts.plain]\nresident_cap = 1\n");
+    let environment = [("AGENTS_ORCHESTRATION", orchestration.to_str().unwrap()), ("RESIDENT_CAP_HOST", "plain")];
+    let refused = host.north_with(&["runtime", "update", "--sha", unshipped], &environment);
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("33333333 was not shipped to this host"), "{}", String::from_utf8_lossy(&refused.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
-    let promoted = host.north(&["runtime", "update", "--sha", &host.target], 0, 0);
+    let promoted = host.north_with(&["runtime", "update", "--sha", &host.target], &environment);
     assert!(promoted.status.success(), "{}", String::from_utf8_lossy(&promoted.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
 }

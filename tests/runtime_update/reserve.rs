@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Output;
 
-const ROOM_PROBE: &str = "20\n1.50 1.00 1.00 2/900 1\nMemTotal:       65536000 kB\nMemAvailable:   40000000 kB\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/md1 490000000 400000000 50000000 90% /\n@ADMISSION@\n{\"profile\":\"unattended\",\"aggregateCpuLimit\":20,\"committedBatchCpus\":2,\"cpuSomeAvg10\":5}\n";
+pub const ROOM_PROBE: &str = "20\n1.50 1.00 1.00 2/900 1\nMemTotal:       65536000 kB\nMemAvailable:   40000000 kB\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/md1 490000000 400000000 50000000 90% /\n@ADMISSION@\n{\"profile\":\"unattended\",\"aggregateCpuLimit\":20,\"committedBatchCpus\":2,\"cpuSomeAvg10\":5}\n";
 
 pub fn reserved_puller(host: &Host, peer_built: &Path) -> Vec<(&'static str, String)> {
     host.built(PREVIOUS);

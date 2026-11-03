@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const PROGRAMS: [&str; 2] = ["north", "verify-north"];
+pub const BUILT_HERE: &str = "built-here";
 pub use crate::platform::harness::{TREE, is_sha};
 const KEPT_OLDER: usize = 3;
 
@@ -62,6 +63,10 @@ pub fn has_programs(runtime: &Path) -> bool {
     PROGRAMS.iter().all(|program| runtime.join(program).is_file())
 }
 
+pub fn usable(runtime: &Path, own_build_only: bool) -> bool {
+    has_programs(runtime) && (!own_build_only || runtime.join(BUILT_HERE).is_file())
+}
+
 pub fn running(proc_root: &Path, runtimes: &Path) -> Vec<String> {
     let runtimes = fs::canonicalize(runtimes).unwrap_or_else(|_| runtimes.to_path_buf());
     let mut names = fs::read_dir(proc_root)
@@ -83,4 +88,21 @@ pub fn doomed<'a>(newest_first: &'a [String], keep: &[&str]) -> Vec<&'a str> {
         .filter(|name| is_sha(name) && !keep.contains(name))
         .skip(KEPT_OLDER)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_host_that_builds_only_its_own_runtime_ignores_programs_without_the_build_marker() {
+        let runtime = tempfile::tempdir().unwrap();
+        for program in PROGRAMS {
+            fs::write(runtime.path().join(program), "").unwrap();
+        }
+        assert!(usable(runtime.path(), false));
+        assert!(!usable(runtime.path(), true));
+        fs::write(runtime.path().join(BUILT_HERE), "").unwrap();
+        assert!(usable(runtime.path(), true));
+    }
 }
