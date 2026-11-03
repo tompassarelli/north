@@ -320,9 +320,7 @@ pub(super) fn wait(
 }
 
 fn credentials() -> Result<Curl, String> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or("HOME is not set")?;
+    let login = crate::ops::dispatch::cloud_login()?;
     let read = |path: PathBuf, pointer: &str| {
         let text = std::fs::read_to_string(&path)
             .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -337,10 +335,10 @@ fn credentials() -> Result<Curl, String> {
     Ok(Curl {
         base: BASE.to_owned(),
         token: read(
-            home.join(".claude/.credentials.json"),
+            login.credentials,
             "/claudeAiOauth/accessToken",
         )?,
-        org: read(home.join(".claude.json"), "/oauthAccount/organizationUuid")?,
+        org: read(login.home.join(".claude.json"), "/oauthAccount/organizationUuid")?,
     })
 }
 

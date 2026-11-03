@@ -1,5 +1,5 @@
-//! Claude-only launch placement for `north fleet launch`: the cloud credit first for code-only public
-//! work, then the Claude account the shared rank puts first (`room::Rank`), run on the first machine in `[placement] order`
+//! Claude-only launch placement for `north fleet launch`: Anthropic cloud on the Claude account with the most headroom for code-only public
+//! work, else the Claude account the shared rank puts first (`room::Rank`), run on the first machine in `[placement] order`
 //! that serves every local need of the box and is below its resident cap, else here. Pace lines, weekly
 //! projections and the controller's held or over never hold a launch; an account is out only by the
 //! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
@@ -38,8 +38,15 @@ pub struct Verdict {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct CloudLane {
+    pub account: String,
+    pub host: String,
+    pub credit: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Target {
-    Cloud(String),
+    Cloud(CloudLane),
     Account(String),
     Held(String),
     Unserved(String),
@@ -76,6 +83,12 @@ pub struct Decision {
 }
 
 impl Decision {
+    fn cloud_lane(&self, credit: String) -> Option<CloudLane> {
+        let best = self.best_account()?;
+        let host = best.owners.first().cloned().unwrap_or_else(|| self.here.clone());
+        Some(CloudLane { account: best.account.clone(), host, credit })
+    }
+
     pub fn best_account(&self) -> Option<&Verdict> {
         self.best_where(|_| true)
     }
@@ -420,8 +433,8 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         saturated: None,
         here_saturated: None,
     };
-    decision.target = if code_only && credit.0 {
-        Target::Cloud(credit.1)
+    decision.target = if let Some(lane) = code_only.then(|| decision.cloud_lane(credit.1)).flatten() {
+        Target::Cloud(lane)
     } else if let Some(best) = decision.best_account().map(|best| best.account.clone()) {
         Target::Account(best)
     } else if decision.verdicts.is_empty() {
@@ -439,11 +452,11 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
     decision
 }
 
-/// `target anthropic-cloud (credit; surface)`, `target HOST claude:c (surface)`, `target held: why` or
+/// `target anthropic-cloud claude:d on HOST (credit; surface)`, `target HOST claude:c (surface)`, `target held: why` or
 /// `target unserved: why`.
 pub fn summary(decision: &Decision) -> String {
     match (&decision.target, &decision.machine) {
-        (Target::Cloud(credit), _) => format!("target anthropic-cloud ({credit}; {})", decision.surface),
+        (Target::Cloud(lane), _) => format!("target anthropic-cloud {} on {} ({}; {})", lane.account, lane.host, lane.credit, decision.surface),
         (Target::Account(account), Some(machine)) => format!("target {} {account} ({})", machine.name, decision.surface),
         (Target::Account(account), None) => format!("target {} {account} ({})", decision.here, decision.surface),
         (Target::Held(why), _) => format!("target held: {why}"),

@@ -1,5 +1,5 @@
 use super::*;
-use crate::ops::pacing::placement::gate::{self as placement, Verdict};
+use crate::ops::pacing::placement::gate::{self as placement, CloudLane, Verdict};
 use crate::ops::pacing::placement::room::{PlanSize, Rank, Room};
 
 fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
@@ -8,6 +8,10 @@ fn verdict(account: &str, headroom: Option<f64>) -> Verdict {
         None => format!("{account} unavailable: burning: 5h 86.0%/h > the 50%/h cap that keeps the window two hours"),
     };
     Verdict { account: account.into(), available: headroom.is_some(), exhausted: headroom.is_none(), headroom: headroom.unwrap_or(0.0), rank: Rank::of(Room { five_hour: headroom.unwrap_or(0.0), week: headroom.unwrap_or(0.0), week_reset_h: 100.0 }, PlanSize { five_hour: 1.0, week: 1.0 }, false), line, owners: Vec::new() }
+}
+
+fn cloud(account: &str, host: &str) -> Target {
+    Target::Cloud(CloudLane { account: format!("claude:{account}"), host: host.into(), credit: "cloud credit: spent (read 2026-10-26), expires in 1 days".into() })
 }
 
 fn decision(target: Target) -> Decision {
@@ -31,7 +35,7 @@ fn noted(note: Option<&str>) -> Result<Placed, Refusal> {
 
 #[test]
 fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
-    let mut cloud = decision(Target::Cloud("cloud credit: unread".into()));
+    let mut cloud = decision(cloud("a", "here"));
     let mut local = decision(Target::Account("claude:a".into()));
     for decision in [&mut cloud, &mut local] {
         decision.verdicts.push(verdict("claude:b", Some(30.0)));
@@ -83,7 +87,7 @@ fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_
     let mut roomier = here.clone();
     roomier.verdicts.push(verdict("claude:b", Some(90.0)));
     assert!(admit(&roomier, &launch("c"), "", &Overrides::default()).unwrap_err().to_string().contains("placement picks claude:a"));
-    let mut cloud = decision(Target::Cloud("cloud credit: unread".into()));
+    let mut cloud = decision(cloud("a", "here"));
     cloud.verdicts = vec![Verdict { owners: vec!["nexus".into()], ..verdict("claude:a", Some(90.0)) }, verdict("claude:b", Some(40.0))];
     let kept = admit(&cloud, &launch("b"), "", &Overrides { local: Some("reads a local lane".into()), pin: None, ..Overrides::default() }).unwrap();
     assert_eq!(kept.note.as_deref(), Some("local: reads a local lane"), "a box kept here needs no pin beside an account that runs only elsewhere");
@@ -187,4 +191,20 @@ fn a_named_account_within_the_tie_band_of_the_best_is_admitted_without_a_pin_and
     }
     let refused = admit(&tied("claude:c"), &launch("b"), "", &Overrides::default()).unwrap_err().to_string();
     assert!(refused.contains("placement picks claude:c") && refused.contains("--pin"), "{refused}");
+}
+
+#[test]
+fn a_cloud_target_prints_the_launch_command_for_its_account_on_the_host_that_holds_the_login() {
+    let launch = Launch { name: "box", account: "d", brief: Some(Path::new("/tmp/box.md")), cwd: None, machine: None };
+    let text = "Item: north#12 tidy\nSurface: rust\n";
+    let local = admit(&decision(cloud("d", "here")), &launch, text, &Overrides::default()).unwrap_err().to_string();
+    assert!(local.contains("anthropic-cloud under claude:d") && local.contains("cloud credit: spent") && local.contains("no separate charge"), "{local}");
+    assert!(local.contains("cp /tmp/box.md /tmp/cloud/box.md") && !local.contains("ssh"), "{local}");
+    assert!(local.contains("CLAUDE_CONFIG_DIR=$HOME/.local/state/north/profiles/claude-d north cloud launch north box /tmp/cloud/box.md"), "{local}");
+
+    let far = admit(&decision(cloud("d", "laptop")), &launch, text, &Overrides::default()).unwrap_err().to_string();
+    assert!(far.contains("Run it on laptop, where claude:d is signed in"), "{far}");
+    assert!(far.contains("ssh laptop 'mkdir -p /tmp/cloud && cat > /tmp/cloud/box.md' < /tmp/box.md"), "{far}");
+    assert!(far.contains("ssh laptop 'CLAUDE_CONFIG_DIR=$HOME/.local/state/north/profiles/claude-d north cloud launch north box /tmp/cloud/box.md'"), "{far}");
+    assert!(!far.contains("Nexus instead"), "{far}");
 }

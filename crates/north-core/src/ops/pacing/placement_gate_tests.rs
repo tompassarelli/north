@@ -91,7 +91,7 @@ fn a_plan_only_account_at_week_97_with_five_workers_and_no_calibration_is_placed
 }
 
 #[test]
-fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_a_burn_above_the_cap() {
+fn launch_placement_sends_code_only_work_to_cloud_and_skips_a_burn_above_the_cap() {
     let cfg = "[placement]\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
     let credit = || (true, "cloud credit: unread, expires in 19 days".to_owned());
     let spent = || (false, "cloud credit: spent (read 2026-10-16), expires in 19 days".to_owned());
@@ -106,7 +106,7 @@ fn launch_placement_spends_the_credit_then_the_account_with_headroom_and_skips_a
     let pace_only = gate(&[("claude:c", control((80.0, 9.0, "2026-10-16T14:30:00Z"), (98.0, 0.5)))]);
     let cases = [
         ("code-only public box with credit", CODE_ONLY, &full_a, credit(), "anthropic-cloud"),
-        ("code-only box once the credit is spent", CODE_ONLY, &full_a, spent(), "claude:c"),
+        ("code-only box once the credit is spent", CODE_ONLY, &full_a, spent(), "anthropic-cloud"),
         ("Warcraft box stays local", WARCRAFT, &full_a, credit(), "claude:c"),
         ("private repository stays local", PRIVATE, &burning_c, credit(), "claude:a"),
         ("undeclared surface stays local", UNDECLARED, &burning_c, credit(), "claude:a"),
@@ -325,7 +325,7 @@ fn a_box_without_a_surface_leaves_a_host_in_game_reserve_for_one_serving_its_rep
 
 #[test]
 fn a_box_never_goes_to_a_host_that_cannot_push_its_repository() {
-    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\npushes = [\"north\", \"wisp\"]\n[hosts.laptop]\nresident_cap = 8\n".parse().unwrap();
+    let cfg: DocumentMut = "[placement]\norder = [\"gex45\"]\nprivate_repos = [\"north\"]\n[hosts.gex45]\nresident_cap = 24\nssh = \"tom@gex45\"\npushes = [\"north\", \"wisp\"]\n[hosts.laptop]\nresident_cap = 8\n".parse().unwrap();
     let quota = gate(&[("claude:c", control((6.0, 1.0, "2026-10-16T16:00:00Z"), (13.0, 1.0)))]);
     let mut machines = gate::machines(&cfg);
     machines[0].live = Some(0);
@@ -383,7 +383,7 @@ fn placement_picks_the_week_that_expires_soonest_then_a_live_spend_target_ahead_
     let at = crate::pace::target::seconds("2026-10-19T00:00:00Z").unwrap();
     let picked = |pace: Value| {
         let verdicts = gate::verdicts(&quota, &listed, &Basis::new(&DocumentMut::new(), pace, at));
-        target(&gate::decide(CODE_ONLY, &cfg, verdicts, (false, String::new()), &[], "here", false))
+        target(&gate::decide(WARCRAFT, &cfg, verdicts, (false, String::new()), &[], "here", false))
     };
     assert_eq!(picked(json!({})), "claude:a", "a holds less headroom than b but its week expires sooner");
     let spending = json!({"accounts": {"claude:b": {"target": {"by": "2026-10-19T12:00:00Z"}}}});
@@ -430,4 +430,71 @@ fn spool_pulls_names_the_marked_hosts_with_an_ssh_destination_other_than_this_on
 
     assert_eq!(gate::spool_pulls(&cfg, "whiterabbit"), [("gex45".to_owned(), "tom@gex45".to_owned())]);
     assert!(gate::spool_pulls(&cfg, "gex45").iter().all(|(name, _)| name != "gex45"));
+}
+
+fn lane(decision: &Decision) -> (String, String) {
+    match &decision.target {
+        Target::Cloud(lane) => (lane.account.clone(), lane.host.clone()),
+        other => panic!("not cloud: {other:?}"),
+    }
+}
+
+fn four_accounts(foreign: &[(&str, &str)]) -> Roster {
+    let account = |label: &str| Account { provider: ProviderName::new("claude"), label: label.into(), home: format!("/profiles/claude-{label}").into(), token_file: None };
+    let declared = Declared { elsewhere: foreign.iter().map(|(label, host)| ((*label).to_owned(), vec![(*host).to_owned()])).collect(), ..Declared::default() };
+    Roster::distinct(["a", "b", "c", "d"].map(|label| (account(label), None)), &declared)
+}
+
+fn weekly(week: f64) -> Value {
+    control((10.0, 1.0, "2026-10-16T16:00:00Z"), (week, 1.0))
+}
+
+#[test]
+fn a_code_only_public_box_goes_to_cloud_on_the_account_with_the_most_headroom_and_names_its_launch_host() {
+    let cfg: DocumentMut = "[placement]\nprivate_repos = [\"south\"]\n[hosts.here]\nserves = [\"warcraft\"]\n".parse().unwrap();
+    let quota = gate(&[("claude:a", weekly(100.0)), ("claude:b", weekly(100.0)), ("claude:c", weekly(100.0)), ("claude:d", weekly(25.0))]);
+    let spent = || (false, "cloud credit: spent (read 2026-10-26), expires in 1 days".to_owned());
+    let pick = |brief: &str, roster: &Roster, here: &str| gate::decide(brief, &cfg, verdicts(&quota, roster), spent(), &[], here, false);
+
+    let local = pick(CODE_ONLY, &four_accounts(&[]), "whiterabbit");
+    assert_eq!(lane(&local), ("claude:d".into(), "whiterabbit".into()));
+    assert_eq!(gate::summary(&local), "target anthropic-cloud claude:d on whiterabbit (cloud credit: spent (read 2026-10-26), expires in 1 days; code-only box on public north)");
+
+    let elsewhere = pick(CODE_ONLY, &four_accounts(&[("d", "laptop")]), "nexus");
+    assert_eq!(lane(&elsewhere), ("claude:d".into(), "laptop".into()), "the launch host is where the account is signed in");
+
+    let roomier = gate(&[("claude:a", weekly(100.0)), ("claude:c", weekly(60.0)), ("claude:d", weekly(25.0))]);
+    let ranked = gate::decide(CODE_ONLY, &cfg, verdicts(&roomier, &four_accounts(&[])), spent(), &[], "whiterabbit", false);
+    assert_eq!(lane(&ranked).0, "claude:d", "{:?}", ranked.verdicts);
+}
+
+#[test]
+fn a_box_with_needs_or_on_a_private_repository_is_never_placed_on_cloud() {
+    let cfg: DocumentMut = "[placement]\nprivate_repos = [\"south\"]\n[hosts.here]\nserves = [\"warcraft\", \"native\", \"sign-ins\", \"private\"]\n".parse().unwrap();
+    let quota = gate(&[("claude:d", weekly(25.0))]);
+    let credit = || (true, "cloud credit: unread, expires in 19 days".to_owned());
+    let south = "Item: south#4 note\nSurface: rust\n";
+    let signed = "Item: north#12 sign-in change\nSurface: rust\nNeeds: sign-ins\n";
+    for (name, brief) in [("Needs:", signed), ("private repository", south), ("warcraft", WARCRAFT), ("undeclared", UNDECLARED)] {
+        let decision = gate::decide(brief, &cfg, verdicts(&quota, &four_accounts(&[])), credit(), &[], "here", false);
+        assert_eq!(target(&decision), "claude:d", "{name}: {}", gate::summary(&decision));
+    }
+}
+
+#[test]
+fn an_account_at_its_five_hour_or_weekly_cap_is_never_the_cloud_account() {
+    let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\"]\n".parse().unwrap();
+    let spent = || (false, "cloud credit: spent".to_owned());
+    let capped = gate(&[
+        ("claude:a", control((97.0, 1.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
+        ("claude:b", weekly(100.0)),
+        ("claude:c", weekly(60.0)),
+        ("claude:d", control((10.0, 80.0, "2026-10-16T16:00:00Z"), (10.0, 1.0))),
+    ]);
+    let placed = gate::decide(CODE_ONLY, &cfg, verdicts(&capped, &four_accounts(&[])), spent(), &[], "here", false);
+    assert_eq!(lane(&placed).0, "claude:c", "{:?}", placed.verdicts);
+
+    let none = gate(&[("claude:a", weekly(100.0)), ("claude:b", weekly(100.0))]);
+    let held = gate::decide(CODE_ONLY, &cfg, verdicts(&none, &four_accounts(&[])), (true, "cloud credit: unread".to_owned()), &[], "here", false);
+    assert_eq!(target(&held), "held: every Claude account exhausted or over its burn cap");
 }

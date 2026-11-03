@@ -537,10 +537,11 @@ fn an_autoland_cloud_launch_runs_from_its_repo_checkout_with_trust_written_and_a
     let git: Vec<String> = calls.iter().filter(|(_, program, _)| program == "git").map(|(_, _, args)| args.join(" ")).collect();
     let dir = "-C /tmp/cloud/src/makgora";
     assert_eq!(
-        git[git.len() - 4..],
+        git[git.len() - 5..],
         [
-            format!("{dir} fetch -q --depth 1 --filter=blob:none origin main"),
-            format!("{dir} sparse-checkout set --no-cone /README.md"),
+            format!("{dir} config remote.origin.promisor false"),
+            format!("{dir} fetch -q --depth 1 --refetch origin main"),
+            format!("{dir} sparse-checkout disable"),
             format!("{dir} checkout -q -B main FETCH_HEAD"),
             format!("{dir} branch -q --set-upstream-to=origin/main main"),
         ]

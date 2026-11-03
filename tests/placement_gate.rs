@@ -97,7 +97,7 @@ fn fleet_launch_refuses_off_placement_and_records_the_override_reason() {
     let cloud = launch(root, "cloudy", CODE_ONLY, &["--account", "a"]);
     let said = String::from_utf8_lossy(&cloud.stderr);
     assert!(!cloud.status.success(), "a code-only public box launched locally without --local");
-    assert!(said.contains("ssh nexus 'north cloud launch north cloudy /tmp/cloud/cloudy.md'"), "{said}");
+    assert!(said.contains("anthropic-cloud under claude:a") && said.contains("CLAUDE_CONFIG_DIR=$HOME/.local/state/north/profiles/claude-a north cloud launch north cloudy /tmp/cloud/cloudy.md") && !said.contains("ssh"), "{said}");
     assert!(said.contains("from gex45 or the laptop, never Nexus") && said.contains("safe-push --to main") && said.contains("claude/land-cloudy") && said.contains("--local \"<reason>\""), "{said}");
     assert!(said.contains("claude:c unavailable: burning: 5h 86.0%/h > the 50%/h cap"), "{said}");
     assert!(!root.join(".local/state/north/fleet/cloudy").exists(), "the refused launch left a session");
@@ -242,25 +242,25 @@ fn placed_at(root: &Path, now: &str) -> String {
 }
 
 #[test]
-fn the_cloud_credit_places_a_code_only_box_until_it_expires_or_a_readout_records_it_spent() {
+fn the_cloud_credit_is_only_an_extra_balance_so_a_code_only_box_goes_to_cloud_whether_it_is_unread_expired_or_spent() {
     let scratch = tempfile::tempdir().unwrap();
     let root = scratch.path();
     fixture(root);
     let credit = |now| String::from_utf8_lossy(&north_at(root, &["pace", "place", "credit"], now).stdout).trim().to_owned();
 
     assert_eq!(credit(NOW), "cloud credit: unread, expires in 19 days");
-    assert!(placed_at(root, NOW).contains("anthropic-cloud"));
+    assert!(placed_at(root, NOW).contains(": target anthropic-cloud claude:a on here (cloud credit: unread"));
 
     let expired = "2026-11-05T08:00:00Z";
     assert_eq!(credit(expired), "cloud credit: expired 2026-11-05T07:59Z");
     let after = placed_at(root, expired);
-    assert!(!after.contains("anthropic-cloud") && after.contains("target here claude:"), "{after}");
+    assert!(after.contains(": target anthropic-cloud claude:a on here (cloud credit: expired 2026-11-05T07:59Z"), "{after}");
 
     fs::create_dir_all(root.join(".local/state/agents/costs")).unwrap();
     fs::write(root.join(".local/state/agents/costs/cloud-credit.json"), r#"{"usd_spent_period": 250.0, "read_at": "2026-10-15T00:00:00Z"}"#).unwrap();
     assert_eq!(credit(NOW), "cloud credit: spent (read 2026-10-15), expires in 19 days");
     let spent = placed_at(root, NOW);
-    assert!(!spent.contains("anthropic-cloud") && spent.contains("target here claude:"), "{spent}");
+    assert!(spent.contains(": target anthropic-cloud claude:a on here (cloud credit: spent (read 2026-10-15)"), "{spent}");
 }
 
 #[test]

@@ -10,7 +10,7 @@ use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
 use crate::fleet::runtime::binary;
 use crate::ops::dispatch::{cloud_autoland, cloud_branch};
-use crate::ops::pacing::placement::gate::{self, Decision, Target};
+use crate::ops::pacing::placement::gate::{self, CloudLane, Decision, Target};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Overrides {
@@ -142,7 +142,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     let elsewhere = matches!(decision.target, Target::Cloud(_)) || decision.machine.is_some();
     match (&decision.target, &overrides.local) {
         (Target::Unserved(why), _) => return Err(Refusal::Final(format!("{why}; list it in a holding host's [hosts.NAME] serves"))),
-        (Target::Cloud(credit), None) => return Err(Refusal::Final(cloud_command(launch, credit, &decision.surface, text))),
+        (Target::Cloud(lane), None) => return Err(Refusal::Final(cloud_command(launch, lane, &decision.here, &decision.surface, text))),
         (_, Some(reason)) if elsewhere || decision.here_saturated.is_some() => notes.push(format!("local: {reason}")),
         _ => {}
     }
@@ -229,7 +229,7 @@ fn has_directory(ssh: &str, directory: &Path) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn cloud_command(launch: &Launch, credit: &str, surface: &str, text: &str) -> String {
+fn cloud_command(launch: &Launch, lane: &CloudLane, here: &str, surface: &str, text: &str) -> String {
     let brief = launch.brief.map_or_else(|| "BRIEF.md".to_owned(), |path| path.display().to_string());
     let repo = gate::repository(text);
     let branch = cloud_branch(launch.name);
@@ -241,14 +241,27 @@ fn cloud_command(launch: &Launch, credit: &str, surface: &str, text: &str) -> St
              If the session reports its push refused, collect its handback with north cloud wait <id> OUT.jsonl on Nexus and decode it as cloud.md says."
         )
     };
+    let label = lane.account.trim_start_matches("claude:");
+    let login = format!("CLAUDE_CONFIG_DIR=$HOME/.local/state/north/profiles/claude-{label}");
+    let name = launch.name;
+    let (copy, start) = if lane.host == here {
+        (format!("mkdir -p /tmp/cloud && cp {brief} /tmp/cloud/{name}.md"), format!("{login} north cloud launch {repo} {name} /tmp/cloud/{name}.md"))
+    } else {
+        (
+            format!("ssh {host} 'mkdir -p /tmp/cloud && cat > /tmp/cloud/{name}.md' < {brief}", host = lane.host),
+            format!("ssh {host} '{login} north cloud launch {repo} {name} /tmp/cloud/{name}.md'", host = lane.host),
+        )
+    };
     format!(
-        "placement sends this box to anthropic-cloud ({credit}; {surface}). Run it on Nexus instead (harness/skills/workers/references/cloud.md):\n  \
-         ssh nexus 'mkdir -p /tmp/cloud && cat > /tmp/cloud/{name}.md' < {brief}\n  \
-         ssh nexus 'north cloud launch {repo} {name} /tmp/cloud/{name}.md'\n\
+        "placement sends this box to anthropic-cloud under {account} ({credit}; {surface}); cloud compute has no separate charge and the session draws {account}'s plan limits. Run it on {host}, where {account} is signed in (harness/skills/workers/references/cloud.md):\n  \
+         {copy}\n  \
+         {start}\n\
          It launches claude --cloud from /tmp/cloud/src/{repo}, adds the cloud safety line and the steps that push {branch}, and prints the session_... ID; record it in the box's thread.\n\
          {landing}\n\
          To run it here anyway, relaunch with --local \"<reason>\".",
-        name = launch.name,
+        account = lane.account,
+        credit = lane.credit,
+        host = lane.host,
     )
 }
 

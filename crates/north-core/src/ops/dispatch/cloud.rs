@@ -47,8 +47,9 @@ pub fn checkout_steps(repo: &str, directory: &Path, fresh: bool) -> Vec<Vec<Stri
     steps.extend([
         vec!["-C", &dir, "config", "remote.origin.url", &url],
         vec!["-C", &dir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
-        vec!["-C", &dir, "fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", "main"],
-        vec!["-C", &dir, "sparse-checkout", "set", "--no-cone", "/README.md"],
+        vec!["-C", &dir, "config", "remote.origin.promisor", "false"],
+        vec!["-C", &dir, "fetch", "-q", "--depth", "1", "--refetch", "origin", "main"],
+        vec!["-C", &dir, "sparse-checkout", "disable"],
         vec!["-C", &dir, "checkout", "-q", "-B", "main", "FETCH_HEAD"],
         vec!["-C", &dir, "branch", "-q", "--set-upstream-to=origin/main", "main"],
     ]);
@@ -131,3 +132,22 @@ fn in_file(mut command: Command) -> std::io::Result<(Option<ExitStatus>, String)
 #[cfg(test)]
 #[path = "cloud_tests.rs"]
 mod tests;
+
+#[derive(Debug, PartialEq)]
+pub struct Login {
+    pub home: PathBuf,
+    pub credentials: PathBuf,
+}
+
+pub fn login(config_dir: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Result<Login, String> {
+    if let Some(dir) = config_dir.filter(|dir| !dir.is_empty()) {
+        let dir = PathBuf::from(dir);
+        return Ok(Login { credentials: dir.join(".credentials.json"), home: dir });
+    }
+    let home = PathBuf::from(home.ok_or("HOME is not set")?);
+    Ok(Login { credentials: home.join(".claude/.credentials.json"), home })
+}
+
+pub fn current_login() -> Result<Login, String> {
+    login(std::env::var_os("CLAUDE_CONFIG_DIR"), std::env::var_os("HOME"))
+}
