@@ -7,8 +7,8 @@ use crate::platform::github;
 
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH
 
-Run safe-push's after-landing gates on BASE..HEAD in a detached worktree of HEAD,
-then file one issue for HEAD naming every gate that failed; a gate already filed
+Run safe-push's after-landing gates and each `after-landing.check = NAME :: COMMAND`
+in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, then file one issue for HEAD naming every gate that failed; a gate already filed
 for HEAD is not filed again.";
 const MARKER: &str = "<!-- after-landing-gate: ";
 const TAIL_LINES: usize = 60;
@@ -179,7 +179,36 @@ fn gates_in(main: &Path, tree: &Path, report: &Path, args: &Args) -> Result<Vec<
     if !matches!(status.code(), Some(0 | 1)) || (status.code() == Some(1) && failures.is_empty()) {
         failures.push(Failure { gate: RUNNER.to_owned(), output: format!("safe-push --after-landing exited {status}") });
     }
+    let checks = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.check"]).unwrap_or_default();
+    failures.extend(repo_check_failures(tree, &repo_checks(&checks)));
     Ok(failures)
+}
+
+pub fn repo_checks(config: &str) -> Vec<(String, String)> {
+    config
+        .lines()
+        .filter_map(|line| line.split_once(" :: "))
+        .map(|(name, command)| (name.trim().to_owned(), command.trim().to_owned()))
+        .filter(|(name, command)| !name.is_empty() && !command.is_empty())
+        .collect()
+}
+
+pub fn repo_check_failures(tree: &Path, checks: &[(String, String)]) -> Vec<Failure> {
+    checks
+        .iter()
+        .filter_map(|(name, command)| {
+            let output = match Command::new("sh").args(["-c", command]).current_dir(tree).output() {
+                Ok(output) if output.status.success() => {
+                    println!("after-landing: check {name} passed");
+                    return None;
+                }
+                Ok(output) => format!("{}{}\n{command} exited {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr), output.status),
+                Err(error) => format!("cannot run {command}: {error}"),
+            };
+            println!("after-landing: check {name} failed\n{output}");
+            Some(Failure { gate: name.clone(), output })
+        })
+        .collect()
 }
 
 fn filed(repo: &str, head: &str) -> Result<Option<Filed>, String> {

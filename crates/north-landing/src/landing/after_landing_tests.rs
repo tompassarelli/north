@@ -27,3 +27,18 @@ fn ssh_and_https_origins_file_their_issue_in_the_same_repository() {
     }
     assert_eq!(repo_slug("/srv/git/north.git"), None);
 }
+
+#[test]
+fn a_failing_repo_check_files_its_output_on_the_landed_commit_and_a_passing_one_files_nothing() {
+    let checks = repo_checks("standalone-parity :: echo 'FAIL pad: first divergent frame 412'; exit 1\nfine :: true\nno separator\n");
+    assert_eq!(checks.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["standalone-parity", "fine"]);
+    let tree = std::env::temp_dir();
+    let failures = repo_check_failures(&tree, &checks);
+    assert_eq!(failures.iter().map(|failure| failure.gate.as_str()).collect::<Vec<_>>(), ["standalone-parity"]);
+    let head = "fedcba9876543210fedcba9876543210fedcba98";
+    let Filing::Create { title, body } = filing("o/r", head, None, &failures) else {
+        panic!("a failed repo check files an issue");
+    };
+    assert_eq!(title, "After-landing gates failed on fedcba987654");
+    assert!(body.contains("failed on it: standalone-parity.") && body.contains("first divergent frame 412"), "{body}");
+}

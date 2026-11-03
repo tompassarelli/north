@@ -193,6 +193,14 @@ missing enabled input authority, is reported after landing; undeclared files pas
 Each running safe-push needs its own output log file; a second one writing to
 the same file is refused.
 
+A landing on origin's default branch runs the after-landing gates in the
+background (log ~/.local/state/safe-push/after-landing/), and with them each
+  [after-landing]
+      check = NAME :: COMMAND
+in the landed .safe-push, run with sh in a detached tree of the landed commit;
+each failure goes into one issue for that commit with its output's tail, and
+nothing is refused or reverted.
+
 A landing on origin's default branch runs follows-release, which starts each
 queued Follows box (threads queue follow) whose predecessor is now on it.
 
