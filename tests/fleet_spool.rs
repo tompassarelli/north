@@ -1,10 +1,11 @@
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
 use north_core::fleet::store::{FarSpools, FleetRow, OverSsh, RowKind, Spool};
+use north_core::foundation::shim;
 
 struct Hosts {
     root: tempfile::TempDir,
@@ -17,9 +18,8 @@ impl Hosts {
         fs::create_dir_all(&bin).unwrap();
         symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
         fs::create_dir_all(hosts.path("far")).unwrap();
-        let ssh = format!("#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nPATH=\"{}:$PATH\" HOME=\"{}\" exec sh -c \"$1\"\n", bin.display(), hosts.path("far").display());
-        fs::write(bin.join("ssh"), ssh).unwrap();
-        fs::set_permissions(bin.join("ssh"), fs::Permissions::from_mode(0o755)).unwrap();
+        let ssh = format!("while [ \"$1\" != -- ]; do shift; done\nshift\nPATH=\"{}:$PATH\" HOME=\"{}\" exec sh -c \"$1\"\n", bin.display(), hosts.path("far").display());
+        shim::write_script(&bin.join("ssh"), &ssh);
         hosts
     }
 

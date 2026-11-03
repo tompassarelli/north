@@ -4,6 +4,7 @@ pub mod distill;
 pub mod score;
 pub mod store;
 use compose as render;
+mod hook;
 mod live;
 mod sources;
 mod tierb;
@@ -126,7 +127,7 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
 fn run(args: &[String]) -> Result<i32> {
     if has(args, "--help") || has(args, "-h") {
         println!(
-            "usage: north grounding query [--query TEXT] [--tier A|B] | refresh [--force] [--if-idle] [--source NAME]... | hook | distill | score"
+            "usage: north grounding query [--query TEXT] [--tier A|B] [--hook] | refresh [--force] [--if-idle] [--source NAME]... | hook | distill | score"
         );
         return Ok(0);
     }
@@ -166,13 +167,20 @@ fn run(args: &[String]) -> Result<i32> {
         {
             return Ok(0);
         }
+        let prompt = s(&payload, "prompt");
+        if hook::typed_text(&prompt).is_empty() {
+            return Ok(0);
+        }
         sources::spawn_refresh_if_stale();
-        let text = render::block(
-            &s(&payload, "prompt"),
-            "A",
+        let id = s(&payload, "session_id");
+        let mut session = hook::load(&id);
+        let text = hook::render(
+            &prompt,
             Timestamp::now().unix_seconds_f64(),
             &prior_reply(&s(&payload, "transcript_path")),
+            &mut session,
         )?;
+        hook::save(&id, &session);
         if !text.is_empty() {
             println!(
                 "{}",
@@ -184,12 +192,13 @@ fn run(args: &[String]) -> Result<i32> {
     let query = flag(args, "--query")
         .or_else(|| flag(args, "-q"))
         .unwrap_or("");
-    let text = render::block(
-        query,
-        flag(args, "--tier").unwrap_or("A"),
-        Timestamp::now().unix_seconds_f64(),
-        &env::var("NORTH_GROUNDING_PRIOR").unwrap_or_default(),
-    )?;
+    let now = Timestamp::now().unix_seconds_f64();
+    let prior = env::var("NORTH_GROUNDING_PRIOR").unwrap_or_default();
+    let text = if has(args, "--hook") {
+        hook::render(query, now, &prior, &mut hook::Session::default())?
+    } else {
+        render::block(query, flag(args, "--tier").unwrap_or("A"), now, &prior)?
+    };
     if !text.is_empty() {
         println!("{text}");
     }

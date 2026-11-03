@@ -2,6 +2,33 @@ use super::*;
 use std::collections::HashSet;
 use store::{Hit, Sqlite};
 pub const LIMIT_CHARS: usize = 6000;
+pub const HOOK_LIMIT_CHARS: usize = 1500;
+pub const HOOK_FLOOR: f64 = 0.5;
+pub struct Shape {
+    pub limit: usize,
+    pub floor: f64,
+    pub mentions: usize,
+    pub terms: usize,
+    pub seen: HashSet<String>,
+    pub last_live: Option<String>,
+}
+impl Shape {
+    pub fn query() -> Self {
+        Shape { limit: LIMIT_CHARS, floor: 0.2, mentions: 1600, terms: 12, seen: HashSet::new(), last_live: None }
+    }
+    pub fn hook(seen: HashSet<String>, last_live: Option<String>) -> Self {
+        Shape { limit: HOOK_LIMIT_CHARS, floor: HOOK_FLOOR, mentions: 300, terms: 6, seen, last_live }
+    }
+}
+#[derive(Default)]
+pub struct Rendered {
+    pub text: String,
+    pub refs: Vec<String>,
+    pub live: Option<String>,
+}
+pub fn live_key(lines: &[String]) -> String {
+    re(r", (?:in \d+[mh]|as of \d\d:\d\dZ)").replace_all(&lines.join("\n"), "").into_owned()
+}
 const SLOTS: [(&str, usize); 8] = [
     ("Decisions", 3),
     ("Skills", 4),
@@ -40,6 +67,9 @@ fn weight(hit: &Hit) -> f64 {
         * if speaker == "tom" { 1.0 } else { 0.8 }
 }
 pub fn select(hits: &[Hit], message: &str) -> (Vec<(String, Vec<Hit>)>, Vec<Hit>) {
+    pick(hits, message, &Shape::query())
+}
+fn pick(hits: &[Hit], message: &str, shape: &Shape) -> (Vec<(String, Vec<Hit>)>, Vec<Hit>) {
     let mut groups: Vec<(String, Vec<Hit>)> = Vec::new();
     let mut rest = Vec::new();
     let mut seen = HashSet::new();
@@ -51,7 +81,7 @@ pub fn select(hits: &[Hit], message: &str) -> (Vec<(String, Vec<Hit>)>, Vec<Hit>
         let same = (hit.source == "transcripts" || hit.source == "ledger")
             && !norm.is_empty()
             && cut(&flat(&hit.text), 160) == norm;
-        if hit.cover < 0.2 || seen.contains(&hit.reference) || same {
+        if hit.cover < shape.floor || seen.contains(&hit.reference) || shape.seen.contains(&hit.reference) || same {
             continue;
         }
         let name = category(hit);
@@ -220,17 +250,19 @@ pub fn compose(
     words: &[String],
     live: &[String],
     extra: &[String],
-) -> String {
+    shape: &Shape,
+) -> (String, Vec<String>) {
     let mut lines = vec![format!(
         "Grounding (auto-retrieved for this message; terms: {}). Read the named files before answering; say what already exists before proposing anything new.",
-        words.iter().take(12).cloned().collect::<Vec<_>>().join(" ")
+        words.iter().take(shape.terms).cloned().collect::<Vec<_>>().join(" ")
     )];
     lines.extend_from_slice(live);
-    let (groups, rest) = select(hits, message);
+    let (groups, rest) = pick(hits, message, shape);
     let selected: Vec<_> = groups.iter().flat_map(|(_, h)| h.clone()).collect();
-    let entities = mentions(&selected).join(", ");
+    let named: Vec<_> = mentions(&selected).into_iter().filter(|r| !shape.seen.contains(r)).collect();
+    let entities = named.join(", ");
     if !entities.is_empty() {
-        lines.push(format!("Mentions: {}", cut(&entities, 1600)));
+        lines.push(format!("Mentions: {}", cut(&entities, shape.mentions)));
     }
     for (name, _) in SLOTS {
         if let Some((_, items)) = groups.iter().find(|(n, _)| n == name)
@@ -252,8 +284,8 @@ pub fn compose(
     let mut out = Vec::new();
     let mut size = 0;
     for mut line in lines {
-        if size + ulen(&line) + 1 > LIMIT_CHARS {
-            line = cut(&line, LIMIT_CHARS.saturating_sub(size + 1));
+        if size + ulen(&line) + 1 > shape.limit {
+            line = cut(&line, shape.limit.saturating_sub(size + 1));
         }
         if line.is_empty() {
             break;
@@ -261,7 +293,11 @@ pub fn compose(
         size += ulen(&line) + 1;
         out.push(line);
     }
-    out.join("\n")
+    let text = out.join("\n");
+    let mut refs: Vec<String> = selected.iter().map(|h| h.reference.clone()).chain(named).chain(more).collect();
+    refs.retain(|r| !r.is_empty() && text.contains(r.as_str()));
+    refs.dedup();
+    (text, refs)
 }
 pub fn retrieve(
     message: &str,
@@ -315,11 +351,14 @@ fn retrieve_db(
     Ok((hits, words))
 }
 pub fn block(message: &str, tier: &str, now: f64, prior: &str) -> Result<String> {
+    Ok(shaped(message, tier, now, prior, &Shape::query())?.text)
+}
+pub fn shaped(message: &str, tier: &str, now: f64, prior: &str, shape: &Shape) -> Result<Rendered> {
     let usage = live::usage(message);
     let org = live::org_query(message);
     let count = store::terms(message).len();
     if count < 2 && (prior.is_empty() || count == 0) && !usage && !org {
-        return Ok(String::new());
+        return Ok(Rendered::default());
     }
     let mut db = store::open(true).ok();
     let mut hits = Vec::new();
@@ -343,9 +382,18 @@ pub fn block(message: &str, tier: &str, now: f64, prior: &str) -> Result<String>
     let confident = hits.iter().any(|h| h.cover >= 0.5);
     let mut extra = Vec::new();
     if tier=="B"{let(lines,searched)=tierb::tier_b(&words,db.as_mut());if !lines.is_empty(){extra.push("Tier B (convo rephrasings, handoffs):".into());extra.extend(lines.into_iter().take(14));}else if !confident{let near=hits.first().map(|h|format!("closest: {}{}",h.reference,if h.at!=0.0{format!(" on {}",Timestamp::from_unix_seconds(h.at as i64).day_and_minute())}else{String::new()})).unwrap_or_else(||"closest: none".into());extra.push(format!("Ask Tom in this form: \"searched {} for '{}'; {near}; this one?\"",searched.join(", "),words.iter().take(6).cloned().collect::<Vec<_>>().join(" ")));}}
-    else if !confident&&re(r"(?i)\b(already|again|before|earlier|last time|previously|recently|yesterday|remind|told you|we (did|have|had|talked|discussed|agreed|decided|built|made|used)|did(n'?t| not) (we|i|you)|don'?t we|do we (not )?have|have we|existing|remember|as i said|i said|i asked|(the|our|a|any) (skill|hook|rule|routine|policy|script|tool|protocol|system|index|ledger|guard)s?|why (was|is|did|didn'?t|don'?t)|how (does|do|did) (we|the|our|it))\b").is_match(message){extra.push(format!("No confident tier-A hit and this refers to past work or existing infrastructure: before answering run tier B (<=60 s): `north grounding query --tier B --query '{}'`",cut(&message.replace('\''," "),300)));}
-    if !hits.iter().any(|h| h.cover >= 0.2) && live.is_empty() && extra.is_empty() {
-        return Ok(String::new());
+    else if !confident&&re(r"(?i)\b(already|again|before|earlier|last time|previously|recently|yesterday|remind|told you|we (did|have|had|talked|discussed|agreed|decided|built|made|used)|did(n'?t| not) (we|i|you)|don'?t we|do we (not )?have|have we|existing|remember|as i said|i said|i asked|(the|our|a|any) (skill|hook|rule|routine|policy|script|tool|protocol|system|index|ledger|guard)s?|why (was|is|did|didn'?t|don'?t)|how (does|do|did) (we|the|our|it))\b").is_match(message){extra.push(format!("No confident tier-A hit and this refers to past work or existing infrastructure: before answering run tier B (<=60 s): `north grounding query --tier B --query '{}'`",cut(&message.replace('\''," "),(shape.limit / 20).min(300))));}
+    Ok(assemble(message, &hits, &words, live, &extra, shape))
+}
+pub fn assemble(message: &str, hits: &[Hit], words: &[String], mut live: Vec<String>, extra: &[String], shape: &Shape) -> Rendered {
+    let key = (!live.is_empty()).then(|| live_key(&live));
+    if key.is_some() && key == shape.last_live {
+        live.clear();
     }
-    Ok(redact(&compose(message, &hits, &words, &live, &extra)))
+    let fresh = hits.iter().any(|h| h.cover >= shape.floor && !shape.seen.contains(&h.reference));
+    if !fresh && live.is_empty() && extra.is_empty() {
+        return Rendered { live: key, ..Rendered::default() };
+    }
+    let (text, refs) = compose(message, hits, words, &live, extra, shape);
+    Rendered { text: redact(&text), refs: refs.iter().map(|r| redact(r)).collect(), live: key }
 }

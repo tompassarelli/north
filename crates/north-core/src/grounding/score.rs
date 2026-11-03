@@ -82,6 +82,7 @@ struct Options {
     holdout: Option<String>,
     leaky: bool,
     exclude: Vec<String>,
+    hook: bool,
 }
 
 #[derive(Clone)]
@@ -172,10 +173,11 @@ fn js_number(n: f64) -> String {
     num_text(n)
 }
 
-fn run_query(question: &str, tier: &str, as_of: f64, prior: &str, state: &Path) -> NorthResult<(String, f64)> {
+fn run_query(question: &str, tier: &str, as_of: f64, prior: &str, state: &Path, hook: bool) -> NorthResult<(String, f64)> {
     let started = Instant::now();
     let output = Command::new(env::current_exe()?)
         .args(["grounding", "query", "--tier", tier, "--query", question])
+        .args(if hook && tier == "A" { &["--hook"][..] } else { &[] })
         .env("NORTH_GROUNDING_AS_OF", if as_of != 0.0 { js_number(as_of) } else { String::new() })
         .env("NORTH_GROUNDING_PRIOR", prior)
         .env("NORTH_GROUNDING_STATE", state)
@@ -491,14 +493,14 @@ fn score_in(items: &[Item], path: &Path, o: &Options, removed: Option<Vec<(Strin
         let tier = item.tier.clone().unwrap_or_else(|| "A".into());
         let mut block_a = String::new();
         for _ in 0..o.runs.max(1) {
-            let (out, s) = run_query(&item.question, "A", as_of, &prior, state)?;
+            let (out, s) = run_query(&item.question, "A", as_of, &prior, state, o.hook)?;
             block_a = out;
             latencies.push(s);
         }
         let found_a: Vec<&String> = refs.iter().filter(|r| block_a.contains(r.as_str())).collect();
         let mut found_ab = found_a.clone();
         if o.with_b && found_a.len() < refs.len() {
-            let (block_b, _) = run_query(&item.question, "B", as_of, &prior, state)?;
+            let (block_b, _) = run_query(&item.question, "B", as_of, &prior, state, o.hook)?;
             found_ab = refs.iter().filter(|r| block_a.contains(r.as_str()) || block_b.contains(r.as_str())).collect();
         }
         rows.push(Row {
@@ -518,7 +520,7 @@ fn score_in(items: &[Item], path: &Path, o: &Options, removed: Option<Vec<(Strin
     let mut hold_queries = Vec::new();
     for (i, row) in hold.iter().enumerate() {
         let as_of = as_of_of(row.at.as_deref(), o.leaky);
-        let (block, _) = run_query(&row.query, "A", as_of, "", state)?;
+        let (block, _) = run_query(&row.query, "A", as_of, "", state, o.hook)?;
         hold_queries.push(Query {
             id: format!("holdout-{i}"),
             tier: "A".into(),
@@ -636,7 +638,7 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
     let valued = ["--runs", "--holdout", "--exclude-session"];
     let path = args.iter().enumerate().find(|(i, a)| !(a.starts_with("--") || *i > 0 && valued.contains(&args[i - 1].as_str()))).map(|(_, a)| a);
     let Some(path) = path else {
-        eprintln!("usage: north grounding score EVAL.jsonl [--no-b] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]");
+        eprintln!("usage: north grounding score EVAL.jsonl [--no-b] [--hook] [--runs N] [--holdout MISSES.jsonl] [--leaky] [--exclude-session ID]... [--json]");
         return Ok(2);
     };
     let value = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
@@ -645,6 +647,7 @@ pub fn main(args: &[String]) -> NorthResult<i32> {
         runs: value("--runs").map_or(1, |r| r.parse::<f64>().map_or(0, |n| n.max(0.0) as usize)),
         holdout: value("--holdout"),
         leaky: args.iter().any(|a| a == "--leaky"),
+        hook: args.iter().any(|a| a == "--hook"),
         exclude: args.iter().enumerate().filter(|(_, a)| *a == "--exclude-session").filter_map(|(i, _)| args.get(i + 1).cloned()).collect(),
     };
     let s = score(Path::new(path), &options)?;
