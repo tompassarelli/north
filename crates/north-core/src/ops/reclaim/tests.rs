@@ -279,9 +279,9 @@ fn the_evidence_sweep_reads_its_budget_from_the_hosts_disk_budget() {
     touch(&run.join("frame.png"), machine.now - 9 * DAY);
     let policy = Policy { idle: DAY, dry_run: false };
 
-    let roomy = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nsmashcraft_evidence = 1\n");
+    let roomy = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nmakgora_evidence = 1\n");
     assert!(reclaim(&roomy, &policy).unwrap().is_empty() && run.exists());
-    let tight = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nsmashcraft_evidence = 0.001\n");
+    let tight = budgeted(&machine, "[hosts.gex45.disk_budget_gib]\nmakgora_evidence = 0.001\n");
     assert_eq!(reclaim(&tight, &policy).unwrap().len(), 1);
     assert!(!run.exists());
 }

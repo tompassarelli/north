@@ -2,7 +2,7 @@
 set -euo pipefail
 
 owner=${FARM_RUNNER_OWNER:-tompassarelli}
-specs=${FARM_RUNNER_SPECS:-smashcraft=3}
+specs=${FARM_RUNNER_SPECS:-makgora=3}
 slice=${FARM_RUNNER_SLICE:-agent-capacity-farm.slice}
 state_cache=${FARM_RUNNER_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/laptop-runner/laptop-state.json}
 pool_state=${FARM_RUNNER_POOL_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/wisp/lan}

@@ -89,7 +89,7 @@ fn exclusive(archive: &Path) -> io::Result<Option<File>> {
 
 fn policy(arguments: &[String], out_of_time: Box<dyn Fn() -> bool>) -> Option<Policy> {
     let home = env::var_os("HOME").map(PathBuf::from)?;
-    let mut policy = Policy { dry_run: false, host: DEFAULT_HOST.into(), archive: home.join("archive/smashcraft-gex45"), batch_entries: BATCH_ENTRIES, out_of_time };
+    let mut policy = Policy { dry_run: false, host: DEFAULT_HOST.into(), archive: home.join("archive/makgora-gex45"), batch_entries: BATCH_ENTRIES, out_of_time };
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match argument.as_str() {

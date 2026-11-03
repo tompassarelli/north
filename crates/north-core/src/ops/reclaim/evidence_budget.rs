@@ -18,7 +18,7 @@ pub(super) struct Budget {
 
 impl Budget {
     pub(super) fn of(budget: &DiskBudget) -> Self {
-        let bytes = budget.bytes(Share::SmashcraftEvidence).unwrap_or((setting("evidence_budget_gib") * GIB) as u64);
+        let bytes = budget.bytes(Share::MakgoraEvidence).unwrap_or((setting("evidence_budget_gib") * GIB) as u64);
         Self { bytes, min_age: Duration::from_secs_f64(setting("evidence_min_age_hours") * 3600.0) }
     }
 }

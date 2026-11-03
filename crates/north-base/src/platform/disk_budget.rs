@@ -9,21 +9,21 @@ const GIB: f64 = (1u64 << 30) as f64;
 pub enum Share {
     CargoTarget,
     MapStore,
-    SmashcraftEvidence,
+    MakgoraEvidence,
     MutantCargo,
     CaptureBatches,
 }
 
 impl Share {
     pub fn parse(name: &str) -> Option<Self> {
-        [Self::CargoTarget, Self::MapStore, Self::SmashcraftEvidence, Self::MutantCargo, Self::CaptureBatches].into_iter().find(|share| share.key() == name)
+        [Self::CargoTarget, Self::MapStore, Self::MakgoraEvidence, Self::MutantCargo, Self::CaptureBatches].into_iter().find(|share| share.key() == name)
     }
 
     fn key(self) -> &'static str {
         match self {
             Self::CargoTarget => "cargo_target",
             Self::MapStore => "map_store",
-            Self::SmashcraftEvidence => "smashcraft_evidence",
+            Self::MakgoraEvidence => "makgora_evidence",
             Self::MutantCargo => "mutant_cargo",
             Self::CaptureBatches => "capture_batches",
         }
@@ -71,14 +71,14 @@ fn policy_path() -> PathBuf {
 mod tests {
     use super::*;
 
-    const POLICY: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n[hosts.gex45.disk_budget_gib]\ncargo_target = 12\nmap_store = 6.5\nsmashcraft_evidence = 15\n[hosts.laptop]\nssh = \"x\"\n";
+    const POLICY: &str = "[hosts.gex45]\nssh = \"tom@gex45\"\n[hosts.gex45.disk_budget_gib]\ncargo_target = 12\nmap_store = 6.5\nmakgora_evidence = 15\n[hosts.laptop]\nssh = \"x\"\n";
 
     #[test]
     fn a_host_names_its_own_share_for_each_store_and_another_host_names_none() {
         let gex45 = DiskBudget::parse(POLICY, "gex45");
         assert_eq!(gex45.gib(Share::CargoTarget), Some(12.0));
         assert_eq!(gex45.gib(Share::MapStore), Some(6.5));
-        assert_eq!(gex45.bytes(Share::SmashcraftEvidence), Some(15 << 30));
+        assert_eq!(gex45.bytes(Share::MakgoraEvidence), Some(15 << 30));
         assert_eq!(DiskBudget::parse(POLICY, "laptop").gib(Share::CargoTarget), None);
         assert_eq!(DiskBudget::parse("not toml [", "gex45").gib(Share::CargoTarget), None);
         assert_eq!(DiskBudget::default().gib(Share::MapStore), None);
