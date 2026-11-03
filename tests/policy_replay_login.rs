@@ -54,15 +54,13 @@ impl Replay {
 
     fn sweep(&self) -> Output {
         let root = self.scratch.path();
-        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("harness/scripts/policy-replay.py");
-        Command::new("python3")
-            .arg("-I")
-            .arg(script)
+        Command::new(env!("CARGO_BIN_EXE_north"))
+            .args(["policy-replay", "sweep"])
             .args([
                 root.join("agents/replay/a.json"),
                 root.join("agents/replay/b.json"),
             ])
-            .arg("--sweep")
+            .arg("--variants")
             .arg(root.join("agents/replay/variants.toml"))
             .arg("--candidate")
             .arg(root.join("candidate.toml"))
@@ -78,7 +76,6 @@ impl Replay {
                 ),
             )
             .env("HOME", self.home())
-            .env("NORTH_BIN", env!("CARGO_BIN_EXE_north"))
             .env("NORTH_FIRN", root)
             .env(
                 "CLAUDE_CONFIG_DIR",

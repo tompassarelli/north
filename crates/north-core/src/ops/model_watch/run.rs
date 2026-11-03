@@ -45,7 +45,7 @@ fn record_proposals(db: &Connection, options: &Options, events: &[Event]) -> Res
             let path = options.proposals.join(format!("{}.toml", event.id));
             fs::write(&path, row).map_err(|error| error.to_string())?;
             let mut detail = json!({"title": event.row.title, "url": event.row.url, "basis": event.row.basis, "change": event.change, "proposal": path.to_string_lossy(), "digest_status": "pending"});
-            let action = (event.row.kind == "released").then_some("new model: run policy-replay.py --sweep against it");
+            let action = (event.row.kind == "released").then_some("new model: run north policy-replay sweep against it");
             if let Some(action) = action {
                 detail["action"] = json!(action);
             }

@@ -62,7 +62,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-core/src/ops/timers/skill_prune.rs | read | |
 | injected context per session (startup, SKILL bodies, skill references, grounding, other hook context; grounding precision and notification-triggered injections), derived from Claude transcripts | Claude Code transcripts under ~/.local/state/north/profiles/claude-*/projects | crates/north-core/src/ops/context_audit/scan.rs audit_file; `north context audit` measures the skill and hook slimming program | read | |
 | S:incidents.jsonl | north incident-mine (crates/north-core/src/ops/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
-| replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | crates/north-core/src/agent_config_check/gate.rs | read | |
+| replay sweep-*.jsonl | north policy-replay sweep (crates/north-core/src/ops/policy_replay/sweep.rs) | crates/north-core/src/agent_config_check/gate.rs | read | |
 | harness/model-catalog.toml | hand | harness/lib/usage.py:31; crates/north-core/src/providers/codex/runs/usage.rs run_usage; crates/north-core/src/providers/claude/runs/telemetry.rs Prices | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 

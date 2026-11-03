@@ -217,7 +217,7 @@ impl Gate {
         }
         let Some(row) = self.sweep_row(sha, Some(&wanted)) else {
             return Err(format!(
-                "agents sync: the live policy has no sweep row in {} or {}; run policy-replay.py --sweep with it as a variant",
+                "agents sync: the live policy has no sweep row in {} or {}; run north policy-replay sweep with it as a variant",
                 self.operator.join("replay").display(),
                 self.replay.display()
             ));
@@ -366,7 +366,7 @@ fn judge(point: &Value, row: &Value, tokens: usize) -> Result<String, String> {
     let startup = point["startup_tokens"].as_u64().unwrap_or(0) as usize;
     if tokens > startup && verdict != Verdict::Gain {
         return Err(format!(
-            "agents sync: startup tokens grew {startup}→{tokens} with no measured conformance gain; run policy-replay.py --sweep"
+            "agents sync: startup tokens grew {startup}→{tokens} with no measured conformance gain; run north policy-replay sweep"
         ));
     }
     let (low, high) = pystats::wilson(old.0, old.1);

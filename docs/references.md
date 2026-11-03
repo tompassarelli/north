@@ -81,7 +81,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="wilson-interval"></a>**Wilson score interval** (E. B. Wilson, "Probable Inference, the Law of Succession, and Statistical
   Inference", JASA, 1927), https://doi.org/10.1080/01621459.1927.10502953; accessed: not recorded, cited
   2026-10-12.
-  Informed: [harness/scripts/policy_stats.py](../harness/scripts/policy_stats.py), the sweep's operating point
+  Informed: [crates/north-core/src/ops/policy_replay/stats.rs](../crates/north-core/src/ops/policy_replay/stats.rs), the sweep's operating point
   and the policy gate (10138bba, 012a7f3f), `recommend`'s no-pass tie-break (22d8c8ea), per-arm reports
   (d32f9266, 309eda0c), north#35 and north#36.
   Outcome: adopted; it keeps a sensible interval at small n and at rates of 0 or 1, where a normal standard
@@ -90,7 +90,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="paired-bootstrap"></a>**Paired bootstrap** (B. Efron, "Bootstrap Methods: Another Look at the Jackknife", Annals of Statistics,
   1979), https://doi.org/10.1214/aos/1176344552; accessed: not recorded, cited 2026-10-12.
   Informed: the task-cluster paired difference in
-  [policy_stats.py](../harness/scripts/policy_stats.py) and advisor-report (309eda0c, north#36), the routing
+  [stats.rs](../crates/north-core/src/ops/policy_replay/stats.rs) and advisor-report (309eda0c, north#36), the routing
   backtest's differences (37017a39, [feedback-loop.md](feedback-loop.md#learned-routing-backtest)), and
   calibration sample-size floors (b6462af5).
   Outcome: adopted; arms run the same tasks, so pairing by task removes task difficulty from the difference.
@@ -98,7 +98,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="fisher-exact"></a>**Fisher's exact test** (R. A. Fisher, "On the Interpretation of χ² from Contingency Tables, and the
   Calculation of P", JRSS, 1922), https://doi.org/10.2307/2340521; accessed: not recorded, cited 2026-10-12.
   Informed: the one-sided drop and gain test in the policy gate and sweep selection (82fd8604,
-  [policy_stats.py](../harness/scripts/policy_stats.py)).
+  [stats.rs](../crates/north-core/src/ops/policy_replay/stats.rs)).
   Outcome: adopted; it is exact at the few trials per scenario a replay runs.
 
 - <a id="noninferiority-margin"></a>**Non-inferiority margin**, common practice in non-inferiority trials; no document on record.

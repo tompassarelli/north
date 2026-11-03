@@ -38,7 +38,6 @@ project_score -> project_plan
 project_score -> routing
 project_score -> usage
 report -> calibration
-report -> policy_stats
 report -> run_outcome
 routing -> defaults
 routing -> project_score
@@ -52,7 +51,7 @@ usage_claude -> claude_profiles
 usage_claude -> usage
 ```
 
-`policy_stats` is `harness/scripts/policy_stats.py`. Modules not named on the left import no other
+Modules not named on the left import no other
 `harness/lib` module: `billing_digitalocean`, `defaults`, `durable_events`,
 `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
 `usage_agy`, `usage_codex`.
@@ -74,7 +73,7 @@ Five edges close the cycle, and each exists to reach one small helper:
 Moving `missed_target` into a new leaf module beside `defaults` and the three account helpers into
 another removes all five edges and leaves a graph with no cycle. In dependency order the layers are:
 
-1. `billing_digitalocean`, `claude_profiles`, `defaults`, `durable_events`, `policy_stats`,
+1. `billing_digitalocean`, `claude_profiles`, `defaults`, `durable_events`,
    `provider_capacity`, `routines`, `run_outcome`, `ssh_transport`,
    `usage_agy`, `usage_codex`
 2. `calibration`, `ledger_context`, `presence`, `routing`, `usage_claude`
@@ -87,9 +86,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 
 These import the cycle's modules directly and change in the same commit as the module they import:
 `bin/agents`, `bin/threads`,
-`harness/hooks/lib/codex_behavior.py`,
-`harness/scripts/codex-route-propose.py`, `harness/scripts/harness-tuner.py`,
-and `harness/scripts/policy-replay.py`.
+`harness/hooks/lib/codex_behavior.py` and `harness/scripts/codex-route-propose.py`.
 
 ## First port slice
 

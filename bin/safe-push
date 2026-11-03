@@ -697,7 +697,7 @@ policy_sweep_scan() {
       'any(.[]; .policy_sha256 == $sha and ((.scenarios // {}) as $s | all($wanted[]; (($s[.] // [0, 0])[1]) >= $trials)))' >/dev/null 2>&1; then
     return 0
   fi
-  echo "safe-push: ✗ this change makes agents/AGENTS.md ${sha:0:8} live and the tree has no agents/replay/sweep-*.jsonl row for it with $trials trials on every scenario, so every host's agents sync would refuse it ('the live policy has no sweep row') and roll its runtime update back. Run the sweep in this worktree and commit the row it writes: python3 ${NORTH_HOME:-$HOME/code/north/main}/harness/scripts/policy-replay.py agents/replay/*.json --sweep agents/replay/variants.toml --variant base --trials 3 (about 9 minutes and \$2 at list price: the 2026-10-27 sweeps took 480-567 s and \$1.35-\$2.23 for 42 runs); NOT pushed."
+  echo "safe-push: ✗ this change makes agents/AGENTS.md ${sha:0:8} live and the tree has no agents/replay/sweep-*.jsonl row for it with $trials trials on every scenario, so every host's agents sync would refuse it ('the live policy has no sweep row') and roll its runtime update back. Run the sweep in this worktree and commit the row it writes: north policy-replay sweep agents/replay/*.json --variants agents/replay/variants.toml --variant base --trials 3 (about 9 minutes and \$2 at list price: the 2026-10-27 sweeps took 480-567 s and \$1.35-\$2.23 for 42 runs); NOT pushed."
   return 1
 }
 
