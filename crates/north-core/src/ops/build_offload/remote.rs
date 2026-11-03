@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -56,12 +57,17 @@ pub(super) fn invocation(lane: &Lane, job: &Job) -> (String, Vec<String>) {
 }
 
 /// Rebuilds the lane on the host, runs the command there under that host's own heavy admission, streams its output here and returns its exit code. A failure before the command starts is `NotSynced`.
-pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, started: &dyn Fn()) -> Ran {
+pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, sink: Option<File>, started: &dyn Fn()) -> Ran {
     let (script, words) = invocation(lane, job);
     let quoted: Vec<String> = words.iter().map(|word| quote(word)).collect();
     let remote = format!("sh -c {} offload {}", quote(&script), quoted.join(" "));
-    let spawned = Command::new("ssh")
-        .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", ssh, "--", &remote])
+    let mut ssh_command = Command::new("ssh");
+    ssh_command.args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", ssh, "--", &remote]);
+    drive(ssh_command, lane, sink, started)
+}
+
+pub(super) fn drive(mut transport: Command, lane: &Lane, sink: Option<File>, started: &dyn Fn()) -> Ran {
+    let spawned = transport
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -92,7 +98,9 @@ pub(super) fn run(ssh: &str, lane: &Lane, job: &Job, started: &dyn Fn()) -> Ran 
         return Ran::NotSynced("the host could not rebuild the lane in time".to_owned());
     };
     started();
-    let _ = std::io::copy(&mut reader, &mut std::io::stdout());
+    let mut output: Box<dyn Write> = sink.map_or_else(|| Box::new(std::io::stdout()) as Box<dyn Write>, |file| Box::new(file));
+    let _ = std::io::copy(&mut reader, &mut output);
+    let _ = output.flush();
     drop(stdin);
     let status = child.wait();
     Ran::Exit(status.ok().and_then(|status| status.code()).and_then(|code| u8::try_from(code).ok()).unwrap_or(255))

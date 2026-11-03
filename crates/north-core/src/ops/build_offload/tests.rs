@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::lane::{Lane, gather};
-use super::remote::invocation;
+use super::remote::{Ran, drive, invocation};
+use super::script::{Plan, Sink, plan};
 use crate::capacity::build_offload::Job;
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
@@ -137,18 +138,89 @@ fn capacity_a_command_naming_the_lanes_or_the_main_checkouts_laptop_path_stays_l
     assert!(gather(&lane_dir, &hosts.laptop).unwrap().ship(&relative).is_ok());
 }
 
+fn stub(hosts: &Hosts) -> PathBuf {
+    let stub = hosts.remote.join("north-stub");
+    write(&stub, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    stub
+}
+
+fn offloaded(hosts: &Hosts, caller: &Path, script: &str) -> (Plan, Lane, u8) {
+    let words = ["bash".to_owned(), "-c".to_owned(), script.to_owned()];
+    let plan = plan(&words, caller, &hosts.laptop).unwrap();
+    let lane = gather(&plan.directory, &hosts.laptop).unwrap().ship(&plan.command).unwrap();
+    let (script, words) = invocation(&lane, &Job { owner: "t", timeout_seconds: 60, command: &plan.command });
+    let mut transport = Command::new("sh");
+    transport.args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", stub(hosts));
+    let sink = plan.sink.as_ref().map(|sink| sink.open().unwrap());
+    let Ran::Exit(code) = drive(transport, &lane, sink, &|| {}) else { panic!("the lane did not sync") };
+    (plan, lane, code)
+}
+
+fn tilde(hosts: &Hosts, path: &Path) -> String {
+    format!("~/{}", path.strip_prefix(&hosts.laptop).unwrap().display())
+}
+
 #[test]
-fn capacity_a_command_that_moves_into_another_lane_or_project_stays_local_instead_of_shipping_the_callers_tree() {
+fn capacity_a_command_that_moves_into_another_lane_ships_that_lane_from_any_caller() {
     let hosts = hosts();
     let caller = hosts.lane("caller");
     let other = hosts.lane("other");
-    let project = hosts.laptop.join("code/elsewhere/main");
-    let tilde = |path: &Path| format!("~/{}", path.strip_prefix(&hosts.laptop).unwrap().display());
+    write(&other.join("a.txt"), "other lane\n");
+    git(&other, &["commit", "-q", "-am", "other"]);
+    let head = git(&other, &["rev-parse", "HEAD"]);
+    std::fs::create_dir_all(hosts.laptop.join("scratch")).unwrap();
+    let log = hosts.laptop.join("scratch/report.log");
     for directory in [caller.clone(), hosts.main()] {
-        for target in [other.display().to_string(), tilde(&other), project.display().to_string(), tilde(&project)] {
-            let words = ["bash".to_owned(), "-c".to_owned(), format!("cd {target} && cargo test")];
-            let declined = gather(&directory, &hosts.laptop).unwrap().ship(&words).err();
-            assert_eq!(declined.map(|declined| declined.reason()), Some("refused: absolute path".to_owned()), "{} shipped for {target}", directory.display());
+        for target in [other.display().to_string(), tilde(&hosts, &other)] {
+            let (plan, lane, code) = offloaded(&hosts, &directory, &format!("cd {target} && {{ {REPORT}; }} > {} 2>&1", log.display()));
+            assert_eq!((plan.directory.as_path(), lane.name.as_str(), code), (other.as_path(), "code-proj-main-other", 0), "{} shipped for {target}", directory.display());
+            let report: Vec<String> = std::fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect();
+            assert_eq!(line(&report, "head"), [head.as_str()]);
+            assert_eq!(line(&report, "file"), ["a.txt other lane"]);
         }
     }
+    let project = hosts.laptop.join("code/elsewhere/main");
+    let words = ["bash".to_owned(), "-c".to_owned(), format!("cd {} && cargo test", tilde(&hosts, &project))];
+    let planned = plan(&words, &caller, &hosts.laptop).unwrap();
+    assert_eq!(planned.directory, project);
+    assert!(gather(&planned.directory, &hosts.laptop).is_err());
 }
+
+#[test]
+fn capacity_a_command_naming_two_different_checkouts_stays_local() {
+    let hosts = hosts();
+    let first = hosts.lane("first");
+    let second = hosts.lane("second");
+    for script in [format!("cd {} && cargo test --manifest-path {}/Cargo.toml", first.display(), second.display()), format!("cd {} && cargo test && cd {} && cargo test", tilde(&hosts, &first), tilde(&hosts, &second))] {
+        let words = ["bash".to_owned(), "-c".to_owned(), script.clone()];
+        let plan = plan(&words, &hosts.main(), &hosts.laptop).unwrap();
+        let declined = gather(&plan.directory, &hosts.laptop).unwrap().ship(&plan.command).err();
+        assert_eq!(declined.map(|declined| declined.reason()), Some("refused: absolute path".to_owned()), "{script} shipped");
+    }
+}
+
+#[test]
+fn capacity_a_trailing_top_level_redirect_to_a_laptop_path_is_written_on_the_laptop_not_the_host() {
+    let hosts = hosts();
+    let lane_dir = hosts.lane("proof");
+    let head = git(&lane_dir, &["rev-parse", "HEAD"]);
+    std::fs::create_dir_all(hosts.laptop.join("scratch")).unwrap();
+    let log = hosts.laptop.join("scratch/proof.log");
+    let (planned, _, code) = offloaded(&hosts, &hosts.main(), &format!("cd {} && {{ {REPORT}; echo stderr-line >&2; }} > {} 2>&1", lane_dir.display(), log.display()));
+    assert_eq!((planned.sink, code), (Some(Sink { path: log.clone(), append: false }), 0));
+    let written = std::fs::read_to_string(&log).unwrap();
+    let report: Vec<String> = written.lines().map(str::to_owned).collect();
+    assert_eq!(line(&report, "head"), [head.as_str()]);
+    assert!(written.contains("stderr-line"), "{written}");
+    assert!(!hosts.remote.join(log.strip_prefix(&hosts.laptop).unwrap()).exists());
+    let (_, _, code) = offloaded(&hosts, &lane_dir, &format!("echo again >> {}", log.display()));
+    assert_eq!(code, 0);
+    assert!(std::fs::read_to_string(&log).unwrap().ends_with("stderr-line\nagain\n"));
+    for script in ["cargo test > $S/out.log 2>&1".to_owned(), format!("cargo test > {} && true", log.display())] {
+        let words = ["bash".to_owned(), "-c".to_owned(), script.clone()];
+        let declined = plan(&words, &lane_dir, &hosts.laptop).err();
+        assert_eq!(declined.map(|declined| declined.reason()), Some("refused: laptop redirect".to_owned()), "{script} offloaded");
+    }
+}
+

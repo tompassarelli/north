@@ -8,6 +8,7 @@ use crate::ops::land_offload::{build_hosts, room};
 mod claims;
 mod lane;
 mod remote;
+mod script;
 #[cfg(test)]
 mod tests;
 
@@ -40,8 +41,11 @@ pub fn offload(candidate: &Candidate, job: &Job, announce: &dyn Fn(&str)) -> Res
     drop(held);
     let ssh = hosts[position].1.as_str();
     let directory = std::env::current_dir().map_err(|error| Some(Declined::Failed(error.to_string())))?;
-    let lane = lane::capture(&directory, job.command).map_err(Some)?;
-    match remote::run(ssh, &lane, job, &|| announce(&host)) {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or_else(|| Some(Declined::Failed("HOME is unset".to_owned())))?;
+    let plan = script::plan(job.command, &directory, &home).map_err(Some)?;
+    let lane = lane::capture(&plan.directory, &plan.command).map_err(Some)?;
+    let sink = plan.sink.as_ref().map(script::Sink::open).transpose().map_err(|error| Some(Declined::Failed(format!("the redirect target: {error}"))))?;
+    match remote::run(ssh, &lane, &Job { command: &plan.command, ..*job }, sink, &|| announce(&host)) {
         remote::Ran::Exit(code) => Ok(code),
         remote::Ran::NotSynced(why) => Err(Some(Declined::Failed(format!("{host}: {why}")))),
     }
