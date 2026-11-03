@@ -50,6 +50,11 @@ mod spawn_state;
 #[cfg(test)]
 mod worker_tier_tests;
 pub mod code_health_edit;
+pub mod hook_events;
+pub mod hook_rules;
+pub mod hook_stats;
+#[cfg(test)]
+mod hook_stats_tests;
 pub mod unlanded_work;
 #[cfg(test)]
 mod unlanded_work_tests;

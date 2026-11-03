@@ -309,7 +309,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
             return Ok(());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
-        _ => return Err("Usage: north hook [pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|permission-request]".into()),
+        _ => return Err("Usage: north hook [stats [--since 7d]|pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|permission-request]".into()),
     };
     let _ = process(
         io::stdin().lock(),

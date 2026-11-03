@@ -102,6 +102,7 @@ fn emit(options: &Options, main: &str, out: &mut impl Write) -> NorthResult<()> 
     let explicit = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(PathBuf::from);
     for root in roots(&home, explicit, ledger.policy.as_ref(), &crate::platform::host::name()) {
         for path in transcripts(&root.projects, options).into_iter().filter(|path| ledger.rereads(options, path)) {
+            hook_rows(&path, out)?;
             if let Some(row) = record(&ledger, options, &root, &path) {
                 writeln!(out, "{}", Value::Object(row))?;
             }
@@ -259,6 +260,15 @@ impl Ledger {
 
 fn entries(directory: &Path) -> Vec<PathBuf> {
     fs::read_dir(directory).map(|entries| entries.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect()).unwrap_or_default()
+}
+
+fn hook_rows(path: &Path, out: &mut impl Write) -> NorthResult<()> {
+    let Ok(text) = fs::read_to_string(path) else { return Ok(()) };
+    let lines: Vec<Value> = text.lines().filter(|line| crate::guard::hook_events::mentions_hook(line)).filter_map(|line| serde_json::from_str(line).ok()).collect();
+    for row in crate::guard::hook_events::events(&transcript_id(path), &lines) {
+        writeln!(out, "{row}")?;
+    }
+    Ok(())
 }
 
 fn transcript_id(path: &Path) -> String {

@@ -11,6 +11,7 @@ mod cloud_handback;
 mod token_usage;
 mod fleet;
 mod gate;
+mod hook_stats;
 mod ledger;
 mod orders;
 mod probe_account;
@@ -117,6 +118,13 @@ fn dispatch(command: Command) -> ExitCode {
         Command::DesktopIdleState(state) => match state {
             Some(value) if guard::desktop_action::record_idle(value == "idle").is_ok() => ExitCode::SUCCESS,
             _ => ExitCode::from(1),
+        },
+        Command::Hook(arguments) if arguments.first().is_some_and(|verb| verb == "stats") => match hook_stats::run(&arguments[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::from(2)
+            }
         },
         Command::Hook(arguments) => {
             guard::worker_handoff::install_confirm(crate::ops::pacing::confirm_spawn);

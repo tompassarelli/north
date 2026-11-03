@@ -104,6 +104,7 @@ pub(super) struct Tally {
     pub added: usize,
     pub backfilled: usize,
     pub samples: usize,
+    pub hooks: usize,
     pub unpriced: BTreeSet<String>,
 }
 
