@@ -74,6 +74,8 @@ A policy change lands like any other change. `agents sync` refuses to publish po
 gate, including a measured drop in replay conformance against `south:agents/operating-point.toml`; the
 "Policy regression gate" entry in [features.md](features.md) gives the rules.
 
+Each hook names the runtime gap it fills and is deleted when Claude Code closes that gap; the audit of every installed Claude hook entry is [rationale/hooks-and-runtime.md](rationale/hooks-and-runtime.md).
+
 Harness landing is independent of provider or model. Every fleet session uses the same `safe-push`
 checks before a landing.
 
