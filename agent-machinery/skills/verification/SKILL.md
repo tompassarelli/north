@@ -1,75 +1,31 @@
 ---
 name: verification
 description: >-
-  Choose which proportionate evidence proves a claim and interpret its result,
-  including delayed or ambiguous runs; write, change, delete, run or speed up
-  automated tests in any project: picking the cheapest test that protects a
-  named guarantee, what earns a test, property, replay and golden tests, test
-  tiers and CPU cost, committed records, flaky tests, pruning a suite, landing
-  gates and reuse by input hash.
+  Pick proportionate evidence for a claim and read its result, including slow,
+  silent or ambiguous runs; write, change, prune, run or speed up automated
+  tests in any project: what earns a test, property, replay and golden tests,
+  tiers and CPU cost, committed records, mutants, flaky tests, landing gates
+  and reuse by input hash.
 grounded: 2026-10-15
-written: 2026-10-15
+written: 2026-11-04
 metadata:
   kind: playbook
 ---
 
 # Verification
 
-## Evidence for a claim
-1. Name the stable acceptance claim and the action its result changes, because a check whose pass and fail select the same action is waste.
-2. Run the smallest operator-visible journey before deeper component checks, because component passes do not prove the combined path.
-3. Hold the candidate and its verdict-sensitive launcher, environment, TTY and fixture state stable, because a changed wrapper invalidates the observation.
-4. Reuse passing results until a relevant behaviour change invalidates them; run each check once, and once more after a fix, because reruns of unchanged inputs buy nothing.
-5. Resolve ambiguous observations and repair the first actual divergence before another expensive run, because later errors are often consequences.
-6. Reassess at roughly twice the estimate and restart only for observed failure or a supported corrective change, because silence is not deadlock and restarts lose progress.
+## Every use
+- Name the stable acceptance claim and the action its result changes, because a check whose pass and fail select the same action is waste.
+- Reuse passing results until a relevant behaviour change invalidates them; run each check once, and once more after a fix, because reruns of unchanged inputs buy nothing.
+- Every test names the guarantee it protects, in its title, as a behaviour a person would notice breaking. Iteration speed is everything, so keep the cheapest test that protects that guarantee and delete the rest.
+- Never lower an assertion, threshold or seed count to make a failing change pass, and never retry a flake to green, sleep or weaken an expectation, because right-sizing is not weakening. Quarantine a flake at first sight with its seed, log and an issue; fix or delete it within a week, because a flake hides real failures.
+- Agents verify every mechanical check themselves on VM pairs and native capture (input, sizes, frame timing, a sound on its frame, a build in the game list, menus), never through the operator, because a human's time is the scarcest input.
 
-Read [evidence selection](references/evidence-selection.md) when choosing checks, [pricing and progress](references/pricing-and-progress.md) for delayed runs, and [failure diagnosis](references/failure-diagnosis.md) for a failed check or broken driver. Read [notes](references/notes.md) when a project picks or revisits its test posture, or when the landing tool refuses a test change or a CI budget.
-
-## Tests: the burden is on the test
-Iteration speed is everything, so every test names the guarantee it protects, in its title, as a behaviour a person would notice breaking. Keep the cheapest test that protects that guarantee; delete the rest.
-
-- Before writing a test, ask what is the fastest check that would fail if the guarantee broke (a type, a table, a property over a pure core, one seeded scenario) and write that one, because cheaper tests keep the loop fast. Reach for a sweep, whole-roster run, native pair or committed record only when nothing cheaper can fail.
-- Tighten only where a bug escaped, extending the property, scenario or reference that should have caught it, because escapes, not fear, buy strictness.
-- Never lower an assertion, threshold or seed count to make a failing change pass, and never retry a flake to green, because right-sizing is not weakening.
-- Delete or merge on sight tests whose title names no guarantee, duplicates, tests of removed features, implementation-detail asserts, stale snapshots and checks that only ever failed when data legitimately moved; name the kept test that still protects the guarantee, or say nobody cares about it, so no guarantee is lost silently.
-- A test that proves a just-built feature or port works (parity against the code it replaces, a check that the new command runs) is landing evidence, not a regression test: cite its run in the commit and commit it only if it is also the cheapest check of a lasting guarantee, because scaffolding outlives the port and freezes the code.
-- Remove the need first: one table over every case, types that rule out bad states, one source of truth generating the rest, because a bug that can't be written needs no test.
-- Keep logic in a pure deterministic core fed time, randomness and peers as inputs; test through the caller's interface and fake only what we don't own, because fakes of our own code drift from it.
-
-## Five kinds of test worth keeping
-1. **Recorded scenarios**: real or seeded input through the whole system, checking invariants and agreement; keep one injected fault that must trip it.
-2. **Properties over a pure core**: generated inputs against bounds, round-trips or a reference model; locally a fixed seed and a few hundred cases; wide search after landing; keep shrunk failures named.
-3. **Product measurements**: owner-decided numbers whose source the box or a rationale doc names; a missed soft one lands with `Target-debt:` ([planning](../planning/SKILL.md)).
-4. **External references**: truth from a spec, reference implementation or recorded real output, cited in the title or fixture.
-5. **One integration check per real boundary**, run end to end.
-
-Agents verify every mechanical check themselves on VM pairs and native capture (input, sizes, frame timing, a sound on its frame, a build in the game list, menus), never through the operator, because a human's time is the scarcest input.
-
-## Tiers
-- **Edit loop (under ~60 s, local)**: type-check plus the tests of what changed; a worker runs this before pushing.
-- **Landing gate**: tests whose inputs changed, one seeded representative of each sweep family whose guarantee no ordinary test covers, and one seconds-long end-to-end path, fast enough to land changes 1.5x faster than they arrive, because a queue that grows never drains. A new sweep runs after landing unless it earns a gate slot.
-- **After landing**: every sweep, full roster and wide property search on each landed SHA, on runners that exist; bisect a failure, confirm it on the parent, auto-revert the culprit. Check a tier ran before moving work into it, because a tier nobody runs protects nothing.
-- **Canaries**: give each check family the landing gate and CI keep one recorded planted fault that CI applies and that must fail, because a check that silently stops checking still looks green.
-- **Nightly / manual**: soaks, native pairs, cost censuses.
-
-## Committed records
-- A snapshot, baseline or record that unrelated changes make stale costs every lane a refresh, so compute it on CI from the last green run, key it per row so only touched rows move, or keep only the absolute bound and drop the drift record.
-- Delete a record no check reads, because it protects nothing.
-
-## Delete on sight (largest first, from seven repository reviews)
-Example matrices re-testing one rule a property should own; our own prose, constants or argv asserted verbatim; one scenario rebuilt per layer or run twice; count pins on fixtures, catalogs or test totals; suites no runner collects; sleeps used as coordination; fakes of our own code; oracles that pass when nothing was checked; source greps and tombstones; single bugs pinned as their own tests; asserts of what the types guarantee; live probes committed as tests; parity checks against code that is deleted or now an exec; full-width sweeps at the landing gate. Count cases with the runner, never a regex, because regex counts were refuted by runners. Counts per class: [testing sources](references/testing-sources.md).
-
-## Mutation and landing-tool rules
-- A mutant settles doubt about whether a test is the only one protecting a guarantee; it is not a toll on every deletion.
-- Mutate only in a scratch copy, never the lane, and mark every mutated line `MUTANT:<rule-id>`, because reviewers have committed product mutants; the landing tool refuses an added line with that token.
-- Check a doubted kill on demand: `mutant record <id>` in the scratch copy, then `mutant verify BASE HEAD`, which refuses an empty record or a patch that applies to neither side and, where the repository configures a mutant runner, requires the claimed test to pass on the change and fail on the mutant.
-- A landing needs no `Test-kind:` trailer or recorded mutant per new test; Tom approved retiring that gate (2026-11-04) because its failures were fixed by editing a trailer, a record or the runner, never landed code; a rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and brings a gate back on evidence.
-- Product code never branches on a test's literal inputs, because that passes tests while breaking the product.
-
-## Landing fast
-- Reuse every build and test result whose inputs are unchanged, keyed by a content hash of those inputs, and never run one suite twice for one landing, because rerunning unchanged inputs is waste.
-- Give each repeated stage between finished work and the owner's hands (build, test, land, install) a wall-time budget, and have the tool that already logs its time open or update one issue for an agent when a run exceeds it, because unreused work is found from timings already logged, not by the owner or a schedule; such budgets alert and never gate.
-- Before landing, run only the tests that cover the change; full suites run on GitHub (Autoland, the farm), never on a saturated local host, and a red there is fixed forward, because local full runs queue every lane behind one host while hosted runners sit idle.
-- Call an external tool once per batch, not per file, row, test or branch; fall back per item only for exact diagnostics on failure, because process start dominates small calls.
-- Bound cost in a deterministic unit (instructions, frames, allocations), never wall seconds, because wall time flakes under load; shrink inputs or move work after landing instead of raising a ceiling. Run a timing check once, under an exclusive capacity lease.
-- Quarantine a flake at first sight with its seed, log and an issue; fix or delete it within a week, because a flake hides real failures. Never retry to green, sleep or weaken an expectation.
+## Read when
+- Choosing which checks prove a claim, or whether an end-to-end journey must run before component checks: [evidence selection](references/evidence-selection.md).
+- A run is slower than estimated, silent, or tempting to restart: [pricing and progress](references/pricing-and-progress.md).
+- A check failed, its observation is ambiguous, or its driver broke: [failure diagnosis](references/failure-diagnosis.md).
+- Before writing or changing a test: [writing tests](references/writing-tests.md).
+- Deleting, merging or auditing tests or a suite, touching a committed snapshot, baseline or record, or doubting a test is the only guard (mutants): [pruning tests](references/pruning-tests.md).
+- Placing a test in a tier, choosing what the landing gate or CI runs, or a build, test or landing is slow: [tiers and landing](references/tiers-and-landing.md).
+- A project picks or revisits its test posture, or the landing tool refuses a test change or a CI budget: [notes](references/notes.md).

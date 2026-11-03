@@ -19,7 +19,7 @@ skills first. Fleet records delivery and session completion; your final message 
    files, the split or move, the test that covers the behavior, and an ETA. Price each item with a
    `Payback:` line per the planning skill (its code-health review step) and drop items above its staffing
    threshold.
-   Test value: read the verification skill's "Delete on sight" classes and walk the test files that changed since the
+   Test value: read the "Delete on sight" classes in the verification skill's references/pruning-tests.md and walk the test files that changed since the
    last review (`git diff --stat <marker sha> origin/main -- <test paths>`; the marker is `~/.local/state/code-health/{{repo}}/review.json`). List each test
    in a delete-on-sight class with the kept test that still protects its guarantee, or say nobody cares about it. For
    every check family you keep (a sweep, a recorded scenario, a property, a boundary check), name one canary: the

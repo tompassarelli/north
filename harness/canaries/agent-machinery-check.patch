@@ -1,9 +1,9 @@
 diff --git a/agent-machinery/skills/verification/SKILL.md b/agent-machinery/skills/verification/SKILL.md
-index 2419be13..5f1b73eb 100644
+index 2f81d44b7..9681fef7d 100644
 --- a/agent-machinery/skills/verification/SKILL.md
 +++ b/agent-machinery/skills/verification/SKILL.md
-@@ -69,3 +69,4 @@ Example matrices re-testing one rule a property should own; our own prose, const
- - Call an external tool once per batch, not per file, row, test or branch; fall back per item only for exact diagnostics on failure, because process start dominates small calls.
- - Bound cost in a deterministic unit (instructions, frames, allocations), never wall seconds, because wall time flakes under load; shrink inputs or move work after landing instead of raising a ceiling. Run a timing check once, under an exclusive capacity lease.
- - Quarantine a flake at first sight with its seed, log and an issue; fix or delete it within a week, because a flake hides real failures. Never retry to green, sleep or weaken an expectation.
+@@ -29,3 +29,4 @@ metadata:
+ - Deleting, merging or auditing tests or a suite, touching a committed snapshot, baseline or record, or doubting a test is the only guard (mutants): [pruning tests](references/pruning-tests.md).
+ - Placing a test in a tier, choosing what the landing gate or CI runs, or a build, test or landing is slow: [tiers and landing](references/tiers-and-landing.md).
+ - A project picks or revisits its test posture, or the landing tool refuses a test change or a CI budget: [notes](references/notes.md).
 +Notes live in ~/notes.
