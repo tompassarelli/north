@@ -10,6 +10,7 @@ Commands:
   citation-check [--root DIR] [--list]          Fail on a doc, skill or hook that cites a north subcommand the CLI does not define
   language-gate --repo DIR --base REV --head REV  Check language policy
   code-health imports                           Resolve the imports of files given as JSON on stdin
+  code-health build-time --repo DIR [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE]  Time cold and one-line-edit cargo build and test --no-run, append to the build-time ledger, exit 1 over the structure.toml threshold
   guard language                                PreToolUse language guard
   grounding [refresh|query|hook|distill|score]    Retrieve existing infrastructure and history
   work [list|search|show|claim|release|need|unneed|close]  Work items

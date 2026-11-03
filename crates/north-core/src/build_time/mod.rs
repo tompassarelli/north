@@ -1,0 +1,142 @@
+mod config;
+mod ledger;
+mod measure;
+mod timings;
+#[cfg(test)]
+mod tests;
+
+use std::path::{Path, PathBuf};
+
+use config::Workspace;
+use ledger::{Row, Verdict};
+use measure::{Cargo, RealCargo};
+
+const USAGE: &str = "usage: north code-health build-time --repo PATH [--workspace REL [--leaf REL --hub REL]] [--samples N] [--ledger FILE]";
+
+#[derive(Debug, Default)]
+struct Options {
+    repo: PathBuf,
+    workspace: Option<String>,
+    leaf: Option<String>,
+    hub: Option<String>,
+    samples: usize,
+    ledger: Option<PathBuf>,
+}
+
+pub fn run(arguments: &[String]) -> u8 {
+    let options = match parse(arguments) {
+        Ok(options) => options,
+        Err(error) => return fail(&error),
+    };
+    let ledger = options.ledger.clone().unwrap_or_else(default_ledger);
+    let host = crate::platform::host::name();
+    match measure_repo(&options, &mut RealCargo, &ledger, &host) {
+        Ok(code) => code,
+        Err(error) => fail(&error),
+    }
+}
+
+fn fail(message: &str) -> u8 {
+    eprintln!("north code-health build-time: {message}");
+    2
+}
+
+fn default_ledger() -> PathBuf {
+    let state = std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
+    state.join("north/build-times.tsv")
+}
+
+fn parse(arguments: &[String]) -> Result<Options, String> {
+    let mut options = Options { samples: 3, ..Options::default() };
+    let mut words = arguments.iter();
+    let mut repo = None;
+    while let Some(flag) = words.next() {
+        let mut value = || words.next().cloned().ok_or(format!("{flag} needs a value\n{USAGE}"));
+        match flag.as_str() {
+            "--repo" => repo = Some(PathBuf::from(value()?)),
+            "--workspace" => options.workspace = Some(value()?),
+            "--leaf" => options.leaf = Some(value()?),
+            "--hub" => options.hub = Some(value()?),
+            "--samples" => options.samples = value()?.parse().map_err(|_| format!("--samples needs a positive count\n{USAGE}"))?,
+            "--ledger" => options.ledger = Some(PathBuf::from(value()?)),
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
+        }
+    }
+    options.repo = repo.ok_or(USAGE)?;
+    if options.samples == 0 || ((options.leaf.is_some() || options.hub.is_some()) && options.workspace.is_none()) {
+        return Err(USAGE.to_owned());
+    }
+    Ok(options)
+}
+
+fn workspaces(options: &Options) -> Result<Vec<Workspace>, String> {
+    let configured = config::read(&options.repo)?;
+    let Some(name) = &options.workspace else {
+        return if configured.is_empty() { Err(format!("{} has no [[build_time]] in structure.toml; pass --workspace, --leaf and --hub", options.repo.display())) } else { Ok(configured) };
+    };
+    let found = configured.into_iter().find(|entry| &entry.workspace == name);
+    let leaf = options.leaf.clone().or_else(|| found.as_ref().map(|entry| entry.leaf.clone()));
+    let hub = options.hub.clone().or_else(|| found.as_ref().map(|entry| entry.hub.clone()));
+    let (Some(leaf), Some(hub)) = (leaf, hub) else { return Err(format!("workspace {name} is not in structure.toml [[build_time]]; pass --leaf and --hub")) };
+    Ok(vec![Workspace { workspace: name.clone(), leaf, hub, threshold_seconds: found.and_then(|entry| entry.threshold_seconds) }])
+}
+
+fn measure_repo(options: &Options, cargo: &mut dyn Cargo, ledger: &Path, host: &str) -> Result<u8, String> {
+    let sha = git(&options.repo, &["rev-parse", "--short=10", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
+    let repo_name = options.repo.canonicalize().ok().and_then(|path| repo_label(&path)).unwrap_or_else(|| "unknown".to_owned());
+    let rustc = tool_version("rustc");
+    let recorded_at = utc_now();
+    let mut over = false;
+    for entry in workspaces(options)? {
+        let root = options.repo.join(&entry.workspace);
+        let times = measure::measure(cargo, &root, &root.join(&entry.leaf), &root.join(&entry.hub), options.samples)?;
+        let verdict = Verdict::of(times.leaf_test, entry.threshold_seconds);
+        let row = Row { recorded_at: &recorded_at, host, repo: &repo_name, workspace: &entry.workspace, sha: &sha, rustc: &rustc, samples: options.samples, times: &times, threshold: entry.threshold_seconds, verdict };
+        ledger::append(ledger, &row)?;
+        println!("{}", report(&row));
+        over |= verdict == Verdict::Over;
+    }
+    println!("recorded in {}", ledger.display());
+    Ok(u8::from(over))
+}
+
+fn report(row: &Row<'_>) -> String {
+    let t = row.times;
+    let limit = match row.threshold {
+        Some(limit) => format!("threshold {limit:.0}s"),
+        None => format!("no threshold (suggest test_no_run_seconds = {:.0})", ledger::suggested_threshold(t.leaf_test)),
+    };
+    format!(
+        "{} {} at {} on {}: cold build {:.1}s; leaf edit build {:.1}s, test --no-run {:.1}s; hub edit build {:.1}s, test --no-run {:.1}s; {limit}: {}\n  critical path {}",
+        row.repo, row.workspace, row.sha, row.host, t.cold_build, t.leaf_build, t.leaf_test, t.hub_build, t.hub_test, row.verdict.word(), t.critical_path
+    )
+}
+
+fn repo_label(path: &Path) -> Option<String> {
+    let top = git(path, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).map(PathBuf::from);
+    let top = top.and_then(|common| common.parent().map(Path::to_path_buf)).unwrap_or_else(|| path.to_path_buf());
+    let name = |path: &Path| path.file_name().map(|name| name.to_string_lossy().into_owned());
+    match name(&top)?.as_str() {
+        "main" => top.parent().and_then(name),
+        other => Some(other.to_owned()),
+    }
+}
+
+fn git(repo: &Path, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new("git").arg("-C").arg(repo).args(args).output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|text| !text.is_empty())
+}
+
+fn tool_version(tool: &str) -> String {
+    std::process::Command::new(tool)
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8_lossy(&output.stdout).split_whitespace().nth(1).map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+fn utc_now() -> String {
+    let now = time::OffsetDateTime::now_utc();
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", now.year(), u8::from(now.month()), now.day(), now.hour(), now.minute(), now.second())
+}

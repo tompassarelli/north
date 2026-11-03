@@ -18,7 +18,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-core/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","code_health","learn","domain","shell","platform","foundation", "crate-roots"]
+may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","code_health","build_time","learn","domain","shell","platform","foundation", "crate-roots"]
 
 [[module]]
 name = "foundation"
@@ -127,6 +127,12 @@ responsibility = "Import resolution for the code-health report, gate and edit ch
 may_use = ["platform", "foundation", "crate-roots"]
 
 [[module]]
+name = "build_time"
+paths = ["crates/north-core/src/build_time/**"]
+responsibility = "Measured Rust edit-to-result times per workspace, their ledger and the split threshold."
+may_use = ["platform", "foundation", "crate-roots"]
+
+[[module]]
 name = "learn"
 paths = ["crates/north-core/src/learn/**"]
 responsibility = "Replay, tuning, measurement and backtests over recorded outcomes."
@@ -149,7 +155,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "learn", "domain", "shell", "platform", "foundation", "crate-roots"]
+may_use = ["tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "verify"
@@ -223,3 +229,9 @@ path = "crates/north-core/src/guard/poll_loop.rs"
 [[registered]]
 id = "guard.clipboard"
 path = "crates/north-core/src/guard/clipboard.rs"
+
+[[build_time]]
+workspace = "."
+leaf = "crates/north-core/src/code_health/source.rs"
+hub = "crates/north-base/src/foundation/mod.rs"
+test_no_run_seconds = 88

@@ -66,6 +66,7 @@ another repo's. A `[[module]]` may set an optional inline `thresholds` table
 with the same keys, overriding repo defaults for files in the first matching module
 (including `hotspot_top`, the rank cutoff for that module's files). Generated files are exempt only when `[[generated]]` names a
 producer that exists in the tree; `[ignore]` covers vendored and fixture data.
+`[[build_time]]` entries (`workspace`, and `leaf` and `hub` files relative to it, `test_no_run_seconds`) set the Rust edit-to-result threshold the build-time measurement checks: the leaf-edit `cargo test --no-run` median may not exceed it.
 
 ## Reading a code-health message
 
