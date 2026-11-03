@@ -14,8 +14,9 @@ use crate::threads::verb::{Context, Failure, event_as};
 const ROLES: [&str; 5] = ["worker", "parent", "proxy", "routine", "probe"];
 const STAGES: [&str; 3] = ["staffed", "review_requested", "landed_at"];
 const CONTEXT: [&str; 8] = ["role", "peak_ctx", "compactions", "handoff_fires", "handoff_ignored", "input_tokens", "cache_read_tokens", "idle_gap_misses"];
+const ACTIVITY: [&str; 4] = ["turns", "tool_calls", "active_min", "wait_min"];
 const CREATED: [&str; 2] = ["codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent"];
-const FINISHED: &str = "INSERT INTO runs(agent, item, follows, session, tier, category, started, ended, minutes, eta_min, tokens, peak_ctx, outcome, report, note, landed, arm, spec, scope, surface, verify, lens, flaws, expects_landing, staffed, review_requested, landed_at, role, compactions, handoff_fires, handoff_ignored, input_tokens, cache_read_tokens, idle_gap_misses) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+const FINISHED: &str = "INSERT INTO runs(agent, item, follows, session, tier, category, started, ended, minutes, eta_min, tokens, peak_ctx, outcome, report, note, landed, arm, spec, scope, surface, verify, lens, flaws, expects_landing, staffed, review_requested, landed_at, role, compactions, handoff_fires, handoff_ignored, input_tokens, cache_read_tokens, idle_gap_misses, turns, tool_calls, active_min, wait_min) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 const BACKFILL: &str = "UPDATE runs SET spec = coalesce(spec, ?), scope = coalesce(scope, ?), surface = coalesce(surface, ?), verify = coalesce(verify, ?), lens = coalesce(lens, ?), flaws = coalesce(flaws, ?), expects_landing = coalesce(?, expects_landing), landed = CASE WHEN coalesce(?, landed_sha) IS NOT NULL THEN 1 ELSE coalesce(?, landed) END, landed_sha = coalesce(?, landed_sha), staffed = coalesce(?, staffed), review_requested = coalesce(?, review_requested), landed_at = coalesce(?, landed_at), item = coalesce(?, item, ?), eta_min = coalesce(eta_min, ?), category = CASE category WHEN 'unknown' THEN coalesce(?, category) ELSE category END WHERE agent = ?";
 
 struct Recorded {
@@ -207,6 +208,12 @@ impl Ingest<'_> {
         values.extend(CONTEXT[1..].iter().map(|key| r.sql(key)).collect::<Result<Vec<_>, _>>()?);
         values.push(agent.clone());
         self.db.execute(&format!("UPDATE runs SET {} WHERE agent = ?", sets.join(", ")), params_from_iter(values))?;
+        if run.worker() && run.status == "finished" {
+            let sets: Vec<String> = ACTIVITY.iter().map(|key| format!("{key} = coalesce({key}, ?)")).collect();
+            let mut values = ACTIVITY.iter().map(|key| r.sql(key)).collect::<Result<Vec<_>, _>>()?;
+            values.push(agent.clone());
+            self.db.execute(&format!("UPDATE runs SET {} WHERE agent = ?", sets.join(", ")), params_from_iter(values))?;
+        }
         let item = run.attributed();
         if run.original {
             self.db.execute(
@@ -324,7 +331,7 @@ fn finished_values(run: &Run, item: Option<&str>, follows: &Value, category: &st
         values.push(r.sql(key)?);
     }
     values.push(Sql::Text(run.role.clone()));
-    for key in &CONTEXT[2..] {
+    for key in CONTEXT[2..].iter().chain(&ACTIVITY) {
         values.push(r.sql(key)?);
     }
     Ok(values)

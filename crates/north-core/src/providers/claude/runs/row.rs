@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
-use super::{int, number, outcome, present};
+use super::{activity, int, number, outcome, present};
 use crate::foundation::clock::Timestamp;
 
 static WAITING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\W*(waiting|i.ll wait|i.ll pick|the test run)").unwrap());
@@ -151,6 +151,7 @@ pub(super) fn build(transcript: &Transcript) -> Option<Map<String, Value>> {
     row.insert("status".into(), json!(if done { "finished" } else { "active" }));
     row.insert("ended".into(), json!(ended));
     row.insert("actual_min".into(), json!((seconds(ended)? - seconds(started.as_str()?)?).div_euclid(60)));
+    activity::insert(&mut row, &activity::measure(lines), seconds(ended)? - seconds(started.as_str()?)?);
     row.insert("tokens".into(), json!(tokens(&assistant)));
     row.insert("peak_ctx".into(), json!(int(&usage["input_tokens"]) + int(&usage["cache_read_input_tokens"]) + int(&usage["cache_creation_input_tokens"])));
     row.insert("outcome".into(), json!(outcome::classify(&report, quiet)));

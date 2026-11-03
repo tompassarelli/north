@@ -102,3 +102,17 @@ fn a_landed_commit_subject_naming_an_issue_is_reported_as_the_runs_landed_ref() 
     let elsewhere = checks(&records, &MainIndex::parse(&format!("{} 2026-10-28T10:00:00Z Another change (north#7)\n", "b".repeat(40))));
     assert_eq!((elsewhere["landed"].clone(), elsewhere["landed_ref"].clone()), (json!(0), Value::Null));
 }
+
+#[test]
+fn a_subagent_transcript_yields_its_turns_tool_calls_and_active_and_wait_minutes() {
+    let text = include_str!("fixtures/subagent.jsonl");
+    let lines: Vec<Value> = text.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    let transcript = super::row::Transcript { lines: &lines, id: "agent-a1", role: "worker", tier: "sonnet", since: "", backfill: false, now: crate::foundation::clock::Timestamp::parse("2026-11-04T12:00:00Z").unwrap() };
+    let row = super::row::build(&transcript).unwrap();
+    assert_eq!(row["status"], "finished");
+    assert_eq!(row["actual_min"], 55);
+    assert_eq!(row["turns"], 5);
+    assert_eq!(row["tool_calls"], 3);
+    assert_eq!(row["active_min"], 13.7);
+    assert_eq!(row["wait_min"], 42.0);
+}

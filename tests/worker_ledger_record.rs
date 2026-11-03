@@ -338,9 +338,10 @@ fn every_provider_is_recorded_with_its_brief_stages_landing_and_roles_and_the_su
     assert_eq!(rig.sql("select tier is not null and category is not null and minutes is not null and tokens is not null and staffed is not null and review_requested is not null from runs where agent='commit1'"), "1");
     assert_eq!(
         rig.sql("select staffed,ifnull(first_commit,''),review_requested,landed_at is not null,ifnull(turns,'') from runs where agent in ('commit1','untracked') order by agent"),
-        "2026-10-08T00:00:00Z||2026-10-08T00:03:00Z|1|\n2026-10-08T00:00:00Z||2026-10-08T00:05:00Z|0|",
+        "2026-10-08T00:00:00Z||2026-10-08T00:03:00Z|1|2\n2026-10-08T00:00:00Z||2026-10-08T00:05:00Z|0|",
         "stage times come from the transcript and origin/main: staffed, first report, landed"
     );
+    assert_eq!(rig.sql("select turns,tool_calls,active_min,wait_min from runs where agent='commit1'"), "2|1|3.0|0.0", "a Claude worker records its assistant messages, tool calls and active and wait minutes");
 
     let out = rig.summary();
     matches(&out, r"tooling\s+gpt-6.1-sol\s+medium\s+1\s+1");

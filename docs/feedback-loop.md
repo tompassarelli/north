@@ -26,7 +26,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.staffed, review_requested, landed_at | north worker-ledger | harness/lib/ledger_context.py delivery_metrics | read | |
 | runs.landed_sha | north worker-ledger | none yet (north#51 box 2) | unread | |
 | runs.first_commit | none (tally-internal, crates/north-core/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
-| runs.turns | none | none | dropped | 4aecdaf9 |
+| runs.turns, tool_calls, active_min, wait_min | crates/north-core/src/providers/claude/runs/activity.rs (Claude workers; recorded by crates/north-core/src/threads/runs/record.rs, filled on `north worker-ledger --backfill` where null); null on rows before 2026-11-04 and on Codex rows | none yet | unread | |
 | runs.peak_ctx, handoff_fires, handoff_ignored | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | bin/capacity-watchdog:465 | read | |
 | runs.compactions, input_tokens, cache_read_tokens, idle_gap_misses | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | bin/threads:1057 context_summary | read | |
 | runs.account, model, effort, fast | bin/threads:902 | bin/threads:1131 delivery_summary | read | |
@@ -59,6 +59,12 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | replay sweep-*.jsonl | harness/scripts/policy-replay.py:590 | crates/north-core/src/agent_config_check/gate.rs | read | |
 | harness/model-catalog.toml | hand | harness/lib/usage.py:31; crates/north-core/src/providers/codex/runs/usage.rs run_usage; crates/north-core/src/providers/claude/runs/telemetry.rs Prices | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
+
+The runs activity signal, per worker run from its transcript (north#255): turns = assistant messages;
+tool_calls = tool_use blocks; active_min = the sum of gaps between consecutive transcript events inside an
+assistant turn (model generation and tool execution), leaving out the gap from an assistant turn's end to the
+next user, human or notice message, with any single gap capped at 10 minutes so a hung tool does not count as
+work; wait_min = wall minutes minus active_min, where wall is the first to the last transcript timestamp.
 
 Claude worker creation (north#35): foreground `SubagentStart` lacks the original prompt, and the child prompt is persisted only after that callback. The supported route is `Agent` with `run_in_background: true`: its `PostToolUse` result has `status=async_launched` and the actual child `agentId`, so `worker-handoff` records the original tool input at launch. `worker-tier-guard` requires this route before any `Follows:` exemption.
 
