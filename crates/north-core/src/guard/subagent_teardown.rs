@@ -74,9 +74,9 @@ pub fn refusal_in(input: &HookInput, fleet: bool) -> Option<String> {
         })
         .collect();
     let advice = if fleet {
-        "Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report."
+        "Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need, and run work that must outlive you as `job-run --notify`."
     } else {
-        "Stop each with TaskStop, then finish your report. A background `safe-push` landing is the one task you may leave running: you resume when it completes."
+        "Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need. A background `safe-push` landing may keep running: you resume when it completes."
     };
     Some(format!("You still have background tasks running: {}. {advice}", names.join(", ")))
 }

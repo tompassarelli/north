@@ -136,7 +136,7 @@ fn teardown_decisions_hold() {
     let running = lane.fixture("running", &start);
     assert_eq!(
         lane.stop(&running).as_deref(),
-        Some("You still have background tasks running: bshell001 (Long soak run). Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.")
+        Some("You still have background tasks running: bshell001 (Long soak run). Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need, and run work that must outlive you as `job-run --notify`.")
     );
     assert_eq!(lane.payload(&running, true), None);
     let with = |lane: &Lane, name: &str, extra: String| lane.fixture(name, &format!("{start}\n{extra}"));
@@ -146,7 +146,7 @@ fn teardown_decisions_hold() {
     let live = lane.fixture("monitor", &monitor(&now, json!(600_000)));
     assert_eq!(
         lane.stop(&live).as_deref(),
-        Some("You still have background tasks running: bmon0001 (CI watch). Stop each with TaskStop (long work that must outlive you runs as `job-run --notify`), then finish your report.")
+        Some("You still have background tasks running: bmon0001 (CI watch). Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need, and run work that must outlive you as `job-run --notify`.")
     );
     let old = lane.fixture("expired", &monitor("2020-01-01T00:00:00.000Z", json!(600_000)));
     assert_eq!(lane.stop(&old), None);
@@ -248,7 +248,7 @@ fn the_refusal_names_only_what_works_without_a_fleet_session() {
     assert!(fleet.contains("job-run --notify"));
     let solo = lane.payload_in(&live, false, false).unwrap();
     assert!(!solo.contains("job-run"), "{solo}");
-    assert!(solo.contains("TaskStop") && solo.contains("safe-push"), "{solo}");
+    assert!(solo.contains("Wait for each build, test or check to finish and act on its result; TaskStop watchers, servers and anything else whose result you no longer need. A background `safe-push` landing may keep running: you resume when it completes."), "{solo}");
 }
 
 fn echoed(tool: &str, input: Value, body: &str) -> String {
