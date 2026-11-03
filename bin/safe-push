@@ -91,6 +91,7 @@ safe_push_cancel() {
 }
 trap safe_push_cancel INT TERM HUP
 original_arguments=("$@")
+safe_push_self=$(readlink -f "${BASH_SOURCE[0]}")
 if [ "${1:-}" = abandon ]; then
   safe_push_internal=1; north land-abandon "${@:2}"; exit $?
 fi
@@ -1182,7 +1183,7 @@ run_land_checks() {
   sync_dependencies || { land_check_skip="skipped: bun install failed"; return 1; }
   land_commands=()
   land_check_commands "$base" "$head" || return 1
-  local workflow actions_pid="" actions_status=0 reason failed=0 published=""
+  local workflow actions_pid="" actions_status=0 reason failed=0 published="" actions_log
   local -a here=() on_actions=()
   workflow=$(land_workflow "$head")
   for command in "${land_commands[@]}"; do
@@ -1195,7 +1196,8 @@ run_land_checks() {
   if [ "${#on_actions[@]}" -gt 0 ]; then
     publication_scan "$base" "$head" || { land_check_skip="skipped: the lane cannot be published to GitHub Actions until the publication scan passes"; return 1; }
     printf "safe-push: running %s land check(s) on GitHub Actions (%s)\n" "${#on_actions[@]}" "$workflow"
-    (drop_lock_fd; north land-actions --workflow "$workflow" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "${on_actions[@]}") &
+    actions_log=$(mktemp)
+    (drop_lock_fd; SAFE_PUSH_LAND_FAILED_LOG="$actions_log" north land-actions --workflow "$workflow" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "${on_actions[@]}") &
     actions_pid=$!
   fi
   if [ "${#here[@]}" -gt 0 ] && [ "${dry:-0}" -eq 0 ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && published=$(land_publish_ref "$head"); then
@@ -1251,9 +1253,28 @@ run_land_checks() {
     if [ "$actions_status" -ne 0 ]; then
       printf "safe-push: land checks on GitHub Actions exited %s; NOT pushed.\n" "$actions_status" >&2
       [ "$failed" -ne 0 ] || failed=$actions_status
+      [ -n "${red_fix:-}" ] || red_main_check "$base" "$actions_log"
     fi
+    rm -f -- "$actions_log"
   fi
   return "$failed"
+}
+
+blocked_by_red_main=""
+red_main_check() {
+  local status=0
+  north land-red-check --main "$1" --log "$2" --lane "$(git symbolic-ref --quiet --short HEAD || true)" || status=$?
+  [ "$status" -ne 3 ] || blocked_by_red_main=$1
+}
+
+retry_after_red_main() {
+  echo "safe-push: blocked by red main, not this lane; it retries once a Main-red: lane lands"
+  stop_final_scans
+  release_push_lock
+  finish_push
+  north land-red-wait --main "$1" || return 0
+  trap - EXIT
+  exec "$safe_push_self" "${original_arguments[@]}"
 }
 
 release_land_check_build() {
@@ -2338,6 +2359,7 @@ while :; do
   run_land_checks "$land_base" "$head_oid" || land_status=$?
   stage "land checks"
   if [ "$land_status" -ne 0 ]; then
+    [ -z "$blocked_by_red_main" ] || retry_after_red_main "$blocked_by_red_main"
     refusals+=("land checks${land_check_skip:+ $land_check_skip}")
     break
   fi

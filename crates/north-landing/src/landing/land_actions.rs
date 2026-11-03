@@ -148,6 +148,9 @@ fn report_failure(id: &str, conclusion: &str) -> u8 {
         .map(|job| format!("{} ({})", text(job, "name"), text(job, "conclusion")))
         .collect();
     if let Ok(log) = gh(&["run", "view", id, "--log-failed"]) {
+        if let Some(path) = std::env::var_os("SAFE_PUSH_LAND_FAILED_LOG") {
+            let _ = std::fs::write(path, &log);
+        }
         let lines: Vec<&str> = log.lines().collect();
         for line in &lines[lines.len().saturating_sub(FAILED_LOG_LINES)..] {
             eprintln!("{line}");

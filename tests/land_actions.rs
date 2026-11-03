@@ -18,11 +18,37 @@ case "$1 $2" in
     git ls-remote --exit-code "$FAKE_ORIGIN" "refs/heads/$ref" >/dev/null || exit 1
     printf 'Land check %s %s' "$head" "$nonce" >"$state/title"
     ;;
-  "run list") printf '[{"databaseId":7,"displayTitle":"%s","url":"https://github.invalid/runs/7","status":"completed","conclusion":"%s"}]\n' "$(cat "$state/title")" "$FAKE_CONCLUSION" ;;
-  "run view") case "$*" in *--log-failed*) echo 'land check exited 23' ;; *) printf '{"jobs":[{"name":"remote check","conclusion":"%s"}]}\n' "$FAKE_CONCLUSION" ;; esac ;;
+  "run list") printf '[{"databaseId":7,"displayTitle":"%s","url":"https://github.invalid/runs/7","status":"completed","conclusion":"%s"}]\n' "$(cat "$state/title")" "$(cat "$state/conclusion" 2>/dev/null || echo "$FAKE_CONCLUSION")" ;;
+  "run view") case "$*" in *--log-failed*) printf '%s\n' "${FAKE_FAILED_LOG:-land check exited 23}" ;; *) printf '{"jobs":[{"name":"remote check","conclusion":"%s"}]}\n' "$FAKE_CONCLUSION" ;; esac ;;
+  "issue list") echo '[]' ;;
+  "issue create") echo 'https://github.invalid/issues/812' ;;
   "repo view") echo PUBLIC ;;
   *) exit 1 ;;
 esac
+"#;
+
+const FAKE_NORTH: &str = r#"#!/bin/sh
+state=$FAKE_GH_STATE
+case "$1 $2" in
+  "capacity offload")
+    printf '%s\n' "$*" >>"$state/offload"
+    if [ "$FAKE_MAIN_RED" = 1 ]; then echo '---- shared_test stdout ----'; exit 1; fi
+    echo 'test shared_test ... ok'
+    exit 0
+    ;;
+  "fleet list") echo '[{"name":"worker-1","parent":"lead-1"}]'; exit 0 ;;
+  "fleet send")
+    printf '%s\t%s\n' "$3" "$4" >>"$state/events"
+    if [ ! -e "$state/conclusion" ]; then
+      git -C "$FAKE_FIXER" pull -q origin main
+      git -C "$FAKE_FIXER" commit -q --allow-empty -m 'Fix shared_test' -m 'Main-red: #812'
+      git -C "$FAKE_FIXER" push -q origin HEAD:main
+      echo success >"$state/conclusion"
+    fi
+    exit 0
+    ;;
+esac
+exec "$REAL_NORTH" "$@"
 "#;
 
 const REMOTE_CHECK: &str = "exit 23";
@@ -71,7 +97,10 @@ impl Landing {
         git(&repo, &["switch", "-qc", "lane"]);
         executable(&tools.join("gh"), FAKE_GH);
         executable(&tools.join("gitleaks"), "#!/bin/sh\nexit 0\n");
-        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
+        executable(&tools.join("north"), FAKE_NORTH);
+        git(&root, &["clone", "-q", origin.to_str().unwrap(), "fixer"]);
+        git(&root.join("fixer"), &["config", "user.name", "Fixer"]);
+        git(&root.join("fixer"), &["config", "user.email", "fixer@example.invalid"]);
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("home/.local/state/north/current/north")).unwrap();
         Landing { _fixture: fixture, root, repo, origin }
     }
@@ -83,6 +112,10 @@ impl Landing {
     }
 
     fn land(&self, conclusion: &str) -> Output {
+        self.land_with(conclusion, &[])
+    }
+
+    fn land_with(&self, conclusion: &str, extra: &[(&str, &str)]) -> Output {
         let mut paths = vec![self.root.join("tools")];
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
         Command::new(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/safe-push"))
@@ -96,6 +129,11 @@ impl Landing {
             .env("FAKE_ORIGIN", &self.origin)
             .env("FAKE_CONCLUSION", conclusion)
             .env("CHECK_LOG", self.root.join("check.log"))
+            .env("REAL_NORTH", env!("CARGO_BIN_EXE_north"))
+            .env("FAKE_FIXER", self.root.join("fixer"))
+            .env("NORTH_FLEET_SESSION", "worker-1")
+            .env("NORTH_RED_WAIT_POLL", "1")
+            .envs(extra.iter().copied())
             .env_remove("GITHUB_ACTIONS")
             .env_remove("SAFE_PUSH_TEST_REAL_NORTH")
             .output()
@@ -108,6 +146,10 @@ impl Landing {
 
     fn dispatched(&self) -> String {
         fs::read_to_string(self.root.join("gh/commands")).unwrap_or_default()
+    }
+
+    fn state(&self, name: &str) -> String {
+        fs::read_to_string(self.root.join("gh").join(name)).unwrap_or_default()
     }
 
     fn local_runs(&self) -> usize {
@@ -135,4 +177,39 @@ fn a_failed_actions_run_refuses_the_landing_and_removes_its_scratch_branch() {
     assert!(text(&output).contains("runs on this host because it reads this host's checkouts"), "{}", text(&output));
     assert_eq!(landing.local_runs(), 1, "the local-only check ran here");
     assert_eq!(git(&landing.origin, &["for-each-ref", "refs/heads/land-check"]), "", "the scratch branch is deleted");
+}
+
+const SHARED_FAILURE: &str = "remote check\tLand check\t2026-11-04T06:33:01.1234567Z ---- shared_test stdout ----";
+
+#[test]
+fn a_test_that_also_fails_on_mains_own_tree_raises_the_red_main_event_and_retries_after_the_fix() {
+    let landing = Landing::new();
+    let lane = landing.lane_commit();
+
+    let output = landing.land_with("failure", &[("FAKE_FAILED_LOG", SHARED_FAILURE), ("FAKE_MAIN_RED", "1")]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(text(&output).contains("blocked by red main, not this lane"), "{}", text(&output));
+    assert!(landing.state("offload").contains("--exact 'shared_test'"), "only the failing test reruns on main: {}", landing.state("offload"));
+    let events = landing.state("events");
+    let targets: Vec<&str> = events.lines().filter_map(|line| line.split('\t').next()).collect();
+    assert_eq!(targets, ["proxy", "lead-1"], "{events}");
+    assert!(events.contains("main is red at") && events.contains("shared_test fails on main's own tree") && events.contains("Main-red: #812"), "{events}");
+    assert!(git(&landing.origin, &["log", "--format=%s", "main"]).starts_with("Lane change\nFix shared_test"), "the lane landed after the fix");
+    assert_ne!(landing.landed(), lane);
+}
+
+#[test]
+fn a_test_that_fails_only_on_the_lane_refuses_the_landing_without_an_event() {
+    let landing = Landing::new();
+    let before = landing.landed();
+    landing.lane_commit();
+
+    let output = landing.land_with("failure", &[("FAKE_FAILED_LOG", SHARED_FAILURE), ("FAKE_MAIN_RED", "0")]);
+
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert_eq!(landing.landed(), before);
+    assert!(text(&output).contains("pass on main's own tree"), "{}", text(&output));
+    assert!(!text(&output).contains("blocked by red main"), "{}", text(&output));
+    assert_eq!(landing.state("events"), "", "no red-main event for a lane's own failure");
 }
