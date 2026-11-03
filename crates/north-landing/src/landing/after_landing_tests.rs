@@ -93,3 +93,25 @@ fn a_failing_repo_check_files_its_output_on_the_landed_commit_and_a_passing_one_
     let body = created(NEXT, "2026-11-04", &failures);
     assert!(body.contains("gates: standalone-parity") && body.contains("first divergent frame 412"), "{body}");
 }
+
+#[test]
+fn a_linked_path_from_the_main_checkout_is_present_for_a_repo_check() {
+    let root = std::env::temp_dir().join(format!("north-after-landing-link-{}", std::process::id()));
+    let main = root.join("main");
+    let tree = root.join("tree");
+    fs::create_dir_all(main.join("ts/node_modules/wisp")).unwrap();
+    fs::create_dir_all(tree.join("ts")).unwrap();
+    fs::write(main.join("ts/node_modules/wisp/marker"), "x").unwrap();
+    link_paths(&main, &tree, "ts/node_modules\n\n").unwrap();
+    let checks = repo_checks("needs-link :: test -e ts/node_modules/wisp/marker");
+    let failures = repo_check_failures(&tree, &checks);
+    let _ = fs::remove_dir_all(&root);
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn the_checkout_on_main_is_the_link_source_even_when_another_worktree_is_listed_first() {
+    let listing = "worktree /code/x/worktrees/test-loop\nHEAD aaa\nbranch refs/heads/test-loop\n\nworktree /code/x/main\nHEAD bbb\nbranch refs/heads/main\n\nworktree /code/x/other\nHEAD ccc\ndetached\n";
+    assert_eq!(main_worktree(listing), Some(PathBuf::from("/code/x/main")));
+    assert_eq!(main_worktree("worktree /code/y\nHEAD aaa\ndetached\n"), Some(PathBuf::from("/code/y")));
+}

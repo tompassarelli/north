@@ -9,7 +9,7 @@ use crate::platform::github;
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH
 
 Run safe-push's after-landing gates and each `after-landing.check = NAME :: COMMAND`
-in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
+in HEAD's .safe-push on BASE..HEAD in a detached worktree of HEAD, with each `mutant.link` and `after-landing.link` path linked in from the checkout on main, then add a section for HEAD naming every gate that failed to the repository's one open After-landing gate debt issue; a gate already marked
 for HEAD is not added again.";
 const MARKER: &str = "<!-- after-landing-gate: ";
 const TAIL_LINES: usize = 15;
@@ -204,14 +204,9 @@ fn run_gates(main: &Path, args: &Args) -> Result<Vec<Failure>, String> {
 }
 
 fn gates_in(main: &Path, tree: &Path, report: &Path, args: &Args) -> Result<Vec<Failure>, String> {
-    let links = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "mutant.link"]).unwrap_or_default();
-    for link in links.lines().filter(|link| !link.is_empty()) {
-        let source = main.join(link);
-        let target = tree.join(link);
-        if source.exists() && fs::symlink_metadata(&target).is_err() {
-            symlink(&source, &target).map_err(|error| format!("cannot link {link}: {error}"))?;
-        }
-    }
+    let mut links = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "mutant.link"]).unwrap_or_default();
+    links.push_str(&git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.link"]).unwrap_or_default());
+    link_paths(main, tree, &links)?;
     let status = Command::new(&args.safe_push)
         .args(["--after-landing", &args.base, &args.head])
         .arg(report)
@@ -234,6 +229,17 @@ fn gates_in(main: &Path, tree: &Path, report: &Path, args: &Args) -> Result<Vec<
     let checks = git(tree, &["config", "--blob", "HEAD:.safe-push", "--get-all", "after-landing.check"]).unwrap_or_default();
     failures.extend(repo_check_failures(tree, &repo_checks(&checks)));
     Ok(failures)
+}
+
+fn link_paths(main: &Path, tree: &Path, links: &str) -> Result<(), String> {
+    for link in links.lines().map(str::trim).filter(|link| !link.is_empty()) {
+        let source = main.join(link);
+        let target = tree.join(link);
+        if source.exists() && fs::symlink_metadata(&target).is_err() {
+            symlink(&source, &target).map_err(|error| format!("cannot link {link}: {error}"))?;
+        }
+    }
+    Ok(())
 }
 
 pub fn repo_checks(config: &str) -> Vec<(String, String)> {
@@ -279,12 +285,21 @@ fn labels(repo: &str) -> Result<Vec<String>, String> {
 
 fn main_checkout(git_dir: &Path) -> Result<PathBuf, String> {
     let listing = git(Path::new("/"), &["--git-dir", &git_dir.to_string_lossy(), "worktree", "list", "--porcelain"])?;
-    listing
-        .lines()
-        .next()
-        .and_then(|line| line.strip_prefix("worktree "))
-        .map(PathBuf::from)
-        .ok_or_else(|| format!("{} lists no main worktree", git_dir.display()))
+    main_worktree(&listing).ok_or_else(|| format!("{} lists no main worktree", git_dir.display()))
+}
+
+pub fn main_worktree(listing: &str) -> Option<PathBuf> {
+    let mut first = None;
+    for block in listing.split("\n\n") {
+        let path = block.lines().find_map(|line| line.strip_prefix("worktree ")).map(PathBuf::from);
+        if first.is_none() {
+            first.clone_from(&path);
+        }
+        if block.lines().any(|line| line == "branch refs/heads/main") {
+            return path;
+        }
+    }
+    first
 }
 
 pub fn repo_slug(url: &str) -> Option<String> {
