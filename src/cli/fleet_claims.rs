@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn an_owner_qualified_task_releases_the_item_name_the_claim_was_recorded_under() {
-        assert_eq!(canonical("tompassarelli/smashcraft#492"), "makgora#492");
+        assert_eq!(canonical("tompassarelli/makgora#492"), "makgora#492");
         assert_eq!(canonical("makgora#492"), "makgora#492");
     }
 }

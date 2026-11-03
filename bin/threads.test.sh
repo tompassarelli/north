@@ -39,24 +39,24 @@ check() {
 }
 t() { "$threads" "$@" 2>&1; }
 
-t claim smashcraft#3 --by alice >/dev/null
+t claim makgora#3 --by alice >/dev/null
 
-t release smashcraft#3 --by alice --to bob >/dev/null
+t release makgora#3 --by alice --to bob >/dev/null
 
-brief=$'Goal: x\nItem: tompassarelli/smashcraft#3. Follows: a111. Category: Tooling. Arm: escalate.\nETA 45 min.'
+brief=$'Goal: x\nItem: tompassarelli/makgora#3. Follows: a111. Category: Tooling. Arm: escalate.\nETA 45 min.'
 printf '%s\n' \
-  "$(jq -cn '{id:"a111",ended:"2026-10-08T01:00:00Z",tier:"high",actual_min:30,eta_min:20,tokens:1000,outcome:"handoff",note:"~/h/a111.md",brief:"Item: smashcraft#3"}')" \
+  "$(jq -cn '{id:"a111",ended:"2026-10-08T01:00:00Z",tier:"high",actual_min:30,eta_min:20,tokens:1000,outcome:"handoff",note:"~/h/a111.md",brief:"Item: makgora#3"}')" \
   "$(jq -cn --arg b "$brief" '{id:"a222",ended:"2026-10-08T02:00:00Z",tier:"xhigh",actual_min:50,eta_min:45,tokens:2000,outcome:"done",brief:$b}')" |
   "$threads" ingest 2>/dev/null
-out=$(t show smashcraft#3; t summary)
+out=$(t show makgora#3; t summary)
 check '[spec] runs take Item, Follows, Category and Arm from the brief; a new agent is a change of hands' \
   'grep -q "a222 xhigh follows a111  50m/45m ETA  done" <<<"$out" && grep -q "handoff  a111 -> a222" <<<"$out" && grep -q "note ~/h/a111.md" <<<"$out" && grep -qE "^tooling +xhigh +escalate +1 +1 +100%" <<<"$out"'
 
 row() { jq -cn "$@"; }
 
-# smashcraft#5 is closed (not in the open set): a medium run, then a high one after it.
-{ row '{id:"b1",ended:"2026-10-08T04:00:00Z",tier:"medium",actual_min:10,tokens:3000,outcome:"not done",brief:"Item: smashcraft#5 Category: bug-known-cause"}'
-  row '{id:"b2",ended:"2026-10-08T05:00:00Z",tier:"high",actual_min:10,tokens:5000,outcome:"done",brief:"Item: smashcraft#5 Follows: b1 Category: frobnicate"}'
+# makgora#5 is closed (not in the open set): a medium run, then a high one after it.
+{ row '{id:"b1",ended:"2026-10-08T04:00:00Z",tier:"medium",actual_min:10,tokens:3000,outcome:"not done",brief:"Item: makgora#5 Category: bug-known-cause"}'
+  row '{id:"b2",ended:"2026-10-08T05:00:00Z",tier:"high",actual_min:10,tokens:5000,outcome:"done",brief:"Item: makgora#5 Follows: b1 Category: frobnicate"}'
 } | "$threads" ingest 2>/dev/null
 out=$(t summary)
 check '[spec] a category outside the fixed list counts as unknown' 'grep -qE "^unknown +high +1 " <<<"$out"'
@@ -256,7 +256,7 @@ out=$(t recommend 'Category: native-check')
 check '[spec] success is Done with no later Follows: run, and landed only when the run committed' \
   'grep -qx "  claude:haiku       60% of 5  \$ n/a (priced n=0)" <<<"$out"'
 { row '{id:"u1",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"unclear",brief:"Category: native-check"}'
-  row '{id:"u2",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"unclear",brief:"Item: smashcraft#7 Category: native-check"}'
+  row '{id:"u2",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"unclear",brief:"Item: makgora#7 Category: native-check"}'
 } | "$threads" ingest 2>/dev/null
 out=$(t recommend 'Category: native-check'; t summary)
 check '[recorded] an unclear run with no Item is unjudged and left out of success; a briefed unclear run is a failure' \
@@ -322,7 +322,7 @@ for i in range(1000):
 db.commit()
 for ref, _ in rng.sample(items, 50):
     assert mod.main(["show", ref]) == 0
-    assert mod.main(["need", ref, "smashcraft#3"]) == 0
+    assert mod.main(["need", ref, "makgora#3"]) == 0
 assert mod.main(["ready"]) == 0
 trace = open(mod.os.environ["GH_TRACE"]).read()
 leaked = [r for r, t in items if r in trace or t in trace]

@@ -14,8 +14,6 @@ static REFS_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bRefs\s*:
 pub fn repo_alias(name: &str) -> &str {
     match name {
         "nixos-config" => "firn",
-        "smashcraft" => "makgora",
-        "smashcraft-client" => "makgora-client",
         other => other,
     }
 }

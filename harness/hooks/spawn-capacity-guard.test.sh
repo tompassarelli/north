@@ -160,11 +160,11 @@ cat >"$SCRATCH/orchestration.toml" <<'TOML'
 labels = { "9b3a7fb5" = "a" }
 [projects.galileo]
 priority = 1
-[projects.smashcraft]
+[projects.makgora]
 priority = 2
 TOML
 status 17 5
-printf '[{"name":"sc","conversation":"s","task_ref":"smashcraft#7","status":"working"}]\n' >"$FLEET_JSON"
+printf '[{"name":"sc","conversation":"s","task_ref":"makgora#7","status":"working"}]\n' >"$FLEET_JSON"
 dodeny "$(agent "$worker")" 'a lower-priority domain stops at 80% of the limit'
 printf '[{"name":"mu","conversation":"s","task_ref":"galileo#9","status":"working"}]\n' >"$FLEET_JSON"
 expect_allow "$(agent "$worker")" 'the first-priority domain keeps the headroom'
@@ -217,7 +217,7 @@ labels = { "9b3a7fb5" = "a" }
 priority = 1
 target = 2999-11-01
 drain = { "claude:b" = "tom: 2026-10-12 fixture grant to drain claude:b for this target", "codex" = "tom: 2026-10-12 fixture grant to drain codex for this target" }
-[projects.smashcraft]
+[projects.makgora]
 priority = 2
 [projects.north]
 priority = 3

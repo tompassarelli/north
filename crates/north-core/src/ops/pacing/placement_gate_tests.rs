@@ -403,7 +403,7 @@ fn a_prose_item_takes_its_repository_from_the_launch_directory_then_the_task() {
 #[test]
 fn a_declared_repository_or_an_issue_reference_outranks_the_launch_directory() {
     let cwd = Some(std::path::Path::new("/home/tom/code/wisp/main"));
-    let declared = "Repository: smashcraft\nItem: prose\nNeeds: native\n";
+    let declared = "Repository: makgora\nItem: prose\nNeeds: native\n";
     assert_eq!(gate::repository(&gate::anchored(declared, cwd, None)), "makgora");
     let referenced = "Item: north#12 tidy\nNeeds: native\n";
     assert_eq!(gate::repository(&gate::anchored(referenced, cwd, Some("wisp#3"))), "north");

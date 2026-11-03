@@ -101,10 +101,10 @@ fn test_recorded_11_oct_idle_capacity() {
     let reuse = pushed_reuse(now);
     let quiet: Vec<(f64, u64)> = (0..5).map(|i| (now - 900.0 - 60.0 + 300.0 * f64::from(i), 1)).collect();
     let manifest = "wc3-controller-model = { git = \"https://github.com/tompassarelli/wc3-controller\", tag = \"v0.3.3\" }\n".to_owned();
-    let pins = cargo_pins(&["[package]\nname = \"smashcraft\"\n".to_owned(), manifest]);
+    let pins = cargo_pins(&["[package]\nname = \"makgora\"\n".to_owned(), manifest]);
     assert_eq!(pins, [("tompassarelli/wc3-controller".to_owned(), "v0.3.3".to_owned())]);
     let build = |conclusion: &str| Build { dependency: pins[0].0.clone(), tag: pins[0].1.clone(), status: "completed".into(), conclusion: conclusion.into() };
-    let nodes = vec![Node { id: "smashcraft-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }];
+    let nodes = vec![Node { id: "makgora-parent".into(), parent: None, active: true, cwd: "/home/tom/code/makgora/main".into() }];
     let red = [build("failure")];
     let flagged = capacity_row(now, &Capacity { pending: 17, samples: &quiet, pairs: &lines, flags: &reuse, builds: &red });
     let (_, actions) = alert_plan(std::slice::from_ref(&flagged), &State::new(), now, &nodes);
@@ -147,7 +147,7 @@ fn test_recorded_11_12_oct_landings_without_closures() {
         .collect();
     let directory = tempfile::tempdir().unwrap();
     let config = directory.path().join("orchestration.toml");
-    std::fs::write(&config, "[projects.smashcraft]\ntarget = \"2026-10-13T03:45:00Z\"\n[projects.north]\ntarget = \"2026-10-12T15:45:00Z\"\n[projects.wisp]\n").unwrap();
+    std::fs::write(&config, "[projects.makgora]\ntarget = \"2026-10-13T03:45:00Z\"\n[projects.north]\ntarget = \"2026-10-12T15:45:00Z\"\n[projects.wisp]\n").unwrap();
     let targets = project_targets(&config);
     assert_eq!(targets.keys().map(String::as_str).collect::<Vec<_>>(), ["makgora", "north"]);
     let claims = BTreeMap::new();

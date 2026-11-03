@@ -32,7 +32,7 @@ git -C "$scratch/seed" commit -qm base --allow-empty
 git -C "$scratch/seed" remote add origin "$scratch/origin.git"
 git -C "$scratch/seed" push -q origin main
 git -C "$scratch/seed" checkout -qb feature/resume-10
-git -C "$scratch/seed" commit -qm $'Resume fixture\n\nRefs smashcraft#10' --allow-empty
+git -C "$scratch/seed" commit -qm $'Resume fixture\n\nRefs makgora#10' --allow-empty
 git -C "$scratch/seed" tag archive/feature/resume-10
 git -C "$scratch/seed" push -q origin refs/tags/archive/feature/resume-10
 git -C "$scratch/seed" checkout -q main
