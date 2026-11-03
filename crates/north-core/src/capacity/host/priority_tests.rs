@@ -44,7 +44,7 @@ fn an_agent_asking_for_the_tom_class_is_refused_and_told_which_class_to_use() {
 
 #[test]
 fn the_tom_build_watcher_play_helper_and_proxy_preview_are_admitted_to_the_tom_class() {
-    for owner in ["smashcraft:tom-build-window", "smashcraft:play-helper", "tom-preview"] {
+    for owner in ["makgora:tom-build-window", "makgora:play-helper", "tom-preview"] {
         assert_eq!(tom_class_refusal(Some(owner)), None, "{owner}");
     }
 }

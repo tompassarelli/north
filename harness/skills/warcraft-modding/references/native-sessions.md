@@ -3,7 +3,7 @@
 `wisp play` is the owner's normal playable path. In Mak'gora it resolves
 current main and builds the matching map and helper; never repoint it at an
 experiment. Use `fresh`, captures or `accept` for named test candidates,
-installed under Maps/00-Smashcraft/tests. Keep the latest playable map and two
+installed under Maps/00-Makgora/tests. Keep the latest playable map and two
 previous versions visible at the top level, with older versions in older/. A
 script-only rebuild does not update the map's in-game title or missing imports.
 

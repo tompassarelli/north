@@ -19,7 +19,7 @@ and map compilation have different costs and must not be mixed into its ratio.
 A look, animation or VFX capture for iteration or Tom's review is a Wisp window capture, not a client run; `makgora` (shared rules) owns that rule and its command, and a Warcraft client or pair is for desync, net and release-acceptance checks only.
 
 Keep game-specific procedures in the consuming repository, such as
-`smashcraft-tools wc3-procedure` (makgora:tools/smashcraft-tools) and makgora:tools/wc3-procedures/ records. The
+`makgora-tools wc3-procedure` (makgora:tools/makgora-tools) and makgora:tools/wc3-procedures/ records. The
 generic private-desktop skill continues to own private display/capture transport.
 
 A record needs the named action, starting screen/phase, desired ending
@@ -107,7 +107,7 @@ when selecting controls. A missing OCR label is not evidence of a frozen game.
 # Owner play versus experimental candidates
 
 Mak'gora's `wisp play` resolves current main, builds its matching map and helper,
-and maintains Maps/00-Smashcraft with a correctly titled latest map, two previous
+and maintains Maps/00-Makgora with a correctly titled latest map, two previous
 versions, older/, and tests/. Experimental native procedures name their candidate
 through `fresh`, captures or `accept` and install into tests/. A script-only
 rebuild preserves old titles and imports, so it cannot deliver changed art or

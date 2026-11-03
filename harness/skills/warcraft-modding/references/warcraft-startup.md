@@ -107,7 +107,7 @@ from its visible account label. A socket bound to an address no longer on the
 host, repeated authentication RPC timeouts, or explicit W3 SSO-generation
 failure means the launcher is unhealthy; do not launch or request another sign-in
 in that state. A launcher may start Warcraft even after SSO generation fails.
-Use `smashcraft-tools wc3-auth-transport` (makgora:tools/smashcraft-tools); its source-present result
+Use `makgora-tools wc3-auth-transport` (makgora:tools/makgora-tools); its source-present result
 is not proof of authenticated readiness. Keep the network/VPN route stable
 during retained sessions. A reconnect can reveal absent saved login tokens;
 classify that challenge separately from transport failure. Use persistent login

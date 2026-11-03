@@ -33,7 +33,7 @@ line of ~/.local/share/makgora-build-inputs/playable-00NN/build*.log is
 its exact command (makgora:docs/playable-00NN.md can lag behind it):
 `bun wisp build --profile main|playable --base BASE.w3m --container CONTAINER.w3x --assets DIR --summon DIR --name NAME --out OUT.w3x`.
 A diagnostic build takes its own name and folder, never the next
-`Smashcraft 0.0.N`; only a release candidate takes that number.
+`Mak'gora 0.0.N`; only a release candidate takes that number.
 
 ## Native check by the native owner
 
