@@ -25,11 +25,13 @@ while :; do
     i=$((i + 1))
   done
   [ "$waited" -lt @LOCK_WAIT@ ] || { echo "offload: all @SLOTS@ $name slots stayed busy for @LOCK_WAIT@ s" >&2; exit 96; }
+  [ $((waited % 60)) -ne 0 ] || echo "offload: all @SLOTS@ $name slots busy for ${waited}s, waiting up to @LOCK_WAIT@ s; held by: $(cat "$root/$name".holder "$root/$name"-*.holder 2>/dev/null | tr '\n' ';')" >&2
   sleep 2
   waited=$((waited + 2))
 done
 bundle=$root/$s.bundle
 slot=$root/$s
+printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
 cleanup() {
   rm -f "$bundle"
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
