@@ -10,6 +10,7 @@ native-item-guard.sh
 native-launch-guard.sh
 resource-safe-search-guard.sh
 session-kill-guard.sh
+spawn-capacity-guard.sh
 subagent-teardown.sh
 unlanded-work.sh
 worker-handoff.sh

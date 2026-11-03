@@ -33,7 +33,7 @@ south `agents/catalog-config.json`; gate rows come from `bin/safe-push` and
 | A worker issue names a `Blocks: REPO#N` box, a `Defect:` line or its own launch item, and never splits or follows up its claimed issue or repeats an open title | `gh issue create` guard (`crates/north-core/src/guard/issue_filing.rs`) | Claude |
 | Builds on a `lease_builds` host wait for a capacity lease, however started | `cargo` and `bun` shims and `depbox` through `north capacity gate` | Claude, Codex |
 | A subagent does not finish while its background shells or Monitor watches run; a `job-run --notify` job detaches and survives it | `north-hook` (subagent-teardown) | Claude |
-| No new local worker once capacity leases hold the CPU limit or desktop pressure is above 20% | `spawn-capacity-guard` | Claude |
+| No new local worker once capacity leases hold the CPU limit or desktop pressure is above 20% | `north-hook` (`guard/spawn_capacity.rs`) | Claude |
 | Wine, Proton, steam-run or Warcraft .exe launches run inside a machine-capacity native session | `native-launch-guard` through `north-hook` | Claude |
 | Rust PreBash routes cargo test, TypeScript builds and multi-file Bun tests through machine-capacity; refuses unleased builds, full suites, renders and CPU throttles | `heavy-command-guard` through `north-hook` | Claude, Codex |
 | Rust PreBash refuses a foreground sleep or `until`/`while` sleep loop that can wait over 60 s, naming `job-run --notify` and Monitor | `poll-loop-guard` through `north-hook` | Claude, Codex |
