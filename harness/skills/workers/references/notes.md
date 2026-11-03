@@ -75,7 +75,7 @@ a rule when its numbers move.
 ## Compute routing (agreed with Tom 2026-10-10)
 
 - A cloud run costs only the plan usage a local worker would, machine
-  included. Send code-only Smashcraft and Wisp items to cloud workers ([cloud.md](cloud.md))
+  included. Send code-only Mak'gora and Wisp items to cloud workers ([cloud.md](cloud.md))
   first: 4 cores per run, no cap on runs.
 - Send parallel batch work (balance and CPU fields, suites, soaks) to GitHub
   runners through `github`: the hosted runners and the `farm-big` runners on

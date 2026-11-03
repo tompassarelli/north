@@ -13,7 +13,7 @@ Read this to write or change workflows, dispatch or wait on runs, or run many ag
 - Limit a workflow to about 8 concurrent jobs with `strategy.max-parallel`, so CI's first job can start within one minute.
 - Use fewer, larger shards, because each shard pays checkout, setup and queue cost.
 - Treat the legal 256-job matrix as a ceiling, not a target, because it alone exceeds the account pool.
-- Route heavy shard jobs with `runs-on: ${{ vars.FARM_RUNNER || 'ubuntu-latest' }}` (smashcraft and wisp: the `farm-big` self-hosted box, never for pull requests), and delete the variable when the box is gone, because those jobs otherwise queue instead of falling back to hosted runners.
+- Route heavy shard jobs with `runs-on: ${{ vars.FARM_RUNNER || 'ubuntu-latest' }}` (makgora and wisp: the `farm-big` self-hosted box, never for pull requests), and delete the variable when the box is gone, because those jobs otherwise queue instead of falling back to hosted runners.
 - Set CI concurrency to `${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`, and keep fixed non-cancelling groups for landings only, because superseded CI wastes slots while a cancelled landing loses work.
 - Exclude farm/tests and account for replacement of older pending runs, because a pending run in a group is replaced by the next.
 - Dispatch Balance, Playtest and soak runs only on a commit already on main, in a per-workflow `cancel-in-progress` group, and cancel them when that commit is reverted, because results on other commits answer nothing.

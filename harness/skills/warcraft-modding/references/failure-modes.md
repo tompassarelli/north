@@ -1,12 +1,12 @@
-# Failure modes seen in Smashcraft
+# Failure modes seen in Mak'gora
 
-Symptom, cause, rule. Smashcraft, 6-7 Oct 2026.
+Symptom, cause, rule. Mak'gora, 6-7 Oct 2026.
 
 - "no element 1 in a table of 1" every tick at stage select: presentation built
   for one selection (stage decks drawn at shell start) outlived it. Key
   persistent presentation by the selection it was built for; headless journeys
   step through stage and fighter selection with computer slots
-  (smashcraft:ts/test/bot-selection.test.ts).
+  (makgora:ts/test/bot-selection.test.ts).
 - Bun and Lua tapes diverge (stray element, electric): a scratch object reused
   across hits/throws leaked fields; Bun runs all tapes in one process, Lua one
   process per tape. Reset every field of a reused scratch object; tapes catch it
@@ -40,17 +40,17 @@ Symptom, cause, rule. Smashcraft, 6-7 Oct 2026.
   Git; build into private staging, publish by one rename under a per-key lock.
 - A panel button draws and passes every headless test, but clicks are dead or
   partly live (Controls "Done" took clicks on its leftmost ~5% at 2880x1920,
-  2026-11-03; smashcraft#1047): Warcraft's stock command, item, hero, minimap
+  2026-11-03; makgora#1047): Warcraft's stock command, item, hero, minimap
   and system-button frames lie over the panel and take clicks even when not
   drawn; `BlzHideOriginFrames(true)` leaves them in place, and the headless
   frame model holds only map-made frames, so it cannot see them. A native
   bisect at 3:2 found `ConsoleUI` children 1, 5 and 7 (the command bar and two
   sibling bars) as the frames that swallowed the clicks. Hide and disable each
-  stock frame by name at startup (smashcraft:ts/src/game/ui/stockClicks.ts and
+  stock frame by name at startup (makgora:ts/src/game/ui/stockClicks.ts and
   stockFrames.ts) and click every panel button natively at several points
   across its width.
   Never hide a stock frame as a group: `ConsoleUIBackdrop` is the parent of our
   full-window backdrops, the pause screen and the fighter markers, the game UI
   holds our panels, and the chat box and world view stop working when the stock
-  UI is hidden wholesale (smashcraft:docs/stock-frames.md). Test the all-hidden
+  UI is hidden wholesale (makgora:docs/stock-frames.md). Test the all-hidden
   state before shipping.

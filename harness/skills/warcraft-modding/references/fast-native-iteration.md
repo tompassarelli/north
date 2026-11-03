@@ -16,10 +16,10 @@ and map compilation have different costs and must not be mixed into its ratio.
 
 ## Record only useful chains
 
-A look, animation or VFX capture for iteration or Tom's review is a Wisp window capture, not a client run; `smashcraft` (shared rules) owns that rule and its command, and a Warcraft client or pair is for desync, net and release-acceptance checks only.
+A look, animation or VFX capture for iteration or Tom's review is a Wisp window capture, not a client run; `makgora` (shared rules) owns that rule and its command, and a Warcraft client or pair is for desync, net and release-acceptance checks only.
 
 Keep game-specific procedures in the consuming repository, such as
-`smashcraft-tools wc3-procedure` (smashcraft:tools/smashcraft-tools) and smashcraft:tools/wc3-procedures/ records. The
+`smashcraft-tools wc3-procedure` (makgora:tools/smashcraft-tools) and makgora:tools/wc3-procedures/ records. The
 generic private-desktop skill continues to own private display/capture transport.
 
 A record needs the named action, starting screen/phase, desired ending
@@ -87,7 +87,7 @@ its missing signal and limitation stated.
 
 The retained four-screen OCR benchmark measured a 3.41× observation-stage gain
 (24/24 fixture classifications), not the requested 5–10× complete warm map loop.
-See smashcraft:docs/wc3-screen-state.md for individual samples and scope.
+See makgora:docs/wc3-screen-state.md for individual samples and scope.
 
 ## Verified warm exit and native menu observation
 
@@ -106,7 +106,7 @@ white map UI. Preserve fresh capture success and inspect label bounding boxes
 when selecting controls. A missing OCR label is not evidence of a frozen game.
 # Owner play versus experimental candidates
 
-Smashcraft's `wisp play` resolves current main, builds its matching map and helper,
+Mak'gora's `wisp play` resolves current main, builds its matching map and helper,
 and maintains Maps/00-Smashcraft with a correctly titled latest map, two previous
 versions, older/, and tests/. Experimental native procedures name their candidate
 through `fresh`, captures or `accept` and install into tests/. A script-only

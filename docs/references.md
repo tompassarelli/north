@@ -167,7 +167,7 @@ Skills that cite many sources keep them beside the skill, so they are not repeat
 - [harness/skills/warcraft-modding/references/lua-performance-sources.md](../harness/skills/warcraft-modding/references/lua-performance-sources.md):
   Lua and TypeScriptToLua performance.
 - [harness/skills/warcraft-modding/references/api-gotchas.md](../harness/skills/warcraft-modding/references/api-gotchas.md),
-  [harness/skills/smashcraft/references/animation-library.md](../harness/skills/smashcraft/references/animation-library.md),
+  [harness/skills/makgora/references/animation-library.md](../harness/skills/makgora/references/animation-library.md),
   [agent-machinery/skills/babashka-development/references/](../agent-machinery/skills/babashka-development/references/)
   and [harness/skills/repo-safety/references/project-layout.md](../harness/skills/repo-safety/references/project-layout.md):
   domain references.

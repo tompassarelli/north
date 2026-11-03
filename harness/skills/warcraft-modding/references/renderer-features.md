@@ -1,7 +1,7 @@
 # Renderer features since Reforged
 
 The complete per-patch index (natives, editor fields, script access, graphics
-modes, cost, sources) is smashcraft:docs/design/warcraft-features.md; check
+modes, cost, sources) is makgora:docs/design/warcraft-features.md; check
 names against the pinned common.j (wisp:src/natives/warcraft.d.ts).
 
 - **Only 3.0.0 (Forsaken Kingdom, Sept 2026) added graphics natives.**

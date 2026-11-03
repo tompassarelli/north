@@ -1,7 +1,7 @@
 # Landing latency: where a worker's commit waits before main
 
-Measured on Smashcraft, 2026-10-28, while about 15 workers waited on their landings during a live
-playtest. The numbers for that day are in South (agents/decisions/smashcraft/landing-speed-2026-10-28.md);
+Measured on Mak'gora, 2026-10-28, while about 15 workers waited on their landings during a live
+playtest. The numbers for that day are in South (agents/decisions/makgora/landing-speed-2026-10-28.md);
 this file keeps the method and what each fix removed.
 
 ## Method
@@ -42,7 +42,7 @@ lane back to its worker and why.
 ## Fixes and their rule
 
 - A pre-push check whose fix needs the local machine runs before the hand-off as well as in
-  Autoland (smashcraft `localFix`), because Autoland can only hand such a lane back.
+  Autoland (makgora `localFix`), because Autoland can only hand such a lane back.
 - `safe-push --to main` resumes the wait when origin already holds `claude/land-<lane>-<HEAD>` at
   HEAD, because the checks already ran for that exact commit.
 - Placement treats a box with no `Surface:` as `Needs: native, private` while this host is in game

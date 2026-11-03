@@ -158,6 +158,6 @@ Replay at each goal's start, from ledger runs ended before it, landings after it
 North#35 moves from 55 minutes early to 3 minutes early. The harness goal moves away, from 68 minutes late to 6h19m
 late against its planned boxes: its 45 runs carried no `Item:`, so no chain describes them, and each planned box was
 one 1-12 minute run that the worker landed itself under a lead watching the lane. The box p75 is learned from
-`Item:` chains (smashcraft, wisp and north issues with review, retries and lead landings), and the plan's 9-deep
+`Item:` chains (makgora, wisp and north issues with review, retries and lead landings), and the plan's 9-deep
 dependency path multiplies that per-box gap. A goal run that way is better estimated per run; the box duration fits
 goals whose boxes are tracked issues.

@@ -3,7 +3,7 @@ name: warcraft-modding
 description: >-
   Use for any Warcraft III map work: Wisp TypeScript maps (hot reload, headless
   and 32-bit Lua tests), the native game (LAN and signed-in clients, startup
-  recovery, desync debugging), and Smashcraft's ts/. Also use to cut frame cost,
+  recovery, desync debugging), and Mak'gora's ts/. Also use to cut frame cost,
   Lua instruction counts or per-frame allocation in TypeScriptToLua code on PUC
   Lua 5.3 (over-ceiling Lua32 tests, failing `bun wisp perf compare`, GC
   pressure), and to develop maps and tooling in WurstScript (Wurst projects).
@@ -19,9 +19,9 @@ metadata:
 
 - Run `bun wisp ...` from the project's TypeScript directory. Find Wisp capabilities through wisp:docs/index.md (`node_modules/wisp/docs/index.md`).
 - Follow the noun-first command vocabulary in wisp:docs/cli.md. Rename a noun together with all its callers and leave no alias. Register each new noun in the vocabulary and the feature index.
-- Smashcraft: read smashcraft:AGENTS.md and smashcraft:docs/typescript.md before changing its pinned Wisp consumer in `ts/`. Find its commands through help and the docs index.
+- Mak'gora: read makgora:AGENTS.md and makgora:docs/typescript.md before changing its pinned Wisp consumer in `ts/`. Find its commands through help and the docs index.
 - Follow `game-ip` for where game facts may come from: never memory reads, debuggers, injection or decomp.
-- Read [wurst.md](references/wurst.md) when the source or toolchain is Wurst and [lua-performance.md](references/lua-performance.md) for frame cost, allocation and Lua32 ceilings, because each holds measured or toolchain-specific rules. Use `smashcraft` for fighter animation, characters and stage art, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
+- Read [wurst.md](references/wurst.md) when the source or toolchain is Wurst and [lua-performance.md](references/lua-performance.md) for frame cost, allocation and Lua32 ceilings, because each holds measured or toolchain-specific rules. Use `makgora` for fighter animation, characters and stage art, and `effect-development` for Bun host tools that start processes, wait, retry, hold resources or parse outside data. Keep map code in plain TypeScript with no Effect imports.
 
 ## Fast iteration
 
@@ -45,7 +45,7 @@ metadata:
 
 ## Native clients and checks
 
-- Parity: a subsystem's headless check plus the weekly native spot batch meets its native box only when corpus divergence is zero. Keep the automatically recorded covered sessions in smashcraft:ts/test/corpus/, where `bun wisp parity corpus` checks them in Bun and 32-bit Lua on every push. Fix the first divergent frame or field before substituting headless coverage for a native check.
+- Parity: a subsystem's headless check plus the weekly native spot batch meets its native box only when corpus divergence is zero. Keep the automatically recorded covered sessions in makgora:ts/test/corpus/, where `bun wisp parity corpus` checks them in Bun and 32-bit Lua on every push. Fix the first divergent frame or field before substituting headless coverage for a native check.
 - Measure native truth only from outside the game: pictures, sound, War3Log and other files the game writes, replays, timing, and map-side Lua instrumentation inside our own map (frame number, checksums, per-frame cost) with stack-trace builds. Align native and Wisp frames by the map's own frame number. A gameplay check passes when native pad output matches headless through `bun wisp pad ... --compare`.
 - Clients: Classic runs on the offline LAN pool at build 3.0.0.24268. Battle.net tests run on the live build, on the signed-in clones listed in south:agents/skills/battlenet-accounts/; use whichever hosts soonest. The pool keeps its own pinned source, never a signed-in clone.
 - Check the live build with `curl http://us.patch.battle.net:1119/w3/versions` before a Battle.net-side run. The pool stays on 3.0.0.24268, where the LAN plugin is checked; move it only to a build the plugin has been checked on. Use integrity maps, not default dev maps, for pad chat setup. [lan-pair-batching.md](references/lan-pair-batching.md) covers pool setup, capacity, pair ownership and issue queues.
@@ -58,18 +58,18 @@ metadata:
 - Give each signed-in client its own worker for one-client captures; put a client pair under one worker only for sync, netplay and EX checks.
 - Run a build's native spot checks as one batch sharded across every free client, judge once and tick every box it covers; keep tooling reference captures off native lanes.
 - Never hold a landing for a native capture: a `Verify: native` box (brief line `Lands-before: native`) lands as soon as its sim, headless and Lua32 checks pass, then takes its native capture on main's build and fixes forward from what the capture shows; only a release candidate waits on native captures, and a `Category: native-check` box runs captures and has nothing to land (2026-10-30).
-- Build a Smashcraft map once per commit and inputs: `bun wisp map build` copies a finished build of the same checkout state, profile, edition and arguments from `~/.cache/wisp/maps` and logs `reused map build HASH` (wisp:docs/compile-cache.md#map-reuse); `WISP_MAP_REUSE=off` forces a fresh build, and a before-measurement of origin/main is that reused build.
+- Build a Mak'gora map once per commit and inputs: `bun wisp map build` copies a finished build of the same checkout state, profile, edition and arguments from `~/.cache/wisp/maps` and logs `reused map build HASH` (wisp:docs/compile-cache.md#map-reuse); `WISP_MAP_REUSE=off` forces a fresh build, and a before-measurement of origin/main is that reused build.
 - Take a client pair from the shared queue, not by naming one: `bun wisp lan lease take --owner NAME` prints the next free `{host,pair}` (`--hosts any` adds the laptop while `north laptop status` says available), `lan lease release --host H --pair K` frees it, and `anim capture serve` leases one when started without `--pair` (wisp:docs/lan.md#leasing-a-pair).
-- Never attach a debugger, trace, read or write game memory, inject code, or decrypt or dump the game on any client. The private LAN switch on our own offline test clients with no Battle.net account is the one exception, and no player build carries it (north:harness/skills/game-ip, "Online play"). It and the desync debugger under ~/.local/share/wisp-private/ only diagnose our own test clients; their output never decides Wisp or Smashcraft behaviour and their details never enter a repository, issue or doc.
+- Never attach a debugger, trace, read or write game memory, inject code, or decrypt or dump the game on any client. The private LAN switch on our own offline test clients with no Battle.net account is the one exception, and no player build carries it (north:harness/skills/game-ip, "Online play"). It and the desync debugger under ~/.local/share/wisp-private/ only diagnose our own test clients; their output never decides Wisp or Mak'gora behaviour and their details never enter a repository, issue or doc.
 - Desync: find the first divergent frame from map-side checksums, replays and War3Log. [native-sessions.md](references/native-sessions.md) covers manual diagnosis. Rerun a native session that a crash, a new desync report or a premature result made invalid.
 
 ## Play and recovery
 
 - Build current main for Tom with `wisp play`, and route experiments through fresh, captures or accept. Confirm the roster, stage thumbnails and gameplay before calling a build ready.
 - Open Tom's game window only with the `app.slice` launch line in wisp:docs/play.md, never under `run-bounded` or a capacity lease, which put his match in `agent.slice`, and leave `WISP_WINDOW_PRESENT` unset (2026-10-31).
-- Check a claim about game content (clip names, which animation a move plays, what landed in a build) against the code or the build before telling Tom: Maiev's run was reported as stock when Smashcraft had authored clip 78 since 2026-10-30 (2026-10-31).
+- Check a claim about game content (clip names, which animation a move plays, what landed in a build) against the code or the build before telling Tom: Maiev's run was reported as stock when Mak'gora had authored clip 78 since 2026-10-30 (2026-10-31).
 - Verify a visual fix yourself with the cheapest evidence that settles it: look at a few native captures or frames with your own vision, not a purpose-built detector, and tell Tom the auto-installed build's file name once it reaches his `Maps/00-Smashcraft`, because Tom supervises five projects and is not the visual tester.
-- Build through `bun wisp map build` with hashed private inputs in smashcraft:build-inputs.json. Add art with `bun wisp inputs add FAMILY DIR` and commit the result; never edit stored inputs in place.
+- Build through `bun wisp map build` with hashed private inputs in makgora:build-inputs.json. Add art with `bun wisp inputs add FAMILY DIR` and commit the result; never edit stored inputs in place.
 - Recover clients with `wisp client doctor`, not by hand-driving known failure states. Check `client watch --once` or `client wait CLIENT STATE` before clicking, reading or waiting on a client. Set up through in-map commands, and observe through menu sockets, status files and War3Log, not pointer clicks.
 - Host through the menu socket after the post-login ladder-map scan, so that `-loadfile` keeps imported assets.
 - Search Hive Workshop first for a Warcraft bug, and change one variable per native experiment under `debugging`. Use off-monitor private desktops through `private-desktop-development`, and keep native tests on them.

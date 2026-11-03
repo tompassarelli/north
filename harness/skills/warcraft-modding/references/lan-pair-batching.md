@@ -35,13 +35,13 @@ or capacity constraint requires a scoped pause.
   use other assigned pairs concurrently.
 - Declare each native box as data next to the issue it closes (map profile,
   setup chat commands, captures, pass rule) and run the batch with
-  `wisp accept [--only ID...] [--pair K]` (wisp:docs/accept.md; Smashcraft checks in
-  smashcraft:ts/scripts/wisp/acceptChecks.ts). `--dry-run` prints the plan
-  without touching clients. In Smashcraft, `--pair K` starts through `lan fresh`
+  `wisp accept [--only ID...] [--pair K]` (wisp:docs/accept.md; Mak'gora checks in
+  makgora:ts/scripts/wisp/acceptChecks.ts). `--dry-run` prints the plan
+  without touching clients. In Mak'gora, `--pair K` starts through `lan fresh`
   and routes checks, captures, receipts and doctor to that offline
   pair. `wisp integrity capture --clients-file FILE ...` likewise routes
-  health checks to the selected clients (smashcraft:docs/native-bot-session.md).
-  Consume these supported routes (Smashcraft commit 1745c4df) instead of
+  health checks to the selected clients (makgora:docs/native-bot-session.md).
+  Consume these supported routes (Mak'gora commit 1745c4df) instead of
   adding bespoke doctor wrappers or accidentally recovering online A/B.
 - Order each pair's queue by issues closed per session; finish source and
   headless prep first. Protect performance/cost/timing captures from local

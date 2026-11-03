@@ -48,12 +48,12 @@ pages carry no revision date; re-fetch them when a plan or limit changes.
 ## Incident, 2026-10-08
 
 Full analysis: wisp:docs/ci.md, "Runner capacity and waiting". Commits:
-wisp 61b6fb8, 9405407, 8a56976; smashcraft 0b8ef4e5, e06e9071, 4556648f.
+wisp 61b6fb8, 9405407, 8a56976; makgora 0b8ef4e5, e06e9071, 4556648f.
 
 - Queue: two balance fields queued 109 shard jobs in 13 minutes on the
   account (then on GitHub Free, 20 jobs; it is now GitHub Pro, 40). Every farm run after them waited 10 to 15 minutes per
   stage (plan, shards, merge): waiting jobs were served in arrival order
-  across smashcraft and wisp. Filtering runs by status hid the load because
+  across makgora and wisp. Filtering runs by status hid the load because
   jobs inside "queued" runs were already running.
 - API: `403 API rate limit exceeded` refusals were the hourly 5,000 truly
   spent (5,000 used between about 04:32 and 05:26 UTC, some 90 calls a

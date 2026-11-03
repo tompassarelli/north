@@ -15,7 +15,7 @@ fixed.
 
 The successful A sequence is recorded in the conversation south:agents/skills/battlenet-accounts/
 names, 3 October 01:18–01:24 UTC, and
-smashcraft:build/two-client-current-state.md under the 01:32 UTC checkpoint.
+makgora:build/two-client-current-state.md under the 01:32 UTC checkpoint.
 Use the indexed `north convo` CLI to retrieve the exact sequence when needed.
 
 Later that day, a primary-display controller trial directly restarted
@@ -49,7 +49,7 @@ shortcut alone launched the game on the first Play. A launcher whose runtime
 started against a live prefix stays unable to create the game process; restart
 it as the prefix's only runtime.
 
-Custom Games "Join game name" is case-sensitive: "Smashcraft" returned GAME NOT
+Custom Games "Join game name" is case-sensitive: "Mak'gora" returned GAME NOT
 FOUND for a lobby named "smashcraft"; the exact name and its password joined.
 A passworded lobby never appears in another client's Custom Games list.
 
@@ -96,7 +96,7 @@ Private XTEST is the gameplay input path on a private desktop and the
 private-desktop launcher's compositor capture the observation path. Verify the
 pointer position before clicks: an absolute XTEST move may leave it unchanged
 under Xwayland, while relative motion moved it in the retained native menus.
-One single-player Smashcraft run tested movement, jump and attack via private
+One single-player Mak'gora run tested movement, jump and attack via private
 XTEST over 300 ticks with no dropped trace entries. Warcraft's VNC virtual
 input remains unreliable and unresolved.
 
@@ -107,7 +107,7 @@ from its visible account label. A socket bound to an address no longer on the
 host, repeated authentication RPC timeouts, or explicit W3 SSO-generation
 failure means the launcher is unhealthy; do not launch or request another sign-in
 in that state. A launcher may start Warcraft even after SSO generation fails.
-Use `smashcraft-tools wc3-auth-transport` (smashcraft:tools/smashcraft-tools); its source-present result
+Use `smashcraft-tools wc3-auth-transport` (makgora:tools/smashcraft-tools); its source-present result
 is not proof of authenticated readiness. Keep the network/VPN route stable
 during retained sessions. A reconnect can reveal absent saved login tokens;
 classify that challenge separately from transport failure. Use persistent login

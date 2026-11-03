@@ -1,6 +1,6 @@
 # Native session rules in detail
 
-`wisp play` is the owner's normal playable path. In Smashcraft it resolves
+`wisp play` is the owner's normal playable path. In Mak'gora it resolves
 current main and builds the matching map and helper; never repoint it at an
 experiment. Use `fresh`, captures or `accept` for named test candidates,
 installed under Maps/00-Smashcraft/tests. Keep the latest playable map and two
@@ -10,10 +10,10 @@ script-only rebuild does not update the map's in-game title or missing imports.
 Private build inputs (base map, container, clip pools, stage, impact and
 imported models, art) are content-addressed: each family is stored once,
 read-only, under the hash of its contents, and the revision's
-smashcraft:build-inputs.json names each family's hash, so `bun wisp map build`
+makgora:build-inputs.json names each family's hash, so `bun wisp map build`
 needs no input flags and verifies them first. New art is `bun wisp inputs add
 FAMILY DIR` plus a commit landed like code; never a shared farm, pointer file
-or in-place edit (smashcraft:docs/build-inputs.md). Builders of one output share
+or in-place edit (makgora:docs/build-inputs.md). Builders of one output share
 a lock and publish a private staging folder by one rename; optional parts (the
 controller helper) never block the map. A pre-push gate type-checks and audits
 type escapes for every push that changes TypeScript.
@@ -40,7 +40,7 @@ type escapes for every push that changes TypeScript.
   a continuing workload explicitly resumes and observes both helper receipts.
 - Load the map by hosting through the menu socket after the post-login
   ladder-map scan finishes; Battle.net `-loadfile` can race it and fail every
-  war3mapImported asset (Smashcraft #73).
+  war3mapImported asset (Mak'gora #73).
 - Change one variable per native experiment (route to `debugging`). Research
   Warcraft III bugs and engine behaviour on Hive Workshop (hiveworkshop.com)
   first; Blizzard's forums carry patch notes.
@@ -78,5 +78,5 @@ input and hardware latency.
 
 - Find the first divergent frame from map-side checksums, replays and War3Log, then bisect map state with map-side Lua instrumentation; never read client memory (see `game-ip`).
 - Use stack-trace builds for Lua/TypeScript stacks.
-- Run pad parity through smashcraft:ts/test/native/pads/ with `--compare`.
+- Run pad parity through makgora:ts/test/native/pads/ with `--compare`.
 - Set up matches through `-dev quick`, `-dev quick hero NAME`, `-dev quick cpu N` and `-dev slots`.

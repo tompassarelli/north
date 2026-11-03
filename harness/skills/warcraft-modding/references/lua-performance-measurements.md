@@ -8,13 +8,13 @@ Contents:
 - Reproduce
 
 Read when revising [Lua performance](lua-performance.md) or re-measuring a rule. Measured
-2026-10-09 on smashcraft 8cc0a7316, TypeScriptToLua 1.37.1, Wisp's stock
+2026-10-09 on makgora 8cc0a7316, TypeScriptToLua 1.37.1, Wisp's stock
 LUA_32BITS Lua 5.3 (`~/.cache/wisp/lua32/<hash>/lua`, resolved by
-smashcraft:ts/scripts/wisp/luaRuntimes.ts `stockLua`).
+makgora:ts/scripts/wisp/luaRuntimes.ts `stockLua`).
 
 ## Method
 
-Same counter as smashcraft:ts/test/lua/entry.ts (the Lua32 test cost
+Same counter as makgora:ts/test/lua/entry.ts (the Lua32 test cost
 counter): `debug.sethook` count hook and `collectgarbage("count")` with the GC
 stopped. Differences: hook step 1 instead of 1000, so counts are exact, and
 allocation is read once before and after instead of at hook ticks. Each case

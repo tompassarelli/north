@@ -3,13 +3,13 @@
 Read this to cut frame cost, Lua instruction counts or per-frame allocation in TypeScriptToLua code on PUC Lua 5.3: an over-ceiling Lua32 test, a failing `bun wisp perf compare`, or GC pressure.
 
 Measure before and after, because the counters disagree with intuition on PUC Lua; never guess. Numbers below are per operation from
-TSTL 1.37.1 on Smashcraft's LUA_32BITS 5.3 with the Lua32 test counter
+TSTL 1.37.1 on Mak'gora's LUA_32BITS 5.3 with the Lua32 test counter
 (count hook, GC stopped), on 8-element arrays and 8-entry maps. Cases, emitted
 Lua and the harness: [measurements](lua-performance-measurements.md). Sources:
 [sources](lua-performance-sources.md); PUC 5.3 semantics: [Lua 5.3 manual](https://www.lua.org/manual/5.3/manual.html).
 
 ## Measure
-- Use the repo's own counters: Lua32 test costs (smashcraft:ts/test/lua/cost-baseline.tsv)
+- Use the repo's own counters: Lua32 test costs (makgora:ts/test/lua/cost-baseline.tsv)
   for instructions and allocation, `bun wisp perf <scenario> --samples` and
   `bun wisp perf compare` for frame cost including natives.
 - Read the emitted Lua (`build/`) for the hot function before changing it.
