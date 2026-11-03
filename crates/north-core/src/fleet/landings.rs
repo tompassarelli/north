@@ -20,13 +20,12 @@ pub struct Push {
     pub oid: String,
     pub landed: String,
     pub session: String,
-    pub reviewer: String,
 }
 
 pub fn observe_among(books: &dyn Books, record: &SessionRecord, pushes: &[Push]) -> NorthResult<Option<String>> {
     let Some(push) = landing(pushes, record) else { return Ok(None) };
     let task_ref = record.task_ref.as_deref().unwrap_or(&record.name);
-    let recorded = books.record_landing(task_ref, &push.landed, push.at_ms, Some(push.at_ms.saturating_sub(record.created_ms)), Some(push.reviewer.as_str()).filter(|reviewer| !reviewer.is_empty()))?;
+    let recorded = books.record_landing(task_ref, &push.landed, push.at_ms, Some(push.at_ms.saturating_sub(record.created_ms)))?;
     Ok(recorded.then(|| push.landed.clone()))
 }
 
@@ -95,7 +94,7 @@ fn parse(text: &str) -> Vec<Push> {
             let fields: Vec<&str> = line.split('\t').collect();
             let at_secs: u64 = fields.first()?.parse().ok()?;
             let field = |index: usize| fields.get(index).copied().unwrap_or_default().to_owned();
-            Some(Push { at_ms: at_secs * 1_000, repository: field(1), branch: field(2), oid: field(3), landed: field(4), session: field(5), reviewer: field(6) })
+            Some(Push { at_ms: at_secs * 1_000, repository: field(1), branch: field(2), oid: field(3), landed: field(4), session: field(5) })
         })
         .collect()
 }
@@ -112,7 +111,7 @@ mod tests {
         observe_among(books, record, &pushes(push_log))
     }
 
-    type Landed = (String, String, u64, Option<String>);
+    type Landed = (String, String, u64);
 
     #[derive(Default)]
     struct Landings(Mutex<Vec<Landed>>);
@@ -126,11 +125,11 @@ mod tests {
             Ok(Vec::new())
         }
 
-        fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, _wall_ms: Option<u64>, review: Option<&str>) -> NorthResult<bool> {
+        fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, _wall_ms: Option<u64>) -> NorthResult<bool> {
             let mut landed = self.0.lock().unwrap();
             let new = !landed.iter().any(|(task, recorded, ..)| task == task_ref && recorded == sha);
             if new {
-                landed.push((task_ref.to_owned(), sha.to_owned(), landed_ms, review.map(str::to_owned)));
+                landed.push((task_ref.to_owned(), sha.to_owned(), landed_ms));
             }
             Ok(new)
         }
@@ -152,7 +151,7 @@ mod tests {
             "1001\tnorth\tfix\tlane-sha\t\tfixer",
             "1002\tnorth\tfix\tlane-sha\tlanded-by-other\tother",
             "1003\tnorth\tfix\tlane-sha\tlanded-before-start\tfixer",
-            "2000\tnorth\tfix\tlane-sha\tlanded-on-main\tfixer\treviewer-one",
+            "2000\tnorth\tfix\tlane-sha\tlanded-on-main\tfixer",
         ];
         std::fs::write(log.path(), rows.join("\n")).unwrap();
         let books = Landings::default();
@@ -166,8 +165,8 @@ mod tests {
         assert_eq!(
             books.0.into_inner().unwrap(),
             [
-                ("north#76".to_owned(), "landed-on-main".to_owned(), 2_000_000, Some("reviewer-one".to_owned())),
-                ("other".to_owned(), "landed-by-other".to_owned(), 1_002_000, None)
+                ("north#76".to_owned(), "landed-on-main".to_owned(), 2_000_000),
+                ("other".to_owned(), "landed-by-other".to_owned(), 1_002_000)
             ]
         );
     }

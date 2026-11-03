@@ -55,7 +55,7 @@ struct Observed {
 fn shell_functions() -> String {
     let script = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/safe-push")).unwrap();
     let mut functions = String::new();
-    for name in ["durable_harness_paths", "usage", "argument_error", "plan_push", "default_branch", "enforce_one_branch_main"] {
+    for name in ["usage", "argument_error", "plan_push", "default_branch", "enforce_one_branch_main"] {
         let start = format!("{name}() {{");
         let body: Vec<&str> = script.lines().skip_while(|line| *line != start).collect();
         let end = body.iter().position(|line| *line == "}").unwrap_or_else(|| panic!("bin/safe-push lost {name}"));
@@ -218,20 +218,6 @@ fn safe_push_publishes_only_from_the_default_branch_unless_a_destination_is_name
         }
     }
     assert_eq!(rows, 18);
-}
-
-#[test]
-fn safe_push_durable_harness_paths_match_the_shell_list() {
-    for repository in ["north", "south", "firn", "nixos-config", "makgora"] {
-        let paths = durable_harness_paths(repository);
-        let new = Observed {
-            status: 0,
-            stdout: paths.iter().map(|path| format!("{path}\n")).collect(),
-            stderr: String::new(),
-        };
-        assert_same(repository, &shell("durable_harness_paths \"$1\"\n", &[repository]), &new);
-    }
-    assert!(durable_harness_paths("nixos-config").contains(&"modules/worker-ledger/".to_owned()));
 }
 
 fn git(repository: &Path, arguments: &[&str]) {

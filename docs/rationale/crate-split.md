@@ -17,7 +17,7 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
 - `north-base`: `error`, `foundation`, `platform`, `shell`, `autoland_status` and `test_inputs`. Depends
   on nothing in the repo. `autoland_status` lives here because `guard` reads it; putting it in
   `north-landing` would make `guard` rebuild on every landing-gate edit.
-- `north-landing`: `landing`, `dep_gate`, `review_gate`, `language_gate`, `provenance`, `issue_box_lint`,
+- `north-landing`: `landing`, `dep_gate`, `language_gate`, `provenance`, `issue_box_lint`,
   `follows_release`, `land_abandon`. Depends on `north-base` only.
 - `north-core`: everything else (`fleet`, `ledger`, `guard`, `threads`, `ops`, `providers`, `tui`, ...).
   Depends on `north-base`; nothing in it uses `north-landing`.

@@ -36,15 +36,14 @@ impl Books for Ledger {
         })
     }
 
-    fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>, review: Option<&str>) -> NorthResult<bool> {
+    fn record_landing(&self, task_ref: &str, sha: &str, landed_ms: u64, wall_ms: Option<u64>) -> NorthResult<bool> {
         self.write(|conn| {
             let changed = conn.execute(
-                "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms, review)
-                 VALUES(?1, 'landed', ?2, ?3, coalesce(?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1), ?4), ?5)
-                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, landed_ms = excluded.landed_ms, wall_ms = excluded.wall_ms,
-                   review = coalesce(excluded.review, tasks.review)
+                "INSERT INTO tasks(task_ref, outcome, landed_sha, landed_ms, wall_ms)
+                 VALUES(?1, 'landed', ?2, ?3, coalesce(?3 - (SELECT min(started_ms) FROM runs WHERE task_ref = ?1), ?4))
+                 ON CONFLICT(task_ref) DO UPDATE SET outcome = excluded.outcome, landed_sha = excluded.landed_sha, landed_ms = excluded.landed_ms, wall_ms = excluded.wall_ms
                  WHERE tasks.outcome IS NOT 'landed' OR tasks.landed_sha IS NOT excluded.landed_sha",
-                params![task_ref, sha, millis(landed_ms), wall_ms.map(millis), review],
+                params![task_ref, sha, millis(landed_ms), wall_ms.map(millis)],
             )?;
             if changed == 1 {
                 conn.execute(

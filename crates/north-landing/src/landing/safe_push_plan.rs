@@ -5,12 +5,6 @@ use crate::platform::git;
 pub const USAGE: &str = include_str!("safe_push_usage.txt");
 
 const DESTRUCTIVE: [&str; 6] = ["-f", "--force", "--force-with-lease", "--mirror", "--delete", "--prune"];
-const DURABLE_FIRN_MODULES: [&str; 15] = [
-    "agent-runtime-update", "agent-slice", "agents-flow-stall", "capacity-watchdog", "claude", "codex",
-    "codex-runtime", "job-run", "job-watch", "lane-gc", "model-watch", "north-profile", "plato",
-    "skill-review-queue", "worker-ledger",
-];
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Arguments {
     pub dry_run: bool,
@@ -219,15 +213,6 @@ pub fn publication(head_oid: &str, destination_ref: &str, destination_oid: &str)
     Publication {
         refspec: format!("{head_oid}:{destination_ref}"),
         lease: format!("--force-with-lease={destination_ref}:{destination_oid}"),
-    }
-}
-
-pub fn durable_harness_paths(repository: &str) -> Vec<String> {
-    match repository {
-        "north" => ["harness/skills/", "harness/hooks/", "harness/claude/agents/", "agent-machinery/", "AGENTS.md", "harness/code/AGENTS.md"].map(str::to_owned).to_vec(),
-        "south" => vec!["agents/".to_owned()],
-        "firn" | "nixos-config" => DURABLE_FIRN_MODULES.iter().map(|module| format!("modules/{module}/")).collect(),
-        _ => Vec::new(),
     }
 }
 

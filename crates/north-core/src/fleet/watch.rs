@@ -531,7 +531,7 @@ mod tests {
             Ok(Vec::new())
         }
 
-        fn record_landing(&self, _task_ref: &str, _sha: &str, _landed_ms: u64, _wall_ms: Option<u64>, _review: Option<&str>) -> NorthResult<bool> {
+        fn record_landing(&self, _task_ref: &str, _sha: &str, _landed_ms: u64, _wall_ms: Option<u64>) -> NorthResult<bool> {
             Ok(false)
         }
     }

@@ -3,8 +3,8 @@ Usage: safe-push [--dry-run] [--to BRANCH] [--keep-lane] [--direct] [--message F
        safe-push abandon [BRANCH | scratch/NAME | --superseded BRANCH]
 
 Scan secrets and private values and run the landing checks, then push the current
-branch or one tag. Process gates (review patch-id, code-health, instruction
-limits, generated rewrites, CI budget) run after a landing on the default branch
+branch or one tag. Process gates (code-health, instruction limits,
+generated rewrites, CI budget) run after a landing on the default branch
 and file one issue per landed commit.
 Repository AGENTS.md: 100 lines.
 Move longer detail to CLI --help, help TOPIC, or indexed docs.

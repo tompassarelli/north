@@ -4,7 +4,7 @@ use crate::landing::{after_landing, bin_references, denylist, land_actions, merg
 use crate::ops::timers::{self, Timer};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
-    land_abandon, provenance, review_gate,
+    land_abandon, provenance,
 };
 
 type Run = fn(&[String]) -> u8;
@@ -13,7 +13,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("agent-config-check", agent_config_check::run),
     ("agent-policy-contract", agent_policy_contract::run),
     ("dep-gate", dep_gate::run),
-    ("review-gate", review_gate::run),
     ("evidence", crate::ops::reclaim::evidence_start),
     ("denylist", denylist::run),
     ("autoland-status", autoland_status::run),

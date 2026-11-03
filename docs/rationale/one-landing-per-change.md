@@ -4,7 +4,7 @@ A change lands on main as one commit. `safe-push --to main` folds the lane's unp
 (those no origin ref reaches) into one commit before its land checks, so a lane's fixups, records
 and re-recorded tests travel with the change they belong to. Commits already on origin are never
 rewritten: the fold starts after the newest published commit the lane holds. The trailers of every
-folded commit (`Reverts`, `Reviewed`, `Test-change` and the rest) are kept
+folded commit (`Reverts`, `Test-change` and the rest) are kept
 once each, in order of first appearance, because the after-landing gates read them from the landed
 range. The message is `--message FILE` when the worker gives one, else the first commit's message
 with the other subjects listed under it. `--several-commits REASON` lands the commits as they are

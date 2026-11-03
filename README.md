@@ -47,6 +47,7 @@ Each document has one job:
 - [docs/python-port-order.md](docs/python-port-order.md): the order the remaining Python moves to Rust, from its import cycle.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
 - [docs/rationale/targets.md](docs/rationale/targets.md): why numeric targets gate or not.
+- [docs/rationale/review-triggers.md](docs/rationale/review-triggers.md): why review is triggered by risk, not a landing trailer.
 - [AGENTS.md](AGENTS.md): rules for agents working in this repository, including build and check
   commands.
 - [agent-machinery/README.md](agent-machinery/README.md): the shared procedures package.

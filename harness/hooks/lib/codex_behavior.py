@@ -617,26 +617,6 @@ def running_copy(cwd, suite):
     return None
 
 
-def durable_harness_changed(cwd, origin, revision):
-    repository = origin.rstrip("/").rsplit("/", 1)[-1].lower().removesuffix(".git")
-    owner = Path(__file__).resolve().parents[3] / "bin/safe-push"
-    if not owner.is_file():
-        owner = shutil.which("safe-push")
-        if not owner:
-            return False
-    paths = tuple(subprocess.run(
-        [str(owner), "--durable-harness-paths", repository],
-        capture_output=True, text=True, timeout=5, check=True,
-    ).stdout.splitlines())
-    if not paths:
-        return False
-    changed = subprocess.run(
-        ["git", "-C", str(cwd), "diff", "--name-only", "-z", "--no-renames", revision],
-        capture_output=True, timeout=5, check=True,
-    ).stdout.decode(errors="surrogateescape").split("\0")
-    return any(path.startswith(paths) for path in changed)
-
-
 def pre_bash(event):
     command = (event.get("tool_input") or {}).get("command") or ""
     if isinstance(command, list):

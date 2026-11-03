@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS tasks(
   outcome TEXT CHECK(outcome IN ('landed','abandoned','not done')),
   landed_sha TEXT,
   landed_ms INTEGER,
-  review TEXT,
   corrections INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 CREATE TABLE IF NOT EXISTS checks(
@@ -152,7 +151,6 @@ pub struct Task {
     pub wall_ms: Option<i64>,
     pub outcome: Option<String>,
     pub landed_sha: Option<String>,
-    pub review: Option<String>,
     pub checks: i64,
     pub last_check_exit: Option<i64>,
     pub last_check_sha: Option<String>,
@@ -212,7 +210,7 @@ impl Ledger {
     pub fn tasks(&self) -> NorthResult<Vec<Task>> {
         self.with(|conn| {
             let mut statement = conn.prepare(
-                "SELECT t.task_ref, t.sessions, t.wall_ms, t.outcome, t.landed_sha, t.review,
+                "SELECT t.task_ref, t.sessions, t.wall_ms, t.outcome, t.landed_sha,
                    (SELECT count(*) FROM checks c WHERE c.task_ref = t.task_ref),
                    (SELECT c.exit FROM checks c WHERE c.task_ref = t.task_ref ORDER BY c.check_id DESC LIMIT 1),
                    (SELECT c.head_sha FROM checks c WHERE c.task_ref = t.task_ref ORDER BY c.check_id DESC LIMIT 1)
@@ -358,10 +356,9 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         wall_ms: row.get(2)?,
         outcome: row.get(3)?,
         landed_sha: row.get(4)?,
-        review: row.get(5)?,
-        checks: row.get(6)?,
-        last_check_exit: row.get(7)?,
-        last_check_sha: row.get(8)?,
+        checks: row.get(5)?,
+        last_check_exit: row.get(6)?,
+        last_check_sha: row.get(7)?,
     })
 }
 

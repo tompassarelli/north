@@ -77,7 +77,7 @@ fn a_settled_fleet_session_that_lands_in_a_later_turn_is_reread_and_recorded_don
 
     turn(&transcript, "02:00", "your turn to land", "Done: landed as 1234abcd on origin/main.");
     fs::create_dir_all(root.join("state/safe-push")).unwrap();
-    let push = "1791425100\tnorth\td-ledgersee\t1234abcd\t1234abcd\td-ledgersee\treviewer\n";
+    let push = "1791425100\tnorth\td-ledgersee\t1234abcd\t1234abcd\td-ledgersee\n";
     fs::write(root.join("state/safe-push/pushes.tsv"), push).unwrap();
     record(root);
     assert_eq!(run(root), "north#255|done|2026-10-08T02:00:30Z|60|Done: landed|1|1234abcd|2026-10-08T02:05:00Z");
@@ -104,7 +104,7 @@ fn a_recorded_fleet_session_parked_mid_turn_takes_the_landing_the_land_queue_pus
     writeln!(file, r#"{{"type":"user","timestamp":"2026-10-08T01:09:00Z","sessionId":"parked","message":{{"content":"park"}}}}"#).unwrap();
     writeln!(file, "{tool}").unwrap();
     fs::create_dir_all(root.join("state/safe-push")).unwrap();
-    fs::write(root.join("state/safe-push/pushes.tsv"), "1791425100\tnorth\td-parked\t5678ef01\t5678ef01\td-parked\treviewer\n").unwrap();
+    fs::write(root.join("state/safe-push/pushes.tsv"), "1791425100\tnorth\td-parked\t5678ef01\t5678ef01\td-parked\n").unwrap();
     record(root);
     assert_eq!(run_of(root, "parked"), "north#252|done|2026-10-08T01:00:30Z|0|Done: the fi|1|5678ef01|2026-10-08T02:05:00Z");
 }

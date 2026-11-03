@@ -67,7 +67,7 @@ shim_main() {
       [ -n "${SAFE_PUSH_TEST_AFTER_LANDING_TRACE:-}" ] || return 2
       [ "${2:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_AFTER_LANDING_TRACE"
       ;;
-    north:lane-squash|north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:review-gate|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:lane-squash|north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
@@ -454,9 +454,6 @@ printf '{\n  "lockfileVersion": 1,\n  "workspaces": {"": {"name": "agent-machine
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check 'agent-machinery/ :: test -d agent-machinery/node_modules'
 "$real_git" -C "$real_repo" add .safe-push agent-machinery
 "$real_git" -C "$real_repo" commit -qm 'agent-machinery project'
-mapfile -t review_paths < <("$TARGET" --durable-harness-paths north)
-reviewed_id="$(cd "$real_repo" && "$real_north" review-gate id refs/remotes/origin/main HEAD "${review_paths[@]}")"
-"$real_git" -C "$real_repo" commit -q --amend -m 'agent-machinery project' -m "Reviewed: approves; reviewer: fixture-reviewer; patch-id $reviewed_id"
 cp "$deps_bin/bun" "$real_bin/bun"
 HOME="$land_home" run_real_case '' --dry-run --to main
 rm -f "$real_bin/bun"
@@ -999,31 +996,20 @@ expect_status nonzero
 expect_output 'names a native NorthThread item'
 printf 'PASS: a commit message naming a native item refuses before landing\n'
 
-make_real_fixture review-coverage
+make_real_fixture skill-without-review
 ln -s remote.git "$real_fixture/north.git"
 "$real_git" -C "$real_repo" config remote.origin.pushurl "$real_remote"
 "$real_git" -C "$real_repo" config remote.origin.url "$real_fixture/north.git"
-review_base=$("$real_git" -C "$real_repo" rev-parse refs/remotes/origin/main)
-mapfile -t review_paths < <("$TARGET" --durable-harness-paths north)
-for review_case in bin/tool harness/lib/helper.sh harness/skills/example/SKILL.md harness/hooks/guard.sh \
-    harness/claude/agents/worker.md agent-machinery/doctrine.md AGENTS.md harness/code/AGENTS.md reviewed:harness/hooks/guard.sh; do
-  "$real_git" -C "$real_repo" reset -q --hard "$review_base"
-  review_path=${review_case#reviewed:}
-  mkdir -p "$real_repo/$(dirname "$review_path")"
-  printf 'changed\n' >>"$real_repo/$review_path"
-  "$real_git" -C "$real_repo" add -- "$review_path"
-  "$real_git" -C "$real_repo" commit -qm "change $review_path"
-  if [ "$review_case" != "$review_path" ]; then
-    review_id=$(cd "$real_repo" && "$real_north" review-gate id "$review_base" HEAD "${review_paths[@]}")
-    "$real_git" -C "$real_repo" commit -q --amend -m "change $review_path" -m "Reviewed: approves; reviewer: fixture-reviewer; patch-id $review_id"
-  fi
-  run_after_landing_case
-  case "$review_case" in
-    bin/* | harness/lib/* | reviewed:*) expect_output 'after-landing gate review passed' ;;
-    *) expect_output 'after-landing gate review failed'; expect_output 'the covered harness diff lacks a review of its final patch-id' ;;
-  esac
-done
-printf 'PASS: review covers policy prose, hooks, agent definitions and AGENTS.md, and not bin/ or harness/lib code\n'
+mkdir -p "$real_repo/harness/skills/example"
+printf 'changed\n' >>"$real_repo/harness/skills/example/SKILL.md"
+"$real_git" -C "$real_repo" add harness/skills/example/SKILL.md
+"$real_git" -C "$real_repo" commit -qm 'change a skill'
+run_real_case '' --dry-run --to main
+expect_status zero
+expect_output 'safe-push: ✓ clean (--dry-run)'
+run_after_landing_case
+! grep -q 'after-landing gate review' <<<"$case_output" || fail "a skill change ran a review gate: $case_output"
+printf 'PASS: a north skill change lands with no Reviewed trailer\n'
 
 make_real_fixture policy-sweep
 mkdir -p "$real_repo/agents/replay"
@@ -1640,13 +1626,12 @@ SAFE_PUSH_TEST_ATTEST_STATUS=2 run_attest_case --to claude/attest-retry
 expect_status zero
 expect_output 'the deny-list attest for claude/attest-retry failed (exit 2); the push stands'
 "$real_git" --git-dir="$real_remote" rev-parse -q --verify refs/heads/claude/attest-retry >/dev/null || fail 'a failed attest undid the push'
-printf 'reviewed\n' >>"$real_repo/content.txt"
-"$real_git" -C "$real_repo" commit -qam 'reviewed work' -m "Reviewed: approves; reviewer: fixture-reviewer; patch-id $(printf '0%.0s' $(seq 40))"
+printf 'landed\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'landed work'
 NORTH_FLEET_SESSION=attest-main run_attest_case --to main --direct
 expect_status zero
 main_row=$(awk -F'\t' '$6 == "attest-main"' "$xdg_state/safe-push/pushes.tsv" | tail -n 1)
 [ "$(cut -f5 <<<"$main_row")" = "$("$real_git" --git-dir="$real_remote" rev-parse refs/heads/main)" ] || fail "a main push did not record its landed sha: $main_row"
-[ "$(cut -f7 <<<"$main_row")" = fixture-reviewer ] || fail "a main push did not record its reviewer: $main_row"
 [ ! -s "$attest_trace" ] || fail "a main push attested: $(cat "$attest_trace")"
 : >"$attest_trace"
 printf 'clean\n' >>"$real_repo/content.txt"
