@@ -250,3 +250,36 @@ fn the_refusal_names_only_what_works_without_a_fleet_session() {
     assert!(!solo.contains("job-run"), "{solo}");
     assert!(solo.contains("TaskStop") && solo.contains("safe-push"), "{solo}");
 }
+
+fn echoed(tool: &str, input: Value, body: &str) -> String {
+    let started = json!({"type":"assistant","timestamp":stamp(0),"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_echo","name":tool,"input":input}]}});
+    let result = json!({"type":"user","timestamp":stamp(0),"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_echo","content":body}]},"toolUseResult":{"stdout":body}});
+    format!("{started}\n{result}")
+}
+
+#[test]
+fn task_ids_mentioned_in_unrelated_results_are_not_running_tasks() {
+    let lane = Lane::new();
+    let mention = "Monitor started (task bmon0001, expires in 10m).";
+    let background = "Command running in background with ID: bshell001. Output is being written to: /tmp/x/bshell001.output.";
+    let read = echoed("Read", json!({"file_path":"/x/subagent_teardown_tests.rs"}), mention);
+    let heredoc = echoed("Bash", json!({"command":"cat > t.rs <<'EOF'\nMonitor started (task bmon0001\nEOF","description":"write fixture"}), mention);
+    let cat_bg = echoed("Bash", json!({"command":"cat notes.txt","description":"read notes"}), background);
+    let monitor_error = echoed("Monitor", json!({"command":"tail -f x","description":"watch"}), "Monitor failed: see earlier Monitor started (task bmon0001, expires in 10m).");
+    let notice = json!({"type":"attachment","attachment":{"type":"queued_command","prompt":format!("<task-notification>\n<summary>{mention}</summary>\n</task-notification>")}}).to_string();
+    for (name, lines) in [("read", read), ("heredoc", heredoc), ("catbg", cat_bg), ("monerr", monitor_error), ("notice", notice)] {
+        assert_eq!(lane.stop(&lane.fixture(name, &lines)), None, "{name}");
+    }
+}
+
+#[test]
+fn real_started_tasks_still_refuse_when_text_elsewhere_mentions_other_ids() {
+    let mut lane = Lane::new();
+    lane.hold_output();
+    let now = stamp(0);
+    let noise = echoed("Read", json!({"file_path":"/x/t.rs"}), "Monitor started (task bghost99, expires in 10m).");
+    let monitor_live = lane.stop(&lane.fixture("mon", &format!("{noise}\n{}", monitor(&now, json!(600_000))))).unwrap();
+    assert!(monitor_live.contains("bmon0001") && !monitor_live.contains("bghost99"), "{monitor_live}");
+    let shell_live = lane.stop(&lane.fixture("sh", &format!("{noise}\n{}", shell_command(&now, &lane.output(), "run the soak")))).unwrap();
+    assert!(shell_live.contains("bshell001") && !shell_live.contains("bghost99"), "{shell_live}");
+}

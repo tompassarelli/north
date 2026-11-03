@@ -40,6 +40,7 @@ impl Kind {
 #[derive(Clone)]
 struct Use {
     kind: Kind,
+    background: bool,
     description: String,
     command: String,
     start: f64,
@@ -226,6 +227,7 @@ impl Scan {
             id.to_owned(),
             Use {
                 kind,
+                background: truthy(input.and_then(|i| i.get("run_in_background"))).is_some(),
                 description,
                 command: py_str(input.and_then(|i| i.get("command"))),
                 start: epoch(&stamp, now),
@@ -243,6 +245,9 @@ impl Scan {
         else {
             return;
         };
+        if used.kind == Kind::Bash && !used.background {
+            return;
+        }
         let result = entry.get("toolUseResult");
         let body = text_of(block.get("content"));
         let direct = truthy(result.and_then(|r| r.get("backgroundTaskId"))).or_else(|| {
@@ -252,7 +257,9 @@ impl Scan {
         });
         let id = match direct {
             Some(value) => value.as_str().map(str::to_owned),
-            None if body.contains("in background with ID") || body.contains("Monitor started") => {
+            None if (used.kind == Kind::Bash && body.contains("in background with ID"))
+                || (used.kind == Kind::Monitor && body.trim_start().starts_with("Monitor started")) =>
+            {
                 ID.captures(&body).map(|found| found[1].to_owned())
             }
             None => None,
