@@ -50,7 +50,7 @@ printf '%s\n' \
   "$threads" ingest 2>/dev/null
 out=$(t show makgora#3; t summary)
 check '[spec] runs take Item, Follows, Category and Arm from the brief; a new agent is a change of hands' \
-  'grep -q "a222 xhigh follows a111  50m/45m ETA  done" <<<"$out" && grep -q "handoff  a111 -> a222" <<<"$out" && grep -q "note ~/h/a111.md" <<<"$out" && grep -qE "^tooling +xhigh +escalate +1 +1 +100%" <<<"$out"'
+  'grep -q "a222 xhigh follows a111  50m/45m ETA  done" <<<"$out" && grep -q "handoff  a111 -> a222" <<<"$out" && grep -q "note ~/h/a111.md" <<<"$out" && grep -qE "^tooling +xhigh +escalate +1 +2.0 +1 +100%" <<<"$out"'
 
 row() { jq -cn "$@"; }
 
@@ -71,7 +71,7 @@ check '[spec] closure groups by the first run: issues, closed, runs and tokens p
 } | "$threads" ingest 2>/dev/null
 out=$(t summary)
 check '[recorded] a Split run and its 3 parts show parts closure and an Arm: split row' \
-  'grep -qE "^feature +1 +3 +67% +60 +40$" <<<"$out" && grep -qE "^feature +medium +split +3 +2 +66%" <<<"$out" && ! grep -qE "^feature +medium +- " <<<"$out"'
+  'grep -qE "^feature +1 +3 +67% +60 +40$" <<<"$out" && grep -qE "^feature +medium +split +3 +- +2 +66%" <<<"$out" && ! grep -qE "^feature +medium +- " <<<"$out"'
 
 # Recommend: tier from first-assignment runs that closed without escalation and landed.
 runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
@@ -84,8 +84,8 @@ runs() {  # runs TIER CATEGORY-AND-FACETS OK FAIL
 out=$(t recommend 'Category: research, Spec: measured, Scope: one-file'; t summary --group category,spec,scope)
 check '[spec] recommend backs off to the finest cell with 5 runs and names it and n'   'grep -qx "tier claude:haiku  cell \[Category: research, Spec: measured\]  n 7" <<<"$out" && grep -qx "success threshold 80%  rule rank (one tier passes)" <<<"$out" && grep -qE "^research +measured +one-file +medium +- +2 " <<<"$out"'
 row '{id:"eta-coarse",ended:"2026-10-09T00:00:00Z",tier:"medium",actual_min:20,outcome:"done",brief:"Category: research. Spec: measured. Scope: cross-module."}' | "$threads" ingest 2>/dev/null
-check '[measurement] ETA p75 backs off the two-run scope cell to the five haiku runs, and a category with no runs has insufficient evidence' \
-  't recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^insufficient evidence  "'
+check '[measurement] ETA p75 backs off the two-run scope cell to the five haiku runs, and a category with no runs gets the workers-skill default with n 0' \
+  't recommend "Category: research, Spec: measured, Scope: one-file" | grep -q "^eta 5m (p75 of n=5, cell Category: research, Spec: measured, tier claude:haiku, uncalibrated: no eta_pred calibration)" && t recommend "Category: balance-tuning" | grep -q "^success threshold 80%  rule workers-skill default for balance-tuning (no tier passes; no first-assignment tier has 15 priced runs)$"'
 
 python3 - "$threads" "$scratch/planner.db" "$scratch/planner-state" <<'PYBAND' >"$scratch/planner.out" 2>&1
 import hashlib, importlib.machinery, importlib.util, math, os, re, sqlite3, subprocess, sys
@@ -181,9 +181,10 @@ with sqlite3.connect(env["THREADS_DB"]) as db:
 pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config)
 split = run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", facets)
 expected = """tier claude:haiku  cell [Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell]  n 10
-success threshold 80%  rule rank (uncalibrated: thin $ claude:haiku n=0, codex:sol-medium n=0 < 5)
-  claude:haiku       100% of 5  $ n/a (priced n=0)
-  codex:sol-medium   100% of 5  $ n/a (priced n=0)
+success threshold 80%  rule rank (uncalibrated: thin $ claude:haiku n=0, codex:sol-medium n=0 < 15)
+success claude:haiku 100% shrunk (n=5, 5 ok, toward the category's pooled 100% with a prior of 15 runs)
+  claude:haiku       100% of 5  shrunk 100%  $ n/a (priced n=0)
+  codex:sol-medium   100% of 5  shrunk 100%  $ n/a (priced n=0)
 eta 8m (p75 of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier claude:haiku, uncalibrated: no eta_pred calibration)  $ n/a (uncalibrated: no usd calibration)
 """
 assert split == expected, repr(split)
@@ -192,9 +193,8 @@ pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "spl
 assert run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", facets) == split
 pathlib.Path(env["AGENTS_ORCHESTRATION"]).write_text(config.replace('mode = "split"', 'mode = "codex-only"', 1))
 codex = run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", facets)
-assert "claude:" not in codex and codex.startswith("tier codex:sol-medium "), codex
-assert "eta 13m (actual_med of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier codex:sol-medium)" in codex, codex
-assert run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", "Category: balance-tuning").startswith("insufficient evidence  ")
+assert "claude:" not in codex and codex.startswith("tier codex:sol-medium ") and "eta 13m (actual_med of n=5, cell Category: bug-known-cause, Spec: exact, Scope: module, Verify: local-test, Surface: shell, tier codex:sol-medium)" in codex, codex
+assert (none := run(os.environ["NORTH_BIN"], "worker-ledger", "--recommend", "Category: balance-tuning")).startswith("tier claude:opus-medium  cell [Category: balance-tuning]  n 0\n") and "rule workers-skill default for balance-tuning (no tier passes; no first-assignment tier has 15 priced runs)\n" in none and "unmeasured in this cell (n=0)\n" in none, none
 print("codex-only median")
 PYMODE
 )
@@ -238,14 +238,14 @@ out=$(cat "$scratch/cal.out")
 check '[property] seeded drifting fixture: thin data falls back, calibrate --json gives n and quartiles per kind' \
   'grep -qx "calibration ok" <<<"$out"'
 
-{ runs haiku 'Category: performance' 4 1; runs medium 'Category: performance' 4 1; } | "$threads" ingest 2>/dev/null
+{ runs haiku 'Category: performance' 24 6; runs medium 'Category: performance' 26 4; } | "$threads" ingest 2>/dev/null
 first=$(t recommend 'Category: performance' | head -1)
-runs haiku 'Category: performance' 0 1 | "$threads" ingest 2>/dev/null
+runs haiku 'Category: performance' 0 6 | "$threads" ingest 2>/dev/null
 held=$(t recommend 'Category: performance' | head -1)
-runs haiku 'Category: performance' 0 1 | "$threads" ingest 2>/dev/null
+runs haiku 'Category: performance' 0 6 | "$threads" ingest 2>/dev/null
 moved=$(t recommend 'Category: performance' | head -1)
 out="$first / $held / $moved"
-check '[spec] hysteresis: haiku at 80% wins by rank with no $, holds at 66% against medium 80%, and yields at 57%'   '[ "$out" = "tier claude:haiku  cell [Category: performance]  n 10 / tier claude:haiku  cell [Category: performance]  n 11 / tier claude:opus-medium  cell [Category: performance]  n 12" ]'
+check '[spec] hysteresis: haiku at 80% of 30 wins by rank with no $, holds at 67% against medium 87% (shrunk gap under the 15 points), and yields at 57% (shrunk gap over it)'   '[ "$out" = "tier claude:haiku  cell [Category: performance]  n 60 / tier claude:haiku  cell [Category: performance]  n 66 / tier claude:opus-medium  cell [Category: performance]  n 72" ]'
 
 { for i in 1 2 3; do row --arg id "n$i" '{id:$id,ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"done",landed:0,expects_landing:0,brief:"Category: native-check"}'; done
   row '{id:"n4",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"done",landed:0,expects_landing:1,brief:"Category: native-check"}'
@@ -254,43 +254,43 @@ check '[spec] hysteresis: haiku at 80% wins by rank with no $, holds at 66% agai
 } | "$threads" ingest 2>/dev/null
 out=$(t recommend 'Category: native-check')
 check '[spec] success is Done with no later Follows: run, and landed only when the run committed' \
-  'grep -qx "  claude:haiku       60% of 5  \$ n/a (priced n=0)" <<<"$out"'
+  'grep -qx "  claude:haiku       60% of 5  shrunk 60%  \$ n/a (priced n=0)" <<<"$out"'
 { row '{id:"u1",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"unclear",brief:"Category: native-check"}'
   row '{id:"u2",ended:"2026-10-09T00:00:00Z",tier:"haiku",actual_min:5,outcome:"unclear",brief:"Item: makgora#7 Category: native-check"}'
 } | "$threads" ingest 2>/dev/null
 out=$(t recommend 'Category: native-check'; t summary)
 check '[recorded] an unclear run with no Item is unjudged and left out of success; a briefed unclear run is a failure' \
-  'grep -qx "  claude:haiku       50% of 6  \$ n/a (priced n=0)" <<<"$out" && grep -qE "^native-check +haiku +- +6 +5 +83% +50%" <<<"$out"'
+  'grep -qx "  claude:haiku       50% of 6  shrunk 50%  \$ n/a (priced n=0)" <<<"$out" && grep -qE "^native-check +haiku +- +6 +1.0 +5 +83% +50%" <<<"$out"'
 
 week() {  # week PREFIX TIER CATEGORY OK FAIL COST: history runs on 1 Oct, COST $ each (- for none)
   local i
   for i in $(seq 1 "$4"); do row --arg id "$1$i" --arg t "$2" --arg b "Category: $3" '{id:$id,started:"2026-10-01T00:00:00Z",ended:"2026-10-01T01:00:00Z",tier:$t,actual_min:5,outcome:"done",landed:1,brief:$b}'; done
   for i in $(seq 1 "$5"); do row --arg id "$1f$i" --arg t "$2" --arg b "Category: $3" '{id:$id,started:"2026-10-01T00:00:00Z",ended:"2026-10-01T01:00:00Z",tier:$t,actual_min:5,outcome:"not done",landed:0,brief:$b}'; done
 }
-{ week rm medium research 5 0; week rh haiku research 5 0
-  week tm medium tooling 5 0; week ts 'gpt-6.1-sol medium' tooling 5 0
-  week dm medium docs-policy 5 0; week dx 'gpt-6.1-sol xhigh' docs-policy 5 0
+{ week rm medium research 15 0; week rh haiku research 15 0
+  week tm medium tooling 15 0; week ts 'gpt-6.1-sol medium' tooling 15 0
+  week dm medium docs-policy 15 0; week dx 'gpt-6.1-sol xhigh' docs-policy 15 0
   row '{id:"d-research",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"haiku",actual_min:5,outcome:"not done",landed:0,brief:"Category: research"}'
   row '{id:"d-tooling",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"gpt-6.1-sol medium",actual_min:5,outcome:"done",landed:1,brief:"Category: tooling"}'
   row '{id:"d-docs",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"medium",actual_min:5,outcome:"done",landed:1,brief:"Category: docs-policy"}'
 } | THREADS_DB=$scratch/replay.db "$threads" ingest 2>/dev/null
-sqlite3 "$scratch/replay.db" "update runs set cost_usd = case substr(agent, 1, 2) when 'rh' then 3.0 when 'rm' then 1.0
-  when 'tm' then 2.0 when 'ts' then 0.5 when 'dm' then 2.0 end where substr(agent, 1, 2) in ('rh','rm','tm','ts','dm')"
+sqlite3 "$scratch/replay.db" "update runs set tokens = case substr(agent, 1, 2) when 'rh' then 6000000 when 'rm' then 50000 when 'tm' then 100000
+  when 'ts' then 50000 when 'dm' then 100000 end, model = case substr(agent, 1, 2) when 'ts' then 'gpt-6.1-sol' end where substr(agent, 1, 2) in ('rh','rm','tm','ts','dm')"
 out=$(THREADS_DB=$scratch/replay.db t replay-staffing --since 2026-10-04)
 check '[golden] replay-staffing: $ per success moves research off haiku and tooling onto SOL; thin $ falls back to rank for docs' \
   '[ "$out" = "$(cat <<'"'GOLDEN'"'
 replay-staffing since 2026-10-04: 3 first-assignment runs, picks from strictly earlier runs
-[Category: docs-policy]  claude:opus-medium -> codex:sol-xhigh  runs 1  rule rank (uncalibrated: thin $ codex:sol-xhigh n=0 < 5)
-  codex:sol-xhigh 100% of 5, $ n/a (priced n=0)
-  claude:opus-medium 100% of 5, $2.00/success (priced n=5)
+[Category: docs-policy]  claude:opus-medium -> codex:sol-xhigh  runs 1  rule rank (uncalibrated: thin $ codex:sol-xhigh n=0 < 15)
+  codex:sol-xhigh 100% of 15, $ n/a (priced n=0)
+  claude:opus-medium 100% of 15, $2.00/success (priced n=15)
   actual: new pick 0 (0 ok), old pick 1 (1 ok), other 0
 [Category: research]  claude:haiku -> claude:opus-medium  runs 1  rule $ per success
-  claude:opus-medium 100% of 5, $1.00/success (priced n=5)
-  claude:haiku 100% of 5, $3.00/success (priced n=5)
+  claude:opus-medium 100% of 15, $1.00/success (priced n=15)
+  claude:haiku 100% of 15, $3.00/success (priced n=15)
   actual: new pick 0 (0 ok), old pick 1 (0 ok), other 0
 [Category: tooling]  claude:opus-medium -> codex:sol-medium  runs 1  rule $ per success
-  codex:sol-medium 100% of 5, $0.50/success (priced n=5)
-  claude:opus-medium 100% of 5, $2.00/success (priced n=5)
+  codex:sol-medium 100% of 15, $0.50/success (priced n=15)
+  claude:opus-medium 100% of 15, $2.00/success (priced n=15)
   actual: new pick 1 (1 ok), old pick 0 (0 ok), other 0
 changed 3 of 3 decisions in 3 cells; actual tier was the new pick 1 (1 ok), the old pick 2 (1 ok), another 0
 GOLDEN
