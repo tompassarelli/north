@@ -42,6 +42,14 @@ pub fn other_destinations() -> Vec<String> {
     deployment().destinations
 }
 
+pub fn pull_sources() -> Vec<String> {
+    config().map(|cfg| pull_sources_in(&cfg, &crate::platform::host::name())).unwrap_or_default()
+}
+
+pub fn pull_sources_in(cfg: &toml_edit::DocumentMut, here: &str) -> Vec<String> {
+    destinations::pull_sources(cfg, here)
+}
+
 pub fn builds_runtime_here() -> bool {
     config().map(|cfg| destinations::builds_runtime(&cfg, &crate::platform::host::name())).unwrap_or(true)
 }

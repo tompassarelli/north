@@ -8,11 +8,14 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+#[cfg(test)]
+mod tests;
+
 const COPY: Duration = Duration::from_secs(10 * 60);
 const REALISE: Duration = Duration::from_secs(10 * 60);
 
 pub(super) fn pull(target: &str, runtime: &Path) -> bool {
-    land_offload::other_destinations().iter().any(|host| pull_from(host, target, runtime))
+    land_offload::pull_sources().iter().any(|host| pull_from(host, target, runtime))
 }
 
 pub(super) fn pull_from(host: &str, target: &str, runtime: &Path) -> bool {

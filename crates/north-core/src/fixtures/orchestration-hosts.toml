@@ -1,0 +1,21 @@
+[hosts.nexus]
+resident_cap = 6
+deploy_ssh = "nexus"
+builds_runtime = false
+
+[hosts.gex45]
+resident_cap = 24
+pulls_spool = true
+warcraft_clients = 6
+lease_builds = true
+offload_builds = true
+ssh = "tom@gex45"
+serves = ["native:wisp", "warcraft:wisp", "wc3:wisp", "client:wisp", "private:makgora", "native:makgora", "warcraft:makgora", "wc3:makgora", "client:makgora"]
+
+[hosts.whiterabbit]
+resident_cap = 8
+settles_fleet = true
+serves = ["private", "native", "warcraft", "wc3", "client", "sign-ins", "local-state", "tui", "fleet", "live", "desktop", "laptop"]
+
+[placement]
+order = ["gex45", "anthropic-cloud", "nexus", "laptop", "codex-cloud"]

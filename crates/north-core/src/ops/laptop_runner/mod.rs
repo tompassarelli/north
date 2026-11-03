@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ssh_destination_tests;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
@@ -44,11 +46,14 @@ impl Ledger {
 }
 
 fn ledgers(local: Vec<String>) -> Vec<Ledger> {
-    let here = crate::platform::host::name();
     let machines = config().map(|cfg| gate::machines(&cfg)).unwrap_or_default();
     let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    ledgers_among(local, machines, &crate::platform::host::name(), &env)
+}
+
+fn ledgers_among(local: Vec<String>, machines: Vec<gate::Machine>, here: &str, env: &std::collections::BTreeMap<String, String>) -> Vec<Ledger> {
     let remote = machines.into_iter().filter(|machine| machine.name != here).map(|machine| {
-        let command = ssh::argv(&["ssh".into()], &env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &machine.ssh, "north", "threads"]);
+        let command = ssh::argv(&["ssh".into()], env, &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", &machine.ssh, "north", "threads"]);
         Ledger { host: Some(machine.name), command: command.into_iter().map(|word| word.to_string_lossy().into_owned()).collect() }
     });
     std::iter::once(Ledger { host: None, command: local }).chain(remote).collect()

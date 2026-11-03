@@ -71,9 +71,9 @@ fn a_deploy_ships_the_built_runtime_and_its_store_references_then_promotes_remot
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let runtime = host.runtime(&host.target);
     let expected = [
-        format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 far nix-store --realise --quiet {glibc}"),
+        format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -- far nix-store --realise --quiet {glibc}"),
         format!("rsync -a --timeout=120 --mkpath {} {} far:.local/state/north/runtimes/{}/", runtime.join("north").display(), runtime.join("verify-north").display(), host.target),
-        format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 far .local/state/north/runtimes/{0}/north runtime update --sha {0}", host.target),
+        format!("ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -- far .local/state/north/runtimes/{0}/north runtime update --sha {0}", host.target),
     ];
     assert_eq!(fs::read_to_string(host.path("alerts")).unwrap().lines().collect::<Vec<_>>(), expected);
     assert!(!host.path("state/north/current").exists());
@@ -364,7 +364,7 @@ fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue
     script(&host.path("bin/systemctl"), "for unit in \"${@:3}\"; do echo active; done\n");
     script(
         &host.path("bin/ssh"),
-        "while [[ $1 == -o ]]; do shift 2; done\ndestination=$1; shift\nprintf 'ssh %s %s\\n' \"$destination\" \"$*\" >>\"$TEST_ALERTS\"\n\
+        "while [[ $1 == -o ]]; do shift 2; done\n[[ $1 == -- ]] && shift\ndestination=$1; shift\nprintf 'ssh %s %s\\n' \"$destination\" \"$*\" >>\"$TEST_ALERTS\"\n\
          [[ \"$*\" == 'bash -s' ]] && HOME=\"$TEST_FAR/home\" XDG_STATE_HOME=\"$TEST_FAR/state\" exec bash -s\nexit 0\n",
     );
     script(&host.path("bin/rsync"), "printf 'rsync %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n");

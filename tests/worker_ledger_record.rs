@@ -606,7 +606,7 @@ fn the_ledger_host_records_a_host_that_cannot_reach_it_once_by_pulling_its_rows_
     script(
         &rig.path("bin/ssh"),
         &format!(
-            "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\n[ \"$1\" = far ] || exit 255\nshift 2\nexec env -u THREADS_DB HOME={f}/home CLAUDE_CONFIG_DIR={f}/claude RESIDENT_CAP_HOST=far {north} \"$@\"\n",
+            "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\n[ \"$1\" = -- ] && shift\n[ \"$1\" = far ] || exit 255\nshift 2\nexec env -u THREADS_DB HOME={f}/home CLAUDE_CONFIG_DIR={f}/claude RESIDENT_CAP_HOST=far {north} \"$@\"\n",
             f = far.display(),
             north = env!("CARGO_BIN_EXE_north")
         ),

@@ -28,7 +28,7 @@ pub(super) fn build(machine: &gate::Machine, target: &str, runtime: &Path) -> Re
 
 pub(super) fn ssh(destination: &str) -> Command {
     let mut command = Command::new("ssh");
-    command.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", destination]);
+    command.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "--", destination]);
     command
 }
 

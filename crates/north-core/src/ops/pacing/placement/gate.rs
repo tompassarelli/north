@@ -257,6 +257,11 @@ pub fn surface(text: &str, cfg: &DocumentMut) -> (bool, String) {
     (true, format!("code-only box on public {repo}"))
 }
 
+pub fn ssh_destination(value: &str) -> Option<&str> {
+    let plain = value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._@-".contains(&byte));
+    (plain && !value.is_empty() && !value.starts_with('-')).then_some(value)
+}
+
 /// Machines in `[placement] order`, then any other `[hosts.NAME]` naming an `ssh` destination, unprobed.
 pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return Vec::new() };
@@ -267,7 +272,7 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
         .chain(rest)
         .filter_map(|name| {
             let host = hosts.get(&name)?;
-            let ssh = host.get("ssh")?.as_str()?.to_owned();
+            let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
             Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), name, ssh, cap, live: None, accounts: Vec::new(), saturation: None })
         })

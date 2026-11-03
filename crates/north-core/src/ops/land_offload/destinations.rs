@@ -1,3 +1,4 @@
+use crate::ops::pacing::placement::gate::ssh_destination;
 use toml_edit::{DocumentMut, Item};
 
 #[cfg(test)]
@@ -22,7 +23,7 @@ pub(super) fn deploy(cfg: &DocumentMut, here: &str) -> Deployment {
     let Some(hosts) = cfg.get("hosts").and_then(Item::as_table_like) else { return plan };
     let settles = settles_fleet(cfg, here);
     for (name, host) in hosts.iter().filter(|(name, _)| *name != here) {
-        let destination = ["deploy_ssh", "ssh"].iter().find_map(|key| host.get(key)?.as_str());
+        let destination = ["deploy_ssh", "ssh"].iter().find_map(|key| ssh_destination(host.get(key)?.as_str()?));
         let Some(destination) = destination.filter(|destination| !plan.destinations.iter().any(|seen| seen == destination)) else { continue };
         if !settles && host.get("builds_runtime").and_then(Item::as_bool) == Some(false) {
             plan.skipped.push(name.to_owned());
@@ -56,6 +57,17 @@ pub(super) fn build_hosts(cfg: &DocumentMut, here: &str) -> Vec<(String, String)
     hosts
         .iter()
         .filter(|(name, host)| *name != here && host.get("offload_builds").and_then(Item::as_bool) == Some(true))
-        .filter_map(|(name, host)| Some((name.to_owned(), host.get("ssh")?.as_str()?.to_owned())))
+        .filter_map(|(name, host)| Some((name.to_owned(), ssh_destination(host.get("ssh")?.as_str()?)?.to_owned())))
         .collect()
+}
+
+pub(super) fn pull_sources(cfg: &DocumentMut, here: &str) -> Vec<String> {
+    let hosts = cfg.get("hosts").and_then(Item::as_table_like);
+    let refused: Vec<&str> = hosts
+        .into_iter()
+        .flat_map(|hosts| hosts.iter())
+        .filter(|(_, host)| host.get("runtime_source").and_then(Item::as_bool) == Some(false))
+        .flat_map(|(_, host)| ["deploy_ssh", "ssh"].into_iter().filter_map(|key| host.get(key)?.as_str()))
+        .collect();
+    deploy(cfg, here).destinations.into_iter().filter(|destination| !refused.contains(&destination.as_str())).collect()
 }
