@@ -444,3 +444,72 @@ fn a_pinned_update_promotes_exactly_the_shipped_commit_and_refuses_one_that_was_
     assert!(promoted.status.success(), "{}", String::from_utf8_lossy(&promoted.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
 }
+
+fn landed_after(host: &Host, relative: &str) -> String {
+    let source = host.path("source");
+    let home = host.path("home");
+    let file = source.join(relative);
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, format!("landed {relative}\n")).unwrap();
+    git(&home, &source, &["add", "."]);
+    git(&home, &source, &["commit", "-q", "-m", relative]);
+    git(&home, &source, &["rev-parse", "HEAD"])
+}
+
+fn counting_builder(host: &Host) {
+    let skill = host.path("skill/machine-capacity");
+    script(
+        &host.path("bin/agents"),
+        &format!("case \"$1\" in path) echo {};; sync) [[ \"$(readlink \"$XDG_STATE_HOME/north/current\")\" == \"runtimes/$TEST_TARGET\" ]] || exit 91;; esac\n", skill.display()),
+    );
+    script(
+        &host.path("bin/bun"),
+        "echo built >>\"$TEST_COUNT\"\nrelease=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
+         for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
+    );
+}
+
+#[test]
+fn a_landing_that_changes_no_rust_build_input_is_promoted_with_the_live_binaries_and_no_build() {
+    let host = Host::new();
+    let live = host.target.clone();
+    host.built(&live);
+    script(&host.runtime(&live).join("north"), "# live binary\nexit 0\n");
+    host.select(&live);
+    counting_builder(&host);
+    let head = landed_after(&host, "docs/note.md");
+    let count = host.path("count");
+    let output = host.north_with(&["runtime", "update"], &[("TEST_TARGET", &head), ("TEST_COUNT", count.to_str().unwrap())]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!count.exists(), "a build ran for a landing with no Rust input");
+    assert_eq!(host.current(), Path::new("runtimes").join(&head));
+    assert_eq!(fs::read(host.runtime(&head).join("north")).unwrap(), fs::read(host.runtime(&live).join("north")).unwrap());
+    assert!(layout_has_programs(&host.runtime(&head)));
+    assert_eq!(fs::read_to_string(host.runtime(&head).join("tree/docs/note.md")).unwrap(), "landed docs/note.md\n");
+    assert!(stdout.contains("changes no Rust build input") && stdout.contains(&format!("north runtime promoted: {} (was {live})", &head[..8])), "{stdout}");
+}
+
+fn layout_has_programs(runtime: &Path) -> bool {
+    ["north", "verify-north"].iter().all(|program| runtime.join(program).is_file())
+}
+
+#[test]
+fn a_landing_that_changes_a_rust_build_input_still_builds() {
+    for input in ["src/main.rs", "crates/north-core/src/lib.rs", "Cargo.lock", "flake.nix", "harness/defaults.toml"] {
+        let host = Host::new();
+        host.built(&host.target);
+        host.select(&host.target);
+        counting_builder(&host);
+        let mixed = landed_after(&host, "docs/note.md");
+        assert_ne!(mixed, host.target);
+        let head = landed_after(&host, input);
+        let count = host.path("count");
+        let output = host.north_with(&["runtime", "update"], &[("TEST_TARGET", &head), ("TEST_COUNT", count.to_str().unwrap())]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{input}: {stdout}{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(fs::read_to_string(&count).unwrap().trim(), "built", "{input}: {stdout}");
+        assert_eq!(host.current(), Path::new("runtimes").join(&head));
+        assert!(!stdout.contains("changes no Rust build input"), "{input}: {stdout}");
+    }
+}

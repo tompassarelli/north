@@ -4,6 +4,7 @@ use super::layout::{self, BUILT_HERE, Layout, PROGRAMS, TREE};
 use super::peers;
 use super::pull;
 use super::remote;
+use super::reuse;
 use super::store;
 use super::supersede::{self, SUPERSEDED};
 use crate::ops::land_offload;
@@ -159,7 +160,8 @@ pub(super) fn lock(layout: &Layout, operation: FlockOperation) -> Result<Option<
 
 pub(super) fn built_main(layout: &Layout, checkout: &Path) -> Result<(String, PathBuf), Failure> {
     let target = main_commit(checkout)?;
-    if !usable(&layout.runtime(&target)) {
+    let wanted = layout.runtime(&target);
+    if !usable(&wanted) && !reused(layout, checkout, &target, &wanted) {
         println!("north runtime deploy: building {} (up to 25 min under a heavy capacity lease)", layout::short(&target));
     }
     let runtime = built(layout, checkout, &target)?;
@@ -173,7 +175,7 @@ pub(super) fn main_commit(checkout: &Path) -> Result<String, Failure> {
 
 fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Failure> {
     let runtime = layout.runtime(target);
-    if !usable(&runtime) {
+    if !usable(&runtime) && !reused(layout, checkout, target, &runtime) {
         build(layout, checkout, target, &runtime)?;
     }
     Ok(runtime)
@@ -181,6 +183,10 @@ fn built(layout: &Layout, checkout: &Path, target: &str) -> Result<PathBuf, Fail
 
 fn usable(runtime: &Path) -> bool {
     layout::usable(runtime, land_offload::settles_fleet_here())
+}
+
+fn reused(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> bool {
+    reuse::reuse(layout, checkout, target, runtime, land_offload::settles_fleet_here())
 }
 
 pub(super) fn checkout() -> PathBuf {
@@ -321,7 +327,7 @@ fn note_abandoned(layout: &Layout, target: &str) {
     let _ = fs::OpenOptions::new().create(true).append(true).open(layout.abandoned()).and_then(|mut journal| std::io::Write::write_all(&mut journal, line.as_bytes()));
 }
 
-fn install(from: &Path, to: &Path) -> std::io::Result<()> {
+pub(super) fn install(from: &Path, to: &Path) -> std::io::Result<()> {
     let staged = to.with_extension("tmp");
     fs::copy(from, &staged)?;
     fs::set_permissions(&staged, fs::Permissions::from_mode(0o755))?;

@@ -8,6 +8,7 @@ mod peers;
 mod pull;
 mod probe;
 mod remote;
+mod reuse;
 mod settle;
 mod store;
 mod supersede;
