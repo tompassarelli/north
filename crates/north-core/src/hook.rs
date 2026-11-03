@@ -92,6 +92,7 @@ enum HookKind {
     PreBash,
     PreEdit,
     PreAgent,
+    PreTimer,
     PostTool,
     PermissionRequest,
     Stop,
@@ -106,6 +107,7 @@ impl HookKind {
             "pre-bash" => Self::PreBash,
             "pre-edit" => Self::PreEdit,
             "pre-agent" => Self::PreAgent,
+            "pre-timer" => Self::PreTimer,
             "post-tool" => Self::PostTool,
             "permission-request" => Self::PermissionRequest,
             "stop" => Self::Stop,
@@ -122,6 +124,7 @@ impl HookKind {
                 name if crate::guard::shell_call::is_shell_tool(name) => Self::PreBash,
                 "Edit" | "Write" | "MultiEdit" | "NotebookEdit" | "apply_patch" => Self::PreEdit,
                 "Agent" | "spawn_agent" => Self::PreAgent,
+                "ScheduleWakeup" | "CronCreate" => Self::PreTimer,
                 _ => return None,
             },
             "PostToolUse" => Self::PostTool,
@@ -136,7 +139,7 @@ impl HookKind {
 
     fn event(self) -> &'static str {
         match self {
-            Self::PreBash | Self::PreEdit | Self::PreAgent => "PreToolUse",
+            Self::PreBash | Self::PreEdit | Self::PreAgent | Self::PreTimer => "PreToolUse",
             Self::PostTool => "PostToolUse",
             Self::PermissionRequest => "PermissionRequest",
             Self::Stop => "Stop",
@@ -182,6 +185,7 @@ impl HookKind {
                 crate::guard::file_skill::evaluate,
             ],
             Self::PreAgent => &[crate::guard::worker_tier::evaluate],
+            Self::PreTimer => &[crate::guard::lead_timer::evaluate],
             Self::PostTool => &[crate::guard::worker_handoff::evaluate, crate::guard::issue_filing::link, crate::guard::code_health_edit::evaluate],
             Self::PermissionRequest => &[crate::guard::tripwire::check],
             Self::Stop => &[],

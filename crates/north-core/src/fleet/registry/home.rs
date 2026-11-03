@@ -29,6 +29,10 @@ pub fn orders_here() -> NorthResult<StandingOrders> {
     Ok(StandingOrders::in_state(&state_dir(&home_dir()?)))
 }
 
+pub fn root_here() -> NorthResult<PathBuf> {
+    Ok(fleet_root(&state_dir(&home_dir()?)))
+}
+
 /// The names of every session this host's fleet has run, live or past.
 pub fn recorded_here() -> NorthResult<BTreeSet<String>> {
     Ok(recorded_names(&fleet_root(&state_dir(&home_dir()?))))

@@ -92,3 +92,6 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
   waits and flow alerts, and never to call `ScheduleWakeup`, `/loop` or `CronCreate` for fleet work, with a
   guard that refuses those calls in a Fleet lead session. Done when: a guard test refuses `ScheduleWakeup` with
   `NORTH_FLEET_SESSION` set, and a 7-day rescan with this page's method counts 0 lead timer wakes.
+  Guard half done 2026-11-04: `crates/north-core/src/guard/lead_timer.rs` refuses both calls in a Fleet session that
+  has child records or a `lead` name segment; `/loop` reaches the hook only as those two calls. The skill sentence
+  and the rescan remain.

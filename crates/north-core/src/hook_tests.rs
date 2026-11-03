@@ -35,6 +35,12 @@ fn provider_events_select_matching_guard_list() {
             HookKind::PreAgent,
         ),
         (
+            "PreToolUse",
+            vec!["ScheduleWakeup", "CronCreate"],
+            "pre-timer",
+            HookKind::PreTimer,
+        ),
+        (
             "PostToolUse",
             vec!["Bash", "functions.exec_command"],
             "post-tool",

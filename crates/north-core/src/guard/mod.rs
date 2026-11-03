@@ -34,6 +34,9 @@ pub mod native_launch;
 pub mod worker_wait;
 pub mod commit_paths;
 pub mod worker_repair;
+pub mod lead_timer;
+#[cfg(test)]
+mod lead_timer_tests;
 pub mod worker_tier;
 mod spawn_state;
 #[cfg(test)]

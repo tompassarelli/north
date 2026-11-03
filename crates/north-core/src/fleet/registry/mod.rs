@@ -42,7 +42,7 @@ mod start_lock;
 mod stopping;
 mod takeover;
 mod table;
-pub use home::{orders_here, recorded_here};
+pub use home::{orders_here, recorded_here, root_here};
 mod messages;
 mod owners;
 mod parents;
