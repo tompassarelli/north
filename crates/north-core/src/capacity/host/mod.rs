@@ -7,10 +7,12 @@ use serde_json::Value;
 use super::Host;
 use json::{Obj, field, num};
 
+mod actions_pull;
 mod args;
 mod database;
 mod decision;
 mod estimate;
+mod fleet_pull;
 mod gpu;
 #[cfg(test)]
 mod gpu_tests;
@@ -40,6 +42,9 @@ mod status;
 mod systemd;
 
 const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
+
+pub use actions_pull::run as actions_pull;
+pub use fleet_pull::run as pull;
 
 pub fn fail(message: &str, status: i32) -> ! {
     eprintln!("machine-capacity: {message}");

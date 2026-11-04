@@ -57,7 +57,7 @@ impl DiskBudget {
     }
 }
 
-fn policy_path() -> PathBuf {
+pub fn policy_path() -> PathBuf {
     if let Some(path) = env::var_os("AGENTS_ORCHESTRATION").filter(|path| !path.is_empty()) {
         return path.into();
     }

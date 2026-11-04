@@ -10,7 +10,7 @@ use super::estimate::{CapacityRun, TaskSignature, task_signature};
 use super::machine::{env, read_text};
 use super::policy::sizing_runs;
 
-const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS capacity_runs (
+pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS capacity_runs (
     source_id TEXT PRIMARY KEY, at TEXT NOT NULL, family TEXT NOT NULL, repo TEXT,
     package TEXT, class TEXT NOT NULL, signature_exact INTEGER NOT NULL, cwd TEXT,
     owner TEXT, shape TEXT, reservedCpus REAL, reservedMemoryMiB REAL, chargedCpus REAL,
@@ -130,7 +130,7 @@ pub fn capacity_database() -> rusqlite::Result<Connection> {
     Ok(db)
 }
 
-fn sql(value: Option<&Value>) -> Sql {
+pub(super) fn sql(value: Option<&Value>) -> Sql {
     match value {
         None | Some(Value::Null) => Sql::Null,
         Some(Value::Bool(flag)) => Sql::Integer(i64::from(*flag)),
@@ -206,8 +206,14 @@ fn capacity_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<CapacityRun> {
 }
 
 pub fn capacity_history(db: &Connection) -> rusqlite::Result<Vec<CapacityRun>> {
-    let mut statement = db.prepare("SELECT * FROM capacity_runs ORDER BY at, source_id")?;
-    statement.query_map([], capacity_run)?.collect()
+    capacity_history_of(db, &crate::platform::host::name())
+}
+
+pub(super) fn capacity_history_of(db: &Connection, local: &str) -> rusqlite::Result<Vec<CapacityRun>> {
+    let has_host = super::fleet_pull::run_columns(db).iter().any(|name| name == "host");
+    let filter = if has_host { "WHERE host IS NULL OR host = ?" } else { "WHERE ?1 IS NOT NULL" };
+    let mut statement = db.prepare(&format!("SELECT * FROM capacity_runs {filter} ORDER BY at, source_id"))?;
+    statement.query_map([local], capacity_run)?.collect()
 }
 
 pub fn record_usage(entry: &str) -> std::io::Result<()> {
