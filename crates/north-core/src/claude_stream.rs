@@ -208,6 +208,22 @@ pub fn encode_user_message(uuid: &str, text: &str) -> String {
     .to_string()
 }
 
+pub fn encode_user_blocks(uuid: &str, text: &str, images: &[(&str, String)]) -> String {
+    let mut content: Vec<Value> = images
+        .iter()
+        .map(|(media_type, data)| json!({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}))
+        .collect();
+    content.push(json!({"type": "text", "text": text}));
+    json!({
+        "type": "user",
+        "uuid": uuid,
+        "session_id": "",
+        "parent_tool_use_id": null,
+        "message": {"role": "user", "content": content},
+    })
+    .to_string()
+}
+
 pub fn encode_initialize(request_id: &str) -> String {
     control_request(request_id, json!({"subtype": "initialize"}))
 }

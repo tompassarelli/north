@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::Digest;
 use crate::fleet::gates::{Decision, due};
-use crate::fleet::model::{Account, Delivery, LaunchRequest, SessionRecord, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Effort, LaunchRequest, SessionRecord, Status, Transcript};
 use crate::foundation::clock::Timestamp;
-use crate::fleet::registry::{Fleet, Follower};
+use crate::fleet::registry::{Choices, Fleet, Follower};
 
 use super::state_clock::StateClock;
 use crate::fleet::runtime::now_ms;
@@ -32,6 +32,7 @@ pub trait SessionDesk {
     fn transcript(&self, name: &str) -> Option<&Transcript>;
     fn digest(&self) -> Digest;
     fn wisp_payoff(&self) -> String { String::new() }
+    fn choices(&self) -> Vec<Choices> { Vec::new() }
     fn actions(&self) -> Arc<dyn SessionActions>;
 }
 
@@ -39,6 +40,7 @@ pub trait SessionActions: Send + Sync {
     fn launch(&self, request: &LaunchRequest) -> NorthResult<()>;
     fn send(&self, name: &str, text: &str, delivery: Delivery) -> NorthResult<()>;
     fn revive(&self, name: &str) -> NorthResult<()>;
+    fn relaunch(&self, name: &str, model: Option<&str>, effort: Option<Effort>) -> NorthResult<()>;
     fn interrupt(&self, name: &str) -> NorthResult<()>;
     fn stop(&self, name: &str) -> NorthResult<()>;
     fn forget(&self, name: &str) -> NorthResult<()>;
@@ -56,6 +58,10 @@ impl SessionActions for Fleet {
 
     fn revive(&self, name: &str) -> NorthResult<()> {
         Fleet::revive(self, name, None).map(drop)
+    }
+
+    fn relaunch(&self, name: &str, model: Option<&str>, effort: Option<Effort>) -> NorthResult<()> {
+        Fleet::relaunch(self, name, model, effort).map(drop)
     }
 
     fn interrupt(&self, name: &str) -> NorthResult<()> {
@@ -167,6 +173,10 @@ impl SessionDesk for FleetDesk {
     }
 
     fn wisp_payoff(&self) -> String { self.upkeep.summary.clone() }
+
+    fn choices(&self) -> Vec<Choices> {
+        self.fleet.choices()
+    }
 
     fn actions(&self) -> Arc<dyn SessionActions> {
         self.fleet.clone()

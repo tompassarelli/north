@@ -1,3 +1,5 @@
+mod attach;
+mod clipboard;
 mod desk;
 mod digest;
 mod digest_view;
@@ -43,6 +45,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 pub fn run(fleet: Fleet) -> NorthResult<()> {
     let mut desk = FleetDesk::new(fleet);
     let mut screen = Screen::new(env::current_dir()?, desk.accounts());
+    screen.offer(desk.choices());
     let (_guard, mut terminal) = TerminalGuard::enter()?;
     drive(&mut desk, &mut screen, &mut terminal, &mut terminal_events)
 }

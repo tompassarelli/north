@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod books;
 pub mod claims;
 pub mod detached;

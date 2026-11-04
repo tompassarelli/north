@@ -28,6 +28,8 @@ use super::launch::{LaunchParts, launch_parts};
 use super::launch::launch_request;
 use super::list;
 use super::usage::usage;
+use super::interactive;
+use super::relaunch;
 use super::revive;
 use super::row;
 use super::show;
@@ -111,6 +113,8 @@ fn dispatch(fleet: Fleet, arguments: &[String]) -> NorthResult<()> {
         ["ask", name, rest @ ..] => ask(&fleet, name, rest),
         ["orders", rest @ ..] => orders::run(&fleet, rest),
         ["gate", rest @ ..] => gate::run(&fleet, rest),
+        ["relaunch", name, rest @ ..] => relaunch::run(&fleet, name, rest),
+        ["interactive", name] => interactive::run(&fleet, name),
         [verb, name] => session_verb(&fleet, verb, name),
         ["revive", name, rest @ ..] => revive::revive_with(&fleet, name, rest),
         ["show", name, flag] => show::run(&fleet, name, flag),

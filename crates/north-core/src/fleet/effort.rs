@@ -13,7 +13,7 @@ pub enum Effort {
 }
 
 impl Effort {
-    const ALL: [Self; 5] = [Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
+    pub const ALL: [Self; 5] = [Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
 
     pub fn label(self) -> &'static str {
         match self {

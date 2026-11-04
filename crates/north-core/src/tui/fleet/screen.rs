@@ -9,9 +9,11 @@ use tui_textarea::{TextArea, WrapMode};
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::books::Digest;
 use crate::fleet::gates::Decision;
-use crate::fleet::model::{Account, Delivery, EntryKind, LaunchRequest, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Effort, EntryKind, LaunchRequest, Status, Transcript};
+use crate::fleet::registry::Choices;
 use crate::fleet::runtime::SESSION_ENV;
 
+use super::attach::Attachments;
 use super::desk::SessionSummary;
 use super::editor::edit_textarea;
 use super::digest::{DigestPane, SessionFacts};
@@ -41,6 +43,7 @@ pub enum Command {
     Launch(Box<LaunchRequest>),
     Send { name: String, text: String, delivery: Delivery, deepen: bool },
     Revive(String),
+    Relaunch { name: String, model: Option<String>, effort: Option<Effort> },
     Interrupt(String),
     Stop(String),
     Forget(String),
@@ -51,7 +54,7 @@ impl Command {
     pub fn session(&self) -> &str {
         match self {
             Command::Launch(request) => &request.name,
-            Command::Send { name, .. } | Command::Decide { session: name, .. } | Command::Revive(name) | Command::Interrupt(name) | Command::Stop(name) | Command::Forget(name) => name,
+            Command::Send { name, .. } | Command::Decide { session: name, .. } | Command::Revive(name) | Command::Relaunch { name, .. } | Command::Interrupt(name) | Command::Stop(name) | Command::Forget(name) => name,
         }
     }
 }
@@ -76,10 +79,12 @@ pub struct Screen {
     pub pending: Vec<PendingMessage>,
     pub digest: DigestPane,
     pub slash: SlashMenu,
+    attachments: Attachments,
     bell: bool,
     scroll_limit: u16,
     page: u16,
     accounts: Vec<Account>,
+    choices: Vec<Choices>,
     cwd: PathBuf,
     quitting: bool,
 }
@@ -99,13 +104,25 @@ impl Screen {
             pending: Vec::new(),
             digest: DigestPane::default(),
             slash: SlashMenu::default(),
+            attachments: Attachments::system(),
             bell: false,
             scroll_limit: u16::MAX,
             page: 10,
             accounts,
+            choices: Vec::new(),
             cwd,
             quitting: false,
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_attachments(mut self, attachments: Attachments) -> Self {
+        self.attachments = attachments;
+        self
+    }
+
+    pub fn offer(&mut self, choices: Vec<Choices>) {
+        self.choices = choices;
     }
 
     pub fn quitting(&self) -> bool {
@@ -166,10 +183,24 @@ impl Screen {
         match &mut self.dialog {
             Some(Dialog::Launch(form)) => form.paste(text),
             Some(Dialog::ConfirmStop(_)) => {}
+            None if text.is_empty() => self.attach_image(),
             None => {
                 self.focus = Focus::Composer;
                 self.composer.insert_str(text);
             }
+        }
+    }
+
+    fn attach_image(&mut self) {
+        if self.dialog.is_some() {
+            return;
+        }
+        match self.attachments.attach() {
+            Ok(chip) => {
+                self.focus = Focus::Composer;
+                self.composer.insert_str(chip);
+            }
+            Err(error) => self.fail(&error),
         }
     }
 
@@ -187,6 +218,7 @@ impl Screen {
             }
             Command::Launch(request) => format!("launching {}…", request.name),
             Command::Revive(name) => format!("resuming {name}…"),
+            Command::Relaunch { name, .. } => format!("restarting {name} on the same conversation…"),
             Command::Interrupt(name) => format!("interrupting {name}…"),
             Command::Stop(name) => format!("stopping {name}…"),
             Command::Forget(name) => format!("forgetting {name}…"),
@@ -228,6 +260,10 @@ impl Screen {
                 self.fail(&error);
             }
             (Command::Revive(name), Ok(())) => self.notice = Some(Notice::Info(format!("resumed {name}"))),
+            (Command::Relaunch { name, model, effort }, Ok(())) => {
+                let changes: Vec<String> = model.into_iter().chain(effort.map(|effort| format!("{} effort", effort.label()))).collect();
+                self.notice = Some(Notice::Info(format!("restarted {name} on {}; the conversation continues", changes.join(", "))));
+            }
             (Command::Interrupt(name), Ok(())) => self.notice = Some(Notice::Info(format!("interrupted {name}"))),
             (Command::Stop(name), Ok(())) => self.notice = Some(Notice::Info(format!("stopped {name}"))),
             (Command::Forget(name), Ok(())) => {
@@ -280,6 +316,7 @@ impl Screen {
             'd' => return self.forget_selected(),
             'g' => return self.deepen(),
             't' => self.toggle_digest(),
+            'v' => self.attach_image(),
             _ => {}
         }
         None
@@ -324,9 +361,17 @@ impl Screen {
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::ALT) => return self.submit(Delivery::Now),
             KeyCode::Enter if newline_modifier(key) => self.composer.insert_newline(),
             KeyCode::Enter => return self.submit(Delivery::Queued),
-            KeyCode::Esc => self.focus = Focus::List,
+            KeyCode::Esc => return self.escape(),
             _ => edit_textarea(&mut self.composer, key),
         }
+        None
+    }
+
+    fn escape(&mut self) -> Option<Command> {
+        if let Some(session) = self.selected_session().filter(|session| session.status == Status::Working) {
+            return Some(Command::Interrupt(session.record.name.clone()));
+        }
+        self.focus = Focus::List;
         None
     }
 
@@ -389,9 +434,39 @@ impl Screen {
             return None;
         };
         let name = session.record.name.clone();
+        let text = self.attachments.expand(&text);
         self.composer = composer_area();
+        if let Some(tuning) = Tuning::parse(&text) {
+            return self.tune(tuning);
+        }
         self.scroll = 0;
         Some(Command::Send { name, text, delivery, deepen: false })
+    }
+
+    fn tune(&mut self, tuning: Tuning<'_>) -> Option<Command> {
+        let session = self.selected_session()?;
+        let record = session.record.clone();
+        let choices = self.choices.iter().find(|choices| choices.provider == record.provider);
+        let name = record.name.clone();
+        match tuning {
+            Tuning::Model(Some(model)) => return Some(Command::Relaunch { name, model: Some(model.to_owned()), effort: None }),
+            Tuning::Effort(Some(level)) => match Effort::parse(level) {
+                Ok(effort) => return Some(Command::Relaunch { name, model: None, effort: Some(effort) }),
+                Err(error) => self.notice = Some(Notice::Error(error.user_message())),
+            },
+            Tuning::Model(None) => {
+                let models = choices.map_or_else(String::new, |choices| choices.models.join(", "));
+                self.notice = Some(Notice::Info(format!("{name} runs {}; /model NAME restarts it on the same conversation with one of: {models}", record.model.as_deref().unwrap_or("the account default model"))));
+            }
+            Tuning::Effort(None) if choices.is_some_and(|choices| !choices.takes_effort) => {
+                self.notice = Some(Notice::Info(format!("{} sessions take no effort", record.provider.label())));
+            }
+            Tuning::Effort(None) => {
+                let levels = Effort::ALL.map(Effort::label).join(", ");
+                self.notice = Some(Notice::Info(format!("{name} runs at {} effort; /effort LEVEL restarts it on the same conversation with one of: {levels}", record.effort.map_or("the account default", Effort::label))));
+            }
+        }
+        None
     }
 
     fn open_launch_form(&mut self) {
@@ -465,6 +540,23 @@ impl Screen {
     }
 }
 
+enum Tuning<'a> {
+    Model(Option<&'a str>),
+    Effort(Option<&'a str>),
+}
+
+impl<'a> Tuning<'a> {
+    fn parse(text: &'a str) -> Option<Self> {
+        let text = text.trim();
+        let (word, argument) = text.split_once(char::is_whitespace).map_or((text, None), |(word, rest)| (word, Some(rest.trim()).filter(|rest| !rest.is_empty())));
+        match word {
+            "/model" => Some(Self::Model(argument)),
+            "/effort" => Some(Self::Effort(argument)),
+            _ => None,
+        }
+    }
+}
+
 fn composer_area() -> TextArea<'static> {
     let mut area = TextArea::default();
     area.set_wrap_mode(WrapMode::WordOrGlyph);
@@ -478,7 +570,7 @@ fn composer_area() -> TextArea<'static> {
 fn control_action(key: KeyEvent) -> Option<char> {
     let KeyCode::Char(character) = key.code else { return None };
     let character = character.to_ascii_lowercase();
-    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g' | 't')).then_some(character)
+    (key.modifiers.contains(KeyModifiers::CONTROL) && matches!(character, 'q' | 'n' | 'c' | 'x' | 'd' | 'g' | 't' | 'v')).then_some(character)
 }
 
 fn echoes(transcript: Option<&Transcript>, text: &str) -> usize {

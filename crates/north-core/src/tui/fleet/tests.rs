@@ -11,7 +11,8 @@ use ratatui::backend::TestBackend;
 use crate::error::NorthResult;
 use crate::fleet::books::{Digest, Landing, SessionSpend};
 use crate::fleet::gates::{Decision, Gate, GateRequest};
-use crate::fleet::model::{Account, Delivery, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
+use crate::fleet::model::{Account, Delivery, Effort, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
+use crate::fleet::registry::Choices;
 use crate::fleet::prompt::deepened;
 
 use super::desk::{SessionActions, SessionDesk, SessionSummary};
@@ -20,7 +21,7 @@ use super::digest_view::header_lines;
 use super::form::{Field, FormOutcome, LaunchForm};
 use super::painter::TranscriptPainter;
 use super::runner::Runner;
-use super::screen::{Command, Dialog, Focus, Screen};
+use super::screen::{Command, Dialog, Focus, Notice, Screen};
 use super::{apply_event, drive, view};
 
 #[derive(Default)]
@@ -47,6 +48,10 @@ impl SessionActions for ActionsFake {
 
     fn revive(&self, name: &str) -> NorthResult<()> {
         self.record(Command::Revive(name.into()))
+    }
+
+    fn relaunch(&self, name: &str, model: Option<&str>, effort: Option<Effort>) -> NorthResult<()> {
+        self.record(Command::Relaunch { name: name.into(), model: model.map(str::to_owned), effort })
     }
 
     fn interrupt(&self, name: &str) -> NorthResult<()> {
@@ -252,6 +257,79 @@ fn stop_needs_confirmation_and_forget_needs_an_exited_session() {
     key(&mut desk, &mut screen, control('d'));
     assert_eq!(desk.performed(), [Command::Stop("parser".into()), Command::Interrupt("parser".into()), Command::Forget("done".into())]);
     assert_eq!(screen.selected.as_deref(), Some("parser"));
+}
+
+#[test]
+fn escape_in_the_composer_interrupts_a_working_session_and_otherwise_moves_focus_to_the_list() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    assert_eq!((screen.selected.as_deref(), screen.focus), (Some("parser"), Focus::Composer));
+    key(&mut desk, &mut screen, press(KeyCode::Esc));
+    assert_eq!(desk.performed(), [Command::Interrupt("parser".into())]);
+    assert_eq!(screen.focus, Focus::Composer);
+    key(&mut desk, &mut screen, control('c'));
+    assert_eq!(desk.performed().len(), 2, "Ctrl+C still interrupts");
+
+    desk.sessions[1].status = Status::Idle;
+    screen.sync(desk.sessions());
+    key(&mut desk, &mut screen, press(KeyCode::Esc));
+    assert_eq!(desk.performed().len(), 2, "an idle session has nothing to interrupt");
+    assert_eq!(screen.focus, Focus::List);
+}
+
+fn offering(screen: &mut Screen) {
+    screen.offer(vec![Choices { provider: ProviderName::new("claude"), models: vec!["opus".into(), "sonnet".into()], takes_effort: true }]);
+}
+
+#[test]
+fn model_and_effort_with_an_argument_restart_the_selected_session_and_never_reach_the_model() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    offering(&mut screen);
+    type_text(&mut desk, &mut screen, "/model sonnet");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    type_text(&mut desk, &mut screen, "/effort high");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert_eq!(
+        desk.performed(),
+        [
+            Command::Relaunch { name: "parser".into(), model: Some("sonnet".into()), effort: None },
+            Command::Relaunch { name: "parser".into(), model: None, effort: Some(Effort::High) },
+        ]
+    );
+    assert!(screen.pending.is_empty());
+    assert_eq!(screen.composer.lines().join(""), "");
+    assert!(matches!(&screen.notice, Some(Notice::Info(text)) if text.contains("restarted parser") && text.contains("high effort")), "{:?}", screen.notice);
+}
+
+#[test]
+fn model_and_effort_without_an_argument_show_the_current_value_and_the_choices() {
+    let mut desk = desk();
+    let mut screen = screen(&desk);
+    offering(&mut screen);
+    type_text(&mut desk, &mut screen, "/model");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    let Some(Notice::Info(model)) = screen.notice.clone() else { panic!("no model notice") };
+    assert!(model.contains("the account default model") && model.contains("opus, sonnet"), "{model}");
+    type_text(&mut desk, &mut screen, "/effort");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    let Some(Notice::Info(effort)) = screen.notice.clone() else { panic!("no effort notice") };
+    assert!(effort.contains("low, medium, high, xhigh, max"), "{effort}");
+    type_text(&mut desk, &mut screen, "/effort extreme");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert!(matches!(&screen.notice, Some(Notice::Error(text)) if text.contains("no effort extreme")), "{:?}", screen.notice);
+    assert!(desk.performed().is_empty(), "no argument or a bad one restarts nothing and sends nothing");
+}
+
+#[test]
+fn a_command_without_a_session_selected_is_not_sent_as_text() {
+    let mut desk = desk();
+    desk.sessions.clear();
+    let mut screen = screen(&desk);
+    type_text(&mut desk, &mut screen, "/model sonnet");
+    key(&mut desk, &mut screen, press(KeyCode::Enter));
+    assert!(desk.performed().is_empty());
+    assert!(matches!(screen.notice, Some(Notice::Error(_))));
 }
 
 #[test]
@@ -501,3 +579,6 @@ fn the_key_hints_end_on_a_whole_hint_in_a_narrow_window() {
     let footer = page.lines().last().unwrap();
     assert_eq!(footer, "Enter send · Alt+Enter newline · ^Enter/Alt+U urgent");
 }
+
+#[path = "attach_tests.rs"]
+mod attach;

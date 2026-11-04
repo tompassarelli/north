@@ -315,3 +315,108 @@ fn a_take_over_claims_the_row_under_the_name_and_a_refused_one_leaves_the_holder
     assert_eq!(store.0.lock().unwrap().iter().map(|(row, claim)| (row.name.as_str(), *claim)).collect::<Vec<_>>(), [("worker", Claim::TakeOver)]);
     assert_eq!(fleet.record("worker").unwrap().conversation.as_deref(), Some("c0ffee"), "the holder is not archived when the store refuses");
 }
+
+fn hosted(fleet: &Fleet, name: &str, model: Option<&str>, effort: &str) -> std::process::Child {
+    use std::os::unix::process::CommandExt;
+    let child = std::process::Command::new("sleep").arg("30").process_group(0).stdin(std::process::Stdio::null()).spawn().unwrap();
+    let session = fleet.root.join(name);
+    fs::create_dir_all(session.join("g1")).unwrap();
+    fs::write(session.join("host.pid"), child.id().to_string()).unwrap();
+    let record = serde_json::json!({"name": name, "provider": "claude", "account": "a", "cwd": "/tmp", "model": model, "effort": effort, "created_ms": 1, "host_pid": child.id(), "conversation": "c1", "host_dir": session, "stream_offset": 0});
+    fs::write(session.join("session.json"), record.to_string()).unwrap();
+    let result = serde_json::json!({"type": "result", "subtype": "success", "session_id": "c1"});
+    fs::write(session.join("g1/stream.jsonl"), format!("{result}\n")).unwrap();
+    child
+}
+
+#[test]
+fn a_relaunch_stops_the_host_then_restarts_the_same_conversation_on_the_new_model_and_effort() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    let mut host = hosted(&fleet, "worker", Some("opus"), "low");
+    let pid = host.id();
+
+    let restarted = fleet
+        .relaunch_with("worker", Some("sonnet"), None, |name| {
+            let held = fleet.record(name).unwrap();
+            assert!(held.stopped && !alive(pid), "the restart began while the old host still ran");
+            Ok(held)
+        })
+        .unwrap();
+    host.wait().unwrap();
+
+    assert_eq!((restarted.model.as_deref(), restarted.effort, restarted.conversation.as_deref()), (Some("sonnet"), Some(Effort::High), Some("c1")));
+    let kept = fleet.record("worker").unwrap();
+    assert_eq!((kept.model, kept.effort, kept.conversation.as_deref()), (Some("sonnet".into()), Some(Effort::High), Some("c1")));
+}
+
+#[test]
+fn a_relaunch_effort_alone_keeps_the_model_and_a_refused_change_leaves_the_session_running() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    let mut host = hosted(&fleet, "worker", Some("opus"), "low");
+
+    let refusals = [
+        fleet.relaunch_with("worker", Some("gpt-9"), None, |_| panic!("restarted on a model the runtime lacks")),
+        fleet.relaunch_with("worker", Some("sonnet"), Some(Effort::Low), |_| panic!("restarted Sonnet below high")),
+        fleet.relaunch_with("worker", None, None, |_| panic!("restarted with nothing to change")),
+    ];
+    for refusal in &refusals {
+        assert!(matches!(refusal, Err(NorthError::Usage(_))), "{refusal:?}");
+    }
+    assert!(!fleet.record("worker").unwrap().stopped && alive(host.id()), "a refused change stopped the session");
+
+    let restarted = fleet.relaunch_with("worker", None, Some(Effort::Max), |name| fleet.record(name)).unwrap();
+    host.wait().unwrap();
+    assert_eq!((restarted.model.as_deref(), restarted.effort), (Some("opus"), Some(Effort::Max)));
+}
+
+#[test]
+fn an_interactive_hand_over_stops_the_fleet_host_before_it_runs_the_provider_ui_on_the_same_conversation() {
+    let home = tempfile::tempdir().unwrap();
+    let fleet = fleet(home.path(), "");
+    let mut host = hosted(&fleet, "worker", Some("opus"), "high");
+    let pid = host.id();
+    let mut launched = None;
+
+    fleet
+        .interactive("worker", |spec| {
+            let held = fleet.record("worker").unwrap();
+            launched = Some((held.stopped, alive(pid), spec.argv.clone(), spec.env.clone(), spec.cwd.clone()));
+            Ok(())
+        })
+        .unwrap();
+    host.wait().unwrap();
+
+    let (stopped, host_alive, argv, env, cwd) = launched.expect("the interactive command never ran");
+    assert!(stopped && !host_alive, "the UI would have started beside the fleet host");
+    let words = argv.join(" ");
+    assert!(words.contains("--resume c1") && words.contains("--model opus") && words.contains("--effort high"), "{words}");
+    assert!(!argv.iter().any(|word| word == "-p" || word == "stream-json"), "{words}");
+    assert!(env.iter().any(|(key, value)| key == "NORTH_FLEET_SESSION" && value == "worker"));
+    assert_eq!(cwd, std::path::PathBuf::from("/tmp"));
+}
+
+#[test]
+fn a_revive_and_a_second_hand_over_are_refused_while_the_interactive_ui_holds_the_conversation() {
+    let home = tempfile::tempdir().unwrap();
+    let proc = home.path().join("proc");
+    for (pid, words) in [("11", "claude\0-p\0--resume\0worker\0--output-format\0stream-json"), ("12", "claude\0--resume\0other\0"), ("13", "north\0fleet\0list\0")] {
+        fs::create_dir_all(proc.join(pid)).unwrap();
+        fs::write(proc.join(pid).join("cmdline"), words).unwrap();
+    }
+    let fleet = fleet(home.path(), "").reading_proc(proc.clone());
+    parked(&fleet, "worker", true, "Not done: stopped.");
+    let held = fleet.session("worker").unwrap();
+    assert!(fleet.refuse_beside_interactive(&held).is_ok(), "a stream host or another conversation is not the interactive UI");
+
+    fs::create_dir_all(proc.join("14")).unwrap();
+    fs::write(proc.join("14/cmdline"), "claude\0--resume\0worker\0--permission-mode\0bypassPermissions\0").unwrap();
+
+    for refused in [fleet.revive("worker", None).map(drop), fleet.interactive("worker", |_| Ok(()))] {
+        match refused {
+            Err(NorthError::Refused(why)) => assert!(why.contains("interactive UI") && why.contains("process 14"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+    }
+}

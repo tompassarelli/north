@@ -36,8 +36,10 @@ mod follower;
 mod gate_commands;
 mod gate_rows;
 mod hand_in;
+mod interactive;
 mod kept;
 mod lanes;
+mod relaunching;
 mod launching;
 mod home;
 mod start_lock;
@@ -69,6 +71,7 @@ pub use home::roster;
 use home::{fleet_root, home_dir, state_dir};
 pub use hand_in::HandedIn;
 pub use control::Controlled;
+pub use relaunching::Choices;
 pub use gate_rows::Opened;
 pub use messages::Sent;
 pub use spend_rows::Spent;
@@ -95,6 +98,7 @@ pub struct Fleet {
     arm: fn(i64) -> NorthResult<()>,
     registrar: Arc<dyn Registrar>,
     leases: Arc<dyn JobLeases>,
+    proc: PathBuf,
 }
 
 impl Fleet {
@@ -106,7 +110,7 @@ impl Fleet {
         let state = state_dir(&home);
         let root = fleet_root(&state);
         fs::create_dir_all(&root)?;
-        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases })
+        Ok(Self { root, state, home, policy, runtimes, ledger, claims, host: crate::platform::host::name(), arm: parents::await_default, registrar, leases, proc: "/proc".into() })
     }
 
     pub fn watch(&self, provider: &ProviderName, host_dir: &Path) -> NorthResult<TurnWatch> {

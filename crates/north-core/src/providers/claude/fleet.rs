@@ -2,9 +2,10 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::claude_stream::{encode_interrupt, encode_user_message};
+use crate::claude_stream::{encode_interrupt, encode_user_blocks, encode_user_message};
 use crate::error::NorthResult;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, Status, Transcript, UsageLimit};
+use crate::fleet::attachments;
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, Opening, Runtime, new_uuid, summarize};
@@ -82,6 +83,22 @@ impl Runtime for Claude {
         })
     }
 
+    fn interactive(&self, account: &Account, request: &LaunchRequest, conversation: &str, instructions: &str) -> NorthResult<HostSpec> {
+        let mut argv = vec![install::runtime("claude").display().to_string(), "--resume".into(), conversation.into(), "--permission-mode".into(), "bypassPermissions".into()];
+        argv.extend(session_env::model_args(request));
+        if !instructions.is_empty() {
+            argv.extend(["--append-system-prompt".into(), instructions.to_owned()]);
+        }
+        Ok(HostSpec {
+            key: request.name.clone(),
+            shared: false,
+            argv: session_env::with_credential(account, argv),
+            env: claude_env(account, request),
+            env_remove: session_env::inherited_env(account),
+            cwd: request.cwd.clone(),
+        })
+    }
+
     fn handshake(&self) -> Vec<String> {
         Vec::new()
     }
@@ -91,7 +108,8 @@ impl Runtime for Claude {
     }
 
     fn message(&self, _transcript: &Transcript, id: &str, text: &str) -> NorthResult<Vec<String>> {
-        Ok(vec![encode_user_message(id, text)])
+        let images: Vec<_> = attachments::read(text)?.into_iter().map(|(media_type, bytes)| (media_type, attachments::base64(&bytes))).collect();
+        Ok(vec![if images.is_empty() { encode_user_message(id, text) } else { encode_user_blocks(id, text, &images) }])
     }
 
     fn interrupt(&self, _transcript: &Transcript) -> NorthResult<Vec<String>> {
@@ -287,3 +305,6 @@ mod turn_state;
 #[cfg(test)]
 #[path = "launch_tests.rs"]
 mod launch;
+#[cfg(test)]
+#[path = "image_tests.rs"]
+mod image;

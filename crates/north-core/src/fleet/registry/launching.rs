@@ -107,6 +107,7 @@ impl Fleet {
         if session_running(&record) {
             return Ok(record);
         }
+        self.refuse_beside_interactive(&record)?;
         let conversation = record
             .conversation
             .clone()

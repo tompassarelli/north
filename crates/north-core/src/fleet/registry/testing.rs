@@ -30,6 +30,11 @@ impl Fleet {
         self
     }
 
+    pub fn reading_proc(mut self, proc: PathBuf) -> Self {
+        self.proc = proc;
+        self
+    }
+
     pub fn hosted_as(mut self, host: &str) -> Self {
         self.host = host.into();
         self

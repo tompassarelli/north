@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use crate::codex::chat_updates;
 use crate::error::{NorthError, NorthResult};
+use crate::fleet::attachments;
 use crate::fleet::gates::Question;
 use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName, Quota, QuotaWindow, Status, Transcript};
 use crate::fleet::roster::Roster;
@@ -83,6 +84,9 @@ impl Runtime for Codex {
     }
 
     fn message(&self, transcript: &Transcript, _id: &str, text: &str) -> NorthResult<Vec<String>> {
+        if !attachments::paths(text).is_empty() {
+            return Err(NorthError::Usage("codex sessions do not take image attachments".into()));
+        }
         let thread = thread(transcript)?;
         let input = json!([{"type": "text", "text": text}]);
         let frame = match &transcript.active_turn {

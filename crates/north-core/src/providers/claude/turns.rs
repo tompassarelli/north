@@ -33,7 +33,8 @@ pub(super) fn signals(frame: &Value) -> Vec<TurnSignal> {
 
 // Claude Code never echoes a slash command back, so only a plain prompt can be waited on.
 pub(super) fn sent_prompt(frame: &Value) -> Option<String> {
-    let text = frame["message"]["content"].as_str()?;
+    let content = &frame["message"]["content"];
+    let text = content.as_str().or_else(|| content.as_array()?.iter().find_map(|block| block["text"].as_str()))?;
     if frame["type"] != "user" || text.starts_with('/') {
         return None;
     }

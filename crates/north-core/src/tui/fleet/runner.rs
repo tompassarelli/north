@@ -85,6 +85,7 @@ fn perform(actions: &dyn SessionActions, command: &Command) -> NorthResult<()> {
         Command::Send { name, text, delivery, deepen: true } => actions.send(name, &deepened(text), *delivery),
         Command::Send { name, text, delivery, deepen: false } => actions.send(name, text, *delivery),
         Command::Revive(name) => actions.revive(name),
+        Command::Relaunch { name, model, effort } => actions.relaunch(name, model.as_deref(), *effort),
         Command::Interrupt(name) => actions.interrupt(name),
         Command::Stop(name) => actions.stop(name),
         Command::Forget(name) => actions.forget(name),
