@@ -158,7 +158,15 @@ fn a_profile_whose_build_lock_is_held_keeps_its_idle_dependency_artifacts() {
     assert_eq!(sweep_now(&target, 0), 4096);
     assert!(target.join("release/deps/libold-1.rlib").is_file());
     assert!(!target.join("debug/deps/libold-2.rlib").exists());
-    drop(building);
+}
+
+#[test]
+fn a_profile_whose_build_lock_file_is_not_held_loses_its_idle_dependency_artifacts() {
+    let scratch = tempfile::tempdir().unwrap();
+    let target = scratch.path().join("cargo-target");
+    write(&target.join("release/deps/libold-1.rlib"), 4096, 0o644, HOUR * 3);
+    write(&target.join("release/.cargo-lock"), 0, 0o644, HOUR * 3);
+    write(&target.join("debug/fresh.bin"), 1, 0o644, Duration::from_secs(30));
     assert_eq!(sweep_now(&target, 0), 4096);
     assert!(!target.join("release/deps/libold-1.rlib").exists());
 }

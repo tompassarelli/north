@@ -36,6 +36,7 @@ pub struct Client {
     fleet: Arc<dyn outside::FleetView>,
     record_wait: Duration,
     ingest_wait: Duration,
+    clock: Arc<dyn Fn() -> Timestamp + Send + Sync>,
 }
 
 #[derive(PartialEq)]
@@ -135,6 +136,7 @@ impl Client {
             fleet,
             record_wait: RECORD_WAIT,
             ingest_wait: INGEST_WAIT,
+            clock: Arc::new(Timestamp::now),
         }
     }
 
@@ -194,17 +196,17 @@ impl Client {
         let mut data = Vec::new();
         stdin.read_to_end(&mut data)?;
         let ledger = self.ledger();
-        let started = Timestamp::now();
+        let started = (self.clock)();
         let log = ledger.with_file_name("ingest.log");
         let record = |acquired: Option<Timestamp>, exit: i32| {
-            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: Timestamp::now(), exit });
+            let _ = ingest_log::append(&log, &ingest_log::Ingest { started, acquired, ended: (self.clock)(), exit });
         };
         let Some(_lock) = ingest_lock::acquire(&ledger.with_file_name("ingest.lock"), self.ingest_wait)? else {
             writeln!(err, "NorthThreads: another ingest holds the ledger; retry")?;
             record(None, ingest_lock::RETRY);
             return Ok(ingest_lock::RETRY);
         };
-        let acquired = Timestamp::now();
+        let acquired = (self.clock)();
         let code = self.local(argv, Some(&ledger), Some(&data));
         record(Some(acquired), code.as_ref().map_or(1, |code| *code));
         code
@@ -967,31 +969,42 @@ exit "$(cat "$ROOT/code")"
         fs::read_to_string(root.join("ingest.log")).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect()
     }
 
+    fn scripted(client: &mut Client, millis: &[i64]) -> Arc<std::sync::atomic::AtomicUsize> {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = reads.clone();
+        let times: Vec<Timestamp> = millis.iter().map(|millis| Timestamp::from_unix_millis(1_793_000_000_000 + millis)).collect();
+        client.clock = Arc::new(move || times[counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst)]);
+        reads
+    }
+
     #[test]
     fn every_ingest_logs_its_wait_and_hold_so_a_day_of_traffic_shows_one_holder_at_a_time() {
-        let (directory, client) = ledger_host(Duration::from_secs(30));
-        std::thread::scope(|scope| {
-            for id in ["one", "two"] {
-                let client = &client;
-                scope.spawn(move || client.main(&["ingest".to_owned()], &mut &batch(id)[..], &mut Vec::new()).unwrap());
+        let (directory, mut client) = ledger_host(Duration::from_secs(60));
+        let reads = scripted(&mut client, &[0, 300, 1300]);
+        let held = ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().unwrap();
+        let code = std::thread::scope(|scope| {
+            let ingest = scope.spawn(|| client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut Vec::new()).unwrap());
+            while reads.load(std::sync::atomic::Ordering::SeqCst) == 0 && !ingest.is_finished() {
+                std::thread::yield_now();
             }
+            drop(held);
+            ingest.join().unwrap()
         });
-        let mut lines = logged(directory.path());
-        assert_eq!(lines.len(), 2);
-        assert!(lines.iter().all(|line| line["exit"] == 0 && line["pid"] == std::process::id() && line["held_ms"].as_i64().unwrap() >= 1000), "{lines:?}");
-        lines.sort_by_key(|line| line["ended"].as_str().unwrap().to_owned());
-        assert!(lines[1]["waited_ms"].as_i64().unwrap() >= lines[0]["held_ms"].as_i64().unwrap() - 100, "{lines:?}");
+        assert_eq!(code, 0);
+        let lines = logged(directory.path());
+        assert_eq!(lines.len(), 1);
+        assert_eq!((lines[0]["exit"].as_i64(), lines[0]["pid"].as_u64(), lines[0]["waited_ms"].as_i64(), lines[0]["held_ms"].as_i64(), lines[0]["total_ms"].as_i64()), (Some(0), Some(u64::from(std::process::id())), Some(300), Some(1000), Some(1300)), "{lines:?}");
     }
 
     #[test]
     fn a_refused_ingest_logs_the_retry_code_with_no_hold() {
-        let (directory, client) = ledger_host(Duration::from_millis(100));
+        let (directory, mut client) = ledger_host(Duration::ZERO);
+        scripted(&mut client, &[0, 100]);
         let _held = ingest_lock::acquire(&directory.path().join("ingest.lock"), Duration::ZERO).unwrap().unwrap();
         client.main(&["ingest".to_owned()], &mut &batch("one")[..], &mut Vec::new()).unwrap();
         let lines = logged(directory.path());
         assert_eq!(lines.len(), 1);
-        assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].is_null()), (Some(i64::from(ingest_lock::RETRY)), true));
-        assert!(lines[0]["waited_ms"].as_i64().unwrap() >= 100, "{lines:?}");
+        assert_eq!((lines[0]["exit"].as_i64(), lines[0]["held_ms"].is_null(), lines[0]["waited_ms"].as_i64()), (Some(i64::from(ingest_lock::RETRY)), true, Some(100)), "{lines:?}");
     }
 
     #[test]
