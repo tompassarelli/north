@@ -66,6 +66,30 @@ fn targets(found: Vec<BrokenPath>) -> Vec<(String, usize, String)> {
 }
 
 #[test]
+fn an_agent_machinery_readme_naming_a_missing_package_path_exits_one_and_skills_stay_links_only() {
+    let root = repository(&[
+        ("agent-machinery/scripts/kept.mjs", ""),
+        ("src/kept.rs", ""),
+        ("bin/kept", ""),
+        ("agent-machinery/README.md", "Run `agent-machinery/scripts/gone.mjs`, see [k](scripts/kept.mjs).\n"),
+        ("agent-machinery/skills/a/SKILL.md", "`bin/elsewhere` [a](../gone/SKILL.md)\n"),
+        ("agent-machinery/PROVENANCE.md", "Upstream `src/elsewhere.ts`.\n"),
+    ]);
+    assert_eq!(
+        targets(broken_paths(root.path()).unwrap()),
+        [
+            ("agent-machinery/README.md".into(), 1, "agent-machinery/scripts/gone.mjs".into()),
+            ("agent-machinery/skills/a/SKILL.md".into(), 1, "../gone/SKILL.md".into()),
+        ]
+    );
+    let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
+    assert_eq!(run(&arguments, defined), 1);
+    fs::write(root.path().join("agent-machinery/README.md"), "Run `agent-machinery/scripts/kept.mjs`.\n").unwrap();
+    fs::write(root.path().join("agent-machinery/skills/a/SKILL.md"), "`bin/elsewhere`\n").unwrap();
+    assert_eq!(run(&arguments, defined), 0);
+}
+
+#[test]
 fn a_named_path_or_link_that_no_tracked_file_backs_is_named_with_its_line() {
     let root = repository(&[
         ("bin/kept", ""),

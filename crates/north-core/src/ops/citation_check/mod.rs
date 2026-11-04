@@ -5,8 +5,8 @@ use std::process::Command;
 const ROOTS: &[&str] = &["docs/", "harness/", "bin/", ".claude/", "agent-machinery/", "README.md", "AGENTS.md"];
 const SKIPPED: &[&str] = &["docs/rationale/", "/fixtures/", ".test.", "node_modules/"];
 const SEPARATORS: &[&str] = &["&&", "||", "$(", ";", "|", "(", "`"];
-const NAMED_PATHS: &[&str] = &["docs/", "README.md", "AGENTS.md"];
-const LINKS_ONLY: &[&str] = &["docs/references/"];
+const NAMED_PATHS: &[&str] = &["docs/", "agent-machinery/", "README.md", "AGENTS.md"];
+const LINKS_ONLY: &[&str] = &["docs/references/", "agent-machinery/skills/", "agent-machinery/PROVENANCE.md"];
 const UNSCANNED: &[&str] = &["docs/features/"];
 const SKILL_ROOTS: &[&str] = &["harness/skills/", "agent-machinery/skills/"];
 
