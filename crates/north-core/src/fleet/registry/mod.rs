@@ -51,7 +51,6 @@ mod senders;
 mod status;
 mod rebooting;
 mod stranding;
-#[cfg(any(test, feature = "test-support"))]
 mod testing;
 #[cfg(test)]
 mod fixtures;

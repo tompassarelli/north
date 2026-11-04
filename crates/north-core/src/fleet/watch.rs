@@ -202,7 +202,6 @@ impl TurnWatch {
         self
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub fn idling_by(mut self, policy: idle::Policy) -> Self {
         self.idle = policy;
         self

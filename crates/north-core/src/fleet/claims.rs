@@ -69,11 +69,9 @@ pub fn release_for(claims: &dyn Claims, record: &SessionRecord) {
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
 #[derive(Default)]
 pub struct Held(pub std::sync::Mutex<Vec<(&'static str, String, String)>>);
 
-#[cfg(any(test, feature = "test-support"))]
 impl Claims for Held {
     fn hold(&self, item: &str, session: &str) -> NorthResult<Option<String>> {
         self.0.lock().unwrap().push(("hold", item.to_owned(), session.to_owned()));

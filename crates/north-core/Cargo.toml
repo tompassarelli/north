@@ -28,6 +28,3 @@ tui-textarea-2.workspace = true
 
 [lints]
 workspace = true
-
-[features]
-test-support = []

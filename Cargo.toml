@@ -54,9 +54,6 @@ tokio.workspace = true
 tui-markdown.workspace = true
 tui-textarea-2.workspace = true
 
-[dev-dependencies]
-north-core = { path = "crates/north-core", features = ["test-support"] }
-
 [[bin]]
 name = "north"
 path = "src/main.rs"
