@@ -198,7 +198,7 @@ Done when:
   `Compiling`.
 - In a lane touching `crates/north-core/src/catalog/registration_checks.rs`, its output shows `Finished` or
   `Compiling north`.
-- `rg -c 'check-owners.sh' .safe-push` prints 2 (the check and its `local-only` line).
+- `rg -c 'check-owners.sh' .safe-push` prints 2 (the check and its `machine-bound` line).
 
 ### B7. Machine-bound checks reuse a held runtime (unscheduled)
 

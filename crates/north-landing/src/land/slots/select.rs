@@ -12,6 +12,7 @@ pub struct Config {
     pub capacity: Option<String>,
     checks: Vec<String>,
     local_only: Vec<String>,
+    machine_bound: Vec<String>,
 }
 
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
@@ -39,6 +40,7 @@ impl Config {
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks: blob_values(repo, head, "land.check"),
             local_only: blob_values(repo, head, "land.local-only"),
+            machine_bound: blob_values(repo, head, "land.machine-bound"),
         }
     }
 
@@ -51,8 +53,11 @@ impl Config {
     }
 
     pub fn local_reason(&self, command: &str) -> Option<&str> {
-        let suffix = format!("{SEPARATOR}{command}");
-        self.local_only.iter().find(|entry| entry.ends_with(&suffix)).map(|entry| entry.split(SEPARATOR).next().unwrap_or_default())
+        reason(&self.local_only, command)
+    }
+
+    pub fn off_actions_reason(&self, command: &str) -> Option<&str> {
+        self.local_reason(command).or_else(|| reason(&self.machine_bound, command))
     }
 
     pub fn publish_ref(&self, head: &str) -> Option<String> {
@@ -75,6 +80,11 @@ impl Config {
         }
         Ok(commands)
     }
+}
+
+fn reason<'a>(entries: &'a [String], command: &str) -> Option<&'a str> {
+    let suffix = format!("{SEPARATOR}{command}");
+    entries.iter().find(|entry| entry.ends_with(&suffix)).map(|entry| entry.split(SEPARATOR).next().unwrap_or_default())
 }
 
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {

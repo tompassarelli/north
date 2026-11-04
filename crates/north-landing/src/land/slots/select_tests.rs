@@ -27,3 +27,12 @@ fn an_entry_without_the_separator_is_invalid() {
     let error = config(&["no separator"], &[]).commands(Path::new("."), "", "HEAD").unwrap_err();
     assert_eq!(error, "invalid land.check: no separator");
 }
+
+#[test]
+fn a_machine_bound_check_stays_off_actions_without_being_pinned_to_this_host() {
+    let config = Config { machine_bound: vec!["reads the checkouts :: owners".into()], ..config(&[], &["needs this host :: cargo test"]) };
+    assert_eq!(config.off_actions_reason("owners"), Some("reads the checkouts"));
+    assert_eq!(config.local_reason("owners"), None);
+    assert_eq!(config.off_actions_reason("cargo test"), Some("needs this host"));
+    assert_eq!(config.off_actions_reason("cargo"), None);
+}

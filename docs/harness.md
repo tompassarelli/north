@@ -126,11 +126,11 @@ the [repo-safety skill](../harness/skills/repo-safety/SKILL.md) is the procedure
 2. runs the checks that the repository's committed `.safe-push` maps to the changed paths
    (`land.check` entries; [this repository's](../.safe-push) cover the Rust host, the harness scripts
    and agent-machinery), or the pre-push hook when there are none;
-   when `.safe-push` names a `land.workflow`, every check except the `land.local-only` ones
+   when `.safe-push` names a `land.workflow`, every check except the `land.local-only` and `land.machine-bound` ones
    (`REASON :: COMMAND`, the reason printed when it runs here) runs as one job of that workflow on
    GitHub Actions: `north land-actions` scans the lane for secrets and private values, pushes it to
    `land-check/<sha>`, dispatches the workflow, waits for its verdict and deletes the branch, while
-   the local-only checks run here; when `.safe-push` sets `land.publish = PREFIX`, safe-push scans
+   the local-only checks run here and the machine-bound ones (they read `~/code` checkouts or host state Actions lacks, which a build host has) run on the `land.runner` build host, or here when none has room, so a Rust lane compiles north on the build host and not on the lander; when `.safe-push` sets `land.publish = PREFIX`, safe-push scans
    the lane the same way before the checks that run here, pushes it to `PREFIX<sha12>`, passes that
    branch as `SAFE_PUSH_LAND_REF` so a check can dispatch its own workflow on it, and deletes it after
    them; `bin/land-shell` runs a check in `depbox` on a host and directly on

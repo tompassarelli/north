@@ -7,6 +7,12 @@ use std::time::{Duration, Instant};
 const NORTH_STUB: &str = r#"printf 'north %s\n' "$*" >>"$STUB_TRACE"
 case "$1" in
   land-cache) exit 1 ;;
+  capacity)
+    case "$2 $3" in
+      "offload choose") printf 'buildbox\n'; exit 0 ;;
+      "offload run") exit 0 ;;
+    esac
+    ;;
   land-red-check) exit "${STUB_RED_STATUS:-0}" ;;
   land-actions)
     if [ -n "${STUB_ACTIONS_RELEASE:-}" ]; then
@@ -324,4 +330,41 @@ fn land_check_retry() {
     }
     assert_eq!(fs::read_to_string(fixture.path("runs")).unwrap().lines().count(), 2);
     assert!(!fixture.trace().contains("land-clean"), "a land check rerun released the lane build output");
+}
+
+#[test]
+fn rust_candidate_builds_north_only_on_the_build_host() {
+    let mut fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
+    fs::write(fixture.repo.join(".safe-push"), include_str!("../../.safe-push")).unwrap();
+    for path in ["crates/north-core/src/lib.rs", "src/cli/mod.rs", "flake.nix", "docs/features.md"] {
+        let file = fixture.repo.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "changed\n").unwrap();
+    }
+    git(&fixture.repo, &["add", "-A"]);
+    git(&fixture.repo, &["commit", "-qm", "rust candidate"]);
+    fixture.head = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    script(&fixture.path("stubs/cargo"), "printf 'cargo %s\\n' \"$*\" >>\"$STUB_TRACE\"\nexit 1\n");
+    let output = fixture.with_lease().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    let trace = fixture.trace();
+    let safe_push = fixture.repo.join(".safe-push");
+    let entries = |key: &str| -> Vec<String> {
+        let output = Command::new("git").args(["config", "--file"]).arg(&safe_push).args(["--get-all", key]).output().unwrap();
+        String::from_utf8(output.stdout).unwrap().lines().filter_map(|entry| entry.split_once(" :: ").map(|(_, command)| command.to_owned())).collect()
+    };
+    assert!(entries("land.local-only").is_empty(), "a north land check is pinned to the lander host: {:?}", entries("land.local-only"));
+    let bound = entries("land.machine-bound");
+    assert!(bound.iter().any(|command| command.contains("citation-check.sh")) && bound.iter().any(|command| command.contains("check-owners.sh")) && bound.iter().any(|command| command.contains("land-checks.sh machine-bound")));
+    for command in &bound {
+        let offloaded = format!("capacity offload run --host buildbox --base {} --head {} ", fixture.base, fixture.head);
+        assert!(trace.lines().any(|line| line.contains(&offloaded) && line.ends_with(&format!("-- {command}"))), "{command} did not run on the build host:\n{trace}");
+    }
+    let started = String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.starts_with("safe-push: land check: ")).count();
+    let offloaded = trace.lines().filter(|line| line.starts_with("north capacity offload run --host buildbox ")).count();
+    assert!(started > bound.len() && started == offloaded, "{started} land checks started, {offloaded} on the build host:\n{trace}");
+    assert!(!trace.contains("land-actions"), "{trace}");
+    assert!(!trace.lines().any(|line| line.starts_with("cargo ")), "a land check ran cargo on the lander host:\n{trace}");
+    assert!(!text(&output).contains("runs on this host because"), "{}", text(&output));
+    assert!(fixture.lease_events().is_empty(), "the lander took a local capacity lease: {:?}", fixture.lease_events());
 }

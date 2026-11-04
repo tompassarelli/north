@@ -232,10 +232,13 @@ impl Shared {
     }
 
     fn cache_class(&self, command: &str) -> String {
-        if !self.workflow.is_empty() && self.environment.offload_host.is_empty() && self.config.local_reason(command).is_none() {
+        if !self.environment.offload_host.is_empty() {
+            return self.environment.offload_host.clone();
+        }
+        if !self.workflow.is_empty() && self.config.off_actions_reason(command).is_none() {
             return "actions".to_owned();
         }
-        if self.environment.offload_host.is_empty() { "local".to_owned() } else { self.environment.offload_host.clone() }
+        self.offload_host_for(command).unwrap_or_else(|| "local".to_owned())
     }
 
     async fn north(&self, arguments: &[&str]) -> Option<std::process::Output> {
@@ -266,7 +269,7 @@ impl Shared {
 
     async fn run_check(self: Arc<Self>, command: String, leased: bool) -> i32 {
         self.outcome.record(&["ran"]);
-        if !self.workflow.is_empty() && let Some(reason) = self.config.local_reason(&command) {
+        if !self.workflow.is_empty() && self.offload_host_for(&command).is_none() && let Some(reason) = self.config.off_actions_reason(&command) {
             say(&format!("safe-push: land check runs on this host because it {reason}"));
         }
         let environment = &self.environment;
@@ -454,7 +457,7 @@ impl Shared {
             if self.cache_reused(&command).await {
                 continue;
             }
-            let portable = self.config.local_reason(&command).is_none();
+            let portable = self.config.off_actions_reason(&command).is_none();
             if !self.workflow.is_empty() && land_runner.is_empty() && self.environment.offload_host.is_empty() && portable {
                 on_actions.push(command);
             } else {
