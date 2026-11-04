@@ -34,9 +34,12 @@ mod notes;
 mod refused;
 mod render;
 mod sampler;
+mod routing;
 mod stall;
 mod stranded;
 mod throughput;
+#[cfg(test)]
+mod routing_tests;
 #[cfg(test)]
 mod alerts_tests;
 #[cfg(test)]
@@ -110,6 +113,9 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     }
     if sampler_alert(places, host, now).is_err() {
         println!("agents flow: sampler alert state error");
+    }
+    if routing::routing_alert(places, host, now).is_err() {
+        println!("agents flow: routing alert state error");
     }
     match host.output(&["ci-diagnose"], None, None, Duration::from_secs(1200)) {
         Some(output) => {

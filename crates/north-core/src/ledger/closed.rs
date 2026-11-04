@@ -105,6 +105,8 @@ fn interval(values: &mut [f64], percent: usize) -> (f64, f64) {
 #[derive(Debug, PartialEq)]
 pub struct ClosedReport {
     pub cells: Vec<Cell>,
+    /// Repositories outside the catalog whose landed runs could not be matched to a closed issue, with the count of those runs.
+    pub skipped: Vec<(String, usize)>,
     pub arms: Vec<ArmBox>,
     pub closed: usize,
     pub spend_usd: f64,
@@ -174,6 +176,7 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
     cells.sort_by(|a, b| (&a.tier, &a.category).cmp(&(&b.tier, &b.category)));
     let window = || runs.iter().filter(|run| run.ended.as_str() >= since);
     ClosedReport {
+        skipped: Vec::new(),
         closed: cells.iter().map(|cell| cell.closed).sum(),
         cells,
         arms,
@@ -245,7 +248,14 @@ impl ClosedReport {
                 "boxes": cell.boxes.iter().map(|(item, usd)| json!({"item": item, "usd": usd})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "arms": self.arms,
+            "skipped_repositories": self.skipped.iter().map(|(repo, runs)| json!({"repo": repo, "landed_runs": runs})).collect::<Vec<_>>(),
         })
+    }
+
+    /// One line naming the repositories whose landed runs the report left out, or None when it left out none.
+    pub fn skipped_line(&self) -> Option<String> {
+        let named: Vec<String> = self.skipped.iter().map(|(repo, runs)| format!("{repo} ({runs} landed runs)")).collect();
+        (!named.is_empty()).then(|| format!("skipped repositories the catalog does not know, so their boxes are not counted: {}", named.join(", ")))
     }
 
     pub fn print_table(&self) {

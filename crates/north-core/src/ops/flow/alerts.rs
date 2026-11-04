@@ -17,6 +17,7 @@ use super::stall::Verdict;
 const GUARDS: [&str; 4] = ["actions", "wisp", "reuse", "pins"];
 const EPISODES: [&str; 3] = ["notice", "stranded", "refused"];
 const REPEAT_SECONDS: f64 = 900.0;
+pub const SUPPLY: &str = "supply";
 const TIMER_SLACK_SECONDS: f64 = 60.0;
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -61,7 +62,11 @@ fn parent_of(nodes: &[Node], repo: &str) -> String {
 
 impl Record {
     pub fn due(&self, key: &str, now: f64) -> bool {
-        self.sent.get(key).is_none_or(|at| now - at >= REPEAT_SECONDS - TIMER_SLACK_SECONDS)
+        self.due_after(key, now, REPEAT_SECONDS)
+    }
+
+    pub fn due_after(&self, key: &str, now: f64, repeat: f64) -> bool {
+        self.sent.get(key).is_none_or(|at| now - at >= repeat - TIMER_SLACK_SECONDS)
     }
 }
 
@@ -187,11 +192,15 @@ pub fn deliver(places: &Places, host: &dyn Host, file: &str, plan: impl FnOnce(&
     let nodes = fleet_nodes(host).unwrap_or_default();
     let (mut state, actions) = plan(&load(&path), &nodes);
     for action in actions {
-        if !valid_name(&action.node) {
+        let sent = if action.channel == SUPPLY {
+            host.run(&["supply-alert", "normal", &action.text, "Tier routing"], None, None).is_some()
+        } else if valid_name(&action.node) {
+            host.run(&["north", "fleet", "send", &action.node, &action.text], None, None).is_some()
+        } else {
             return Err("invalid Fleet session name".into());
-        }
-        if host.run(&["north", "fleet", "send", &action.node, &action.text], None, None).is_none() {
-            println!("{}: Fleet notification error for {}", action.repo, action.node);
+        };
+        if !sent {
+            println!("{}: notification error for {}", action.repo, if action.channel == SUPPLY { "supply-alert" } else { &action.node });
             continue;
         }
         if let Some(record) = state.get_mut(&action.repo) {

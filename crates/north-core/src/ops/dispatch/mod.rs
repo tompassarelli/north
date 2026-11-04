@@ -17,8 +17,9 @@ pub use fleets::holder as task_holder;
 pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, picked_tier, tier_reason, untasked};
 pub use survey::evidence as arm_evidence;
+pub use tuned::current as tuned_routes;
 pub use record::{Record as LaunchRecord, read as launch_records};
-pub use tier::{ARMED, Evidence, Tier};
+pub use tier::{ARM_WINDOW, ARMED, Evidence, Tier};
 #[cfg(test)]
 pub use survey::claim_rows;
 

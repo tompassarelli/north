@@ -11,6 +11,7 @@ use super::handoff::{self, Arms};
 use super::grounds::Ledger;
 use super::fleets::{self, PROBE, Session, remote_json};
 use super::revive::Strand;
+use crate::error::NorthResult;
 use crate::fleet::model::ProviderName;
 use crate::ledger::ClosedReport;
 use crate::fleet::roster::{Roster, Standing};
@@ -264,8 +265,18 @@ fn unspent(laptop: Option<&str>, records: &[record::Record], at: f64, notes: &mu
     found
 }
 
+const DEGRADED: &str = "tier routing degraded";
+
 fn closed(notes: &mut Vec<String>) -> Option<ClosedReport> {
-    crate::ledger::closed_report(tier::ARM_WINDOW).map_err(|why| notes.push(format!("north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message()))).ok()
+    read_closed(crate::ledger::closed_report(tier::ARM_WINDOW), notes)
+}
+
+pub(super) fn read_closed(report: NorthResult<ClosedReport>, notes: &mut Vec<String>) -> Option<ClosedReport> {
+    report.map_err(|why| notes.push(format!("{DEGRADED}: north ledger summary --since {} unread, so the arms keep alternating: {}", tier::ARM_WINDOW, why.user_message()))).ok()
+}
+
+pub(super) fn read_arm_runs(category: &str, runs: NorthResult<BTreeMap<String, usize>>, notes: &mut Vec<String>) -> BTreeMap<String, usize> {
+    runs.map_err(|why| notes.push(format!("{DEGRADED}: arm runs of {category} unread, so its arms keep alternating: {}", why.user_message()))).unwrap_or_default()
 }
 
 pub fn evidence(categories: &[&str], notes: &mut Vec<String>) -> BTreeMap<String, Evidence> {
@@ -282,11 +293,11 @@ fn evidence_from(categories: &[&str], closed: Option<&ClosedReport>, notes: &mut
         match run_within(&north.to_string_lossy(), &["worker-ledger", "--recommend", &facets], PROBE) {
             Some(output) if output.status.success() => {
                 let read = Evidence::parse(&String::from_utf8_lossy(&output.stdout), category);
-                let read = read.counted(&crate::ledger::arm_runs(category).map_err(|why| notes.push(format!("arm runs of {category} unread, so its arms keep alternating: {}", why.user_message()))).unwrap_or_default());
+                let read = read.counted(&read_arm_runs(category, crate::ledger::arm_runs(category), notes));
                 found.insert((*category).to_owned(), closed.map_or(read.clone(), |report| read.priced(report, category)).tuned(&routes, category));
             }
             _ => {
-                notes.push(format!("north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms unless north tune routed it"));
+                notes.push(format!("{DEGRADED}: north worker-ledger --recommend {facets:?} unread, so {category} keeps alternating its arms unless north tune routed it"));
                 if routes.contains_key(*category) {
                     found.insert((*category).to_owned(), Evidence::default().tuned(&routes, category));
                 }

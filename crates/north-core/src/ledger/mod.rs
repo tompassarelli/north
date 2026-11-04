@@ -22,7 +22,7 @@ mod verdict;
 pub use closed::{ClosedReport, Figures};
 #[cfg(test)]
 pub use closed::{SpendRun, summarize};
-pub use closed_source::{PriorReport, arm_runs, closed_report, closed_report_and_previous, prior_reports, window_start_ms};
+pub use closed_source::{PriorReport, arm_runs, arm_runs_in, closed_report, closed_report_and_previous, prior_reports, window_start_ms};
 pub use report::{print_runs, print_summary};
 pub use verdict::{check, landed};
 

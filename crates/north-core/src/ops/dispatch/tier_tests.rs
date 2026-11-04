@@ -95,7 +95,7 @@ fn tooling_and_features_alternate_recorded_arms_until_each_has_fifteen_runs_then
 fn closed(cells: &[(&str, usize, f64)]) -> ClosedReport {
     let other = Cell::priced("opus-medium", "feature", 1, 0.01);
     let cells: Vec<Cell> = cells.iter().map(|(tier, closed, per)| Cell::priced(tier, "tooling", *closed, per * *closed as f64)).chain([other]).collect();
-    ClosedReport { closed: cells.iter().map(|cell| cell.closed).sum(), cells, arms: Vec::new(), spend_usd: 0.0, leads_usd: 0.0 }
+    ClosedReport { skipped: Vec::new(), closed: cells.iter().map(|cell| cell.closed).sum(), cells, arms: Vec::new(), spend_usd: 0.0, leads_usd: 0.0 }
 }
 
 fn armed(sonnet: (f64, usize), opus: (f64, usize), report: &ClosedReport) -> BTreeMap<String, Evidence> {
@@ -289,4 +289,17 @@ fn a_reworked_landing_counts_against_its_tier_in_the_cost_per_closed_box_decisio
     let aware = decide(&runs);
     assert_eq!(aware.settled(), Some(Tier::Opus));
     assert!(aware.figures(Tier::Sonnet).ends_with("every closed box reworked") && aware.figures(Tier::Opus).ends_with("$13.87 per closed box"), "{} / {}", aware.figures(Tier::Sonnet), aware.figures(Tier::Opus));
+}
+
+
+#[test]
+fn an_unread_closed_report_or_arm_count_prints_one_tier_routing_degraded_line_each() {
+    let mut notes = Vec::new();
+    assert!(super::survey::read_closed(Err(crate::error::NorthError::Configuration("gh issue list tompassarelli/north: offline".into())), &mut notes).is_none());
+    assert!(super::survey::read_arm_runs("feature", Err(crate::error::NorthError::Configuration("database is locked".into())), &mut notes).is_empty());
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert!(notes[0].starts_with("tier routing degraded: north ledger summary --since 7d unread") && notes[0].ends_with("offline"), "{notes:?}");
+    assert!(notes[1].starts_with("tier routing degraded: arm runs of feature unread") && notes[1].ends_with("database is locked"), "{notes:?}");
+    let mut quiet = Vec::new();
+    assert!(super::survey::read_closed(Ok(closed(&[("sonnet-high", 1, 1.0)])), &mut quiet).is_some() && quiet.is_empty());
 }

@@ -120,8 +120,13 @@ fn github_closed(repo: &str, since: &str, until: &str) -> NorthResult<HashSet<St
 
 /// The runs of `category` stamped with each arm, by arm name.
 pub fn arm_runs(category: &str) -> NorthResult<BTreeMap<String, usize>> {
+    arm_runs_in(&threads_database(), category)
+}
+
+/// The runs of `category` stamped with each arm in `database`, by arm name.
+pub fn arm_runs_in(database: &std::path::Path, category: &str) -> NorthResult<BTreeMap<String, usize>> {
     let query = format!("SELECT arm, COUNT(*) AS runs FROM runs WHERE lower(category) = '{}' AND COALESCE(arm, '') != '' GROUP BY arm", category.to_lowercase().replace('\'', ""));
-    let rows = sqlite::rows(&threads_database(), Access::ReadOnly, Duration::from_secs(5), &query)?;
+    let rows = sqlite::rows(database, Access::ReadOnly, Duration::from_secs(5), &query)?;
     Ok(rows.iter().map(|row| (text(row, "arm"), usize::try_from(row["runs"].as_i64().unwrap_or(0)).unwrap_or(0))).collect())
 }
 
@@ -146,27 +151,34 @@ fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> 
     let database = threads_database();
     let runs: Vec<SpendRun> = spend_runs(&database)?.into_iter().filter(|run| run.ended.as_str() < until).collect();
     let native = native_namespaces(&database)?;
-    let mut closed = native_closed(&database, since, until)?;
-    let repos: HashSet<&str> = runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)).collect();
-    reject_unknown_repos(&repos, &CATALOG)?;
-    for repo in repos.iter().filter(|repo| !native.contains(**repo)) {
-        closed.extend(github_closed(repo, since, until)?);
-    }
-    Ok(summarize(&runs, &closed, since, &PriceTable::load()?))
+    let closed = native_closed(&database, since, until)?;
+    report_between(&Inputs { runs, native, closed, catalog: &CATALOG }, since, until, github_closed, &PriceTable::load()?)
 }
 
-/// A run whose item names a repository outside the catalog (a renamed repository's old name) can
-/// never match a closed issue, so its boxes would drop out of every cell without a word.
-fn reject_unknown_repos(repos: &HashSet<&str>, catalog: &Catalog) -> NorthResult<()> {
-    let mut unknown: Vec<&str> = repos.iter().copied().filter(|repo| !catalog.repos.iter().chain(&catalog.native).any(|known| known == repo)).collect();
-    unknown.sort_unstable();
-    if unknown.is_empty() {
-        return Ok(());
+struct Inputs<'a> {
+    runs: Vec<SpendRun>,
+    native: HashSet<String>,
+    closed: HashSet<String>,
+    catalog: &'a Catalog,
+}
+
+/// The report over `sources`, asking `github` for the closed issues of each repository the native
+/// ledger does not hold. A landed run naming a repository outside the catalog (an archived or
+/// renamed one) can never match a closed issue, so it is left out of every cell and named in
+/// `skipped` rather than failing the report for the repositories that are known.
+fn report_between(sources: &Inputs, since: &str, until: &str, github: impl Fn(&str, &str, &str) -> NorthResult<HashSet<String>>, prices: &PriceTable) -> NorthResult<ClosedReport> {
+    let mut landed: BTreeMap<&str, usize> = BTreeMap::new();
+    for repo in sources.runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)) {
+        *landed.entry(repo).or_default() += 1;
     }
-    Err(NorthError::Configuration(format!(
-        "landed runs in the ledger name repositories the catalog does not know ({}); their boxes would never count as closed, so rename those runs' items first",
-        unknown.join(", ")
-    )))
+    let known = |repo: &str| sources.catalog.repos.iter().chain(&sources.catalog.native).any(|known| known == repo);
+    let mut closed = sources.closed.clone();
+    for repo in landed.keys().filter(|repo| known(repo) && !sources.native.contains(**repo)) {
+        closed.extend(github(repo, since, until)?);
+    }
+    let mut report = summarize(&sources.runs, &closed, since, prices);
+    report.skipped = landed.into_iter().filter(|(repo, _)| !known(repo)).map(|(repo, runs)| (repo.to_owned(), runs)).collect();
+    Ok(report)
 }
 
 pub fn window_start_ms(window: &str) -> NorthResult<i64> {
@@ -198,16 +210,42 @@ pub fn prior_reports() -> NorthResult<BTreeMap<String, Vec<PriorReport>>> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use super::{CATALOG, Inputs, report_between};
+    use crate::ledger::SpendRun;
+    use crate::router::pricing::PriceTable;
 
-    use super::{CATALOG, reject_unknown_repos};
+    fn run(item: &str, tier: &str, model: &str, category: &str) -> SpendRun {
+        SpendRun {
+            item: Some(item.into()),
+            role: "worker".into(),
+            tier: tier.into(),
+            category: category.into(),
+            arm: String::new(),
+            model: Some(model.into()),
+            started: "2026-11-03T10:00:00Z".into(),
+            ended: "2026-11-03T10:30:00Z".into(),
+            landed: true,
+            reworked: false,
+            input: 3_000_000,
+            cache_read: 2_000_000,
+            output: 100_000,
+        }
+    }
 
     #[test]
-    fn landed_runs_of_a_repository_the_catalog_dropped_fail_the_report_instead_of_vanishing_from_it() {
-        let known: HashSet<&str> = ["makgora", "wisp", "life"].into();
-        assert!(reject_unknown_repos(&known, &CATALOG).is_ok());
-        let renamed: HashSet<&str> = ["makgora", "smashcraft"].into();
-        let error = reject_unknown_repos(&renamed, &CATALOG).unwrap_err().user_message();
-        assert!(error.contains("(smashcraft)"), "{error}");
+    fn landed_runs_of_an_archived_repository_are_named_and_every_known_cell_is_still_priced() {
+        let runs = vec![
+            run("north#1", "claude:sonnet-high", "claude-sonnet-5-5", "feature"),
+            run("north#2", "claude:opus-medium", "claude-opus-5-5", "feature"),
+            run("north#3", "claude:sonnet-high", "claude-sonnet-5-5", "tooling"),
+            run("north#4", "claude:opus-medium", "claude-opus-5-5", "tooling"),
+            run("galileo#7", "claude:sonnet-high", "claude-sonnet-5-5", "feature"),
+            run("galileo#8", "claude:sonnet-high", "claude-sonnet-5-5", "feature"),
+        ];
+        let sources = Inputs { runs, native: ["north".to_owned()].into(), closed: ["north#1", "north#2", "north#3", "north#4"].map(String::from).into(), catalog: &CATALOG };
+        let report = report_between(&sources, "2026-11-01T00:00:00Z", "2026-11-04T00:00:00Z", |repo, _, _| panic!("{repo} asked github"), &PriceTable::load().unwrap()).unwrap();
+        assert_eq!(report.cells.len(), 4, "{:?}", report.cells);
+        assert!(report.cells.iter().all(|cell| cell.closed == 1 && cell.usd_per_closed() > 0.0));
+        assert_eq!(report.skipped_line().unwrap(), "skipped repositories the catalog does not know, so their boxes are not counted: galileo (2 landed runs)");
     }
 }

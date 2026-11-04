@@ -65,6 +65,9 @@ fn closed_summary(words: &[String]) -> NorthResult<ExitCode> {
     } else {
         println!("{}", report.dashboard(window));
         report.print_table();
+        if let Some(line) = report.skipped_line() {
+            println!("{line}");
+        }
         println!("landed tasks with a linked run: {linked} of {landed}");
     }
     Ok(ExitCode::SUCCESS)

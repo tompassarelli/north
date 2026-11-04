@@ -162,6 +162,16 @@ impl Evidence {
         self.decided().filter(|_| self.runs(Tier::Sonnet) >= ARM_RUNS && self.runs(Tier::Opus) >= ARM_RUNS)
     }
 
+    /// Whether both arms hold `ARM_RUNS` arm-stamped runs, the point where a category stops alternating.
+    pub fn arms_full(&self) -> bool {
+        self.runs(Tier::Sonnet) >= ARM_RUNS && self.runs(Tier::Opus) >= ARM_RUNS
+    }
+
+    /// The first arm with no priced closed box, which keeps `settled` from deciding.
+    pub fn unpriced_arm(&self) -> Option<Tier> {
+        [Tier::Sonnet, Tier::Opus].into_iter().find(|tier| self.cost(*tier).is_none())
+    }
+
     /// Both arms' stamped runs behind the decision.
     pub fn arm_runs(&self) -> usize {
         self.runs(Tier::Sonnet) + self.runs(Tier::Opus)
