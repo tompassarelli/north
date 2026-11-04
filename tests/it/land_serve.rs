@@ -987,6 +987,7 @@ fn pushed_trees_were_checked(fixture: &Fixture) {
 }
 
 const AWAIT: &str = "await() { for ((i = 0; i < 400; i++)); do [ -e \"$LAND_TRACE/$1\" ] && return 0; sleep 0.05; done; return 1; }\n";
+const LANDED: &str = "main() { command git -C \"$LAND_ORIGIN\" rev-parse main; }\nlanded() { for ((i = 0; i < 400; i++)); do [ \"$(main)\" != \"$1\" ] && return 0; sleep 0.05; done; return 1; }\n";
 
 fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf]) -> (Output, std::time::Duration) {
     let tickets: Vec<(PathBuf, Ticket)> = later.iter().map(|lane| fixture.ticket(lane, None)).collect();
@@ -1013,7 +1014,7 @@ fn speculate_two_batches() {
     for lane in &first {
         fixture.enqueue(lane, None);
     }
-    executable(&fixture.trace.join("hook"), &format!("#!/usr/bin/env bash\n{AWAIT}case $1 in\n1) await check-2 && touch \"$LAND_TRACE/overlapped\" ;;\n2) touch \"$LAND_TRACE/check-2\" ;;\nesac\n"));
+    executable(&fixture.trace.join("hook"), &format!("#!/usr/bin/env bash\n{AWAIT}{LANDED}case $1 in\n1) await check-2 && touch \"$LAND_TRACE/overlapped\" ;;\n2) start=$(main); touch \"$LAND_TRACE/check-2\"; landed \"$start\" ;;\nesac\n"));
     let (output, elapsed) = speculate_serve(&mut fixture, &second);
     assert!(output.status.success());
     assert!(fixture.trace.join("overlapped").exists(), "the second batch's check starts while the first batch's check runs");
@@ -1060,7 +1061,7 @@ fn speculate_real_gates() {
     fixture.enqueue(&a, None);
     executable(
         &fixture.trace.join("hook"),
-        &format!("#!/usr/bin/env bash\n{AWAIT}main() {{ command git -C \"$LAND_ORIGIN\" rev-parse main; }}\nlanded() {{ for ((i = 0; i < 400; i++)); do [ \"$(main)\" != \"$1\" ] && return 0; sleep 0.05; done; }}\ncase $1 in\n1) await main-at-start ;;\n2) start=$(main); printf '%s\\n' \"$start\" >\"$LAND_TRACE/main-at-start.tmp\"; mv \"$LAND_TRACE/main-at-start.tmp\" \"$LAND_TRACE/main-at-start\"; landed \"$start\"; main >\"$LAND_TRACE/main-at-end\" ;;\nesac\n"),
+        &format!("#!/usr/bin/env bash\n{AWAIT}{LANDED}case $1 in\n1) await main-at-start ;;\n2) start=$(main); printf '%s\\n' \"$start\" >\"$LAND_TRACE/main-at-start.tmp\"; mv \"$LAND_TRACE/main-at-start.tmp\" \"$LAND_TRACE/main-at-start\"; landed \"$start\"; main >\"$LAND_TRACE/main-at-end\" ;;\nesac\n"),
     );
     let (output, _) = speculate_serve(&mut fixture, std::slice::from_ref(&b));
     assert!(output.status.success());
