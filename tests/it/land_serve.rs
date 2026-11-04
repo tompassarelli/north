@@ -1147,17 +1147,22 @@ fn remote_outbox_waits_out_the_bisect() {
     let (staged, outbox) = fixture.staged_remote_ticket("r", true);
     fs::write(fixture.trace.join("poison"), "a.txt\nrefused https://github.com/o/r/actions/runs/1\n1\n").unwrap();
     fixture.release_on_check(1, &staged, &outbox, "");
-    assert!(fixture.serve().status.success());
-    let checks = fixture.checks();
-    assert_eq!(checks.len(), 3, "{checks:?}");
-    let a_alone = git(&fixture.repo, &["ls-tree", "--name-only", &checks[1].0]);
-    assert_eq!(a_alone.lines().collect::<Vec<_>>(), [".safe-push", "a.txt", "app.txt"], "a ticket pulled mid-bisect entered the bisect prefix");
+    assert!(fixture.serve().status.success(), "the bisect did not converge");
     assert!(fixture.verdict(&tickets[0]).is_some_and(|verdict| verdict.starts_with("failed ")), "{:?}", fixture.verdict(&tickets[0]));
-    assert_eq!(fixture.verdict(&tickets[1]), Some(format!("landed {}", fixture.main())));
+    let main = fixture.main();
+    assert_eq!(fixture.verdict(&tickets[1]), Some(format!("landed {main}")));
+    let taken = json_names(&outbox.join("taken"));
+    assert!(json_names(&outbox).is_empty() && taken.len() == 1, "the pulled ticket was lost: {taken:?}");
+    assert_eq!(fixture.verdict(&fixture.queue().join(&taken[0])), Some(format!("landed {main}")));
     let mut subjects = fixture.subjects();
     subjects.sort();
-    assert_eq!(subjects, ["change from b", "change from r"]);
-    assert!(json_names(&outbox).is_empty(), "the remote ticket is still in the outbox");
+    assert_eq!(subjects, ["change from b", "change from r"], "each ticket lands once");
+    let checks = fixture.checks();
+    let carrying_r: Vec<_> = checks.iter().filter(|(head, _)| git(&fixture.repo, &["ls-tree", "--name-only", head]).lines().any(|file| file == "r.txt")).collect();
+    assert_eq!(carrying_r.len(), 1, "the pulled ticket was checked more than once: {checks:?}");
+    assert_eq!(carrying_r[0].0, main, "the pulled ticket landed in a candidate other than the one checked");
+    assert_eq!(git(&fixture.repo, &["rev-list", "--count", &format!("{}..{main}", carrying_r[0].1)]), "2", "the landed candidate sits directly on the main it was checked against");
+    pushed_trees_were_checked(&fixture);
 }
 
 #[test]
