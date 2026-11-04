@@ -34,12 +34,12 @@ enum Mode {
     Emit,
     Summary { by: String },
     EtaCalibration,
-    Recommend { facets: String, planner: bool },
+    Recommend { facets: String },
 }
 
 fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
     let (mut session, mut since, mut by) = (String::new(), String::new(), "category".to_owned());
-    let (mut summary, mut backfill, mut planner, mut facets, mut emit, mut eta) = (false, false, false, String::new(), false, false);
+    let (mut summary, mut backfill, mut facets, mut emit, mut eta) = (false, false, String::new(), false, false);
     let mut words = arguments.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
@@ -47,23 +47,12 @@ fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
             "--since" => since = words.next()?.clone(),
             "--summary" => summary = true,
             "--by" => by = words.next()?.clone(),
-            "--recommend" => {
-                let mut next = words.next()?.clone();
-                if next == "--planner" {
-                    planner = true;
-                    next = words.next()?.clone();
-                }
-                facets = next;
-            }
-            "--planner" => planner = true,
+            "--recommend" => facets = words.next()?.clone(),
             "--backfill" => backfill = true,
             "--emit" => emit = true,
             "--eta-calibration" => eta = true,
             _ => return None,
         }
-    }
-    if planner && facets.is_empty() {
-        return None;
     }
     let mode = if emit {
         Mode::Emit
@@ -72,7 +61,7 @@ fn parse(arguments: &[String]) -> Option<(Options, Mode)> {
     } else if summary {
         Mode::Summary { by }
     } else if !facets.is_empty() {
-        Mode::Recommend { facets, planner }
+        Mode::Recommend { facets }
     } else {
         Mode::Record
     };
@@ -98,7 +87,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let built = match &mode {
         Mode::Summary { by } => threads(&[&["summary", "--group", by][..], &since].concat()),
         Mode::EtaCalibration => threads(&[&["eta-calibration"][..], &since].concat()),
-        Mode::Recommend { facets, planner } => threads(&[&["recommend", facets][..], if *planner { &["--planner"] } else { &[] }, &since].concat()),
+        Mode::Recommend { facets } => threads(&[&["recommend", facets][..], &since].concat()),
         Mode::Record => return record(&options),
         Mode::Emit => return emit(&options),
     };

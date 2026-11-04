@@ -233,7 +233,7 @@ fn recommend_verb_prints_the_pick_the_stats_and_the_eta_and_remembers_the_choice
     std::fs::write(&configuration, "[tiers.\"claude:haiku\"]\nmodel = \"haiku\"\neffort = \"low\"\nstart = 0\n").unwrap();
     let outside = crate::threads::fake::Recorded::default();
     let context = crate::threads::verb::Context { database: &database, actor: "tester".into(), no_native: None, outside: &outside, now: crate::foundation::clock::Timestamp::parse("2026-10-10T00:00:00Z").unwrap(), replica: false };
-    let args = crate::threads::verb::Args::parse(&[], &["--since"], &["--planner"]).ok().unwrap();
+    let args = crate::threads::verb::Args::parse(&[], &["--since"], &[]).ok().unwrap();
     let fields = Fields::read("Category: research, Spec: measured");
     let text = match super::verbs::recommend_with(&args, &context, &fields, &configuration) {
         Ok(text) => text,

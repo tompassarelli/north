@@ -15,9 +15,9 @@ use crate::error::{NorthError, NorthResult};
 use crate::threads::{board, calibration, claims, ingest_lock, ingest_log, items, jobs, landing, outside, runs, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
-const READS: [&str; 11] = [
+const READS: [&str; 10] = [
     "job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate",
-    "planner-band", "routing-compare",
+    "routing-compare",
 ];
 const UNREACHABLE: i32 = 255;
 const TIMED_OUT: i32 = 124;
@@ -264,17 +264,6 @@ impl Client {
     fn proxy(&self, dest: &str, argv: &[String], stdin: &mut dyn Read, err: &mut dyn Write) -> NorthResult<Option<i32>> {
         let first = argv.first().map(String::as_str);
         let has = |flag: &str| argv.iter().any(|arg| arg == flag);
-        if first == Some("planner-band") || first == Some("recommend") && has("--planner") {
-            let code = self.ssh(dest, argv, Input::Inherit, false, err)?;
-            if code != UNREACHABLE {
-                return Ok(Some(code));
-            }
-            if self.snapshot.exists() {
-                writeln!(err, "{}", self.stale_line(dest)?)?;
-                return Ok(None);
-            }
-            return Ok(Some(code));
-        }
         let mut argv = argv.to_vec();
         if first == Some("agent-event") {
             if let Err(message) = agent_event_checks(&argv) {

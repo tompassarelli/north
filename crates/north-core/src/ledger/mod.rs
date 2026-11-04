@@ -15,7 +15,6 @@ pub mod closed;
 mod closed_source;
 pub mod outcome;
 mod gates;
-pub mod planner;
 mod report;
 mod verdict;
 

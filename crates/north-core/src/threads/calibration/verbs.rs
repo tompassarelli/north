@@ -77,14 +77,11 @@ pub(super) fn latest_calibration(db: &Connection, knobs: &Knobs, now: Timestamp,
 }
 
 fn recommend_verb(argv: &[String], context: &Context) -> Outcome {
-    let args = Args::parse(argv, &["--since"], &["--planner"])?;
-    let [facets] = args.positional.as_slice() else { return Err(Failure::Usage("usage: threads recommend [--planner] [--since DATE] FACETS".into())) };
+    let args = Args::parse(argv, &["--since"], &[])?;
+    let [facets] = args.positional.as_slice() else { return Err(Failure::Usage("usage: threads recommend [--since DATE] FACETS".into())) };
     let fields = Fields::read(facets);
     if fields.known_category().is_none() {
         return Err(Failure::Refused(format!("recommend needs `Category: <one of {}>` in {}", CATEGORIES.join(", "), quoted(facets))));
-    }
-    if args.has("--planner") {
-        return planner(facets, context);
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     recommend_with(&args, context, &fields, &mode::configuration(&home))
@@ -117,19 +114,6 @@ pub(super) fn recommend_with(args: &Args, context: &Context, fields: &Fields, co
     }
     let db = open(context.database, false)?;
     report_pick(&db, &knobs, context, &mode, &runs, &pick, fields.known_category().unwrap_or_default())
-}
-
-fn planner(facets: &str, context: &Context) -> Outcome {
-    let north = std::env::var_os("NORTH_BIN").filter(|north| !north.is_empty()).map(PathBuf::from).or_else(|| std::env::current_exe().ok()).unwrap_or_else(|| PathBuf::from("north"));
-    let status = std::process::Command::new(&north)
-        .args(["ledger", "recommend", "--planner", facets])
-        .env("THREADS_DB", context.database)
-        .status()
-        .map_err(|error| Failure::Refused(format!("cannot run north ledger recommend: {error}")))?;
-    match status.code() {
-        Some(0) => Ok(String::new()),
-        code => Err(Failure::Refused(format!("north ledger recommend exited {}", code.map_or_else(|| "on a signal".to_owned(), |code| code.to_string())))),
-    }
 }
 
 fn report_pick(db: &Connection, knobs: &Knobs, context: &Context, mode: &Mode, runs: &[super::Run], pick: &Pick, category: &str) -> Outcome {

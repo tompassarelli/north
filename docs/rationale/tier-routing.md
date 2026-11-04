@@ -81,9 +81,6 @@ finished items: the held-out check ranks 5 of 54 off-rails items in the top deci
 those facets) names the realized band for 366 of 613 items, 59.7% against 51.2% for always guessing high, and no item
 falls in the max band. The two boxes were retired on 2026-11-01 when Tom's gate on north#242 took its default.
 
-Trade-off accepted: `recommend --planner` still prints a band, but nothing routes on it; planner effort stays high by
-default and rises only from an issue's own Not dones.
-
 Overturned by: a planning-time input (box count, files named, issue text) that lifts the held-out check above chance
 at alpha 0.05 on a later ledger.
 

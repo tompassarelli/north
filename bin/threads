@@ -28,7 +28,7 @@ CACHE_SECONDS = 60
 REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
-READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "planner-band", "routing-compare"}
+READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "routing-compare"}
 UNREACHABLE, RETRY = 255, 75
 
 # Every repository under OWNER whose issues NorthThreads tracks. A ref names the
@@ -477,19 +477,6 @@ CATEGORIES = [
 ]
 
 
-def north_ledger(*argv):
-    try:
-        code = subprocess.run([os.environ.get("NORTH_BIN") or "north", "ledger", *argv], env=dict(os.environ, THREADS_DB=DB)).returncode
-    except OSError as e:
-        raise Refused(f"cannot run north ledger {argv[0]}: {e}")
-    if code:
-        raise Refused(f"north ledger {argv[0]} exited {code}")
-
-
-def cmd_planner_band(db, a):
-    north_ledger("planner-band")
-
-
 def cmd_record_priors(db, a):
     rows = []
     for spec in a.priors:
@@ -527,7 +514,6 @@ def parser() -> argparse.ArgumentParser:
         s.add_argument("--by", default=default_actor(), help="who is acting (default $THREADS_ACTOR or $USER)")
         return s
 
-    cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and leave-one-out accuracy per input set")
     s = cmd("record-priors", cmd_record_priors, "append one calibration row of kind prior per default: cell NAME, n its "
             "settling count, value the count it needs, and the measured VALUE in source")
     s.add_argument("priors", nargs="+", metavar="NAME:N:NEED[:VALUE]")
@@ -588,15 +574,6 @@ def flush_spool(dest):
 
 def proxy(dest, argv) -> int:
     """The ledger lives on the remote host: run every command there; ingest spools while it is unreachable."""
-    if argv[:1] == ["planner-band"] or argv[:1] == ["recommend"] and "--planner" in argv:
-        code = ssh(dest, argv)
-        if code != UNREACHABLE:
-            return code
-        if os.path.exists(SNAPSHOT):
-            taken = datetime.fromtimestamp(os.path.getmtime(SNAPSHOT), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            print(f"STALE: ledger snapshot from {taken}; {dest} unreachable", file=sys.stderr)
-            return None
-        return code
     reachable = flush_spool(dest)
     if argv[:1] == ["ingest"]:
         data = sys.stdin.buffer.read()
@@ -679,9 +656,6 @@ def main(argv=None) -> int:
             db = sqlite3.connect(":memory:", isolation_level=None)
             with open_ledger(DB) as source:
                 source.backup(db)
-            db.row_factory = sqlite3.Row
-        elif a.cmd in ("planner-band",):
-            db = open_ledger(DB)
             db.row_factory = sqlite3.Row
         else:
             db = connect()
