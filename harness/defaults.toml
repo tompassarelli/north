@@ -763,8 +763,8 @@ consumers = ["crates/north-core/src/ops/runtime/settle.rs"]
 
 [landing_north_processes_max]
 value = 100
-unit = "north processes on one host above which north runtime settle reports the host unhealthy"
-source = "measured: 2026-10-30 12:15 AM with 10 fleet sessions, 24 north processes on the laptop, 40 on the GPU host and 8 on the server host; 100 is 2.5 times the busiest host, under the per-claim north fleet list fork storm that loaded the GPU host to 71"
+unit = "transient north processes on one host, every north process other than a live session's resident session-host, session-link and fleet watchdog, above which north runtime settle reports the host unhealthy; each resident kind is bounded instead by the host's live sessions, the distinct session-host --name values"
+source = "measured: 2026-10-30 12:15 AM with 10 fleet sessions, 24 north processes on the laptop, 40 on the GPU host and 8 on the server host; 100 is 2.5 times the busiest host, under the per-claim north fleet list fork storm that loaded the GPU host to 71; on 2026-11-05 51 live sessions kept about 3 resident north processes each, so a raw count of 140 on the laptop refused every promotion, and residents left the transient bound (north#308)"
 fallback = "an unread count reports the host unhealthy"
 consumers = ["crates/north-core/src/ops/runtime/probe.rs"]
 

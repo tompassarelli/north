@@ -2,7 +2,7 @@ use super::layout::linked_sha;
 use super::remote::{limit, ssh};
 use crate::platform::{hook_commands, process};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 use std::sync::LazyLock;
@@ -12,6 +12,87 @@ use toml_edit::DocumentMut;
 const ASK: Duration = Duration::from_secs(60);
 const MARK: &str = "==north-settle== ";
 const UNITS: [&str; 2] = ["capacity-watchdog.service", "north-runtime-follow.timer"];
+const RESIDENTS: [Resident; 3] = [Resident::SessionHost, Resident::SessionLink, Resident::FleetWatchdog];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Resident {
+    SessionHost,
+    SessionLink,
+    FleetWatchdog,
+}
+
+impl Resident {
+    fn of(argv: &[&str]) -> Option<Self> {
+        match argv {
+            ["session-host", ..] => Some(Self::SessionHost),
+            ["session-link", ..] => Some(Self::SessionLink),
+            ["fleet", "watchdog", ..] => Some(Self::FleetWatchdog),
+            _ => None,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::SessionHost => "session-host",
+            Self::SessionLink => "session-link",
+            Self::FleetWatchdog => "fleet watchdog",
+        }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct NorthProcesses {
+    transient: u64,
+    residents: BTreeMap<Resident, u64>,
+    sessions: BTreeSet<String>,
+}
+
+impl NorthProcesses {
+    fn read(section: &str) -> Self {
+        let mut processes = Self::default();
+        for line in section.lines().filter(|line| !line.is_empty()) {
+            let argv: Vec<&str> = line.split('\t').skip(1).collect();
+            match Resident::of(&argv) {
+                Some(resident) => {
+                    *processes.residents.entry(resident).or_default() += 1;
+                    if let (Resident::SessionHost, Some(name)) = (resident, argv.iter().position(|word| *word == "--name").and_then(|at| argv.get(at + 1))) {
+                        processes.sessions.insert((*name).to_owned());
+                    }
+                }
+                None => processes.transient += 1,
+            }
+        }
+        processes
+    }
+
+    fn resident(&self, resident: Resident) -> u64 {
+        self.residents.get(&resident).copied().unwrap_or_default()
+    }
+
+    fn problems(&self) -> Vec<String> {
+        let most = default_number("landing_north_processes_max");
+        let live = self.sessions.len() as u64;
+        let mut problems = Vec::new();
+        if self.transient as f64 > most {
+            problems.push(format!("{} transient north processes (bound {most})", self.transient));
+        }
+        for resident in RESIDENTS {
+            let count = self.resident(resident);
+            if count > live {
+                problems.push(format!("{count} {} processes for {live} live sessions", resident.name()));
+            }
+        }
+        problems
+    }
+
+    fn record(&self) -> Value {
+        json!({
+            "transient": self.transient,
+            "liveSessions": self.sessions.len(),
+            "residents": RESIDENTS.iter().map(|resident| (resident.name().to_owned(), json!(self.resident(*resident)))).collect::<serde_json::Map<_, _>>(),
+        })
+    }
+}
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));
 
@@ -63,7 +144,7 @@ pub(super) struct Facts {
     pub(super) units: BTreeMap<String, String>,
     pub(super) psi60: Option<f64>,
     pub(super) load_per_core: Option<f64>,
-    pub(super) north_processes: Option<u64>,
+    pub(super) north: Option<NorthProcesses>,
     pub(super) settings: Vec<String>,
     pub(super) unresolved: Vec<String>,
 }
@@ -86,7 +167,7 @@ pub(super) fn facts(shell: &Shell) -> Facts {
         units: UNITS.iter().zip(section("units").lines()).map(|(unit, state)| ((*unit).to_owned(), state.trim().to_owned())).collect(),
         psi60: psi60(section("pressure")),
         load_per_core: load_per_core(section("load")),
-        north_processes: section("north").trim().parse().ok(),
+        north: sections.get("north").map(|section| NorthProcesses::read(section)),
         ..Facts::default()
     };
     let mut registered: Vec<(String, String)> = Vec::new();
@@ -134,11 +215,9 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
         problems.push("no Claude settings.json found".to_owned());
     }
     problems.extend(facts.unresolved.iter().map(|unresolved| format!("unresolved hook path {unresolved}")));
-    let most = default_number("landing_north_processes_max");
-    match facts.north_processes {
-        Some(count) if count as f64 > most => problems.push(format!("{count} north processes (bound {most})")),
-        Some(_) => {}
-        None => problems.push("north process count unread".to_owned()),
+    match &facts.north {
+        Some(north) => problems.extend(north.problems()),
+        None => problems.push("north processes unread".to_owned()),
     }
     problems
 }
@@ -150,7 +229,7 @@ pub(super) fn record(facts: &Facts, problems: &[String]) -> Value {
         "units": facts.units,
         "cpuPsi60": facts.psi60,
         "loadPerCore": facts.load_per_core,
-        "northProcesses": facts.north_processes,
+        "northProcesses": facts.north.as_ref().map(NorthProcesses::record),
         "settings": facts.settings,
         "unresolved": facts.unresolved,
         "unreachable": facts.unreachable,
@@ -166,7 +245,8 @@ fn facts_script() -> String {
          mark units; systemctl --user is-active {} || true\n\
          mark pressure; cat \"$proc/pressure/cpu\"\n\
          mark load; cat \"$proc/loadavg\"; nproc\n\
-         mark north; n=0; for comm in \"$proc\"/[0-9]*/comm; do read -r name <\"$comm\" 2>/dev/null && [ \"$name\" = north ] && n=$((n+1)); done; echo \"$n\"\n\
+         mark north; for pid in \"$proc\"/[0-9]*; do read -r name <\"$pid/comm\" 2>/dev/null && [ \"$name\" = north ] || continue; \
+         mapfile -d '' -t argv <\"$pid/cmdline\" 2>/dev/null || continue; [ ${{#argv[@]}} -gt 0 ] || argv=(north); (IFS=$'\\t'; echo \"${{argv[*]}}\"); done\n\
          for settings in \"$HOME/.claude/settings.json\" \"$state\"/profiles/*/settings.json; do\n\
          case \"$settings\" in */profiles/stale-*) continue ;; esac\n\
          [ -f \"$settings\" ] && {{ mark \"settings $settings\"; cat \"$settings\"; }}\ndone\ntrue\n",
@@ -218,7 +298,81 @@ mod tests {
     #[test]
     fn a_busy_host_running_the_landing_is_healthy_because_load_is_the_watchdogs_to_judge() {
         let units = UNITS.iter().map(|unit| ((*unit).to_owned(), "active".to_owned())).collect();
-        let facts = Facts { runtime: Some("af7971a5851e603b".into()), units, psi60: Some(57.3), load_per_core: Some(2.5), north_processes: Some(3), settings: vec!["settings.json".into()], ..Facts::default() };
+        let facts = Facts { runtime: Some("af7971a5851e603b".into()), units, psi60: Some(57.3), load_per_core: Some(2.5), north: Some(NorthProcesses::default()), settings: vec!["settings.json".into()], ..Facts::default() };
         assert_eq!(problems(&facts, |_| true), Vec::<String>::new());
+    }
+
+    struct FakeProc(tempfile::TempDir, u32);
+
+    impl FakeProc {
+        fn new() -> Self {
+            let proc = Self(tempfile::tempdir().unwrap(), 100);
+            std::fs::write(proc.0.path().join("loadavg"), "0.50 0.50 0.50 1/100 1\n").unwrap();
+            proc
+        }
+
+        fn spawn(&mut self, comm: &str, argv: &[&str]) {
+            self.1 += 1;
+            let pid = self.0.path().join(self.1.to_string());
+            std::fs::create_dir(&pid).unwrap();
+            std::fs::write(pid.join("comm"), format!("{comm}\n")).unwrap();
+            std::fs::write(pid.join("cmdline"), argv.iter().map(|word| format!("{word}\0")).collect::<String>()).unwrap();
+        }
+
+        fn sessions(&mut self, live: usize, hosts_each: usize) {
+            for session in 0..live {
+                let name = format!("worker-{session}");
+                for _ in 0..hosts_each {
+                    self.spawn("north", &["/runtimes/a/north", "session-host", "--name", &name, "--generation", "1", "--", "/runtimes/a/north", "session-link", "--ssh", "gex45"]);
+                }
+                self.spawn("north", &["/runtimes/a/north", "session-link", "--ssh", "gex45", "--unit", &name]);
+                self.spawn("north", &["/runtimes/a/north", "fleet", "watchdog", &name]);
+            }
+        }
+
+        fn transients(&mut self, count: usize) {
+            for _ in 0..count {
+                self.spawn("north", &["/runtimes/a/north", "fleet", "list"]);
+            }
+        }
+
+        fn problems(&self) -> (Vec<String>, Value) {
+            let output = Command::new("bash")
+                .arg("-c")
+                .arg(facts_script())
+                .env("NORTH_SETTLE_PROC", self.0.path())
+                .env("HOME", self.0.path())
+                .env("XDG_STATE_HOME", self.0.path())
+                .output()
+                .unwrap();
+            let north = NorthProcesses::read(&sections(&String::from_utf8_lossy(&output.stdout))["north"]);
+            (north.problems(), north.record())
+        }
+    }
+
+    #[test]
+    fn fifty_live_sessions_with_their_three_residents_each_and_twenty_transients_are_healthy() {
+        let mut proc = FakeProc::new();
+        proc.sessions(50, 1);
+        proc.transients(20);
+        proc.spawn("bash", &["bash", "fleet", "list"]);
+        let (problems, record) = proc.problems();
+        assert_eq!(problems, Vec::<String>::new());
+        assert_eq!(record, json!({"transient": 20, "liveSessions": 50, "residents": {"session-host": 50, "session-link": 50, "fleet watchdog": 50}}));
+    }
+
+    #[test]
+    fn a_storm_of_transient_north_processes_is_unhealthy_and_names_its_count() {
+        let mut proc = FakeProc::new();
+        proc.sessions(10, 1);
+        proc.transients(120);
+        assert_eq!(proc.problems().0, vec!["120 transient north processes (bound 100)".to_owned()]);
+    }
+
+    #[test]
+    fn residents_beyond_the_live_sessions_are_a_leak_that_names_the_kind() {
+        let mut proc = FakeProc::new();
+        proc.sessions(10, 3);
+        assert_eq!(proc.problems().0, vec!["30 session-host processes for 10 live sessions".to_owned()]);
     }
 }
