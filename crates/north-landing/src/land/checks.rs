@@ -48,7 +48,7 @@ pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_gr
         Err(error) => return Err(Verdict::Transient(format!("{}: {error}", log.display()))),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1");
+    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", super::lander::OFFLOAD_OWNER);
     if own_group {
         command.process_group(0);
     }

@@ -164,6 +164,8 @@ trap 'cleanup_sleeper; rm -rf "${scratch:?}"' EXIT
 live_push_log="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/pushes.tsv"
 live_push_log_size="$(stat -c %s "$live_push_log" 2>/dev/null || echo 0)"
 export XDG_STATE_HOME="$scratch/state"
+printf '[init]\n	defaultBranch = main\n' >"$scratch/gitconfig"
+export GIT_CONFIG_GLOBAL="$scratch/gitconfig" GIT_CONFIG_NOSYSTEM=1
 trace="$scratch/trace"
 : >"$trace"
 # The real deny-list must not leak into the suite; cases opt in with a fixture.
@@ -1282,7 +1284,8 @@ make_real_fixture autoland
 ln -sf "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gh"
 mkdir -p "$real_repo/.github/workflows"
 printf 'on:\n  push:\n    branches: ["claude/**"]\n' >"$real_repo/.github/workflows/autoland.yml"
-"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+printf '[landing]\n\tqueue = autoland\n' >>"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml .safe-push
 "$real_git" -C "$real_repo" commit -qm 'Autoland workflow'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 autoland_base=$("$real_git" -C "$real_repo" rev-parse HEAD)
@@ -1424,7 +1427,8 @@ expect_output '--direct: bypassing'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail '--direct did not push main'
 grep -q $'\t' "$xdg_state/safe-push/direct-landings.tsv" || fail '--direct was not logged'
 printf 'on: [push]\n' >"$real_repo/.github/workflows/autoland.yml"
-"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+printf '[landing]\n\tqueue = autoland\n' >>"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml .safe-push
 "$real_git" -C "$real_repo" commit -qm 'workflow lane'
 gap_lock="$xdg_state/safe-push/$(printf '%s' "$real_remote" | sha256sum | cut -c1-16)"
 (
@@ -1445,7 +1449,8 @@ expect_output '2 Autoland train runs in flight; waiting for none before pushing 
 expect_output 'landing this workflow lane over them'
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$("$real_git" -C "$real_repo" rev-parse HEAD)" ] || fail 'a workflow lane did not land after the wait'
 printf 'on: [push, workflow_dispatch]\n' >"$real_repo/.github/workflows/autoland.yml"
-"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+printf '[landing]\n\tqueue = autoland\n' >>"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml .safe-push
 "$real_git" -C "$real_repo" commit -qm 'workflow lane in a gap'
 SAFE_PUSH_TEST_AUTOLAND_RUNS=0 run_real_case '' --to main
 expect_status zero
@@ -1627,7 +1632,8 @@ if grep -Fq 'zebra-quokka-7731' <<<"$case_output"; then fail 'deny-list refusal 
 make_real_fixture denylist-attest
 mkdir -p "$real_repo/.github/workflows" "$scratch/attest-south"
 printf 'on: [workflow_dispatch]\n' >"$real_repo/.github/workflows/autoland.yml"
-"$real_git" -C "$real_repo" add .github/workflows/autoland.yml
+printf '[landing]\n\tqueue = autoland\n' >>"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .github/workflows/autoland.yml .safe-push
 "$real_git" -C "$real_repo" commit -qm 'Autoland workflow'
 "$real_git" -C "$real_repo" push -q origin HEAD:main
 attest_trace="$scratch/attest-trace"
@@ -3062,6 +3068,38 @@ expect_status zero
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lander_lane" ] || fail 'another host did not land per lane'
 [ "$(cat "$lander_trace")" = "$(printf 'enqueue\nenqueue')" ] || fail "another host queued a ticket"
 printf 'PASS: lander-queue: the lander host and a remote host queue a ticket and push nothing, another host lands per lane\n'
+
+make_real_fixture lander-default
+machine_config="$real_fixture/machine-gitconfig"
+printf '[init]\n	defaultBranch = main\n[landing]\n	lander-host = fixture-host\n' >"$machine_config"
+"$real_git" --git-dir="$real_remote" symbolic-ref HEAD refs/heads/main
+[ -z "$("$real_git" -C "$real_repo" ls-files .safe-push)" ] || fail 'the fixture already has a .safe-push'
+printf 'default work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'default work'
+default_main_before=$("$real_git" --git-dir="$real_remote" rev-parse main)
+default_trace="$real_fixture/enqueue-trace"
+: >"$default_trace"
+GIT_CONFIG_GLOBAL="$machine_config" SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$default_trace" run_real_case '' --to main
+expect_status zero
+[ "$(cat "$default_trace")" = enqueue ] || fail "a repository with no landing.queue did not queue on the machine's lander host: $(cat "$default_trace")"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$default_main_before" ] || fail 'a repository with no landing.queue pushed main instead of queueing'
+GIT_CONFIG_GLOBAL="$machine_config" SAFE_PUSH_TEST_HOSTNAME=other-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$default_trace" run_real_case '' --to main
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" != "$default_main_before" ] || fail 'a host that is not the lander host did not land per lane'
+[ "$(cat "$default_trace")" = enqueue ] || fail "a host that is not the lander host queued a ticket: $(cat "$default_trace")"
+printf '[landing]\n\tqueue = lock\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'opt out of the lander'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+printf 'opted-out work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'opted-out work'
+opted_out_before=$("$real_git" --git-dir="$real_remote" rev-parse main)
+: >"$default_trace"
+GIT_CONFIG_GLOBAL="$machine_config" SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$default_trace" run_real_case '' --to main
+expect_status zero
+[ ! -s "$default_trace" ] || fail "landing.queue = lock queued a ticket: $(cat "$default_trace")"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" != "$opted_out_before" ] || fail 'landing.queue = lock did not land per lane'
+printf 'PASS: lander-default: no landing.queue queues on the machine lander host, another host and landing.queue = lock land per lane\n'
 
 } >"$scratch/section-4.log" 2>&1 &
 sections+=($!)

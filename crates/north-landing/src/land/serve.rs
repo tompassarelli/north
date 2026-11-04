@@ -1,5 +1,8 @@
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::candidate::{self, Pick, git};
 use super::lander::{self, Lander, state_home};
@@ -10,10 +13,12 @@ use super::credential;
 use super::telemetry::Stages;
 use super::records::{self, Candidate, Decision};
 use super::{queue, red, sheriff, speculate};
+use super::repositories;
 
-const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
+const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
+const DISCOVERY: Duration = Duration::from_secs(30);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Round {
@@ -196,58 +201,10 @@ impl Lander {
     }
 }
 
-pub fn run(arguments: &[String]) -> u8 {
-    let mut once = false;
-    let mut repo = PathBuf::from(".");
-    let mut checker = vec!["safe-push".to_owned()];
-    let mut depth = lander::DEPTH;
-    let mut app_token = vec![credential::MINT.to_owned()];
-    let mut rest = arguments.iter();
-    while let Some(argument) = rest.next() {
-        match (argument.as_str(), rest.clone().next()) {
-            ("--once", _) => once = true,
-            ("--repo", Some(value)) => {
-                repo = PathBuf::from(value);
-                rest.next();
-            }
-            ("--checker", Some(value)) => {
-                checker = vec![value.clone()];
-                rest.next();
-            }
-            ("--app-token", Some(value)) => {
-                app_token = vec![value.clone()];
-                rest.next();
-            }
-            ("--depth", Some(value)) => {
-                let Some(parsed) = value.parse::<usize>().ok().filter(|parsed| *parsed >= 1) else {
-                    eprintln!("{USAGE}");
-                    return 64;
-                };
-                depth = parsed;
-                rest.next();
-            }
-            ("-h" | "--help", _) => {
-                println!("{USAGE}");
-                return 0;
-            }
-            _ => {
-                eprintln!("{USAGE}");
-                return 64;
-            }
-        }
-    }
-    let lander = match Lander::new(&repo, checker, depth) {
-        Ok(lander) => Lander { app_token, ..lander },
-        Err(error) => {
-            eprintln!("north land serve: {error}");
-            return 1;
-        }
-    };
-    let link = runtime_link();
-    let started_on = runtime_target(&link);
+fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
+    println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     loop {
-        if !once && runtime_target(&link) != started_on {
-            println!("north land: the live runtime changed; exiting so the service restarts on it");
+        if retire.load(Ordering::Relaxed) {
             return 0;
         }
         match lander.round() {
@@ -267,4 +224,163 @@ pub fn run(arguments: &[String]) -> u8 {
         }
         std::thread::sleep(POLL);
     }
+}
+
+struct Options {
+    once: bool,
+    all: bool,
+    repos: Vec<PathBuf>,
+    checker: Vec<String>,
+    depth: usize,
+    app_token: Vec<String>,
+}
+
+fn parse(arguments: &[String]) -> Result<Options, ()> {
+    let mut options = Options { once: false, all: false, repos: Vec::new(), checker: vec!["safe-push".to_owned()], depth: lander::DEPTH, app_token: vec![credential::MINT.to_owned()] };
+    let mut rest = arguments.iter();
+    while let Some(argument) = rest.next() {
+        match (argument.as_str(), rest.clone().next()) {
+            ("--once", _) => options.once = true,
+            ("--all", _) => options.all = true,
+            ("--repo", Some(value)) => {
+                options.repos.push(PathBuf::from(value));
+                rest.next();
+            }
+            ("--checker", Some(value)) => {
+                options.checker = vec![value.clone()];
+                rest.next();
+            }
+            ("--app-token", Some(value)) => {
+                options.app_token = vec![value.clone()];
+                rest.next();
+            }
+            ("--depth", Some(value)) => {
+                let Some(parsed) = value.parse::<usize>().ok().filter(|parsed| *parsed >= 1) else { return Err(()) };
+                options.depth = parsed;
+                rest.next();
+            }
+            _ => return Err(()),
+        }
+    }
+    if options.repos.is_empty() && !options.all {
+        options.repos.push(PathBuf::from("."));
+    }
+    Ok(options)
+}
+
+fn lander_for(repo: &Path, options: &Options) -> Result<Lander, String> {
+    let lander = Lander::new(repo, options.checker.clone(), options.depth)?;
+    Ok(Lander { app_token: options.app_token.clone(), ..lander })
+}
+
+fn exit_code(codes: impl IntoIterator<Item = u8>) -> u8 {
+    codes.into_iter().fold(0, |worst, code| match (worst, code) {
+        (1, _) | (_, 1) => 1,
+        (75, _) | (_, 75) => 75,
+        (_, other) => other,
+    })
+}
+
+fn targets(options: &Options) -> (Vec<PathBuf>, Vec<String>) {
+    let mut repos: Vec<PathBuf> = options.repos.iter().map(|repo| repositories::checkout(repo).unwrap_or_else(|_| repo.clone())).collect();
+    let mut unserved = Vec::new();
+    if options.all {
+        let found = repositories::discovered(&state_home(), &repositories::local_host());
+        repos.extend(found.checkouts);
+        unserved = found.unserved;
+    }
+    repos.sort();
+    repos.dedup();
+    (repos, unserved)
+}
+
+fn reap_offloads() {
+    let status = std::process::Command::new(after::follow::program()).args(["capacity", "offload", "reap", "--owner", lander::OFFLOAD_OWNER]).stdin(std::process::Stdio::null()).status();
+    if !status.is_ok_and(|status| status.success()) {
+        println!("north land: could not reap the remote offload runs of a previous lander");
+    }
+}
+
+fn serve_once(options: &Options) -> u8 {
+    reap_offloads();
+    let (repos, unserved) = targets(options);
+    for reason in unserved {
+        println!("north land: not serving: {reason}");
+    }
+    let mut landers = Vec::new();
+    for repo in &repos {
+        match lander_for(repo, options) {
+            Ok(lander) => landers.push(lander),
+            Err(error) => {
+                eprintln!("north land serve: {error}");
+                return 1;
+            }
+        }
+    }
+    let retire = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = landers.iter().map(|lander| scope.spawn(|| serve_repository(lander, true, &retire))).collect();
+        exit_code(handles.into_iter().map(|handle| handle.join().unwrap_or(1)))
+    })
+}
+
+fn serve_forever(options: &Options) -> u8 {
+    reap_offloads();
+    let link = runtime_link();
+    let started_on = runtime_target(&link);
+    let retire = Arc::new(AtomicBool::new(false));
+    let mut running: HashMap<PathBuf, std::thread::JoinHandle<u8>> = HashMap::new();
+    let mut scanned: Option<Instant> = None;
+    let mut seeded = false;
+    let mut reported: HashSet<String> = HashSet::new();
+    loop {
+        if runtime_target(&link) != started_on {
+            println!("north land: the live runtime changed; exiting so the service restarts on it");
+            retire.store(true, Ordering::Relaxed);
+            for (_, handle) in running.drain() {
+                let _ = handle.join();
+            }
+            return 0;
+        }
+        running.retain(|_, handle| !handle.is_finished());
+        if scanned.is_none_or(|at| at.elapsed() >= DISCOVERY) {
+            scanned = Some(Instant::now());
+            let (repos, unserved) = targets(options);
+            for reason in unserved {
+                if reported.insert(reason.clone()) {
+                    println!("north land: not serving: {reason}");
+                }
+            }
+            for repo in repos {
+                if running.contains_key(&repo) {
+                    continue;
+                }
+                match lander_for(&repo, options) {
+                    Ok(lander) => {
+                        let retire = Arc::clone(&retire);
+                        running.insert(repo, std::thread::spawn(move || serve_repository(&lander, false, &retire)));
+                    }
+                    Err(error) if !seeded => {
+                        eprintln!("north land serve: {error}");
+                        return 1;
+                    }
+                    Err(error) => eprintln!("north land serve: {}: {error}", repo.display()),
+                }
+            }
+            seeded = true;
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+pub fn run(arguments: &[String]) -> u8 {
+    if arguments.iter().any(|argument| argument == "-h" || argument == "--help") {
+        println!("{USAGE}");
+        return 0;
+    }
+    let Ok(options) = parse(arguments) else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    if options.once { serve_once(&options) } else { serve_forever(&options) }
 }

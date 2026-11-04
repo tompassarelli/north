@@ -148,10 +148,16 @@ impl Fixture {
     }
 
     fn command(&self) -> Command {
+        self.command_with(["--repo", self.repo.to_str().unwrap()])
+    }
+
+    fn command_with<const N: usize>(&self, selection: [&str; N]) -> Command {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         command
-            .args(["land", "serve", "--once", "--repo", self.repo.to_str().unwrap(), "--checker", self.trace.join("checker").to_str().unwrap(), "--app-token", self.trace.join("mint").to_str().unwrap()])
+            .args(["land", "serve", "--once"]).args(selection).args(["--checker", self.trace.join("checker").to_str().unwrap(), "--app-token", self.trace.join("mint").to_str().unwrap()])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("XDG_STATE_HOME", &self.state)
             .env("PATH", path)
             .env("LAND_TRACE", &self.trace)
@@ -197,7 +203,7 @@ impl Fixture {
     }
 
     fn calls(&self, prefix: &str) -> Vec<String> {
-        self.read("north-calls").lines().filter(|line| line.starts_with(prefix)).map(str::to_owned).collect()
+        self.read("north-calls").lines().filter(|line| line.starts_with(prefix) && !line.starts_with("capacity offload reap")).map(str::to_owned).collect()
     }
 
     fn fleet(&self) -> Vec<String> {
@@ -382,6 +388,59 @@ fn serve_token_scoped() {
         assert!(!env.lines().any(|line| line.starts_with(name)), "the check saw {name}");
     }
     assert!(fixture.read("pushes").contains("token=push-token"), "the push step keeps its token");
+}
+
+#[test]
+fn serve_all_serves_every_repository_without_sharing() {
+    let north = Fixture::new();
+    let mut south = Fixture::new();
+    south.state = north.state.clone();
+    let north_lane = north.lane("a", "a.txt", "a");
+    let south_lane = south.lane("b", "b.txt", "b");
+    for (fixture, lane) in [(&north, &north_lane), (&south, &south_lane)] {
+        assert!(fixture.land_enqueue(lane, &fixture.state, "session").status.success());
+    }
+    assert_ne!(north.queue(), south.queue(), "each origin has its own queue directory");
+    assert_eq!(queue::pending(&north.queue()).unwrap().len(), 1);
+    assert_eq!(queue::pending(&south.queue()).unwrap().len(), 1);
+    let output = north.command_with(["--all"]).output().unwrap();
+    eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success());
+    assert_eq!(north.subjects(), ["change from a"]);
+    assert_eq!(south.subjects(), ["change from b"]);
+    for fixture in [&north, &south] {
+        assert!(queue::pending(&fixture.queue()).unwrap().is_empty());
+        let landed = fs::read_dir(fixture.queue().join("done")).unwrap().filter_map(Result::ok).filter_map(|entry| queue::read(&entry.path()).ok()).filter(|ticket| ticket.verdict.as_deref() == Some(&format!("landed {}", fixture.main()))).count();
+        assert_eq!(landed, 1, "the repository's own ticket is done in its own queue");
+        assert!(fixture.root.join("proj/worktrees/lander/.git").exists());
+        assert!(!fixture.queue().join("lock").exists());
+    }
+    assert_ne!(north.root.join("proj/worktrees/lander"), south.root.join("proj/worktrees/lander"));
+    let checked: Vec<String> = north.checks().into_iter().map(|(head, _)| head).collect();
+    assert_eq!(checked.len(), 2, "each repository's candidate is checked once: {checked:?}");
+    assert!(checked.contains(&north.main()) && checked.contains(&south.main()), "each candidate was checked in its own checkout and is what landed: {checked:?}");
+}
+
+#[test]
+fn serve_reaps_a_previous_landers_remote_offload_runs_before_it_serves() {
+    let mut fixture = Fixture::new();
+    let a = fixture.lane("a", "a.txt", "a");
+    fixture.enqueue(&a, None);
+    assert!(fixture.serve().status.success());
+    let calls = fixture.read("north-calls");
+    let reap = calls.lines().position(|line| line == "capacity offload reap --owner north-land").expect(&calls);
+    let first_check = fixture.read("checks");
+    assert!(!first_check.is_empty());
+    assert_eq!(reap, 0, "the reap is the first thing the lander asks of north: {calls}");
+}
+
+#[test]
+fn serve_marks_its_checks_with_the_offload_owner_the_reaper_matches() {
+    let mut fixture = Fixture::new();
+    let a = fixture.lane("a", "a.txt", "a");
+    fixture.enqueue(&a, None);
+    assert!(fixture.serve().status.success());
+    assert!(fixture.read("env-1").lines().any(|line| line == "NORTH_OFFLOAD_OWNER=north-land"));
 }
 
 #[test]
@@ -753,7 +812,7 @@ fn serve_landed_only_on_main() {
 }
 
 fn followed(fixture: &Fixture) -> Vec<String> {
-    fixture.read("north-calls").lines().filter(|line| !line.starts_with("fleet") && !line.starts_with("land-train")).map(str::to_owned).collect()
+    fixture.read("north-calls").lines().filter(|line| !line.starts_with("fleet") && !line.starts_with("land-train") && !line.starts_with("capacity offload reap")).map(str::to_owned).collect()
 }
 
 #[test]
@@ -949,7 +1008,7 @@ impl Fixture {
     }
 
     fn land_enqueue(&self, lane: &Path, state: &Path, session: &str) -> Output {
-        let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("XDG_STATE_HOME", state).env("NORTH_FLEET_SESSION", session).env_remove("NORTH_LAND_SERVING").output().unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").env("XDG_STATE_HOME", state).env("SAFE_PUSH_SOUTH", state.join("no-south")).env_remove("SAFE_PUSH_DENYLIST").env("NORTH_FLEET_SESSION", session).env_remove("NORTH_LAND_SERVING").output().unwrap();
         eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         output
     }

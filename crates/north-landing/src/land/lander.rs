@@ -3,8 +3,10 @@ use std::process::Command;
 
 use super::candidate::{self, git};
 use super::queue::{self, Ticket};
+use super::setting;
 
 pub const DEPTH: usize = 2;
+pub const OFFLOAD_OWNER: &str = "north-land";
 const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
 
 pub struct Lander {
@@ -46,7 +48,7 @@ impl Lander {
     }
 
     fn remote_hosts(&self) -> Vec<String> {
-        git(&self.repo, &["config", "--blob", "refs/remotes/origin/main:.safe-push", "--get", "landing.remote-hosts"]).unwrap_or_default().split_whitespace().map(str::to_owned).collect()
+        setting::landing(&self.repo, "refs/remotes/origin/main", "landing.remote-hosts").split_whitespace().map(str::to_owned).collect()
     }
 
     fn fetch_lane(&self, host: &str, ticket: &Ticket) -> Result<(), String> {

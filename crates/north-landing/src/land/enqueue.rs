@@ -10,6 +10,8 @@ use time::OffsetDateTime;
 use super::first_commit;
 use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
+use super::repositories;
+use super::setting;
 use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
@@ -125,7 +127,7 @@ fn red_fix(repo: &Path, base: &str, destination: &str) -> Result<Option<RedFix>,
 }
 
 fn off_lander_host(root: &Path, remote_ref: &str, host: &str) -> bool {
-    let lander = git(root, &["config", "--blob", &format!("{remote_ref}:.safe-push"), "--get", "landing.lander-host"]).unwrap_or_default();
+    let lander = setting::landing(root, remote_ref, "landing.lander-host");
     !lander.is_empty() && lander.split('.').next() != host.split('.').next()
 }
 
@@ -166,6 +168,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .map_err(|_| "HEAD is detached; switch to the lane's own branch".to_owned())?;
     let origin = git(&root, &["remote", "get-url", "--push", "origin"]).map_err(|_| "origin has no push URL".to_owned())?;
+    repositories::servable(&root).map_err(|error| format!("the lander cannot serve this repository: {error}; set landing.queue = direct in .safe-push to land it per lane"))?;
     let destination = default_branch(&root);
     let remote_ref = format!("refs/remotes/origin/{destination}");
     git(&root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
@@ -235,7 +238,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     }
-    let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned();
+    let host = repositories::local_host();
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
     let sources = Denylist::from_env();

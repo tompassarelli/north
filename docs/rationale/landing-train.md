@@ -459,6 +459,7 @@ enforces. So two implementations of the landing lock never exist at once:
   lander rebuilds its candidate on the new main (`serve-cas-lost`).
 - The bash lock, ticket queue and train stay in bin/safe-push for repositories that have not moved,
   and are deleted (not ported) in S19b, after the last repository moves (S18).
+- S18 makes the lander the default: a main whose `.safe-push` sets no `landing.queue` is read as `lander`, so the committed line is only needed to name `lander-host` for one repository; `landing.queue = direct` (or `lock`, `autoland`) keeps the per-lane path.
 - Rollback is reverting the `landing.queue = lander` line; the per-lane path never stopped working.
 - North#482's rule holds: bin/safe-push calls `north land enqueue` only after probing
   `north land enqueue --help`, and fails with "run north runtime update" when the runtime lacks it.
@@ -788,10 +789,17 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
 
 **Wave L3: every repository through the lander, then deletion.**
 
-- **S18 South, nixos-config, wisp and makgora on the lander.** Follows S4, S11. Scope cross-repo.
-  serve takes one queue per origin. Wisp and makgora's Autoland workflow is the lead's call in this
-  box: move them to the lander (recommended, one landing path) or keep Autoland. Done when: one real
-  landing per moved repository through the lander, each sha an ancestor of its origin/main.
+- **S18 Every repository on the lander.** Follows S4, S11. Scope cross-repo. `north land serve --all`
+  runs one lander thread per repository, each with its own worktrees, queue and strikes; the queue
+  directories map to checkouts by their tickets (`land/repositories.rs`: the newest local ticket whose
+  root is a checkout pushing to that queue's key), and a queue with tickets and no checkout is logged,
+  never served from a guess. `bin/safe-push` treats a main with no `landing.queue` as `lander`; the
+  lander host comes from the repository's `.safe-push` or the machine's git config
+  (`landing.lander-host`, `landing.remote-hosts`), and `landing.queue = direct`, `autoland` or `lock`
+  opts out. `north land enqueue` refuses a repository the lander cannot serve. Wisp and makgora move
+  off Autoland and `lock` to the lander. Done when: one real landing per repository (south,
+  nixos-config, wisp, makgora and one with no `.safe-push`) through the lander, each sha an ancestor
+  of its origin/main.
 - **S19a Publication path in Rust.** Follows S13. Files land/push.rs (non-default branches, scratch
   refs, the race revalidation and the lease push, on safe_push_plan.rs and safe_push_state.rs), with
   `north land push` taking every non-default-branch push. Done when: the publication cases

@@ -45,9 +45,12 @@ impl Fixture {
     }
 
     fn enqueue(&self, repo: &Path) -> Queued {
+        git(repo, &["config", "landing.lander-host", "laptop"]);
         let south = self.root.join("no-south");
         let environment = Environment { state_home: &self.state, host: "laptop", session: Some("worker-7"), south: &south, denylist: None };
-        enqueue(repo, None, &environment).unwrap()
+        let queued = enqueue(repo, None, &environment).unwrap();
+        git(repo, &["config", "--unset", "landing.lander-host"]);
+        queued
     }
 
     fn queue(&self) -> PathBuf {
@@ -190,6 +193,8 @@ fn north_enqueue_with(fixture: &Fixture, environment: &[(&str, &Path)]) -> (std:
     let output = Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["land", "enqueue", "--repo"])
         .arg(&fixture.repo)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("XDG_STATE_HOME", &fixture.state)
         .env("NORTH_LAND_NORTH", env!("CARGO_BIN_EXE_north"))
         .env("SAFE_PUSH_SOUTH", fixture.root.join("no-south"))

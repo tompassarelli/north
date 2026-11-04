@@ -23,6 +23,7 @@ git -C ~/code/<project>/main worktree add \
 Edit, check, and explicitly stage each intended path in the lane, then commit.
 Let pre-commit finish before running `safe-push --to main` separately.
 Fast-forward a clean main with `git -C ~/code/<project>/main pull --ff-only`.
+The lander is the default landing path: a repository whose committed `.safe-push` sets no `landing.queue` queues `safe-push --to main` on the lander host (named by the machine's git config `landing.lander-host`, or by the repository's own `.safe-push`), and `landing.queue = direct`, `autoland` or `lock` opts out; `north land enqueue` refuses a repository the lander cannot serve and names why.
 Never stash/reset/clean/commit a dirty main or rewrite published history.
 
 For a blocked cross-turn landing, keep the commit, remaining check, resume

@@ -51,6 +51,7 @@ mod land_offload;
 mod land_scan;
 mod land_scan_outgoing;
 mod land_serve;
+mod land_repositories;
 mod land_tests;
 mod lane_gc_activity;
 mod lane_gc_journeys;

@@ -64,6 +64,54 @@ fn a_checkout_with_a_flake_runs_the_command_inside_its_dev_shell() {
     assert_eq!(remote_run("cargo --version", true), "nix develop SLOT -c bash -euo pipefail -c cargo --version\n");
 }
 
+fn reap_script(root: &Path, owner: &str) -> Output {
+    let script = super::REAP.replace("@ROOT@", &shell(root));
+    Command::new("sh").args(["-c", &script, "offload-reap", owner]).output().unwrap()
+}
+
+fn offload_run(root: &Path, name: &str, owner: &str) -> std::process::Child {
+    let child = Command::new("setsid").args(["-w", "sh", "-c", "sleep 60; sleep 1", "offload"]).spawn().unwrap();
+    fs::write(root.join(format!("{name}.owner")), format!("{owner}\n")).unwrap();
+    fs::write(root.join(format!("{name}.pgid")), format!("{}\n", child.id())).unwrap();
+    fs::write(root.join(format!("{name}.holder")), "abc since 00:00:00\n").unwrap();
+    child
+}
+
+#[test]
+fn reaping_an_owner_kills_its_remote_runs_and_leaves_every_other_run_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let mut mine = offload_run(root.path(), "north", "north-land");
+    let mut other = offload_run(root.path(), "north-1", "safe-push-lane");
+    let output = reap_script(root.path(), "north-land");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("reaped north (process group"));
+    assert!(mine.wait().unwrap().code().is_none(), "the owner's run died on a signal");
+    assert!(other.try_wait().unwrap().is_none(), "another owner's run is still running");
+    assert!(!root.path().join("north.owner").exists() && !root.path().join("north.pgid").exists() && !root.path().join("north.holder").exists());
+    assert!(root.path().join("north-1.owner").exists());
+    other.kill().unwrap();
+    other.wait().unwrap();
+}
+
+#[test]
+fn reaping_forgets_a_run_whose_process_is_already_gone() {
+    let root = tempfile::tempdir().unwrap();
+    let mut gone = Command::new("true").spawn().unwrap();
+    gone.wait().unwrap();
+    fs::write(root.path().join("north.owner"), "north-land\n").unwrap();
+    fs::write(root.path().join("north.pgid"), format!("{}\n", gone.id())).unwrap();
+    assert!(reap_script(root.path(), "north-land").status.success());
+    assert!(!root.path().join("north.owner").exists());
+}
+
+#[test]
+fn the_remote_script_records_its_owner_and_process_group_and_removes_them_on_exit() {
+    assert!(super::REMOTE.contains("owner=${10:-}"));
+    assert!(super::REMOTE.contains(r#"printf '%s\n' "$owner" >"$root/$s.owner""#));
+    assert!(super::REMOTE.contains(r#"printf '%s\n' "$$" >"$root/$s.pgid""#));
+    assert!(super::REMOTE.contains(r#"rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid""#));
+}
+
 #[test]
 fn a_checkout_without_a_flake_runs_the_command_plainly() {
     assert_eq!(remote_run("echo plain", false), "plain\n");

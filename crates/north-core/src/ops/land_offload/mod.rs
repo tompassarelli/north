@@ -7,7 +7,7 @@ mod destinations;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose [--any] | cost | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose [--any] | cost | reap --owner OWNER | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
@@ -15,6 +15,7 @@ pub fn run(arguments: &[String]) -> u8 {
         ["choose"] => choose(false),
         ["choose", "--any"] => choose(true),
         ["cost"] => cost(),
+        ["reap", "--owner", owner] if !owner.is_empty() => reap(owner),
         ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
             let Ok(timeout_seconds) = seconds.parse() else { return usage() };
             let resolved = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|checkout| commits_in(&checkout, base, head).map(|commits| (checkout, commits)));
@@ -107,6 +108,17 @@ fn cost() -> u8 {
         let read = std::process::Command::new("ssh").args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &ssh, "--", remote]).status();
         if !read.is_ok_and(|status| status.success()) {
             eprintln!("north capacity offload: could not read {name}'s offload records");
+            code = 1;
+        }
+    }
+    code
+}
+
+fn reap(owner: &str) -> u8 {
+    let mut code = 0;
+    for (name, ssh) in build_hosts() {
+        if ship::reap(&ssh, owner) != 0 {
+            eprintln!("north capacity offload: could not reap {owner}'s runs on {name}");
             code = 1;
         }
     }

@@ -8,10 +8,11 @@ pub(super) const TRANSPORT_FAILED: u8 = 255;
 const WRONG_TREE: u8 = 98;
 const LOCK_WAIT_SECONDS: u32 = 600;
 const SLOTS: u32 = 6;
+pub const OWNER_ENV: &str = "NORTH_OFFLOAD_OWNER";
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-} landref=${9:-} owner=${10:-}
 root=@ROOT@
 mkdir -p "$root"
 waited=0
@@ -33,8 +34,10 @@ done
 bundle=$root/$s.bundle
 slot=$root/$s
 printf '%s since %s\n' "$(printf '%.12s' "$head")" "$(date +%H:%M:%S)" >"$root/$s.holder"
+printf '%s\n' "$owner" >"$root/$s.owner"
+printf '%s\n' "$$" >"$root/$s.pgid"
 cleanup() {
-  rm -f "$bundle"
+  rm -f "$bundle" "$root/$s.owner" "$root/$s.pgid"
   git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
   if [ -e "$slot/.git" ]; then git -C "$slot" clean -ffdxq -e /target 2>/dev/null || true; fi
 }
@@ -48,6 +51,26 @@ fi
 git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
 if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
 git -C "$slot" clean -ffdxq -e /target
+"#;
+
+const REAP: &str = r#"owner=$1
+root=@ROOT@
+[ -d "$root" ] || exit 0
+for f in "$root"/*.owner; do
+  [ -f "$f" ] || continue
+  [ "$(cat "$f")" = "$owner" ] || continue
+  base=${f%.owner}
+  pgid=$(cat "$base.pgid" 2>/dev/null) || pgid=
+  case $pgid in "" | *[!0-9]*) ;; *)
+    if tr "\\0" " " <"/proc/$pgid/cmdline" 2>/dev/null | grep -q offload; then
+      kill -TERM -- "-$pgid" 2>/dev/null || true
+      sleep 2
+      kill -KILL -- "-$pgid" 2>/dev/null || true
+      echo "offload: reaped ${base##*/} (process group $pgid)"
+    fi ;;
+  esac
+  rm -f "$f" "$base.pgid" "$base.holder" "$base.bundle"
+done
 "#;
 
 const VERIFY: &str = r#"landed=$(git -C "$slot" rev-parse HEAD)
@@ -170,12 +193,23 @@ pub(super) fn run(land: &Land) -> u8 {
     let base = land.base.as_ref().map_or("", CommitId::as_str);
     let landing = if std::env::var("SAFE_PUSH_LANDING").is_ok_and(|value| value == "1") { "1" } else { "" };
     let landref = if landing == "1" { std::env::var("SAFE_PUSH_LAND_REF").unwrap_or_default() } else { String::new() };
-    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing, &landref].map(quote);
-    let remote = format!("sh -c {} offload {}", quote(&script), words.join(" "));
+    let owner = std::env::var(OWNER_ENV).unwrap_or_default();
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing, &landref, &owner].map(quote);
+    let remote = format!("setsid -w sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
         .stdin(Stdio::from(bundle))
         .status();
+    match sent {
+        Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(TRANSPORT_FAILED),
+        Err(error) => fail(&format!("ssh: {error}")),
+    }
+}
+
+pub(super) fn reap(ssh: &str, owner: &str) -> u8 {
+    let script = REAP.replace("@ROOT@", OFFLOAD_ROOT);
+    let remote = format!("sh -c {} offload-reap {}", quote(&script), quote(owner));
+    let sent = Command::new("ssh").args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2", ssh, "--", &remote]).status();
     match sent {
         Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(TRANSPORT_FAILED),
         Err(error) => fail(&format!("ssh: {error}")),

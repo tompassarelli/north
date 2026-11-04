@@ -49,6 +49,7 @@ impl Lane {
             "on:\n  push:\n    branches: [\"claude/**\"]\n",
         )
         .unwrap();
+        fs::write(repo.join(".safe-push"), "[landing]\n\tqueue = autoland\n").unwrap();
         git(&repo, &["add", "."]);
         git(&repo, &["commit", "-qm", "Autoland workflow"]);
         git(&repo, &["push", "-q", "origin", "main"]);
