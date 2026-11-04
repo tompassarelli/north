@@ -3,8 +3,8 @@ use std::process::Command;
 
 use super::candidate::{self, git};
 use super::queue::{self, Ticket};
-use super::speculate;
 
+pub const DEPTH: usize = 2;
 const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
 
 pub struct Lander {
@@ -41,7 +41,7 @@ impl Lander {
             spare: candidate::lander_worktree(repo, "lander-2")?,
             queue: queue::directory(&state_home(), &origin),
             checker,
-            depth: speculate::DEPTH,
+            depth: DEPTH,
         })
     }
 

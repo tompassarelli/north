@@ -9,7 +9,6 @@ use super::lander::Lander;
 use super::queue::{self, Ticket};
 use super::telemetry::Stages;
 
-pub const DEPTH: usize = 2;
 const POLL: Duration = Duration::from_millis(100);
 
 type Lane = (String, PathBuf, String);

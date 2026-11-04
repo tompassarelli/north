@@ -1,4 +1,4 @@
-use super::bash::Case;
+use super::case::Case;
 use super::state::{self, sha256_hex, with_shared, with_state};
 use super::{Ctx, PEER_LINE, asked_keyword, log_override, pattern};
 use crate::hook::{HookInput, Verdict};

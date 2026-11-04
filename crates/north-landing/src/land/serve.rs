@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::candidate::{self, Pick, git};
-use super::lander::{Lander, state_home};
+use super::lander::{self, Lander, state_home};
 use super::after;
 use super::bisect::{self, Judgement};
 use super::checks::Verdict;
@@ -180,7 +180,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut once = false;
     let mut repo = PathBuf::from(".");
     let mut checker = vec!["safe-push".to_owned()];
-    let mut depth = speculate::DEPTH;
+    let mut depth = lander::DEPTH;
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match (argument.as_str(), rest.clone().next()) {

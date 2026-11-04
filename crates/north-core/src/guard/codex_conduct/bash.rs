@@ -1,4 +1,5 @@
 use super::state::{self, head_commit, py_str, sha256_hex, tree_state, with_shared, with_state};
+use super::case::{Case, parse_case};
 use super::{Ctx, asked_keyword, gates, pattern};
 use crate::hook::{HookInput, Verdict};
 use north_base::shell::strip_heredocs;
@@ -14,7 +15,6 @@ pattern!(SEPARATOR, r"&&|\|\||;|\||\n");
 pattern!(ASSIGNMENT, r"^[A-Za-z_][A-Za-z0-9_]*=");
 pattern!(CAPACITY_WORD, r"machine-capacity(\.mjs)?$");
 pattern!(CHECK_WORDS, r"\b(test|tests|check|lint|typecheck|tsc|clippy|validate|verify|soak|parity|bench|perf|smoke|build|farm|sweep)\b");
-pattern!(JUSTIFY_PREFIX, r#"^\s*CASE=([A-Za-z])\s+FACT=("([^"]*)"|'([^']*)')\s*"#);
 pattern!(LEADING_CD, r"^\s*cd\s+\S+\s*&&\s*");
 pattern!(CAPACITY_RUN, r"\bmachine-capacity\S*\s+run\b.*?\s--\s+");
 pattern!(WAIT_FLAGS, r"\s--(wait|exit-status)\b|\s--out(=|\s+)\S+");
@@ -65,23 +65,6 @@ pub(super) fn is_check(command: &str) -> bool {
         }
         (runner.ends_with(".sh") || runner.starts_with("./")) && CHECK_WORDS.is_match(&words.join(" "))
     })
-}
-
-pub(super) struct Case<'a> {
-    pub letter: Option<String>,
-    pub fact: String,
-    pub bare: &'a str,
-}
-
-pub(super) fn parse_case(command: &str) -> Case<'_> {
-    match JUSTIFY_PREFIX.captures(command) {
-        Some(m) => Case {
-            letter: Some(m[1].to_uppercase()),
-            fact: m.get(3).or(m.get(4)).map_or("", |f| f.as_str()).trim().to_owned(),
-            bare: &command[m.get(0).map_or(0, |all| all.end())..],
-        },
-        None => Case { letter: None, fact: String::new(), bare: command },
-    }
 }
 
 pub(super) fn check_key(cwd: &Value, command: &str) -> String {

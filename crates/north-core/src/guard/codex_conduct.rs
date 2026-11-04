@@ -1,4 +1,5 @@
 mod bash;
+mod case;
 mod gates;
 mod plan;
 mod post;
