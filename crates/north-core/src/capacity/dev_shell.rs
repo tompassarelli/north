@@ -1,9 +1,14 @@
 //! The project flake dev shell a capacity run or a job enters, so a toolchain command never runs on a host's bare PATH, since hosts may keep toolchains only in project dev shells.
 use std::io::Write;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 
 const MARK: &str = "NORTH_DEV_SHELL";
 const USAGE: &str = "usage: north capacity dev-shell -- COMMAND...";
+const EXEC_USAGE: &str = "usage: north capacity exec [--dev-shell DIRECTORY] -- COMMAND...";
+const NOT_FOUND: u8 = 127;
+const NOT_EXECUTABLE: u8 = 126;
+const SYSTEM_NIX: [&str; 2] = ["/run/current-system/sw/bin/nix", "/nix/var/nix/profiles/default/bin/nix"];
 
 /// The flake at or above `directory`, inside its git checkout, that declares a dev shell.
 fn project_shell(directory: &Path) -> Option<PathBuf> {
@@ -26,21 +31,56 @@ fn inside(shell: &Path) -> bool {
     }
 }
 
-fn nix_on_path() -> bool {
-    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|directory| directory.join("nix").is_file()))
+fn executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
-/// `command` as run from the current directory: inside its project's flake dev shell when it has one this process is not already in, unless the command is itself a `nix` invocation.
-pub fn enter(command: &[String]) -> Vec<String> {
+/// `program` as `execvp` finds it: a path as given, else the first executable of that name on PATH.
+fn resolve(program: &str) -> Option<PathBuf> {
+    if program.contains('/') {
+        return executable(Path::new(program)).then(|| PathBuf::from(program));
+    }
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|directory| directory.join(program)).find(|candidate| executable(candidate))
+}
+
+/// The nix that enters a dev shell: the one on PATH, else the system's, since a service or timer PATH may omit it.
+fn nix() -> Option<PathBuf> {
+    resolve("nix").or_else(|| SYSTEM_NIX.into_iter().map(PathBuf::from).find(|path| executable(path)))
+}
+
+/// `command` as a lease runs it from the current directory: through `north capacity exec`, inside its project's flake dev shell when it has one this process is not already in, unless the command is itself a `nix` invocation.
+pub fn enter(north: &str, command: &[String]) -> Vec<String> {
     let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let runs_nix = command.first().is_none_or(|program| Path::new(program).file_name().is_some_and(|name| name == "nix"));
-    let Some(shell) = (!runs_nix).then(|| project_shell(&directory)).flatten().filter(|shell| !inside(shell) && nix_on_path()) else {
-        return command.to_vec();
-    };
-    let shell = shell.to_string_lossy().into_owned();
-    let mut entered = vec!["nix".to_owned(), "develop".to_owned(), shell.clone(), "-c".to_owned(), "env".to_owned(), format!("{MARK}={shell}")];
-    entered.extend_from_slice(command);
-    entered
+    let entered = (!runs_nix).then(|| project_shell(&directory)).flatten().filter(|shell| !inside(shell)).and_then(|shell| nix().zip(Some(shell)));
+    let mut words = Vec::new();
+    match entered {
+        Some((nix, shell)) => {
+            let shell = shell.to_string_lossy().into_owned();
+            words.extend([nix.to_string_lossy().into_owned(), "develop".to_owned(), shell.clone(), "-c".to_owned()]);
+            words.extend(exec_words(north, Some(&shell)));
+        }
+        None => words.extend(exec_words(north, None)),
+    }
+    words.extend_from_slice(command);
+    words
+}
+
+/// `command` run through `north capacity exec` outside any dev shell, as a native client runs.
+pub fn bare(north: &str, command: &[String]) -> Vec<String> {
+    let mut words = exec_words(north, None);
+    words.extend_from_slice(command);
+    words
+}
+
+fn exec_words(north: &str, shell: Option<&str>) -> Vec<String> {
+    let mut words = vec![north.to_owned(), "capacity".to_owned(), "exec".to_owned()];
+    if let Some(shell) = shell {
+        words.extend(["--dev-shell".to_owned(), shell.to_owned()]);
+    }
+    words.push("--".to_owned());
+    words
 }
 
 /// `north capacity dev-shell -- COMMAND...` prints the command as it runs from the current directory, each word NUL-terminated, for a shell runner such as bin/job-run to execute.
@@ -49,7 +89,32 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
+    let north = std::env::current_exe().map_or_else(|_| "north".to_owned(), |path| path.to_string_lossy().into_owned());
     let mut out = std::io::stdout().lock();
-    let printed = enter(command).iter().try_for_each(|word| out.write_all(word.as_bytes()).and_then(|()| out.write_all(b"\0")));
+    let printed = enter(&north, command).iter().try_for_each(|word| out.write_all(word.as_bytes()).and_then(|()| out.write_all(b"\0")));
     u8::from(printed.and_then(|()| out.flush()).is_err())
+}
+
+/// `north capacity exec [--dev-shell DIRECTORY] -- COMMAND...` becomes COMMAND, marking the dev shell it runs in, and exits 127 naming the program when it is not found.
+pub fn exec(arguments: &[String]) -> u8 {
+    let (shell, rest) = match arguments {
+        [flag, shell, rest @ ..] if flag == "--dev-shell" => (Some(shell), rest),
+        rest => (None, rest),
+    };
+    let Some((program, rest)) = rest.split_first().filter(|(separator, command)| *separator == "--" && !command.is_empty()).and_then(|(_, command)| command.split_first()) else {
+        eprintln!("{EXEC_USAGE}");
+        return 2;
+    };
+    let Some(resolved) = resolve(program) else {
+        eprintln!("north capacity exec: {program}: command not found");
+        return NOT_FOUND;
+    };
+    let mut command = std::process::Command::new(resolved);
+    command.arg0(program).args(rest);
+    if let Some(shell) = shell {
+        command.env(MARK, shell);
+    }
+    let error = command.exec();
+    eprintln!("north capacity exec: {program}: {error}");
+    NOT_EXECUTABLE
 }

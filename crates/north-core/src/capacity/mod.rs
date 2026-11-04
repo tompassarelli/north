@@ -78,6 +78,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("game-reserve") => game_reserve::run(&arguments[1..]),
         Some("deadline") => deadline::run(&arguments[1..]),
         Some("dev-shell") => dev_shell::run(&arguments[1..]),
+        Some("exec") => dev_shell::exec(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
         Some("unleased") if arguments.len() == 1 => unleased::run(),
         Some("watchdog") => watchdog::run(&arguments[1..]),
@@ -85,7 +86,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("calibration") => host::calibration_command(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | mode status|tick|hold [PHRASE]|release | gaming on|off|status | game-reserve on [--auto]|off|auto|playing|status | offload choose|cost|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | model [KEY] | calibration [--since 24h] | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | mode status|tick|hold [PHRASE]|release | gaming on|off|status | game-reserve on [--auto]|off|auto|playing|status | offload choose|cost|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | exec [--dev-shell DIRECTORY] -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | model [KEY] | calibration [--since 24h] | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
             2
         }
     };
