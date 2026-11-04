@@ -10,11 +10,10 @@ const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", 
 pub struct Lander {
     pub repo: PathBuf,
     pub worktree: PathBuf,
-    pub spare: PathBuf,
+    pub spares: Vec<PathBuf>,
     pub queue: PathBuf,
     pub checker: Vec<String>,
     pub app_token: Vec<String>,
-    pub depth: usize,
 }
 
 pub(super) fn state_home() -> PathBuf {
@@ -34,16 +33,15 @@ fn ssh(host: &str, script: &str) -> Result<String, String> {
 }
 
 impl Lander {
-    pub fn new(repo: &Path, checker: Vec<String>) -> Result<Self, String> {
+    pub fn new(repo: &Path, checker: Vec<String>, depth: usize) -> Result<Self, String> {
         let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
         Ok(Self {
             repo: repo.to_owned(),
             worktree: candidate::lander_worktree(repo, "lander")?,
-            spare: candidate::lander_worktree(repo, "lander-2")?,
+            spares: (2..=depth).map(|level| candidate::lander_worktree(repo, &format!("lander-{level}"))).collect::<Result<_, _>>()?,
             queue: queue::directory(&state_home(), &origin),
             checker,
             app_token: vec![super::credential::MINT.to_owned()],
-            depth: DEPTH,
         })
     }
 

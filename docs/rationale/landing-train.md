@@ -418,7 +418,7 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
    starts. A red candidate splits into halves, ejects only the culprit lane and messages that lane's
    author session. N+1's verdict counts only if N landed and main is still N at its push.
 4. **Warm build slots, selection by changed paths, Actions confirms.** Candidate checks run in
-   persistent slots: on the laptop, the lander's two stable worktrees (one per speculation depth), so
+   persistent slots: on the laptop, the lander's stable worktrees (one per speculation depth), so
    `target/` survives and compiles are incremental; on gex45, the offload slots, whose clean keeps
    `/target` (crates/north-core/src/ops/land_offload/ship.rs, `git clean -ffdxq -e /target`). The
    `land.check` path filters select checks from base..candidate as today. The full suite runs on main
@@ -670,7 +670,14 @@ then S2b and S2c in parallel; then S3 and S4.
   throws away N+1's verdict, and N+1 is rebuilt without the culprit and checked again; (3)
   `speculate-real-gates`: N lands while N+1's real `--check-candidate --base N` run is in flight, and
   N+1 still lands without re-running; (4) every test asserts that the pushed tree equals a checked
-  tree.
+  tree. `--depth D` generalises it: D-1 spare worktrees (`worktrees/lander-2..lander-D`, branches
+  `land-candidate-2..D`), each speculative candidate built on the head of the one beneath it and
+  checked beside it, pushed in order only while everything beneath landed at the head it was built
+  on. A red speculative candidate stops the candidates stacked on it at once; their lanes stay queued
+  and are rebuilt on the new main. `speculate-depth-three` lands three lanes arriving during a 5 s
+  check, in three stacked candidates, within 1.2 check lengths of the first check's start;
+  `speculate-depth-three-red-middle`, `speculate-depth-one-waits` and
+  `speculate-depth-two-stacks-once` cover the red middle and depths 1 and 2.
 - **S6a Rust land-check runner, in place.** Files land/slots/runner.rs, bin/safe-push. It ports
   `run_land_checks`: selection from `land.check`, the local-only reasons, logs, the deadline under
   `north capacity deadline`, frozen-time accounting, orphan reaping, the capacity wrapper and the

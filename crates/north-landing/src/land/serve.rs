@@ -11,7 +11,7 @@ use super::telemetry::Stages;
 use super::records::{self, Candidate, Decision};
 use super::{queue, red, sheriff, speculate};
 
-const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2] [--app-token PROGRAM]";
+const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
 
@@ -124,8 +124,8 @@ impl Lander {
             println!("north land: candidate {} carries {} lanes onto main@{base}; checking it", built.head, built.included());
             let log = logs.join(format!("{}-candidate.log", micros()));
             let mut stages = Stages::start();
-            let taken = (limit == usize::MAX && !red_only && self.depth >= 2).then(|| speculate::Taken::new(&tickets, &included));
-            let (verdict, next) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
+            let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(&tickets, &included));
+            let (verdict, stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
             stages.mark("check");
             stages.attempts = rebuilds + 1;
             stages.bisect_depth = bisect_depth;
@@ -160,9 +160,7 @@ impl Lander {
                     }
                     stages.mark("push");
                     after::finish(self, &built.head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
-                    if let Some(next) = next {
-                        speculate::land(self, next, &built.head)?;
-                    }
+                    speculate::land(self, stacked, &built.head)?;
                     return Ok(Round::Progress);
                 }
                 Judgement::Rebuild => {
@@ -220,8 +218,12 @@ pub fn run(arguments: &[String]) -> u8 {
                 app_token = vec![value.clone()];
                 rest.next();
             }
-            ("--depth", Some(value)) if matches!(value.as_str(), "1" | "2") => {
-                depth = if value == "1" { 1 } else { 2 };
+            ("--depth", Some(value)) => {
+                let Some(parsed) = value.parse::<usize>().ok().filter(|parsed| *parsed >= 1) else {
+                    eprintln!("{USAGE}");
+                    return 64;
+                };
+                depth = parsed;
                 rest.next();
             }
             ("-h" | "--help", _) => {
@@ -234,8 +236,8 @@ pub fn run(arguments: &[String]) -> u8 {
             }
         }
     }
-    let lander = match Lander::new(&repo, checker) {
-        Ok(lander) => Lander { depth, app_token, ..lander },
+    let lander = match Lander::new(&repo, checker, depth) {
+        Ok(lander) => Lander { app_token, ..lander },
         Err(error) => {
             eprintln!("north land serve: {error}");
             return 1;

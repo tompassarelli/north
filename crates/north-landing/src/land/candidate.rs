@@ -6,7 +6,10 @@ use super::queue::Ticket;
 use crate::landing::stale_revert;
 
 pub const BRANCH: &str = "land-candidate";
-pub const SPECULATIVE_BRANCH: &str = "land-candidate-2";
+
+pub fn speculative_branch(level: usize) -> String {
+    format!("{BRANCH}-{}", level + 2)
+}
 
 pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
     Command::new("git").arg("-C").arg(directory).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))

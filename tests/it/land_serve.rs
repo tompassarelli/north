@@ -1138,6 +1138,140 @@ fn speculate_real_gates() {
     pushed_trees_were_checked(&fixture);
 }
 
+fn wait_for(path: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !path.exists() {
+        assert!(std::time::Instant::now() < deadline, "{} never appeared", path.display());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+fn stacked_serve(fixture: &mut Fixture, depth: &str, arrivals: &[(usize, &[PathBuf])]) -> Output {
+    let batches: Vec<(usize, Vec<(PathBuf, Ticket)>)> = arrivals.iter().map(|(after, lanes)| (*after, lanes.iter().map(|lane| fixture.ticket(lane, None)).collect())).collect();
+    let child = fixture.command().args(["--depth", depth]).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+    for (after, tickets) in &batches {
+        wait_for(&fixture.trace.join(format!("started-{after}")));
+        for (path, ticket) in tickets {
+            queue::write(path, ticket).unwrap();
+        }
+        fs::write(fixture.trace.join(format!("arrived-{after}")), "").unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    output
+}
+
+fn stacked(output: &Output) -> usize {
+    String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.starts_with("north land: speculative candidate ") && line.contains(" carries ")).count()
+}
+
+fn stamp(fixture: &Fixture, name: &str) -> f64 {
+    fixture.read(name).trim().parse().unwrap_or_else(|_| panic!("{name} holds no time: {:?}", fixture.read(name)))
+}
+
+const STACKED_HOOK: &str = "#!/usr/bin/env bash\nawait() { for ((i = 0; i < 1200; i++)); do [ -e \"$LAND_TRACE/$1\" ] && return 0; sleep 0.05; done; return 1; }\ndate +%s.%N >\"$LAND_TRACE/start-$1\"\ntouch \"$LAND_TRACE/started-$1\"\n";
+
+#[test]
+fn speculate_depth_three() {
+    let mut fixture = Fixture::new();
+    let lanes: Vec<PathBuf> = ["a", "b", "c", "d"].iter().map(|name| fixture.lane(name, &format!("{name}.txt"), name)).collect();
+    fixture.enqueue(&lanes[0], None);
+    executable(&fixture.trace.join("hook"), &format!("{STACKED_HOOK}[ \"$1\" -gt 3 ] || await started-3\nsleep 5\ndate +%s.%N >\"$LAND_TRACE/end-$1\"\n"));
+    let output = stacked_serve(&mut fixture, "3", &[(1, &lanes[1..2]), (2, &lanes[2..])]);
+    assert!(output.status.success());
+    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from c", "change from d"]);
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 3, "each candidate is checked once: {checks:?}");
+    assert_eq!(checks[0].1, fixture.base);
+    assert_eq!(checks[1].1, checks[0].0, "the second candidate is stacked on the first");
+    assert_eq!(checks[2].1, checks[1].0, "the third candidate is stacked on the second");
+    assert_eq!(stacked(&output), 2, "two candidates were stacked beside the first");
+    let (starts, ends): (Vec<f64>, Vec<f64>) = (1..=3).map(|n| (stamp(&fixture, &format!("start-{n}")), stamp(&fixture, &format!("end-{n}")))).unzip();
+    let length = starts.iter().zip(&ends).map(|(start, end)| end - start).fold(0.0, f64::max);
+    let span = ends.iter().copied().fold(0.0, f64::max) - starts[0];
+    assert!(starts.iter().copied().fold(0.0, f64::max) < ends.iter().copied().fold(f64::MAX, f64::min), "all three checks were in flight at once: {starts:?} {ends:?}");
+    assert!(span <= 1.2 * length, "three stacked checks took {span:.2} s from the first start, over 1.2 check lengths of {length:.2} s");
+    assert_eq!(fixture.main(), checks[2].0);
+    assert_eq!(fixture.read("pushes").lines().count(), 3);
+    pushed_trees_were_checked(&fixture);
+}
+
+#[test]
+fn speculate_depth_three_red_middle() {
+    let mut fixture = Fixture::new();
+    let lanes: Vec<PathBuf> = [("a", "a.txt"), ("b", "fail.txt"), ("c", "c.txt")].iter().map(|(name, file)| fixture.lane(name, file, name)).collect();
+    fixture.enqueue(&lanes[0], None);
+    executable(
+        &fixture.trace.join("hook"),
+        &format!("{STACKED_HOOK}case $1 in\n1) ! await stopped || touch \"$LAND_TRACE/stopped-in-flight\" ;;\n2) await started-3 ;;\n3) echo $$ >\"$LAND_TRACE/stacked-pid\"; sleep 300 ;;\nesac\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n"),
+    );
+    let watcher = {
+        let trace = fixture.trace.clone();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+            while std::time::Instant::now() < deadline {
+                if let Ok(pid) = fs::read_to_string(trace.join("stacked-pid"))
+                    && !Path::new(&format!("/proc/{}", pid.trim())).exists()
+                {
+                    fs::write(trace.join("stopped"), "").unwrap();
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            false
+        })
+    };
+    let output = stacked_serve(&mut fixture, "3", &[(1, &lanes[1..2]), (2, &lanes[2..])]);
+    assert!(output.status.success());
+    assert!(watcher.join().unwrap(), "the check stacked on the red candidate was stopped");
+    assert!(fixture.trace.join("stopped-in-flight").exists(), "the stacked check was stopped while the first candidate was still checked, not when its turn to land came");
+    let checks = fixture.checks();
+    assert!(checks.len() >= 4, "{checks:?}");
+    assert_eq!(checks[1].1, checks[0].0);
+    assert_eq!(checks[2].1, checks[1].0, "c was stacked on the red b");
+    assert!(checks[3..].iter().all(|(_, base)| *base == checks[0].0), "after the red middle, its lanes are rebuilt on the new main: {checks:?}");
+    let culprit = json_names(&fixture.queue().join("done")).into_iter().find(|name| name.ends_with("-lane-b.json")).unwrap();
+    assert!(fixture.verdict(&fixture.queue().join(culprit)).unwrap().starts_with("failed "));
+    assert_eq!(fixture.subjects(), ["change from a", "change from c"]);
+    assert!(git(&fixture.origin, &["ls-tree", "--name-only", "main"]).lines().all(|file| file != "fail.txt"));
+    pushed_trees_were_checked(&fixture);
+}
+
+#[test]
+fn speculate_depth_one_waits() {
+    let mut fixture = Fixture::new();
+    let lanes: Vec<PathBuf> = ["a", "b"].iter().map(|name| fixture.lane(name, &format!("{name}.txt"), name)).collect();
+    fixture.enqueue(&lanes[0], None);
+    executable(&fixture.trace.join("hook"), &format!("{STACKED_HOOK}[ \"$1\" != 1 ] || {{ await arrived-1; sleep 1; }}\n"));
+    let output = stacked_serve(&mut fixture, "1", &[(1, &lanes[1..])]);
+    assert!(output.status.success());
+    assert_eq!(stacked(&output), 0, "depth 1 never speculates");
+    assert!(!fixture.root.join("proj/worktrees/lander-2").exists());
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 2);
+    assert_eq!(checks[1].1, checks[0].0, "b is checked on main after a landed");
+    assert_eq!(fixture.subjects(), ["change from a", "change from b"]);
+    pushed_trees_were_checked(&fixture);
+}
+
+#[test]
+fn speculate_depth_two_stacks_once() {
+    let mut fixture = Fixture::new();
+    let lanes: Vec<PathBuf> = ["a", "b", "c"].iter().map(|name| fixture.lane(name, &format!("{name}.txt"), name)).collect();
+    fixture.enqueue(&lanes[0], None);
+    executable(&fixture.trace.join("hook"), &format!("{STACKED_HOOK}[ \"$1\" -gt 2 ] || {{ await arrived-2; sleep 1; }}\n"));
+    let output = stacked_serve(&mut fixture, "2", &[(1, &lanes[1..2]), (2, &lanes[2..])]);
+    assert!(output.status.success());
+    assert!(!fixture.root.join("proj/worktrees/lander-3").exists(), "depth 2 keeps one spare worktree");
+    assert_eq!(stacked(&output), 1, "c waits for the next round instead of a second stacked candidate");
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 3, "{checks:?}");
+    assert_eq!(checks[1].1, checks[0].0);
+    assert_eq!(checks[2].1, checks[1].0);
+    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from c"]);
+    pushed_trees_were_checked(&fixture);
+}
+
 type Row = (String, String, i64, i64, i64, String, Option<String>, Option<String>, String, Option<String>, Option<String>, String);
 
 fn ledger_rows(fixture: &Fixture, expected: usize) -> Vec<Row> {
