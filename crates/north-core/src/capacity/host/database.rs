@@ -2,8 +2,9 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-use rusqlite::{Connection, OpenFlags, params_from_iter, types::Value as Sql};
+use rusqlite::{Connection, ErrorCode, OpenFlags, params_from_iter, types::Value as Sql};
 use serde_json::Value;
 
 use super::estimate::{CapacityRun, TaskSignature, task_signature};
@@ -121,17 +122,46 @@ fn import_usage_log(db: &mut Connection) -> rusqlite::Result<()> {
     transaction.commit()
 }
 
-/// The capacity database, created and seeded from the usage log on first open.
-pub fn capacity_database() -> rusqlite::Result<Connection> {
-    let path = env("AGENT_CAPACITY_DB").map_or_else(|| state_root().join("agents/machine-capacity/capacity.db"), PathBuf::from);
-    private_parent(&path).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
-    let mut db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI)?;
-    db.busy_timeout(std::time::Duration::from_millis(5000))?;
+pub const TEMPORARY_FAILURE: i32 = 75;
+
+const LOCK_WAIT_SECONDS: f64 = 60.0;
+const RETRY_PAUSE: Duration = Duration::from_millis(50);
+
+fn lock_wait() -> Duration {
+    let seconds = env("AGENT_CAPACITY_DB_LOCK_WAIT_SECONDS").and_then(|text| text.parse::<f64>().ok()).filter(|seconds| seconds.is_finite() && *seconds >= 0.0).unwrap_or(LOCK_WAIT_SECONDS);
+    Duration::from_secs_f64(seconds)
+}
+
+fn is_contended(error: &rusqlite::Error) -> bool {
+    matches!(error.sqlite_error_code(), Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked))
+}
+
+pub fn failure_status(error: &rusqlite::Error) -> i32 {
+    if is_contended(error) { TEMPORARY_FAILURE } else { 1 }
+}
+
+fn open_once(path: &Path, wait: Duration) -> rusqlite::Result<Connection> {
+    let mut db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_URI)?;
+    db.busy_timeout(wait)?;
     if migrate(&mut db)? {
         db.execute_batch("DETACH DATABASE legacy_capacity")?;
     }
     import_usage_log(&mut db)?;
     Ok(db)
+}
+
+/// The capacity database, created and seeded from the usage log on first open; SQLite skips its busy handler when a read transaction upgrades to a write, so the whole open is retried until the lock wait ends.
+pub fn capacity_database() -> rusqlite::Result<Connection> {
+    let path = env("AGENT_CAPACITY_DB").map_or_else(|| state_root().join("agents/machine-capacity/capacity.db"), PathBuf::from);
+    private_parent(&path).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    let deadline = Instant::now() + lock_wait();
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match open_once(&path, remaining) {
+            Err(error) if is_contended(&error) && Instant::now() < deadline => std::thread::sleep(RETRY_PAUSE),
+            other => return other,
+        }
+    }
 }
 
 pub(super) fn sql(value: Option<&Value>) -> Sql {

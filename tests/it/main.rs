@@ -6,6 +6,7 @@ mod agents_sync_runtime_skew;
 mod autoland_rebased;
 mod capacity_admission_lock;
 mod capacity_aperture;
+mod capacity_db_lock;
 mod capacity_desktop_bus;
 mod capacity_dev_shell;
 mod capacity_disk;

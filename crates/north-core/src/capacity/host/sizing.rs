@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::database::{capacity_database, capacity_history, recent_usage};
+use super::database::{capacity_database, capacity_history, failure_status, recent_usage};
 use super::estimate::{CapacityQuery, CapacityRun, estimate_capacity, task_signature};
 use super::fail;
 use super::json::{field, num, round2, text};
@@ -15,7 +15,7 @@ fn cwd() -> Option<String> {
 
 /// The expected use of the command from the capacity database's closest runs.
 pub fn estimate_command(command: &[String], kind: &str, owner: Option<&str>, cores: f64) -> Value {
-    let history = capacity_database().and_then(|db| capacity_history(&db)).unwrap_or_else(|error| fail(&format!("capacity database: {error}"), 1));
+    let history = capacity_database().and_then(|db| capacity_history(&db)).unwrap_or_else(|error| fail(&format!("capacity database: {error}"), failure_status(&error)));
     let history = own_host(history, &host_name());
     let query = CapacityQuery { owner: owner.map(str::to_owned), shape: Some(command_shape(command)) };
     estimate_capacity(&task_signature(command, cwd().as_deref(), kind, true), &history, cores, &query)

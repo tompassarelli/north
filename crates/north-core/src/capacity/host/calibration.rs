@@ -224,7 +224,7 @@ pub fn model_command(arguments: &[String]) -> u8 {
         }
         Err(error) => {
             eprintln!("north capacity model: {error}");
-            1
+            super::database::failure_status(&error) as u8
         }
     }
 }
@@ -248,7 +248,7 @@ pub fn calibration_command(arguments: &[String]) -> u8 {
         }
         Err(error) => {
             eprintln!("north capacity calibration: {error}");
-            1
+            super::database::failure_status(&error) as u8
         }
     }
 }

@@ -1,4 +1,4 @@
-use super::database::{OffloadRow, capacity_database, offload_rows};
+use super::database::{OffloadRow, capacity_database, failure_status, offload_rows};
 use super::{args, fail};
 use crate::capacity::build_offload::median;
 
@@ -22,8 +22,8 @@ pub(super) fn summary(rows: &[OffloadRow]) -> String {
 pub(super) fn print(argv: &[String]) -> u8 {
     let options = args::Options::parse(argv, 1, &["--last"], &[]);
     let last = options.get("--last").map_or(DEFAULT_LAST, |count| args::positive_integer(count, "--last", None) as usize);
-    let db = capacity_database().unwrap_or_else(|error| fail(&format!("capacity database: {error}"), 1));
-    let rows = offload_rows(&db, last).unwrap_or_else(|error| fail(&format!("capacity database: {error}"), 1));
+    let db = capacity_database().unwrap_or_else(|error| fail(&format!("capacity database: {error}"), failure_status(&error)));
+    let rows = offload_rows(&db, last).unwrap_or_else(|error| fail(&format!("capacity database: {error}"), failure_status(&error)));
     println!("{}", summary(&rows));
     0
 }
