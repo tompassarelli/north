@@ -104,6 +104,7 @@ Commands:
   codex-runtime-gcroots                         Root the Nix store dependencies of every installed Codex runtime
   skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines
   cross-project-scan [--print-bundle]           Daily cross-project overlap scan posted to Plato
+  eta-calibration                               Post the last 7 days of stated ETA against measured active minutes, per category and tier, to north#255 (weekly timer)
   skill-review-queue                            Open, update or close the Skill review queue issue
   git-maintenance-nightly                       Run git maintenance for each ~/code/*/main under a capacity lease
   agent-runtime-update [VERSION]                Update the Codex, North, Claude and Agy runtimes

@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 
 use super::child_failure;
 use super::cross_project::{Asked, Reply, ask};
+use super::eta_calibration::comment_body;
 use super::git_maintenance::{maintenance_argv, repositories};
 use super::gcroots::store_roots;
 use super::runtime_update::steps;
@@ -215,4 +216,11 @@ fn a_cross_project_scan_starts_a_token_file_account_through_its_credential_reade
     assert_eq!(words.last().map(String::as_str), Some("/tokens/claude-b"), "{words:?}");
     let unlisted = super::cross_project::account_words(Some(std::path::Path::new("/profiles/claude-x")), &[], crate::providers::claude::invocation);
     assert_eq!(unlisted, ["CLAUDE_CONFIG_DIR=/profiles/claude-x", "CLAUDE_CODE_DISABLE_FAST_MODE=1"]);
+}
+
+#[test]
+fn the_weekly_eta_calibration_comment_wraps_the_table_in_a_code_block_under_its_date() {
+    let body = comment_body("2026-11-04", "category  tier  n\ntooling  claude:sonnet-high  3\n");
+    assert!(body.starts_with("Weekly ETA calibration (2026-11-04, last 7d)"), "{body}");
+    assert!(body.ends_with("tooling  claude:sonnet-high  3\n```"), "{body}");
 }

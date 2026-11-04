@@ -1,4 +1,5 @@
 mod cross_project;
+mod eta_calibration;
 mod fleet_session;
 mod gcroots;
 mod git_maintenance;
@@ -23,6 +24,7 @@ pub enum Timer {
     AgentRuntimeUpdate,
     CodexRuntimeGcroots,
     CrossProjectScan,
+    EtaCalibration,
     GitMaintenanceNightly,
     IncidentRetro,
     JobWatch,
@@ -41,6 +43,7 @@ impl Timer {
             "agent-runtime-update" => Self::AgentRuntimeUpdate,
             "codex-runtime-gcroots" => Self::CodexRuntimeGcroots,
             "cross-project-scan" => Self::CrossProjectScan,
+            "eta-calibration" => Self::EtaCalibration,
             "git-maintenance-nightly" => Self::GitMaintenanceNightly,
             "incident-retro" => Self::IncidentRetro,
             "job-watch" => Self::JobWatch,
@@ -60,6 +63,7 @@ impl Timer {
             Self::AgentRuntimeUpdate => runtime_update::run(arguments),
             Self::CodexRuntimeGcroots => gcroots::run(arguments),
             Self::CrossProjectScan => cross_project::run(arguments, access),
+            Self::EtaCalibration => eta_calibration::run(arguments),
             Self::GitMaintenanceNightly => git_maintenance::run(arguments),
             Self::IncidentRetro => incident_retro::run(arguments),
             Self::JobWatch => crate::ops::job_watch::run(arguments),

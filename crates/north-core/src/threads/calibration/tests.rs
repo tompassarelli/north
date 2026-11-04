@@ -523,3 +523,22 @@ fn rework_marks_reverted_fixed_forward_and_culprit_landings_within_48_hours_and_
     let column = |name: &str| row[header.find(name).unwrap()..].split("  ").next().unwrap().trim().to_owned();
     assert_eq!((column("n "), column("ok"), column("rework")), ("6".to_owned(), "33%".to_owned(), "4 66%".to_owned()));
 }
+
+fn eta_sample(category: &str, tier: &str, predicted: f64, actual: f64) -> super::eta_calibration::Sample {
+    super::eta_calibration::Sample { category: category.to_owned(), tier: tier_key(tier), predicted, actual }
+}
+
+#[test]
+fn the_eta_table_gives_each_category_and_tier_its_median_log_error_and_its_share_within_half_to_double() {
+    let samples = [
+        eta_sample("tooling", "sonnet", 30.0, 30.0),
+        eta_sample("tooling", "sonnet", 30.0, 60.0),
+        eta_sample("tooling", "sonnet", 30.0, 120.0),
+        eta_sample("feature", "medium", 40.0, 10.0),
+    ];
+    let table = super::eta_calibration::render(&samples);
+    let rows: Vec<Vec<&str>> = table.lines().map(|line| line.split_whitespace().collect()).collect();
+    assert_eq!(rows[0], ["category", "tier", "n", "median_abs_ln_error", "within_0.5_to_2x"]);
+    assert_eq!(rows[1], ["feature", "claude:opus-medium", "1", "1.39", "0%"]);
+    assert_eq!(rows[2], ["tooling", "claude:sonnet-high", "3", "0.69", "66%"]);
+}

@@ -1,6 +1,7 @@
 usage: north worker-ledger [--session ID] [--since DATE] [--backfill]   record finished workers as runs in NorthThreads
        north worker-ledger --emit [--session ID] [--since DATE] [--backfill]  print those rows against the ledger ids JSON on stdin
        north worker-ledger --summary [--since DATE] [--by LIST]         per cell x tier: runs against ETA, issues closed, flaws per Lens
+       north worker-ledger --eta-calibration [--since 7d]               per category x tier: stated ETA against measured active minutes of Done runs, n, median abs ln error, share within 0.5 to 2x
        north worker-ledger --recommend [--planner] 'FACETS' [--since DATE]          tier for a brief's facets, with the cell used and n
   --session ID  only that session's workers (default: every provider, active in the last day)
   --since DATE  only workers active on or after DATE (e.g. 2026-10-08)

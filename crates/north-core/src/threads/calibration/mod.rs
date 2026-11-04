@@ -4,6 +4,7 @@
 mod box_eta;
 mod boxes;
 mod calibrate;
+mod eta_calibration;
 mod feeds;
 mod forward;
 mod mode;

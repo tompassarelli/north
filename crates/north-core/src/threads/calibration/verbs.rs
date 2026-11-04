@@ -14,7 +14,7 @@ use crate::router::brief::CATEGORIES;
 use crate::threads::runs::brief::Fields;
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 
-pub const VERBS: [&str; 9] = ["recommend", "calibrate", "replay-staffing", "summary", "routing-compare", "box-eta", "annotate-runs", "recommend-runs", "calibration-runs"];
+pub const VERBS: [&str; 10] = ["recommend", "eta-calibration", "calibrate", "replay-staffing", "summary", "routing-compare", "box-eta", "annotate-runs", "recommend-runs", "calibration-runs"];
 
 /// Runs one verb, printing its result to `out` and a refusal to `err`; returns the exit code.
 pub fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
@@ -22,6 +22,7 @@ pub fn run(argv: &[String], context: &Context, stdin: &mut dyn Read, out: &mut d
         "summary" => return super::summary::run(&argv[1..], context, out, err),
         "routing-compare" => return super::routing::run(context, out, err),
         "box-eta" => super::box_eta::run(context, stdin),
+        "eta-calibration" => super::eta_calibration::run(&argv[1..], context),
         "annotate-runs" => super::feeds::annotate(stdin),
         "recommend-runs" => super::feeds::recommend_cases(stdin),
         "calibration-runs" => super::feeds::runs(context),
