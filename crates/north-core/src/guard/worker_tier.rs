@@ -96,36 +96,36 @@ pub(super) fn refusal(input: &HookInput) -> Option<String> {
 }
 
 pub(super) fn brief_refusal(kind: &str, native: bool, foreground: bool, prompt: &str) -> Option<String> {
-    if let Some(reason) = declared_refusal(foreground, prompt)
-        .or_else(|| crate::router::brief::landing_refusal(prompt))
-    {
-        return Some(reason);
-    }
+    let mut reasons = declared_refusals(foreground, prompt);
+    reasons.extend(crate::router::brief::landing_refusal(prompt));
     if !native && kind == "worker-haiku" && DOCS.is_match(prompt) {
-        return Some("Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and documentation prose written carefully by Opus. Haiku keeps only mechanical edits (renames, link fixes, box ticks) under Category: mechanical.".into());
+        reasons.push("Category: docs-policy goes to worker, not worker-haiku: Tom wants policy, skill and documentation prose written carefully by Opus. Haiku keeps only mechanical edits (renames, link fixes, box ticks) under Category: mechanical.".into());
     }
-    if FOLLOWS.is_match(prompt) {
-        return None;
+    if !FOLLOWS.is_match(prompt) {
+        if !native && kind != "worker-haiku" && MECHANICAL.is_match(prompt) {
+            reasons.push(format!("Category: mechanical goes to worker-haiku, not {kind} (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."));
+        }
+        if matches!(kind, "worker-high" | "worker-xhigh") {
+            reasons.push(format!("{kind} is escalation-only: assign worker first, and escalate only after its reasoning failure, saying so with a `Follows:` line naming the failed run."));
+        }
     }
-    if !native && kind != "worker-haiku" && MECHANICAL.is_match(prompt) {
-        return Some(format!("Category: mechanical goes to worker-haiku, not {kind} (ledger 28/31 mechanical). Escalate to worker only after a Haiku failure, and say so with a `Follows:` line naming the failed run."));
-    }
-    matches!(kind, "worker-high" | "worker-xhigh").then(|| format!("{kind} is escalation-only: assign worker first, and escalate only after its reasoning failure, saying so with a `Follows:` line naming the failed run."))
+    (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
-fn declared_refusal(foreground: bool, prompt: &str) -> Option<String> {
-    let incomplete = if foreground {
-        Some("Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation.".to_owned())
-    } else {
-        FIELDS.iter().find(|field| !field.declared.is_match(prompt)).map(|field| format!("Missing {}: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning.", field.name))
-    };
-    unknown_facet(prompt, incomplete.is_some()).or(incomplete).or_else(|| missing_payback(prompt))
+fn declared_refusals(foreground: bool, prompt: &str) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if foreground {
+        reasons.push("Claude worker Agents require run_in_background: true so the background Agent result records the original prompt with the actual child identity at creation.".to_owned());
+    }
+    let undeclared = FIELDS.iter().filter(|field| !field.declared.is_match(prompt)).map(|field| field.name);
+    reasons.extend(undeclared.map(|name| format!("Missing {name}: declare Category and Spec/Scope/Surface/Verify in the worker brief before spawning.")));
+    reasons.extend(unknown_facets(prompt));
+    reasons.extend(missing_payback(prompt));
+    reasons
 }
 
-fn unknown_facet(prompt: &str, already_refused: bool) -> Option<String> {
-    // The retired shell guard stopped after the Spec facet once a refusal was set; decisions stay equal to it.
-    let checked = if already_refused { 1 } else { FACETS.len() };
-    FIELDS.iter().filter(|field| !field.allowed.is_empty()).take(checked).find_map(|field| {
+fn unknown_facets(prompt: &str) -> Vec<String> {
+    FIELDS.iter().filter(|field| !field.allowed.is_empty()).filter_map(|field| {
         field.value.captures_iter(prompt).find_map(|found| {
             let value = &found[1];
             (!field.allowed.contains(&value.to_lowercase().as_str())).then(|| {
@@ -133,7 +133,7 @@ fn unknown_facet(prompt: &str, already_refused: bool) -> Option<String> {
                 format!("{}: {shown} is not a facet value; use one of {}, so north worker-ledger can group runs by it.", field.name, field.allowed.join(" | "))
             })
         })
-    })
+    }).collect()
 }
 
 fn missing_payback(prompt: &str) -> Option<String> {

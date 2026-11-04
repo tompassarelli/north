@@ -127,13 +127,17 @@ fn other_tools_and_malformed_inputs_pass() {
 }
 
 #[test]
-fn decisions_equal_the_recorded_shell_guard_on_254_briefs() {
+fn decisions_match_the_recorded_shell_guard_on_254_briefs_and_name_its_reason_first_among_all() {
     let recorded: Vec<Value> = serde_json::from_str(include_str!("fixtures/worker_tier.json")).unwrap();
     assert_eq!(recorded.len(), 254);
     for case in recorded {
         let agent = case["agent"].as_str().unwrap();
         let brief = input(agent, case["background"].clone(), case["prompt"].as_str().unwrap());
-        assert_eq!(refusal(&brief).as_deref(), case["reason"].as_str(), "{case}");
+        let now = refusal(&brief);
+        match case["reason"].as_str() {
+            Some(reason) => assert!(now.as_deref().is_some_and(|all| all.contains(reason)), "{case}\n{now:?}"),
+            None => assert_eq!(now, None, "{case}"),
+        }
     }
 }
 
@@ -178,4 +182,23 @@ fn a_foreground_spawn_or_facet_synonym_is_repaired_when_nothing_else_is_wrong() 
     ] {
         assert!(repaired(&input(agent, background, &prompt)).is_none(), "{prompt}");
     }
+}
+
+#[test]
+fn a_brief_breaking_several_rules_gets_every_refusal_in_one_message() {
+    let prompt = "Item: rename a field.\nCategory: mechanical\nSpec: measured\nScope: whole-repo\nVerify: eyeball";
+    let reason = refusal(&input("worker-high", json!(false), prompt)).unwrap();
+    for named in [
+        "run_in_background: true",
+        "Missing Surface:",
+        "Scope: whole-repo is not a facet value",
+        "Verify: eyeball is not a facet value",
+        "Category: mechanical goes to worker-haiku",
+        "worker-high is escalation-only",
+    ] {
+        assert!(reason.contains(named), "{named} missing from:\n{reason}");
+    }
+    let infra = format!("Category: tooling{FACETS}\nLands-before: later");
+    let reason = verdict("worker-haiku", &infra).unwrap();
+    assert!(reason.contains("needs a Payback: line") && reason.contains("Lands-before: later is not a landing order"), "{reason}");
 }

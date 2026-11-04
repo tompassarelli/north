@@ -22,18 +22,22 @@ pub(super) fn decide(input: &HookInput) -> Verdict {
             .into_iter()
             .any(|arguments| words(arguments).any(blind))
     };
-    let hit = if stages_all(&ADD, blind_add) {
-        "git add"
-    } else if stages_all(&COMMIT, blind_commit) {
-        "git commit -a"
-    } else {
+    let mut hits = Vec::new();
+    if stages_all(&ADD, blind_add) {
+        hits.push("git add");
+    }
+    if stages_all(&COMMIT, blind_commit) {
+        hits.push("git commit -a");
+    }
+    if hits.is_empty() {
         return Verdict::Allow;
-    };
-    if hit == "git commit -a"
+    }
+    if hits == ["git commit -a"]
         && let Some(updated) = committed(input)
     {
         return Verdict::Rewrite(updated, COMMIT_NOTE.into());
     }
+    let hit = hits.join(" and ");
     Verdict::Deny(format!(
         "BLOCKED: blind staging refused ({hit}) — enumerate the paths you intend to commit instead, e.g. `git add path/to/file` or `git commit path/to/file -m '...'`. A commit MESSAGE or heredoc body that merely mentions the phrase is unaffected — only a real command-position invocation is denied. Rare explicit override: `north config agents off north-hook` (persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
     ))

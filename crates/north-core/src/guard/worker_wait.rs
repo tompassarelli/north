@@ -87,24 +87,26 @@ fn timeout_seconds(timeout: &Value) -> Option<f64> {
 }
 
 pub(super) fn blocking(command: &str, timeout_seconds: Option<f64>) -> Option<String> {
+    let mut reasons = Vec::new();
     if let Some(seconds) = timeout_seconds.filter(|s| *s > LIMIT_SECONDS) {
-        return Some(format!("a timeout of {} s", seconds.floor() as u64));
+        reasons.push(format!("a timeout of {} s", seconds.floor() as u64));
     }
     let inert = shell::blank_quotes(&shell::strip_heredocs(command));
     for wait in WAITS.iter() {
         let text = if wait.inert { &inert } else { command };
         if wait.pattern.is_match(text) {
-            return Some(wait.label.to_owned());
+            reasons.push(wait.label.to_owned());
         }
     }
     let runs_suite = TEST_SUITE
         .find_iter(command)
         .any(|found| !SINGLE_TEST_FILE.is_match(&command[found.end()..]));
     if runs_suite {
-        return Some("a test suite".to_owned());
+        reasons.push("a test suite".to_owned());
     }
-    LONG_COMMAND.captures_iter(command).find_map(|found| {
+    reasons.extend(LONG_COMMAND.captures_iter(command).filter_map(|found| {
         let over = found[1].parse::<u64>().map_or(true, |n| n as f64 > LIMIT_SECONDS);
         over.then(|| format!("`{}`", &found[0]))
-    })
+    }));
+    (!reasons.is_empty()).then(|| reasons.join(" and "))
 }

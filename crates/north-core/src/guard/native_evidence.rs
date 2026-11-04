@@ -36,6 +36,7 @@ pub(super) fn decide_with(
     };
     let mut segment = Vec::new();
     let mut exceptions = Vec::new();
+    let mut denials: Vec<&str> = Vec::new();
     for token in tokens.into_iter().chain([ShellToken::Operator(";".into())]) {
         match token {
             ShellToken::Word(word) => segment.push(word),
@@ -49,12 +50,16 @@ pub(super) fn decide_with(
                         .filter(|reason| !reason.trim().is_empty());
                     match solo {
                         Some(reason) => exceptions.push(reason.to_owned()),
-                        None => return Verdict::Deny(reason.into()),
+                        None if denials.contains(&reason) => {}
+                        None => denials.push(reason),
                     }
                 }
                 segment.clear();
             }
         }
+    }
+    if !denials.is_empty() {
+        return Verdict::Deny(denials.join("\n"));
     }
     if let Some(reason) = exceptions.first() {
         let _ = record(reason, &text);

@@ -117,3 +117,20 @@ fn native_solo_exception_records_one_reason_command_and_session() {
         json!({"reason":"calibrate parity", "command":text})
     );
 }
+
+#[test]
+fn a_command_with_two_blind_stagings_names_both_in_one_refusal() {
+    let Verdict::Deny(reason) = super::blind_stage::decide(&bash("git add -A && git commit -a -m x")) else {
+        panic!("expected a refusal");
+    };
+    assert!(reason.contains("(git add and git commit -a)"), "{reason}");
+}
+
+#[test]
+fn a_command_with_two_native_evidence_violations_names_both_in_one_refusal() {
+    let command = "machine-capacity run --quiet --class native -- wine x.exe; wisp pad x.pad";
+    let Verdict::Deny(reason) = super::native_evidence::decide(&bash(command)) else {
+        panic!("expected a refusal");
+    };
+    assert_eq!(reason.lines().count(), 2, "{reason}");
+}

@@ -227,6 +227,7 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
         return None;
     }
     let body = body(write);
+    let mut reasons = Vec::new();
     let splits: Vec<_> = SPLIT.captures_iter(&body).map(|capture| (qualified(&capture, &repo), capture[2].to_owned())).collect();
     if !splits.is_empty() {
         let claimed: Vec<String> = world.claimed().iter().map(|item| claim_key(item)).collect();
@@ -237,7 +238,7 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
         for (target, number) in &splits {
             let id = key(target, number);
             if claimed.contains(&id) && !blocking.contains(&id) {
-                return Some(own_task(target, number));
+                reasons.push(own_task(target, number));
             }
         }
     }
@@ -246,13 +247,16 @@ fn refusal(write: &GhWrite, world: &mut impl World) -> Option<String> {
         && !DEFECT.is_match(&body)
         && !records_brief(&brief, &body)
     {
-        return Some(if write.opaque { format!("{UNFOUNDED}{OPAQUE}") } else { UNFOUNDED.to_owned() });
+        reasons.push(if write.opaque { format!("{UNFOUNDED}{OPAQUE}") } else { UNFOUNDED.to_owned() });
     }
-    let title = write.title.as_deref()?;
-    let (number, existing) = world.open(&repo).into_iter().find(|(_, open)| similar(title, open))?;
-    Some(format!(
-        "No. \"{title}\" matches the open issue {repo}#{number} \"{existing}\". Add your boxes or evidence to it with `gh issue comment {number} -R {repo}` or `gh issue edit {number} -R {repo}`; a rolling alarm or standing issue is edited, not filed again."
-    ))
+    if let Some(title) = write.title.as_deref()
+        && let Some((number, existing)) = world.open(&repo).into_iter().find(|(_, open)| similar(title, open))
+    {
+        reasons.push(format!(
+            "No. \"{title}\" matches the open issue {repo}#{number} \"{existing}\". Add your boxes or evidence to it with `gh issue comment {number} -R {repo}` or `gh issue edit {number} -R {repo}`; a rolling alarm or standing issue is edited, not filed again."
+        ));
+    }
+    (!reasons.is_empty()).then(|| reasons.join("\n"))
 }
 
 const UNFOUNDED: &str = "No. A worker files an issue only for what it cannot finish in its lane: a blocker, with a `Blocks: repo#N` body line naming the issue it blocks, or a measured defect, with a `Defect:` body line giving the command you ran and what it showed. A finding you can fix in 20 minutes is fixed in this lane and lands with it. An idea or a possible follow-up goes under `Ideas:` in your final report, not into a new issue. The issue for the item you were launched on passes when its body carries your brief's Done when.";

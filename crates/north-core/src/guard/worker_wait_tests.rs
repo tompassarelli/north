@@ -106,3 +106,14 @@ fn a_worker_monitor_call_is_not_a_foreground_wait() {
     });
     assert!(refusal(&HookInput::parse(payload.to_string().as_bytes()).unwrap()).is_none());
 }
+
+#[test]
+fn a_foreground_call_with_two_waits_names_both() {
+    let payload = json!({
+        "tool_name": "Bash",
+        "agent_type": "worker",
+        "tool_input": {"command": "safe-push --to main && sleep 120", "timeout": 300000},
+    });
+    let reason = refusal(&HookInput::parse(payload.to_string().as_bytes()).unwrap()).unwrap();
+    assert!(reason.contains("a timeout of 300 s") && reason.contains("sleep 120") && reason.contains("safe-push"), "{reason}");
+}

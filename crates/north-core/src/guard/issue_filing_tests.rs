@@ -235,3 +235,11 @@ fn an_unreadable_worker_body_is_refused_with_how_to_make_it_readable() {
     let reason = denial(worker_decide("b='Blocks: north#316'; gh issue create --title T --body \"$b\""));
     assert!(reason.contains("heredoc"), "{reason}");
 }
+
+#[test]
+fn a_filing_that_splits_a_claimed_item_and_repeats_an_open_title_gets_both_refusals() {
+    let command = "gh issue create --title 'Harness failing units on whiterabbit' --body 'Split of north#316'";
+    let reason = denial(decide(command));
+    assert!(reason.contains("split or follow-up of tompassarelli/north#316"), "{reason}");
+    assert!(reason.contains("matches the open issue tompassarelli/north#301"), "{reason}");
+}
