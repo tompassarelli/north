@@ -482,6 +482,7 @@ command git cat-file -e HEAD:b.txt 2>/dev/null || exit 0
 echo refused >"$LAND_TRACE/verdict-$1"
 for k in $(seq 300); do echo "   Compiling crate-$k v0.1.0"; done
 echo 'dep-gate: crates/x/Cargo.toml: proptest: added dependency needs a reason'
+printf 'error[E0425]: cannot find value `lane_b` in this scope\n --> src/lib.rs:2:5\n\n'
 echo 'running 2 tests'
 printf -- '---- lane_b::adds stdout ----\nthread %s panicked at src/lib.rs:4:9:\nassertion `left == right` failed in check %s\n  left: 1\n right: 2\nnote: run with `RUST_BACKTRACE=1`\n' "'lane_b::adds'" "$1"
 echo 'safe-push: land check cargo test exited 101 after 12s'
@@ -500,10 +501,12 @@ echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
     let log = lines.last().unwrap().strip_prefix("full log: ").unwrap();
     assert!(log.ends_with("-candidate.log") && fs::read_to_string(log).unwrap().contains("check 3"), "the full log is the culprit's own check: {log}");
     assert_eq!(
-        lines[..lines.len() - 1],
+        lines[..9],
         [
             format!("north land: lane-b ({}) did not land: {failure}", git(&fixture.root.join("proj/worktrees/b"), &["rev-parse", "HEAD"])).as_str(),
             "dep-gate: crates/x/Cargo.toml: proptest: added dependency needs a reason",
+            "error[E0425]: cannot find value `lane_b` in this scope",
+            " --> src/lib.rs:2:5",
             "---- lane_b::adds stdout ----",
             "thread 'lane_b::adds' panicked at src/lib.rs:4:9:",
             "assertion `left == right` failed in check 3",
@@ -511,6 +514,11 @@ echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
             "safe-push: ✗ the pre-push checks failed in check 3; NOT pushed.",
         ]
     );
+    let tail = lines.iter().position(|line| *line == "last lines of the log:").expect("the log tail follows the errors");
+    assert_eq!(lines[tail - 1], "safe-push: ✗ the pre-push checks failed in check 3; NOT pushed.");
+    let tail_lines = &lines[tail + 1..lines.len() - 1];
+    assert!(tail_lines.contains(&"running 2 tests") && tail_lines.contains(&"  left: 1") && tail_lines.len() <= north_landing::land::refusal::TAIL_LINES, "{tail_lines:?}");
+    assert!(!tail_lines.iter().any(|line| line.starts_with("   Compiling crate-1 ")), "{tail_lines:?}");
     let reason: usize = lines[1..lines.len() - 1].iter().map(|line| line.len() + 1).sum();
     assert!(reason <= north_landing::land::refusal::BOUND + 1, "{reason}");
 }

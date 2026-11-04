@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use time::OffsetDateTime;
 
+use super::clippy;
 use super::first_commit;
 use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
@@ -35,7 +36,7 @@ pub struct Environment<'a> {
     pub denylist: Option<&'a Path>,
 }
 
-fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
+pub(super) fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo)
@@ -177,6 +178,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
     refuse_static_gates(&root, &base, "HEAD")?;
     let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
     outgoing::enqueue_gate(&root, &base, &denylist, &origin, &destination)?;
+    clippy::check(&root, &base, "HEAD")?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     runner::fails_first(&root, &base, &lane_head)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
