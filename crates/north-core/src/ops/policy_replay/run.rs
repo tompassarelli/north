@@ -16,7 +16,7 @@ use super::policy::{arm_minus, no_fable, policy_for_arm};
 use super::pyfmt::{round_to, splitlines, strip};
 use super::rows::RunRow;
 use crate::error::NorthError;
-use crate::providers::install;
+use crate::fleet::install;
 
 const BOX_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep";
 

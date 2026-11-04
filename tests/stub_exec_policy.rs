@@ -6,7 +6,7 @@ const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 const ALLOWED: &[(&str, &str)] = &[
     ("crates/north-base/src/foundation/shim.rs", "the shim itself"),
-    ("crates/north-core/src/providers/install.rs", "production: installs a real runtime"),
+    ("crates/north-core/src/fleet/install.rs", "production: installs a real runtime"),
     ("crates/north-core/src/catalog/retired_hooks.rs", "production: writes real retired-hook stubs"),
     ("crates/north-core/src/threads/client.rs", "production: spool directory mode"),
     ("crates/north-core/src/ops/private_desktop/start.rs", "production: private desktop startup script"),

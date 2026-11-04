@@ -5,6 +5,7 @@ pub mod effort;
 pub mod gates;
 pub mod handoff;
 pub mod idle;
+pub mod install;
 mod host;
 pub mod jobs;
 pub mod landings;

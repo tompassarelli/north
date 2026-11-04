@@ -16,7 +16,7 @@ paths = ["target/**", "src/fixtures/**", "crates/*/src/fixtures/**", "crates/nor
 [[module]]
 name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
-paths = ["tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-core/src/guard/launch_critical_fixtures.rs"]
+paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-core/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
 may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","code_health","build_time","learn","domain","shell","platform","foundation", "crate-roots"]
 
@@ -51,7 +51,7 @@ may_use = ["foundation", "crate-roots"]
 [[module]]
 name = "fleet"
 paths = ["crates/north-core/src/fleet/**", "crates/north-core/src/lead_journal.rs"]
-responsibility = "Headless agent sessions: Runtime port, process host, delivery journal, admission, supervision."
+responsibility = "Headless agent sessions: Runtime port, installed runtime binaries, process host, delivery journal, admission, supervision."
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
@@ -64,7 +64,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads"
 name = "guard"
 paths = ["crates/north-core/src/guard/**", "crates/north-core/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "shell", "domain", "platform", "foundation", "crate-roots", "code_health"]
+may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "capacity", "shell", "domain", "platform", "foundation", "crate-roots", "code_health"]
 
 [[module]]
 name = "threads"
@@ -141,7 +141,7 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 [[module]]
 name = "providers"
 paths = ["crates/north-core/src/providers/**", "crates/north-core/src/claude_stream.rs", "crates/north-core/src/contract_probe.rs", "crates/north-core/src/daemon.rs", "crates/north-core/src/usage_stream.rs", "crates/north-core/src/codex.rs", "crates/north-core/src/rpc.rs"]
-responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection, install."
+responsibility = "Claude, Codex and agy adapters: launch, streams, app-server, accounts, usage, hooks, projection."
 may_use = ["fleet", "guard", "catalog", "threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]

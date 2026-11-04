@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::runtime::binary;
-use crate::providers::install;
+use crate::fleet::install;
 
 const AGENT_CONFIG: [&str; 7] = [
     r#"cli_auth_credentials_store="file""#,

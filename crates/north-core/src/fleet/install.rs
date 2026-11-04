@@ -1,7 +1,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use crate::fleet::runtime::binary;
+use super::runtime::binary;
 
 pub fn runtime(name: &str) -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from);

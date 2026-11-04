@@ -8,7 +8,7 @@ use crate::fleet::model::{Account, Entry, EntryKind, LaunchRequest, ProviderName
 use crate::fleet::roster::Roster;
 use crate::fleet::turns::TurnSignal;
 use crate::fleet::runtime::{CredentialFailure, HostSpec, Instructions, Opening, Runtime, new_uuid, summarize};
-use crate::providers::install;
+use crate::fleet::install;
 
 use super::session_env::{self, claude_env};
 use super::{accounts, quota, turns, user_text};
