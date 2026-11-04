@@ -244,13 +244,8 @@ fn vocabulary_group(context: &Context, report: &mut Report) {
 
 fn routines(context: &Context, report: &mut Report) {
     let before = report.fail;
-    let python = std::env::var_os("NORTH_AGENT_PYTHON")
-        .filter(|python| !python.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| path_command("python3"))
-        .unwrap_or_else(|| PathBuf::from("/etc/codex/hooks/runtime/python3"));
-    let mut command = Command::new(python);
-    command.args(["-I"]).arg(context.north.join("harness/lib/routines.py")).arg("list");
+    let mut command = Command::new(&context.north_bin);
+    command.args(["agents", "routines", "list"]);
     if !context.local {
         command.arg("--no-live");
     }

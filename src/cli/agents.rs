@@ -27,6 +27,8 @@ pub(super) fn run(arguments: &[String]) -> u8 {
         Verb::Sync => exit(sync_gate::run(arguments)),
         Verb::Pace => pace(&[vec!["sample".to_owned()], rest.to_vec()].concat()),
         Verb::Busy => agents::busy(rest),
+        Verb::Presence => agents::presence::run(rest),
+        Verb::Routines => agents::routines::run(rest),
         Verb::Plan => with_harness(|root| {
             plan::run(
                 rest,

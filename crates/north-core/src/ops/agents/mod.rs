@@ -1,7 +1,9 @@
 mod busy;
 mod lines;
 pub mod plan;
+pub mod presence;
 mod replay;
+pub mod routines;
 pub mod script;
 mod status;
 mod tiers;
@@ -17,6 +19,8 @@ pub enum Verb {
     Pace,
     Plan,
     Busy,
+    Presence,
+    Routines,
     Script(&'static str),
     Command(&'static str),
 }
@@ -30,10 +34,10 @@ impl Verb {
             "plan" => Self::Plan,
             "busy" => Self::Busy,
             "usage" => Self::Script("usage.py"),
-            "presence" => Self::Script("presence.py"),
+            "presence" => Self::Presence,
             "flow" => Self::Command("flow"),
             "news" => Self::Command("news"),
-            "routines" => Self::Script("routines.py"),
+            "routines" => Self::Routines,
             "report" => Self::Command("report"),
             _ => return None,
         })
