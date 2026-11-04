@@ -699,6 +699,15 @@ then S2b and S2c in parallel; then S3 and S4.
   `bun test` reached a test stub that execs the dev shell's capacity-gate `bun` shim, and `north
   capacity gate` picked that stub as the real `bun`, an exec loop in one process that never printed.
   The gate now skips every program it already exec'd in the same process.
+  Measured deadline (2026-11-05): a check's deadline is three times the p90 of its last 20 passing
+  walls on that host class, at least 300 s and at most the former flat 2100 s, and 2100 s until 5
+  passes are recorded (`check_timings::Deadline`); a full check takes about 150 s on an idle host,
+  so a hang now costs minutes before the hang verdict instead of 35. Each check's start line names
+  its deadline and its source, and `SAFE_PUSH_LAND_CHECK_TIMEOUT` still overrides it. The runner
+  passes `north capacity deadline` the enclosing lease only when `AGENT_CAPACITY_LEASE` names one
+  and `-` otherwise; an empty lease name is a named error, because the old `leases/.json` watched
+  no lease and never paused for a freeze. Under `-` the clock pauses while one of the command's
+  own processes is queued for capacity or holds a frozen lease.
 - **S6b Warm slots, Actions confirms.** Follows S6a. Files land/slots/{select,offload}.rs. With
   `--slots` (passed by `--check-candidate`), portable commands run in the lander's worktree or on a
   gex45 offload slot through `north capacity offload run`, never on Actions; local-only commands stay

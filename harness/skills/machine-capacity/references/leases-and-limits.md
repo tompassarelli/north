@@ -92,7 +92,8 @@ its lease was paused, and laptop-auto records `frozenAt` when it freezes the
 scope and moves `expiresAt` later by the frozen time when it thaws it, so a
 lease frozen while Tom plays is neither timed out nor reaped for that time.
 A nested run and safe-push's land-check bound run under the same guard against
-the enclosing lease, so they pause with it.
+the enclosing lease, so they pause with it; a command that holds no lease passes `-`, and its
+clock pauses while one of its own processes is queued for capacity or holds a frozen lease.
 Only the foreground wrapper releases a run lease, after stopping the
 scope; a failed stop retains the allowance. A dead wrapper's allowance, or one
 whose wrapper identity cannot be resolved, is reclaimable once its scope is

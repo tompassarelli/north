@@ -9,7 +9,7 @@ use serde_json::Value;
 use tokio::process::Command;
 use tokio::signal::unix::{Signal as Incoming, SignalKind, signal};
 
-const USAGE: &str = "usage: north capacity deadline LEASE_FILE SECONDS -- COMMAND...";
+const USAGE: &str = "usage: north capacity deadline LEASE_FILE|- SECONDS -- COMMAND...";
 const POLL: Duration = Duration::from_millis(250);
 const KILL_AFTER: Duration = Duration::from_secs(5);
 const TIMED_OUT: u8 = 124;
@@ -26,8 +26,15 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 2;
     };
+    let lease = match Lease::named(lease) {
+        Ok(lease) => lease,
+        Err(why) => {
+            eprintln!("north capacity deadline: {why}");
+            return 2;
+        }
+    };
     match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-        Ok(runtime) => runtime.block_on(guard(Clock::start(Path::new(lease), timeout), program, rest)),
+        Ok(runtime) => runtime.block_on(guard(Clock::start(lease, timeout), program, rest)),
         Err(error) => {
             eprintln!("north capacity deadline: {error}");
             1
@@ -35,7 +42,7 @@ pub fn run(arguments: &[String]) -> u8 {
     }
 }
 
-async fn guard(mut clock: Clock<'_>, program: &str, rest: &[String]) -> u8 {
+async fn guard(mut clock: Clock, program: &str, rest: &[String]) -> u8 {
     let mut child = match Command::new(program).args(rest).process_group(0).spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -82,8 +89,27 @@ async fn next(stream: &mut Option<Incoming>) {
     }
 }
 
-struct Clock<'a> {
-    lease: &'a Path,
+struct Lease {
+    file: Option<PathBuf>,
+    root: PathBuf,
+}
+
+impl Lease {
+    fn named(argument: &str) -> Result<Self, String> {
+        if argument == "-" {
+            return Ok(Self { file: None, root: super::host::runtime_root() });
+        }
+        let file = PathBuf::from(argument);
+        let root = file.parent().and_then(Path::parent).map(Path::to_path_buf);
+        match (file.file_stem().filter(|stem| !stem.is_empty()), root) {
+            (Some(_), Some(root)) => Ok(Self { file: Some(file), root }),
+            _ => Err(format!("{argument:?} names no lease file; pass - for a command that holds no lease")),
+        }
+    }
+}
+
+struct Clock {
+    lease: Lease,
     timeout: Duration,
     started: Instant,
     driven: Option<PathBuf>,
@@ -93,7 +119,7 @@ struct Clock<'a> {
     queued_since: Option<Duration>,
 }
 
-impl Drop for Clock<'_> {
+impl Drop for Clock {
     fn drop(&mut self) {
         if let Some(directory) = &self.driven {
             let _ = fs::remove_file(directory.join(format!("seen.{}", std::process::id())));
@@ -101,10 +127,11 @@ impl Drop for Clock<'_> {
     }
 }
 
-impl<'a> Clock<'a> {
-    fn start(lease: &'a Path, timeout: Duration) -> Self {
+impl Clock {
+    fn start(lease: Lease, timeout: Duration) -> Self {
         let driven = std::env::var_os(DRIVEN_CLOCK).filter(|directory| !directory.is_empty()).map(PathBuf::from);
-        Self { lease, timeout, started: Instant::now(), driven, first: Expiry::read(lease), paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
+        let first = lease.file.as_deref().and_then(Expiry::read);
+        Self { lease, timeout, started: Instant::now(), driven, first, paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
     }
 
     fn elapsed(&self) -> Duration {
@@ -120,9 +147,9 @@ impl<'a> Clock<'a> {
         }
     }
 
-    /// Time this command's processes spent queued for a capacity lease, which delays the deadline instead of spending it.
     fn waiting(&mut self, now: Duration) -> Duration {
-        match (self.queued_since, queued_beneath(self.lease)) {
+        let held = queued_beneath(&self.lease.root) || (self.lease.file.is_none() && frozen_beneath(&self.lease.root));
+        match (self.queued_since, held) {
             (None, true) => self.queued_since = Some(now),
             (Some(since), false) => {
                 self.queued += now.saturating_sub(since);
@@ -135,7 +162,7 @@ impl<'a> Clock<'a> {
 
     fn expired(&mut self) -> bool {
         let elapsed = self.elapsed();
-        let lease = Expiry::read(self.lease);
+        let lease = self.lease.file.as_deref().and_then(Expiry::read);
         if let (Some(first), Some(lease)) = (self.first, lease) {
             self.paused = Duration::from_millis(lease.expires_at.saturating_sub(first.expires_at));
         }
@@ -146,16 +173,22 @@ impl<'a> Clock<'a> {
     }
 }
 
-/// Whether a capacity queue ticket beside `lease` belongs to a process descended from this one.
-fn queued_beneath(lease: &Path) -> bool {
-    let Some(queue) = lease.parent().and_then(Path::parent).map(|root| root.join("queue")) else { return false };
-    let Ok(tickets) = fs::read_dir(queue) else { return false };
-    let me = std::process::id();
-    tickets.flatten().map(|ticket| ticket.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).any(|path| wrapper(&path).is_some_and(|pid| descends(pid, me)))
+fn queued_beneath(root: &Path) -> bool {
+    beneath(&root.join("queue"), |_| true)
 }
 
-fn wrapper(ticket: &Path) -> Option<u32> {
-    serde_json::from_slice::<Value>(&fs::read(ticket).ok()?).ok()?["wrapperPid"].as_u64().and_then(|pid| u32::try_from(pid).ok())
+fn frozen_beneath(root: &Path) -> bool {
+    beneath(&root.join("leases"), |record| !record["frozenAt"].is_null())
+}
+
+fn beneath(directory: &Path, matches: impl Fn(&Value) -> bool) -> bool {
+    let Ok(records) = fs::read_dir(directory) else { return false };
+    let me = std::process::id();
+    records.flatten().map(|record| record.path()).filter(|path| path.extension().is_some_and(|extension| extension == "json")).filter_map(|path| serde_json::from_slice::<Value>(&fs::read(path).ok()?).ok()).any(|record| matches(&record) && wrapper(&record).is_some_and(|pid| descends(pid, me)))
+}
+
+fn wrapper(record: &Value) -> Option<u32> {
+    record["wrapperPid"].as_u64().and_then(|pid| u32::try_from(pid).ok())
 }
 
 fn descends(mut pid: u32, ancestor: u32) -> bool {

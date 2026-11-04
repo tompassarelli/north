@@ -14,10 +14,9 @@ use tokio::task::JoinSet;
 
 use super::select::Config;
 use crate::land::after::follow::program;
-use crate::landing::check_timings::{Base, Timing, Timings};
+use crate::landing::check_timings::{self, Base, Deadline, Timing, Timings};
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD";
-const DEFAULT_TIMEOUT: u64 = 2100;
 const OFFLOAD_GRACE: u64 = 900;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
@@ -76,7 +75,7 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
 struct Environment {
     capacity: String,
     offload_host: String,
-    timeout: u64,
+    timeout: Option<u64>,
     runner: Option<String>,
 }
 
@@ -86,7 +85,7 @@ impl Environment {
         Self {
             capacity: text("SAFE_PUSH_LAND_CAPACITY"),
             offload_host: text("SAFE_PUSH_LAND_OFFLOAD_HOST"),
-            timeout: text("SAFE_PUSH_LAND_CHECK_TIMEOUT").parse().unwrap_or(DEFAULT_TIMEOUT),
+            timeout: text("SAFE_PUSH_LAND_CHECK_TIMEOUT").parse().ok(),
             runner: std::env::var("SAFE_PUSH_LAND_RUNNER").ok(),
         }
     }
@@ -167,7 +166,7 @@ fn shell_deadline(seconds: u64, argv: &[String]) -> Vec<String> {
         "-euo".to_owned(),
         "pipefail".to_owned(),
         "-c".to_owned(),
-        r#"exec "$0" capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "$@""#.to_owned(),
+        r#"lease=-; [ -z "${AGENT_CAPACITY_LEASE:-}" ] || lease="${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/$AGENT_CAPACITY_LEASE.json"; exec "$0" capacity deadline "$lease" "$@""#.to_owned(),
         program(),
         seconds.to_string(),
         "--".to_owned(),
@@ -305,7 +304,10 @@ impl Shared {
             say(&format!("safe-push: land check runs on this host because it {reason}"));
         }
         let environment = &self.environment;
-        let timeout = environment.timeout;
+        let timings = Timings::at(Timings::default_root());
+        let class = self.cache_class(&command);
+        let deadline = environment.timeout.map_or_else(|| timings.deadline(&command, &class), Deadline::configured);
+        let timeout = deadline.seconds;
         let published = if self.arguments.published.is_empty() { String::new() } else { self.arguments.published.clone() };
         let argv = if let Some(host) = self.offload_host_for(&command) {
             if !environment.offload_host.is_empty() && self.config.local_reason(&command).is_some() {
@@ -327,7 +329,7 @@ impl Shared {
             return 1;
         };
         let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
-        say(&format!("safe-push: land check{label}: {command}"));
+        say(&format!("safe-push: land check{label}: {command} ({deadline})"));
         let started = Instant::now();
         let mut child = match Command::new(&argv[0])
             .args(&argv[1..])
@@ -367,8 +369,6 @@ impl Shared {
         }
         let seconds = started.elapsed().as_secs();
         let exceeded = status == TIMED_OUT || (status == KILLED && seconds >= timeout);
-        let timings = Timings::at(Timings::default_root());
-        let class = self.cache_class(&command);
         let _ = timings.record(&self.trees.head, &command, &class, if exceeded { Timing::Exceeded(seconds) } else { Timing::Finished(seconds) });
         if exceeded {
             return self.judge_hang(&command, timeout, timings.base(&self.trees.base, &command, &class, timeout), &log).await;
@@ -380,6 +380,7 @@ impl Shared {
             self.outcome.record(&["event", "land check", "failed", &format!("{command}; log: {}", log.display())]);
             return status;
         }
+        let _ = timings.passed(&command, &class, seconds);
         self.cache_record(0, &commands).await;
         let _ = fs::remove_file(&log);
         0
@@ -525,7 +526,7 @@ impl Shared {
                 here.push(command);
             }
         }
-        let timeout = self.environment.timeout;
+        let timeout = self.environment.timeout.unwrap_or(check_timings::CEILING);
         let mut actions = None;
         let mut actions_log = None;
         if !on_actions.is_empty() {

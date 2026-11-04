@@ -1,4 +1,5 @@
 use north_core::foundation::shim;
+use north_landing::landing::check_timings::{Basis, Timing, Timings};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -270,6 +271,63 @@ fn hung_check_judged_against_base() {
     let output = fixture.command_between(&lane, &next).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
     assert_eq!(output.status.code(), Some(75), "a base tree that also hung is no evidence against the lane: {}", text(&output));
     assert!(text(&output).contains(" also ran past it, so the hang is infrastructure, not this lane"), "{}", text(&output));
+}
+
+#[test]
+fn measured_deadline_ends_a_hang() {
+    let check = "bash ../step.sh";
+    let fixture = Fixture::new(&[("land.check", &format!("file.txt :: {check}"))]);
+    fs::write(fixture.path("step.sh"), "touch ../started\nsleep 600\n").unwrap();
+    let timings = Timings::at(fixture.path("state/safe-push/check-timings"));
+    for _ in 0..20 {
+        timings.passed(check, "local", 60).unwrap();
+    }
+    let base_tree = git(&fixture.repo, &["rev-parse", &format!("{}^{{tree}}", fixture.base)]);
+    timings.record(&base_tree, check, "local", Timing::Finished(60)).unwrap();
+    let clock = fixture.path("clock");
+    fs::create_dir_all(&clock).unwrap();
+    let now = |millis: u64| fs::write(clock.join("now"), millis.to_string()).unwrap();
+    let seen = |millis: u64| {
+        let start = Instant::now();
+        loop {
+            let acknowledged = fs::read_dir(&clock).unwrap().flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with("seen.")).any(|entry| fs::read_to_string(entry.path()).is_ok_and(|text| text == millis.to_string()));
+            if acknowledged {
+                return;
+            }
+            assert!(start.elapsed() < Duration::from_secs(30), "the deadline never read {millis} ms");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    now(0);
+    let stdout = fs::File::create(fixture.path("stdout")).unwrap();
+    let stderr = fs::File::create(fixture.path("stderr")).unwrap();
+    let child = fixture.command().env("NORTH_CAPACITY_DEADLINE_CLOCK", &clock).stdout(stdout).stderr(stderr).spawn().unwrap();
+    wait_for(&fixture.path("started"));
+    now(299_000);
+    seen(299_000);
+    let mut child = child;
+    assert!(child.try_wait().unwrap().is_none(), "a check measured at a 60 s p90 ended before its 300 s floor");
+    now(300_000);
+    let (code, _) = finishes_within(child, 20);
+    let out = fs::read_to_string(fixture.path("stdout")).unwrap();
+    let err = fs::read_to_string(fixture.path("stderr")).unwrap();
+    assert_eq!(code, Some(124), "a hang past the measured deadline, where the base tree passed in 60 s, refuses the lane: {out}{err}");
+    assert!(out.contains(&format!("safe-push: land check: {check} (deadline 300 s from p90 60 s over 20 passes)")), "{out}");
+    assert!(err.contains(&format!("safe-push: land check {check} hung: it ran past its 300 s deadline on this lane, while base tree ")), "{err}");
+    assert!(hung_log(&fixture).contains("exceeded its 300 s deadline; still running:"));
+}
+
+#[test]
+fn unmeasured_deadline_names_its_passes() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: true")]);
+    let timings = Timings::at(fixture.path("state/safe-push/check-timings"));
+    for _ in 0..3 {
+        timings.passed("true", "local", 1).unwrap();
+    }
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(text(&output).contains("safe-push: land check: true (deadline 2100 s, 3 passes recorded)"), "{}", text(&output));
+    assert_eq!(timings.deadline("true", "local").basis, Basis::Unmeasured { passes: 4 }, "a pass is recorded");
 }
 
 #[test]

@@ -84,7 +84,7 @@ if [ "$landing" = 1 ]; then
   export SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head SAFE_PUSH_LAND_REF=$landref SAFE_PUSH_LANDING=1
 fi
 limited() {
-  if command -v north >/dev/null 2>&1; then north capacity deadline "" "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
+  if command -v north >/dev/null 2>&1; then north capacity deadline - "$limit" -- "$@"; else timeout -k 5 "$limit" "$@"; fi
 }
 if [ -e "$slot/flake.nix" ] && [ "${command#nix develop}" = "$command" ]; then
   limited nix develop "$slot" -c bash -euo pipefail -c "$command" 9>&-

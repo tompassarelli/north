@@ -19,6 +19,7 @@ mod gpu_tests;
 mod json;
 mod machine;
 pub(super) use machine::host_cores;
+pub(super) use state::runtime_root;
 #[cfg(test)]
 mod landing_tests;
 #[cfg(test)]

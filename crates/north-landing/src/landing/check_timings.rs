@@ -1,7 +1,56 @@
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
+use std::fmt;
 use std::path::PathBuf;
+
+pub const CEILING: u64 = 2100;
+const FLOOR: u64 = 300;
+const WINDOW: usize = 20;
+const MEASURED: usize = 5;
+const MARGIN: u64 = 3;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Basis {
+    Measured { p90: u64, passes: usize },
+    Unmeasured { passes: usize },
+    Configured,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Deadline {
+    pub seconds: u64,
+    pub basis: Basis,
+}
+
+impl Deadline {
+    pub fn configured(seconds: u64) -> Self {
+        Deadline { seconds, basis: Basis::Configured }
+    }
+
+    pub fn from_passes(walls: &[u64]) -> Self {
+        let recent = &walls[walls.len().saturating_sub(WINDOW)..];
+        if recent.len() < MEASURED {
+            return Deadline { seconds: CEILING, basis: Basis::Unmeasured { passes: recent.len() } };
+        }
+        let mut sorted = recent.to_vec();
+        sorted.sort_unstable();
+        let p90 = sorted[(sorted.len() * 9).div_ceil(10) - 1];
+        Deadline { seconds: p90.saturating_mul(MARGIN).clamp(FLOOR, CEILING), basis: Basis::Measured { p90, passes: recent.len() } }
+    }
+}
+
+impl fmt::Display for Deadline {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        let seconds = self.seconds;
+        match self.basis {
+            Basis::Measured { p90, passes } => write!(formatter, "deadline {seconds} s from p90 {p90} s over {passes} passes"),
+            Basis::Unmeasured { passes: 1 } => write!(formatter, "deadline {seconds} s, 1 pass recorded"),
+            Basis::Unmeasured { passes } => write!(formatter, "deadline {seconds} s, {passes} passes recorded"),
+            Basis::Configured => write!(formatter, "deadline {seconds} s from SAFE_PUSH_LAND_CHECK_TIMEOUT"),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Timing {
@@ -30,17 +79,38 @@ impl Timings {
         state.join("safe-push/check-timings")
     }
 
-    fn file(&self, tree: &str, command: &str, class: &str) -> io::Result<PathBuf> {
-        if tree.is_empty() || !tree.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "a check timing names a tree by its hex object id"));
-        }
+    fn key(command: &str, class: &str) -> String {
         let mut hasher = Sha256::new();
         for part in [command, class] {
             hasher.update(part.as_bytes());
             hasher.update([0]);
         }
-        let digest: String = hasher.finalize().iter().take(16).map(|byte| format!("{byte:02x}")).collect();
-        Ok(self.root.join(tree).join(format!("{digest}.tsv")))
+        hasher.finalize().iter().take(16).map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn file(&self, tree: &str, command: &str, class: &str) -> io::Result<PathBuf> {
+        if tree.is_empty() || !tree.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "a check timing names a tree by its hex object id"));
+        }
+        Ok(self.root.join(tree).join(format!("{}.tsv", Self::key(command, class))))
+    }
+
+    fn passes_file(&self, command: &str, class: &str) -> PathBuf {
+        self.root.join("passes").join(format!("{}.tsv", Self::key(command, class)))
+    }
+
+    pub fn passed(&self, command: &str, class: &str, seconds: u64) -> io::Result<()> {
+        let path = self.passes_file(command, class);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        OpenOptions::new().create(true).append(true).open(path)?.write_all(format!("{seconds}\n").as_bytes())
+    }
+
+    pub fn deadline(&self, command: &str, class: &str) -> Deadline {
+        let text = fs::read_to_string(self.passes_file(command, class)).unwrap_or_default();
+        let walls: Vec<u64> = text.lines().filter_map(|line| line.trim().parse().ok()).collect();
+        Deadline::from_passes(&walls)
     }
 
     pub fn record(&self, tree: &str, command: &str, class: &str, timing: Timing) -> io::Result<()> {
