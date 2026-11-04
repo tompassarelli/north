@@ -227,7 +227,8 @@ fn a_box_that_needs_native_on_makgora_starts_with_that_capacity_need() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert_eq!(fs::read_to_string(root.join("need")).unwrap_or_default(), "native:makgora");
-    north(root, &["fleet", "stop", "lagged"]);
+    let stopped = north(root, &["fleet", "stop", "lagged"]);
+    assert!(stopped.status.success(), "fleet stop refused, so the session still runs: {}", String::from_utf8_lossy(&stopped.stderr));
     let listed: serde_json::Value = serde_json::from_slice(&north(root, &["fleet", "list", "--json"]).stdout).unwrap();
     let lagged = listed.as_array().unwrap().iter().find(|session| session["name"] == "lagged").unwrap();
     assert_eq!((&lagged["status"], &lagged["ended"]), (&serde_json::json!("exited"), &serde_json::json!("stopped")), "{lagged}");
