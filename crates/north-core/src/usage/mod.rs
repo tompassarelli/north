@@ -13,6 +13,7 @@ mod costs;
 mod ctx;
 mod fast;
 mod gate;
+pub mod decide;
 pub mod profiles;
 mod py;
 mod refresh;
