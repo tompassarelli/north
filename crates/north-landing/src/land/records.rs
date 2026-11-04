@@ -118,6 +118,7 @@ mod tests {
             session: None,
             queued_at: "2026-11-04T03:00:00Z".into(),
             first_commit_secs: Some(1_793_800_000),
+            several_commits: None,
             red_fix: None,
             verdict: None,
             keep_lane: false,

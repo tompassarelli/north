@@ -41,6 +41,8 @@ pub struct Ticket {
     pub queued_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_commit_secs: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub several_commits: Option<String>,
     pub red_fix: Option<RedFix>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<String>,

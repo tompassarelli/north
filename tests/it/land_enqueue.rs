@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_landing::land::enqueue::{Environment, Queued, enqueue, issue_numbers, pick_issue};
+use north_landing::land::enqueue::{Environment, Queued, Shape, enqueue, issue_numbers, pick_issue};
 use north_landing::land::queue::{self, RedFix, Ticket};
 use north_landing::landing::lane_squash::Squash;
 
@@ -48,7 +48,7 @@ impl Fixture {
         git(repo, &["config", "landing.lander-host", "laptop"]);
         let south = self.root.join("no-south");
         let environment = Environment { state_home: &self.state, host: "laptop", session: Some("worker-7"), south: &south, denylist: None };
-        let queued = enqueue(repo, None, false, &environment).unwrap();
+        let queued = enqueue(repo, Shape::OneCommit { message: None }, false, &environment).unwrap();
         git(repo, &["config", "--unset", "landing.lander-host"]);
         queued
     }
@@ -107,6 +107,48 @@ fn enqueue_squash() {
         assert!(fixture.repo.join(name).is_file());
     }
     assert_eq!(fixture.pending()[0].head, queued.ticket.head);
+}
+
+#[test]
+fn enqueue_several_commits_keeps_the_lane_commits_and_carries_the_reason() {
+    let fixture = Fixture::new();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        fixture.commit(&fixture.repo, name, &format!("Add {name}"));
+    }
+    let head = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let main_before = git(&fixture.origin, &["rev-parse", "main"]);
+    let output = north_enqueue_arguments(&fixture, &["--several-commits", "each commit reverts on its own"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert!(stdout.contains("lane not squashed: --several-commits: each commit reverts on its own"), "{stdout}");
+    assert_eq!(git(&fixture.repo, &["rev-parse", "HEAD"]), head, "the lane keeps its commits");
+    assert_eq!(git(&fixture.origin, &["rev-parse", "main"]), main_before, "enqueue must not push main");
+    let tickets = fixture.pending();
+    assert_eq!(tickets.len(), 1);
+    assert_eq!(tickets[0].head, head);
+    assert_eq!(tickets[0].several_commits.as_deref(), Some("each commit reverts on its own"));
+}
+
+#[test]
+fn enqueue_refuses_several_commits_with_a_message_or_without_a_reason() {
+    let fixture = Fixture::new();
+    fixture.commit(&fixture.repo, "a.txt", "Add a");
+    let message = fixture.root.join("message");
+    fs::write(&message, "One subject\n").unwrap();
+    for arguments in [vec!["--message", message.to_str().unwrap(), "--several-commits", "reason"], vec!["--several-commits", " "], vec!["--several-commits"]] {
+        let output = north_enqueue_arguments(&fixture, &arguments);
+        assert_eq!(output.status.code(), Some(64), "{arguments:?}: {}", String::from_utf8_lossy(&output.stdout));
+    }
+    assert!(fixture.pending().is_empty());
+}
+
+#[test]
+fn enqueue_one_commit_tickets_carry_no_several_commits_field() {
+    let fixture = Fixture::new();
+    fixture.commit(&fixture.repo, "a.txt", "Add a");
+    let queued = fixture.enqueue(&fixture.repo);
+    assert_eq!(queued.ticket.several_commits, None);
+    assert!(!fs::read_to_string(&queued.path).unwrap().contains("several_commits"));
 }
 
 #[test]
@@ -170,7 +212,7 @@ fn enqueue_records_keep_lane_on_the_ticket() {
     fixture.commit(&fixture.repo, "a.txt", "Add a");
     let south = fixture.root.join("no-south");
     let environment = Environment { state_home: &fixture.state, host: "laptop", session: None, south: &south, denylist: None };
-    let queued = enqueue(&fixture.repo, None, true, &environment).unwrap();
+    let queued = enqueue(&fixture.repo, Shape::OneCommit { message: None }, true, &environment).unwrap();
     assert!(queued.ticket.keep_lane);
     assert!(fixture.pending()[0].keep_lane);
 }
@@ -196,12 +238,21 @@ fn north_enqueue(fixture: &Fixture) -> (std::process::Output, std::time::Duratio
 }
 
 fn north_enqueue_with(fixture: &Fixture, environment: &[(&str, &Path)]) -> (std::process::Output, std::time::Duration) {
+    north_enqueue_run(fixture, &[], environment)
+}
+
+fn north_enqueue_arguments(fixture: &Fixture, arguments: &[&str]) -> std::process::Output {
+    north_enqueue_run(fixture, arguments, &[]).0
+}
+
+fn north_enqueue_run(fixture: &Fixture, arguments: &[&str], environment: &[(&str, &Path)]) -> (std::process::Output, std::time::Duration) {
     let started = std::time::Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["land", "enqueue", "--repo"])
         .arg(&fixture.repo)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
+        .args(arguments)
         .env("XDG_STATE_HOME", &fixture.state)
         .env("NORTH_LAND_NORTH", env!("CARGO_BIN_EXE_north"))
         .env("SAFE_PUSH_SOUTH", fixture.root.join("no-south"))

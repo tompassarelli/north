@@ -149,6 +149,7 @@ impl Fixture {
             session: Some(format!("session-{branch}")),
             queued_at: "2026-11-04T10:00:00+07:00".to_owned(),
             first_commit_secs: None,
+            several_commits: None,
             red_fix,
             verdict: None,
             keep_lane: false,
@@ -237,6 +238,25 @@ fn serve_train() {
         assert_eq!(fixture.verdict(ticket), Some(format!("landed {main}")));
         assert!(!ticket.exists());
     }
+}
+
+#[test]
+fn serve_several_commits_lands_each_commit_after_one_check() {
+    let mut fixture = Fixture::new();
+    let split = fixture.lane("split", "one.txt", "one");
+    fixture.commit(&split, "two.txt", "two", "second change from split");
+    fixture.commit(&split, "three.txt", "three", "third change from split");
+    let (path, mut ticket) = fixture.ticket(&split, None);
+    ticket.several_commits = Some("each commit reverts on its own".to_owned());
+    queue::write(&path, &ticket).unwrap();
+    let after = fixture.lane("after", "after.txt", "after");
+    fixture.enqueue(&after, None);
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from split", "second change from split", "third change from split", "change from after"]);
+    assert_eq!(fixture.checks().len(), 1, "the candidate is checked once");
+    let done = queue::read(&path.parent().unwrap().join("done").join(path.file_name().unwrap())).unwrap();
+    assert_eq!(done.verdict, Some(format!("landed {}", fixture.main())));
+    assert_eq!(done.several_commits.as_deref(), Some("each commit reverts on its own"));
 }
 
 #[test]

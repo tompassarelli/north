@@ -40,7 +40,7 @@ fn two_lanes_that_each_add_a_note_without_its_index_build_a_candidate_with_a_fre
         fs::write(repo.join("notes").join(note), "x\n").unwrap();
         commit_all(&repo, note);
         let head = git(&repo, &["rev-parse", "HEAD"]).unwrap();
-        let ticket = Ticket { origin: String::new(), root: repo.clone(), host: String::new(), branch: note.to_owned(), head, session: None, queued_at: String::new(), first_commit_secs: None, red_fix: None, verdict: None, keep_lane: false };
+        let ticket = Ticket { origin: String::new(), root: repo.clone(), host: String::new(), branch: note.to_owned(), head, session: None, queued_at: String::new(), first_commit_secs: None, several_commits: None, red_fix: None, verdict: None, keep_lane: false };
         tickets.push((dir.path().join(format!("{note}.json")), ticket));
     }
     let worktree = dir.path().join("lander");

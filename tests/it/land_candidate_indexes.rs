@@ -41,7 +41,7 @@ fn two_lanes_that_each_add_a_rationale_note_on_a_main_without_the_index_land_a_c
         git(&repo, &["add", "-A"]);
         git(&repo, &["commit", "-qm", title]);
         let head = git(&repo, &["rev-parse", "HEAD"]);
-        let ticket = Ticket { origin: String::new(), root: repo.clone(), host: String::new(), branch: title.to_owned(), head, session: None, queued_at: String::new(), first_commit_secs: None, red_fix: None, verdict: None, keep_lane: false };
+        let ticket = Ticket { origin: String::new(), root: repo.clone(), host: String::new(), branch: title.to_owned(), head, session: None, queued_at: String::new(), first_commit_secs: None, several_commits: None, red_fix: None, verdict: None, keep_lane: false };
         tickets.push((dir.path().join(format!("{title}.json")), ticket));
     }
     let worktree = dir.path().join("lander");

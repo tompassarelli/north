@@ -19,7 +19,13 @@ use crate::landing::lane_squash::{self, Squash};
 use crate::landing::safe_push_guards::Denylist;
 use crate::watch::facts::slug_of;
 
-const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE] [--keep-lane]";
+const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON] [--keep-lane]";
+
+#[derive(Clone, Copy, Debug)]
+pub enum Shape<'a> {
+    OneCommit { message: Option<&'a str> },
+    SeveralCommits { reason: &'a str },
+}
 
 #[derive(Debug)]
 pub struct Queued {
@@ -174,7 +180,7 @@ fn refuse_static_gates(root: &Path, base: &str, head: &str) -> Result<(), String
     Ok(())
 }
 
-pub fn enqueue(repo: &Path, message: Option<&str>, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
+pub fn enqueue(repo: &Path, shape: Shape, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
     let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .map_err(|_| "HEAD is detached; switch to the lane's own branch".to_owned())?;
@@ -193,7 +199,10 @@ pub fn enqueue(repo: &Path, message: Option<&str>, keep_lane: bool, environment:
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     runner::fails_first(&root, &base, &lane_head)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
-    let squash = lane_squash::squash(&root, &base, message)?;
+    let (squash, several_commits) = match shape {
+        Shape::OneCommit { message } => (lane_squash::squash(&root, &base, message)?, None),
+        Shape::SeveralCommits { reason } => (Squash::Kept(format!("--several-commits: {reason}")), Some(reason.to_owned())),
+    };
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     let red_fix = red_fix(&root, &base, &destination)?;
     let queued_micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
@@ -206,6 +215,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, keep_lane: bool, environment:
         session: environment.session.map(str::to_owned),
         queued_at: rfc3339(OffsetDateTime::now_utc()),
         first_commit_secs,
+        several_commits,
         red_fix,
         verdict: None,
         keep_lane,
@@ -248,6 +258,14 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         rest => (None, rest),
     };
+    let (several_commits, rest) = match rest {
+        [flag, reason, rest @ ..] if flag == "--several-commits" && supplied.is_none() && !reason.trim().is_empty() => (Some(reason.as_str()), rest),
+        rest => (None, rest),
+    };
+    let shape = match several_commits {
+        Some(reason) => Shape::SeveralCommits { reason },
+        None => Shape::OneCommit { message: supplied.as_deref() },
+    };
     let (keep_lane, rest) = match rest {
         [flag, rest @ ..] if flag == "--keep-lane" => (true, rest),
         rest => (false, rest),
@@ -261,7 +279,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let state_home = state_home();
     let sources = Denylist::from_env();
     let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), south: &sources.south, denylist: sources.config.as_deref() };
-    match enqueue(repo, supplied.as_deref(), keep_lane, &environment) {
+    match enqueue(repo, shape, keep_lane, &environment) {
         Ok(queued) => {
             match &queued.squash {
                 Squash::Kept(reason) => println!("safe-push: lane not squashed: {reason}"),

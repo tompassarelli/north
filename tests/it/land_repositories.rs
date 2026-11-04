@@ -50,6 +50,7 @@ impl World {
             session: None,
             queued_at: "2026-11-05T10:00:00Z".to_owned(),
             first_commit_secs: None,
+            several_commits: None,
             red_fix: None,
             verdict: None,
             keep_lane: false,

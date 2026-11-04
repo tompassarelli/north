@@ -61,6 +61,7 @@ fn lanes(count: usize) -> Vec<(PathBuf, Ticket)> {
                 session: None,
                 queued_at: String::new(),
                 first_commit_secs: None,
+                several_commits: None,
                 red_fix: None,
                 verdict: None,
                 keep_lane: false,
