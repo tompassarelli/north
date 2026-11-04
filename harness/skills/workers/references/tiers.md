@@ -11,3 +11,5 @@ Read this when the routing line in `SKILL.md` does not settle a tier, an arm tri
 - Mechanical work is exact, fully specified edits, box ticks, rebases, regeneration, conflicts and running a named check. Policy, skill and documentation prose (`Category: docs-policy`) goes to `worker`, never Haiku, because Tom wants it written carefully. Bisects and native checks go to `worker` or stay with the lead, and a Haiku brief says to wait on any run over a minute with Monitor, because Haiku ended its turn mid-run. Run the haiku trial in [notes](notes.md).
 
 The Agent-tool spawn guard applies the same authority: a `worker*` spawn is refused when its brief has no `Item:` line, or when the subagent tier differs from the tier `route()` picks for the brief and the brief carries no `Tier-reason:` line (a `Follows:` escalation is exempt).
+
+Where a box runs (decided 2026-11-04, gate default): a box that builds, waits on a run or lands is a fleet session (own identity, `north fleet wait`); an in-process Agent subagent is for read-only research.
