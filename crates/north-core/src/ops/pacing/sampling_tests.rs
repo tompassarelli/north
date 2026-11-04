@@ -103,3 +103,22 @@ fn the_claude_cli_refresh_is_skipped_only_when_every_declared_account_has_a_toke
     assert!(!covered("a = { here = { token_file = \"~/ta\" } }, b = { far = { token_file = \"~/tb\" } }"));
     assert!(!covered(""));
 }
+
+#[test]
+fn usage_is_read_through_the_north_usage_rows_entry_locally_and_on_each_remote_owner_and_never_through_python() {
+    let owners = ["tom@far".to_owned()];
+    let commands = sampling::adapter_commands(&["claude", "gemini"], &owners, &["claude", "gemini"], false, "north");
+    let words = |argv: &[String]| argv.iter().map(String::as_str).collect::<Vec<_>>().join(" ");
+    let seen: Vec<_> = commands.iter().map(|(provider, remote, argv)| (*provider, *remote, words(argv))).collect();
+    assert_eq!(
+        seen,
+        [
+            ("claude", false, "north usage --rows claude --no-refresh".to_owned()),
+            ("claude", true, "ssh -o BatchMode=yes -o ConnectTimeout=5 tom@far north usage --rows claude --no-refresh".to_owned()),
+            ("gemini", false, "north usage --rows gemini".to_owned()),
+        ]
+    );
+    assert!(seen.iter().all(|(_, _, line)| !line.contains("python") && !line.contains(".py")));
+    let refreshed = sampling::adapter_commands(&["claude"], &[], &["claude"], true, "north");
+    assert_eq!(words(&refreshed[0].2), "north usage --rows claude");
+}

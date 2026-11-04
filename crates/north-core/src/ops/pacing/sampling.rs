@@ -37,32 +37,32 @@ pub(super) fn config() -> Result<toml_edit::DocumentMut, String> {
 }
 pub(super) type Reads<'a> = BTreeMap<&'a str, (Vec<Value>, Value)>;
 
-const ADAPTERS: [(&str, &str); 2] = [("claude", "claude"), ("gemini", "agy")];
+const ADAPTERS: [&str; 2] = ["claude", "gemini"];
 
-fn due_adapters<'a>(prior: &Value, provider: Option<&str>, at: f64) -> Vec<&'a (&'a str, &'a str)> {
+fn due_adapters<'a>(prior: &Value, provider: Option<&str>, at: f64) -> Vec<&'a str> {
     ADAPTERS
         .iter()
-        .filter(|(p, _)| {
-            provider.is_none_or(|only| only == *p)
-                && at >= number(&prior["providers"][*p]["next_at"], 0.0)
+        .copied()
+        .filter(|p| provider.is_none_or(|only| only == *p) && at >= number(&prior["providers"][*p]["next_at"], 0.0))
+        .collect()
+}
+
+type Invocation<'a> = (&'a str, bool, Vec<String>);
+
+pub(super) fn adapter_commands<'a>(due: &[&'a str], owners: &[String], local: &[&str], refresh: bool, program: &str) -> Vec<Invocation<'a>> {
+    due.iter()
+        .flat_map(|&p| {
+            let quiet = (!refresh && p == "claude").then_some("--no-refresh");
+            let argv = move |prefix: &[&str]| -> Vec<String> { prefix.iter().copied().chain(["usage", "--rows", p]).chain(quiet).map(str::to_owned).collect() };
+            let remotes = owners.iter().filter(move |_| p == "claude").map(move |destination| (p, true, argv(&["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "north"])));
+            let own = local.contains(&p).then(|| (p, false, argv(&[program])));
+            own.into_iter().chain(remotes.collect::<Vec<_>>())
         })
         .collect()
 }
 
-fn read_adapters<'a>(due: &[&'a (&'a str, &'a str)], owners: &[String], local: &[&str], refresh: bool) -> Reads<'a> {
-    let commands: Vec<(&str, bool, Vec<String>)> = due
-        .iter()
-        .flat_map(|(p, a)| {
-            let script = root().join(format!("harness/lib/usage_{a}.py")).to_string_lossy().into_owned();
-            let remote = format!(".local/state/north/current/tree/harness/lib/usage_{a}.py");
-            let quiet = (!refresh && *p == "claude").then_some("--no-refresh");
-            let remotes = owners.iter().filter(|_| *p == "claude").map(move |destination| {
-                (*p, true, ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "python3", "-I", &remote].into_iter().chain(quiet).map(str::to_owned).collect())
-            });
-            let own = local.contains(p).then(|| (*p, false, ["python3", "-I", &script].into_iter().chain(quiet).map(str::to_owned).collect()));
-            own.into_iter().chain(remotes.collect::<Vec<_>>())
-        })
-        .collect();
+fn read_adapters<'a>(due: &[&'a str], owners: &[String], local: &[&str], refresh: bool) -> Reads<'a> {
+    let commands = adapter_commands(due, owners, local, refresh, &process::binary());
     std::thread::scope(|scope| {
         let jobs: Vec<_> = commands
             .iter()
@@ -180,7 +180,7 @@ fn usage_gate(db: &rusqlite::Connection) -> Result<Value, String> {
 }
 
 pub(super) fn prune_retired(state: &mut Value) {
-    let live = |provider: &str| ADAPTERS.iter().any(|(name, _)| *name == provider);
+    let live = |provider: &str| ADAPTERS.contains(&provider);
     for key in ["accounts", "providers"] {
         if let Some(entries) = state[key].as_object_mut() {
             entries.retain(|name, _| live(name.split(':').next().unwrap_or_default()));
@@ -309,7 +309,7 @@ pub(super) fn sample(provider: Option<&str>, initial: i64, notify: bool) -> Resu
     let here = crate::platform::host::name();
     let cfg = config().ok();
     let owners = cfg.as_ref().map(|cfg| claude_owners(cfg, &here)).unwrap_or_default();
-    let local: Vec<&str> = ADAPTERS.iter().map(|(p, _)| *p).filter(|p| cfg.as_ref().is_none_or(|cfg| read_here(cfg, p, &here))).collect();
+    let local: Vec<&str> = ADAPTERS.iter().copied().filter(|p| cfg.as_ref().is_none_or(|cfg| read_here(cfg, p, &here))).collect();
     let refresh = !cfg.as_ref().is_some_and(|cfg| tokens_cover_claude(cfg, &here));
     let mut reads = read_adapters(&due_adapters(&prior, provider, at), &owners, &local, refresh);
     if local.contains(&"claude") {

@@ -63,6 +63,14 @@ pub(super) fn refresh_readings(db: &Connection, source: &store::Source, places: 
     run(db, places, &Request { mirrored: source.mirrored(), remote }, &ports)
 }
 
+pub(super) fn adapter_rows(provider: &str, refresh: bool) -> Option<Vec<record::Reading>> {
+    match provider {
+        "claude" => Some(claude::read(&claude::Settings::from_env(refresh))),
+        "gemini" => Some(agy::read()),
+        _ => None,
+    }
+}
+
 pub(super) fn read_provider(db: &Connection, source: &store::Source, provider: &str, host: &Host) -> Result<(), String> {
     let readers = Readers::new(host);
     let rows: Vec<_> = readers.read_all(false).into_iter().filter(|row| row.get("provider").and_then(serde_json::Value::as_str) == Some(provider)).collect();

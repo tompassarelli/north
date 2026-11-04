@@ -515,3 +515,13 @@ fn the_ctx_built_from_a_fixture_ledger_reaches_the_measured_scenarios_plan() {
     blind["success"] = serde_json::json!({});
     assert_eq!(plan(&blind)["boxes"]["t1"]["tier"], "claude:haiku");
 }
+
+#[test]
+fn the_rows_entry_takes_one_provider_and_an_optional_no_refresh_and_nothing_else() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    assert_eq!(super::rows_request(&words("--rows claude")), Some(("claude", true)));
+    assert_eq!(super::rows_request(&words("--rows claude --no-refresh")), Some(("claude", false)));
+    assert_eq!(super::rows_request(&words("--rows claude --json")), None);
+    assert_eq!(super::rows_request(&words("--rows")), None);
+    assert!(super::handles(&words("--rows gemini")));
+}

@@ -24,7 +24,7 @@ mod table;
 mod tests;
 mod web;
 
-const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --write-pace-gate";
+const USAGE: &str = "usage: north usage [--refresh [--local]] [--json] | --fast PROVIDER [--cached] | --rows PROVIDER [--no-refresh] | --write-pace-gate";
 const PACED: [&str; 2] = ["claude", "gemini"];
 
 pub struct Places {
@@ -98,7 +98,26 @@ impl Action {
 }
 
 pub fn handles(arguments: &[String]) -> bool {
-    Action::parse(arguments).is_some()
+    rows_request(arguments).is_some() || Action::parse(arguments).is_some()
+}
+
+fn rows_request(arguments: &[String]) -> Option<(&str, bool)> {
+    match arguments {
+        [flag, provider] if flag == "--rows" => Some((provider, true)),
+        [flag, provider, quiet] if flag == "--rows" && quiet == "--no-refresh" => Some((provider, false)),
+        _ => None,
+    }
+}
+
+fn print_rows(provider: &str, refresh: bool) -> u8 {
+    let Some(rows) = refresh::adapter_rows(provider, refresh) else {
+        eprintln!("{USAGE}");
+        return 2;
+    };
+    for row in rows {
+        println!("{}", serde_json::Value::Object(row));
+    }
+    0
 }
 
 fn clock() -> Timestamp {
@@ -124,6 +143,9 @@ pub struct Host<'a> {
 }
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {
+    if let Some((provider, refresh)) = rows_request(arguments) {
+        return print_rows(provider, refresh);
+    }
     let Some(action) = Action::parse(arguments) else {
         eprintln!("{USAGE}");
         return 2;
