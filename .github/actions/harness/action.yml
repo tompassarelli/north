@@ -4,6 +4,9 @@ inputs:
   force-slow-download:
     description: Run the browser download as if it were too slow, so its 2 s bound fails it.
     default: 'false'
+  build:
+    description: Build the north commands first; a job whose command builds them itself skips it.
+    default: 'true'
 outputs:
   browser-skip:
     description: Why the CDP boundary test was skipped, empty when the automation browser is available.
@@ -17,8 +20,10 @@ runs:
     - uses: ./.github/actions/rust
     - name: Build harness commands
       shell: bash
+      env:
+        BUILD: ${{ inputs.build }}
       run: |
-        cargo build --locked
+        [ "$BUILD" != true ] || cargo build --locked
         echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
     - name: Test tools
       shell: bash
