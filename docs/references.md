@@ -77,6 +77,17 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   [rationale/watch/2026-11-04-pstack.md](rationale/watch/2026-11-04-pstack.md) and north#524.
   Outcome: adopted as ideas, no code copied; the two 2026-10-15 reviews are archived in south `agents/decisions/harness/`; of the 2026-10-27 mechanisms the dispatch order check and the citation check are live and the sharpen A/B has not run; the 2026-11-04 run-proven findings, able-to-fail properties and no-verifier-for-wording mechanisms are under test.
 
+- <a id="mattpocock-skills"></a>**mattpocock/skills** (Matt Pocock, MIT), https://github.com/mattpocock/skills, read at
+  `2ee14df` on 2026-07-10 and at `4ae2317` on 2026-11-04. A followed source
+  ([watching](../harness/skills/agent-policy/references/watching.md)).
+  Informed: the 2026-07-10 authoring norms (done-bars, leading words, the information hierarchy) in `684e72bfc`,
+  credited in [agent-machinery/PROVENANCE.md](../agent-machinery/PROVENANCE.md); the 2026-11-04 review
+  [rationale/watch/2026-11-04-mattpocock-skills.md](rationale/watch/2026-11-04-mattpocock-skills.md) and north#525.
+  Outcome: adopted as ideas, no code copied. Done-bars are live in code and the information hierarchy as practice;
+  leading words, the no-op test and positive phrasing were cut on 2026-08-02. Of the 2026-11-04 mechanisms the
+  sampled retro was tested and kept (8 recurring failure modes with no enforcer in a one-in-five sample), and the
+  Spec axis and the no-op test by replay are under test.
+
 ### Statistics
 
 - <a id="wilson-interval"></a>**Wilson score interval** (E. B. Wilson, "Probable Inference, the Law of Succession, and Statistical
