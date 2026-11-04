@@ -26,6 +26,7 @@ mod laptop_runner_tests;
 #[cfg(test)]
 mod fleet_peer_row_tests;
 mod tools;
+mod verbs;
 mod worker_ledger;
 
 use session::Session;
@@ -85,6 +86,25 @@ fn parse_command(arguments: impl IntoIterator<Item = String>) -> NorthResult<Com
     )))
 }
 
+type Forward = fn(&str, Vec<String>) -> Command;
+
+const FORWARDED: &[(&str, Forward)] = &[
+    ("hook", |_, rest| Command::Hook(rest)),
+    ("threads", |_, rest| Command::Threads(rest)),
+    ("fleet", |_, rest| Command::Fleet(rest)),
+    ("ledger", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
+    ("task", |name, rest| Command::Ledger([vec![name.to_owned()], rest].concat())),
+    ("orders", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
+    ("gate", |name, rest| Command::Fleet([vec![name.to_owned()], rest].concat())),
+    ("work", |_, rest| Command::Work(rest)),
+    ("language-gate", |_, rest| Command::LanguageGate(rest)),
+    ("build-cache-gate", |_, rest| Command::BuildCacheGate(rest)),
+    ("runtime-floor-gate", |_, rest| Command::RuntimeFloorGate(rest)),
+    ("health", |_, rest| Command::Health(rest)),
+    ("contract-probe", |_, rest| Command::ContractProbe(rest)),
+    ("grounding", |_, rest| Command::Grounding(rest)),
+];
+
 fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
     if let Some(tool) = Tool::named(command) {
         return Some(Command::Tool(tool, rest));
@@ -92,21 +112,7 @@ fn forwarded(command: &str, rest: Vec<String>) -> Option<Command> {
     if let Some(session) = Session::named(command) {
         return Some(Command::Session(session, rest));
     }
-    Some(match command {
-        "hook" => Command::Hook(rest),
-        "threads" => Command::Threads(rest),
-        "fleet" => Command::Fleet(rest),
-        "ledger" | "task" => Command::Ledger([vec![command.to_owned()], rest].concat()),
-        "orders" | "gate" => Command::Fleet([vec![command.to_owned()], rest].concat()),
-        "work" => Command::Work(rest),
-        "language-gate" => Command::LanguageGate(rest),
-        "build-cache-gate" => Command::BuildCacheGate(rest),
-        "runtime-floor-gate" => Command::RuntimeFloorGate(rest),
-        "health" => Command::Health(rest),
-        "contract-probe" => Command::ContractProbe(rest),
-        "grounding" => Command::Grounding(rest),
-        _ => return None,
-    })
+    FORWARDED.iter().find(|(name, _)| *name == command).map(|(name, forward)| forward(name, rest))
 }
 
 pub fn main() -> ExitCode {

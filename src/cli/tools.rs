@@ -63,6 +63,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("context", |arguments| crate::ops::context_audit::run(arguments, agent_config_check::startup_tokens)),
     ("worker-ledger", super::worker_ledger::run),
     ("brief", crate::guard::brief_skeleton::run),
+    ("proxy", |arguments| crate::proxy::run(arguments, &super::verbs::VERB_KINDS)),
     ("ops", crate::ops::run),
     ("private-check", crate::ops::private_check::run),
     ("watch", crate::watch::run),
@@ -94,33 +95,34 @@ pub(super) enum Tool {
     Timer(Timer),
 }
 
+const OPERATIONS: &[(&str, Tool)] = &[
+    ("wisp", Tool::Wisp),
+    ("pace", Tool::Pace),
+    ("capacity", Tool::Capacity),
+    ("nexus-ram", Tool::NexusRam),
+    ("laptop", Tool::Laptop),
+    ("laptop-runner", Tool::LaptopRunner),
+    ("laptop-ntfy", Tool::LaptopNtfy),
+    ("agent-contain", Tool::AgentContain),
+    ("reclaim", Tool::Reclaim),
+    ("retain", Tool::Retain),
+    ("session-unit", Tool::SessionUnit),
+    ("runtime", Tool::Runtime),
+    ("dispatch", Tool::Dispatch),
+    ("tune", Tool::Tune),
+    ("archives", Tool::Archives),
+    ("code-health", Tool::CodeHealth),
+    ("secrets-proxy-exec", Tool::SecretsProxyExec),
+    ("nexus-run", Tool::NexusRun),
+];
+
 impl Tool {
     pub(super) fn named(command: &str) -> Option<Self> {
         UNIFORM.iter().find(|(name, _)| *name == command).map(|(name, _)| Self::Uniform(name)).or_else(|| Self::operations(command))
     }
 
     fn operations(command: &str) -> Option<Self> {
-        Some(match command {
-            "wisp" => Self::Wisp,
-            "pace" => Self::Pace,
-            "capacity" => Self::Capacity,
-            "nexus-ram" => Self::NexusRam,
-            "laptop" => Self::Laptop,
-            "laptop-runner" => Self::LaptopRunner,
-            "laptop-ntfy" => Self::LaptopNtfy,
-            "agent-contain" => Self::AgentContain,
-            "reclaim" => Self::Reclaim,
-            "retain" => Self::Retain,
-            "session-unit" => Self::SessionUnit,
-            "runtime" => Self::Runtime,
-            "dispatch" => Self::Dispatch,
-            "tune" => Self::Tune,
-            "archives" => Self::Archives,
-            "code-health" => Self::CodeHealth,
-            "secrets-proxy-exec" => Self::SecretsProxyExec,
-            "nexus-run" => Self::NexusRun,
-            other => return Timer::named(other).map(Self::Timer),
-        })
+        OPERATIONS.iter().find(|(name, _)| *name == command).map(|(_, tool)| *tool).or_else(|| Timer::named(command).map(Self::Timer))
     }
 
     pub(super) fn run(self, arguments: &[String]) -> ExitCode {
@@ -166,8 +168,18 @@ fn citation_check(arguments: &[String]) -> u8 {
     crate::ops::citation_check::run(arguments, defines)
 }
 
-const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help", "private-desktop"];
+pub(super) const BUILT_IN: &[&str] = &["config", "desktop-idle-state", "guard", "help", "private-desktop"];
 
 pub(super) fn defines(command: &str) -> bool {
     BUILT_IN.contains(&command) || super::forwarded(command, Vec::new()).is_some()
+}
+
+#[cfg(test)]
+pub(super) fn verbs() -> impl Iterator<Item = &'static str> {
+    UNIFORM.iter().map(|(name, _)| *name)
+        .chain(OPERATIONS.iter().map(|(name, _)| *name))
+        .chain(Timer::NAMES.iter().map(|(name, _)| *name))
+        .chain(super::session::NAMES.iter().map(|(name, _)| *name))
+        .chain(super::FORWARDED.iter().map(|(name, _)| *name))
+        .chain(BUILT_IN.iter().copied())
 }

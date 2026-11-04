@@ -19,6 +19,7 @@ pub mod ledger;
 pub mod ops;
 pub mod pace;
 pub mod providers;
+pub mod proxy;
 pub mod router;
 pub mod threads;
 pub mod tui;

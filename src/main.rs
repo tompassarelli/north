@@ -2,7 +2,7 @@ mod cli;
 
 use north_core::{
     agent_catalog, agent_config_check, agent_policy_contract, autoland_status, build_time, capacity, code_health, contract_probe, error, fleet,
-    foundation, grounding, guard, health, hook, lanes, ledger, ops, platform, providers, router, threads, tui, usage, work_items,
+    foundation, grounding, guard, health, hook, lanes, ledger, ops, platform, providers, proxy, router, threads, tui, usage, work_items,
 };
 use north_landing::{build_cache_gate, dep_gate, follows_release, issue_box_lint, land, land_abandon, landing, language_gate, provenance, runtime_floor_gate, watch};
 

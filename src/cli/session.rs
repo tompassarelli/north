@@ -11,13 +11,11 @@ pub enum Session {
     Link,
 }
 
+pub const NAMES: &[(&str, Session)] = &[("session-host", Session::Host), ("session-link", Session::Link)];
+
 impl Session {
     pub fn named(command: &str) -> Option<Self> {
-        match command {
-            "session-host" => Some(Self::Host),
-            "session-link" => Some(Self::Link),
-            _ => None,
-        }
+        NAMES.iter().find(|(name, _)| *name == command).map(|(_, session)| *session)
     }
 
     pub async fn run(self, arguments: &[String]) -> NorthResult<u8> {

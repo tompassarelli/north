@@ -38,24 +38,25 @@ pub enum Timer {
 }
 
 impl Timer {
+    pub const NAMES: &[(&str, Self)] = &[
+        ("agent-runtime-update", Self::AgentRuntimeUpdate),
+        ("codex-runtime-gcroots", Self::CodexRuntimeGcroots),
+        ("cross-project-scan", Self::CrossProjectScan),
+        ("eta-calibration", Self::EtaCalibration),
+        ("git-maintenance-nightly", Self::GitMaintenanceNightly),
+        ("incident-retro", Self::IncidentRetro),
+        ("job-watch", Self::JobWatch),
+        ("model-watch", Self::ModelWatch),
+        ("outside-watch", Self::OutsideWatch),
+        ("skill-prune", Self::SkillPrune),
+        ("skill-review-queue", Self::SkillReviewQueue),
+        ("supply-chain-scan", Self::SupplyChainScan),
+        ("usage-web-read", Self::UsageWebRead),
+        ("watch-review", Self::WatchReview),
+    ];
+
     pub fn named(command: &str) -> Option<Self> {
-        Some(match command {
-            "agent-runtime-update" => Self::AgentRuntimeUpdate,
-            "codex-runtime-gcroots" => Self::CodexRuntimeGcroots,
-            "cross-project-scan" => Self::CrossProjectScan,
-            "eta-calibration" => Self::EtaCalibration,
-            "git-maintenance-nightly" => Self::GitMaintenanceNightly,
-            "incident-retro" => Self::IncidentRetro,
-            "job-watch" => Self::JobWatch,
-            "model-watch" => Self::ModelWatch,
-            "outside-watch" => Self::OutsideWatch,
-            "skill-prune" => Self::SkillPrune,
-            "skill-review-queue" => Self::SkillReviewQueue,
-            "supply-chain-scan" => Self::SupplyChainScan,
-            "usage-web-read" => Self::UsageWebRead,
-            "watch-review" => Self::WatchReview,
-            _ => return None,
-        })
+        Self::NAMES.iter().find(|(name, _)| *name == command).map(|(_, timer)| *timer)
     }
 
     pub fn run(self, arguments: &[String], access: &RuntimeAccess) -> u8 {

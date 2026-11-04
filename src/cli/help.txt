@@ -42,6 +42,7 @@ Commands:
   contract-probe --validate FIXTURE | --runtime PATH  Check the claude stream contract
   provenance [check|debt|audit]                  Audit grounding and target debt
   brief new --category CATEGORY                   Print a worker brief skeleton carrying every line the brief guard requires for that category
+  proxy calls TRANSCRIPT                         Count a Claude Code transcript's main-thread tool calls by kind, with streaks between hand-offs and shapes run 20 or more times
   issue-box-lint [REPO#N...] [--repo REPO]       Check issue acceptance boxes
   agent-config-check [--local] [--policy-only] [--verbose]  Check the shared agent harness, Codex wiring, routines, skill budgets, rules register and vocabulary
   agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]  Run only the skill budget or the startup-token regression gate agents sync uses

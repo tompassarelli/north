@@ -18,7 +18,7 @@ name = "tests"
 thresholds = { file_lines = 1200, function_lines = 150, function_complexity = 30 }
 paths = ["tests/**", "crates/*/tests/**", "examples/**", "src/**/tests.rs", "src/**/*_tests.rs", "crates/*/src/**/tests.rs", "crates/*/src/**/*_tests.rs", "src/bin/fake_claude.rs", "src/fixtures/*.rs", "crates/north-core/src/guard/launch_critical_fixtures.rs"]
 responsibility = "Journeys, goldens, property inputs and the fake runtime."
-may_use = ["cli","tui","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","code_health","build_time","learn","domain","shell","platform","foundation", "crate-roots"]
+may_use = ["cli","tui","proxy","providers","ledger","fleet","guard","threads","landing","catalog","grounding","capacity","lanes","ops","usage","code_health","build_time","learn","domain","shell","platform","foundation", "crate-roots"]
 
 [[module]]
 name = "foundation"
@@ -91,6 +91,12 @@ responsibility = "Agent catalog, activation generations, projection port and pol
 may_use = ["domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
+name = "proxy"
+paths = ["crates/north-core/src/proxy/**"]
+responsibility = "Classify the proxy's tool calls by kind from the verb table the CLI declares, and read them out of a transcript."
+may_use = ["shell", "foundation", "crate-roots"]
+
+[[module]]
 name = "grounding"
 paths = ["crates/north-core/src/grounding/**"]
 responsibility = "Index and retrieval of existing infrastructure and history for prompts."
@@ -155,7 +161,7 @@ name = "cli"
 thresholds = { file_lines = 500, function_lines = 150, function_complexity = 26 }
 paths = ["src/main.rs", "src/cli/**"]
 responsibility = "Argument tree, exit codes, and wiring of provider adapters into ports."
-may_use = ["tui", "autoland_status", "providers", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots"]
+may_use = ["tui", "autoland_status", "providers", "proxy", "ledger", "fleet", "guard", "threads", "landing", "catalog", "grounding", "capacity", "lanes", "ops", "usage", "code_health", "build_time", "learn", "domain", "shell", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "verify"
