@@ -58,7 +58,7 @@ may_use = ["domain", "platform", "foundation", "crate-roots"]
 name = "ledger"
 paths = ["crates/north-core/src/ledger/**"]
 responsibility = "Run ledger: fleet turn records, artifact-bound task verdicts, cost and estimate queries."
-may_use = ["fleet", "threads", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["fleet", "domain", "platform", "foundation", "crate-roots", "threads"]
 
 [[module]]
 name = "guard"
@@ -201,6 +201,10 @@ path = "crates/north-core/src/guard/resource_safe_search.rs"
 [[registered]]
 id = "guard.session_kill"
 path = "crates/north-core/src/guard/session_kill.rs"
+
+[[registered]]
+id = "guard.codex_conduct"
+path = "crates/north-core/src/guard/codex_conduct.rs"
 
 [[registered]]
 id = "guard.worker_wait"

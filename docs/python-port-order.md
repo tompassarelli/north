@@ -85,8 +85,7 @@ another removes all five edges and leaves a graph with no cycle. In dependency o
 ## Python callers outside `harness/lib`
 
 These import the cycle's modules directly and change in the same commit as the module they import:
-`bin/agents`, `bin/threads`
-and `harness/hooks/lib/codex_behavior.py`.
+`bin/agents`, `bin/threads`.
 
 ## First port slice
 

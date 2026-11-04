@@ -31,6 +31,9 @@ pub mod poll_loop;
 mod poll_loop_measured;
 pub mod session_kill;
 pub mod clipboard;
+pub mod codex_conduct;
+#[cfg(test)]
+mod codex_conduct_tests;
 pub mod native_item;
 pub mod native_launch;
 pub mod worker_wait;

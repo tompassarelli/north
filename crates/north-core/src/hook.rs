@@ -101,6 +101,7 @@ enum HookKind {
     SubagentStop,
     SessionStart,
     UserPromptSubmit,
+    CodexConduct,
 }
 
 impl HookKind {
@@ -117,6 +118,7 @@ impl HookKind {
             "subagent-stop" => Self::SubagentStop,
             "session-start" => Self::SessionStart,
             "user-prompt-submit" => Self::UserPromptSubmit,
+            "codex-conduct" => Self::CodexConduct,
             _ => return None,
         })
     }
@@ -150,6 +152,7 @@ impl HookKind {
             Self::SubagentStop => "SubagentStop",
             Self::SessionStart => "SessionStart",
             Self::UserPromptSubmit => "UserPromptSubmit",
+            Self::CodexConduct => "*",
         }
     }
 
@@ -199,6 +202,7 @@ impl HookKind {
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
             Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],
+            Self::CodexConduct => &[crate::guard::codex_conduct::evaluate],
         }
     }
 }
@@ -291,6 +295,7 @@ fn process(
         } else {
             (guards, event)
         };
+        let event = if event == "*" { input.data["hook_event_name"].as_str().unwrap_or("") } else { event };
         if let Some(output) = evaluate(&input, guards, event) {
             writer.write_all(pyjson::dumps(&output).as_bytes())?;
             writer.write_all(b"\n")?;
@@ -309,7 +314,7 @@ pub fn run(arguments: &[String]) -> Result<(), String> {
             return Ok(());
         }
         [kind] => Some(HookKind::explicit(kind).ok_or_else(|| format!("unknown hook '{kind}'"))?),
-        _ => return Err("Usage: north hook [stats [--since 7d]|pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|permission-request]".into()),
+        _ => return Err("Usage: north hook [stats [--since 7d]|pre-bash|pre-edit|post-tool|session-start|stop|pre-agent|spawn-capacity|spawn-gate|subagent-stop|user-prompt-submit|permission-request|codex-conduct]".into()),
     };
     let _ = process(
         io::stdin().lock(),
