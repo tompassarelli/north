@@ -409,3 +409,113 @@ fn rust_candidate_builds_north_only_on_the_build_host() {
     assert!(!text(&output).contains("runs on this host because"), "{}", text(&output));
     assert!(fixture.lease_events().is_empty(), "the lander took a local capacity lease: {:?}", fixture.lease_events());
 }
+
+const NIX_STUB: &str = "printf 'nix %s\\n' \"$*\" >>\"$STUB_TRACE\"\nwhile [ \"$#\" -gt 0 ] && [ \"$1\" != -c ]; do shift; done\nshift\nexec \"$@\"\n";
+const TOOL_STUB: &str = "printf '%s %s\\n' \"$(basename \"$0\")\" \"$*\" >>\"$STUB_TRACE\"\nexit \"${STUB_TOOL_STATUS:-0}\"\n";
+const DEV_SHELL_FLAKE: &str = "{ outputs = { self }: { devShells.x86_64-linux.default = 1; }; }\n";
+
+impl Fixture {
+    fn tree(settings: &[(&str, &str)], files: &[(&str, &str)]) -> Self {
+        let mut fixture = Self::new(settings);
+        for (name, body) in files {
+            fs::write(fixture.repo.join(name), body).unwrap();
+            git(&fixture.repo, &["add", name]);
+        }
+        git(&fixture.repo, &["commit", "-qm", "tree"]);
+        fixture.head = git(&fixture.repo, &["rev-parse", "HEAD"]);
+        for tool in ["cargo", "bun"] {
+            script(&fixture.path(&format!("stubs/{tool}")), TOOL_STUB);
+        }
+        script(&fixture.path("stubs/nix"), NIX_STUB);
+        fixture
+    }
+}
+
+fn which(name: &str) -> PathBuf {
+    std::env::split_paths(&std::env::var_os("PATH").unwrap()).map(|directory| directory.join(name)).find(|path| path.is_file()).unwrap()
+}
+
+#[test]
+fn inferred_checks_run_in_the_dev_shell_of_a_repository_without_land_check_lines() {
+    let fixture = Fixture::tree(&[("land.inferred", "true")], &[("Cargo.toml", "[package]\n"), ("flake.nix", DEV_SHELL_FLAKE)]);
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    let log = text(&output);
+    assert!(log.contains("no land.check lines in .safe-push; running the 2 land check(s) inferred from the tree"), "{log}");
+    assert_eq!(log.matches("safe-push: land check (inferred): ").count(), 2, "{log}");
+    let trace: Vec<String> = fixture.trace().lines().filter(|line| line.starts_with("nix ") || line.starts_with("cargo ")).map(str::to_owned).collect();
+    assert_eq!(trace.len(), 4, "{trace:?}");
+    assert!(trace[0].starts_with("nix develop --offline --no-update-lock-file -c bash -euc ") && trace[0].ends_with("cargo test --locked --offline"), "{trace:?}");
+    assert_eq!(trace[1], "cargo test --locked --offline");
+    assert!(trace[2].starts_with("nix develop ") && trace[2].contains("cargo clippy --all-targets --locked --offline -- -D warnings"), "{trace:?}");
+    assert_eq!(trace[3], "cargo clippy --all-targets --locked --offline -- -D warnings");
+}
+
+#[test]
+fn inferred_checks_without_a_flake_run_the_tool_directly_and_in_a_fixed_order() {
+    let fixture = Fixture::tree(&[("land.inferred", "true")], &[("Cargo.toml", "[package]\n"), ("package.json", "{}\n"), ("bun.lock", "\n")]);
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    let trace = fixture.trace();
+    let runs: Vec<&str> = trace.lines().filter(|line| line.starts_with("cargo ") || line.starts_with("bun ")).collect();
+    assert_eq!(runs, ["cargo test --locked --offline", "cargo clippy --all-targets --locked --offline -- -D warnings", "bun test"]);
+    assert!(!trace.contains("nix "), "{trace}");
+}
+
+#[test]
+fn explicit_land_check_lines_replace_inference() {
+    let fixture = Fixture::tree(&[("land.check", "file.txt :: touch ../explicit")], &[("Cargo.toml", "[package]\n")]);
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(fixture.path("explicit").exists());
+    assert!(!fixture.trace().contains("cargo "), "{}", fixture.trace());
+    assert!(!text(&output).contains("inferred"), "{}", text(&output));
+}
+
+#[test]
+fn land_inferred_false_turns_inference_off() {
+    let fixture = Fixture::tree(&[("land.inferred", "false")], &[("Cargo.toml", "[package]\n")]);
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(!fixture.trace().contains("cargo "), "{}", fixture.trace());
+    assert!(!text(&output).contains("inferred"), "{}", text(&output));
+}
+
+#[test]
+fn an_inferred_check_fails_the_landing_with_its_exit_status() {
+    let fixture = Fixture::tree(&[("land.inferred", "true")], &[("Cargo.toml", "[package]\n")]);
+    let output = fixture.command().env("STUB_TOOL_STATUS", "101").output().unwrap();
+    assert_eq!(output.status.code(), Some(101), "{}", text(&output));
+    assert!(text(&output).contains("NOT pushed"), "{}", text(&output));
+}
+
+#[test]
+fn a_missing_toolchain_is_an_infrastructure_exit() {
+    let fixture = Fixture::tree(&[("land.inferred", "true")], &[("Cargo.toml", "[package]\n")]);
+    let bare = fixture.path("bare");
+    fs::create_dir_all(&bare).unwrap();
+    for tool in ["bash", "git"] {
+        std::os::unix::fs::symlink(which(tool), bare.join(tool)).unwrap();
+    }
+    let output = fixture.command().env("PATH", &bare).output().unwrap();
+    assert_eq!(output.status.code(), Some(75), "{}", text(&output));
+}
+
+#[test]
+fn safe_push_counts_inferred_checks_as_land_checks() {
+    let probe = |settings: &[(&str, &str)], files: &[(&str, &str)]| -> Option<i32> {
+        let fixture = Fixture::tree(settings, files);
+        let safe_push = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push");
+        let script = format!("source <(sed -n '/^has_land_checks() {{/,/^}}/p' '{}'); has_land_checks", safe_push.display());
+        let path = format!("{}:{}", north_dir(), std::env::var("PATH").unwrap_or_default());
+        Command::new("bash").args(["-c", &script]).current_dir(&fixture.repo).env("PATH", path).status().unwrap().code()
+    };
+    assert_eq!(probe(&[("land.inferred", "true")], &[("Cargo.toml", "[package]\n")]), Some(0));
+    assert_eq!(probe(&[("land.inferred", "true")], &[("README.md", "x\n")]), Some(1));
+    assert_eq!(probe(&[("land.inferred", "false")], &[("Cargo.toml", "[package]\n")]), Some(1));
+    assert_eq!(probe(&[("land.check", "file.txt :: true")], &[("README.md", "x\n")]), Some(0));
+}
+
+fn north_dir() -> String {
+    Path::new(env!("CARGO_BIN_EXE_north")).parent().unwrap().to_string_lossy().into_owned()
+}

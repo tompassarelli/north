@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use super::infer::infer;
+
 const SEPARATOR: &str = " :: ";
 const REF_SHORT: usize = 12;
 
@@ -13,6 +15,7 @@ pub struct Config {
     checks: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
+    inferred: Vec<String>,
 }
 
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
@@ -33,23 +36,31 @@ fn blob_values(repo: &Path, head: &str, key: &str) -> Vec<String> {
 impl Config {
     pub fn load(repo: &Path, head: &str) -> Self {
         let first = |key: &str| blob_values(repo, head, key).into_iter().next_back();
+        let checks = blob_values(repo, head, "land.check");
+        let inference_off = first("land.inferred").is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "false" | "no" | "off" | "0"));
+        let inferred = if checks.is_empty() && !inference_off { inferred_checks(repo, head) } else { Vec::new() };
         Self {
             workflow: first("land.workflow").unwrap_or_default(),
             publish: first("land.publish").filter(|prefix| !prefix.is_empty()),
             runner: first("land.runner"),
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
-            checks: blob_values(repo, head, "land.check"),
+            checks,
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
+            inferred,
         }
     }
 
     pub fn added_since(&self, earlier: &Self) -> Self {
-        Self { checks: self.checks.iter().filter(|entry| !earlier.checks.contains(entry)).cloned().collect(), ..self.clone() }
+        Self { checks: self.checks.iter().filter(|entry| !earlier.checks.contains(entry)).cloned().collect(), inferred: Vec::new(), ..self.clone() }
     }
 
     pub fn has_checks(&self) -> bool {
-        !self.checks.is_empty()
+        !self.checks.is_empty() || !self.inferred.is_empty()
+    }
+
+    pub fn is_inferred(&self, command: &str) -> bool {
+        self.inferred.iter().any(|inferred| inferred == command)
     }
 
     pub fn local_reason(&self, command: &str) -> Option<&str> {
@@ -65,6 +76,9 @@ impl Config {
     }
 
     pub fn commands(&self, repo: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+        if self.checks.is_empty() {
+            return Ok(self.inferred.clone());
+        }
         let mut commands: Vec<String> = Vec::new();
         for entry in &self.checks {
             let Some((patterns, command)) = entry.split_once(SEPARATOR) else {
@@ -80,6 +94,12 @@ impl Config {
         }
         Ok(commands)
     }
+}
+
+fn inferred_checks(repo: &Path, head: &str) -> Vec<String> {
+    let files = git_lines(repo, &["ls-tree", "--name-only", head]);
+    let flake = files.iter().any(|file| file == "flake.nix").then(|| git_lines(repo, &["show", &format!("{head}:flake.nix")]).join("\n"));
+    infer(&files, flake.as_deref())
 }
 
 fn reason<'a>(entries: &'a [String], command: &str) -> Option<&'a str> {

@@ -16,7 +16,7 @@ use super::select::Config;
 use crate::land::after::follow::program;
 use crate::landing::check_timings::{Base, Timing, Timings};
 
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD";
 const DEFAULT_TIMEOUT: u64 = 2100;
 const OFFLOAD_GRACE: u64 = 900;
 const REAP: Duration = Duration::from_secs(5);
@@ -37,6 +37,7 @@ struct Arguments {
     red_fix: String,
     outcome: Option<PathBuf>,
     portable: bool,
+    any: bool,
     leased: bool,
     published: String,
     runner_host: String,
@@ -49,6 +50,7 @@ fn parse(arguments: &[String]) -> Option<Arguments> {
     while let Some(flag) = rest.next() {
         match flag.as_str() {
             "--portable" => parsed.portable = true,
+            "--any" => parsed.any = true,
             "--leased" => parsed.leased = true,
             "--base" | "--head" | "--dry" | "--safe-push" | "--red-fix" | "--outcome" | "--published" | "--runner-host" | "--command" => {
                 let value = rest.next()?.clone();
@@ -324,7 +326,8 @@ impl Shared {
             warn("safe-push: could not create a land check log; NOT pushed.");
             return 1;
         };
-        say(&format!("safe-push: land check: {command}"));
+        let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
+        say(&format!("safe-push: land check{label}: {command}"));
         let started = Instant::now();
         let mut child = match Command::new(&argv[0])
             .args(&argv[1..])
@@ -647,6 +650,11 @@ fn portable(arguments: &Arguments) -> u8 {
     u8::from(!portable)
 }
 
+fn any(arguments: &Arguments) -> u8 {
+    let Some(root) = toplevel() else { return 1 };
+    u8::from(!Config::load(&root, &arguments.head).has_checks())
+}
+
 async fn orchestrate(arguments: Arguments) -> i32 {
     let Some(root) = toplevel() else {
         warn("safe-push: not in a git repo");
@@ -668,6 +676,9 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         }
     };
     let mut arguments = arguments;
+    if !arguments.leased && !commands.is_empty() && commands.iter().all(|command| config.is_inferred(command)) {
+        say(&format!("safe-push: no land.check lines in .safe-push; running the {} land check(s) inferred from the tree", commands.len()));
+    }
     if !arguments.leased {
         arguments.runner_host = runner_host(&environment, &config).await;
     }
@@ -695,6 +706,9 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     if parsed.portable {
         return portable(&parsed);
+    }
+    if parsed.any {
+        return any(&parsed);
     }
     let code = block_on(orchestrate(parsed)).unwrap_or_else(|error| {
         eprintln!("north land checks: {error}");

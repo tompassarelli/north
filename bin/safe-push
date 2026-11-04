@@ -911,7 +911,12 @@ refuse_stale_revert() {
 }
 
 has_land_checks() {
-  git config --blob HEAD:.safe-push --get-all land.check >/dev/null 2>&1
+  git config --blob HEAD:.safe-push --get-all land.check >/dev/null 2>&1 \
+    || { command -v north >/dev/null 2>&1 && north land checks --any --head HEAD >/dev/null 2>&1; }
+}
+
+has_inferred_land_checks() {
+  ! git config --blob HEAD:.safe-push --get-all land.check >/dev/null 2>&1 && has_land_checks
 }
 
 north_offers() {
@@ -1500,6 +1505,7 @@ sync_dependencies() {
   top=$(git rev-parse --show-toplevel)
   case "$(basename "$(git remote get-url origin 2>/dev/null)" .git)" in
     makgora|wisp|north) first_install=1 ;;
+    *) ! has_inferred_land_checks || first_install=1 ;;
   esac
   while IFS= read -r lock; do
     dir="$top/$(dirname "$lock")"
