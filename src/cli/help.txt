@@ -28,7 +28,7 @@ Commands:
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   lane-squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
   bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry a deployed nixos-config or south unit, or this host's user units, still run
-  land-tests [--jobs N] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
+  land-tests [--jobs N] [--cases json] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
   land-actions --workflow FILE --base B --head H --timeout S -- COMMAND...
                                                  Run land checks as a GitHub Actions workflow on a scratch branch and wait for its verdict
   safe-push [--dry-run] --tag NAME               Scan and publish one annotated tag (branches still land through bin/safe-push)

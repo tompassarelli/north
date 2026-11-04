@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
-const USAGE: &str = "usage: north land-tests [--jobs N] TEST...";
+const USAGE: &str = "usage: north land-tests [--jobs N] [--cases json] TEST...";
 
 struct Outcome {
     test: String,
@@ -22,32 +22,68 @@ impl Outcome {
     }
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Case {
+    pub test: String,
+    pub name: String,
+    pub passed: bool,
+}
+
+impl Case {
+    pub fn row(&self) -> String {
+        serde_json::json!({"test": self.test, "case": self.name, "outcome": if self.passed { "pass" } else { "fail" }}).to_string()
+    }
+}
+
+struct Request<'a> {
+    jobs: NonZeroUsize,
+    cases: bool,
+    tests: &'a [String],
+}
+
 pub fn run(arguments: &[String]) -> u8 {
-    let Some((jobs, tests)) = parse(arguments) else {
+    let Some(request) = parse(arguments) else {
         eprintln!("{USAGE}");
         return 64;
     };
-    let failed = run_all(tests, jobs, &mut io::stdout().lock());
+    let outcomes = if request.cases {
+        let outcomes = run_all(request.tests, request.jobs, &mut io::stderr().lock());
+        let mut stdout = io::stdout().lock();
+        for case in request.tests.iter().flat_map(|test| outcomes.iter().filter(move |outcome| outcome.test == *test)).flat_map(cases) {
+            let _ = writeln!(stdout, "{}", case.row());
+        }
+        outcomes
+    } else {
+        run_all(request.tests, request.jobs, &mut io::stdout().lock())
+    };
+    let failed: Vec<&str> = outcomes.iter().filter(|outcome| !outcome.passed()).map(|outcome| outcome.test.as_str()).collect();
     if failed.is_empty() {
         return 0;
     }
-    eprintln!("land check: {} of {} tests failed: {}", failed.len(), tests.len(), failed.join(", "));
+    eprintln!("land check: {} of {} tests failed: {}", failed.len(), request.tests.len(), failed.join(", "));
     1
 }
 
-fn parse(arguments: &[String]) -> Option<(NonZeroUsize, &[String])> {
-    let (jobs, tests) = match arguments {
-        [flag, jobs, tests @ ..] if flag == "--jobs" => (jobs.parse().ok()?, tests),
-        [flag, ..] if flag == "--jobs" => return None,
-        tests => (thread::available_parallelism().unwrap_or(NonZeroUsize::MIN), tests),
-    };
-    (!tests.is_empty()).then_some((jobs, tests))
+fn parse(arguments: &[String]) -> Option<Request<'_>> {
+    let mut jobs = thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+    let mut cases = false;
+    let mut rest = arguments;
+    loop {
+        match rest {
+            [flag, value, ..] if flag == "--jobs" => jobs = value.parse().ok()?,
+            [flag, value, ..] if flag == "--cases" && value == "json" => cases = true,
+            [flag, ..] if flag == "--jobs" || flag == "--cases" => return None,
+            _ => break,
+        }
+        rest = &rest[2..];
+    }
+    (!rest.is_empty()).then_some(Request { jobs, cases, tests: rest })
 }
 
-fn run_all(tests: &[String], jobs: NonZeroUsize, out: &mut impl Write) -> Vec<String> {
+fn run_all(tests: &[String], jobs: NonZeroUsize, out: &mut impl Write) -> Vec<Outcome> {
     let next = AtomicUsize::new(0);
-    let (sender, outcomes) = mpsc::channel();
-    let mut failed = Vec::new();
+    let (sender, receiver) = mpsc::channel();
+    let mut outcomes = Vec::new();
     thread::scope(|scope| {
         for _ in 0..jobs.get().min(tests.len()) {
             let sender = sender.clone();
@@ -61,14 +97,44 @@ fn run_all(tests: &[String], jobs: NonZeroUsize, out: &mut impl Write) -> Vec<St
             });
         }
         drop(sender);
-        for outcome in outcomes {
+        for outcome in receiver {
             report(&outcome, out);
-            if !outcome.passed() {
-                failed.push(outcome.test);
-            }
+            outcomes.push(outcome);
         }
     });
-    failed
+    outcomes
+}
+
+fn case_line(line: &str) -> Option<(String, bool)> {
+    if let Some(rest) = line.strip_prefix("test ") {
+        let (name, verdict) = rest.rsplit_once(" ... ")?;
+        return match verdict.split_whitespace().next()? {
+            "ok" => Some((name.trim().to_owned(), true)),
+            "FAILED" => Some((name.trim().to_owned(), false)),
+            _ => None,
+        };
+    }
+    for (prefix, passed) in [("PASS", true), ("FAIL", false)] {
+        let name = line.strip_prefix(prefix).and_then(|rest| rest.strip_prefix(": ").or_else(|| rest.strip_prefix(' ')));
+        if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+            return Some((name.to_owned(), passed));
+        }
+    }
+    None
+}
+
+fn cases(outcome: &Outcome) -> Vec<Case> {
+    let text = String::from_utf8_lossy(&outcome.output);
+    let mut found: Vec<Case> = text
+        .lines()
+        .filter_map(case_line)
+        .map(|(name, passed)| Case { test: outcome.test.clone(), name, passed })
+        .collect();
+    let hidden_failure = !outcome.passed() && found.iter().all(|case| case.passed);
+    if found.is_empty() || hidden_failure {
+        found.push(Case { test: outcome.test.clone(), name: outcome.test.clone(), passed: outcome.passed() });
+    }
+    found
 }
 
 fn run_one(test: &str) -> Outcome {
