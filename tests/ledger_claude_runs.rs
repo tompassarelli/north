@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -25,8 +25,7 @@ fn claude_runs(root: &Path, fleet_json: &str, policy: &Path) -> (Vec<Value>, Str
 fn claude_runs_on(root: &Path, fleet_json: &str, policy: &Path, main: Option<&Path>, recorded: &[&str], settled: &str) -> (Vec<Value>, String) {
     let calls = root.join("fleet-calls");
     let fleet = root.join("north");
-    fs::write(&fleet, format!("#!/bin/sh\necho \"$@\" >> {}\nprintf '%s' '{fleet_json}'\n", calls.display())).unwrap();
-    fs::set_permissions(&fleet, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&fleet, &format!("echo \"$@\" >> {}\nprintf '%s' '{fleet_json}'\n", calls.display()));
     let empty = root.join("empty");
     fs::write(&empty, settled).unwrap();
     let known = root.join("recorded");

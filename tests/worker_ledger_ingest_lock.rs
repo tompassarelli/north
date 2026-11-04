@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs::{self, File};
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -10,12 +10,7 @@ const RETRY: i32 = 75;
 fn rig(root: &Path) {
     fs::create_dir_all(root.join("bin")).unwrap();
     let north = root.join("bin/north");
-    fs::write(
-        &north,
-        "#!/bin/sh\nprintf '[]\\n'\n",
-    )
-    .unwrap();
-    fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&north, "printf '[]\\n'\n");
 }
 
 fn ledger(root: &Path) -> Output {

@@ -1,6 +1,6 @@
+use north_core::foundation::shim;
 use serde_json::{Value, json};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -56,8 +56,7 @@ impl Lab {
             .expect("cat on PATH");
         std::os::unix::fs::symlink(cat, bin.join("cat")).unwrap();
         let script = bin.join("threads");
-        std::fs::write(&script, "#!/bin/sh\ncat > \"$STUB_OUT\"\nexit \"${STUB_EXIT:-0}\"\n").unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        shim::write_script(&script, "cat > \"$STUB_OUT\"\nexit \"${STUB_EXIT:-0}\"\n");
     }
 }
 

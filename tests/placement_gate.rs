@@ -1,7 +1,7 @@
 mod support;
 
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -12,8 +12,7 @@ const WARCRAFT: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft
 const NATIVE: &str = "Item: makgora#207 remote lag\nSurface: lua\nNeeds: native\n";
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(path, body);
 }
 
 fn window(name: &str, used: f64, burn: f64, resets_at: &str) -> serde_json::Value {
@@ -42,16 +41,16 @@ fn fixture(root: &Path) {
         fs::create_dir_all(&profile).unwrap();
         fs::write(profile.join(".credentials.json"), "{}").unwrap();
     }
-    executable(&root.join("bin/setsid"), "#!/bin/sh\nexec \"$@\"\n");
+    executable(&root.join("bin/setsid"), "exec \"$@\"\n");
     executable(
         &root.join("bin/systemd-run"),
-        "#!/bin/sh\ncase \" $* \" in *' --scope '*) while [ \"$1\" != -- ]; do shift; done; shift; exec \"$@\";; esac\nfor a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\nwhile [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\nshift\nmkdir -p \"$PLACEMENT_FIXTURE/units\"\nset -m\n\"$@\" < /dev/null > /dev/null 2>&1 &\necho $! > \"$PLACEMENT_FIXTURE/units/$unit\"\n",
+        "case \" $* \" in *' --scope '*) while [ \"$1\" != -- ]; do shift; done; shift; exec \"$@\";; esac\nfor a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\nwhile [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\nshift\nmkdir -p \"$PLACEMENT_FIXTURE/units\"\nset -m\n\"$@\" < /dev/null > /dev/null 2>&1 &\necho $! > \"$PLACEMENT_FIXTURE/units/$unit\"\n",
     );
     executable(
         &root.join("bin/systemctl"),
-        "#!/bin/sh\nfor a; do last=$a; done\nunit=\"$PLACEMENT_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' stop '*) [ -f \"$unit\" ] || exit 5; kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null; rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
+        "for a; do last=$a; done\nunit=\"$PLACEMENT_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' stop '*) [ -f \"$unit\" ] || exit 5; kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null; rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
     );
-    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nprintf '%s' \"${{RAN_VIA_SSH:-}}\" > \"$PLACEMENT_FIXTURE/ran-via\"\nprintf '%s' \"${{AGENT_CAPACITY_NEED:-}}\" > \"$PLACEMENT_FIXTURE/need\"\ntee \"$PLACEMENT_FIXTURE/prompt\" | timeout 20 {} --trace fold \"$@\"\n", support::fake_claude()));
+    executable(&root.join("bin/claude"), &format!("printf '%s' \"${{RAN_VIA_SSH:-}}\" > \"$PLACEMENT_FIXTURE/ran-via\"\nprintf '%s' \"${{AGENT_CAPACITY_NEED:-}}\" > \"$PLACEMENT_FIXTURE/need\"\ntee \"$PLACEMENT_FIXTURE/prompt\" | timeout 20 {} --trace fold \"$@\"\n", support::fake_claude()));
 }
 
 fn north(root: &Path, args: &[&str]) -> Output {
@@ -129,7 +128,7 @@ fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
     let policy = fs::read_to_string(&orchestration).unwrap().replace("[placement]\n", "[placement]\norder = [\"far\"]\n");
     fs::write(&orchestration, format!("{policy}[hosts.far]\nresident_cap = 2\nssh = \"tom@far\"\n[accounts.claude.profiles.a]\nhere = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\nfar = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\n")).unwrap();
     fs::write(root.join("hosts.json"), r#"{"far": {"online": true, "live": 1, "accounts": ["a"]}}"#).unwrap();
-    executable(&root.join("bin/ssh"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do last=$1; shift; done\nshift\nexport RAN_VIA_SSH=\"$last\"\nPATH=\"$PLACEMENT_FIXTURE/bin:$PATH\" exec sh -c \"$*\"\n");
+    executable(&root.join("bin/ssh"), "while [ \"$1\" != -- ]; do last=$1; shift; done\nshift\nexport RAN_VIA_SSH=\"$last\"\nPATH=\"$PLACEMENT_FIXTURE/bin:$PATH\" exec sh -c \"$*\"\n");
     let path = root.join("private.md");
     fs::write(&path, "Item: galileo#3 private change\nSurface: rust\n").unwrap();
     let launch = |name: &str| {

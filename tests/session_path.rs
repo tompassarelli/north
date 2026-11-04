@@ -1,7 +1,7 @@
 mod support;
 
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -9,8 +9,7 @@ use std::time::{Duration, Instant};
 const BRIEF: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(path, body);
 }
 
 fn fixture(root: &Path) {
@@ -25,12 +24,12 @@ fn fixture(root: &Path) {
     fs::write(profile.join(".credentials.json"), "{}").unwrap();
     let windows = serde_json::json!([{"window": "5h", "used_pct": 10.0, "burn_pct_h": 1.0, "resets_at": "2026-10-16T16:00:00Z"}]);
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"controls": {"claude:a": {"windows": windows}}}}).to_string()).unwrap();
-    executable(&root.join("bin/setsid"), "#!/bin/sh\nexec \"$@\"\n");
-    executable(&root.join("bin/systemd-run"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n");
-    executable(&root.join("bin/systemctl"), "#!/bin/sh\n[ \"$*\" = '--user show-environment' ] || exit 0\nprintf 'HOME=%s\\nPATH=%s/.nix-profile/bin:/run/wrappers/bin\\n' \"$HOME\" \"$HOME\"\n");
+    executable(&root.join("bin/setsid"), "exec \"$@\"\n");
+    executable(&root.join("bin/systemd-run"), "while [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n");
+    executable(&root.join("bin/systemctl"), "[ \"$*\" = '--user show-environment' ] || exit 0\nprintf 'HOME=%s\\nPATH=%s/.nix-profile/bin:/run/wrappers/bin\\n' \"$HOME\" \"$HOME\"\n");
     let timeout = Command::new("sh").args(["-c", "command -v timeout"]).output().unwrap();
     let timeout = String::from_utf8_lossy(&timeout.stdout).trim().to_owned();
-    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nprintf '%s\\n' \"$PATH\" > \"$SESSION_PATH_FIXTURE/path\"\nexec {timeout} 20 {} --trace fold \"$@\"\n", support::fake_claude()));
+    executable(&root.join("bin/claude"), &format!("printf '%s\\n' \"$PATH\" > \"$SESSION_PATH_FIXTURE/path\"\nexec {timeout} 20 {} --trace fold \"$@\"\n", support::fake_claude()));
 }
 
 fn launch(root: &Path) -> Output {

@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -20,8 +20,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 }
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(path, body);
 }
 
 struct Lane {
@@ -63,10 +62,10 @@ impl Lane {
         fs::create_dir_all(&runtime).unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), runtime.join("north")).unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
-        executable(&tools.join("gitleaks"), "#!/bin/sh\nexit 0\n");
+        executable(&tools.join("gitleaks"), "exit 0\n");
         executable(
             &tools.join("gh"),
-            "#!/bin/sh\ncase \"$1\" in repo) echo PUBLIC;; run) cat \"$GH_AUTOLAND_RUNS\" 2>/dev/null || echo '[]';; api) cat \"$GH_AUTOLAND_STATUS\";; *) exit 1;; esac\n",
+            "case \"$1\" in repo) echo PUBLIC;; run) cat \"$GH_AUTOLAND_RUNS\" 2>/dev/null || echo '[]';; api) cat \"$GH_AUTOLAND_STATUS\";; *) exit 1;; esac\n",
         );
         fs::write(
             root.join("status"),

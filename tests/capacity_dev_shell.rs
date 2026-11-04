@@ -1,8 +1,9 @@
 mod capacity_host;
 
+use north_core::foundation::shim;
 use capacity_host::{Host, SCOPE_SYSTEMCTL, scope_systemd_run};
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 
 const FAKE_NIX: &str = "#!/bin/sh
 [ \"$1\" = develop ] && [ \"$3\" = -c ] || exit 64
@@ -28,8 +29,7 @@ fn a_capacity_run_from_a_flake_project_finds_the_toolchain_its_dev_shell_provide
     fs::create_dir_all(project.join(".git")).unwrap();
     fs::create_dir_all(project.join("crates/game")).unwrap();
     fs::write(project.join("flake.nix"), "{ outputs = _: { devShells = { }; }; }\n").unwrap();
-    fs::write(project.join("shell-bin/cargo"), "#!/bin/sh\necho \"cargo 1.0.0 from $NORTH_DEV_SHELL\"\n").unwrap();
-    fs::set_permissions(project.join("shell-bin/cargo"), fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&project.join("shell-bin/cargo"), "echo \"cargo 1.0.0 from $NORTH_DEV_SHELL\"\n");
     let output = host
         .command(env!("CARGO_BIN_EXE_north"))
         .args(["capacity", "host", "run", "--class", "moderate", "--owner", "dev-shell", "--timeout-seconds", "30", "--", "cargo", "--version"])

@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 const REPO: &str = env!("CARGO_MANIFEST_DIR");
 const AGY: &str = "0a0a0a0a-0000-4000-8000-000000000001";
-const GH: &str = "#!/bin/sh\nif [ \"$1\" = issue ]; then printf '%s\\n' '[{\"number\":446,\"labels\":[{\"name\":\"theme:balance\"}]}]'; exit; fi\nprintf '%s\\n' '{\"data\":{\"repository\":{\"issues\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[]}}}}'\n";
+const GH: &str = "if [ \"$1\" = issue ]; then printf '%s\\n' '[{\"number\":446,\"labels\":[{\"name\":\"theme:balance\"}]}]'; exit; fi\nprintf '%s\\n' '{\"data\":{\"repository\":{\"issues\":{\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null},\"nodes\":[]}}}}'\n";
 
 fn write(path: &Path, text: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -20,8 +20,8 @@ fn jsonl(path: &Path, rows: &[Value]) {
 }
 
 fn script(path: &Path, body: &str) {
-    write(path, body);
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    shim::write_script(path, body);
 }
 
 fn sqlite(db: &Path, sql: &str) -> String {
@@ -46,7 +46,7 @@ impl Rig {
         let rig = Self { orchestration: Path::new(REPO).join("harness/lib/fixtures/orchestration.toml"), dir };
         script(
             &rig.path("bin/north"),
-            &format!("#!/bin/sh\n[ \"$1 $2 $3\" = \"fleet list --json\" ] || exec {} \"$@\"\ncat \"$FLEET_TEST_SESSIONS\"\n", env!("CARGO_BIN_EXE_north")),
+            &format!("[ \"$1 $2 $3\" = \"fleet list --json\" ] || exec {} \"$@\"\ncat \"$FLEET_TEST_SESSIONS\"\n", env!("CARGO_BIN_EXE_north")),
         );
         script(&rig.path("bin/gh"), GH);
         fs::create_dir_all(rig.path("home")).unwrap();
@@ -606,7 +606,7 @@ fn the_ledger_host_records_a_host_that_cannot_reach_it_once_by_pulling_its_rows_
     script(
         &rig.path("bin/ssh"),
         &format!(
-            "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\n[ \"$1\" = -- ] && shift\n[ \"$1\" = far ] || exit 255\nshift 2\nexec env -u THREADS_DB HOME={f}/home CLAUDE_CONFIG_DIR={f}/claude RESIDENT_CAP_HOST=far {north} \"$@\"\n",
+            "while [ \"$1\" = -o ]; do shift 2; done\n[ \"$1\" = -- ] && shift\n[ \"$1\" = far ] || exit 255\nshift 2\nexec env -u THREADS_DB HOME={f}/home CLAUDE_CONFIG_DIR={f}/claude RESIDENT_CAP_HOST=far {north} \"$@\"\n",
             f = far.display(),
             north = env!("CARGO_BIN_EXE_north")
         ),

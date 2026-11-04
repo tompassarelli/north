@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 use rusqlite::Connection;
@@ -44,8 +44,7 @@ fn ledger_summary_since_prints_usd_per_closed_for_each_tier_and_category_from_th
     fs::create_dir(&bin).unwrap();
     let gh = bin.join("gh");
     let closed = format!(r#"[{{"number":1,"closedAt":"{0}"}},{{"number":2,"closedAt":"{0}"}},{{"number":3,"closedAt":"{0}"}}]"#, stamp(1));
-    fs::write(&gh, format!("#!/bin/sh\nprintf '%s' '{closed}'\n")).unwrap();
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&gh, &format!("printf '%s' '{closed}'\n"));
 
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
     let output = Command::new(env!("CARGO_BIN_EXE_north"))

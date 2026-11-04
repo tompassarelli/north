@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use north_core::foundation::shim;
 use serde_json::Value;
 use std::fs;
 use std::io::Read;
@@ -97,6 +98,7 @@ impl Host {
         for (name, body) in shims {
             fs::write(bin.join(name), body).unwrap();
             fs::set_permissions(bin.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+            shim::wait_until_executable(&bin.join(name));
         }
         fs::create_dir_all(scratch.path().join("agent-capacity-v1")).unwrap();
         fs::create_dir_all(scratch.path().join("state/scopes")).unwrap();

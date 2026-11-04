@@ -1,12 +1,12 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rusqlite::Connection;
 
-const FAKE_GH: &str = r#"#!/bin/sh
-iss() { printf '{"number":%s,"title":"T%s","labels":[%s],"body":"- [ ] a","comments":[]}' "$1" "$1" "$2"; }
+const FAKE_GH: &str = r#"iss() { printf '{"number":%s,"title":"T%s","labels":[%s],"body":"- [ ] a","comments":[]}' "$1" "$1" "$2"; }
 now='{"name":"priority:now"}'
 case "$*" in
   "issue list -R tompassarelli/makgora"*)
@@ -32,8 +32,7 @@ impl Rig {
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path().to_path_buf();
         fs::create_dir_all(root.join("bin")).unwrap();
-        fs::write(root.join("bin/gh"), FAKE_GH).unwrap();
-        fs::set_permissions(root.join("bin/gh"), fs::Permissions::from_mode(0o755)).unwrap();
+        shim::write_script(&root.join("bin/gh"), FAKE_GH);
         symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
         fs::write(root.join("orchestration.toml"), "").unwrap();
         Rig { _scratch: scratch, root }

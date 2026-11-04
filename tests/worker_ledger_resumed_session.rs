@@ -1,6 +1,6 @@
+use north_core::foundation::shim;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -9,9 +9,8 @@ const FLEET: &str = r#"[{"name":"d-ledgersee","conversation":"resumed","parent":
 fn rig(root: &Path) {
     fs::create_dir_all(root.join("bin")).unwrap();
     let north = root.join("bin/north");
-    let script = format!("#!/bin/sh\ncase \"$1\" in threads) exec {} \"$@\";; esac\ncase \"$1 $2\" in \"fleet list\") printf '%s\\n' '{FLEET}'; exit 0;; esac\nprintf '[]\\n'\n", env!("CARGO_BIN_EXE_north"));
-    fs::write(&north, script).unwrap();
-    fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
+    let script = format!("case \"$1\" in threads) exec {} \"$@\";; esac\ncase \"$1 $2\" in \"fleet list\") printf '%s\\n' '{FLEET}'; exit 0;; esac\nprintf '[]\\n'\n", env!("CARGO_BIN_EXE_north"));
+    shim::write_script(&north, &script);
 }
 
 fn turn(path: &Path, at: &str, prompt: &str, report: &str) {

@@ -1,3 +1,4 @@
+use north_core::foundation::shim;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::os::unix::fs::{PermissionsExt, symlink};
@@ -38,6 +39,7 @@ impl Rig {
         )
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        shim::wait_until_executable(&script);
         let (repo, bare) = (base.join("repo"), base.join("bare"));
         std::fs::create_dir_all(repo.join("src")).unwrap();
         std::fs::create_dir_all(&bare).unwrap();

@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -7,8 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const ROOM: &str = "20\n1.50 1.00 1.00 2/900 1\nMemTotal:       65536000 kB\nMemAvailable:   40000000 kB\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/md1 490000000 400000000 %KIB% 90% /\n@ADMISSION@\n{\"profile\":\"unattended\",\"aggregateCpuLimit\":20,\"committedBatchCpus\":2,\"cpuSomeAvg10\":5}\n";
 const GIB: u64 = 1024 * 1024;
 
-const FAKE_SSH: &str = r#"#!/bin/sh
-while [ $# -gt 0 ]; do
+const FAKE_SSH: &str = r#"while [ $# -gt 0 ]; do
   case "$1" in
     -o) shift 2 ;;
     -T) shift ;;
@@ -24,7 +23,7 @@ esac
 HOME=$FAKE_REMOTE_HOMES/$destination exec sh -c "$*"
 "#;
 
-const CAPACITY_STUB: &str = "#!/bin/sh\nprintf '%s\\n' \"$1\" >>\"$CAPACITY_LOG\"\nshift 2\nexec \"$@\"\n";
+const CAPACITY_STUB: &str = "printf '%s\\n' \"$1\" >>\"$CAPACITY_LOG\"\nshift 2\nexec \"$@\"\n";
 
 fn git(directory: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git").current_dir(directory).args(arguments).output().unwrap();
@@ -33,8 +32,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 }
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(path, body);
 }
 
 fn lines(path: &Path) -> Vec<String> {
@@ -79,8 +77,8 @@ impl Landing {
         git(&repo, &["switch", "-qc", "lane"]);
         executable(&tools.join("ssh"), FAKE_SSH);
         executable(&tools.join("capacity-stub"), CAPACITY_STUB);
-        executable(&tools.join("gitleaks"), "#!/bin/sh\nexit 0\n");
-        executable(&tools.join("gh"), "#!/bin/sh\ncase \"$1\" in repo) echo PUBLIC;; run) echo '[]';; *) exit 1;; esac\n");
+        executable(&tools.join("gitleaks"), "exit 0\n");
+        executable(&tools.join("gh"), "case \"$1\" in repo) echo PUBLIC;; run) echo '[]';; *) exit 1;; esac\n");
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), tools.join("north")).unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_north"), root.join("home/.local/state/north/current/north")).unwrap();
         fs::write(

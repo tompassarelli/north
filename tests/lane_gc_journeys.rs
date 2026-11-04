@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
@@ -22,8 +22,7 @@ impl Drop for Holder {
 }
 
 fn executable(path: &Path, text: &str) {
-    fs::write(path, text).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(path, text);
 }
 
 impl Rig {
@@ -48,12 +47,12 @@ impl Rig {
             ("PATH", path),
         ];
         let rig = Self { root: root.into(), home: home.into(), stubs, env: env.into_iter().map(|(k, v)| (k.into(), v)).collect() };
-        rig.stub("ssh", "#!/bin/sh\ncat >/dev/null\necho '{\"ok\":true,\"branches\":{}}'\n");
-        rig.stub("threads", "#!/bin/sh\nprintf 'item\\tholder\\n'\n");
-        rig.stub("supply-alert", "#!/bin/sh\n[ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1\nfor arg; do printf '%s|' \"$arg\"; done >>\"$LANE_GC_FIXTURE/alerts\"\necho >>\"$LANE_GC_FIXTURE/alerts\"\n");
+        rig.stub("ssh", "cat >/dev/null\necho '{\"ok\":true,\"branches\":{}}'\n");
+        rig.stub("threads", "printf 'item\\tholder\\n'\n");
+        rig.stub("supply-alert", "[ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1\nfor arg; do printf '%s|' \"$arg\"; done >>\"$LANE_GC_FIXTURE/alerts\"\necho >>\"$LANE_GC_FIXTURE/alerts\"\n");
         rig.stub(
             "north",
-            "#!/bin/sh\ncase \"$1 $2\" in\n\"fleet list\") cat \"$FLEET_TEST_FILE\" ;;\n\"fleet send\") [ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1; printf '%s\\n' \"$*\" >>\"$FLEET_TEST_SENDS\" ;;\n*) exit 1 ;;\nesac\n",
+            "case \"$1 $2\" in\n\"fleet list\") cat \"$FLEET_TEST_FILE\" ;;\n\"fleet send\") [ ! -e \"$LANE_GC_FIXTURE/ping-fault\" ] || exit 1; printf '%s\\n' \"$*\" >>\"$FLEET_TEST_SENDS\" ;;\n*) exit 1 ;;\nesac\n",
         );
         rig
     }
@@ -111,9 +110,9 @@ fn write(path: &Path, text: &str) {
     fs::write(path, text).unwrap();
 }
 
-const PUSH_WRAPPER: &str = "#!/bin/sh\ncase \" $* \" in *\" remote get-url origin \"*) echo https://github.com/tompassarelli/north.git; exit 0 ;; esac\ncase \" $* \" in *\" push \"*)\n  printf '%s\\n' \"$*\" >>\"$LANE_GC_FIXTURE/pushes\"\n  for arg; do case \"$arg\" in :refs/heads/*) exit 0 ;; esac; done ;;\nesac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
+const PUSH_WRAPPER: &str = "case \" $* \" in *\" remote get-url origin \"*) echo https://github.com/tompassarelli/north.git; exit 0 ;; esac\ncase \" $* \" in *\" push \"*)\n  printf '%s\\n' \"$*\" >>\"$LANE_GC_FIXTURE/pushes\"\n  for arg; do case \"$arg\" in :refs/heads/*) exit 0 ;; esac; done ;;\nesac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
 
-const GH_REPLAY: &str = "#!/bin/sh\ndir=$LANE_GC_FIXTURE/gh\nfault=$(cat \"$LANE_GC_FIXTURE/api-fault\" 2>/dev/null)\n[ \"$fault\" = error ] && exit 1\ncase \"$2\" in\n  graphql) name=graphql ;;\n  *activity\\?*) name=activity ;;\n  */pulls\\?*) name=pulls ;;\n  */actions/runs\\?*) status=${2#*status=}; name=runs-${status%%&*} ;;\n  *) exit 1 ;;\nesac\n[ -n \"$fault\" ] && [ -e \"$dir/${name%%-*}.$fault.json\" ] && name=${name%%-*}.$fault\ncat \"$dir/$name.json\"\n";
+const GH_REPLAY: &str = "dir=$LANE_GC_FIXTURE/gh\nfault=$(cat \"$LANE_GC_FIXTURE/api-fault\" 2>/dev/null)\n[ \"$fault\" = error ] && exit 1\ncase \"$2\" in\n  graphql) name=graphql ;;\n  *activity\\?*) name=activity ;;\n  */pulls\\?*) name=pulls ;;\n  */actions/runs\\?*) status=${2#*status=}; name=runs-${status%%&*} ;;\n  *) exit 1 ;;\nesac\n[ -n \"$fault\" ] && [ -e \"$dir/${name%%-*}.$fault.json\" ] && name=${name%%-*}.$fault\ncat \"$dir/$name.json\"\n";
 
 fn landing_facts(rig: &Rig, main: &Path) -> Vec<(String, String)> {
     let listed = rig.git(main, &["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/claude/"]);
@@ -234,7 +233,7 @@ fn an_orphan_landing_ref_is_pinged_held_through_grace_and_archived_to_the_mirror
     }
 }
 
-const ARCHIVE_FAULT_WRAPPER: &str = "#!/bin/sh\nfor last; do :; done\ncase \" $* \" in *\" ls-remote origin refs/tags/archive/\"*)\n  if [ -f \"$LANE_GC_FIXTURE/remote-fault\" ]; then\n    case $(cat \"$LANE_GC_FIXTURE/remote-fault\") in\n      missing) exit 0 ;;\n      unavailable) exit 1 ;;\n      mismatch) printf '%s\\t%s\\n' 0000000000000000000000000000000000000000 \"$last\"; exit 0 ;;\n    esac\n  fi ;;\nesac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
+const ARCHIVE_FAULT_WRAPPER: &str = "for last; do :; done\ncase \" $* \" in *\" ls-remote origin refs/tags/archive/\"*)\n  if [ -f \"$LANE_GC_FIXTURE/remote-fault\" ]; then\n    case $(cat \"$LANE_GC_FIXTURE/remote-fault\") in\n      missing) exit 0 ;;\n      unavailable) exit 1 ;;\n      mismatch) printf '%s\\t%s\\n' 0000000000000000000000000000000000000000 \"$last\"; exit 0 ;;\n    esac\n  fi ;;\nesac\nexec \"$LANE_GC_REAL_GIT\" \"$@\"\n";
 
 struct Classified {
     rig: Rig,
@@ -276,7 +275,7 @@ impl Classified {
     fn new(root: &Path) -> Self {
         let rig = Rig::new(root, &root.join("home"));
         rig.fleet(&[("north-parent", None, "north"), ("north-worker", Some("north-parent"), "north"), ("scratch-parent", None, "galileo"), ("scratch-worker", Some("scratch-parent"), "galileo")]);
-        rig.stub("gh", "#!/bin/sh\ncase \"$*\" in\n\"issue view 5 -R tompassarelli/north --json state -q .state\") echo CLOSED ;;\n\"issue view 6 -R tompassarelli/north --json state -q .state\") echo OPEN ;;\n*) exit 1 ;;\nesac\n");
+        rig.stub("gh", "case \"$*\" in\n\"issue view 5 -R tompassarelli/north --json state -q .state\") echo CLOSED ;;\n\"issue view 6 -R tompassarelli/north --json state -q .state\") echo OPEN ;;\n*) exit 1 ;;\nesac\n");
         let main = Self::project(&rig, "north");
         Self::lane(&rig, &main, "equiv", Some("equiv change"));
         write(&main.join("other.txt"), "other\n");
@@ -364,7 +363,7 @@ fn a_lane_whose_archive_tag_github_declines_for_email_privacy_retires_to_the_mir
     let scratch = tempfile::tempdir().unwrap();
     let fixture = Classified::new(scratch.path());
     let (rig, main) = (&fixture.rig, &fixture.main);
-    executable(&fixture.origin.join("hooks/pre-receive"), "#!/bin/sh\nwhile read -r old new ref; do case \"$ref\" in refs/tags/*) echo 'push declined due to email privacy restrictions' >&2; exit 1 ;; esac; done\n");
+    executable(&fixture.origin.join("hooks/pre-receive"), "while read -r old new ref; do case \"$ref\" in refs/tags/*) echo 'push declined due to email privacy restrictions' >&2; exit 1 ;; esac; done\n");
     let out = fixture.run(&[]);
     let sup = &fixture.tips[1];
     assert!(!rig.home.join("code/north/worktrees/sup").exists() && !rig.git_ok(main, &["rev-parse", "-q", "--verify", "refs/heads/sup"]), "{out}");
@@ -395,7 +394,7 @@ fn each_lane_class_retires_behind_a_verified_archive_tag_and_owned_work_stays_re
     assert_eq!(rig.git(main, &["tag", "-l", "archive/*"]), format!("archive/north/equiv/{}", &fixture.legacy[..12]));
 
     let hook = fixture.origin.join("hooks/pre-receive");
-    executable(&hook, "#!/bin/sh\nwhile read -r old new ref; do case \"$ref\" in refs/tags/*) exit 1 ;; esac; done\n");
+    executable(&hook, "while read -r old new ref; do case \"$ref\" in refs/tags/*) exit 1 ;; esac; done\n");
     fixture.fault(Some("missing"));
     let sup_short = rig.git(main, &["rev-parse", "--short=12", "sup"]);
     let conflict = format!("archive/north/sup/{sup_short}");

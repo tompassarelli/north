@@ -1,10 +1,10 @@
+use north_core::foundation::shim;
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-const SSH: &str = "#!/bin/sh\nfor last; do :; done\nprintf '%s\\n' \"$last\" >> \"$HOME/ssh.log\"\ncase \"$last\" in *ingest) cat >/dev/null; exit 75 ;; esac\nexit 0\n";
+const SSH: &str = "for last; do :; done\nprintf '%s\\n' \"$last\" >> \"$HOME/ssh.log\"\ncase \"$last\" in *ingest) cat >/dev/null; exit 75 ;; esac\nexit 0\n";
 
 fn threads(root: &Path, args: &[&str], stdin: &[u8]) -> std::process::Output {
     let path = format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default());
@@ -30,8 +30,7 @@ fn a_busy_ledger_host_spools_the_python_sender_batch_and_other_commands_still_re
     fs::create_dir_all(root.join("bin")).unwrap();
     fs::create_dir_all(root.join(".config/threads")).unwrap();
     fs::write(root.join(".config/threads/remote"), "nexus\n").unwrap();
-    fs::write(root.join("bin/ssh"), SSH).unwrap();
-    fs::set_permissions(root.join("bin/ssh"), fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&root.join("bin/ssh"), SSH);
     let spool = root.join(".local/state/threads/spool");
     let queued = || fs::read_dir(&spool).unwrap().filter_map(|entry| entry.ok()?.path().extension()?.to_str().map(str::to_owned)).collect::<Vec<_>>();
 

@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -46,14 +46,12 @@ impl Scenario {
         let tools = fixture.path().join("tools");
         fs::create_dir(&tools).unwrap();
         let gh = tools.join("gh");
-        fs::write(
+        shim::write_script(
             &gh,
-            format!(
-                "#!/bin/sh\ncase \"$1\" in api) printf '{autoland_status}\\n';; run) printf '[]\\n';; *) exit 1;; esac\n"
+            &format!(
+                "case \"$1\" in api) printf '{autoland_status}\\n';; run) printf '[]\\n';; *) exit 1;; esac\n"
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let mut paths = vec![tools];
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
         Self {

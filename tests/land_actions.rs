@@ -1,10 +1,9 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const FAKE_GH: &str = r#"#!/bin/sh
-state=$FAKE_GH_STATE
+const FAKE_GH: &str = r#"state=$FAKE_GH_STATE
 case "$1 $2" in
   "workflow run")
     shift 3
@@ -27,8 +26,7 @@ case "$1 $2" in
 esac
 "#;
 
-const FAKE_NORTH: &str = r#"#!/bin/sh
-state=$FAKE_GH_STATE
+const FAKE_NORTH: &str = r#"state=$FAKE_GH_STATE
 case "$1 $2" in
   "capacity offload")
     printf '%s\n' "$*" >>"$state/offload"
@@ -61,8 +59,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 }
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(path, body);
 }
 
 struct Landing {
@@ -96,7 +93,7 @@ impl Landing {
         git(&repo, &["push", "-q", "origin", "main"]);
         git(&repo, &["switch", "-qc", "lane"]);
         executable(&tools.join("gh"), FAKE_GH);
-        executable(&tools.join("gitleaks"), "#!/bin/sh\nexit 0\n");
+        executable(&tools.join("gitleaks"), "exit 0\n");
         executable(&tools.join("north"), FAKE_NORTH);
         git(&root, &["clone", "-q", origin.to_str().unwrap(), "fixer"]);
         git(&root.join("fixer"), &["config", "user.name", "Fixer"]);

@@ -1,5 +1,6 @@
+use north_core::foundation::shim;
 use std::io::Read;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -89,16 +90,13 @@ fn shims(copy: &Path, case: &Case) -> PathBuf {
     let bin = copy.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
-    std::fs::write(bin.join("gh"), format!("#!/bin/sh\nprintf '%s\\n' {}\n", case.visibility)).unwrap();
-    std::fs::set_permissions(bin.join("gh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&bin.join("gh"), &format!("printf '%s\\n' {}\n", case.visibility));
     if case.cancel == Some("scan") {
-        std::fs::write(bin.join("gitleaks"), "#!/bin/sh\nkill -TERM $PPID\nsleep 5\n").unwrap();
-        std::fs::set_permissions(bin.join("gitleaks"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        shim::write_script(&bin.join("gitleaks"), "kill -TERM $PPID\nsleep 5\n");
     }
     if case.cancel == Some("push") {
         let hook = copy.join("repo/.git/hooks/pre-push");
-        std::fs::write(&hook, "#!/bin/sh\nkill -TERM $(ps -o ppid= -p $PPID)\nsleep 1\n").unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        shim::write_script(&hook, "kill -TERM $(ps -o ppid= -p $PPID)\nsleep 1\n");
     }
     bin
 }
@@ -336,8 +334,7 @@ fn bin_safe_push_refuses_a_tag_when_the_north_runtime_lacks_safe_push() {
     let copy = fixture.copy("stale");
     let stale = copy.join("stale-bin");
     std::fs::create_dir_all(&stale).unwrap();
-    std::fs::write(stale.join("north"), "#!/bin/sh\nexit 2\n").unwrap();
-    std::fs::set_permissions(stale.join("north"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&stale.join("north"), "exit 2\n");
     let before = git(&copy.join("remote.git"), &["for-each-ref"]);
     let output = Command::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push"))
         .args(["--tag", "release-stale"])

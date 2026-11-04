@@ -1,7 +1,7 @@
 mod support;
 
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -10,8 +10,7 @@ use serde_json::Value;
 const BRIEF: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(path, body);
 }
 
 fn fixture(root: &Path, trace: &str) {
@@ -26,16 +25,16 @@ fn fixture(root: &Path, trace: &str) {
     let windows = serde_json::json!([{"window": "5h", "used_pct": 10.0, "burn_pct_h": 1.0, "resets_at": "2026-10-16T16:00:00Z"}]);
     fs::write(agents.join("usage-gate.json"), serde_json::json!({"claude": {"controls": {"claude:a": {"windows": windows}}}}).to_string()).unwrap();
     let setsid = Command::new("sh").args(["-c", "command -v setsid"]).output().unwrap();
-    executable(&root.join("bin/setsid"), &format!("#!/bin/sh\nexec {} \"$@\"\n", String::from_utf8_lossy(&setsid.stdout).trim()));
+    executable(&root.join("bin/setsid"), &format!("exec {} \"$@\"\n", String::from_utf8_lossy(&setsid.stdout).trim()));
     executable(
         &root.join("bin/systemd-run"),
-        "#!/bin/sh\ncase \" $* \" in *' --scope '*) ;; *)\n  for a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\n  while [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\n  shift\n  setsid \"$@\" < /dev/null > /dev/null 2>&1 &\n  echo $! > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\n  exit 0;;\nesac\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n",
+        "case \" $* \" in *' --scope '*) ;; *)\n  for a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\n  while [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\n  shift\n  setsid \"$@\" < /dev/null > /dev/null 2>&1 &\n  echo $! > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\n  exit 0;;\nesac\nwhile [ \"$1\" != -- ]; do [ \"$1\" = --unit ] && unit=$2; shift; done\nshift\necho $$ > \"$FLEET_LAUNCH_FIXTURE/units/$unit\"\nexec \"$@\"\n",
     );
     executable(
         &root.join("bin/systemctl"),
-        "#!/bin/sh\nfor a; do last=$a; done\nunit=\"$FLEET_LAUNCH_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' --user stop '*)\n    [ -f \"$unit\" ] || { echo \"Failed to stop $last: Unit $last not loaded.\" >&2; exit 5; }\n    kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null\n    rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
+        "for a; do last=$a; done\nunit=\"$FLEET_LAUNCH_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' --user stop '*)\n    [ -f \"$unit\" ] || { echo \"Failed to stop $last: Unit $last not loaded.\" >&2; exit 5; }\n    kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null\n    rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
     );
-    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nexec {} --trace {trace} \"$@\"\n", support::fake_claude()));
+    executable(&root.join("bin/claude"), &format!("exec {} --trace {trace} \"$@\"\n", support::fake_claude()));
     std::os::unix::fs::symlink(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/threads"), root.join("bin/threads")).unwrap();
     let ledger = north(root, &["threads", "release", "north#1", "--by", "setup"]);
     assert!(String::from_utf8_lossy(&ledger.stderr).contains("has no owner"), "{}", String::from_utf8_lossy(&ledger.stderr));
@@ -194,7 +193,7 @@ fn a_launch_whose_cwd_names_another_machine_runs_there_on_a_label_only_that_mach
     let declared = fs::read_to_string(&policy).unwrap() + "[hosts.far]\nssh = \"far\"\nresident_cap = 4\nserves = []\n[accounts.claude]\nprofiles = { a = { far = {} } }\n";
     fs::write(&policy, declared).unwrap();
     fs::write(root.join("placement-hosts.json"), serde_json::json!({"far": {"online": true, "live": 0, "accounts": ["a"]}}).to_string()).unwrap();
-    executable(&root.join("bin/ssh"), "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec sh -c \"$*\"\n");
+    executable(&root.join("bin/ssh"), "while [ \"$1\" != -- ]; do shift; done\nshift\nexec sh -c \"$*\"\n");
     let checkout = root.join("far-checkout");
     fs::create_dir_all(&checkout).unwrap();
     let brief = root.join("box.md");
@@ -363,7 +362,7 @@ fn a_task_launch_starts_on_the_tier_its_briefs_category_earns_and_a_different_mo
     assert!(overridden["placement"].as_str().unwrap_or_default().contains("tier: the cause spans two engines"), "{overridden}");
 }
 
-const FAKE_GH: &str = "#!/bin/sh\ncase \"$*\" in\n  *\"state createdAt\"*) printf '{\"data\":{\"r0\":{\"i4\":{\"state\":\"OPEN\",\"createdAt\":\"2026-01-02T00:00:00Z\"}}}}\\n' ;;\n  *) echo '[]' ;;\nesac\n";
+const FAKE_GH: &str = "case \"$*\" in\n  *\"state createdAt\"*) printf '{\"data\":{\"r0\":{\"i4\":{\"state\":\"OPEN\",\"createdAt\":\"2026-01-02T00:00:00Z\"}}}}\\n' ;;\n  *) echo '[]' ;;\nesac\n";
 
 fn held_by_name(root: &Path) -> Vec<String> {
     let listed = north(root, &["threads", "list", "--json"]);
@@ -399,7 +398,7 @@ fn a_task_launch_holds_its_item_in_the_threads_ledger_under_the_session_name_unt
     assert!(after.is_empty(), "{after:?}");
 }
 
-const SSH_TO_FAR: &str = "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nHOME=\"$FAR_HOME\" XDG_STATE_HOME=\"$FAR_HOME/.local/state\" exec sh -c \"$1\"\n";
+const SSH_TO_FAR: &str = "while [ \"$1\" != -- ]; do shift; done\nshift\nHOME=\"$FAR_HOME\" XDG_STATE_HOME=\"$FAR_HOME/.local/state\" exec sh -c \"$1\"\n";
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
@@ -578,7 +577,7 @@ fn a_message_sent_right_after_reviving_a_parked_session_shows_it_working_at_once
         listed.as_array().into_iter().flatten().find(|session| session["name"] == "kid").map(|session| session["status"].to_string()).unwrap_or_default()
     };
     until("the worker parked", || status() == r#""parked""#);
-    executable(&root.join("bin/claude"), &format!("#!/bin/sh\nFAKE_CLAUDE_HOOK_MS=5000 exec {} --trace slow-hooks \"$@\"\n", support::fake_claude()));
+    executable(&root.join("bin/claude"), &format!("FAKE_CLAUDE_HOOK_MS=5000 exec {} --trace slow-hooks \"$@\"\n", support::fake_claude()));
 
     let revived = north(root, &["fleet", "revive", "kid"]);
     let sent = north(root, &["fleet", "send", "kid", "resume from your handoff"]);
@@ -774,7 +773,7 @@ fn a_gate_answered_from_inside_the_parent_session_is_closed_by_that_session_and_
 
 fn per_session_claude(root: &Path, traces: &[(&str, &str)]) {
     let arms: String = traces.iter().map(|(name, trace)| format!("{name}) trace={trace};; ")).collect();
-    executable(&root.join("bin/claude"), &format!("#!/bin/sh\ncase \"$NORTH_FLEET_SESSION\" in {arms}*) trace=idle-interrupt;; esac\nexec {} --trace \"$trace\" \"$@\"\n", support::fake_claude()));
+    executable(&root.join("bin/claude"), &format!("case \"$NORTH_FLEET_SESSION\" in {arms}*) trace=idle-interrupt;; esac\nexec {} --trace \"$trace\" \"$@\"\n", support::fake_claude()));
 }
 
 fn stream_modified(root: &Path, name: &str) -> std::time::SystemTime {

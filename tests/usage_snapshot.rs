@@ -1,12 +1,11 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use rusqlite::Connection;
 
-const FAKE_SSH: &str = r#"#!/bin/sh
-for a; do last=$a; done
+const FAKE_SSH: &str = r#"for a; do last=$a; done
 [ "$last" = "north threads snapshot-pages" ] || exit 97
 echo refresh >>"$SCRATCH/trace"
 if [ -n "$BAD_STREAM" ]; then printf 'SQLite format 3\0'; head -c 600 /dev/zero | tr '\0' x; exit 0; fi
@@ -25,8 +24,7 @@ impl Rig {
         for directory in ["bin", ".config/threads", ".local/state/threads", "state", "op"] {
             fs::create_dir_all(root.join(directory)).unwrap();
         }
-        fs::write(root.join("bin/ssh"), FAKE_SSH).unwrap();
-        fs::set_permissions(root.join("bin/ssh"), fs::Permissions::from_mode(0o755)).unwrap();
+        shim::write_script(&root.join("bin/ssh"), FAKE_SSH);
         fs::write(root.join(".config/threads/remote"), "far\n").unwrap();
         fs::write(root.join("orchestration.toml"), "").unwrap();
         let canonical = Connection::open(root.join("canonical.db")).unwrap();

@@ -1,12 +1,11 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
 const TOKEN: &str = "tok-secret-1";
 
-const FAKE_CLAUDE: &str = r#"#!/bin/sh
-[ "$1" = --version ] && { echo 9.9; exit 0; }
+const FAKE_CLAUDE: &str = r#"[ "$1" = --version ] && { echo 9.9; exit 0; }
 [ "$CLAUDE_CODE_OAUTH_TOKEN" = tok-secret-1 ] && { echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","model":"m"}'; exit 0; }
 echo '{"type":"result","subtype":"success","is_error":true,"result":"Not logged in - Please run /login","model":"m"}'
 exit 1
@@ -43,8 +42,7 @@ impl Replay {
         for id in ["a", "b"] {
             fs::write(replay.join(format!("{id}.json")), format!(r#"{{"id": "{id}", "prompt": "p", "detector": {{"kind": "regex", "pattern": "ok"}}}}"#)).unwrap();
         }
-        fs::write(root.join("bin/claude"), FAKE_CLAUDE).unwrap();
-        fs::set_permissions(root.join("bin/claude"), fs::Permissions::from_mode(0o755)).unwrap();
+        shim::write_script(&root.join("bin/claude"), FAKE_CLAUDE);
         Self { scratch }
     }
 

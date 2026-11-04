@@ -52,6 +52,7 @@ mod guard {
             let niri = p.join("bin/niri");
             std::fs::write(&niri, "#!/usr/bin/env bash\nprintf \"%s\\n\" \"$*\" >> \"$NIRI_LOG\"\ncase \"$*\" in \"msg -j focused-window\") printf \"%s\\n\" \"${NIRI_FOCUSED:-null}\";;\n\"msg -j windows\") [ -n \"${NIRI_WINDOWS:-}\" ] || exit 1; printf \"%s\\n\" \"$NIRI_WINDOWS\";;\n\"msg action focus-window --id 7\") [ -z \"${NIRI_CLOSED:-}\" ] || exit 1;; esac\n").unwrap();
             std::fs::set_permissions(&niri, std::fs::Permissions::from_mode(0o755)).unwrap();
+            north_core::foundation::shim::wait_until_executable(&niri);
             let private = p.join("run-user/private-desktop.fixture");
             for marker in ["active", "lifecycle-owned"] {
                 std::fs::write(private.join(marker), "").unwrap();

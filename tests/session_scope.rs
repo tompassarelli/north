@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -25,8 +25,7 @@ fn forget_waits_for_scope_cleanup_even_after_the_host_exits() {
     fs::create_dir_all(&session).unwrap();
     fs::create_dir(root.join("bin")).unwrap();
     let controller = root.join("bin/systemctl");
-    fs::write(&controller, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SCOPE_RECORDING/calls\"\nexit \"$(cat \"$SCOPE_RECORDING/exit\")\"\n").unwrap();
-    fs::set_permissions(&controller, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&controller, "printf '%s\\n' \"$*\" >> \"$SCOPE_RECORDING/calls\"\nexit \"$(cat \"$SCOPE_RECORDING/exit\")\"\n");
     fs::write(session.join("host.scope"), "north-session-recorded.scope").unwrap();
     fs::write(session.join("session.json"), serde_json::to_vec(&json!({
         "name": "recorded", "provider": "claude", "account": "fixture", "cwd": root,

@@ -1,8 +1,8 @@
 mod capacity_host;
 
+use north_core::foundation::shim;
 use capacity_host::{Exclusive, Host, SCOPE_SYSTEMCTL, Wrapper, exclusive, scope_systemd_run};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
@@ -15,15 +15,13 @@ fn host(prefix: &str, orchestration: &str) -> Host {
     fs::write(host.path("cgroup-self"), "0::/user.slice/user-1000.slice/session-1.scope\n").unwrap();
     let real = host.path("toolchain/cargo");
     fs::create_dir_all(real.parent().unwrap()).unwrap();
-    fs::write(&real, format!("#!/bin/sh\necho \"$CARGO_BUILD_JOBS $*\" >{}\n", host.path("built").display())).unwrap();
-    fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&real, &format!("echo \"$CARGO_BUILD_JOBS $*\" >{}\n", host.path("built").display()));
     let shim = host.path("shims/cargo");
     fs::create_dir_all(shim.parent().unwrap()).unwrap();
     fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/cargo"), &shim).unwrap();
     fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/nix"), host.path("shims/nix")).unwrap();
     let nix = host.path("toolchain/nix");
-    fs::write(&nix, format!("#!/bin/sh\nwhile [ \"$1\" != --command ]; do shift; done\nshift\nPATH={}:$PATH exec \"$@\"\n", real.parent().unwrap().display())).unwrap();
-    fs::set_permissions(&nix, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&nix, &format!("while [ \"$1\" != --command ]; do shift; done\nshift\nPATH={}:$PATH exec \"$@\"\n", real.parent().unwrap().display()));
     host
 }
 
@@ -89,8 +87,7 @@ fn the_shim_runs_the_next_cargo_on_path_when_north_has_no_gate() {
     let host = host("capacity-gate-fallback-", LEASED_HOST);
     let stale = host.path("stale/north");
     fs::create_dir_all(stale.parent().unwrap()).unwrap();
-    fs::write(&stale, "#!/bin/sh\necho usage >&2\nexit 2\n").unwrap();
-    fs::set_permissions(&stale, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&stale, "echo usage >&2\nexit 2\n");
     let path = format!("{}:{}:{}:/run/current-system/sw/bin:/usr/bin:/bin", host.path("stale").display(), host.path("shims").display(), host.path("toolchain").display());
     let status = Command::new(host.path("shims/cargo")).arg("test").env("PATH", path).env_remove("CARGO_BUILD_JOBS").status_exclusive().unwrap();
     assert!(status.success());

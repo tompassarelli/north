@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -44,8 +44,7 @@ impl Scenario {
         proc(&base, 4001, 1, "claude", &[CLAUDE, "-p", "one shot"]);
         fs::write(root.path().join("fleet.json"), serde_json::to_string(&sessions).unwrap()).unwrap();
         let north = root.path().join("north");
-        fs::write(&north, "#!/bin/sh\n[ \"$*\" = \"fleet list --json\" ] || exit 2\ncat \"$(dirname \"$0\")/fleet.json\"\n").unwrap();
-        fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
+        shim::write_script(&north, "[ \"$*\" = \"fleet list --json\" ] || exit 2\ncat \"$(dirname \"$0\")/fleet.json\"\n");
         fs::write(root.path().join("orchestration.toml"), "[hosts.nexus]\nresident_cap = 6\n").unwrap();
         Self { root }
     }

@@ -1,5 +1,5 @@
+use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -28,8 +28,7 @@ fn recorded_run_history_reaches_the_join_steps_without_argv() {
     let root = scratch.path();
     fs::create_dir_all(root.join("bin")).unwrap();
     let north = root.join("bin/north");
-    fs::write(&north, "#!/bin/sh\nprintf '[]\\n'\n").unwrap();
-    fs::set_permissions(&north, fs::Permissions::from_mode(0o755)).unwrap();
+    shim::write_script(&north, "printf '[]\\n'\n");
     ledger(root);
     let insert = format!(
         "with recursive n(i) as (select 1 union all select i+1 from n where i<{RUNS}) \

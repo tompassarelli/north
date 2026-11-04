@@ -1,3 +1,4 @@
+use north_core::foundation::shim;
 use std::fs::{self, File};
 use std::path::Path;
 use std::process::{Command, Output};
@@ -18,8 +19,7 @@ fn lane_gc(scratch: &Path, now: SystemTime) -> Output {
     let stubs = scratch.join("stubs");
     fs::create_dir_all(&stubs).unwrap();
     let north = stubs.join("north");
-    fs::write(&north, "#!/bin/sh\necho '[]'\n").unwrap();
-    fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    shim::write_script(&north, "echo '[]'\n");
     let stamp = Command::new("date").args(["-u", "-d", &format!("@{}", now.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()), "+%FT%TZ"]).output().unwrap();
     Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["lane-gc", "--root"]).arg(scratch.join("code"))
