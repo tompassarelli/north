@@ -74,6 +74,12 @@ async fn next(lines: &mut Lines<BufReader<DuplexStream>>) -> String {
     tokio::time::timeout(WAIT, lines.next_line()).await.unwrap().unwrap().unwrap()
 }
 
+fn chunks(source: DuplexStream) -> mpsc::UnboundedReceiver<Vec<u8>> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    tokio::spawn(read_chunks(source, sender));
+    receiver
+}
+
 fn alive(pid: &str) -> bool {
     fs::read_to_string(Path::new("/proc").join(pid).join("stat")).is_ok_and(|stat| stat.rsplit_once(") ").is_some_and(|(_, rest)| !rest.starts_with('Z')))
 }
@@ -93,7 +99,7 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     let link = held(root.path(), &["sh", "-c", &cli], Vec::new());
     let (mut to_link, input) = tokio::io::duplex(4096);
     let (mut output, from_link) = tokio::io::duplex(4096);
-    let relay = tokio::spawn(async move { link.relay(input, &mut output, std::future::pending()).await });
+    let relay = tokio::spawn(async move { link.relay(chunks(input), &mut output, std::future::pending()).await });
     let mut lines = BufReader::new(from_link).lines();
 
     to_link.write_all(b"one\n").await.unwrap();
@@ -132,7 +138,7 @@ async fn the_held_cli_receives_every_argument_and_variable_verbatim_and_its_exit
     let link = held(root.path(), &["sh", "-c", probe, "sh", tricky], vec![("NORTH_REMOTE_PROBE".into(), tricky.into())]);
     let (_to_link, input) = tokio::io::duplex(64);
     let (mut output, mut from_link) = tokio::io::duplex(4096);
-    let code = tokio::time::timeout(WAIT, link.relay(input, &mut output, std::future::pending())).await.unwrap().unwrap();
+    let code = tokio::time::timeout(WAIT, link.relay(chunks(input), &mut output, std::future::pending())).await.unwrap().unwrap();
     drop(output);
     let mut printed = String::new();
     from_link.read_to_string(&mut printed).await.unwrap();

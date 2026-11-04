@@ -133,10 +133,8 @@ impl Link {
             .collect()
     }
 
-    pub async fn relay(&self, input: impl AsyncRead + Unpin + Send + 'static, output: &mut (impl AsyncWrite + Unpin), stop: impl Future<Output = ()>) -> NorthResult<u8> {
-        let (sender, receiver) = mpsc::unbounded_channel();
-        tokio::spawn(read_chunks(input, sender));
-        let mut stream = Stream { unsent: Unsent::default(), received: 0, input: receiver, output };
+    pub async fn relay(&self, input: mpsc::UnboundedReceiver<Vec<u8>>, output: &mut (impl AsyncWrite + Unpin), stop: impl Future<Output = ()>) -> NorthResult<u8> {
+        let mut stream = Stream { unsent: Unsent::default(), received: 0, input, output };
         tokio::pin!(stop);
         let (mut launched, mut retry) = (false, RETRY_FIRST);
         loop {
@@ -262,7 +260,7 @@ pub async fn run(arguments: &[String]) -> NorthResult<u8> {
     let stop = async move {
         term.recv().await;
     };
-    link.relay(tokio::io::stdin(), &mut tokio::io::stdout(), stop).await
+    link.relay(stdin_chunks(), &mut tokio::io::stdout(), stop).await
 }
 
 fn parse_header(line: &str) -> Option<(u64, Header)> {
@@ -283,6 +281,21 @@ fn forward(mut stdin: ChildStdin) -> mpsc::UnboundedSender<Vec<u8>> {
         }
     });
     sender
+}
+
+// tokio::io::stdin blocks runtime shutdown on its read, and the host never closes this pipe.
+fn stdin_chunks() -> mpsc::UnboundedReceiver<Vec<u8>> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    std::thread::spawn(move || {
+        let mut chunk = vec![0; 64 * 1024];
+        let mut stdin = std::io::stdin().lock();
+        while let Ok(read @ 1..) = std::io::Read::read(&mut stdin, &mut chunk) {
+            if sender.send(chunk[..read].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    receiver
 }
 
 async fn read_chunks(mut source: impl AsyncRead + Unpin, sink: mpsc::UnboundedSender<Vec<u8>>) {
