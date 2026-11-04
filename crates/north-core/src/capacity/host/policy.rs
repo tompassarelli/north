@@ -82,6 +82,12 @@ pub fn resource_class(kind: &str, cores: f64) -> Option<Resources> {
     Some(Resources { cpus, memory_mib })
 }
 
+pub fn landing_check(cores: f64) -> Resources {
+    let critical = resource_class("critical", cores).unwrap_or(Resources { cpus: cores, memory_mib: 16384.0 });
+    let heavy = resource_class("heavy", cores).map_or(critical.cpus, |heavy| heavy.cpus);
+    Resources { cpus: critical.cpus.max(heavy), ..critical }
+}
+
 pub fn measured_request(kind: &str, cores: f64, memory_gib: Option<f64>, cpus: Option<f64>) -> Result<Resources, &'static str> {
     let mut resources = resource_class(kind, cores).ok_or("Unknown resource class")?;
     if let Some(memory_gib) = memory_gib {

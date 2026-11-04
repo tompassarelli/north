@@ -570,3 +570,20 @@ fn a_one_core_host_admits_against_one_cpu_not_zero() {
     assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 1), 1.0);
     assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 24), 20.0);
 }
+
+#[test]
+fn a_land_check_on_a_twenty_core_host_starts_ahead_of_a_queued_heavy_build_beside_running_ones() {
+    let gex45 = |class| Facts {
+        cores: 20,
+        requested_cpus: 16.0,
+        leased_batch_cpus: 12.0,
+        cpu_some_avg10_basis_points: 1000,
+        cpu_pressure_measured: true,
+        leases: vec![running("heavy"); 2],
+        queued_ahead: 1,
+        queued_ahead_tickets: tickets(&[Class::Heavy]),
+        ..facts(class)
+    };
+    assert_eq!(decide(&gex45(Class::Critical)), Reason::Run, "the land check passes the queued worker build");
+    assert_eq!(decide(&Facts { requested_cpus: 6.0, ..gex45(Class::Heavy) }), Reason::DeferQueued, "the worker build behind it keeps its place");
+}

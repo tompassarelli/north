@@ -37,3 +37,39 @@ fn only_runs_of_batch_classes_are_landing() {
     assert!(!landing_run("session", "land-check", "heavy", Some("abc"), None));
     assert!(!landing_run("run", "land-check", "light", Some("abc"), None));
 }
+
+fn landing_cpus(class: &str, owner: &str, cores: f64) -> (f64, Option<f64>) {
+    let mut request = Request { name: class.to_owned(), resources: super::policy::resource_class(class, cores), landing: landing_run("run", owner, class, Some("abc"), Some("1")), ..Request::default() };
+    super::size_landing(&mut request, cores);
+    let charged = request.resources().cpus;
+    (charged, super::policy::scope_cpu_quota(request.admitted_class(), charged, request.declared.map(|declared| declared.cpus)))
+}
+
+#[test]
+fn a_land_check_on_a_twenty_core_build_host_gets_the_host_less_the_reserve() {
+    assert_eq!(landing_cpus("moderate", "land-check", 20.0), (16.0, Some(16.0)));
+    assert_eq!(landing_cpus("heavy", "gate:session-1", 20.0), (16.0, Some(16.0)));
+    assert_eq!(landing_cpus("moderate", "land-check", 24.0), (20.0, Some(20.0)));
+}
+
+#[test]
+fn a_land_check_never_gets_fewer_cores_than_a_heavy_build() {
+    assert_eq!(landing_cpus("moderate", "land-check", 9.0).0, 6.0);
+    assert_eq!(landing_cpus("moderate", "land-check", 10.0).0, 6.0);
+    assert_eq!(landing_cpus("moderate", "land-check", 4.0).0, 4.0);
+}
+
+#[test]
+fn a_worker_build_keeps_its_class_cores() {
+    assert_eq!(landing_cpus("heavy", "worker", 20.0), (6.0, Some(6.0)));
+    assert_eq!(landing_cpus("moderate", "worker", 20.0), (2.0, Some(2.0)));
+}
+
+#[test]
+fn a_land_check_keeps_the_memory_it_is_charged_and_declares_the_critical_ceiling() {
+    let charged = super::policy::Resources { cpus: 2.0, memory_mib: 2460.0 };
+    let mut request = Request { name: "moderate".to_owned(), resources: Some(charged), landing: landing_run("run", "land-check", "moderate", Some("abc"), None), ..Request::default() };
+    super::size_landing(&mut request, 20.0);
+    assert_eq!(request.resources(), super::policy::Resources { cpus: 16.0, memory_mib: 2460.0 });
+    assert_eq!(request.declared, Some(super::policy::Resources { cpus: 16.0, memory_mib: 16384.0 }));
+}

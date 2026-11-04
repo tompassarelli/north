@@ -63,6 +63,7 @@ impl Fixture {
     }
 }
 
+#[derive(Clone, Copy)]
 struct Case<'a> {
     arguments: &'a [&'a str],
     visibility: &'a str,
@@ -92,7 +93,7 @@ fn shims(copy: &Path, case: &Case) -> PathBuf {
     symlink(env!("CARGO_BIN_EXE_north"), bin.join("north")).unwrap();
     shim::write_script(&bin.join("gh"), &format!("printf '%s\\n' {}\n", case.visibility));
     if case.cancel == Some("scan") {
-        shim::write_script(&bin.join("gitleaks"), "kill -TERM $PPID\nsleep 5\n");
+        shim::write_script(&bin.join("gitleaks"), "kill -TERM $PPID\nsleep 1\n");
     }
     if case.cancel == Some("push") {
         let hook = copy.join("repo/.git/hooks/pre-push");
@@ -209,11 +210,28 @@ fn plain(line: &str) -> String {
     plain
 }
 
-fn both_entries(fixture: &Fixture, case: &Case) -> Observed {
+struct Staged<'a> {
+    case: Case<'a>,
+    script: PathBuf,
+    binary: PathBuf,
+}
+
+fn stage<'a>(fixture: &Fixture, case: Case<'a>) -> Staged<'a> {
     let label = case.arguments.join("_").replace(['-', '/'], "");
+    Staged { case, script: fixture.copy(&format!("script{label}")), binary: fixture.copy(&format!("binary{label}")) }
+}
+
+fn all_entries(staged: &[Staged]) -> Vec<Observed> {
     let entry = Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/safe-push");
-    let script = run(&fixture.copy(&format!("script{label}")), &[entry.to_str().unwrap()], case);
-    let binary = run(&fixture.copy(&format!("binary{label}")), &[env!("CARGO_BIN_EXE_north"), "safe-push"], case);
+    let script_program = [entry.to_str().unwrap()];
+    let binary_program = [env!("CARGO_BIN_EXE_north"), "safe-push"];
+    std::thread::scope(|scope| {
+        let runs: Vec<_> = staged.iter().map(|staged| (scope.spawn(|| run(&staged.script, &script_program, &staged.case)), scope.spawn(|| run(&staged.binary, &binary_program, &staged.case)))).collect();
+        runs.into_iter().zip(staged).map(|((script, binary), staged)| compare(script.join().unwrap(), binary.join().unwrap(), &staged.case)).collect()
+    })
+}
+
+fn compare(script: Observed, binary: Observed, case: &Case) -> Observed {
     assert_eq!(script.status, binary.status, "exit code differs for {:?}\nbin/safe-push: {script:#?}\nnorth safe-push: {binary:#?}", case.arguments);
     assert_eq!(script.stdout, binary.stdout, "stdout differs for {:?}", case.arguments);
     assert_eq!(script.stderr, binary.stderr, "stderr differs for {:?}", case.arguments);
@@ -233,20 +251,32 @@ fn safe_push_tag_publishes_clean_fixtures_through_either_entry() {
     tag(&fixture.repo(), "release-outgoing", "release annotation");
     git(&fixture.repo(), &["tag", "-a", "release-published", "-m", "published release", "origin/main"]);
 
-    let cancelled = both_entries(&fixture, &Case { cancel: Some("scan"), ..Case::new(&["--tag", "release-outgoing"]) });
+    let fallback = Case {
+        environment: &[("SAFE_PUSH_SOUTH", ""), ("SAFE_PUSH_DENYLIST", ""), ("HOME", "/nonexistent-safe-push-home")],
+        ..Case::new(&["--dry-run", "--tag", "release-outgoing"])
+    };
+    let cases = [
+        Case { cancel: Some("scan"), ..Case::new(&["--tag", "release-outgoing"]) },
+        Case { cancel: Some("push"), ..Case::new(&["--tag", "release-outgoing"]) },
+        Case::new(&["--dry-run", "--tag", "release-outgoing"]),
+        Case::new(&["--tag", "release-outgoing"]),
+        Case::new(&["--tag", "release-published"]),
+        fallback,
+        Case { visibility: "PRIVATE", denylist: true, ..Case::new(&["--tag", "release-outgoing"]) },
+    ];
+    let staged: Vec<Staged> = cases.into_iter().map(|case| stage(&fixture, case)).collect();
+    let [cancelled, pushing, dry, outgoing, already, fallback, private]: [Observed; 7] = all_entries(&staged).try_into().unwrap();
+
     assert_eq!(cancelled.status, 130, "{cancelled:#?}");
     assert!(cancelled.scratch_refs.is_empty() && !published(&cancelled, &fixture, "release-outgoing"), "{cancelled:#?}");
 
-    let pushing = both_entries(&fixture, &Case { cancel: Some("push"), ..Case::new(&["--tag", "release-outgoing"]) });
     assert_eq!(pushing.status, 130, "{pushing:#?}");
     assert!(pushing.scratch_refs.is_empty() && published(&pushing, &fixture, "release-outgoing"), "{pushing:#?}");
 
-    let dry = both_entries(&fixture, &Case::new(&["--dry-run", "--tag", "release-outgoing"]));
     assert_eq!(dry.status, 0, "{dry:#?}");
     assert!(dry.stdout.contains("would push tag release-outgoing -> origin"), "{dry:#?}");
     assert!(!published(&dry, &fixture, "release-outgoing"));
 
-    let outgoing = both_entries(&fixture, &Case::new(&["--tag", "release-outgoing"]));
     assert_eq!(outgoing.status, 0, "{outgoing:#?}");
     assert!(published(&outgoing, &fixture, "release-outgoing"), "{outgoing:#?}");
     let main = git(&fixture.repo(), &["rev-parse", "origin/main"]);
@@ -254,34 +284,31 @@ fn safe_push_tag_publishes_clean_fixtures_through_either_entry() {
     let heads: Vec<&str> = outgoing.remote.lines().filter_map(|line| line.split_once(' ')).map(|(name, _)| name).filter(|name| name.starts_with("refs/heads/")).collect();
     assert_eq!(heads, ["refs/heads/main", "refs/heads/other"], "tag publication created a remote branch");
 
-    let already = both_entries(&fixture, &Case::new(&["--tag", "release-published"]));
     assert_eq!(already.status, 0, "{already:#?}");
     assert!(published(&already, &fixture, "release-published"));
 
-    let fallback = Case {
-        environment: &[("SAFE_PUSH_SOUTH", ""), ("SAFE_PUSH_DENYLIST", ""), ("HOME", "/nonexistent-safe-push-home")],
-        ..Case::new(&["--dry-run", "--tag", "release-outgoing"])
-    };
-    let fallback = both_entries(&fixture, &fallback);
     assert!(fallback.stdout.contains("no south checkout at /nonexistent-safe-push-home/code/south"), "{fallback:#?}");
 
-    let private = Case { visibility: "PRIVATE", denylist: true, ..Case::new(&["--tag", "release-outgoing"]) };
-    assert_eq!(both_entries(&fixture, &private).status, 0);
+    assert_eq!(private.status, 0);
 }
 
 #[test]
 fn safe_push_tag_refuses_before_any_scan_through_either_entry() {
     let fixture = Fixture::new();
     git(&fixture.repo(), &["tag", "release-light"]);
-    for arguments in [&["--tag", "missing"][..], &["--tag", "release-light"], &["--wat"], &["--to", "main", "--tag", "x"], &["--help"]] {
-        let observed = both_entries(&fixture, &Case::new(arguments));
-        assert_eq!(observed.status != 0, arguments != ["--help"], "{arguments:?}: {observed:#?}");
-    }
-    let raw = Case { environment: &[("NORTH_NO_AUTOREAP", "1")], ..Case::new(&["--tag", "--dry-run"]) };
-    assert_eq!(both_entries(&fixture, &raw).status, 2);
+    let refusals = [&["--tag", "missing"][..], &["--tag", "release-light"], &["--wat"], &["--to", "main", "--tag", "x"], &["--help"]];
+    let mut staged: Vec<Staged> = refusals.iter().map(|arguments| stage(&fixture, Case::new(arguments))).collect();
+    staged.push(stage(&fixture, Case { environment: &[("NORTH_NO_AUTOREAP", "1")], ..Case::new(&["--tag", "--dry-run"]) }));
     git(&fixture.repo(), &["checkout", "-q", "--detach"]);
     tag(&fixture.repo(), "release-detached", "detached release");
-    let detached = both_entries(&fixture, &Case::new(&["--tag", "release-detached"]));
+    staged.push(stage(&fixture, Case::new(&["--tag", "release-detached"])));
+    let mut observed = all_entries(&staged);
+    let detached = observed.pop().unwrap();
+    let raw = observed.pop().unwrap();
+    for (arguments, observed) in refusals.iter().zip(observed) {
+        assert_eq!(observed.status != 0, *arguments != ["--help"], "{arguments:?}: {observed:#?}");
+    }
+    assert_eq!(raw.status, 2);
     assert!(detached.stdout.contains("detached HEAD"), "{detached:#?}");
 }
 
@@ -289,42 +316,43 @@ fn safe_push_tag_refuses_before_any_scan_through_either_entry() {
 fn safe_push_tag_refuses_failed_guards_through_either_entry() {
     let fixture = Fixture::new();
     let repo = fixture.repo();
-    let refused = |name: &str, case: &Case, expected: &str| {
-        let observed = both_entries(&fixture, case);
-        assert_eq!(observed.status, 1, "{name}: {observed:#?}");
-        assert!(format!("{}{}", observed.stdout, observed.stderr).contains(expected), "{name}: {observed:#?}");
-        assert!(!observed.remote.contains("refs/tags/"), "{name} published");
-    };
+    let mut refusals = Vec::new();
     git(&repo, &["checkout", "-q", "-b", "python", "main"]);
     commit(&repo, "new.py", "print('x')\n", "add python");
     tag(&repo, "release-python", "python release");
-    refused("language gate", &Case::new(&["--tag", "release-python"]), "language gate refused the landing");
+    refusals.push(("language gate", "language gate refused the landing", stage(&fixture, Case::new(&["--tag", "release-python"]))));
 
     git(&repo, &["checkout", "-q", "-b", "agents", "main"]);
     commit(&repo, "AGENTS.md", &"line\n".repeat(101), "long instructions");
     tag(&repo, "release-agents", "agents release");
-    refused("instruction limit", &Case::new(&["--tag", "release-agents"]), "AGENTS.md@");
+    refusals.push(("instruction limit", "AGENTS.md@", stage(&fixture, Case::new(&["--tag", "release-agents"]))));
 
     git(&repo, &["checkout", "-q", "-b", "carriage", "main"]);
     commit(&repo, "AGENTS.md", &"line\r".repeat(101), "long instructions split by carriage returns");
     tag(&repo, "release-carriage", "carriage release");
-    refused("carriage-return instruction limit", &Case::new(&["--tag", "release-carriage"]), "AGENTS.md@");
+    refusals.push(("carriage-return instruction limit", "AGENTS.md@", stage(&fixture, Case::new(&["--tag", "release-carriage"]))));
 
     git(&repo, &["checkout", "-q", "main"]);
     tag(&repo, "release-native", "closes life#12");
-    refused("native ref", &Case::new(&["--tag", "release-native"]), "native NorthThread item");
+    refusals.push(("native ref", "native NorthThread item", stage(&fixture, Case::new(&["--tag", "release-native"]))));
 
     tag(&repo, "release-owner", &format!("owner {PRIVATE_TERM}"));
     let owner = Case { denylist: true, ..Case::new(&["--tag", "release-owner"]) };
-    refused("deny-list", &owner, "fake-private-term in tag annotation");
+    refusals.push(("deny-list", "fake-private-term in tag annotation", stage(&fixture, owner)));
 
     tag(&repo, "release-token", &format!("token ghp_{}", "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5"));
-    refused("annotation secret", &Case::new(&["--tag", "release-token"]), "SECRET DETECTED in tag annotation");
+    refusals.push(("annotation secret", "SECRET DETECTED in tag annotation", stage(&fixture, Case::new(&["--tag", "release-token"]))));
 
     git(&repo, &["checkout", "-q", "-b", "email", "main"]);
     git(&repo, &["-c", "user.email=someone@private.example", "commit", "--allow-empty", "-qm", "private author"]);
     tag(&repo, "release-email", "email release");
-    refused("email", &Case::new(&["--tag", "release-email"]), "author email someone@private.example is not safe-push-test@example.invalid");
+    refusals.push(("email", "author email someone@private.example is not safe-push-test@example.invalid", stage(&fixture, Case::new(&["--tag", "release-email"]))));
+    let (labels, staged): (Vec<(&str, &str)>, Vec<Staged>) = refusals.into_iter().map(|(name, expected, staged)| ((name, expected), staged)).unzip();
+    for ((name, expected), observed) in labels.into_iter().zip(all_entries(&staged)) {
+        assert_eq!(observed.status, 1, "{name}: {observed:#?}");
+        assert!(format!("{}{}", observed.stdout, observed.stderr).contains(expected), "{name}: {observed:#?}");
+        assert!(!observed.remote.contains("refs/tags/"), "{name} published");
+    }
 }
 
 #[test]
