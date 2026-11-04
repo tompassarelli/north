@@ -285,7 +285,7 @@ fn actions_only_run_takes_no_lease() {
 
 #[test]
 fn lease_released_for_actions_wait() {
-    let local = "touch ../local-ran; [ -e ../held ] && touch ../local-held";
+    let local = "[ -e ../held ] && touch ../local-held; held=$?; touch ../local-ran; exit $held";
     let fixture = Fixture::new(&[
         ("land.workflow", "land-check.yml"),
         ("land.check", &format!("file.txt :: {local}")),
