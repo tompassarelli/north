@@ -25,6 +25,8 @@ mod git_invocation;
 mod git_tests;
 
 pub mod heavy_command;
+pub mod scratch_log;
+pub mod brief_skeleton;
 pub mod poll_loop;
 mod poll_loop_measured;
 pub mod session_kill;

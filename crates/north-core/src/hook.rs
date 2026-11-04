@@ -173,6 +173,7 @@ impl HookKind {
                 crate::guard::frozen_topics::evaluate,
                 crate::guard::poll_loop::evaluate,
                 crate::guard::heavy_command::evaluate,
+                crate::guard::scratch_log::evaluate,
                 crate::guard::session_kill::evaluate,
                 crate::guard::clipboard::evaluate,
                 crate::guard::worker_wait::evaluate,
