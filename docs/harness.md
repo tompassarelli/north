@@ -157,5 +157,7 @@ It runs the repository's pre-push hook to completion before it opens the push of
 
 After the push, CI runs on main ([.github/workflows/](../.github/workflows/)). When a run fails,
 the "Main is red" workflow re-runs the failed job once, and if the same step fails again after a
-green parent it reverts the culprit commits and reports on a "main is red" issue
-([harness/scripts/main-red.ts](../harness/scripts/main-red.ts)).
+green parent it pushes `claude/land-revert-<sha>` naming the failing cases and reports on a "main is red"
+issue ([harness/scripts/main-red.ts](../harness/scripts/main-red.ts)). The lander reverts, as a red-fix
+lane checked like any other, only the landed lane whose removal turns those cases green, and tells
+that lane's session ([crates/north-landing/src/land/sheriff.rs](../crates/north-landing/src/land/sheriff.rs)).

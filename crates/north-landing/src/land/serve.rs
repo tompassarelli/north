@@ -9,7 +9,7 @@ use super::checks::Verdict;
 use super::credential;
 use super::telemetry::Stages;
 use super::records::{self, Candidate, Decision};
-use super::{queue, red, speculate};
+use super::{queue, red, sheriff, speculate};
 
 const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
@@ -77,6 +77,9 @@ impl Lander {
         after::recover(self)?;
         for reason in self.pull_remote() {
             println!("north land: waiting: {reason}");
+        }
+        if let Err(error) = sheriff::patrol(self) {
+            println!("north land: waiting: sheriff: {error}");
         }
         loop {
             let queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;

@@ -11,6 +11,7 @@ pub mod records;
 pub mod red;
 pub mod refusal;
 pub mod serve;
+pub mod sheriff;
 pub mod slots;
 pub mod speculate;
 pub mod telemetry;

@@ -712,6 +712,16 @@ then S2b and S2c in parallel; then S3 and S4.
   land/red.rs. Done when: (1) a fixture where main's post-push suite fails on case X enqueues a
   red-fix revert ticket of only the lane whose removal turns X green, lands it ahead of the queue
   and messages the lane's author; (2) a failure that persists without the lane enqueues nothing.
+  Built 2026-11-04 (north#360): main-red.ts no longer pushes a revert; on a confirmed red after a
+  green parent it pushes `claude/land-revert-<head>`, a commit on the failing head whose message holds
+  the failing log lines, `Green-parent:` and `Main-red-run:`. Each lander round starts with
+  `land/sheriff.rs`: per request it reads main, and if main moved past the failing commit it reverts
+  nothing (the 86f9a63ec rule); otherwise it reruns the failing cases on main without each landed
+  lane, newest first, skipping reverts and lanes it already reverted, and queues a `Main-red:` red-fix
+  ticket for the first lane whose removal passes them, which sorts first and is checked like any
+  lane, and messages that lane's session. A failure that persists without every lane is recorded as
+  `environment` under the queue's `sheriff/` and nothing is queued. The request ref is deleted once
+  answered.
 - **S11 Remote enqueue, pulled by the lander.** Files land/{enqueue,lander,serve,queue}.rs. Pull, not
   push: writing tickets to the laptop over ssh would need a new inbound command on the laptop, while
   the laptop already reaches gex45 over ssh for build offloads (redesigned 2026-11-04). On a host

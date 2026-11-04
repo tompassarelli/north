@@ -160,7 +160,7 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/scripts/land-checks.test.sh | 83 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests of land-checks.sh selection; they move to cargo test |
 | harness/scripts/main-red.test.sh | 12 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | runner for main-red.test.ts |
 | harness/scripts/main-red.test.ts | 15 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun test |
-| harness/scripts/main-red.ts | 116 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun TS; run by workflow main-red.yml |
+| harness/scripts/main-red.ts | 112 | port: north#88 box "CI watchers to Rust" (family: watchers, north#85) | Bun TS; run by workflow main-red.yml |
 | harness/scripts/mutant-tests.sh | 57 | stay | 57-line CI glue that runs the mutant cargo slots |
 | harness/scripts/read-isolation-probe.sh | 51 | stay | 51-line manual probe that drives Claude Code tools under a config; no Rust caller, delete if unused for a month |
 | harness/scripts/rust-build-timings.sh | 47 | stay | 47-line cargo timing glue |

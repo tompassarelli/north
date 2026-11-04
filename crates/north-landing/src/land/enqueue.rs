@@ -50,7 +50,7 @@ fn default_branch(repo: &Path) -> String {
         .unwrap_or_else(|| "main".to_owned())
 }
 
-fn rfc3339(now: OffsetDateTime) -> String {
+pub(super) fn rfc3339(now: OffsetDateTime) -> String {
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         now.year(),

@@ -7,7 +7,7 @@ export interface Situation {
   attempt: number; conclusion: string | null; original: Job[]; confirmed: Job[]; previous?: { sha: string; conclusion: string | null };
   commits: Commit[]; onMain: boolean; head: string; tip: string; successor?: { status: string; conclusion: string | null };
 }
-export type Decision = { kind: "none" | "report" | "confirm" | "revert"; reason: string; step?: string; job?: number; shas?: string[] };
+export type Decision = { kind: "none" | "report" | "confirm" | "request"; reason: string; step?: string; job?: number; shas?: string[]; parent?: string };
 
 export function decide(s: Situation): Decision {
   if (s.conclusion === "cancelled" || s.conclusion === null) return { kind: "none", reason: "The run was cancelled or never concluded; nothing to revert" };
@@ -33,8 +33,11 @@ export function decide(s: Situation): Decision {
     parent = commit.sha;
   }
   if (parent !== s.head) return report("The landed range does not end at the failing commit");
-  return s.commits.length > 1 ? report(`The red range holds ${s.commits.length} landings, as a landing train pushes them; bisect it to the culprit instead of reverting them all`) : { kind: "revert", reason: "Same step failed twice after a green parent", step: name, shas: s.commits.map(c => c.sha) };
+  return { kind: "request", reason: `Same step failed twice after a green parent; the lander reverts the one of ${s.commits.length} landings whose removal turns the failing cases green`, step: name, job: job.id, shas: s.commits.map(c => c.sha), parent: s.previous.sha };
 }
+
+const FAILURE = /---- .* stdout ----|test .* \.\.\. FAILED|land check: \S+\.(sh|py) (exited|was killed)|\bFAIL:? /;
+export const revertRequest = (head: string, verdict: Decision, failed: string[], url: string): string => `Main red at ${head}\n\n${verdict.step}\n${failed.join("\n")}\n\nGreen-parent: ${verdict.parent}\nMain-red-run: ${url}`;
 
 function run(command: string, args: string[]): string {
   const result = Bun.spawnSync([command, ...args], { stdout: "pipe", stderr: "pipe", env: process.env });
@@ -94,18 +97,11 @@ export function sheriff(id: number): void {
   if (verdict.kind === "confirm") {
     report(existing, marker, `${detail}\nRequested one confirmation of job ${verdict.job}; a green confirmation is reported, never treated as a repaired run.`);
     gh("api", "--method", "POST", `${repo()}/actions/jobs/${verdict.job}/rerun`);
-  } else if (verdict.kind === "revert") {
-    try {
-      git("checkout", "-q", "-B", "sheriff", "origin/main");
-      for (const sha of verdict.shas!) git("revert", "--no-commit", sha);
-      git("-c", "core.hooksPath=/dev/null", "commit", "-m", `Revert confirmed main CI culprit\n\n${verdict.step}\n${ci.html_url}\n\nSheriff-Reverts: ${verdict.shas!.join(" ")}`);
-      git("push", "origin", "HEAD:refs/heads/main");
-      report(existing, marker, `${detail}\nReverted as ${git("rev-parse", "HEAD")}.`);
-    } catch (error) {
-      Bun.spawnSync(["git", "revert", "--abort"]);
-      report(existing, marker, `${detail}\nAutomatic revert failed: ${String(error)}`);
-      throw error;
-    }
+  } else if (verdict.kind === "request") {
+    const failed = gh("api", `${repo()}/actions/jobs/${verdict.job}/logs`).split("\n").filter(line => FAILURE.test(line)).slice(0, 200);
+    const request = git("commit-tree", `${ci.head_sha}^{tree}`, "-p", ci.head_sha, "-m", revertRequest(ci.head_sha, verdict, failed, ci.html_url));
+    git("push", "origin", `${request}:refs/heads/claude/land-revert-${ci.head_sha}`);
+    report(existing, marker, `${detail}\nAsked the lander to revert the culprit through the landing queue (claude/land-revert-${ci.head_sha}).`);
   } else if (verdict.kind === "report") report(existing, marker, detail);
 }
 
