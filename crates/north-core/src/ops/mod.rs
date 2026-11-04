@@ -33,6 +33,7 @@ pub mod runtime;
 pub mod tune;
 pub mod timers;
 pub mod usage_web_read;
+pub mod watch;
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {

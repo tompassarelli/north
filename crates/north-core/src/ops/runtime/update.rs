@@ -257,7 +257,11 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     let previous = fs::read_to_string(layout.build_seconds()).ok().and_then(|seconds| seconds.trim().parse().ok()).map(Duration::from_secs);
     let started = Instant::now();
     let wall = std::time::SystemTime::now();
-    let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok())?;
+    let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok()).inspect_err(|failure| {
+        if failure.code == SUPERSEDED {
+            note_abandoned(layout, target);
+        }
+    })?;
     if !status.success() {
         return Err(build_failure(target, status, cargo_ran(&built, wall)));
     }
@@ -291,6 +295,12 @@ fn capacity_helper() -> Result<PathBuf, Failure> {
         Some(skill_dir) if output.status.success() => Ok(skill_dir.join("scripts/machine-capacity.mjs")),
         _ => Err(failed(1, "agents path machine-capacity named no skill")),
     }
+}
+
+fn note_abandoned(layout: &Layout, target: &str) {
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+    let line = format!("{at} {target}\n");
+    let _ = fs::OpenOptions::new().create(true).append(true).open(layout.abandoned()).and_then(|mut journal| std::io::Write::write_all(&mut journal, line.as_bytes()));
 }
 
 fn install(from: &Path, to: &Path) -> std::io::Result<()> {

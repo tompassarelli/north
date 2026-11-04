@@ -914,3 +914,27 @@ source = "prior: one landing in five reworked is past the quality a retired land
 settles_when = { need = 100, count = "count_worker_runs", what = "judged first worker runs, so the per-repository weekly rework rate has a measured spread" }
 fallback = "with no landing found on main in 7 days the check passes"
 consumers = ["crates/north-core/src/threads/calibration/rework.rs"]
+
+[watch_waste_wait_seconds]
+value = 60
+unit = "seconds a capacity ticket or offload has waited past which the watch waste probe checks whether its host sits idle"
+source = "prior: admission settles in about 20 s and an offload takes a free slot within 2 s, so a minute of waiting beside idle cores is no settle window; on 2026-11-04 at 7:11 AM 14 laptop tickets waited while 8 of 24 cores were busy"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes in which work waited beside idle cores, so the waste thresholds can be checked against the waits Tom or a lead found by eye" }
+fallback = "none: the threshold is always read"
+consumers = ["crates/north-core/src/ops/watch/waste.rs"]
+
+[watch_waste_cpu_fraction]
+value = 0.7
+unit = "fraction of a host's cores in measured live use below which waiting work counts as waste"
+source = "prior: the queues found by eye on 2026-11-04 sat at a third of the laptop's cores and 8.35 of the 20-thread build host's threads, well under 70%"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes in which work waited beside idle cores, so the waste thresholds can be checked against the waits Tom or a lead found by eye" }
+fallback = "none: the threshold is always read"
+consumers = ["crates/north-core/src/ops/watch/waste.rs"]
+
+[watch_waste_memory_fraction]
+value = 0.25
+unit = "fraction of a host's memory available above which waiting work counts as waste"
+source = "prior: admission defers on memory as available memory nears its reserve, so a quarter of memory free rules memory out as the reason work waits; the 20-thread build host had 54 of 64 GB free on 2026-11-04"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes in which work waited beside idle cores, so the waste thresholds can be checked against the waits Tom or a lead found by eye" }
+fallback = "none: the threshold is always read"
+consumers = ["crates/north-core/src/ops/watch/waste.rs"]

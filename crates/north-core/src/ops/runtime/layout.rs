@@ -33,6 +33,10 @@ impl Layout {
         self.state.join("runtime-build-seconds")
     }
 
+    pub fn abandoned(&self) -> PathBuf {
+        self.state.join("runtime-abandoned")
+    }
+
     pub fn runtime(&self, sha: &str) -> PathBuf {
         self.runtimes().join(sha)
     }

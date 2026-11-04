@@ -30,6 +30,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("land-red-check", red_check::run),
     ("land-red-wait", red_check::wait),
     ("safe-push-result", super::safe_push_result::run),
+    ("watch", crate::ops::watch::run),
     ("safe-push", safe_push_tag::run),
     ("provenance", provenance::run),
     ("issue-box-lint", issue_box_lint::run),

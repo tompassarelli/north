@@ -75,6 +75,7 @@ Commands:
   laptop-runner                                 Take and run queued laptop and pool jobs while the laptop is available (timer)
   laptop-ntfy serve|notify|press open|close     Phone signals for the laptop state: button endpoint, daily window reminder
   agent-contain sweep [--dry-run]               Move agent children out of Tom's slices into agent-capacity.slice and freeze stray containers
+  watch --once                                  Run every work probe once (capacity queue and pressure, workers, waits, runtime-follow, host reachability) and print one line per alert
   job-watch run [--registry DIR] [--peers FILE] [--state FILE] [--dry-run]  Alert once when a registered scheduled job is overdue, and when it recovers
   model-watch [--alerts-only] [--topic T] [--sources FILE]  Snapshot public model, release and market sources, rank new candidates once on the plan, send the digest; --alerts-only sends location warnings
   model-watch news [--days N] [--noise ID|--more ID]  Show the last delivered watch digest or record feedback on an item
