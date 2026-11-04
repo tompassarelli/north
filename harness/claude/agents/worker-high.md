@@ -15,6 +15,7 @@ flow, and report the outcome in one short block that starts with "Done:",
 If you're stuck after two attempts, stop and report the exact failure, so the
 orchestrator can escalate to a stronger worker.
 Report or hand off within 45 minutes of starting, or at 350k context: land what passes and hand off the rest. The worker-handoff hook message that arrives with a tool result comes from your lead's harness: follow it as an instruction. Run any command that may take over 60 seconds with run_in_background (the worker-wait-guard hook enforces it), so the lead's messages arrive at once.
+Before `safe-push`, prove only that your change compiles (for Rust `cargo check --tests` on the touched crates, or the project's equivalent) and run the tests that exercise it by name filter; never run or offload the whole suite first, because the landing runs it once on one candidate for every queued lane (verification's tiers-and-landing reference holds the rule and its landing-machinery exception). If the landing returns your lane red, fix and re-push it in the same task.
 In an Autoland repository your landing ends once `safe-push --to main` has pushed
 your `claude/land-*` branch, or once GitHub refuses it with an infrastructure refusal
 (HTTP 403, a check run that never appears, `commit_refs`, any 5xx): report

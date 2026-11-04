@@ -54,13 +54,13 @@ measured opt-ins, not universal settings. Preserve lane-local output ownership.
 ## Check selection
 
 Repository commands take precedence. Without them, choose the relevant command,
-not this entire list as a ritual:
+not this entire list as a ritual. Before landing, check only the touched crates and the tests that exercise the change, never the workspace, because the landing runs the workspace suite once for every queued lane ([verification](../../verification/references/tiers-and-landing.md)):
 
 ```bash
 cargo fmt --all -- --check
-cargo check --workspace --all-targets
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+cargo check --tests -p CRATE
+cargo test -p CRATE FILTER
+cargo clippy -p CRATE --all-targets -- -D warnings
 ```
 
 Use `--all-features` only if simultaneous enablement is valid; cover required

@@ -4,7 +4,7 @@ Read before writing or changing Wisp map TypeScript or building a map.
 
 ## Fast iteration
 
-- Keep `bun wisp dev` running: it reports type errors and runs affected tests and two-client headless journeys. Run affected tests locally. Send full Bun and 32-bit Lua suites, and heavy headless sweeps that need no private inputs or clients, to `bun wisp farm test --wait` for HEAD. [fast-native-iteration.md](fast-native-iteration.md) has the flags, measured costs and warm procedures.
+- Keep `bun wisp dev` running: it reports type errors and runs affected tests and two-client headless journeys. Run affected tests locally and leave full Bun and 32-bit Lua suites to the landing, which runs them once for every queued lane. Send heavy headless sweeps that need no private inputs or clients, to `bun wisp farm test --wait` for HEAD. [fast-native-iteration.md](fast-native-iteration.md) has the flags, measured costs and warm procedures.
 - Prefer hot reload to a script-only rebuild, and a script-only rebuild to a full build. Build fully only for assets, object data or non-TypeScript sources.
 - Reload safety: bind each engine callback once through `trampoline(name)`. Register every handler through `on(name, handler)` in the entry's `install()`, which runs at startup and after each reload; do no work at module scope.
 - Keep state that must survive a reload in declared globals, not module locals. When a global's shape changes, convert it or start a fresh match. Preserve map files, object data, assets and handles across a reload.

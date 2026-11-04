@@ -28,5 +28,5 @@ metadata:
 - A check failed, its observation is ambiguous, or its driver broke: [failure diagnosis](references/failure-diagnosis.md).
 - Before writing or changing a test: [writing tests](references/writing-tests.md).
 - Deleting, merging or auditing tests or a suite, touching a committed snapshot, baseline or record, or doubting a test is the only guard (mutants): [pruning tests](references/pruning-tests.md).
-- Placing a test in a tier, choosing what the landing gate or CI runs, or a build, test or landing is slow: [tiers and landing](references/tiers-and-landing.md).
+- Placing a test in a tier, choosing what to run before landing or what the landing gate or CI runs, or a build, test or landing is slow: [tiers and landing](references/tiers-and-landing.md).
 - A project picks or revisits its test posture, or the landing tool refuses a test change or a CI budget: [notes](references/notes.md).

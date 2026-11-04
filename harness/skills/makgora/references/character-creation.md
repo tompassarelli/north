@@ -57,5 +57,5 @@ Read this to design, build and test a Mak'gora fighter or move: role, move phase
 - Edit with `bun wisp dev` and demonstrate a retained test's unique mutant kill under the `verification` skill, because a test that kills no mutant protects nothing.
 - Compare `bun wisp interactions --move FIGHTER:MOVE` before and after and record changes in the commit message, because interaction changes are the reviewable effect.
 - Update retained move-data fixtures under `verification` when frame data or regions change, through [character tools](character-tools.md).
-- Run `bun run check` and the full `bun run test` suite, play both facings through `bun wisp hot` or `bun wisp lan fresh MAP`, then land under the shared rules in [SKILL.md](../SKILL.md) and fix forward if CI's Lua, parity or perf suites fail, because CI gates after landing.
+- Run `bun run check` and the tests that exercise the change, play both facings through `bun wisp hot` or `bun wisp lan fresh MAP`, then land under the shared rules in [SKILL.md](../SKILL.md) and fix forward if CI's Lua, parity or perf suites fail, because CI gates after landing.
 - Read [balance and release](character-balance-and-release.md) for balance changes or release gates.
