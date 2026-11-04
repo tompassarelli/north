@@ -10,6 +10,8 @@ use crate::platform::run_roles::ROLE_SQL;
 use crate::platform::sqlite::{self, Access};
 use crate::platform::github;
 
+use crate::threads::catalog::{CATALOG, Catalog};
+
 use super::closed::{ClosedReport, SpendRun, summarize};
 use crate::router::pricing::PriceTable;
 
@@ -136,10 +138,25 @@ fn closed_report_between(since: &str, until: &str) -> NorthResult<ClosedReport> 
     let native = native_namespaces(&database)?;
     let mut closed = native_closed(&database, since, until)?;
     let repos: HashSet<&str> = runs.iter().filter(|run| run.landed).filter_map(|run| run.item.as_deref()?.split_once('#').map(|(repo, _)| repo)).collect();
+    reject_unknown_repos(&repos, &CATALOG)?;
     for repo in repos.iter().filter(|repo| !native.contains(**repo)) {
         closed.extend(github_closed(repo, since, until)?);
     }
     Ok(summarize(&runs, &closed, since, &PriceTable::load()?))
+}
+
+/// A run whose item names a repository outside the catalog (a renamed repository's old name) can
+/// never match a closed issue, so its boxes would drop out of every cell without a word.
+fn reject_unknown_repos(repos: &HashSet<&str>, catalog: &Catalog) -> NorthResult<()> {
+    let mut unknown: Vec<&str> = repos.iter().copied().filter(|repo| !catalog.repos.iter().chain(&catalog.native).any(|known| known == repo)).collect();
+    unknown.sort_unstable();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    Err(NorthError::Configuration(format!(
+        "landed runs in the ledger name repositories the catalog does not know ({}); their boxes would never count as closed, so rename those runs' items first",
+        unknown.join(", ")
+    )))
 }
 
 pub fn window_start_ms(window: &str) -> NorthResult<i64> {
@@ -167,4 +184,20 @@ pub fn prior_reports() -> NorthResult<BTreeMap<String, Vec<PriorReport>>> {
         found.entry(text(row, "item")).or_default().push(PriorReport { ended, report: text(row, "report") });
     }
     Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::{CATALOG, reject_unknown_repos};
+
+    #[test]
+    fn landed_runs_of_a_repository_the_catalog_dropped_fail_the_report_instead_of_vanishing_from_it() {
+        let known: HashSet<&str> = ["makgora", "wisp", "life"].into();
+        assert!(reject_unknown_repos(&known, &CATALOG).is_ok());
+        let renamed: HashSet<&str> = ["makgora", "smashcraft"].into();
+        let error = reject_unknown_repos(&renamed, &CATALOG).unwrap_err().user_message();
+        assert!(error.contains("(smashcraft)"), "{error}");
+    }
 }
