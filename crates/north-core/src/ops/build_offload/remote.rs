@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use super::lane::Lane;
-use crate::capacity::build_offload::{Job, REMOTE_MARK};
+use crate::capacity::build_offload::{Job, REMOTE_MARK, SHIP_SECONDS_ENV, SLOT_HEAD_ENV, SLOT_TARGET_ENV};
 use crate::ops::land_offload::ship::quote;
 
 const SYNC_LIMIT: Duration = Duration::from_secs(180);
@@ -19,8 +19,12 @@ north=${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}
 mkdir -p "$root"
 exec 9>"$root/$name.lock"
 flock -w 20 9 || { echo "offload: the $name lane is busy" >&2; exit 96; }
+began=$(date +%s.%N)
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0
 trap 'rm -f "$root/$name.bundle" "$root/$name.patch"' EXIT
+slot_target=0 slot_head=
+[ -d "$slot/target" ] && slot_target=1
+slot_head=$(git -C "$slot" rev-parse HEAD 2>/dev/null || true)
 head -c "$blen" >"$root/$name.bundle"
 head -c "$plen" >"$root/$name.patch"
 bundled() { [ "$blen" -gt 0 ] && git -C "$repo" fetch -q "$root/$name.bundle" "+HEAD:refs/build-offload/$name"; }
@@ -29,10 +33,11 @@ git -C "$repo" cat-file -e "$head^{commit}" 2>/dev/null || { echo "offload: $rep
 if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
 git -C "$slot" clean -ffdxq -e target -e node_modules
 if [ "$plen" -gt 0 ]; then git -C "$slot" apply --binary --whitespace=nowarn "$root/$name.patch"; fi
+shipped=$(awk -v a="$began" -v b="$(date +%s.%N)" 'BEGIN { printf "%.2f", b - a }')
 cd "$slot/$sub"
 echo @SYNCED@
 exec 8<&0
-@MARK@=1 "$north" capacity host run --class heavy --owner "$owner" --timeout-seconds "$limit" -- "$@" 9>&- 8<&- &
+@MARK@=1 @SHIP@=$shipped @TARGET@=$slot_target @HEAD@=$slot_head "$north" capacity host run --class heavy --owner "$owner" --timeout-seconds "$limit" -- "$@" 9>&- 8<&- &
 child=$!
 ( cat <&8 >/dev/null; kill -TERM "$child" 2>/dev/null ) 9>&- &
 watcher=$!
@@ -50,7 +55,7 @@ pub(super) enum Ran {
 
 /// The script and its arguments that rebuild the lane on the host and run the job there under that host's capacity run, which enters the lane's flake dev shell.
 pub(super) fn invocation(lane: &Lane, job: &Job) -> (String, Vec<String>) {
-    let script = SCRIPT.replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK);
+    let script = SCRIPT.replace("@SYNCED@", SYNCED).replace("@MARK@", REMOTE_MARK).replace("@SHIP@", SHIP_SECONDS_ENV).replace("@TARGET@", SLOT_TARGET_ENV).replace("@HEAD@", SLOT_HEAD_ENV);
     let mut words = vec![lane.repo.clone(), lane.head.clone(), lane.name.clone(), lane.bundle.len().to_string(), lane.patch.len().to_string(), lane.subdirectory.clone(), job.owner.to_owned(), job.timeout_seconds.to_string()];
     words.extend(job.command.iter().cloned());
     (script, words)

@@ -64,3 +64,38 @@ fn capacity_a_retried_decline_prints_again_only_when_its_reason_changes() {
     let printed: Vec<bool> = [short("1.0"), short("2.5"), Declined::Unreachable(vec!["gex45".to_owned()]), short("3.0")].iter().map(|why| why.changes(&mut last)).collect();
     assert_eq!(printed, [true, false, true, true]);
 }
+
+fn env_of(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+    move |name| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
+}
+
+#[test]
+fn capacity_an_offloaded_run_record_carries_ship_seconds_cache_state_and_the_host_it_ran_on() {
+    let warm = ShipCost::read(env_of(&[(SHIP_SECONDS_ENV, "4.256"), (SLOT_TARGET_ENV, "1"), (SLOT_HEAD_ENV, "abc123")]), "gex45").unwrap();
+    assert_eq!(warm.fields(), vec![("host", "gex45".into()), ("shipSeconds", serde_json::json!(4.26)), ("cacheState", "warm".into()), ("slotHead", "abc123".into())]);
+    let fresh = ShipCost::read(env_of(&[(SHIP_SECONDS_ENV, "31"), (SLOT_TARGET_ENV, "0"), (SLOT_HEAD_ENV, "")]), "gex45").unwrap();
+    assert_eq!(fresh.cache_state, CacheState::Cold);
+    assert_eq!(fresh.fields().iter().map(|(key, _)| *key).collect::<Vec<_>>(), ["host", "shipSeconds", "cacheState"]);
+}
+
+#[test]
+fn capacity_a_slot_is_warm_only_when_its_target_existed_and_it_held_a_previous_head() {
+    assert_eq!(CacheState::of(true, Some("abc")), CacheState::Warm);
+    assert_eq!(CacheState::of(false, Some("abc")), CacheState::Cold);
+    assert_eq!(CacheState::of(true, None), CacheState::Cold);
+    assert_eq!(CacheState::of(true, Some("")), CacheState::Cold);
+}
+
+#[test]
+fn capacity_a_run_that_was_not_offloaded_or_a_garbled_ship_time_carries_no_ship_cost() {
+    assert_eq!(ShipCost::read(env_of(&[]), "gex45"), None);
+    assert_eq!(ShipCost::read(env_of(&[(SHIP_SECONDS_ENV, "soon")]), "gex45"), None);
+    assert_eq!(ShipCost::read(env_of(&[(SHIP_SECONDS_ENV, "-1")]), "gex45"), None);
+}
+
+#[test]
+fn capacity_the_median_ship_time_takes_the_middle_value_or_the_mean_of_the_middle_two() {
+    assert_eq!(median(&[9.0, 1.0, 4.0, 2.0, 30.0]), Some(4.0));
+    assert_eq!(median(&[1.0, 2.0, 4.0, 10.0]), Some(3.0));
+    assert_eq!(median(&[]), None);
+}

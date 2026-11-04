@@ -23,10 +23,13 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS capacity_runs (
     lease TEXT PRIMARY KEY, at TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, priority TEXT NOT NULL,
     placed INTEGER NOT NULL, queuedSeconds REAL NOT NULL, command TEXT)";
 
-const MEASUREMENT_COLUMNS: [&str; 19] = [
+const MEASUREMENT_COLUMNS: [&str; 22] = [
     "owner", "shape", "reservedCpus", "reservedMemoryMiB", "chargedCpus", "chargedMemoryMiB", "cpuSeconds", "meanCores", "p90Cores", "peakCores",
     "peakMemoryMiB", "gpuSeconds", "wallSeconds", "exitCode", "ioReadBytes", "ioWriteBytes", "ioPressureSomeUsec", "diskBusyShare", "command",
+    "host", "shipSeconds", "cacheState",
 ];
+
+const OFFLOAD_COLUMNS: [(&str, &str); 3] = [("host", "TEXT"), ("shipSeconds", "REAL"), ("cacheState", "TEXT")];
 
 fn state_root() -> PathBuf {
     env("XDG_STATE_HOME").map_or_else(|| Path::new(&env("HOME").unwrap_or_else(|| "/tmp".to_owned())).join(".local/state"), PathBuf::from)
@@ -40,6 +43,15 @@ fn private_parent(path: &Path) -> std::io::Result<()> {
     path.parent().map_or(Ok(()), |parent| fs::DirBuilder::new().recursive(true).mode(0o700).create(parent))
 }
 
+fn table_columns(db: &Connection) -> Vec<String> {
+    db.prepare("PRAGMA table_info(capacity_runs)").and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().collect())).unwrap_or_default()
+}
+
+fn has_columns(db: &Connection) -> bool {
+    let columns = table_columns(db);
+    OFFLOAD_COLUMNS.iter().all(|(name, _)| columns.iter().any(|column| column == name))
+}
+
 /// Whether the schema is already in place, read without a write lock: every capacity command opens the database, and a write transaction per open queued forty queued wrappers behind each other's history reads past the busy timeout when a runtime update re-ran them at once.
 fn current(db: &Connection) -> bool {
     let named = |kind: &str, name: &str| db.query_row("SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?", [kind, name], |_| Ok(())).is_ok();
@@ -47,7 +59,7 @@ fn current(db: &Connection) -> bool {
         .prepare("PRAGMA table_info(capacity_runs)")
         .and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().any(|name| name == "command")))
         .unwrap_or(false);
-    has_command && named("table", "capacity_imports") && named("table", "capacity_priority") && named("index", "capacity_runs_signature")
+    has_command && has_columns(db) && named("table", "capacity_imports") && named("table", "capacity_priority") && named("index", "capacity_runs_signature")
 }
 
 fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
@@ -74,9 +86,14 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
             }
         }
     }
-    let has_command = transaction.prepare("PRAGMA table_info(capacity_runs)")?.query_map([], |row| row.get::<_, String>(1))?.flatten().any(|name| name == "command");
-    if !has_command {
+    let present = table_columns(&transaction);
+    if !present.iter().any(|name| name == "command") {
         transaction.execute_batch("ALTER TABLE capacity_runs ADD COLUMN command TEXT")?;
+    }
+    for (name, kind) in OFFLOAD_COLUMNS {
+        if !present.iter().any(|column| column == name) {
+            transaction.execute_batch(&format!("ALTER TABLE capacity_runs ADD COLUMN {name} {kind}"))?;
+        }
     }
     transaction.commit()?;
     Ok(attached)
@@ -216,3 +233,23 @@ pub fn recent_usage(lines: usize, matches: impl Fn(&Value) -> bool) -> Vec<Value
 #[cfg(test)]
 #[path = "database_tests.rs"]
 mod tests;
+
+/// One run that was offloaded to this host, as its record stores it.
+pub struct OffloadRow {
+    pub at: String,
+    pub host: Option<String>,
+    pub owner: Option<String>,
+    pub ship_seconds: f64,
+    pub cache_state: Option<String>,
+    pub wall_seconds: Option<f64>,
+}
+
+/// The newest `last` runs that carry a ship time, newest first.
+pub fn offload_rows(db: &Connection, last: usize) -> rusqlite::Result<Vec<OffloadRow>> {
+    let mut statement = db.prepare("SELECT at, host, owner, shipSeconds, cacheState, wallSeconds FROM capacity_runs WHERE shipSeconds IS NOT NULL ORDER BY at DESC, source_id DESC LIMIT ?")?;
+    statement
+        .query_map([i64::try_from(last).unwrap_or(i64::MAX)], |row| {
+            Ok(OffloadRow { at: row.get(0)?, host: row.get(1)?, owner: row.get(2)?, ship_seconds: row.get(3)?, cache_state: row.get(4)?, wall_seconds: row.get(5)? })
+        })?
+        .collect()
+}

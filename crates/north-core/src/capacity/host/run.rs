@@ -327,7 +327,7 @@ fn usage_entry(owner: &str, request: &Request, command: &[String], admitted: &Ob
     let mean = cpu_seconds / usage.wall_seconds.max(0.001);
     let scope = admitted.get("scope").cloned().unwrap_or(Value::Null);
     let get = |key: &str| admitted.get(key).cloned().unwrap_or(Value::Null);
-    Obj::new()
+    let mut entry = Obj::new()
         .put("at", crate::foundation::clock::Timestamp::now().iso_millis())
         .put("owner", owner)
         .put("shape", command_shape(command))
@@ -346,7 +346,13 @@ fn usage_entry(owner: &str, request: &Request, command: &[String], admitted: &Ob
         .put("peakMemoryMiB", num((usage.peak_memory_mib + 0.5).floor()))
         .put("gpuSeconds", num(round2(usage.gpu_seconds)))
         .put("queuedSeconds", admitted.get("queuedSeconds").cloned().unwrap_or(serde_json::json!(0)))
-        .put_some("besideNative", request.beside_native.clone())
+        .put_some("besideNative", request.beside_native.clone());
+    if let Some(cost) = build_offload::ShipCost::read(env, &crate::platform::host::name()) {
+        for (key, value) in cost.fields() {
+            entry.set(key, value);
+        }
+    }
+    entry
 }
 
 fn record(entry: &Obj, usage: &Usage, command: &[String], request: &Request, lease: &str) {

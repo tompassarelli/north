@@ -170,3 +170,67 @@ pub fn names_a_path_here(command: &[String], paths: &[&str]) -> Result<(), Decli
     let found = command.iter().find_map(|word| paths.iter().find(|path| word.contains(**path)));
     found.map_or(Ok(()), |path| Err(Declined::refused("absolute path", format!("the command names {path}, which the host keeps its own checkout at; use paths relative to the lane"))))
 }
+
+pub const SHIP_SECONDS_ENV: &str = "NORTH_OFFLOAD_SHIP_SECONDS";
+pub const SLOT_TARGET_ENV: &str = "NORTH_OFFLOAD_SLOT_TARGET";
+pub const SLOT_HEAD_ENV: &str = "NORTH_OFFLOAD_SLOT_HEAD";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CacheState {
+    Warm,
+    Cold,
+}
+
+impl CacheState {
+    /// Warm when the lane's slot still held its `target/` and a previous head, so the build reuses compiled artifacts; a fresh slot or a swept one is cold.
+    pub fn of(target_existed: bool, last_head: Option<&str>) -> Self {
+        if target_existed && last_head.is_some_and(|head| !head.is_empty()) { Self::Warm } else { Self::Cold }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warm => "warm",
+            Self::Cold => "cold",
+        }
+    }
+}
+
+/// What an offloaded run paid before its command started on the host that ran it: the lane's ship and checkout, and the slot's cache state.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShipCost {
+    pub host: String,
+    pub ship_seconds: f64,
+    pub cache_state: CacheState,
+    pub slot_head: Option<String>,
+}
+
+impl ShipCost {
+    /// Read from the variables the host's offload script sets for the run it starts; None for a run that was not offloaded.
+    pub fn read(env: impl Fn(&str) -> Option<String>, host: &str) -> Option<Self> {
+        let ship_seconds: f64 = env(SHIP_SECONDS_ENV)?.trim().parse().ok().filter(|seconds: &f64| seconds.is_finite() && *seconds >= 0.0)?;
+        let slot_head = env(SLOT_HEAD_ENV).filter(|head| !head.is_empty());
+        let target_existed = env(SLOT_TARGET_ENV).as_deref() == Some("1");
+        Some(Self { host: host.to_owned(), ship_seconds, cache_state: CacheState::of(target_existed, slot_head.as_deref()), slot_head })
+    }
+
+    /// The keys an offloaded run's record carries beyond a local run's; `host` is where the run executed, so remote rows feed placement and never the laptop's sizing.
+    pub fn fields(&self) -> Vec<(&'static str, serde_json::Value)> {
+        let seconds = (self.ship_seconds * 100.0).round() / 100.0;
+        let mut fields = vec![("host", self.host.clone().into()), ("shipSeconds", serde_json::json!(seconds)), ("cacheState", self.cache_state.as_str().into())];
+        if let Some(head) = &self.slot_head {
+            fields.push(("slotHead", head.clone().into()));
+        }
+        fields
+    }
+}
+
+pub fn median(values: &[f64]) -> Option<f64> {
+    let mut sorted: Vec<f64> = values.iter().copied().filter(|value| value.is_finite()).collect();
+    sorted.sort_by(f64::total_cmp);
+    let middle = sorted.len() / 2;
+    match sorted.len() {
+        0 => None,
+        length if length % 2 == 1 => Some(sorted[middle]),
+        _ => Some((sorted[middle - 1] + sorted[middle]) / 2.0),
+    }
+}

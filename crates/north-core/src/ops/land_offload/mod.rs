@@ -5,12 +5,13 @@ mod destinations;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose | cost | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
         ["choose"] => choose(),
+        ["cost"] => cost(),
         ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => match seconds.parse() {
             Ok(timeout_seconds) => offload(host, ship::Land { ssh: "", base, head, timeout_seconds, command }),
             Err(_) => usage(),
@@ -71,6 +72,26 @@ pub fn host_with_room() -> Result<gate::Machine, String> {
         format!("no other host has room: {}", if refused.is_empty() { "none has an ssh destination".to_owned() } else { refused.join("; ") })
     })?;
     others.into_iter().find(|machine| machine.name == host).ok_or_else(|| format!("{host} left the host list"))
+}
+
+/// Prints each offload host's newest offloaded runs with their ship time and cache state, then its median ship time, read from the host's own records over ssh.
+fn cost() -> u8 {
+    let hosts = build_hosts();
+    if hosts.is_empty() {
+        eprintln!("north capacity offload: no build host is configured");
+        return 1;
+    }
+    let remote = "\"${AGENT_CAPACITY_NORTH:-$HOME/.local/state/north/current/north}\" capacity host offload-cost";
+    let mut code = 0;
+    for (name, ssh) in hosts {
+        println!("{name}");
+        let read = std::process::Command::new("ssh").args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", &ssh, "--", remote]).status();
+        if !read.is_ok_and(|status| status.success()) {
+            eprintln!("north capacity offload: could not read {name}'s offload records");
+            code = 1;
+        }
+    }
+    code
 }
 
 fn choose() -> u8 {

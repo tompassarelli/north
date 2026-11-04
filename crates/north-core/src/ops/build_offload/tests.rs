@@ -59,10 +59,14 @@ fn hosts() -> Hosts {
 const REPORT: &str = "printf 'head %s\\n' \"$(git rev-parse HEAD)\"; printf 'where %s\\n' \"$(pwd)\"; git status --porcelain | sed 's/^/status /'; for f in a.txt b.txt; do [ -e $f ] && printf 'file %s %s\\n' $f \"$(cat $f)\"; done; true";
 
 fn ran_remotely(hosts: &Hosts, lane: &Lane) -> Vec<String> {
+    ran_remotely_with(hosts, lane, REPORT)
+}
+
+fn ran_remotely_with(hosts: &Hosts, lane: &Lane, report: &str) -> Vec<String> {
     let stub = hosts.remote.join("north-stub");
     write(&stub, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let command = ["sh".to_owned(), "-c".to_owned(), REPORT.to_owned()];
+    let command = ["sh".to_owned(), "-c".to_owned(), report.to_owned()];
     let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command: &command });
     let mut child = Command::new("sh").args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
@@ -224,3 +228,23 @@ fn capacity_a_trailing_top_level_redirect_to_a_laptop_path_is_written_on_the_lap
     }
 }
 
+
+const COST: &str = "mkdir -p target; printf 'ship %s\\n' \"$NORTH_OFFLOAD_SHIP_SECONDS\"; printf 'target %s\\n' \"$NORTH_OFFLOAD_SLOT_TARGET\"; printf 'slothead %s\\n' \"$NORTH_OFFLOAD_SLOT_HEAD\"";
+
+#[test]
+fn capacity_a_slots_first_offload_is_cold_and_the_next_on_the_same_slot_is_warm_with_its_ship_seconds_in_the_run_environment() {
+    use crate::capacity::build_offload::ShipCost;
+    let hosts = hosts();
+    let lane_dir = hosts.lane("cost");
+    let first_head = git(&lane_dir, &["rev-parse", "HEAD"]);
+    let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
+    let cost = |report: &[String]| ShipCost::read(|name| line(report, match name { "NORTH_OFFLOAD_SHIP_SECONDS" => "ship", "NORTH_OFFLOAD_SLOT_TARGET" => "target", _ => "slothead" }).first().map(|value| (*value).to_owned()), "gex45").unwrap();
+    let cold = cost(&ran_remotely_with(&hosts, &lane, COST));
+    assert_eq!((cold.cache_state.as_str(), cold.slot_head.clone()), ("cold", None));
+    write(&lane_dir.join("a.txt"), "next\n");
+    git(&lane_dir, &["commit", "-q", "-am", "next"]);
+    let lane = gather(&lane_dir, &hosts.laptop).unwrap().ship(&[]).unwrap();
+    let warm = cost(&ran_remotely_with(&hosts, &lane, COST));
+    assert_eq!((warm.cache_state.as_str(), warm.slot_head), ("warm", Some(first_head)));
+    assert!(warm.ship_seconds >= 0.0 && warm.ship_seconds < 60.0);
+}

@@ -76,7 +76,7 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("watchdog") => watchdog::run(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | gaming on|off|status | game-reserve on [--auto]|off|auto|playing|status | offload choose|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | gaming on|off|status | game-reserve on [--auto]|off|auto|playing|status | offload choose|cost|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | gate [--class] PROGRAM [ARG...]");
             2
         }
     };

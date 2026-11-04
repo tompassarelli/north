@@ -22,6 +22,7 @@ mod landing_tests;
 #[cfg(test)]
 mod machine_tests;
 mod measure;
+mod offload_cost;
 mod policy;
 #[cfg(test)]
 mod policy_tests;
@@ -38,7 +39,7 @@ mod state;
 mod status;
 mod systemd;
 
-const USAGE: &str = "usage: estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
+const USAGE: &str = "usage: offload-cost [--last N]|estimate [--json] [--class CLASS] [--owner OWNER] -- CMD ARG...|status|probe|mode|reserve|renew|release|run|session [--new-clients N] [--new-desktops N] [--wait-seconds N] [--quiet [--quiet-seconds N]] [--latency] [--alone] [--pair K] [--beside-native NATIVE-OWNER] [--priority tom-ask]; see machine-capacity";
 
 pub fn fail(message: &str, status: i32) -> ! {
     eprintln!("machine-capacity: {message}");
@@ -333,6 +334,7 @@ pub fn run(argv: &[String], host: &Host) -> u8 {
     match operation {
         "estimate" => return estimate(argv),
         "fixture" => return fixture(argv, host),
+        "offload-cost" => return offload_cost::print(argv),
         _ => {}
     }
     let root = state::runtime_root();
