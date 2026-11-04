@@ -12,6 +12,7 @@ const NOW: u64 = 1_793_750_000;
 #[derive(Default)]
 struct Recorder {
     sent: RefCell<Vec<(String, String)>>,
+    idle: BTreeSet<&'static str>,
     desktop: RefCell<Vec<String>>,
 }
 
@@ -25,6 +26,9 @@ impl Outbox for Recorder {
     }
     fn lead_of(&self, session: &str) -> Option<String> {
         (session == "worker-a").then(|| "lead-a".to_owned())
+    }
+    fn is_working(&self, session: &str) -> bool {
+        !self.idle.contains(session)
     }
 }
 
@@ -198,6 +202,22 @@ fn the_sink_sends_once_repeats_every_ten_minutes_notifies_once_and_clears() {
     deliver(&path, &[], &[], NOW + REPEAT_SECONDS + 60, &outbox);
     assert!(outbox.sent.borrow()[5].1.starts_with("north watch: cleared after 11 min:"));
     assert!(load(&path).is_empty());
+}
+
+#[test]
+fn a_landing_alert_reaches_a_working_lead_and_not_a_finished_parked_or_exited_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let working = Recorder::default();
+    deliver(&dir.path().join("working.json"), &[page(NOW)], &[], NOW, &working);
+    assert!(working.sent.borrow().iter().any(|(to, _)| to == "lead-a"));
+    let finished = Recorder { idle: BTreeSet::from(["lead-a"]), ..Recorder::default() };
+    let path = dir.path().join("finished.json");
+    deliver(&path, &[page(NOW)], &[], NOW, &finished);
+    deliver(&path, &[page(NOW)], &[], NOW + REPEAT_SECONDS, &finished);
+    deliver(&path, &[], &[], NOW + REPEAT_SECONDS + 60, &finished);
+    let sent = finished.sent.borrow();
+    assert_eq!(sent.len(), 3);
+    assert!(sent.iter().all(|(to, _)| to == "proxy"));
 }
 
 #[test]

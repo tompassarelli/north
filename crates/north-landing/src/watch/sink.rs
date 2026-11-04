@@ -27,6 +27,7 @@ pub trait Outbox {
     fn send(&self, to: &str, text: &str) -> bool;
     fn notify(&self, text: &str);
     fn lead_of(&self, session: &str) -> Option<String>;
+    fn is_working(&self, session: &str) -> bool;
 }
 
 #[derive(Default)]
@@ -56,12 +57,17 @@ impl Outbox for Fleet {
         let found = self.sessions().iter().find(|entry| entry["name"].as_str() == Some(session))?;
         Some(found["parent"].as_str().filter(|parent| *parent != PROXY).unwrap_or(session).to_owned())
     }
+
+    fn is_working(&self, session: &str) -> bool {
+        self.sessions().iter().find(|entry| entry["name"].as_str() == Some(session)).is_some_and(|entry| matches!(entry["status"].as_str(), Some("working" | "starting")))
+    }
 }
 
 fn recipients(owner: Option<&str>, outbox: &dyn Outbox) -> Vec<String> {
     let mut to = vec![PROXY.to_owned()];
     if let Some(lead) = owner.map(|owner| outbox.lead_of(owner).unwrap_or_else(|| owner.to_owned()))
         && !to.contains(&lead)
+        && outbox.is_working(&lead)
     {
         to.push(lead);
     }
