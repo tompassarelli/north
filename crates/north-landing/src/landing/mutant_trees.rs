@@ -7,7 +7,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::mutant::{Config, Env, Lease, Stop, git, git_text};
 
-const RESULTS: &str = ".mutant-results";
+pub(super) const RESULTS: &str = ".mutant-results";
 const TAIL_LINES: usize = 40;
 
 pub(super) type Results = BTreeMap<String, bool>;
@@ -19,7 +19,7 @@ pub(super) struct Outcome {
     pub(super) tail: String,
 }
 
-struct RunDir(PathBuf);
+pub(super) struct RunDir(pub(super) PathBuf);
 
 impl Drop for RunDir {
     fn drop(&mut self) {
@@ -74,7 +74,7 @@ pub(super) fn run(cwd: &Path, plan: &Plan, env: &Env, out: &mut dyn Write) -> Re
     Ok(Outcome { change: results(&change), mutants, seconds, tail })
 }
 
-fn checkout(top: &Path, index: &Path, head: &str, patch: Option<&Path>, tree: &Path) -> Result<bool, Stop> {
+pub(super) fn checkout(top: &Path, index: &Path, head: &str, patch: Option<&Path>, tree: &Path) -> Result<bool, Stop> {
     let _ = fs::remove_file(index);
     git_text(top, Some(index), &["read-tree", head])?;
     if let Some(patch) = patch {
@@ -101,7 +101,7 @@ fn copy(flags: &[&str], source: &Path, target: &Path) -> Result<(), Stop> {
     Err(Stop::Fail(format!("mutant: cannot copy {}: {}", source.display(), String::from_utf8_lossy(&output.stderr).trim())))
 }
 
-fn share(top: &Path, shared: &Path, links: &[String]) -> Result<Vec<String>, Stop> {
+pub(super) fn share(top: &Path, shared: &Path, links: &[String]) -> Result<Vec<String>, Stop> {
     let mut present = Vec::new();
     for path in links {
         let source = top.join(path);
@@ -113,7 +113,7 @@ fn share(top: &Path, shared: &Path, links: &[String]) -> Result<Vec<String>, Sto
     Ok(present)
 }
 
-fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), Stop> {
+pub(super) fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), Stop> {
     for path in links {
         let target = tree.join(path);
         if fs::symlink_metadata(&target).is_err() {
@@ -123,7 +123,7 @@ fn link(shared: &Path, tree: &Path, links: &[String]) -> Result<(), Stop> {
     Ok(())
 }
 
-fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], tests: &BTreeSet<String>, log: &Path) -> Result<f64, Stop> {
+pub(super) fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], tests: &BTreeSet<String>, log: &Path) -> Result<f64, Stop> {
     let mut command = match &env.lease {
         Lease::Inherited => Command::new("sh"),
         Lease::Helper(helper) => {
@@ -152,7 +152,7 @@ fn invoke(config: &Config, env: &Env, repo: &str, trees: &[PathBuf], tests: &BTr
     Ok(started.elapsed().as_secs_f64())
 }
 
-fn results(tree: &Path) -> Results {
+pub(super) fn results(tree: &Path) -> Results {
     let mut verdicts = Results::new();
     for line in fs::read_to_string(tree.join(RESULTS)).unwrap_or_default().lines() {
         match line.split_once('\t') {

@@ -30,6 +30,9 @@ jobs:
     timeout-minutes: 35
     env:
       CARGO_INCREMENTAL: 0
+      SAFE_PUSH_LAND_BASE: ${{ inputs.base }}
+      SAFE_PUSH_LAND_HEAD: ${{ inputs.head }}
+      SAFE_PUSH_LANDING: 1
     strategy:
       fail-fast: false
       matrix:

@@ -100,7 +100,7 @@ fn applies(cwd: &Path, index: &Path, tree: &str, patch: &Path) -> bool {
     succeeded(&["read-tree", tree]) && succeeded(&["apply", "--cached", "--check", &patch.to_string_lossy()])
 }
 
-fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
+pub(super) fn config(cwd: &Path, base: &str) -> Result<Option<Config>, Stop> {
     let blob = format!("{base}:.safe-push");
     if !git(cwd, None, &["cat-file", "-e", &blob])?.status.success() {
         return Ok(None);

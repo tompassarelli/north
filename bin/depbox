@@ -79,7 +79,7 @@ fi
 
 args+=(--bind "$top" "$top" --ro-bind "$common" "$common")
 args+=(--unshare-pid --unshare-ipc "${net[@]}" --die-with-parent --new-session --clearenv)
-for var in "${cache_vars[@]}" PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
+for var in "${cache_vars[@]}" PATH HOME USER LANG TERM CARGO_BUILD_JOBS RUST_TEST_THREADS AGENT_CAPACITY_LEASE SAFE_PUSH_LAND_BASE SAFE_PUSH_LAND_HEAD SAFE_PUSH_LAND_REF SAFE_PUSH_LANDING NIX_PATH SSL_CERT_FILE SSL_CERT_DIR NIX_SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO; do
   if [ -n "${!var:-}" ]; then args+=(--setenv "$var" "${!var}"); fi
 done
 args+=(--setenv CARGO_TARGET_DIR "$target")
