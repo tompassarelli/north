@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use super::game_reserve::{self, Settings};
@@ -44,9 +43,7 @@ fn settings(root: &Path) -> Settings {
     for tool in ["systemctl", "busctl"] {
         let script = root.join(tool);
         let body = if tool == "systemctl" { kernel.as_str() } else { "" };
-        fs::write(&script, format!("#!/bin/sh\necho \"{tool} $*\" >> '{}'\n{body}", log.display())).unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-        crate::foundation::shim::wait_until_executable(&script);
+        crate::foundation::shim::write_script(&script, &format!("echo \"{tool} $*\" >> '{}'\n{body}", log.display()));
     }
     let _ = fs::remove_file(&log);
     Settings {

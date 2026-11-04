@@ -170,9 +170,7 @@ fn shell_globals() -> String {
 }
 
 fn shim(dir: &Path, name: &str, body: &str) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::write(dir.join(name), format!("#!/bin/sh\n{body}")).unwrap();
-    std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    north_base::foundation::shim::write_script(&dir.join(name), body);
 }
 
 fn north_output(scanned: Scanned) -> (String, i32) {

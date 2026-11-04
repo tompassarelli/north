@@ -1,6 +1,5 @@
 use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -21,9 +20,7 @@ fn python(script: &str, arguments: &[&Path], envs: &[(&str, &Path)]) -> Output {
 }
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    shim::wait_until_executable(path);
+    shim::write_executable(path, body);
 }
 
 const GOAL_RECORD: &str = "import sys\nfrom pathlib import Path\nsys.path.insert(0, sys.argv[1])\nimport goal_eta\n\

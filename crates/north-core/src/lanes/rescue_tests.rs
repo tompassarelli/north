@@ -121,12 +121,10 @@ fn a_verification_mismatch_aborts_with_main_untouched() {
 
 #[test]
 fn a_rejecting_pre_commit_hook_does_not_defeat_the_rescue() {
-    use std::os::unix::fs::PermissionsExt;
     let project = Project::new();
     let hook = project.main().join(".git/hooks/pre-commit");
     fs::create_dir_all(hook.parent().unwrap()).unwrap();
-    fs::write(&hook, "#!/bin/sh\necho refusing >&2\nexit 1\n").unwrap();
-    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_script(&hook, "echo refusing >&2\nexit 1\n");
     fs::write(project.main().join("f.txt"), "base\ndirty\n").unwrap();
     assert!(matches!(project.rescue(false), Finished::Done(_)));
     assert_eq!(git_in(&project.main(), &["status", "--porcelain"]), "");

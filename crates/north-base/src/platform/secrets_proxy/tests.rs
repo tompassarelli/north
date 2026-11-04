@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use super::*;
@@ -10,8 +9,7 @@ static NO_CONCURRENT_FORKS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_n
 
 fn fake_proxy(directory: &Path, script: &str) {
     let program = directory.join("xdg-dbus-proxy");
-    fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_script(&program, &format!("{script}\n"));
 }
 
 fn shell(script: &str) -> Vec<String> {

@@ -1,5 +1,4 @@
 use std::io::{Read, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -64,8 +63,7 @@ fn ran_remotely(hosts: &Hosts, lane: &Lane) -> Vec<String> {
 
 fn ran_remotely_with(hosts: &Hosts, lane: &Lane, report: &str) -> Vec<String> {
     let stub = hosts.remote.join("north-stub");
-    write(&stub, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
-    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_script(&stub, "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
     let command = ["sh".to_owned(), "-c".to_owned(), report.to_owned()];
     let (script, words) = invocation(lane, &Job { owner: "t", timeout_seconds: 60, command: &command });
     let mut child = Command::new("sh").args(["-c", &script, "offload"]).args(&words).env("HOME", &hosts.remote).env("AGENT_CAPACITY_NORTH", &stub).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
@@ -144,8 +142,7 @@ fn capacity_a_command_naming_the_lanes_or_the_main_checkouts_laptop_path_stays_l
 
 fn stub(hosts: &Hosts) -> PathBuf {
     let stub = hosts.remote.join("north-stub");
-    write(&stub, "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
-    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_script(&stub, "while [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n");
     stub
 }
 

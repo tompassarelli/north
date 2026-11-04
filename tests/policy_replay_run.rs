@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -34,8 +33,7 @@ impl Fixture {
 
     fn claude(&self, script: &str) {
         let file = self.root.path().join("bin/claude");
-        fs::write(&file, script).unwrap();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        north_core::foundation::shim::write_executable(&file, script);
     }
 
     fn path(&self, rel: &str) -> PathBuf {
@@ -205,8 +203,7 @@ fn a_replay_launches_the_installed_claude_runtime_over_a_path_entry() {
     let fixture = Fixture::new("#!/bin/sh\nexit 3\n");
     let installed = fixture.path("home/.local/lib/claude/current/bin/claude");
     fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    fs::write(&installed, OK_CLAUDE).unwrap();
-    fs::set_permissions(&installed, fs::Permissions::from_mode(0o755)).unwrap();
+    north_core::foundation::shim::write_executable(&installed, OK_CLAUDE);
     let out = fixture.path("installed.jsonl");
     let ran = fixture.run(&fixture.path("agents/replay/a.json"), &out, &[], &[]);
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));

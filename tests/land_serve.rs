@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -12,8 +11,7 @@ fn git(directory: &Path, arguments: &[&str]) -> String {
 }
 
 fn executable(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    north_core::foundation::shim::write_executable(path, body);
 }
 
 const CHECKER: &str = r#"#!/usr/bin/env bash

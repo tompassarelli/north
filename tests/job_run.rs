@@ -1,6 +1,6 @@
 use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -101,9 +101,7 @@ fn job_run_records_the_finish_when_the_callers_path_has_no_bash() {
         symlink(tool(name), tools.join(name)).unwrap();
     }
     fs::remove_file(root.join("bin/north")).unwrap();
-    fs::write(root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n").unwrap();
-    fs::set_permissions(root.join("bin/north"), fs::Permissions::from_mode(0o755)).unwrap();
-    shim::wait_until_executable(&root.join("bin/north"));
+    shim::write_executable(&root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n");
     let mut command = Command::new(tool("bash"));
     command.arg(root.join("bin/job-run")).args(["checks", "--", "true"]).env("HOME", root).env("PATH", &tools);
     let mut child = {
@@ -126,9 +124,7 @@ fn job_run_notify_returns_before_its_detached_job_ends_and_sends_the_jobs_exit_t
         symlink(tool(name), tools.join(name)).unwrap();
     }
     fs::remove_file(root.join("bin/north")).unwrap();
-    fs::write(root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n").unwrap();
-    fs::set_permissions(root.join("bin/north"), fs::Permissions::from_mode(0o755)).unwrap();
-    shim::wait_until_executable(&root.join("bin/north"));
+    shim::write_executable(&root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n");
     let release = root.join("release");
     let job = format!("until [ -f {} ]; do sleep 0.1; done; echo \"finished with ${{JOB_RUN_LOG:-no log}} set\"; exit 3", release.display());
     let mut command = Command::new(tool("bash"));
@@ -190,9 +186,7 @@ fn job_run_notify_runs_its_job_in_its_own_systemd_scope_so_the_callers_unit_stop
     }
     shim::write_script(&tools.join("systemd-run"), "printf '%s\\n' \"$*\" >> \"$HOME/systemd-run.log\"\nwhile [ \"${1#--}\" != \"$1\" ]; do shift; done\nexec \"$@\"\n");
     fs::remove_file(root.join("bin/north")).unwrap();
-    fs::write(root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n").unwrap();
-    fs::set_permissions(root.join("bin/north"), fs::Permissions::from_mode(0o755)).unwrap();
-    shim::wait_until_executable(&root.join("bin/north"));
+    shim::write_executable(&root.join("bin/north"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HOME/north.log\"\n");
     let mut command = Command::new(tool("bash"));
     command.arg(root.join("bin/job-run")).args(["--notify", "scoped", "--", "true"]).env("HOME", root).env_remove("XDG_STATE_HOME").env("NORTH_FLEET_SESSION", "c-test").env("PATH", &tools);
     let mut child = {

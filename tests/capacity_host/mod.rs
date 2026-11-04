@@ -4,7 +4,6 @@ use north_core::foundation::shim;
 use serde_json::Value;
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output};
 use std::sync::{Mutex, MutexGuard};
@@ -96,9 +95,7 @@ impl Host {
         let bin = scratch.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
         for (name, body) in shims {
-            fs::write(bin.join(name), body).unwrap();
-            fs::set_permissions(bin.join(name), fs::Permissions::from_mode(0o755)).unwrap();
-            shim::wait_until_executable(&bin.join(name));
+            shim::write_executable(&bin.join(name), body);
         }
         fs::create_dir_all(scratch.path().join("agent-capacity-v1")).unwrap();
         fs::create_dir_all(scratch.path().join("state/scopes")).unwrap();

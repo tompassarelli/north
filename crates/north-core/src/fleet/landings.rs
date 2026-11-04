@@ -173,14 +173,11 @@ mod tests {
 
     #[test]
     fn a_session_running_on_another_machine_lands_from_that_machines_push_log() {
-        use std::os::unix::fs::PermissionsExt;
-
         let scratch = tempfile::tempdir().unwrap();
         let remote_log = scratch.path().join("pushes.tsv");
         std::fs::write(&remote_log, "2000\tnorth\tfix\tlane-sha\tlanded-remotely\tplaced\trev\n").unwrap();
         let ssh = scratch.path().join("ssh");
-        std::fs::write(&ssh, format!("#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\ncat {}\n", remote_log.display())).unwrap();
-        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::foundation::shim::write_script(&ssh, &format!("while [ \"$1\" != -- ]; do shift; done\ncat {}\n", remote_log.display()));
         let machine = Machine { name: "far".into(), ssh: "tom@far".into() };
         let remote = remote_pushes(&ssh, &machine);
         let books = Landings::default();

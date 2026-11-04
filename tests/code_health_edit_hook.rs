@@ -1,7 +1,7 @@
 use north_core::foundation::shim;
 use serde_json::{Value, json};
 use std::io::Write;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -30,16 +30,13 @@ impl Rig {
             symlink(which(name), tools.join(name)).unwrap();
         }
         let script = stub.join("code-health");
-        std::fs::write(
+        shim::write_executable(
             &script,
             format!(
                 "#!{}\n[ \"$1\" = check ] || exit 2\ncase \"$(cat \"$2\")\" in\n  *slow*) exec sleep 5 ;;\n  *orphan*) (sleep 30 & echo $! >\"$HOME/orphan.pid\"); echo orphan; exit 1 ;;\n  *broken*) echo 'internal error'; exit 2 ;;\n  *clean*) exit 0 ;;\nesac\necho \"file-size ${{2#$PWD/}}: 612 lines > 500; split the file\"\nexit 1\n",
                 which("sh").display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        shim::wait_until_executable(&script);
+        );
         let (repo, bare) = (base.join("repo"), base.join("bare"));
         std::fs::create_dir_all(repo.join("src")).unwrap();
         std::fs::create_dir_all(&bare).unwrap();

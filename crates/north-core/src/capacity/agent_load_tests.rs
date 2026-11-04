@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
@@ -39,18 +38,15 @@ fn host(root: &Path, proc: &Path) -> Host {
     let log = root.join("systemctl.log");
     let cgroup = root.join("cgroup");
     let script = root.join("systemctl");
-    fs::write(
+    crate::foundation::shim::write_script(
         &script,
-        format!(
-            "#!/bin/sh\necho \"$*\" >> '{}'\n[ -e '{}/fail-'\"$2\" ] && exit 1\n[ \"$2\" = stop ] && find '{}' -type d -name \"$3\" -exec cat {{}}/cgroup.procs \\; | xargs -r kill\nexit 0\n",
+        &format!(
+            "echo \"$*\" >> '{}'\n[ -e '{}/fail-'\"$2\" ] && exit 1\n[ \"$2\" = stop ] && find '{}' -type d -name \"$3\" -exec cat {{}}/cgroup.procs \\; | xargs -r kill\nexit 0\n",
             log.display(),
             root.display(),
             cgroup.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-    crate::foundation::shim::wait_until_executable(&script);
+    );
     Host {
         proc: proc.to_path_buf(),
         cgroup,

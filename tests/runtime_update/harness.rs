@@ -1,6 +1,6 @@
 use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tempfile::TempDir;
@@ -14,9 +14,7 @@ pub struct Host {
 }
 
 pub fn script(path: &Path, body: &str) {
-    fs::write(path, format!("#!/usr/bin/env bash\n{body}")).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    shim::wait_until_executable(path);
+    shim::write_executable(path, format!("#!/usr/bin/env bash\n{body}"));
 }
 
 pub fn git(home: &Path, dir: &Path, args: &[&str]) -> String {

@@ -27,6 +27,13 @@ pub fn wait_until_executable(script: &Path) {
     }
 }
 
+pub fn write_executable(path: &Path, content: impl AsRef<[u8]>) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, content).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    wait_until_executable(path);
+}
+
 pub fn write_script(path: &Path, body: &str) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::write(path, format!("#!/bin/sh\n[ -z \"$NORTH_SHIM_PROBE\" ] || exit 0\n{body}")).unwrap();

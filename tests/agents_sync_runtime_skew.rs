@@ -1,6 +1,6 @@
 use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use tempfile::TempDir;
@@ -143,9 +143,8 @@ impl Host {
 
     fn agents_stub(&self) {
         let path = self.path("bin/agents");
-        write(&path, "#!/usr/bin/env bash\n[[ $1 == sync ]] || exit 91\nexec \"$XDG_STATE_HOME/north/current/north\" config agents sync\n");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        shim::wait_until_executable(&path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        shim::write_executable(&path, "#!/usr/bin/env bash\n[[ $1 == sync ]] || exit 91\nexec \"$XDG_STATE_HOME/north/current/north\" config agents sync\n");
     }
 }
 

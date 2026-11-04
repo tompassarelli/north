@@ -1,6 +1,5 @@
 use north_core::foundation::shim;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -74,9 +73,7 @@ impl Fixture {
 
     fn script(&self, name: &str, body: &str) {
         let path = self.path(name);
-        fs::write(&path, body).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        shim::wait_until_executable(&path);
+        shim::write_executable(&path, body);
     }
 
     fn orchestration(&self, text: &str) {

@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -21,8 +20,7 @@ fn machine(root: &Path) -> PathBuf {
     fs::create_dir_all(&shims).unwrap();
     let shim = |name: &str, body: String| {
         let path = shims.join(name);
-        fs::write(&path, format!("#!/bin/sh\nSHIMS='{}'\nexport PATH=\"$SHIMS:$PATH\"\n{body}", shims.display())).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::foundation::shim::write_script(&path, &format!("SHIMS='{}'\nexport PATH=\"$SHIMS:$PATH\"\n{body}", shims.display()));
     };
     shim(
         "ssh",

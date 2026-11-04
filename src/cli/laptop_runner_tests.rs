@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -39,8 +38,7 @@ order = ["gex45", "anthropic-cloud", "nexus", "laptop", "codex-cloud"]
 "#;
 
 fn script(path: &Path, body: &str) {
-    fs::write(path, format!("#!/bin/sh\n{body}")).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    north_core::foundation::shim::write_script(path, body);
 }
 
 fn planted(root: &Path, job_source: bool) -> (String, bool) {

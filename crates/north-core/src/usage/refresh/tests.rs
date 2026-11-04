@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::time::Duration;
@@ -42,8 +41,7 @@ fn readers<'a>(directory: &Path) -> Readers<'a> {
 }
 
 fn script(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_executable(path, body);
 }
 
 #[test]

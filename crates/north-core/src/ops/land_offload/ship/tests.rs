@@ -1,6 +1,5 @@
 use super::{CommitId, Land, RUN, VERIFY, WRONG_TREE, bundle, job_ref};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -19,8 +18,7 @@ fn remote_run_with(command: &str, flake: bool, landing: &str, landref: &str, hom
         fs::write(slot.path().join("flake.nix"), "{}").unwrap();
     }
     let nix = bin.path().join("nix");
-    fs::write(&nix, "#!/bin/sh\necho \"nix $*\"\n").unwrap();
-    fs::set_permissions(&nix, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::foundation::shim::write_script(&nix, "echo \"nix $*\"\n");
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let output = Command::new("sh")
         .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={} landref={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing, super::quote(landref))])
