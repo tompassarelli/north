@@ -5,13 +5,13 @@ mod lexical;
 use crate::hook::{HookInput, Verdict};
 use crate::platform::pyjson::Value;
 use crate::shell;
-use commands::{SHELLS, Script, Systemd, kill, killall, pkill, shell_script, ssh};
+use commands::{SHELLS, Script, Systemd, full_pattern, kill, killall, pkill, shell_script, ssh};
 use regex::Regex;
 use std::sync::LazyLock;
 
 const TEARDOWN_PREFIXES: &[&str] = &[
     "env", "exec", "nohup", "setsid", "time", "nice", "ionice", "timeout", "stdbuf", "do", "then",
-    "else", "!", "{",
+    "else", "while", "until", "if", "elif", "!", "{",
 ];
 const LAUNCH_PREFIXES: &[&str] = &["env", "exec", "do", "then", "else", "!", "{"];
 const HOST_RESTART: &str = "firn host restart-user-manager";
@@ -32,12 +32,19 @@ pub(super) enum Hit {
         host: Option<String>,
     },
     Detached(String),
+    SelfMatch {
+        tool: &'static str,
+        pattern: String,
+    },
 }
 
 pub fn evaluate(input: &HookInput) -> Verdict {
     match input.command().and_then(|s| s.as_str()).and_then(decide) {
         Some(hit) if !crate::guard::activation::authoring_guards_off("session-kill-guard") => {
-            managed(input, &hit).map_or_else(|| Verdict::Deny(reason(&hit)), |updated| Verdict::Rewrite(updated, REWRITE_NOTE.into()))
+            managed(input, &hit).map_or_else(
+                || Verdict::Deny(reason(&hit)),
+                |updated| Verdict::Rewrite(updated, REWRITE_NOTE.into()),
+            )
         }
         _ => Verdict::Allow,
     }
@@ -59,7 +66,7 @@ fn managed(input: &HookInput, hit: &Hit) -> Option<Value> {
 }
 
 pub(super) fn decide(command: &str) -> Option<Hit> {
-    teardown(command, None, 0, &[])
+    teardown(command, None, 0, &[], command)
         .or_else(|| lexical::teardown(command))
         .or_else(|| detached(command))
 }
@@ -73,7 +80,11 @@ fn reason(hit: &Hit) -> String {
             "BLOCKED: {shape} on {host} over ssh — this stops every unit, farm runner, container and agent session that host's user manager runs. Run `{HOST_RESTART} {host}` instead: it restarts the user manager only after the host is idle (no busy farm runner job, no fleet session placed there, no running containers, no LAN pool units) and otherwise refuses, naming what blocks. Remote `systemctl --user status|list-units|show` stays allowed."
         ),
         Hit::Teardown { shape, host: None } => format!(
-            "BLOCKED: session-killing shape refused ({shape}) — this signals the whole desktop session (compositor, user manager, every agent), not just your target. Signal only processes YOU started, by specific PID (`kill <pid>`) or a unique pattern (`pkill -f '<unique-pattern>'`); manage your own units by exact name. To restart a host's user manager, run `{HOST_RESTART} HOST`, which refuses while the host is in use. Session/compositor teardown is the operator's call. Prose that mentions these phrases is unaffected — only a command-position invocation is denied. Rare explicit override: `north config agents off session-kill-guard` (persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
+            "BLOCKED: session-killing shape refused ({shape}) — this signals the whole desktop session (compositor, user manager, every agent), not just your target. Signal only processes YOU started, by specific PID (`kill <pid>`) or a unique pattern in bracket form (`pkill -f '[u]nique-pattern'`); manage your own units by exact name. To restart a host's user manager, run `{HOST_RESTART} HOST`, which refuses while the host is in use. Session/compositor teardown is the operator's call. Prose that mentions these phrases is unaffected — only a command-position invocation is denied. Rare explicit override: `north config agents off session-kill-guard` (persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
+        ),
+        Hit::SelfMatch { tool, pattern } => format!(
+            "BLOCKED: self-matching `{tool} -f {pattern}` — the pattern also matches the command line this call runs in (the shell running it carries the same text), so it finds and signals its own shell and whatever else runs in it. Write the pattern in bracket form so the pattern text no longer matches itself (`{tool} -f '{bracket}'`, e.g. `'[c]argo test'`), add `-A` to ignore ancestors, or avoid pattern matching: record the pid in a pid file when you start the process and use `kill $(cat file.pid)` or `{tool} -F file.pid`.",
+            bracket = bracketed(pattern)
         ),
         Hit::Detached(shape) => format!(
             "BLOCKED: {shape} would detach an agent child from its owner. Use `run-bounded <duration> -- <command>`; the wrapper has a 24h maximum, owns a transient cgroup plus PID namespace, reaps every descendant when the owner ends, and gives all background jobs a shared 48G hard ceiling."
@@ -81,13 +92,27 @@ fn reason(hit: &Hit) -> String {
     }
 }
 
-fn teardown(source: &str, host: Option<&str>, depth: usize, stdin: &[String]) -> Option<Hit> {
+fn bracketed(pattern: &str) -> String {
+    let mut chars = pattern.chars();
+    match chars.next() {
+        Some(first) if first.is_alphanumeric() => format!("[{first}]{}", chars.as_str()),
+        _ => pattern.to_owned(),
+    }
+}
+
+fn teardown(
+    source: &str,
+    host: Option<&str>,
+    depth: usize,
+    stdin: &[String],
+    root: &str,
+) -> Option<Hit> {
     if depth > 8 {
         return None;
     }
     let text = shell::strip_heredocs(source);
     for body in shell::shell_substitutions(&text) {
-        if let Some(hit) = teardown(&body, host, depth + 1, &[]) {
+        if let Some(hit) = teardown(&body, host, depth + 1, &[], root) {
             return Some(hit);
         }
     }
@@ -105,7 +130,7 @@ fn teardown(source: &str, host: Option<&str>, depth: usize, stdin: &[String]) ->
             };
         }
         let words = arguments(&segment.words[shell::command(&segment.words, TEARDOWN_PREFIXES)..]);
-        if let Some(hit) = command_teardown(&words, host, depth, &input) {
+        if let Some(hit) = command_teardown(&words, host, depth, &input, root) {
             return Some(hit);
         }
         previous = Some((words, input));
@@ -118,11 +143,16 @@ fn command_teardown(
     host: Option<&str>,
     depth: usize,
     stdin: &[String],
+    root: &str,
 ) -> Option<Hit> {
     let (name, args) = words.split_first()?;
     let shape = match shell::basename(name) {
         "kill" => kill(args),
-        "pkill" => pkill(args),
+        "pkill" => match pkill(args) {
+            Some(shape) => Some(shape),
+            None => return self_match("pkill", args, root),
+        },
+        "pgrep" => return self_match("pgrep", args, root),
         "killall" => killall(args),
         name @ ("loginctl" | "systemctl") => {
             let call = Systemd::parse(args);
@@ -140,15 +170,15 @@ fn command_teardown(
             let (destination, remote) = ssh(args)?;
             let remote_host = destination.rsplit('@').next().unwrap_or(&destination);
             return match remote {
-                Some(remote) => teardown(&remote, Some(remote_host), depth + 1, stdin),
-                None => scripts(stdin, Some(remote_host), depth),
+                Some(remote) => teardown(&remote, Some(remote_host), depth + 1, stdin, root),
+                None => scripts(stdin, Some(remote_host), depth, root),
             };
         }
-        "eval" => return teardown(&args.join(" "), host, depth + 1, stdin),
+        "eval" => return teardown(&args.join(" "), host, depth + 1, stdin, root),
         name if SHELLS.contains(&name) => {
             return match shell_script(args) {
-                Script::Inline(script) => teardown(script, host, depth + 1, &[]),
-                Script::Stdin => scripts(stdin, host, depth),
+                Script::Inline(script) => teardown(script, host, depth + 1, &[], root),
+                Script::Stdin => scripts(stdin, host, depth, root),
                 Script::File => None,
             };
         }
@@ -160,10 +190,22 @@ fn command_teardown(
     })
 }
 
-fn scripts(stdin: &[String], host: Option<&str>, depth: usize) -> Option<Hit> {
+fn self_match(tool: &'static str, args: &[String], root: &str) -> Option<Hit> {
+    let (pattern, insensitive) = full_pattern(args)?;
+    let source = if insensitive {
+        format!("(?i){pattern}")
+    } else {
+        pattern.clone()
+    };
+    let matched =
+        Regex::new(&source).map_or_else(|_| root.contains(&pattern), |re| re.is_match(root));
+    matched.then_some(Hit::SelfMatch { tool, pattern })
+}
+
+fn scripts(stdin: &[String], host: Option<&str>, depth: usize, root: &str) -> Option<Hit> {
     stdin
         .iter()
-        .find_map(|script| teardown(script, host, depth + 1, &[]))
+        .find_map(|script| teardown(script, host, depth + 1, &[], root))
 }
 
 fn redirected_input(words: &[String], heredocs: &mut impl Iterator<Item = String>) -> Vec<String> {

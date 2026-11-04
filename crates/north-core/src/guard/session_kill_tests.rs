@@ -137,3 +137,62 @@ fn remote_teardown_names_the_host_command() {
     assert!(reason(&hit).contains("`firn host restart-user-manager gex45`"));
     assert!(reason(&decide("loginctl terminate-user tom").unwrap()).contains(HOST_RESTART));
 }
+
+#[test]
+fn full_command_patterns_that_match_their_own_command_line_are_refused() {
+    for command in [
+        "pgrep -f 'safe-push --to main'",
+        "pkill -f 'safe-push --to main'",
+        "pgrep -fa 'safe-push --to main'",
+        "pkill -9 -f 'cargo test'",
+        "pkill -TERM -f 'cargo test'",
+        "pgrep --full 'cargo test'",
+        "pgrep -u tom -f 'cargo test'",
+        "pgrep -f \"cargo test\" || echo none",
+        "pgrep -f cargo; cargo test",
+        "pgrep -fi 'CARGO TEST'",
+        "pkill -f 'cargo.*test'",
+        "sudo pkill -f 'cargo test'",
+        "echo $(pgrep -f 'cargo test')",
+        "bash -c \"pgrep -f 'cargo test'\"",
+        "ssh gex45 pgrep -f 'cargo test'",
+        "while pgrep -f 'cargo test'; do sleep 1; done",
+    ] {
+        let hit = decide(command).unwrap_or_else(|| panic!("allowed {command}"));
+        assert!(matches!(hit, Hit::SelfMatch { .. }), "{command}: {hit:?}");
+        let reason = reason(&hit);
+        assert!(reason.contains("self-matching"), "{command}");
+        assert!(reason.contains("bracket form"), "{command}");
+        assert!(reason.contains("pid file"), "{command}");
+    }
+    let reason = reason(&decide("pgrep -f 'cargo test'").unwrap());
+    assert!(reason.contains("'[c]argo test'"));
+}
+
+#[test]
+fn bracket_form_pid_files_and_non_full_matches_pass() {
+    for command in [
+        "pgrep -f '[c]argo test'",
+        "pkill -f '[s]afe-push --to main'",
+        "pgrep -fa '[c]argo test'",
+        "pkill -F /tmp/task.pid",
+        "kill $(cat /tmp/task.pid)",
+        "pgrep cargo",
+        "pgrep -x cargo",
+        "pgrep -fx 'cargo test'",
+        "pgrep -fA 'cargo test'",
+        "pgrep -f --ignore-ancestors 'cargo test'",
+        "pgrep -u tom cargo",
+        "echo 'pgrep -f cargo'",
+        "cat <<'BODY'\npgrep -f cargo\nBODY",
+        "pgrep -f \"$PATTERN\"",
+    ] {
+        assert!(!denied(command), "allowed {command}");
+    }
+}
+
+#[test]
+fn bracket_form_still_refused_when_its_target_text_is_elsewhere_in_the_command() {
+    assert!(denied("pgrep -f '[c]argo test'; cargo test"));
+    assert!(!denied("pgrep -f '[c]argo test'; cargo build"));
+}

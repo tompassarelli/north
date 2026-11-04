@@ -135,6 +135,72 @@ pub(super) fn pkill(args: &[String]) -> Option<&'static str> {
     }
 }
 
+const PGREP_VALUE_SHORT: &str = "uUgGsPtFd";
+const PGREP_VALUE_LONG: &[&str] = &[
+    "--uid",
+    "--euid",
+    "--group",
+    "--signal",
+    "--parent",
+    "--terminal",
+    "--pidfile",
+    "--delay",
+    "--session",
+    "--pgroup",
+    "--runstates",
+    "--nslist",
+    "--ns",
+    "--env",
+];
+
+static SIGNAL_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^-(?:[0-9]+|[A-Z][A-Z0-9]+)$").unwrap());
+
+pub(super) fn full_pattern(args: &[String]) -> Option<(String, bool)> {
+    let (mut full, mut exempt, mut insensitive) = (false, false, false);
+    let mut pattern = None;
+    let mut iter = args.iter().map(String::as_str);
+    while let Some(arg) = iter.next() {
+        if arg == "--" {
+            pattern = pattern.or(iter.next());
+            break;
+        }
+        if let Some(long) = arg.strip_prefix("--") {
+            match long {
+                "full" => full = true,
+                "exact" | "ignore-ancestors" => exempt = true,
+                "ignore-case" => insensitive = true,
+                _ if PGREP_VALUE_LONG.contains(&arg) => {
+                    iter.next();
+                }
+                _ => {}
+            }
+        } else if arg.len() > 1 && arg.starts_with('-') {
+            if SIGNAL_NAME.is_match(arg) {
+                continue;
+            }
+            for (at, flag) in arg[1..].char_indices() {
+                match flag {
+                    'f' => full = true,
+                    'x' | 'A' => exempt = true,
+                    'i' => insensitive = true,
+                    flag if PGREP_VALUE_SHORT.contains(flag) => {
+                        if at + 2 == arg.len() {
+                            iter.next();
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        } else if pattern.is_none() {
+            pattern = Some(arg);
+        }
+    }
+    (full && !exempt).then_some(())?;
+    Some((pattern?.to_owned(), insensitive))
+}
+
 pub(super) fn killall(args: &[String]) -> Option<&'static str> {
     if args.iter().any(|a| a == "-u" || a == "--user") {
         Some("user-wide killall sweep")
