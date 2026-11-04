@@ -166,6 +166,42 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   [agent-machinery/PROVENANCE.md](../agent-machinery/PROVENANCE.md).
   Outcome: adopted under its stated MIT terms, with corrections and rationale added.
 
+### Nix
+
+<a id="nix-practice"></a>Each source informed [rationale/nix-current-practice.md](rationale/nix-current-practice.md)
+(north#553), accessed 2026-11-04; outcome for all: prior only, a dated audit that sets the targets of the Nix
+footguns plan and the nix-development skill's regrounding.
+
+- <a id="nix-endoflife"></a>**endoflife.date, Nix**, https://endoflife.date/api/nix.json: release lines, end-of-life
+  dates and latest patches.
+- <a id="nix-rl-2-35"></a>**Nix 2.35 release notes**, https://nix.dev/manual/nix/latest/release-notes/rl-2.35.
+- <a id="nix-rl-2-34"></a>**Nix 2.34 release notes**, https://nix.dev/manual/nix/latest/release-notes/rl-2.34.
+- <a id="nix-rl-2-33"></a>**Nix 2.33 release notes**, https://nix.dev/manual/nix/latest/release-notes/rl-2.33.
+- <a id="nix-rl-2-32"></a>**Nix 2.32 release notes**, https://nix.dev/manual/nix/latest/release-notes/rl-2.32.
+- <a id="nix-release-notes"></a>**Nix release notes index and support policy**,
+  https://nix.dev/manual/nix/latest/release-notes/.
+- <a id="nixos-2605"></a>**NixOS 26.05 announcement**, https://nixos.org/blog/announcements/2026/nixos-2605/.
+- <a id="nixos-release-notes"></a>**NixOS release notes (26.05, 25.11)**,
+  https://nixos.org/manual/nixos/stable/release-notes.
+- <a id="nix-experimental-features"></a>**Nix experimental features**,
+  https://nix.dev/manual/nix/latest/development/experimental-features.
+- <a id="nix-cli-stabilization"></a>**NixOS/nix#7701, CLI stabilization effort**,
+  https://github.com/NixOS/nix/issues/7701.
+- <a id="rfc-136"></a>**RFC 136, stabilize incrementally**,
+  https://github.com/NixOS/rfcs/blob/master/rfcs/0136-stabilize-incrementally.md.
+- <a id="lwn-flakes-2026"></a>**LWN, Understanding Nix flakes** (2026-10-21), https://lwn.net/Articles/1094226/.
+- <a id="nix-dev"></a>**nix.dev home**, https://nix.dev/.
+- <a id="nix-dev-flakes"></a>**nix.dev, Flakes concept**, https://nix.dev/concepts/flakes.
+- <a id="nix-dev-direnv"></a>**nix.dev, Automatic environments (direnv)**, https://nix.dev/guides/recipes/direnv.
+- <a id="nix-env-manual"></a>**Nix manual, nix-env**, https://nix.dev/manual/nix/latest/command-ref/nix-env.
+- <a id="nix-fmt-manual"></a>**Nix manual, nix fmt**, https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-fmt.
+- <a id="nix-flake-manual"></a>**Nix manual, nix flake**,
+  https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-flake.
+- <a id="nix-conf-manual"></a>**Nix manual, nix.conf**, https://nix.dev/manual/nix/latest/command-ref/conf-file.
+- <a id="nix-direnv-releases"></a>**nix-direnv releases**, https://github.com/nix-community/nix-direnv/releases.
+- <a id="install-nix-action-releases"></a>**cachix/install-nix-action releases**,
+  https://github.com/cachix/install-nix-action/releases.
+
 ### Scheduling and capacity
 
 Sources behind [docs/rationale/capacity-scheduler.md](rationale/capacity-scheduler.md#prior-art), which states the
