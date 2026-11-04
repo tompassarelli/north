@@ -269,6 +269,17 @@ fn a_cell_30_percent_dearer_than_the_week_before_files_exactly_one_issue_and_one
 }
 
 #[test]
+fn a_cell_of_boxes_no_label_has_named_yet_files_no_rise_however_dear_this_week_is() {
+    let week = boxes("1", 3, OPUS, "unknown", "2026-10-24", 9_000_000);
+    let before = boxes("3", 3, OPUS, "unknown", "2026-10-17", 1_000_000);
+    let ledger = Ledger { week: report(&week, "2026-10-20T06:00:00Z"), before: report(&before, "2026-10-13T06:00:00Z"), evidence: BTreeMap::new(), notes: Vec::new() };
+    let mut issues = Issues::default();
+    let quiet = tick(&ledger, &Prior::default(), &[], &mut issues, AT, false);
+    assert!(issues.filed.is_empty(), "{:#?}", quiet.lines);
+    assert!(!quiet.lines.iter().any(|line| line.starts_with("rose ")), "{:#?}", quiet.lines);
+}
+
+#[test]
 fn a_tier_that_staffed_no_run_this_week_files_no_rise_for_the_boxes_it_started_earlier() {
     const SOL: (&str, &str) = ("gpt-6.1-sol high", "gpt-6.1-sol");
     let week = report(

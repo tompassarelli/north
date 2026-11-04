@@ -6,6 +6,8 @@ use crate::ledger::ClosedReport;
 pub const RISE: f64 = 0.25;
 /// Closed boxes a cell needs in each week before its rise counts, so one dear box files nothing.
 pub const RISE_MIN_BOXES: usize = 3;
+/// The category of a box no label has named yet; its spend moves to a real cell once `threads label-runs` reads the issue, so a rise here is an artifact of the labeling lag.
+const UNLABELED: &str = "unknown";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rise {
@@ -19,7 +21,7 @@ pub struct Rise {
 pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
     week.cells
         .iter()
-        .filter(|cell| cell.staffed)
+        .filter(|cell| cell.staffed && cell.category != UNLABELED)
         .filter_map(|cell| {
             let earlier = before.cells.iter().find(|earlier| earlier.tier == cell.tier && earlier.category == cell.category)?;
             let (was, now) = (earlier.median_box_usd()?, cell.median_box_usd()?);
