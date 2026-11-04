@@ -111,6 +111,23 @@ Done when:
 - `rg -n 'B2 result' docs/rationale/build-cost.md` on origin/main prints a table row per setting with user+sys and wall
   seconds of the second build.
 
+Measured 2026-11-04 on the laptop under `--class runtime` leases (4 CPUs charged, 2 for the last row) with a fresh
+`CARGO_TARGET_DIR` per setting: build 1b699074a, then dfe087b46, which changes one `north-core` file. User+sys is the
+lease's `cpuSeconds` in `machine-capacity-usage.jsonl`, since the build runs in a systemd scope outside `time`'s
+children. The flake's shellHook sets `RUSTFLAGS=-Cmetadata=checkout:<toplevel>`, so a per-commit `runtime-<sha8>`
+path changes RUSTFLAGS and every unit recompiles, with incremental on or off; the on-row was therefore run on a stable
+path only, and `--remap-path-prefix` was not needed. The build-cache gate (`crates/north-landing/src/build_cache_gate.rs:19`)
+matches only a plain `CARGO_INCREMENTAL` set to one, so `CARGO_PROFILE_RELEASE_INCREMENTAL=true` passes it.
+
+| B2 result: setting | crates compiled (registry) | user+sys s | wall s |
+| --- | --- | --- | --- |
+| B2 result: incremental off, per-commit path | 150 (146) | 792 | 354 |
+| B2 result: incremental off, stable path | 4 (0) | 500 | 195 |
+| B2 result: incremental on, stable path | 4 (0) | 35 | 58 |
+
+The on-row is 93% below the stable off-row, past B3's 30% bar, so B3 landed with one stable `worktrees/runtime-build`
+lane and `CARGO_PROFILE_RELEASE_INCREMENTAL=true` on the build command.
+
 ### B3. Turn on incremental for runtime builds (candidate 2, if B2's on-row is at least 30% below off)
 
 Category: performance. Spec: measured. Scope: single-module. Surface: rust. Verify: local-test. Files:

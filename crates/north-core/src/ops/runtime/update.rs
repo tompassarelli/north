@@ -253,7 +253,8 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
         .args(["run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
         .args(["nix", "develop", "-c", "cargo", "build", "--release", "--locked", "--timings"])
         .current_dir(&lane.path)
-        .env("CARGO_TARGET_DIR", &built);
+        .env("CARGO_TARGET_DIR", &built)
+        .env("CARGO_PROFILE_RELEASE_INCREMENTAL", "true");
     let previous = fs::read_to_string(layout.build_seconds()).ok().and_then(|seconds| seconds.trim().parse().ok()).map(Duration::from_secs);
     let started = Instant::now();
     let wall = std::time::SystemTime::now();
