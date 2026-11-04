@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
@@ -145,4 +146,45 @@ pub fn top_unleased_gpu_process(before: &GpuProcessSample, after: &GpuProcessSam
         let busy = (nanoseconds / ((after.at - before.at) * 1e6) * 100.0).min(100.0);
         json!({ "pid": pid, "command": command, "gpuBusyPercent": num(round2(busy)) })
     })
+}
+
+/// NVML offers no per-process engine counter without accounting mode (root), so `nvidia-smi pmon` utilization stands in for the DRM engine time nvidia's driver does not expose.
+pub fn pmon_busy_fractions(text: &str, pids: &[String]) -> f64 {
+    text.lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() < 9 || !pids.iter().any(|pid| pid == fields[1]) {
+                return None;
+            }
+            let busiest = fields[3..9].iter().enumerate().filter(|(index, _)| *index != 1).filter_map(|(_, field)| field.parse::<f64>().ok()).fold(0.0_f64, f64::max);
+            Some((fields[1], busiest.clamp(0.0, 100.0) / 100.0))
+        })
+        .fold(BTreeMap::<&str, f64>::new(), |mut busiest, (pid, fraction)| {
+            let entry = busiest.entry(pid).or_insert(0.0);
+            *entry = entry.max(fraction);
+            busiest
+        })
+        .values()
+        .sum()
+}
+
+fn has_nvidia_device_open(pid: &str) -> bool {
+    fs::read_dir(format!("/proc/{pid}/fd")).is_ok_and(|entries| {
+        entries.flatten().any(|entry| fs::read_link(entry.path()).is_ok_and(|target| target.to_string_lossy().starts_with("/dev/nvidia")))
+    })
+}
+
+/// The share of one GPU the processes kept busy right now, summed over processes; zero when none has an nvidia device open or nvidia-smi is missing.
+pub fn nvidia_busy_fractions(pids: &[String]) -> f64 {
+    let holders: Vec<String> = pids.iter().filter(|pid| has_nvidia_device_open(pid)).cloned().collect();
+    if holders.is_empty() {
+        return 0.0;
+    }
+    let program = env("AGENT_CAPACITY_NVIDIA_SMI").unwrap_or_else(|| "nvidia-smi".to_owned());
+    let output = Command::new(program).args(["pmon", "-c", "1"]).stdin(Stdio::null()).stderr(Stdio::null()).output();
+    match output {
+        Ok(output) if output.status.success() => pmon_busy_fractions(&String::from_utf8_lossy(&output.stdout), &holders),
+        _ => 0.0,
+    }
 }

@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use super::gpu::add_engine_time;
+use super::gpu::{add_engine_time, nvidia_busy_fractions};
 use super::json::{Obj, num, number, opt};
 use super::machine::{now_ms, read_text};
 use super::policy::{disk_busy_share, percentile, quiet_idle_cores};
@@ -62,6 +62,8 @@ struct Sampler {
     live: VecDeque<(f64, f64)>,
     recent: Vec<f64>,
     per_client: BTreeMap<String, f64>,
+    nvidia_seconds: f64,
+    nvidia_at: f64,
     usage: Usage,
     view: Obj,
 }
@@ -128,7 +130,9 @@ impl Sampler {
         if self.count.is_multiple_of(GPU_EVERY_SAMPLES) {
             let pids: Vec<String> = read_text(self.cgroup.join("cgroup.procs")).unwrap_or_default().lines().filter(|line| !line.is_empty()).map(str::to_owned).collect();
             add_engine_time(&pids, &mut self.per_client);
-            self.usage.gpu_seconds = self.per_client.values().sum::<f64>() / 1e9;
+            self.nvidia_seconds += nvidia_busy_fractions(&pids) * (now - self.nvidia_at) / 1000.0;
+            self.nvidia_at = now;
+            self.usage.gpu_seconds = self.per_client.values().sum::<f64>() / 1e9 + self.nvidia_seconds;
         }
         self.count += 1;
         self.write(now);
@@ -176,6 +180,8 @@ pub fn measure_scope(root: &Path, lease: &str, cgroup: PathBuf) -> Measurement {
         live: VecDeque::new(),
         recent: Vec::new(),
         per_client: BTreeMap::new(),
+        nvidia_seconds: 0.0,
+        nvidia_at: started_at,
         usage: Usage::default(),
         view,
     };

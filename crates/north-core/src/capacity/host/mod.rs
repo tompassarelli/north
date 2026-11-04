@@ -12,6 +12,8 @@ mod database;
 mod decision;
 mod estimate;
 mod gpu;
+#[cfg(test)]
+mod gpu_tests;
 mod json;
 mod machine;
 #[cfg(test)]
