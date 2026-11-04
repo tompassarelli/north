@@ -1,7 +1,6 @@
 use super::judge::{self, Quarantine, Verdict};
 use super::land_cache::checkout_head;
-use super::land_test_runner::Case;
-use super::results::{Env, Key, Results, Store};
+use super::results::{Case, Env, Key, Results, Store};
 use north_base::foundation::clock::Timestamp;
 use std::collections::BTreeMap;
 use std::fs;

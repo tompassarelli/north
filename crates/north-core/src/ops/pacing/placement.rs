@@ -10,6 +10,7 @@ mod hosts;
 pub use hosts::{Pass, pass};
 mod inputs;
 mod launch;
+pub mod needs;
 mod reach;
 mod repository;
 pub mod room;

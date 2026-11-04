@@ -1,4 +1,5 @@
 use super::base_relative::Candidate;
+pub use super::results::Case;
 use std::io::{self, Read, Seek, Write};
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -25,19 +26,6 @@ enum Event<'a> {
 impl Outcome {
     fn passed(&self) -> bool {
         self.status == Some(0)
-    }
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Case {
-    pub test: String,
-    pub name: String,
-    pub passed: bool,
-}
-
-impl Case {
-    pub fn row(&self) -> String {
-        serde_json::json!({"test": self.test, "case": self.name, "outcome": if self.passed { "pass" } else { "fail" }}).to_string()
     }
 }
 

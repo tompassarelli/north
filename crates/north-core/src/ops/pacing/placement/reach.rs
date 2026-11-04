@@ -1,7 +1,7 @@
 //! The hosts a box's `Needs:` line names, and whether a target host can reach them: a `[hosts.NAME]`
 //! word that is not a local need must be the target itself or in the target's `reaches` list; a host
 //! that declares no list reaches any.
-use super::gate::{is_local_need, words};
+use super::needs::{is_local_need, words};
 use super::strings;
 use toml_edit::{DocumentMut, Item};
 

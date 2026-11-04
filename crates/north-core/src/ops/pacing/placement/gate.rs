@@ -6,9 +6,10 @@
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
 pub use super::repository::{anchored, repository};
+use super::needs::{LOCAL_NEEDS, words};
 use super::reach::Reach;
 use super::room::{Basis, Rank};
-use super::{credit, facets, field, here_saturation, local, strings};
+use super::{credit, facets, here_saturation, local, strings};
 use crate::capacity::{agent_load, laptop_auto};
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
@@ -22,9 +23,6 @@ use toml_edit::{DocumentMut, Item};
 
 const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "makgora"];
 const GAMING_NEEDS: [&str; 2] = ["native", "private"];
-const LOCAL_NEEDS: [&str; 12] = [
-    "warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop",
-];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Verdict {
@@ -228,17 +226,6 @@ fn judged(account: &str, control: &Value, burn_counts: bool) -> Verdict {
     }
 }
 
-pub fn words(text: &str, key: &str) -> Vec<String> {
-    field(text, key)
-        .to_lowercase()
-        .split(|c: char| c.is_whitespace() || c == ',' || c == '|' || c == '/')
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-pub(super) fn is_local_need(word: &str) -> bool {
-    LOCAL_NEEDS.contains(&word)
-}
 
 /// The needs that keep a box off code-only targets: local `Needs:` and `Surface:` words, and native
 /// verification.

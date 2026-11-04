@@ -1,9 +1,21 @@
-use super::land_test_runner::Case;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Case {
+    pub test: String,
+    pub name: String,
+    pub passed: bool,
+}
+
+impl Case {
+    pub fn row(&self) -> String {
+        serde_json::json!({"test": self.test, "case": self.name, "outcome": if self.passed { "pass" } else { "fail" }}).to_string()
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Env {

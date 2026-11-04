@@ -2,12 +2,12 @@
 //! its Verify facet implies; a host whose memory can never admit that class takes none of it.
 use super::measure::Measure;
 use crate::capacity::admission::{self, Class};
-use crate::ops::pacing::placement::gate;
+use crate::ops::pacing::placement::needs;
 
 /// Heavy for a box verified by a local or native test run, which machine-capacity admits as heavy;
 /// else agent, since only its CLI loads the host.
 pub fn class(brief: &str) -> Class {
-    let verify = gate::words(brief, "Verify");
+    let verify = needs::words(brief, "Verify");
     if verify.iter().any(|word| matches!(word.as_str(), "local-test" | "native")) { Class::Heavy } else { Class::Agent }
 }
 
