@@ -9,7 +9,7 @@ test("GitHub workflow-run confirmation protocol (REST actions/workflow-jobs, kin
   const only = (commit: Partial<Commit>) => ({ ...confirmation, commits: [{ ...culprit, ...commit }] });
   expect(decide(recorded).kind).toBe("confirm");
   expect(decide(confirmation)).toMatchObject({ kind: "revert", shas: ["culprit"] });
-  expect(decide({ ...confirmation, head: "tip", tip: "tip", commits: [{ sha: "tip", parents: ["culprit"], message: "second", files: ["src/lib.rs"] }, culprit] })).toMatchObject({ kind: "revert", shas: ["tip", "culprit"] });
+  expect(decide({ ...confirmation, head: "tip", tip: "tip", commits: [{ sha: "tip", parents: ["culprit"], message: "second", files: ["src/lib.rs"] }, culprit] })).toMatchObject({ kind: "report", reason: expect.stringContaining("bisect") });
   for (const s of [{ ...recorded, conclusion: "cancelled", original: [done] }, { ...recorded, conclusion: "cancelled" }, { ...confirmation, conclusion: "cancelled", confirmed: [done] }, { ...confirmation, conclusion: "cancelled" }]) expect(decide(s).kind).toBe("none");
   for (const s of [{ ...recorded, tip: "fix-forward" }, { ...confirmation, tip: "fix-forward" }, { ...confirmation, previous: { sha: "unrelated", conclusion: "success" } }, { ...confirmation, previous: { sha: "parent", conclusion: "failure" } }, { ...confirmation, attempt: 3 }, { ...confirmation, conclusion: "success", confirmed: [{ ...job, conclusion: "success", steps: [] }] }, { ...confirmation, confirmed: [{ ...job, steps: [{ name: "Other", number: 2, conclusion: "failure" }] }] }, only({ files: [".github/workflows/tests.yml"] }), only({ message: "Revert bad landing\n\nSheriff-Reverts: prior" }), { ...confirmation, onMain: false }]) expect(decide(s).kind).toBe("report");
 });

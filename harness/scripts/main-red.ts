@@ -33,7 +33,7 @@ export function decide(s: Situation): Decision {
     parent = commit.sha;
   }
   if (parent !== s.head) return report("The landed range does not end at the failing commit");
-  return { kind: "revert", reason: "Same step failed twice after a green parent", step: name, shas: s.commits.map(c => c.sha) };
+  return s.commits.length > 1 ? report(`The red range holds ${s.commits.length} landings, as a landing train pushes them; bisect it to the culprit instead of reverting them all`) : { kind: "revert", reason: "Same step failed twice after a green parent", step: name, shas: s.commits.map(c => c.sha) };
 }
 
 function run(command: string, args: string[]): string {
