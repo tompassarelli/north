@@ -23,6 +23,7 @@ Rules for Warcraft clients, private desktops, native evidence runs, GPU work and
 
 - Expect any request except agent and tom (the build Tom is waiting to play, which never waits on the GPU) that starts GPU work or names a native, private or gpu need to defer with DEFER_GPU_BUSY while Tom is present and the laptop GPU is at least 85% busy with no gpu lease running, naming `offload` when another host serves the need, because admission counts CPU and memory but an agent window admitted as `--class heavy` once held the 890M at 100% and made his desktop choppy.
 - gpu is admitted on GPU occupancy, not behind CPU-heavy tickets.
+- Size a gpu `run` or `session` that runs a whole native game for a performance measurement with `--memory-gib G --cpus N` from its measured resident peak plus headroom and its busy threads, because the default 1 CPU/2 GiB scope throttled a four-fighter Mak'gora benchmark with hundreds of memory-pressure events and seconds of CPU quota stall a minute while players run unthrottled (wisp#230, 2026-11-04).
 
 ## Gaming and game reserve
 

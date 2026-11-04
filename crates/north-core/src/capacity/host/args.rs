@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::fail;
 use super::json::{number, show};
-use super::policy::{CLASS_NAMES, native_memory_request, resource_class};
+use super::policy::{CLASS_NAMES, measured_request, resource_class};
 use super::request::Request;
 
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
@@ -90,12 +90,18 @@ impl Options {
 
     fn resources(&self, name: &str, cores: f64) -> super::policy::Resources {
         let mut resources = resource_class(name, cores).unwrap_or_else(|| fail(&format!("policy rejected resource class: {name}"), 2));
-        if self.has("--memory-gib") {
-            let memory_gib = number(self.required("--memory-gib"));
-            if !memory_gib.is_finite() {
-                fail("--memory-gib must be finite", 2);
-            }
-            resources = native_memory_request(name, cores, memory_gib).unwrap_or_else(|message| fail(message, 2));
+        let finite = |option: &str| {
+            self.has(option).then(|| {
+                let value = number(self.required(option));
+                if !value.is_finite() {
+                    fail(&format!("{option} must be finite"), 2);
+                }
+                value
+            })
+        };
+        let (memory_gib, cpus) = (finite("--memory-gib"), finite("--cpus"));
+        if memory_gib.is_some() || cpus.is_some() {
+            resources = measured_request(name, cores, memory_gib, cpus).unwrap_or_else(|message| fail(message, 2));
             if !safe_integer(resources.memory_mib) {
                 fail("--memory-gib must represent a whole, safe number of MiB", 2);
             }

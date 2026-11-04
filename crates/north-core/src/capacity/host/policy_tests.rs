@@ -116,3 +116,16 @@ fn a_frozen_batch_lease_is_still_charged_its_memory_and_reserves_no_batch_cpus()
     assert!((leased - 26.0).abs() < 0.02, "only the landing check and Tom's build commit CPUs: {leased}");
     assert_eq!(accounting.committed_elastic_cpus, 8.0, "the idle-weighted leases are counted apart");
 }
+
+#[test]
+fn a_measured_gpu_request_sizes_its_cpus_and_memory_and_native_sizes_only_memory() {
+    use super::policy::{Resources, measured_request};
+    assert_eq!(measured_request("gpu", 16.0, Some(4.0), Some(4.0)), Ok(Resources { cpus: 4.0, memory_mib: 4096.0 }));
+    assert_eq!(measured_request("gpu", 16.0, None, Some(3.0)), Ok(Resources { cpus: 3.0, memory_mib: 2048.0 }));
+    assert_eq!(measured_request("native", 16.0, Some(1.5), None), Ok(Resources { cpus: 2.0, memory_mib: 1536.0 }));
+    assert!(measured_request("native", 16.0, None, Some(4.0)).is_err());
+    assert!(measured_request("heavy", 16.0, Some(4.0), None).is_err());
+    assert!(measured_request("gpu", 16.0, None, Some(17.0)).is_err());
+    assert!(measured_request("gpu", 16.0, None, Some(1.5)).is_err());
+    assert!(measured_request("gpu", 16.0, Some(0.0), None).is_err());
+}

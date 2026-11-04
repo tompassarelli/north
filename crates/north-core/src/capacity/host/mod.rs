@@ -131,9 +131,9 @@ fn estimate(argv: &[String]) -> u8 {
     0
 }
 
-const FIXTURE_OPTIONS: [&str; 26] = [
+const FIXTURE_OPTIONS: [&str; 27] = [
     "--profile", "--class", "--cores", "--memory-total-mib", "--memory-available-mib", "--protected-cpu-some-avg10-basis-points", "--memory-full-avg10-basis-points",
-    "--leased-cpus", "--leased-native-cpus", "--leased-memory-mib", "--peer-batch-runs", "--peer-exclusive-runs", "--unbounded-runs", "--memory-gib",
+    "--leased-cpus", "--leased-native-cpus", "--leased-memory-mib", "--peer-batch-runs", "--peer-exclusive-runs", "--unbounded-runs", "--memory-gib", "--cpus",
     "--cpu-some-avg10-basis-points", "--queued-ahead", "--exclusive-waiting", "--gpu-busy-percent", "--gpu-clients", "--new-clients", "--new-desktops",
     "--gpu-runs", "--native-waiting", "--quiet-native-runs", "--beside-native", "--run-queue-load",
 ];
@@ -216,7 +216,7 @@ fn mode(root: &Path, argv: &[String]) -> u8 {
 }
 
 fn probe(root: &Path, argv: &[String], host: &Host) -> u8 {
-    let options = args::Options::parse(argv, 1, &["--class", "--memory-gib", "--beside-native", "--new-clients", "--new-desktops", "--pair", "--owner"], &[]);
+    let options = args::Options::parse(argv, 1, &["--class", "--memory-gib", "--cpus", "--beside-native", "--new-clients", "--new-desktops", "--pair", "--owner"], &[]);
     if options.separator != argv.len() {
         fail("probe accepts no command", 2);
     }
@@ -262,8 +262,8 @@ fn renew_or_release(root: &Path, argv: &[String]) -> u8 {
     0
 }
 
-const RUN_OPTIONS: [&str; 14] = [
-    "--class", "--owner", "--timeout-seconds", "--memory-gib", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone", "--latency", "--priority",
+const RUN_OPTIONS: [&str; 15] = [
+    "--class", "--owner", "--timeout-seconds", "--memory-gib", "--cpus", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone", "--latency", "--priority",
 ];
 
 fn landing_run(operation: &str, owner: &str, class: &str, land_head: Option<&str>, landing: Option<&str>) -> bool {
@@ -274,7 +274,7 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
     if options.get("--class") == Some("tom") && let Some(message) = priority::tom_class_refusal(Some(owner)) {
         fail(&message, 2);
     }
-    let mut request = if options.has("--memory-gib") {
+    let mut request = if options.has("--memory-gib") || options.has("--cpus") {
         options.class(cores)
     } else if options.has("--class") {
         sizing::charge_from_usage(options.class(cores), owner, command, cores)

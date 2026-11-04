@@ -23,6 +23,7 @@ Contents:
 - native: no CPU quota.
 - Lease lifetimes: batch `session` default 30 minutes, batch maximum one hour, exclusive maximum 15 minutes; only native sessions have no default deadline.
 - Native-only `--memory-gib 1.5` (positive whole-MiB values, memory and CPU admission rules still apply) charges that client 1536 MiB instead of 4096 MiB and applies the same MemoryHigh to that client only; for measured smaller offline clients.
+- gpu accepts `--memory-gib G` and a whole `--cpus N` up to the host's cores; either sets that lease's charge, CPUQuota and MemoryHigh and skips learned sizing, for measured native-game benchmarks.
 
 ## Native sessions and GPU
 

@@ -82,12 +82,21 @@ pub fn resource_class(kind: &str, cores: f64) -> Option<Resources> {
     Some(Resources { cpus, memory_mib })
 }
 
-pub fn native_memory_request(kind: &str, cores: f64, memory_gib: f64) -> Result<Resources, &'static str> {
-    let base = resource_class(kind, cores).ok_or("Unknown resource class")?;
-    if kind != "native" || memory_gib.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
-        return Err("--memory-gib requires a positive native memory request");
+pub fn measured_request(kind: &str, cores: f64, memory_gib: Option<f64>, cpus: Option<f64>) -> Result<Resources, &'static str> {
+    let mut resources = resource_class(kind, cores).ok_or("Unknown resource class")?;
+    if let Some(memory_gib) = memory_gib {
+        if !matches!(kind, "native" | "gpu") || memory_gib.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+            return Err("--memory-gib requires a positive native or gpu memory request");
+        }
+        resources.memory_mib = memory_gib * 1024.0;
     }
-    Ok(Resources { cpus: base.cpus, memory_mib: memory_gib * 1024.0 })
+    if let Some(cpus) = cpus {
+        if kind != "gpu" || !(cpus >= 1.0 && cpus.fract() == 0.0 && cpus <= cores) {
+            return Err("--cpus requires a whole gpu CPU request between 1 and the host's cores");
+        }
+        resources.cpus = cpus;
+    }
+    Ok(resources)
 }
 
 pub fn batch_class(kind: &str) -> bool {
