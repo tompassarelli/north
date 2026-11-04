@@ -143,6 +143,19 @@ fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io
     Ok(())
 }
 
+fn refuse_static_gates(root: &Path, base: &str, head: &str) -> Result<(), String> {
+    if !crate::language_gate::check(root, base, head) {
+        return Err("language gate refused the landing".to_owned());
+    }
+    if !crate::build_cache_gate::check(root, base, head) {
+        return Err("build-cache gate refused the landing".to_owned());
+    }
+    if !crate::dep_gate::check_reasons(root, base, head) {
+        return Err("dependency gate refused the landing".to_owned());
+    }
+    Ok(())
+}
+
 pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) -> Result<Queued, String> {
     let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
@@ -153,6 +166,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
     git(&root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
+    refuse_static_gates(&root, &base, "HEAD")?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let squash = lane_squash::squash(&root, &base, message)?;
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;

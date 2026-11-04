@@ -179,3 +179,53 @@ fn enqueue_stamps_the_ticket_with_the_second_the_lane_made_its_first_commit_even
     assert!(first >= before && first < seconds(), "first commit {first} is the second of the lane's first commit, not of the squash or the enqueue (started {before})");
     assert_eq!(fixture.pending()[0].first_commit_secs, Some(first));
 }
+
+fn north_enqueue(fixture: &Fixture) -> (std::process::Output, std::time::Duration) {
+    let started = std::time::Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["land", "enqueue", "--repo"])
+        .arg(&fixture.repo)
+        .env("XDG_STATE_HOME", &fixture.state)
+        .env_remove("NORTH_LAND_SERVING")
+        .output()
+        .unwrap();
+    (output, started.elapsed())
+}
+
+fn assert_refused_before_queueing(fixture: &Fixture, gate_line: &str) {
+    let (output, elapsed) = north_enqueue(fixture);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stdout}{stderr}");
+    assert!(stdout.contains(gate_line), "{stdout}{stderr}");
+    assert!(stderr.contains("NOT queued"), "{stderr}");
+    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
+    assert!(!fixture.state.exists(), "a refused lane writes no ticket to the queue or the outbox: {:?}", fs::read_dir(&fixture.state).map(|entries| entries.count()));
+}
+
+#[test]
+fn enqueue_refuses_a_lane_that_grows_a_script_without_an_allowlist_entry_and_writes_no_ticket() {
+    let fixture = Fixture::new();
+    fixture.commit(&fixture.repo, "tool.py", "Add a python tool");
+    assert_refused_before_queueing(&fixture, "tool.py: R1 new Python path is forbidden or Script path is not allowlisted; write it in Rust under src/ or as a north subcommand");
+}
+
+#[test]
+fn enqueue_refuses_a_lane_that_adds_a_dependency_without_a_reason_and_writes_no_ticket() {
+    let fixture = Fixture::new();
+    fs::write(fixture.repo.join("package.json"), r#"{"dependencies":{"left-pad":"1.3.0"}}"#).unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add left-pad"]);
+    assert_refused_before_queueing(&fixture, "dep-gate: package.json: left-pad: added dependency needs a reason");
+}
+
+#[test]
+fn enqueue_queues_a_lane_whose_dependency_names_its_reason() {
+    let fixture = Fixture::new();
+    fs::write(fixture.repo.join("package.json"), r#"{"dependencies":{"left-pad":"1.3.0"}}"#).unwrap();
+    git(&fixture.repo, &["add", "."]);
+    git(&fixture.repo, &["commit", "-qm", "Add left-pad", "-m", "Dependency: left-pad — pads strings"]);
+    let (output, _) = north_enqueue(&fixture);
+    assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fixture.pending().len(), 1);
+}

@@ -993,48 +993,76 @@ fn parse_manifests(manifests: &BTreeMap<String, String>) -> Result<Manifests, St
         .collect()
 }
 
+struct Reviewed {
+    base: Snapshot,
+    head: Snapshot,
+    messages: Vec<String>,
+    failures: Vec<String>,
+}
+
+fn review_reasons(root: &Path, args: &[String]) -> Result<Reviewed, (u8, String)> {
+    if !git(root, &["rev-parse", "--show-prefix"])
+        .map_err(|e| (1, e))?
+        .trim()
+        .is_empty()
+    {
+        return Err((1, "run dep-gate from the repository root".into()));
+    }
+    let revisions: Vec<_> = args
+        .iter()
+        .map(|rev| {
+            git(
+                root,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    &format!("{rev}^{{commit}}"),
+                ],
+            )
+            .map(|s| s.trim().to_owned())
+        })
+        .collect::<Result<_, _>>()
+        .map_err(|e| (1, e))?;
+    let (base, head) = (&revisions[0], &revisions[1]);
+    let base_snapshot = read_snapshot(root, base).map_err(|e| (1, e))?;
+    let head_snapshot = read_snapshot(root, head).map_err(|e| (1, e))?;
+    let before = parse_manifests(&base_snapshot.manifests).map_err(|e| (1, e))?;
+    let after = parse_manifests(&head_snapshot.manifests).map_err(|e| (1, e))?;
+    let messages: Vec<_> = git(
+        root,
+        &["log", "--format=%B%x00", &format!("{base}..{head}")],
+    )
+    .map_err(|e| (1, e))?
+    .split('\0')
+    .map(str::to_owned)
+    .collect();
+    let failures = violations(&before, &after, &dependency_reasons(&messages));
+    Ok(Reviewed { base: base_snapshot, head: head_snapshot, messages, failures })
+}
+
+/// The offline half of dep-gate: every added dependency names a reason and comes from an allowed source; it never reads a registry.
+pub fn check_reasons(root: &Path, base: &str, head: &str) -> bool {
+    match review_reasons(root, &[base.to_owned(), head.to_owned()]) {
+        Ok(reviewed) if reviewed.failures.is_empty() => true,
+        Ok(reviewed) => {
+            println!("{}\n{TRAILER_FORMAT}", reviewed.failures.join("\n"));
+            false
+        }
+        Err((_, error)) => {
+            eprintln!("dep-gate: {error}");
+            false
+        }
+    }
+}
+
 fn evaluate(root: &Path, args: &[String]) -> Result<(u8, String), (u8, String)> {
     let check = || -> Result<(u8, String), (u8, String)> {
-        if !git(root, &["rev-parse", "--show-prefix"])
-            .map_err(|e| (1, e))?
-            .trim()
-            .is_empty()
-        {
-            return Err((1, "run dep-gate from the repository root".into()));
+        let reviewed = review_reasons(root, args)?;
+        if !reviewed.failures.is_empty() {
+            return Ok((1, format!("{}\n{TRAILER_FORMAT}\n", reviewed.failures.join("\n"))));
         }
-        let revisions: Vec<_> = args
-            .iter()
-            .map(|rev| {
-                git(
-                    root,
-                    &[
-                        "rev-parse",
-                        "--verify",
-                        "--end-of-options",
-                        &format!("{rev}^{{commit}}"),
-                    ],
-                )
-                .map(|s| s.trim().to_owned())
-            })
-            .collect::<Result<_, _>>()
-            .map_err(|e| (1, e))?;
-        let (base, head) = (&revisions[0], &revisions[1]);
-        let base_snapshot = read_snapshot(root, base).map_err(|e| (1, e))?;
-        let head_snapshot = read_snapshot(root, head).map_err(|e| (1, e))?;
-        let before = parse_manifests(&base_snapshot.manifests).map_err(|e| (1, e))?;
-        let after = parse_manifests(&head_snapshot.manifests).map_err(|e| (1, e))?;
-        let messages: Vec<_> = git(
-            root,
-            &["log", "--format=%B%x00", &format!("{base}..{head}")],
-        )
-        .map_err(|e| (1, e))?
-        .split('\0')
-        .map(str::to_owned)
-        .collect();
-        let failures = violations(&before, &after, &dependency_reasons(&messages));
-        if !failures.is_empty() {
-            return Ok((1, format!("{}\n{TRAILER_FORMAT}\n", failures.join("\n"))));
-        }
+        let (base_snapshot, head_snapshot, messages) = (reviewed.base, reviewed.head, reviewed.messages);
         let candidates = lock_candidates(&base_snapshot.locks, &head_snapshot.locks).map_err(|e| (1, e))?;
         let urgent = urgent_dependencies(&messages);
         let times = publish_times(&candidates, &urgent).map_err(|e| (2, e))?;
