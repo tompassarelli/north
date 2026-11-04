@@ -1,4 +1,5 @@
 use crate::hook::{HookInput, Verdict};
+use crate::ops::dispatch::Tier;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -46,8 +47,39 @@ static FOLLOWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Follows
 static MECHANICAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Category:\W*mechanical\b").unwrap());
 
+static ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t]*Item:[ \t]*\S").unwrap());
+static TIER_REASON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Tier-reason:[ \t]*\S").unwrap());
+
+fn routed_tier(brief: &str) -> Option<Tier> {
+    crate::ops::dispatch::picked_tier(brief).ok()
+}
+
+fn asked_tier(kind: &str) -> Option<Tier> {
+    match kind {
+        "worker-haiku" => Some(Tier::Haiku),
+        "worker-sonnet" => Some(Tier::Sonnet),
+        "worker" | "worker-high" | "worker-xhigh" => Some(Tier::Opus),
+        _ => None,
+    }
+}
+
+/// Refuses a worker brief with no `Item:` line, and a Claude worker whose tier is not the one
+/// `route()` picks for the brief unless the brief gives a `Tier-reason:`; escalations are exempt.
+pub(super) fn routing_refusal(input: &HookInput, pick: &dyn Fn(&str) -> Option<Tier>) -> Option<String> {
+    let (kind, prompt) = spawn_parts(input)?;
+    if !ITEM.is_match(prompt) {
+        return Some("Missing Item: name the issue or box the worker is for on an `Item:` line in the brief, so the ledger groups the run under it.".into());
+    }
+    let native = input.data["tool_name"].as_str().unwrap_or("").ends_with("spawn_agent");
+    if native || FOLLOWS.is_match(prompt) || TIER_REASON.is_match(prompt) {
+        return None;
+    }
+    let (asked, picked) = (asked_tier(kind)?, pick(prompt)?);
+    (asked != picked).then(|| format!("{kind} is {}, but the ledger's routing picks {} for this brief; spawn that tier or add a `Tier-reason:` line saying why this box needs {kind}.", asked.name(), picked.name()))
+}
+
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let Some(reason) = refusal(input) else {
+    let Some(reason) = refusal(input).or_else(|| routing_refusal(input, &routed_tier)) else {
         return Verdict::Allow;
     };
     if crate::guard::activation::authoring_guards_off("worker-tier-guard") {

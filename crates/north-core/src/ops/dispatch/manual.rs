@@ -149,6 +149,12 @@ pub fn begin(ask: &Ask) -> Result<Start, String> {
     start(ask, &body, &cfg, &history, &ledger, &|route| grounds.grounds(ask.item, created, &body, route))
 }
 
+/// The tier route() picks for a worker brief, for a spawn guard that compares it with the tier asked for.
+pub fn picked_tier(brief: &str) -> Result<Tier, String> {
+    let item = facets::declared_in(brief, "Item").unwrap_or("agent spawn");
+    begin(&Ask { item, brief, prompt: brief, model: None, reason: None }).map(|start| start.route.tier)
+}
+
 /// The issue's body and when it was opened, as unix seconds.
 fn issue_text(item: &str) -> Result<(String, f64), String> {
     let item = IssueRef::parse(item).ok_or_else(|| format!("{item} names no issue"))?;

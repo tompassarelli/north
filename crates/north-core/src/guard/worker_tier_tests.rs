@@ -202,3 +202,47 @@ fn a_brief_breaking_several_rules_gets_every_refusal_in_one_message() {
     let reason = verdict("worker-haiku", &infra).unwrap();
     assert!(reason.contains("needs a Payback: line") && reason.contains("Lands-before: later is not a landing order"), "{reason}");
 }
+
+mod routing {
+    use super::{FACETS, input};
+    use crate::guard::worker_tier::routing_refusal;
+    use crate::ops::dispatch::Tier;
+    use serde_json::json;
+
+    fn tooling() -> String {
+        format!("Item: add a flag.\nCategory: tooling\nPayback: enables x; cost 5 min{FACETS}")
+    }
+
+    fn verdict(agent: &str, prompt: &str, pick: Option<Tier>) -> Option<String> {
+        routing_refusal(&input(agent, json!(true), prompt), &|_| pick)
+    }
+
+    #[test]
+    fn an_agent_whose_tier_differs_from_the_routed_pick_is_refused_unless_the_brief_gives_a_tier_reason() {
+        let refused = verdict("worker", &tooling(), Some(Tier::Sonnet)).unwrap();
+        assert!(refused.contains("picks sonnet-high") && refused.contains("Tier-reason:"), "{refused}");
+        assert!(verdict("worker-haiku", &tooling(), Some(Tier::Sonnet)).is_some());
+        assert_eq!(verdict("worker-sonnet", &tooling(), Some(Tier::Sonnet)), None);
+        assert_eq!(verdict("worker", &tooling(), Some(Tier::Opus)), None);
+        let reasoned = format!("Tier-reason: touches the ledger's own cost model.\n{}", tooling());
+        assert_eq!(verdict("worker", &reasoned, Some(Tier::Sonnet)), None);
+        let escalated = format!("Follows: worker-haiku run a1b2 failed.\n{}", tooling());
+        assert_eq!(verdict("worker", &escalated, Some(Tier::Sonnet)), None);
+    }
+
+    #[test]
+    fn an_unreadable_pick_and_non_worker_agents_pass() {
+        assert_eq!(verdict("worker", &tooling(), None), None);
+        assert_eq!(verdict("Explore", &tooling(), Some(Tier::Sonnet)), None);
+        assert_eq!(verdict("codex", &tooling(), Some(Tier::Sonnet)), None);
+    }
+
+    #[test]
+    fn a_worker_brief_missing_its_item_line_is_refused_and_a_full_brief_passes() {
+        let without: String = tooling().lines().filter(|line| !line.starts_with("Item:")).collect::<Vec<_>>().join("\n");
+        for agent in ["worker", "worker-sonnet", "worker-haiku", "codex"] {
+            assert!(verdict(agent, &without, Some(Tier::Opus)).is_some_and(|text| text.starts_with("Missing Item:")), "{agent}");
+        }
+        assert_eq!(verdict("worker", &tooling(), Some(Tier::Opus)), None);
+    }
+}
