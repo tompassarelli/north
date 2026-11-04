@@ -241,7 +241,7 @@ fn skills_group(context: &Context, report: &mut Report) {
 
 fn rules_group(context: &Context, report: &mut Report) {
     let before = report.fail;
-    let register = rules::rule_register(&context.operator, &context.roots).unwrap_or_else(|error| gate::Verdicts { text: error, passed: false });
+    let register = rules::rule_register(&context.operator, &context.north.join("harness/claude/agents"), &context.roots).unwrap_or_else(|error| gate::Verdicts { text: error, passed: false });
     let summary = if register.passed {
         report.ok(&register.text);
         register.text

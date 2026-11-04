@@ -221,7 +221,7 @@ impl Register {
         git(operator, &["init", "-q"]);
         git(operator, &["add", "rules.toml"]);
         git(operator, &["commit", "-qm", "base"]);
-        assert!(rule_register(operator, &fixture.roots()).unwrap().passed);
+        assert!(rule_register(operator, &fixture.path("roles"), &fixture.roots()).unwrap().passed);
         let mut policy = fs::read_to_string(operator.join("AGENTS.md")).unwrap();
         policy.push_str("\n- Cite incidents.\n");
         fs::write(operator.join("AGENTS.md"), policy).unwrap();
@@ -237,7 +237,7 @@ impl Register {
             format!("{base}\n[[rule]]\nid = \"cite\"\nsection = \"Rules\"\ntext = \"Cite incidents.\"\nplacement = \"global\"\nfixes = \"Unearned rules.\"\nincidents = {incidents}\n"),
         )
         .unwrap();
-        let verdicts = rule_register(operator, &roots).unwrap();
+        let verdicts = rule_register(operator, &self.fixture.path("roles"), &roots).unwrap();
         (verdicts.passed, verdicts.text)
     }
 
@@ -282,10 +282,38 @@ fn rules_must_match_agents_bullets_one_to_one() {
         "[[rule]]\nid = \"other\"\nsection = \"Rules\"\ntext = \"Something else.\"\nplacement = \"global\"\nfixes = \"x\"\nincidents = []\n",
     )
     .unwrap();
-    let verdicts = rule_register(&fixture.operator, &fixture.roots()).unwrap();
+    let verdicts = rule_register(&fixture.operator, &fixture.path("roles"), &fixture.roots()).unwrap();
     assert!(!verdicts.passed);
     assert!(verdicts.text.contains("AGENTS.md bullet has no rules.toml entry: [Rules] Keep it short."), "{}", verdicts.text);
     assert!(verdicts.text.contains("rules.toml entry has no AGENTS.md bullet: [Rules] Something else."), "{}", verdicts.text);
+}
+
+#[test]
+fn rules_placed_in_a_role_file_need_its_text_there() {
+    let fixture = Fixture::new();
+    let roles = fixture.path("roles");
+    fs::create_dir_all(&roles).unwrap();
+    fs::write(
+        fixture.operator.join("rules.toml"),
+        "[[rule]]\nid = \"keep-short\"\nsection = \"Rules\"\ntext = \"Keep it short.\"\nplacement = \"global\"\nfixes = \"x\"\nincidents = []\n\n[[rule]]\nid = \"names\"\nsection = \"Rules\"\ntext = \"Plato is the proxy.\"\nplacement = \"agent:proxy\"\nfixes = \"x\"\nincidents = []\n",
+    )
+    .unwrap();
+    let verdicts = rule_register(&fixture.operator, &roles, &fixture.roots()).unwrap();
+    assert!(!verdicts.passed && verdicts.text.contains("rules.toml names: agent:proxy names no role file proxy.md"), "{}", verdicts.text);
+    fs::write(roles.join("proxy.md"), "---\nname: proxy\n---\n\n- Plato is someone else.\n").unwrap();
+    let verdicts = rule_register(&fixture.operator, &roles, &fixture.roots()).unwrap();
+    assert!(!verdicts.passed && verdicts.text.contains("rules.toml names: role file proxy.md does not hold its text"), "{}", verdicts.text);
+    fs::write(roles.join("proxy.md"), "---\nname: proxy\n---\n\n- Plato is the proxy.\n").unwrap();
+    let verdicts = rule_register(&fixture.operator, &roles, &fixture.roots()).unwrap();
+    assert!(verdicts.passed, "{}", verdicts.text);
+}
+
+#[test]
+fn proxy_role_file_allows_only_read_only_subagents() {
+    let role = include_str!("../../../../harness/claude/agents/proxy.md");
+    let tools = role.lines().find_map(|line| line.strip_prefix("tools:")).expect("proxy.md declares its tools");
+    assert!(tools.contains("Agent(Explore, Plan)"), "{tools}");
+    assert_eq!(tools.split([',', ' ']).filter(|tool| tool.starts_with("Agent")).count(), 1, "{tools}");
 }
 
 struct Vocabulary {

@@ -107,11 +107,11 @@ fn placement_of(rule: &Value) -> String {
 
 fn placement_errors(rules: &[Value]) -> Vec<String> {
     let ids: Vec<Option<&str>> = rules.iter().map(|rule| text_of(rule, "id").filter(|id| !id.is_empty())).collect();
-    let valid = Regex::new(r"^(?:global|dropped|(?:merged|skill|hook):[a-z0-9-]+)$").unwrap();
+    let valid = Regex::new(r"^(?:global|dropped|(?:merged|skill|hook|agent):[a-z0-9-]+)$").unwrap();
     let mut errors: Vec<String> = rules
         .iter()
         .filter(|rule| !valid.is_match(&placement_of(rule)))
-        .map(|rule| format!("rules.toml {}: placement must be global, merged:<id>, skill:<name>, hook:<name> or dropped", shown(rule.get("id"))))
+        .map(|rule| format!("rules.toml {}: placement must be global, merged:<id>, skill:<name>, hook:<name>, agent:<name> or dropped", shown(rule.get("id"))))
         .collect();
     for rule in rules {
         if let Some(target) = placement_of(rule).strip_prefix("merged:")
@@ -139,8 +139,25 @@ fn identity_errors(rules: &[Value]) -> Vec<String> {
     errors
 }
 
-fn register_errors(rules: &[Value], bullets: &[Pair]) -> (Vec<String>, usize) {
+fn role_file_errors(rules: &[Value], roles: &Path) -> Vec<String> {
+    rules
+        .iter()
+        .filter_map(|rule| {
+            let placement = placement_of(rule);
+            let name = placement.strip_prefix("agent:")?;
+            let id = shown(rule.get("id"));
+            let Ok(role) = fs::read_to_string(roles.join(format!("{name}.md"))) else {
+                return Some(format!("rules.toml {id}: {placement} names no role file {name}.md"));
+            };
+            let text = text_of(rule, "text").unwrap_or_default();
+            (text.is_empty() || !role.contains(text)).then(|| format!("rules.toml {id}: role file {name}.md does not hold its text"))
+        })
+        .collect()
+}
+
+fn register_errors(rules: &[Value], bullets: &[Pair], roles: &Path) -> (Vec<String>, usize) {
     let mut errors = placement_errors(rules);
+    errors.extend(role_file_errors(rules, roles));
     let registered: Vec<Pair> = rules
         .iter()
         .filter(|rule| placement_of(rule) == "global")
@@ -156,14 +173,14 @@ fn register_errors(rules: &[Value], bullets: &[Pair]) -> (Vec<String>, usize) {
     (errors, registered.len())
 }
 
-pub(super) fn rule_register(operator: &Path, roots: &Roots) -> Result<Verdicts, String> {
+pub(super) fn rule_register(operator: &Path, roles: &Path, roots: &Roots) -> Result<Verdicts, String> {
     let agents = fs::read_to_string(operator.join("AGENTS.md")).map_err(|error| error.to_string())?;
     let parsed = fs::read_to_string(operator.join("rules.toml")).map_err(|error| error.to_string()).and_then(|body| toml_json::parse(&body).map_err(|error| error.to_string()));
     let rules = match parsed {
         Ok(document) => document["rule"].as_array().cloned().unwrap_or_default(),
         Err(error) => return Ok(Verdicts { text: format!("rules.toml is unreadable: {error}"), passed: false }),
     };
-    let (mut errors, registered) = register_errors(&rules, &bullets_of(&agents));
+    let (mut errors, registered) = register_errors(&rules, &bullets_of(&agents), roles);
     if let Ok(ledger) = fs::read_to_string(operator.join("incidents.jsonl")) {
         errors.extend(earned(&rules, operator, &ledger, roots)?);
     }
