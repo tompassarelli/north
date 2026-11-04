@@ -16,6 +16,7 @@ mod gpu;
 mod gpu_tests;
 mod json;
 mod machine;
+pub(super) use machine::host_cores;
 #[cfg(test)]
 mod machine_tests;
 mod measure;

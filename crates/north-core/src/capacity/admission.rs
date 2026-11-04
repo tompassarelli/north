@@ -384,7 +384,7 @@ pub(super) fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
         Profile::Attended => 1,
         Profile::Unattended => 0,
     };
-    f64::from(cores - reserved)
+    f64::from(cores.saturating_sub(reserved).max(1))
 }
 
 /// The Warcraft clients the host takes: its static count as a ceiling, lowered to the clients it

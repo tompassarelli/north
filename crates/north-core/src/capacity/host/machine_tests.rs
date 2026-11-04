@@ -23,3 +23,15 @@ fn agent_sessions_and_their_desktop_helpers_in_agent_slice_never_count_as_unleas
     }
     assert!(unleased_agent_work("agent-bounded.slice", "agent-capacity.slice"), "bounded jobs run outside any lease and still count");
 }
+
+#[test]
+fn host_cores_counts_the_online_cpu_list_and_ignores_the_callers_cgroup_quota() {
+    use super::machine::online_cpus;
+    assert_eq!(online_cpus(Some("0-19\n")), 20.0);
+    assert_eq!(online_cpus(Some("0,2-3,8-11")), 7.0);
+    assert_eq!(online_cpus(Some("0")), 1.0);
+    let fallback = std::thread::available_parallelism().map_or(1.0, |count| count.get() as f64);
+    for unusable in [None, Some(""), Some("garbage"), Some("5-2")] {
+        assert_eq!(online_cpus(unusable), fallback, "{unusable:?}");
+    }
+}

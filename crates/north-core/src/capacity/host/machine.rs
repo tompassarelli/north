@@ -66,8 +66,21 @@ pub fn host_cores() -> f64 {
     if fixture.is_finite() && fixture != 0.0 {
         fixture
     } else {
-        std::thread::available_parallelism().map_or(1.0, |count| count.get() as f64)
+        online_cpus(read_text("/sys/devices/system/cpu/online").as_deref())
     }
+}
+
+pub fn online_cpus(online: Option<&str>) -> f64 {
+    let counted = online.and_then(count_cpu_list).filter(|count| *count > 0);
+    counted.or_else(|| std::thread::available_parallelism().ok().map(|count| count.get())).map_or(1.0, |count| count as f64)
+}
+
+fn count_cpu_list(text: &str) -> Option<usize> {
+    text.trim().split(',').try_fold(0usize, |total, range| {
+        let (first, last) = range.split_once('-').unwrap_or((range, range));
+        let (first, last) = (first.trim().parse::<usize>().ok()?, last.trim().parse::<usize>().ok()?);
+        (last >= first).then(|| total + last - first + 1)
+    })
 }
 
 pub fn user_manager_cgroup() -> PathBuf {

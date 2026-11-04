@@ -44,7 +44,7 @@ pub fn reserved_cpus(profile: &str, cores: f64) -> f64 {
 }
 
 pub fn aggregate_cpus(profile: &str, cores: f64) -> f64 {
-    cores - reserved_cpus(profile, cores)
+    (cores - reserved_cpus(profile, cores)).max(1.0)
 }
 
 pub fn grantable_maximum(profile: &str, cores: f64, memory_total_mib: f64) -> Resources {

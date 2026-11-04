@@ -36,7 +36,7 @@ fn directory() -> PathBuf {
 }
 
 fn cpus() -> f64 {
-    std::thread::available_parallelism().map_or(1.0, |count| count.get() as f64)
+    super::host::host_cores()
 }
 
 fn step() -> Result<(), String> {

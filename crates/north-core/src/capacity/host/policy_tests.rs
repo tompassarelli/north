@@ -42,3 +42,12 @@ fn a_tom_request_with_too_few_runs_of_its_shape_is_sized_from_its_whole_class() 
     let (heavy, class_wide) = sizing_runs("heavy", vec![run(900.0)], class_runs);
     assert!(!class_wide && heavy.len() == 1, "other classes never borrow class runs");
 }
+
+#[test]
+fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_quota() {
+    use super::policy::aggregate_cpus;
+    assert_eq!(aggregate_cpus("attended", 1.0), 1.0);
+    assert_eq!(aggregate_cpus("attended", 2.0), 1.0);
+    assert_eq!(aggregate_cpus("attended", 20.0), 16.0);
+    assert_eq!(aggregate_cpus("unattended", 1.0), 1.0);
+}
