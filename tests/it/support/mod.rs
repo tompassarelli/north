@@ -8,6 +8,12 @@ pub fn fake_claude() -> String {
         .get_or_init(|| {
             let exe = std::env::current_exe().unwrap();
             let profile = exe.parent().and_then(Path::parent).unwrap();
+            let built = profile.join("examples/fake_claude");
+            let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bin/fake_claude.rs");
+            let modified = |path: &Path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok();
+            if modified(&built).is_some_and(|built| modified(&source).is_some_and(|source| built >= source)) {
+                return built.to_string_lossy().into_owned();
+            }
             let name = profile.file_name().and_then(|name| name.to_str()).unwrap();
             let status = Command::new(env!("CARGO"))
                 .args(["build", "--quiet", "--locked", "--offline", "--example", "fake_claude", "--profile"])

@@ -4,10 +4,12 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 
 const STORE: &[u8] = b"/nix/store/";
 const HASH: usize = 32;
 const ROOT_PREFIX: &str = "gcroot-";
+static STORE_LITERAL: LazyLock<regex::bytes::Regex> = LazyLock::new(|| regex::bytes::Regex::new(&regex::escape(std::str::from_utf8(STORE).unwrap())).unwrap());
 
 pub(super) fn references(runtime: &Path) -> Result<BTreeSet<String>, Failure> {
     let mut references = BTreeSet::new();
@@ -38,7 +40,8 @@ fn scan(bytes: &[u8]) -> Vec<String> {
     let named = |byte: &u8| byte.is_ascii_alphanumeric() || b"+-._?=".contains(byte);
     let hashed = |byte: &u8| matches!(byte, b'0'..=b'9' | b'a'..=b'z') && !b"eotu".contains(byte);
     let mut found = Vec::new();
-    for (at, _) in bytes.windows(STORE.len()).enumerate().filter(|(_, window)| *window == STORE) {
+    let starts = std::iter::successors(STORE_LITERAL.find(bytes), |found| STORE_LITERAL.find_at(bytes, found.start() + 1));
+    for at in starts.map(|found| found.start()) {
         let rest = &bytes[at + STORE.len()..];
         if rest.len() > HASH && rest[..HASH].iter().all(hashed) && rest[HASH] == b'-' {
             let name = rest[HASH + 1..].iter().take_while(|byte| named(byte)).count();

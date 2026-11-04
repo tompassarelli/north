@@ -1,5 +1,6 @@
 use regex::Regex;
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 use super::lexer::{SEPARATORS, assignment, basename, whitespace};
 
 const PREFIXES: &[&str] = &[
@@ -96,13 +97,14 @@ pub fn command(segment: &[String], prefixes: &[&str]) -> usize {
     index
 }
 
+static SPANS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:[\n;&|({`]|^)((?:\$\{[^$(){};&|`\n]*\}|[^\n;&|(){}`])*)").unwrap());
+static TOKENS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^\s\x1c-\x1f]+").unwrap());
+
 pub fn strip_prefixes(text: &str) -> String {
-    let re = Regex::new(r"(?:[\n;&|({`]|^)((?:\$\{[^$(){};&|`\n]*\}|[^\n;&|(){}`])*)").unwrap();
-    let token_re = Regex::new(r"[^\s\x1c-\x1f]+").unwrap();
     let mut out: Vec<_> = text.chars().collect();
-    for captures in re.captures_iter(text) {
+    for captures in SPANS.captures_iter(text) {
         let span = captures.get(1).unwrap();
-        let tokens: Vec<_> = token_re.find_iter(span.as_str()).collect();
+        let tokens: Vec<_> = TOKENS.find_iter(span.as_str()).collect();
         let index = command(
             &tokens
                 .iter()

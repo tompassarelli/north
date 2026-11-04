@@ -986,11 +986,16 @@ fn pushed_trees_were_checked(fixture: &Fixture) {
     }
 }
 
-fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf], after: std::time::Duration) -> (Output, std::time::Duration) {
+const AWAIT: &str = "await() { for ((i = 0; i < 400; i++)); do [ -e \"$LAND_TRACE/$1\" ] && return 0; sleep 0.05; done; return 1; }\n";
+
+fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf]) -> (Output, std::time::Duration) {
     let tickets: Vec<(PathBuf, Ticket)> = later.iter().map(|lane| fixture.ticket(lane, None)).collect();
     let started = std::time::Instant::now();
     let child = fixture.command().stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
-    std::thread::sleep(after);
+    while fixture.checks().is_empty() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "the first batch's check never started");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     for (path, ticket) in &tickets {
         queue::write(path, ticket).unwrap();
     }
@@ -1008,10 +1013,11 @@ fn speculate_two_batches() {
     for lane in &first {
         fixture.enqueue(lane, None);
     }
-    executable(&fixture.trace.join("hook"), "#!/usr/bin/env bash\nsleep 5\n");
-    let (output, elapsed) = speculate_serve(&mut fixture, &second, std::time::Duration::from_secs(1));
+    executable(&fixture.trace.join("hook"), &format!("#!/usr/bin/env bash\n{AWAIT}case $1 in\n1) await check-2 && touch \"$LAND_TRACE/overlapped\" ;;\n2) touch \"$LAND_TRACE/check-2\" ;;\nesac\n"));
+    let (output, elapsed) = speculate_serve(&mut fixture, &second);
     assert!(output.status.success());
-    assert!(elapsed < std::time::Duration::from_secs(12), "two 5 s batches 1 s apart took {elapsed:?}");
+    assert!(fixture.trace.join("overlapped").exists(), "the second batch's check starts while the first batch's check runs");
+    assert!(elapsed < std::time::Duration::from_secs(12), "two overlapping batches took {elapsed:?}");
     assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from c", "change from d"]);
     let checks = fixture.checks();
     assert_eq!(checks.len(), 2, "each batch is checked once");
@@ -1030,9 +1036,9 @@ fn speculate_discard_on_red() {
     let culprit = fixture.enqueue(&bad, None);
     executable(
         &fixture.trace.join("hook"),
-        "#!/usr/bin/env bash\ncase $1 in 1) sleep 3 ;; 2) sleep 30 ;; esac\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n",
+        &format!("#!/usr/bin/env bash\n{AWAIT}case $1 in 1) await check-2 ;; 2) touch \"$LAND_TRACE/check-2\"; sleep 30 ;; esac\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n"),
     );
-    let (output, elapsed) = speculate_serve(&mut fixture, std::slice::from_ref(&good), std::time::Duration::from_millis(500));
+    let (output, elapsed) = speculate_serve(&mut fixture, std::slice::from_ref(&good));
     assert!(output.status.success());
     assert!(elapsed < std::time::Duration::from_secs(20), "the speculative check of a red candidate is stopped, not waited for: {elapsed:?}");
     let checks = fixture.checks();
@@ -1054,9 +1060,9 @@ fn speculate_real_gates() {
     fixture.enqueue(&a, None);
     executable(
         &fixture.trace.join("hook"),
-        "#!/usr/bin/env bash\nmain() { command git -C \"$LAND_ORIGIN\" rev-parse main; }\ncase $1 in\n1) sleep 2 ;;\n2) main >\"$LAND_TRACE/main-at-start\"; sleep 4; main >\"$LAND_TRACE/main-at-end\" ;;\nesac\n",
+        &format!("#!/usr/bin/env bash\n{AWAIT}main() {{ command git -C \"$LAND_ORIGIN\" rev-parse main; }}\nlanded() {{ for ((i = 0; i < 400; i++)); do [ \"$(main)\" != \"$1\" ] && return 0; sleep 0.05; done; }}\ncase $1 in\n1) await main-at-start ;;\n2) start=$(main); printf '%s\\n' \"$start\" >\"$LAND_TRACE/main-at-start.tmp\"; mv \"$LAND_TRACE/main-at-start.tmp\" \"$LAND_TRACE/main-at-start\"; landed \"$start\"; main >\"$LAND_TRACE/main-at-end\" ;;\nesac\n"),
     );
-    let (output, _) = speculate_serve(&mut fixture, std::slice::from_ref(&b), std::time::Duration::from_millis(500));
+    let (output, _) = speculate_serve(&mut fixture, std::slice::from_ref(&b));
     assert!(output.status.success());
     let checks = fixture.checks();
     assert_eq!(checks.len(), 2, "the speculative candidate lands without re-running");

@@ -168,7 +168,7 @@ fn a_deploy_that_cannot_take_the_update_lock_says_what_it_waits_on_and_fails_wit
 fn a_deploy_step_that_hangs_on_a_host_is_stopped_and_named_with_its_host_and_limit() {
     let host = Host::new();
     host.built(&host.target);
-    script(&host.path("bin/ssh"), "sleep 30\n");
+    script(&host.path("bin/ssh"), "exec sleep 30\n");
     let output = host.north_with(&["runtime", "deploy", "far"], &[("NORTH_RUNTIME_STEP_SECONDS", "1")]);
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);

@@ -94,7 +94,7 @@ struct Lander {
     depth: usize,
     conflict: bool,
     variant: Variant,
-    only: Option<&'static str>,
+    only: &'static [&'static str],
 }
 
 const EXACTNESS: &str = "exactness";
@@ -114,7 +114,7 @@ const REACHABLE: [&str; 6] = [REACH_SPECULATIVE_LANDED, REACH_DISCARDED, REACH_C
 
 impl Lander {
     fn plan(lanes: u8) -> Self {
-        Lander { lanes, depth: 2, conflict: true, variant: Variant::Plan, only: None }
+        Lander { lanes, depth: 2, conflict: true, variant: Variant::Plan, only: &[] }
     }
 
     fn peer_bit(&self) -> u8 {
@@ -411,38 +411,42 @@ impl Model for Lander {
                 s.verdicts.contains(&Some(Verdict::Conflict)) || s.peer == Peer::Done(Verdict::Conflict)
             }),
         ];
-        all.into_iter().filter(|p| self.only.is_none_or(|o| o == p.name)).collect()
+        all.into_iter().filter(|p| self.only.is_empty() || self.only.contains(&p.name)).collect()
     }
 }
 
-fn check(model: Lander, property: &'static str) -> (usize, Option<String>) {
-    let model = Lander { only: Some(property), ..model };
+fn check(model: Lander, properties: &'static [&'static str]) -> Vec<(&'static str, Option<String>)> {
+    let model = Lander { only: properties, ..model };
     let started = Instant::now();
     let checker = model.checker().threads(std::thread::available_parallelism().map_or(1, |n| n.get())).spawn_bfs().join();
     let states = checker.unique_state_count();
-    let trace = checker.discovery(property).map(|path| {
-        let steps = path.into_vec();
-        let first = &steps[0].0;
-        let last = &steps[steps.len() - 1].0;
-        let mut out = format!("    lanes {:?}, peer lane Good\n", first.kinds);
-        for (_, action) in &steps {
-            if let Some(a) = action {
-                out.push_str(&format!("    {a:?}\n"));
-            }
-        }
-        out.push_str(&format!("    main {:?}\n    verdicts {:?}\n", last.main, last.verdicts));
-        out
-    });
-    println!("{property}: {states} states explored in {:.1?}", started.elapsed());
-    (states, trace)
+    println!("{}: {states} states explored in {:.1?}", properties.join(", "), started.elapsed());
+    properties
+        .iter()
+        .map(|property| {
+            let trace = checker.discovery(property).map(|path| {
+                let steps = path.into_vec();
+                let first = &steps[0].0;
+                let last = &steps[steps.len() - 1].0;
+                let mut out = format!("    lanes {:?}, peer lane Good\n", first.kinds);
+                for (_, action) in &steps {
+                    if let Some(a) = action {
+                        out.push_str(&format!("    {a:?}\n"));
+                    }
+                }
+                out.push_str(&format!("    main {:?}\n    verdicts {:?}\n", last.main, last.verdicts));
+                out
+            });
+            (*property, trace)
+        })
+        .collect()
 }
 
 #[test]
 fn plan_design_holds_every_property() {
     for lanes in [3] {
         println!("bounds: {lanes} lander lanes, 1 peer-host lane, speculative depth 2");
-        for property in PROPERTIES {
-            let (_, trace) = check(Lander::plan(lanes), property);
+        for (property, trace) in check(Lander::plan(lanes), &PROPERTIES) {
             assert!(trace.is_none(), "{property} fails:\n{}", trace.unwrap_or_default());
         }
     }
@@ -450,8 +454,7 @@ fn plan_design_holds_every_property() {
 
 #[test]
 fn model_reaches_every_interesting_case() {
-    for property in REACHABLE {
-        let (_, trace) = check(Lander::plan(3), property);
+    for (property, trace) in check(Lander::plan(3), &REACHABLE) {
         assert!(trace.is_some(), "the model never reaches: {property}");
     }
 }
@@ -459,7 +462,7 @@ fn model_reaches_every_interesting_case() {
 #[test]
 fn speculative_push_without_landed_check_is_caught() {
     let model = Lander { variant: Variant::SpeculativePushUnchecked, ..Lander::plan(3) };
-    let (_, trace) = check(model, EXACTNESS);
+    let [(_, trace)] = check(model, &[EXACTNESS]).try_into().unwrap();
     let trace = trace.expect("variant (a) must break exactness");
     println!("counterexample, speculative N+1 pushes without checking N landed:\n{trace}");
 }
@@ -467,7 +470,7 @@ fn speculative_push_without_landed_check_is_caught() {
 #[test]
 fn sheriff_reverting_a_multi_landing_range_is_caught() {
     let model = Lander { variant: Variant::SheriffRevertsWholeRange, ..Lander::plan(3) };
-    let (_, trace) = check(model, CULPRIT_ONLY);
+    let [(_, trace)] = check(model, &[CULPRIT_ONLY]).try_into().unwrap();
     let trace = trace.expect("variant (b) must break culprit-only ejection");
     println!("counterexample, sheriff reverts every landing of a red range:\n{trace}");
 }

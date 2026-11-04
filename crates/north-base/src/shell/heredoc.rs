@@ -9,11 +9,12 @@ pub fn blank(text: &str) -> String {
         .collect()
 }
 
+static OPENER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"<<-?[\s\x1c-\x1f]*(['"]?)([\p{L}\p{N}_]+)"#).unwrap());
+
 pub(super) fn heredoc(text: &str, start: usize) -> Option<(usize, String, bool)> {
-    let re = Regex::new(r#"<<-?[\s\x1c-\x1f]*(['"]?)([\p{L}\p{N}_]+)"#).unwrap();
     let rest = &text[start..];
     let classes = classify(rest);
-    for m in re.captures_iter(rest) {
+    for m in OPENER.captures_iter(rest) {
         let whole = m.get(0).unwrap();
         let at = rest[..whole.start()].chars().count();
         if text[..start + whole.start()].ends_with('<')
