@@ -79,14 +79,21 @@ impl Lander {
         let mut rebuilds = 0;
         let mut bisect_depth = 0;
         let mut progressed = false;
+        let mut warned = false;
         after::recover(self)?;
-        for reason in self.pull_remote() {
-            println!("north land: waiting: {reason}");
-        }
         if let Err(error) = sheriff::patrol(self) {
             println!("north land: waiting: sheriff: {error}");
         }
         loop {
+            if limit == usize::MAX {
+                let reasons = self.pull_remote();
+                if !warned {
+                    for reason in &reasons {
+                        println!("north land: waiting: {reason}");
+                    }
+                    warned = !reasons.is_empty();
+                }
+            }
             let queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
             let tickets = if red_only { red::fixes(&queued) } else { queued };
             if tickets.is_empty() {
