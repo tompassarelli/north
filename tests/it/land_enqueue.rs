@@ -181,12 +181,21 @@ fn enqueue_stamps_the_ticket_with_the_second_the_lane_made_its_first_commit_even
 }
 
 fn north_enqueue(fixture: &Fixture) -> (std::process::Output, std::time::Duration) {
+    north_enqueue_with(fixture, &[])
+}
+
+fn north_enqueue_with(fixture: &Fixture, environment: &[(&str, &Path)]) -> (std::process::Output, std::time::Duration) {
     let started = std::time::Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_north"))
         .args(["land", "enqueue", "--repo"])
         .arg(&fixture.repo)
         .env("XDG_STATE_HOME", &fixture.state)
+        .env("NORTH_LAND_NORTH", env!("CARGO_BIN_EXE_north"))
+        .envs(environment.iter().copied())
         .env_remove("NORTH_LAND_SERVING")
+        .env_remove("SAFE_PUSH_LAND_CAPACITY")
+        .env_remove("SAFE_PUSH_LAND_OFFLOAD_HOST")
+        .env_remove("SAFE_PUSH_LAND_RUNNER")
         .output()
         .unwrap();
     (output, started.elapsed())
@@ -227,5 +236,87 @@ fn enqueue_queues_a_lane_whose_dependency_names_its_reason() {
     git(&fixture.repo, &["commit", "-qm", "Add left-pad", "-m", "Dependency: left-pad — pads strings"]);
     let (output, _) = north_enqueue(&fixture);
     assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fixture.pending().len(), 1);
+}
+
+const OFFLOAD_STUB: &str = "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$STUB_TRACE\"\ncase \"$1 $2 $3\" in\n  'capacity offload run') exit 0 ;;\nesac\n[ \"$1\" = land-cache ] && exit 1\nexec \"$REAL_NORTH\" \"$@\"\n";
+
+const LEASE_PROBE: &str = "printf 'acquire\\n' >>\"$LEASE_LOG\"\nstatus=0\n\"$@\" || status=$?\nprintf 'release\\n' >>\"$LEASE_LOG\"\nexit \"$status\"\n";
+
+impl Fixture {
+    fn add_settings(&self, settings: &[(&str, &str)], message: &str) {
+        for (key, value) in settings {
+            git(&self.repo, &["config", "--file", ".safe-push", "--add", key, value]);
+        }
+        git(&self.repo, &["add", ".safe-push"]);
+        git(&self.repo, &["commit", "-qm", message]);
+    }
+
+    fn output_of(output: &std::process::Output) -> String {
+        format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr))
+    }
+}
+
+#[test]
+fn enqueue_refuses_a_lane_whose_added_land_check_exits_75_with_its_output_and_writes_no_ticket() {
+    let fixture = Fixture::new();
+    fixture.add_settings(&[("land.check", "** :: printf 'the added check is broken\\n'; exit 75")], "Add a broken land check");
+    let (output, _) = north_enqueue(&fixture);
+    let text = Fixture::output_of(&output);
+    assert!(!output.status.success(), "{text}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("the added check is broken"), "{text}");
+    assert!(text.contains("exited 75") && text.contains("NOT queued"), "{text}");
+    assert!(!fixture.queue().exists(), "a refused lane writes no ticket: {text}");
+}
+
+#[test]
+fn enqueue_queues_a_lane_whose_added_land_check_passes() {
+    let fixture = Fixture::new();
+    let marker = fixture.root.join("ran");
+    fixture.add_settings(&[("land.check", "** :: printf ran >\"$ENQUEUE_MARKER\"")], "Add a passing land check");
+    let (output, _) = north_enqueue_with(&fixture, &[("ENQUEUE_MARKER", &marker)]);
+    assert!(output.status.success(), "{}", Fixture::output_of(&output));
+    assert!(marker.is_file(), "the added check ran before queueing");
+    assert_eq!(fixture.pending().len(), 1);
+}
+
+#[test]
+fn enqueue_runs_no_check_for_a_lane_that_adds_no_land_check_line() {
+    let fixture = Fixture::new();
+    let marker = fixture.root.join("ran");
+    fixture.add_settings(&[("land.check", "** :: printf ran >\"$ENQUEUE_MARKER\"")], "Add a land check to main");
+    git(&fixture.repo, &["push", "-q", "origin", "HEAD:main"]);
+    fixture.commit(&fixture.repo, "a.txt", "Add a");
+    let (output, _) = north_enqueue_with(&fixture, &[("ENQUEUE_MARKER", &marker)]);
+    assert!(output.status.success(), "{}", Fixture::output_of(&output));
+    assert!(!marker.exists(), "a check main already has does not run at enqueue");
+    assert_eq!(fixture.pending().len(), 1);
+}
+
+#[test]
+fn enqueue_offloads_an_added_land_check_to_the_configured_build_host() {
+    let fixture = Fixture::new();
+    let (stub, trace) = (fixture.root.join("north-stub"), fixture.root.join("trace"));
+    north_core::foundation::shim::write_executable(&stub, OFFLOAD_STUB);
+    fixture.add_settings(&[("land.runner", "builder-1"), ("land.check", "** :: exit 75")], "Add an offloaded land check");
+    let (output, _) = north_enqueue_with(&fixture, &[("NORTH_LAND_NORTH", &stub), ("STUB_TRACE", &trace), ("REAL_NORTH", Path::new(env!("CARGO_BIN_EXE_north")))]);
+    let text = Fixture::output_of(&output);
+    assert!(output.status.success(), "{text}");
+    let trace = fs::read_to_string(&trace).unwrap();
+    assert!(trace.lines().any(|line| line.starts_with("capacity offload run --host builder-1 ") && line.ends_with("-- exit 75")), "{trace}");
+    assert_eq!(fixture.pending().len(), 1);
+}
+
+#[test]
+fn enqueue_runs_an_added_land_check_locally_under_one_capacity_lease() {
+    let fixture = Fixture::new();
+    let (probe, leases, marker) = (fixture.root.join("lease-probe.sh"), fixture.root.join("leases"), fixture.root.join("ran"));
+    north_core::foundation::shim::write_executable(&probe, format!("#!/usr/bin/env bash\n{LEASE_PROBE}"));
+    let capacity = format!("bash {}", probe.display());
+    fixture.add_settings(&[("landing.capacity", &capacity), ("land.check", "** :: printf ran >\"$ENQUEUE_MARKER\"")], "Add a leased land check");
+    let (output, _) = north_enqueue_with(&fixture, &[("LEASE_LOG", &leases), ("ENQUEUE_MARKER", &marker)]);
+    assert!(output.status.success(), "{}", Fixture::output_of(&output));
+    assert!(marker.is_file());
+    assert_eq!(fs::read_to_string(&leases).unwrap(), "acquire\nrelease\n");
     assert_eq!(fixture.pending().len(), 1);
 }

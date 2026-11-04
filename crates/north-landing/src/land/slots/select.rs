@@ -9,6 +9,7 @@ pub struct Config {
     pub workflow: String,
     pub publish: Option<String>,
     pub runner: Option<String>,
+    pub capacity: Option<String>,
     checks: Vec<String>,
     local_only: Vec<String>,
 }
@@ -35,9 +36,14 @@ impl Config {
             workflow: first("land.workflow").unwrap_or_default(),
             publish: first("land.publish").filter(|prefix| !prefix.is_empty()),
             runner: first("land.runner"),
+            capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks: blob_values(repo, head, "land.check"),
             local_only: blob_values(repo, head, "land.local-only"),
         }
+    }
+
+    pub fn added_since(&self, earlier: &Self) -> Self {
+        Self { checks: self.checks.iter().filter(|entry| !earlier.checks.contains(entry)).cloned().collect(), ..self.clone() }
     }
 
     pub fn has_checks(&self) -> bool {
@@ -57,10 +63,10 @@ impl Config {
         let mut commands: Vec<String> = Vec::new();
         for entry in &self.checks {
             let Some((patterns, command)) = entry.split_once(SEPARATOR) else {
-                return Err(format!("safe-push: invalid land.check: {entry}; NOT pushed."));
+                return Err(format!("invalid land.check: {entry}"));
             };
             if patterns.is_empty() || command.is_empty() {
-                return Err(format!("safe-push: invalid land.check: {entry}; NOT pushed."));
+                return Err(format!("invalid land.check: {entry}"));
             }
             if commands.iter().any(|seen| seen == command) || !touches(repo, base, head, patterns) {
                 continue;

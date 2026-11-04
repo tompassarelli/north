@@ -10,6 +10,7 @@ use time::OffsetDateTime;
 use super::first_commit;
 use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
+use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE]";
@@ -167,6 +168,8 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
     refuse_static_gates(&root, &base, "HEAD")?;
+    let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
+    runner::fails_first(&root, &base, &lane_head)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let squash = lane_squash::squash(&root, &base, message)?;
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;

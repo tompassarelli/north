@@ -25,5 +25,5 @@ fn the_publish_ref_is_the_prefix_and_the_first_twelve_characters_of_the_head() {
 #[test]
 fn an_entry_without_the_separator_is_invalid() {
     let error = config(&["no separator"], &[]).commands(Path::new("."), "", "HEAD").unwrap_err();
-    assert_eq!(error, "safe-push: invalid land.check: no separator; NOT pushed.");
+    assert_eq!(error, "invalid land.check: no separator");
 }

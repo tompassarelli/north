@@ -561,6 +561,11 @@ async fn resolve_runner_host(value: &str) -> String {
     }
 }
 
+async fn runner_host(environment: &Environment, config: &Config) -> String {
+    let land_runner = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
+    if land_runner.is_empty() { String::new() } else { resolve_runner_host(&land_runner).await }
+}
+
 async fn forward_signals(cancel: watch::Sender<bool>) {
     let (Ok(mut terminate), Ok(mut interrupt), Ok(mut hangup)) = (signal(SignalKind::terminate()), signal(SignalKind::interrupt()), signal(SignalKind::hangup())) else { return };
     tokio::select! {
@@ -596,15 +601,14 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         match config.commands(&root, &arguments.base, &arguments.head) {
             Ok(commands) => commands,
             Err(message) => {
-                warn(&message);
+                warn(&format!("safe-push: {message}; NOT pushed."));
                 return 1;
             }
         }
     };
     let mut arguments = arguments;
     if !arguments.leased {
-        let land_runner = environment.runner.clone().unwrap_or_else(|| config.runner.clone().unwrap_or_default());
-        arguments.runner_host = if land_runner.is_empty() { String::new() } else { resolve_runner_host(&land_runner).await };
+        arguments.runner_host = runner_host(&environment, &config).await;
     }
     let shared = Arc::new(Shared {
         workflow: config.workflow.clone(),
@@ -629,16 +633,45 @@ pub fn run(arguments: &[String]) -> u8 {
     if parsed.portable {
         return portable(&parsed);
     }
-    let code = if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        tokio::task::block_in_place(|| handle.block_on(orchestrate(parsed)))
-    } else {
-        match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-            Ok(runtime) => runtime.block_on(orchestrate(parsed)),
-            Err(error) => {
-                eprintln!("north land checks: {error}");
-                1
-            }
-        }
-    };
+    let code = block_on(orchestrate(parsed)).unwrap_or_else(|error| {
+        eprintln!("north land checks: {error}");
+        1
+    });
     u8::try_from(code).unwrap_or(1)
+}
+
+fn block_on(work: impl Future<Output = i32>) -> std::io::Result<i32> {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        return Ok(tokio::task::block_in_place(|| handle.block_on(work)));
+    }
+    Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(work))
+}
+
+pub fn fails_first(root: &Path, base: &str, head: &str) -> Result<(), String> {
+    let config = Config::load(root, head);
+    let commands = config.added_since(&Config::load(root, base)).commands(root, base, head)?;
+    if commands.is_empty() {
+        return Ok(());
+    }
+    say(&format!("safe-push: running the {} land check(s) this lane adds before queueing it", commands.len()));
+    let arguments = Arguments { base: base.to_owned(), head: head.to_owned(), ..Arguments::default() };
+    let status = block_on(run_added(root.to_owned(), arguments, config, commands)).map_err(|error| error.to_string())?;
+    if status == 0 { Ok(()) } else { Err(format!("a land check this lane adds exited {status}")) }
+}
+
+async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, commands: Vec<String>) -> i32 {
+    let mut environment = Environment::load();
+    if environment.capacity.is_empty() {
+        environment.capacity = config.capacity.clone().unwrap_or_default();
+    }
+    arguments.runner_host = runner_host(&environment, &config).await;
+    let (_cancel_sender, cancel) = watch::channel(false);
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new() });
+    let mut pending = Vec::new();
+    for command in commands {
+        if !shared.cache_reused(&command).await {
+            pending.push(command);
+        }
+    }
+    if pending.is_empty() { 0 } else { shared.run_list(&pending).await }
 }
