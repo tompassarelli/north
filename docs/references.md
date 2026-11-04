@@ -102,7 +102,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="paired-bootstrap"></a>**Paired bootstrap** (B. Efron, "Bootstrap Methods: Another Look at the Jackknife", Annals of Statistics,
   1979), https://doi.org/10.1214/aos/1176344552; accessed: not recorded, cited 2026-10-12.
   Informed: the task-cluster paired difference in
-  [stats.rs](../crates/north-core/src/ops/policy_replay/stats.rs) and advisor-report (309eda0c, north#36), the routing
+  [stats.rs](../crates/north-core/src/ops/policy_replay/stats.rs) (309eda0c, north#36), the routing
   backtest's differences (37017a39, [learned routing backtest](rationale/learned-routing-and-goal-eta.md#learned-routing-backtest)), and
   calibration sample-size floors (b6462af5).
   Outcome: adopted; arms run the same tasks, so pairing by task removes task difficulty from the difference.
@@ -112,12 +112,6 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Informed: the one-sided drop and gain test in the policy gate and sweep selection (82fd8604,
   [stats.rs](../crates/north-core/src/ops/policy_replay/stats.rs)).
   Outcome: adopted; it is exact at the few trials per scenario a replay runs.
-
-- <a id="noninferiority-margin"></a>**Non-inferiority margin**, common practice in non-inferiority trials; no document on record.
-  Informed: the north#36 "matches" rule, `noninferiority_margin` in
-  [harness/defaults.toml](../harness/defaults.toml).
-  Outcome: adopted as a named standard; at the replay's sample sizes "beats" was out of reach, so a challenger
-  is judged by whether it matches the incumbent for less.
 
 ### Thresholds with a named outside source
 

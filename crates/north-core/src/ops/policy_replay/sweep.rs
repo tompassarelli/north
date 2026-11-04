@@ -103,7 +103,7 @@ fn scenario_policy(path: &Path, scenario: &Value, override_path: Option<&Path>) 
 pub fn arms(args: &Arms) -> Result<u8, NorthError> {
     install_signal_handlers();
     let out = args.common.out.as_deref().ok_or_else(|| usage("--arm and --out are required without a sweep".into()))?;
-    no_fable(&[args.common.pick.model.as_deref(), args.common.pick.advisor.as_deref()])?;
+    no_fable(&[args.common.pick.model.as_deref()])?;
     let mut loaded: Vec<(Value, String)> = Vec::new();
     for path in &args.common.scenarios {
         let scenario = load(path)?;

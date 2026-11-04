@@ -219,7 +219,8 @@ fn every_prior_reports_a_count_against_its_need() {
         .unwrap();
     let registry = Registry::bundled();
     let lines = priors::priors(&training::open_read_only(&path).unwrap(), &context(Registry::bundled(), "2026-10-05")).unwrap();
-    let names: Vec<&str> = registry.entries().iter().filter(|entry| entry.source.starts_with("prior: ")).map(|entry| entry.name.as_str()).collect();
+    let names: Vec<&str> = registry.entries().iter().filter(|entry| entry.settles.is_some()).map(|entry| entry.name.as_str()).collect();
+    assert!(names.contains(&"explore_every"));
     assert_eq!(lines.len(), names.len());
     for (line, name) in lines.iter().zip(&names) {
         let words: Vec<&str> = line.split(' ').collect();

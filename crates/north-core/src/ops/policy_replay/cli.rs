@@ -6,7 +6,7 @@ use super::sweep::{Arms, Common, Sweep, arms, sweep};
 use crate::error::NorthError;
 
 const USAGE: &str = "usage: north policy-replay promote SCENARIO.json... [--candidate PATH] [--operating-point PATH] [--accept-drop REASON]
-       north policy-replay run SCENARIO.json... --arm ARM... --out RESULTS.jsonl [--trials N] [--jobs N] [--policy PATH] [--model M] [--effort E] [--advisor M]
+       north policy-replay run SCENARIO.json... --arm ARM... --out RESULTS.jsonl [--trials N] [--jobs N] [--policy PATH] [--model M] [--effort E]
        north policy-replay sweep SCENARIO.json... --variants VARIANTS.toml [--variant NAME]... [--candidate PATH] [--provisional] [--trials N] [--jobs N] [--policy PATH] [--out PATH]";
 
 #[derive(Default)]
@@ -46,7 +46,6 @@ fn parse(arguments: &[String]) -> Result<Options, String> {
             "--out" => options.out = Some(PathBuf::from(value("--out")?)),
             "--model" => options.pick.model = Some(value("--model")?),
             "--effort" => options.pick.effort = Some(value("--effort")?),
-            "--advisor" => options.pick.advisor = Some(value("--advisor")?),
             flag if flag.starts_with("--") => return Err(format!("unrecognized arguments: {flag}")),
             file => options.scenarios.push(PathBuf::from(file)),
         }
@@ -122,8 +121,8 @@ pub fn run(arguments: &[String]) -> u8 {
                 eprintln!("{USAGE}\nnorth policy-replay: error: sweep needs --variants");
                 return 2;
             };
-            if options.pick.model.is_some() || options.pick.effort.is_some() || options.pick.advisor.is_some() {
-                eprintln!("{USAGE}\nnorth policy-replay: error: --model, --effort and --advisor are per-run arms; sweep keeps each scenario's model");
+            if options.pick.model.is_some() || options.pick.effort.is_some() {
+                eprintln!("{USAGE}\nnorth policy-replay: error: --model and --effort are per-run arms; sweep keeps each scenario's model");
                 return 2;
             }
             let (only, provisional) = (options.only.clone(), options.provisional);

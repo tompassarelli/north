@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const POINT: &str = "date = \"2026-10-12T07:19:38Z\"\nmodel = \"m\"\nvariant = \"base\"\npolicy_sha256 = \"old\"\nstartup_tokens = 5213\nconformance = 0.5\nn = 4\nevidence = \"e\"\nweak_scenarios = [\"b\"]\n# audit note kept by promote\n";
-const ATTACHED: &str = include_str!("../../harness/scripts/fixtures/haiku-opus-advisor.debug-advisor-lines.log");
 const OK_CLAUDE: &str = "#!/bin/sh\n[ \"$1\" = --version ] && { echo 9.9; exit 0; }\necho '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\",\"model\":\"m\"}'\n";
 
 struct Fixture {
@@ -148,54 +147,28 @@ fn a_command_detector_passes_on_exit_zero_fails_otherwise_and_fails_on_its_timeo
 }
 
 #[test]
-fn a_coding_scenario_with_its_own_policy_runs_model_effort_advisor_and_nulls_a_detached_advisor() {
+fn a_coding_scenario_with_its_own_policy_runs_its_model_and_effort_and_disables_the_server_tool() {
     let fixture = Fixture::new("");
     let argv = fixture.path("argv");
-    let off = fixture.path("advisor_off");
+    let server_tool_env = fixture.path("server_tool_env");
     fixture.claude(&format!(
-        "#!/bin/sh\n[ \"$1\" = --version ] && {{ echo 9.9; exit 0; }}\necho \"$@\" > {}\necho \"${{CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}}\" > {}\nwhile [ $# -gt 0 ]; do [ \"$1\" = --debug-file ] && [ -n \"$STUB_DEBUG\" ] && cp \"$STUB_DEBUG\" \"$2\"; shift; done\necho done > out.txt\necho '{{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\",\"model\":\"m\"}}'\n",
+        "#!/bin/sh\n[ \"$1\" = --version ] && {{ echo 9.9; exit 0; }}\necho \"$@\" > {}\necho \"${{CLAUDE_CODE_DISABLE_ADVISOR_TOOL:-}}\" > {}\necho done > out.txt\necho '{{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"ok\",\"model\":\"m\"}}'\n",
         argv.display(),
-        off.display()
+        server_tool_env.display()
     ));
     let task = fixture.path("agents/replay/coding/t.json");
     fs::write(&task, r#"{"id": "t", "prompt": "p", "policy": "../../AGENTS.md", "detector": {"kind": "command", "command": "grep -q done out.txt"}}"#).unwrap();
-    let attached = fixture.path("attached.log");
-    let detached = fixture.path("detached.log");
-    fs::write(&attached, ATTACHED).unwrap();
-    fs::write(&detached, ATTACHED.lines().filter(|line| !line.contains("Server-side tool enabled")).collect::<Vec<_>>().join("\n")).unwrap();
-    let go = |name: &str, extra: &[&str], log: &Path| {
-        let out = fixture.path(name);
-        (fixture.run(&task, &out, extra, &[("STUB_DEBUG", log)]), out)
-    };
-
-    let (ran, out) = go("x.jsonl", &["--model", "haiku", "--effort", "low", "--advisor", "opus"], &attached);
+    let out = fixture.path("x.jsonl");
+    let ran = fixture.run(&task, &out, &["--model", "haiku", "--effort", "low"], &[]);
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
     let row = fixture.rows(&out).remove(0);
     let line = fs::read_to_string(&argv).unwrap();
-    for needed in ["--model haiku", "--effort low", "--advisor opus", "--strict-mcp-config"] {
+    for needed in ["--model haiku", "--effort low", "--strict-mcp-config"] {
         assert!(line.contains(needed), "{line}");
     }
-    assert_eq!(row["advisor_attached"], true);
-    assert_eq!(row["advisor_model_resolved"], "claude-opus-5-5");
-    assert_eq!((&row["pass"], &row["model"], &row["effort"], &row["advisor"], &row["advisor_calls"]), (&true.into(), &"haiku".into(), &"low".into(), &"opus".into(), &0.into()));
+    assert_eq!(fs::read_to_string(&server_tool_env).unwrap().trim(), "1");
+    assert_eq!((&row["pass"], &row["model"], &row["effort"]), (&true.into(), &"haiku".into(), &"low".into()));
     assert!(row["usd"].as_f64() == Some(0.0) && row["usd_basis"].as_str().unwrap().starts_with("total_cost_usd"), "{row}");
-
-    let (_, out) = go("d.jsonl", &["--model", "haiku", "--advisor", "opus"], &detached);
-    let row = fixture.rows(&out).remove(0);
-    assert!(row["pass"].is_null() && row["advisor_attached"] == false && row["error"].as_str().unwrap().contains("not attached"), "{row}");
-    assert_eq!(fs::read_to_string(&off).unwrap().trim(), "");
-
-    let (ran, out) = go("c.jsonl", &["--model", "haiku"], &detached);
-    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
-    assert_eq!(fs::read_to_string(&off).unwrap().trim(), "1");
-    assert_eq!(fixture.rows(&out)[0]["pass"], true);
-
-    let (_, out) = go("l.jsonl", &["--model", "haiku"], &attached);
-    let row = fixture.rows(&out).remove(0);
-    assert!(row["pass"].is_null() && row["error"].as_str().unwrap().contains("control run had an advisor"), "{row}");
-
-    let (fable, _) = go("y.jsonl", &["--advisor", "fable"], &detached);
-    assert!(!fable.status.success() && String::from_utf8_lossy(&fable.stderr).contains("Fable"), "{fable:?}");
 }
 
 #[test]

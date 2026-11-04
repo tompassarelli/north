@@ -9,7 +9,7 @@ use std::time::Instant;
 use serde_json::{Map, Value, json};
 
 use super::detect::detect;
-use super::events::{advisor_debug, advisor_usage, final_text, meter, parse_events, tool_calls, usage};
+use super::events::{final_text, meter, parse_events, tool_calls, usage};
 use super::group::{TimedOut, reap, run_check, seconds, start_group, stop_group, wait_group};
 use super::json::Json;
 use super::policy::{arm_minus, no_fable, policy_for_arm};
@@ -24,7 +24,6 @@ const BOX_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep";
 pub struct Pick {
     pub model: Option<String>,
     pub effort: Option<String>,
-    pub advisor: Option<String>,
 }
 
 pub struct Item<'a> {
@@ -183,7 +182,7 @@ fn tail(text: &str, chars: usize) -> String {
     text.chars().skip(skip).collect()
 }
 
-fn build_command(scenario: &Value, work: &Path, policy_file: &Path, model: &str, effort: &str, advisor: Option<&str>) -> Result<Command, NorthError> {
+fn build_command(scenario: &Value, policy_file: &Path, model: &str, effort: &str) -> Result<Command, NorthError> {
     let boxed = is_box(scenario);
     let prompt = required(scenario, if boxed { "brief" } else { "prompt" })?;
     let tools = match scenario.get("tools").and_then(Value::as_array) {
@@ -196,12 +195,9 @@ fn build_command(scenario: &Value, work: &Path, policy_file: &Path, model: &str,
     command.args(["-p", prompt, "--setting-sources", "project", "--append-system-prompt-file"]).arg(policy_file);
     command.args(["--model", model, "--effort", effort, "--max-turns", &max_turns]);
     command.args(["--output-format", "stream-json", "--verbose", "--no-session-persistence", "--permission-mode", "bypassPermissions"]);
-    command.args(["--tools", &tools, "--strict-mcp-config", "--debug-file"]).arg(work.join("debug.log"));
+    command.args(["--tools", &tools, "--strict-mcp-config"]);
     if let Some(budget) = scenario.get("max_budget_usd") {
         command.args(["--max-budget-usd", &budget.to_string()]);
-    }
-    if let Some(advisor) = advisor {
-        command.args(["--advisor", advisor]);
     }
     command.env_clear().envs(std::env::vars().filter(|(name, _)| !name.starts_with("AGENT_") && !name.starts_with("CLAUDE_CODE_SESSION")));
     let configured = std::env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok_and(|token| !token.is_empty());
@@ -212,9 +208,7 @@ fn build_command(scenario: &Value, work: &Path, policy_file: &Path, model: &str,
             command.env("CLAUDE_CODE_OAUTH_TOKEN", fs::read_to_string(token).map_err(NorthError::Io)?.trim());
         }
     }
-    if advisor.is_none() {
-        command.env("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "1");
-    }
+    command.env("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", "1");
     Ok(command)
 }
 
@@ -232,8 +226,7 @@ pub fn run_one(scenario: &Value, arm: &str, trial: usize, policy_text: &str, pic
     let policy = if arm.starts_with("variant:") { policy_text.to_owned() } else { policy_for_arm(policy_text, &arm_minus(arm, scenario)?)? };
     let model = pick_text(&pick.model, scenario, "model", Some("opus")).unwrap_or_default();
     let effort = pick_text(&pick.effort, scenario, "effort", Some("medium")).unwrap_or_default();
-    let advisor = pick_text(&pick.advisor, scenario, "advisor", None);
-    no_fable(&[Some(&model), advisor.as_deref()])?;
+    no_fable(&[Some(&model)])?;
     let started = Instant::now();
     let work = tempfile::Builder::new().prefix("policy-replay-").tempdir().map_err(NorthError::Io)?;
     let policy_file = work.path().join("policy.md");
@@ -241,7 +234,7 @@ pub fn run_one(scenario: &Value, arm: &str, trial: usize, policy_text: &str, pic
     let cwd = work.path().join("cwd");
     fs::create_dir(&cwd).map_err(NorthError::Io)?;
     let hidden = prepare(scenario, work.path(), &cwd)?;
-    let mut command = build_command(scenario, work.path(), &policy_file, &model, &effort, advisor.as_deref())?;
+    let mut command = build_command(scenario, &policy_file, &model, &effort)?;
     command.current_dir(&cwd);
     let mut run = run_tagged(command, timeout_of(scenario, 600.0))?;
     let mut row = Map::new();
@@ -250,7 +243,6 @@ pub fn run_one(scenario: &Value, arm: &str, trial: usize, policy_text: &str, pic
     row.insert("trial".into(), json!(trial));
     row.insert("model".into(), json!(model));
     row.insert("effort".into(), json!(effort));
-    row.insert("advisor".into(), json!(advisor));
     row.insert("claude_version".into(), json!(claude_version()));
     let evs = parse_events(&run.stdout);
     let result = usage(&evs).filter(|_| evs.iter().any(|ev| ev.is_type("result")));
@@ -262,14 +254,7 @@ pub fn run_one(scenario: &Value, arm: &str, trial: usize, policy_text: &str, pic
         Some(used) => {
             row.insert("pass".into(), json!(score(scenario, &hidden, &evs, &cwd)?));
             merge(&mut row, &used);
-            merge(&mut row, &advisor_usage(&evs));
             merge(&mut row, &meter(&evs));
-            let debug = advisor_debug(&fs::read_to_string(work.path().join("debug.log")).unwrap_or_default());
-            let attached = debug.advisor_attached;
-            row.insert("advisor_attached".into(), json!(attached));
-            if let Some(resolved) = debug.advisor_model_resolved {
-                row.insert("advisor_model_resolved".into(), json!(resolved));
-            }
             row.insert("usd".into(), json!(used.cost_api_usd_comparison));
             row.insert("usd_basis".into(), json!("total_cost_usd list price: the ledger rate needs weekly readouts bracketing the run"));
             let subtype = used.subtype.clone();
@@ -284,10 +269,6 @@ pub fn run_one(scenario: &Value, arm: &str, trial: usize, policy_text: &str, pic
                     (Some(failure), Some("success")) => failure.clone(),
                     _ => format!("run ended {} before its final answer", subtype.as_deref().unwrap_or("None")),
                 })
-            } else if advisor.is_some() && !attached {
-                Some("advisor not attached: the debug log has no [AdvisorTool] Server-side tool enabled line".to_owned())
-            } else if advisor.is_none() && attached {
-                Some("control run had an advisor attached despite CLAUDE_CODE_DISABLE_ADVISOR_TOOL".to_owned())
             } else {
                 None
             };

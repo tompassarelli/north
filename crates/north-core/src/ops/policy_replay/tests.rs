@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use super::detect::{compile, detect, offered_command};
-use super::events::{advisor_debug, advisor_usage, meter, parse_events, usage};
-use super::json::Json;
+use super::events::{meter, parse_events, usage};
 use super::point::{PromoteArgs, promote, write_candidate};
 use super::policy::{Variant, arm_minus, policy_for_arm, variant_policy};
 use super::pyfmt::float_repr;
@@ -13,9 +12,6 @@ use super::rows::{RunRow, Scenarios, VariantRow, summary, variant_row};
 use super::stats::{compare, operating_point, Verdict};
 use crate::error::NorthError;
 
-const ADVISOR_RUN: &str = include_str!("../../../../../harness/scripts/policy-replay.advisor.jsonl");
-const PROBE_STREAM: &str = include_str!("../../../../../harness/scripts/fixtures/haiku-opus-advisor.stream.jsonl");
-const PROBE_DEBUG: &str = include_str!("../../../../../harness/scripts/fixtures/haiku-opus-advisor.debug-advisor-lines.log");
 const POINT: &str = "date = \"2026-10-12T07:19:38Z\"\nmodel = \"m\"\nvariant = \"base\"\npolicy_sha256 = \"old\"\nstartup_tokens = 5213\nconformance = 0.5\nn = 4\nevidence = \"e\"\nweak_scenarios = [\"b\"]\n# audit note kept by promote\n";
 
 fn cells(pairs: &[(&str, [usize; 2])]) -> Scenarios {
@@ -138,46 +134,10 @@ fn sweep_selection_skips_a_cheaper_variant_that_flips_one_scenario() {
 }
 
 #[test]
-fn advisor_usage_parses_the_recorded_opus_advisor_stream() {
-    let recorded = parse_events(ADVISOR_RUN);
-    let advisor = advisor_usage(&recorded);
-    assert_eq!((advisor.advisor_calls, advisor.advisor_model_resolved.as_deref()), (1, Some("claude-opus-5-5")));
-    assert_eq!((advisor.advisor_output_tokens, advisor.advisor_input_tokens), (Some(201), Some(9902)));
-    let without_assistant: Vec<Json> = recorded.iter().filter(|ev| !ev.is_type("assistant")).cloned().collect();
-    assert_eq!(advisor_usage(&without_assistant).advisor_calls, 0);
-    let merged: Vec<Json> = recorded
-        .iter()
-        .map(|ev| match ev {
-            Json::Object(entries) if ev.is_type("result") => Json::Object(entries.iter().map(|(k, v)| (k.clone(), if k == "modelUsage" { Json::Object(Vec::new()) } else { v.clone() })).collect()),
-            other => other.clone(),
-        })
-        .collect();
-    assert_eq!(advisor_usage(&merged).advisor_model_resolved.as_deref(), Some("claude-opus-5-5"));
-}
-
-#[test]
-fn recorded_probe_gives_calls_attachment_meter_and_errors_per_code() {
-    let probe = parse_events(PROBE_STREAM);
-    let advisor = advisor_usage(&probe);
-    assert_eq!((advisor.advisor_calls, advisor.advisor_errors.len()), (1, 0));
-    let readings = meter(&probe);
+fn meter_reads_the_five_hour_and_seven_day_utilization_of_the_rate_limit_event() {
+    let stream = parse_events(r#"{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.03},"seven_day":{"utilization":0.66}}}}"#);
+    let readings = meter(&stream);
     assert_eq!((readings.five_hour_pct, readings.seven_day_pct), (Some(3), Some(66)));
-    let attached = advisor_debug(PROBE_DEBUG);
-    assert_eq!((attached.advisor_attached, attached.advisor_model_resolved.as_deref()), (true, Some("claude-opus-5-5")));
-    let detached_log: String = PROBE_DEBUG.split_inclusive('\n').filter(|line| !line.contains("Server-side tool enabled")).collect();
-    let detached = advisor_debug(&detached_log);
-    assert_eq!((detached.advisor_attached, detached.advisor_model_resolved), (false, None));
-
-    let failure = |code: &str| {
-        let Json::Object(entries) = &probe[1] else { panic!("event 1 is an object") };
-        let content = json!([{"type": "advisor_tool_result", "content": {"type": "advisor_tool_result_error", "error_code": code}}]).to_string();
-        let message = serde_json::from_str::<Json>(&format!("{{\"content\": {content}}}")).unwrap();
-        Json::Object(entries.iter().map(|(k, v)| (k.clone(), if k == "message" { message.clone() } else { v.clone() })).collect())
-    };
-    let mut failed = probe.clone();
-    failed.extend(["overloaded", "overloaded", "max_uses_exceeded"].map(failure));
-    let errors = advisor_usage(&failed).advisor_errors;
-    assert_eq!((errors["overloaded"], errors["max_uses_exceeded"], errors.len()), (2, 1, 2));
 }
 
 #[test]
@@ -220,7 +180,7 @@ fn arm_and_variant_policies_drop_matched_rules_and_refuse_unmatched_prefixes() {
     assert_eq!(error, "policy-replay: rule prefix matches no rule: ['Nope']");
     assert_eq!(arm_minus("minus: Ask , Land ,", &json!({"id": "s"})).unwrap(), ["Ask", "Land"]);
     assert!(arm_minus("other", &json!({"id": "s"})).unwrap_err().to_string().contains("unknown arm 'other' for s"));
-    assert!(super::policy::no_fable(&[Some("opus"), Some("Fable-5")]).is_err() && super::policy::no_fable(&[Some("haiku"), None]).is_ok());
+    assert!(super::policy::no_fable(&[Some("Fable-5")]).is_err() && super::policy::no_fable(&[Some("haiku"), None]).is_ok());
     assert_eq!(arm_minus("lean", &json!({"id": "s", "arms": {"lean": ["Ask"]}})).unwrap(), ["Ask"]);
 
     let dir = tempfile::tempdir().unwrap();

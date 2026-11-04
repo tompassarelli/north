@@ -59,7 +59,6 @@ const UNIFORM: &[(&str, Run)] = &[
     ("usage", super::agents::usage),
     ("convo", crate::ops::convo::run),
     ("incident-mine", crate::ops::incident_mine::run),
-    ("advisor-report", crate::ops::advisor_report::run),
     ("policy-replay", crate::ops::policy_replay::run),
     ("defaults-measure", crate::ops::defaults_measure::run),
     ("context", |arguments| crate::ops::context_audit::run(arguments, agent_config_check::startup_tokens)),

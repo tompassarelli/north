@@ -73,7 +73,7 @@ pub fn arm_minus(arm: &str, scenario: &Value) -> Result<Vec<String>, NorthError>
 
 pub fn no_fable(names: &[Option<&str>]) -> Result<(), NorthError> {
     if names.iter().flatten().any(|name| name.to_lowercase().contains("fable")) {
-        return Err(refusal("Fable is never the main or advisor model here".into()));
+        return Err(refusal("Fable is never the main model here".into()));
     }
     Ok(())
 }

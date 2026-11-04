@@ -260,20 +260,6 @@ source = "measured: north defaults-measure box_calibration_n, snapshot 2026-10-1
 fallback = "goal_eta uses the unscaled box p75 and prints (uncalibrated: box n < floor)"
 consumers = ["crates/north-core/src/threads/calibration/mod.rs", "harness/lib/calibration.py"]
 
-[noninferiority_margin]
-value = 10
-unit = "success points a cheaper challenger arm may lose to the incumbent and still match it"
-source = "standard: a 10-percentage-point non-inferiority margin, common practice in non-inferiority trials; chosen in the north#36 design"
-fallback = "a challenger whose paired difference CI reaches below minus the margin is UNDECIDED or NO-GAIN, never MATCHES-FOR-LESS"
-consumers = ["crates/north-core/src/ops/advisor_report/mod.rs"]
-
-[plan_per_list_claude]
-value = 0.052
-unit = "plan $ per list-price $ of a Claude run"
-source = "measured: snapshot.db 2026-10-12, 139 Opus runs on claude-a, sum cost_usd 67.48 / sum list 1299.53"
-fallback = "codex rows carry no list price; their plan $ comes from --codex-plan-usd or stays unknown"
-consumers = ["crates/north-core/src/ops/advisor_report/mod.rs"]
-
 [pace_state_dwell_min]
 value = 10
 unit = "minutes between soft pace HOLD and RESUME changes; a hard quota crossing holds immediately"

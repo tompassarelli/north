@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::pyfmt::{round_int, round_to};
-use crate::ops::advisor_report::stats::float_sum;
+use crate::platform::pystats::float_sum;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct RunRow {
