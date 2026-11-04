@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 const SESSION: &str = "00000000-0000-4000-8000-0000000fa4e0";
 const TOOL: &str = "toolu_fake";
 const TASK: &str = "fake-task";
-const USAGE: &str = "Usage: fake_claude --trace fold|done|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|crash [ARG...]";
+const USAGE: &str = "Usage: fake_claude --trace fold|done|commit|idle-interrupt|cancel-queued|not-done|slow-hooks|signed-out-once|oauth-expired|crash [ARG...]";
 const STALL: &str = "stall this prompt";
 const FINAL_REPORT: &str = "Done: fake report";
 const NOT_DONE_REPORT: &str = "Not done: test\nStop: landing";
@@ -18,6 +18,7 @@ const EXPIRED: &str = "Failed to authenticate: OAuth session expired and could n
 enum Trace {
     Fold,
     Done,
+    Commit,
     NotDone,
     IdleInterrupt,
     CancelQueued,
@@ -32,6 +33,7 @@ impl Trace {
         match name {
             "fold" => Some(Self::Fold),
             "done" => Some(Self::Done),
+            "commit" => Some(Self::Commit),
             "not-done" => Some(Self::NotDone),
             "idle-interrupt" => Some(Self::IdleInterrupt),
             "cancel-queued" => Some(Self::CancelQueued),
@@ -124,9 +126,14 @@ impl<W: Write> Fake<W> {
             "permissionMode": "bypassPermissions",
             "capabilities": ["interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1"],
         }))?;
-        self.replay(uuid, message)?;
+        self.replay(uuid, message.clone())?;
         self.turn.push(uuid.to_string());
         if self.trace == Trace::Done {
+            self.reply(uuid, FINAL_REPORT)?;
+            return self.finish();
+        }
+        if self.trace == Trace::Commit {
+            commit_lane(&self.session, &message)?;
             self.reply(uuid, FINAL_REPORT)?;
             return self.finish();
         }
@@ -281,8 +288,49 @@ fn main() -> ExitCode {
         match fake.handle(&frame) {
             Ok(true) => break,
             Ok(false) => {}
-            Err(_) => return ExitCode::FAILURE,
+            Err(error) => {
+                eprintln!("fake_claude: {error}");
+                return ExitCode::FAILURE;
+            }
         }
     }
     ExitCode::SUCCESS
+}
+
+fn commit_lane(session: &str, brief: &Value) -> io::Result<()> {
+    let lane = env::current_dir()?;
+    if lane.join("worker.txt").exists() {
+        return Ok(());
+    }
+    std::fs::write(lane.join("worker.txt"), "the worker's change\n")?;
+    let git = |arguments: &[&str]| -> io::Result<()> {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&lane)
+            .args(["-c", "commit.gpgsign=false"])
+            .args(arguments)
+            .output()?;
+        status.status.success().then_some(()).ok_or_else(|| io::Error::other(format!("git {arguments:?}: {}", String::from_utf8_lossy(&status.stderr))))
+    };
+    git(&["add", "-A"])?;
+    git(&["commit", "-q", "-m", "Add the worker's change"])?;
+    let config = env::var_os("CLAUDE_CONFIG_DIR").ok_or_else(|| io::Error::other("no CLAUDE_CONFIG_DIR"))?;
+    let project = env::var("FAKE_CLAUDE_PROJECT").unwrap_or_else(|_| lane.to_string_lossy().replace('/', "-"));
+    let directory = std::path::Path::new(&config).join("projects").join(project);
+    std::fs::create_dir_all(&directory)?;
+    let at = |seconds: u32| format!("2026-11-04T10:00:{seconds:02}Z");
+    let user = json!({"type": "user", "timestamp": at(0), "sessionId": session, "message": {"content": brief_text(brief)}});
+    let tool = json!({"type": "assistant", "timestamp": at(10), "requestId": "r1", "message": {"model": "claude-sonnet-5-5", "usage": {"input_tokens": 700, "output_tokens": 50}, "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "git commit -qm 'Add the worker'\\''s change'"}}]}});
+    let result = json!({"type": "user", "timestamp": at(20), "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}});
+    let done = json!({"type": "assistant", "timestamp": at(30), "requestId": "r2", "message": {"model": "claude-sonnet-5-5", "usage": {"input_tokens": 800, "output_tokens": 20}, "content": [{"type": "text", "text": FINAL_REPORT}]}});
+    let rows: String = [user, tool, result, done].iter().map(|row| format!("{row}\n")).collect();
+    std::fs::write(directory.join(format!("{session}.jsonl")), rows)
+}
+
+fn brief_text(message: &Value) -> String {
+    match &message["content"] {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks.iter().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join("\n"),
+        _ => String::new(),
+    }
 }

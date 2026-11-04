@@ -13,7 +13,7 @@ fn executable(path: &Path, body: &str) {
     shim::write_script(path, body);
 }
 
-fn fixture(root: &Path, trace: &str) {
+pub(crate) fn fixture(root: &Path, trace: &str) {
     let op = root.join("op");
     let agents = root.join(".local/state/agents");
     let profile = root.join(".local/state/north/profiles/claude-a");
@@ -49,8 +49,11 @@ fn north_on(root: &Path, host: &str, args: &[&str]) -> Output {
 }
 
 fn north_as(root: &Path, host: &str, sender: &[(&str, &str)], args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_north"))
-        .args(args)
+    environment(Command::new(env!("CARGO_BIN_EXE_north")), root, host).args(args).envs(sender.iter().copied()).output().unwrap()
+}
+
+pub(crate) fn environment(mut command: Command, root: &Path, host: &str) -> Command {
+    command
         .current_dir(root)
         .env("HOME", root)
         .env("XDG_STATE_HOME", root.join(".local/state"))
@@ -69,10 +72,8 @@ fn north_as(root: &Path, host: &str, sender: &[(&str, &str)], args: &[&str]) -> 
         .env("NORTH_FLEET_SESSION", "")
         .env_remove("NORTH_FLEET_TEST")
         .env_remove("CLAUDE_CODE_SESSION_ID")
-        .envs(sender.iter().copied())
-        .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
-        .output()
-        .unwrap()
+        .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()));
+    command
 }
 
 fn launch(root: &Path) -> Output {

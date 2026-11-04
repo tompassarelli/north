@@ -38,6 +38,7 @@ mod fleet_launch;
 mod fleet_list_ledger_lock;
 mod fleet_row_leased;
 mod fleet_send;
+mod golden_path;
 mod fleet_spool;
 mod fleet_wait_rows;
 mod heavy_command_hook;
