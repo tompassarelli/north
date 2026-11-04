@@ -55,17 +55,17 @@ A worker that adopts or tests an outside source adds its entry here in the same 
 - <a id="routellm"></a>**RouteLLM** (Ong et al. 2024, arXiv 2406.18665; lm-sys/RouteLLM, Apache-2.0), https://arxiv.org/abs/2406.18665
   and https://github.com/lm-sys/RouteLLM; accessed: not recorded, cited 2026-10-12.
   Informed: north#35 box 6, commit 37017a39, the
-  [learned routing backtest](feedback-loop.md#learned-routing-backtest).
+  [learned routing backtest](rationale/learned-routing-and-goal-eta.md#learned-routing-backtest).
   Outcome: tested with no gain for the matrix-factorisation arm, reimplemented with no code copied: no saving
   interval excluded zero. Its BERT recipe was rejected, because no brief text exists at decision time.
 
 - <a id="lightgbm"></a>**LightGBM**, https://github.com/microsoft/LightGBM; accessed: not recorded, cited 2026-10-12.
-  Informed: north#35 box 6, [feedback-loop.md](feedback-loop.md#learned-routing-backtest).
+  Informed: north#35 box 6, [learned routing backtest](rationale/learned-routing-and-goal-eta.md#learned-routing-backtest).
   Outcome: rejected; training and walk-forward accuracy sat close together, so features and data, not model
   capacity, limit the router.
 
 - <a id="arch-router"></a>**Arch-Router-1.5B**, link not recorded; cited 2026-10-12.
-  Informed: north#35 box 6, [feedback-loop.md](feedback-loop.md#learned-routing-backtest).
+  Informed: north#35 box 6, [learned routing backtest](rationale/learned-routing-and-goal-eta.md#learned-routing-backtest).
   Outcome: rejected; it routes on prompt text, and the ledger holds no brief text at decision time.
 
 - <a id="pstack"></a>**pstack** (Lauren Tan; `cursor/plugins` under `pstack/`, MIT), https://github.com/cursor/plugins/tree/main/pstack,
@@ -103,7 +103,7 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   1979), https://doi.org/10.1214/aos/1176344552; accessed: not recorded, cited 2026-10-12.
   Informed: the task-cluster paired difference in
   [stats.rs](../crates/north-core/src/ops/policy_replay/stats.rs) and advisor-report (309eda0c, north#36), the routing
-  backtest's differences (37017a39, [feedback-loop.md](feedback-loop.md#learned-routing-backtest)), and
+  backtest's differences (37017a39, [learned routing backtest](rationale/learned-routing-and-goal-eta.md#learned-routing-backtest)), and
   calibration sample-size floors (b6462af5).
   Outcome: adopted; arms run the same tasks, so pairing by task removes task difficulty from the difference.
 
