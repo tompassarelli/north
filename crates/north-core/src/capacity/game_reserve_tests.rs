@@ -217,7 +217,17 @@ fn auto_keeps_the_reserve_on_while_toms_wisp_window_runs_and_releases_it_after_t
     settings.idle_seconds = 0;
     game_reserve::auto(&settings).unwrap();
     assert_eq!(state(), r#"{"on":false}"#);
-    game_reserve::on(&settings, false).unwrap();
+    settings.idle_seconds = 600;
+    for auto in [false, true] {
+        game_reserve::on(&settings, auto).unwrap();
+        game_reserve::auto(&settings).unwrap();
+        assert!(state().contains(r#""on":true"#), "a reserve just switched on (auto {auto}) holds until the idle period passes: {}", state());
+        settings.idle_seconds = 0;
+        game_reserve::auto(&settings).unwrap();
+        assert_eq!(state(), r#"{"on":false}"#, "no game for the idle period turns a reserve switched on with auto {auto} off");
+        settings.idle_seconds = 600;
+    }
+    named(&settings.proc, 41, 1, "bun", &app, "bun scripts/wisp.ts play --standalone --window native", UPTIME);
     game_reserve::auto(&settings).unwrap();
-    assert!(state().contains(r#""auto":false"#), "a reserve switched on by hand is never switched off by auto: {}", state());
+    assert!(state().contains(r#""on":true"#) && state().contains(r#""auto":true"#), "a game appearing turns the reserve on: {}", state());
 }

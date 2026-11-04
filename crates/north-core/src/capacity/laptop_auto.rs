@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::agent_load::{self, Host};
+use super::game_reserve;
 use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
@@ -100,6 +101,9 @@ pub fn run(arguments: &[String]) -> u8 {
     if dry {
         println!("{sample}");
         return 0;
+    }
+    if let Err(error) = game_reserve::auto(&game_reserve::Settings::from_env()) {
+        eprintln!("north capacity laptop-auto: game-reserve auto: {error}");
     }
     let game_reserve = agent_load::game_reserve_on(&host);
     let gaming = sample["gaming"] == true || game_reserve;

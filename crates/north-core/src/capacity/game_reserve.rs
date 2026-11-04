@@ -303,6 +303,9 @@ pub fn on(settings: &Settings, auto: bool) -> Result<String, String> {
         "auto": if was_on { previous.get("auto").cloned().unwrap_or(Value::Bool(auto)) } else { Value::Bool(auto) },
         "since": if was_on { previous.get("since").cloned().unwrap_or(Value::Null) } else { json!(now()) },
     });
+    if !was_on {
+        write_state(&settings.state.with_file_name("game-seen"), &json!(now()))?;
+    }
     write_state(&settings.state, &state)?;
     Ok(format!(
         "game-reserve on: game CPUs {}, agents CPUs {}; moved {} game processes, pinned {pinned} threads",
@@ -324,7 +327,7 @@ pub fn auto(settings: &Settings) -> Result<String, String> {
     }
     let current = read_state(&settings.state);
     let last = read_state(&seen).as_u64().unwrap_or(0);
-    if current["on"] == true && current["auto"] == true && now().saturating_sub(last) >= settings.idle_seconds {
+    if current["on"] == true && now().saturating_sub(last) >= settings.idle_seconds {
         return off(settings);
     }
     Ok("game-reserve unchanged".to_owned())
