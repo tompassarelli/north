@@ -260,7 +260,7 @@ fn cloud_command(launch: &Launch, lane: &CloudLane, here: &str, surface: &str, t
     } else {
         format!(
             "Land it from gex45 or the laptop, never Nexus: once git ls-remote origin {branch} shows it, fetch it into a worktree, rerun the checks, land it with safe-push --to main and delete it with git push origin --delete {branch}. \
-             If the session reports its push refused, collect its handback with north cloud wait <id> OUT.jsonl on Nexus and decode it as cloud.md says."
+             If the session reports its push refused, north cloud wait <id> OUT.jsonl run from a north checkout on gex45 or the laptop lands its handback through north cloud land, as cloud.md says."
         )
     };
     let label = lane.account.trim_start_matches("claude:");

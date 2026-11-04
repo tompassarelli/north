@@ -61,6 +61,8 @@ fn cloud_parse_reads_each_command_and_the_wait_timeout() {
         parse(&words("collect events.jsonl out.mbox")),
         Some(Cloud::Collect("events.jsonl".into(), "out.mbox".into()))
     );
+    assert_eq!(parse(&words("land events.jsonl")), Some(Cloud::Land("events.jsonl".into(), ".".into())));
+    assert_eq!(parse(&words("land events.jsonl --repo /c/north/main")), Some(Cloud::Land("events.jsonl".into(), "/c/north/main".into())));
     assert_eq!(
         parse(&words("wait s1 out.jsonl")),
         Some(Cloud::Wait("s1".into(), "out.jsonl".into(), 3600, None))

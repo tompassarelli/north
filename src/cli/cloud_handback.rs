@@ -99,6 +99,10 @@ fn through(program: &str, args: &[&str], input: &[u8], what: &str) -> Result<Vec
     }
 }
 
+pub(super) fn has_handback(events: &[Value]) -> bool {
+    tool_outputs(events).iter().any(|output| part_of(output).is_some())
+}
+
 pub(super) fn collect(events: &[Value]) -> Result<Vec<u8>, String> {
     let encoded = latest_handback(events)?;
     let compressed = through("base64", &["-d"], encoded.as_bytes(), "base64 decode")?;
