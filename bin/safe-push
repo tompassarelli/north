@@ -1600,10 +1600,22 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; land_train=1; fi
   if [ "$to" = "$(default_branch)" ]; then
     autoland_base=$(fetch_destination) || exit 1
-    if [ "$direct" = 0 ] && [ -z "$several_commits" ] && [ "$(landing_queue "refs/remotes/origin/$to")" = lander ]; then
+    if [ "$(landing_queue "refs/remotes/origin/$to")" = lander ]; then
       keep_lane_enqueued=""; [ "$keep_lane" -eq 0 ] || keep_lane_enqueued=1
       lander_host=$( { landing_setting "refs/remotes/origin/$to" landing.lander-host; landing_setting "refs/remotes/origin/$to" landing.remote-hosts; } | tr ' ' '\n')
-      [ -z "$lander_host" ] || ! printf '%s\n' "$lander_host" | grep -qxF "$(hostname -s)" || exec "$safe_push_self" --enqueue ${message_file:+--message "$message_file"} ${keep_lane_enqueued:+--keep-lane}
+      committed_lander=$(git config --blob "refs/remotes/origin/$to:.safe-push" --get-regexp '^landing\.(lander-host|remote-hosts)$' 2>/dev/null || true)
+      if [ -z "$committed_lander" ]; then
+        [ -z "$lander_host" ] || ! printf '%s\n' "$lander_host" | grep -qxF "$(hostname -s)" || [ -n "$several_commits" ] || [ "$direct" = 1 ] \
+          || exec "$safe_push_self" --enqueue ${message_file:+--message "$message_file"} ${keep_lane_enqueued:+--keep-lane}
+      else
+        [ "$direct" = 0 ] \
+          || { echo "safe-push: --direct is refused here: landing.queue is lander in .safe-push, so the lander lands every change to $to; run safe-push --to $to without --direct. NOT pushed." >&2; exit 1; }
+        printf '%s\n' "$lander_host" | grep -qxF "$(hostname -s)" \
+          || { echo "safe-push: $(hostname -s) is neither landing.lander-host nor in landing.remote-hosts of .safe-push on $to, so the lander cannot take this lane; add $(hostname -s) to landing.remote-hosts. NOT pushed." >&2; exit 1; }
+        [ -z "$several_commits" ] || north land enqueue --help 2>/dev/null | grep -qF -- --several-commits \
+          || { echo "safe-push: this host's north runtime lacks north land enqueue --several-commits; run north runtime update; NOT queued." >&2; exit 1; }
+        exec "$safe_push_self" --enqueue ${message_file:+--message "$message_file"} ${several_commits:+--several-commits "$several_commits"} ${keep_lane_enqueued:+--keep-lane}
+      fi
     fi
     land_as_one_commit "$autoland_base"
     if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then

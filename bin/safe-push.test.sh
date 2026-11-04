@@ -64,7 +64,12 @@ shim_main() {
           ;;
       esac
       [ -n "${SAFE_PUSH_TEST_ENQUEUE_TRACE:-}" ] || return 2
-      [ "${3:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_ENQUEUE_TRACE"
+      if [ "${3:-}" = --help ]; then
+        [ -n "${SAFE_PUSH_TEST_ENQUEUE_OLD:-}" ] || echo "usage: north land enqueue [--repo DIR] [--message FILE | --several-commits REASON]"
+        [ -z "${SAFE_PUSH_TEST_ENQUEUE_OLD:-}" ] || echo "usage: north land enqueue [--repo DIR] [--message FILE]"
+        return 0
+      fi
+      printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_ENQUEUE_TRACE"
       ;;
     north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
     north:land-red-wait) return 0 ;;
@@ -2845,14 +2850,43 @@ SAFE_PUSH_TEST_HOSTNAME=remote-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace"
 expect_status zero
 [ "$(cat "$lander_trace")" = "$(printf 'enqueue\nenqueue')" ] || fail "a remote host did not queue: $(cat "$lander_trace")"
 SAFE_PUSH_TEST_HOSTNAME=other-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main
+expect_status nonzero
+expect_output 'other-host is neither landing.lander-host nor in landing.remote-hosts'
+expect_output 'add other-host to landing.remote-hosts'
+SAFE_PUSH_TEST_HOSTNAME=other-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main --several-commits 'each lander commit is a bisect point'
+expect_status nonzero
+expect_output 'add other-host to landing.remote-hosts'
+[ "$(cat "$lander_trace")" = "$(printf 'enqueue\nenqueue')" ] || fail "a host outside the lander settings queued a ticket"
+printf 'PASS: lander-queue: the lander host and a remote host queue a ticket and push nothing, another host is refused naming landing.remote-hosts\n'
+SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main --direct
+expect_status nonzero
+expect_output '--direct is refused here: landing.queue is lander'
+SAFE_PUSH_TEST_HOSTNAME=other-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main --direct
+expect_status nonzero
+expect_output '--direct is refused here: landing.queue is lander'
+[ "$(cat "$lander_trace")" = "$(printf 'enqueue\nenqueue')" ] || fail "--direct queued a ticket"
+! grep -q $'\t' "$xdg_state/safe-push/direct-landings.tsv" 2>/dev/null || fail '--direct logged a landing in a lander repository'
+printf 'PASS: lander-queue: --direct is refused naming the lander\n'
+printf 'second lander work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'second lander work'
+lander_lane=$("$real_git" -C "$real_repo" rev-parse HEAD)
+SAFE_PUSH_TEST_HOSTNAME=remote-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main --several-commits 'each lander commit is a bisect point'
 expect_status zero
-[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lander_lane" ] || fail 'another host did not land per lane'
-[ "$(cat "$lander_trace")" = "$(printf 'enqueue\nenqueue')" ] || fail "another host queued a ticket"
+[ "$(tail -n 1 "$lander_trace")" = 'enqueue --several-commits each lander commit is a bisect point' ] || fail "--several-commits did not queue a ticket carrying its reason: $(cat "$lander_trace")"
+[ "$("$real_git" -C "$real_repo" rev-parse HEAD)" = "$lander_lane" ] || fail '--several-commits squashed the lane before queueing'
+! grep -Fq 'each lander commit is a bisect point' "$xdg_state/safe-push/several-commit-landings.tsv" 2>/dev/null || fail '--several-commits landed through the bash path'
+SAFE_PUSH_TEST_ENQUEUE_OLD=1 SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main --several-commits 'each lander commit is a bisect point'
+expect_status nonzero
+expect_output 'lacks north land enqueue --several-commits; run north runtime update'
+[ "$(wc -l <"$lander_trace")" = 3 ] || fail "an old runtime queued a several-commits ticket: $(cat "$lander_trace")"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lander_main_before" ] || fail 'a lander repository case pushed main'
+printf 'PASS: lander-queue: --several-commits queues a ticket carrying its reason, an old runtime is refused, and no case pushes main\n'
 : >"$lander_trace"
 SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main --keep-lane
 expect_status zero
 [ "$(cat "$lander_trace")" = "enqueue --keep-lane" ] || fail "--keep-lane did not reach the ticket: $(cat "$lander_trace")"
-printf 'PASS: lander-queue: the lander host and a remote host queue a ticket and push nothing, another host lands per lane\n'
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lander_main_before" ] || fail '--keep-lane pushed main'
+printf 'PASS: lander-queue: --keep-lane reaches the ticket\n'
 
 make_real_fixture lander-default
 machine_config="$real_fixture/machine-gitconfig"
