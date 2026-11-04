@@ -1,5 +1,12 @@
 name: Rust toolchain
-description: The toolchain rust-toolchain.toml pins, with the cargo cache and sccache on the Actions cache for workspace crates.
+description: The toolchain rust-toolchain.toml pins, with the cargo cache and sccache on the Actions cache.
+inputs:
+  cache-key:
+    description: Cargo cache key shared across jobs; empty keys the cache by job.
+    default: ''
+  save:
+    description: Write the cargo and sccache caches; land checks run on per-lane refs that no later run can read, so they only read main's.
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -11,10 +18,16 @@ runs:
         version: v0.19.0
     - name: Compile through sccache
       shell: bash
+      env:
+        SAVE: ${{ inputs.save }}
       run: |
         {
           echo SCCACHE_GHA_ENABLED=true
           echo RUSTC_WRAPPER=sccache
           echo CARGO_INCREMENTAL=0
+          [ "$SAVE" = true ] || echo SCCACHE_GHA_RW_MODE=READ_ONLY
         } >> "$GITHUB_ENV"
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        shared-key: ${{ inputs.cache-key }}
+        save-if: ${{ inputs.save }}

@@ -7,6 +7,12 @@ inputs:
   build:
     description: Build the north commands first; a job whose command builds them itself skips it.
     default: 'true'
+  cache-key:
+    description: Cargo cache key shared across jobs; empty keys the cache by job.
+    default: ''
+  save-cache:
+    description: Write the cargo and sccache caches.
+    default: 'true'
 outputs:
   browser-skip:
     description: Why the CDP boundary test was skipped, empty when the automation browser is available.
@@ -18,6 +24,9 @@ runs:
       with:
         bun-version: 1.3.13
     - uses: ./.github/actions/rust
+      with:
+        cache-key: ${{ inputs.cache-key }}
+        save: ${{ inputs.save-cache }}
     - name: Build harness commands
       shell: bash
       env:

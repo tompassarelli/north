@@ -43,6 +43,8 @@ jobs:
         uses: ./.github/actions/harness
         with:
           build: ${{ !contains(matrix.command, 'harness/scripts/cargo-tests.sh') && !contains(matrix.command, '-- cargo clippy') }}
+          cache-key: cargo-test
+          save-cache: false
       - name: Dependencies the offline checks read
         run: |
           cargo fetch --locked
