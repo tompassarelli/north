@@ -36,7 +36,7 @@ The credit's account, login, host, expiry, spend rate, environment and routine I
 ## RemoteTrigger routines
 
 - Use them only for public Wisp/Mak'gora code tasks without private or local inputs, Warcraft clients or Tom's install, because the routine clones the public repository and nothing else.
-- Budget 4 cores, 15 GB, Bun 1.4.2, gcc/clang and 100 runs/hour/account; use the repositories' pinned Bun 1.3.13, and build Lua 5.3.6 with LUA_32BITS or Wisp's pinned command when Lua is required, so results match local checks.
+- Budget 4 cores, 15 GB, Bun 1.4.2, gcc/clang and 100 runs/hour/account; use the repositories' pinned Bun 1.4.2, and build Lua 5.3.6 with LUA_32BITS or Wisp's pinned command when Lua is required, so results match local checks.
 - Keep account extra usage off so plan limits pause work instead of billing.
 - Run RemoteTrigger only from the main session and reuse one routine per repository, because routines are deleted only by hand at claude.ai/code/routines.
 - Set `session_context.model` on every update (`claude-opus-5-5` for meaningful or complex work, `claude-haiku-5-5` for very simple mechanical work), because an unset model falls back to an unchosen default.
