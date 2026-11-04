@@ -28,6 +28,7 @@ Commands:
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   lane-squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
+  merge-driver set [--config FILE] BASE OURS THEIRS PATH  Git merge driver: merge the order-insensitive unique-entry lists named in harness/merge-sets.toml, refusing duplicates and remove-versus-edit
   bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry a deployed nixos-config or south unit, or this host's user units, still run
   land-tests [--jobs N] [--cases json] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
   land-actions --workflow FILE --base B --head H --timeout S -- COMMAND...

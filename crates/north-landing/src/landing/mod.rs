@@ -11,6 +11,7 @@ pub mod lane_squash;
 pub mod land_test_runner;
 pub mod lane_target;
 mod mutant;
+pub mod merge_set;
 pub mod mutant_cli;
 mod mutant_trees;
 mod mutant_verify;

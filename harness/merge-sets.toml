@@ -1,0 +1,13 @@
+# Files and keys `north merge-driver set` may merge as sets (docs/rationale/landing-train.md, step 9b).
+# Only order-insensitive lists of unique entries belong here; ordered lists such as hook.rs guard arrays never do.
+# kind = "lines": every non-comment line is one entry, identified by the text before a trailing " #".
+# kind = "toml-array": the one-line string array under `key` in each table, identified by the table header and its name.
+
+[[set]]
+path = "structure.toml"
+kind = "toml-array"
+key = "may_use"
+
+[[set]]
+path = "harness/machine-bound-tests"
+kind = "lines"

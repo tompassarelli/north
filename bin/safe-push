@@ -1816,6 +1816,7 @@ run_train() {
   done
   n=${#oids[@]}
   base=$(fetch_destination) || exit 1
+  install_merge_driver
   [ -n "$base" ] || return 0
   printf 'safe-push: landing train of %s lanes onto origin %s@%s\n' "$n" "$to" "$base"
   capture_repository_state
@@ -1952,6 +1953,12 @@ fetch_destination() {
   git rev-parse -q --verify "${remote_ref}^{commit}" 2>/dev/null || true
 }
 
+install_merge_driver() {
+  command -v north >/dev/null 2>&1 || return 0
+  git config merge.set.name "order-insensitive unique-entry lists (harness/merge-sets.toml)"
+  git config merge.set.driver "north merge-driver set %O %A %B %P"
+}
+
 rebase_onto_destination() {
   local upstream="$1" conflicts log
   [ -n "$upstream" ] || return 0
@@ -1959,6 +1966,7 @@ rebase_onto_destination() {
   # Unrelated history is left to the non-fast-forward refusal.
   git merge-base HEAD "$upstream" >/dev/null 2>&1 || return 0
   echo "safe-push: origin $to moved to $upstream — rebasing onto it"
+  install_merge_driver
   if log=$(GIT_EDITOR=true git rebase --no-autostash "$upstream" 2>&1); then
     return 0
   fi
