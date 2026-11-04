@@ -34,6 +34,14 @@ printf 'checking\nsafe-push: verdict %s\n' "$verdict"
 exit "$status"
 "#;
 
+const MINT: &str = r#"#!/usr/bin/env bash
+set -eu
+[ "$*" = "--app lander" ] || { echo "unexpected arguments: $*" >&2; exit 2; }
+[ ! -e "$LAND_TRACE/mint-fail" ] || { echo "token exchange failed: HTTP 502" >&2; exit 1; }
+printf x >>"$LAND_TRACE/mints"
+echo app-token
+"#;
+
 const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
 if [ "$1" = land-train ] && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" THREADS_SCHEMA_READY=1 exec "$LAND_REAL_NORTH" "$@"; fi
@@ -85,10 +93,11 @@ impl Fixture {
         fs::write(root.join("threads.db"), b"").unwrap();
         executable(&trace.join("checker"), CHECKER);
         executable(&trace.join("north"), NORTH);
+        executable(&trace.join("mint"), MINT);
         let real_git = String::from_utf8(Command::new("bash").args(["-c", "command -v git"]).output().unwrap().stdout).unwrap().trim().to_owned();
         executable(
             &bin.join("git"),
-            &format!("#!/usr/bin/env bash\npushing=0\nfor a in \"$@\"; do if [ \"$a\" = push ]; then pushing=1; printf '%s token=%s\\n' \"$*\" \"${{GH_TOKEN:-none}}\" >>\"$LAND_TRACE/pushes\"; break; fi; done\nif [ $pushing = 1 ] && [ -e \"$LAND_TRACE/kill-after-push\" ]; then\n  {real_git} \"$@\"; rc=$?\n  rm -f \"$LAND_TRACE/kill-after-push\"\n  kill -9 $PPID\n  exit $rc\nfi\nexec {real_git} \"$@\"\n"),
+            &format!("#!/usr/bin/env bash\npushing=0\nfor a in \"$@\"; do if [ \"$a\" = push ]; then pushing=1; printf '%s token=%s app=%s\\n' \"$*\" \"${{GH_TOKEN:-none}}\" \"${{NORTH_LAND_PUSH_TOKEN:-none}}\" >>\"$LAND_TRACE/pushes\"; break; fi; done\nif [ $pushing = 1 ] && [ -e \"$LAND_TRACE/kill-after-push\" ]; then\n  {real_git} \"$@\"; rc=$?\n  rm -f \"$LAND_TRACE/kill-after-push\"\n  kill -9 $PPID\n  exit $rc\nfi\nexec {real_git} \"$@\"\n"),
         );
         Self { _scratch: scratch, root, origin, repo, state, trace, bin, base, queued: now_micros() }
     }
@@ -139,7 +148,7 @@ impl Fixture {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         command
-            .args(["land", "serve", "--once", "--repo", self.repo.to_str().unwrap(), "--checker", self.trace.join("checker").to_str().unwrap()])
+            .args(["land", "serve", "--once", "--repo", self.repo.to_str().unwrap(), "--checker", self.trace.join("checker").to_str().unwrap(), "--app-token", self.trace.join("mint").to_str().unwrap()])
             .env("XDG_STATE_HOME", &self.state)
             .env("PATH", path)
             .env("LAND_TRACE", &self.trace)
@@ -1184,4 +1193,66 @@ fn serve_records_a_conflict_and_a_failed_check_as_refusals_beside_the_landings()
     let (a, d) = (&rows[0], &rows[3]);
     assert!(a.3 >= 1, "a and b landed after the refused candidate was halved, so their bisect depth is above zero: {a:?}");
     assert!(d.6.is_none() && d.9.is_some() && d.10.is_some(), "the failed lane keeps its check window and has no landed sha: {d:?}");
+}
+
+impl Fixture {
+    fn opt_into_app(&mut self) {
+        fs::write(self.repo.join(".safe-push"), "[landing]\n\tpush-app = lander\n").unwrap();
+        git(&self.repo, &["add", "."]);
+        git(&self.repo, &["commit", "-qm", "opt into the lander App"]);
+        git(&self.repo, &["push", "-q", "origin", "main"]);
+        self.base = git(&self.repo, &["rev-parse", "HEAD"]);
+    }
+}
+
+#[test]
+fn serve_push_actor_app() {
+    let mut fixture = Fixture::new();
+    fixture.opt_into_app();
+    let a = fixture.lane("a", "a.txt", "a");
+    let ticket = fixture.enqueue(&a, None);
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.verdict(&ticket), Some(format!("landed {}", fixture.main())));
+    let pushes = fixture.read("pushes");
+    assert_eq!(pushes.lines().count(), 1);
+    assert!(pushes.contains("token=none app=app-token"), "the push carries the App token and no ambient token: {pushes}");
+    assert!(!pushes.contains("push-token"), "the ambient token reached the push: {pushes}");
+    assert!(pushes.contains("credential.helper="), "the push must reset the inherited credential helpers: {pushes}");
+    assert!(!pushes.contains("app-token "), "the token must not be on the command line: {pushes}");
+    assert_eq!(fixture.read("mints"), "x");
+    let env = fixture.read("env-1");
+    assert!(env.contains("LAND_TRACE="));
+    for name in ["GH_TOKEN=", "GITHUB_TOKEN=", "SOPS_AGE_KEY_FILE=", "NORTH_LAND_PUSH_TOKEN="] {
+        assert!(!env.lines().any(|line| line.starts_with(name)), "the check saw {name}");
+    }
+}
+
+#[test]
+fn serve_app_mint_failure_keeps_the_ticket() {
+    let mut fixture = Fixture::new();
+    fixture.opt_into_app();
+    let a = fixture.lane("a", "a.txt", "a");
+    let ticket = fixture.enqueue(&a, None);
+    fs::write(fixture.trace.join("mint-fail"), "").unwrap();
+    let output = fixture.serve();
+    assert_eq!(output.status.code(), Some(75));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("transient: no push credential"), "{}", String::from_utf8_lossy(&output.stdout));
+    assert!(ticket.exists(), "a mint failure decided the lane");
+    assert_eq!(fixture.verdict(&ticket), None);
+    assert_eq!(fixture.main(), fixture.base);
+    assert_eq!(fixture.read("pushes"), "", "a mint failure fell back to another credential");
+    fs::remove_file(fixture.trace.join("mint-fail")).unwrap();
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.verdict(&ticket), Some(format!("landed {}", fixture.main())));
+    assert!(fixture.read("pushes").contains("app=app-token"));
+}
+
+#[test]
+fn serve_unconfigured_repository_keeps_its_credential() {
+    let mut fixture = Fixture::new();
+    let a = fixture.lane("a", "a.txt", "a");
+    fixture.enqueue(&a, None);
+    assert!(fixture.serve().status.success());
+    assert!(fixture.read("pushes").contains("token=push-token app=none"));
+    assert_eq!(fixture.read("mints"), "");
 }

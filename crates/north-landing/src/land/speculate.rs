@@ -140,8 +140,15 @@ pub fn land(lander: &Lander, mut next: Next, landed: &str) -> Result<bool, Strin
         return Ok(false);
     }
     let included: Vec<_> = next.tickets.iter().map(|(path, ticket)| (path, ticket)).collect();
+    let token = match lander.push_token(&next.base) {
+        Ok(token) => token,
+        Err(error) => {
+            println!("north land: no push credential for speculative candidate {}: {error}; discarded, its lanes are rebuilt on main", next.head);
+            return Ok(false);
+        }
+    };
     after::begin(lander, &next.head, &next.base, &included)?;
-    if !lander.push(&next.head, &next.base)? {
+    if !lander.push(&next.head, &next.base, token.as_deref())? {
         after::abandon(lander);
         println!("north land: main moved from {} before the speculative push; rebuilding", next.base);
         return Ok(false);

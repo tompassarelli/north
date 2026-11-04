@@ -3,6 +3,7 @@
 	exact = true
 	queue = lander
 	lander-host = whiterabbit
+	push-app = lander
 	remote-hosts = gex45
 [mutant]
 	class = heavy

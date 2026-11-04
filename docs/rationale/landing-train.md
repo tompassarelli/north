@@ -692,6 +692,14 @@ then S2b and S2c in parallel; then S3 and S4.
 - **S8 Lander App token.** Follows B16. Done when: a landing by the lander shows the App as its push
   actor (`gh api repos/tompassarelli/north/events` push event `actor.login` is the App's bot), and
   `serve-token-scoped` still passes, with the token present only in the push step's environment.
+  Built 2026-11-04 (north#360): a repository opts in with `landing.push-app = lander` in its committed
+  `.safe-push`, read from the candidate's base; the lander mints with `gh-app-token --app lander` after the
+  check and before it records the push, and hands the token to the push alone through
+  `NORTH_LAND_PUSH_TOKEN` and a one-shot credential helper that replaces every inherited helper, with
+  the ambient `GH_TOKEN` removed from that push. A mint failure is a transient wait that keeps the
+  ticket and falls back to nothing; a repository without the key keeps its inherited credential.
+  tests/it/land_serve.rs: serve_push_actor_app, serve_app_mint_failure_keeps_the_ticket,
+  serve_unconfigured_repository_keeps_its_credential.
 - **S9 Landing records (B12).** Follows B12. Done when: one fixture run of serve leaves one
   `landings` row per lane with tree, batch_size, bisect_depth, attempts and verdict, and `north flow`
   prints queued-to-landed p50 and p90 from those rows.

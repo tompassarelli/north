@@ -2,6 +2,7 @@ pub mod after;
 pub mod bisect;
 pub mod candidate;
 pub mod checks;
+pub mod credential;
 pub mod enqueue;
 pub mod first_commit;
 pub mod lander;
@@ -14,7 +15,7 @@ pub mod slots;
 pub mod speculate;
 pub mod telemetry;
 
-const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2]\n       north land enqueue [--repo DIR] [--message FILE]";
+const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2] [--app-token PROGRAM]\n       north land enqueue [--repo DIR] [--message FILE]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {

@@ -13,6 +13,7 @@ pub struct Lander {
     pub spare: PathBuf,
     pub queue: PathBuf,
     pub checker: Vec<String>,
+    pub app_token: Vec<String>,
     pub depth: usize,
 }
 
@@ -41,6 +42,7 @@ impl Lander {
             spare: candidate::lander_worktree(repo, "lander-2")?,
             queue: queue::directory(&state_home(), &origin),
             checker,
+            app_token: vec![super::credential::MINT.to_owned()],
             depth: DEPTH,
         })
     }

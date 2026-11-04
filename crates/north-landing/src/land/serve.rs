@@ -6,11 +6,12 @@ use super::lander::{self, Lander, state_home};
 use super::after;
 use super::bisect::{self, Judgement};
 use super::checks::Verdict;
+use super::credential;
 use super::telemetry::Stages;
 use super::records::{self, Candidate, Decision};
 use super::{queue, red, speculate};
 
-const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2]";
+const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
 
@@ -38,10 +39,15 @@ impl Lander {
         Ok((git(&self.worktree, &["rev-parse", "HEAD"])?, git(&self.worktree, &["rev-parse", "--absolute-git-dir"])?))
     }
 
-    pub(super) fn push(&self, candidate: &str, base: &str) -> Result<bool, String> {
-        let pushed = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&self.worktree)
+    pub(super) fn push_token(&self, base: &str) -> Result<Option<String>, String> {
+        credential::for_push(&self.worktree, base, &self.app_token)
+    }
+
+    pub(super) fn push(&self, candidate: &str, base: &str, token: Option<&str>) -> Result<bool, String> {
+        let mut push = std::process::Command::new("git");
+        push.arg("-C").arg(&self.worktree);
+        credential::apply(&mut push, token);
+        let pushed = push
             .args(["push", "-q", "--no-verify", "--no-follow-tags", &format!("--force-with-lease=refs/heads/main:{base}"), "origin", &format!("{candidate}:refs/heads/main")])
             .env("SAFE_PUSH_ACTIVE", "1")
             .status()
@@ -135,8 +141,12 @@ impl Lander {
             strikes.save(&self.queue)?;
             match bisect::judge(verdict, included.len(), moved) {
                 Judgement::Land => {
+                    let token = match self.push_token(&base) {
+                        Ok(token) => token,
+                        Err(error) => return Ok(Round::Waiting(format!("transient: no push credential: {error}"))),
+                    };
                     after::begin(self, &built.head, &base, &included)?;
-                    if !self.push(&built.head, &base)? {
+                    if !self.push(&built.head, &base, token.as_deref())? {
                         after::abandon(self);
                         println!("north land: main moved from {base} before the push; rebuilding the candidate");
                         rebuilds += 1;
@@ -190,6 +200,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut repo = PathBuf::from(".");
     let mut checker = vec!["safe-push".to_owned()];
     let mut depth = lander::DEPTH;
+    let mut app_token = vec![credential::MINT.to_owned()];
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match (argument.as_str(), rest.clone().next()) {
@@ -200,6 +211,10 @@ pub fn run(arguments: &[String]) -> u8 {
             }
             ("--checker", Some(value)) => {
                 checker = vec![value.clone()];
+                rest.next();
+            }
+            ("--app-token", Some(value)) => {
+                app_token = vec![value.clone()];
                 rest.next();
             }
             ("--depth", Some(value)) if matches!(value.as_str(), "1" | "2") => {
@@ -217,7 +232,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
     let lander = match Lander::new(&repo, checker) {
-        Ok(lander) => Lander { depth, ..lander },
+        Ok(lander) => Lander { depth, app_token, ..lander },
         Err(error) => {
             eprintln!("north land serve: {error}");
             return 1;
