@@ -23,4 +23,5 @@ toml_edit.workspace = true
 workspace = true
 
 [dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
 stateright = "0.31"

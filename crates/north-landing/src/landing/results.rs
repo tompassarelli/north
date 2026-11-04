@@ -59,7 +59,26 @@ pub struct Results {
     cases: BTreeMap<(String, String), Seen>,
 }
 
+impl FromIterator<Case> for Results {
+    fn from_iter<I: IntoIterator<Item = Case>>(cases: I) -> Self {
+        let mut results = Results::default();
+        for case in cases {
+            results.see(&case.test, &case.name, case.passed);
+        }
+        results
+    }
+}
+
 impl Results {
+    pub fn see(&mut self, test: &str, case: &str, passed: bool) {
+        let seen = self.cases.entry((test.to_owned(), case.to_owned())).or_default();
+        if passed {
+            seen.passed = true;
+        } else {
+            seen.failed = true;
+        }
+    }
+
     pub fn get(&self, test: &str, case: &str) -> Option<Seen> {
         self.cases.get(&(test.to_owned(), case.to_owned())).copied()
     }
@@ -111,10 +130,9 @@ impl Store {
         for line in text.lines() {
             let mut parts = line.splitn(3, '\t');
             let (Some(verdict), Some(test), Some(case)) = (parts.next(), parts.next(), parts.next()) else { continue };
-            let seen = results.cases.entry((test.to_owned(), case.to_owned())).or_default();
             match verdict {
-                "pass" => seen.passed = true,
-                "fail" => seen.failed = true,
+                "pass" => results.see(test, case, true),
+                "fail" => results.see(test, case, false),
                 _ => {}
             }
         }
