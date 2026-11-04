@@ -627,8 +627,8 @@ ci_budget_hold() {
     printf '%s\n' "$now" >"$file"
   fi
   if (( now - first < 1800 )); then
-    printf 'safe-push: ✗ CI budget %s: %s; NOT pushed.\n' "$workflow" "$reason"
-    printf 'safe-push: CI budget %s has refused since %s; a recorded override opens at %s.\n' \
+    printf 'safe-push: ✗ CI budget %s: %s (checked after the push; the landing stands).\n' "$workflow" "$reason"
+    printf 'safe-push: CI budget %s has been over since %s; from %s each landing records an override instead.\n' \
       "$workflow" "$(date -d "@$first" +%H:%M)" "$(date -d "@$((first + 1800))" +%H:%M)"
     return 1
   fi

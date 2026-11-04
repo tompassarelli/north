@@ -1091,9 +1091,9 @@ remote_before="$(real_remote_state)"
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
-expect_output 'slowest job in most recent run: integration (280s); NOT pushed.'
+expect_output 'slowest job in most recent run: integration (280s) (checked after the push; the landing stands).'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'CI budget refusal changed origin'
-printf '%s\n' "$case_output" | grep 'CI budget .*NOT pushed\.'
+printf '%s\n' "$case_output" | grep -q 'CI budget .*the landing stands)\.' || fail 'missing CI budget line ending the landing stands'
 
 "$real_git" -C "$real_repo" reset -q --hard "$ci_base"
 printf 'prose\n' >"$real_repo/notes.md"
@@ -1159,7 +1159,7 @@ printf 'held work\n' >>"$real_repo/content.txt"
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'farm-test.yml: median 300s > budget 240s'
-expect_output 'a recorded override opens at'
+expect_output 'each landing records an override instead'
 ci_hold=$(ls "$ci_hold_dir"/ci-budget-hold-*farm-test.yml)
 echo $(( $(date +%s) - 1900 )) >"$ci_hold"
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
@@ -1179,7 +1179,7 @@ printf '[{"jobs":[{"name":"older tests","started_at":"2026-10-11T00:00:00Z","com
 forget_run_measurements
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
-expect_output 'a recorded override opens at'
+expect_output 'each landing records an override instead'
 mv "$ci_fixture/runs.json" "$ci_fixture/runs.offline.json"
 echo $(( $(date +%s) - 1900 )) >"$ci_hold"
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
@@ -1200,7 +1200,7 @@ remote_before="$(real_remote_state)"
 SAFE_PUSH_TEST_CI_FIXTURE="$ci_fixture" run_after_landing_case
 expect_status nonzero
 expect_output 'local:timings.tsv: median 500s > budget 447s'
-expect_output 'slowest job in most recent run: typechecker (450s); NOT pushed.'
+expect_output 'slowest job in most recent run: typechecker (450s) (checked after the push; the landing stands).'
 [ "$(real_remote_state)" = "$remote_before" ] || fail 'local CI budget refusal changed origin'
 printf '[ci]\n\tbudget = local:timings.tsv 447 600\n' >"$real_repo/.safe-push"
 "$real_git" -C "$real_repo" commit -qam 'soft CI budget with a ceiling'
