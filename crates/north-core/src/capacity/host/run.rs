@@ -261,9 +261,9 @@ pub fn north_command() -> String {
         .unwrap_or_else(|| format!("{}/.local/state/north/current/north", env("HOME").unwrap_or_default()))
 }
 
-/// The lease's own compiler-cache server socket: sccache forks every compile from its server, so one server shared by every lease ran each lease's compiles in the scope of whichever process started it, outside the lease's CPU quota and measurement.
+/// The lease's own compiler-cache server socket: sccache forks every compile from its server, so one server shared by every lease ran each lease's compiles in the scope of whichever process started it, outside the lease's CPU quota and measurement. Named by the lease's first uuid group because a Unix socket path holds 107 bytes and the private desktop's runtime directory already spends 68 of them before the file name.
 pub(super) fn cache_server_socket(root: &Path, lease: &str) -> std::path::PathBuf {
-    root.join("sccache").join(format!("{lease}.sock"))
+    root.join("sccache").join(format!("{}.sock", lease.split('-').next().unwrap_or(lease)))
 }
 
 pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, timeout_seconds: Option<u64>, command: &[String]) -> tokio::process::Command {

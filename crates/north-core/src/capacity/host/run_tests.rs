@@ -22,6 +22,15 @@ fn each_batch_lease_compiles_through_its_own_cache_server_inside_its_scope() {
     assert_eq!(server_socket(root.path(), "native"), None);
 }
 
+#[test]
+fn the_cache_server_socket_fits_a_unix_socket_path_under_the_private_desktops_runtime_directory() {
+    const SUN_PATH_BYTES: usize = 107;
+    let runtime = std::path::Path::new("/run/user/1000/private-desktop.0rJtMv/runtime");
+    let root = runtime.join("agent-capacity-v1");
+    let socket = cache_server_socket(&root, &super::machine::uuid());
+    assert!(socket.as_os_str().len() <= SUN_PATH_BYTES, "{} is {} bytes", socket.display(), socket.as_os_str().len());
+}
+
 fn quota(class: &str, landing: bool, cpus: f64) -> Vec<String> {
     let root = tempfile::tempdir().expect("scratch");
     let request = Request { name: class.to_owned(), landing, ..Request::default() };
