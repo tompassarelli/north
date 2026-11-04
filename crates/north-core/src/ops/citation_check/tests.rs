@@ -12,7 +12,7 @@ fn only_a_command_in_command_position_is_cited_with_its_line() {
     let script = "# north gone in a comment\nnorth fleet list\nout=$(north capacity status) || exit 1\necho north not-a-command\n";
     assert_eq!(commands("harness/hooks/x.sh", script), ["fleet", "capacity"]);
     let found = scan("docs/a.md", "one\n\n`north missing`\n");
-    assert_eq!(found, [Citation { path: "docs/a.md".into(), line: 3, command: "missing".into() }]);
+    assert_eq!(found, [Citation { path: "docs/a.md".into(), line: 3, command: "missing".into(), flags: vec![] }]);
 }
 
 fn repository(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -36,7 +36,7 @@ fn defined(command: &str) -> bool {
 fn a_citation_of_a_missing_subcommand_is_named_and_defined_ones_pass() {
     let root = repository(&[("docs/guide.md", "Use `north fleet list`.\nThen `north capture`.\n")]);
     let found = undefined(root.path(), defined).unwrap();
-    assert_eq!(found, [Citation { path: "docs/guide.md".into(), line: 2, command: "capture".into() }]);
+    assert_eq!(found, [Citation { path: "docs/guide.md".into(), line: 2, command: "capture".into(), flags: vec![] }]);
     let root = repository(&[("docs/guide.md", "Use `north fleet list` and `north health`.\n")]);
     assert!(undefined(root.path(), defined).unwrap().is_empty());
 }
@@ -95,5 +95,19 @@ fn the_command_exits_one_on_a_missing_path_and_zero_once_it_exists() {
     fs::create_dir_all(root.path().join("bin")).unwrap();
     fs::write(root.path().join("bin/gone"), "").unwrap();
     assert!(Command::new("git").arg("-C").arg(root.path()).args(["add", "-A"]).status().unwrap().success());
+    assert_eq!(run(&arguments, defined), 0);
+}
+
+#[test]
+fn a_cited_flag_that_no_source_string_literal_holds_is_named_and_the_command_exits_one() {
+    let root = repository(&[
+        ("crates/a/src/lib.rs", "const FLAGS: &[&str] = &[\"--root\", \"--since=\"];\n"),
+        ("docs/guide.md", "Run `north health --root .` or `north health --since=2d`.\nThen `north health --no-such-flag`, `north capture --gone` and `safe-push --to main`.\n"),
+    ]);
+    let found = missing_flags(root.path(), defined).unwrap();
+    assert_eq!(found, [MissingFlag { path: "docs/guide.md".into(), line: 2, command: "health".into(), flag: "--no-such-flag".into() }]);
+    let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
+    assert_eq!(run(&arguments, defined), 1);
+    fs::write(root.path().join("docs/guide.md"), "Run `north health --root .`.\n").unwrap();
     assert_eq!(run(&arguments, defined), 0);
 }

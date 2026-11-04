@@ -15,6 +15,15 @@ pub struct Citation {
     pub path: String,
     pub line: usize,
     pub command: String,
+    pub flags: Vec<String>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct MissingFlag {
+    pub path: String,
+    pub line: usize,
+    pub command: String,
+    pub flag: String,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -24,19 +33,24 @@ pub struct BrokenPath {
     pub target: String,
 }
 
-fn command_word(segment: &str) -> Option<&str> {
+fn flag(token: &str) -> Option<&str> {
+    let name = token.strip_prefix("--")?.split('=').next()?;
+    let name = name.trim_end_matches(['.', ',', ':', '\'', '"']);
+    (name.starts_with(|c: char| c.is_ascii_lowercase()) && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+        .then(|| &token[..name.len() + 2])
+}
+
+fn command_word(segment: &str) -> Option<(&str, Vec<&str>)> {
     let segment = segment.trim_start();
     let segment = segment.strip_prefix("$ ").unwrap_or(segment);
     let segment = segment.strip_prefix("exec ").unwrap_or(segment);
-    let word = segment
-        .strip_prefix("north ")?
-        .trim_start()
-        .split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
-        .next()?;
-    word.starts_with(|c: char| c.is_ascii_lowercase()).then_some(word)
+    let rest = segment.strip_prefix("north ")?.trim_start();
+    let word = rest.split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')).next()?;
+    let flags = rest[word.len()..].split_whitespace().filter_map(flag).collect();
+    word.starts_with(|c: char| c.is_ascii_lowercase()).then_some((word, flags))
 }
 
-fn in_command_position(text: &str) -> Vec<&str> {
+fn in_command_position(text: &str) -> Vec<(&str, Vec<&str>)> {
     let mut segments = vec![text];
     for separator in SEPARATORS {
         segments = segments.into_iter().flat_map(|segment| segment.split(separator)).collect();
@@ -65,7 +79,12 @@ pub fn scan(path: &str, text: &str) -> Vec<Citation> {
         } else {
             spans(line).flat_map(in_command_position).collect()
         };
-        found.extend(commands.into_iter().map(|command| Citation { path: path.into(), line: index + 1, command: command.into() }));
+        found.extend(commands.into_iter().map(|(command, flags)| Citation {
+            path: path.into(),
+            line: index + 1,
+            command: command.into(),
+            flags: flags.into_iter().map(str::to_owned).collect(),
+        }));
     }
     found
 }
@@ -97,6 +116,37 @@ pub fn citations(root: &Path) -> Result<Vec<Citation>, String> {
 
 pub fn undefined(root: &Path, defined: fn(&str) -> bool) -> Result<Vec<Citation>, String> {
     Ok(citations(root)?.into_iter().filter(|citation| !defined(&citation.command)).collect())
+}
+
+fn flag_literals(root: &Path) -> Result<BTreeSet<String>, String> {
+    let mut literals = BTreeSet::new();
+    for path in all_tracked(root)? {
+        if !(path.starts_with("src/") || path.starts_with("crates/")) || !path.ends_with(".rs") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(root.join(&path)) else { continue };
+        for (at, _) in text.match_indices("\"--") {
+            let rest = &text[at + 1..];
+            if let Some(end) = rest[2..].find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+                && rest[2 + end..].starts_with(['"', '='])
+            {
+                literals.insert(rest[..2 + end].to_owned());
+            }
+        }
+    }
+    Ok(literals)
+}
+
+pub fn missing_flags(root: &Path, defined: fn(&str) -> bool) -> Result<Vec<MissingFlag>, String> {
+    let literals = flag_literals(root)?;
+    Ok(citations(root)?
+        .into_iter()
+        .filter(|citation| defined(&citation.command))
+        .flat_map(|citation| {
+            let Citation { path, line, command, flags } = citation;
+            flags.into_iter().filter(|flag| !literals.contains(flag)).map(move |flag| MissingFlag { path: path.clone(), line, command: command.clone(), flag })
+        })
+        .collect())
 }
 
 fn link_targets(line: &str) -> Vec<&str> {
@@ -213,14 +263,19 @@ pub fn broken_paths(root: &Path) -> Result<Vec<BrokenPath>, String> {
 
 pub fn verdict(root: &Path, defined: fn(&str) -> bool) -> Result<(), String> {
     let found = undefined(root, defined)?;
+    let flags = missing_flags(root, defined)?;
     let broken = broken_paths(root)?;
-    if found.is_empty() && broken.is_empty() {
+    if found.is_empty() && flags.is_empty() && broken.is_empty() {
         return Ok(());
     }
     let mut problems = Vec::new();
     if !found.is_empty() {
         let shown: Vec<_> = found.iter().take(5).map(|c| format!("{}:{} north {}", c.path, c.line, c.command)).collect();
         problems.push(format!("{} cited north subcommands are not defined: {}", found.len(), shown.join("; ")));
+    }
+    if !flags.is_empty() {
+        let shown: Vec<_> = flags.iter().take(5).map(|f| format!("{}:{} north {} {}", f.path, f.line, f.command, f.flag)).collect();
+        problems.push(format!("{} cited flags occur in no source string literal: {}", flags.len(), shown.join("; ")));
     }
     if !broken.is_empty() {
         let shown: Vec<_> = broken.iter().take(5).map(|b| format!("{}:{} {}", b.path, b.line, b.target)).collect();
@@ -241,20 +296,24 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> u8 {
         }
     };
     let found = if list { citations(&root) } else { undefined(&root, defined) };
+    let flags = if list { Ok(Vec::new()) } else { missing_flags(&root, defined) };
     let broken = if list { Ok(Vec::new()) } else { broken_paths(&root) };
-    match (found, broken) {
-        (Err(error), _) | (_, Err(error)) => {
+    match (found, flags, broken) {
+        (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
             eprintln!("citation-check: {error}");
             1
         }
-        (Ok(found), Ok(broken)) => {
+        (Ok(found), Ok(flags), Ok(broken)) => {
             for citation in &found {
                 println!("{}:{}: north {}", citation.path, citation.line, citation.command);
+            }
+            for flag in &flags {
+                println!("{}:{}: north {} cites missing flag {}", flag.path, flag.line, flag.command, flag.flag);
             }
             for path in &broken {
                 println!("{}:{}: missing path {}", path.path, path.line, path.target);
             }
-            u8::from(!list && (!found.is_empty() || !broken.is_empty()))
+            u8::from(!list && (!found.is_empty() || !flags.is_empty() || !broken.is_empty()))
         }
     }
 }
