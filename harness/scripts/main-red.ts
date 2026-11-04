@@ -5,7 +5,7 @@ export interface Job { id: number; name: string; conclusion: string | null; step
 export interface Commit { sha: string; parents: string[]; message: string; files: string[] }
 export interface Situation {
   attempt: number; conclusion: string | null; original: Job[]; confirmed: Job[]; previous?: { sha: string; conclusion: string | null };
-  commits: Commit[]; onMain: boolean; head: string; tip: string;
+  commits: Commit[]; onMain: boolean; head: string; tip: string; successor?: { status: string; conclusion: string | null };
 }
 export type Decision = { kind: "none" | "report" | "confirm" | "revert"; reason: string; step?: string; job?: number; shas?: string[] };
 
@@ -17,7 +17,7 @@ export function decide(s: Situation): Decision {
   const name = `${job.name}: ${step.name}`;
   const report = (reason: string): Decision => ({ kind: "report", reason, step: name });
   if (!s.onMain) return report("The failing commit is no longer on main; report only");
-  if (s.tip !== s.head) return report("Main has moved past the failing commit; a later landing may already fix it, so never revert on this stale run");
+  if (s.tip !== s.head) return report(s.successor && s.successor.status !== "completed" ? `Main moved to ${s.tip}, whose run is still ${s.successor.status}: a fix-forward may land, so revert nothing` : s.successor?.conclusion === "success" ? `Main moved to ${s.tip}, whose run passed: a fix-forward landed, so revert nothing` : `Main moved past the failing commit to ${s.tip}; a later landing may already fix it, so never revert on this stale s.successor`);
   if (s.attempt === 1) return { kind: "confirm", reason: "Confirm this failed job once; retain the original failure", step: name, job: job.id };
   if (s.attempt !== 2) return report("Confirmation budget exhausted; never rerun again");
   const confirmed = s.confirmed.find(j => j.name === job.name);
@@ -44,7 +44,7 @@ function run(command: string, args: string[]): string {
 const git = (...args: string[]) => run("git", args).trim();
 const gh = (...args: string[]) => run("gh", args);
 function api<T>(path: string): T { return JSON.parse(gh("api", path)) as T; }
-interface Run { id: number; workflow_id: number; head_sha: string; head_branch: string; event: string; run_attempt: number; conclusion: string | null; html_url: string }
+interface Run { id: number; workflow_id: number; head_sha: string; head_branch: string; event: string; run_attempt: number; status: string; conclusion: string | null; html_url: string }
 interface Issue { number: number; title: string; body: string }
 const repo = () => {
   const value = process.env.GH_REPO;
@@ -76,7 +76,7 @@ export function sheriff(id: number): void {
   const marker = `<!-- main-red:${id}:${ci.run_attempt} -->`;
   if (existing?.body.includes(marker)) return;
   git("fetch", "-q", "origin", "main");
-  const onMain = Bun.spawnSync(["git", "merge-base", "--is-ancestor", ci.head_sha, "origin/main"]).exitCode === 0;
+  const tip = git("rev-parse", "origin/main"), onMain = Bun.spawnSync(["git", "merge-base", "--is-ancestor", ci.head_sha, tip]).exitCode === 0, successor = api<{ workflow_runs: Run[] }>(`${repo()}/actions/workflows/${ci.workflow_id}/runs?branch=main&event=push&head_sha=${tip}&per_page=1`).workflow_runs[0];
   const history = api<{ workflow_runs: Run[] }>(`${repo()}/actions/workflows/${ci.workflow_id}/runs?branch=main&event=push&status=completed&per_page=100`).workflow_runs;
   const prior = history.filter(r => r.id < id).sort((a, b) => b.id - a.id)[0];
   let commits: Commit[] = [];
@@ -89,7 +89,7 @@ export function sheriff(id: number): void {
       });
     }
   }
-  const verdict = decide({ attempt: ci.run_attempt, conclusion: ci.conclusion, original, confirmed: ci.run_attempt === 2 ? jobs(id, 2) : [], previous: prior && { sha: prior.head_sha, conclusion: prior.conclusion }, commits, onMain, head: ci.head_sha, tip: git("rev-parse", "origin/main") });
+  const verdict = decide({ attempt: ci.run_attempt, conclusion: ci.conclusion, original, confirmed: ci.run_attempt === 2 ? jobs(id, 2) : [], previous: prior && { sha: prior.head_sha, conclusion: prior.conclusion }, commits, onMain, head: ci.head_sha, tip, successor });
   const detail = `Culprit range: ${commits.map(c => c.sha).join(", ") || ci.head_sha}\nFailing step: ${verdict.step ?? "unknown"}\n[CI run](${ci.html_url})\n${verdict.reason}`;
   if (verdict.kind === "confirm") {
     report(existing, marker, `${detail}\nRequested one confirmation of job ${verdict.job}; a green confirmation is reported, never treated as a repaired run.`);
