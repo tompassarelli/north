@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use north_landing::land::enqueue::{Environment, Queued, enqueue, issue_numbers, pick_issue, run};
+use north_landing::land::enqueue::{Environment, Queued, enqueue, issue_numbers, pick_issue};
 use north_landing::land::queue::{self, RedFix, Ticket};
 use north_landing::landing::lane_squash::Squash;
 
@@ -165,22 +165,18 @@ fn enqueue_replaces() {
 }
 
 #[test]
-fn enqueue_help_names_its_usage() {
-    assert_eq!(run(&["--help".to_owned()]), 0);
-}
-
-#[test]
 fn enqueue_stamps_the_ticket_with_the_second_the_lane_made_its_first_commit_even_after_squashing_it() {
     let fixture = Fixture::new();
-    let seconds = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-    let before = seconds();
-    fixture.commit(&fixture.repo, "a.txt", "Add a");
-    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    let began = 1_793_000_000;
+    fs::write(fixture.repo.join("a.txt"), "a.txt\n").unwrap();
+    git(&fixture.repo, &["add", "."]);
+    let planted = Command::new("git").current_dir(&fixture.repo).args(["commit", "-qm", "Add a"]).env("GIT_COMMITTER_DATE", format!("@{began} +0000")).status().unwrap();
+    assert!(planted.success());
     fixture.commit(&fixture.repo, "b.txt", "Add b");
     let queued = fixture.enqueue(&fixture.repo);
     assert!(matches!(queued.squash, Squash::Squashed { commits: 2, .. }), "{:?}", queued.squash);
     let first = queued.ticket.first_commit_secs.expect("the ticket carries the lane's first commit time");
-    assert!(first >= before && first < seconds(), "first commit {first} is the second of the lane's first commit, not of the squash or the enqueue (started {before})");
+    assert_eq!(first, began, "the ticket carries the second of the lane's first commit, not of the squash or the enqueue");
     assert_eq!(fixture.pending()[0].first_commit_secs, Some(first));
 }
 

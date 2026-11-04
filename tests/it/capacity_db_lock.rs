@@ -27,22 +27,13 @@ fn run_while_locked(host: &Host, hold: Duration, wait_seconds: &str) -> (Output,
 }
 
 #[test]
-fn a_run_admitted_while_another_connection_holds_the_database_write_lock_waits_and_exits_zero() {
-    let host = host();
-    let (output, elapsed) = run_while_locked(&host, Duration::from_secs(2), "30");
-    let stderr = host.helper_stderr();
-    assert_eq!(output.status.code(), Some(0), "{stderr}");
-    assert!(!stderr.contains("database is locked"), "{stderr}");
-    assert!(elapsed >= Duration::from_secs(2), "the run did not wait for the lock: {elapsed:?}");
-}
-
-#[test]
-fn a_run_waits_out_a_lock_held_longer_than_the_old_five_second_timeout() {
+fn a_run_admitted_while_another_connection_holds_the_database_write_lock_past_five_seconds_waits_and_exits_zero() {
     let host = host();
     let (output, elapsed) = run_while_locked(&host, Duration::from_secs(7), "30");
     let stderr = host.helper_stderr();
     assert_eq!(output.status.code(), Some(0), "{stderr}");
-    assert!(elapsed >= Duration::from_secs(7), "{elapsed:?}");
+    assert!(!stderr.contains("database is locked"), "{stderr}");
+    assert!(elapsed >= Duration::from_secs(7), "the run did not wait out the lock: {elapsed:?}");
 }
 
 #[test]
