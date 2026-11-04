@@ -196,3 +196,143 @@ fn bracket_form_still_refused_when_its_target_text_is_elsewhere_in_the_command()
     assert!(denied("pgrep -f '[c]argo test'; cargo test"));
     assert!(!denied("pgrep -f '[c]argo test'; cargo build"));
 }
+
+const TERMINAL_CGROUP: &str =
+    "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-niri-ghostty-898870.scope\n";
+const SERVICE_CGROUP: &str =
+    "0::/user.slice/user-1000.slice/user@1000.service/app.slice/run-r4242.service\n";
+
+fn unit_reason(command: &str, cgroup: &str) -> String {
+    match decide_in(command, cgroup).unwrap_or_else(|| panic!("allowed {command}")) {
+        hit @ Hit::Teardown { host: None, .. } => reason(&hit),
+        hit => panic!("{command}: {hit:?}"),
+    }
+}
+
+fn assert_safe_alternative(reason: &str, command: &str) {
+    assert!(reason.contains("terminal"), "{command}");
+    assert!(
+        reason.contains("`systemd-run --user --unit=NAME ...`"),
+        "{command}"
+    );
+    assert!(reason.contains("`systemctl --user stop NAME`"), "{command}");
+    assert!(reason.contains("own cgroup path"), "{command}");
+}
+
+#[test]
+fn terminal_scopes_and_app_units_are_refused_with_the_teardown_reason() {
+    for verb in ["stop", "kill", "restart", "try-restart", "force-reload"] {
+        for flags in ["", "--user "] {
+            for unit in [
+                "app-niri-ghostty-898870.scope",
+                "app-niri-ghostty-898870.service",
+                "app-*.scope",
+                "'app-*.service'",
+                "*.scope",
+                "app-org.gnome.Nautilus@1234.service",
+            ] {
+                let command = format!("systemctl {flags}{verb} {unit}");
+                let reason = unit_reason(&command, "");
+                assert!(reason.contains("terminal-scope teardown"), "{command}");
+                assert_safe_alternative(&reason, &command);
+            }
+        }
+    }
+    let command = "systemctl --user stop north-landing-train5 app-niri-ghostty-1.scope";
+    assert!(unit_reason(command, "").contains("terminal-scope teardown"));
+    assert!(denied("bash -c 'systemctl --user stop app-niri-ghostty-1.scope'"));
+    assert!(denied("echo ok; sudo systemctl stop app-niri-ghostty-1.scope"));
+}
+
+#[test]
+fn the_callers_own_unit_and_every_parent_on_its_cgroup_path_are_refused() {
+    for unit in [
+        "app-niri-ghostty-898870.scope",
+        "app.slice",
+    ] {
+        let command = format!("systemctl --user stop {unit}");
+        assert_safe_alternative(&unit_reason(&command, TERMINAL_CGROUP), &command);
+    }
+    for unit in ["run-r4242.service", "run-r4242", "app.slice"] {
+        let command = format!("systemctl --user restart {unit}");
+        let reason = unit_reason(&command, SERVICE_CGROUP);
+        assert!(reason.contains("own-session unit teardown"), "{command}");
+        assert_safe_alternative(&reason, &command);
+    }
+    assert!(decide_in("systemctl --user stop run-r4242", TERMINAL_CGROUP).is_none());
+    assert!(decide_in("systemctl --user stop run-r9.service", SERVICE_CGROUP).is_none());
+}
+
+#[test]
+fn operands_the_guard_cannot_see_are_refused_even_with_a_fixed_suffix() {
+    for command in [
+        "systemctl --user stop $unit",
+        "systemctl --user stop \"$unit\"",
+        "systemctl --user stop ${unit}",
+        "systemctl --user stop \"${unit}\"",
+        "systemctl stop $(cat /tmp/unit.name)",
+        "systemctl --user stop \"$(cat /tmp/unit.name)\"",
+        "systemctl --user stop `cat /tmp/unit.name`",
+        "systemctl --user stop \"$unit\".service",
+        "systemctl --user stop north-landing-$id",
+        "systemctl --user stop \"${prefix}-train5.service\"",
+        "systemctl --user restart \"$(basename $path)\"",
+        "unit=$(sed -n 's/.*://p' /proc/$pid/cgroup | xargs basename); systemctl --user stop \"$unit\"",
+        "pgrep -f '[g]hostty' | xargs systemctl --user stop",
+        "ps -o unit= -p 1 | xargs -r systemctl stop",
+        "cat /proc/1/cgroup | xargs -I{} systemctl --user kill {}",
+        "pgrep -f '[g]hostty' | xargs -n1 sh -c 'systemctl --user stop \"$0\"'",
+        "for pid in $(pgrep -f '[g]hostty'); do u=$(basename $(cat /proc/$pid/cgroup)); systemctl --user stop \"$u\"; done",
+    ] {
+        let reason = unit_reason(command, "");
+        assert!(reason.contains("unseen unit operand teardown"), "{command}");
+        assert!(reason.contains("fixed suffix"), "{command}");
+        assert_safe_alternative(&reason, command);
+    }
+}
+
+#[test]
+fn literal_launched_units_and_read_only_verbs_stay_allowed() {
+    for command in [
+        "systemctl --user stop north-landing-train5",
+        "systemctl --user stop north-landing-train5.service",
+        "systemctl stop north-land.service",
+        "systemctl --user stop 'firn-*.service'",
+        "systemctl --user stop firn-build.service north-land.service",
+        "systemctl --user restart wob.service",
+        "systemd-run --user --unit=north-landing-train5 sleep 30",
+        "ssh gex45 'systemctl --user stop farm-runner-wisp-1.service'",
+        "ssh gex45 'systemctl --user stop app-niri-ghostty-1.scope'",
+        "systemctl --user status app-niri-ghostty-898870.scope",
+        "systemctl --user show -p MainPID app-niri-ghostty-898870.scope",
+        "systemctl --user cat app-niri-ghostty-898870.scope",
+        "systemctl --user list-units 'app-*.scope'",
+        "systemctl --user status $unit",
+        "systemctl --user show \"$(cat /tmp/unit.name)\"",
+        "systemctl --user cat \"${unit}\"",
+        "echo systemctl --user stop app-niri-ghostty-898870.scope",
+        "echo 'systemctl --user stop \"$unit\"'",
+        "cat /proc/self/cgroup | xargs echo",
+        "xargs systemctl --user status < /tmp/units",
+    ] {
+        for cgroup in ["", TERMINAL_CGROUP, SERVICE_CGROUP] {
+            assert!(decide_in(command, cgroup).is_none(), "{command}");
+        }
+    }
+}
+
+#[test]
+fn cgroup_units_lists_every_unit_on_the_path() {
+    assert_eq!(
+        commands::cgroup_units(TERMINAL_CGROUP),
+        [
+            "user.slice",
+            "user-1000.slice",
+            "user@1000.service",
+            "app.slice",
+            "app-niri-ghostty-898870.scope"
+        ]
+    );
+    assert!(commands::cgroup_units("0::/\n").is_empty());
+    assert!(commands::cgroup_units("").is_empty());
+}

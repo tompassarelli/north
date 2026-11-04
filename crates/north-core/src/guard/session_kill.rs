@@ -5,8 +5,9 @@ mod lexical;
 use crate::hook::{HookInput, Verdict};
 use crate::platform::pyjson::Value;
 use crate::shell;
-use commands::{SHELLS, Script, Systemd, full_pattern, kill, killall, pkill, shell_script, ssh};
+use commands::{TERMINAL_UNIT, OWN_UNIT, DYNAMIC_UNIT, SHELLS, Script, Systemd, full_pattern, kill, killall, pkill, shell_script, ssh};
 use regex::Regex;
+use std::fs;
 use std::sync::LazyLock;
 
 const TEARDOWN_PREFIXES: &[&str] = &[
@@ -24,6 +25,11 @@ static TEMPORARY_SCRIPT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^/tmp/\S*\.(?:js|mjs|cjs|ts)$").unwrap());
 static SCRATCHPAD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^/tmp/claude-\d+/[^/\s]+/[^/\s]+/scratchpad/\S+$").unwrap());
+
+struct Context<'a> {
+    root: &'a str,
+    own: Vec<String>,
+}
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Hit {
@@ -66,13 +72,22 @@ fn managed(input: &HookInput, hit: &Hit) -> Option<Value> {
 }
 
 pub(super) fn decide(command: &str) -> Option<Hit> {
-    teardown(command, None, 0, &[], command)
-        .or_else(|| lexical::teardown(command))
+    decide_in(command, &fs::read_to_string("/proc/self/cgroup").unwrap_or_default())
+}
+
+fn decide_in(command: &str, cgroup: &str) -> Option<Hit> {
+    let ctx = Context {
+        root: command,
+        own: commands::cgroup_units(cgroup),
+    };
+    teardown(command, None, 0, &[], &ctx)
+        .or_else(|| lexical::teardown(command, &ctx.own))
         .or_else(|| detached(command))
 }
 
 fn reason(hit: &Hit) -> String {
     match hit {
+        Hit::Teardown { shape, host: None } if commands::UNIT_SHAPES.contains(shape) => unit_reason(shape),
         Hit::Teardown {
             shape,
             host: Some(host),
@@ -92,6 +107,17 @@ fn reason(hit: &Hit) -> String {
     }
 }
 
+fn unit_reason(shape: &str) -> String {
+    let why = match shape {
+        TERMINAL_UNIT => "this unit holds a terminal window or desktop app, so stopping it closes Tom's terminal",
+        OWN_UNIT => "this unit is on your own cgroup path, so stopping it tears down the terminal scope this session runs in",
+        _ => "its operand comes from `$VAR`, `$(...)`, backticks or an xargs list the guard cannot see, and that kind of lookup already closed Tom's terminal scope, so a fixed suffix naming your own units does not make it safe",
+    };
+    format!(
+        "BLOCKED: {shape} refused — {why}. Stop only a unit you launched yourself by name (`systemd-run --user --unit=NAME ...`, then `systemctl --user stop NAME`), and first verify it is not on your own cgroup path in /proc/self/cgroup."
+    )
+}
+
 fn bracketed(pattern: &str) -> String {
     let mut chars = pattern.chars();
     match chars.next() {
@@ -105,14 +131,14 @@ fn teardown(
     host: Option<&str>,
     depth: usize,
     stdin: &[String],
-    root: &str,
+    ctx: &Context,
 ) -> Option<Hit> {
     if depth > 8 {
         return None;
     }
     let text = shell::strip_heredocs(source);
     for body in shell::shell_substitutions(&text) {
-        if let Some(hit) = teardown(&body, host, depth + 1, &[], root) {
+        if let Some(hit) = teardown(&body, host, depth + 1, &[], ctx) {
             return Some(hit);
         }
     }
@@ -130,7 +156,7 @@ fn teardown(
             };
         }
         let words = arguments(&segment.words[shell::command(&segment.words, TEARDOWN_PREFIXES)..]);
-        if let Some(hit) = command_teardown(&words, host, depth, &input, root) {
+        if let Some(hit) = command_teardown(&words, host, depth, &input, ctx) {
             return Some(hit);
         }
         previous = Some((words, input));
@@ -143,23 +169,24 @@ fn command_teardown(
     host: Option<&str>,
     depth: usize,
     stdin: &[String],
-    root: &str,
+    ctx: &Context,
 ) -> Option<Hit> {
     let (name, args) = words.split_first()?;
     let shape = match shell::basename(name) {
         "kill" => kill(args),
         "pkill" => match pkill(args) {
             Some(shape) => Some(shape),
-            None => return self_match("pkill", args, root),
+            None => return self_match("pkill", args, ctx),
         },
-        "pgrep" => return self_match("pgrep", args, root),
+        "pgrep" => return self_match("pgrep", args, ctx),
         "killall" => killall(args),
         name @ ("loginctl" | "systemctl") => {
             let call = Systemd::parse(args);
+            let local = host.is_none() && call.host.is_none();
             let shape = if name == "loginctl" {
                 call.loginctl()
             } else {
-                call.systemctl()
+                call.systemctl(local.then_some(ctx.own.as_slice()))
             }?;
             return Some(Hit::Teardown {
                 shape,
@@ -170,15 +197,16 @@ fn command_teardown(
             let (destination, remote) = ssh(args)?;
             let remote_host = destination.rsplit('@').next().unwrap_or(&destination);
             return match remote {
-                Some(remote) => teardown(&remote, Some(remote_host), depth + 1, stdin, root),
-                None => scripts(stdin, Some(remote_host), depth, root),
+                Some(remote) => teardown(&remote, Some(remote_host), depth + 1, stdin, ctx),
+                None => scripts(stdin, Some(remote_host), depth, ctx),
             };
         }
-        "eval" => return teardown(&args.join(" "), host, depth + 1, stdin, root),
+        "xargs" => return fed_units(args, host, depth, stdin, ctx),
+        "eval" => return teardown(&args.join(" "), host, depth + 1, stdin, ctx),
         name if SHELLS.contains(&name) => {
             return match shell_script(args) {
-                Script::Inline(script) => teardown(script, host, depth + 1, &[], root),
-                Script::Stdin => scripts(stdin, host, depth, root),
+                Script::Inline(script) => teardown(script, host, depth + 1, &[], ctx),
+                Script::Stdin => scripts(stdin, host, depth, ctx),
                 Script::File => None,
             };
         }
@@ -190,7 +218,27 @@ fn command_teardown(
     })
 }
 
-fn self_match(tool: &'static str, args: &[String], root: &str) -> Option<Hit> {
+fn fed_units(
+    args: &[String],
+    host: Option<&str>,
+    depth: usize,
+    stdin: &[String],
+    ctx: &Context,
+) -> Option<Hit> {
+    let at = args
+        .iter()
+        .position(|arg| shell::basename(arg) == "systemctl" || SHELLS.contains(&shell::basename(arg)))?;
+    if shell::basename(&args[at]) != "systemctl" {
+        return command_teardown(&args[at..], host, depth + 1, stdin, ctx);
+    }
+    let call = Systemd::parse(&args[at + 1..]);
+    (host.is_none() && call.host.is_none() && call.teardown_verb()).then_some(Hit::Teardown {
+        shape: DYNAMIC_UNIT,
+        host: None,
+    })
+}
+
+fn self_match(tool: &'static str, args: &[String], ctx: &Context) -> Option<Hit> {
     let (pattern, insensitive) = full_pattern(args)?;
     let source = if insensitive {
         format!("(?i){pattern}")
@@ -198,14 +246,14 @@ fn self_match(tool: &'static str, args: &[String], root: &str) -> Option<Hit> {
         pattern.clone()
     };
     let matched =
-        Regex::new(&source).map_or_else(|_| root.contains(&pattern), |re| re.is_match(root));
+        Regex::new(&source).map_or_else(|_| ctx.root.contains(&pattern), |re| re.is_match(ctx.root));
     matched.then_some(Hit::SelfMatch { tool, pattern })
 }
 
-fn scripts(stdin: &[String], host: Option<&str>, depth: usize, root: &str) -> Option<Hit> {
+fn scripts(stdin: &[String], host: Option<&str>, depth: usize, ctx: &Context) -> Option<Hit> {
     stdin
         .iter()
-        .find_map(|script| teardown(script, host, depth + 1, &[], root))
+        .find_map(|script| teardown(script, host, depth + 1, &[], ctx))
 }
 
 fn redirected_input(words: &[String], heredocs: &mut impl Iterator<Item = String>) -> Vec<String> {

@@ -16,7 +16,7 @@ static COMMAND: LazyLock<Regex> = LazyLock::new(|| {
 static HEREDOC: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"<<-?[\s\x1c-\x1f]*(['"]?)([\p{L}\p{N}_]+)"#).unwrap());
 
-pub(super) fn teardown(command: &str) -> Option<Hit> {
+pub(super) fn teardown(command: &str, own: &[String]) -> Option<Hit> {
     let text = shell::strip_quotes(&strip_heredocs(command));
     COMMAND.captures_iter(&text).find_map(|call| {
         let args: Vec<String> = call[2]
@@ -29,7 +29,7 @@ pub(super) fn teardown(command: &str) -> Option<Hit> {
             "pkill" => pkill(&args),
             "killall" => killall(&args),
             "loginctl" => Systemd::flat(&args).loginctl(),
-            _ => Systemd::flat(&args).systemctl(),
+            _ => Systemd::flat(&args).systemctl(Some(own)),
         }?;
         Some(Hit::Teardown { shape, host: None })
     })

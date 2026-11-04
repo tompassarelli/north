@@ -211,6 +211,21 @@ pub(super) fn killall(args: &[String]) -> Option<&'static str> {
     }
 }
 
+pub(super) const TERMINAL_UNIT: &str = "terminal-scope teardown";
+pub(super) const OWN_UNIT: &str = "own-session unit teardown";
+pub(super) const DYNAMIC_UNIT: &str = "unseen unit operand teardown";
+pub(super) const UNIT_SHAPES: &[&str] = &[TERMINAL_UNIT, OWN_UNIT, DYNAMIC_UNIT];
+const TEARDOWN_VERBS: &[&str] = &[
+    "stop",
+    "kill",
+    "restart",
+    "try-restart",
+    "condrestart",
+    "reload-or-restart",
+    "try-reload-or-restart",
+    "force-reload",
+];
+
 pub(super) struct Systemd<'a> {
     user: bool,
     pub(super) host: Option<String>,
@@ -259,30 +274,61 @@ impl<'a> Systemd<'a> {
             .then_some("login-session teardown")
     }
 
-    pub(super) fn systemctl(&self) -> Option<&'static str> {
+    pub(super) fn teardown_verb(&self) -> bool {
+        self.operands
+            .first()
+            .is_some_and(|verb| TEARDOWN_VERBS.contains(verb))
+    }
+
+    pub(super) fn systemctl(&self, own: Option<&[String]>) -> Option<&'static str> {
         let (verb, units) = self.operands.split_first()?;
         match *verb {
             "exit" if self.user => Some("user-manager exit"),
             "isolate" if units.iter().any(|u| u.starts_with("exit")) => Some("user-manager exit"),
-            "stop"
-            | "kill"
-            | "restart"
-            | "try-restart"
-            | "condrestart"
-            | "reload-or-restart"
-            | "try-reload-or-restart"
-            | "force-reload" => {
+            verb if TEARDOWN_VERBS.contains(&verb) => {
                 if units.iter().any(|unit| user_manager_unit(unit)) {
                     Some("user-manager teardown")
                 } else if self.user && units.iter().any(|u| SESSION_UNITS.contains(u)) {
                     Some("compositor teardown")
                 } else {
-                    None
+                    units.iter().find_map(|unit| unit_shape(unit, own?))
                 }
             }
             _ => None,
         }
     }
+}
+
+fn unit_shape(unit: &str, own: &[String]) -> Option<&'static str> {
+    if unit.contains(['$', '`']) {
+        Some(DYNAMIC_UNIT)
+    } else if terminal_unit(unit) {
+        Some(TERMINAL_UNIT)
+    } else if own.iter().any(|own| names(unit, own)) {
+        Some(OWN_UNIT)
+    } else {
+        None
+    }
+}
+
+fn terminal_unit(unit: &str) -> bool {
+    let glob = unit.contains(['*', '?', '[']);
+    let kind = unit.ends_with(".scope") || unit.ends_with(".service");
+    unit.starts_with("app-") && (kind || glob) || glob && unit.ends_with(".scope")
+}
+
+fn names(unit: &str, own: &str) -> bool {
+    unit == own || !unit.contains('.') && own.strip_suffix(".service") == Some(unit)
+}
+
+pub(super) fn cgroup_units(cgroup: &str) -> Vec<String> {
+    cgroup
+        .lines()
+        .filter_map(|line| line.splitn(3, ':').nth(2))
+        .flat_map(|path| path.split('/'))
+        .filter(|unit| [".slice", ".scope", ".service"].iter().any(|kind| unit.ends_with(kind)))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn user_manager_unit(unit: &str) -> bool {
