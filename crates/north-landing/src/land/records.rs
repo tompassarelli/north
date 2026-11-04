@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 
 use super::after::follow;
 use super::candidate::git;
+use super::incidents;
 use super::lander::Lander;
 use super::queue::{self, Ticket};
 use super::telemetry::{self, Stages};
@@ -72,8 +73,8 @@ pub fn arguments(path: &Path, ticket: &Ticket, candidate: &Candidate, tree: &str
     Some(arguments)
 }
 
-fn spawn(lander: &Lander, arguments: &[String]) -> Result<(), String> {
-    let logs = lander.queue.join("logs");
+pub(super) fn spawn(queue: &Path, arguments: &[String]) -> Result<(), String> {
+    let logs = queue.join("logs");
     fs::create_dir_all(&logs).map_err(|error| format!("{}: {error}", logs.display()))?;
     let log = OpenOptions::new().create(true).append(true).open(logs.join("landing-records.log")).map_err(|error| error.to_string())?;
     let errors = log.try_clone().map_err(|error| error.to_string())?;
@@ -83,7 +84,7 @@ fn spawn(lander: &Lander, arguments: &[String]) -> Result<(), String> {
         .stdout(log)
         .stderr(errors)
         .spawn()
-        .map_err(|error| format!("{} land-train record: {error}", follow::program()))?;
+        .map_err(|error| format!("{} {}: {error}", follow::program(), arguments.get(..2).unwrap_or(arguments).join(" ")))?;
     std::thread::spawn(move || {
         let _ = child.wait();
     });
@@ -92,8 +93,11 @@ fn spawn(lander: &Lander, arguments: &[String]) -> Result<(), String> {
 
 pub fn write(lander: &Lander, path: &Path, ticket: &Ticket, candidate: &Candidate, decision: &Decision) {
     let tree = if candidate.head.is_empty() { String::new() } else { git(&lander.worktree, &["rev-parse", &format!("{}^{{tree}}", candidate.head)]).unwrap_or_default() };
+    if let Decision::Refused { verdict } = decision {
+        incidents::record(&lander.queue, path, ticket, incidents::decided(path, ticket, verdict));
+    }
     let Some(arguments) = arguments(path, ticket, candidate, &tree, decision, telemetry::epoch()) else { return };
-    if let Err(error) = spawn(lander, &arguments) {
+    if let Err(error) = spawn(&lander.queue, &arguments) {
         println!("north land: could not record {}: {error}", ticket.branch);
     }
 }

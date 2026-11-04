@@ -14,7 +14,7 @@ use super::credential;
 use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
-use super::{pause, precheck, queue, red, sheriff, speculate};
+use super::{incidents, pause, precheck, queue, red, sheriff, speculate};
 use super::repositories;
 
 const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
@@ -319,7 +319,11 @@ impl Lander {
                     limit = usize::MAX;
                 }
                 Judgement::RedMain(detail) => return Ok(Round::Waiting(red::held(&detail, included.len()))),
-                Judgement::Hold(reason) => return Ok(Round::Waiting(reason)),
+                Judgement::Hold(reason) => {
+                    let (path, ticket) = included[0];
+                    incidents::record(&self.queue, path, ticket, incidents::held(&built.head, &base, &reason));
+                    return Ok(Round::Waiting(reason));
+                }
                 Judgement::Paused(detail) => return Ok(Round::Waiting(pause::raise(&self.queue, &detail)?)),
             }
         }

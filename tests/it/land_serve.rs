@@ -53,7 +53,7 @@ echo app-token
 
 const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
-if [ "$1" = land-train ] && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" THREADS_SCHEMA_READY=1 exec "$LAND_REAL_NORTH" "$@"; fi
+if { [ "$1" = land-train ] || [ "$1" = incident ]; } && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" THREADS_SCHEMA_READY=1 exec "$LAND_REAL_NORTH" "$@"; fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
 if [ "$1" = fleet ] && [ "$2" = send ] && [ "${4%% *}" = landed ]; then
   branch=$(printf '%s' "$4" | awk '{print $2}')
@@ -885,7 +885,7 @@ fn serve_landed_only_on_main() {
 }
 
 fn followed(fixture: &Fixture) -> Vec<String> {
-    fixture.read("north-calls").lines().filter(|line| !line.starts_with("fleet") && !line.starts_with("land-train") && !line.starts_with("capacity offload reap")).map(str::to_owned).collect()
+    fixture.read("north-calls").lines().filter(|line| !line.starts_with("fleet") && !line.starts_with("land-train") && !line.starts_with("capacity offload reap") && !line.starts_with("incident")).map(str::to_owned).collect()
 }
 
 #[test]
@@ -1545,6 +1545,24 @@ fn serve_records_a_conflict_and_a_failed_check_as_refusals_beside_the_landings()
     let (a, d) = (&rows[0], &rows[3]);
     assert!(a.3 >= 1, "a and b landed after the refused candidate was halved, so their bisect depth is above zero: {a:?}");
     assert!(d.6.is_none() && d.9.is_some() && d.10.is_some(), "the failed lane keeps its check window and has no landed sha: {d:?}");
+    let incidents = incident_rows(&fixture, 2);
+    assert_eq!(incidents, [("lander-conflict".to_owned(), "lander".to_owned(), "lane-c".to_owned()), ("lander-refused".to_owned(), "lander".to_owned(), "lane-d".to_owned())]);
+}
+
+fn incident_rows(fixture: &Fixture, expected: usize) -> Vec<(String, String, String)> {
+    let ledger = fixture.root.join("threads.db");
+    for _ in 0..200 {
+        if let Ok(db) = rusqlite::Connection::open(&ledger)
+            && let Ok(rows) = db
+                .prepare("SELECT class, noticed_by, subject FROM incidents WHERE started_at IS NOT NULL AND started_at <= detected_at ORDER BY class")
+                .and_then(|mut statement| statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?.collect::<Result<Vec<_>, _>>())
+            && rows.len() >= expected
+        {
+            return rows;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("the ledger never held {expected} incidents rows");
 }
 
 impl Fixture {

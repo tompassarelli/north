@@ -96,9 +96,13 @@ pub fn pending(directory: &Path) -> io::Result<Vec<(PathBuf, Ticket)>> {
     Ok(tickets)
 }
 
-pub fn decide(path: &Path, mut ticket: Ticket, verdict: String) -> io::Result<PathBuf> {
+pub fn decide(path: &Path, ticket: Ticket, verdict: String) -> io::Result<PathBuf> {
+    settle(path, ticket, verdict, "done")
+}
+
+pub fn settle(path: &Path, mut ticket: Ticket, verdict: String, area: &str) -> io::Result<PathBuf> {
     let directory = path.parent().ok_or_else(|| io::Error::other(format!("{} has no parent", path.display())))?;
-    let done = directory.join("done").join(path.file_name().ok_or_else(|| io::Error::other(format!("{} has no file name", path.display())))?);
+    let done = directory.join(area).join(path.file_name().ok_or_else(|| io::Error::other(format!("{} has no file name", path.display())))?);
     ticket.verdict = Some(verdict);
     write(&done, &ticket)?;
     fs::remove_file(path)?;

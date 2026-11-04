@@ -229,6 +229,11 @@ pub fn run(arguments: &[String]) -> u8 {
             Ok(lines) => println!("{}", lines.join("\n")),
             Err(why) => println!("outcome: unread: {why}"),
         }
+        if let Some(reading) = crate::threads::incidents::report::week(&places.ledger, now) {
+            for line in reading.lines() {
+                println!("{line}");
+            }
+        }
     }
     announce(&places, now, &options);
     if options.alarm {

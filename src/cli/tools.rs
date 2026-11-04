@@ -20,7 +20,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("land-abandon", |arguments| land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)),
     ("land", crate::land::run),
     ("land-clean", lane_target::run),
-    ("land-train", land_train),
+    ("land-train", |arguments| ledger_verb("land-train", arguments)),
+    ("incident", |arguments| ledger_verb("incident", arguments)),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
     ("lane-squash", lane_squash::run),
@@ -159,8 +160,8 @@ impl Tool {
     }
 }
 
-fn land_train(arguments: &[String]) -> u8 {
-    let words: Vec<String> = std::iter::once("land-train".to_owned()).chain(arguments.iter().cloned()).collect();
+fn ledger_verb(verb: &str, arguments: &[String]) -> u8 {
+    let words: Vec<String> = std::iter::once(verb.to_owned()).chain(arguments.iter().cloned()).collect();
     crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread))
 }
 
