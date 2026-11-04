@@ -9,6 +9,10 @@ fn remote_run(command: &str, flake: bool) -> String {
 }
 
 fn remote_run_landing(command: &str, flake: bool, landing: &str) -> String {
+    remote_run_with(command, flake, landing, "", None)
+}
+
+fn remote_run_with(command: &str, flake: bool, landing: &str, landref: &str, home: Option<&Path>) -> String {
     let slot = tempfile::tempdir().unwrap();
     let bin = tempfile::tempdir().unwrap();
     if flake {
@@ -19,8 +23,13 @@ fn remote_run_landing(command: &str, flake: bool, landing: &str) -> String {
     fs::set_permissions(&nix, fs::Permissions::from_mode(0o755)).unwrap();
     let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
     let output = Command::new("sh")
-        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing)])
+        .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={} landref={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing, super::quote(landref))])
         .env("PATH", path)
+        .env_remove("SAFE_PUSH_LAND_BASE")
+        .env_remove("SAFE_PUSH_LAND_HEAD")
+        .env_remove("SAFE_PUSH_LAND_REF")
+        .env_remove("SAFE_PUSH_LANDING")
+        .envs(home.map(|home| ("HOME", home)))
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -122,4 +131,33 @@ fn two_concurrent_jobs_at_the_same_head_bundle_under_distinct_refs() {
         assert!(reference.starts_with(&format!("refs/land-offload/{}-", head.as_str())));
     }
     assert_eq!(git(dir.path(), &["for-each-ref", "refs/land-offload/"]), "");
+}
+
+#[test]
+fn a_landing_run_sees_the_offloads_base_head_and_published_ref_exactly_as_a_local_land_check_does() {
+    let seen = remote_run_with("echo \"$SAFE_PUSH_LAND_BASE $SAFE_PUSH_LAND_HEAD [$SAFE_PUSH_LAND_REF] $SAFE_PUSH_LANDING\"", false, "1", "land-check/lane-1", None);
+    assert_eq!(seen, "b h [land-check/lane-1] 1\n");
+    let unpublished = remote_run_with("echo \"[$SAFE_PUSH_LAND_REF]\"", false, "1", "", None);
+    assert_eq!(unpublished, "[]\n");
+}
+
+#[test]
+fn a_run_that_is_not_a_landing_check_carries_no_landing_context() {
+    let seen = remote_run_with("echo \"[${SAFE_PUSH_LAND_BASE-}][${SAFE_PUSH_LAND_HEAD-}][${SAFE_PUSH_LAND_REF-}][${SAFE_PUSH_LANDING-}]\"", false, "", "stale", None);
+    assert_eq!(seen, "[][][][]\n");
+}
+
+#[test]
+fn the_hosts_runtime_bin_directory_leads_the_path_before_the_command_runs() {
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join(".local/bin")).unwrap();
+    let path = remote_run_with("echo \"$PATH\"", false, "", "", Some(home.path()));
+    assert!(path.starts_with(&format!("{}/.local/bin:", home.path().display())), "{path}");
+}
+
+#[test]
+fn a_host_without_a_runtime_directory_keeps_its_path() {
+    let home = tempfile::tempdir().unwrap();
+    let path = remote_run_with("echo \"$PATH\"", false, "", "", Some(home.path()));
+    assert!(!path.contains(&home.path().display().to_string()), "{path}");
 }
