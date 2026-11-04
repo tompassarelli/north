@@ -1,6 +1,7 @@
 chat-post.sh
 clipboard-guard.sh
 code-health-edit.sh
+codex-behavior-guard.sh
 concrete-model-identity-guard.sh
 corpus-scan-guard.sh
 generated-policy-guard.sh

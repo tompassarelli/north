@@ -108,14 +108,9 @@ Each name was searched across north, south and nixos-config (Markdown, decision 
 | harness/code-health/state.ts | 38 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
 | harness/code-health/tick.test.ts | 73 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
 | harness/code-health/tick.ts | 154 | port: north#88 box "code-health to Rust" (family: tooling, north#126) | TypeScript on Bun; north#126 ports the import resolver, the box covers the rest |
-| harness/hooks/codex-behavior-guard.sh | 44 | port: north#74 (src/guard/codex_behavior.rs) | wrapper around codex_behavior.py (in flight) |
-| harness/hooks/codex-behavior-guard.test.sh | 153 | port: north#74 (src/guard/codex_behavior.rs, allowlisted) | test of a bug fix pending the Rust guard |
 | harness/hooks/firn-system-policy | 42 | stay | 42-line hook owned by Firn and installed from this tree; belongs in nixos-config, move there rather than port |
 | harness/hooks/language-guard.sh | 10 | stay | 10-line hook wrapper that execs `north guard language`; same condition |
 | harness/hooks/lib/bench.sh | 100 | port: north#88 box "hook and harness shell to Rust" (family: tests) | 100-line hook benchmark, over the 80-line limit; becomes a `north hook bench` or cargo bench |
-| harness/hooks/lib/codex_behavior.py | 1218 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/hooks/lib/shellcmd.property.py | 171 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
-| harness/hooks/lib/shellcmd.py | 429 | port: in flight (three workers port harness/lib and hooks/lib Python) | do not touch |
 | harness/hooks/north-hook.sh | 9 | stay | 9-line hook wrapper that execs `north hook`; same condition |
 | harness/hooks/prompt-grounding-membership.test.sh | 29 | port: north#88 box "hook and harness shell to Rust" (family: tests) | tests the Rust grounding hook through its wrapper |
 | harness/hooks/prompt-grounding.sh | 32 | stay | 32-line hook wrapper that skips fleet sessions then calls `north grounding hook`; deleted with authoring-killswitch.sh when hook configs name `north hook` directly |
