@@ -4,6 +4,7 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 
+use super::fleet_session::{Launch, LaunchError, Placement};
 use crate::foundation::clock::Timestamp;
 
 const USAGE: &str = "usage: north watch-review [--dry-run]";
@@ -23,25 +24,6 @@ pub(super) struct Source {
 pub(super) struct Moved {
     pub count: usize,
     pub head: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum Placement {
-    Account(String),
-    Held(String),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum LaunchError {
-    Held(String),
-    Failed(String),
-}
-
-pub(super) struct Launch<'a> {
-    pub name: &'a str,
-    pub account: &'a str,
-    pub cwd: &'a Path,
-    pub brief: &'a str,
 }
 
 pub(super) trait World {
@@ -178,7 +160,7 @@ fn start(world: &dyn World, source: &Source, moved: &Moved, today: &str, stamp: 
     };
     let name = format!("watch-review-{}-{stamp}", source.id);
     let cwd = world.worktree(&name).map_err(LaunchError::Failed)?;
-    let launched = world.launch(&Launch { name: &name, account: &account, cwd: &cwd, brief: &text });
+    let launched = world.launch(&Launch { name: &name, account: &account, cwd: &cwd, brief: &text, model: None });
     if launched.is_err() {
         world.discard(&name, &cwd);
     }

@@ -95,6 +95,7 @@ Commands:
   usage-web-read                                Read the Claude reset counts from the automation browser into the usage cache (6 h timer)
   runtime update                                Promote origin/main as this host's north runtime with its own tree
   supply-chain-scan                             Scan origin/main lockfiles with osv-scanner and alert on new advisories (daily timer)
+  incident-retro [--dry-run]                    Mine the last 7 days with incident-mine, sample every fifth candidate and launch one Haiku session that appends the kept rows to south agents/incidents.jsonl and files each recurring mode with no enforcer as a rules.toml [[candidate]] (weekly timer)
   watch-review [--dry-run]                      Launch one fleet review session per due followed source in south agents/watch.toml (30 days since the last review with new commits, or 10 new commits), tell the proxy when a launch fails or is held (daily timer)
   codex-runtime-gcroots                         Root the Nix store dependencies of every installed Codex runtime
   skill-prune [--measure]                       Weekly skill prune session, or print the shared skill body lines

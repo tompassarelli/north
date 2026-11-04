@@ -168,6 +168,15 @@ rows. Most of it is behavior visible only in play, which a reviewer reading a di
 E2 measures only the diff-visible part. The classified rows and modes, with transcript refs and no message text, are
 in south `agents/decisions/harness/watch-2026-11-04-mattpocock-e1/`.
 
+Follow-up, 2026-11-04. Each of the 8 modes has a decision as a `[[candidate]]` entry in south `agents/rules.toml`
+(south `8145946`): enforcer candidates for the spec gap (a Spec-axis reviewer at landing, pending E2), a retried
+refused landing (the lander and safe-push refuse an already-refused tree), a stray bulk reformat (safe-push flags
+formatting-only hunks outside the brief's Files) and a fix left unlanded (the stop hook refuses a report over
+unlanded passing commits); the unfollowable explanation, the re-asked instruction and the wrong cause stay prose,
+having no mechanical signal; the unnoticed stall is dropped, since `agents-flow-stall` and `act-on-pipeline-alert`
+already hold it. The sampled retro runs weekly as `north incident-retro` (Thursday 9:30 AM on the laptop), filing
+each new recurring mode with no enforcer as an open candidate.
+
 ### E2, a Spec axis before landing (filed)
 
 Frozen input: north Claude worker runs that finished Done between 2026-10-28 and 2026-11-03, 20 not kept (another

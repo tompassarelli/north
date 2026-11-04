@@ -1,6 +1,8 @@
 mod cross_project;
+mod fleet_session;
 mod gcroots;
 mod git_maintenance;
+mod incident_retro;
 mod nexus_run;
 mod runtime_update;
 mod skill_prune;
@@ -22,6 +24,7 @@ pub enum Timer {
     CodexRuntimeGcroots,
     CrossProjectScan,
     GitMaintenanceNightly,
+    IncidentRetro,
     JobWatch,
     ModelWatch,
     OutsideWatch,
@@ -39,6 +42,7 @@ impl Timer {
             "codex-runtime-gcroots" => Self::CodexRuntimeGcroots,
             "cross-project-scan" => Self::CrossProjectScan,
             "git-maintenance-nightly" => Self::GitMaintenanceNightly,
+            "incident-retro" => Self::IncidentRetro,
             "job-watch" => Self::JobWatch,
             "model-watch" => Self::ModelWatch,
             "outside-watch" => Self::OutsideWatch,
@@ -57,6 +61,7 @@ impl Timer {
             Self::CodexRuntimeGcroots => gcroots::run(arguments),
             Self::CrossProjectScan => cross_project::run(arguments, access),
             Self::GitMaintenanceNightly => git_maintenance::run(arguments),
+            Self::IncidentRetro => incident_retro::run(arguments),
             Self::JobWatch => crate::ops::job_watch::run(arguments),
             Self::ModelWatch => crate::ops::model_watch::run(arguments, access),
             Self::OutsideWatch => crate::ops::outside_watch::run(arguments),
