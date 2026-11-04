@@ -90,8 +90,9 @@ fn drop_transport(shims: &Path) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_held_session_survives_its_transport_dying_mid_wait() {
     let root = tempfile::tempdir().unwrap();
-    let cli = r#"while read -r line; do case $line in wait) (sleep 2; echo "waited $$") & ;; *) echo "got $line $$";; esac; done"#;
-    let link = held(root.path(), &["sh", "-c", cli], Vec::new());
+    let waiting = root.path().join("waiting");
+    let cli = format!(r#"while read -r line; do case $line in wait) (sleep 2; echo "waited $$") & : > {} ;; *) echo "got $line $$";; esac; done"#, waiting.display());
+    let link = held(root.path(), &["sh", "-c", &cli], Vec::new());
     let (mut to_link, input) = tokio::io::duplex(4096);
     let (mut output, from_link) = tokio::io::duplex(4096);
     let relay = tokio::spawn(async move { link.relay(input, &mut output, std::future::pending()).await });
@@ -101,7 +102,11 @@ async fn a_held_session_survives_its_transport_dying_mid_wait() {
     let first = next(&mut lines).await;
     let cli_pid = first.strip_prefix("got one ").unwrap().to_owned();
     to_link.write_all(b"wait\n").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let started = std::time::Instant::now();
+    while !waiting.exists() {
+        assert!(started.elapsed() < WAIT, "the CLI never took the wait");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     drop_transport(&root.path().join("shims"));
     to_link.write_all(b"two\n").await.unwrap();
 

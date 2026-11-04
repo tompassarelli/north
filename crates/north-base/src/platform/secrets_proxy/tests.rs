@@ -6,6 +6,8 @@ use super::*;
 
 const PATIENCE: Duration = Duration::from_secs(10);
 
+static NO_CONCURRENT_FORKS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn fake_proxy(directory: &Path, script: &str) {
     let program = directory.join("xdg-dbus-proxy");
     fs::write(&program, format!("#!/bin/sh\n{script}\n")).unwrap();
@@ -18,6 +20,7 @@ fn shell(script: &str) -> Vec<String> {
 
 #[tokio::test]
 async fn the_child_sees_the_socket_as_its_session_bus_and_the_proxy_dies_after_it() {
+    let _serial = NO_CONCURRENT_FORKS.lock().await;
     let scratch = tempfile::tempdir().unwrap();
     let bin = scratch.path().join("bin");
     fs::create_dir(&bin).unwrap();
@@ -38,6 +41,7 @@ async fn the_child_sees_the_socket_as_its_session_bus_and_the_proxy_dies_after_i
 
 #[tokio::test]
 async fn a_proxy_that_exits_before_opening_its_socket_fails_without_running_the_child() {
+    let _serial = NO_CONCURRENT_FORKS.lock().await;
     let scratch = tempfile::tempdir().unwrap();
     let bin = scratch.path().join("bin");
     fs::create_dir(&bin).unwrap();
@@ -65,21 +69,27 @@ fn quiet() -> mpsc::UnboundedReceiver<Signal> {
 
 #[tokio::test]
 async fn a_stop_signal_during_the_socket_wait_ends_the_run_without_running_the_child() {
+    let _serial = NO_CONCURRENT_FORKS.lock().await;
     let scratch = tempfile::tempdir().unwrap();
     let bin = scratch.path().join("bin");
     fs::create_dir(&bin).unwrap();
     fake_proxy(&bin, r#"echo $$ > "$2.pid"; exec sleep 60"#);
     let ran = scratch.path().join("ran");
     let script = format!("touch {}", ran.display());
+    let proxy_pid = scratch.path().join("secrets.bus.pid");
     let (sender, signals) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        while !fs::read_to_string(&proxy_pid).is_ok_and(|pid| pid.ends_with('\n')) {
+            assert!(tokio::time::Instant::now() < deadline, "the proxy never started");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         sender.send(Signal::Term).unwrap();
     });
 
     let error = exec(&scratch.path().join("secrets.bus"), &shell(&script), bin.as_os_str(), PATIENCE, signals).await.unwrap_err();
 
-    assert!(error.to_string().contains("stopped"));
+    assert!(error.to_string().contains("stopped"), "{error}");
     assert!(!ran.exists());
     let proxy = fs::read_to_string(scratch.path().join("secrets.bus.pid")).unwrap();
     assert!(rustix::process::test_kill_process(Pid::from_raw(proxy.trim().parse().unwrap()).unwrap()).is_err());
@@ -87,17 +97,24 @@ async fn a_stop_signal_during_the_socket_wait_ends_the_run_without_running_the_c
 
 #[tokio::test]
 async fn a_stop_signal_reaches_the_running_child() {
+    let _serial = NO_CONCURRENT_FORKS.lock().await;
     let scratch = tempfile::tempdir().unwrap();
     let bin = scratch.path().join("bin");
     fs::create_dir(&bin).unwrap();
     fake_proxy(&bin, r#": > "$2"; exec sleep 60"#);
+    let started = scratch.path().join("started");
+    let script = format!("echo started > {}; exec sleep 60", started.display());
     let (sender, signals) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        while !started.exists() {
+            assert!(tokio::time::Instant::now() < deadline, "the child never started");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         sender.send(Signal::Term).unwrap();
     });
 
-    let status = exec(&scratch.path().join("secrets.bus"), &shell("exec sleep 60"), bin.as_os_str(), PATIENCE, signals).await.unwrap();
+    let status = exec(&scratch.path().join("secrets.bus"), &shell(&script), bin.as_os_str(), PATIENCE, signals).await.unwrap();
 
     assert_eq!(exit_code(status), 128 + 15);
 }
