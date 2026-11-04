@@ -565,7 +565,7 @@ fn a_recording_run_recalibrates_a_stale_ledger_once_and_records_priors_once_a_we
     let measured = Command::new(env!("CARGO_BIN_EXE_north")).args(["defaults-measure", "--priors"]).arg(rig.path("threads.db")).output().unwrap();
     assert!(measured.status.success(), "{}", String::from_utf8_lossy(&measured.stderr));
     let printed = String::from_utf8(measured.stdout).unwrap();
-    let row = Regex::new(r"^(SETTLED|WAIT) (\S+) n=(\d+)(?:/\d+)?(?: value=(\S+))?$").unwrap();
+    let row = Regex::new(r"^(SETTLED|MEASURABLE-NOT-MEASURED|WAIT) (\S+) n=(\d+)(?:/\d+)?(?: value=(\S+))?$").unwrap();
     let mut seen = Vec::new();
     for line in printed.lines() {
         let found = row.captures(line).unwrap_or_else(|| panic!("{line}"));
