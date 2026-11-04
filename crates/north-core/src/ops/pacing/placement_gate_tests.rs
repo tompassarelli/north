@@ -557,11 +557,23 @@ fn a_laptop_on_battery_names_its_charge_and_the_machines_and_cloud_that_take_the
         std::fs::write(battery.join(field), format!("{value}\n")).unwrap();
     }
     let here = Machine { name: "laptop".into(), ..gex45() };
+    let since = root.path().join("battery-discharging-since");
     assert_eq!(
-        gate::on_battery("laptop", root.path(), &[here.clone(), gex45()]).as_deref(),
+        gate::on_battery("laptop", root.path(), &since, 1000, &[here.clone(), gex45()]).as_deref(),
         Some("laptop is a laptop on battery (discharging at 80%), so --local would drain it; launch the box on gex45 or in anthropic-cloud without --local, or keep it here with --pin \"<reason>\"")
     );
-    assert!(gate::on_battery("laptop", root.path(), &[here]).is_some_and(|why| why.contains("launch the box in anthropic-cloud without --local")));
+    assert!(gate::on_battery("laptop", root.path(), &since, 1000, std::slice::from_ref(&here)).is_some_and(|why| why.contains("launch the box in anthropic-cloud without --local")));
+    let usb = root.path().join("ucsi-source-psy-USBC000:004");
+    std::fs::create_dir_all(&usb).unwrap();
+    for (field, value) in [("type", "USB"), ("online", "1")] {
+        std::fs::write(usb.join(field), format!("{value}\n")).unwrap();
+    }
+    assert_eq!(gate::on_battery("laptop", root.path(), &since, 1000, &[here.clone(), gex45()]), None, "a Discharging flicker with the charger online is not on battery");
+    std::fs::write(&since, "881\n").unwrap();
+    assert_eq!(gate::on_battery("laptop", root.path(), &since, 1000, &[here.clone(), gex45()]), None, "119 s is not yet the underpowered-charger window from laptop-auto's first sample");
+    std::fs::write(&since, "880\n").unwrap();
+    assert!(gate::on_battery("laptop", root.path(), &since, 1000, &[here, gex45()]).is_some(), "discharging for the full window with the charger online is on battery");
+    assert_eq!(std::fs::read_to_string(&since).unwrap(), "880\n", "the gate reads laptop-auto's record and never writes it");
     std::fs::write(battery.join("status"), "Charging\n").unwrap();
-    assert_eq!(gate::on_battery("laptop", root.path(), &[gex45()]), None);
+    assert_eq!(gate::on_battery("laptop", root.path(), &since, 1000, &[gex45()]), None);
 }

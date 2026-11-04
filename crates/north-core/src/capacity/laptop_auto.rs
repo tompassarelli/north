@@ -13,6 +13,8 @@ const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
 const OBSERVE_WAIT: Duration = Duration::from_secs(40);
 const NOTIFY_WAIT: Duration = Duration::from_secs(5);
 const BATTERY_ALERTED: &str = "battery-warned";
+const DISCHARGING_SINCE: &str = "battery-discharging-since";
+const UNDERPOWERED_CHARGER: Duration = Duration::from_secs(120);
 
 pub fn sample(host: &Host, idle: Option<bool>, sleeping: bool, battery: Option<u8>) -> Value {
     json!({
@@ -27,18 +29,64 @@ pub fn power_supply() -> PathBuf {
     std::env::var_os("AGENT_LOAD_POWER_SUPPLY").filter(|value| !value.is_empty()).map_or_else(|| "/sys/class/power_supply".into(), PathBuf::from)
 }
 
-pub fn discharging_percent(power_supply: &Path) -> Option<u8> {
-    let read = |supply: &Path, field: &str| fs::read_to_string(supply.join(field)).ok().map(|value| value.trim().to_owned());
+fn read(supply: &Path, field: &str) -> Option<String> {
+    fs::read_to_string(supply.join(field)).ok().map(|value| value.trim().to_owned())
+}
+
+fn system_supplies<'a>(power_supply: &Path, types: &'a [&str]) -> impl Iterator<Item = PathBuf> + 'a {
     fs::read_dir(power_supply)
         .into_iter()
         .flatten()
         .flatten()
         .map(|supply| supply.path())
-        .filter(|supply| read(supply, "type").as_deref() == Some("Battery") && read(supply, "scope").as_deref() != Some("Device"))
+        .filter(|supply| read(supply, "type").is_some_and(|kind| types.contains(&kind.as_str())) && read(supply, "scope").as_deref() != Some("Device"))
+}
+
+pub fn discharging_percent(power_supply: &Path) -> Option<u8> {
+    system_supplies(power_supply, &["Battery"])
         .filter(|supply| read(supply, "status").as_deref() == Some("Discharging"))
         .filter_map(|supply| read(&supply, "capacity")?.parse::<u8>().ok())
         .filter(|percent| *percent <= 100)
         .min()
+}
+
+fn line_power_online(power_supply: &Path) -> bool {
+    system_supplies(power_supply, &["Mains", "USB"]).any(|supply| read(&supply, "online").as_deref() == Some("1"))
+}
+
+pub fn battery(power_supply: &Path, since: &Path, now: u64) -> Option<u8> {
+    if discharging_percent(power_supply).is_none() {
+        let _ = fs::remove_file(since);
+        return None;
+    }
+    if line_power_online(power_supply)
+        && recorded_since(since).is_none()
+        && let Err(error) = since.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(since, format!("{now}\n")))
+    {
+        eprintln!("north capacity laptop-auto: {}: {error}", since.display());
+    }
+    settled_battery(power_supply, since, now)
+}
+
+pub fn settled_battery(power_supply: &Path, since: &Path, now: u64) -> Option<u8> {
+    let percent = discharging_percent(power_supply)?;
+    if !line_power_online(power_supply) {
+        return Some(percent);
+    }
+    let first = recorded_since(since)?;
+    (now.saturating_sub(first) >= UNDERPOWERED_CHARGER.as_secs()).then_some(percent)
+}
+
+fn recorded_since(since: &Path) -> Option<u64> {
+    fs::read_to_string(since).ok().and_then(|text| text.trim().parse::<u64>().ok())
+}
+
+pub fn discharging_since(host: &Host) -> PathBuf {
+    host.capacity.join(DISCHARGING_SINCE)
+}
+
+fn now() -> u64 {
+    std::env::var("LAPTOP_AUTO_NOW").ok().and_then(|text| text.parse().ok()).unwrap_or_else(super::mode::now)
 }
 
 pub fn on_battery(effects: Effects, battery: Option<u8>) -> Effects {
@@ -169,7 +217,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let host = Host::from_env();
     let processes = agent_load::processes(&host);
-    let battery = discharging_percent(&power_supply());
+    let battery = battery(&power_supply(), &discharging_since(&host), now());
     let idle = seat_idle();
     if dry {
         println!("{}", sample(&host, idle, preparing_for_sleep(), battery));

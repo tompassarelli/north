@@ -496,7 +496,7 @@ pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, nam
     let gate = live_gate();
     let machines = probed(&cfg, fleet_load);
     let here = local();
-    let here_on_battery = on_battery(&here, &laptop_auto::power_supply(), &machines);
+    let here_on_battery = on_battery(&here, &laptop_auto::power_supply(), &laptop_auto::discharging_since(&agent_load::Host::from_env()), crate::capacity::mode::now(), &machines);
     let mut decision = decide(text, &cfg, verdicts(&gate, roster, &Basis::new(&cfg, load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &here, here_in_game_reserve());
     decision.here_on_battery = here_on_battery;
     if let Some(name) = named {
@@ -508,8 +508,8 @@ pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, nam
     Ok(decision)
 }
 
-pub fn on_battery(here: &str, power_supply: &Path, machines: &[Machine]) -> Option<String> {
-    let percent = laptop_auto::discharging_percent(power_supply)?;
+pub fn on_battery(here: &str, power_supply: &Path, since: &Path, now: u64, machines: &[Machine]) -> Option<String> {
+    let percent = laptop_auto::settled_battery(power_supply, since, now)?;
     let elsewhere: Vec<&str> = machines.iter().map(|machine| machine.name.as_str()).filter(|name| *name != here).collect();
     let instead = if elsewhere.is_empty() { "in anthropic-cloud".to_owned() } else { format!("on {} or in anthropic-cloud", elsewhere.join(" or ")) };
     Some(format!(
