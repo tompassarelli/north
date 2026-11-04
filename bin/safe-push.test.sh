@@ -60,6 +60,7 @@ shim_main() {
       ;;
     hostname:*) printf '%s\n' "${SAFE_PUSH_TEST_HOSTNAME:?}" ;;
     north:land)
+      [ "${2:-}" != checks ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       [ -n "${SAFE_PUSH_TEST_ENQUEUE_TRACE:-}" ] || return 2
       [ "${3:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_ENQUEUE_TRACE"
       ;;

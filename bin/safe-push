@@ -102,7 +102,7 @@ safe_push_exit() {
 
 safe_push_internal=0
 safe_push_help=0
-if [ "${1:-}" = --after-landing ]; then safe_push_internal=1; fi
+if [ "${1:-}" = --after-landing ] || [ "${1:-}" = --publication-scan ]; then safe_push_internal=1; fi
 if [ "$#" -eq 1 ] && [[ "$1" = -h || "$1" = --help ]]; then safe_push_help=1; fi
 trap safe_push_exit EXIT
 drop_land_branch() { SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="refs/heads/$1:$2" origin ":refs/heads/$1"; }
@@ -149,6 +149,7 @@ plan_push() {
       to=""
       to_seen=0
       after_landing=()
+      publication_scan_range=()
       check_base=""
       while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -199,6 +200,11 @@ plan_push() {
             to="$2"
             to_seen=1
             shift 2
+            ;;
+          --publication-scan)
+            [ "$#" -eq 3 ] || argument_error '--publication-scan needs BASE HEAD and nothing else'
+            publication_scan_range=("$2" "$3")
+            shift 3
             ;;
           --after-landing)
             [ "$#" -eq 4 ] || argument_error '--after-landing needs BASE HEAD REPORT_DIR and nothing else'
@@ -897,8 +903,21 @@ run_after_landing_gates() {
   return "$failed"
 }
 
+publication_scan() {
+  command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed." >&2; return 1; }
+  gitleaks detect --no-banner --redact --log-opts="${1:+$1..}$2" \
+    || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed." >&2; return 1; }
+  denylist_scan "$1" "$2" main || return 1
+  commit_email_scan "${1:+$1..}$2" || return 1
+}
+
 if [ "${#after_landing[@]}" -eq 3 ]; then
   run_after_landing_gates "${after_landing[@]}"
+  exit $?
+fi
+if [ "${#publication_scan_range[@]}" -eq 2 ]; then
+  repo_root=$(git rev-parse --show-toplevel) && origin_url=$(git remote get-url --push origin) || exit 2
+  publication_scan "${publication_scan_range[@]}"
   exit $?
 fi
 
@@ -992,239 +1011,40 @@ run_bin_reference_gate() {
   north bin-references --repo "$root" --base "$base" --head "$head"
 }
 
-land_commands=()
-
-land_check_commands() {
-  local base="$1" head="$2" entry patterns command entries
-  local -a specs=()
-  local -A seen=()
-  entries=$(git config --blob "$head:.safe-push" --get-all land.check 2>/dev/null) || return 0
-  while IFS= read -r entry; do
-    if [[ "$entry" != *' :: '* ]]; then
-      echo "safe-push: invalid land.check: $entry; NOT pushed." >&2
-      return 1
-    fi
-    patterns=${entry%% :: *}
-    command=${entry#* :: }
-    IFS=',' read -r -a specs <<<"$patterns"
-    [ -n "$patterns" ] && [ -n "$command" ] || return 1
-    if [ -n "$base" ]; then
-      [ -n "$(git diff --name-only --no-renames "$base" "$head" -- "${specs[@]}")" ] || continue
-    else
-      [ -n "$(git ls-tree -r --name-only "$head" -- "${specs[@]}")" ] || continue
-    fi
-    [ -z "${seen[$command]:-}" ] || continue
-    seen[$command]=1
-    land_commands+=("$command")
-  done <<<"$entries"
-}
-
-land_workflow() {
-  git config --blob "$1:.safe-push" --get land.workflow 2>/dev/null || true
-}
-
-land_publish_ref() {
-  local prefix
-  prefix=$(git config --blob "$1:.safe-push" --get land.publish 2>/dev/null) && [ -n "$prefix" ] || return 1
-  printf '%s%s\n' "$prefix" "${1:0:12}"
-}
-
-land_check_local_reason() {
-  local entry
-  while IFS= read -r entry; do
-    [[ "$entry" = *" :: $1" ]] || continue
-    printf "%s\n" "${entry%% :: *}"
-    return 0
-  done < <(git config --blob "$2:.safe-push" --get-all land.local-only 2>/dev/null)
-  return 1
-}
-
-land_check_is_local_only() {
-  land_check_local_reason "$1" "$2" >/dev/null
-}
-
-publication_scan() {
-  command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed." >&2; return 1; }
-  gitleaks detect --no-banner --redact --log-opts="${1:+$1..}$2" \
-    || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed." >&2; return 1; }
-  denylist_scan "$1" "$2" main || return 1
-  commit_email_scan "${1:+$1..}$2" || return 1
-}
-
 land_offload_host() {
-  local command host
   [ "${SAFE_PUSH_LAND_OFFLOAD:-1}" = 1 ] || return 1
-  [ -z "$(land_workflow HEAD)" ] || return 1
   has_land_checks && command -v north >/dev/null 2>&1 || return 1
-  land_commands=()
-  land_check_commands "refs/remotes/origin/${to:-main}" HEAD 2>/dev/null || return 1
-  [ "${#land_commands[@]}" -gt 0 ] || return 1
-  for command in "${land_commands[@]}"; do
-    ! land_check_is_local_only "$command" HEAD || return 1
-  done
-  host=$(north capacity offload choose) || return 1
-  printf '%s\n' "$host"
+  north land checks --portable --base "refs/remotes/origin/${to:-main}" --head HEAD 2>/dev/null || return 1
+  north capacity offload choose
 }
 
-land_cache_class() {
-  [ -n "$workflow" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$1" "$head" && echo actions || echo "${SAFE_PUSH_LAND_OFFLOAD_HOST:-local}"
-}
-
-land_cache_reused() {
-  local line
-  line=$(north land-cache hit --repo "$root" --head "$head" --command "$1" --host-class "$(land_cache_class "$1")" 2>/dev/null) && [ -n "$line" ] && printf "safe-push: %s\n" "$line"
-}
-
-land_cache_record() {
-  local status="$1" command
-  shift
-  for command; do north land-cache record --repo "$root" --head "$head" --command "$command" --host-class "$(land_cache_class "$command")" --status "$status" >/dev/null 2>&1 || true; done
-}
-
-land_check_runner() {
-  local seconds="$1"
-  shift
-  runner=(bash -euo pipefail -c 'exec north capacity deadline "${XDG_RUNTIME_DIR:-/run/user/$UID}/agent-capacity-v1/leases/${AGENT_CAPACITY_LEASE:-}.json" "$@"' safe-push-deadline "$seconds" -- "$@")
-  [ -z "${SAFE_PUSH_LAND_CAPACITY:-}" ] || runner=(bash -euo pipefail -c "exec $SAFE_PUSH_LAND_CAPACITY \"\$@\"" safe-push-capacity "${runner[@]}")
-}
-
-land_runner_host() {
-  [ "$1" = build-host ] || { printf '%s\n' "$1"; return 0; }
-  north capacity offload choose --any || printf 'safe-push: no build host has room; the land checks run on this host under the land-check capacity lease\n' >&2
-}
-
-land_check_offload_host() {
-  [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] || { printf '%s\n' "$SAFE_PUSH_LAND_OFFLOAD_HOST"; return 0; }
-  [ -n "$runner_host" ] && ! land_check_is_local_only "$1" "$head" && printf '%s\n' "$runner_host"
-}
-
-run_land_check_list() {
-  local command pid status=0 children=${safe_push_child:-}
-  local -a pids=()
-  for command in "$@"; do
-    land_check_offload_host "$command" >/dev/null || continue
-    (drop_lock_fd; safe_push_child=""; trap 'kill -TERM $safe_push_child 2>/dev/null; exit 130' TERM; run_land_check "$command") &
-    pids+=("$!")
-    safe_push_child="$children ${pids[*]}"
-  done
-  for command in "$@"; do
-    land_check_offload_host "$command" >/dev/null || run_land_check "$command" || { status=$?; [ "$failed" -ne 0 ] || failed=$status; }
-  done
-  for pid in "${pids[@]}"; do
-    wait "$pid" || { status=$?; [ "$failed" -ne 0 ] || failed=$status; }
-  done
-  safe_push_child=$children
-}
-
-run_land_check() {
-  local command="$1" status log_dir log offload_host children=${safe_push_child:-} reason
-  local stdout_fd stderr_fd stdout_pid stderr_pid
-  land_check_root=$root
-  if [ -n "$workflow" ] && reason=$(land_check_local_reason "$command" "$head"); then
-    printf "safe-push: land check runs on this host because it %s\n" "$reason"
-  fi
-  local -a runner
-  land_check_runner "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" bash -euo pipefail -c "$command"
-  if offload_host=$(land_check_offload_host "$command"); then
-    if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && land_check_is_local_only "$command" "$head"; then
-      printf 'safe-push: land check %s needs this host, which is in game-reserve; NOT pushed.\n' "$command" >&2
-      return 1
-    fi
-    SAFE_PUSH_LAND_CAPACITY=${SAFE_PUSH_LAND_OFFLOAD_HOST:+$SAFE_PUSH_LAND_CAPACITY} land_check_runner "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" north capacity offload run --host "$offload_host" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command"
-    printf "safe-push: offloading to %s%s\n" "$offload_host" "${SAFE_PUSH_LAND_OFFLOAD_HOST:+ while this host is in game-reserve}"
-  fi
-  log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  mkdir -p "$log_dir"
-  log_dir=$(cd "$log_dir" && pwd -P)
-  find "$log_dir" -name 'land-check-*.log' -mtime +14 -delete
-  log=$(mktemp "$log_dir/land-check-XXXXXXXXXX.log")
-  printf 'safe-push: land check: %s\n' "$command"
-  exec {stdout_fd}> >(drop_lock_fd; tee -a "$log")
-  stdout_pid=$!
-  exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
-  stderr_pid=$!
-  status=0
-  (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" SAFE_PUSH_LAND_REF="$published" SAFE_PUSH_LANDING=1 "${runner[@]}") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
-  safe_push_child="$children $!"
-  wait "$!" || status=$?
-  safe_push_child=$children
-  exec {stdout_fd}>&- {stderr_fd}>&-
-  reap_log_pipes "$stdout_pid" "$stderr_pid"
-  if [ "$status" -ne 0 ]; then
-    printf 'safe-push: land check %s exited %s; log: %s; NOT pushed.\n' "$command" "$status" "$log" >&2
-    land_cache_record "$status" "$command"
-    safe_push_event "land check" failed "$command; log: $log"
-    return "$status"
-  fi
-  land_cache_record 0 "$command"
-  rm -f -- "$log"
+land_checks_call() {
+  local outcome status=0 kind first second third
+  outcome=$(mktemp)
+  (drop_lock_fd; exec north land checks --base "$1" --head "$2" --dry "${dry:-0}" --safe-push "$safe_push_self" --red-fix "${red_fix:-}" --outcome "$outcome") &
+  safe_push_child=$!
+  wait "$safe_push_child" || status=$?
+  safe_push_child=""
+  [ "$status" -ne 130 ] && [ "$status" -ne 143 ] || exit 130
+  while IFS=$'\t' read -r kind first second third; do
+    case "$kind" in
+      event) safe_push_event "$first" "$second" "$third" ;;
+      skip) land_check_skip=$first ;;
+      red-main) blocked_by_red_main=$first ;;
+      ran) land_check_root=$(git rev-parse --show-toplevel) ;;
+    esac
+  done <"$outcome"
+  rm -f -- "$outcome"
+  return "$status"
 }
 
 run_land_checks() {
-  local base="$1" head="$2" command root
-  root=$(git rev-parse --show-toplevel)
-  [ "${destination_branch:-${to:-}}" = main ] || return 0
-  has_land_checks || return 0
-  land_check_skip=""
-  safe_push_event "land checks" wait
-  sync_dependencies || { land_check_skip="skipped: bun install failed"; return 1; }
-  land_commands=()
-  land_check_commands "$base" "$head" || return 1
-  local workflow actions_pid="" actions_status=0 reason failed=0 published="" actions_log
-  local -a here=() on_actions=()
-  local land_runner runner_host=""
-  workflow=$(land_workflow "$head")
-  land_runner=${SAFE_PUSH_LAND_RUNNER-$(git config --blob "$head:.safe-push" --get land.runner 2>/dev/null || true)}
-  [ -z "$land_runner" ] || runner_host=$(land_runner_host "$land_runner")
-  for command in "${land_commands[@]}"; do
-    land_cache_reused "$command" && continue
-    if [ -n "$workflow" ] && [ -z "$land_runner" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$command" "$head"; then
-      on_actions+=("$command")
-    else
-      here+=("$command")
-    fi
-  done
-  if [ "${#on_actions[@]}" -gt 0 ]; then
-    publication_scan "$base" "$head" || { land_check_skip="skipped: the lane cannot be published to GitHub Actions until the publication scan passes"; return 1; }
-    printf "safe-push: running %s land check(s) on GitHub Actions (%s)\n" "${#on_actions[@]}" "$workflow"
-    actions_log=$(mktemp)
-    (drop_lock_fd; SAFE_PUSH_LAND_FAILED_LOG="$actions_log" north land-actions --workflow "$workflow" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "${on_actions[@]}") &
-    actions_pid=$!
-  fi
-  if [ "${#here[@]}" -gt 0 ] && [ "${dry:-0}" -eq 0 ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && published=$(land_publish_ref "$head"); then
-    publication_scan "$base" "$head" || { land_check_skip="skipped: the lane cannot be published for them until the publication scan passes"; return 1; }
-    SAFE_PUSH_ACTIVE=1 git push -q --no-verify origin "+$head:refs/heads/$published" \
-      || { printf 'safe-push: could not publish %s to origin %s for the land checks; NOT pushed.\n' "$head" "$published" >&2; return 1; }
-    printf 'safe-push: published %s to origin %s for the land checks\n' "${head:0:12}" "$published"
-  fi
-  run_land_check_list "${here[@]}"
-  if [ -n "$published" ] && ! SAFE_PUSH_ACTIVE=1 git push -q --no-verify origin ":refs/heads/$published"; then
-    printf 'safe-push: could not delete origin %s\n' "$published" >&2
-  fi
-  if [ -n "$actions_pid" ]; then
-    wait "$actions_pid" || actions_status=$?
-    if [ "$actions_status" -eq 75 ]; then
-      printf "safe-push: GitHub Actions is unavailable (infrastructure, not a check failure); its %s land check(s) run on a build host\n" "${#on_actions[@]}"
-      runner_host=$(land_runner_host build-host)
-      run_land_check_list "${on_actions[@]}"
-    elif [ "$actions_status" -ne 0 ]; then
-      printf "safe-push: land checks on GitHub Actions exited %s; NOT pushed.\n" "$actions_status" >&2
-      safe_push_event "land checks on GitHub Actions" failed "exit $actions_status"
-      [ "$failed" -ne 0 ] || failed=$actions_status
-      [ -n "${red_fix:-}" ] || red_main_check "$base" "$actions_log"
-    fi
-    land_cache_record "$actions_status" "${on_actions[@]}"
-    rm -f -- "$actions_log"
-  fi
-  return "$failed"
+  [ "${destination_branch:-${to:-}}" = main ] && has_land_checks || return 0
+  land_check_skip=""; safe_push_event "land checks" wait; sync_dependencies || { land_check_skip="skipped: bun install failed"; return 1; }
+  land_checks_call "$1" "$2"
 }
 
 blocked_by_red_main=""
-red_main_check() {
-  local status=0
-  north land-red-check --main "$1" --log "$2" --lane "$(git symbolic-ref --quiet --short HEAD || true)" || status=$?
-  [ "$status" -ne 3 ] || blocked_by_red_main=$1
-}
 
 retry_after_red_main() {
   echo "safe-push: blocked by red main, not this lane; it retries once a Main-red: lane lands"
@@ -1239,16 +1059,6 @@ retry_after_red_main() {
 release_land_check_build() {
   [ "${keep_lane:-0}" -eq 0 ] || return 0
   north land-clean "$1" || true
-}
-
-reap_log_pipes() {
-  local killer
-  ( sleep 5; kill "$@" 2>/dev/null ) >/dev/null 2>&1 &
-  killer=$!
-  wait "$@" 2>/dev/null || true
-  pkill -P "$killer" 2>/dev/null || true
-  kill "$killer" 2>/dev/null || true
-  wait "$killer" 2>/dev/null || true
 }
 
 remote_destination_snapshot() {
@@ -2214,7 +2024,7 @@ land_through_autoland() {
 }
 
 lane_tip=$(git rev-parse -q --verify HEAD) || lane_tip=""
-SAFE_PUSH_LAND_CAPACITY=''
+export SAFE_PUSH_LAND_CAPACITY=''
 if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ]; then
   SAFE_PUSH_LAND_CAPACITY=$(git config --blob HEAD:.safe-push --get landing.capacity 2>/dev/null) || SAFE_PUSH_LAND_CAPACITY=''
   if offloaded_command=$(git config --blob HEAD:.safe-push --get landing.offloaded-capacity 2>/dev/null) && offload_host=$(land_offload_host); then
