@@ -1,3 +1,5 @@
 harness/skills/machine-capacity/scripts/machine-capacity.mjs linguist-generated=true
 structure.toml merge=set
 harness/machine-bound-tests merge=set
+docs/features.md merge=set
+docs/rationale/README.md merge=set

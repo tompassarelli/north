@@ -1,4 +1,15 @@
 use super::*;
+use crate::ops::docs::run;
+
+const INDEX_FILE: &str = INDEX.file;
+
+fn generate(root: &Path) -> Result<(), String> {
+    INDEX.generate(root)
+}
+
+fn check(root: &Path) -> Result<(), String> {
+    INDEX.check(root)
+}
 
 const HEADER: &str = "# North features\n\nIntro line.\n\nStanding paragraph.\n";
 

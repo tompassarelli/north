@@ -1,11 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const SOURCE_DIR: &str = "docs/features";
-const INDEX_FILE: &str = "docs/features.md";
+use super::docs::Index;
+
 const HEADER_FILE: &str = "_header.md";
 const TITLE_FILE: &str = "_title.md";
-const USAGE: &str = "usage: north docs features-index [--check] [--root DIR]";
 
 fn read(path: &Path) -> Result<String, String> {
     fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
@@ -55,55 +54,7 @@ pub fn render(source: &Path) -> Result<String, String> {
     Ok(parts.join("\n"))
 }
 
-pub fn generate(root: &Path) -> Result<(), String> {
-    let text = render(&root.join(SOURCE_DIR))?;
-    let index = root.join(INDEX_FILE);
-    if fs::read_to_string(&index).is_ok_and(|current| current == text) {
-        return Ok(());
-    }
-    fs::write(&index, text).map_err(|error| format!("{}: {error}", index.display()))
-}
-
-pub fn check(root: &Path) -> Result<(), String> {
-    let text = render(&root.join(SOURCE_DIR))?;
-    match fs::read_to_string(root.join(INDEX_FILE)) {
-        Ok(current) if current == text => Ok(()),
-        _ => Err(format!("{INDEX_FILE} is stale: run `north docs features-index` and commit the result")),
-    }
-}
-
-fn find_root() -> Option<PathBuf> {
-    std::env::current_dir().ok()?.ancestors().find(|dir| dir.join(SOURCE_DIR).is_dir()).map(Path::to_path_buf)
-}
-
-fn features_index(arguments: &[String]) -> Result<(), String> {
-    let mut checking = false;
-    let mut root = None;
-    let mut rest = arguments.iter();
-    while let Some(argument) = rest.next() {
-        match argument.as_str() {
-            "--check" => checking = true,
-            "--root" => root = Some(PathBuf::from(rest.next().ok_or(USAGE)?)),
-            _ => return Err(USAGE.to_string()),
-        }
-    }
-    let root = root.or_else(find_root).ok_or_else(|| format!("no {SOURCE_DIR} directory found from the current directory"))?;
-    if checking { check(&root) } else { generate(&root) }
-}
-
-pub fn run(arguments: &[String]) -> u8 {
-    let result = match arguments.split_first() {
-        Some((command, rest)) if command == "features-index" => features_index(rest),
-        _ => Err(USAGE.to_string()),
-    };
-    match result {
-        Ok(()) => 0,
-        Err(message) => {
-            eprintln!("{message}");
-            if message == USAGE { 2 } else { 1 }
-        }
-    }
-}
+pub const INDEX: Index = Index { command: "features-index", source_dir: "docs/features", file: "docs/features.md", render };
 
 #[cfg(test)]
 mod tests;

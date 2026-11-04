@@ -1,7 +1,8 @@
-# Files and keys `north merge-driver set` may merge as sets (docs/rationale/landing-train.md, step 9b).
+# Files and keys `north merge-driver set` may merge as sets (docs/rationale/landing-train.md, step 9b), and generated files it regenerates.
 # Only order-insensitive lists of unique entries belong here; ordered lists such as hook.rs guard arrays never do.
 # kind = "lines": every non-comment line is one entry, identified by the text before a trailing " #".
 # kind = "toml-array": the one-line string array under `key` in each table, identified by the table header and its name.
+# kind = "regenerate": a generated file; the driver leaves it conflicted and `north merge-driver continue` runs `command` on the merged sources, stages it and continues the rebase or cherry-pick. Before its checks the landing candidate also reruns `command` after a lane that changes a path under `sources` without the generated file, and folds the result into that lane.
 
 [[set]]
 path = "structure.toml"
@@ -11,3 +12,15 @@ key = "may_use"
 [[set]]
 path = "harness/machine-bound-tests"
 kind = "lines"
+
+[[set]]
+path = "docs/features.md"
+kind = "regenerate"
+command = "north docs features-index"
+sources = ["docs/features/"]
+
+[[set]]
+path = "docs/rationale/README.md"
+kind = "regenerate"
+command = "north docs rationale-index"
+sources = ["docs/rationale/"]

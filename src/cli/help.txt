@@ -31,7 +31,8 @@ Commands:
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines
   stale-revert [--repo DIR] [--lane TIP] BASE HEAD  Refuse a landing whose diff from BASE removes lines that recent BASE commits outside the lane added
   lane-squash [--repo DIR] [--message FILE] DEST_TIP  Fold the lane's unpublished commits (none on origin) into one commit with their trailers merged, for safe-push --to main
-  merge-driver set [--config FILE] BASE OURS THEIRS PATH  Git merge driver: merge the order-insensitive unique-entry lists named in harness/merge-sets.toml, refusing duplicates and remove-versus-edit
+  merge-driver set [--config FILE] BASE OURS THEIRS PATH  Git merge driver: merge the order-insensitive unique-entry lists named in harness/merge-sets.toml, refusing duplicates and remove-versus-edit; leave its regenerated files conflicted
+  merge-driver continue [--config FILE]         Finish a rebase or cherry-pick stopped only on regenerated files: run each generator on the merged sources, stage and continue
   bin-references --repo DIR --base REV --head REV [--nixos-config DIR] [--south DIR]  Refuse a landing that deletes a bin/ entry a deployed nixos-config or south unit, or this host's user units, still run
   land-tests [--jobs N] [--cases json] TEST...                  Run land-check tests (shell, Python or built test binaries) side by side, reporting every failure
   land-cache key|hit|record --repo DIR --head REV --command CMD [--status N]  Reuse a passing land check whose inputs (command, filtered path trees, south and nixos-config HEADs) are unchanged
@@ -95,6 +96,7 @@ Commands:
   worktree-layout-check                         List worktrees outside ~/code/<project>/main, worktrees/<slug> and pins/<full-object-id>
   hardcoded-repo-path-check [--write-allow]     Count hard-coded repository paths against config/hardcoded-repo-paths.tsv
   docs features-index [--check] [--root DIR]    Regenerate docs/features.md from the one-file-per-feature tree under docs/features/, or with --check fail when it is stale
+  docs rationale-index [--check] [--root DIR]   Regenerate docs/rationale/README.md, one line per note: title, link, first sentence; --check fails when it is stale
   lane-gc [--remote] [--dry-run] [--repo NAME]... | --unlanded  Retire landed, superseded and stale lanes and origin branches behind verified archives; report unlanded work (hourly and daily timers)
   pin-retire [--dry-run] (--consumer-main PATH... | --unconsumed) -- PIN  Retire one verified-unused content-addressed pin and its sidecar
   wt-reap [--all] [--dry-run]                   Remove spent lanes: clean, two hours old, merged into main or patch-equivalent to it

@@ -17,6 +17,7 @@ pub mod lane_target;
 pub mod fails_first;
 mod flake;
 mod mutant;
+pub mod merge_continue;
 pub mod merge_set;
 pub mod mutant_cli;
 mod mutant_trees;

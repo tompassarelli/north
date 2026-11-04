@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::queue::Ticket;
-use crate::landing::stale_revert;
+use crate::landing::{merge_continue, merge_set, stale_revert};
 
 pub const BRANCH: &str = "land-candidate";
 
@@ -41,6 +41,8 @@ pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
     if worktree.join(".git").is_file() && succeeds(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]) {
         git(worktree, &["cherry-pick", "--abort"])?;
     }
+    git(worktree, &["config", "merge.set.name", merge_set::DRIVER_NAME])?;
+    git(worktree, &["config", "merge.set.driver", merge_set::DRIVER_COMMAND])?;
     Ok(())
 }
 
@@ -96,7 +98,8 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
     }
     let picked_onto = git(worktree, &["rev-parse", "HEAD"])?;
     let picked = output(worktree, &["cherry-pick", "--allow-empty", &format!("{base}..{}", ticket.head)])?;
-    if !picked.status.success() {
+    let resolved = picked.status.success() || merge_continue::finish(worktree, &worktree.join(merge_set::DEFAULT_CONFIG)).is_ok();
+    if !resolved {
         let files = git(worktree, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default().lines().collect::<Vec<_>>().join(",");
         let dropped = if files.is_empty() && succeeds(worktree, &["diff", "--cached", "--quiet", "HEAD"]) { git(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]).ok() } else { None };
         if !succeeds(worktree, &["cherry-pick", "--abort"]) {
@@ -111,6 +114,10 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
     if git(worktree, &["rev-list", "--count", &range])? != git(worktree, &["rev-list", "--count", &format!("{picked_onto}..HEAD")])? {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         return refuse(logs, name, "dropped", &dropped_refusal(base, &git(worktree, &["rev-list", "--reverse", &range])?.replace('\n', " ")));
+    }
+    if let Err(error) = merge_continue::refresh(worktree, &worktree.join(merge_set::DEFAULT_CONFIG), &picked_onto) {
+        git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
+        return refuse(logs, name, "regenerate", &format!("could not regenerate an index the lane leaves stale: {error}; NOT landed."));
     }
     match stale_revert::reverted(worktree, &picked_onto, "HEAD", &ticket.head) {
         Ok(found) if found.is_empty() => Ok(Pick::Included),
@@ -141,3 +148,7 @@ pub fn build(worktree: &Path, branch: &str, base: &str, tickets: &[(PathBuf, Tic
     }
     Ok(Built { head: git(worktree, &["rev-parse", "HEAD"])?, picks })
 }
+
+#[cfg(test)]
+#[path = "candidate_tests.rs"]
+mod tests;

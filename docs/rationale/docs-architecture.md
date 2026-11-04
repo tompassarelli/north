@@ -187,6 +187,16 @@ features-index lane, box 6 for box 3d and the merge-driver lane.
    repository, rebasing a lane that adds a feature file onto a main that added the neighbouring one
    completes with no conflict and `north docs features-index --check` exits 0;
    `north docs rationale-index --check` exits 0 on main.
+   Landed design: git runs a merge driver before it writes the merged tree, so the driver cannot read the
+   merged sources; it leaves a `regenerate` file conflicted and `north merge-driver continue` (run by
+   safe-push, its train and the lander after a stopped rebase or cherry-pick) regenerates it from the
+   merged worktree, stages it and continues, one commit at a time. Lanes that change sources without
+   touching the generated file never conflict, so the landing candidate also reruns the generator after
+   each such pick and folds the result into that lane (`merge_continue::refresh`); a batch of lanes that
+   each add a rationale note then lands with a fresh index whatever their order.
+   The rationale-index land check lands one step later: the lander runs the landed runtime, so the
+   batch that brings refresh still picks with a lander that lacks it, and four batch-mates adding notes
+   went stale against the check on 2026-11-05.
 7. **Concept docs carry no dates or versions (35 min).** Cut `docs/harness.md` to the flow with links
    to owners, replacing restated flags, timeouts and thresholds with the `harness/defaults.toml` key,
    the command's `--help` or a link to its feature entry; move the dated "Learned routing backtest"

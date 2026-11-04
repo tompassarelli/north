@@ -7,6 +7,7 @@ pub mod context_audit;
 pub mod convo;
 pub mod dispatch;
 pub mod dividend;
+pub mod docs;
 pub mod features_index;
 pub mod flow;
 pub mod incident_mine;
@@ -27,6 +28,7 @@ pub mod private_desktop;
 pub mod reclaim;
 pub mod retention;
 pub mod provider_capacity;
+pub mod rationale_index;
 pub mod resident_cap;
 pub mod report;
 #[cfg_attr(not(test), allow(dead_code))]

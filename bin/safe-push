@@ -1574,7 +1574,7 @@ run_train() {
         picked_onto=$(git rev-parse --verify HEAD)
         if ! git cat-file -e "${oids[i]}^{commit}" 2>/dev/null; then
           train_verdict "$i" conflict unreadable
-        elif ! GIT_EDITOR=true git cherry-pick "$base..${oids[i]}" >/dev/null 2>&1; then
+        elif ! { GIT_EDITOR=true git cherry-pick "$base..${oids[i]}" || north merge-driver continue; } >/dev/null 2>&1; then
           detail=$(git diff --name-only --diff-filter=U 2>/dev/null | paste -sd, -)
           git cherry-pick --abort >/dev/null 2>&1 || git reset -q --hard HEAD
           train_verdict "$i" conflict "${detail:-cherry-pick}"
@@ -1681,7 +1681,7 @@ fetch_destination() {
 
 install_merge_driver() {
   command -v north >/dev/null 2>&1 || return 0
-  git config merge.set.name "order-insensitive unique-entry lists (harness/merge-sets.toml)"
+  git config merge.set.name "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)"
   git config merge.set.driver "north merge-driver set %O %A %B %P"
 }
 
@@ -1693,7 +1693,7 @@ rebase_onto_destination() {
   git merge-base HEAD "$upstream" >/dev/null 2>&1 || return 0
   echo "safe-push: origin $to moved to $upstream — rebasing onto it"
   install_merge_driver
-  if log=$(GIT_EDITOR=true git rebase --no-autostash "$upstream" 2>&1); then
+  if log=$(GIT_EDITOR=true git rebase --no-autostash "$upstream" 2>&1) || north merge-driver continue >/dev/null 2>&1; then
     return 0
   fi
   conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null) || conflicts=""

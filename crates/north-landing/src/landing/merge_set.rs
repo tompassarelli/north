@@ -3,8 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const USAGE: &str = "usage: north merge-driver set [--config FILE] BASE OURS THEIRS PATH";
-const DEFAULT_CONFIG: &str = "harness/merge-sets.toml";
+const USAGE: &str = "usage: north merge-driver set [--config FILE] BASE OURS THEIRS PATH | continue [--config FILE]";
+pub const DRIVER_NAME: &str = "order-insensitive unique-entry lists and regenerated files (harness/merge-sets.toml)";
+pub const DRIVER_COMMAND: &str = "north merge-driver set %O %A %B %P";
+pub const DEFAULT_CONFIG: &str = "harness/merge-sets.toml";
 const PLACEHOLDER: char = '\u{1}';
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -21,15 +23,16 @@ enum Change {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     Lines,
     TomlArray(String),
+    Regenerate { command: String, sources: Vec<String> },
 }
 
 #[derive(Debug)]
-struct Rule {
-    path: String,
-    kind: Kind,
+pub(crate) struct Rule {
+    pub(crate) path: String,
+    pub(crate) kind: Kind,
 }
 
 pub fn line_entry(line: &str) -> Entry {
@@ -272,17 +275,24 @@ fn merge_arrays(base: &str, ours: &str, theirs: &str, key: &str) -> Result<Strin
     Ok(out)
 }
 
-fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
+fn string_array(table: &toml_edit::Table, name: &str) -> Option<Vec<String>> {
+    let array = table.get(name)?.as_array()?;
+    let sources = array.iter().map(|value| value.as_str().map(str::to_owned)).collect::<Option<Vec<_>>>()?;
+    Some(sources).filter(|sources| !sources.is_empty())
+}
+
+pub(crate) fn read_rules(config: &Path) -> Result<Vec<Rule>, String> {
     let text = fs::read_to_string(config).map_err(|error| format!("{}: {error}", config.display()))?;
     let document = text.parse::<toml_edit::DocumentMut>().map_err(|error| format!("{}: {error}", config.display()))?;
     let mut rules = Vec::new();
     for table in document.get("set").and_then(|set| set.as_array_of_tables()).into_iter().flatten() {
         let field = |name: &str| table.get(name).and_then(|value| value.as_str());
         let path = field("path").ok_or("a [[set]] entry has no path")?.to_owned();
-        let kind = match (field("kind"), field("key")) {
-            (Some("lines"), None) => Kind::Lines,
-            (Some("toml-array"), Some(key)) => Kind::TomlArray(key.to_owned()),
-            _ => return Err(format!("{path}: kind must be lines, or toml-array with a key")),
+        let kind = match (field("kind"), field("key"), field("command")) {
+            (Some("lines"), None, None) => Kind::Lines,
+            (Some("toml-array"), Some(key), None) => Kind::TomlArray(key.to_owned()),
+            (Some("regenerate"), None, Some(command)) if !command.trim().is_empty() => Kind::Regenerate { command: command.to_owned(), sources: string_array(table, "sources").ok_or_else(|| format!("{path}: a regenerate entry needs a sources array of path prefixes"))? },
+            _ => return Err(format!("{path}: kind must be lines, toml-array with a key, or regenerate with a command and sources")),
         };
         rules.push(Rule { path, kind });
     }
@@ -293,6 +303,7 @@ fn merge_text(kind: &Kind, base: &str, ours: &str, theirs: &str) -> Result<Strin
     match kind {
         Kind::Lines => merge_lines(base, ours, theirs),
         Kind::TomlArray(key) => merge_arrays(base, ours, theirs, key),
+        Kind::Regenerate { command, .. } => Err(format!("a generated file: `north merge-driver continue` runs `{command}` on the merged sources")),
     }
 }
 
@@ -319,32 +330,37 @@ pub fn drive(config: &Path, base: &Path, ours: &Path, theirs: &Path, path: &str)
     }
 }
 
-fn repo_config() -> PathBuf {
+pub(crate) fn repo_config() -> PathBuf {
     let top = Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok().filter(|output| output.status.success());
     top.map_or_else(|| PathBuf::from(DEFAULT_CONFIG), |output| Path::new(String::from_utf8_lossy(&output.stdout).trim()).join(DEFAULT_CONFIG))
 }
 
+fn config_flag(rest: &[String]) -> (Option<PathBuf>, &[String]) {
+    match rest {
+        [flag, path, tail @ ..] if flag == "--config" => (Some(PathBuf::from(path)), tail),
+        _ => (None, rest),
+    }
+}
+
 pub fn run(arguments: &[String]) -> u8 {
-    let mut rest = arguments;
-    if rest.first().map(String::as_str) != Some("set") {
-        eprintln!("{USAGE}");
-        return 2;
-    }
-    rest = &rest[1..];
-    let mut config = None;
-    if rest.first().map(String::as_str) == Some("--config") && rest.len() > 1 {
-        config = Some(PathBuf::from(&rest[1]));
-        rest = &rest[2..];
-    }
-    let [base, ours, theirs, path] = rest else {
+    let Some((command, rest)) = arguments.split_first() else {
         eprintln!("{USAGE}");
         return 2;
     };
+    let (config, rest) = config_flag(rest);
     let config = config.unwrap_or_else(repo_config);
-    match drive(&config, Path::new(base), Path::new(ours), Path::new(theirs), path) {
+    let (label, outcome) = match (command.as_str(), rest) {
+        ("set", [base, ours, theirs, path]) => (path.as_str(), drive(&config, Path::new(base), Path::new(ours), Path::new(theirs), path)),
+        ("continue", []) => ("continue", super::merge_continue::finish(Path::new("."), &config)),
+        _ => {
+            eprintln!("{USAGE}");
+            return 2;
+        }
+    };
+    match outcome {
         Ok(()) => 0,
         Err(reason) => {
-            eprintln!("north merge-driver set: {path}: {reason}");
+            eprintln!("north merge-driver {command}: {label}: {reason}");
             1
         }
     }

@@ -102,3 +102,36 @@ fn a_duplicate_entry_added_by_both_lanes_stays_a_conflict_with_markers() {
     assert!(!rebase.status.success());
     assert!(fs::read_to_string(root.join("harness/machine-bound-tests")).unwrap().contains("<<<<<<<"));
 }
+
+fn add_feature(root: &Path, name: &str, path: &str) {
+    git_ok(root, &["checkout", "-q", "-B", name, "main"]);
+    fs::write(root.join(path), format!("- {name}: `north {name}`.\n")).unwrap();
+    let generate = Command::new(NORTH).current_dir(root).args(["docs", "features-index"]).output().unwrap();
+    assert!(generate.status.success(), "{}", String::from_utf8_lossy(&generate.stderr));
+    git_ok(root, &["add", "-A"]);
+    git_ok(root, &["commit", "-qm", name]);
+}
+
+#[test]
+fn a_lane_adding_a_feature_beside_one_main_added_rebases_through_continue_with_a_fresh_index() {
+    let dir = repo(&[]);
+    let root = dir.path();
+    fs::create_dir_all(root.join("docs/features/01-app")).unwrap();
+    fs::write(root.join("docs/features/_header.md"), "# Features\n").unwrap();
+    fs::write(root.join("docs/features/01-app/_title.md"), "## App\n").unwrap();
+    add_feature(root, "main", "docs/features/01-app/010-fleet.md");
+    add_feature(root, "first", "docs/features/01-app/020-work.md");
+    add_feature(root, "second", "docs/features/01-app/030-docs.md");
+    git_ok(root, &["checkout", "-q", "main"]);
+    git_ok(root, &["merge", "-q", "--ff-only", "first"]);
+    git_ok(root, &["checkout", "-q", "second"]);
+    let rebase = git(root, &["rebase", "main"]);
+    let finish = Command::new(NORTH).current_dir(root).args(["merge-driver", "continue"]).output().unwrap();
+    assert!(!rebase.status.success(), "the generated index should stop the rebase for continue");
+    assert!(finish.status.success(), "{}", String::from_utf8_lossy(&finish.stderr));
+    assert!(!root.join(".git/rebase-merge").exists());
+    let check = Command::new(NORTH).current_dir(root).args(["docs", "features-index", "--check"]).output().unwrap();
+    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    let index = fs::read_to_string(root.join("docs/features.md")).unwrap();
+    assert!(index.contains("- first:") && index.contains("- second:"), "{index}");
+}
