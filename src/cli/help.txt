@@ -24,6 +24,7 @@ Commands:
   autoland-wait --sha SHA --branch BRANCH --destination BRANCH  Wait for its landed result
   land-abandon [BRANCH | --superseded BRANCH]    Delete a superseded or handed-back branch from origin
   land serve [--once] [--repo DIR] [--checker PROGRAM]  Land the queued lanes of this origin: one candidate, checked once by safe-push --check-candidate, pushed to main by lease
+  land scan dep-gate|tool-removal|test-integrity BASE..HEAD  Run one landing scan on an outgoing range: the dependency gate, a removed bin tool, or an added mutation marker or test skip
   land-clean LANE_ROOT | --sweep                 Remove a lane's cargo target after its land checks, or trim the shared cargo targets under 10 GB
   land-train record|check|red ...                Record a train verdict, a check run or a red-main interval in the threads ledger (north flow shows the tempo)
   landed-tree [--repo DIR] BASE TIP              Exit 0 when TIP's changes are already on BASE by tree or superseded by later commits to the same lines

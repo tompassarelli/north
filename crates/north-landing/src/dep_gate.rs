@@ -1088,7 +1088,15 @@ pub fn run(args: &[String]) -> u8 {
             return 1;
         }
     };
-    match evaluate(&root, args) {
+    report(evaluate(&root, args))
+}
+
+pub fn run_at(root: &Path, base: &str, head: &str) -> u8 {
+    report(evaluate(root, &[base.to_owned(), head.to_owned()]))
+}
+
+fn report(verdict: Result<(u8, String), (u8, String)>) -> u8 {
+    match verdict {
         Ok((code, output)) => {
             print!("{output}");
             code
