@@ -1,6 +1,6 @@
 # Run, park and land
 
-Read this when you wait on a long run, a child's report is late, a Budget line is reached, you land or own lanes, landings fail across lanes, staff native workers or get a `north flow` alert.
+Read this when you wait on a long run, a child's report is late, a Budget line is reached, you land or own lanes, landings fail across lanes, staff native workers, or get a `north flow` alert or a `north watch:` message.
 
 ## Throughput
 
@@ -18,6 +18,7 @@ Read this when you wait on a long run, a child's report is late, a Budget line i
 
 ## Landing
 
+- Act on a `north watch:` message at once: it names a red main, a stalled or re-queued landing, a refused push or a runtime not live on a lane you own, and it repeats every 10 minutes until a `cleared` line, because a one-minute landing hiccup otherwise goes unseen for half an hour.
 - Batch ready lanes into one landing.
 - When landings fail across many lanes for one infrastructure refusal (as the worker definitions list it), hold new landings, move checks off the failing runner onto a warm build host, and land the ready lanes as one train; never let each worker retry its own, because per-lane retries keep GitHub's secondary limit tripped (north docs/rationale/landing-train.md, "Incident, 2026-11-04: landing storm").
 - Land as [notes](notes.md#landing-mechanics) describes for Autoland and other repositories. Lane lifecycle and `lane-gc` belong to `repo-safety`; every unlanded lane `lane-gc` keeps shows in its lead's tick as an `OWNED` row, which the lead continues, lands or archives, and a lead holding more than 25, or any older than 72 h, gets a supply-alert.

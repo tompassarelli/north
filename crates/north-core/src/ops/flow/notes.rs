@@ -53,3 +53,12 @@ pub fn brief_coverage(places: &Places) -> Option<usize> {
     let rows = sqlite::rows(&places.ledger, Access::ReadOnly, Duration::from_secs(10), query).ok()?;
     Some(rows.iter().filter(|row| covered(row)).count())
 }
+
+pub fn watch_silent(places: &Places, now: f64, limit: f64) -> Option<Option<f64>> {
+    let beat = std::fs::read_to_string(places.state.join("north/watch/heartbeat")).ok().and_then(|text| text.trim().parse::<f64>().ok());
+    match beat {
+        Some(at) if now - at <= limit => None,
+        Some(at) => Some(Some(now - at)),
+        None => Some(None),
+    }
+}

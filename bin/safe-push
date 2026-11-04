@@ -17,6 +17,28 @@ read -r self_pid _ </proc/self/stat
 safe_push_started_ms=$(( ${EPOCHREALTIME//./} / 1000 ))
 safe_push_started_at=$(date -u +%FT%T.%3NZ)
 set -euo pipefail
+json_text() {
+  local text="${1//\\/\\\\}"
+  text="${text//\"/\\\"}"
+  printf '%s' "${text//[$'\001'-$'\037']/ }"
+}
+
+safe_push_event() {
+  local dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push" repository="${origin_url:-${lock_url:-}}" lane="${branch:-}" sha="${head_oid:-}"
+  repository="${repository##*/}"
+  if [ -n "${lock_url:-}" ] && [ -z "$lane" ]; then
+    lane=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+    sha=$(git rev-parse -q --verify HEAD 2>/dev/null || true)
+  fi
+  { mkdir -p "$dir" && printf '{"time":%s,"repo":"%s","lane":"%s","sha":"%s","stage":"%s","status":"%s","detail":"%s","seconds":%s,"pid":%s,"session":"%s","host":"%s"}\n' \
+    "$EPOCHREALTIME" "$(json_text "${repository%.git}")" "$(json_text "$lane")" "$sha" "$(json_text "$1")" "$2" "$(json_text "${3:-}")" "${4:-0}" "$self_pid" \
+    "$(json_text "${NORTH_FLEET_SESSION:-}")" "$(json_text "${HOSTNAME:-}")" >>"$dir/events.jsonl"; } 2>/dev/null || true
+  local watcher="${SAFE_PUSH_WATCH:-$HOME/.local/state/north/current/north}"
+  [ -z "${SAFE_PUSH_TEST_REAL_NORTH:-}" ] || watcher="${SAFE_PUSH_WATCH:-}"
+  case "$2" in
+    refused|failed) [ -x "$watcher" ] && setsid -f "$watcher" watch --once >/dev/null 2>&1 </dev/null || true ;;
+  esac
+}
 
 safe_push_terminal() {
   local status="${1:-$?}" terminal_sha="" terminal_reason
@@ -27,6 +49,7 @@ safe_push_terminal() {
   fi
   if [ "${safe_push_internal:-0}" = 1 ] || [ "${safe_push_help:-0}" = 1 ]; then exit "$status"; fi
   if [ "${safe_push_timed_out:-0}" -eq 1 ]; then
+    safe_push_event exit failed "timed out after ${safe_push_timeout_minutes:-180}m (run ${safe_push_run_url:-unknown})"
     local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
     if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result timeout '' '' "${safe_push_timeout_minutes:-180}" "${safe_push_run_url:-unknown}"; then exit 2; fi
     printf 'safe-push: timed out after %sm (run %s)\n' "${safe_push_timeout_minutes:-180}" "${safe_push_run_url:-unknown}"
@@ -53,6 +76,7 @@ safe_push_terminal() {
       exit 0
     fi
     if [ -n "$terminal_sha" ]; then
+      safe_push_event exit landed "$terminal_sha"
       local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
       if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result landed "$terminal_sha" '' 0 ''; then exit 0; fi
       printf 'safe-push: landed %s\n' "$terminal_sha"
@@ -60,6 +84,7 @@ safe_push_terminal() {
     fi
   fi
   terminal_reason="${safe_push_refusal:-safe-push did not land}"
+  safe_push_event exit refused "$terminal_reason"
   local north_runtime="${SAFE_PUSH_TEST_REAL_NORTH:-$HOME/.local/state/north/current/north}"
   if [ -x "$north_runtime" ] && "$north_runtime" safe-push-result refused '' "$terminal_reason" 0 ''; then exit 1; fi
   printf 'safe-push: refused %s\n' "$terminal_reason"
@@ -83,7 +108,7 @@ trap safe_push_exit EXIT
 drop_land_branch() { SAFE_PUSH_ACTIVE=1 git push -q --no-verify --force-with-lease="refs/heads/$1:$2" origin ":refs/heads/$1"; }
 safe_push_cancel() {
   trap - INT TERM HUP
-  [ -z "${safe_push_child:-}" ] || kill -TERM "$safe_push_child" 2>/dev/null || true
+  [ -z "${safe_push_child:-}" ] || kill -TERM $safe_push_child 2>/dev/null || true
   [ -z "${autoland_reply:-}" ] || rm -f -- "$autoland_reply"
   [ -z "${queue_branch:-}" ] || printf 'safe-push: stopped; %s stays queued for Autoland once pushed (safe-push --to main again waits on it without re-checking; safe-push abandon withdraws it)\n' "$queue_branch"
   exit 130
@@ -290,6 +315,7 @@ stage() {
   printf 'safe-push: stage %s: %s.%03d s (+%s.%03d s since start)\n' "$1" $(( (now - safe_push_stage_ms) / 1000 )) $(( (now - safe_push_stage_ms) % 1000 )) $(( (now - safe_push_started_ms) / 1000 )) $(( (now - safe_push_started_ms) % 1000 ))
   local repository="${origin_url:-}"; repository="${repository##*/}"; mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push" 2>/dev/null || true
   { printf '%s\t%s\t%s\t%s\t%s\t%s\n' $((safe_push_started_ms / 1000)) "${repository%.git}" "${branch:-}" "$1" $((now - safe_push_stage_ms)) $((now - safe_push_started_ms)) >>"${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/stages.tsv"; } 2>/dev/null || true
+  safe_push_event "$1" end "" "$(( (now - safe_push_stage_ms) / 1000 )).$(( (now - safe_push_stage_ms) % 1000 / 100 ))"
   safe_push_stage_ms=$now
 }
 
@@ -1040,6 +1066,21 @@ land_offload_host() {
   printf '%s\n' "$host"
 }
 
+land_cache_class() {
+  [ -n "$workflow" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$1" "$head" && echo actions || echo "${SAFE_PUSH_LAND_OFFLOAD_HOST:-local}"
+}
+
+land_cache_reused() {
+  local line
+  line=$(north land-cache hit --repo "$root" --head "$head" --command "$1" --host-class "$(land_cache_class "$1")" 2>/dev/null) && [ -n "$line" ] && printf "safe-push: %s\n" "$line"
+}
+
+land_cache_record() {
+  local status="$1" command
+  shift
+  for command; do north land-cache record --repo "$root" --head "$head" --command "$command" --host-class "$(land_cache_class "$command")" --status "$status" >/dev/null 2>&1 || true; done
+}
+
 land_check_runner() {
   local seconds="$1"
   shift
@@ -1047,23 +1088,97 @@ land_check_runner() {
   [ -z "${SAFE_PUSH_LAND_CAPACITY:-}" ] || runner=(bash -euo pipefail -c "exec $SAFE_PUSH_LAND_CAPACITY \"\$@\"" safe-push-capacity "${runner[@]}")
 }
 
-run_land_checks() {
-  local base="$1" head="$2" command status root log_dir log
+land_runner_host() {
+  [ "$1" = build-host ] || { printf '%s\n' "$1"; return 0; }
+  north capacity offload choose --any || printf 'safe-push: no build host has room; the land checks run on this host under the land-check capacity lease\n' >&2
+}
+
+land_check_offload_host() {
+  [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] || { printf '%s\n' "$SAFE_PUSH_LAND_OFFLOAD_HOST"; return 0; }
+  [ -n "$runner_host" ] && ! land_check_is_local_only "$1" "$head" && printf '%s\n' "$runner_host"
+}
+
+run_land_check_list() {
+  local command pid status=0 children=${safe_push_child:-}
+  local -a pids=()
+  for command in "$@"; do
+    land_check_offload_host "$command" >/dev/null || continue
+    (drop_lock_fd; safe_push_child=""; trap 'kill -TERM $safe_push_child 2>/dev/null; exit 130' TERM; run_land_check "$command") &
+    pids+=("$!")
+    safe_push_child="$children ${pids[*]}"
+  done
+  for command in "$@"; do
+    land_check_offload_host "$command" >/dev/null || run_land_check "$command" || { status=$?; [ "$failed" -ne 0 ] || failed=$status; }
+  done
+  for pid in "${pids[@]}"; do
+    wait "$pid" || { status=$?; [ "$failed" -ne 0 ] || failed=$status; }
+  done
+  safe_push_child=$children
+}
+
+run_land_check() {
+  local command="$1" status log_dir log offload_host children=${safe_push_child:-} reason
   local stdout_fd stderr_fd stdout_pid stderr_pid
+  land_check_root=$root
+  if [ -n "$workflow" ] && reason=$(land_check_local_reason "$command" "$head"); then
+    printf "safe-push: land check runs on this host because it %s\n" "$reason"
+  fi
+  local -a runner
+  land_check_runner "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" bash -euo pipefail -c "$command"
+  if offload_host=$(land_check_offload_host "$command"); then
+    if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && land_check_is_local_only "$command" "$head"; then
+      printf 'safe-push: land check %s needs this host, which is in game-reserve; NOT pushed.\n' "$command" >&2
+      return 1
+    fi
+    SAFE_PUSH_LAND_CAPACITY=${SAFE_PUSH_LAND_OFFLOAD_HOST:+$SAFE_PUSH_LAND_CAPACITY} land_check_runner "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" north capacity offload run --host "$offload_host" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command"
+    printf "safe-push: offloading to %s%s\n" "$offload_host" "${SAFE_PUSH_LAND_OFFLOAD_HOST:+ while this host is in game-reserve}"
+  fi
+  log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
+  mkdir -p "$log_dir"
+  log_dir=$(cd "$log_dir" && pwd -P)
+  find "$log_dir" -name 'land-check-*.log' -mtime +14 -delete
+  log=$(mktemp "$log_dir/land-check-XXXXXXXXXX.log")
+  printf 'safe-push: land check: %s\n' "$command"
+  exec {stdout_fd}> >(drop_lock_fd; tee -a "$log")
+  stdout_pid=$!
+  exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
+  stderr_pid=$!
+  status=0
+  (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" SAFE_PUSH_LAND_REF="$published" SAFE_PUSH_LANDING=1 "${runner[@]}") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
+  safe_push_child="$children $!"
+  wait "$!" || status=$?
+  safe_push_child=$children
+  exec {stdout_fd}>&- {stderr_fd}>&-
+  reap_log_pipes "$stdout_pid" "$stderr_pid"
+  if [ "$status" -ne 0 ]; then
+    printf 'safe-push: land check %s exited %s; log: %s; NOT pushed.\n' "$command" "$status" "$log" >&2
+    land_cache_record "$status" "$command"
+    safe_push_event "land check" failed "$command; log: $log"
+    return "$status"
+  fi
+  land_cache_record 0 "$command"
+  rm -f -- "$log"
+}
+
+run_land_checks() {
+  local base="$1" head="$2" command root
   root=$(git rev-parse --show-toplevel)
   [ "${destination_branch:-${to:-}}" = main ] || return 0
   has_land_checks || return 0
   land_check_skip=""
+  safe_push_event "land checks" wait
   sync_dependencies || { land_check_skip="skipped: bun install failed"; return 1; }
   land_commands=()
   land_check_commands "$base" "$head" || return 1
   local workflow actions_pid="" actions_status=0 reason failed=0 published="" actions_log
   local -a here=() on_actions=()
-  local runner_host offload_host
+  local land_runner runner_host=""
   workflow=$(land_workflow "$head")
-  runner_host=${SAFE_PUSH_LAND_RUNNER-$(git config --blob "$head:.safe-push" --get land.runner 2>/dev/null || true)}
+  land_runner=${SAFE_PUSH_LAND_RUNNER-$(git config --blob "$head:.safe-push" --get land.runner 2>/dev/null || true)}
+  [ -z "$land_runner" ] || runner_host=$(land_runner_host "$land_runner")
   for command in "${land_commands[@]}"; do
-    if [ -n "$workflow" ] && [ -z "$runner_host" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$command" "$head"; then
+    land_cache_reused "$command" && continue
+    if [ -n "$workflow" ] && [ -z "$land_runner" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$command" "$head"; then
       on_actions+=("$command")
     else
       here+=("$command")
@@ -1082,58 +1197,23 @@ run_land_checks() {
       || { printf 'safe-push: could not publish %s to origin %s for the land checks; NOT pushed.\n' "$head" "$published" >&2; return 1; }
     printf 'safe-push: published %s to origin %s for the land checks\n' "${head:0:12}" "$published"
   fi
-  for command in "${here[@]}"; do
-    land_check_root=$root
-    if [ -n "$workflow" ] && reason=$(land_check_local_reason "$command" "$head"); then
-      printf "safe-push: land check runs on this host because it %s\n" "$reason"
-    fi
-    local -a runner
-    land_check_runner "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" bash -euo pipefail -c "$command"
-    offload_host=${SAFE_PUSH_LAND_OFFLOAD_HOST:-}
-    [ -n "$offload_host" ] || land_check_is_local_only "$command" "$head" || offload_host=$runner_host
-    if [ -n "$offload_host" ]; then
-      if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && land_check_is_local_only "$command" "$head"; then
-        printf 'safe-push: land check %s needs this host, which is in game-reserve; NOT pushed.\n' "$command" >&2
-        return 1
-      fi
-      land_check_runner "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" north capacity offload run --host "$offload_host" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command"
-      printf "safe-push: offloading to %s%s\n" "$offload_host" "${SAFE_PUSH_LAND_OFFLOAD_HOST:+ while this host is in game-reserve}"
-    fi
-    log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-    mkdir -p "$log_dir"
-    log_dir=$(cd "$log_dir" && pwd -P)
-    find "$log_dir" -name 'land-check-*.log' -mtime +14 -delete
-    log=$(mktemp "$log_dir/land-check-XXXXXXXXXX.log")
-    printf 'safe-push: land check: %s\n' "$command"
-    exec {stdout_fd}> >(drop_lock_fd; tee -a "$log")
-    stdout_pid=$!
-    exec {stderr_fd}> >(exec {stdout_fd}>&-; drop_lock_fd; tee -a "$log" >&2)
-    stderr_pid=$!
-    status=0
-    (drop_lock_fd; cd "$root"; SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD="$head" SAFE_PUSH_LAND_REF="$published" SAFE_PUSH_LANDING=1 "${runner[@]}") >&"$stdout_fd" 2>&"$stderr_fd" {stdout_fd}>&- {stderr_fd}>&- &
-    safe_push_child=$!
-    wait "$safe_push_child" || status=$?
-    safe_push_child=""
-    exec {stdout_fd}>&- {stderr_fd}>&-
-    reap_log_pipes "$stdout_pid" "$stderr_pid"
-    if [ "$status" -ne 0 ]; then
-      printf 'safe-push: land check %s exited %s; log: %s; NOT pushed.\n' "$command" "$status" "$log" >&2
-      [ "$failed" -ne 0 ] || failed=$status
-      continue
-    fi
-    rm -f -- "$log"
-  done
+  run_land_check_list "${here[@]}"
   if [ -n "$published" ] && ! SAFE_PUSH_ACTIVE=1 git push -q --no-verify origin ":refs/heads/$published"; then
     printf 'safe-push: could not delete origin %s\n' "$published" >&2
   fi
   if [ -n "$actions_pid" ]; then
     wait "$actions_pid" || actions_status=$?
-    if [ "$actions_status" -ne 0 ]; then
+    if [ "$actions_status" -eq 75 ]; then
+      printf "safe-push: GitHub Actions is unavailable (infrastructure, not a check failure); its %s land check(s) run on a build host\n" "${#on_actions[@]}"
+      runner_host=$(land_runner_host build-host)
+      run_land_check_list "${on_actions[@]}"
+    elif [ "$actions_status" -ne 0 ]; then
       printf "safe-push: land checks on GitHub Actions exited %s; NOT pushed.\n" "$actions_status" >&2
-      [ "$actions_status" -ne 75 ] || land_check_skip="not run: GitHub rejected the land-check ref push twice (infrastructure, not a check failure)"
+      safe_push_event "land checks on GitHub Actions" failed "exit $actions_status"
       [ "$failed" -ne 0 ] || failed=$actions_status
       [ -n "${red_fix:-}" ] || red_main_check "$base" "$actions_log"
     fi
+    land_cache_record "$actions_status" "${on_actions[@]}"
     rm -f -- "$actions_log"
   fi
   return "$failed"
@@ -1435,6 +1515,7 @@ push_lock_fd=""
 push_lock_taken=""
 push_ticket=""
 push_ticket_info=""
+solo_check_head=""; solo_check_base=""; solo_check_started=0; solo_check_finished=0
 red_fix=""
 requeued=0
 finish_push() {
@@ -1448,6 +1529,42 @@ live_safe_push() {
 drop_lock_fd() {
   [ "$BASHPID" != "$$" ] && [ -n "$push_lock_fd" ] || return 0
   exec {push_lock_fd}>&-
+}
+
+# Ledger records of the landing tempo (north#255 B12): written in the background so a slow or unreachable ledger host never holds the landing lock.
+land_train() {
+  command -v north >/dev/null 2>&1 || return 0
+  (drop_lock_fd; north land-train "$@" >/dev/null 2>&1) &
+  disown 2>/dev/null || true
+}
+
+land_repo_name() {
+  local name="${origin_url:-}"; name="${name##*/}"; printf '%s\n' "${name%.git}"
+}
+
+ticket_queued_at() {
+  local name="${1##*/}"
+  name="${name%-*}"
+  [[ "$name" =~ ^[0-9]+$ ]] || { printf '%s\n' "$EPOCHSECONDS"; return 0; }
+  [ "${#name}" -le 16 ] || name="${name:1}"
+  printf '%s\n' "${name%??????}"
+}
+
+# One landings row for a lane that did not go through the train: queued when its ticket was taken, else when safe-push started.
+record_solo_lane() {
+  local queued="$((safe_push_started_ms / 1000))" landed=()
+  [ -z "$push_ticket" ] || queued=$(ticket_queued_at "$push_ticket")
+  [ "$1" != landed ] || landed=(--landed-at "$EPOCHSECONDS" --landed-sha "$2")
+  land_train record --repo "$(land_repo_name)" --lane "$(basename "$(git rev-parse --show-toplevel)")" --branch "${branch:-}" --tip "$2" \
+    --queued-at "$queued" --candidate "$2" --tree "$(git rev-parse "$2^{tree}" 2>/dev/null)" --batch-size 1 --bisect-depth 0 \
+    --attempts "${attempt:-1}" --verdict "$1" --detail "${3:-}" --by "${NORTH_FLEET_SESSION:-}" "${landed[@]}"
+}
+
+# One land_checks row for the pre-push run on a lone lane; recorded again as `moved` when origin moved and the run was thrown away.
+record_solo_check() {
+  [ -n "${solo_check_head:-}" ] || return 0
+  land_train check --repo "$(land_repo_name)" --candidate "$solo_check_head" --tree "$(git rev-parse "$solo_check_head^{tree}" 2>/dev/null)" \
+    --base "${solo_check_base:-}" --batch-size 1 --bisect-depth 0 --started-at "$solo_check_started" --finished-at "$solo_check_finished" --outcome "$1"
 }
 
 red_fix_issue() {
@@ -1502,6 +1619,7 @@ acquire_push_lock() {
     push_ticket="$queue/${red_fix:+0}${EPOCHREALTIME/./}-$self_pid"
     printf '%s' "$push_ticket_info" >"$push_ticket"
   fi
+  safe_push_event "landing lock queue" wait "$url"
   exec {push_lock_fd}>>"$file"
   while take_train_result; [ "$(first_ticket "$queue")" != "$push_ticket" ] || ! flock -n "$push_lock_fd"; do
     if [ $((waited % 300)) -eq 0 ]; then
@@ -1521,6 +1639,7 @@ acquire_push_lock() {
   printf 'pid %s in %s\n' "$self_pid" "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" >"$file"
   export SAFE_PUSH_LOCK_HELD="$key"
   push_lock_taken=$EPOCHREALTIME
+  safe_push_event "landing lock" start
 }
 
 unlock_push_lock() {
@@ -1540,6 +1659,7 @@ release_push_lock() {
 }
 
 requeue_behind_red_fix() {
+  safe_push_event "landing lock queue" retry "behind a red-fix lane"
   printf 'safe-push: a lane that fixes red %s is queued; this lane waits behind it\n' "$to"
   unlock_push_lock
   requeued=1
@@ -1678,17 +1798,20 @@ check_candidate() {
 }
 
 run_train() {
-  local hook="$1" own_branch own_root own_oid base cand verdict detail i n half cherry picked_onto
+  local hook="$1" own_branch own_root own_oid base cand verdict detail i n half cherry picked_onto depth=0 tree check_started
+  safe_push_event "landing train" wait
   local -a roots=() branches=() oids=() tickets=() sessions=() pending=() group=() rest=()
-  local -a results=()
+  local -a results=() queued=() attempts=() batch_of=() depth_of=() cand_of=() tree_of=()
   own_root=$(git rev-parse --show-toplevel)
   own_branch=$(git symbolic-ref --quiet --short HEAD)
   own_oid=$(git rev-parse HEAD)
   roots+=("$own_root"); branches+=("$own_branch"); oids+=("$own_oid"); tickets+=(""); sessions+=("${NORTH_FLEET_SESSION:-}")
+  queued+=("$(ticket_queued_at "${push_ticket:-}")")
   for i in "${train_tickets[@]}"; do
     local root branch_name oid session
     IFS=$'\t' read -r root branch_name oid session <"$i" || true
     tickets+=("$i"); roots+=("$root"); branches+=("$branch_name"); oids+=("$oid"); sessions+=("$session")
+    queued+=("$(ticket_queued_at "$i")")
   done
   n=${#oids[@]}
   base=$(fetch_destination) || exit 1
@@ -1705,7 +1828,17 @@ run_train() {
   train_verdict() {
     results[$1]="$2 $3 ${oids[$1]}"
     printf 'safe-push: train lane %s (%s): %s %s\n' "${branches[$1]}" "${oids[$1]}" "$2" "$3"
+    local landed=()
+    [ "$2" != landed ] || landed=(--landed-at "$EPOCHSECONDS" --landed-sha "$3")
+    land_train record --repo "$(land_repo_name)" --lane "$(basename "${roots[$1]}")" --branch "${branches[$1]}" --tip "${oids[$1]}" \
+      --queued-at "${queued[$1]}" --candidate "${cand_of[$1]:-}" --tree "${tree_of[$1]:-}" --batch-size "${batch_of[$1]:-0}" \
+      --bisect-depth "${depth_of[$1]:-0}" --attempts "${attempts[$1]:-0}" --verdict "$2" --detail "$3" --by "${sessions[$1]}" "${landed[@]}"
     [ -z "${tickets[$1]}" ] || printf '%s\n' "${results[$1]}" >"${tickets[$1]}.result"
+  }
+
+  train_check() {
+    land_train check --repo "$(land_repo_name)" --candidate "$cand" --tree "$tree" --base "$base" --batch-size "${#group[@]}" \
+      --bisect-depth "$depth" --started-at "$check_started" --finished-at "$EPOCHSECONDS" --outcome "$1"
   }
 
   for ((i = 0; i < n; i++)); do
@@ -1724,6 +1857,7 @@ run_train() {
 
   while [ "${#pending[@]}" -gt 0 ]; do
     group=("${pending[@]}")
+    depth=0
     while :; do
       if red_fix_waiting; then break 2; fi
       base=$(fetch_destination) || exit 1
@@ -1751,18 +1885,25 @@ run_train() {
       done
       [ "$built" -eq 1 ] || { [ "${#group[@]}" -gt 0 ] && continue || break; }
       cand=$(git rev-parse HEAD)
+      tree=$(git rev-parse "HEAD^{tree}")
+      check_started=$EPOCHSECONDS
+      for i in "${group[@]}"; do
+        attempts[i]=$(( ${attempts[i]:-0} + 1 )); batch_of[i]=${#group[@]}; depth_of[i]=$depth; cand_of[i]=$cand; tree_of[i]=$tree
+      done
       printf 'safe-push: train candidate %s carries %s lanes; running the pre-push checks on it\n' "$cand" "${#group[@]}"
       if detail=$(check_candidate "$hook" "$base" "$log" "$cand"); then
         local pushed_at=$EPOCHSECONDS
         if [ "$(remote_destination_snapshot)" = "object:$base" ] \
             && SAFE_PUSH_ACTIVE=1 git push -q --no-verify --no-follow-tags --force-with-lease="$destination_ref:$base" \
               "$origin_url" "$cand:$destination_ref"; then
+          train_check pass
           for i in "${group[@]}"; do
             record_push "$pushed_at" "${branches[i]}" "${oids[i]}" "$(trunk_landing "$to" "$cand")" "${sessions[i]}"
             train_verdict "$i" landed "$cand"
           done
           spawn_after_landing_gates "$base" "$cand"
         else
+          train_check moved
           for i in "${group[@]}"; do train_verdict "$i" failed "origin-$to-moved"; done
         fi
         rest=()
@@ -1770,12 +1911,14 @@ run_train() {
         pending=("${rest[@]}")
         break
       fi
+      train_check fail
       if [ "${#group[@]}" -eq 1 ]; then
         train_verdict "${group[0]}" failed "$detail"
         pending=($(without "${group[0]}" "${pending[@]}"))
         break
       fi
       half=$(( (${#group[@]} + 1) / 2 ))
+      depth=$((depth + 1))
       group=("${group[@]:0:half}")
       echo "safe-push: train candidate failed; re-running the checks on its first $half lanes"
     done
@@ -1876,6 +2019,7 @@ pre_push_hook() {
 }
 
 run_pre_push_checks() {
+  safe_push_event "pre-push checks" wait
   run_language_gate "$2" "$(git rev-parse HEAD)" || exit $?
   run_pre_push_hook "$1" "$2"
 }
@@ -1886,6 +2030,7 @@ run_pre_push_hook() {
   head=$(git rev-parse HEAD)
   local_ref=$(git symbolic-ref --quiet HEAD)
   top=$(git rev-parse --show-toplevel)
+  solo_check_head=$head; solo_check_base=$base; solo_check_started=$EPOCHSECONDS
   zero=$(printf '%0*d' "${#head}" 0)
   if [ -n "$push_lock_fd" ]; then
     echo "safe-push: running the pre-push checks on $head under the landing lock"
@@ -1897,9 +2042,14 @@ run_pre_push_hook() {
       | "$hook" origin "$lock_url") &
   safe_push_child=$!
   if ! wait "$safe_push_child"; then
+    solo_check_finished=$EPOCHSECONDS
+    record_solo_check fail
+    record_solo_lane failed "$head" pre-push-checks
     echo "safe-push: ✗ the pre-push checks failed; NOT pushed." >&2
     exit 1
   fi
+  solo_check_finished=$EPOCHSECONDS
+  record_solo_check pass
   safe_push_child=""
 }
 
@@ -2005,6 +2155,7 @@ withdraw_older_land_branches() {
 
 land_through_autoland() {
   local lane sha queue_branch autoland_reply line state description url wait_status=0 landed limit="${SAFE_PUSH_AUTOLAND_WAIT_SECONDS:-10800}"
+  safe_push_event autoland wait
   lane=$(git symbolic-ref --quiet --short HEAD)
   sha=$(git rev-parse HEAD)
   if [ "$(git ls-remote origin "refs/heads/$(queue_branch_for "$lane" "$sha")" 2>/dev/null | cut -f1)" = "$sha" ]; then
@@ -2217,12 +2368,14 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
         hook_verified=1
         break
       fi
+      record_solo_check moved
       if [ "$attempt" -ge 3 ]; then
         echo "safe-push: origin $to changed this change's files during $attempt check runs — running the checks under the landing lock"
         rebase_onto_destination "$(fetch_destination)"
         break
       fi
       echo "safe-push: origin $to changed this change's files during the checks — re-running them ($attempt/3)"
+      safe_push_event "pre-push checks" retry "origin $to changed this change's files ($attempt/3)"
       [ "$queued" -eq 1 ] || release_push_lock
       attempt=$((attempt + 1))
     done
@@ -2303,6 +2456,7 @@ while :; do
     capture_destination_state
     break
   fi
+  safe_push_event "land checks" retry "origin main changed this change's files"
   release_push_lock
   acquire_push_lock "$lock_url"
   rebase_onto_destination "$(fetch_destination)"
@@ -2329,6 +2483,7 @@ if [ -n "$final_scans_pid" ] && [ "$final_scans_head" = "$head_oid" ] && [ "$fin
   stage "dependency gate and scans (ran beside the land checks)"
 else
   stop_final_scans
+  safe_push_event "dependency gate and scans" wait
   final_scans || final_scans_status=$?
   collect_final_scans "$final_scans_status"
   stage "dependency gate and scans"
@@ -2356,11 +2511,20 @@ if [ "$hook_verified" -eq 0 ] && ! sync_dependencies; then
   exit 1
 fi
 pushed_at=$EPOCHSECONDS
+push_errors=$(mktemp) push_status=0
 (drop_lock_fd; SAFE_PUSH_ACTIVE=1 git push --no-follow-tags "${push_flags[@]}" \
   "${publication_flags[@]}" \
-  "$origin_url" "$publication")
+  "$origin_url" "$publication") 2> >(drop_lock_fd; tee "$push_errors" >&2) || push_status=$?
+wait "$!" 2>/dev/null || true
+if [ "$push_status" -ne 0 ]; then
+  safe_push_event push failed "git push exited $push_status: $(tail -c 400 "$push_errors")"
+  rm -f -- "$push_errors"
+  exit "$push_status"
+fi
+rm -f -- "$push_errors"
 record_push "$pushed_at" "$([ "$destination_branch" = main ] && printf '%s' "$branch" || printf '%s' "$destination_branch")" "$head_oid" \
   "$(trunk_landing "$destination_branch" "$head_oid")" "${NORTH_FLEET_SESSION:-}"
+[ "$destination_branch" != "$(default_branch)" ] || record_solo_lane landed "$head_oid"
 release_push_lock
 stage "push"
 if [ "$to_seen" -eq 0 ]; then

@@ -7,12 +7,13 @@ mod destinations;
 pub mod room;
 pub mod ship;
 
-const USAGE: &str = "usage: north capacity offload choose | cost | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
+const USAGE: &str = "usage: north capacity offload choose [--any] | cost | run --host NAME --base BASE --head HEAD --timeout SECONDS -- COMMAND";
 
 pub fn run(arguments: &[String]) -> u8 {
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["choose"] => choose(),
+        ["choose"] => choose(false),
+        ["choose", "--any"] => choose(true),
         ["cost"] => cost(),
         ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
             let Ok(timeout_seconds) = seconds.parse() else { return usage() };
@@ -112,8 +113,8 @@ fn cost() -> u8 {
     code
 }
 
-fn choose() -> u8 {
-    if !in_game_reserve() {
+fn choose(any: bool) -> u8 {
+    if !any && !in_game_reserve() {
         eprintln!("north capacity offload: this host is not in game-reserve, so the land check runs here");
         return 1;
     }

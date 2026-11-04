@@ -65,6 +65,7 @@ cherry-picked, runs the hook once on that exact tree, pushes it with
 | Train of queued lanes, bisect by halves | delivered |
 | Already-landed lane counts as landed; red-fix lanes first | delivered |
 | Train candidate checked by the land checks, so a repository with land checks batches instead of every lane re-running its own (fixed 2026-11-04: land checks had sent such repositories around the train) | delivered |
+| Land-check runner picked automatically: `land.runner = build-host` resolves through orchestration.toml's hosts to a build host with room and starts its portable checks there at once, local-only checks run here meanwhile; an Actions exit 75 (dispatch refused with 403, 429 or 5xx, run never appeared, run queued past 600 s, ref push rejected twice) re-runs the same checks on a build host with room, or here under the land-check capacity lease when none has room; only that code falls back, a check failure on any runner refuses the landing. The remote verdict gates, the local candidate is what is pushed (fixed 2026-11-04 after GitHub's dispatch limit refused every north landing for about an hour) | delivered |
 | Queue owned by the system on an always-on host (today the lock holder is a worker's turn on whichever host) | remains: Wave 2 |
 | Base-relative judge per test case | remains: Wave 1 |
 | Full suite with inputs outside the tree pinned | remains: Waves 0-1 |
@@ -165,6 +166,9 @@ and run as a service.
     (sha, red_at, green_at, cause, cases, revert_sha) in the Nexus threads ledger, written first by
     safe-push's exact train and later by the lander; `north flow` prints finished-to-landed p50/p90,
     re-lands per lane, red-main minutes and bisect depth.
+    Built 2026-11-04: the tables are created by the first `north land-train` write (not bin/threads), carry a `repo`
+    column, and a third table `land_checks` records each check run so the share thrown away because main moved is
+    measured; `main_red` is written by `north land-train red`, which the Main-red marker work calls.
 16. **Speed.** (a) Actions results are reused by tree: land-check.yml is dispatched at main's ref with
     the tree's SHA as input, so no lane judges itself with an edited workflow, and such a run counts
     whoever dispatched it; a lane alone on an unmoved main lands on its queue-time run. (b) Machine-bound

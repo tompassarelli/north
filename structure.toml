@@ -64,7 +64,7 @@ may_use = ["fleet", "domain", "platform", "foundation", "crate-roots"]
 name = "guard"
 paths = ["crates/north-core/src/guard/**", "crates/north-core/src/hook.rs"]
 responsibility = "Tool-call policy over provider-neutral ToolCall values."
-may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "code_health", "shell", "domain", "platform", "foundation", "crate-roots"]
+may_use = ["ledger", "fleet", "autoland_status", "ops", "usage", "shell", "domain", "platform", "foundation", "crate-roots", "code_health"]
 
 [[module]]
 name = "threads"
@@ -80,7 +80,7 @@ may_use = ["platform", "foundation"]
 
 [[module]]
 name = "landing"
-paths = ["crates/north-landing/src/landing/**", "crates/north-landing/src/dep_gate.rs", "crates/north-landing/src/language_gate.rs", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/build_cache_gate_tests.rs", "crates/north-landing/src/language_gate/**", "crates/north-landing/src/provenance.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**"]
+paths = ["crates/north-landing/src/landing/**", "crates/north-landing/src/dep_gate.rs", "crates/north-landing/src/language_gate.rs", "crates/north-landing/src/build_cache_gate.rs", "crates/north-landing/src/build_cache_gate_tests.rs", "crates/north-landing/src/language_gate/**", "crates/north-landing/src/provenance.rs", "crates/north-landing/src/issue_box_lint.rs", "crates/north-landing/src/land_abandon.rs", "crates/north-landing/src/land_abandon/**", "crates/north-landing/src/follows_release.rs", "crates/north-landing/src/land/**", "crates/north-landing/src/watch/**"]
 responsibility = "Landing to main and its gates: dependency, language, provenance, boxes, autoland, follows."
 may_use = ["shell", "autoland_status", "threads", "domain", "platform", "foundation", "crate-roots"]
 

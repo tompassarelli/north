@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use crate::landing::{after_landing, bin_references, denylist, land_actions, merge_set, red_check, land_test_runner, landed_tree, lane_squash, lane_target, mutant_cli, safe_push_tag, stale_revert};
+use crate::landing::{after_landing, bin_references, denylist, land_actions, land_cache, merge_set, red_check, land_test_runner, landed_tree, lane_squash, lane_target, mutant_cli, safe_push_tag, stale_revert};
 use crate::ops::timers::{self, Timer};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
@@ -20,6 +20,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("land-abandon", |arguments| land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)),
     ("land", crate::land::run),
     ("land-clean", lane_target::run),
+    ("land-train", land_train),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
     ("lane-squash", lane_squash::run),
@@ -30,6 +31,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("land-actions", land_actions::run),
     ("land-red-check", red_check::run),
     ("land-red-wait", red_check::wait),
+    ("land-cache", land_cache::run),
     ("safe-push-result", super::safe_push_result::run),
     ("watch", crate::ops::watch::run),
     ("safe-push", safe_push_tag::run),
@@ -61,6 +63,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("brief", crate::guard::brief_skeleton::run),
     ("ops", crate::ops::run),
     ("private-check", crate::ops::private_check::run),
+    ("watch", crate::watch::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -148,6 +151,11 @@ impl Tool {
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),
         }
     }
+}
+
+fn land_train(arguments: &[String]) -> u8 {
+    let words: Vec<String> = std::iter::once("land-train".to_owned()).chain(arguments.iter().cloned()).collect();
+    crate::threads::client::run(&words, std::sync::Arc::new(crate::threads::outside::Unread))
 }
 
 fn citation_check(arguments: &[String]) -> u8 {

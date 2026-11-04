@@ -366,7 +366,7 @@ fn settings(home: &Path, hooks: &[&Path]) {
 }
 
 #[test]
-fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue_and_tells_its_session_and_the_proxy_once() {
+fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue_once_and_leaves_fleet_alerts_to_north_watch() {
     let host = Host::landed("Break the runtime-follow livelock (north#308)", Some("2026-10-29T12:00:00Z"));
     host.built_here(&host.target);
     host.built(PREVIOUS);
@@ -412,10 +412,10 @@ fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue
     let calls = fs::read_to_string(host.path("alerts")).unwrap();
     assert!(calls.contains(&format!("ssh broken .local/state/north/runtimes/{0}/north runtime update --sha {0}", host.target)), "{calls}");
     let alarms: Vec<&str> = calls.lines().filter(|line| line.starts_with("gh ") || line.starts_with("send ")).collect();
-    assert_eq!(alarms.len(), 4, "{calls}");
+    assert_eq!(alarms.len(), 2, "{calls}");
+    assert!(stdout.contains("north watch raises it to the proxy and the landing lane's lead"), "{stdout}");
     assert_eq!(alarms[0], "gh issue reopen 308");
     assert!(alarms[1].starts_with("gh issue comment 308 --body north landing ") && alarms[1].contains("generated-policy-guard.sh"), "{}", alarms[1]);
-    assert_eq!(&alarms[2..], ["send proxy", "send live-landing"]);
     let report: serde_json::Value = serde_json::from_str(&fs::read_to_string(host.path("state/north/runtime-settle.json")).unwrap()).unwrap();
     assert_eq!(report["landing"], host.target.as_str());
     assert_eq!(report["hosts"][1]["units"]["capacity-watchdog.service"], "active");
@@ -427,7 +427,7 @@ fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue
     let healed = host.north_with(&["runtime", "update"], &environment);
     assert!(healed.status.success(), "{}", String::from_utf8_lossy(&healed.stdout));
     let calls = fs::read_to_string(host.path("alerts")).unwrap();
-    assert_eq!(calls.lines().filter(|line| line.starts_with("gh ") || line.starts_with("send ")).count(), 4, "{calls}");
+    assert_eq!(calls.lines().filter(|line| line.starts_with("gh ") || line.starts_with("send ")).count(), 2, "{calls}");
 }
 
 #[test]

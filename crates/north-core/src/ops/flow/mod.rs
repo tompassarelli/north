@@ -6,13 +6,14 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
+use crate::threads::landing::tempo as landing;
 use alerts::stall_alert;
 use capacity::saturation_alert;
 use guards::actions_verdict;
 use host::{Host, Machine, Places, valid_name};
 use jobs::account_busy;
 use measure::{Env, get, project_targets};
-use notes::{brief_coverage, usage_stale};
+use notes::{brief_coverage, usage_stale, watch_silent};
 use render::format_row;
 
 mod alerts;
@@ -44,6 +45,7 @@ const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm]
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];
 const DEFAULT_REPOS: [&str; 4] = ["makgora", "wisp", "north", "makgora-client"];
 const USAGE_STALE_HOURS: f64 = 7.0;
+const WATCH_SILENT_SECONDS: f64 = 120.0;
 
 struct Options {
     json: bool,
@@ -82,6 +84,11 @@ fn announce(places: &Places, now: f64, options: &Options) {
     }
     if let Some(age) = usage_stale(places, now, USAGE_STALE_HOURS) {
         println!("agents flow: usage cache stale: claude-web.json last written {age:.0}h ago; usage-web-read runs every 6h");
+    }
+    match watch_silent(places, now, WATCH_SILENT_SECONDS) {
+        Some(Some(age)) => println!("landing watch: silent: north watch last finished a pass {age:.0} s ago (timer north-watch, every 30 s)"),
+        Some(None) => println!("landing watch: silent: north watch has never finished a pass on this host"),
+        None => {}
     }
     let covered = brief_coverage(places).map_or("unknown".into(), |covered| covered.to_string());
     println!("agents flow: tagged finished worker briefs {covered}/300 retrieval trigger; backtest requires >500");
@@ -156,6 +163,9 @@ pub fn run(arguments: &[String]) -> u8 {
     let now = Timestamp::now().unix_seconds_f64();
     let env = Env::new(&places, &machine, targets);
     let mut rows: Vec<Value> = seen.iter().map(|repo| get(&env, repo, now, &FIELDS)).collect();
+    for row in &mut rows {
+        row["landing"] = landing::tempo(&places.ledger, row["repo"].as_str().unwrap_or_default(), now).unwrap_or(Value::Null);
+    }
     let samples = account_busy(&places, &machine, now);
     for row in &mut rows {
         row["actions"] = json!(actions_verdict(row["pending"].as_u64(), &samples, now));
@@ -165,6 +175,9 @@ pub fn run(arguments: &[String]) -> u8 {
     } else {
         println!("{}", laptop_line(&machine));
         println!("{}", rows.iter().map(|row| format_row(row, None)).collect::<Vec<_>>().join("\n"));
+        for row in rows.iter().filter(|row| row["landing"].is_object()) {
+            println!("{}", landing::line(row["repo"].as_str().unwrap_or_default(), &row["landing"]));
+        }
     }
     announce(&places, now, &options);
     if options.alarm {

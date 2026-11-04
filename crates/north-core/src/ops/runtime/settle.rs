@@ -6,7 +6,7 @@ use super::update;
 use crate::ops::land_offload;
 use crate::platform::{host, process};
 use rustix::fs::{FlockOperation, flock};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::fs::{self, File};
 use std::path::Path;
 use std::process::Command;
@@ -127,43 +127,19 @@ fn issue(subject: &str) -> Option<&str> {
 fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) {
     let short = layout::short(&landing.sha);
     let text = format!("north landing {short} is not live and healthy on every host {}s after it landed: {}", probe::default_number("landing_live_deadline_sec"), failing.join(" | "));
-    let mut recipients = vec!["proxy".to_owned()];
     if let Some(number) = issue(&landing.subject) {
         let reopened = Command::new("gh").current_dir(checkout).args(["issue", "reopen", number]).status();
         let commented = Command::new("gh").current_dir(checkout).args(["issue", "comment", number, "--body", &text]).status();
         if !(reopened.is_ok_and(|status| status.success()) || commented.is_ok_and(|status| status.success())) {
             eprintln!("north runtime settle: could not reopen or comment on north#{number}");
         }
-        recipients.extend(working_on(&format!("north#{number}")));
     }
-    recipients.dedup();
-    for recipient in recipients {
-        let sent = Command::new("north").args(["fleet", "send", &recipient, &text]).status();
-        if !sent.is_ok_and(|status| status.success()) {
-            eprintln!("north runtime settle: alarm delivery to {recipient} failed");
-        }
-    }
-}
-
-fn working_on(task: &str) -> Vec<String> {
-    let Ok(output) = process::run("north", None, &["fleet", "list", "--json"]) else {
-        return Vec::new();
-    };
-    working_sessions(&serde_json::from_slice(&output.stdout).unwrap_or(Value::Null), task)
-}
-
-fn working_sessions(sessions: &Value, task: &str) -> Vec<String> {
-    let names = sessions.as_array().into_iter().flatten().filter(|session| {
-        let tasks = session["tasks"].as_array().into_iter().flatten().filter_map(Value::as_str);
-        session["status"] == "working" && tasks.chain(session["task_ref"].as_str()).any(|named| named == task)
-    });
-    names.filter_map(|session| session["name"].as_str().map(str::to_owned)).filter(|name| name != "proxy").collect()
+    println!("north runtime settle: {text}; north watch raises it to the proxy and the landing lane's lead");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{issue, landing_breakage, working_sessions};
-    use serde_json::json;
+    use super::{issue, landing_breakage};
 
     #[test]
     fn a_landing_names_its_issue_only_in_a_trailing_north_reference() {
@@ -171,18 +147,6 @@ mod tests {
         assert_eq!(issue("Admit heavy work past load"), None);
         assert_eq!(issue("Fix (north#) parsing"), None);
         assert_eq!(issue("Merge (north#12) follow-up"), None);
-    }
-
-    #[test]
-    fn an_alarm_reaches_only_sessions_still_working_on_the_landing_issue() {
-        let fleet = json!([
-            {"name": "builder", "status": "working", "tasks": ["north#9"], "task_ref": null},
-            {"name": "finished", "status": "exited", "tasks": ["north#9"], "task_ref": null},
-            {"name": "resting", "status": "parked", "tasks": [], "task_ref": "north#9"},
-            {"name": "elsewhere", "status": "working", "tasks": ["north#8"], "task_ref": null},
-            {"name": "proxy", "status": "working", "tasks": ["north#9"], "task_ref": null},
-        ]);
-        assert_eq!(working_sessions(&fleet, "north#9"), ["builder"]);
     }
 
     #[test]

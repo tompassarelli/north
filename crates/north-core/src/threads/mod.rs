@@ -7,6 +7,7 @@ pub mod ingest_lock;
 pub mod ingest_log;
 pub mod items;
 pub mod jobs;
+pub mod landing;
 pub mod outside;
 pub mod runs;
 pub mod snapshot;

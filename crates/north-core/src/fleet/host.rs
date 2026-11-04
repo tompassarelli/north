@@ -130,6 +130,10 @@ impl Host {
         for pid in pids {
             let _ = kill_process(pid, Signal::Kill);
         }
+        let deadline = Instant::now() + TERM_GRACE;
+        while tree.iter().any(|pid| alive(*pid)) && Instant::now() < deadline {
+            std::thread::sleep(POLL);
+        }
         Prior { unit: unit.trim().to_owned(), host }.remember(&self.dir)?;
         let _ = fs::remove_file(self.dir.join("host.scope"));
         Ok(())

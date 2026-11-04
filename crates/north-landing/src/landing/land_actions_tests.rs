@@ -41,3 +41,19 @@ fn an_ordinary_rejection_is_not_retried() {
     assert_eq!(run(vec![(false, STALE_INFO)]), (RefPush::Failed, 1, false));
     assert!(!transient_rejection("error: HTTP 404 not found"));
 }
+
+#[test]
+fn a_refused_or_stalled_dispatch_is_infrastructure_and_a_bad_workflow_is_not() {
+    assert!(dispatch_refused("gh workflow run: HTTP 403: Resource not accessible by integration"));
+    assert!(dispatch_refused("gh workflow run: HTTP 502: Bad Gateway"));
+    assert!(dispatch_refused("gh workflow run timed out"));
+    assert!(!dispatch_refused("gh workflow run: HTTP 404: workflow land-check.yml not found"));
+    assert!(!dispatch_refused("gh workflow run: HTTP 422: Unexpected inputs provided"));
+}
+
+#[test]
+fn only_a_run_not_yet_started_counts_as_queued() {
+    assert!(queued(&json!({"status": "queued"})));
+    assert!(!queued(&json!({"status": "in_progress"})));
+    assert!(!queued(&json!({"status": "completed", "conclusion": "failure"})));
+}

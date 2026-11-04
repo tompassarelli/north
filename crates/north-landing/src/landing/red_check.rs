@@ -30,7 +30,7 @@ impl Failure {
         }
     }
 
-    fn label(&self) -> &str {
+    pub fn label(&self) -> &str {
         match self {
             Failure::Cargo(name) | Failure::Harness(name) | Failure::Line(name) => name,
         }

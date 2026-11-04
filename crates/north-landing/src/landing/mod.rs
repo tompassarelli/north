@@ -4,6 +4,7 @@ pub mod denylist;
 pub mod denylist_attest;
 mod instruction_limits;
 pub mod land_actions;
+pub mod land_cache;
 pub mod red_check;
 pub mod results;
 pub mod landed_tree;

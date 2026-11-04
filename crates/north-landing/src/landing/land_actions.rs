@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const USAGE: &str = "usage: north land-actions --workflow FILE --base BASE --head HEAD --timeout SECONDS -- COMMAND...";
 const GH_LIMIT: Duration = Duration::from_secs(60);
 const DISPATCH_SECONDS: u64 = 180;
+const QUEUED_SECONDS: u64 = 600;
 const FAILED_LOG_LINES: usize = 80;
 
 struct Request {
@@ -130,7 +131,7 @@ fn check(request: &Request, branch: &str) -> u8 {
     }
     if let Err(why) = gh(&dispatch) {
         eprintln!("land check: {why}");
-        return 1;
+        return if dispatch_refused(&why) { infrastructure("GitHub refused the workflow dispatch") } else { 1 };
     }
     let list = ["run", "list", "--workflow", &request.workflow, "--branch", branch, "--event", "workflow_dispatch", "--limit", "20", "--json", "databaseId,displayTitle,url,status,conclusion"];
     let started = Instant::now();
@@ -143,9 +144,15 @@ fn check(request: &Request, branch: &str) -> u8 {
                 println!("land check: {} command(s) on Actions: {}", request.commands.len(), text(run, "url"));
                 announced = true;
             }
+            Some(run) if queued(run) && started.elapsed() > Duration::from_secs(QUEUED_SECONDS) => {
+                if let Some(id) = run.get("databaseId").and_then(Value::as_u64) {
+                    let _ = gh(&["run", "cancel", &id.to_string()]);
+                }
+                return infrastructure(&format!("the run stayed queued past {QUEUED_SECONDS} s; cancelled"));
+            }
             None if started.elapsed() > Duration::from_secs(DISPATCH_SECONDS) => {
                 eprintln!("land check: no {} run titled {title} appeared within {DISPATCH_SECONDS} s", request.workflow);
-                return 1;
+                return infrastructure("the dispatched run never appeared");
             }
             _ => {}
         }
@@ -165,6 +172,19 @@ fn check(request: &Request, branch: &str) -> u8 {
         thread::sleep(Duration::from_secs(delay));
         delay = (delay * 3 / 2).min(30);
     }
+}
+
+fn infrastructure(why: &str) -> u8 {
+    eprintln!("land check: {why}; infrastructure, not a check failure");
+    INFRASTRUCTURE
+}
+
+fn dispatch_refused(why: &str) -> bool {
+    why.ends_with("timed out") || why.contains("HTTP 403") || why.contains("HTTP 429") || transient_rejection(why)
+}
+
+fn queued(run: &Value) -> bool {
+    matches!(text(run, "status"), "queued" | "pending" | "waiting" | "requested")
 }
 
 fn text<'a>(run: &'a Value, key: &str) -> &'a str {

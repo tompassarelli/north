@@ -65,7 +65,22 @@ shim_main() {
       ;;
     north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
     north:land-red-wait) return 0 ;;
+    north:land-train)
+      printf '%s\n' "${*:2}" >>"${SAFE_PUSH_TEST_LAND_TRAIN_TRACE:-/dev/null}"
+      ;;
+    north:land-cache) return 1 ;;
+    north:capacity)
+      [ "${2:-}" = offload ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
+      if [ "${3:-}" = choose ]; then
+        [ -n "${SAFE_PUSH_TEST_BUILD_HOST:-}" ] || { echo 'north capacity offload: no other host has room' >&2; return 1; }
+        printf '%s\n' "$SAFE_PUSH_TEST_BUILD_HOST"
+        return 0
+      fi
+      printf '%s\t%s\n' "$5" "${!#}" >>"${SAFE_PUSH_TEST_OFFLOAD_TRACE:?}"
+      bash -euo pipefail -c "${!#}"
+      ;;
     north:land-actions)
+      printf '%s\n' "${*:11}" >>"${SAFE_PUSH_TEST_ACTIONS_TRACE:-/dev/null}"
       [ -n "${SAFE_PUSH_TEST_ACTIONS_RELEASE:-}" ] || return "${SAFE_PUSH_TEST_ACTIONS_STATUS:-0}"
       touch "$SAFE_PUSH_TEST_ACTIONS_RELEASE.waiting"
       read -r _ <"$SAFE_PUSH_TEST_ACTIONS_RELEASE"
@@ -528,7 +543,10 @@ printf 'changed\n' >"$real_repo/file.txt"
 "$real_git" -C "$real_repo" add file.txt
 "$real_git" -C "$real_repo" commit -qm 'changed input'
 : >"$land_clean_trace"
-SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" HOME="$land_home" run_real_case '' --to main
+watch_calls="$real_fixture/watch-calls"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"%s"\n' "$watch_calls" >"$real_fixture/watch-stub"
+chmod +x "$real_fixture/watch-stub"
+SAFE_PUSH_TEST_LANGUAGE_TRACE="$land_clean_trace" SAFE_PUSH_WATCH="$real_fixture/watch-stub" HOME="$land_home" run_real_case '' --to main
 expect_status nonzero
 land_log=${case_output##*exited 23; log: }
 land_log=${land_log%%; NOT pushed.*}
@@ -543,6 +561,13 @@ done <"$real_fixture/expected-log"
 [ "$(wc -l <"$real_repo/check-runs")" -eq 1 ] || fail 'matching check did not run exactly once'
 ! grep -Fq '<land-clean>' "$land_clean_trace" || fail 'a failed land check released the lane build output its retry reuses'
 [ "$(real_remote_state)" = "$land_remote_before" ] || fail 'failing land check published'
+events="$xdg_state/safe-push/events.jsonl"
+grep -Fq "\"stage\":\"land check\",\"status\":\"failed\",\"detail\":\"" "$events" || fail 'the failed land check wrote no event'
+grep -Fq "log: $land_log\"" "$events" || fail 'the land check event did not name its log'
+grep -Fq '"stage":"exit","status":"refused"' "$events" || fail 'the refusal wrote no event'
+for _ in $(seq 50); do [ -s "$watch_calls" ] && break; sleep 0.1; done
+grep -Fxq 'watch --once' "$watch_calls" || fail 'a failed landing did not start north watch at once'
+printf 'PASS: a failed land check and its refusal write events and start north watch at once\n'
 "$real_git" -C "$real_repo" config --file .safe-push --unset-all land.check
 land_command='printf "PASS stdout\\n"; printf "PASS stderr\\n" >&2'
 "$real_git" -C "$real_repo" config --file .safe-push --add land.check "file.txt :: $land_command"
@@ -1991,6 +2016,68 @@ status_a=0; wait "$pid_a" || status_a=$?
 [ "$status_a" -eq 0 ] || fail "Actions lease lane failed: $(cat "$landing_root/a.out")"
 printf 'PASS: recorded capacity lease is released before the GitHub Actions wait\n'
 
+runner_case() {
+  new_landing_origin "$1"
+  make_landing_clone "$landing_root/a" a.txt
+  "$real_git" -C "$landing_root/a" config --file .safe-push landing.capacity 'env LAND_LEASE=held'
+  [ -z "$2" ] || "$real_git" -C "$landing_root/a" config --file .safe-push "$2" "$3"
+  shift 3
+  local check
+  for check in "$@"; do "$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: $check"; done
+  "$real_git" -C "$landing_root/a" config --file .safe-push --add land.local-only "needs this host :: touch '$landing_root/local-ran'"
+  "$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: touch '$landing_root/local-ran'"
+  "$real_git" -C "$landing_root/a" add .safe-push
+  "$real_git" -C "$landing_root/a" commit -qm "runner case $landing_root"
+  : >"$landing_root/offloaded"
+}
+
+runner_landed() {
+  case_output=$(cat "$landing_root/a.out")
+  "$real_git" --git-dir="$landing_remote" cat-file -e main:a.txt 2>/dev/null
+}
+
+printf '%s\n' 'touch "$PWD/../started-$1"; for i in $(seq 100); do [ -e "$PWD/../started-$2" ] && exit 0; sleep 0.1; done; exit 9' >"$scratch/meet.sh"
+runner_case runner-overlap land.runner build-host "bash '$scratch/meet.sh' one two" "bash '$scratch/meet.sh' two one"
+SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" \
+  || fail "land.runner lane failed: $(cat "$landing_root/a.out")"
+runner_landed || fail 'land.runner lane did not land'
+[ "$(cut -f1 "$landing_root/offloaded" | sort -u)" = builder ] || fail "land.runner did not resolve build-host to the build host with room: $(cat "$landing_root/offloaded")"
+[ "$(wc -l <"$landing_root/offloaded")" -eq 2 ] || fail "land.runner did not send both portable checks to the build host: $(cat "$landing_root/offloaded")"
+! grep -q local-ran "$landing_root/offloaded" && [ -e "$landing_root/local-ran" ] || fail 'land.runner sent a local-only check to the build host'
+stage_ms=$(awk -F'\t' '$4 == "land checks" {v=$5} END {print v}' "${landing_state:-$xdg_state}/safe-push/stages.tsv")
+expect_output 'safe-push: stage land checks:'
+[ "${stage_ms:-99999}" -lt 15000 ] || fail "land.runner checks did not overlap: land-check stage took ${stage_ms} ms"
+printf 'PASS: land.runner build-host resolves to a build host with room, runs every portable check there at once (each waits for the other to start; stage %s ms) and the local-only check here\n' "$stage_ms"
+
+runner_case actions-infra-build-host land.workflow land-check.yml "true"
+SAFE_PUSH_TEST_ACTIONS_STATUS=75 SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" SAFE_PUSH_TEST_ACTIONS_TRACE="$landing_root/actions" \
+  run_landing "$landing_root/a" || fail "Actions infrastructure fallback lane failed: $(cat "$landing_root/a.out")"
+runner_landed || fail 'Actions infrastructure fallback lane did not land'
+[ "$(cat "$landing_root/offloaded")" = "builder	true" ] || fail "Actions infrastructure did not re-run the check on the build host: $(cat "$landing_root/offloaded")"
+expect_output 'GitHub Actions is unavailable (infrastructure, not a check failure)'
+printf 'PASS: an Actions dispatch exiting with the infrastructure code re-runs its checks on the first build host with room and lands on that verdict\n'
+
+runner_case actions-infra-here land.workflow land-check.yml "[ \"\${LAND_LEASE:-}\" = held ] && touch \"\$PWD/../portable-here\""
+SAFE_PUSH_TEST_ACTIONS_STATUS=75 SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" \
+  || fail "no-room fallback lane failed: $(cat "$landing_root/a.out")"
+runner_landed || fail 'no-room fallback lane did not land'
+[ ! -s "$landing_root/offloaded" ] && [ -e "$landing_root/portable-here" ] || fail "with no build host room the check did not run here under the land-check lease: $(cat "$landing_root/a.out")"
+expect_output 'no build host has room'
+printf 'PASS: with Actions down and no build host with room the checks run here under the land-check capacity lease\n'
+
+runner_case actions-check-failure land.workflow land-check.yml "true"
+case_status=0
+SAFE_PUSH_TEST_ACTIONS_STATUS=1 SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" || case_status=$?
+[ "$case_status" -ne 0 ] && ! runner_landed || fail 'a failed Actions check landed'
+[ ! -s "$landing_root/offloaded" ] || fail 'a failed Actions check was retried on the build host'
+runner_case runner-check-failure land.runner build-host "printf 'ran\\n' >>\"\$PWD/../runs\"; exit 7"
+case_status=0
+SAFE_PUSH_TEST_BUILD_HOST=builder SAFE_PUSH_TEST_OFFLOAD_TRACE="$landing_root/offloaded" run_landing "$landing_root/a" || case_status=$?
+[ "$case_status" -ne 0 ] && ! runner_landed || fail 'a failed build-host check landed'
+[ "$(wc -l <"$landing_root/runs")" -eq 1 ] || fail 'a failed build-host check was retried'
+grep -q 'exited 7' "$landing_root/a.out" || fail "a failed build-host check lost its report: $(cat "$landing_root/a.out")"
+printf 'PASS: a real check failure on Actions or a build host refuses the landing and is never retried elsewhere\n'
+
 new_landing_origin cancelled-admission
 make_landing_clone "$landing_root/a" a.txt
 "$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: true"
@@ -2350,6 +2437,8 @@ printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"
 "$real_git" -C "$landing_root/seed" commit -qm 'exact landings'
 "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
 for lane in a b c; do make_landing_clone "$landing_root/$lane" "$lane.txt"; done
+export SAFE_PUSH_TEST_LAND_TRAIN_TRACE="$landing_root/land-train-trace"
+: >"$SAFE_PUSH_TEST_LAND_TRAIN_TRACE"
 run_train_case a b c
 [ "${train_status[*]}" = '0 0 0' ] || fail "train: a lane failed (${train_status[*]}): $case_output"
 [ "$("$real_git" --git-dir="$landing_remote" log --format=%s -3 main | tr '\n' ' ')" = 'change from c change from b change from a ' ] \
@@ -2360,6 +2449,19 @@ for lane in a b c; do
   [ "$(landed_for "landing-train-$lane")" = "$("$real_git" --git-dir="$landing_remote" rev-parse main)" ] \
     || fail "train: the push log does not record landing-train-$lane landing on main"
 done
+for _ in $(seq 200); do
+  [ "$(grep -c '^record ' "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE")" -ge 3 ] && [ "$(grep -c '^check ' "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE")" -ge 1 ] && break
+  sleep 0.05
+done
+train_main=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+train_tree=$("$real_git" --git-dir="$landing_remote" rev-parse main^{tree})
+[ "$(grep -c '^record ' "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE")" -eq 3 ] || fail "train: expected one landings record per lane: $(cat "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE")"
+for lane in a b c; do
+  grep -q "^record .*--lane $lane .*--candidate $train_main --tree $train_tree --batch-size 3 --bisect-depth 0 --attempts 1 --verdict landed --detail $train_main " "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE" \
+    || fail "train: no landings record with tree, batch_size, attempts and verdict for lane $lane: $(cat "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE")"
+done
+grep -q "^check .*--candidate $train_main --tree $train_tree .*--batch-size 3 --bisect-depth 0 .*--outcome pass" "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE" \
+  || fail "train: no passing check record for the candidate: $(cat "$SAFE_PUSH_TEST_LAND_TRAIN_TRACE")"
 
 missing_north_bin="$scratch/train-missing-north-bin"
 mkdir -p "$missing_north_bin"
