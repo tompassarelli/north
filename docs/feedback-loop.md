@@ -85,15 +85,23 @@ Unjudged runs (north#35 FX5): an `unclear` run with no `Item:` is an unbriefed s
 
 ## File signals
 
-State files the loops above write, relative to `~/.local/state`. `north health` compares each file's mtime with its reader stamp (a file the reader rewrites after consuming it) and fails when the file is more than 7 days newer. `unverifiable` means the reader leaves no stamp; `north health` lists those rows rather than guessing, and the reader's owner adds a stamp to make one checkable. Each reader below touches its stamp through `platform::reader_stamp::touch` (crates/north-base/src/platform/reader_stamp.rs, 2026-11-05): the spawn gate (guard/spawn_capacity/usage.rs), `north report` (ops/report/mod.rs), capacity sizing (capacity/host/database.rs recent_usage) and the usage reset reader (usage/web.rs).
+State files the loops above write, relative to `~/.local/state`. `north health` compares each file's mtime with its reader stamp (a file the reader rewrites after consuming it) and fails when the file is more than 7 days newer. `unverifiable` means the reader leaves no stamp; `north health` lists those rows rather than guessing, and the reader's owner adds a stamp to make one checkable. Each reader below touches its stamp through `platform::reader_stamp::touch` (crates/north-base/src/platform/reader_stamp.rs, 2026-11-05): the spawn gate (guard/spawn_capacity/usage.rs), `north report` (ops/report/mod.rs), capacity sizing (capacity/host/database.rs recent_usage) and the usage reset reader (usage/web.rs). The writer and cadence columns feed the silent-signal detector of `north flow detect`: a cadence such as `5m`, `1h` or `6h` is how often the writer should write, `event` means it writes only when something happens and is never judged silent, and the owner is the issue its box is filed on.
 
-| signal file | reader stamp |
-|---|---|
-| `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` |
-| `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` |
-| `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` |
-| `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` |
-| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` |
+| signal file | reader stamp | writer | cadence | owner |
+|---|---|---|---|---|
+| `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` | crates/north-core/src/usage/gate.rs | 5m | north#35 |
+| `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-core/src/guard/spawn_capacity/logs.rs | event | north#35 |
+| `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-core/src/ops/agents/goal/score.rs | event | north#35 |
+| `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-core/src/capacity/host/database.rs | event | north#35 |
+| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-core/src/ops/usage_web_read | 6h | north#35 |
+
+## Recorded readings
+
+Rows a writer records into a database, judged like the file signals above. The database `ledger` is the threads ledger of the host (`threads.db`, or its snapshot on a mirrored host); the query returns the newest write time.
+
+| reading | database | query | writer | cadence | owner |
+|---|---|---|---|---|---|
+| usage header rows | `ledger` | `SELECT max(ts) FROM usage WHERE source LIKE 'Messages response%'` | crates/north-core/src/providers/claude/token_quota.rs | 5m | north#35 |
 
 ## Still unread
 

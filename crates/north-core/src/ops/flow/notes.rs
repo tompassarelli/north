@@ -1,4 +1,4 @@
-//! The caveats printed under the flow rows: a stale usage cache and how many finished worker briefs carry every facet.
+//! The caveats printed under the flow rows: how many finished worker briefs carry every facet and whether the landing watch is alive.
 use std::time::Duration;
 
 use serde_json::Value;
@@ -16,14 +16,6 @@ const FACETS: [(&str, &[&str]); 4] = [
     ("Verify", &["none", "local-test", "farm", "native", "visual"]),
 ];
 const ORIGINS: [&str; 2] = ["codex.PostToolUse.spawn_agent", "claude.PostToolUse.Agent"];
-
-/// Hours since the Claude usage cache was written, when that is over `hours`.
-pub fn usage_stale(places: &Places, now: f64, hours: f64) -> Option<f64> {
-    let written = std::fs::metadata(places.state.join("agents/usage/claude-web.json")).ok()?.modified().ok()?;
-    let written = written.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs_f64();
-    let age = (now - written) / 3600.0;
-    (age > hours).then_some(age)
-}
 
 fn field<'a>(brief: &'a str, name: &str) -> Option<&'a str> {
     brief.lines().find_map(|line| {

@@ -4,7 +4,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RedFix {
@@ -47,17 +46,9 @@ pub struct Ticket {
     pub verdict: Option<String>,
 }
 
-pub fn key(origin: &str) -> String {
-    let origin = origin.trim_end_matches('/');
-    let origin = if origin.ends_with(".git") { origin.to_owned() } else { format!("{origin}.git") };
-    Sha256::digest(origin.as_bytes()).iter().take(8).map(|byte| format!("{byte:02x}")).collect()
-}
+pub use crate::platform::land_queue::{directory, key};
 
 pub const OUTBOX: &str = "outbox";
-
-pub fn directory(state_home: &Path, origin: &str) -> PathBuf {
-    state_home.join("north/land-queue").join(key(origin))
-}
 
 pub fn slug(branch: &str) -> String {
     branch.chars().map(|character| if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') { character } else { '-' }).collect()

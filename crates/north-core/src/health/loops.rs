@@ -11,7 +11,7 @@ pub(super) struct Report {
     pub unverifiable: Vec<String>,
 }
 
-fn section<'a>(doc: &'a str, heading: &str) -> Vec<Vec<&'a str>> {
+pub(crate) fn section<'a>(doc: &'a str, heading: &str) -> Vec<Vec<&'a str>> {
     let mut inside = false;
     let mut rows = Vec::new();
     for line in doc.lines() {
@@ -150,7 +150,7 @@ pub(super) fn stale_readers(root: &Path, doc: &str) -> Vec<String> {
 pub(super) fn unread_signals(doc: &str, modified: &dyn Fn(&str) -> Option<u64>) -> Report {
     let mut report = Report { stale: Vec::new(), unverifiable: Vec::new() };
     for cells in section(doc, "File signals") {
-        let [file, stamp] = cells[..] else { continue };
+        let [file, stamp, ..] = cells[..] else { continue };
         let file = file.trim_matches('`');
         let stamp = stamp.trim_matches('`');
         if stamp == UNVERIFIABLE {
@@ -183,4 +183,51 @@ pub(super) fn verdict(root: &Path, base: PathBuf) -> (Result<(), String>, Vec<St
     faults.extend(report.stale);
     let result = if faults.is_empty() { Ok(()) } else { Err(format!("{} dead feedback-loop cites: {}", faults.len(), faults.join("; "))) };
     (result, report.unverifiable)
+}
+
+pub(crate) enum Origin {
+    File,
+    Query { database: String, query: String },
+}
+
+pub(crate) struct Declared {
+    pub name: String,
+    pub origin: Origin,
+    pub writer: String,
+    pub cadence_s: f64,
+    pub owner: Option<String>,
+}
+
+pub(crate) fn cadence_seconds(text: &str) -> Option<f64> {
+    let text = text.trim().trim_matches('`');
+    let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit())?);
+    let scale = match unit {
+        "s" => 1.0,
+        "m" => 60.0,
+        "h" => 3600.0,
+        "d" => 86_400.0,
+        _ => return None,
+    };
+    number.parse::<f64>().ok().filter(|count| *count > 0.0).map(|count| count * scale)
+}
+
+fn owner_of(cell: Option<&&str>) -> Option<String> {
+    cell.map(|cell| cell.trim_matches('`')).filter(|cell| cell.contains('#')).map(str::to_owned)
+}
+
+pub(crate) fn declared_files(doc: &str) -> Vec<Declared> {
+    section(doc, "File signals")
+        .into_iter()
+        .filter_map(|cells| Some(Declared { name: cells[0].trim_matches('`').to_owned(), origin: Origin::File, writer: (*cells.get(2)?).to_owned(), cadence_s: cadence_seconds(cells.get(3)?)?, owner: owner_of(cells.get(4)) }))
+        .collect()
+}
+
+pub(crate) fn declared_readings(doc: &str) -> Vec<Declared> {
+    section(doc, "Recorded readings")
+        .into_iter()
+        .filter_map(|cells| {
+            let origin = Origin::Query { database: cells.get(1)?.trim_matches('`').to_owned(), query: cells.get(2)?.trim_matches('`').to_owned() };
+            Some(Declared { name: cells[0].to_owned(), origin, writer: (*cells.get(3)?).to_owned(), cadence_s: cadence_seconds(cells.get(4)?)?, owner: owner_of(cells.get(5)) })
+        })
+        .collect()
 }

@@ -500,7 +500,7 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> ExitCode {
 
 mod failed_starts;
 mod issues;
-mod loops;
+pub(crate) mod loops;
 mod main_red;
 mod rework;
 mod units;

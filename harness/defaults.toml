@@ -1070,3 +1070,52 @@ unit = "seconds the quiet-off teardown waits after SIGTERM before SIGKILL of wha
 source = "tom: close gracefully first, wait about ten seconds, then force only what remains (2026-11-04)"
 fallback = "none"
 consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[detector_plan_stall_hours]
+value = 2
+unit = "hours a plan box whose prerequisites have landed may sit with no worker, queued follow or lane naming it before the stalled-plan detector files it"
+source = "tom: a ready box nobody staffs for more than two hours is a stall (2026-11-05)"
+fallback = "none"
+consumers = ["crates/north-core/src/ops/detectors/mod.rs"]
+
+[detector_silence_cadences]
+value = 3
+unit = "declared write cadences a recorded signal may go without a write before the silent-signal detector files it"
+source = "tom: a signal whose writer has not written for more than three times its cadence is silent (2026-11-05)"
+fallback = "none"
+consumers = ["crates/north-core/src/ops/detectors/mod.rs"]
+
+[detector_refusal_window_hours]
+value = 24
+unit = "hours of lander refusals the repeated-refusal detector groups by class"
+source = "tom: two or more lander refusals of one class within 24 hours are one finding (2026-11-05)"
+fallback = "none"
+consumers = ["crates/north-core/src/ops/detectors/mod.rs"]
+
+[detector_refusal_min]
+value = 2
+unit = "lander refusals of one class inside the window that make the repeated-refusal detector file a finding"
+source = "tom: two or more lander refusals of one class within 24 hours are one finding (2026-11-05)"
+fallback = "none"
+consumers = ["crates/north-core/src/ops/detectors/mod.rs"]
+
+[detector_issue_stall_repos]
+value = ["north"]
+unit = "repositories whose unowned issue boxes the stalled-plan detector may file a staffing box on"
+source = "tom: detectors file on the owning issue and never as a new issue, and only where dispatch is the staffing path (2026-11-05)"
+fallback = "no issue box is filed"
+consumers = ["crates/north-core/src/ops/detectors/mod.rs"]
+
+[lander_idle_alarm_minutes]
+value = 20
+unit = "minutes main may go without a landing through the lander while tickets wait in its queue before north flow reports a stall"
+source = "tom: queued finished work must not wait on an unnoticed landing stall; twenty minutes from the 2026-11-05 landing-stall defect (2026-11-05)"
+fallback = "none"
+consumers = ["crates/north-core/src/ops/flow/lander.rs"]
+
+[lander_check_p90_multiple]
+value = 2
+unit = "multiple of the lander's own p90 candidate check time past which north flow reports the running check as stalled"
+source = "tom: a landing job running past twice its median is a stall (north#360); the lander's p90 is the stricter reference named by the 2026-11-05 box (2026-11-05)"
+fallback = "with fewer than five finished checks in 7 days no check limit applies"
+consumers = ["crates/north-core/src/ops/flow/lander.rs"]

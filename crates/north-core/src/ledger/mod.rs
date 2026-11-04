@@ -177,6 +177,23 @@ impl Ledger {
         })
     }
 
+    pub fn record_detector(&self, detector: &str, millis: u64, findings: usize, filed: usize) -> NorthResult<()> {
+        let payload = serde_json::json!({"detector": detector, "spend_ms": millis, "findings": findings, "filed": filed});
+        self.write(|conn| {
+            conn.execute(
+                "INSERT INTO events(session, kind, payload, recorded_ms) VALUES('flow', 'detector', ?1, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
+                params![payload.to_string()],
+            ).map(drop)
+        })
+    }
+
+    pub fn detector_events(&self) -> NorthResult<Vec<String>> {
+        self.with(|conn| {
+            let mut statement = conn.prepare("SELECT payload FROM events WHERE kind = 'detector' ORDER BY event_id")?;
+            statement.query_map([], |row| row.get(0))?.collect()
+        })
+    }
+
     pub fn open_default() -> NorthResult<Self> {
         let home = std::env::var_os("HOME")
             .filter(|value| !value.is_empty())

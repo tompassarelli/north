@@ -99,6 +99,11 @@ fn stall_identity(verdict: &Verdict) -> Vec<String> {
     if verdict.reason.starts_with("oldest pending lane") {
         identity.push("pending".into());
     }
+    for (prefix, name) in [("lander tickets queued", "lander-idle"), ("lander candidate check", "lander-check")] {
+        if verdict.reason.split("; ").any(|part| part.starts_with(prefix)) {
+            identity.push(name.into());
+        }
+    }
     identity
 }
 

@@ -154,6 +154,15 @@ pub fn limit_minutes(medians: &Medians, job: &Job) -> Option<f64> {
     Some(2.0 * own_pool.or_else(|| known.jobs.get(&job.name).copied()).or(known.run)?)
 }
 
+pub fn with_lander(mut verdict: Verdict, reasons: &[String]) -> Verdict {
+    if !reasons.is_empty() {
+        let lander = reasons.join("; ");
+        verdict.reason = if verdict.stalled { format!("{}; {lander}", verdict.reason) } else { lander };
+        verdict.stalled = true;
+    }
+    verdict
+}
+
 fn overdue(facts: &Facts) -> Vec<Overdue> {
     facts
         .jobs

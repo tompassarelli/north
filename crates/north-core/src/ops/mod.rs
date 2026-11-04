@@ -5,6 +5,7 @@ pub mod check;
 pub mod citation_check;
 pub mod context_audit;
 pub mod convo;
+pub mod detectors;
 pub mod dispatch;
 pub mod dividend;
 pub mod docs;

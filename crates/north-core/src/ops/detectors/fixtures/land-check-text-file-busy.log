@@ -1,0 +1,20 @@
+     Running tests/job_run.rs (target/debug/deps/job_run-e9f6f7ea7b791314)
+
+running 3 tests
+test job_run_starts_its_job_and_returns_with_it_while_the_start_record_stalls ... FAILED
+test job_run_records_the_finish_when_the_callers_path_has_no_bash ... ok
+test job_run_keeps_the_exit_code_and_spools_the_finish_while_the_ledger_host_is_down_until_the_next_flush ... ok
+
+failures:
+
+---- job_run_starts_its_job_and_returns_with_it_while_the_start_record_stalls stdout ----
+
+thread 'job_run_starts_its_job_and_returns_with_it_while_the_start_record_stalls' (15605) panicked at tests/job_run.rs:39:10:
+called `Result::unwrap()` on an `Err` value: Os { code: 26, kind: ExecutableFileBusy, message: "Text file busy" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    job_run_starts_its_job_and_returns_with_it_while_the_start_record_stalls
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s

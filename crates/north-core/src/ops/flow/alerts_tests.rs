@@ -83,3 +83,20 @@ fn test_a_new_job_or_lane_in_the_same_stall_opens_a_new_episode() {
     run(&sends, &[row(stalled(8, 40.0), json!([lane(20.0)]), json!([]))], NOW + 600.0, directory.path());
     assert_eq!(sends.borrow().len(), 6, "the stranded lane is new, the unchanged stall is not repeated");
 }
+
+#[test]
+fn a_lander_stall_alerts_once_per_episode_under_its_own_identity() {
+    let healthy: super::stall::Verdict = serde_json::from_value(healthy()).expect("verdict");
+    let reasons = vec!["lander tickets queued: 12 waiting, oldest 116m, and main has not moved through the lander for 116m > 20m".to_owned()];
+    let verdict = serde_json::to_value(super::stall::with_lander(healthy, &reasons)).expect("json");
+    let rows = [row(verdict, json!([]), json!([]))];
+    let (mut state, first) = super::alerts::alert_plan(&rows, &Default::default(), NOW, &[]);
+    assert_eq!(first.len(), 2);
+    for action in &first {
+        state.get_mut("makgora").expect("record").sent.insert(action.key.clone(), NOW);
+    }
+    assert!(first[0].text.starts_with("Landing stalled in makgora: lander tickets queued: 12 waiting"), "{}", first[0].text);
+    assert!(first[0].key.starts_with("notice:"));
+    let (_, again) = super::alerts::alert_plan(&rows, &state, NOW + QUARTER, &[]);
+    assert!(again.is_empty());
+}

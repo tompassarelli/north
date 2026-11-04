@@ -46,6 +46,15 @@ fn dead(row: &Value) -> String {
     }
 }
 
+fn lander(row: &Value) -> String {
+    let reading = &row["lander"];
+    let minutes = |value: &Value| value.as_f64().map_or_else(|| "none".to_owned(), |minutes| format!("{minutes:.0}m"));
+    if reading["depth"].as_u64().unwrap_or(0) == 0 && !reading["check_minutes"].is_number() {
+        return String::new();
+    }
+    format!(", lander {} queued oldest {} last landing {} ago check {}", reading["depth"].as_u64().unwrap_or(0), minutes(&reading["oldest_minutes"]), minutes(&reading["last_landing_minutes"]), minutes(&reading["check_minutes"]))
+}
+
 fn stall(row: &Value) -> String {
     let age = row["main_age_minutes"].as_f64().map_or_else(|| plain(&row["main_age_minutes"]), |age| format!("{age:.1}m"));
     let job = &row["oldest_job"];
@@ -101,13 +110,18 @@ pub fn format_row(row: &Value, services: Option<&[Value]>) -> String {
     if row.get("stall").is_some() {
         text += &stall(row);
     }
+    text += &lander(row);
     if row.get("closed_per_hour").is_some() {
         text += &throughput(row);
     }
     for guard in ["actions", "wisp", "reuse", "pins"].iter().filter_map(|kind| row.get(*kind).filter(|guard| guard.is_object())) {
         text += &format!(", {}{}", plain(&guard["text"]), if guard["reason"].as_str().is_some_and(|reason| !reason.is_empty()) { " FLAGGED" } else { "" });
     }
-    if let (Some(target), Some(finish)) = (row["target"].as_f64(), row["goal_finish"].as_f64())
+    if let (Some(target), Some(epoch)) = (row["target"].as_f64(), row["epoch"].as_f64())
+        && target <= epoch
+    {
+        text += &format!(", target {} has passed: the [projects.{}] target in the operator policy needs a new date or removal", iso(target), plain(&row["repo"]));
+    } else if let (Some(target), Some(finish)) = (row["target"].as_f64(), row["goal_finish"].as_f64())
         && finish > target
     {
         text += &format!(", goal ETA finish {}\n{}", iso(finish), missed_target(&plain(&row["repo"]), &iso(target), services));

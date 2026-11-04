@@ -3,6 +3,7 @@ pub mod reader_stamp;
 pub mod run_roles;
 pub mod archive_tags;
 pub mod git;
+pub mod land_queue;
 pub mod gitleaks;
 pub mod harness;
 pub mod wisp_payoff;

@@ -1,5 +1,7 @@
 # Docs architecture
 
+Owner: north#523
+
 Tom asked on 2026-11-04 for north docs that resist rot, disclose detail progressively and help
 agents find the right fact without reading the whole tree. This note is the target layout and the
 boxes that reach it. It builds on two lanes in flight that day: the features index (one file per

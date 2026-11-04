@@ -1,5 +1,6 @@
 //! One repository's flow row: what is queued, how fast lanes land, whether landing has stalled.
 //! A source that cannot be read leaves its fields at `"error"` and later fields unread.
+use super::lander;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -146,6 +147,9 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     if repo == WISP_REPO {
         row.insert("wisp".into(), json!(wisp_row(env.host, &env.places.home, &slug, now)));
     }
+    let origin = env.host.run(&["git", "remote", "get-url", "--push", "origin"], Some(&path), None);
+    let lander = origin.map_or_else(lander::Reading::default, |origin| lander::judge(&lander::read(&crate::platform::land_queue::directory(&env.places.state, origin.trim()), now)));
+    row.insert("lander".into(), json!(lander));
     let mut source = Source { env, repo, path, slug, now, autoland: false };
     source.git(&["fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/claude/land-*:refs/remotes/origin/claude/land-*"])?;
     let queue = source.git(&["config", "--blob", "origin/main:.safe-push", "--get", "landing.queue"]);
@@ -157,7 +161,7 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
     row.insert("cleanup".into(), json!(cleanup));
     let states = autoland::autoland_states(env.host, &source.slug, &unlanded);
     let (lanes, dead_count, dead_oldest) = autoland::lane_counts(&unlanded, &states, now);
-    let mut pending = lanes as u64;
+    let mut pending = lanes as u64 + lander.depth as u64;
     row.insert("dead".into(), json!(dead_count));
     row.insert("dead_oldest_minutes".into(), json!(dead_oldest));
     let dead: BTreeSet<&String> = unlanded.iter().filter(|sha| autoland::failed_since(&states, sha).is_some()).collect();
@@ -170,7 +174,7 @@ fn fill(env: &Env, repo: &str, now: f64, row: &mut Row) -> Option<()> {
         pending_since.extend(since);
     }
     row.insert("pending".into(), json!(pending));
-    source.add_stall(row, landing.as_ref()?, pending, &pending_since)
+    source.add_stall(row, landing.as_ref()?, pending, &pending_since, &lander.reasons)
 }
 
 struct Landing {
@@ -304,7 +308,7 @@ impl Source<'_> {
         }
     }
 
-    fn add_stall(&self, row: &mut Row, landing: &Landing, pending: u64, pending_since: &[f64]) -> Option<()> {
+    fn add_stall(&self, row: &mut Row, landing: &Landing, pending: u64, pending_since: &[f64], lander_reasons: &[String]) -> Option<()> {
         let tip = self.git(&["log", "-1", "--format=%H %ct", "origin/main"]).filter(|tip| !tip.trim().is_empty())?;
         let (sha, at) = tip.split_once(' ')?;
         let at: i64 = at.trim().parse().ok()?;
@@ -315,7 +319,7 @@ impl Source<'_> {
         row.insert("job_limits".into(), job_limits(&jobs, &medians, self.now));
         let landings: Vec<f64> = landing.commits.iter().map(|(_, at)| *at as f64).collect();
         let facts = Facts { now: self.now, main_at: at as f64, landings: &landings, pending, jobs: &jobs, medians: &medians, pending_since: pending_since.iter().copied().min_by(f64::total_cmp) };
-        row.insert("stall".into(), json!(stall::verdict(&facts)));
+        row.insert("stall".into(), json!(stall::with_lander(stall::verdict(&facts), lander_reasons)));
         Some(())
     }
 }

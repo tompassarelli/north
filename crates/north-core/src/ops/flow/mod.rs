@@ -12,11 +12,14 @@ use alerts::stall_alert;
 use capacity::saturation_alert;
 use sampler::sampler_alert;
 use guards::actions_verdict;
-use host::{Host, Machine, Places, valid_name};
+use host::valid_name;
 use jobs::account_busy;
 use measure::{Env, get, project_targets};
-use notes::{brief_coverage, usage_stale, watch_silent};
+use notes::{brief_coverage, watch_silent};
 use render::format_row;
+
+pub use capacity::read_hosts;
+pub use host::{Host, Machine, Places, write_atomic};
 
 mod alerts;
 mod capacity;
@@ -25,6 +28,7 @@ mod goal;
 mod guards;
 mod host;
 mod jobs;
+mod lander;
 mod measure;
 mod notes;
 mod refused;
@@ -38,6 +42,8 @@ mod alerts_tests;
 #[cfg(test)]
 mod capacity_tests;
 #[cfg(test)]
+mod lander_tests;
+#[cfg(test)]
 mod lanes_tests;
 #[cfg(test)]
 mod readings_tests;
@@ -46,10 +52,9 @@ mod sampler_tests;
 #[cfg(test)]
 mod tests;
 
-const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm] | north flow row REPO [FIELD]...";
+const USAGE: &str = "usage: north flow [--json] [--repo NAME]... [--stall-alarm] | north flow row REPO [FIELD]... | north flow detect [--dry-run]";
 const FIELDS: [&str; 2] = ["reuse", "closed_per_hour"];
 const DEFAULT_REPOS: [&str; 4] = ["makgora", "wisp", "north", "makgora-client"];
-const USAGE_STALE_HOURS: f64 = 7.0;
 const WATCH_SILENT_SECONDS: f64 = 120.0;
 
 struct Options {
@@ -86,9 +91,6 @@ fn laptop_line(host: &dyn Host) -> String {
 fn announce(places: &Places, now: f64, options: &Options) {
     if options.json {
         return;
-    }
-    if let Some(age) = usage_stale(places, now, USAGE_STALE_HOURS) {
-        println!("agents flow: usage cache stale: claude-web.json last written {age:.0}h ago; usage-web-read runs every 6h");
     }
     match watch_silent(places, now, WATCH_SILENT_SECONDS) {
         Some(Some(age)) => println!("landing watch: silent: north watch last finished a pass {age:.0} s ago (timer north-watch, every 30 s)"),
@@ -152,9 +154,27 @@ fn row(arguments: &[String]) -> u8 {
     0
 }
 
+fn detect(arguments: &[String]) -> u8 {
+    let file = match arguments {
+        [] => true,
+        [flag] if flag == "--dry-run" => false,
+        _ => {
+            eprintln!("{USAGE}");
+            return 2;
+        }
+    };
+    let (places, machine) = (Places::from_env(), Machine::default());
+    for line in super::detectors::tick(&places, &machine, Timestamp::now().unix_seconds_f64(), file) {
+        println!("{line}");
+    }
+    0
+}
+
 pub fn run(arguments: &[String]) -> u8 {
-    if arguments.first().map(String::as_str) == Some("row") {
-        return row(&arguments[1..]);
+    match arguments.first().map(String::as_str) {
+        Some("row") => return row(&arguments[1..]),
+        Some("detect") => return detect(&arguments[1..]),
+        _ => {}
     }
     let Some(options) = parse(arguments) else {
         eprintln!("{USAGE}");
@@ -207,6 +227,9 @@ pub fn run(arguments: &[String]) -> u8 {
     announce(&places, now, &options);
     if options.alarm {
         alarm(&places, &machine, &rows, now);
+        for line in super::detectors::tick(&places, &machine, now, true) {
+            println!("{line}");
+        }
     }
     eprintln!("agents flow: {} GitHub API calls this run", machine.github_calls());
     0
