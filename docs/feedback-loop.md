@@ -191,3 +191,5 @@ dependency path multiplies that per-box gap. A goal run that way is better estim
 goals whose boxes are tracked issues.
 
 Every mechanism that wakes an agent turn, its 7-day wake and no-op counts, and the cut to one event path and one silence check: [wake paths](rationale/wake-paths.md) (2026-11-04).
+
+What the measurements above found no gain from, and what still runs it: [measured no gain](rationale/measured-no-gain.md) (2026-11-04).
