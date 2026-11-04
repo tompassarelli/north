@@ -199,7 +199,7 @@ and run as a service.
   - Wisp's Autoland in Actions alone: cannot run machine-bound checks without a private-repo secret, and its workflow token cannot push `.github/workflows`.
   - Per-lane safe-push with wider selection only: still strands lanes on base breaks.
   - Dependency-derived selection: the proof needs a build-graph model, and most lanes touch crates the `north` binary links, so it selects the full suite anyway.
-  - Laptop as lander: it sleeps and the gaming hold defers heavy work.
+  - Laptop as lander: it sleeps and the gaming hold defers heavy work. Superseded by D4 (lander on the laptop, heavy checks on gex45 slots).
   - Shared Socrates App as lander: ruleset bypass is per App, so gex45 tokens would bypass.
   - Per-SHA uncancelled main CI: doubles Actions load for trees the lander already tested.
   - `merge=union` on docs/features.md: keeps both sides of an edited line and drops deletes.
@@ -358,6 +358,429 @@ Value alone: each box cuts p50 or p90 measured by B13.
 - **B31 24-hour measurement.** Follows B24. Category measurement; Verify measured; files this one. Done when: this file records, for the
   first 24 hours on the protected train, the five guarantee measures against the baseline.
 
+## safe-push in Rust
+
+Tom asked on 2026-11-04 for hyperspeed landings and Rust-only code. bin/safe-push is north's largest
+non-Rust file (2,452 lines of allowlisted bash) and it runs every landing. The lead set the target the
+same morning after measuring the cost of every lane landing itself: about 25 lanes each ran their own
+safe-push, pushed their own land-check ref and dispatched their own Actions run, every main move
+re-ran all of them at once, and the burst tripped GitHub's secondary rate limit (403 on workflow
+dispatch, "fatal error in commit_refs", a rejected push to main) while about 30 workers sat idle
+waiting on their own landings. So the port does not make each lane's safe-push faster. It builds
+**one always-on lander, `north land serve`**, ports safe-push's stages behind it, and deletes the parts
+the lander makes unnecessary instead of porting them. Planned at origin/main 602d51c9b.
+
+### Starting point (measured 2026-11-04)
+
+- bin/safe-push is 2,452 lines. bin/safe-push.test.sh is 2,844 lines: 4 parallel sections, 80 fixture
+  blocks (each named by `make_real_fixture`, `new_landing_origin` or `new_lane_container`; the case
+  names below), 47 `PASS:` lines and 289 `fail` assertions. Two blocks eval bash function bodies out
+  of the target (`sync_dependencies`, `tool_removal_scan`).
+- Already Rust, in crates/north-landing/src/landing/ (914 lines): arguments, help text, destination
+  snapshot, publication plan and one-branch-main (safe_push_plan.rs); repository state and remote
+  snapshot (safe_push_state.rs); language gate, native-ref, gitleaks history and annotation scans,
+  email scan, deny-list and instruction limits (safe_push_guards.rs); and the whole tag path
+  (`north safe-push --tag`, safe_push_tag.rs). bash calls about 20 `north` subcommands: land-actions,
+  land-red-check, land-red-wait, land-clean, stale-revert, lane-squash, dep-gate, denylist,
+  language-gate, build-cache-gate, bin-references, review-gate, after-landing, follows-release,
+  runtime follow, capacity, wt-reap, land-abandon, safe-push-result.
+- Still bash: the driver (main flow ~2219-2452), the landing lock and ticket queue (~1549-1665), the
+  train (~1667-1918), rebase and the verdict rule (~1920-2046), land checks (~1097-1300), Autoland
+  (~2048-2178), lane cleanup and reap (~1302-1466), and the bash-only scans: tool removal, test
+  integrity, generated rewrite, policy sweep, review, CI budget, code health, dependency sync.
+- `safe-push --dry-run --to main` already runs every gate and every selected land check without
+  taking the lock or pushing. That is how the first lander box gets today's checks without porting
+  any of them.
+- Rust integration tests already drive bin/safe-push from fixtures (tests/safe_push_land_branch.rs
+  `Lane`, tests/safe_push_tag.rs).
+
+### Target: five properties
+
+1. **Workers enqueue and end their turn.** `safe-push --enqueue` (and, once a repository opts in,
+   plain `safe-push --to main`) folds the lane to one commit (`north lane-squash`, as today), writes a
+   ticket naming the lane, its head and its author session, prints
+   `Done: queued <worktree> <branch> <sha>` and exits 0. No worker waits on a landing.
+2. **One lander owns landing.** `north land serve` runs as a user service on the laptop. It owns the
+   queue, ordering and every GitHub write for landings: one main push per candidate, by
+   compare-and-swap (`--force-with-lease=refs/heads/main:<base>`), with the north-lander App token
+   once B16 lands. With warm-slot checks (S6b) it dispatches no Actions run per candidate.
+3. **Speculative candidates.** While candidate N checks, N+1 (N plus the lanes that arrived since)
+   starts. A red candidate splits into halves, ejects only the culprit lane and messages that lane's
+   author session. N+1's verdict counts only if N landed and main is still N at its push.
+4. **Warm build slots, selection by changed paths, Actions confirms.** Candidate checks run in
+   persistent slots: on the laptop, the lander's two stable worktrees (one per speculation depth), so
+   `target/` survives and compiles are incremental; on gex45, the offload slots, whose clean keeps
+   `/target` (crates/north-core/src/ops/land_offload/ship.rs, `git clean -ffdxq -e /target`). The
+   `land.check` path filters select checks from base..candidate as today. The full suite runs on main
+   after the push (Cargo and Harness workflows), and the sheriff reverts a confirmed culprit through a
+   red-fix ticket, so Actions confirms rather than gates.
+5. **Every guarantee safe-push gives today keeps a named test** (table below). Lock-specific cases
+   whose mechanism disappears keep their guarantee as a lander test.
+
+### Ticket and queue (fixed here so S1 and S2a run in parallel)
+
+`$XDG_STATE_HOME/north/land-queue/<key>/<epoch µs>-<branch slug>.json`, with `<key>` the first 16 hex
+characters of sha256(origin push URL), the key bash's lock already uses. Fields: `origin`, `root`
+(lane worktree), `host`, `branch`, `head` (40 hex), `session` (`NORTH_FLEET_SESSION`), `queued_at`
+(RFC 3339), and `red_fix` (issue number, `marker` for a `Main-red:` trailer, or null). Written to a
+temporary file and renamed, so the lander never reads half a ticket. The lander moves a decided
+ticket to `<key>/done/` with a `verdict` field: `landed <sha>`, `conflict <files>`,
+`failed <log-or-url>`. Order: red-fix tickets first, then oldest. A re-enqueued lane replaces its
+older undecided ticket. Lane commits are fetched from `root` (same host) or `ssh://<host><root>`
+(S11).
+
+### Cut-over without two landing locks
+
+The lander never takes bash's flock and keeps no lock of its own. Lanes are ordered by its single
+queue, and it meets everything else that pushes main only at origin's compare-and-swap, which GitHub
+enforces. So two implementations of the landing lock never exist at once:
+
+- A repository moves from per-lane bash landing to the lander with one committed line,
+  `landing.queue = lander` in its `.safe-push` (S4). bash reads it from fetched origin/main, as it
+  reads `landing.queue = autoland` today (`autoland_queue`). A bin/safe-push older than S4 treats
+  any unknown value as "not autoland" (`autoland_repo`, ~2048-2056) and keeps landing per lane. That
+  is safe (it still lands by lease) but it is not property 1, so S4's Done when checks every landing
+  host's `~/code/north/main` checkout. Until remote enqueue (S11) lands, the switch applies on the
+  lander host only (`landing.lander-host`); other hosts keep landing per lane, by lease.
+- A bash safe-push already past its checks when the lander pushes fails as it does today when a peer
+  host lands under it: `revalidate_repository_state` refuses with "origin destination changed", or
+  its lease push is rejected. Nothing is overwritten, but that lane fails and its worker re-runs
+  `safe-push --to main`, which then enqueues. If the bash lane wins, the lander's lease fails and the
+  lander rebuilds its candidate on the new main (`serve-cas-lost`).
+- The bash lock, ticket queue and train stay in bin/safe-push for repositories that have not moved,
+  and are deleted (not ported) in S19b, after the last repository moves (S18).
+- Rollback is reverting the `landing.queue = lander` line; the per-lane path never stopped working.
+- North#482's rule holds: bin/safe-push calls `north land enqueue` only after probing
+  `north land enqueue --help`, and fails with "run north runtime update" when the runtime lacks it.
+  The S4 switch lands only when the lander host's runtime reports the subcommand.
+
+### How the lander checks a candidate before the stages are ported
+
+`safe-push --dry-run` is close to what the lander needs, but it skips things a real landing does: it
+reads no red-fix state, so a failed Actions check can call `retry_after_red_main` and block in
+`north land-red-wait` for up to 21,600 s (red_check.rs). It sets no `landing.capacity` wrapper and no
+offload host (~2170-2177). It revalidates the destination against origin, which breaks speculation.
+And every refusal exits 1, so a moved base or a transient failure looks the same as a culprit. So
+S2a adds an explicit bash mode, `safe-push --check-candidate --base SHA`, and deletes `usage()` (97
+lines that duplicate safe_push_usage.txt) in the same change, so the file still shrinks. The mode
+runs what a real `--to main` landing runs between the lock and the push: the language gate, scans,
+dependency gate, policy scans and land checks, under the repository's capacity wrapper and offload
+choice. It differs in four ways:
+
+- `SHA` is the destination, so the scan range and land-check selection are `SHA..HEAD`, and origin is
+  not revalidated (the lander's lease does that).
+- It never waits on red main.
+- It neither pushes nor takes the lock.
+- It ends with one line, `safe-push: verdict <class> <detail>`, where class is one of:
+  - `green`;
+  - `refused` (a gate or land check failed on the candidate);
+  - `red-main` (`north land-red-check` exit 3: the failure is main's);
+  - `transient` (fetch, `bun install`, GitHub rejecting the land-check ref twice: exit 75);
+  - `deferred` (capacity DEFER).
+
+The lander bisects only on `refused`. On `red-main` it holds the batch and lands red-fix tickets
+first. On `transient` and `deferred` it retries the same candidate later. If main moved during the
+run, it ignores the verdict and rebuilds.
+
+The mode does not cover these, and the lander does them itself:
+
+- `land.publish` refs (makgora only).
+- The pre-push hook for repositories without `land.check`: that is north-only work in Wave L0; S18
+  runs the hook on the candidate for the other repositories, as `check_candidate` does today.
+- `run_queue_branch_hook` and `denylist_attest` (Autoland only).
+- Per-lane stale-revert, and the already-landed check: S2a runs `north stale-revert --lane <lane head>
+  <picked onto> HEAD` and `git cherry` at each pick, as `run_train` does.
+
+In Wave L0, north's portable land checks still go to Actions. Each candidate run costs one
+land-check ref push, one dispatch and one ref delete (land_actions.rs), plus the main push. That is
+3-4 writes per candidate instead of 3 per lane on every main move. S6b takes the dispatch off the
+gate path.
+
+### Stages, modules and boxes
+
+Rust modules live in crates/north-landing/src/land/ (new, beside landing/).
+
+| Stage (bash) | Rust module | Box |
+|---|---|---|
+| Enqueue, lane fold, ticket write | queue.rs, enqueue.rs (lane_squash.rs) | S1 |
+| Landing lock and ticket queue (~1549-1665) | replaced by queue.rs ordering plus origin CAS; bash deleted | S2a, S19b |
+| Train collect, candidate build, run, bisect by halves, already-landed (~1667-1918) | serve.rs, candidate.rs, bisect.rs | S2a (build, check, CAS), S2b (bisect, verdict classes) |
+| Speculation (B26) | speculate.rs | S5 |
+| Red-main lookup and priority (`red_fix_issue`, Main-red marker, ~1572-1592) | queue.rs ordering, red.rs | S1 (marker), S2b (gh lookup) |
+| Blocked-by-red retry (`red_main_check`, `retry_after_red_main`, ~1264-1278) | red.rs on red_check.rs; with quarantine (B10) a base-red case stops refusing lanes | S2b, S10 |
+| Rebase, conflict report, merge-driver config (~1942-1968) | candidate.rs (cherry-pick on the lander's worktree) | S2a |
+| Verdict rule, exact mode (`keep_verdict_through_moves`, ~2009-2046) | no counterpart: the lander pushes only the tree it checked | S2a, S19b |
+| Pre-push hook on the candidate (~1970-2008) | checks.rs (hook run in the slot) | S18 (north has land.check, so Wave L0 needs no hook) |
+| Land checks, local: selection, runner, deadline, frozen, orphans, logs, lease, publish ref (~1097-1300) | slots/runner.rs, slots/select.rs | S6a |
+| Land checks on Actions (`north land-actions`) and publication scan | dropped from the gate path by S6b; land_actions.rs kept for confirm runs and repositories not on slots | S6b |
+| Land checks offloaded to gex45 (`north capacity offload`) | slots/offload.rs | S6b |
+| Candidate check mode (`safe-push --check-candidate --base SHA`) | checks.rs calls it; deleted in S19b when every stage is in-process | S2a, S19b |
+| Language, build-cache and bin-reference gates (~1062-1096) | scans/language.rs on safe_push_guards::language_gate | S12 |
+| gitleaks, deny-list, commit email, native-ref (~441-535, 2312-2330) | scans/secrets.rs on safe_push_guards, denylist.rs | S13 |
+| Dependency gate (`north dep-gate`) | scans/dep_gate.rs on dep_gate.rs, in-process | S14 |
+| Tool removal, test integrity, vendored trees (~536-606) | scans/tool_removal.rs, scans/test_integrity.rs | S14 |
+| Review gate (review coverage, durable paths, `north review-gate reviewers`), policy sweep (~100-115, 684-716) | scans/policy.rs on review_gate.rs | S15 |
+| Generated rewrite (~607-683) | scans/generated.rs | S15 |
+| CI budget, code health, instruction limits, after-landing gates (~717-1023) | after/gates.rs; `north after-landing` calls it in-process, not `safe-push --after-landing` | S16 |
+| Stale-revert and dropped-commit checks (~1024-1057) | candidate.rs, per lane as it is picked (stale-revert and already-landed in S2a; the bash functions in S17) | S2a, S17 |
+| Dependency sync, bun (~1740-1764) | slots/deps.rs | S17 |
+| Runtime follow: follows-release, `north runtime follow` (~1459-1466) | after/follow.rs, once per landed candidate | S2c |
+| Lane cleanup, auto-reap, land-clean (~1302-1466) | after/cleanup.rs, run by the lander after the landing | S21 |
+| Stage telemetry: stages.tsv, pushes.tsv (one row per lane, the 7 columns fleet landings reads), landings table (B12) | telemetry.rs | S2c (tsv), S9 (ledger) |
+| Terminal receipt (`safe-push-result`), NOT-landed check | enqueue receipt `Done: queued`; the lander's fleet message names the landed sha after `git cherry` shows every lane commit on main | S1, S2c |
+| Autoland queue, gap, `--direct` (~2048-2178) | wisp and makgora move to the lander, or keep Autoland (lead's call in S18); deleted in S19b | S18, S19b |
+| Publication path for non-default branches, scratch refs, races, lease (~220-435, 1467-1527, 2390-2452) | push.rs on safe_push_plan.rs and safe_push_state.rs | S19a |
+| Tags, abandon | already Rust (safe_push_tag.rs, land_abandon.rs) | S19b (exec only) |
+
+### Guarantees and the tests that keep them
+
+"Lander test" means a named test in tests/land_serve.rs; "per-lane" means the case stays in the bash
+suite until S20 ports it to `cargo test --test land`, under the same name.
+
+| Guarantee | Today's cases | After the port |
+|---|---|---|
+| Nothing lands unless every blocking gate passes; every failure is named once | all-at-once, language-gate-boundary, language-<mode>, dep-gate, denylist-public-finding, email-to-main, native-ref, test-integrity, vendored-tree, mutant-record, tool-removal, policy-sweep, review-coverage, generated-rewrite | per-lane, plus lander test `serve-gate-refusal` (a candidate whose check refuses is not pushed, and the lane is told which gates refused) |
+| Fail closed without north or gitleaks, or when origin can't be fetched | language-initial, train-language-<mode>, unreachable-fetch | per-lane, plus `serve-no-gitleaks` |
+| The pushed object is the one scanned; any change to repository, branch, HEAD, worktree or destination during the scan refuses | race-branch, race-commit, race-destination, race-worktree, lease-boundary | per-lane; the lander pushes the candidate sha it checked, pinned by `serve-pushes-checked-tree` and `serve-candidate-head-unchanged` (the lander worktree's HEAD or gitdir moved during the check: nothing pushed) |
+| No non-fast-forward, no silent publication of a non-main branch, symbolic destinations refused | non-fast-forward, no-upstream, inherited-upstream, symbolic-destination, normal, planning-outcomes, new-destination, explicit-main, dry-run-destination, argument-boundary | per-lane, then S19a's push.rs under the same names |
+| Landings on one origin are ordered, red-fix lanes first | concurrent, queued, main-red-marker, red-fix, deferred-capacity | `serve-train`, `serve-red-fix-first`, `serve-reenqueue-replaces`, `serve-defer` (a capacity DEFER retries the same candidate and ejects no lane) |
+| No landing is lost or doubled when the landing process dies or hangs | killed-holder, dead-check-orphans, hung-check-timeout, frozen-check-timeout, cancelled-admission | `serve-restart` (lander killed mid-check, restarted: every lane lands once, nothing pushed twice) plus runner tests ported in S6a under the same names |
+| Checks never hold a resource others wait on; leases only around the local run | admitted-check-unlocked, lease-around-local-check, lease-released-for-actions-wait, land-check-boundary (descriptors) | S6a runner tests under the same names |
+| Re-entry and scratch pushes never deadlock | reentry, farm-scratch | `serve-reentry` (a land check that runs `safe-push` to a scratch branch neither enqueues nor waits) and `serve-scratch-push-bypasses-queue` |
+| The pushed tree is the checked tree | exact, kept-verdict-second-move-<kind>, land-check-retry | `serve-pushes-checked-tree`, `serve-cas-lost`, `speculate-discard-on-red` |
+| Train: exact candidate checked once and pushed by lease; conflicts and failures returned per lane; halves; already-landed lanes count as landed | train, train-mixed, train-captured-candidate, train-deps, the train land-check cases of 617e2eeeb | `serve-train`, `serve-mixed`, `serve-captured-candidate`, `serve-deps` |
+| No lane commit is dropped; no false drop refusal | rebase-drops-commit, relanded-lane-rewritten-main, lane-already-on-main, rebase-context-only | `serve-dropped-commit`, `serve-already-on-main`, `serve-context-only`, `serve-transient-not-culprit` (S2b: a transient or moved-base verdict ejects no lane) |
+| A revert of newer main is refused, and the checks still report | stale-revert-before-land-checks | `serve-stale-revert` (S2a, per pick) |
+| A conflict leaves the lane's worktree untouched | conflict, hook-fails | `serve-mixed` (the lane worktree's HEAD and status are unchanged; the lander rebases only its own worktree) |
+| The pre-push hook passes on the exact commit that lands, and runs outside any lock | hooked, hooked-overlap, hook-fails | per-lane until S18, then `serve-hook-candidate` (hook repositories: the hook runs once on the candidate, a failing hook ejects by halves) |
+| "Landed" is reported only when main carries every lane commit | push-without-movement, autoland (terminal sha) | `serve-landed-only-on-main` |
+| Land-check logs kept on failure and pruned on success; refs it publishes are deleted | land-check-boundary, land-publish | S6a runner tests |
+| A lane lands as one commit; published commits are never rewritten | squash-one, squash-published, squash-several, squash-message | per-lane (enqueue runs the same fold), plus `enqueue-squash` |
+| Lane cleanup removes only a spent, vacant lane | clean, pid-namespace, keep, dirty, remote-merged, remote-unmerged | ported to the lander under the same names (S21) |
+| Autoland lanes and claude/ attestations | autoland, denylist-attest | per-lane until S18 and S19b decide Autoland |
+| After-landing gates and runtime follow run off the landing path | code-health-landed, autoland (follows-release through the runtime), the after-landing trace in language-gate-boundary | `serve-after-landing` (once per landed candidate, in the background) |
+| CI budget | ci-budget, ci-unconfigured, ci-filtered | per-lane, then S16 |
+| Dependency installs match the tree | fresh-north-worktree, the two sync_dependencies blocks, train-deps | `serve-deps`, S17 |
+| Workers never wait | none today | `enqueue-returns` (exits 0 within 5 s with a ticket on disk, nothing pushed) |
+| Lander worktrees survive reapers; lane-controlled check commands never see the push token | none today | `serve-worktree-not-reaped` (lane-gc, wt-reap and auto-reap skip `worktrees/lander*`), `serve-token-scoped` (check env has no `GH_TOKEN`/App token; only the push step does) |
+| GitHub traffic per candidate is bounded | none today | `serve-github-writes` (the gh/git shim trace for a 3-lane candidate shows 1 main push plus, in Wave L0, 1 land-check ref push, 1 dispatch and 1 ref delete; 0 dispatches after S6b) |
+
+### In-flight lanes land into this, not beside it
+
+| In flight (lane) | Where it lands |
+|---|---|
+| Train with land checks (landing-train-checks, 617e2eeeb) | bash, as written. Its cases stay per-lane, and `serve-train` covers the same tree-once rule |
+| Interim verdict reuse (exact-interim, 97c052083) | no change. The lander makes `landing.exact` moot for north: it pushes only checked trees |
+| B8+B9 per-case results (case-results) | stays library code; S6a's runner keeps calling `north land-tests` |
+| B10-B11 judge | B11 targets the lander's checks.rs once S2a has landed, and bash `check_candidate` before then |
+| B12+B13 telemetry (landing-telemetry) | lands in bash first; S9 writes the same `landings` rows from serve.rs |
+| B14 merge driver (merge-driver) | lands in bash first; candidate.rs sets the same `merge.set.driver` config in the lander's worktree |
+| B16 lander credential (lander-credential) | S8: serve pushes with `gh-app-token --app lander` |
+| Land-check speed on Actions | edits land_actions.rs, which stays for confirm runs; independent |
+| Shared dependency builds (flake.nix -Cmetadata) | helps S6b's warm slots; independent |
+
+B17 (Nexus unit) gives way to S3 (laptop user unit) under D4. B18 is S2a-S2c. B19 and B27 are S6a-S6b. B26 is
+S5. B22's revert becomes a red-fix ticket (S10).
+
+### Boxes
+
+Every box: Category feature, Spec exact, Scope north, Surface rust, Verify local-test, unless stated.
+Each is 20-40 minutes. Boxes in one wave run in parallel unless they say Follows. Test runs go through
+machine-capacity (moderate class).
+
+**Wave L0: lands today, laptop lanes first.** Value alone: workers on the lander host end at
+`Done: queued`, and each candidate costs one check and 3-4 GitHub writes, instead of one check per
+lane on every main move. Order: S2a first (about 30 min); S1 runs beside it and rebases onto it;
+then S2b and S2c in parallel; then S3 and S4.
+
+- **S2a Lander loop, green path.** Files crates/north-landing/src/land/{mod,queue,serve,candidate,
+  checks}.rs, src/cli/tools.rs (`land` with `serve` and `enqueue` arms; `enqueue` starts as a stub
+  S1 fills), bin/safe-push (`--check-candidate --base SHA` as described above, and `usage()` deleted),
+  tests/land_serve.rs. `north land serve [--once]` reads the queue and builds one candidate for an
+  origin: red-fix tickets first, then oldest, re-enqueued tickets replacing older ones. The candidate
+  is branch `land-candidate` in the stable worktree `~/code/<repo>/worktrees/lander`. At each pick it
+  runs `git cherry`, so a lane already on main counts as landed, and `north stale-revert` against the
+  lane's head. A conflict ejects that lane and records its files. The candidate is checked with
+  `safe-push --check-candidate`, in an environment with `GH_TOKEN` and the App key removed. On green
+  it pushes by lease. If the lease fails it rebuilds. Done when: (1) `cargo test --test land_serve
+  serve` passes `serve-train`, `serve-red-fix-first`, `serve-reenqueue-replaces`, `serve-cas-lost`,
+  `serve-pushes-checked-tree`, `serve-candidate-head-unchanged`, `serve-gate-refusal`,
+  `serve-stale-revert`, `serve-already-on-main`, `serve-token-scoped` and `serve-github-writes`;
+  (2) `bash bin/safe-push.test.sh` prints PASS, with a new case `check-candidate` showing a red-main
+  failure ending `verdict red-main` without calling `land-red-wait`; (3) `git diff --numstat
+  origin/main -- bin/safe-push` shows more lines deleted than added.
+- **S1 Enqueue.** Beside S2a; owns land/enqueue.rs and tests/land_enqueue.rs only, and writes the
+  ticket format above. bin/safe-push gets an `--enqueue` arm of at most 3 lines that probes and execs
+  `north land enqueue`. Done when: (1) `cargo test --test land_enqueue` passes `enqueue-returns`,
+  `enqueue-squash` (a 3-commit lane becomes one commit before its ticket is written),
+  `enqueue-red-fix-marker` (a `Main-red:` trailer sets `red_fix`) and `enqueue-replaces`;
+  (2) `safe-push --enqueue` with a runtime lacking `land` exits 1 naming `north runtime update`;
+  (3) the bash suite prints PASS.
+- **S2b Bisect and verdict classes.** Follows S2a. Files land/{bisect,red}.rs. The lander halves
+  only on `refused`. On `red-main` it holds the batch and lands red-fix tickets first; on `transient`
+  and `deferred` it retries the same candidate; a candidate whose base moved during its check is
+  rebuilt. It messages the culprit's session with the log or run URL. Done when: `serve-mixed`
+  (already-landed, conflict naming `shared.txt`, failure receipt with the run URL, the good lanes
+  landed, the lane worktrees' HEAD and status unchanged), `serve-captured-candidate`,
+  `serve-transient-not-culprit`, `serve-defer`, `serve-dropped-commit` and `serve-context-only`
+  pass.
+- **S2c After the landing.** Follows S2a. Files land/{telemetry}.rs, land/after/follow.rs. It
+  writes one pushes.tsv row per lane (the 7 columns `record_push` writes, so fleet landings see the
+  session) and stages.tsv rows. It sends `north fleet send <session> "landed <branch> as <sha>"`
+  only after `git cherry` shows the lane's commit on main. In the background, once per candidate, it
+  runs `north after-landing`, follows-release and `north runtime follow`. Done when: (1)
+  `serve-landed-only-on-main`, `serve-after-landing`, `serve-restart` (the lander killed mid-check and
+  restarted: every lane lands once and nothing is pushed twice) and `serve-reentry` pass; (2) one real
+  north lane lands through `north land serve --once` on the laptop, its sha an ancestor of
+  origin/main (`git merge-base --is-ancestor`), and its author session receives the landed message.
+- **S3 Lander service.** Follows S2c. Scope cross-repo (nixos-config: a firn `north-land` user unit;
+  until it lands, the lead starts `systemd-run --user --unit north-land`); Surface laptop. It runs
+  the runtime's `north land serve`, restarts on exit and between candidates after a runtime follow.
+  lane-gc, wt-reap and auto-reap skip `worktrees/lander*`. Done when: (1) `systemctl --user is-active
+  north-land` prints active; (2) after `kill -9` of its pid mid-check, a new pid lands the same
+  candidate once within 10 s; (3) `serve-worktree-not-reaped` passes.
+- **S4 North switches to the lander on the laptop.** Follows S1, S3. Files bin/safe-push
+  (`landing.queue = lander` and `landing.lander-host` read from fetched origin/main, so `--to main`
+  enqueues on the lander host), .safe-push, bin/safe-push.test.sh (case `lander-queue`),
+  harness/skills/workers/references/notes.md (Landing mechanics: a landing ends at `Done: queued`).
+  Done when: (1) `lander-queue` shows `--to main` on such a fixture writing a ticket, pushing nothing
+  and exiting 0 on the lander host, and landing per lane on another host; (2) the laptop's runtime
+  answers `north land enqueue --help` and `git -C ~/code/north/main merge-base --is-ancestor <S4 sha>
+  HEAD` exits 0; (3) 30 minutes after the switch, `rg -c` over the new stages.tsv rows finds no
+  `land checks` row from a laptop worker lane, and pushes.tsv shows at least one landing by the
+  lander.
+
+**Wave L1: the lander's own speed and identity.** Parallel, after S2b.
+
+- **S5 Speculation (B26).** Files land/speculate.rs. Depth 2 by default, in a second stable
+  worktree (`worktrees/lander-2`). Done when: (1) `speculate-two-batches`: with a stub check of 5 s,
+  two batches arriving 1 s apart both land in under 12 s; (2) `speculate-discard-on-red`: a red N
+  throws away N+1's verdict, and N+1 is rebuilt without the culprit and checked again; (3)
+  `speculate-real-gates`: N lands while N+1's real `--check-candidate --base N` run is in flight, and
+  N+1 still lands without re-running; (4) every test asserts that the pushed tree equals a checked
+  tree.
+- **S6a Rust land-check runner, in place.** Files land/slots/runner.rs, bin/safe-push. It ports
+  `run_land_checks`: selection from `land.check`, the local-only reasons, logs, the deadline under
+  `north capacity deadline`, frozen-time accounting, orphan reaping, the capacity wrapper and the
+  publish ref. bash's function body becomes one `north land checks --base B --head H` call, for every
+  caller, so per-lane landings use it too and bash shrinks by about 90 lines. Done when: runner tests
+  ported under their case names pass: land-check-boundary, land-publish, dead-check-orphans,
+  hung-check-timeout, frozen-check-timeout, lease-around-local-check,
+  lease-released-for-actions-wait, admitted-check-unlocked, land-check-retry; the bash suite prints
+  PASS; `rg -n '^run_land_checks\(\)' bin/safe-push` shows a body of at most 3 lines.
+- **S6b Warm slots, Actions confirms.** Follows S6a. Files land/slots/{select,offload}.rs. With
+  `--slots` (passed by `--check-candidate`), portable commands run in the lander's worktree or on a
+  gex45 offload slot through `north capacity offload run`, never on Actions; local-only commands stay
+  on the laptop. Done when: (1) `serve-github-writes` shows 1 main push and 0 dispatches per
+  candidate; (2) on north, a second candidate's `cargo build` in the same slot takes under 30% of the
+  first's wall time; (3) main's Cargo and Harness runs still start on every landed sha (`gh run list
+  --commit <sha>`).
+- **S7 Removed.** The scans bridge is not needed: S6a ports the land checks in place, and each Wave
+  L2 box ports its scan in place, so `--check-candidate` keeps working throughout.
+- **S8 Lander App token.** Follows B16. Done when: a landing by the lander shows the App as its push
+  actor (`gh api repos/tompassarelli/north/events` push event `actor.login` is the App's bot), and
+  `serve-token-scoped` still passes, with the token present only in the push step's environment.
+- **S9 Landing records (B12).** Follows B12. Done when: one fixture run of serve leaves one
+  `landings` row per lane with tree, batch_size, bisect_depth, attempts and verdict, and `north flow`
+  prints queued-to-landed p50 and p90 from those rows.
+- **S10 Sheriff through the queue (B22).** Follows S2b, B10. Files harness/scripts/main-red.ts,
+  land/red.rs. Done when: (1) a fixture where main's post-push suite fails on case X enqueues a
+  red-fix revert ticket of only the lane whose removal turns X green, lands it ahead of the queue
+  and messages the lane's author; (2) a failure that persists without the lane enqueues nothing.
+- **S11 Remote enqueue.** Files land/enqueue.rs. On gex45 and Nexus, `north land enqueue` writes the
+  ticket to the lander host over ssh, and the lander fetches `ssh://<host><root>`. When the lander is
+  unreachable, the ticket goes to a local outbox that a timer flushes, so the worker still exits 0.
+  Surface gex45. Done when: (1) a fixture lane enqueued on gex45 lands; (2) an enqueue with the laptop
+  unreachable prints `Done: queued (outbox)` and lands once the laptop is reachable again; (3) S4's
+  `landing.lander-host` limit is removed, and `lander-queue` enqueues from any host.
+- **S21 Lane cleanup by the lander.** Files land/after/cleanup.rs. Done when: the lane cases clean,
+  pid-namespace, keep, dirty, remote-merged and remote-unmerged pass against the lander's
+  after-landing cleanup, under the same names.
+
+**Wave L2: stages ported in place.** Parallel, after S2a. Each box ports one group of bash functions
+to Rust, available as `north land scan <name>`. It replaces each function body in bin/safe-push with
+that call, so `--check-candidate` and per-lane landings both use it, and ports the named cases to
+`cargo test --test land` under the same names. Each Done when also requires the bash suite to print
+PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than added.
+
+- **S12 Language, build-cache and bin-reference gates** (`run_language_gate`,
+  `run_bin_reference_gate`). Cases language-gate-boundary, language-<mode>, language-initial,
+  train-language-<mode>, train-captured-candidate.
+- **S13 Secrets, deny-list, email, native-ref** (`denylist_scan`, `commit_email_scan`,
+  `native_ref_scan`, `publication_scan`, the gitleaks call). Cases denylist-public-finding,
+  email-to-main, race-* scan half, native-ref, all-at-once.
+- **S14 Dependency gate, tool removal, test integrity** (`tool_removal_scan`, `vendored_trees`,
+  `test_integrity_scan`). Cases dep-gate, tool-removal (including its eval'd block), vendored-tree,
+  mutant-record, test-integrity.
+- **S15 Review coverage, policy sweep, generated rewrite** (`review_scan`, `policy_sweep_scan`,
+  `generated_rewrite_scan`, `durable_harness_paths`; codex_behavior.py's `--durable-harness-paths`
+  caller moves to `north land durable-paths`). Cases review-coverage, policy-sweep, generated-rewrite.
+- **S16 CI budget, code health, instruction limits as after-landing gates** (`ci_budget_*`,
+  `code_health_gate`, `run_after_landing_gates`); `north after-landing` stops calling
+  `safe-push --after-landing`. Cases ci-budget, ci-unconfigured, ci-filtered, code-health-landed.
+- **S17 Per-lane candidate checks: stale revert, dropped commits, dependency sync**
+  (`lane_commits_missing`, `refuse_stale_revert`, `sync_dependencies`). Cases rebase-drops-commit,
+  relanded-lane-rewritten-main, lane-already-on-main, rebase-context-only,
+  stale-revert-before-land-checks, fresh-north-worktree, the two sync_dependencies blocks,
+  train-deps.
+
+**Wave L3: every repository through the lander, then deletion.**
+
+- **S18 South, nixos-config, wisp and makgora on the lander.** Follows S4, S11. Scope cross-repo.
+  serve takes one queue per origin. Wisp and makgora's Autoland workflow is the lead's call in this
+  box: move them to the lander (recommended, one landing path) or keep Autoland. Done when: one real
+  landing per moved repository through the lander, each sha an ancestor of its origin/main.
+- **S19a Publication path in Rust.** Follows S13. Files land/push.rs (non-default branches, scratch
+  refs, the race revalidation and the lease push, on safe_push_plan.rs and safe_push_state.rs), with
+  `north land push` taking every non-default-branch push. Done when: the publication cases
+  (argument-boundary, normal, planning-outcomes, lease-boundary, race-branch, race-commit,
+  race-destination, race-worktree, no-upstream, inherited-upstream, dry-run-destination,
+  new-destination, non-fast-forward, symbolic-destination, farm-scratch) pass against `north land
+  push` under their names in `cargo test --test land`.
+- **S19b bin/safe-push becomes an exec.** Follows S12-S18, S19a. The lander calls every stage
+  in-process, and the change deletes `--check-candidate`, the lock, ticket queue, train, rebase and
+  verdict loop, Autoland and the driver. bin/safe-push becomes `exec -a safe-push "$runtime" land "$@"`
+  plus bin/north's `CODEX_HOME` unset. The name stays because guards (worker_wait, tripwire), skills,
+  south and nixos-config units and the `~/.local/bin` links use it. Done when: (1) `rg -c ''
+  bin/safe-push` prints 5 or less; (2) `explicit-main` (now an enqueue) and every lander test pass;
+  (3) one real landing in north and one in south go through the exec'd path, each sha an ancestor of
+  its origin/main.
+- **S20 Shell suite retired.** Follows S19b. Done when: `git ls-files bin/safe-push.test.sh` prints
+  nothing; .language-allowlist.json has no safe-push entry; `cargo test --test land -- --list` and
+  `cargo test --test land_serve -- --list` name every test in the guarantee table; both pass.
+
+Rejected, one line each:
+- A faster per-lane `north land` with today's lock ported byte for byte: keeps 25 lanes dispatching
+  checks on every main move, the burst that hit the rate limit.
+- Porting the lock and ticket queue: the lander's queue and origin's CAS make them unnecessary, and a
+  port would put two lock implementations on one host during the cut-over.
+- Porting the bash driver first and the scans later through the bash bridge, as the first draft of
+  this section planned: it lands nothing for hours. The lander over `--dry-run` delivers today.
+- Lander on Nexus (B17): it needs the Nexus unit, credentials and warm targets first. The laptop
+  already has warm worktrees and the runtime (D4).
+- Every candidate check on Actions: one dispatch per candidate still meets the burst limit under
+  speculation and bisection, and Actions has no warm target/.
+- Workers polling for their verdict: property 1. The verdict arrives as a fleet message.
+
+Adversarial review of this section (a Sonnet reviewer, 2026-11-04), and the one revision:
+
+| # | Finding | Change |
+|---|---|---|
+| 1 | Remote workers would enqueue to a queue no lander reads | S4 switches the lander host only (`landing.lander-host`); S11 lifts the limit |
+| 2 | Dry-run still dispatches Actions: 3 writes per candidate, not 1 | Costs stated in the check-mode subsection and in `serve-github-writes`; S6b removes them |
+| 3 | Dry-run has no red-fix state, so a red Actions check blocks for 6 h in `land-red-wait` | `--check-candidate` never waits and reports `verdict red-main` (case `check-candidate`) |
+| 4 | Exit 1 conflates culprits with moved base, transient failures and DEFER | Verdict classes; bisect only on `refused`; `serve-transient-not-culprit`, `serve-defer` |
+| 5 | Dry-run skips the capacity wrapper, offload, publish, hook and attest | Check mode applies capacity and offload; the rest are listed and assigned |
+| 6 | Stale-revert and dropped-commit checks are weak until S17 | Per-pick stale-revert and `git cherry` moved into S2a |
+| 7 | Speculation breaks on the destination revalidate | `--base SHA` without revalidation; S5 follows S2b; `speculate-real-gates` |
+| 8 | An older bin/safe-push ignores `landing.queue = lander` | Cut-over text corrected; S4 checks the checkout |
+| 9 | A bash lane in flight fails rather than retries | Cut-over text corrected |
+| 10 | Table missed vendored-tree, mutant-record, review-coverage, the hook, re-entry and worktree races | Rows and tests added |
+| 11 | S2, S6 and S19 are over 40 min; S4 waits an hour | S2a-S2c, S6a-S6b, S19a-S19b; S4 checks at 30 min |
+| 12 | S1 and S2 edit the same files | S2a owns the shared files; S1 owns enqueue.rs and its own test file |
+| 13 | Check commands come from the lane, in an environment with the push token | Scrubbed check environment; `serve-token-scoped`; token only in the push step |
+| 14 | Reapers could remove the lander worktree | S3 exempts `worktrees/lander*`; `serve-worktree-not-reaped` |
+
 ## Decisions
 
 Recorded, not reopened:
@@ -367,6 +790,10 @@ Recorded, not reopened:
   the Socrates Agent App, which is the approved shape.
 - **D2 (lead, 2026-11-04).** The lander and machine-bound checks run on Nexus; B4 measures its 3 cores.
 - **D3 (lead, 2026-11-04).** `landing.exact = true` in north's .safe-push (5c12c46f3) as Wave 0.
+- **D4 (lead, 2026-11-04 8:00 AM).** The lander is `north land serve`, a user service on the laptop, and
+  workers end their turn at `Done: queued`. It is light, so the gaming hold defers only local-only
+  checks while heavy checks run on gex45's warm slots. A sleeping laptop pauses the queue, but no
+  worker waits on it. This supersedes D2 for the lander host; Nexus stays a later option (B17).
 
 Only Tom can act (his GitHub session):
 
