@@ -90,7 +90,7 @@ impl Lander {
                     Pick::Included => included.push((path, ticket)),
                     Pick::Decided(verdict) => {
                         records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict });
-                        bisect::decide(path, ticket, verdict.clone())?;
+                        bisect::decide(path, ticket, verdict.clone(), None)?;
                         progressed = true;
                     }
                     Pick::Undecided(reason) => undecided = Some(reason.clone()),
@@ -169,7 +169,7 @@ impl Lander {
                     let (path, ticket) = included[0];
                     let refusal = format!("failed {detail}");
                     records::write(self, path, ticket, &Candidate { head: &built.head, batch_size: included.len(), stages: &stages }, &Decision::Refused { verdict: &refusal });
-                    bisect::decide(path, ticket, refusal)?;
+                    bisect::decide(path, ticket, refusal, Some(&log))?;
                     return Ok(Round::Progress);
                 }
                 Judgement::RedMain(detail) if !red_only && red::narrows(&included) => {

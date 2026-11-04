@@ -35,7 +35,7 @@ exit "$status"
 "#;
 
 const NORTH: &str = r#"#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$LAND_TRACE/north-calls"
+printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
 if [ "$1" = land-train ] && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" THREADS_SCHEMA_READY=1 exec "$LAND_REAL_NORTH" "$@"; fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
 if [ "$1" = fleet ] && [ "$2" = send ] && [ "${4%% *}" = landed ]; then
@@ -395,6 +395,53 @@ fn worktree_state(root: &Path) -> (String, String) {
 
 fn tree(fixture: &Fixture, commit: &str) -> String {
     git(&fixture.repo, &["rev-parse", &format!("{commit}^{{tree}}")])
+}
+
+#[test]
+fn serve_tells_the_culprit_its_own_refusal_reason() {
+    let mut fixture = Fixture::new();
+    let tickets: Vec<PathBuf> = ["a", "b"].iter().map(|name| {
+        let lane = fixture.lane(name, &format!("{name}.txt"), name);
+        fixture.enqueue(&lane, None)
+    }).collect();
+    executable(
+        &fixture.trace.join("hook"),
+        r#"#!/usr/bin/env bash
+command git cat-file -e HEAD:b.txt 2>/dev/null || exit 0
+echo refused >"$LAND_TRACE/verdict-$1"
+for k in $(seq 300); do echo "   Compiling crate-$k v0.1.0"; done
+echo 'dep-gate: crates/x/Cargo.toml: proptest: added dependency needs a reason'
+echo 'running 2 tests'
+printf -- '---- lane_b::adds stdout ----\nthread %s panicked at src/lib.rs:4:9:\nassertion `left == right` failed in check %s\n  left: 1\n right: 2\nnote: run with `RUST_BACKTRACE=1`\n' "'lane_b::adds'" "$1"
+echo 'safe-push: land check cargo test exited 101 after 12s'
+echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
+echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
+"#,
+    );
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.checks().len(), 3, "the refused candidate of a and b halves to a, then b alone");
+    assert_eq!(fixture.verdict(&tickets[0]), Some(format!("landed {}", fixture.main())));
+    let failure = fixture.verdict(&tickets[1]).unwrap();
+    let fleet = fixture.fleet();
+    let told: Vec<&String> = fleet.iter().filter(|call| call.starts_with("fleet send session-lane-b ")).collect();
+    assert_eq!(told.len(), 1, "{fleet:?}");
+    let lines: Vec<&str> = told[0].trim_start_matches("fleet send session-lane-b ").split("\\n").collect();
+    let log = lines.last().unwrap().strip_prefix("full log: ").unwrap();
+    assert!(log.ends_with("-candidate.log") && fs::read_to_string(log).unwrap().contains("check 3"), "the full log is the culprit's own check: {log}");
+    assert_eq!(
+        lines[..lines.len() - 1],
+        [
+            format!("north land: lane-b ({}) did not land: {failure}", git(&fixture.root.join("proj/worktrees/b"), &["rev-parse", "HEAD"])).as_str(),
+            "dep-gate: crates/x/Cargo.toml: proptest: added dependency needs a reason",
+            "---- lane_b::adds stdout ----",
+            "thread 'lane_b::adds' panicked at src/lib.rs:4:9:",
+            "assertion `left == right` failed in check 3",
+            "safe-push: land check cargo test exited 101 after 12s",
+            "safe-push: ✗ the pre-push checks failed in check 3; NOT pushed.",
+        ]
+    );
+    let reason: usize = lines[1..lines.len() - 1].iter().map(|line| line.len() + 1).sum();
+    assert!(reason <= north_landing::land::refusal::BOUND + 1, "{reason}");
 }
 
 #[test]

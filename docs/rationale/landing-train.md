@@ -629,7 +629,9 @@ then S2b and S2c in parallel; then S3 and S4.
 - **S2b Bisect and verdict classes.** Follows S2a. Files land/{bisect,red}.rs. The lander halves
   only on `refused`. On `red-main` it holds the batch and lands red-fix tickets first; on `transient`
   and `deferred` it retries the same candidate; a candidate whose base moved during its check is
-  rebuilt. It messages the culprit's session with the log or run URL. Done when: `serve-mixed`
+  rebuilt. It messages the culprit's session with the log or run URL, and (north#360, 2026-11-04)
+  the gate refusal, safe-push `✗` and `exited N` lines and each failing test's name and panic line
+  from that lane's own check log, in log order, once each, within 1500 characters. Done when: `serve-mixed`
   (already-landed, conflict naming `shared.txt`, failure receipt with the run URL, the good lanes
   landed, the lane worktrees' HEAD and status unchanged), `serve-captured-candidate`,
   `serve-transient-not-culprit`, `serve-defer`, `serve-dropped-commit` and `serve-context-only`

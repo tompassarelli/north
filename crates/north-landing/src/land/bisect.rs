@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::after;
 use super::checks::Verdict;
 use super::queue::{self, Ticket};
+use super::refusal;
 
 pub const PERSISTENT_AFTER: u32 = 3;
 
@@ -109,24 +110,37 @@ fn rejected(verdict: &str) -> bool {
     verdict.starts_with("failed ") || verdict.starts_with("conflict ")
 }
 
-pub fn notify(ticket: &Ticket, verdict: &str) {
+fn refused(ticket: &Ticket, verdict: &str, log: Option<&Path>) -> String {
+    let mut text = format!("north land: {} ({}) did not land: {verdict}", ticket.branch, ticket.head);
+    if let Some(log) = log {
+        let reason = refusal::reason(&fs::read_to_string(log).unwrap_or_default());
+        if !reason.is_empty() {
+            text.push('\n');
+            text.push_str(&reason);
+        }
+        text.push_str(&format!("\nfull log: {}", log.display()));
+    }
+    text
+}
+
+pub fn notify(ticket: &Ticket, verdict: &str, log: Option<&Path>) {
     let Some(session) = ticket.session.as_deref().filter(|session| !session.is_empty()) else {
         return;
     };
     let text = match verdict.strip_prefix("landed ") {
         Some(sha) => format!("landed {} as {sha}", ticket.branch),
-        None => format!("north land: {} ({}) did not land: {verdict}", ticket.branch, ticket.head),
+        None => refused(ticket, verdict, log),
     };
     if !after::send(session, &text) {
         eprintln!("north land: could not tell session {session} about {}", ticket.branch);
     }
 }
 
-pub fn decide(path: &Path, ticket: &Ticket, verdict: String) -> Result<(), String> {
+pub fn decide(path: &Path, ticket: &Ticket, verdict: String, log: Option<&Path>) -> Result<(), String> {
     println!("north land: {} ({}): {verdict}", ticket.branch, ticket.head);
     queue::decide(path, ticket.clone(), verdict.clone()).map_err(|error| error.to_string())?;
     if rejected(&verdict) || verdict.starts_with("landed ") {
-        notify(ticket, &verdict);
+        notify(ticket, &verdict, log);
     }
     Ok(())
 }
