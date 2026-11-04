@@ -22,11 +22,13 @@ pub enum RowKind {
     JobExit,
     #[serde(rename = "CONTROL")]
     Control,
+    #[serde(rename = "WAIT")]
+    Wait,
 }
 
 impl RowKind {
-    pub const ALL: [RowKind; 7] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control];
-    pub const DELIVERED: [RowKind; 5] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobExit, Self::Control];
+    pub const ALL: [RowKind; 8] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobStart, Self::JobBeat, Self::JobExit, Self::Control, Self::Wait];
+    pub const DELIVERED: [RowKind; 6] = [Self::Message, Self::Gate, Self::GateAnswer, Self::JobExit, Self::Control, Self::Wait];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -37,6 +39,7 @@ impl RowKind {
             Self::JobBeat => "JOB-BEAT",
             Self::JobExit => "JOB-EXIT",
             Self::Control => "CONTROL",
+            Self::Wait => "WAIT",
         }
     }
 }

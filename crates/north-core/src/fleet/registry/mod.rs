@@ -42,6 +42,7 @@ mod home;
 mod start_lock;
 mod stopping;
 mod takeover;
+mod wait_rows;
 mod table;
 pub use home::{orders_here, recorded_here, root_here};
 mod messages;
@@ -65,6 +66,7 @@ pub use hand_in::HandedIn;
 pub use control::Controlled;
 pub use gate_rows::Opened;
 pub use messages::Sent;
+pub use wait_rows::Waiting;
 
 const OPEN_WAIT: Duration = Duration::from_secs(30);
 const OPEN_POLL: Duration = Duration::from_millis(100);

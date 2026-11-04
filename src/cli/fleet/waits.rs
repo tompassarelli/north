@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::detached;
 use crate::fleet::model::Delivery;
-use crate::fleet::registry::Fleet;
+use crate::fleet::registry::{Fleet, Waiting};
 use crate::fleet::runtime::SESSION_ENV;
 use crate::fleet::store::LedgerHost;
 use crate::fleet::tick::{Probed, WaitProbes};
@@ -38,15 +38,18 @@ pub(super) fn run(fleet: &Fleet, verb: &str, words: &[&str]) -> NorthResult<()> 
 
 fn register(fleet: &Fleet, run: &str, name: Option<&str>) -> NorthResult<()> {
     let name = name.filter(|name| !name.is_empty()).ok_or_else(|| NorthError::Usage(format!("{USAGE}; NAME defaults to ${SESSION_ENV}")))?;
-    fleet.session(name)?;
     let run: Run = run.parse()?;
-    fleet.waits().register(name, run.clone(), &std::env::current_dir()?, None)?;
+    let host = match fleet.register_wait(name, &run, &std::env::current_dir()?)? {
+        Waiting::Here => None,
+        Waiting::Spooled { host, .. } => Some(host),
+    };
     if let Some(request) = run.request(name)
         && let Err(error) = row::record_wait(&request)
     {
-        eprintln!("north fleet: {run} is registered here but not in the fleet store: {}", error.user_message());
+        eprintln!("north fleet: {run} is registered but not in the fleet store: {}", error.user_message());
     }
-    println!("{name} waits on {run}: end your turn now; it parks and {run}'s end revives it with the result");
+    let settled_by = host.map(|host| format!(" on {host}")).unwrap_or_default();
+    println!("{name} waits on {run}: end your turn now; it parks and {run}'s end revives it with the result, settled by `north fleet waits`{settled_by}");
     Ok(())
 }
 
