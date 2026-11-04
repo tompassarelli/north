@@ -4,24 +4,20 @@ export interface Step { name: string; conclusion: string | null; number: number 
 export interface Job { id: number; name: string; conclusion: string | null; steps: Step[] }
 export interface Commit { sha: string; parents: string[]; message: string; files: string[] }
 export interface Situation {
-  attempt: number;
-  conclusion: string | null;
-  original: Job[];
-  confirmed: Job[];
-  previous?: { sha: string; conclusion: string | null };
-  commits: Commit[];
-  onMain: boolean;
-  head: string;
+  attempt: number; conclusion: string | null; original: Job[]; confirmed: Job[]; previous?: { sha: string; conclusion: string | null };
+  commits: Commit[]; onMain: boolean; head: string; tip: string;
 }
 export type Decision = { kind: "none" | "report" | "confirm" | "revert"; reason: string; step?: string; job?: number; shas?: string[] };
 
 export function decide(s: Situation): Decision {
+  if (s.conclusion === "cancelled" || s.conclusion === null) return { kind: "none", reason: "The run was cancelled or never concluded; nothing to revert" };
   const job = [...s.original].sort((a, b) => a.id - b.id).find(j => j.conclusion === "failure" && j.steps.some(t => t.conclusion === "failure"));
   const step = job?.steps.find(t => t.conclusion === "failure");
   if (!job || !step) return { kind: s.conclusion === "failure" ? "report" : "none", reason: "No failing test step was recorded" };
   const name = `${job.name}: ${step.name}`;
   const report = (reason: string): Decision => ({ kind: "report", reason, step: name });
   if (!s.onMain) return report("The failing commit is no longer on main; report only");
+  if (s.tip !== s.head) return report("Main has moved past the failing commit; a later landing may already fix it, so never revert on this stale run");
   if (s.attempt === 1) return { kind: "confirm", reason: "Confirm this failed job once; retain the original failure", step: name, job: job.id };
   if (s.attempt !== 2) return report("Confirmation budget exhausted; never rerun again");
   const confirmed = s.confirmed.find(j => j.name === job.name);
@@ -93,7 +89,7 @@ export function sheriff(id: number): void {
       });
     }
   }
-  const verdict = decide({ attempt: ci.run_attempt, conclusion: ci.conclusion, original, confirmed: ci.run_attempt === 2 ? jobs(id, 2) : [], previous: prior && { sha: prior.head_sha, conclusion: prior.conclusion }, commits, onMain, head: ci.head_sha });
+  const verdict = decide({ attempt: ci.run_attempt, conclusion: ci.conclusion, original, confirmed: ci.run_attempt === 2 ? jobs(id, 2) : [], previous: prior && { sha: prior.head_sha, conclusion: prior.conclusion }, commits, onMain, head: ci.head_sha, tip: git("rev-parse", "origin/main") });
   const detail = `Culprit range: ${commits.map(c => c.sha).join(", ") || ci.head_sha}\nFailing step: ${verdict.step ?? "unknown"}\n[CI run](${ci.html_url})\n${verdict.reason}`;
   if (verdict.kind === "confirm") {
     report(existing, marker, `${detail}\nRequested one confirmation of job ${verdict.job}; a green confirmation is reported, never treated as a repaired run.`);
