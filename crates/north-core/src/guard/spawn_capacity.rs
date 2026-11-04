@@ -123,6 +123,7 @@ fn spawn(world: &impl World, event: &Event) -> Result<Option<String>, String> {
 
 fn capacity_refusal(world: &impl World, event: &Event) -> Option<String> {
     if let Some(reason) = briefs::flow_gate(world, event) {
+        logs::denial(world, event, "flow", Some(&reason));
         return Some(reason);
     }
     if !event.is_local() || event.texts.iter().any(|text| briefs::LANDING_PATH.is_match(text)) || event.named_lander() {

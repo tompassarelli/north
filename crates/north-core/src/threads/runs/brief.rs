@@ -3,8 +3,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-pub const CATEGORIES: [&str; 11] =
-    ["mechanical", "docs-policy", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning", "native-check", "research"];
+use crate::router::brief::CATEGORIES;
 
 /// Orthogonal brief facets, each a closed vocabulary, in the order the runs table holds them.
 pub const FACETS: [(&str, &[&str]); 4] = [

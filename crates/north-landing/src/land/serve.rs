@@ -1,7 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::candidate::{self, Pick, git};
+use super::lander::Lander;
 use super::after;
 use super::bisect::{self, Judgement};
 use super::checks::{self, Verdict};
@@ -12,13 +13,6 @@ const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PR
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(10);
 
-pub struct Lander {
-    pub repo: PathBuf,
-    pub worktree: PathBuf,
-    pub queue: PathBuf,
-    pub checker: Vec<String>,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum Round {
     Idle,
@@ -26,20 +20,11 @@ pub enum Round {
     Waiting(String),
 }
 
-pub(super) fn state_home() -> PathBuf {
-    std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"))
-}
-
 fn micros() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_micros())
 }
 
 impl Lander {
-    pub fn new(repo: &Path, checker: Vec<String>) -> Result<Self, String> {
-        let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
-        Ok(Self { repo: repo.to_owned(), worktree: candidate::lander_worktree(repo)?, queue: queue::directory(&state_home(), &origin), checker })
-    }
-
     fn identity(&self) -> Result<(String, String), String> {
         Ok((git(&self.worktree, &["rev-parse", "HEAD"])?, git(&self.worktree, &["rev-parse", "--absolute-git-dir"])?))
     }

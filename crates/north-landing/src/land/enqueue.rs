@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use time::OffsetDateTime;
 
+use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
 use crate::landing::lane_squash::{self, Squash};
 
@@ -165,13 +166,6 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
     queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     replace_older(&directory, &path, &root, &branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))?;
     Ok(Queued { path, ticket, squash })
-}
-
-fn state_home() -> PathBuf {
-    match std::env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()) {
-        Some(value) => PathBuf::from(value),
-        None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"),
-    }
 }
 
 pub fn run(arguments: &[String]) -> u8 {

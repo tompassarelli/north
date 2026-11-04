@@ -5,7 +5,8 @@ use std::collections::BTreeSet;
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
-use super::brief::{CATEGORIES, Fields};
+use super::brief::Fields;
+use crate::router::brief::CATEGORIES;
 use super::row::{Row, bind, python_repr, text, truthy, value};
 use crate::platform::pyjson::Value;
 use crate::platform::run_roles;

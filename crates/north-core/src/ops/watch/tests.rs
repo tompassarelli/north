@@ -28,7 +28,7 @@ fn queue(tickets: Vec<Ticket>, pressure: f64, since: Option<u64>) -> CapacityVie
 
 #[test]
 fn capacity_raises_a_ticket_queued_past_five_minutes_on_any_host() {
-    let context = WatchContext { now: NOW, hosts: vec![host("gex45", false, Some(queue(vec![ticket("w1", 400, None)], 0.0, None)))], ..WatchContext::default() };
+    let context = WatchContext { now: NOW, hosts: vec![host("gex45", false, Some(queue(vec![ticket("w1", 301, None)], 0.0, None)))], ..WatchContext::default() };
     let alerts = capacity(&context);
     assert_eq!(keys(&alerts), ["work:capacity:gex45:queue:w1"]);
     assert_eq!(alerts[0].owner.as_deref(), Some("w1"));
@@ -36,7 +36,7 @@ fn capacity_raises_a_ticket_queued_past_five_minutes_on_any_host() {
 
 #[test]
 fn capacity_stays_quiet_for_a_ticket_inside_its_predicted_wait() {
-    let tickets = vec![ticket("w1", 200, None), ticket("w2", 900, Some(1200))];
+    let tickets = vec![ticket("w1", 300, None), ticket("w2", 900, Some(1200))];
     let context = WatchContext { now: NOW, hosts: vec![host("whiterabbit", true, Some(queue(tickets, 3.0, None)))], ..WatchContext::default() };
     assert!(capacity(&context).is_empty());
 }

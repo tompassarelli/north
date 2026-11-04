@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub const PROGRAMS: [&str; 2] = ["north", "verify-north"];
@@ -88,6 +89,13 @@ pub fn doomed<'a>(newest_first: &'a [String], keep: &[&str]) -> Vec<&'a str> {
         .filter(|name| is_sha(name) && !keep.contains(name))
         .skip(KEPT_OLDER)
         .collect()
+}
+
+pub(super) fn install(from: &Path, to: &Path) -> std::io::Result<()> {
+    let staged = to.with_extension("tmp");
+    fs::copy(from, &staged)?;
+    fs::set_permissions(&staged, fs::Permissions::from_mode(0o755))?;
+    fs::rename(&staged, to)
 }
 
 #[cfg(test)]

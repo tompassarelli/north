@@ -12,6 +12,7 @@ use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{NorthError, NorthResult};
+use crate::router::brief::CATEGORIES;
 
 mod history;
 mod readout;
@@ -19,10 +20,6 @@ mod readout;
 pub use history::{Item, items};
 pub use readout::band_readout;
 
-const CATEGORIES: [&str; 11] = [
-    "mechanical", "docs-policy", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause",
-    "netcode-determinism", "performance", "balance-tuning", "native-check", "research",
-];
 const SCOPES: [&str; 4] = ["one-file", "module", "cross-module", "cross-repo"];
 const SURFACES: [&str; 8] = ["ts", "rust", "lua", "nix", "shell", "workflow", "docs", "assets"];
 const BANDS: [Band; 3] = [Band::High, Band::Xhigh, Band::Max];

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::candidate::git;
 use super::queue::{self, Ticket};
-use super::serve::{Lander, state_home};
+use super::lander::{Lander, state_home};
 use super::telemetry::{self, Push, Stages};
 
 const SEND_WAIT: Duration = Duration::from_secs(60);

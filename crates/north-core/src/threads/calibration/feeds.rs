@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 use super::read::calibration_runs;
 use super::recommend::recommend;
 use super::{GROUPS, Knobs, RUN_TIERS, Run, cell_value, tier_key, tier_rank};
-use crate::threads::runs::brief::{CATEGORIES, FACETS, Fields};
+use crate::router::brief::CATEGORIES;
+use crate::threads::runs::brief::{FACETS, Fields};
 use crate::threads::verb::{Context, Failure, Outcome, open};
 
 fn request(verb: &str, stdin: &mut dyn Read) -> Result<Value, Failure> {

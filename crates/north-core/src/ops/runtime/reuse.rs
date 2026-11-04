@@ -1,5 +1,4 @@
-use super::layout::{self, Layout, PROGRAMS};
-use super::update::install;
+use super::layout::{self, Layout, PROGRAMS, install};
 use crate::platform::process;
 use std::fs;
 use std::path::Path;

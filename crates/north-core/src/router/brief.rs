@@ -3,6 +3,9 @@ use regex::Regex;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+pub const CATEGORIES: [&str; 11] =
+    ["mechanical", "docs-policy", "tooling", "feature", "bug-known-cause", "debugging-unknown-cause", "netcode-determinism", "performance", "balance-tuning", "native-check", "research"];
+
 static FIELD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^([A-Za-z][A-Za-z ]*?):[ \t]*(.*)$").unwrap());
 static WORD: LazyLock<Regex> =

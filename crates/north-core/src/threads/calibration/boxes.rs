@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use super::{Knobs, quantile};
 use crate::foundation::clock::Timestamp;
-use crate::threads::runs::brief::CATEGORIES;
+use crate::router::brief::CATEGORIES;
 
 /// A finished worker run on an item, as the runs table holds it.
 #[derive(Clone, Debug, Default)]

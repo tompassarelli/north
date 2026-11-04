@@ -3,6 +3,7 @@ pub mod bisect;
 pub mod candidate;
 pub mod checks;
 pub mod enqueue;
+pub mod lander;
 pub mod queue;
 pub mod red;
 pub mod serve;

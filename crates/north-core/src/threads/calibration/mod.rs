@@ -21,7 +21,7 @@ use std::sync::LazyLock;
 
 use toml_edit::DocumentMut;
 
-use crate::threads::runs::brief::CATEGORIES;
+use crate::router::brief::CATEGORIES;
 
 pub use recommend::Pick;
 pub use verbs::{VERBS, run};

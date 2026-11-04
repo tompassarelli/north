@@ -1,4 +1,4 @@
-use crate::threads::runs::brief::CATEGORIES;
+use crate::router::brief::CATEGORIES;
 
 const INFRA: [&str; 1] = ["tooling"];
 const BUG: [&str; 2] = ["bug-known-cause", "debugging-unknown-cause"];

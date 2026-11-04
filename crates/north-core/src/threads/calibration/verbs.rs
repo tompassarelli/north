@@ -10,7 +10,8 @@ use super::read::{escalated, raw_runs};
 use super::recommend::{Eta, asked_of, recommend, recommend_eta, recommend_usd};
 use super::{Knobs, Pick, median, provider, scaled, tier_rank};
 use crate::foundation::clock::Timestamp;
-use crate::threads::runs::brief::{CATEGORIES, Fields};
+use crate::router::brief::CATEGORIES;
+use crate::threads::runs::brief::Fields;
 use crate::threads::verb::{Args, Context, Failure, Outcome, immediate, open, report};
 
 pub const VERBS: [&str; 9] = ["recommend", "calibrate", "replay-staffing", "summary", "routing-compare", "box-eta", "annotate-runs", "recommend-runs", "calibration-runs"];

@@ -1,4 +1,4 @@
-use super::{LOCAL_CLAUDE_TYPES, World, capacity_home, logs};
+use super::{LOCAL_CLAUDE_TYPES, World, capacity_home};
 use crate::hook::HookInput;
 use crate::platform::pyjson;
 use regex::Regex;
@@ -154,7 +154,6 @@ pub(super) fn flow_gate(world: &impl World, event: &Event) -> Option<String> {
         return None;
     }
     let reason = format!("{}. Refusing a new code worker: widen the landing path first. A closing pass that pushes no lane passes with a `Closing: yes` brief line.", text(&flow["line"]));
-    logs::denial(world, event, "flow", Some(&reason));
     Some(reason)
 }
 

@@ -13,7 +13,7 @@ use crate::platform::process;
 use rustix::fs::{FlockOperation, flock};
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -294,7 +294,7 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     }
     fs::create_dir_all(runtime)?;
     for program in PROGRAMS {
-        install(&release.join(program), &runtime.join(program))?;
+        layout::install(&release.join(program), &runtime.join(program))?;
     }
     fs::write(runtime.join(BUILT_HERE), layout::short(target))?;
     fs::write(layout.build_seconds(), started.elapsed().as_secs().to_string())?;
@@ -325,13 +325,6 @@ fn note_abandoned(layout: &Layout, target: &str) {
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
     let line = format!("{at} {target}\n");
     let _ = fs::OpenOptions::new().create(true).append(true).open(layout.abandoned()).and_then(|mut journal| std::io::Write::write_all(&mut journal, line.as_bytes()));
-}
-
-pub(super) fn install(from: &Path, to: &Path) -> std::io::Result<()> {
-    let staged = to.with_extension("tmp");
-    fs::copy(from, &staged)?;
-    fs::set_permissions(&staged, fs::Permissions::from_mode(0o755))?;
-    fs::rename(&staged, to)
 }
 
 fn export_tree(checkout: &Path, target: &str, runtime: &Path) -> Result<(), Failure> {
