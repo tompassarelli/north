@@ -69,12 +69,13 @@ A worker that adopts or tests an outside source adds its entry here in the same 
   Outcome: rejected; it routes on prompt text, and the ledger holds no brief text at decision time.
 
 - <a id="pstack"></a>**pstack** (Lauren Tan; `cursor/plugins` under `pstack/`, MIT), https://github.com/cursor/plugins/tree/main/pstack,
-  read at `e5136d8` on 2026-10-15 and at `519d36a` on 2026-10-27. A followed source
+  read at `e5136d8` on 2026-10-15, at `519d36a` on 2026-10-27 and at `fd268b8` on 2026-11-04. A followed source
   ([watching](../harness/skills/agent-policy/references/watching.md)).
   Informed: [rationale/pstack.md](rationale/pstack.md) for the 2026-10-15 decision, which adopted artifact-bound verdicts, a verification driver (`verify_north`), the
   correction ladder, gates with defaults, standing orders and the flat org; the 2026-10-27 review
-  [rationale/watch/2026-10-27-pstack.md](rationale/watch/2026-10-27-pstack.md), north#262, north#263 and north#264.
-  Outcome: adopted as ideas, no code copied; the two 2026-10-15 reviews are archived in south `agents/decisions/harness/`; the three 2026-10-27 mechanisms are under test.
+  [rationale/watch/2026-10-27-pstack.md](rationale/watch/2026-10-27-pstack.md), north#262, north#263 and north#264; the 2026-11-04 review
+  [rationale/watch/2026-11-04-pstack.md](rationale/watch/2026-11-04-pstack.md) and north#524.
+  Outcome: adopted as ideas, no code copied; the two 2026-10-15 reviews are archived in south `agents/decisions/harness/`; of the 2026-10-27 mechanisms the dispatch order check and the citation check are live and the sharpen A/B has not run; the 2026-11-04 run-proven findings, able-to-fail properties and no-verifier-for-wording mechanisms are under test.
 
 ### Statistics
 
