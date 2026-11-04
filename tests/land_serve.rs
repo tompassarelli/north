@@ -124,9 +124,10 @@ impl Fixture {
         path
     }
 
-    fn serve(&self) -> Output {
+    fn command(&self) -> Command {
         let path = format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap());
-        let output = Command::new(env!("CARGO_BIN_EXE_north"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
+        command
             .args(["land", "serve", "--once", "--repo", self.repo.to_str().unwrap(), "--checker", self.trace.join("checker").to_str().unwrap()])
             .env("XDG_STATE_HOME", &self.state)
             .env("PATH", path)
@@ -137,9 +138,12 @@ impl Fixture {
             .env("FAKE_REMOTE_HOMES", self.root.join("remote-homes"))
             .env("GH_TOKEN", "push-token")
             .env("GITHUB_TOKEN", "push-token")
-            .env("SOPS_AGE_KEY_FILE", self.root.join("age.key"))
-            .output()
-            .unwrap();
+            .env("SOPS_AGE_KEY_FILE", self.root.join("age.key"));
+        command
+    }
+
+    fn serve(&self) -> Output {
+        let output = self.command().output().unwrap();
         eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         output
     }
@@ -957,4 +961,99 @@ fn remote_enqueue_off_lander_host() {
     let output = fixture.land_enqueue(&a, &fixture.state, "session-a");
     assert!(String::from_utf8_lossy(&output.stdout).lines().any(|line| line == format!("Done: queued {top} lane-a {head}")));
     assert_eq!(queue::pending(&fixture.queue()).unwrap().len(), 1, "the lander host queues locally");
+}
+
+fn pushed_trees_were_checked(fixture: &Fixture) {
+    let checked: Vec<String> = fixture.checks().iter().map(|(head, _)| tree(fixture, head)).collect();
+    let pushed: Vec<String> = fixture.read("pushes").lines().filter_map(|line| line.split_whitespace().find_map(|word| word.strip_suffix(":refs/heads/main")).map(str::to_owned)).collect();
+    assert!(pushed.last() == Some(&fixture.main()), "main is the last pushed commit: {pushed:?}");
+    for commit in pushed {
+        let pushed = tree(fixture, &commit);
+        assert!(checked.contains(&pushed), "pushed {commit} carries tree {pushed}, which no check saw: {checked:?}");
+    }
+}
+
+fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf], after: std::time::Duration) -> (Output, std::time::Duration) {
+    let started = std::time::Instant::now();
+    let child = fixture.command().stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+    std::thread::sleep(after);
+    for lane in later {
+        fixture.enqueue(lane, None);
+    }
+    let output = child.wait_with_output().unwrap();
+    let elapsed = started.elapsed();
+    eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    (output, elapsed)
+}
+
+#[test]
+fn speculate_two_batches() {
+    let mut fixture = Fixture::new();
+    let first: Vec<PathBuf> = ["a", "b"].iter().map(|name| fixture.lane(name, &format!("{name}.txt"), name)).collect();
+    let second: Vec<PathBuf> = ["c", "d"].iter().map(|name| fixture.lane(name, &format!("{name}.txt"), name)).collect();
+    for lane in &first {
+        fixture.enqueue(lane, None);
+    }
+    executable(&fixture.trace.join("hook"), "#!/usr/bin/env bash\nsleep 5\n");
+    let (output, elapsed) = speculate_serve(&mut fixture, &second, std::time::Duration::from_secs(1));
+    assert!(output.status.success());
+    assert!(elapsed < std::time::Duration::from_secs(12), "two 5 s batches 1 s apart took {elapsed:?}");
+    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from c", "change from d"]);
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 2, "each batch is checked once");
+    assert_eq!(checks[0].1, fixture.base);
+    assert_eq!(checks[1].1, checks[0].0, "the second batch is checked on the first batch's candidate");
+    assert_eq!(fixture.main(), checks[1].0);
+    assert_eq!(fixture.read("pushes").lines().count(), 2);
+    pushed_trees_were_checked(&fixture);
+}
+
+#[test]
+fn speculate_discard_on_red() {
+    let mut fixture = Fixture::new();
+    let bad = fixture.lane("a", "fail.txt", "a");
+    let good = fixture.lane("b", "b.txt", "b");
+    let culprit = fixture.enqueue(&bad, None);
+    executable(
+        &fixture.trace.join("hook"),
+        "#!/usr/bin/env bash\ncase $1 in 1) sleep 3 ;; 2) sleep 30 ;; esac\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n",
+    );
+    let (output, elapsed) = speculate_serve(&mut fixture, std::slice::from_ref(&good), std::time::Duration::from_millis(500));
+    assert!(output.status.success());
+    assert!(elapsed < std::time::Duration::from_secs(20), "the speculative check of a red candidate is stopped, not waited for: {elapsed:?}");
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 3, "the red candidate, its discarded successor, then the successor rebuilt: {checks:?}");
+    assert_eq!(checks[1].1, checks[0].0, "the successor was speculated on the red candidate");
+    assert_eq!(checks[2].1, fixture.base, "the successor is rebuilt on main without the culprit");
+    assert!(fixture.verdict(&culprit).unwrap().starts_with("failed "));
+    assert_eq!(fixture.subjects(), ["change from b"]);
+    assert_eq!(fixture.main(), checks[2].0);
+    assert!(git(&fixture.origin, &["ls-tree", "--name-only", "main"]).lines().all(|file| file != "fail.txt"));
+    pushed_trees_were_checked(&fixture);
+}
+
+#[test]
+fn speculate_real_gates() {
+    let mut fixture = Fixture::new();
+    let a = fixture.lane("a", "a.txt", "a");
+    let b = fixture.lane("b", "b.txt", "b");
+    fixture.enqueue(&a, None);
+    executable(
+        &fixture.trace.join("hook"),
+        "#!/usr/bin/env bash\nmain() { command git -C \"$LAND_ORIGIN\" rev-parse main; }\ncase $1 in\n1) sleep 2 ;;\n2) main >\"$LAND_TRACE/main-at-start\"; sleep 4; main >\"$LAND_TRACE/main-at-end\" ;;\nesac\n",
+    );
+    let (output, _) = speculate_serve(&mut fixture, std::slice::from_ref(&b), std::time::Duration::from_millis(500));
+    assert!(output.status.success());
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 2, "the speculative candidate lands without re-running");
+    let first = &checks[0].0;
+    assert_eq!(fixture.read("main-at-start").trim(), fixture.base, "the speculative check starts before the first candidate lands");
+    assert_eq!(fixture.read("main-at-end").trim(), first, "the first candidate lands while the speculative check is in flight");
+    assert!(fixture.read("checks").lines().nth(1).unwrap().ends_with(&format!("--check-candidate --base {first}")), "{}", fixture.read("checks"));
+    assert_eq!(fixture.main(), checks[1].0);
+    assert_eq!(fixture.subjects(), ["change from a", "change from b"]);
+    let pushes = fixture.read("pushes");
+    assert_eq!(pushes.lines().count(), 2);
+    assert!(pushes.lines().nth(1).unwrap().contains(&format!("--force-with-lease=refs/heads/main:{first}")), "{pushes}");
+    pushed_trees_were_checked(&fixture);
 }

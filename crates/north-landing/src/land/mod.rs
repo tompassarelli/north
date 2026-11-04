@@ -7,9 +7,10 @@ pub mod lander;
 pub mod queue;
 pub mod red;
 pub mod serve;
+pub mod speculate;
 pub mod telemetry;
 
-const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM]\n       north land enqueue [--repo DIR] [--message FILE]";
+const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2]\n       north land enqueue [--repo DIR] [--message FILE]";
 
 pub fn run(arguments: &[String]) -> u8 {
     match arguments.split_first() {

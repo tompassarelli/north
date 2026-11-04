@@ -5,11 +5,11 @@ use super::candidate::{self, Pick, git};
 use super::lander::{Lander, state_home};
 use super::after;
 use super::bisect::{self, Judgement};
-use super::checks::{self, Verdict};
+use super::checks::Verdict;
 use super::telemetry::Stages;
-use super::{queue, red};
+use super::{queue, red, speculate};
 
-const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM]";
+const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2]";
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
 
@@ -37,7 +37,7 @@ impl Lander {
         Ok((git(&self.worktree, &["rev-parse", "HEAD"])?, git(&self.worktree, &["rev-parse", "--absolute-git-dir"])?))
     }
 
-    fn push(&self, candidate: &str, base: &str) -> Result<bool, String> {
+    pub(super) fn push(&self, candidate: &str, base: &str) -> Result<bool, String> {
         let pushed = std::process::Command::new("git")
             .arg("-C")
             .arg(&self.worktree)
@@ -80,7 +80,7 @@ impl Lander {
                 Ok(base) => base,
                 Err(error) => return Ok(Round::Waiting(format!("transient: {error}"))),
             };
-            let built = candidate::build(&self.worktree, &base, &tickets, limit, &logs)?;
+            let built = candidate::build(&self.worktree, candidate::BRANCH, &base, &tickets, limit, &logs)?;
             let mut included = Vec::new();
             let mut undecided = None;
             for ((path, ticket), pick) in tickets.iter().zip(&built.picks) {
@@ -111,7 +111,8 @@ impl Lander {
             println!("north land: candidate {} carries {} lanes onto main@{base}; checking it", built.head, built.included());
             let log = logs.join(format!("{}-candidate.log", micros()));
             let mut stages = Stages::start();
-            let verdict = checks::run(&self.checker, &self.worktree, &base, &log);
+            let taken = (limit == usize::MAX && !red_only && self.depth >= 2).then(|| speculate::Taken::new(&tickets, &included));
+            let (verdict, next) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
             stages.mark("check");
             if (self.identity()? != identity || identity.0 != built.head) && !matches!(verdict, Verdict::Refused(_)) {
                 return Ok(Round::Waiting(format!("the lander worktree moved while candidate {} was checked; nothing pushed", built.head)));
@@ -140,6 +141,9 @@ impl Lander {
                     }
                     stages.mark("push");
                     after::finish(self, &built.head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
+                    if let Some(next) = next {
+                        speculate::land(self, next, &built.head)?;
+                    }
                     return Ok(Round::Progress);
                 }
                 Judgement::Rebuild => {
@@ -176,6 +180,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let mut once = false;
     let mut repo = PathBuf::from(".");
     let mut checker = vec!["safe-push".to_owned()];
+    let mut depth = speculate::DEPTH;
     let mut rest = arguments.iter();
     while let Some(argument) = rest.next() {
         match (argument.as_str(), rest.clone().next()) {
@@ -186,6 +191,10 @@ pub fn run(arguments: &[String]) -> u8 {
             }
             ("--checker", Some(value)) => {
                 checker = vec![value.clone()];
+                rest.next();
+            }
+            ("--depth", Some(value)) if matches!(value.as_str(), "1" | "2") => {
+                depth = if value == "1" { 1 } else { 2 };
                 rest.next();
             }
             ("-h" | "--help", _) => {
@@ -199,7 +208,7 @@ pub fn run(arguments: &[String]) -> u8 {
         }
     }
     let lander = match Lander::new(&repo, checker) {
-        Ok(lander) => lander,
+        Ok(lander) => Lander { depth, ..lander },
         Err(error) => {
             eprintln!("north land serve: {error}");
             return 1;

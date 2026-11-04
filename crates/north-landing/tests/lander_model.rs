@@ -70,6 +70,7 @@ struct State {
     ci: Option<(u8, bool)>,
     last_green: u8,
     cas_lost: bool,
+    discarded: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -81,6 +82,7 @@ enum Action {
     Push,
     PushSpeculative,
     Bisect,
+    Discard,
     PeerFetchCheck,
     PeerPush,
     RunCi,
@@ -107,7 +109,8 @@ const REACH_CAS_LOST: &str = "reachable: the peer host moves main under a candid
 const REACH_REVERT: &str = "reachable: the sheriff reverts a culprit";
 const REACH_CULPRIT: &str = "reachable: bisection ejects a culprit from a multi-lane candidate";
 const REACH_CONFLICT: &str = "reachable: a lane meets a conflict";
-const REACHABLE: [&str; 5] = [REACH_SPECULATIVE_LANDED, REACH_CAS_LOST, REACH_REVERT, REACH_CULPRIT, REACH_CONFLICT];
+const REACH_DISCARDED: &str = "reachable: a red speculative verdict is discarded and its lanes rebuilt on main";
+const REACHABLE: [&str; 6] = [REACH_SPECULATIVE_LANDED, REACH_DISCARDED, REACH_CAS_LOST, REACH_REVERT, REACH_CULPRIT, REACH_CONFLICT];
 
 impl Lander {
     fn plan(lanes: u8) -> Self {
@@ -207,6 +210,7 @@ impl Model for Lander {
                 ci: None,
                 last_green: 0,
                 cas_lost: false,
+                discarded: false,
             });
         }
         out
@@ -221,7 +225,7 @@ impl Model for Lander {
         if s.slots.is_empty() && s.queue != 0 {
             actions.push(Action::Build);
         }
-        if s.slots.len() == 1 && self.depth >= 2 && s.queue != 0 && s.slots[0].verdict != Some(false) {
+        if s.slots.len() == 1 && self.depth >= 2 && s.queue != 0 && !s.slots[0].speculative && s.slots[0].verdict.is_none() {
             actions.push(Action::Speculate);
         }
         for (i, c) in s.slots.iter().enumerate() {
@@ -231,6 +235,7 @@ impl Model for Lander {
         }
         match s.slots.first().map(|c| c.verdict) {
             Some(Some(true)) => actions.push(Action::Push),
+            Some(Some(false)) if s.slots[0].speculative => actions.push(Action::Discard),
             Some(Some(false)) => actions.push(Action::Bisect),
             _ => {}
         }
@@ -270,8 +275,9 @@ impl Model for Lander {
             Action::Speculate => {
                 let head = s.slots[0];
                 let base_tree = head.base_tree | head.lanes;
-                let queue = std::mem::take(&mut s.queue);
-                let lanes = self.admit(&mut s, base_tree, queue);
+                let clash = self.conflicting(base_tree, s.queue);
+                let lanes = s.queue & !clash;
+                s.queue = clash;
                 if lanes != 0 {
                     s.slots.push(Cand { base: head.base + 1, base_tree, lanes, speculative: true, verdict: None });
                 }
@@ -314,6 +320,12 @@ impl Model for Lander {
                     s.slots.push(Cand { lanes: lo, verdict: None, ..head });
                     s.queue |= head.lanes & !lo;
                 }
+            }
+            Action::Discard => {
+                for c in std::mem::take(&mut s.slots) {
+                    s.queue |= c.lanes;
+                }
+                s.discarded = true;
             }
             Action::PeerFetchCheck => {
                 let tree = self.tree(&s.main, tip);
@@ -388,6 +400,7 @@ impl Model for Lander {
                 s.main.iter().enumerate().all(|(i, c)| c.parent as usize == i && c.parent == c.checked_base)
             }),
             Property::<Self>::sometimes(REACH_SPECULATIVE_LANDED, |_, s| s.main.iter().any(|c| c.speculative && c.by == Pusher::Lander)),
+            Property::<Self>::sometimes(REACH_DISCARDED, |_, s| s.discarded),
             Property::<Self>::sometimes(REACH_CAS_LOST, |_, s| s.cas_lost),
             Property::<Self>::sometimes(REACH_REVERT, |_, s| s.main.iter().any(|c| c.by == Pusher::Sheriff)),
             Property::<Self>::sometimes(REACH_CULPRIT, |m, s| {

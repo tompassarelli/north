@@ -3,14 +3,17 @@ use std::process::Command;
 
 use super::candidate::{self, git};
 use super::queue::{self, Ticket};
+use super::speculate;
 
 const SSH_OPTIONS: &[&str] = &["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2"];
 
 pub struct Lander {
     pub repo: PathBuf,
     pub worktree: PathBuf,
+    pub spare: PathBuf,
     pub queue: PathBuf,
     pub checker: Vec<String>,
+    pub depth: usize,
 }
 
 pub(super) fn state_home() -> PathBuf {
@@ -32,7 +35,14 @@ fn ssh(host: &str, script: &str) -> Result<String, String> {
 impl Lander {
     pub fn new(repo: &Path, checker: Vec<String>) -> Result<Self, String> {
         let origin = git(repo, &["remote", "get-url", "--push", "origin"])?;
-        Ok(Self { repo: repo.to_owned(), worktree: candidate::lander_worktree(repo)?, queue: queue::directory(&state_home(), &origin), checker })
+        Ok(Self {
+            repo: repo.to_owned(),
+            worktree: candidate::lander_worktree(repo, "lander")?,
+            spare: candidate::lander_worktree(repo, "lander-2")?,
+            queue: queue::directory(&state_home(), &origin),
+            checker,
+            depth: speculate::DEPTH,
+        })
     }
 
     fn remote_hosts(&self) -> Vec<String> {

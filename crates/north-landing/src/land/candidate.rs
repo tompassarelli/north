@@ -6,6 +6,7 @@ use super::queue::Ticket;
 use crate::landing::stale_revert;
 
 pub const BRANCH: &str = "land-candidate";
+pub const SPECULATIVE_BRANCH: &str = "land-candidate-2";
 
 pub fn output(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
     Command::new("git").arg("-C").arg(directory).args(arguments).env("GIT_EDITOR", "true").output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))
@@ -23,13 +24,13 @@ fn succeeds(directory: &Path, arguments: &[&str]) -> bool {
     output(directory, arguments).is_ok_and(|output| output.status.success())
 }
 
-pub fn lander_worktree(repo: &Path) -> Result<PathBuf, String> {
+pub fn lander_worktree(repo: &Path, name: &str) -> Result<PathBuf, String> {
     let common = PathBuf::from(git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
     let container = common.parent().and_then(Path::parent).ok_or_else(|| format!("{} has no project container", common.display()))?;
-    Ok(container.join("worktrees/lander"))
+    Ok(container.join("worktrees").join(name))
 }
 
-pub fn prepare(repo: &Path, worktree: &Path) -> Result<String, String> {
+pub fn ensure(repo: &Path, worktree: &Path) -> Result<(), String> {
     if !worktree.join(".git").exists() {
         let path = worktree.to_str().ok_or_else(|| format!("{} is not UTF-8", worktree.display()))?;
         git(repo, &["worktree", "add", "-q", "--detach", path, "HEAD"])?;
@@ -37,6 +38,11 @@ pub fn prepare(repo: &Path, worktree: &Path) -> Result<String, String> {
     if worktree.join(".git").is_file() && succeeds(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]) {
         git(worktree, &["cherry-pick", "--abort"])?;
     }
+    Ok(())
+}
+
+pub fn prepare(repo: &Path, worktree: &Path) -> Result<String, String> {
+    ensure(repo, worktree)?;
     git(worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"])?;
     git(worktree, &["rev-parse", "FETCH_HEAD^{commit}"])
 }
@@ -116,9 +122,9 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, logs: &Path, name: &str) -
     }
 }
 
-pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
+pub fn build(worktree: &Path, branch: &str, base: &str, tickets: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
     git(worktree, &["reset", "-q", "--hard"])?;
-    git(worktree, &["checkout", "-q", "-B", BRANCH, base])?;
+    git(worktree, &["checkout", "-q", "-B", branch, base])?;
     let mut picks = Vec::new();
     let mut included = 0;
     for (path, ticket) in tickets {
