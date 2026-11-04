@@ -76,11 +76,11 @@ before, so the drop rests on 2 long runs and does not by itself separate the fix
   brief's ETA (45 min when the brief has none) and that has no live registered wait is reported to its parent
   once per quiet stretch, replacing the 4-minute idle trigger. Done when: `cargo test -p north-core fleet::silent`
   passes with a test that a child quiet 1.9x its ETA is not reported and one quiet 2.1x its ETA is reported once.
-- [ ] Remove the prose-wait poke and its stall-to-parent message (`invariant.rs` `judge`, `wake_prompt`,
+- [x] Remove the prose-wait poke and its stall-to-parent message (`invariant.rs` `judge`, `wake_prompt`,
   `stalled`, `WAKES`, `GRACE_TICKS`, `CLI_WORK_HELD`, `WAKES_PER_TICK`) and the workers skill sentence that
   describes it. Done when: `rg -n "wake_prompt|WAKES_PER_TICK|ended on a wait · woken" crates src harness`
   prints nothing and `cargo test -p north-core fleet::` passes.
-- [ ] Remove the detached-run hold: a session with a live detached process registers its pid waits and parks at
+- [x] Remove the detached-run hold: a session with a live detached process registers its pid waits and parks at
   the registered-wait park time. Done when: `rg -n DETACHED_HOLD crates` prints nothing and an idle.rs test shows
   a session with a detached run parks at 30 s with its pid wait registered.
 - [x] Remove the 24-hour wait expiry message; the silence check reaches the parent first. Done when:

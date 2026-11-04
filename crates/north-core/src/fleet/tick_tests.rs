@@ -663,69 +663,6 @@ fn an_interrupt_row_for_a_session_with_nothing_running_is_consumed_once_and_not_
     assert_eq!((second.delivered.len(), second.already, second.failed.len()), (0, 0, 0));
 }
 
-fn texts(frames: &Mutex<Vec<String>>) -> Vec<String> {
-    frames.lock().unwrap().clone()
-}
-
-#[test]
-fn a_box_worker_that_ended_on_a_wait_with_no_registered_wait_is_woken_by_the_third_tick_and_only_once() {
-    let host = host("nexus");
-    let frames = live_with(&host, "worker", "Still building on nexus.", Some("north#429"));
-
-    let first = host.tick();
-    let second = host.tick();
-    assert!(texts(&frames).is_empty(), "two ticks of grace: {first:?} {second:?}");
-    let third = host.tick();
-
-    assert_eq!(third.kept.woken, [("worker".to_owned(), "woken: parked with no registered wait".to_owned())], "{third:?}");
-    assert_eq!(texts(&frames).len(), 1);
-    assert!(texts(&frames)[0].contains("woken: parked with no registered wait; wake 1 of 3"), "{:?}", texts(&frames));
-    host.tick();
-    assert_eq!(texts(&frames).len(), 1, "the same stop is never woken twice");
-}
-
-#[test]
-fn a_job_wait_whose_lease_lapsed_wakes_its_worker_in_the_tick_and_is_settled_in_the_store() {
-    let host = host("nexus");
-    let frames = live_with(&host, "worker", "Waiting on the build.", Some("north#429"));
-    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), within_secs: 0 }).unwrap();
-
-    let ticked = host.tick();
-
-    assert_eq!(ticked.kept.woken, [("worker".to_owned(), "woken: your job nexus-build's lease lapsed with no exit".to_owned())], "{ticked:?}");
-    assert!(texts(&frames)[0].contains("lease lapsed"), "{:?}", texts(&frames));
-    assert!(host.store().waits().unwrap().is_empty(), "the lapsed wait is settled");
-}
-
-#[test]
-fn a_box_worker_with_a_live_job_lease_or_a_final_report_is_left_alone() {
-    let host = host("nexus");
-    let waiting = live_with(&host, "worker", "Waiting on the build.", Some("north#429"));
-    let done = live_with(&host, "finished", "Done: landed abc123.", Some("north#430"));
-    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), within_secs: 600 }).unwrap();
-
-    for _ in 0..4 {
-        let ticked = host.tick();
-        assert_eq!(ticked.kept, Kept::default(), "{ticked:?}");
-    }
-    assert!(texts(&waiting).is_empty() && texts(&done).is_empty());
-}
-
-#[test]
-fn a_tick_wakes_at_most_its_cap_of_workers_and_the_rest_on_the_next_tick() {
-    let host = host("nexus");
-    let names: Vec<String> = (0..invariant::WAKES_PER_TICK + 1).map(|n| format!("worker-{n}")).collect();
-    let frames: Vec<_> = names.iter().map(|name| live_with(&host, name, "Still building on nexus.", Some("north#429"))).collect();
-    host.tick();
-    host.tick();
-
-    let third = host.tick();
-    let fourth = host.tick();
-
-    assert_eq!((third.kept.woken.len(), fourth.kept.woken.len()), (invariant::WAKES_PER_TICK, 1), "{third:?} {fourth:?}");
-    assert!(frames.iter().all(|frames| texts(frames).len() == 1));
-}
-
 struct SettleFails(Store);
 
 impl LedgerHost for SettleFails {
@@ -738,63 +675,28 @@ impl LedgerHost for SettleFails {
     }
 }
 
-#[test]
-fn a_settlement_the_ledger_host_did_not_confirm_is_retried_on_the_next_tick_and_not_judged_again() {
-    let host = host("nexus");
-    let frames = live_with(&host, "worker", "Waiting on the build.", Some("north#429"));
-    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), within_secs: 0 }).unwrap();
+struct Over(WaitKey);
 
-    let failed = tick(&host.fleet, &mut SettleFails(host.store()), &host.pulls(), &NoProbes, NOW_MS, BUDGET).unwrap();
+impl WaitProbes for Over {
+    fn settle(&self, _: &Fleet) -> Probed {
+        Probed { lines: Vec::new(), settled: vec![self.0.clone()] }
+    }
+}
+
+#[test]
+fn a_settlement_the_ledger_host_did_not_confirm_is_retried_on_the_next_tick() {
+    let host = host("nexus");
+    let _frames = live_with(&host, "worker", "Waiting on the build.", Some("north#429"));
+    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "nexus-build".into(), within_secs: 600 }).unwrap();
+    let key = host.store().waits().unwrap()[0].key();
+
+    let failed = tick(&host.fleet, &mut SettleFails(host.store()), &host.pulls(), &Over(key), NOW_MS, BUDGET).unwrap();
     assert!(failed.unsettled.is_some(), "{failed:?}");
     assert_eq!(host.store().waits().unwrap().len(), 1);
 
     let retried = host.tick();
     assert_eq!(retried.unsettled, None);
     assert!(host.store().waits().unwrap().is_empty(), "the next tick settles it");
-    assert_eq!(texts(&frames).len(), 1, "woken once for the lapse");
-}
-
-fn worker_on(host: &Host, machine: &str) -> Arc<Mutex<Vec<String>>> {
-    let frames = live_with(host, "worker", "Waiting on the capture.", Some("north#429"));
-    let path = host.root().join("worker/session.json");
-    let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    record["machine"] = json!({"name": machine, "ssh": format!("tom@{machine}")});
-    std::fs::write(path, record.to_string()).unwrap();
-    host.store().wait(&crate::fleet::store::WaitRequest { session: "worker".into(), kind: crate::fleet::store::WaitKind::Job, key: "capture".into(), within_secs: 0 }).unwrap();
-    frames
-}
-
-#[test]
-fn a_machine_whose_spool_could_not_be_taken_gets_no_lapse_check_that_tick() {
-    let host = host("nexus");
-    let frames = worker_on(&host, "gex45");
-    let far = Far::default();
-    far.down.lock().unwrap().push("tom@gex45".into());
-    let pulls = Pulls { spools: &far, always: Vec::new() };
-
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
-
-    assert_eq!(ticked.kept, Kept::default(), "a beat may sit in the spool it could not take: {ticked:?}");
-    assert!(texts(&frames).is_empty());
-    far.down.lock().unwrap().clear();
-    let back = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
-    assert_eq!(back.kept.woken.len(), 1, "judged once the pull succeeds: {back:?}");
-}
-
-#[test]
-fn a_refused_row_on_a_machine_does_not_turn_off_its_lapse_checks() {
-    let host = host("nexus");
-    let frames = worker_on(&host, "gex45");
-    let mut bad = message("m-bad", "elsewhere", NOW_MS);
-    bad.from = String::new();
-    let far = Far::holding("tom@gex45", vec![bad]);
-    let pulls = Pulls { spools: &far, always: Vec::new() };
-
-    let ticked = tick(&host.fleet, &mut host.store(), &pulls, &NoProbes, NOW_MS, BUDGET).unwrap();
-
-    assert_eq!(ticked.refused.len(), 1);
-    assert_eq!(ticked.kept.woken, [("worker".to_owned(), "woken: your job capture's lease lapsed with no exit".to_owned())], "{ticked:?}");
-    assert_eq!(texts(&frames).len(), 1);
 }
 
 #[test]

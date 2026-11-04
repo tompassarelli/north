@@ -26,7 +26,7 @@ use super::stranded::{Checkout, Lane, Lanes, Worktree};
 use super::turns::{RunRecord, Turn, TurnExit, TurnSignal, Turns};
 use super::unaccepted::Unaccepted;
 use super::wait;
-use super::waits::{Registered, Waits};
+use super::waits::Waits;
 
 const KEPT_LINES: usize = 5;
 
@@ -246,8 +246,7 @@ impl TurnWatch {
 
     fn registered_wait(&self) -> bool {
         let waits = Waits::in_root(&self.root);
-        let held = |wait: &Registered| self.detached.iter().any(|run| run.run() == wait.run);
-        host_sessions(&self.root, &self.host_dir).iter().any(|record| waits.of(&record.name).iter().any(|wait| !held(wait)))
+        host_sessions(&self.root, &self.host_dir).iter().any(|record| !waits.of(&record.name).is_empty())
     }
 
     fn nudge(&self, conversation: &str, context: u64, threshold: u64) {
@@ -398,14 +397,13 @@ impl FrameWatch for TurnWatch {
         self.register_detached();
         let finished = !self.finished.is_empty() && self.finished.values().all(|finished| *finished);
         let registered = self.registered_wait();
-        let detached = !self.detached.is_empty();
-        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, registered, detached };
+        let session = idle::Session { idle, in_flight: self.turns.in_flight(), context: self.turns.context(), rolled_over: self.rolled_over, finished, registered };
         let step = self.idle.step(session, park_after);
         match step {
             Step::Park => {
                 self.speak_up(State::Parked, idle);
             }
-            _ if !detached && self.quiet.values().any(|quiet| quiet.due(idle)) => self.speak_up(State::Idle, idle),
+            _ if self.quiet.values().any(|quiet| quiet.due(idle)) => self.speak_up(State::Idle, idle),
             _ => {}
         }
         match step {

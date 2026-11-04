@@ -21,29 +21,18 @@ async fn held(run_for: Option<Duration>, policy: crate::fleet::idle::Policy) -> 
     let scope = Arc::new(Runs(Mutex::new(run_for.map(|run| started + run))));
     let watch = TurnWatch::new(Arc::new(Claude), sink.clone(), sink, Arc::new(Held::default()), root.path().to_path_buf(), root.path().join("worker")).reading_scope(scope).idling_by(policy);
     let mut host = SessionHost::spawn_watched(&config, Watcher::new(Box::new(watch))).unwrap();
-    host.rest_when_idle(Some(Duration::from_secs(1)));
+    host.rest_when_idle(Some(Duration::from_secs(600)));
     let code = tokio::time::timeout(Duration::from_secs(60), host.wait()).await.unwrap().unwrap();
     let written = std::fs::read_to_string(stdin).unwrap_or_default();
     (root, code, started.elapsed(), written)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_session_holding_a_detached_run_registers_it_at_once_and_neither_parks_nor_is_woken_before_it_ends() {
-    let run = Duration::from_secs(5);
-    let (root, code, lasted, stdin) = held(Some(run), seconds(600, 600)).await;
+async fn a_session_with_a_detached_run_registers_it_and_parks_at_30_seconds_and_the_runs_end_revives_it_naming_the_run() {
+    let (root, code, lasted, stdin) = held(None, seconds(600, 600)).await;
     assert_eq!(code, 143);
-    assert!(lasted >= run, "parked {lasted:?} into a {run:?} run past its 1 s idle limit");
-    assert_eq!(stdin, "", "the run's end reaches the session through the tick's probe, not its host");
-    let registered: Vec<Run> = Waits::in_root(root.path()).of("worker").into_iter().map(|wait| wait.run).collect();
-    assert_eq!(registered, [Run::Process { pid: 4242, started: 99 }], "the tick sees the run as a registered wait");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_session_parked_at_the_hold_registers_its_detached_run_and_the_runs_end_revives_it_naming_the_run() {
-    let policy = crate::fleet::idle::Policy { detached_hold: Duration::from_secs(2), ..seconds(600, 600) };
-    let (root, code, _, stdin) = held(None, policy).await;
-    assert_eq!(code, 143);
-    assert_eq!(stdin, "", "held, not woken");
+    assert!(lasted >= Duration::from_secs(30) && lasted < Duration::from_secs(55), "parked after {lasted:?}, not at the 10-minute idle limit");
+    assert_eq!(stdin, "", "parked, not woken");
     let waits = Waits::in_root(root.path());
     let registered = waits.of("worker");
     assert_eq!(registered.iter().map(|wait| (wait.run.clone(), wait.label.as_deref())).collect::<Vec<_>>(), [(Run::Process { pid: 4242, started: 99 }, Some("bash capture-batch"))]);

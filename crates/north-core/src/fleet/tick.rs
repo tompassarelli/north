@@ -1,13 +1,11 @@
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::NorthResult;
-use crate::foundation::clock::Timestamp;
 
-use super::invariant::{self, Facts, Kept};
 use super::model::SessionRecord;
 use super::peer_row::{self, Refusal};
 use super::registry::{Fleet, HandedIn};
-use super::store::{Addressee, Exchange, Exchanged, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey, WaitRow};
+use super::store::{Addressee, Exchange, FarRegistry, FarSpools, FleetRow, FleetTable, Handed, HandedRow, LAUNCH_GRACE_MS, LedgerHost, RowKind, SessionRow, Undecodable, UnknownKind, WaitKey};
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const JOURNAL_KEPT: Duration = Duration::from_secs(2 * 7 * 24 * 60 * 60);
@@ -28,7 +26,6 @@ pub struct Ticked {
     pub left: Vec<(String, String)>,
     pub unregistered: Vec<(String, String)>,
     pub probed: Vec<String>,
-    pub kept: Kept,
     pub unsettled: Option<String>,
     pub uncached: Vec<(String, String)>,
     pub far_failed: Vec<(String, String)>,
@@ -93,7 +90,7 @@ impl Ticked {
         let undelivered = self.far_failed.iter().map(|(name, why)| format!("not delivered to the registry on {name}: {why}"));
         let counts = format!("flushed {}, pulled {}, delivered {}, already {}, deferred {}, pruned {}", self.flushed, self.pulled, self.delivered.len(), self.already, self.deferred, self.pruned);
         let unsettled = self.unsettled.iter().map(|why| format!("waits not settled in the store: {why}"));
-        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(left).chain(unregistered).chain(uncached).chain(undelivered).chain(self.probed.iter().cloned()).chain(self.kept.lines()).chain(unsettled).chain([counts]).collect()
+        delivered.chain(failed).chain(held).chain(unpulled).chain(undropped).chain(refused).chain(left).chain(unregistered).chain(uncached).chain(undelivered).chain(self.probed.iter().cloned()).chain(unsettled).chain([counts]).collect()
     }
 }
 
@@ -126,12 +123,7 @@ pub fn tick(fleet: &Fleet, ledger: &mut dyn LedgerHost, pulls: &Pulls, probes: &
     let probed = probes.settle(fleet);
     ticked.probed = probed.lines;
     let pending = fleet.unsettled_waits();
-    let waits: Vec<WaitRow> = exchanged.waits.iter().filter(|wait| !probed.settled.iter().chain(&pending).any(|key| key.same_wait(&wait.key()))).cloned().collect();
-    match keep_invariant(fleet, &ticked, &exchanged, &waits, now_ms) {
-        Ok(kept) => ticked.kept = kept,
-        Err(error) => ticked.kept.failed.push(("the invariant".into(), error.user_message())),
-    }
-    let settled: Vec<WaitKey> = pending.into_iter().chain(probed.settled).chain(ticked.kept.settled.iter().cloned()).collect();
+    let settled: Vec<WaitKey> = pending.into_iter().chain(probed.settled).collect();
     if !settled.is_empty() {
         let left = match ledger.settle(&settled) {
             Ok(()) => Vec::new(),
@@ -190,13 +182,6 @@ fn deliver_far(ledger: &mut dyn LedgerHost, pulls: &Pulls, taken: &[Taken], know
             Err(error) => ticked.far_failed.push((name, error.user_message())),
         }
     }
-}
-
-fn keep_invariant(fleet: &Fleet, ticked: &Ticked, exchanged: &Exchanged, waits: &[WaitRow], now_ms: u64) -> NorthResult<Kept> {
-    let pull_failed: Vec<String> = ticked.pull_failed.iter().map(|(name, _)| name.clone()).collect();
-    let gated = fleet.gated_sessions(now_ms)?;
-    let records: Vec<SessionRecord> = fleet.sessions()?.into_iter().filter(|record| !exchanged.held_elsewhere.contains(&record.name)).collect();
-    Ok(invariant::keep(fleet, &records, &Facts { waits, now: Timestamp::parse(&exchanged.now)?, pull_failed: &pull_failed, gated: &gated }))
 }
 
 fn take_far(fleet: &Fleet, records: &[SessionRecord], pulls: &Pulls, rows: &mut Vec<FleetRow>, ticked: &mut Ticked, now_ms: u64) -> Vec<Taken> {
