@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use super::*;
 use crate::error::NorthError;
-use crate::fleet::model::Machine;
+use crate::fleet::model::{Effort, Machine};
+use crate::fleet::store::Claim;
 use crate::fleet::prompt::PromptMode;
 use crate::providers::claude::fleet::Claude;
 
