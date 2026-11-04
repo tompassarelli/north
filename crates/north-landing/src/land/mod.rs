@@ -1,0 +1,27 @@
+pub mod after;
+pub mod bisect;
+pub mod candidate;
+pub mod checks;
+pub mod enqueue;
+pub mod queue;
+pub mod red;
+pub mod serve;
+pub mod telemetry;
+
+const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM]\n       north land enqueue [--repo DIR] [--message FILE]";
+
+pub fn run(arguments: &[String]) -> u8 {
+    match arguments.split_first() {
+        Some((command, rest)) if command == "serve" => serve::run(rest),
+        Some((command, rest)) if command == "enqueue" => enqueue::run(rest),
+        Some((command, rest)) if command == "follow" => after::follow::run(rest),
+        Some((command, _)) if command == "-h" || command == "--help" => {
+            println!("{USAGE}");
+            0
+        }
+        _ => {
+            eprintln!("{USAGE}");
+            64
+        }
+    }
+}

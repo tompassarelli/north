@@ -69,7 +69,15 @@ fn shell(body: &str, arguments: &[&str]) -> Observed {
 }
 
 fn shell_in(directory: &Path, body: &str, arguments: &[&str]) -> Observed {
+    let stub = tempfile::tempdir().unwrap();
+    let usage = stub.path().join("usage.txt");
+    std::fs::write(&usage, USAGE).unwrap();
+    let north = stub.path().join("north");
+    std::fs::write(&north, format!("#!/bin/sh\n[ \"$*\" = \"safe-push --help\" ] && exec cat '{}'\nexit 64\n", usage.display())).unwrap();
+    std::fs::set_permissions(&north, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", stub.path().display(), std::env::var("PATH").unwrap_or_default());
     let output = Command::new("bash")
+        .env("PATH", path)
         .arg("-c")
         .arg(format!("set -euo pipefail\n{}{body}", shell_functions()))
         .arg("safe-push")

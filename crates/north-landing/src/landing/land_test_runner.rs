@@ -154,11 +154,17 @@ fn execute(test: &str) -> io::Result<(Option<i32>, Vec<u8>)> {
         Some(_) => return Err(io::Error::new(io::ErrorKind::InvalidInput, "a land-check test is a .sh or .py file or a built test executable")),
     };
     let mut log = tempfile::tempfile()?;
-    let status = command
-        .stdin(Stdio::null())
-        .stdout(log.try_clone()?)
-        .stderr(log.try_clone()?)
-        .status()?;
+    command.stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log.try_clone()?);
+    let mut busy = 0;
+    let status = loop {
+        match command.status() {
+            Err(error) if error.kind() == io::ErrorKind::ExecutableFileBusy && busy < 50 => {
+                busy += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            result => break result?,
+        }
+    };
     let mut output = Vec::new();
     log.rewind()?;
     log.read_to_end(&mut output)?;

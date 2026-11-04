@@ -58,8 +58,10 @@ shim_main() {
       fi
       exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       ;;
+    north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
+    north:land-red-wait) return 0 ;;
     north:land-actions)
-      [ -n "${SAFE_PUSH_TEST_ACTIONS_RELEASE:-}" ] || return 0
+      [ -n "${SAFE_PUSH_TEST_ACTIONS_RELEASE:-}" ] || return "${SAFE_PUSH_TEST_ACTIONS_STATUS:-0}"
       touch "$SAFE_PUSH_TEST_ACTIONS_RELEASE.waiting"
       read -r _ <"$SAFE_PUSH_TEST_ACTIONS_RELEASE"
       ;;
@@ -2835,6 +2837,26 @@ run_lane
 expect_status zero
 remote_lane_exists || fail 'remote lane branch with unlanded work was deleted'
 
+new_landing_origin check-candidate
+make_landing_clone "$landing_root/a" a.txt
+"$real_git" -C "$landing_root/a" config --file .safe-push land.workflow land-check.yml
+"$real_git" -C "$landing_root/a" config --file .safe-push --add land.check "a.txt :: true"
+"$real_git" -C "$landing_root/a" add .safe-push
+"$real_git" -C "$landing_root/a" commit -qm 'a land check on Actions'
+check_base=$("$real_git" --git-dir="$landing_remote" rev-parse main)
+run_check_candidate() {
+  (cd "$landing_root/a" && SAFE_PUSH_TEST_SHIM=1 SAFE_PUSH_TEST_TRACE="$landing_root/a.trace" SAFE_PUSH_TEST_STATE="$landing_root/a.state" \
+    SAFE_PUSH_TEST_LANGUAGE_TRACE="$landing_root/north.trace" XDG_STATE_HOME="$xdg_state" PATH="$real_bin:$PATH" "$@" "$TARGET" --check-candidate --base "$check_base") 2>&1
+}
+case_output=$(run_check_candidate env SAFE_PUSH_TEST_ACTIONS_STATUS=1 SAFE_PUSH_TEST_RED_CHECK_STATUS=3) && fail "check-candidate: a red-main candidate exited 0: $case_output"
+[ "$(tail -n1 <<<"$case_output")" = "safe-push: verdict red-main $check_base" ] || fail "check-candidate: red main did not end verdict red-main: $case_output"
+grep -q '^north <land-red-check>' "$landing_root/north.trace" || fail "check-candidate: red main was not asked for: $case_output"
+! grep -q 'land-red-wait' "$landing_root/north.trace" || fail 'check-candidate: waited on red main'
+case_output=$(run_check_candidate env) || fail "check-candidate: a green candidate failed: $case_output"
+[ "$(tail -n1 <<<"$case_output")" = "safe-push: verdict green $("$real_git" -C "$landing_root/a" rev-parse HEAD)" ] || fail "check-candidate: no green verdict: $case_output"
+[ "$("$real_git" --git-dir="$landing_remote" rev-parse main)" = "$check_base" ] || fail 'check-candidate pushed'
+printf 'PASS: check-candidate: a red-main failure ends verdict red-main without land-red-wait; a green one ends verdict green; nothing is pushed\n'
+
 } >"$scratch/section-3.log" 2>&1 &
 sections+=($!)
 
@@ -2899,6 +2921,13 @@ expect_status zero
 [ "$("$real_git" --git-dir="$real_remote" show -s --format=%B main)" = $'Name the change once\n\nWhy it lands.\n\nLane-note: supplied\nRefs: #9' ] \
   || fail "--message did not name a one-commit lane's landing: $("$real_git" --git-dir="$real_remote" show -s --format=%B main)"
 printf 'PASS: --message names the landed commit and keeps the lane trailers\n'
+
+make_real_fixture enqueue-without-land
+run_real_case '' --enqueue
+expect_status nonzero
+expect_output 'run north runtime update'
+expect_output 'NOT queued'
+printf 'PASS: --enqueue names north runtime update when the runtime lacks land\n'
 } >"$scratch/section-4.log" 2>&1 &
 sections+=($!)
 

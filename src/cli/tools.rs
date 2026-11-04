@@ -18,6 +18,7 @@ const UNIFORM: &[(&str, Run)] = &[
     ("autoland-status", autoland_status::run),
     ("autoland-wait", autoland_status::wait),
     ("land-abandon", |arguments| land_abandon::abandon(arguments, &super::abandon_witness::FleetWitness)),
+    ("land", crate::land::run),
     ("land-clean", lane_target::run),
     ("landed-tree", landed_tree::run),
     ("stale-revert", stale_revert::run),
