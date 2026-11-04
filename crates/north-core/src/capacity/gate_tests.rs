@@ -44,3 +44,11 @@ fn a_capacity_scope_or_a_private_desktop_counts_as_inside_a_lease_and_a_session_
     assert!(!inside_lease("0::/user.slice/user-1000.slice/session-39733.scope\n"));
     assert!(!inside_lease("0::/user.slice/user-1000.slice/user@1000.service/app.slice/north-fleet-gex45-disk-94360c08.service\n"));
 }
+
+#[test]
+fn the_gate_skips_what_it_already_executed_only_in_the_same_process() {
+    assert_eq!(super::gate::executed(7, Some("7\t/a/bun\t/b/bun")), vec![std::path::PathBuf::from("/a/bun"), std::path::PathBuf::from("/b/bun")]);
+    assert!(super::gate::executed(8, Some("7\t/a/bun")).is_empty(), "a child process inherited its parent's exec chain");
+    assert!(super::gate::executed(7, None).is_empty());
+    assert_eq!(super::gate::executed_value(7, &[std::path::PathBuf::from("/a/bun")], std::path::Path::new("/nonexistent/bun")), "7\t/a/bun\t/nonexistent/bun");
+}

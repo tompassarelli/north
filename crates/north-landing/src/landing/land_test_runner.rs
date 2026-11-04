@@ -17,6 +17,11 @@ struct Outcome {
     output: Vec<u8>,
 }
 
+enum Event<'a> {
+    Started(&'a str),
+    Finished(Outcome),
+}
+
 impl Outcome {
     fn passed(&self) -> bool {
         self.status == Some(0)
@@ -94,16 +99,24 @@ fn run_all(tests: &[String], jobs: NonZeroUsize, out: &mut impl Write) -> Vec<Ou
             let next = &next;
             scope.spawn(move || {
                 while let Some(test) = tests.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    if sender.send(run_one(test)).is_err() {
+                    if sender.send(Event::Started(test)).is_err() || sender.send(Event::Finished(run_one(test))).is_err() {
                         return;
                     }
                 }
             });
         }
         drop(sender);
-        for outcome in receiver {
-            report(&outcome, out);
-            outcomes.push(outcome);
+        for event in receiver {
+            match event {
+                Event::Started(test) => {
+                    let _ = writeln!(out, "land check: started {test}");
+                    let _ = out.flush();
+                }
+                Event::Finished(outcome) => {
+                    report(&outcome, out);
+                    outcomes.push(outcome);
+                }
+            }
         }
     });
     outcomes

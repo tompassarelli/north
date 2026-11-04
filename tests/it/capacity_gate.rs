@@ -127,3 +127,30 @@ fn depbox_under_an_inherited_live_lease_outside_its_scope_runs_once_nested_inste
     assert!(finished, "depbox kept asking the gate under its inherited lease");
     assert!(nested.stderr().contains("depbox: run inside a git checkout"));
 }
+
+#[test]
+fn a_stub_that_execs_the_gate_shim_reaches_the_real_program_instead_of_looping() {
+    let host = host("capacity-gate-loop-", "[hosts.gex45]\nresident_cap = 24\n");
+    shim::write_script(&host.path("toolchain/bun"), &format!("echo \"real $*\" >{}\n", host.path("ran").display()));
+    fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/bun"), host.path("shims/bun")).unwrap();
+    let stub = host.path("stubs/bun");
+    fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    shim::write_script(&stub, &format!("exec {} \"$@\"\n", host.path("shims/bun").display()));
+    let mut command = gated(&host, "bun", &["test"]);
+    let path = format!("{}:{}:{}:{}:{}", host.path("stubs").display(), host.path("shims").display(), host.path("toolchain").display(), host.path("bin").display(), std::env::var("PATH").unwrap_or_default());
+    let mut child = command.env("PATH", path).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0).spawn().unwrap();
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if started.elapsed() > std::time::Duration::from_secs(20) {
+            let _ = Command::new("kill").args(["-KILL", &format!("-{}", child.id())]).status();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert!(status.is_some_and(|status| status.success()), "a stub that execs the gate shim looped through the gate instead of reaching the real program");
+    assert_eq!(fs::read_to_string(host.path("ran")).unwrap(), "real test\n");
+}

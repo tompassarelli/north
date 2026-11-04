@@ -8,6 +8,7 @@ use crate::shell;
 
 const PREFIXES: &[&str] = &["exec", "command", "nohup", "setsid", "nice", "ionice", "stdbuf", "timeout", "time", "env"];
 const LEASE_SCOPES: [&str; 2] = ["/agent-capacity-", "/private-desktop-"];
+const EXECUTED: &str = "NORTH_CAPACITY_GATE_EXECUTED";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Class {
@@ -32,12 +33,13 @@ pub fn run(arguments: &[String], host: &Host) -> u8 {
         }
         [program, rest @ ..] if !program.starts_with('-') => {
             let name = shell::basename(program).to_owned();
-            let Some(real) = real_program(program, &name) else {
+            let executed = executed(std::process::id(), std::env::var(EXECUTED).ok().as_deref());
+            let Some(real) = real_program(program, &name, &executed) else {
                 eprintln!("{name}: command not found behind the north capacity gate");
                 return 127;
             };
             let Some(class) = lease_class(&words(program, rest), host) else {
-                let error = std::process::Command::new(&real).arg0(&name).args(rest).exec();
+                let error = std::process::Command::new(&real).arg0(&name).args(rest).env(EXECUTED, executed_value(std::process::id(), &executed, &real)).exec();
                 eprintln!("north capacity gate: {}: {error}", real.display());
                 return 126;
             };
@@ -74,11 +76,25 @@ fn owner() -> String {
     format!("gate:{}", session.or_else(directory).unwrap_or_else(|| "unknown".to_owned()))
 }
 
-fn real_program(program: &str, name: &str) -> Option<PathBuf> {
+pub(super) fn executed(pid: u32, value: Option<&str>) -> Vec<PathBuf> {
+    let mut fields = value.unwrap_or_default().split('\t');
+    if fields.next() != Some(pid.to_string().as_str()) {
+        return Vec::new();
+    }
+    fields.filter(|field| !field.is_empty()).map(PathBuf::from).collect()
+}
+
+pub(super) fn executed_value(pid: u32, executed: &[PathBuf], real: &Path) -> String {
+    let real = std::fs::canonicalize(real).unwrap_or_else(|_| real.to_owned());
+    std::iter::once(pid.to_string()).chain(executed.iter().chain([&real]).map(|path| path.to_string_lossy().into_owned())).collect::<Vec<_>>().join("\t")
+}
+
+fn real_program(program: &str, name: &str, executed: &[PathBuf]) -> Option<PathBuf> {
     let own = std::fs::canonicalize(program).ok();
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|directory| directory.join(name))
-        .find(|candidate| executable(candidate) && std::fs::canonicalize(candidate).ok() != own && !is_shim(candidate))
+    std::env::split_paths(&std::env::var_os("PATH")?).map(|directory| directory.join(name)).find(|candidate| {
+        let canonical = std::fs::canonicalize(candidate).ok();
+        executable(candidate) && canonical != own && !is_shim(candidate) && !canonical.is_some_and(|path| executed.contains(&path))
+    })
 }
 
 fn executable(path: &Path) -> bool {

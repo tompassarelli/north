@@ -61,6 +61,9 @@ async fn guard(mut clock: Clock<'_>, program: &str, rest: &[String]) -> u8 {
             }
         }
     }
+    if let Some(group) = group {
+        report(program, rest, clock.timeout, group.as_raw_nonzero().get());
+    }
     let _ = send(Signal::Term);
     if tokio::time::timeout(KILL_AFTER, child.wait()).await.is_ok() {
         return TIMED_OUT;
@@ -186,4 +189,10 @@ impl Expiry {
 
 fn exit_code(status: ExitStatus) -> u8 {
     status.code().or_else(|| status.signal().map(|signal| 128 + signal)).and_then(|code| u8::try_from(code).ok()).unwrap_or(1)
+}
+
+fn report(program: &str, rest: &[String], timeout: Duration, leader: i32) {
+    let command = std::iter::once(program).chain(rest.iter().map(String::as_str)).collect::<Vec<_>>().join(" ");
+    eprintln!("north capacity deadline: {command} exceeded its {} s deadline; still running:", timeout.as_secs());
+    eprint!("{}", super::process_tree::render(Path::new("/proc"), leader));
 }

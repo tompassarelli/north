@@ -7,6 +7,7 @@ pub mod land_actions;
 pub mod land_cache;
 pub mod red_check;
 pub mod base_relative;
+pub mod check_timings;
 pub mod judge;
 pub mod results;
 pub mod landed_tree;

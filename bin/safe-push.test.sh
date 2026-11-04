@@ -2130,7 +2130,7 @@ done
 [ -n "$finished" ] || { kill "$pid_a" 2>/dev/null || true; fail 'a hung land check held the landing queue past its timeout'; }
 status_a=0; wait "$pid_a" || status_a=$?
 [ "$status_a" -ne 0 ] || fail 'a timed out land check let the push succeed'
-grep -q 'exited 124' "$landing_root/a.out" || fail "missing land check timeout: $(cat "$landing_root/a.out")"
+grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "missing land check timeout: $(cat "$landing_root/a.out")"
 lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
 flock -n "${landing_state:-$xdg_state}/safe-push/$lock_key.lock" true || fail 'a timed out land check left the landing lock held'
 printf 'PASS: recorded hung land check times out, fails the push and frees the lock\n'
@@ -2159,7 +2159,7 @@ done
 [ -n "$finished" ] || { kill "$pid_a" 2>/dev/null || true; fail 'a thawed land check outlived its timeout plus the time it was frozen'; }
 status_a=0; wait "$pid_a" || status_a=$?
 [ "$status_a" -ne 0 ] || fail 'a timed out frozen land check let the push succeed'
-grep -q 'exited 124' "$landing_root/a.out" || fail "missing frozen land check timeout: $(cat "$landing_root/a.out")"
+grep -q 'ran past its 2 s deadline' "$landing_root/a.out" || fail "missing frozen land check timeout: $(cat "$landing_root/a.out")"
 printf 'PASS: recorded frozen land check times out only after its timeout plus the time it was frozen\n'
 
 new_landing_origin push-without-movement
@@ -2567,7 +2567,7 @@ grep -qx "$("$real_git" --git-dir="$landing_remote" rev-parse main)" "$landing_r
 # A lane that moves a Bun lockfile (a vendored pin bump) is checked against a
 # fresh install in the holder's worktree, not the holder's old node_modules.
 new_landing_origin train-deps
-printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"
+printf '[landing]\n\texact = true\n[land]\n\tinferred = false\n' >"$landing_root/seed/.safe-push"
 printf '{}\n' >"$landing_root/seed/package.json"
 printf 'pin 1\n' >"$landing_root/seed/bun.lock"
 "$real_git" -C "$landing_root/seed" add .safe-push package.json bun.lock

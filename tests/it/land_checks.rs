@@ -89,11 +89,15 @@ impl Fixture {
     }
 
     fn command(&self) -> Command {
+        self.command_between(&self.base, &self.head)
+    }
+
+    fn command_between(&self, base: &str, head: &str) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         let path = format!("{}:{}", self.path("stubs").display(), std::env::var("PATH").unwrap_or_default());
         command
             .current_dir(&self.repo)
-            .args(["land", "checks", "--base", &self.base, "--head", &self.head, "--safe-push"])
+            .args(["land", "checks", "--base", base, "--head", head, "--safe-push"])
             .arg(self.path("stubs/safe-push"))
             .arg("--outcome")
             .arg(self.path("outcome"))
@@ -223,12 +227,49 @@ fn dead_check_orphans() {
     assert_eq!(code, Some(7), "a dead land check left the runner waiting on its orphaned log children for {elapsed:?}");
 }
 
+fn hung_log(fixture: &Fixture) -> String {
+    let logs = fixture.logs();
+    assert_eq!(logs.len(), 1, "{logs:?}");
+    fs::read_to_string(&logs[0]).unwrap()
+}
+
 #[test]
 fn hung_check_timeout() {
-    let fixture = Fixture::new(&[("land.check", "file.txt :: sleep 40")]);
+    let fixture = Fixture::new(&[("land.check", "file.txt :: bash ../step.sh")]);
+    fs::write(fixture.path("step.sh"), "printf 'step started\\n'\nsleep 600\n").unwrap();
     let output = fixture.command().env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
-    assert_eq!(output.status.code(), Some(124), "{}", text(&output));
-    assert!(text(&output).contains("exited 124"));
+    assert_eq!(output.status.code(), Some(75), "a hang on a lane whose base tree was never timed is infrastructure: {}", text(&output));
+    let log = hung_log(&fixture);
+    assert!(log.contains("bash -euo pipefail -c bash ../step.sh exceeded its 2 s deadline; still running:"), "{log}");
+    assert!(log.lines().any(|line| line.trim_start().ends_with(" sleep 600")), "the deadline did not name the planted step: {log}");
+    let outcome = fs::read_to_string(fixture.path("outcome")).unwrap();
+    assert!(outcome.contains("skip\tland check bash ../step.sh ran past its 2 s deadline and base tree "), "{outcome}");
+    assert!(outcome.contains(" has never been timed, so the hang is infrastructure, not this lane"), "{outcome}");
+}
+
+#[test]
+fn hung_check_judged_against_base() {
+    let fixture = Fixture::new(&[("land.check", "file.txt :: bash ../step.sh")]);
+    fs::write(fixture.path("step.sh"), "exit 0\n").unwrap();
+    let output = fixture.command().output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    fs::write(fixture.repo.join("file.txt"), "lane\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "lane"]);
+    let lane = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    fs::write(fixture.path("step.sh"), "sleep 600\n").unwrap();
+    let output = fixture.command_between(&fixture.head, &lane).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
+    assert_eq!(output.status.code(), Some(124), "a hang where the base tree finished the same check refuses the lane: {}", text(&output));
+    assert!(text(&output).contains("safe-push: land check bash ../step.sh hung: it ran past its 2 s deadline on this lane, while base tree "), "{}", text(&output));
+    let log = hung_log(&fixture);
+    assert!(log.lines().any(|line| line.trim_start().ends_with(" sleep 600")), "{log}");
+    assert!(!fs::read_to_string(fixture.path("outcome")).unwrap().contains("skip\t"));
+
+    fs::write(fixture.repo.join("file.txt"), "again\n").unwrap();
+    git(&fixture.repo, &["commit", "-qam", "next"]);
+    let next = git(&fixture.repo, &["rev-parse", "HEAD"]);
+    let output = fixture.command_between(&lane, &next).env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
+    assert_eq!(output.status.code(), Some(75), "a base tree that also hung is no evidence against the lane: {}", text(&output));
+    assert!(text(&output).contains(" also ran past it, so the hang is infrastructure, not this lane"), "{}", text(&output));
 }
 
 #[test]
@@ -245,7 +286,7 @@ fn frozen_check_timeout() {
     std::thread::sleep(Duration::from_millis(1600));
     assert!(child.try_wait().unwrap().is_none(), "a frozen land check ended before its timeout plus the time it was frozen");
     let (code, _) = finishes_within(child, 10);
-    assert_eq!(code, Some(124), "a thawed land check outlived its timeout plus the time it was frozen");
+    assert_eq!(code, Some(75), "a thawed land check outlived its timeout plus the time it was frozen");
 }
 
 #[test]

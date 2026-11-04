@@ -66,9 +66,10 @@ for ((next = 0; next < ${#queue[@]}; next++)); do
   done <"$scratch/matches"
 done
 if [ "${#selected[@]}" -gt 0 ] && [ -f Cargo.toml ]; then
+  printf "land check: running ./bin/land-shell --dev -- cargo build --locked --offline --bin north\n"
   ./bin/land-shell --dev -- cargo build --locked --offline --bin north
 fi
 north=${CARGO_TARGET_DIR:-target}/debug/north
 [ ! -x "$north" ] || { NORTH_PACE_BIN=$(realpath "$north"); export NORTH_PACE_BIN; }
 runner=${NORTH_PACE_BIN:-$(dirname "$0")/../../target/debug/north}
-[ "${#selected[@]}" -eq 0 ] || "$runner" land-tests "${selected[@]}"
+[ "${#selected[@]}" -eq 0 ] || { printf "land check: running %s land-tests %s\n" "$runner" "${selected[*]}"; "$runner" land-tests "${selected[@]}"; }

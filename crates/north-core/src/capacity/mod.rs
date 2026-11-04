@@ -24,6 +24,7 @@ mod queued_ahead;
 mod pressure_target;
 mod gpu_admission;
 mod deadline;
+mod process_tree;
 mod dev_shell;
 mod lease_deadline;
 mod warcraft;

@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -14,6 +14,7 @@ use tokio::task::JoinSet;
 
 use super::select::Config;
 use crate::land::after::follow::program;
+use crate::landing::check_timings::{Base, Timing, Timings};
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD";
 const DEFAULT_TIMEOUT: u64 = 2100;
@@ -21,6 +22,8 @@ const OFFLOAD_GRACE: u64 = 900;
 const REAP: Duration = Duration::from_secs(5);
 const LOG_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
 const INFRASTRUCTURE: i32 = 75;
+const TIMED_OUT: i32 = 124;
+const KILLED: i32 = 137;
 const RED_MAIN: i32 = 3;
 const CANCELLED: i32 = 130;
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
@@ -109,6 +112,33 @@ struct Shared {
     outcome: Outcome,
     cancel: watch::Receiver<bool>,
     workflow: String,
+    trees: Trees,
+}
+
+#[derive(Clone, Default)]
+struct Trees {
+    base: String,
+    head: String,
+}
+
+impl Trees {
+    fn of(root: &Path, base: &str, head: &str) -> Self {
+        let tree = |revision: &str| {
+            if revision.is_empty() {
+                return String::new();
+            }
+            std::process::Command::new("git")
+                .args(["rev-parse", "--verify", "--quiet", &format!("{revision}^{{tree}}")])
+                .current_dir(root)
+                .stderr(Stdio::null())
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+                .unwrap_or_default()
+        };
+        Self { base: tree(base), head: tree(head) }
+    }
 }
 
 fn exit_code(status: ExitStatus) -> i32 {
@@ -295,6 +325,7 @@ impl Shared {
             return 1;
         };
         say(&format!("safe-push: land check: {command}"));
+        let started = Instant::now();
         let mut child = match Command::new(&argv[0])
             .args(&argv[1..])
             .current_dir(&self.root)
@@ -331,6 +362,14 @@ impl Shared {
         if drained.is_err() {
             readers.iter().for_each(tokio::task::JoinHandle::abort);
         }
+        let seconds = started.elapsed().as_secs();
+        let exceeded = status == TIMED_OUT || (status == KILLED && seconds >= timeout);
+        let timings = Timings::at(Timings::default_root());
+        let class = self.cache_class(&command);
+        let _ = timings.record(&self.trees.head, &command, &class, if exceeded { Timing::Exceeded(seconds) } else { Timing::Finished(seconds) });
+        if exceeded {
+            return self.judge_hang(&command, timeout, timings.base(&self.trees.base, &command, &class, timeout), &log).await;
+        }
         let commands = [command.clone()];
         if status != 0 {
             warn(&format!("safe-push: land check {command} exited {status}; log: {}; NOT pushed.", log.display()));
@@ -342,10 +381,29 @@ impl Shared {
         let _ = fs::remove_file(&log);
         0
     }
+
+    async fn judge_hang(&self, command: &str, timeout: u64, base: Base, log: &Path) -> i32 {
+        let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
+        let base = match base {
+            Base::Within(seconds) => {
+                warn(&format!("safe-push: land check {command} hung: it ran past its {timeout} s deadline on this lane, while base tree {tree} finished it in {seconds} s; log: {}; NOT pushed.", log.display()));
+                self.cache_record(TIMED_OUT, &[command.to_owned()]).await;
+                self.outcome.record(&["event", "land check", "failed", &format!("{command} hung past its {timeout} s deadline; log: {}", log.display())]);
+                return TIMED_OUT;
+            }
+            Base::Exceeded => "also ran past it",
+            Base::Untimed => "has never been timed",
+        };
+        let detail = format!("land check {command} ran past its {timeout} s deadline and base tree {tree} {base}, so the hang is infrastructure, not this lane");
+        warn(&format!("safe-push: {detail}; log: {}; NOT pushed.", log.display()));
+        self.outcome.record(&["skip", &detail]);
+        self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {}", log.display())]);
+        INFRASTRUCTURE
+    }
 }
 
 fn first_failure(failed: &mut i32, status: i32) {
-    if *failed == 0 {
+    if *failed == 0 || (*failed == INFRASTRUCTURE && status != 0) {
         *failed = status;
     }
 }
@@ -613,7 +671,9 @@ async fn orchestrate(arguments: Arguments) -> i32 {
     if !arguments.leased {
         arguments.runner_host = runner_host(&environment, &config).await;
     }
+    let trees = Trees::of(&root, &arguments.base, &arguments.head);
     let shared = Arc::new(Shared {
+        trees,
         workflow: config.workflow.clone(),
         outcome: Outcome(arguments.outcome.clone()),
         root,
@@ -669,7 +729,8 @@ async fn run_added(root: PathBuf, mut arguments: Arguments, config: Config, comm
     }
     arguments.runner_host = runner_host(&environment, &config).await;
     let (_cancel_sender, cancel) = watch::channel(false);
-    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new() });
+    let trees = Trees::of(&root, &arguments.base, &arguments.head);
+    let shared = Arc::new(Shared { root, arguments, environment, config, outcome: Outcome(None), cancel, workflow: String::new(), trees });
     let mut pending = Vec::new();
     for command in commands {
         if !shared.cache_reused(&command).await {

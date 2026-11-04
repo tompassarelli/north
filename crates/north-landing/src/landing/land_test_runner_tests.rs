@@ -32,6 +32,7 @@ fn selected_tests_run_side_by_side_up_to_the_job_limit() {
     let out = String::from_utf8(out).unwrap();
     for test in &tests {
         assert_eq!(out.lines().filter(|line| *line == format!("land check: {test}")).count(), 1);
+        assert_eq!(out.lines().filter(|line| *line == format!("land check: started {test}")).count(), 1, "{out}");
     }
     assert_eq!(out.matches(" met").count(), 4, "{out}");
 }

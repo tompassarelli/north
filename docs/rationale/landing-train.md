@@ -687,6 +687,17 @@ then S2b and S2c in parallel; then S3 and S4.
   hung-check-timeout, frozen-check-timeout, lease-around-local-check,
   lease-released-for-actions-wait, admitted-check-unlocked, land-check-retry; the bash suite prints
   PASS; `rg -n '^run_land_checks\(\)' bin/safe-push` shows a body of at most 3 lines.
+  Hang verdict (2026-11-05): a check that runs past its deadline is judged against the base tree,
+  never against the lane alone. The runner records each check's wall time per tree, command and host
+  class (`safe-push/check-timings`); a deadline exit refuses the lane, naming the command, only when
+  the base tree finished the same check within the deadline, and is otherwise an infrastructure
+  verdict (exit 75) that keeps the ticket. The deadline, local or on an offload slot, prints the
+  command and its process tree before it signals, and `land-tests` prints `land check: started T`
+  as each test begins, so a silent hang names its step. The first such hang, a 3-lane candidate
+  carrying inferred land checks, was `bin/safe-push.test.sh`'s train-deps fixture: its inferred
+  `bun test` reached a test stub that execs the dev shell's capacity-gate `bun` shim, and `north
+  capacity gate` picked that stub as the real `bun`, an exec loop in one process that never printed.
+  The gate now skips every program it already exec'd in the same process.
 - **S6b Warm slots, Actions confirms.** Follows S6a. Files land/slots/{select,offload}.rs. With
   `--slots` (passed by `--check-candidate`), portable commands run in the lander's worktree or on a
   gex45 offload slot through `north capacity offload run`, never on Actions; local-only commands stay

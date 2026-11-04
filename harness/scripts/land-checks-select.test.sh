@@ -18,7 +18,7 @@ git add -A; git commit -qm base
 for change in crates/north-landing/src/x.rs crates/north-base/src/y.rs crates/north-core/src/lib.rs crates/north-core/Cargo.toml build.rs; do
   base=$(git rev-parse HEAD); mkdir -p "$(dirname "$change")"; printf 'changed %s\n' "$change" >>"$change"; git add -A; git commit -qm "change $change"
   output=$(SAFE_PUSH_LAND_BASE="$base" SAFE_PUSH_LAND_HEAD=HEAD bash "$script" portable)
-  [[ "$output" == *'land check: harness/hooks/direct.test.sh'* && "$output" == *'land check: harness/lib/ledger.test.py'* && "$output" != *unrelated.test.sh* ]] || { printf 'FAIL: a change to %s did not select exactly the tests that run north\n' "$change" >&2; exit 1; }
+  [[ "$output" == *'land check: harness/hooks/direct.test.sh'* && "$output" == *'land check: harness/lib/ledger.test.py'* && "$output" != *unrelated.test.sh* && "$output" == *'land check: running '*' land-tests '*'harness/hooks/direct.test.sh'* && "$output" == *'land check: started harness/hooks/direct.test.sh'* ]] || { printf 'FAIL: a change to %s did not select exactly the tests that run north, each named before it ran\n' "$change" >&2; exit 1; }
 done
 printf 'PASS: any crates/ change, crate manifest or build.rs selects the tests that run the north binary and not unrelated ones\n'
 listed=$scratch/listed; mkdir -p "$listed/harness/scripts" "$listed/bin"; cp "$script" "$listed/harness/scripts/land-checks.sh"

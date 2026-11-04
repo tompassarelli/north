@@ -1393,3 +1393,52 @@ fn serve_unconfigured_repository_keeps_its_credential() {
     assert!(fixture.read("pushes").contains("token=push-token app=none"));
     assert_eq!(fixture.read("mints"), "");
 }
+
+const REAL_CHECKER: &str = r#"#!/usr/bin/env bash
+set -u
+log=$(mktemp) outcome=$(mktemp) status=0
+NORTH_LAND_NORTH="$LAND_REAL_NORTH" "$LAND_REAL_NORTH" land checks --base "$3" --head HEAD --outcome "$outcome" >"$log" 2>&1 || status=$?
+cat "$log"
+if [ "$status" -eq 0 ]; then printf 'safe-push: verdict green %s\n' "$(git rev-parse HEAD)"
+elif [ "$status" -eq 75 ]; then printf 'safe-push: verdict transient %s\n' "$(awk -F'\t' '$1 == "skip" { line = $2 } END { print line }' "$outcome")"
+else printf 'safe-push: verdict refused %s\n' "$(grep -m1 'safe-push: land check ' "$log" | grep -v ': land check: ')"
+fi
+"#;
+
+#[test]
+fn serve_hung_check_judged_against_base() {
+    let mut fixture = Fixture::new();
+    let step = fixture.trace.join("step.sh");
+    git(&fixture.repo, &["config", "--file", ".safe-push", "land.check", &format!("* :: bash {}", step.display())]);
+    git(&fixture.repo, &["add", ".safe-push"]);
+    git(&fixture.repo, &["commit", "-qm", "check every change"]);
+    git(&fixture.repo, &["push", "-q", "origin", "main"]);
+    executable(&fixture.trace.join("checker"), REAL_CHECKER);
+    let serve = |fixture: &Fixture| {
+        let output = fixture.command().env("SAFE_PUSH_LAND_CHECK_TIMEOUT", "2").output().unwrap();
+        eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        output
+    };
+
+    let a = fixture.lane("a", "a.txt", "a");
+    let first = fixture.enqueue(&a, None);
+    fs::write(&step, "exit 0\n").unwrap();
+    assert!(serve(&fixture).status.success());
+    assert!(fixture.verdict(&first).is_some_and(|verdict| verdict.starts_with("landed ")), "{:?}", fixture.verdict(&first));
+
+    let b = fixture.lane("b", "b.txt", "b");
+    let second = fixture.enqueue(&b, None);
+    fs::write(&step, "sleep 600\n").unwrap();
+    let main = fixture.main();
+    assert!(serve(&fixture).status.success());
+    let verdict = fixture.verdict(&second).unwrap_or_default();
+    assert!(verdict.starts_with("failed ") && verdict.contains(&format!("land check bash {} hung: it ran past its 2 s deadline on this lane, while base tree ", step.display())), "{verdict}");
+    assert_eq!(fixture.main(), main, "a hung candidate is not pushed");
+
+    fs::remove_dir_all(fixture.state.join("safe-push/check-timings")).unwrap();
+    let c = fixture.lane("c", "c.txt", "c");
+    let third = fixture.enqueue(&c, None);
+    assert_eq!(serve(&fixture).status.code(), Some(75), "a hang on a base tree never timed is infrastructure");
+    assert!(third.exists(), "a hang the base tree was never timed for decided the lane");
+    assert_eq!(fixture.main(), main);
+}
