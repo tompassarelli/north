@@ -42,7 +42,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
         Verb::Command("flow") => flow::run(rest),
         Verb::Command("news") => crate::ops::model_watch::run(&[vec!["news".to_owned()], rest.to_vec()].concat(), &claude_access()),
         Verb::Command(_) => report::run(rest),
-        Verb::Script("usage.py") => usage(rest),
+        Verb::Usage => usage(rest),
         Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),
     }
 }
@@ -54,7 +54,8 @@ pub(super) fn usage(arguments: &[String]) -> u8 {
     if crate::usage::handles(arguments) {
         return with_usage_host(|host| crate::usage::run(arguments, host));
     }
-    with_harness(|root| script::run(root, "usage.py", arguments))
+    eprintln!("{}", agents::USAGE);
+    2
 }
 
 fn with_usage_host(work: impl FnOnce(&crate::usage::Host) -> u8) -> u8 {
@@ -66,12 +67,11 @@ fn with_usage_host(work: impl FnOnce(&crate::usage::Host) -> u8) -> u8 {
         ingest: &crate::threads::client::ingest,
         run: &|command, limit| crate::platform::process::run_command_within(command, None, limit),
         ssh: &ssh,
-        harness_lib: &|| Ok(crate::platform::harness::harness_root()?.join("harness/lib")),
     })
 }
 
 fn gate_provider(arguments: &[String]) -> Option<String> {
-    let precedes = arguments.iter().any(|argument| matches!(argument.as_str(), "--reservation-json" | "--write-pace-gate"));
+    let precedes = arguments.iter().any(|argument| argument == "--write-pace-gate");
     let at = arguments.iter().position(|argument| argument == "--gate")?;
     arguments.get(at + 1).filter(|_| !precedes).cloned()
 }

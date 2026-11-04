@@ -1,0 +1,253 @@
+{
+ "files": {
+  "home/.claude.json": "{\"oauthAccount\": {\"accountUuid\": \"uuid-default\", \"organizationRateLimitTier\": \"default_claude_max_20x\"}, \"cachedUsageUtilization\": {\"accountUuid\": \"uuid-default\", \"fetchedAtMs\": 1790000000000, \"utilization\": {\"limits\": [{\"kind\": \"five_hour\", \"group\": \"session\", \"percent\": 12.5, \"resets_at\": \"2026-11-04T16:00:00+00:00\"}, {\"kind\": \"weekly_all\", \"group\": \"weekly\", \"percent\": 98, \"resets_at\": \"2026-11-09T08:00:00Z\"}, {\"kind\": \"weekly_scoped\", \"group\": \"weekly\", \"percent\": 3, \"scope\": {\"model\": {\"display_name\": \"Fable\"}}, \"resets_at\": null}], \"extra_usage\": {\"is_enabled\": false, \"utilization\": 0}, \"spend\": {\"percent\": 1.5, \"enabled\": false, \"auto_reload\": true, \"balance\": 4.25}, \"mystery\": {\"utilization\": 9, \"resets_at\": \"2026-11-05T00:00:00Z\"}, \"cedar_ember\": {\"grants\": [{\"resets_left\": 2}, {\"resets_left\": 1}]}}}}",
+  "profile/.claude.json": "{\"oauthAccount\": {\"accountUuid\": \"uuid-c\"}, \"cachedUsageUtilization\": {\"accountUuid\": \"uuid-c\", \"fetchedAtMs\": 1790000000000, \"utilization\": {\"limits\": [{\"kind\": \"five_hour\", \"group\": \"session\", \"percent\": 12.5, \"resets_at\": \"2026-11-04T16:00:00+00:00\"}, {\"kind\": \"weekly_all\", \"group\": \"weekly\", \"percent\": 98, \"resets_at\": \"2026-11-09T08:00:00Z\"}, {\"kind\": \"weekly_scoped\", \"group\": \"weekly\", \"percent\": 3, \"scope\": {\"model\": {\"display_name\": \"Fable\"}}, \"resets_at\": null}], \"extra_usage\": {\"is_enabled\": false, \"utilization\": 0}, \"spend\": {\"percent\": 1.5, \"enabled\": false, \"auto_reload\": true, \"balance\": 4.25}, \"mystery\": {\"utilization\": 9, \"resets_at\": \"2026-11-05T00:00:00Z\"}}}}",
+  "profile/.credentials.json": "{\"claudeAiOauth\": {\"subscriptionType\": \"max\", \"rateLimitTier\": \"default_claude_max_5x\"}}",
+  "state/agents/usage/claude-web.json": "{\"accounts\": {\"f5dfa4e1\": {\"account_label\": \"c\", \"read_at\": \"2026-11-04T14:06:00Z\", \"valid_until\": \"2099-01-01T00:00:00Z\", \"resets\": {\"full\": {\"count\": 2, \"expires\": \"2099-11-01T00:00:00Z\"}, \"five_hour\": {\"count\": 3}}}}}"
+ },
+ "policy": "[accounts.claude]\nlabels = { \"7bc02619\" = \"b\", \"f5dfa4e1\" = \"c\" }\nprofiles = { c = { \"{HOST}\" = { path = \"{ROOT}/profile\" } } }\n",
+ "rows": [
+  {
+   "account": "b",
+   "amount": null,
+   "kind": "window",
+   "name": "five_hour",
+   "provider": "claude",
+   "resets_at": "2026-11-04T16:00:00Z",
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 12.5,
+   "window_min": 300
+  },
+  {
+   "account": "b",
+   "amount": null,
+   "kind": "window",
+   "name": "weekly_all",
+   "provider": "claude",
+   "resets_at": "2026-11-09T08:00:00Z",
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 98,
+   "window_min": 10080
+  },
+  {
+   "account": "b",
+   "amount": null,
+   "kind": "window",
+   "name": "weekly_scoped/Fable",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 3,
+   "window_min": 10080
+  },
+  {
+   "account": "b",
+   "amount": 0,
+   "kind": "billing",
+   "name": "extra_usage",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 0,
+   "window_min": null
+  },
+  {
+   "account": "b",
+   "amount": 1,
+   "kind": "billing",
+   "name": "spend",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 1.5,
+   "window_min": null
+  },
+  {
+   "account": "b",
+   "amount": 4.25,
+   "kind": "billing",
+   "name": "credits",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": null,
+   "window_min": null
+  },
+  {
+   "account": "b",
+   "amount": 3,
+   "kind": "grant",
+   "name": "cedar_ember",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "~/.claude.json cachedUsageUtilization.cedar_ember",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": null,
+   "window_min": null
+  },
+  {
+   "account": "b",
+   "amount": null,
+   "kind": "grant",
+   "name": "mystery",
+   "provider": "claude",
+   "raw": {
+    "resets_at": "2026-11-05T00:00:00Z",
+    "utilization": 9
+   },
+   "resets_at": "2026-11-05T00:00:00Z",
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 9,
+   "window_min": null
+  },
+  {
+   "account": "b",
+   "amount": 1,
+   "kind": "billing",
+   "name": "plan",
+   "provider": "claude",
+   "source": "max-20x",
+   "ts": "2026-11-04T01:00:38Z"
+  },
+  {
+   "account": "c",
+   "amount": null,
+   "kind": "window",
+   "name": "five_hour",
+   "provider": "claude",
+   "resets_at": "2026-11-04T16:00:00Z",
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 12.5,
+   "window_min": 300
+  },
+  {
+   "account": "c",
+   "amount": null,
+   "kind": "window",
+   "name": "weekly_all",
+   "provider": "claude",
+   "resets_at": "2026-11-09T08:00:00Z",
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 98,
+   "window_min": 10080
+  },
+  {
+   "account": "c",
+   "amount": null,
+   "kind": "window",
+   "name": "weekly_scoped/Fable",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 3,
+   "window_min": 10080
+  },
+  {
+   "account": "c",
+   "amount": 0,
+   "kind": "billing",
+   "name": "extra_usage",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 0,
+   "window_min": null
+  },
+  {
+   "account": "c",
+   "amount": 1,
+   "kind": "billing",
+   "name": "spend",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 1.5,
+   "window_min": null
+  },
+  {
+   "account": "c",
+   "amount": 4.25,
+   "kind": "billing",
+   "name": "credits",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": null,
+   "window_min": null
+  },
+  {
+   "account": "c",
+   "amount": null,
+   "kind": "grant",
+   "name": "cedar_ember",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": null,
+   "window_min": null
+  },
+  {
+   "account": "c",
+   "amount": 2,
+   "kind": "grant",
+   "name": "cedar_ember/full",
+   "provider": "claude",
+   "resets_at": "2099-11-01T00:00:00Z",
+   "source": "claude.ai settings/usage via Chrome; until 1 Jan 00:00Z",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": null,
+   "window_min": null
+  },
+  {
+   "account": "c",
+   "amount": 3,
+   "kind": "grant",
+   "name": "cedar_ember/five_hour",
+   "provider": "claude",
+   "resets_at": null,
+   "source": "claude.ai settings/usage via Chrome; until 1 Jan 00:00Z",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": null,
+   "window_min": null
+  },
+  {
+   "account": "c",
+   "amount": null,
+   "kind": "grant",
+   "name": "mystery",
+   "provider": "claude",
+   "raw": {
+    "resets_at": "2026-11-05T00:00:00Z",
+    "utilization": 9
+   },
+   "resets_at": "2026-11-05T00:00:00Z",
+   "source": "claude -p /usage; ~/.claude.json cachedUsageUtilization",
+   "ts": "2026-09-21T14:13:20Z",
+   "used_pct": 9,
+   "window_min": null
+  },
+  {
+   "account": "c",
+   "amount": 1,
+   "kind": "billing",
+   "name": "plan",
+   "provider": "claude",
+   "source": "max-5x",
+   "ts": "2026-11-04T01:00:38Z"
+  }
+ ]
+}

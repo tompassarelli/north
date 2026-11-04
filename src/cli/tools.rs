@@ -66,6 +66,8 @@ const UNIFORM: &[(&str, Run)] = &[
     ("ops", crate::ops::run),
     ("private-check", crate::ops::private_check::run),
     ("watch", crate::watch::run),
+    ("ssh-argv", crate::platform::ssh::run),
+    ("provider-capacity", crate::ops::provider_capacity::run),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

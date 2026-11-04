@@ -18,7 +18,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 |---|---|---|---|---|
 | runs.eta_min | north worker-ledger | crates/north-core/src/threads/calibration/forward.rs calibrate_eta scales recommend_eta | read | ac79788c |
 | runs.minutes | north worker-ledger | crates/north-core/src/threads/calibration/recommend.rs recommend_eta (the wall p75 printed after the active-minute figures) | read | |
-| runs.outcome, follows, landed, expects_landing | north worker-ledger | crates/north-core/src/threads/calibration/read.rs succeeded; harness/lib/plan_usage.py routing success | read | 4a58f21e |
+| runs.outcome, follows, landed, expects_landing | north worker-ledger | crates/north-core/src/threads/calibration/read.rs succeeded; crates/north-core/src/usage/ctx.rs routing success | read | 4a58f21e |
 | runs.tier | north worker-ledger | crates/north-core/src/threads/calibration/recommend.rs recommend, every provider | read | 4b71ac63 |
 | runs.category and facets | bin/threads brief_fields | crates/north-core/src/threads/calibration/recommend.rs recommend, recommend_eta | read | |
 | runs.arm | bin/threads:967 | crates/north-core/src/ops/report/arms.rs, Wilson 95% per arm | read | lane H |
@@ -50,20 +50,20 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs.exitCode | crates/north-core/src/capacity/host/run.rs usage_entry | crates/north-core/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | capacity_runs.command, cpuSeconds | crates/north-core/src/capacity/host/run.rs usage_entry | none | held for north#17 | |
 | job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-core/src/ops/job_watch/mod.rs | read | |
-| model_events | crates/north-core/src/ops/model_watch | harness/lib/plan_usage.py:134 successors, routing hold | read | 4a58f21e |
+| model_events | crates/north-core/src/ops/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-core/src/capacity/host/database.rs record_usage | crates/north-core/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-core/src/usage/gate.rs | crates/north-core/src/guard/spawn_capacity/usage.rs | read | |
 | spawn-gate-denials.jsonl | crates/north-core/src/guard/spawn_capacity/logs.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
 | goal-scores.jsonl | crates/north-core/src/ops/agents/goal/score.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
-| S:costs.toml | hand | harness/lib/plan_usage.py:79; harness/lib/usage.py:267 | read | |
-| costs/*.json | harness/lib/billing_*.py | harness/lib/usage.py:264 service lines | read | |
+| S:costs.toml | hand | crates/north-core/src/usage/settings.rs services | read | |
+| costs/*.json | crates/north-core/src/usage/refresh/digitalocean.rs | crates/north-core/src/usage/settings.rs service lines | read | |
 | S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-core/src/ops/timers/skill_prune.rs | read | |
 | injected context per session (startup, SKILL bodies, skill references, grounding, other hook context; grounding precision and notification-triggered injections), derived from Claude transcripts | Claude Code transcripts under ~/.local/state/north/profiles/claude-*/projects | crates/north-core/src/ops/context_audit/scan.rs audit_file; `north context audit` measures the skill and hook slimming program | read | |
 | S:incidents.jsonl | north incident-mine (crates/north-core/src/ops/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
 | replay sweep-*.jsonl | north policy-replay sweep (crates/north-core/src/ops/policy_replay/sweep.rs) | crates/north-core/src/agent_config_check/gate.rs | read | |
-| harness/model-catalog.toml | hand | harness/lib/usage.py:31; crates/north-core/src/providers/codex/runs/usage.rs run_usage; crates/north-core/src/providers/claude/runs/telemetry.rs Prices | read | |
+| harness/model-catalog.toml | hand | crates/north-core/src/usage/settings.rs CATALOG; crates/north-core/src/providers/codex/runs/usage.rs run_usage; crates/north-core/src/providers/claude/runs/telemetry.rs Prices | read | |
 | S:incident-baseline.toml | hand | S:routines/tick.md step 3 one-shot recount after 30 sessions | read (tick prose) | |
 
 The runs activity signal, per worker run from its transcript (north#255): turns = assistant messages;

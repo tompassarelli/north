@@ -1,18 +1,19 @@
 use std::ffi::OsString;
-use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::time::Duration;
 
 use serde_json::Value;
 
 use super::record::Reading;
+use super::{agy, claude, digitalocean};
 use crate::usage::store::COLUMNS;
 
-const ADAPTER_LIMIT: Duration = Duration::from_secs(30);
 const REMOTE_LIMIT: Duration = Duration::from_secs(45);
 
+pub(super) type Local<'a> = Box<dyn Fn() -> Vec<Reading> + Send + Sync + 'a>;
+
 pub(super) struct Readers<'a> {
-    pub directory: PathBuf,
+    pub local: Vec<Local<'a>>,
     pub machines: Vec<(String, Vec<String>)>,
     pub here: String,
     pub ssh: &'a dyn Fn(&[&str]) -> Vec<OsString>,
@@ -20,12 +21,16 @@ pub(super) struct Readers<'a> {
 }
 
 impl<'a> Readers<'a> {
-    pub(super) fn new(host: &'a crate::usage::Host, directory: PathBuf) -> Self {
-        Self { directory, machines: crate::usage::settings::machines(), here: host.name.clone(), ssh: host.ssh, run: host.run }
+    pub(super) fn new(host: &'a crate::usage::Host) -> Self {
+        let billing = || {
+            digitalocean::refresh();
+            Vec::new()
+        };
+        let local: Vec<Local<'a>> = vec![Box::new(billing), Box::new(agy::read), Box::new(|| claude::read(&claude::Settings::from_env(true)))];
+        Self { local, machines: crate::usage::settings::machines(), here: host.name.clone(), ssh: host.ssh, run: host.run }
     }
 
     pub(super) fn read_all(&self, remote: bool) -> Vec<Reading> {
-        let adapters = self.adapters();
         let remotes: Vec<(&str, Command)> = self
             .machines
             .iter()
@@ -35,18 +40,10 @@ impl<'a> Readers<'a> {
             .collect();
         let (remote_out, local_out) = std::thread::scope(|scope| {
             let remote_runs: Vec<_> = remotes.into_iter().map(|(provider, command)| (provider, scope.spawn(|| (self.run)(command, REMOTE_LIMIT)))).collect();
-            let local_runs: Vec<_> = adapters
-                .into_iter()
-                .map(|(name, path)| {
-                    let mut command = Command::new("python3");
-                    command.arg("-I").arg(path);
-                    (name, scope.spawn(|| (self.run)(command, ADAPTER_LIMIT)))
-                })
-                .collect();
-            let join = |run: std::thread::ScopedJoinHandle<'_, Option<Output>>| run.join().ok().flatten();
+            let local_runs: Vec<_> = self.local.iter().map(|read| scope.spawn(read)).collect();
             (
-                remote_runs.into_iter().map(|(provider, run)| (provider, join(run))).collect::<Vec<_>>(),
-                local_runs.into_iter().map(|(name, run)| (name, join(run))).collect::<Vec<_>>(),
+                remote_runs.into_iter().map(|(provider, run)| (provider, run.join().ok().flatten())).collect::<Vec<_>>(),
+                local_runs.into_iter().map(|run| run.join().unwrap_or_default()).collect::<Vec<_>>(),
             )
         });
         let mut rows = Vec::new();
@@ -55,34 +52,10 @@ impl<'a> Readers<'a> {
                 rows.extend(remote_rows(&output.stdout, provider));
             }
         }
-        for (name, output) in local_out {
-            match output {
-                Some(output) => rows.extend(adapter_rows(&output.stdout)),
-                None => eprintln!("agents usage: {name} adapter timed out after {} s", ADAPTER_LIMIT.as_secs()),
-            }
+        for found in local_out {
+            rows.extend(found);
         }
         rows
-    }
-
-    fn adapters(&self) -> Vec<(String, PathBuf)> {
-        let mut found: Vec<PathBuf> = std::fs::read_dir(&self.directory)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| {
-                let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
-                name.ends_with(".py") && (name.starts_with("usage_") || name.starts_with("billing_"))
-            })
-            .collect();
-        found.sort();
-        found
-            .into_iter()
-            .map(|path| {
-                let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or_default();
-                (stem.strip_prefix("usage_").unwrap_or(stem).to_owned(), path)
-            })
-            .collect()
     }
 
     fn remote_command(&self, host: &str) -> Command {
@@ -91,16 +64,6 @@ impl<'a> Readers<'a> {
         command.args(&argv[1..]);
         command
     }
-}
-
-fn adapter_rows(stdout: &[u8]) -> Vec<Reading> {
-    String::from_utf8_lossy(stdout)
-        .lines()
-        .filter_map(|line| match serde_json::from_str::<Value>(line) {
-            Ok(Value::Object(row)) => Some(row),
-            _ => None,
-        })
-        .collect()
 }
 
 fn remote_rows(stdout: &[u8], provider: &str) -> Vec<Reading> {

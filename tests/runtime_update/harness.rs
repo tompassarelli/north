@@ -40,9 +40,9 @@ impl Host {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         let source = dir.path().join("source");
-        fs::create_dir_all(source.join("harness/lib")).unwrap();
+        fs::create_dir_all(source.join("harness")).unwrap();
         fs::create_dir_all(&home).unwrap();
-        fs::write(source.join("harness/lib/usage.py"), "").unwrap();
+        fs::write(source.join("harness/defaults.toml"), "").unwrap();
         git(&home, &source, &["init", "-q", "-b", "main"]);
         git(&home, &source, &["add", "."]);
         match date {

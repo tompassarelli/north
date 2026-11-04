@@ -36,8 +36,8 @@ fn run_within(command: Command, limit: Duration) -> Option<Output> {
     crate::platform::process::run_command_within(command, None, limit)
 }
 
-fn readers<'a>(directory: &Path) -> Readers<'a> {
-    Readers { directory: directory.to_owned(), machines: Vec::new(), here: "here".into(), ssh: &plain_ssh, run: &run_within }
+fn readers<'a>() -> Readers<'a> {
+    Readers { local: Vec::new(), machines: Vec::new(), here: "here".into(), ssh: &plain_ssh, run: &run_within }
 }
 
 fn script(path: &Path, body: &str) {
@@ -71,13 +71,11 @@ fn a_mirrored_client_hands_its_readings_to_the_ledger_host_before_recording_them
 }
 
 #[test]
-fn adapter_rows_are_collected_in_path_order_and_lines_that_are_not_rows_are_dropped() {
-    let directory = tempfile::tempdir().unwrap();
-    let row = |name: &str| format!("print('{{\"provider\": \"p\", \"name\": \"{name}\"}}')\nprint('not json')\nprint('[1]')\n");
-    fs::write(directory.path().join("usage_b.py"), row("usage")).unwrap();
-    fs::write(directory.path().join("billing_a.py"), row("billing")).unwrap();
-    fs::write(directory.path().join("notes.py"), row("ignored")).unwrap();
-    let names: Vec<Value> = readers(directory.path()).read_all(false).into_iter().map(|row| row["name"].clone()).collect();
+fn local_adapter_rows_are_collected_in_adapter_order() {
+    let named = |name: &'static str| -> super::adapters::Local<'static> { Box::new(move || vec![json!({"provider": "p", "name": name}).as_object().cloned().unwrap()]) };
+    let mut local = readers();
+    local.local = vec![named("billing"), named("usage")];
+    let names: Vec<Value> = local.read_all(false).into_iter().map(|row| row["name"].clone()).collect();
     assert_eq!(names, ["billing", "usage"]);
 }
 
@@ -86,9 +84,9 @@ fn a_remote_machine_supplies_only_the_rows_of_the_provider_it_is_listed_for() {
     let directory = tempfile::tempdir().unwrap();
     let ssh = directory.path().join("ssh");
     script(&ssh, "#!/bin/sh\necho '[{\"provider\": \"claude\", \"name\": \"week\", \"extra\": 1}, {\"provider\": \"gemini\", \"name\": \"other\"}]'\n");
-    let mut far = readers(&directory.path().join("no-adapters"));
-    far.machines = vec![("claude".into(), vec!["here".into(), "far".into()])];
     let fake = |arguments: &[&str]| [OsString::from("/bin/sh"), ssh.clone().into_os_string()].into_iter().chain(arguments.iter().map(OsString::from)).collect();
+    let mut far = readers();
+    far.machines = vec![("claude".into(), vec!["here".into(), "far".into()])];
     far.ssh = &fake;
     let rows = far.read_all(true);
     assert_eq!(rows.len(), 1);
@@ -136,18 +134,12 @@ fn a_promotion_notice_is_sent_once() {
 #[test]
 fn a_refresh_records_what_the_adapters_read_and_rewrites_the_pace_gate() {
     let root = tempfile::tempdir().unwrap();
-    let adapters = root.path().join("lib");
-    fs::create_dir_all(&adapters).unwrap();
-    fs::write(
-        adapters.join("usage_claude.py"),
-        "print('{\"ts\": \"2026-10-28T11:59:00Z\", \"provider\": \"claude\", \"account\": \"a\", \"kind\": \"window\", \"name\": \"session\", \"used_pct\": 12.5, \"window_min\": 300, \"resets_at\": \"2026-10-28T16:00:00Z\", \"amount\": null, \"source\": \"t\"}')\n",
-    )
-    .unwrap();
     let places = Places { policy: root.path().join("orchestration.toml"), operator: root.path().join("op"), state: root.path().join("state") };
     fs::write(&places.policy, "[accounts.claude.profiles.a]\nhere = {}\n").unwrap();
     let db = Connection::open_in_memory().unwrap();
     db.execute("CREATE TABLE runs(tier TEXT, started TEXT)", []).unwrap();
-    let readers = readers(&adapters);
+    let mut readers = readers();
+    readers.local = vec![Box::new(|| vec![reading("2026-10-28T11:59:00Z", "session", json!(12.5))])];
     let ports = Ports { readers: &readers, ingest: &|_| Err("unexpected".into()), notify: &|_, _| {}, clock: &frozen };
     run(&db, &places, &Request { mirrored: false, remote: false }, &ports).unwrap();
     let gate: Value = serde_json::from_str(&fs::read_to_string(places.state.join("agents/usage-gate.json")).unwrap()).unwrap();

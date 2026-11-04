@@ -27,7 +27,7 @@ fn own_tree(executable: &Path) -> Option<PathBuf> {
     promoted
         .into_iter()
         .chain(executable.ancestors().map(Path::to_path_buf))
-        .find(|root| root.join("harness/lib/usage.py").is_file())
+        .find(|root| root.join("harness/defaults.toml").is_file())
 }
 
 fn checkout_for(executable: &Path, checkout: PathBuf) -> Result<PathBuf, String> {
@@ -75,8 +75,8 @@ mod tests {
     use std::fs;
 
     fn usage(root: &Path) {
-        fs::create_dir_all(root.join("harness/lib")).unwrap();
-        fs::write(root.join("harness/lib/usage.py"), "").unwrap();
+        fs::create_dir_all(root.join("harness")).unwrap();
+        fs::write(root.join("harness/defaults.toml"), "").unwrap();
     }
 
     #[test]

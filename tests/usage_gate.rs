@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 const STATE: &str = include_str!("../crates/north-core/src/usage/fixtures/gate_state.json");
 const POLICY: &str = include_str!("../crates/north-core/src/router/fixtures/policy/orchestration.toml");
 const FROZEN: &str = "2026-10-28T12:00:00Z";
-const DRIVER: &str = "import datetime, runpy, sys\nwhen = sys.argv[1]\nclass Frozen(datetime.datetime):\n    @classmethod\n    def now(cls, tz=None):\n        moment = cls.fromisoformat(when)\n        return moment.astimezone(tz) if tz else moment.replace(tzinfo=None)\ndatetime.datetime = Frozen\nsys.argv = ['usage.py'] + sys.argv[2:]\nrunpy.run_path('harness/lib/usage.py', run_name='__main__')\n";
+const OLD: &str = include_str!("../crates/north-core/src/usage/fixtures/gate_python.json");
 
 struct Rig {
     _scratch: tempfile::TempDir,
@@ -46,42 +46,33 @@ impl Rig {
         insert(&db, "INSERT INTO runs VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", &state["runs"]);
         insert(&db, "INSERT INTO model_events VALUES (?1, ?2, ?3, ?4, ?5)", &state["events"]);
         fs::write(root.join("orchestration.toml"), POLICY).unwrap();
-        for side in ["python", "rust"] {
-            fs::create_dir_all(root.join(side).join("agents")).unwrap();
-            if let Some(previous) = &previous {
-                fs::write(root.join(side).join("agents/usage-gate.json"), previous.to_string()).unwrap();
-            }
+        fs::create_dir_all(root.join("rust/agents")).unwrap();
+        if let Some(previous) = &previous {
+            fs::write(root.join("rust/agents/usage-gate.json"), previous.to_string()).unwrap();
         }
         Self { _scratch: scratch, root }
     }
 
-    fn environment(&self, command: &mut Command, side: &str) {
+    fn environment(&self, command: &mut Command) {
         command
             .env("HOME", &self.root)
             .env("THREADS_DB", self.root.join("threads.db"))
             .env("AGENTS_ORCHESTRATION", self.root.join("orchestration.toml"))
             .env("AGENTS_OPERATOR_DIR", self.root.join("op"))
-            .env("XDG_STATE_HOME", self.root.join(side))
+            .env("XDG_STATE_HOME", self.root.join("rust"))
             .env("NORTH_PACE_BIN", env!("CARGO_BIN_EXE_north"))
             .env_remove("CLAUDE_CONFIG_DIR");
-    }
-
-    fn python(&self) -> Output {
-        let mut command = Command::new("python3");
-        command.current_dir(env!("CARGO_MANIFEST_DIR")).args(["-I", "-c", DRIVER, "2026-10-28T12:00:00+00:00", "--write-pace-gate"]);
-        self.environment(&mut command, "python");
-        command.output().unwrap()
     }
 
     fn rust(&self) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         command.args(["agents", "usage", "--write-pace-gate"]).env("USAGE_NOW", FROZEN);
-        self.environment(&mut command, "rust");
+        self.environment(&mut command);
         command.output().unwrap()
     }
 
-    fn file(&self, side: &str) -> Value {
-        serde_json::from_str(&fs::read_to_string(self.root.join(side).join("agents/usage-gate.json")).unwrap()).unwrap()
+    fn file(&self) -> Value {
+        serde_json::from_str(&fs::read_to_string(self.root.join("rust/agents/usage-gate.json")).unwrap()).unwrap()
     }
 }
 
@@ -107,24 +98,28 @@ fn same(left: &Value, right: &Value, path: &str) {
     }
 }
 
+fn recorded(case: &str) -> Value {
+    serde_json::from_str::<Value>(OLD).unwrap()[case].clone()
+}
+
 #[test]
-fn the_pace_gate_rust_writes_equals_the_one_usage_py_writes_on_a_recorded_ledger() {
+fn the_pace_gate_rust_writes_equals_the_one_the_python_usage_script_wrote_on_a_recorded_ledger() {
     let rig = Rig::new(None);
-    let (python, rust) = (printed(&rig.python()), printed(&rig.rust()));
-    assert!(python["claude"]["projections"].as_object().is_some_and(|projections| projections.len() == 2), "{python}");
-    assert!(python["claude"]["refusals"]["claude:b"].is_string(), "{python}");
-    same(&python, &rust, "stdout");
-    same(&rig.file("python"), &rig.file("rust"), "file");
-    same(&rust, &rig.file("rust"), "written");
+    let (old, rust) = (recorded("fresh"), printed(&rig.rust()));
+    assert!(old["stdout"]["claude"]["projections"].as_object().is_some_and(|projections| projections.len() == 2), "{old}");
+    assert!(old["stdout"]["claude"]["refusals"]["claude:b"].is_string(), "{old}");
+    same(&old["stdout"], &rust, "stdout");
+    same(&old["file"], &rig.file(), "file");
+    same(&rust, &rig.file(), "written");
 }
 
 #[test]
 fn a_rewritten_gate_keeps_each_providers_controls_and_drops_providers_outside_the_catalog() {
     let rig = Rig::new(Some(json!({"claude": {"controls": {"hold": true}, "refusal": "old"}, "codex": {"refusal": "retired"}})));
-    let (python, rust) = (printed(&rig.python()), printed(&rig.rust()));
+    let (old, rust) = (recorded("kept"), printed(&rig.rust()));
     assert_eq!(rust["claude"]["controls"], json!({"hold": true}));
-    assert!(rust.get("codex").is_none() && python.get("codex").is_none(), "{rust}");
-    same(&python, &rust, "stdout");
+    assert!(rust.get("codex").is_none() && old["stdout"].get("codex").is_none(), "{rust}");
+    same(&old["stdout"], &rust, "stdout");
 }
 
 #[test]

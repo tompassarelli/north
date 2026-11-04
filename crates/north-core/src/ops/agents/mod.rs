@@ -22,6 +22,7 @@ pub enum Verb {
     Busy,
     Presence,
     Routines,
+    Usage,
     Script(&'static str),
     Command(&'static str),
 }
@@ -34,7 +35,7 @@ impl Verb {
             "pace" => Self::Pace,
             "plan" => Self::Plan,
             "busy" => Self::Busy,
-            "usage" => Self::Script("usage.py"),
+            "usage" => Self::Usage,
             "presence" => Self::Presence,
             "flow" => Self::Command("flow"),
             "news" => Self::Command("news"),

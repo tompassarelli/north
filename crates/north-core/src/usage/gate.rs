@@ -5,11 +5,10 @@ use std::path::Path;
 
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 use toml_edit::DocumentMut;
 
 use super::ctx::{self, Defaults, Tier};
-use super::{Places, py, settings};
+use super::{Places, profiles, py, settings};
 use crate::foundation::clock::Timestamp;
 use crate::router::{ops, policy};
 
@@ -140,32 +139,19 @@ pub(super) fn local_account(provider: &str, cfg: &Value) -> Option<String> {
         return None;
     }
     let directory = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|path| !path.is_empty()).map(std::path::PathBuf::from);
-    let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let cache: Value = fs::read_to_string(directory.as_deref().unwrap_or(&home).join(".claude.json")).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or(Value::Null);
+    account_in(cfg, &profiles::home(), directory.as_deref(), &crate::platform::host::name())
+}
+
+pub(super) fn account_in(cfg: &Value, home: &Path, directory: Option<&Path>, host: &str) -> Option<String> {
+    let cache: Value = fs::read_to_string(directory.unwrap_or(home).join(".claude.json")).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or(Value::Null);
     let uuid = cache["oauthAccount"]["accountUuid"].as_str().or_else(|| cache["cachedUsageUtilization"]["accountUuid"].as_str()).filter(|uuid| !uuid.is_empty());
     match uuid {
-        Some(uuid) => {
-            let digest = Sha256::digest(uuid.as_bytes());
-            let hash: String = digest.iter().take(4).map(|byte| format!("{byte:02x}")).collect();
-            cfg["accounts"]["claude"]["labels"][&hash].as_str().map(str::to_owned)
-        }
-        None => token_account(cfg, directory.as_deref()),
+        Some(uuid) => profiles::label_of(cfg, uuid),
+        None => token_account(cfg, directory, host),
     }
 }
 
-fn token_account(cfg: &Value, directory: Option<&Path>) -> Option<String> {
-    let host = crate::platform::host::name();
-    let wanted = directory?.to_string_lossy().into_owned();
-    cfg["accounts"]["claude"]["profiles"].as_object()?.iter().find_map(|(label, hosts)| {
-        let profile = hosts.get(&host)?;
-        let path = profile.get("path").and_then(Value::as_str).map(expand);
-        (profile.get("token_file").is_some() && path.as_deref() == Some(wanted.as_str())).then(|| label.clone())
-    })
-}
-
-fn expand(path: &str) -> String {
-    match path.strip_prefix("~/") {
-        Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap_or_default()),
-        None => path.to_owned(),
-    }
+fn token_account(cfg: &Value, directory: Option<&Path>, host: &str) -> Option<String> {
+    let wanted = directory?;
+    profiles::profiles(cfg, host).into_iter().find(|profile| profile.token_file && profile.path.as_deref() == Some(wanted)).map(|profile| profile.label)
 }

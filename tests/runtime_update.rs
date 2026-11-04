@@ -28,7 +28,7 @@ fn a_promoted_runtime_carries_the_tree_of_its_own_commit() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(host.current(), Path::new("runtimes").join(&host.target));
-    assert!(host.runtime(&host.target).join("tree/harness/lib/usage.py").is_file());
+    assert!(host.runtime(&host.target).join("tree/harness/defaults.toml").is_file());
     assert!(!host.runtime(&host.target).join("tree.partial").exists());
     assert!(stdout.contains(&format!("north runtime promoted: {} (was {PREVIOUS})", &host.target[..8])), "{stdout}");
     assert!(!host.path("alerts").exists());

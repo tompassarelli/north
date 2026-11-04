@@ -26,7 +26,7 @@ value = 5
 unit = "runs in a cell before its success rate or $ per success counts, and before a tier calibration row applies"
 source = "measured: flat over {3,5,8,10}: picked-tier success 61.2-63.0%, Wilson 95% intervals overlap, n=263-380 of 801 decisions; $ per success 0.15 at 3, 0.11 at 5, 0.10 at 8-10 (priced n=75-80)"
 fallback = "back off surface, verify, scope, spec to the category cell; recommend reports insufficient evidence without a sampled priced tier"
-consumers = ["crates/north-core/src/threads/calibration/mod.rs", "harness/lib/plan_usage.py", "harness/lib/calibration.py"]
+consumers = ["crates/north-core/src/threads/calibration/mod.rs", "harness/lib/calibration.py"]
 
 [incumbent_margin]
 value = 15
@@ -110,7 +110,7 @@ value = 30
 unit = "minutes before a usage readout is too old to route on"
 source = "measured: gaps between usage window readouts per account, 7d to 2026-10-12, n=294, p50 13, p95 16 min; 30 is two missed readouts"
 fallback = "a stale or missing readout is billed 'unknown' and only warns, never holds a spawn"
-consumers = ["crates/north-core/src/router/ctx.rs", "harness/lib/usage.py"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [money_ceiling]
 value = 92
@@ -124,7 +124,7 @@ value = 98
 unit = "percent of an account's window used before plan-only worker admission stops"
 source = "tom: 2026-10-13 02:25 Taipei, '99% or something or 98%': Claude runs to about 98% and the proxy moves leads to Codex; revisit the cutover after observing plan exhaustion"
 fallback = "accounts whose overflow can bill money use money_ceiling instead"
-consumers = ["harness/lib/usage.py", "crates/north-core/src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [fast_floor]
 value = 10
@@ -229,14 +229,14 @@ value = 5
 unit = "percent a Claude account keeps at its weekly reset when orchestration.toml sets none"
 source = "tom: 2026-10-12 policy-lead-status.md item 18 (via tom-48): Claude accounts drain steadily to about 5% at reset"
 fallback = "orchestration.toml accounts.claude.target_left overrides it"
-consumers = ["harness/lib/plan_usage.py", "crates/north-core/src/pace/limits.rs"]
+consumers = ["crates/north-core/src/pace/limits.rs"]
 
 [pace_band]
 value = [10, 20]
 unit = "percent left band; a Thursday projection above the top flags drain_behind"
 source = "tom: 2026-10-12 policy-lead-status.md item 13 (via tom-48): 10-20%, never above 20%, flag on Thursday"
 fallback = "orchestration.toml accounts.<provider>.band overrides it"
-consumers = ["harness/lib/plan_usage.py", "crates/north-core/src/router/ctx.rs"]
+consumers = ["crates/north-core/src/router/ctx.rs"]
 
 [plan_meter_weighting]
 value = "price"

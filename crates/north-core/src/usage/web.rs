@@ -21,11 +21,21 @@ pub(super) struct Grant {
 }
 
 pub(super) fn resets(state: &Path, account: Option<&str>, now: Timestamp) -> Result<Option<Resets>, String> {
-    let Some(cache) = fs::read_to_string(state.join("agents/usage/claude-web.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else {
-        return Ok(None);
-    };
+    let Some(cache) = cache(state) else { return Ok(None) };
     let entry = cache["accounts"].as_object().and_then(|entries| entries.values().find(|entry| account.is_some() && entry["account_label"].as_str() == account));
-    let Some(entry) = entry else { return Ok(None) };
+    entry.map_or(Ok(None), |entry| from_entry(entry, now))
+}
+
+pub(super) fn resets_keyed(state: &Path, key: &str, now: Timestamp) -> Result<Option<Resets>, String> {
+    let Some(cache) = cache(state) else { return Ok(None) };
+    cache["accounts"].get(key).filter(|entry| entry.is_object()).map_or(Ok(None), |entry| from_entry(entry, now))
+}
+
+fn cache(state: &Path) -> Option<Value> {
+    fs::read_to_string(state.join("agents/usage/claude-web.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok())
+}
+
+fn from_entry(entry: &Value, now: Timestamp) -> Result<Option<Resets>, String> {
     let valid_until = entry["valid_until"].as_str().filter(|text| !text.is_empty());
     if let Some(until) = valid_until
         && py::parse(until)? <= now

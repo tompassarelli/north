@@ -13,6 +13,7 @@ mod costs;
 mod ctx;
 mod fast;
 mod gate;
+pub mod profiles;
 mod py;
 mod refresh;
 mod render;
@@ -120,7 +121,6 @@ pub struct Host<'a> {
     pub ingest: &'a dyn Fn(&[u8]) -> Result<(), String>,
     pub run: &'a (dyn Fn(std::process::Command, std::time::Duration) -> Option<std::process::Output> + Sync),
     pub ssh: &'a dyn Fn(&[&str]) -> Vec<std::ffi::OsString>,
-    pub harness_lib: &'a dyn Fn() -> Result<PathBuf, String>,
 }
 
 pub fn run(arguments: &[String], host: &Host) -> u8 {

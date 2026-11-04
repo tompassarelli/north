@@ -436,41 +436,6 @@ PYSTALL
 stall_status=$?
 check '[integration] stalled SSH fails within its bound without replaying writes' '[ "$stall_status" -eq 0 ] || { cat "$scratch/stalled-ssh.out"; false; }'
 
-python3 -I - "$repo/harness/lib" <<'PYEXPLICIT' >"$scratch/explicit-ssh.out" 2>&1
-import os, sys
-sys.path.insert(0, sys.argv[1])
-from ssh_transport import ssh_argv
-os.environ["XDG_RUNTIME_DIR"] = "/run/user/4242"
-for explicit in (["-o", "ControlMaster=no"], ["-oControlMaster=no"], ["-o", "ControlPath=none"], ["-oControlPath=none"], ["-S", "none"], ["-Snone"]):
-    argv = ssh_argv(*explicit, "nexus", "true")
-    assert argv[-len(explicit) - 2:] == [*explicit, "nexus", "true"]
-    assert not any("ControlMaster=auto" == arg or arg.startswith("ControlPath=/run/") or arg == "ControlPersist=10m" for arg in argv), argv
-for name, value in (("ControlMaster", "no"), ("ControlPath", "none"), ("ControlPersist", "no")):
-    for separator in ("=", " ", "\t"):
-        for explicit in (["-o", name + separator + value], ["-o" + name.swapcase() + separator + value]):
-            argv = ssh_argv(*explicit, "nexus", "true")
-            assert argv[-len(explicit) - 2:] == [*explicit, "nexus", "true"]
-            assert not any("ControlMaster=auto" == arg or arg.startswith("ControlPath=/run/") or arg == "ControlPersist=10m" for arg in argv), argv
-print("explicit multiplexing choices suppress defaults")
-PYEXPLICIT
-explicit_status=$?
-check '[unit] explicit SSH multiplexing choices suppress defaults' '[ "$explicit_status" -eq 0 ] || { cat "$scratch/explicit-ssh.out"; false; }'
-
-python3 -I - "$repo/harness/lib" <<'PYSOCKET' >"$scratch/socket-ssh.out" 2>&1
-import os, sys
-sys.path.insert(0, sys.argv[1])
-from ssh_transport import ssh_argv
-for runtime, reuse in (("/" + "a" * 74, False), ("/" + "é" * 20, False), ("/" + "a" * 35, True), ("/" + "a" * 36, False), ("/run/private dir", False), ("/run/%q", False)):
-    os.environ["XDG_RUNTIME_DIR"] = runtime
-    argv = ssh_argv("nexus", "true")
-    assert ("ControlMaster=auto" in argv) == reuse, argv
-    if not reuse:
-        assert not any(arg.startswith(("ControlMaster=", "ControlPath=", "ControlPersist=", "ServerAliveInterval=", "ServerAliveCountMax=")) for arg in argv), argv
-print("expanded socket paths reserve 20 bytes within the Unix socket limit")
-PYSOCKET
-socket_status=$?
-check '[unit] SSH socket paths leave room for the OpenSSH suffix' '[ "$socket_status" -eq 0 ] || { cat "$scratch/socket-ssh.out"; false; }'
-
 rq_a=$("$threads" queue add reqq - -- echo a 2>&1)
 rq_b=$("$threads" queue add reqq - -- echo b 2>&1)
 "$threads" queue take reqq >/dev/null 2>&1

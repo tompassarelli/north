@@ -1,7 +1,6 @@
 use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use rusqlite::Connection;
 use serde_json::Value;
@@ -54,10 +53,6 @@ impl Scratch {
 
 fn frozen() -> Timestamp {
     Timestamp::parse_rfc3339(FROZEN).unwrap()
-}
-
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 fn states() -> Vec<Value> {
@@ -269,7 +264,7 @@ fn a_corrupt_snapshot_is_refreshed_once_and_persistent_corruption_is_reported_af
     assert_eq!((pulls.get(), fs::read(&snapshot).unwrap()), (1, before));
 }
 
-const CTX_ORACLE: &str = "import datetime, json, sqlite3, sys, tomllib\nwhen = sys.argv[1]\nclass Frozen(datetime.datetime):\n    @classmethod\n    def now(cls, tz=None):\n        moment = cls.fromisoformat(when)\n        return moment.astimezone(tz) if tz else moment.replace(tzinfo=None)\ndatetime.datetime = Frozen\nsys.path.insert(0, 'harness/lib')\nimport usage, plan_usage\ncfg = tomllib.load(open(sys.argv[2], 'rb'))\ncatalog = tomllib.load(open('harness/model-catalog.toml', 'rb'))\ndb = sqlite3.connect(sys.argv[3])\nnow = Frozen.now(datetime.timezone.utc)\nout = {}\nfor provider in ('claude', 'gemini'):\n    rows = [r for r in usage.latest(db) if r['provider'] == provider]\n    out[provider] = plan_usage.live_ctx(cfg, catalog, rows, db, now, cfg.get('tiers', {}))\nprint(json.dumps(out, default=str))\n";
+const CTX_OLD: &str = include_str!("fixtures/ctx_python.json");
 
 fn same(left: &Value, right: &Value, path: &str) {
     match (left, right) {
@@ -289,7 +284,7 @@ fn same(left: &Value, right: &Value, path: &str) {
 }
 
 #[test]
-fn the_ctx_built_for_the_router_equals_plan_usage_live_ctx_on_a_recorded_ledger_with_runs_and_model_events() {
+fn the_ctx_built_for_the_router_equals_the_one_the_python_plan_usage_built_on_a_recorded_ledger_with_runs_and_model_events() {
     let state: Value = serde_json::from_str(include_str!("fixtures/gate_state.json")).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let (db_path, policy) = (scratch.path().join("threads.db"), scratch.path().join("orchestration.toml"));
@@ -308,24 +303,12 @@ fn the_ctx_built_for_the_router_equals_plan_usage_live_ctx_on_a_recorded_ledger_
         }
     }
     fs::write(&policy, include_str!("../router/fixtures/policy/orchestration.toml")).unwrap();
-    let output = Command::new("python3")
-        .current_dir(root())
-        .args(["-I", "-c", CTX_ORACLE, "2026-10-28T12:00:00+00:00"])
-        .arg(&policy)
-        .arg(&db_path)
-        .env("HOME", scratch.path())
-        .env("AGENTS_ORCHESTRATION", &policy)
-        .env("THREADS_DB", &db_path)
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    let mut expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: Value = serde_json::from_str(CTX_OLD).unwrap();
     let inputs = super::gate::Inputs::load(&policy).unwrap();
     let readings = super::readings(&db, &policy).unwrap();
     for provider in ["claude", "gemini"] {
         let mut actual = inputs.context(&db, &readings, provider, frozen()).unwrap();
         actual.as_object_mut().unwrap().remove("now");
-        expected[provider].as_object_mut().unwrap().remove("now");
         same(&expected[provider], &actual, provider);
     }
     assert_eq!(expected["claude"]["success"], serde_json::json!({"claude:haiku|tooling": 60}));
@@ -390,4 +373,145 @@ fn a_window_a_newer_reading_of_the_account_postdates_the_reset_of_reads_zero_use
     assert_eq!((rolled["used_pct"].as_f64(), rolled["as_of"].as_str(), rolled["age_s"].as_f64()), (Some(0.0), Some("2026-10-28T11:59:00Z"), Some(60.0)), "{rolled}");
     let unseen = window("2026-10-28T09:30:00Z");
     assert_eq!((unseen["used_pct"].as_f64(), unseen["as_of"].as_str()), (Some(30.0), Some("2026-10-28T09:00:00Z")), "{unseen}");
+}
+
+#[test]
+fn a_claude_account_with_no_profile_on_any_host_is_left_out_of_usage_and_one_on_another_host_stays() {
+    let row = |provider: &str, account: &str| serde_json::json!(["2026-10-15T12:00:00Z", provider, account, "window", "session", 20.0, 300, "2026-10-15T15:00:00Z", null, "fixture"]);
+    let scratch = Scratch::new(&serde_json::json!({
+        "rows": [row("claude", "a"), row("claude", "b"), row("claude", "c"), row("gemini", "x")],
+        "orchestration": "[accounts.claude.profiles]\na = { here = {} }\nb = { elsewhere = {} }\n"
+    }));
+    let shown: Vec<Value> = serde_json::from_str(&scratch.json()).unwrap();
+    let pairs: Vec<(&str, &str)> = shown.iter().map(|row| (row["provider"].as_str().unwrap(), row["account"].as_str().unwrap())).collect();
+    assert_eq!(pairs, [("claude", "a"), ("claude", "b"), ("gemini", "x")]);
+}
+
+#[test]
+fn a_session_on_a_token_only_profile_is_the_account_this_host_declares_for_that_profile() {
+    let home = tempfile::tempdir().unwrap();
+    let (token_home, other) = (home.path().join("profile-d"), home.path().join("elsewhere"));
+    fs::create_dir_all(&token_home).unwrap();
+    fs::create_dir_all(&other).unwrap();
+    let text = format!("[accounts.claude.profiles]\nd = {{ \"here\" = {{ path = \"{}\", token_file = \"{}/token-d\" }} }}\n", token_home.display(), home.path().display());
+    let cfg = super::profiles::policy_value(&{
+        fs::write(home.path().join("orchestration.toml"), text).unwrap();
+        home.path().join("orchestration.toml")
+    });
+    assert_eq!(super::gate::account_in(&cfg, home.path(), Some(&token_home), "here").as_deref(), Some("d"));
+    assert_eq!(super::gate::account_in(&cfg, home.path(), Some(&other), "here"), None);
+    assert_eq!(super::gate::account_in(&cfg, home.path(), Some(&token_home), "elsewhere"), None);
+}
+
+type UsageRow<'a> = (&'a str, &'a str, &'a str, &'a str, &'a str, f64, i64, &'a str);
+
+fn usage_db(rows: &[UsageRow<'_>]) -> Connection {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute(CREATE, []).unwrap();
+    for (ts, provider, account, kind, name, used, window, resets) in rows {
+        db.execute("INSERT INTO usage VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 'fixture')", rusqlite::params![ts, provider, account, kind, name, used, window, resets]).unwrap();
+    }
+    db
+}
+
+fn defaults() -> super::ctx::Defaults {
+    super::ctx::Defaults {
+        min_runs: super::settings::default_value("min_runs").as_u64().unwrap() as usize,
+        target_left_claude: super::settings::default_value("pace_target_left_claude"),
+        pace_band: super::settings::default_value("pace_band"),
+    }
+}
+
+fn plan(ctx: &Value) -> Value {
+    crate::router::ops::answer(&serde_json::json!({"op": "plan", "ctx": ctx})).unwrap().unwrap()
+}
+
+#[test]
+fn burn_counts_only_readings_of_the_same_reset_window_within_the_last_three_hours() {
+    let reset = "2026-10-17T04:00:00Z";
+    let rows = [("2026-10-15T06:00:00Z", 40.0), ("2026-10-15T09:00:00Z", 60.0), ("2026-10-15T12:00:00Z", 63.0)];
+    let mut readings: Vec<_> = rows.iter().map(|(ts, used)| (*ts, "codex", "a", "window", "week", *used, 10080, reset)).collect();
+    let db = usage_db(&readings);
+    let latest = store::latest(&db).unwrap();
+    let now = Timestamp::parse_rfc3339("2026-10-15T12:00:00Z").unwrap();
+    assert_eq!(super::burn::beta(&db, &latest[0], now).unwrap(), Some(1.0));
+    readings.push(("2026-10-15T12:00:00Z", "codex", "a", "window", "week", 63.0, 10080, "2026-10-18T04:00:00Z"));
+    let db = usage_db(&readings);
+    assert_eq!(super::burn::beta(&db, &store::latest(&db).unwrap()[0], now).unwrap(), None);
+}
+
+#[test]
+fn cash_per_account_includes_the_binding_gemini_weekly_quota() {
+    let now = Timestamp::parse_rfc3339("2026-10-11T12:00:00Z").unwrap();
+    let reset = "2026-10-17T04:00:00Z";
+    let at = "2026-10-11T12:00:00Z";
+    let db = usage_db(&[
+        (at, "claude", "a", "window", "weekly_all", 10.0, 10080, reset),
+        (at, "claude", "b", "window", "weekly_all", 40.0, 10080, reset),
+        (at, "codex", "x", "window", "week", 20.0, 10080, reset),
+        (at, "gemini", "g", "window", "group1/weekly", 10.0, 10080, reset),
+        (at, "gemini", "g", "window", "group2/weekly", 20.0, 10080, reset),
+    ]);
+    let latest = store::latest(&db).unwrap();
+    let rows: Vec<&store::Row> = latest.iter().collect();
+    let mut ctx = super::ctx::live_ctx(&serde_json::json!({}), &[], &serde_json::json!({}), &rows, &db, now, &defaults()).unwrap();
+    for (name, price) in [("claude:a", 50.0), ("claude:b", 50.0), ("codex", 50.0), ("gemini", 1.25)] {
+        ctx["accounts"][name]["usd_per_week"] = serde_json::json!(price);
+    }
+    let planned = plan(&ctx);
+    let cash: Vec<(String, f64)> = ctx["accounts"].as_object().unwrap().keys().map(|name| (name.clone(), planned["accounts"][name]["available_usd"].as_f64().unwrap())).collect();
+    assert_eq!(cash, [("claude:a".to_owned(), 45.0), ("claude:b".to_owned(), 30.0), ("codex".to_owned(), 40.0), ("gemini".to_owned(), 1.0)]);
+}
+
+#[test]
+fn the_ctx_built_from_a_fixture_ledger_reaches_the_measured_scenarios_plan() {
+    let scenario: Value = serde_json::from_str(include_str!("../../../../harness/lib/routing-scenarios/measured.json")).unwrap();
+    let now = Timestamp::parse_loose(scenario["now"].as_str().unwrap()).unwrap();
+    let tiers: Vec<super::ctx::Tier> = scenario["tiers"].as_array().unwrap().iter().map(|tier| super::ctx::Tier {
+        key: tier["key"].as_str().unwrap().to_owned(), model: tier["model"].as_str().unwrap().to_owned(), effort: tier["effort"].as_str().unwrap().to_owned(), start: tier["start"].clone(),
+    }).collect();
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch("CREATE TABLE runs(agent TEXT, role TEXT, tier TEXT, category TEXT, outcome TEXT, follows TEXT, expects_landing INT, landed INT, item TEXT); CREATE TABLE model_events(ts TEXT, model TEXT, kind TEXT, at TEXT, p REAL, source TEXT, detail TEXT);").unwrap();
+    let run_tier = |key: &str| match key {
+        "claude:haiku" => "haiku", "claude:opus-medium" => "medium", "claude:opus-high" => "high", "claude:opus-xhigh" => "xhigh",
+        "codex:sol-medium" => "gpt-6.1-sol medium", "codex:sol-high" => "gpt-6.1-sol high", other => panic!("{other}"),
+    };
+    let cells = [("claude:haiku", "tooling", 10, 4), ("codex:sol-medium", "tooling", 20, 19), ("codex:sol-high", "docs", 10, 10), ("codex:sol-high", "tooling", 20, 19),
+        ("claude:opus-medium", "docs", 10, 10), ("claude:opus-high", "docs", 10, 10), ("claude:opus-xhigh", "docs", 10, 10)];
+    let mut n = 0;
+    for (key, category, runs, ok) in cells {
+        for i in 0..runs {
+            n += 1;
+            db.execute("INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES (?1, 'worker', ?2, ?3, ?4, NULL, 0, 0)", rusqlite::params![format!("a{n}"), run_tier(key), category, if i < ok { "done" } else { "failed" }]).unwrap();
+        }
+    }
+    db.execute_batch(
+        "INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES ('lead', 'lead', 'medium', 'tooling', 'failed', NULL, 0, 0);
+         INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES ('b1', 'worker', 'haiku', 'tooling', 'done', NULL, 1, 0);
+         INSERT INTO runs(agent, role, tier, category, outcome, follows, expects_landing, landed) VALUES ('b2', 'worker', 'medium', 'tooling', 'failed', 'b1', 0, 0);
+         DELETE FROM runs WHERE agent = 'a10';
+         INSERT INTO runs VALUES ('u0', 'worker', 'haiku', 'tooling', 'unclear', NULL, 0, 0, NULL), ('u1', 'worker', 'haiku', 'tooling', 'unclear', NULL, 0, 0, NULL), ('u2', 'worker', 'haiku', 'tooling', 'unclear', NULL, 0, 0, NULL);",
+    )
+    .unwrap();
+    let at = |days: i64| super::py::second(Timestamp::from_unix_nanos(now.unix_nanos() + i128::from(days) * 86_400_000_000_000));
+    for (ts, model, kind, when, p) in [
+        ("2026-10-01T00:00:00Z", "anthropic:claude-opus-6", "market", at(9), Some(0.4)), ("2026-10-02T00:00:00Z", "anthropic:claude-opus-6", "market", at(5), Some(0.7)),
+        ("2026-10-02T00:00:00Z", "anthropic:claude-opus-4", "market", at(1), Some(0.9)), ("2026-10-02T00:00:00Z", "openai:gpt-6.2-sol", "released", at(-1), None),
+        ("2026-10-02T00:00:00Z", "google:gemini-4-argon", "market", at(2), Some(0.3)),
+    ] {
+        db.execute("INSERT INTO model_events VALUES (?1, ?2, ?3, ?4, ?5, 'fixture', '{}')", rusqlite::params![ts, model, kind, when, p]).unwrap();
+    }
+    let mut live = super::ctx::live_ctx(&serde_json::json!({}), &tiers, &serde_json::json!({}), &[], &db, now, &defaults()).unwrap();
+    assert_eq!(live["success"], scenario["success"]);
+    let shape = |ctx: &Value| ctx["tiers"].as_array().unwrap().iter().map(|tier| (tier["key"].clone(), tier["runs"].clone(), tier.get("successor").map(|successor| (successor["model"].clone(), successor["p"].clone(), successor["eta_days"].as_f64().map(f64::round))))).collect::<Vec<_>>();
+    assert_eq!(shape(&live), shape(&scenario));
+    for key in ["billing", "lease", "accounts", "projects", "boxes"] {
+        live[key] = scenario[key].clone();
+    }
+    let result = plan(&live);
+    assert_eq!(crate::router::ops::answer(&serde_json::json!({"op": "divergence", "result": result, "expect": scenario["expect"]})).unwrap().unwrap(), Value::Null);
+    assert_eq!(result, plan(&scenario));
+    let mut blind = live.clone();
+    blind["success"] = serde_json::json!({});
+    assert_eq!(plan(&blind)["boxes"]["t1"]["tier"], "claude:haiku");
 }

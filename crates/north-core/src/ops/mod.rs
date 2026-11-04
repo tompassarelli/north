@@ -26,6 +26,7 @@ pub mod pacing;
 pub mod private_desktop;
 pub mod reclaim;
 pub mod retention;
+pub mod provider_capacity;
 pub mod resident_cap;
 pub mod report;
 #[cfg_attr(not(test), allow(dead_code))]

@@ -12,6 +12,9 @@ use adapters::Readers;
 use crate::foundation::clock::Timestamp;
 
 mod adapters;
+mod agy;
+mod claude;
+mod digitalocean;
 mod promos;
 mod record;
 #[cfg(test)]
@@ -55,13 +58,13 @@ fn hold_pace_control(directory: &Path) -> Result<std::fs::File, String> {
 }
 
 pub(super) fn refresh_readings(db: &Connection, source: &store::Source, places: &Places, remote: bool, host: &Host) -> Result<(), String> {
-    let readers = Readers::new(host, (host.harness_lib)()?);
+    let readers = Readers::new(host);
     let ports = Ports { readers: &readers, ingest: host.ingest, notify: &notify_send, clock: &super::clock };
     run(db, places, &Request { mirrored: source.mirrored(), remote }, &ports)
 }
 
 pub(super) fn read_provider(db: &Connection, source: &store::Source, provider: &str, host: &Host) -> Result<(), String> {
-    let readers = Readers::new(host, (host.harness_lib)()?);
+    let readers = Readers::new(host);
     let rows: Vec<_> = readers.read_all(false).into_iter().filter(|row| row.get("provider").and_then(serde_json::Value::as_str) == Some(provider)).collect();
     record::publish(db, source.mirrored(), &rows, host.ingest)
 }

@@ -1,0 +1,610 @@
+{
+ "fresh": {
+  "file": {
+   "claude": {
+    "accounts": {
+     "claude:a": {
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "used_pct": 96.0
+     }
+    },
+    "controls": {},
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "claude:b",
+     "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+    },
+    "pace_control": true,
+    "paces": {
+     "claude:a": {
+      "account": "claude:a",
+      "exhausted": false,
+      "pace_pct": 74.64285714285714,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "account": "claude:b",
+      "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+     }
+    },
+    "projections": {
+     "claude:a": [
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 2.0,
+       "resets_at": "2026-10-28T14:00:00Z",
+       "used_pct": 12.5,
+       "window": "5h"
+      },
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": 5.0,
+       "projected_pct": 230.0,
+       "quota_ceiling": 95,
+       "reset_h": 36.0,
+       "resets_at": "2026-10-30T00:00:00Z",
+       "used_pct": 50.0,
+       "window": "week"
+      }
+     ],
+     "claude:b": [
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 1.0,
+       "resets_at": "2026-10-28T13:00:00Z",
+       "used_pct": 96.0,
+       "window": "5h"
+      },
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": 0.5,
+       "projected_pct": 32.0,
+       "quota_ceiling": 95,
+       "reset_h": 42.0,
+       "resets_at": "2026-10-30T06:00:00Z",
+       "used_pct": 11.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": "No: a new claude worker could spend money: no usage snapshot for claude could be read (`agents usage --refresh` shows why). Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.",
+    "refusals": {
+     "claude:a": null,
+     "claude:b": "No: a new claude:b worker could spend money: claude:b's usage snapshot is 40 minutes old even after a refresh. Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom."
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   },
+   "gemini": {
+    "accounts": {
+     "gemini": {
+      "used_pct": 80.5
+     }
+    },
+    "controls": {},
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "gemini",
+     "exhausted": false,
+     "pace_pct": 47.5,
+     "stale": null,
+     "state": "under pace",
+     "used_pct": 33.0
+    },
+    "pace_control": true,
+    "paces": {
+     "gemini": {
+      "account": "gemini",
+      "exhausted": false,
+      "pace_pct": 47.5,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 33.0
+     }
+    },
+    "projections": {
+     "gemini": [
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 12.0,
+       "resets_at": "2026-10-29T00:00:00Z",
+       "used_pct": 80.5,
+       "window": "day"
+      },
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": 3.050847457627119,
+       "projected_pct": 289.271186440678,
+       "quota_ceiling": 95,
+       "reset_h": 84.0,
+       "resets_at": "2026-11-01T00:00:00Z",
+       "used_pct": 33.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": null,
+    "refusals": {
+     "gemini": null
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   }
+  },
+  "stdout": {
+   "claude": {
+    "accounts": {
+     "claude:a": {
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "used_pct": 96.0
+     }
+    },
+    "controls": {},
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "claude:b",
+     "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+    },
+    "pace_control": true,
+    "paces": {
+     "claude:a": {
+      "account": "claude:a",
+      "exhausted": false,
+      "pace_pct": 74.64285714285714,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "account": "claude:b",
+      "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+     }
+    },
+    "projections": {
+     "claude:a": [
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 2.0,
+       "resets_at": "2026-10-28T14:00:00Z",
+       "used_pct": 12.5,
+       "window": "5h"
+      },
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": 5.0,
+       "projected_pct": 230.0,
+       "quota_ceiling": 95,
+       "reset_h": 36.0,
+       "resets_at": "2026-10-30T00:00:00Z",
+       "used_pct": 50.0,
+       "window": "week"
+      }
+     ],
+     "claude:b": [
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 1.0,
+       "resets_at": "2026-10-28T13:00:00Z",
+       "used_pct": 96.0,
+       "window": "5h"
+      },
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": 0.5,
+       "projected_pct": 32.0,
+       "quota_ceiling": 95,
+       "reset_h": 42.0,
+       "resets_at": "2026-10-30T06:00:00Z",
+       "used_pct": 11.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": "No: a new claude worker could spend money: no usage snapshot for claude could be read (`agents usage --refresh` shows why). Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.",
+    "refusals": {
+     "claude:a": null,
+     "claude:b": "No: a new claude:b worker could spend money: claude:b's usage snapshot is 40 minutes old even after a refresh. Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom."
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   },
+   "gemini": {
+    "accounts": {
+     "gemini": {
+      "used_pct": 80.5
+     }
+    },
+    "controls": {},
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "gemini",
+     "exhausted": false,
+     "pace_pct": 47.5,
+     "stale": null,
+     "state": "under pace",
+     "used_pct": 33.0
+    },
+    "pace_control": true,
+    "paces": {
+     "gemini": {
+      "account": "gemini",
+      "exhausted": false,
+      "pace_pct": 47.5,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 33.0
+     }
+    },
+    "projections": {
+     "gemini": [
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 12.0,
+       "resets_at": "2026-10-29T00:00:00Z",
+       "used_pct": 80.5,
+       "window": "day"
+      },
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": 3.050847457627119,
+       "projected_pct": 289.271186440678,
+       "quota_ceiling": 95,
+       "reset_h": 84.0,
+       "resets_at": "2026-11-01T00:00:00Z",
+       "used_pct": 33.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": null,
+    "refusals": {
+     "gemini": null
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   }
+  }
+ },
+ "kept": {
+  "file": {
+   "claude": {
+    "accounts": {
+     "claude:a": {
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "used_pct": 96.0
+     }
+    },
+    "controls": {
+     "hold": true
+    },
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "claude:b",
+     "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+    },
+    "pace_control": true,
+    "paces": {
+     "claude:a": {
+      "account": "claude:a",
+      "exhausted": false,
+      "pace_pct": 74.64285714285714,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "account": "claude:b",
+      "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+     }
+    },
+    "projections": {
+     "claude:a": [
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 2.0,
+       "resets_at": "2026-10-28T14:00:00Z",
+       "used_pct": 12.5,
+       "window": "5h"
+      },
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": 5.0,
+       "projected_pct": 230.0,
+       "quota_ceiling": 95,
+       "reset_h": 36.0,
+       "resets_at": "2026-10-30T00:00:00Z",
+       "used_pct": 50.0,
+       "window": "week"
+      }
+     ],
+     "claude:b": [
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 1.0,
+       "resets_at": "2026-10-28T13:00:00Z",
+       "used_pct": 96.0,
+       "window": "5h"
+      },
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": 0.5,
+       "projected_pct": 32.0,
+       "quota_ceiling": 95,
+       "reset_h": 42.0,
+       "resets_at": "2026-10-30T06:00:00Z",
+       "used_pct": 11.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": "No: a new claude worker could spend money: no usage snapshot for claude could be read (`agents usage --refresh` shows why). Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.",
+    "refusals": {
+     "claude:a": null,
+     "claude:b": "No: a new claude:b worker could spend money: claude:b's usage snapshot is 40 minutes old even after a refresh. Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom."
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   },
+   "gemini": {
+    "accounts": {
+     "gemini": {
+      "used_pct": 80.5
+     }
+    },
+    "controls": {},
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "gemini",
+     "exhausted": false,
+     "pace_pct": 47.5,
+     "stale": null,
+     "state": "under pace",
+     "used_pct": 33.0
+    },
+    "pace_control": true,
+    "paces": {
+     "gemini": {
+      "account": "gemini",
+      "exhausted": false,
+      "pace_pct": 47.5,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 33.0
+     }
+    },
+    "projections": {
+     "gemini": [
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 12.0,
+       "resets_at": "2026-10-29T00:00:00Z",
+       "used_pct": 80.5,
+       "window": "day"
+      },
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": 3.050847457627119,
+       "projected_pct": 289.271186440678,
+       "quota_ceiling": 95,
+       "reset_h": 84.0,
+       "resets_at": "2026-11-01T00:00:00Z",
+       "used_pct": 33.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": null,
+    "refusals": {
+     "gemini": null
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   }
+  },
+  "stdout": {
+   "claude": {
+    "accounts": {
+     "claude:a": {
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "used_pct": 96.0
+     }
+    },
+    "controls": {
+     "hold": true
+    },
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "claude:b",
+     "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+    },
+    "pace_control": true,
+    "paces": {
+     "claude:a": {
+      "account": "claude:a",
+      "exhausted": false,
+      "pace_pct": 74.64285714285714,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 50.0
+     },
+     "claude:b": {
+      "account": "claude:b",
+      "stale": "account claude:b STALE: usage 40.0 minutes old; run agents usage --refresh"
+     }
+    },
+    "projections": {
+     "claude:a": [
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 2.0,
+       "resets_at": "2026-10-28T14:00:00Z",
+       "used_pct": 12.5,
+       "window": "5h"
+      },
+      {
+       "age_s": 1800.0,
+       "as_of": "2026-10-28T11:30:00Z",
+       "burn_pct_h": 5.0,
+       "projected_pct": 230.0,
+       "quota_ceiling": 95,
+       "reset_h": 36.0,
+       "resets_at": "2026-10-30T00:00:00Z",
+       "used_pct": 50.0,
+       "window": "week"
+      }
+     ],
+     "claude:b": [
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 1.0,
+       "resets_at": "2026-10-28T13:00:00Z",
+       "used_pct": 96.0,
+       "window": "5h"
+      },
+      {
+       "age_s": 2400.0,
+       "as_of": "2026-10-28T11:20:00Z",
+       "burn_pct_h": 0.5,
+       "projected_pct": 32.0,
+       "quota_ceiling": 95,
+       "reset_h": 42.0,
+       "resets_at": "2026-10-30T06:00:00Z",
+       "used_pct": 11.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": "No: a new claude worker could spend money: no usage snapshot for claude could be read (`agents usage --refresh` shows why). Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom.",
+    "refusals": {
+     "claude:a": null,
+     "claude:b": "No: a new claude:b worker could spend money: claude:b's usage snapshot is 40 minutes old even after a refresh. Unknown or money-billed usage is never chosen automatically (firn#12). Use another provider's tier from `agents plan`, wait for the window to reset, or report `Blocked: decision for Tom: <question>` for the proxy to put to Tom."
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   },
+   "gemini": {
+    "accounts": {
+     "gemini": {
+      "used_pct": 80.5
+     }
+    },
+    "controls": {},
+    "epoch": 1793188800.0,
+    "pace": {
+     "account": "gemini",
+     "exhausted": false,
+     "pace_pct": 47.5,
+     "stale": null,
+     "state": "under pace",
+     "used_pct": 33.0
+    },
+    "pace_control": true,
+    "paces": {
+     "gemini": {
+      "account": "gemini",
+      "exhausted": false,
+      "pace_pct": 47.5,
+      "stale": null,
+      "state": "under pace",
+      "used_pct": 33.0
+     }
+    },
+    "projections": {
+     "gemini": [
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": null,
+       "projected_pct": null,
+       "quota_ceiling": 95,
+       "reset_h": 12.0,
+       "resets_at": "2026-10-29T00:00:00Z",
+       "used_pct": 80.5,
+       "window": "day"
+      },
+      {
+       "age_s": 60.0,
+       "as_of": "2026-10-28T11:59:00Z",
+       "burn_pct_h": 3.050847457627119,
+       "projected_pct": 289.271186440678,
+       "quota_ceiling": 95,
+       "reset_h": 84.0,
+       "resets_at": "2026-11-01T00:00:00Z",
+       "used_pct": 33.0,
+       "window": "week"
+      }
+     ]
+    },
+    "refusal": null,
+    "refusals": {
+     "gemini": null
+    },
+    "stale_min": 30,
+    "ts": "2026-10-28T12:00:00Z"
+   }
+  }
+ }
+}

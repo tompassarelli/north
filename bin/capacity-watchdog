@@ -1,6 +1,6 @@
 #!/usr/bin/env -S bun --no-install
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, writeFileSync } from "fs";
+import { join } from "path";
 import { Database } from "bun:sqlite";
 import { DEFAULTS } from "../harness/skills/machine-capacity/scripts/machine-capacity-logic.ts";
 
@@ -507,8 +507,7 @@ async function main(argv: string[]) {
     for (const m of windows) {
       const result = report(samples, incidents, m, now, runs, ledgerSince);
       if (ledgerError) result.flags.push(`handoff check unavailable: ${ledgerError}`);
-      const lib = join(dirname(realpathSync(Bun.fileURLToPath(import.meta.url))), "../harness/lib/provider_capacity.py");
-      const probe = Bun.spawnSync(["python3", lib, "events", "--minutes", String(m)], { stderr: "pipe" });
+      const probe = Bun.spawnSync([process.env.NORTH_BIN || "north", "provider-capacity", "events", "--minutes", String(m)], { stderr: "pipe" });
       try {
         const hits = JSON.parse(probe.stdout.toString()) as { at: string; model: string }[];
         if (hits.length) result.flags.push(`provider-capacity codex: ${hits.length} turn(s) of ${[...new Set(hits.map((h) => h.model))].join(", ")} at capacity, last ${hits.at(-1)!.at}`);

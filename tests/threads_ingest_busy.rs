@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 const SSH: &str = "for last; do :; done\nprintf '%s\\n' \"$last\" >> \"$HOME/ssh.log\"\ncase \"$last\" in *ingest) cat >/dev/null; exit 75 ;; esac\nexit 0\n";
+const NORTH: &str = "case \"$1\" in ssh-argv) exec \"$REAL_NORTH\" \"$@\" ;; esac\nexit 0\n";
 
 fn threads(root: &Path, args: &[&str], stdin: &[u8]) -> std::process::Output {
     let path = format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default());
@@ -13,7 +14,9 @@ fn threads(root: &Path, args: &[&str], stdin: &[u8]) -> std::process::Output {
         .env_remove("THREADS_DB")
         .env("HOME", root)
         .env("PATH", path)
-        .env("NORTH_BIN", "true")
+        .env_remove("XDG_RUNTIME_DIR")
+        .env("NORTH_BIN", root.join("bin/north"))
+        .env("REAL_NORTH", env!("CARGO_BIN_EXE_north"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -31,6 +34,7 @@ fn a_busy_ledger_host_spools_the_python_sender_batch_and_other_commands_still_re
     fs::create_dir_all(root.join(".config/threads")).unwrap();
     fs::write(root.join(".config/threads/remote"), "nexus\n").unwrap();
     shim::write_script(&root.join("bin/ssh"), SSH);
+    shim::write_script(&root.join("bin/north"), NORTH);
     let spool = root.join(".local/state/threads/spool");
     let queued = || fs::read_dir(&spool).unwrap().filter_map(|entry| entry.ok()?.path().extension()?.to_str().map(str::to_owned)).collect::<Vec<_>>();
 

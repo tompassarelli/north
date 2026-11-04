@@ -38,18 +38,27 @@ pub fn run(arguments: &[String]) -> NorthResult<u8> {
         return Ok(1);
     }
     super::run(arguments)?;
-    if !Command::new("python3")
-        .arg("-I")
-        .arg(harness.join("harness/lib/claude_profiles.py"))
-        .status()
-        .is_ok_and(|status| status.success())
-    {
+    if !project_profiles() {
         return Ok(1);
     }
     let _ = Command::new(harness.join("bin/effect-kit"))
         .arg("scan")
         .status();
     Ok(0)
+}
+
+fn project_profiles() -> bool {
+    let cfg = crate::usage::profiles::policy_value(&crate::pace::target::policy_path());
+    match crate::usage::profiles::sync(&cfg, &crate::platform::host::name(), &crate::usage::profiles::home()) {
+        Ok(lines) => {
+            lines.iter().for_each(|line| println!("{line}"));
+            true
+        }
+        Err(error) => {
+            eprintln!("Claude profile sync: {error}");
+            false
+        }
+    }
 }
 
 fn toplevel(directory: &Path) -> Option<PathBuf> {

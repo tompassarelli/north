@@ -22,7 +22,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts"))
 from calibration import open_ledger
-from ssh_transport import ssh_argv
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
 CACHE_SECONDS = 60
@@ -552,8 +551,9 @@ def ssh(dest, args, **io):
         remote += ["THREADS_ARCHIVES_LOCAL=1"]
     remote = ["env", *remote] if remote else []
     try:
-        return subprocess.run(ssh_argv("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
-                                      shlex.join(remote + [*(["north"] if args[:1] == ["ingest"] else []), "threads", *args])), timeout=90, **io).returncode
+        argv = subprocess.run([os.environ.get("NORTH_BIN") or "north", "ssh-argv", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=QUIET", dest,
+                               shlex.join(remote + [*(["north"] if args[:1] == ["ingest"] else []), "threads", *args])], capture_output=True, check=True).stdout
+        return subprocess.run([os.fsdecode(word) for word in argv.split(b"\0")[:-1]], timeout=90, **io).returncode
     except subprocess.TimeoutExpired:
         print(f"NorthThreads: {dest} timed out; remote outcome unknown", file=sys.stderr)
         return 124

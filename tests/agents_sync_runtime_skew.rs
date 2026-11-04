@@ -40,7 +40,7 @@ fn write(path: &Path, content: &str) {
 }
 
 fn commit(repo: &Path, script: &str) -> String {
-    write(&repo.join("harness/lib/usage.py"), "");
+    write(&repo.join("harness/defaults.toml"), "");
     write(&repo.join("agent-machinery/catalog.json"), "{\"units\": []}\n");
     write(&repo.join("harness/skills/machine-capacity/SKILL.md"), SKILL);
     write(&repo.join(SCRIPT), script);
