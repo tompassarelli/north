@@ -67,6 +67,9 @@ impl Lander {
         let mut rebuilds = 0;
         let mut progressed = false;
         after::recover(self)?;
+        for reason in self.pull_remote() {
+            println!("north land: waiting: {reason}");
+        }
         loop {
             let queued = queue::collect(&self.queue).map_err(|error| error.to_string())?;
             let tickets = if red_only { red::fixes(&queued) } else { queued };

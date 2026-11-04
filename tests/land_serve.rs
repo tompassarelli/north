@@ -134,6 +134,7 @@ impl Fixture {
             .env("NORTH_LAND_NORTH", self.trace.join("north"))
             .env("LAND_ORIGIN", &self.origin)
             .env("LAND_REPO", &self.repo)
+            .env("FAKE_REMOTE_HOMES", self.root.join("remote-homes"))
             .env("GH_TOKEN", "push-token")
             .env("GITHUB_TOKEN", "push-token")
             .env("SOPS_AGE_KEY_FILE", self.root.join("age.key"))
@@ -844,4 +845,116 @@ fn serve_worktree_not_reaped() {
     let report = format!("{}{}", String::from_utf8_lossy(&gc.stdout), String::from_utf8_lossy(&gc.stderr));
     assert!(!lanes.join("spent-gc").exists(), "the control lane is collected: {report}");
     assert!(lanes.join("lander/.git").exists() && lanes.join("lander-2/.git").exists(), "{report}");
+}
+
+const FAKE_SSH: &str = r#"#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$LAND_TRACE/ssh"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) shift 2 ;;
+    -T) shift ;;
+    *) destination=${1#*@}; shift; break ;;
+  esac
+done
+[ "${1:-}" != -- ] || shift
+[ -d "$FAKE_REMOTE_HOMES/$destination" ] || { echo "ssh: connect to host $destination port 22: Connection timed out" >&2; exit 255; }
+command=$*
+case "$command" in git-upload-pack*) command="git upload-pack${command#git-upload-pack}" ;; esac
+unset XDG_STATE_HOME
+HOME=$FAKE_REMOTE_HOMES/$destination exec sh -c "$command"
+"#;
+
+impl Fixture {
+    fn landing_config(&mut self, config: &str) {
+        executable(&self.bin.join("ssh"), FAKE_SSH);
+        self.commit(&self.repo, ".safe-push", &format!("[landing]\n{config}"), "configure landing");
+        git(&self.repo, &["push", "-q", "origin", "main"]);
+        self.base = self.main();
+    }
+
+    fn land_enqueue(&self, lane: &Path, state: &Path, session: &str) -> Output {
+        let output = Command::new(env!("CARGO_BIN_EXE_north")).args(["land", "enqueue"]).current_dir(lane).env("XDG_STATE_HOME", state).env("NORTH_FLEET_SESSION", session).env_remove("NORTH_LAND_SERVING").output().unwrap();
+        eprintln!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        output
+    }
+}
+
+fn json_names(directory: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(directory).map(|entries| entries.filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).filter(|name| name.ends_with(".json")).collect()).unwrap_or_default();
+    names.sort();
+    names
+}
+
+#[test]
+fn remote_outbox_lands() {
+    let mut fixture = Fixture::new();
+    fixture.landing_config("\tlander-host = lander.invalid\n\tremote-hosts = gex45\n");
+    let home = fixture.root.join("remote-homes/gex45");
+    let clone = fixture.root.join("gex45/proj/main");
+    fs::create_dir_all(&home).unwrap();
+    git(&fixture.root, &["clone", "-q", fixture.origin.to_str().unwrap(), clone.to_str().unwrap()]);
+    git(&clone, &["config", "user.name", "Remote scenario"]);
+    git(&clone, &["config", "user.email", "remote@example.invalid"]);
+    let lane = fixture.root.join("gex45/proj/worktrees/r");
+    git(&clone, &["worktree", "add", "-q", "-b", "lane-r", lane.to_str().unwrap(), "origin/main"]);
+    fixture.commit(&lane, "r.txt", "r", "change from r");
+    let head = git(&lane, &["rev-parse", "HEAD"]);
+    let top = git(&lane, &["rev-parse", "--show-toplevel"]);
+    let queued = fixture.land_enqueue(&lane, &home.join(".local/state"), "session-remote");
+    assert!(queued.status.success());
+    assert!(String::from_utf8_lossy(&queued.stdout).contains(&format!("Done: queued (outbox) {top} lane-r {head}")));
+    let outbox = queue::directory(&home.join(".local/state"), fixture.origin.to_str().unwrap()).join(queue::OUTBOX);
+    let names = json_names(&outbox);
+    assert_eq!(names.len(), 1, "{names:?}");
+
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from r"]);
+    assert!(json_names(&outbox).is_empty(), "the remote ticket is still in the outbox");
+    assert_eq!(json_names(&outbox.join("taken")), names);
+    let main = fixture.main();
+    let local = fixture.queue().join(&names[0]);
+    assert_eq!(fixture.verdict(&local), Some(format!("landed {main}")));
+    let remote = queue::read(&outbox.join("taken").join(&names[0])).unwrap();
+    let done = queue::read(&fixture.queue().join("done").join(&names[0])).unwrap();
+    assert_eq!((done.host.as_str(), done.root.as_path()), (remote.host.as_str(), remote.root.as_path()), "the pulled ticket keeps its host and root");
+    assert!(fixture.fleet().contains(&format!("fleet send session-remote landed lane-r as {main}")), "{:?}", fixture.fleet());
+    let ssh = fixture.read("ssh");
+    assert!(ssh.lines().all(|line| line.contains("ConnectTimeout=5")), "{ssh}");
+    assert!(ssh.lines().any(|line| line.contains("git-upload-pack") && line.contains(&top)), "the lane is fetched from ssh://gex45{top}: {ssh}");
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from r"], "a taken ticket was pulled again");
+}
+
+#[test]
+fn remote_outbox_unreachable() {
+    let mut fixture = Fixture::new();
+    fixture.landing_config("\tremote-hosts = nexus\n");
+    let a = fixture.lane("a", "a.txt", "a");
+    let ticket = fixture.enqueue(&a, None);
+    let output = fixture.serve();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().any(|line| line.starts_with("north land: waiting: nexus's outbox skipped this round")), "{stdout}");
+    assert_eq!(fixture.verdict(&ticket), Some(format!("landed {}", fixture.main())), "an unreachable host blocked the local ticket");
+    assert!(fixture.read("ssh").lines().all(|line| line.contains("ConnectTimeout=5")));
+}
+
+#[test]
+fn remote_enqueue_off_lander_host() {
+    let mut fixture = Fixture::new();
+    fixture.landing_config("\tlander-host = lander.invalid\n");
+    let a = fixture.lane("a", "a.txt", "a");
+    let head = git(&a, &["rev-parse", "HEAD"]);
+    let top = git(&a, &["rev-parse", "--show-toplevel"]);
+    let output = fixture.land_enqueue(&a, &fixture.state, "session-a");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).lines().any(|line| line == format!("Done: queued (outbox) {top} lane-a {head}")));
+    assert_eq!(json_names(&fixture.queue().join(queue::OUTBOX)).len(), 1);
+    assert!(queue::pending(&fixture.queue()).unwrap().is_empty(), "an off-lander-host ticket went to the lander queue");
+
+    let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap().trim().to_owned();
+    fixture.landing_config(&format!("\tlander-host = {host}\n"));
+    let output = fixture.land_enqueue(&a, &fixture.state, "session-a");
+    assert!(String::from_utf8_lossy(&output.stdout).lines().any(|line| line == format!("Done: queued {top} lane-a {head}")));
+    assert_eq!(queue::pending(&fixture.queue()).unwrap().len(), 1, "the lander host queues locally");
 }

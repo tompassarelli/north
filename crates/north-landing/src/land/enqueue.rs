@@ -16,6 +16,7 @@ const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE]";
 #[derive(Debug)]
 pub struct Queued {
     pub path: PathBuf,
+    pub outbox: bool,
     pub ticket: Ticket,
     pub squash: Squash,
 }
@@ -117,6 +118,11 @@ fn red_fix(repo: &Path, base: &str, destination: &str) -> Result<Option<RedFix>,
     Ok(open_issues(repo, destination).and_then(|listing| pick_issue(&listing, destination, &named)))
 }
 
+fn off_lander_host(root: &Path, remote_ref: &str, host: &str) -> bool {
+    let lander = git(root, &["config", "--blob", &format!("{remote_ref}:.safe-push"), "--get", "landing.lander-host"]).unwrap_or_default();
+    !lander.is_empty() && lander.split('.').next() != host.split('.').next()
+}
+
 fn replace_older(directory: &Path, kept: &Path, root: &Path, branch: &str) -> io::Result<()> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -161,11 +167,13 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
         red_fix,
         verdict: None,
     };
-    let directory = queue::directory(environment.state_home, &origin);
+    let outbox = off_lander_host(&root, &remote_ref, environment.host);
+    let queue = queue::directory(environment.state_home, &origin);
+    let directory = if outbox { queue.join(queue::OUTBOX) } else { queue };
     let path = directory.join(queue::file_name(queued_micros, &branch));
     queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     replace_older(&directory, &path, &root, &branch).map_err(|error| format!("cannot replace this lane's older ticket in {}: {error}", directory.display()))?;
-    Ok(Queued { path, ticket, squash })
+    Ok(Queued { path, outbox, ticket, squash })
 }
 
 pub fn run(arguments: &[String]) -> u8 {
@@ -212,7 +220,7 @@ pub fn run(arguments: &[String]) -> u8 {
                 Squash::Squashed { commits, head } => println!("safe-push: queued the lane's {commits} unpublished commits as one commit {head}"),
                 Squash::Unchanged => {}
             }
-            println!("Done: queued {} {} {}", queued.ticket.root.display(), queued.ticket.branch, queued.ticket.head);
+            println!("Done: queued {}{} {} {}", if queued.outbox { "(outbox) " } else { "" }, queued.ticket.root.display(), queued.ticket.branch, queued.ticket.head);
             0
         }
         Err(error) => {

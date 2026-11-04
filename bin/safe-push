@@ -2307,8 +2307,8 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   if [ "$to" = "$(default_branch)" ]; then
     autoland_base=$(fetch_destination) || exit 1
     if [ "$direct" = 0 ] && [ -z "$several_commits" ] && [ "$(git config --blob "refs/remotes/origin/$to:.safe-push" --get landing.queue 2>/dev/null)" = lander ]; then
-      lander_host=$(git config --blob "refs/remotes/origin/$to:.safe-push" --get landing.lander-host 2>/dev/null) || lander_host=
-      [ -z "$lander_host" ] || [ "$lander_host" != "$(hostname -s)" ] || exec "$safe_push_self" --enqueue ${message_file:+--message "$message_file"}
+      lander_host=$( { git config --blob "refs/remotes/origin/$to:.safe-push" --get landing.lander-host; git config --blob "refs/remotes/origin/$to:.safe-push" --get landing.remote-hosts; } 2>/dev/null | tr ' ' '\n')
+      ! printf '%s\n' "$lander_host" | grep -qxF "$(hostname -s)" || exec "$safe_push_self" --enqueue ${message_file:+--message "$message_file"}
     fi
     land_as_one_commit "$autoland_base"
     if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then

@@ -691,12 +691,21 @@ then S2b and S2c in parallel; then S3 and S4.
   land/red.rs. Done when: (1) a fixture where main's post-push suite fails on case X enqueues a
   red-fix revert ticket of only the lane whose removal turns X green, lands it ahead of the queue
   and messages the lane's author; (2) a failure that persists without the lane enqueues nothing.
-- **S11 Remote enqueue.** Files land/enqueue.rs. On gex45 and Nexus, `north land enqueue` writes the
-  ticket to the lander host over ssh, and the lander fetches `ssh://<host><root>`. When the lander is
-  unreachable, the ticket goes to a local outbox that a timer flushes, so the worker still exits 0.
-  Surface gex45. Done when: (1) a fixture lane enqueued on gex45 lands; (2) an enqueue with the laptop
-  unreachable prints `Done: queued (outbox)` and lands once the laptop is reachable again; (3) S4's
-  `landing.lander-host` limit is removed, and `lander-queue` enqueues from any host.
+- **S11 Remote enqueue, pulled by the lander.** Files land/{enqueue,lander,serve,queue}.rs. Pull, not
+  push: writing tickets to the laptop over ssh would need a new inbound command on the laptop, while
+  the laptop already reaches gex45 over ssh for build offloads (redesigned 2026-11-04). On a host
+  that is not the committed `landing.lander-host`, `north land enqueue` writes the same ticket under
+  the same queue key into `outbox/` and prints `Done: queued (outbox) <root> <branch> <sha>`. At the
+  start of each round the lander lists the outbox of each host in the committed
+  `landing.remote-hosts` (space-separated) over ssh with `ConnectTimeout=5`, fetches each lane from
+  `ssh://<host><root>` into `refs/land-remote/<host>/<branch>`, copies the ticket into its own queue
+  with its `host` field kept, and moves the remote ticket to `outbox/taken/`. Landed messages and
+  verdicts are unchanged. An unreachable host is skipped for the round with a waiting line. The
+  outbox key is the hash of the origin URL, so a remote host's origin must be spelled as the
+  lander's. No host gains an inbound verb or key. Done when: `cargo test --test land_serve remote`
+  passes remote-outbox-lands, remote-outbox-unreachable and remote-enqueue-off-lander-host. The live
+  switch (`landing.remote-hosts = gex45` and gex45's safe-push enqueueing off the lander host)
+  follows it.
 - **S21 Lane cleanup by the lander.** Files land/after/cleanup.rs. Done when: the lane cases clean,
   pid-namespace, keep, dirty, remote-merged and remote-unmerged pass against the lander's
   after-landing cleanup, under the same names.
