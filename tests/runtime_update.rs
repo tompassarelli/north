@@ -390,7 +390,7 @@ fn the_fleet_settler_ships_its_build_and_a_broken_host_reopens_the_landing_issue
     script(&host.path("bin/gh"), "printf 'gh %s\\n' \"$*\" >>\"$TEST_ALERTS\"\n");
     script(
         &host.path("bin/north"),
-        "case \"$1 $2\" in\n'fleet list') echo '[{\"name\": \"proxy\", \"tasks\": []}, {\"name\": \"live-landing\", \"tasks\": [\"north#308\"]}, {\"name\": \"other\", \"tasks\": [\"north#9\"]}]' ;;\n\
+        "case \"$1 $2\" in\n'fleet list') echo '[{\"name\": \"proxy\", \"tasks\": []}, {\"name\": \"live-landing\", \"status\": \"working\", \"tasks\": [\"north#308\"]}, {\"name\": \"finished-landing\", \"status\": \"exited\", \"tasks\": [\"north#308\"]}, {\"name\": \"other\", \"tasks\": [\"north#9\"]}]' ;;\n\
          'fleet send') printf 'send %s\\n' \"$3\" >>\"$TEST_ALERTS\" ;;\n*) exit 94 ;;\nesac\n",
     );
     let orchestration = fleet(&host, "[hosts.hub]\nsettles_fleet = true\n[hosts.broken]\ndeploy_ssh = \"broken\"\n");

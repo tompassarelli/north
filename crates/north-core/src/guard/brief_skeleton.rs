@@ -59,9 +59,10 @@ mod tests {
 
     #[test]
     fn every_category_skeleton_filled_with_placeholders_passes_the_brief_guard() {
+        let placeholder = regex::Regex::new("<[^>]*>").unwrap();
         for category in CATEGORIES {
             let text = skeleton(category).unwrap();
-            let filled = regex::Regex::new("<[^>]*>").unwrap().replace_all(&text, "1").into_owned();
+            let filled = placeholder.replace_all(&text, "1").into_owned();
             let kind = if category == "mechanical" { "worker-haiku" } else { "worker" };
             assert_eq!(super::super::worker_tier::brief_refusal(kind, false, false, &filled), None, "{category}:\n{filled}");
             assert!(crate::router::brief::class_refusal(&filled).is_none(), "{category}");
