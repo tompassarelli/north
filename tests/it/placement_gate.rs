@@ -1,0 +1,304 @@
+use crate::support;
+
+use north_core::foundation::shim;
+use std::fs;
+use std::path::Path;
+use std::process::{Command, Output};
+use std::time::{Duration, Instant};
+
+const NOW: &str = "2026-10-16T12:00:00Z";
+const CODE_ONLY: &str = "Item: north#12 tidy placement\nSurface: rust\nNeeds: code\nDone when: `cargo test` exits 0\n";
+const WARCRAFT: &str = "Item: makgora#4 LAN check\nSurface: lua\nNeeds: warcraft\n";
+const NATIVE: &str = "Item: makgora#207 remote lag\nSurface: lua\nNeeds: native\n";
+
+fn executable(path: &Path, body: &str) {
+    shim::write_script(path, body);
+}
+
+fn window(name: &str, used: f64, burn: f64, resets_at: &str) -> serde_json::Value {
+    serde_json::json!({"window": name, "used_pct": used, "burn_pct_h": burn, "resets_at": resets_at})
+}
+
+/// A HOME with South's placement policy, the credit, pace-control's gate, two Claude profiles and
+/// shims for the scope launcher and the Claude runtime, which records the prompt it was sent.
+fn fixture(root: &Path) {
+    support::fleet_ledger(root);
+    let op = root.join("op");
+    let agents = root.join(".local/state/agents");
+    fs::create_dir_all(&op).unwrap();
+    fs::create_dir_all(&agents).unwrap();
+    fs::create_dir_all(root.join("bin")).unwrap();
+    fs::write(op.join("orchestration.toml"), "[placement]\ncloud_credit = \"cloud-credit\"\nprivate_repos = [\"galileo\"]\n[hosts.here]\nserves = [\"warcraft\", \"native\"]\n").unwrap();
+    fs::write(op.join("costs.toml"), "[[service]]\nid = \"cloud-credit\"\ninitial = 250.0\nexpires = 2026-11-05T07:59:00Z\n").unwrap();
+    let gate = serde_json::json!({"claude": {"controls": {
+        "claude:a": {"windows": [window("5h", 35.0, 10.0, "2026-10-16T16:00:00Z"), window("week", 40.0, 1.0, "2026-10-20T00:00:00Z")]},
+        "claude:c": {"windows": [window("5h", 42.0, 86.0, "2026-10-16T16:00:00Z"), window("week", 20.0, 1.0, "2026-10-20T00:00:00Z")]},
+    }}});
+    fs::write(agents.join("usage-gate.json"), gate.to_string()).unwrap();
+    fs::write(root.join("hosts.json"), "{}").unwrap();
+    for label in ["a", "c"] {
+        let profile = root.join(format!(".local/state/north/profiles/claude-{label}"));
+        fs::create_dir_all(&profile).unwrap();
+        fs::write(profile.join(".credentials.json"), "{}").unwrap();
+    }
+    executable(&root.join("bin/setsid"), "exec \"$@\"\n");
+    executable(
+        &root.join("bin/systemd-run"),
+        "case \" $* \" in *' --scope '*) while [ \"$1\" != -- ]; do shift; done; shift; exec \"$@\";; esac\nfor a; do case $a in --unit=*) unit=${a#--unit=};; --) break;; esac; done\nwhile [ \"$1\" != -- ]; do case $1 in --setenv=*) export \"${1#--setenv=}\";; esac; shift; done\nshift\nmkdir -p \"$PLACEMENT_FIXTURE/units\"\nset -m\n\"$@\" < /dev/null > /dev/null 2>&1 &\necho $! > \"$PLACEMENT_FIXTURE/units/$unit\"\n",
+    );
+    executable(
+        &root.join("bin/systemctl"),
+        "for a; do last=$a; done\nunit=\"$PLACEMENT_FIXTURE/units/$last\"\ncase \" $* \" in\n  *' stop '*) [ -f \"$unit\" ] || exit 5; kill -s TERM -- \"-$(cat \"$unit\")\" 2>/dev/null; rm -f \"$unit\";;\n  *' show '*) pid=$(cat \"$unit\" 2>/dev/null); if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo \"$pid\"; else echo 0; fi;;\nesac\n",
+    );
+    executable(&root.join("bin/claude"), &format!("printf '%s' \"${{RAN_VIA_SSH:-}}\" > \"$PLACEMENT_FIXTURE/ran-via\"\nprintf '%s' \"${{AGENT_CAPACITY_NEED:-}}\" > \"$PLACEMENT_FIXTURE/need\"\ntee \"$PLACEMENT_FIXTURE/prompt\" | timeout 20 {} --trace fold \"$@\"\n", support::fake_claude()));
+}
+
+fn north(root: &Path, args: &[&str]) -> Output {
+    north_at(root, args, NOW)
+}
+
+fn north_at(root: &Path, args: &[&str], now: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(args)
+        .current_dir(root)
+        .env("HOME", root)
+        .env("XDG_STATE_HOME", root.join(".local/state"))
+        .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
+        .env("AGENTS_OPERATOR_DIR", root.join("op"))
+        .env("PLACEMENT_NOW", now)
+        .env("PLACEMENT_HOSTS", root.join("hosts.json"))
+        .env("RESIDENT_CAP_HOST", "here")
+        .env("CLAUDE_RUNTIME", root.join("bin/claude"))
+        .env("PLACEMENT_FIXTURE", root)
+        .env("NORTH_FLEET_SESSION", "")
+        .env_remove("NORTH_FLEET_TEST")
+        .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+        .output()
+        .unwrap()
+}
+
+fn launch(root: &Path, name: &str, brief: &str, flags: &[&str]) -> Output {
+    let path = root.join(format!("{name}.md"));
+    fs::write(&path, brief).unwrap();
+    let path = path.display().to_string();
+    let mut args = vec!["fleet", "launch", "--provider", "claude", "--name", name, "--parent", "none", "--system-prompt", &path];
+    args.extend_from_slice(flags);
+    args.push("start the box");
+    north(root, &args)
+}
+
+#[test]
+fn fleet_launch_refuses_off_placement_and_records_the_override_reason() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+
+    let cloud = launch(root, "cloudy", CODE_ONLY, &["--account", "a"]);
+    let said = String::from_utf8_lossy(&cloud.stderr);
+    assert!(!cloud.status.success(), "a code-only public box launched locally without --local");
+    assert!(said.contains("anthropic-cloud under claude:a") && said.contains("CLAUDE_CONFIG_DIR=$HOME/.local/state/north/profiles/claude-a north cloud launch north cloudy /tmp/cloud/cloudy.md") && !said.contains("ssh"), "{said}");
+    assert!(said.contains("from gex45 or the laptop, never Nexus") && said.contains("safe-push --to main") && said.contains("claude/land-cloudy") && said.contains("--local \"<reason>\""), "{said}");
+    assert!(said.contains("claude:c unavailable: burning: 5h 86.0%/h > the 50%/h cap"), "{said}");
+    assert!(!root.join(".local/state/north/fleet/cloudy").exists(), "the refused launch left a session");
+
+    let burning = launch(root, "native", WARCRAFT, &["--account", "c"]);
+    let said = String::from_utf8_lossy(&burning.stderr);
+    assert!(!burning.status.success(), "a launch onto an account over its burn cap started without --pin");
+    assert!(said.contains("claude:c unavailable: burning") && said.contains("--account a"), "{said}");
+
+    let local = launch(root, "kept", CODE_ONLY, &["--account", "a", "--local", "x"]);
+    assert!(local.status.success(), "{}", String::from_utf8_lossy(&local.stderr));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box"));
+    let listed = north(root, &["fleet", "list"]);
+    let lines = String::from_utf8_lossy(&listed.stdout);
+    let kept = lines.lines().find(|line| line.starts_with("kept\t")).unwrap_or_default();
+    assert!(kept.ends_with("\tlocal: x"), "{lines}");
+}
+
+#[test]
+fn fleet_launch_runs_a_box_placed_on_a_machine_through_its_ssh_destination() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    let orchestration = root.join("op/orchestration.toml");
+    let policy = fs::read_to_string(&orchestration).unwrap().replace("[placement]\n", "[placement]\norder = [\"far\"]\n");
+    fs::write(&orchestration, format!("{policy}[hosts.far]\nresident_cap = 2\nssh = \"tom@far\"\n[accounts.claude.profiles.a]\nhere = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\nfar = {{ path = \"~/.local/state/north/profiles/claude-a\" }}\n")).unwrap();
+    fs::write(root.join("hosts.json"), r#"{"far": {"online": true, "live": 1, "accounts": ["a"]}}"#).unwrap();
+    executable(&root.join("bin/ssh"), "while [ \"$1\" != -- ]; do last=$1; shift; done\nshift\nexport RAN_VIA_SSH=\"$last\"\nPATH=\"$PLACEMENT_FIXTURE/bin:$PATH\" exec sh -c \"$*\"\n");
+    let path = root.join("private.md");
+    fs::write(&path, "Item: galileo#3 private change\nSurface: rust\n").unwrap();
+    let launch = |name: &str| {
+        let path = path.display().to_string();
+        let placed = Command::new(env!("CARGO_BIN_EXE_north"))
+            .args(["fleet", "launch", "--provider", "claude", "--name", name, "--parent", "none", "--system-prompt", &path, "--account", "a", "start the box"])
+            .current_dir(root)
+            .env("HOME", root)
+            .env("XDG_STATE_HOME", root.join(".local/state"))
+            .env("AGENTS_ORCHESTRATION", &orchestration)
+            .env("AGENTS_OPERATOR_DIR", root.join("op"))
+            .env("PLACEMENT_NOW", NOW)
+            .env("RESIDENT_CAP_HOST", "here")
+            .env("PLACEMENT_HOSTS", root.join("hosts.json"))
+            .env("CLAUDE_RUNTIME", root.join("bin/claude"))
+            .env("PLACEMENT_FIXTURE", root)
+            .env("NORTH_FLEET_SESSION", "")
+            .env_remove("NORTH_FLEET_TEST")
+            .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&placed.stderr).into_owned();
+        assert!(placed.status.success(), "{said}");
+        said
+    };
+
+    let said = launch("far-box");
+    assert!(said.contains("placement: target far claude:a") && said.contains("far available: 1/2 resident CLIs"), "{said}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box"), "the CLI behind ssh got the prompt: {}", fs::read_to_string(root.join(".local/state/north/fleet/far-box/g1/stderr.log")).unwrap_or_default());
+    assert_eq!(fs::read_to_string(root.join("ran-via")).unwrap_or_default(), "tom@far", "the CLI ran behind ssh to the machine");
+    let listed = north(root, &["fleet", "list"]);
+    let lines = String::from_utf8_lossy(&listed.stdout);
+    assert!(lines.lines().any(|line| line.starts_with("far-box\t") && line.contains("\tfar:/")), "{lines}");
+
+    let planned = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["pace", "place", "place", &path.display().to_string()])
+        .current_dir(root)
+        .env("HOME", root)
+        .env("XDG_STATE_HOME", root.join(".local/state"))
+        .env("AGENTS_ORCHESTRATION", &orchestration)
+        .env("AGENTS_OPERATOR_DIR", root.join("op"))
+        .env("PLACEMENT_NOW", NOW)
+        .env("RESIDENT_CAP_HOST", "here")
+        .env("PLACEMENT_HOSTS", root.join("hosts.json"))
+        .env("NORTH_FLEET_SESSION", "")
+        .env_remove("NORTH_FLEET_TEST")
+        .output()
+        .unwrap();
+    let plan = String::from_utf8_lossy(&planned.stdout).into_owned();
+    assert!(plan.contains("far full: 2/2 resident CLIs"), "agents plan --place counts the fleet session hosted on the machine: {plan}{}", String::from_utf8_lossy(&planned.stderr));
+
+    let said = launch("kept-box");
+    assert!(said.contains("far full: 2/2 resident CLIs") && said.contains("placement: target here claude:a"), "a live session on the machine counts against its cap: {said}");
+    for name in ["far-box", "kept-box"] {
+        north(root, &["fleet", "stop", name]);
+    }
+}
+
+#[test]
+fn a_label_logged_in_to_another_labels_account_is_omitted_from_accounts_and_refused_at_launch() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    for label in ["a", "c"] {
+        let login = serde_json::json!({"oauthAccount": {"accountUuid": "0d4b6f2e-shared-login"}});
+        fs::write(root.join(format!(".local/state/north/profiles/claude-{label}/.claude.json")), login.to_string()).unwrap();
+    }
+    let listed = north(root, &["fleet", "accounts"]);
+    let lines = String::from_utf8_lossy(&listed.stdout);
+    assert!(lines.contains("claude\ta\n") && !lines.contains("claude\tc"), "{lines}");
+    assert!(String::from_utf8_lossy(&listed.stderr).contains("omitted: claude:c is logged in to the same account as claude:a"), "{lines}");
+
+    let pinned = launch(root, "shared", WARCRAFT, &["--account", "c", "--pin", "drain c"]);
+    let said = String::from_utf8_lossy(&pinned.stderr);
+    assert!(!pinned.status.success(), "a label sharing another label's login launched");
+    assert!(said.contains("claude:c is logged in to the same account as claude:a"), "{said}");
+    assert!(!root.join(".local/state/north/fleet/shared").exists(), "the refused launch left a session");
+    let tested = launch(root, "shared-test", WARCRAFT, &["--account", "c", "--test"]);
+    let said = String::from_utf8_lossy(&tested.stderr);
+    assert!(!tested.status.success() && said.contains("claude:c is logged in to the same account as claude:a"), "a --test launch skipped the login check: {said}");
+}
+
+#[test]
+fn a_box_that_needs_native_on_makgora_starts_with_that_capacity_need() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    let launched = launch(root, "lagged", NATIVE, &["--account", "a"]);
+    assert!(launched.status.success(), "{}", String::from_utf8_lossy(&launched.stderr));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !fs::read_to_string(root.join("prompt")).unwrap_or_default().contains("start the box") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(fs::read_to_string(root.join("need")).unwrap_or_default(), "native:makgora");
+    north(root, &["fleet", "stop", "lagged"]);
+    let listed: serde_json::Value = serde_json::from_slice(&north(root, &["fleet", "list", "--json"]).stdout).unwrap();
+    let lagged = listed.as_array().unwrap().iter().find(|session| session["name"] == "lagged").unwrap();
+    assert_eq!((&lagged["status"], &lagged["ended"]), (&serde_json::json!("exited"), &serde_json::json!("stopped")), "{lagged}");
+}
+
+fn placed_at(root: &Path, now: &str) -> String {
+    fs::write(root.join("code-only.md"), CODE_ONLY).unwrap();
+    let placed = north_at(root, &["pace", "place", "place", &root.join("code-only.md").display().to_string()], now);
+    assert!(placed.status.success(), "{}", String::from_utf8_lossy(&placed.stderr));
+    String::from_utf8_lossy(&placed.stdout).lines().last().unwrap_or_default().to_owned()
+}
+
+#[test]
+fn the_cloud_credit_is_only_an_extra_balance_so_a_code_only_box_goes_to_cloud_whether_it_is_unread_expired_or_spent() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    let credit = |now| String::from_utf8_lossy(&north_at(root, &["pace", "place", "credit"], now).stdout).trim().to_owned();
+
+    assert_eq!(credit(NOW), "cloud credit: unread, expires in 19 days");
+    assert!(placed_at(root, NOW).contains(": target anthropic-cloud claude:a on here (cloud credit: unread"));
+
+    let expired = "2026-11-05T08:00:00Z";
+    assert_eq!(credit(expired), "cloud credit: expired 2026-11-05T07:59Z");
+    let after = placed_at(root, expired);
+    assert!(after.contains(": target anthropic-cloud claude:a on here (cloud credit: expired 2026-11-05T07:59Z"), "{after}");
+
+    fs::create_dir_all(root.join(".local/state/agents/costs")).unwrap();
+    fs::write(root.join(".local/state/agents/costs/cloud-credit.json"), r#"{"usd_spent_period": 250.0, "read_at": "2026-10-15T00:00:00Z"}"#).unwrap();
+    assert_eq!(credit(NOW), "cloud credit: spent (read 2026-10-15), expires in 19 days");
+    let spent = placed_at(root, NOW);
+    assert!(spent.contains(": target anthropic-cloud claude:a on here (cloud credit: spent (read 2026-10-15)"), "{spent}");
+}
+
+#[test]
+fn a_saturated_launching_host_holds_the_box_with_the_reason_and_a_local_keep_launches_it() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root);
+    fs::write(root.join("hosts.json"), r#"{"here": {"saturation": {"memory_total_mib": 96000.0, "memory_available_mib": 5000.0, "disk_free_gib": 40.0}}}"#).unwrap();
+    let path = root.join("private.md");
+    fs::write(&path, "Item: galileo#3 private change\nSurface: rust\n").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_north"))
+            .args(args)
+            .current_dir(root)
+            .env("HOME", root)
+            .env("XDG_STATE_HOME", root.join(".local/state"))
+            .env("AGENTS_ORCHESTRATION", root.join("op/orchestration.toml"))
+            .env("AGENTS_OPERATOR_DIR", root.join("op"))
+            .env("PLACEMENT_NOW", NOW)
+            .env("RESIDENT_CAP_HOST", "here")
+            .env("PLACEMENT_HOSTS", root.join("hosts.json"))
+            .env("CLAUDE_RUNTIME", root.join("bin/claude"))
+            .env("NORTH_FLEET_SESSION", "")
+            .env_remove("NORTH_FLEET_TEST")
+            .env("PATH", format!("{}:{}", root.join("bin").display(), std::env::var("PATH").unwrap_or_default()))
+            .output()
+            .unwrap()
+    };
+    let planned = run(&["pace", "place", "place", &path.display().to_string()]);
+    let plan = String::from_utf8_lossy(&planned.stdout).into_owned();
+    assert!(plan.contains("target held: here skipped: 4.9 GiB of memory available"), "{plan}");
+    let prompt = path.display().to_string();
+    let refused = run(&["fleet", "launch", "--provider", "claude", "--name", "hot-box", "--parent", "none", "--system-prompt", &prompt, "--account", "a", "start the box"]);
+    assert!(!refused.status.success());
+    let said = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(said.contains("here skipped: 4.9 GiB of memory available") && said.contains("--local"), "{said}");
+    let kept = run(&["fleet", "launch", "--provider", "claude", "--name", "hot-kept", "--parent", "none", "--system-prompt", &prompt, "--account", "a", "--local", "serves the repo", "start the box"]);
+    assert!(kept.status.success(), "{}", String::from_utf8_lossy(&kept.stderr));
+    let said = String::from_utf8_lossy(&kept.stderr).into_owned();
+    assert!(said.contains("here skipped: 4.9 GiB of memory available"), "the reason is printed under an override: {said}");
+    north(root, &["fleet", "stop", "hot-kept"]);
+}

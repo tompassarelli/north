@@ -228,7 +228,7 @@ Done when:
 ### B10. Merge the integration tests into `tests/it` (candidate 6, after B9)
 
 Category: performance. Spec: measured. Scope: cross-module. Surface: rust. Verify: local-test. Files: `tests/*.rs`
-moved to `tests/it/*.rs`, `tests/it/main.rs`, `tests/support/`, `harness/scripts/cargo-tests.sh` and
+moved to `tests/it/*.rs`, `tests/it/main.rs`, `tests/it/support/`, `harness/scripts/cargo-tests.sh` and
 `land_test_runner.rs` if they name binaries.
 
 Done when:
@@ -238,6 +238,31 @@ Done when:
   included in both.
 - `cargo test --locked --offline` passes 3 runs in a row with the same test count as origin/main, and its wall time
   is not above origin/main's median of 3.
+
+Result, 2026-11-04 (lane `merge-test-bins`, whiterabbit, seeded target, dev-shell cargo under lane-worktree
+admission, one run each). Every `tests/*.rs` file and its helper directories moved to `tests/it/`, declared by
+`tests/it/main.rs`; Cargo still autodiscovers, so a new `tests/*.rs` file builds and runs on its own, and the
+`registry` test in the merged binary fails for any `tests/**/*.rs` file `tests/it/main.rs` does not reach, naming the
+`mod` line to add. Measured after a warm `cargo test --no-run`, then appending a blank line to
+`crates/north-core/src/lib.rs` and timing `cargo test --locked --offline --no-run`:
+
+| | origin/main 1f12bb98d | merged |
+| --- | --- | --- |
+| Integration test executables | 82 | 1 |
+| All test executables (incl. 3 lib and 2 bin unit-test harnesses) | 87 | 6 |
+| Relink wall after the north-core edit | 40.4 s | 13.7 s |
+| Integration executable bytes | 1,055 MB | 88 MB |
+| All test executable bytes | 1,412 MB | 445 MB |
+| Tests listed by the integration executables | 274 | 275 (274 plus the registry test) |
+
+`target/debug` read 9.9 GiB before and 11 GiB after with the stale 82 executables still present; deleting them
+leaves the difference to the executable bytes above. Planting `tests/it/planted.rs`, `tests/planted_top.rs` and
+`tests/it/runtime_update/orphan.rs` made the registry test fail with one line per file, and removing them made it
+pass.
+
+Rebased onto origin/main 09691aecf, 2026-11-04 (gex45 offload): the 86 `tests/*.rs` files there list 331 tests
+summed over their separate binaries; `cargo test --test it -- --list` lists the same 331 names under their file
+modules plus the registry test, 332, and `cargo test --test it` passes all 332 with none ignored.
 
 ### B11. Code-only lanes build on gex45 (candidate 7, after the lane-tree offload fix lands)
 
