@@ -148,11 +148,13 @@ fn newline_count(path: &Path) -> usize {
 }
 
 fn session(handoffs: &Path, lessons: &Path) -> String {
-    let account = env_or("SKILL_PRUNE_ACCOUNT", || "a".into());
     let name = format!("skill-prune-{}", date("+%Y%m%d"));
-    let launched = Command::new(north_program())
-        .args(["fleet", "launch", "--provider", "claude", "--account"])
-        .arg(account)
+    let mut launch = Command::new(north_program());
+    launch.args(["fleet", "launch", "--provider", "claude"]);
+    if let Some(account) = std::env::var_os("SKILL_PRUNE_ACCOUNT").filter(|account| !account.is_empty()) {
+        launch.arg("--account").arg(account);
+    }
+    let launched = launch
         .args(["--parent", "none", "--model", "claude-opus-5-5", "--tier-reason", "skill and policy prose goes to Opus, never a cheaper tier", "--name", &name])
         .arg(brief(handoffs, lessons))
         .stderr(Stdio::inherit())

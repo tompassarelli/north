@@ -4,7 +4,6 @@ import { dirname, join } from "node:path";
 
 export const ENROLLED = ["north", "makgora", "wisp", "padbridge", "makgora-client"];
 const LAUNCH_GRACE_MS = 60 * 60 * 1000;
-const PLACEMENT_PICK = /launch with --account ([\w-]+)/;
 
 export type TickEnv = {
   codeRoot: string;
@@ -92,22 +91,19 @@ export function tickRepo(repo: string, env: TickEnv, print: (line: string) => vo
     date: env.now().toISOString().slice(0, 10),
   }));
 
-  const started = launch((account) => [env.north, "fleet", "launch", "--provider", "claude", "--name", name,
-    "--system-prompt", brief, "--cwd", checkout, "--account", account, `Review the code-health report for ${repo} and land the bounded maintenance changes it identifies.`], checkout, env, print);
+  const started = launch([env.north, "fleet", "launch", "--provider", "claude", "--name", name,
+    "--system-prompt", brief, "--cwd", checkout, `Review the code-health report for ${repo} and land the bounded maintenance changes it identifies.`], checkout, env, print);
   if (started.code !== 0 && /launch from another host/.test(started.stderr + started.stdout)) return release(`host saturated, the next tick retries: ${started.stderr.trim().split("\n").at(-1)}`, "deferred");
   if (started.code !== 0) return release(`fleet launch exit ${started.code}: ${(started.stderr || started.stdout).trim()}`);
   return { repo, result: "started", detail: `${env.dryRun ? "dry-run " : ""}${name} (${reasons.join("; ")})` };
 }
 
-function launch(launchOn: (account: string) => string[], checkout: string, env: TickEnv, print: (line: string) => void) {
-  const account = run([env.north, "fleet", "accounts"], checkout).stdout.split("\n").find((line) => line.startsWith("claude\t"))?.split("\t")[1] ?? "a";
+function launch(command: string[], checkout: string, env: TickEnv, print: (line: string) => void) {
   if (env.dryRun) {
-    print(`dry-run: ${launchOn(account).map(shellQuote).join(" ")}`);
+    print(`dry-run: ${command.map(shellQuote).join(" ")}`);
     return { code: 0, stdout: "", stderr: "" };
   }
-  const started = run(launchOn(account), checkout);
-  const picked = PLACEMENT_PICK.exec(started.stderr + started.stdout)?.[1];
-  return started.code !== 0 && picked && picked !== account ? run(launchOn(picked), checkout) : started;
+  return run(command, checkout);
 }
 
 export function defaultEnv(argv: string[]): { env: TickEnv; repos: string[] } {

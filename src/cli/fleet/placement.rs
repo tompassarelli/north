@@ -51,11 +51,13 @@ impl Overrides {
 /// Where placement admitted the launch: the override note to record and the machine to run on, if not here.
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Placed {
+    pub account: Option<String>,
     pub note: Option<String>,
     pub machine: Option<Machine>,
     pub need: Option<String>,
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct Launch<'a> {
     pub name: &'a str,
     pub account: &'a str,
@@ -112,14 +114,33 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
 /// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
 pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster, report: bool) -> NorthResult<Result<Placed, Refusal>> {
     let decision = decide(launch, text, fleet_load, roster)?;
-    if !report {
-        return Ok(admit(&decision, launch, text, overrides));
+    if report {
+        eprintln!("placement: {}", gate::summary(&decision));
+        for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
+            eprintln!("  {line}");
+        }
     }
-    eprintln!("placement: {}", gate::summary(&decision));
-    for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
-        eprintln!("  {line}");
+    Ok(settle(&decision, launch, text, overrides))
+}
+
+pub(super) fn settle(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Placed, Refusal> {
+    if !launch.account.is_empty() {
+        return admit(decision, launch, text, overrides);
     }
-    Ok(admit(&decision, launch, text, overrides))
+    let account = pick(decision, overrides)?;
+    let mut placed = admit(decision, &Launch { account: &account, ..*launch }, text, overrides)?;
+    placed.account = Some(account);
+    Ok(placed)
+}
+
+fn pick(decision: &Decision, overrides: &Overrides) -> Result<String, Refusal> {
+    match (&decision.target, &overrides.local) {
+        (Target::Held(why), _) => Err(Refusal::Final(format!("held: {why}"))),
+        (Target::Unserved(_), _) | (Target::Cloud(_), None) => Ok(String::new()),
+        _ => picked(decision)
+            .map(|verdict| verdict.account.trim_start_matches("claude:").to_owned())
+            .ok_or_else(|| Refusal::Final("no Claude account is available; wait for a window to reset".to_owned())),
+    }
 }
 
 fn decide(launch: &Launch, text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> NorthResult<Decision> {
@@ -166,7 +187,7 @@ pub(super) fn admit(decision: &Decision, launch: &Launch, text: &str, overrides:
     if let Some(reason) = &overrides.tier {
         notes.push(format!("tier: {reason}"));
     }
-    Ok(Placed { note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text) })
+    Ok(Placed { account: None, note: (!notes.is_empty()).then(|| notes.join("; ")), machine, need: gate::capacity_need(text) })
 }
 
 fn not_signed_in(decision: &Decision, machine: &gate::Machine, account: &str) -> String {

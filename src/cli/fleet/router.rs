@@ -157,7 +157,10 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
-    let placed = admission::admitted(&request.name, waiting, |first| placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
+    let mut placed = admission::admitted(&request.name, waiting, |first| placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
+    if let Some(account) = placed.account.take() {
+        request.account = account;
+    }
     (request.placement, request.capacity_need) = (duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
     request.machine = placed.machine.or(request.machine);
     let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };

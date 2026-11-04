@@ -30,7 +30,7 @@ fn decision(target: Target) -> Decision {
 }
 
 fn noted(note: Option<&str>) -> Result<Placed, Refusal> {
-    Ok(Placed { note: note.map(Into::into), machine: None, need: None })
+    Ok(Placed { account: None, note: note.map(Into::into), machine: None, need: None })
 }
 
 #[test]
@@ -64,9 +64,9 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()], saturation: None });
     let launch = Launch { name: "box", account: "a", brief: None, cwd: None, machine: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
-    assert_eq!(placed, Placed { note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
+    assert_eq!(placed, Placed { account: None, note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
     let kept = admit(&remote, &launch, "", &Overrides { local: Some("needs my desktop".into()), pin: None, ..Overrides::default() }).unwrap();
-    assert_eq!(kept, Placed { note: Some("local: needs my desktop".into()), machine: None, need: None });
+    assert_eq!(kept, Placed { account: None, note: Some("local: needs my desktop".into()), machine: None, need: None });
     let here = admit(&decision(Target::Account("claude:a".into())), &launch, "", &Overrides { local: Some("x".into()), pin: None, ..Overrides::default() }).unwrap();
     assert_eq!(here, noted(None).unwrap(), "--local on a box placed here records nothing");
 
@@ -207,4 +207,30 @@ fn a_cloud_target_prints_the_launch_command_for_its_account_on_the_host_that_hol
     assert!(far.contains("ssh laptop 'mkdir -p /tmp/cloud && cat > /tmp/cloud/box.md' < /tmp/box.md"), "{far}");
     assert!(far.contains("ssh laptop 'CLAUDE_CONFIG_DIR=$HOME/.local/state/north/profiles/claude-d north cloud launch north box /tmp/cloud/box.md'"), "{far}");
     assert!(!far.contains("Nexus instead"), "{far}");
+}
+
+#[test]
+fn a_launch_naming_no_account_runs_on_the_account_placement_prints_and_a_held_placement_refuses_with_its_reason() {
+    let unnamed = Launch { name: "box", account: "", brief: None, cwd: None, machine: None };
+    let mut elsewhere = Decision { verdicts: vec![verdict("claude:c", None), verdict("claude:b", Some(40.0)), verdict("claude:a", Some(10.0))], ..decision(Target::Account("claude:b".into())) };
+    assert!(placement::summary(&elsewhere).contains("claude:b"));
+    let placed = settle(&elsewhere, &unnamed, "", &Overrides::default()).unwrap();
+    assert_eq!(placed.account.as_deref(), Some("b"));
+    assert_eq!(placed.note, None);
+
+    let pinned = Overrides { pin: Some("keep a".into()), ..Overrides::default() };
+    assert_eq!(settle(&elsewhere, &unnamed, "", &pinned).unwrap().account.as_deref(), Some("b"), "a pin never changes the account placement picks");
+
+    let named = Launch { account: "c", ..unnamed };
+    assert!(settle(&elsewhere, &named, "", &Overrides::default()).unwrap_err().to_string().contains("placement picks claude:b"), "an explicit exhausted account keeps its refusal");
+
+    elsewhere.target = Target::Held("every Claude account exhausted or over its burn cap".into());
+    let held = settle(&elsewhere, &unnamed, "", &Overrides::default()).unwrap_err();
+    assert_eq!(held.to_string(), "held: every Claude account exhausted or over its burn cap");
+    assert_eq!(NorthError::from(held).user_message(), "held: every Claude account exhausted or over its burn cap");
+
+    let cloud = decision(cloud("a", "nexus"));
+    assert!(settle(&cloud, &unnamed, "", &Overrides::default()).unwrap_err().to_string().contains("north cloud launch"));
+    let local = Overrides { local: Some("x".into()), ..Overrides::default() };
+    assert_eq!(settle(&cloud, &unnamed, "", &local).unwrap().account.as_deref(), Some("a"));
 }

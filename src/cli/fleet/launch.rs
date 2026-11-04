@@ -51,7 +51,14 @@ impl LaunchFlags {
     }
 
     fn request(self, prompt: String, caller: Option<String>, proxy: bool) -> NorthResult<LaunchRequest> {
-        let (Some(provider), Some(account)) = (self.provider, self.account) else { return Err(usage()) };
+        let Some(provider) = self.provider else { return Err(usage()) };
+        let placed = provider.label() == "claude" && !self.verification;
+        let account = match self.account {
+            Some(account) if account.is_empty() => return Err(usage()),
+            Some(account) => account,
+            None if placed => String::new(),
+            None => return Err(usage()),
+        };
         if prompt.is_empty() {
             return Err(usage());
         }
@@ -130,5 +137,8 @@ fn parse_provider(providers: &[ProviderName], value: &str) -> NorthResult<Provid
 
 fn default_name(provider: &ProviderName, account: &str) -> NorthResult<String> {
     let short: String = new_uuid()?.chars().take(6).collect();
+    if account.is_empty() {
+        return Ok(format!("{}-{short}", provider.label()));
+    }
     Ok(format!("{}-{account}-{short}", provider.label()))
 }

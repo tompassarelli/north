@@ -13,7 +13,7 @@ function scratch(signal: string) {
   Bun.spawnSync(["git", "-C", join(root, "code/makgora/main"), "remote", "add", "origin", join(root, "origin.git")]);
   const fake = join(root, "code-health");
   writeFileSync(fake, `#!/usr/bin/env bash\necho "$*" >> ${root}/calls\ncase $1 in\n  signal) ${signal} ;;\n  report) echo "hotspots: sim/physics.ts 412" ;;\nesac\n`); chmodSync(fake, 0o755);
-  const fleet = join(root, "north"), fleetSessions = join(root, "fleet.json"); writeFileSync(fleetSessions, "[]\n"); writeFileSync(fleet, `#!/usr/bin/env bash\necho "$*" >> ${root}/north-calls\ncase "$1 $2" in\n  "fleet list") cat ${fleetSessions} ;;\n  "fleet accounts") printf "claude\\tb\\nclaude\\ta\\n" ;;\n  "fleet launch") name=$(echo "$*" | sed "s/.*--name \\([^ ]*\\).*/\\1/"); grep -q "\"$name\"" ${fleetSessions} && { echo "error: a session named $name already exists" >&2; exit 1; }; [[ " $* " == *" --account b "* ]] && { echo "claude:b is out; placement picks claude:c; launch with --account c, or keep claude:b with --pin" >&2; exit 1; }; echo ok ;;\n  *) exit 2 ;;\nesac\n`); chmodSync(fleet, 0o755);
+  const fleet = join(root, "north"), fleetSessions = join(root, "fleet.json"); writeFileSync(fleetSessions, "[]\n"); writeFileSync(fleet, `#!/usr/bin/env bash\necho "$*" >> ${root}/north-calls\ncase "$1 $2" in\n  "fleet list") cat ${fleetSessions} ;;\n  "fleet launch") name=$(echo "$*" | sed "s/.*--name \\([^ ]*\\).*/\\1/"); grep -q "\"$name\"" ${fleetSessions} && { echo "error: a session named $name already exists" >&2; exit 1; }; echo ok ;;\n  *) exit 2 ;;\nesac\n`); chmodSync(fleet, 0o755);
   const env: TickEnv = {
     codeRoot: join(root, "code"), stateRoot: join(root, "state"), handoffs: join(root, "handoffs"),
     codeHealth: [fake], north: fleet,
@@ -26,7 +26,7 @@ test("FIRE starts exactly one review launch and a held lock starts none", () => 
   const { root, env } = scratch(`echo "FIRE commits 104 >= 100"`);
   const lines: string[] = [];
   expect(tickRepo("makgora", env, (line) => lines.push(line)).result).toBe("started"); expect(lines).toHaveLength(1);
-  expect(lines[0]).toStartWith("dry-run: "); expect(lines[0]).toContain(`fleet launch --provider claude --name ${reviewName("makgora", env.now())} `); expect(lines[0]).toContain("--system-prompt "); expect(lines[0]).toContain("--account b");
+  expect(lines[0]).toStartWith("dry-run: "); expect(lines[0]).toContain(`fleet launch --provider claude --name ${reviewName("makgora", env.now())} `); expect(lines[0]).toContain("--system-prompt "); expect(lines[0]).not.toContain("--account");
   const brief = readFileSync(join(env.handoffs, `${reviewName("makgora", env.now())}-brief.md`), "utf8");
   expect(brief).toStartWith("# Code health review: makgora"); expect(brief.split("\n\n")[0]).toContain("Surface: ts\nNeeds: local-state");
   expect(brief).toContain("- FIRE commits 104 >= 100"); expect(brief).not.toContain("{{");
@@ -50,13 +50,6 @@ test("a stale lock with no live review node is retaken", () => {
   expect(tickRepo("makgora", later, () => {}).result).toBe("started");
   writeFileSync(join(env.north, "../fleet.json"), JSON.stringify([{ name: reviewName("makgora", later.now()) }]));
   expect(tickRepo("makgora", { ...later, now: () => new Date(later.now().getTime() + 600_000) }, () => {}).result).toBe("held");
-});
-
-test("a launch the first account cannot take is retried once on the account placement names", () => {
-  const { root, env } = scratch(`echo "FIRE days 7"`); writeFileSync(join(root, "fleet.json"), JSON.stringify([{ name: "code-health-review-makgora" }, { name: reviewName("makgora", new Date(env.now().getTime() - 3_600_000)) }]));
-  expect(tickRepo("makgora", { ...env, dryRun: false }, () => {}).result).toBe("started");
-  const launches = readFileSync(join(root, "north-calls"), "utf8").split("\n").filter((line) => line.startsWith("fleet launch"));
-  expect(launches).toHaveLength(2); expect(launches[0]).toContain("--account b"); expect(launches[1]).toContain("--account c");
 });
 
 test("a launch placement refuses on every account is an error, and one refused because this host is saturated is deferred; both release the lock", () => {

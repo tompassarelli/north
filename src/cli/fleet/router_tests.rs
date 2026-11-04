@@ -290,6 +290,17 @@ fn a_launch_inherits_the_calling_session_as_parent_else_the_proxy_unless_told_no
 }
 
 #[test]
+fn a_claude_launch_without_an_account_is_left_for_placement_and_any_other_launch_still_needs_one() {
+    let providers = [ProviderName::new("claude"), ProviderName::new("codex")];
+    let request = launch_request(&providers, &["--provider", "claude", "--name", "w", "PROMPT"], None).unwrap();
+    assert_eq!((request.account.as_str(), request.name.as_str()), ("", "w"));
+    assert!(launch_request(&providers, &["--provider", "claude", "PROMPT"], None).unwrap().name.starts_with("claude-"));
+    assert!(launch_request(&providers, &["--provider", "codex", "--name", "w", "PROMPT"], None).is_err());
+    assert!(launch_request(&providers, &["--provider", "claude", "--test", "--name", "w", "PROMPT"], None).is_err());
+    assert!(launch_request(&providers, &["--provider", "claude", "--account", "", "--name", "w", "PROMPT"], None).is_err());
+}
+
+#[test]
 fn a_launch_flag_never_takes_the_next_flag_as_its_value() {
     let providers = [ProviderName::new("claude")];
     let words = ["--provider", "claude", "--account", "c", "--local", "--name", "firn-statix", "go"];
