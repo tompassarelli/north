@@ -1932,9 +1932,9 @@ make_landing_clone "$landing_root/b" b.txt
 "$real_git" -C "$landing_root/b" commit --amend -qm 'repair red main' -m 'Main-red: 55'
 hold_landing_lock
 run_landing "$landing_root/a" & pid_a=$!
-wait_for "$pid_a" bash -c 'compgen -G "$1/[1-9]*" >/dev/null' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
+wait_for "$pid_a" bash -c 'set -- "$1"/[1-9]*; [ -e "$1" ]' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
 run_landing "$landing_root/b" & pid_b=$!
-wait_for "$pid_b" bash -c 'compgen -G "$1/0*" >/dev/null' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
+wait_for "$pid_b" bash -c 'set -- "$1"/0*; [ -e "$1" ]' _ "$xdg_state/safe-push/$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16).queue"
 release_landing_lock
 status_a=0; wait "$pid_a" || status_a=$?
 status_b=0; wait "$pid_b" || status_b=$?
@@ -1960,7 +1960,7 @@ mkfifo "$landing_root/check-release"
 "$real_git" -C "$landing_root/a" commit -qm 'lease probe'
 hold_landing_lock
 run_landing "$landing_root/a" & pid_a=$!
-wait_for "$pid_a" bash -c 'compgen -G "$1/*" >/dev/null' _ "$(lease_queue_dir)"
+wait_for "$pid_a" bash -c 'set -- "$1"/*; [ -e "$1" ]' _ "$(lease_queue_dir)"
 [ ! -e "$landing_root/held" ] || { release_landing_lock; fail 'the lease was held while the landing waited for the lock'; }
 [ ! -e "$landing_root/check-started" ] || { release_landing_lock; fail 'the land check ran while the landing waited for the lock'; }
 release_landing_lock
@@ -2504,6 +2504,95 @@ rm -f "$real_bin/bun"
 case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
 [ $((status_a + status_b)) -eq 0 ] || fail "train with a lockfile change: a lane failed: $case_output"
 [ "$("$real_git" --git-dir="$landing_remote" show main:bun.lock)" = b ] || fail 'train with a lockfile change: main lacks the new lockfile'
+
+# A landing.exact repository with land checks queues its lanes in the train:
+# the holder runs the land checks once on the combined candidate.
+new_land_train_origin() {
+  new_landing_origin "$1"
+  "$real_git" --git-dir="$landing_remote" config core.logAllRefUpdates always
+  printf "[landing]\n\texact = true\n\tcapacity = env\n" >"$landing_root/seed/.safe-push"
+  "$real_git" -C "$landing_root/seed" config --file .safe-push --add land.check "** :: $2"
+  "$real_git" -C "$landing_root/seed" add .safe-push
+  "$real_git" -C "$landing_root/seed" commit -qm 'exact landings with land checks'
+  "$real_git" -C "$landing_root/seed" push -q "$landing_remote" main
+}
+
+land_train_pushes() {
+  "$real_git" --git-dir="$landing_remote" reflog show --format=%H refs/heads/main | wc -l
+}
+
+queue_land_train() {
+  local lane
+  lock_key=$(printf '%s' "$landing_remote" | sha256sum | cut -c1-16)
+  mkdir -p "$xdg_state/safe-push"
+  hold_landing_lock
+  train_pids=()
+  for lane in "$@"; do
+    run_landing "$landing_root/$lane" & train_pids+=($!)
+    wait_for "${train_pids[-1]}" queued_lane "$landing_root/$lane"
+  done
+  release_landing_lock
+}
+
+wait_land_train() {
+  local pid status
+  train_status=()
+  for pid in "${train_pids[@]}"; do
+    status=0; wait "$pid" || status=$?
+    train_status+=("$status")
+  done
+}
+
+new_land_train_origin land-train "git rev-parse HEAD >>\"\$PWD/../runs\"; test ! -e fail.txt"
+for lane in a b; do make_landing_clone "$landing_root/$lane" "$lane.txt"; done
+pushes_before=$(land_train_pushes)
+queue_land_train a b
+wait_land_train
+case_output="$(cat "$landing_root/a.out" "$landing_root/b.out")"
+[ "${train_status[*]}" = '0 0' ] || fail "land-check train: a lane failed (${train_status[*]}): $case_output"
+expect_output 'safe-push: landing train of 2 lanes'
+[ "$(cat "$landing_root/runs")" = "$("$real_git" --git-dir="$landing_remote" rev-parse main)" ] \
+  || fail "land-check train: the land checks did not run once on the candidate that landed: $(cat "$landing_root/runs") $case_output"
+[ $(( $(land_train_pushes) - pushes_before )) -eq 1 ] || fail 'land-check train: the two lanes did not land in one push'
+[ "$("$real_git" --git-dir="$landing_remote" log --format=%s -2 main | tr '\n' ' ')" = 'change from b change from a ' ] \
+  || fail 'land-check train: lanes did not land in arrival order'
+printf 'PASS: two lanes queued in a landing.exact repository with land checks land in one push after one land-check run on their candidate\n'
+
+new_land_train_origin land-train-bisect "git rev-parse HEAD >>\"\$PWD/../runs\"; test ! -e fail.txt"
+for lane in a b; do make_landing_clone "$landing_root/$lane" "$lane.txt"; done
+make_landing_clone "$landing_root/c" fail.txt
+queue_land_train a b c
+wait_land_train
+case_output="$(cat "$landing_root/a.out" "$landing_root/b.out" "$landing_root/c.out")"
+[ "${train_status[0]} ${train_status[1]}" = '0 0' ] || fail "land-check bisect: a green lane failed (${train_status[*]}): $case_output"
+[ "${train_status[2]}" -ne 0 ] || fail 'land-check bisect: the red lane landed'
+expect_output 're-running the checks on its first 2 lanes'
+[ "$(sed -n 2p "$landing_root/runs")" = "$("$real_git" --git-dir="$landing_remote" rev-parse main)" ] \
+  || fail "land-check bisect: main is not the green half the second run checked: $case_output"
+! "$real_git" --git-dir="$landing_remote" cat-file -e main:fail.txt 2>/dev/null || fail 'land-check bisect: the red lane reached main'
+printf 'PASS: a red land-check candidate re-runs its first half and lands the green half\n'
+
+new_land_train_origin land-train-next "git rev-parse HEAD >>\"\$PWD/../runs\"; [ -e \"\$PWD/../gate-open\" ] || read -r _ <\"\$PWD/../gate\""
+mkfifo "$landing_root/gate"
+for lane in a b c d; do make_landing_clone "$landing_root/$lane" "$lane.txt"; done
+queue_land_train a b
+first_pids=("${train_pids[@]}")
+wait_for "${first_pids[*]}" test -s "$landing_root/runs"
+train_pids=()
+for lane in c d; do
+  run_landing "$landing_root/$lane" & train_pids+=($!)
+  wait_for "${train_pids[-1]}" queued_lane "$landing_root/$lane"
+done
+[ "$(wc -l <"$landing_root/runs")" -eq 1 ] || fail 'land-check next train: a lane arriving during the checks started its own'
+touch "$landing_root/gate-open"
+printf 'go\n' >"$landing_root/gate"
+train_pids=("${first_pids[@]}" "${train_pids[@]}")
+wait_land_train
+case_output="$(for lane in a b c d; do cat "$landing_root/$lane.out"; done)"
+[ "${train_status[*]}" = '0 0 0 0' ] || fail "land-check next train: a lane failed (${train_status[*]}): $case_output"
+[ "$(wc -l <"$landing_root/runs")" -eq 2 ] || fail "land-check next train: the late lanes did not share one land-check run: $case_output"
+[ "$(grep -c 'safe-push: landing train of 2 lanes' <<<"$case_output")" -eq 2 ] || fail "land-check next train: the late lanes did not join one next train: $case_output"
+printf 'PASS: lanes arriving while a land-check train runs wait for its result and land together in the next train\n'
 
 new_landing_origin red-fix
 printf '[landing]\n\texact = true\n' >"$landing_root/seed/.safe-push"

@@ -29,9 +29,16 @@ pub fn run(arguments: &[String]) -> u8 {
         return 64;
     };
     let branch = format!("land-check/{}", request.head);
-    if !push(&format!("+{}:refs/heads/{branch}", request.head)) {
-        eprintln!("land check: could not push {} to origin {branch}", request.head);
-        return 1;
+    match push_land_ref(&format!("+{}:refs/heads/{branch}", request.head), push_capturing, || thread::sleep(Duration::from_secs(5))) {
+        RefPush::Pushed => {}
+        RefPush::Failed => {
+            eprintln!("land check: could not push {} to origin {branch}", request.head);
+            return 1;
+        }
+        RefPush::Infrastructure => {
+            eprintln!("land check: GitHub rejected the push of origin {branch} twice; infrastructure, not a check failure");
+            return INFRASTRUCTURE;
+        }
     }
     let status = check(&request, &branch);
     if !push(&format!(":refs/heads/{branch}")) {
@@ -62,6 +69,46 @@ fn push(refspec: &str) -> bool {
         .env("SAFE_PUSH_ACTIVE", "1")
         .status()
         .is_ok_and(|status| status.success())
+}
+
+pub const INFRASTRUCTURE: u8 = 75;
+
+#[derive(Debug, PartialEq)]
+enum RefPush {
+    Pushed,
+    Failed,
+    Infrastructure,
+}
+
+fn push_capturing(refspec: &str) -> (bool, String) {
+    let output = Command::new("git").args(["push", "-q", "--no-verify", "origin", refspec]).env("SAFE_PUSH_ACTIVE", "1").output();
+    let Ok(output) = output else { return (false, String::new()) };
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    eprint!("{stderr}");
+    (output.status.success(), stderr)
+}
+
+fn transient_rejection(stderr: &str) -> bool {
+    let rejected = stderr.contains("fatal error in commit_refs") || (stderr.contains("[remote rejected]") && stderr.contains("(failure)"));
+    let server_error = stderr.lines().any(|line| {
+        line.split(|c: char| !c.is_ascii_alphanumeric()).collect::<Vec<_>>().windows(2).any(|pair| {
+            matches!(pair[0], "error" | "HTTP") && pair[1].len() == 3 && pair[1].starts_with('5') && pair[1].bytes().all(|b| b.is_ascii_digit())
+        })
+    });
+    rejected || server_error
+}
+
+fn push_land_ref(refspec: &str, mut attempt: impl FnMut(&str) -> (bool, String), pause: impl FnOnce()) -> RefPush {
+    let (pushed, stderr) = attempt(refspec);
+    if pushed {
+        return RefPush::Pushed;
+    }
+    if !transient_rejection(&stderr) {
+        return RefPush::Failed;
+    }
+    eprintln!("safe-push: GitHub rejected the land-check ref push transiently (commit_refs); retrying once");
+    pause();
+    if attempt(refspec).0 { RefPush::Pushed } else { RefPush::Infrastructure }
 }
 
 fn gh(arguments: &[&str]) -> Result<String, String> {
@@ -159,3 +206,7 @@ fn report_failure(id: &str, conclusion: &str) -> u8 {
     eprintln!("land check: the Actions run concluded {conclusion}; failed: {}", if failed.is_empty() { "unknown".to_owned() } else { failed.join(", ") });
     1
 }
+
+#[cfg(test)]
+#[path = "land_actions_tests.rs"]
+mod tests;

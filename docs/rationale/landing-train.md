@@ -64,6 +64,7 @@ cherry-picked, runs the hook once on that exact tree, pushes it with
 | Exact tree tested and pushed by compare-and-swap | delivered |
 | Train of queued lanes, bisect by halves | delivered |
 | Already-landed lane counts as landed; red-fix lanes first | delivered |
+| Train candidate checked by the land checks, so a repository with land checks batches instead of every lane re-running its own (fixed 2026-11-04: land checks had sent such repositories around the train) | delivered |
 | Queue owned by the system on an always-on host (today the lock holder is a worker's turn on whichever host) | remains: Wave 2 |
 | Base-relative judge per test case | remains: Wave 1 |
 | Full suite with inputs outside the tree pinned | remains: Waves 0-1 |

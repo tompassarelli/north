@@ -1185,9 +1185,11 @@ run_land_checks() {
   land_check_commands "$base" "$head" || return 1
   local workflow actions_pid="" actions_status=0 reason failed=0 published="" actions_log
   local -a here=() on_actions=()
+  local runner_host offload_host
   workflow=$(land_workflow "$head")
+  runner_host=${SAFE_PUSH_LAND_RUNNER-$(git config --blob "$head:.safe-push" --get land.runner 2>/dev/null || true)}
   for command in "${land_commands[@]}"; do
-    if [ -n "$workflow" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$command" "$head"; then
+    if [ -n "$workflow" ] && [ -z "$runner_host" ] && [ -z "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && ! land_check_is_local_only "$command" "$head"; then
       on_actions+=("$command")
     else
       here+=("$command")
@@ -1213,13 +1215,15 @@ run_land_checks() {
     fi
     local -a runner
     land_check_runner "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" bash -euo pipefail -c "$command"
-    if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ]; then
-      if land_check_is_local_only "$command" "$head"; then
+    offload_host=${SAFE_PUSH_LAND_OFFLOAD_HOST:-}
+    [ -n "$offload_host" ] || land_check_is_local_only "$command" "$head" || offload_host=$runner_host
+    if [ -n "$offload_host" ]; then
+      if [ -n "${SAFE_PUSH_LAND_OFFLOAD_HOST:-}" ] && land_check_is_local_only "$command" "$head"; then
         printf 'safe-push: land check %s needs this host, which is in game-reserve; NOT pushed.\n' "$command" >&2
         return 1
       fi
-      land_check_runner "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" north capacity offload run --host "$SAFE_PUSH_LAND_OFFLOAD_HOST" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command"
-      printf 'safe-push: offloading to %s while this host is in game-reserve\n' "$SAFE_PUSH_LAND_OFFLOAD_HOST"
+      land_check_runner "$((${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100} + 900))" north capacity offload run --host "$offload_host" --base "$base" --head "$head" --timeout "${SAFE_PUSH_LAND_CHECK_TIMEOUT:-2100}" -- "$command"
+      printf "safe-push: offloading to %s%s\n" "$offload_host" "${SAFE_PUSH_LAND_OFFLOAD_HOST:+ while this host is in game-reserve}"
     fi
     log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
     mkdir -p "$log_dir"
@@ -1252,6 +1256,7 @@ run_land_checks() {
     wait "$actions_pid" || actions_status=$?
     if [ "$actions_status" -ne 0 ]; then
       printf "safe-push: land checks on GitHub Actions exited %s; NOT pushed.\n" "$actions_status" >&2
+      [ "$actions_status" -ne 75 ] || land_check_skip="not run: GitHub rejected the land-check ref push twice (infrastructure, not a check failure)"
       [ "$failed" -ne 0 ] || failed=$actions_status
       [ -n "${red_fix:-}" ] || red_main_check "$base" "$actions_log"
     fi
@@ -1762,6 +1767,15 @@ sync_dependencies() {
   done < <(git -C "$top" ls-files -- 'bun.lock' '*/bun.lock')
 }
 
+candidate_checks() {
+  if [ -n "$1" ]; then
+    (cd "$repo_root" && printf 'refs/heads/%s %s refs/heads/%s %s\n' "$train_branch" "$3" "$to" "$2" | "$1" origin "$lock_url")
+    return
+  fi
+  (cd "$repo_root" && north dep-gate "$2" "$3") && tool_removal_scan "$2..$3" && test_integrity_scan "$2..$3" \
+    && policy_sweep_scan "$2..$3" && run_land_checks "$2" "$3"
+}
+
 # Prints "ok" or the farm URL (else the log path) of the failed check on the
 # train branch's HEAD; returns nonzero on failure.
 check_candidate() {
@@ -1779,8 +1793,7 @@ check_candidate() {
       && gitleaks detect --no-banner --redact --log-opts="$base..$head" >>"$log" 2>&1 \
       && denylist_scan "$base" "$head" "$to" >>"$log" 2>&1 \
       && commit_email_scan "$base..$head" >>"$log" 2>&1 \
-      && (cd "$repo_root" && printf 'refs/heads/%s %s refs/heads/%s %s\n' "$train_branch" "$head" "$to" "$base" \
-        | "$hook" origin "$lock_url") 2>&1 | tee -a "$log" >&2; then
+      && candidate_checks "$hook" "$base" "$head" 2>&1 | tee -a "$log" >&2; then
     return 0
   fi
   url=$(grep -oE 'https?://[^[:space:]()]+/actions/runs/[0-9]+' "$log" | tail -n1) || url=""
@@ -2226,7 +2239,8 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   lock_url=$(git remote get-url --push origin 2>/dev/null) \
     || { echo "safe-push: origin has no push URL"; exit 1; }
   hook=$(pre_push_hook)
-  if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; fi
+  land_train=0
+  if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; land_train=1; fi
   if [ "$to" = "$(default_branch)" ]; then
     autoland_base=$(fetch_destination) || exit 1
     land_as_one_commit "$autoland_base"
@@ -2247,7 +2261,8 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
     echo "safe-push: $to is not origin's default branch — pushing without the landing lock"
     safe_push_scratch_branch="$to"
     sync_with_destination
-  elif [ -z "$hook" ]; then
+  elif [ -z "$hook" ] && { [ "$land_train" = 0 ] || ! exact_landing "${autoland_base:-HEAD}"; }; then
+    land_train=0
     acquire_push_lock "$lock_url"
     sync_with_destination
   else
@@ -2267,8 +2282,9 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
         [ "${#train_tickets[@]}" -eq 0 ] || run_train "$hook"
       done
     fi
+    [ "$land_train" = 0 ] || { [ "$queued" -eq 1 ] || acquire_push_lock "$lock_url"; sync_with_destination; }
     attempt=1
-    while :; do
+    while [ "$land_train" = 0 ]; do
       checked_base=$(fetch_destination) || exit 1
       rebase_onto_destination "$checked_base"
       checked_head=$(git rev-parse HEAD)
@@ -2351,7 +2367,7 @@ fi
 while :; do
   land_base="${destination_oid:-${absent_base:-}}"
   land_locked=0
-  if [ -n "$push_lock_fd" ] && has_land_checks; then
+  if [ -n "$push_lock_fd" ] && has_land_checks && [ "$land_train" = 0 ]; then
     land_locked=1
     release_push_lock
   fi
