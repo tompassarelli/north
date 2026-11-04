@@ -31,7 +31,7 @@ fn scratch() -> tempfile::TempDir {
     fs::create_dir_all(root.join("bin")).unwrap();
     fs::create_dir_all(root.join(".config/threads")).unwrap();
     fs::write(root.join(".config/threads/remote"), "ledger-host\n").unwrap();
-    fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/job-run"), root.join("bin/job-run")).unwrap();
+    shim::copy_executable(Path::new(env!("CARGO_MANIFEST_DIR")).join("bin/job-run"), root.join("bin/job-run"));
     symlink(env!("CARGO_BIN_EXE_north"), root.join("bin/north")).unwrap();
     shim::write_script(&root.join("bin/ssh"), FAKE_SSH);
     scratch

@@ -18,8 +18,8 @@ fn host(prefix: &str, orchestration: &str) -> Host {
     shim::write_script(&real, &format!("echo \"$CARGO_BUILD_JOBS $*\" >{}\n", host.path("built").display()));
     let shim = host.path("shims/cargo");
     fs::create_dir_all(shim.parent().unwrap()).unwrap();
-    fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/cargo"), &shim).unwrap();
-    fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/nix"), host.path("shims/nix")).unwrap();
+    shim::copy_executable(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/cargo"), &shim);
+    shim::copy_executable(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/nix"), host.path("shims/nix"));
     let nix = host.path("toolchain/nix");
     shim::write_script(&nix, &format!("while [ \"$1\" != --command ]; do shift; done\nshift\nPATH={}:$PATH exec \"$@\"\n", real.parent().unwrap().display()));
     host
@@ -132,7 +132,7 @@ fn depbox_under_an_inherited_live_lease_outside_its_scope_runs_once_nested_inste
 fn a_stub_that_execs_the_gate_shim_reaches_the_real_program_instead_of_looping() {
     let host = host("capacity-gate-loop-", "[hosts.gex45]\nresident_cap = 24\n");
     shim::write_script(&host.path("toolchain/bun"), &format!("echo \"real $*\" >{}\n", host.path("ran").display()));
-    fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/bun"), host.path("shims/bun")).unwrap();
+    shim::copy_executable(concat!(env!("CARGO_MANIFEST_DIR"), "/bin/bun"), host.path("shims/bun"));
     let stub = host.path("stubs/bun");
     fs::create_dir_all(stub.parent().unwrap()).unwrap();
     shim::write_script(&stub, &format!("exec {} \"$@\"\n", host.path("shims/bun").display()));

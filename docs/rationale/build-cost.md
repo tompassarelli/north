@@ -222,7 +222,7 @@ The Sonnet lane `etxtbsy-shim` already holds routing test script writes through 
 blocked on the capacity wrong-tree bug. B9 is landing that lane once the bug is fixed.
 
 Done when:
-- `rg -l 'from_mode\(0o7|PermissionsExt|set_permissions' tests | xargs rg -L 'write_script|wait_until_executable'` on
+- `rg -l 'from_mode\(0o7|PermissionsExt|set_permissions' tests | xargs rg -L 'write_script|write_executable'` on
   origin/main prints nothing.
 
 ### B10. Merge the integration tests into `tests/it` (candidate 6, after B9)

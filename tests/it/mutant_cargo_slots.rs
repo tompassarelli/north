@@ -1,3 +1,4 @@
+use north_core::foundation::shim;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -18,8 +19,7 @@ impl Machine {
         let root = tempfile::tempdir().unwrap();
         let bin = root.path().join("bin");
         fs::create_dir_all(&bin).unwrap();
-        fs::write(bin.join("cargo"), STUB).unwrap();
-        Command::new("chmod").arg("+x").arg(bin.join("cargo")).status().unwrap();
+        shim::write_executable(&bin.join("cargo"), STUB);
         let debug = root.path().join("cache/north/mutant-cargo/target/debug");
         fs::create_dir_all(&debug).unwrap();
         fs::write(debug.join("dep"), "warm").unwrap();

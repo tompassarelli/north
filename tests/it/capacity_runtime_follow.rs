@@ -1,3 +1,4 @@
+use north_core::foundation::shim;
 use crate::capacity_host;
 
 use capacity_host::{Host, SCOPE_SYSTEMCTL, Wrapper, scope_systemd_run};
@@ -11,7 +12,7 @@ fn runtime(host: &Host, name: &str) -> PathBuf {
     fs::create_dir_all(&directory).unwrap();
     let binary = directory.join("north");
     if fs::hard_link(env!("CARGO_BIN_EXE_north"), &binary).is_err() {
-        fs::copy(env!("CARGO_BIN_EXE_north"), &binary).unwrap();
+        shim::copy_executable(env!("CARGO_BIN_EXE_north"), &binary);
     }
     binary
 }

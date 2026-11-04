@@ -82,7 +82,7 @@ impl Host {
     fn build(&self, sha: &str) {
         fs::create_dir_all(self.runtime(sha)).unwrap();
         for program in ["north", "verify-north"] {
-            fs::copy(env!("CARGO_BIN_EXE_north"), self.runtime(sha).join(program)).unwrap();
+            shim::copy_executable(env!("CARGO_BIN_EXE_north"), self.runtime(sha).join(program));
         }
     }
 

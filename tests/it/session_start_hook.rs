@@ -50,8 +50,7 @@ impl Rig {
         let nodes = json!([{"name": "holder", "conversation": "fixture-session", "task_ref": "makgora#10", "status": status}]);
         std::fs::write(root.join("fleet.json"), nodes.to_string()).unwrap();
         let stub = root.join("north-stub");
-        std::fs::write(&stub, format!("#!/bin/sh\ncat {}\n", root.join("fleet.json").display())).unwrap();
-        Command::new("chmod").arg("+x").arg(&stub).status().unwrap();
+        north_core::foundation::shim::write_executable(&stub, format!("#!/bin/sh\ncat {}\n", root.join("fleet.json").display()));
     }
 
     fn start(&self, payload: &str, extra: &[(&str, &Path)], disabled: Option<&str>) -> Option<String> {

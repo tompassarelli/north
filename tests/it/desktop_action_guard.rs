@@ -34,12 +34,11 @@ mod guard {
                 .tempdir()
                 .unwrap();
             let p = root.path();
-            std::fs::copy(
+            north_core::foundation::shim::copy_executable(
                 std::env::var_os("NORTH_DESKTOP_BINARY")
                     .unwrap_or_else(|| env!("CARGO_BIN_EXE_north").into()),
                 p.join("north"),
-            )
-            .unwrap();
+            );
             for dir in ["runtime", "bin", "run-user/private-desktop.fixture/runtime"] {
                 std::fs::create_dir_all(p.join(dir)).unwrap();
             }
@@ -79,7 +78,7 @@ mod guard {
                 .output()
                 .unwrap();
             let fake = p.join("swayidle");
-            std::fs::copy(String::from_utf8(bash.stdout).unwrap().trim(), &fake).unwrap();
+            north_core::foundation::shim::copy_executable(String::from_utf8(bash.stdout).unwrap().trim(), &fake);
             let child = Command::new(fake)
                 .args([
                     "-c",
