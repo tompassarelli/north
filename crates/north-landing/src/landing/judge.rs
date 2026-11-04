@@ -80,6 +80,39 @@ impl Quarantine {
         self.entries.retain(|_, entry| !(entry.reason == Reason::Flaky && entry.issue.as_deref() == Some(issue)));
     }
 
+    pub fn parse(text: &str) -> Self {
+        let entries = text
+            .lines()
+            .filter_map(|line| {
+                let [reason, tree, opened_at, issue, test, case] = line.splitn(6, '\t').collect::<Vec<_>>()[..] else { return None };
+                let reason = match reason {
+                    "base-red" => Reason::BaseRed,
+                    "flaky" => Reason::Flaky,
+                    _ => return None,
+                };
+                let opened_at = OffsetDateTime::from_unix_timestamp(opened_at.parse().ok()?).ok()?;
+                let issue = (issue != "-").then(|| issue.to_owned());
+                Some((CaseId::new(test, case), Entry { reason, issue, tree: tree.to_owned(), opened_at }))
+            })
+            .collect();
+        Quarantine { entries }
+    }
+
+    pub fn render(&self) -> String {
+        self.entries
+            .iter()
+            .map(|(id, entry)| {
+                let reason = match entry.reason {
+                    Reason::BaseRed => "base-red",
+                    Reason::Flaky => "flaky",
+                };
+                let field = |text: &str| text.replace(['\t', '\n', '\r'], " ");
+                let issue = entry.issue.as_deref().map_or_else(|| "-".to_owned(), field);
+                format!("{reason}\t{}\t{}\t{issue}\t{}\t{}\n", entry.tree, entry.opened_at.unix_timestamp(), field(&id.test), field(&id.case))
+            })
+            .collect()
+    }
+
     pub fn stale_files(&self, selected: &[String], now: OffsetDateTime) -> Vec<String> {
         let selected: BTreeSet<&str> = selected.iter().map(String::as_str).collect();
         let stale: BTreeSet<&str> = self

@@ -179,3 +179,13 @@ proptest! {
         prop_assert_eq!(verdict, if held { Verdict::Hold { files: vec![FILE.to_owned()] } } else { Verdict::Land });
     }
 }
+
+#[test]
+fn judge_quarantine_survives_a_render_and_parse() {
+    let mut quarantine = Quarantine::default();
+    quarantine.observe_base(BASE_TREE, &results(&[(FILE, "a", false), (FILE, "b\tc", true), (FILE, "b\tc", false)]), at(0));
+    quarantine.file_issue(&CaseId::new(FILE, "a"), "tompassarelli/north#999");
+    let parsed = Quarantine::parse(&quarantine.render());
+    assert_eq!(parsed.get(FILE, "a"), quarantine.get(FILE, "a"));
+    assert_eq!(parsed.get(FILE, "b c").map(|entry| entry.reason), Some(Reason::Flaky));
+}

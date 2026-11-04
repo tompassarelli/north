@@ -49,7 +49,7 @@ pub fn machine_bound(command: &str) -> bool {
     ["code/south", "code/nixos-config", "machine-bound"].iter().any(|marker| command.contains(marker))
 }
 
-fn checkout_head(root: &Path) -> String {
+pub(super) fn checkout_head(root: &Path) -> String {
     git(root, &["rev-parse", "--verify", "--quiet", "HEAD"]).unwrap_or_else(|| ABSENT.to_owned())
 }
 

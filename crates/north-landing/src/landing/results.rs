@@ -79,6 +79,14 @@ impl Results {
         }
     }
 
+    pub fn extend(&mut self, other: &Results) {
+        for (id, seen) in &other.cases {
+            let mine = self.cases.entry(id.clone()).or_default();
+            mine.passed |= seen.passed;
+            mine.failed |= seen.failed;
+        }
+    }
+
     pub fn get(&self, test: &str, case: &str) -> Option<Seen> {
         self.cases.get(&(test.to_owned(), case.to_owned())).copied()
     }

@@ -270,9 +270,15 @@ finished-to-landed is measured.
   case A plus lane red case B in the same file names only B new; a base-red case enters quarantine and
   exits on a passing later base tree; a flaky case's pass does not count; a quarantine older than 24 h
   holds a lane that selects its file.
-- **B11 Judge in the exact train.** Follows B10. Files harness/scripts/land-checks.sh, cargo-tests.sh,
-  bin/safe-push (`check_candidate`). Done when: bin/safe-push.test.sh lands a lane in exact mode over a
-  base with a planted red case and refuses a lane that adds a red case in the same test file.
+- **B11 Judge in the land check.** Follows B10. Delivered in Rust inside `north land-tests`
+  (crates/north-landing/src/landing/base_relative.rs), not in bin/safe-push, since the S6a runner
+  replaced the bash land-check runner. Inside a candidate check (SAFE_PUSH_LAND_BASE and
+  SAFE_PUSH_LAND_HEAD set) every case is recorded in the results store under the head tree, keyed per
+  test file (cargo test binaries by name without their build hash) and per repository (its root
+  commit), so the landed candidate leaves main's tree on record for the next one without a separate
+  after-landing step. A base-red case is quarantined (case, tree first seen red, when) in
+  `case-results/quarantine/<root>.tsv` and printed; only the lane's new red cases refuse it; a base
+  with no recorded results refuses as before. tests/it/land_tests.rs shows each.
 - **B12 Ledger tables and train records.** Category feature; files crates/north-core/src/threads
   (schema), bin/safe-push (`train_verdict` calls `north land-train record`). Done when: a safe-push
   exact-mode test run leaves one `landings` row per lane with tree, batch_size, attempts and verdict.

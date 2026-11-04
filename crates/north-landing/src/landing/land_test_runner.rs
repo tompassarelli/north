@@ -1,3 +1,4 @@
+use super::base_relative::Candidate;
 use std::io::{self, Read, Seek, Write};
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -46,6 +47,7 @@ pub fn run(arguments: &[String]) -> u8 {
         eprintln!("{USAGE}");
         return 64;
     };
+    let candidate = Candidate::from_env();
     let outcomes = if request.cases {
         let outcomes = run_all(request.tests, request.jobs, &mut io::stderr().lock());
         let mut stdout = io::stdout().lock();
@@ -57,11 +59,13 @@ pub fn run(arguments: &[String]) -> u8 {
         run_all(request.tests, request.jobs, &mut io::stdout().lock())
     };
     let failed: Vec<&str> = outcomes.iter().filter(|outcome| !outcome.passed()).map(|outcome| outcome.test.as_str()).collect();
-    if failed.is_empty() {
-        return 0;
+    if !failed.is_empty() {
+        eprintln!("land check: {} of {} tests failed: {}", failed.len(), request.tests.len(), failed.join(", "));
     }
-    eprintln!("land check: {} of {} tests failed: {}", failed.len(), request.tests.len(), failed.join(", "));
-    1
+    match candidate {
+        Some(candidate) => candidate.judge(&outcomes.iter().flat_map(cases).collect::<Vec<_>>(), &mut io::stderr().lock()),
+        None => u8::from(!failed.is_empty()),
+    }
 }
 
 fn parse(arguments: &[String]) -> Option<Request<'_>> {
