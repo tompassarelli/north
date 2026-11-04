@@ -29,7 +29,8 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 ## Placement
 
-- `north fleet launch` places each box before it starts, cloud first for code-only work. Read [cloud.md](references/cloud.md#placement) when a box may need a local client, a GPU or the laptop, when placement holds it, when you override it, or when Tom is waiting on a worker's output.
+- Where a box runs: a box that builds, waits or lands is a fleet session (`north fleet launch`); an Agent subagent is only for `Category: research`, and the spawn guard refuses other `worker*` Agent briefs.
+- `north fleet launch` places each box before it starts, cloud first for code-only work. Read [cloud.md](references/cloud.md#placement) when a box needs a local client, a GPU or the laptop, when placement holds it or you override it.
 
 ## Review
 

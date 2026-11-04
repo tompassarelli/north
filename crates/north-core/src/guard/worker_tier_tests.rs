@@ -246,3 +246,22 @@ mod routing {
         assert_eq!(verdict("worker", &tooling(), Some(Tier::Opus)), None);
     }
 }
+
+mod placement {
+    use super::{FACETS, input};
+    use crate::guard::worker_tier::placement_refusal;
+    use serde_json::json;
+
+    #[test]
+    fn a_box_that_builds_waits_or_lands_is_sent_to_a_fleet_session_and_read_only_research_stays_a_subagent() {
+        let code = format!("Item: add a flag.\nCategory: tooling\nPayback: enables x; cost 5 min{FACETS}");
+        for agent in ["worker", "worker-sonnet", "worker-haiku"] {
+            let refused = placement_refusal(&input(agent, json!(true), &code)).unwrap();
+            assert!(refused.contains("north fleet launch") && refused.contains(agent), "{refused}");
+        }
+        let research = format!("Item: survey the ledger.\nCategory: research{FACETS}");
+        assert_eq!(placement_refusal(&input("worker", json!(true), &research)), None);
+        assert_eq!(placement_refusal(&input("codex", json!(true), &code)), None);
+        assert_eq!(placement_refusal(&input("Explore", json!(true), &code)), None);
+    }
+}

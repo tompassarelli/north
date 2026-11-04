@@ -47,6 +47,9 @@ static FOLLOWS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^\W*Follows
 static MECHANICAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Category:\W*mechanical\b").unwrap());
 
+static RESEARCH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Category:\W*research\b").unwrap());
+
 static ITEM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t]*Item:[ \t]*\S").unwrap());
 static TIER_REASON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Tier-reason:[ \t]*\S").unwrap());
 
@@ -78,8 +81,16 @@ pub(super) fn routing_refusal(input: &HookInput, pick: &dyn Fn(&str) -> Option<T
     (asked != picked).then(|| format!("{kind} is {}, but the ledger's routing picks {} for this brief; spawn that tier or add a `Tier-reason:` line saying why this box needs {kind}.", asked.name(), picked.name()))
 }
 
+/// Refuses a Claude Agent worker whose brief is not `Category: research`: a box that builds,
+/// waits on a run or lands runs as a fleet session, and an in-process subagent only reads.
+pub(super) fn placement_refusal(input: &HookInput) -> Option<String> {
+    let (kind, prompt) = spawn_parts(input)?;
+    let native = input.data["tool_name"].as_str().unwrap_or("").ends_with("spawn_agent");
+    (!native && !RESEARCH.is_match(prompt)).then(|| format!("{kind} runs in-process, which is for read-only research (`Category: research`); a box that builds, waits on a run or lands is a fleet session: launch it with `north fleet launch` and this brief."))
+}
+
 pub fn evaluate(input: &HookInput) -> Verdict {
-    let Some(reason) = refusal(input).or_else(|| routing_refusal(input, &routed_tier)) else {
+    let Some(reason) = refusal(input).or_else(|| routing_refusal(input, &routed_tier)).or_else(|| placement_refusal(input)) else {
         return Verdict::Allow;
     };
     if crate::guard::activation::authoring_guards_off("worker-tier-guard") {
