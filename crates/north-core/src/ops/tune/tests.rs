@@ -383,3 +383,19 @@ fn the_dividends_on_main_parse_and_each_names_one_bar() {
     assert!(dividends.len() >= 3 && dividends.iter().all(|dividend| dividend.issue.starts_with("north#")), "{dividends:?}");
     assert!(dividends::parse("[[dividend]]\nname = \"x\"\nissue = \"north#1\"\nmetric = \"usd_per_closed\"\n").is_err());
 }
+
+#[test]
+fn one_umbrella_box_with_many_runs_lifts_the_mean_past_the_bar_but_files_no_rise_while_the_median_box_holds() {
+    let box_runs = |item: &str, count: usize, day: &str| -> Vec<SpendRun> {
+        (0..count).map(|n| run(item, SONNET, "bug-known-cause", &format!("{day}T{:02}:00:00Z", 8 + n), &format!("{day}T{:02}:30:00Z", 8 + n))).collect()
+    };
+    let before = report(&[box_runs("north#30", 2, "2026-10-15"), box_runs("north#31", 2, "2026-10-16"), box_runs("north#32", 2, "2026-10-17")].concat(), "2026-10-13T06:00:00Z");
+    let week = report(&[box_runs("north#33", 2, "2026-10-22"), box_runs("north#34", 2, "2026-10-23"), box_runs("north#35", 2, "2026-10-24"), box_runs("north#36", 12, "2026-10-25")].concat(), "2026-10-20T06:00:00Z");
+    let cell = |report: &ClosedReport| report.cells.iter().find(|cell| cell.tier == SONNET.0).map(|cell| (cell.closed, cell.usd_per_closed())).unwrap();
+    let ((was_n, was), (now_n, now)) = (cell(&before), cell(&week));
+    assert!((was_n, now_n) == (3, 4) && now > was * 1.25, "{was} -> {now}");
+
+    let mut issues = Issues::default();
+    let ticked = tick(&Ledger { week, before, evidence: BTreeMap::new(), notes: Vec::new() }, &Prior::default(), &[], &mut issues, AT, false);
+    assert!(issues.filed.is_empty(), "{:#?}", ticked.lines);
+}

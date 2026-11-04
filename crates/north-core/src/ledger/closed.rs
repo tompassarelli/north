@@ -55,6 +55,12 @@ impl Cell {
         (self.usd + self.unclosed_usd) / self.closed as f64
     }
 
+    /// The median cost of one closed box of the cell, which one umbrella issue with hundreds of runs does not move; None when no box is recorded.
+    pub fn median_box_usd(&self) -> Option<f64> {
+        let mut spends: Vec<f64> = self.boxes.iter().map(|(_, usd)| *usd).collect();
+        (!spends.is_empty()).then(|| percentile(&mut spends, 50))
+    }
+
     /// The closed boxes of the cell with what each cost, dearest first.
     pub fn boxes_dearest_first(&self) -> Vec<(String, f64)> {
         let mut boxes = self.boxes.clone();

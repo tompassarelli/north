@@ -1,5 +1,5 @@
-//! Cells on a tier still staffed this week whose cost per closed box rose more than 25% week on
-//! week, each as the north issue a tick files for it.
+//! Cells on a tier still staffed this week whose median cost of a closed box rose more than 25% week
+//! on week, each as the north issue a tick files for it.
 use crate::ledger::ClosedReport;
 
 /// The rise over the week before past which a cell gets an issue.
@@ -22,7 +22,7 @@ pub fn rises(week: &ClosedReport, before: &ClosedReport) -> Vec<Rise> {
         .filter(|cell| cell.staffed)
         .filter_map(|cell| {
             let earlier = before.cells.iter().find(|earlier| earlier.tier == cell.tier && earlier.category == cell.category)?;
-            let (was, now) = (earlier.usd_per_closed(), cell.usd_per_closed());
+            let (was, now) = (earlier.median_box_usd()?, cell.median_box_usd()?);
             (earlier.closed >= RISE_MIN_BOXES && cell.closed >= RISE_MIN_BOXES && was > 0.0 && now > was * (1.0 + RISE)).then(|| Rise {
                 tier: cell.tier.clone(),
                 category: cell.category.clone(),
@@ -60,7 +60,7 @@ impl Rise {
     pub fn body(&self, at: &str) -> String {
         format!(
             "Category: tooling\nSpec: measured\nScope: cross-module\nSurface: rust\nVerify: local-test\n\n\
-             `north tune` on {at}: cost per closed box in {tier} {category} rose from ${:.2} over {} closed boxes the week before to ${:.2} over {} this week (+{:.0}%), past the {:.0}% bar (each week holds at least {RISE_MIN_BOXES} closed boxes).\n\n{boxes}\
+             `north tune` on {at}: median cost of a closed box in {tier} {category} rose from ${:.2} over {} closed boxes the week before to ${:.2} over {} this week (+{:.0}%), past the {:.0}% bar (each week holds at least {RISE_MIN_BOXES} closed boxes).\n\n{boxes}\
              ## Done when\n- [ ] (headless run) The rise is traced to its runs in `north ledger summary --since 7d`, and either a fix lands or `north tune` shows the cell back within 25% of the week before.\n",
             self.before.0,
             self.before.1,
