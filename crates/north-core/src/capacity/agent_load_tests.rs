@@ -226,22 +226,45 @@ fn only_a_discharging_system_battery_reports_a_percent() {
 }
 
 #[test]
-fn a_low_battery_warns_once_per_discharge() {
+fn a_battery_alerts_once_on_charger_loss_and_once_per_upower_warning_level() {
     let root = tempfile::tempdir().unwrap();
     let marker = root.path().join("capacity/battery-warned");
     let log = root.path().join("notifications");
-    let warn = |battery| {
+    let alert = |battery, level| {
         let mut notify = Command::new("sh");
-        notify.args(["-c", "printf '%s\\n' \"$*\" >> \"$0\"", log.to_str().unwrap()]);
-        super::laptop_auto::warn_battery_once(&marker, battery, &mut notify, Duration::from_secs(5));
+        notify.args(["-c", "printf '%s|' \"$@\" >> \"$0\"; echo >> \"$0\"", log.to_str().unwrap()]);
+        super::laptop_auto::alert_battery(&marker, battery, level, &mut notify, Duration::from_secs(5));
         fs::read_to_string(&log).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>()
     };
-    assert!(warn(Some(31)).is_empty());
-    assert_eq!(warn(Some(29)), ["--urgency=critical --app-name=laptop-auto Laptop battery at 29% and discharging Agent placement is draining off the laptop. Plug in AC."]);
-    assert_eq!(warn(Some(20)).len(), 1);
-    assert_eq!(warn(None).len(), 1);
+    let shutdown = "At the action level the laptop saves its memory to disk and the screen goes dark for about two minutes. Do not press or hold the power button. Plug in now.";
+    let lost = "--urgency=critical|--app-name=laptop-auto|Laptop charger stopped: on battery at 80%|The charger or its cable dropped power while plugged in. Plug it in or reseat the cable.|";
+    assert!(alert(None, None).is_empty());
+    assert_eq!(alert(Some(80), Some(1)), [lost]);
+    assert_eq!(alert(Some(79), Some(1)), [lost]);
+    let low = "--urgency=critical|--app-name=laptop-auto|Laptop battery low at 20%|The laptop is still on battery. Plug in or reseat the charger.|";
+    assert_eq!(alert(Some(20), Some(3)), [lost, low]);
+    assert_eq!(alert(Some(19), Some(3)), [lost, low]);
+    let critical = format!("--urgency=critical|--app-name=laptop-auto|Laptop battery critical at 10%|{shutdown}|");
+    assert_eq!(alert(Some(10), Some(4)), [lost, low, &critical]);
+    assert_eq!(alert(Some(10), Some(4)), [lost, low, &critical]);
+    let action = format!("--urgency=critical|--app-name=laptop-auto|Laptop battery at 8%: saving memory to disk now|{shutdown}|");
+    assert_eq!(alert(Some(8), Some(5)), [lost, low, &critical, &action]);
+    assert_eq!(alert(Some(7), Some(5)).len(), 4);
+    assert_eq!(fs::read_to_string(&marker).unwrap(), "action\n");
+    assert_eq!(alert(None, None).len(), 4);
     assert!(!marker.exists());
-    assert_eq!(warn(Some(28)).len(), 2);
+    let again = "--urgency=critical|--app-name=laptop-auto|Laptop charger stopped: on battery at 60%|The charger or its cable dropped power while plugged in. Plug it in or reseat the cable.|";
+    assert_eq!(alert(Some(60), None).last().map(String::as_str), Some(again));
+    assert_eq!(alert(Some(60), None).len(), 5);
+}
+
+#[test]
+fn the_battery_warning_level_reads_from_upower_display_device() {
+    let level = |script: &str| super::laptop_auto::warning_level(Command::new("sh").args(["-c", script, "busctl"]));
+    assert_eq!(level("[ \"$*\" = 'get-property org.freedesktop.UPower /org/freedesktop/UPower/devices/DisplayDevice org.freedesktop.UPower.Device WarningLevel' ] && echo 'u 4'"), Some(4));
+    assert_eq!(level("echo 'u 1'"), Some(1));
+    assert_eq!(level("echo 'u 5'; exit 1"), None);
+    assert_eq!(level("echo garbage"), None);
 }
 
 #[test]
@@ -249,9 +272,9 @@ fn a_battery_notification_that_hangs_or_fails_leaves_no_marker_and_ends_inside_i
     let root = tempfile::tempdir().unwrap();
     let marker = root.path().join("battery-warned");
     let begun = Instant::now();
-    super::laptop_auto::warn_battery_once(&marker, Some(20), Command::new("sh").args(["-c", "exec sleep 30"]), Duration::from_millis(300));
+    super::laptop_auto::alert_battery(&marker, Some(20), None, Command::new("sh").args(["-c", "exec sleep 30"]), Duration::from_millis(300));
     assert!(begun.elapsed() < Duration::from_secs(3), "{:?}", begun.elapsed());
-    super::laptop_auto::warn_battery_once(&marker, Some(20), &mut Command::new("false"), Duration::from_secs(5));
+    super::laptop_auto::alert_battery(&marker, Some(20), None, &mut Command::new("false"), Duration::from_secs(5));
     assert!(!marker.exists());
 }
 

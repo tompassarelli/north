@@ -11,7 +11,7 @@ use crate::platform::process::status_within;
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
 const OBSERVE_WAIT: Duration = Duration::from_secs(40);
 const NOTIFY_WAIT: Duration = Duration::from_secs(5);
-const BATTERY_WARNED: &str = "battery-warned";
+const BATTERY_ALERTED: &str = "battery-warned";
 const BATTERY_DRAIN_PERCENT: u8 = 30;
 
 pub fn sample(host: &Host, idle: Option<bool>, sleeping: bool, battery: Option<u8>) -> Value {
@@ -42,19 +42,75 @@ fn battery_low(battery: Option<u8>) -> bool {
     battery.is_some_and(|percent| percent < BATTERY_DRAIN_PERCENT)
 }
 
-pub fn warn_battery_once(marker: &Path, battery: Option<u8>, notify: &mut Command, limit: Duration) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum BatteryAlert {
+    ChargerLost,
+    Low,
+    Critical,
+    Action,
+}
+
+impl BatteryAlert {
+    const SHUTDOWN_WARNING: &str = "At the action level the laptop saves its memory to disk and the screen goes dark for about two minutes. Do not press or hold the power button. Plug in now.";
+
+    fn reached(warning_level: Option<u8>) -> Self {
+        match warning_level {
+            Some(3) => Self::Low,
+            Some(4) => Self::Critical,
+            Some(5) => Self::Action,
+            _ => Self::ChargerLost,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::ChargerLost => "charger-lost",
+            Self::Low => "low",
+            Self::Critical => "critical",
+            Self::Action => "action",
+        }
+    }
+
+    fn recorded(marker: &Path) -> Option<Self> {
+        let name = fs::read_to_string(marker).ok()?;
+        [Self::ChargerLost, Self::Low, Self::Critical, Self::Action].into_iter().find(|alert| alert.name() == name.trim())
+    }
+
+    fn message(self, percent: u8) -> (String, &'static str) {
+        match self {
+            Self::ChargerLost => (
+                format!("Laptop charger stopped: on battery at {percent}%"),
+                "The charger or its cable dropped power while plugged in. Plug it in or reseat the cable.",
+            ),
+            Self::Low => (format!("Laptop battery low at {percent}%"), "The laptop is still on battery. Plug in or reseat the charger."),
+            Self::Critical => (format!("Laptop battery critical at {percent}%"), Self::SHUTDOWN_WARNING),
+            Self::Action => (format!("Laptop battery at {percent}%: saving memory to disk now"), Self::SHUTDOWN_WARNING),
+        }
+    }
+}
+
+pub fn warning_level(busctl: &mut Command) -> Option<u8> {
+    let output = busctl
+        .args(["get-property", "org.freedesktop.UPower", "/org/freedesktop/UPower/devices/DisplayDevice", "org.freedesktop.UPower.Device", "WarningLevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    String::from_utf8_lossy(&output.stdout).trim().strip_prefix("u ")?.parse().ok()
+}
+
+pub fn alert_battery(marker: &Path, battery: Option<u8>, warning_level: Option<u8>, notify: &mut Command, limit: Duration) {
     let Some(percent) = battery else {
         let _ = fs::remove_file(marker);
         return;
     };
-    if !battery_low(battery) || marker.exists() {
+    let alert = BatteryAlert::reached(warning_level);
+    if BatteryAlert::recorded(marker).is_some_and(|recorded| recorded >= alert) {
         return;
     }
-    let title = format!("Laptop battery at {percent}% and discharging");
-    let body = "Agent placement is draining off the laptop. Plug in AC.";
+    let (title, body) = alert.message(percent);
     match status_within(notify.args(["--urgency=critical", "--app-name=laptop-auto", &title, body]), limit) {
         Ok(Some(status)) if status.success() => {
-            if let Err(error) = marker.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(marker, format!("{percent}\n"))) {
+            if let Err(error) = marker.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::write(marker, format!("{}\n", alert.name()))) {
                 eprintln!("north capacity laptop-auto: {}: {error}", marker.display());
             }
         }
@@ -126,7 +182,9 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let observed = observe(laptop.arg("observe").arg(sample.to_string()), OBSERVE_WAIT);
     let notify = std::env::var_os("LAPTOP_AUTO_NOTIFY").unwrap_or_else(|| "notify-send".into());
-    warn_battery_once(&host.capacity.join(BATTERY_WARNED), battery, &mut Command::new(notify), NOTIFY_WAIT);
+    let busctl = std::env::var_os("LAPTOP_AUTO_BUSCTL").unwrap_or_else(|| "busctl".into());
+    let level = battery.and_then(|_| warning_level(&mut Command::new(busctl)));
+    alert_battery(&host.capacity.join(BATTERY_ALERTED), battery, level, &mut Command::new(notify), NOTIFY_WAIT);
     observed
 }
 
