@@ -127,7 +127,6 @@ fn unit(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     use super::*;
 
@@ -135,8 +134,7 @@ mod tests {
     fn a_placed_sessions_record_lands_on_its_machine_under_its_conversation() {
         let scratch = tempfile::tempdir().unwrap();
         let ssh = scratch.path().join("ssh");
-        fs::write(&ssh, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv\"\nwhile [ \"$1\" != -- ]; do shift; done\nexec sh -c \"$2\"\n").unwrap();
-        fs::set_permissions(&ssh, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::foundation::shim::write_script(&ssh, "printf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv\"\nwhile [ \"$1\" != -- ]; do shift; done\nexec sh -c \"$2\"\n");
         let record: SessionRecord = serde_json::from_value(serde_json::json!({
             "name": "sc-459", "provider": "claude", "account": "a", "cwd": "/tmp", "model": null, "created_ms": 1, "host_pid": null,
             "conversation": "it's-a-conversation", "task_ref": "makgora#459", "machine": {"name": "far", "ssh": "tom@far"}
