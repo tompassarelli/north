@@ -5,6 +5,7 @@ mod launch;
 mod ledger;
 mod lineage;
 mod list;
+mod overlap;
 mod placement;
 mod rebooted;
 mod revive;

@@ -92,8 +92,20 @@ fn fleet_launch(launch: &Launch, name: &str, survey: &Survey, home: &str) -> Res
     let arguments: Vec<&str> = words.iter().map(String::as_str).collect();
     match run_within(&program, &arguments, LAUNCH_WAIT) {
         None => Err(format!("{program} did not return within {} s", LAUNCH_WAIT.as_secs())),
-        Some(output) if output.status.success() => Ok(name.to_owned()),
+        Some(output) if output.status.success() => launched_or_queued(name, &output),
         Some(output) => Err(refusal_line(&String::from_utf8_lossy(&output.stderr))),
+    }
+}
+
+/// The launch's name, or why it is not a session: `north fleet launch` queued the box behind a lane that changed its files; its overlap warnings go on the dispatch run's output.
+fn launched_or_queued(name: &str, output: &std::process::Output) -> Result<String, String> {
+    for line in String::from_utf8_lossy(&output.stderr).lines().filter(|line| line.starts_with("overlap")) {
+        println!("{line}");
+    }
+    let said = String::from_utf8_lossy(&output.stdout);
+    match said.lines().find(|line| line.starts_with(crate::fleet::overlap::QUEUED)) {
+        Some(queued) => Err(queued.to_owned()),
+        None => Ok(name.to_owned()),
     }
 }
 

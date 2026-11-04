@@ -22,6 +22,7 @@ use super::admission;
 use super::duplicate;
 use super::ledger::{LedgerLeases, LedgerRegistrar};
 use super::lineage;
+use super::overlap;
 use super::launch::{LaunchParts, launch_parts};
 #[cfg(test)]
 use super::launch::launch_request;
@@ -154,15 +155,22 @@ fn launch(fleet: &Fleet, words: &[&str]) -> NorthResult<()> {
     let caller = std::env::var(SESSION_ENV).ok();
     fleet.admit_launch_from(caller.as_deref())?;
     let proxy = lineage::proxy_reachable(fleet, caller.as_deref(), words);
-    let LaunchParts { mut request, mut overrides, wait, take_over } = launch_parts(&fleet.providers(), words, caller, proxy)?;
+    let LaunchParts { mut request, mut overrides, wait, take_over, overlap_ok } = launch_parts(&fleet.providers(), words, caller, proxy)?;
     tier::admit_class(&request)?;
     let started = tier::apply(&mut request, &mut overrides)?;
+    if !take_over {
+        let tier = started.as_ref().map_or("worker", |start| start.route.tier.name());
+        if let overlap::Outcome::Queued(said) = overlap::guard(fleet, &request, tier, overlap_ok.as_deref())? {
+            println!("{said}");
+            return Ok(());
+        }
+    }
     let waiting = admission::Waiting::chosen(wait, fleet, request.parent.as_deref());
     let mut placed = admission::admitted(&request.name, waiting, |first| placement::placed(fleet, &request, &overrides, first), |line| eprintln!("{line}"), |text| admission::tell_parent(fleet, request.parent.as_deref(), text))?;
     if let Some(account) = placed.account.take() {
         request.account = account;
     }
-    (request.placement, request.capacity_need) = (duplicate::noted(fleet, &request, &overrides, placed.note)?, placed.need);
+    (request.placement, request.capacity_need) = (overlap::noted(duplicate::noted(fleet, &request, &overrides, placed.note)?, overlap_ok.as_deref()), placed.need);
     request.machine = placed.machine.or(request.machine);
     let record = if take_over { fleet.take_over(&request)? } else { fleet.launch(&request)? };
     tier::recorded(started, &request, &record.name);

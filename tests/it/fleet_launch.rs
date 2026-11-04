@@ -857,3 +857,74 @@ fn a_launch_taking_over_a_live_lead_name_ends_the_holder_and_messages_to_the_nam
     let old_streams = fs::read_dir(held.join("g1")).map(|entries| entries.flatten().map(|entry| fs::read_to_string(entry.path()).unwrap_or_default()).collect::<String>()).unwrap_or_default();
     assert!(old_streams.contains("start the box") && !old_streams.contains("report for the lead"), "{old_streams}");
 }
+
+fn git_in(directory: &Path, args: &[&str]) -> String {
+    let output = Command::new("git").arg("-C").arg(directory).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn start_task(root: &Path, name: &str, item: &str, extra: &[&str], prompt: &str) -> Output {
+    let brief = root.join(format!("{name}.md"));
+    fs::write(&brief, format!("Item: {item} lane check\nCategory: bug-known-cause\nClass: a stale tier pick\nSurface: lua\nNeeds: warcraft\n")).unwrap();
+    let brief = brief.display().to_string();
+    let mut args = vec!["fleet", "launch", "--provider", "claude", "--account", "a", "--name", name, "--task", item, "--system-prompt", &brief];
+    args.extend(extra);
+    args.push(prompt);
+    north(root, &args)
+}
+
+#[test]
+fn a_launch_naming_files_two_queued_lanes_changed_is_queued_behind_the_earlier_lane_unless_overlap_ok_says_why() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = scratch.path();
+    fixture(root, "fold");
+    let origin = root.join("origin.git");
+    let main = root.join("code/makgora/main");
+    git_in(root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    git_in(root, &["init", "-q", "-b", "main", main.to_str().unwrap()]);
+    fs::write(main.join("x.rs"), "1").unwrap();
+    git_in(&main, &["add", "."]);
+    git_in(&main, &["commit", "-q", "-m", "base"]);
+    git_in(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    git_in(&main, &["push", "-q", "origin", "main"]);
+    git_in(&main, &["fetch", "-q", "origin"]);
+    let directory = north_landing::land::queue::directory(&root.join(".local/state"), origin.to_str().unwrap());
+    let sessions = [("lead", "makgora#10", "none"), ("lane-a", "makgora#11", "none"), ("lane-b", "makgora#12", "none")];
+    for (name, item, parent) in sessions {
+        let started = start_task(root, name, item, &["--parent", parent], "hold the lane");
+        assert!(started.status.success(), "{name}: {}", String::from_utf8_lossy(&started.stderr));
+    }
+    for (micros, lane) in [(1_000_000, "lane-a"), (2_000_000, "lane-b")] {
+        let path = root.join("code/makgora/worktrees").join(lane);
+        git_in(&main, &["worktree", "add", "-q", "-b", lane, path.to_str().unwrap(), "origin/main"]);
+        fs::write(path.join("x.rs"), lane).unwrap();
+        git_in(&path, &["commit", "-q", "-am", lane]);
+        let head = git_in(&path, &["rev-parse", "HEAD"]).trim().to_owned();
+        let ticket = north_landing::land::queue::Ticket { origin: origin.display().to_string(), root: path, host: "here".into(), branch: lane.into(), head, session: Some(lane.into()), queued_at: "t".into(), first_commit_secs: None, red_fix: None, verdict: None };
+        north_landing::land::queue::write(&directory.join(north_landing::land::queue::file_name(micros, lane)), &ticket).unwrap();
+    }
+    let cwd = main.display().to_string();
+    let prompt = "Item: makgora#13 same file\nFiles: x.rs\nstart the box";
+    let queued = start_task(root, "box", "makgora#13", &["--parent", "lead", "--cwd", &cwd], prompt);
+    let said = String::from_utf8_lossy(&queued.stdout).into_owned();
+    let warned = String::from_utf8_lossy(&queued.stderr).into_owned();
+    let boxes = north(root, &["threads", "queue", "follow-list"]);
+    let shown = north(root, &["fleet", "show", "box", "--json"]);
+    let forced = start_task(root, "forced", "makgora#14", &["--parent", "lead", "--cwd", &cwd, "--overlap-ok", "the lanes edit different hunks"], "Item: makgora#14 same file\nFiles: x.rs\nstart the box");
+    let note = north(root, &["fleet", "show", "forced", "--json"]);
+    for name in ["lead", "lane-a", "lane-b", "forced"] {
+        north(root, &["fleet", "forget", name]);
+    }
+    assert!(queued.status.success(), "{warned}");
+    assert!(said.starts_with("queued: makgora#13 waits as follows box") && said.contains("behind lane lane-a (x.rs)"), "{said}");
+    assert!(warned.contains("overlap: lane lane-a also changes x.rs") && warned.contains("overlap: lane lane-b also changes x.rs"), "{warned}");
+    let boxes: Value = serde_json::from_slice(&boxes.stdout).unwrap();
+    assert_eq!(boxes.as_array().unwrap().len(), 1, "{boxes}");
+    assert!(boxes[0]["follows"].as_str().is_some_and(|follows| follows.starts_with("makgora#11 (lane lane-a changes x.rs)")) && boxes[0]["parent"] == "lead", "{boxes}");
+    assert!(!shown.status.success(), "a queued box starts no session");
+    assert!(forced.status.success(), "{}", String::from_utf8_lossy(&forced.stderr));
+    assert!(String::from_utf8_lossy(&forced.stderr).contains("overlap-ok: forced starts beside the lanes above: the lanes edit different hunks"));
+    let note: Value = serde_json::from_slice(&note.stdout).unwrap();
+    assert!(note["placement"].as_str().is_some_and(|note| note.contains("overlap-ok: the lanes edit different hunks")), "{note}");
+}

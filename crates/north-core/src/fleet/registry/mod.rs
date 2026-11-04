@@ -37,6 +37,7 @@ mod gate_commands;
 mod gate_rows;
 mod hand_in;
 mod kept;
+mod lanes;
 mod launching;
 mod home;
 mod start_lock;
@@ -46,6 +47,7 @@ mod takeover;
 mod wait_rows;
 mod table;
 pub use home::{orders_here, recorded_here, root_here};
+pub use lanes::RunningLane;
 mod messages;
 mod owners;
 mod parents;
@@ -59,6 +61,8 @@ mod testing;
 mod fixtures;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod lanes_tests;
 
 pub use follower::Follower;
 pub use home::roster;
