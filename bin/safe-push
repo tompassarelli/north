@@ -1190,6 +1190,7 @@ report_reap_ready() {
   main_branch=$(git -C "$repo_root" symbolic-ref --quiet --short HEAD 2>/dev/null) || return 0
   # worktrees/ only: pins/ is externally consumed and is never a reap candidate.
   for wt in "$container"/worktrees/*; do
+    case "$(basename "$wt")" in lander | lander-*) continue ;; esac
     [ -e "$wt/.git" ] || continue
     dirty=$(git -C "$wt" status --porcelain 2>/dev/null) || continue
     [ -z "$dirty" ] || continue
@@ -1215,6 +1216,7 @@ auto_reap() {
   container=$(dirname "$repo_root")
   # worktrees/ only: pins/ is externally consumed and is never swept.
   for wt in "$container"/worktrees/*; do
+    case "$(basename "$wt")" in lander | lander-*) continue ;; esac
     [ -e "$wt/.git" ] || continue
     has_lanes=1
     break

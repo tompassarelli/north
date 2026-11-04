@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::candidate::{self, Pick, git};
-use super::lander::Lander;
+use super::lander::{Lander, state_home};
 use super::after;
 use super::bisect::{self, Judgement};
 use super::checks::{self, Verdict};
@@ -11,13 +11,21 @@ use super::{queue, red};
 
 const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM]";
 const ATTEMPTS: usize = 4;
-const POLL: Duration = Duration::from_secs(10);
+const POLL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Round {
     Idle,
     Progress,
     Waiting(String),
+}
+
+fn runtime_link() -> PathBuf {
+    std::env::var_os("NORTH_RUNTIME_LINK").filter(|value| !value.is_empty()).map_or_else(|| state_home().join("north/current"), PathBuf::from)
+}
+
+fn runtime_target(link: &Path) -> Option<PathBuf> {
+    std::fs::read_link(link).ok()
 }
 
 fn micros() -> u128 {
@@ -194,7 +202,13 @@ pub fn run(arguments: &[String]) -> u8 {
             return 1;
         }
     };
+    let link = runtime_link();
+    let started_on = runtime_target(&link);
     loop {
+        if !once && runtime_target(&link) != started_on {
+            println!("north land: the live runtime changed; exiting so the service restarts on it");
+            return 0;
+        }
         match lander.round() {
             Ok(Round::Progress) => continue,
             Ok(Round::Idle) if once => return 0,

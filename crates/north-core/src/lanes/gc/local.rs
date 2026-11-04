@@ -7,6 +7,7 @@ use super::archive::{Lane, Retired};
 use super::evidence::{LaneClass, branch_hold, LaneFacts, Landed, lane_class, landed, named_issues, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
 use super::super::live_process::any_inside;
+use super::super::repo::is_lander_tree;
 use super::liveness::{holds_git_dir, worktree_admin};
 use super::report::Row;
 use super::state::{LocalStale, Owned};
@@ -165,7 +166,7 @@ impl Gc {
 
     fn sweep_worktree(&mut self, sweep: &mut Container, fields: &BTreeMap<String, String>, live: &[PathBuf]) -> Result<(), String> {
         let path = PathBuf::from(&fields["worktree"]);
-        if real(&path).parent() != Some(sweep.lanes.as_path()) {
+        if real(&path).parent() != Some(sweep.lanes.as_path()) || is_lander_tree(&path) {
             return Ok(());
         }
         if fields.contains_key("prunable") || !path.exists() {

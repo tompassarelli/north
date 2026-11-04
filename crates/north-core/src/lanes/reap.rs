@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::live_process;
-use super::repo::{find_container, git_checked, git_ok, git_out};
+use super::repo::{find_container, git_checked, git_ok, git_out, is_lander_tree};
 use super::verdict::{Facts, Verdict, retirement_verdict};
 
 const MINIMUM_AGE_SECONDS: i64 = 7200;
@@ -165,7 +165,7 @@ impl Sweep {
         let listing = git_out(&main_dir, &["worktree", "list", "--porcelain"]).unwrap_or_default();
         let (trees, locked) = parse_listing(&listing);
         let sweep_dir = container.join("worktrees");
-        for tree in trees.into_iter().filter(|tree| tree.parent() == Some(sweep_dir.as_path())) {
+        for tree in trees.into_iter().filter(|tree| tree.parent() == Some(sweep_dir.as_path()) && !is_lander_tree(tree)) {
             let lane = Lane { main_dir: &main_dir, main_ref: format!("refs/heads/{main_branch}"), tree, locked: &locked };
             if let Some(outcome) = self.judge(&lane) {
                 self.act(&lane, outcome, report)?;

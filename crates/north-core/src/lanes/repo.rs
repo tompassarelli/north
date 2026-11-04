@@ -28,3 +28,7 @@ pub(super) fn find_container(start: &Path) -> Option<std::path::PathBuf> {
         .find(|dir| dir.join("main/.git").exists())
         .map(Path::to_path_buf)
 }
+
+pub(super) fn is_lander_tree(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name == "lander" || name.starts_with("lander-"))
+}

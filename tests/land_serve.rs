@@ -38,6 +38,7 @@ exit "$status"
 
 const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "$*" >>"$LAND_TRACE/north-calls"
+if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
 if [ "$1" = fleet ] && [ "$2" = send ] && [ "${4%% *}" = landed ]; then
   branch=$(printf '%s' "$4" | awk '{print $2}')
   main=$(git -C "$LAND_ORIGIN" rev-parse main)
@@ -766,4 +767,83 @@ fn serve_reentry() {
     assert_eq!(git(&fixture.origin, &["rev-parse", "refs/heads/scratch/x"]), git(&fixture.origin, &["rev-parse", "refs/heads/main"]));
     assert_eq!(fixture.subjects(), ["change from a"]);
     assert_eq!(fixture.verdict(&ticket), Some(format!("landed {}", fixture.main())));
+}
+
+struct Serving(std::process::Child);
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn wait_for_exit(serving: &mut Serving, seconds: u64) -> Option<std::process::ExitStatus> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    while std::time::Instant::now() < deadline {
+        if let Some(status) = serving.0.try_wait().unwrap() {
+            return Some(status);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    None
+}
+
+#[test]
+fn serve_loop_exits_after_runtime_follow() {
+    let mut fixture = Fixture::new();
+    let link = fixture.root.join("runtime-current");
+    std::os::unix::fs::symlink("gen-1", &link).unwrap();
+    let path = format!("{}:{}", fixture.bin.display(), std::env::var("PATH").unwrap());
+    let child = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["land", "serve", "--repo", fixture.repo.to_str().unwrap(), "--checker", fixture.trace.join("checker").to_str().unwrap()])
+        .env("XDG_STATE_HOME", &fixture.state)
+        .env("NORTH_RUNTIME_LINK", &link)
+        .env("PATH", path)
+        .env("LAND_TRACE", &fixture.trace)
+        .env("NORTH_LAND_NORTH", fixture.trace.join("north"))
+        .env("LAND_ORIGIN", &fixture.origin)
+        .env("LAND_REPO", &fixture.repo)
+        .env("SOPS_AGE_KEY_FILE", fixture.root.join("age.key"))
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut serving = Serving(child);
+    assert!(wait_for_exit(&mut serving, 5).is_none(), "an empty queue keeps the lander serving");
+    let lane = fixture.lane("a", "a.txt", "a");
+    fixture.enqueue(&lane, None);
+    let status = wait_for_exit(&mut serving, 120).expect("the lander exits once the follow step changed the runtime");
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(fixture.subjects(), ["change from a"]);
+    assert_eq!(fs::read_link(&link).unwrap(), Path::new("gen-2"));
+    assert!(followed(&fixture).iter().any(|call| call.starts_with("runtime follow")));
+}
+
+#[test]
+fn serve_worktree_not_reaped() {
+    let fixture = Fixture::new();
+    let lanes = fixture.root.join("proj/worktrees");
+    let spend = |name: &str| {
+        let path = lanes.join(name);
+        git(&fixture.repo, &["worktree", "add", "-q", "--detach", path.to_str().unwrap(), "origin/main"]);
+        fs::File::options().write(true).open(path.join(".git")).unwrap().set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 3600)).unwrap();
+    };
+    for name in ["lander", "lander-2", "spent-reap"] {
+        spend(name);
+    }
+
+    let reap = Command::new(env!("CARGO_BIN_EXE_north")).arg("wt-reap").current_dir(&fixture.repo).output().unwrap();
+    assert!(reap.status.success(), "{}", String::from_utf8_lossy(&reap.stderr));
+    assert!(!lanes.join("spent-reap").exists(), "the control lane is reaped: {}", String::from_utf8_lossy(&reap.stdout));
+    assert!(lanes.join("lander/.git").exists() && lanes.join("lander-2/.git").exists());
+
+    spend("spent-gc");
+    let gc = Command::new(env!("CARGO_BIN_EXE_north"))
+        .args(["lane-gc", "--root", fixture.root.to_str().unwrap(), "--idle-hours", "0", "--state", fixture.root.join("unlanded.txt").to_str().unwrap()])
+        .env("HOME", &fixture.root)
+        .output()
+        .unwrap();
+    let report = format!("{}{}", String::from_utf8_lossy(&gc.stdout), String::from_utf8_lossy(&gc.stderr));
+    assert!(!lanes.join("spent-gc").exists(), "the control lane is collected: {report}");
+    assert!(lanes.join("lander/.git").exists() && lanes.join("lander-2/.git").exists(), "{report}");
 }
