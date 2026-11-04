@@ -19,8 +19,11 @@ fn executable(path: &Path, body: &str) {
 
 const CHECKER: &str = r#"#!/usr/bin/env bash
 set -eu
+exec 8>>"$LAND_TRACE/checks.lock"
+flock 8
 n=$(( $(cat "$LAND_TRACE/checks" 2>/dev/null | wc -l) + 1 ))
 printf '%s %s %s\n' "$(git rev-parse HEAD)" "$3" "$*" >>"$LAND_TRACE/checks"
+exec 8>&-
 env >"$LAND_TRACE/env-$n"
 [ ! -x "$LAND_TRACE/hook" ] || "$LAND_TRACE/hook" "$n"
 printf 'land-check ref push\ndispatch\nref delete\n' >>"$LAND_TRACE/github"
@@ -491,7 +494,9 @@ echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
 "#,
     );
     assert!(fixture.serve().status.success());
-    assert_eq!(fixture.checks().len(), 3, "the refused candidate of a and b halves to a, then b alone");
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 4, "the refused candidate of a and b, each lane alone, then a on its own");
+    let n = 1 + (1..3).find(|index| Command::new("git").arg("-C").arg(&fixture.repo).args(["cat-file", "-e", &format!("{}:b.txt", checks[*index].0)]).output().unwrap().status.success()).unwrap();
     assert_eq!(fixture.verdict(&tickets[0]), Some(format!("landed {}", fixture.main())));
     let failure = fixture.verdict(&tickets[1]).unwrap();
     let fleet = fixture.fleet();
@@ -499,7 +504,7 @@ echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
     assert_eq!(told.len(), 1, "{fleet:?}");
     let lines: Vec<&str> = told[0].trim_start_matches("fleet send session-lane-b ").split("\\n").collect();
     let log = lines.last().unwrap().strip_prefix("full log: ").unwrap();
-    assert!(log.ends_with("-candidate.log") && fs::read_to_string(log).unwrap().contains("check 3"), "the full log is the culprit's own check: {log}");
+    assert!(log.ends_with("-candidate.log") && fs::read_to_string(log).unwrap().contains(&format!("check {n}")), "the full log is the culprit's own check: {log}");
     assert_eq!(
         lines[..9],
         [
@@ -509,9 +514,9 @@ echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
             " --> src/lib.rs:2:5",
             "---- lane_b::adds stdout ----",
             "thread 'lane_b::adds' panicked at src/lib.rs:4:9:",
-            "assertion `left == right` failed in check 3",
+            format!("assertion `left == right` failed in check {n}").as_str(),
             "safe-push: land check cargo test exited 101 after 12s",
-            "safe-push: ✗ the pre-push checks failed in check 3; NOT pushed.",
+            format!("safe-push: ✗ the pre-push checks failed in check {n}; NOT pushed.").as_str(),
         ]
     );
     let tail = lines.iter().position(|line| *line == "last lines of the log:").expect("the log tail follows the errors");
@@ -551,7 +556,7 @@ fn serve_mixed() {
     git(&fixture.origin, &["cat-file", "-e", "main:a.txt"]);
     assert!(git(&fixture.origin, &["ls-tree", "--name-only", "main"]).lines().all(|file| file != "fail.txt"), "the failing lane landed");
     let checks = fixture.checks();
-    assert_eq!(checks.len(), 3, "the refused candidate of a, b and d halves to a and b, then d alone");
+    assert_eq!(checks.len(), 5, "the refused candidate of a, b and d, each lane alone, then a and b together");
     assert!(checks.iter().any(|(checked, _)| *checked == main), "main is a commit the checks passed");
     let fleet = fixture.fleet();
     assert!(fleet.iter().any(|line| line.starts_with("fleet send session-lane-d ") && line.contains("did not land") && line.contains("https://github.com/o/r/actions/runs/4242")), "{fleet:?}");
@@ -580,7 +585,7 @@ fn serve_captured_candidate() {
     );
     assert!(fixture.serve().status.success());
     let captured = fixture.read("captured");
-    assert_eq!(captured.lines().count(), 2, "the refused pair halves to the Python lane alone");
+    assert_eq!(captured.lines().count(), 2, "the refused pair, then the Python lane alone");
     for candidate in captured.lines() {
         git(&fixture.repo, &["cat-file", "-e", &format!("{candidate}:new.py")]);
     }
@@ -602,7 +607,7 @@ fn serve_transient_not_culprit() {
     fs::write(fixture.trace.join("verdict-2"), "refused https://github.com/o/r/actions/runs/2").unwrap();
     fs::write(fixture.trace.join("exit-2"), "75").unwrap();
     assert_eq!(fixture.serve().status.code(), Some(75));
-    assert_eq!(fixture.checks().len(), 2);
+    assert_eq!(fixture.checks().len(), 4, "the refused candidate, then each lane alone");
     assert!(tickets.iter().all(|ticket| ticket.exists()), "an exit-75 check decided a lane");
     assert_eq!(fixture.main(), fixture.base);
     assert!(fixture.fleet().is_empty(), "{:?}", fixture.fleet());
@@ -611,15 +616,15 @@ fn serve_transient_not_culprit() {
     git(&fixture.root, &["clone", "-q", fixture.origin.to_str().unwrap(), racer.to_str().unwrap()]);
     git(&racer, &["config", "user.name", "Racer"]);
     git(&racer, &["config", "user.email", "racer@example.invalid"]);
-    fs::write(fixture.trace.join("verdict-3"), "refused https://github.com/o/r/actions/runs/3").unwrap();
+    fs::write(fixture.trace.join("verdict-5"), "refused https://github.com/o/r/actions/runs/5").unwrap();
     executable(
         &fixture.trace.join("hook"),
-        &format!("#!/usr/bin/env bash\n[ \"$1\" = 3 ] || exit 0\ncd {}\necho race >race.txt\ncommand git add race.txt\ncommand git commit -qm 'main moves during the check'\ncommand git push -q origin main\n", racer.display()),
+        &format!("#!/usr/bin/env bash\n[ \"$1\" = 5 ] || exit 0\ncd {}\necho race >race.txt\ncommand git add race.txt\ncommand git commit -qm 'main moves during the check'\ncommand git push -q origin main\n", racer.display()),
     );
     assert!(fixture.serve().status.success());
     let checks = fixture.checks();
-    assert_eq!(checks.len(), 4, "a refusal on a moved base is rebuilt, not halved");
-    assert_eq!(checks[3].1, git(&racer, &["rev-parse", "HEAD"]));
+    assert_eq!(checks.len(), 6, "a refusal on a moved base is rebuilt, not searched");
+    assert_eq!(checks[5].1, git(&racer, &["rev-parse", "HEAD"]));
     assert_eq!(fixture.subjects(), ["main moves during the check", "change from a", "change from b", "change from c"]);
     let main = fixture.main();
     for ticket in &tickets {
@@ -644,10 +649,12 @@ fn persistent_isolates(verdict: &str, exit: &str, class: &str) {
     assert!(tickets.iter().all(|ticket| ticket.exists()), "a {class} decided a lane before the third try");
     assert_eq!(fixture.serve().status.code(), Some(75));
     let checks = fixture.checks();
-    assert_eq!(checks.len(), 4, "the third {class} halves the candidate and checks its first half");
+    assert_eq!(checks.len(), 6, "the third {class} searches each lane alone");
     assert_eq!(tree(&fixture, &checks[0].0), tree(&fixture, &checks[2].0));
-    assert_ne!(tree(&fixture, &checks[3].0), tree(&fixture, &checks[2].0));
-    assert!(tickets.iter().all(|ticket| ticket.exists()), "halving decided a lane");
+    for alone in &checks[3..] {
+        assert_eq!(git(&fixture.repo, &["rev-list", "--count", &format!("{}..{}", fixture.base, alone.0)]), "1", "each lane is checked on its own");
+    }
+    assert!(tickets.iter().all(|ticket| ticket.exists()), "the search decided a lane that only ended without a verdict");
     assert_eq!(fixture.main(), fixture.base);
     let mut rounds = 0;
     while fixture.serve().status.code() == Some(75) {
@@ -695,10 +702,10 @@ fn serve_defer() {
     assert_eq!(fixture.read("pushes"), "");
     assert!(fixture.serve().status.success());
     let checks = fixture.checks();
-    assert_eq!(checks.len(), 4);
-    assert_eq!((tree(&fixture, &checks[3].0), &checks[3].1), (tree(&fixture, &checks[0].0), &checks[0].1), "the deferred candidate is retried as it was");
+    assert_eq!(checks.len(), 6, "the deferred candidate, the refused candidate, three lanes alone, then the candidate again");
+    assert_eq!((tree(&fixture, &checks[5].0), &checks[5].1), (tree(&fixture, &checks[0].0), &checks[0].1), "the deferred candidate is retried as it was");
     let main = fixture.main();
-    assert_eq!(main, checks[3].0);
+    assert_eq!(main, checks[5].0);
     for ticket in &tickets {
         assert_eq!(fixture.verdict(ticket), Some(format!("landed {main}")));
     }
@@ -1591,4 +1598,103 @@ fn serve_hung_check_judged_against_base() {
     assert_eq!(serve(&fixture).status.code(), Some(75), "a hang on a base tree never timed is infrastructure");
     assert!(third.exists(), "a hang the base tree was never timed for decided the lane");
     assert_eq!(fixture.main(), main);
+}
+
+const ALONE_WAIT: &str = r#"#!/usr/bin/env bash
+! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >"$LAND_TRACE/verdict-$1"
+[ "$1" -ge 2 ] && [ "$1" -le 5 ] || exit 0
+date +%s%N >"$LAND_TRACE/start-$1"
+for k in $(seq 400); do [ "$(ls "$LAND_TRACE"/start-* | wc -l)" = 4 ] && break; sleep 0.05; done
+date +%s%N >"$LAND_TRACE/end-$1"
+echo "safe-push: ✗ the pre-push checks failed in check $1; NOT pushed."
+"#;
+
+fn stamps(fixture: &Fixture, prefix: &str) -> Vec<u128> {
+    (2..=5).map(|n| fixture.read(&format!("{prefix}-{n}")).trim().parse().unwrap()).collect()
+}
+
+fn culprit_lanes(fixture: &mut Fixture) -> Vec<PathBuf> {
+    ["a", "b", "c", "d"]
+        .iter()
+        .map(|name| {
+            let file = if *name == "c" { "fail.txt".to_owned() } else { format!("{name}.txt") };
+            let lane = fixture.lane(name, &file, name);
+            fixture.enqueue(&lane, None)
+        })
+        .collect()
+}
+
+#[test]
+fn culprit_search_names_the_culprit_in_one_round() {
+    let mut fixture = Fixture::new();
+    let tickets = culprit_lanes(&mut fixture);
+    executable(&fixture.trace.join("hook"), ALONE_WAIT);
+    let output = fixture.serve();
+    assert!(output.status.success());
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 6, "the refused candidate, four lanes alone, then the three green lanes together");
+    assert!(checks[1..5].iter().all(|(_, base)| *base == fixture.base), "each lane is checked alone on the unmoved base");
+    let (starts, ends) = (stamps(&fixture, "start"), stamps(&fixture, "end"));
+    assert!(starts.iter().max() < ends.iter().min(), "the four single-lane checks overlapped: starts {starts:?} ends {ends:?}");
+    let culprit = (2..=5).find(|n| Command::new("git").arg("-C").arg(&fixture.repo).args(["cat-file", "-e", &format!("{}:fail.txt", checks[n - 1].0)]).output().unwrap().status.success()).unwrap();
+    let failure = fixture.verdict(&tickets[2]).unwrap();
+    assert!(failure.starts_with("failed ") && failure.ends_with("-candidate.log"), "{failure}");
+    let log = failure.trim_start_matches("failed ");
+    assert!(fs::read_to_string(log).unwrap().contains(&format!("failed in check {culprit}")), "the culprit's own log: {log}");
+    let fleet = fixture.fleet();
+    let told: Vec<&String> = fleet.iter().filter(|call| call.starts_with("fleet send session-lane-c ")).collect();
+    assert_eq!(told.len(), 1, "{fleet:?}");
+    assert!(told[0].contains(&format!("safe-push: ✗ the pre-push checks failed in check {culprit}; NOT pushed.")) && told[0].contains(&format!("full log: {log}")), "{told:?}");
+    let main = fixture.main();
+    for ticket in [&tickets[0], &tickets[1], &tickets[3]] {
+        assert_eq!(fixture.verdict(ticket), Some(format!("landed {main}")));
+    }
+    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from d"]);
+    assert_eq!(checks[5].0, main, "the three green lanes landed as one candidate");
+    assert_eq!(fixture.read("pushes").lines().count(), 1);
+    assert_eq!(git(&fixture.origin, &["rev-list", "--count", &format!("{}..main", fixture.base)]), "3");
+    assert_eq!(fleet.len(), 4, "each lane is told once: {fleet:?}");
+}
+
+#[test]
+fn culprit_search_checks_in_waves_of_the_free_slots() {
+    let mut fixture = Fixture::new();
+    let tickets = culprit_lanes(&mut fixture);
+    let offload = fixture.root.join("offload");
+    fs::create_dir_all(&offload).unwrap();
+    for lock in ["proj-main.lock", "proj-main-1.lock"] {
+        fs::write(offload.join(lock), "").unwrap();
+    }
+    let mut holder = Command::new("flock").args(["-x", offload.join("proj-main.lock").to_str().unwrap(), "sleep", "120"]).spawn().unwrap();
+    while Command::new("flock").args(["-n", offload.join("proj-main.lock").to_str().unwrap(), "true"]).status().unwrap().success() {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    executable(&fixture.trace.join("hook"), "#!/usr/bin/env bash\n! command git cat-file -e HEAD:fail.txt 2>/dev/null || echo refused >\"$LAND_TRACE/verdict-$1\"\n");
+    let output = fixture.command().env("HOME", &fixture.root).env("NORTH_OFFLOAD_ROOT", &offload).output().unwrap();
+    holder.kill().unwrap();
+    holder.wait().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    eprintln!("{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success());
+    assert!(stdout.contains("1 of 2 offload slots are free, so they are checked alone in waves of 1"), "{stdout}");
+    assert!(fixture.verdict(&tickets[2]).unwrap().starts_with("failed "));
+    assert_eq!(fixture.subjects(), ["change from a", "change from b", "change from d"]);
+}
+
+#[test]
+fn culprit_search_falls_back_to_halving_when_every_lane_passes_alone() {
+    let mut fixture = Fixture::new();
+    let tickets: Vec<PathBuf> = ["a", "b"].iter().map(|name| {
+        let lane = fixture.lane(name, &format!("{name}.txt"), name);
+        fixture.enqueue(&lane, None)
+    }).collect();
+    fs::write(fixture.trace.join("verdict-1"), "refused https://github.com/o/r/actions/runs/1").unwrap();
+    let output = fixture.serve();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.matches("every lane passed alone, so the refusal is an interaction; falling back to halving the candidate").count(), 1, "{stdout}");
+    assert_eq!(fixture.checks().len(), 5, "the pair, each lane alone, then the first half and the second half");
+    assert!(fixture.verdict(&tickets[0]).is_some_and(|verdict| verdict.starts_with("landed ")));
+    assert_eq!(fixture.verdict(&tickets[1]), Some(format!("landed {}", fixture.main())));
+    assert_eq!(fixture.subjects(), ["change from a", "change from b"]);
 }

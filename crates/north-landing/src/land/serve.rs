@@ -8,6 +8,7 @@ use super::candidate::{self, Pick, git};
 use super::lander::{self, Lander, state_home};
 use super::after;
 use super::bisect::{self, Judgement};
+use super::culprit::{self, Found};
 use super::checks::Verdict;
 use super::credential;
 use super::telemetry::Stages;
@@ -67,7 +68,7 @@ impl Lander {
         Ok(false)
     }
 
-    fn base_moved(&self, base: &str) -> Result<bool, String> {
+    pub(super) fn base_moved(&self, base: &str) -> Result<bool, String> {
         let now = git(&self.worktree, &["ls-remote", "origin", "refs/heads/main"])?;
         Ok(now.split_whitespace().next() != Some(base))
     }
@@ -78,6 +79,7 @@ impl Lander {
         let mut red_only = false;
         let mut rebuilds = 0;
         let mut bisect_depth = 0;
+        let mut searched = None;
         let mut progressed = false;
         let mut warned = false;
         after::recover(self)?;
@@ -137,7 +139,7 @@ impl Lander {
             let log = logs.join(format!("{}-candidate.log", micros()));
             let mut stages = Stages::start();
             let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(&tickets, &included));
-            let (verdict, stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
+            let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
             stages.mark("check");
             stages.attempts = rebuilds + 1;
             stages.bisect_depth = bisect_depth;
@@ -154,7 +156,25 @@ impl Lander {
             let streak = if moved { 0 } else { strikes.record(&key, &verdict) };
             let verdict = bisect::escalate(verdict, streak, &log);
             strikes.save(&self.queue)?;
-            match bisect::judge(verdict, included.len(), moved) {
+            let judgement = match bisect::judge(verdict, included.len(), moved) {
+                Judgement::Halve(half) if searched.as_deref() != Some(base.as_str()) => {
+                    stacked.clear();
+                    searched = Some(base.clone());
+                    match culprit::search(self, &base, &included, &logs, &mut strikes, &stages)? {
+                        Found::Decided => {
+                            progressed = true;
+                            limit = usize::MAX;
+                            bisect_depth += 1;
+                            continue;
+                        }
+                        Found::Innocent => Judgement::Halve(half),
+                        Found::Moved => Judgement::Rebuild,
+                        Found::Held(reason) => Judgement::Hold(reason),
+                    }
+                }
+                other => other,
+            };
+            match judgement {
                 Judgement::Land => {
                     let token = match self.push_token(&base) {
                         Ok(token) => token,

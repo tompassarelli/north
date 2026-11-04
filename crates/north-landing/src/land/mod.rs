@@ -4,6 +4,7 @@ pub mod candidate;
 pub mod checks;
 pub mod clippy;
 pub mod credential;
+pub mod culprit;
 pub mod enqueue;
 pub mod first_commit;
 pub mod lander;
