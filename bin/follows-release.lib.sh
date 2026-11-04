@@ -52,7 +52,7 @@ git -C "$container/worktrees/lane" commit -q --allow-empty -m 'Land the predeces
 pass=0 fail=0
 check() {
   if eval "$2"; then pass=$((pass + 1)); printf 'PASS  %s\n' "$1"
-  else fail=$((fail + 1)); printf 'FAIL  %s\n' "$1"; fi
+  else fail=$((fail + 1)); printf 'FAIL  %s\n' "$1"; return 1; fi
 }
 queue() { printf 'Delegation: role=worker budget=0\nItem: north#%s\nFollows: %s\nCategory: feature\n' "$1" "$2" \
   | "$threads" queue follow "north#$1" --tier "$3" --parent galileo-parent; }
