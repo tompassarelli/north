@@ -199,7 +199,7 @@ struct Lane<'a> {
 
 impl<'a> Lane<'a> {
     fn add(checkout: &'a Path, target: &str) -> Result<Self, Failure> {
-        let path = layout::home().join(format!("code/north/worktrees/runtime-{}", &target[..8]));
+        let path = layout::home().join("code/north/worktrees/runtime-build");
         let lane = Self { checkout, path };
         lane.remove();
         git(checkout, &[OsStr::new("worktree"), "add".as_ref(), "-q".as_ref(), "--detach".as_ref(), lane.path.as_os_str(), target.as_ref()])?;
@@ -251,14 +251,15 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     build
         .arg(capacity_helper()?)
         .args(["run", "--class", "runtime", "--owner", "north-runtime", "--timeout-seconds", "1500", "--"])
-        .args(["nix", "develop", "-c", "cargo", "build", "--release", "--locked"])
+        .args(["nix", "develop", "-c", "cargo", "build", "--release", "--locked", "--timings"])
         .current_dir(&lane.path)
         .env("CARGO_TARGET_DIR", &built);
     let previous = fs::read_to_string(layout.build_seconds()).ok().and_then(|seconds| seconds.trim().parse().ok()).map(Duration::from_secs);
     let started = Instant::now();
+    let wall = std::time::SystemTime::now();
     let status = supersede::run(&mut build, target, previous, || main_commit(checkout).ok())?;
     if !status.success() {
-        return Err(failed(code(status), format!("build of {target} failed: {status}")));
+        return Err(build_failure(target, status, cargo_ran(&built, wall)));
     }
     let release = built.join("release");
     if !layout::has_programs(&release) {
@@ -270,6 +271,17 @@ fn build(layout: &Layout, checkout: &Path, target: &str, runtime: &Path) -> Resu
     }
     fs::write(layout.build_seconds(), started.elapsed().as_secs().to_string())?;
     Ok(())
+}
+
+fn cargo_ran(built: &Path, since: std::time::SystemTime) -> bool {
+    fs::metadata(built.join("cargo-timings/cargo-timing.html")).and_then(|metadata| metadata.modified()).is_ok_and(|written| written >= since)
+}
+
+fn build_failure(target: &str, status: std::process::ExitStatus, cargo_ran: bool) -> Failure {
+    match cargo_ran {
+        true => failed(code(status), format!("build of {target} failed: {status}")),
+        false => failed(DEFERRED, format!("capacity admission or its scope stopped the build of {} before cargo ran ({status}); retrying on the next tick", layout::short(target))),
+    }
 }
 
 fn capacity_helper() -> Result<PathBuf, Failure> {

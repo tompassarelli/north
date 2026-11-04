@@ -258,6 +258,25 @@ fn a_build_whose_commit_is_no_longer_origin_main_is_abandoned_and_the_new_head_i
 }
 
 #[test]
+fn a_build_that_capacity_stops_before_cargo_runs_is_deferred_and_one_that_cargo_fails_is_held_back() {
+    for (bun, expected, held) in [
+        ("echo \"Failed to parse CPUQuota= value '0%'\" >&2\nexit 1\n", 75, false),
+        ("mkdir -p \"$CARGO_TARGET_DIR/cargo-timings\"\ntouch \"$CARGO_TARGET_DIR/cargo-timings/cargo-timing.html\"\nexit 101\n", 101, true),
+    ] {
+        let host = Host::new();
+        host.built(PREVIOUS);
+        host.select(PREVIOUS);
+        let skill = host.path("skill/machine-capacity");
+        script(&host.path("bin/agents"), &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()));
+        script(&host.path("bin/bun"), bun);
+        let output = host.update(0, 0);
+        assert_eq!(output.status.code(), Some(expected), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(host.path("state/north/runtime-failed").exists(), held);
+        assert_eq!(host.current(), Path::new("runtimes").join(PREVIOUS));
+    }
+}
+
+#[test]
 fn a_follower_that_cannot_get_origin_main_promotes_the_newest_ancestor_a_peer_has_promoted() {
     let host = Host::new();
     host.built(PREVIOUS);
