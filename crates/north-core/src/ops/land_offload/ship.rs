@@ -9,7 +9,7 @@ const SLOTS: u32 = 6;
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 landing=${7:-}
 root=@ROOT@
 ref=refs/land-offload/$head
 mkdir -p "$root"
@@ -51,6 +51,7 @@ git -C "$slot" clean -ffdxq -e /target
 
 const RUN: &str = r#"cd "$slot"
 export SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head
+[ "$landing" != 1 ] || export SAFE_PUSH_LANDING=1
 if [ -e "$slot/flake.nix" ] && [ "${command#nix develop}" = "$command" ]; then
   timeout -k 5 "$limit" nix develop "$slot" -c bash -euo pipefail -c "$command" 9>&-
 else
@@ -117,7 +118,8 @@ pub(super) fn run(land: &Land) -> u8 {
         Err(why) => return fail(&why),
     };
     let script = format!("{REMOTE}{RUN}").replace("@ROOT@", OFFLOAD_ROOT).replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string()).replace("@SLOTS@", &SLOTS.to_string());
-    let words = [relative.as_str(), land.base, land.head, &land.timeout_seconds.to_string(), &name, land.command].map(quote);
+    let landing = if std::env::var("SAFE_PUSH_LANDING").is_ok_and(|value| value == "1") { "1" } else { "" };
+    let words = [relative.as_str(), land.base, land.head, &land.timeout_seconds.to_string(), &name, land.command, landing].map(quote);
     let remote = format!("sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
@@ -138,6 +140,10 @@ mod tests {
     use std::process::Command;
 
     fn remote_run(command: &str, flake: bool) -> String {
+        remote_run_landing(command, flake, "")
+    }
+
+    fn remote_run_landing(command: &str, flake: bool, landing: &str) -> String {
         let slot = tempfile::tempdir().unwrap();
         let bin = tempfile::tempdir().unwrap();
         if flake {
@@ -148,7 +154,7 @@ mod tests {
         fs::set_permissions(&nix, fs::Permissions::from_mode(0o755)).unwrap();
         let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
         let output = Command::new("sh")
-            .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h\n{RUN}", shell(slot.path()), shell(Path::new(command)))])
+            .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing)])
             .env("PATH", path)
             .output()
             .unwrap();
@@ -168,6 +174,12 @@ mod tests {
     #[test]
     fn a_checkout_without_a_flake_runs_the_command_plainly() {
         assert_eq!(remote_run("echo plain", false), "plain\n");
+    }
+
+    #[test]
+    fn the_landing_marker_reaches_the_command_only_when_the_caller_sent_it() {
+        assert_eq!(remote_run_landing("echo \"[${SAFE_PUSH_LANDING-}]\"", false, "1"), "[1]\n");
+        assert_eq!(remote_run_landing("echo \"[${SAFE_PUSH_LANDING-}]\"", false, ""), "[]\n");
     }
 
     #[test]

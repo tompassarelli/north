@@ -18,6 +18,8 @@ mod json;
 mod machine;
 pub(super) use machine::host_cores;
 #[cfg(test)]
+mod landing_tests;
+#[cfg(test)]
 mod machine_tests;
 mod measure;
 mod policy;
@@ -255,6 +257,10 @@ const RUN_OPTIONS: [&str; 14] = [
     "--class", "--owner", "--timeout-seconds", "--memory-gib", "--beside-native", "--new-clients", "--new-desktops", "--quiet", "--wait-seconds", "--quiet-seconds", "--pair", "--alone", "--latency", "--priority",
 ];
 
+fn landing_run(operation: &str, owner: &str, class: &str, land_head: Option<&str>, landing: Option<&str>) -> bool {
+    operation == "run" && policy::batch_class(class) && land_head.is_some_and(|head| !head.is_empty()) && (owner == "land-check" || (owner.starts_with("gate:") && landing == Some("1")))
+}
+
 fn requested(options: &args::Options, operation: &str, owner: &str, command: &[String], cores: f64) -> request::Request {
     if options.get("--class") == Some("tom") && let Some(message) = priority::tom_class_refusal(Some(owner)) {
         fail(&message, 2);
@@ -290,7 +296,7 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
         }
         request.latency = true;
     }
-    request.landing = operation == "run" && owner == "land-check" && machine::env("SAFE_PUSH_LAND_HEAD").is_some_and(|head| !head.is_empty()) && policy::batch_class(&request.name);
+    request.landing = landing_run(operation, owner, &request.name, machine::env("SAFE_PUSH_LAND_HEAD").as_deref(), machine::env("SAFE_PUSH_LANDING").as_deref());
     if let Some(asked) = options.get("--priority") {
         if let Some(message) = priority::priority_refusal(asked, &request.name) {
             fail(&message, 2);
