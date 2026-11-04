@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod config_keys;
+mod reach;
 
 pub use config_keys::MissingKey;
 
@@ -200,16 +201,19 @@ fn normalized(dir: &str, target: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-fn resolves(known: &BTreeSet<String>, dir: &str, target: &str) -> bool {
-    let target = target.split('#').next().unwrap_or("");
-    let Some(path) = normalized(dir, target) else { return true };
+fn resolved(known: &BTreeSet<String>, dir: &str, target: &str) -> Option<String> {
+    let path = normalized(dir, target.split('#').next().unwrap_or(""))?;
     if known.contains(&path) {
-        return true;
+        return Some(path);
     }
-    SKILL_ROOTS.iter().any(|from| {
-        path.strip_prefix(from)
-            .is_some_and(|rest| SKILL_ROOTS.iter().any(|to| to != from && known.contains(&format!("{to}{rest}"))))
+    SKILL_ROOTS.iter().find_map(|from| {
+        let rest = path.strip_prefix(from)?;
+        SKILL_ROOTS.iter().filter(|to| *to != from).map(|to| format!("{to}{rest}")).find(|other| known.contains(other))
     })
+}
+
+fn resolves(known: &BTreeSet<String>, dir: &str, target: &str) -> bool {
+    normalized(dir, target.split('#').next().unwrap_or("")).is_none() || resolved(known, dir, target).is_some()
 }
 
 pub fn scan_paths(path: &str, text: &str, known: &BTreeSet<String>, tops: &BTreeSet<String>) -> Vec<BrokenPath> {
@@ -265,6 +269,25 @@ pub fn broken_paths(root: &Path) -> Result<Vec<BrokenPath>, String> {
     Ok(found)
 }
 
+pub fn broken_anchors(root: &Path) -> Result<Vec<BrokenPath>, String> {
+    let known = known_paths(&all_tracked(root)?);
+    let mut found = Vec::new();
+    for path in tracked(root)? {
+        if !path.ends_with(".md") || UNSCANNED.iter().any(|prefix| path.starts_with(prefix)) {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(root.join(&path)) {
+            found.extend(reach::broken_anchors(root, &path, &text, &known));
+        }
+    }
+    Ok(found)
+}
+
+pub fn unlinked_docs(root: &Path) -> Result<Vec<String>, String> {
+    let files = all_tracked(root)?;
+    Ok(reach::unlinked(root, &files, &known_paths(&files)))
+}
+
 fn names_paths(path: &str) -> bool {
     NAMED_PATHS.iter().any(|prefix| path.starts_with(prefix)) && !LINKS_ONLY.iter().any(|prefix| path.starts_with(prefix))
 }
@@ -290,6 +313,8 @@ pub fn problems(root: &Path, defined: fn(&str) -> bool) -> Result<Vec<String>, S
     lines.extend(missing_flags(root, defined)?.into_iter().map(|f| format!("{}:{}: north {} cites flag {}, which no source string literal holds", f.path, f.line, f.command, f.flag)));
     lines.extend(missing_keys(root)?.into_iter().map(|k| format!("{}:{}: {} names no harness/defaults.toml table, .safe-push key or config north code reads", k.path, k.line, k.name)));
     lines.extend(broken_paths(root)?.into_iter().map(|b| format!("{}:{}: missing path {}", b.path, b.line, b.target)));
+    lines.extend(broken_anchors(root)?.into_iter().map(|b| format!("{}:{}: {} links a heading its file does not have", b.path, b.line, b.target)));
+    lines.extend(unlinked_docs(root)?.into_iter().map(|path| format!("{path}: neither README.md nor AGENTS.md links it")));
     Ok(lines)
 }
 

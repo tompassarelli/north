@@ -54,7 +54,7 @@ fn rationale_history_fixtures_and_files_outside_the_roots_are_not_scanned() {
 
 #[test]
 fn the_command_exits_one_on_an_undefined_citation_and_zero_when_clean() {
-    let root = repository(&[("docs/guide.md", "`north gone`\n")]);
+    let root = repository(&[("README.md", "[g](docs/guide.md)\n"), ("docs/guide.md", "`north gone`\n")]);
     let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
     assert_eq!(run(&arguments, defined), 1);
     fs::write(root.path().join("docs/guide.md"), "`north fleet`\n").unwrap();
@@ -113,7 +113,7 @@ fn a_named_path_or_link_that_no_tracked_file_backs_is_named_with_its_line() {
 
 #[test]
 fn the_command_exits_one_on_a_missing_path_and_zero_once_it_exists() {
-    let root = repository(&[("bin/kept", ""), ("docs/x.md", "Run `bin/gone`.\n")]);
+    let root = repository(&[("README.md", "[x](docs/x.md)\n"), ("bin/kept", ""), ("docs/x.md", "Run `bin/gone`.\n")]);
     let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
     assert_eq!(run(&arguments, defined), 1);
     fs::create_dir_all(root.path().join("bin")).unwrap();
@@ -125,6 +125,7 @@ fn the_command_exits_one_on_a_missing_path_and_zero_once_it_exists() {
 #[test]
 fn a_cited_flag_that_no_source_string_literal_holds_is_named_and_the_command_exits_one() {
     let root = repository(&[
+        ("README.md", "[g](docs/guide.md)\n"),
         ("crates/a/src/lib.rs", "const FLAGS: &[&str] = &[\"--root\", \"--since=\"];\n"),
         ("docs/guide.md", "Run `north health --root .` or `north health --since=2d`.\nThen `north health --no-such-flag`, `north capture --gone` and `safe-push --to main`.\n"),
     ]);
@@ -139,6 +140,7 @@ fn a_cited_flag_that_no_source_string_literal_holds_is_named_and_the_command_exi
 #[test]
 fn a_named_config_table_or_key_that_no_owner_holds_is_named_and_the_command_exits_one() {
     let root = repository(&[
+        ("README.md", "[g](docs/guide.md)\n"),
         ("harness/defaults.toml", "[min_runs]\nvalue = 5\n"),
         (".safe-push", "[land]\n\tcheck = ** :: true\n"),
         ("bin/safe-push", "git config --get land.local-only\n"),
@@ -164,4 +166,50 @@ fn a_named_config_table_or_key_that_no_owner_holds_is_named_and_the_command_exit
     assert_eq!(run(&arguments, defined), 1);
     fs::write(root.path().join("docs/guide.md"), "`[min_runs]`\n").unwrap();
     assert_eq!(run(&arguments, defined), 0);
+}
+
+#[test]
+fn a_top_level_doc_that_neither_entry_links_is_named_and_the_command_exits_one() {
+    let root = repository(&[
+        ("README.md", "[h](docs/harness.md)\n"),
+        ("AGENTS.md", "[t](docs/terms.md#words)\n"),
+        ("docs/harness.md", "# Harness\n"),
+        ("docs/terms.md", "## Words\n"),
+        ("docs/orphan.md", "# Orphan\n"),
+        ("docs/features/01-a/0001-a.md", "- a\n"),
+    ]);
+    assert_eq!(unlinked_docs(root.path()).unwrap(), ["docs/orphan.md"]);
+    let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
+    assert_eq!(run(&arguments, defined), 1);
+    fs::write(root.path().join("README.md"), "[h](docs/harness.md) [o](docs/orphan.md)\n").unwrap();
+    assert_eq!(run(&arguments, defined), 0);
+}
+
+#[test]
+fn a_link_to_a_heading_its_file_lacks_is_named_and_the_command_exits_one() {
+    let root = repository(&[
+        ("README.md", "[t](docs/terms.md)\n"),
+        ("docs/terms.md", "# Terms\n## The `north` app, in short!\n## Repeat\n## Repeat\n```\n# not a heading\n```\n"),
+        (
+            "docs/harness.md",
+            "[a](terms.md#the-north-app-in-short) [b](terms.md#repeat-1) [c](terms.md#no-such-heading) [d](terms.md#not-a-heading) [e](terms.md)\n",
+        ),
+    ]);
+    let found = targets(broken_anchors(root.path()).unwrap());
+    assert_eq!(
+        found,
+        [("docs/harness.md".into(), 1, "terms.md#no-such-heading".into()), ("docs/harness.md".into(), 1, "terms.md#not-a-heading".into())]
+    );
+    fs::write(root.path().join("README.md"), "[t](docs/terms.md) [h](docs/harness.md)\n").unwrap();
+    let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
+    assert_eq!(run(&arguments, defined), 1);
+    fs::write(root.path().join("docs/harness.md"), "[a](terms.md#the-north-app-in-short)\n").unwrap();
+    assert_eq!(run(&arguments, defined), 0);
+}
+
+#[test]
+fn a_heading_slug_follows_github() {
+    assert_eq!(reach::slug(" Landing a change "), "landing-a-change");
+    assert_eq!(reach::slug("`north fleet` (TUI): v2.0"), "north-fleet-tui-v20");
+    assert_eq!(reach::slug("snake_case and -dash-"), "snake_case-and--dash-");
 }

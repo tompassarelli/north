@@ -60,7 +60,7 @@ fn command_grammar_preserves_payloads_and_rejects_unknown_prefixes() {
 }
 
 #[test]
-fn every_north_subcommand_flag_config_key_and_path_cited_in_docs_skills_and_hooks_exists() {
+fn every_citation_in_docs_skills_and_hooks_exists_and_every_doc_is_linked() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let undefined = crate::ops::citation_check::undefined(root, defines).unwrap();
     assert!(undefined.is_empty(), "{undefined:?}");
@@ -70,6 +70,10 @@ fn every_north_subcommand_flag_config_key_and_path_cited_in_docs_skills_and_hook
     assert!(keys.is_empty(), "{keys:?}");
     let broken = crate::ops::citation_check::broken_paths(root).unwrap();
     assert!(broken.is_empty(), "{broken:?}");
+    let anchors = crate::ops::citation_check::broken_anchors(root).unwrap();
+    assert!(anchors.is_empty(), "{anchors:?}");
+    let unlinked = crate::ops::citation_check::unlinked_docs(root).unwrap();
+    assert!(unlinked.is_empty(), "{unlinked:?}");
 }
 
 #[test]
