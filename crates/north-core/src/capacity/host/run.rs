@@ -8,7 +8,7 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use super::decision::decision;
 use super::estimate::task_signature;
 use super::json::{Obj, field, num, round2, text};
-use super::machine::{env, lease_slice, now_ms, read_signals, read_text, scope_cgroup};
+use super::machine::{elastic_class, env, lease_slice, now_ms, read_signals, read_text, scope_cgroup};
 use super::measure::{Usage, measure_scope};
 use super::policy::batch_class;
 use super::quiet_holds::{QuietHolds, quiet_owners};
@@ -26,7 +26,7 @@ const QUEUE_POLL_MILLISECONDS: u64 = 1000;
 const BEHIND_POLL_MILLISECONDS: u64 = 10_000;
 const OFFLOAD_RETRY_MILLISECONDS: f64 = 15_000.0;
 const OFFLOAD_DEFAULT_TIMEOUT_SECONDS: u64 = 3600;
-const FROZEN_CLASSES: [&str; 3] = ["heavy", "exclusive", "gpu"];
+const FROZEN_CLASSES: [&str; 4] = ["heavy", "moderate", "exclusive", "gpu"];
 const USER_HZ: f64 = 100.0;
 
 struct Terminations([Option<Signal>; 3]);
@@ -273,11 +273,11 @@ pub(super) fn scope_command(root: &Path, request: &Request, admitted: &Obj, time
     if let (Some(runtime), Some(bus)) = (env("XDG_RUNTIME_DIR"), env("DBUS_SESSION_BUS_ADDRESS")) {
         arguments.extend([format!("--setenv=XDG_RUNTIME_DIR={runtime}"), format!("--setenv=DBUS_SESSION_BUS_ADDRESS={bus}")]);
     }
-    arguments.extend([format!("--unit={unit}"), format!("--slice={}", lease_slice(&request.name))]);
+    arguments.extend([format!("--unit={unit}"), format!("--slice={}", lease_slice(request.admitted_class()))]);
     let scope = admitted.get("scope").cloned().unwrap_or(Value::Null);
     // A quota-throttled game client stalls for the rest of each period.
-    if request.name != "native" {
-        arguments.push(format!("--property=CPUQuota={}%", super::json::show(field(&scope, "cpus").unwrap_or(f64::NAN) * 100.0)));
+    if let Some(cpus) = field(&scope, "cpus").filter(|cpus| cpus.is_finite() && *cpus > 0.0 && request.name != "native" && !elastic_class(request.admitted_class())) {
+        arguments.push(format!("--property=CPUQuota={}%", super::json::show(cpus * 100.0)));
     }
     arguments.extend([format!("--property=MemoryHigh={}M", super::json::show(field(&scope, "memoryMiB").unwrap_or(f64::NAN))), "--property=KillMode=control-group".to_owned()]);
     if FROZEN_CLASSES.contains(&request.name.as_str()) {
@@ -394,7 +394,7 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
     let child_cpu_before = children_cpu_seconds();
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
-            let measurement = measure_scope(root, &lease, scope_cgroup(&request.name, &unit));
+            let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
             let exit_code = supervise(child, &unit, terminations).await;
             let usage = measurement.finish();
             let entry = usage_entry(owner, request, command, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);

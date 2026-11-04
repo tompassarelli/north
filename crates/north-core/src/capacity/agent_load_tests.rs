@@ -373,3 +373,65 @@ fn game_reserve_leaves_heavy_scopes_running_on_agent_cpus_and_still_freezes_gpu_
     assert!(log(root.path()).contains(&format!("--user freeze {}", unit(gpu))));
     assert!(log(root.path()).contains(&format!("--user freeze {}", unit(exclusive))));
 }
+
+#[test]
+fn protected_slice_pressure_freezes_the_batch_slice_within_one_tick_and_thaws_it_when_pressure_falls() {
+    let root = tempfile::tempdir().unwrap();
+    let host = host(root.path(), Path::new("/proc"));
+    let batch = host.cgroup.join("agent.slice/agent-batch.slice");
+    fs::create_dir_all(&batch).unwrap();
+    fs::write(batch.join("cgroup.freeze"), "0\n").unwrap();
+    let pressure = |slice: &str, percent: f64| {
+        fs::create_dir_all(host.cgroup.join(slice)).unwrap();
+        fs::write(host.cgroup.join(slice).join("cpu.pressure"), format!("some avg10={percent:.2} avg60=0.00 avg300=0.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1\n")).unwrap();
+    };
+    let frozen = || fs::read_to_string(batch.join("cgroup.freeze")).unwrap().trim() == "1";
+    pressure("app.slice", 3.0);
+    pressure("session.slice", 26.0);
+    pressure("agent.slice/agent-batch.slice", 90.0);
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, false), Some(agent_load::PressureHold { frozen: true, pressure_basis_points: 2600.0 }));
+    assert!(frozen(), "the batch slice froze on the tick that read protected pressure past the attended high mark");
+    pressure("session.slice", 12.0);
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, false), None);
+    assert!(frozen(), "the batch slice stays frozen inside the band");
+    pressure("session.slice", 4.0);
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, false).map(|hold| hold.frozen), Some(false));
+    assert!(!frozen(), "the batch slice thawed once pressure fell under the low mark");
+    pressure("game-reserve.slice", 21.0);
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, false), None, "21% is under the attended high mark");
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, true).map(|hold| hold.frozen), Some(true), "the game band freezes at 20%");
+    pressure("game-reserve.slice", 6.0);
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, true), None, "6% is over the game low mark");
+    pressure("game-reserve.slice", 4.0);
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, true).map(|hold| hold.frozen), Some(false));
+    fs::remove_dir_all(&batch).unwrap();
+    assert_eq!(agent_load::hold_batch_under_pressure(&host, false), None, "no batch slice, nothing to hold");
+}
+
+
+#[test]
+fn a_pressure_frozen_batch_lease_keeps_its_deadline_and_a_capped_lease_does_not_pause() {
+    let root = tempfile::tempdir().unwrap();
+    let host = host(root.path(), Path::new("/proc"));
+    lease(&host, HEAVY, "heavy", "agent-batch.slice", None, &[]);
+    lease(&host, NATIVE, "tom", "agent-capacity.slice", None, &[]);
+    let record = |id: &str| host.capacity.join("leases").join(format!("{id}.json"));
+    let read = |id: &str| serde_json::from_slice::<serde_json::Value>(&fs::read(record(id)).unwrap()).unwrap();
+    for id in [HEAVY, NATIVE] {
+        let mut lease = read(id);
+        lease["expiresAt"] = 1_000_000u64.into();
+        fs::write(record(id), lease.to_string()).unwrap();
+    }
+    let freeze = host.cgroup.join("agent.slice/agent-batch.slice/cgroup.freeze");
+    fs::write(&freeze, "1\n").unwrap();
+    agent_load::enforce(&host, false, false, &[]);
+    assert!(read(HEAVY)["frozenAt"].is_u64(), "the frozen batch lease's deadline paused");
+    assert!(read(NATIVE)["frozenAt"].is_null(), "a lease outside the batch slice keeps its clock");
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(&freeze, "0\n").unwrap();
+    agent_load::enforce(&host, false, false, &[]);
+    let thawed = read(HEAVY);
+    assert!(thawed["frozenAt"].is_null());
+    assert!(thawed["expiresAt"].as_u64().unwrap() > 1_000_000, "the deadline moved out by the time spent frozen");
+    assert_eq!(read(NATIVE)["expiresAt"].as_u64(), Some(1_000_000));
+}

@@ -188,6 +188,7 @@ pub enum Reason {
     DeferExclusiveQueued,
     DeferCpuCapacity,
     DeferCpuPressure,
+    DeferBatchJobs,
     DeferGaming,
     DeferGameMemory,
     DeferRunQueue,
@@ -308,6 +309,15 @@ pub(super) fn host_holds(facts: &Facts, class: Class) -> bool {
     (facts.gaming && gaming_deferred(facts, class)) || (class == Class::Heavy && disk_below_floor(facts))
 }
 
+pub(super) fn batch_jobs_cap(cores: u32) -> u32 {
+    ((f64::from(cores) * default_mib("admit_batch_jobs_per_core")).floor() as u32).max(1)
+}
+
+fn batch_jobs_full(facts: &Facts) -> bool {
+    let running = facts.leases.iter().filter(|lease| matches!(lease.class.as_str(), "heavy" | "moderate")).count();
+    u32::try_from(running).unwrap_or(u32::MAX) >= batch_jobs_cap(facts.cores)
+}
+
 pub(super) fn batch_fits(facts: &Facts, cpus: f64) -> bool {
     facts.leased_batch_cpus + facts.unleased_heavy_cores + cpus <= batch_cpus(facts)
 }
@@ -378,13 +388,11 @@ pub(super) fn batch_cpus(facts: &Facts) -> f64 {
 }
 
 pub(super) fn aggregate_cpus(profile: Profile, cores: u32) -> f64 {
-    let reserved = match profile {
-        Profile::Attended if cores > 8 => 4,
-        Profile::Attended if cores > 4 => 2,
-        Profile::Attended => 1,
-        Profile::Unattended => 0,
+    let name = match profile {
+        Profile::Attended => "attended",
+        Profile::Unattended => "unattended",
     };
-    f64::from(cores.saturating_sub(reserved).max(1))
+    super::host::policy::aggregate_cpus(name, f64::from(cores))
 }
 
 /// The Warcraft clients the host takes: its static count as a ceiling, lowered to the clients it
@@ -485,13 +493,14 @@ fn shared(facts: &Facts) -> Reason {
     if super::queued_ahead::queued_ahead(facts) > 0 {
         return Reason::DeferQueued;
     }
-    match facts.class {
-        Class::Gpu => return Reason::Run,
-        Class::Heavy => return super::pressure_target::deferred(facts).unwrap_or(Reason::Run),
-        _ => {}
+    if facts.class == Class::Gpu {
+        return Reason::Run;
     }
-    if !batch_fits(facts, facts.requested_cpus) {
-        return Reason::DeferCpuCapacity;
+    if batch_jobs_full(facts) {
+        return Reason::DeferBatchJobs;
+    }
+    if facts.class == Class::Heavy {
+        return super::pressure_target::deferred(facts).unwrap_or(Reason::Run);
     }
     if facts.cpu_some_avg10_basis_points > BATCH_PRESSURE_BASIS_POINTS {
         return Reason::DeferCpuPressure;

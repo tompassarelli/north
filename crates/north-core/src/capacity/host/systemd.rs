@@ -1,6 +1,6 @@
 use std::process::{Command, Output, Stdio};
 
-use super::machine::{aggregate_slice, env, native_slice, uid};
+use super::machine::{aggregate_slice, batch_slice, env, native_slice, uid};
 use super::policy::aggregate_cpus;
 use crate::capacity::admission::default_mib;
 
@@ -42,7 +42,7 @@ pub(super) fn desktop_weights(profile: &str) -> [(&'static str, u32); 3] {
     [(DESKTOP_SLICE, app), (SESSION_SLICE, session), (AGENT_SLICE, weight("slice_weight_agent"))]
 }
 
-/// Caps the aggregate batch slice for the profile, weights the native slice above it and sets the desktop, session and agent slice weights for the profile.
+/// Caps the aggregate slice for the profile, makes the batch slice idle-weighted with no quota, weights the native slice above both and sets the desktop, session and agent slice weights for the profile.
 pub fn apply_profile(profile: &str, cores: f64) -> bool {
     let quota = format!("CPUQuota={}%", super::json::show(aggregate_cpus(profile, cores) * 100.0));
     let weight = format!("CPUWeight={NATIVE_CPU_WEIGHT}");
@@ -53,8 +53,10 @@ pub fn apply_profile(profile: &str, cores: f64) -> bool {
             set_slice(slice, &[&format!("CPUWeight={weight}"), &format!("IOWeight={weight}")]);
         }
     }
-    set_slice(&aggregate_slice(), &[&quota]) && set_slice(&native_slice(), &[&weight, &io])
+    set_slice(&aggregate_slice(), &[&quota]) && set_slice(&batch_slice(), &BATCH_PROPERTIES) && set_slice(&native_slice(), &[&weight, &io])
 }
+
+pub(super) const BATCH_PROPERTIES: [&str; 2] = ["CPUWeight=idle", "CPUQuota="];
 
 pub fn scope_unit(id: &str) -> String {
     format!("agent-capacity-{}.scope", id.replace('-', ""))
@@ -78,11 +80,26 @@ pub fn stop_scope(unit: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::desktop_weights;
+    use super::{BATCH_PROPERTIES, desktop_weights};
 
     #[test]
     fn the_desktop_outweighs_agent_work_fifty_to_one_while_attended_and_returns_to_the_baseline_unattended() {
         assert_eq!(desktop_weights("attended"), [("app.slice", 1000), ("session.slice", 1000), ("agent.slice", 20)]);
         assert_eq!(desktop_weights("unattended"), [("app.slice", 100), ("session.slice", 300), ("agent.slice", 20)]);
+    }
+
+    #[test]
+    fn the_batch_slice_takes_only_idle_cycles_with_no_cpu_quota() {
+        assert_eq!(BATCH_PROPERTIES, ["CPUWeight=idle", "CPUQuota="]);
+        assert_eq!(super::super::machine::lease_slice("heavy"), "agent-batch.slice");
+        assert_eq!(super::super::machine::lease_slice("moderate"), "agent-batch.slice");
+        assert_eq!(super::super::machine::lease_slice("runtime"), "agent-capacity.slice");
+        assert_eq!(super::super::machine::lease_slice("critical"), "agent-capacity.slice");
+        let landing = serde_json::json!({ "class": "heavy", "landing": true });
+        assert_eq!(super::super::machine::lease_slice(super::super::machine::slice_class(&landing)), "agent-capacity.slice");
+        assert_eq!(super::super::machine::lease_slice("tom"), "agent-capacity.slice");
+        assert_eq!(super::super::machine::lease_slice("gpu"), "agent-capacity.slice");
+        assert_eq!(super::super::machine::lease_slice("exclusive"), "agent-capacity.slice");
+        assert_eq!(super::super::machine::lease_slice("native"), "native.slice");
     }
 }

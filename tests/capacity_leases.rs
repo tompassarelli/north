@@ -55,7 +55,7 @@ fn child_lease_of_a_held_lease_runs_nested_while_an_exclusive_waits() {
 #[test]
 fn lease_past_its_timeout_has_its_scope_killed_and_is_released() {
     let host = host();
-    let mut overdue = run(&host, "moderate", "fixture:/overdue", "1", &["sleep", "60"]);
+    let mut overdue = run(&host, "runtime", "fixture:/overdue", "1", &["sleep", "60"]);
     let mut scope = None;
     host.until("the overdue lease's scope", |host| {
         scope = fs::read_dir(host.path("state/scopes")).unwrap().flatten().find_map(|entry| fs::read_to_string(entry.path()).ok().filter(|text| text.ends_with('\n')));

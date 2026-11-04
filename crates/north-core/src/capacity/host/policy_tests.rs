@@ -51,3 +51,20 @@ fn a_tiny_host_still_grants_one_core_so_the_aggregate_slice_never_gets_a_zero_qu
     assert_eq!(aggregate_cpus("attended", 20.0), 16.0);
     assert_eq!(aggregate_cpus("unattended", 1.0), 1.0);
 }
+
+#[test]
+fn a_frozen_batch_lease_is_still_charged_its_memory_and_reserves_no_batch_cpus() {
+    let root = tempfile::tempdir().unwrap();
+    let leases = [
+        serde_json::json!({ "id": "a", "kind": "run", "class": "heavy", "cpus": 6, "memoryMiB": 8192, "createdAt": 0, "frozenAt": 1000 }),
+        serde_json::json!({ "id": "b", "kind": "run", "class": "moderate", "cpus": 2, "memoryMiB": 2048, "createdAt": 0 }),
+        serde_json::json!({ "id": "c", "kind": "run", "class": "heavy", "landing": true, "cpus": 6, "memoryMiB": 8192, "createdAt": 0 }),
+        serde_json::json!({ "id": "d", "kind": "run", "class": "tom", "cpus": 20, "memoryMiB": 16384, "createdAt": 0 }),
+    ];
+    let totals = super::request::totals(root.path(), &leases, 600_000.0);
+    assert_eq!(totals.memory_mib, 8192.0 + 2048.0 + 8192.0 + 16384.0, "freezing frees CPU, not memory");
+    let accounting = super::request::cpu_accounting(root.path(), &leases, 600_000.0);
+    let leased = accounting.committed_batch_cpus - accounting.unleased_cores().unwrap_or(0.0);
+    assert!((leased - 26.0).abs() < 0.02, "only the landing check and Tom's build commit CPUs: {leased}");
+    assert_eq!(accounting.committed_elastic_cpus, 8.0, "the idle-weighted leases are counted apart");
+}

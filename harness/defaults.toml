@@ -809,14 +809,14 @@ consumers = ["crates/north-core/src/capacity/host/systemd.rs"]
 
 [admit_psi_unattended_low]
 value = 20
-unit = "percent of CPU pressure (PSI some avg10) below which an unattended host starts the next queued heavy build whatever the declared CPUs say"
+unit = "percent of CPU pressure (PSI some avg10), the low mark of the unattended band; heavy admission reads only the high mark since the batch slice became idle-weighted"
 source = "measured: the laptop (24 threads) held 7 to 12 queued heavy builds for up to 35 minutes at PSI some avg10 1 to 4% and 55 GB available on 2026-10-31; the watchdog samples of 2026-10-28 to 2026-10-29 (n=3406) put PSI some at p95 28 and p99 76; the controller aims for a stall below the 30% batch gate this replaces and the 50% psi-notify default (references.md#psi-notify)"
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
 consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_unattended_high]
 value = 40
-unit = "percent of CPU pressure (PSI some avg10) at or above which an unattended host starts no heavy build; between the low and high marks it starts one only if its declared CPUs fit the batch cores"
+unit = "percent of CPU pressure (PSI some avg10) at or above which an unattended host starts no heavy build"
 source = "prior: a simulated 24-thread host with 30 queued builds of 4 to 12 threads peaks at 35% under the unattended rails (crates/north-core/src/capacity/pressure_target_tests.rs, 2026-10-31), so this mark sits above it; the pressure-against-threads model is assumed, not measured"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
@@ -824,7 +824,7 @@ consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_attended_low]
 value = 10
-unit = "percent of CPU pressure (PSI some avg10) below which an attended host starts the next queued heavy build whatever the declared CPUs say"
+unit = "percent of protected-slice CPU pressure (PSI some avg10) below which the laptop tick thaws the batch slice it froze at the attended high mark"
 source = "prior: the protected-slice gate (INTERACTIVE_PRESSURE_BASIS_POINTS in crates/north-core/src/capacity/admission.rs) already defers batch work from 10% while Tom is at the desktop, and the attended low mark takes the same figure"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
@@ -832,14 +832,14 @@ consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_attended_high]
 value = 25
-unit = "percent of CPU pressure (PSI some avg10) at or above which an attended host starts no heavy build"
+unit = "percent of CPU pressure (PSI some avg10) at or above which an attended host starts no heavy build, and of protected-slice (app, session, game, game-reserve) CPU pressure at or above which the laptop tick freezes the batch slice"
 source = "measured: the watchdog's PSI some p95 of 28% (n=3406, 2026-10-28 to 2026-10-29) is the stall Tom's desktop already tolerates; the attended high mark sits under it"
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
 consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_game_low]
 value = 5
-unit = "percent of CPU pressure (PSI some avg10) below which a host running Tom's game under game reserve starts the next queued heavy build"
+unit = "percent of protected-slice CPU pressure (PSI some avg10) below which the laptop tick thaws the batch slice it froze at the game high mark while game reserve is on"
 source = "prior: the reserve already confines agents to their own cores, so the band drops to half the attended one; a design choice, not a measurement"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
@@ -847,11 +847,18 @@ consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [admit_psi_game_high]
 value = 20
-unit = "percent of CPU pressure (PSI some avg10) at or above which a host running Tom's game under game reserve starts no heavy build"
+unit = "percent of CPU pressure (PSI some avg10) at or above which a host running Tom's game under game reserve starts no heavy build, and of protected-slice CPU pressure at or above which the laptop tick freezes the batch slice"
 source = "prior: a simulated agent-core host peaks at 18% on the reserve's 16 agent cores (crates/north-core/src/capacity/pressure_target_tests.rs, 2026-10-31), so the high mark sits above that; the game cores carry none of it"
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
 fallback = "facts without a pressure reading read 0% and admit on the capacity ceiling alone"
 consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
+
+[admit_batch_jobs_per_core]
+value = 0.5
+unit = "running heavy and moderate leases per host core (floored, at least one) past which another of those classes waits as DEFER_BATCH_JOBS; the batch slice is idle-weighted, so declared CPUs no longer ration it"
+source = "measured: 6:14 to 7:05 AM +07 on 2026-11-04 the laptop (24 threads) queued 8 to 11 heavy tickets for up to 20 minutes while admission summed declared CPUs to its 20-core attended limit and real CPU PSI ranged 19 to 36%; 0.5 per core admits 12 jobs on it, enough to drain that queue, while memory headroom still bounds the resident sets"
+fallback = "none: memory headroom and the pressure high mark gate the job under the cap"
+consumers = ["crates/north-core/src/capacity/admission.rs"]
 
 [admit_settle_seconds]
 value = 30
@@ -867,30 +874,6 @@ source = "prior: rustc and the linker grow a build's resident set over its first
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose lowest MemAvailable after a heavy start can be checked against the memory floor" }
 fallback = "none: a lease older than this counts only through MemAvailable"
 consumers = ["crates/north-core/src/capacity/pressure_target.rs", "crates/north-core/src/capacity/host/policy.rs"]
-
-[admit_overcommit_unattended]
-value = 1
-unit = "times the batch cores that the declared CPUs of running and starting heavy builds may reach on an unattended host"
-source = "measured: a 20-core host committed 30.07 CPUs at load 125 under a rail of 2 times its cores (2026-10-31), so the rail is the host's aggregate CPU limit; a rail is needed because pressure shows nothing until the threads pass the cores, so one more build can step it up by 15 points or more"
-settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
-fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
-
-[admit_overcommit_attended]
-value = 1
-unit = "times the batch cores that the declared CPUs of running and starting heavy builds may reach while Tom is at the desktop"
-source = "measured: committed CPUs past the host's aggregate CPU limit stalled a 20-core host at load 125 (2026-10-31), so the rail is that limit in every mode"
-settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
-fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
-
-[admit_overcommit_game]
-value = 1
-unit = "times the agent cores that the declared CPUs of running and starting heavy builds may reach while Tom's game runs under game reserve"
-source = "prior: the same simulation on the reserve's 16 agent cores peaks at 18% CPU pressure at 1 times them and 25% at 1.5 times, outside the game band; the game cores stay unloaded"
-settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes whose admitted heavy starts can be checked against the CPU PSI some avg10 the band predicted" }
-fallback = "none: a heavy build past it waits as DEFER_CPU_CAPACITY"
-consumers = ["crates/north-core/src/capacity/pressure_target.rs"]
 
 [tom_class_owners]
 value = ["makgora:tom-build-window", "makgora:play-helper", "tom-preview"]

@@ -98,14 +98,14 @@ fn facts(root: &Path, request: &Request, create: Option<&Create>, ticket: Option
         .put("queuedAheadTickets", context.queued.ahead.iter().map(|entry| ahead_ticket(entry, observed.now)).collect::<Vec<_>>())
         .put("queuedAheadNewClients", context.queued.ahead.iter().map(|entry| entry.get("newClients").filter(|value| !value.is_null()).cloned().unwrap_or(json!(0))).collect::<Vec<_>>())
         .put("leasedMemoryMiB", num(context.leased.memory_mib))
-        .put("leasedBatchCpus", num(round2(context.committed_batch_cpus - unleased_cores)))
+        .put("leasedBatchCpus", num(round2(context.committed_batch_cpus + context.committed_elastic_cpus - unleased_cores)))
         .put("leasedNativeCpus", num(context.committed_native_cpus))
         .put("unleasedHeavyCores", num(unleased_cores))
         .put("requestedCpus", num(context.charged.0))
         .put("requestedMemoryMiB", num(context.charged.1))
         .put("peerBatchRuns", count(&|lease| batch_class(class(lease))))
         .put("peerExclusiveRuns", count(&|lease| class(lease) == "exclusive"))
-        .put("unboundedRuns", count(&|lease| text(lease, "aggregateSlice") != Some(lease_slice(class(lease)).as_str())))
+        .put("unboundedRuns", count(&|lease| text(lease, "aggregateSlice") != Some(lease_slice(super::machine::slice_class(lease)).as_str())))
         .put("queuedAhead", context.queued.ahead.len())
         .put("exclusiveWaiting", context.queued.exclusive_waiting)
         .put("beforeDrain", context.before_drain_create)
@@ -189,6 +189,7 @@ struct Context {
     queued: Queued,
     leased: Totals,
     committed_batch_cpus: f64,
+    committed_elastic_cpus: f64,
     committed_native_cpus: f64,
     unleased_cores: Option<f64>,
     charged: (f64, f64),
@@ -267,6 +268,7 @@ fn context(root: &Path, request: &Request, create: Option<&Create>, ticket: Opti
         queued,
         leased: totals(root, &observed.active, now),
         committed_batch_cpus: accounting.committed_batch_cpus,
+        committed_elastic_cpus: accounting.committed_elastic_cpus,
         committed_native_cpus: accounting.committed_native_cpus,
         unleased_cores: accounting.unleased_cores(),
         charged: (granted.charged.cpus, granted.charged.memory_mib),
@@ -289,7 +291,7 @@ pub fn decision(root: &Path, request: &Request, create: Option<&Create>, ticket:
         }
         let mut outcome = result(request, create, &code, &observed, &context, &granted);
         if code == "DEFER_GPU_BUSY" {
-            let leased: Vec<String> = runs(&observed).iter().map(|lease| scope_cgroup(class(lease), &scope_unit(id(lease))).to_string_lossy().chars().skip(super::machine::cgroup_root().chars().count()).collect()).collect();
+            let leased: Vec<String> = runs(&observed).iter().map(|lease| scope_cgroup(super::machine::slice_class(lease), &scope_unit(id(lease))).to_string_lossy().chars().skip(super::machine::cgroup_root().chars().count()).collect()).collect();
             let process = before.as_ref().zip(after.as_ref()).map_or(Value::Null, |(before, after)| top_unleased_gpu_process(before, after, &leased));
             outcome = outcome.merge(observed.gpu_busy.clone()).put("gpuProcess", process);
         }
@@ -327,7 +329,8 @@ fn create_lease(root: &Path, request: &Request, create: &Create, ticket: Option<
         .put("class", request.name.as_str())
         .put_some("newClients", (request.name == "native" && request.new_clients > 0).then_some(request.new_clients))
         .put_some("parentLease", parent.as_deref())
-        .put("aggregateSlice", run.then(|| lease_slice(&request.name)))
+        .put_some("landing", request.landing.then_some(true))
+        .put("aggregateSlice", run.then(|| lease_slice(request.admitted_class())))
         .put("owner", create.owner.as_str())
         .put("cpus", num(granted.charged.cpus))
         .put("memoryMiB", num(granted.charged.memory_mib))

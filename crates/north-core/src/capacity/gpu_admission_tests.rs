@@ -36,7 +36,7 @@ fn a_gpu_lease_is_admitted_on_gpu_occupancy_while_the_cpu_is_saturated_by_other_
     assert_eq!(saturated(Class::Gpu, 6, 0), Reason::Run);
     assert_eq!(saturated(Class::Gpu, 6, 1), Reason::Run);
     assert_eq!(saturated(Class::Gpu, 6, 2), Reason::DeferGpuSlots);
-    assert_eq!(saturated(Class::Moderate, 6, 0), Reason::DeferCpuCapacity);
+    assert_eq!(saturated(Class::Moderate, 6, 0), Reason::DeferCpuPressure);
     assert_eq!(saturated(Class::Heavy, 6, 0), Reason::DeferRunQueue);
 }
 

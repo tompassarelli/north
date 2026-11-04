@@ -22,6 +22,34 @@ fn each_batch_lease_compiles_through_its_own_cache_server_inside_its_scope() {
     assert_eq!(server_socket(root.path(), "native"), None);
 }
 
+fn quota(class: &str, landing: bool, cpus: f64) -> Vec<String> {
+    let root = tempfile::tempdir().expect("scratch");
+    let request = Request { name: class.to_owned(), landing, ..Request::default() };
+    let admitted = Obj::new().put("lease", "00000000-0000-4000-8000-000000000001").put("scope", serde_json::json!({ "cpus": cpus, "memoryMiB": 8192 }));
+    let command = scope_command(root.path(), &request, &admitted, Some(60), &["true".to_owned()]);
+    command.as_std().get_args().map(|argument| argument.to_string_lossy().into_owned()).filter(|argument| argument.starts_with("--property=CPU") || argument.starts_with("--slice=")).collect()
+}
+
+#[test]
+fn a_scope_never_gets_a_zero_cpu_quota_and_batch_scopes_get_none() {
+    assert_eq!(quota("runtime", false, 0.0), ["--slice=agent-capacity.slice"], "a zero-CPU grant is weight-only, never CPUQuota=0%");
+    assert_eq!(quota("runtime", false, 2.0), ["--slice=agent-capacity.slice", "--property=CPUQuota=200%"]);
+    assert_eq!(quota("heavy", false, 6.0), ["--slice=agent-batch.slice"]);
+    assert_eq!(quota("moderate", false, 2.0), ["--slice=agent-batch.slice"]);
+    assert_eq!(quota("heavy", true, 6.0), ["--slice=agent-capacity.slice", "--property=CPUQuota=600%"], "a landing check keeps normal weight");
+}
+
+#[test]
+fn a_host_whose_reserve_covers_its_cores_still_grants_one_cpu() {
+    for profile in ["attended", "unattended"] {
+        assert_eq!(super::policy::aggregate_cpus(profile, 1.0), 1.0, "{profile}");
+        let request = Request { name: "runtime".to_owned(), resources: Some(super::policy::Resources { cpus: 2.0, memory_mib: 8192.0 }), ..Request::default() };
+        let granted = super::request::grant(profile, 1.0, 65536.0, &request);
+        assert_eq!(granted.charged.cpus, 1.0, "{profile}: a clamp to the 1-CPU host is 1, never 0");
+    }
+    assert_eq!(super::policy::aggregate_cpus("attended", 24.0), 20.0);
+}
+
 #[test]
 fn a_ticket_behind_an_earlier_one_watches_the_queue_and_polls_rarely_while_the_head_polls_each_second() {
     let behind = watch(Some("DEFER_QUEUED"));

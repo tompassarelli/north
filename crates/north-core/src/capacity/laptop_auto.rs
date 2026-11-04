@@ -107,6 +107,9 @@ pub fn run(arguments: &[String]) -> u8 {
     }
     let game_reserve = agent_load::game_reserve_on(&host);
     let gaming = sample["gaming"] == true || game_reserve;
+    if let Some(hold) = agent_load::hold_batch_under_pressure(&host, game_reserve) {
+        println!("agent-load: batch slice {} at protected CPU pressure {:.2}%", if hold.frozen { "frozen" } else { "thawed" }, hold.pressure_basis_points / 100.0);
+    }
     let plan = agent_load::enforce(&host, gaming, game_reserve, &processes);
     if plan != agent_load::Plan::default() {
         println!(

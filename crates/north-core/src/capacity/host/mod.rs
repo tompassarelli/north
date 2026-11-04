@@ -25,7 +25,7 @@ mod landing_tests;
 mod machine_tests;
 mod measure;
 mod offload_cost;
-mod policy;
+pub(super) mod policy;
 #[cfg(test)]
 mod policy_tests;
 mod priority;

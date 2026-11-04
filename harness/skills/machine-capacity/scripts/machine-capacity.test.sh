@@ -54,8 +54,8 @@ decision() { fixture "$@" | jq -r '.decision' || true; }
 [[ $(decision attended heavy 70000 1000 394 0 0) == DEFER_INTERACTIVE_PRESSURE ]]
 [[ $(decision attended heavy 70000 999 394 0 0) == RUN ]]
 [[ $(decision unattended heavy 70000 10000 394 0 0) == RUN ]]
-# Batch ceilings past the aggregate limit queue new batch work in every profile.
-[[ $(decision attended moderate 70109 0 0 26 32768 --peer-batch-runs 7) == DEFER_CPU_CAPACITY ]]
+# Declared batch CPUs past the aggregate limit no longer queue work in the idle-weighted batch slice.
+[[ $(decision attended moderate 70109 0 0 26 32768 --peer-batch-runs 7) == RUN ]]
 [[ $(decision attended moderate 70109 0 0 18 32768 --peer-batch-runs 7) == RUN ]]
 # Memory floor: 20% of RAM present, the hard 8 GiB floor away.
 [[ $(decision attended heavy 21000 0 394 0 0) == DEFER_MEMORY_HEADROOM ]]
@@ -100,11 +100,11 @@ fi
 [[ $(decision unattended native 80000 0 0 2 4096 --gpu-busy-percent 95 --gpu-runs 2) == RUN ]]
 [[ $(decision attended native 80000 0 0 0 0 --gpu-clients 4 --new-clients 1 --gpu-runs 1) == DEFER_GPU_CLIENTS ]]
 
-# Peer ceilings hold moderate work at the aggregate limit (20 cores present, 24 away) and heavy work at 1.5 times it present, 2 times away.
-[[ $(decision attended heavy 80000 0 0 26 21504 --peer-batch-runs 3) == DEFER_CPU_CAPACITY ]]
+# Leased heavy CPUs past the aggregate limit, present or away, reserve nothing against the next heavy build.
+[[ $(decision attended heavy 80000 0 0 26 21504 --peer-batch-runs 3) == RUN ]]
 [[ $(decision attended heavy 80000 0 0 14 21504 --peer-batch-runs 3) == RUN ]]
 [[ $(decision unattended heavy 80000 0 0 18 21504 --peer-batch-runs 3) == RUN ]]
-[[ $(decision unattended heavy 80000 0 0 44 21504 --peer-batch-runs 4) == DEFER_CPU_CAPACITY ]]
+[[ $(decision unattended heavy 80000 0 0 44 21504 --peer-batch-runs 4) == RUN ]]
 # System CPU pressure above 30% holds moderate work and at the unattended high mark (40%) heavy work, present or away.
 [[ $(decision unattended heavy 80000 0 0 0 0 --cpu-some-avg10-basis-points 4000) == DEFER_CPU_PRESSURE ]]
 [[ $(decision unattended heavy 80000 0 0 0 0 --cpu-some-avg10-basis-points 3999) == RUN ]]
@@ -141,7 +141,7 @@ fi
 [[ $(decision attended tom 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) == RUN ]]
 [[ $(decision attended moderate 80000 0 0 20 16384 --peer-batch-runs 4 --queued-ahead 3 --cpu-some-avg10-basis-points 9000) != RUN ]]
 [[ $(decision attended tom 80000 1000 0 0 0) == DEFER_INTERACTIVE_PRESSURE ]]
-[[ $(decision unattended heavy 80000 0 0 44 16384 --peer-batch-runs 1) == DEFER_CPU_CAPACITY ]]
+[[ $(decision unattended heavy 80000 0 0 44 16384 --peer-batch-runs 1) == RUN ]]
 [[ $(decision unattended exclusive 80000 0 0 20 16384 --peer-batch-runs 1) == DEFER_EXCLUSIVE ]]
 
 fixture_runtime="$scratch/runtime"
@@ -451,7 +451,7 @@ stop_run() {
   [[ $(tail -n 1 "$scratch/$1-err" | jq -r .decision) == RELEASED ]]
 }
 status() { XDG_RUNTIME_DIR="$fixture_runtime" bun "$scratch/machine-capacity.mjs" status; }
-# The held moderate fixtures are known 2-core builds, so two of them fill a 4-core host's 3 attended CPUs.
+# Two held moderate fixtures fill a 4-core host's batch job cap of two.
 export AGENT_CAPACITY_DB="$scratch/drain.db" AGENT_CAPACITY_USAGE_LOG="$scratch/drain-usage.jsonl"
 for sample in 1 2 3; do printf '{"at":"2026-10-10T00:00:0%sZ","owner":"fixture:/seed","shape":"read","class":"moderate","meanCores":2,"p90Cores":2,"peakCores":2,"peakMemoryMiB":512,"wallSeconds":120}\n' "$sample"; done >>"$AGENT_CAPACITY_USAGE_LOG"
 # An exclusive request passes an earlier batch ticket held by pressure (the
@@ -479,7 +479,7 @@ held_run moderate build build run --timeout-seconds 30
 wait_for "$scratch/build-ready"
 AGENT_CAPACITY_CORES=4 SAFE_PUSH_LAND_HEAD=0123456 XDG_RUNTIME_DIR="$fixture_runtime" timeout 60 bun "$scratch/machine-capacity.mjs" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>/dev/null
 status=0; AGENT_CAPACITY_CORES=4 XDG_RUNTIME_DIR="$fixture_runtime" timeout 8 bun "$scratch/machine-capacity.mjs" run --class moderate --owner land-check --timeout-seconds 30 -- true 2>"$scratch/saturated-err" || status=$?
-[[ $status == 124 && $(head -n 1 "$scratch/saturated-err" | jq -r .reason) == DEFER_CPU_CAPACITY ]]
+[[ $status == 124 && $(head -n 1 "$scratch/saturated-err" | jq -r .reason) == DEFER_BATCH_JOBS ]]
 held_run heavy late late run --timeout-seconds 30
 IFS= read -r event <&"${event_of[late]}"
 [[ $(head -n 1 "$scratch/second-err" | jq -r '.reason') == DEFER_EXCLUSIVE ]]

@@ -101,6 +101,7 @@ pub struct Accounting {
     pub commitments: Vec<(String, f64, &'static str)>,
     pub unleased: Value,
     pub committed_batch_cpus: f64,
+    pub committed_elastic_cpus: f64,
     pub committed_native_cpus: f64,
 }
 
@@ -133,7 +134,8 @@ pub fn cpu_accounting(root: &std::path::Path, leases: &[Value], now: f64) -> Acc
     let sum = |filter: &dyn Fn(&Value) -> bool| leases.iter().filter(|lease| is_run(lease) && filter(lease)).map(|lease| commitments.iter().find(|(id_, _, _)| id_ == id(lease)).map_or(0.0, |entry| entry.1)).sum::<f64>();
     let unleased_cores = field(&unleased, "cores").unwrap_or(0.0);
     Accounting {
-        committed_batch_cpus: round2(sum(&|lease| batch_class(class(lease))) + unleased_cores),
+        committed_batch_cpus: round2(sum(&|lease| batch_class(class(lease)) && !super::machine::elastic_class(super::machine::slice_class(lease))) + unleased_cores),
+        committed_elastic_cpus: round2(sum(&|lease| super::machine::elastic_class(super::machine::slice_class(lease)))),
         committed_native_cpus: round2(sum(&|lease| class(lease) == "native")),
         commitments,
         unleased,

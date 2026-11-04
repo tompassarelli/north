@@ -200,7 +200,8 @@ fn unix_millis() -> u64 {
 fn freeze_past_its_timeout(host: &Host, lease: &Value, wrapper: &mut Wrapper) -> u64 {
     let unit = format!("agent-capacity-{}.scope", lease["id"].as_str().unwrap().replace('-', ""));
     host.until("the lease scope", |host| host.path(&format!("state/scopes/{unit}")).exists());
-    fs::create_dir_all(host.path(&format!("user-cgroup/agent.slice/agent-capacity.slice/{unit}"))).unwrap();
+    let slice = lease["aggregateSlice"].as_str().unwrap().trim_end_matches(".slice");
+    fs::create_dir_all(host.path(&format!("user-cgroup/agent.slice/{slice}.slice/{unit}"))).unwrap();
     fs::create_dir_all(host.path("proc")).unwrap();
     fs::write(host.path("proc/stat"), "btime 1\n").unwrap();
     let pid = lease["wrapperPid"].as_u64().unwrap();

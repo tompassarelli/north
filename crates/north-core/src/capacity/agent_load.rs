@@ -9,13 +9,17 @@ use rustix::process::{Pid, Signal, kill_process};
 use serde::Deserialize;
 use serde_json::json;
 
+use super::admission::Profile;
 use super::lease_deadline;
+use super::pressure_target::{Band, band_for};
 
 const WISP_DATA: &str = "/.local/share/wisp/";
 const STEAM_PREFIXES: &str = "/steamapps/compatdata/";
 const GAMING_MARKER: &str = "gaming.json";
 const PREFIX_VARIABLES: [&str; 2] = ["STEAM_COMPAT_DATA_PATH", "WINEPREFIX"];
 const KEPT_VARIABLES: [&str; 4] = ["XDG_RUNTIME_DIR", "PRIVATE_DESKTOP_RUN", "STEAM_COMPAT_DATA_PATH", "WINEPREFIX"];
+const BATCH_SLICE: &str = "agent.slice/agent-batch.slice";
+const PROTECTED_SLICES: [&str; 4] = ["app.slice", "session.slice", "game.slice", "game-reserve.slice"];
 
 pub struct Host {
     pub proc: PathBuf,
@@ -253,6 +257,41 @@ fn frozen_while_gaming(class: &str, game_reserve: bool) -> bool {
     }
 }
 
+fn some_avg10_basis_points(path: &Path) -> Option<f64> {
+    let text = fs::read_to_string(path).ok()?;
+    let line = text.lines().find(|line| line.starts_with("some "))?;
+    line.split_whitespace().find_map(|field| field.strip_prefix("avg10="))?.parse::<f64>().ok().map(|percent| percent * 100.0)
+}
+
+pub fn protected_pressure_basis_points(host: &Host) -> f64 {
+    PROTECTED_SLICES.iter().filter_map(|slice| some_avg10_basis_points(&host.cgroup.join(slice).join("cpu.pressure"))).fold(0.0, f64::max)
+}
+
+pub fn pressure_freeze(pressure_basis_points: f64, frozen: bool, band: Band) -> Option<bool> {
+    if !frozen && pressure_basis_points >= band.high_basis_points {
+        Some(true)
+    } else if frozen && pressure_basis_points < band.low_basis_points {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct PressureHold {
+    pub frozen: bool,
+    pub pressure_basis_points: f64,
+}
+
+pub fn hold_batch_under_pressure(host: &Host, game_reserve: bool) -> Option<PressureHold> {
+    let freeze = host.cgroup.join(BATCH_SLICE).join("cgroup.freeze");
+    let frozen = fs::read_to_string(&freeze).ok()?.trim() == "1";
+    let pressure_basis_points = protected_pressure_basis_points(host);
+    let next = pressure_freeze(pressure_basis_points, frozen, band_for(game_reserve, Profile::Attended))?;
+    fs::write(&freeze, if next { "1" } else { "0" }).ok()?;
+    Some(PressureHold { frozen: next, pressure_basis_points })
+}
+
 pub fn reap_orphans(host: &Host, processes: &[Process]) -> Plan {
     let leases = leases(host);
     let observed = Observed { gaming: false, game_reserve: false, processes, leases: &leases, frozen: &BTreeSet::new() };
@@ -309,7 +348,9 @@ pub fn enforce(host: &Host, gaming: bool, game_reserve: bool, processes: &[Proce
     } else {
         unthawed.into_iter().filter(|unit| live.contains(unit)).collect()
     };
-    let (held, released): (Vec<&Lease>, Vec<&Lease>) = leases.iter().partition(|lease| still.contains(&lease.unit()));
+    let batch_frozen = fs::read_to_string(host.cgroup.join(BATCH_SLICE).join("cgroup.freeze")).is_ok_and(|state| state.trim() == "1");
+    let batch = host.cgroup.join(BATCH_SLICE);
+    let (held, released): (Vec<&Lease>, Vec<&Lease>) = leases.iter().partition(|lease| still.contains(&lease.unit()) || (batch_frozen && lease.scope_dir(host).starts_with(&batch)));
     let ids = |leases: Vec<&Lease>| leases.into_iter().map(|lease| lease.id.clone()).collect::<BTreeSet<_>>();
     lease_deadline::reconcile(&host.capacity, &ids(held), &ids(released));
     signal_all(&plan.kill);

@@ -154,7 +154,7 @@ fn native_owner_steps_opt_out_explicitly() {
 }
 
 #[test]
-fn four_core_history_request_admits_only_at_its_clamped_grant() {
+fn a_four_core_heavy_request_past_the_cores_is_not_rationed_by_its_declared_cpus() {
     let host = Facts {
         profile: Profile::Unattended,
         cores: 4,
@@ -163,18 +163,39 @@ fn four_core_history_request_admits_only_at_its_clamped_grant() {
         requested_memory_mib: 2429.0,
         ..facts(Class::Heavy)
     };
-    assert_eq!(decide(&Facts { requested_cpus: 5.0, ..host.clone() }), Reason::DeferCpuCapacity);
+    assert_eq!(decide(&Facts { requested_cpus: 5.0, ..host.clone() }), Reason::Run);
     assert_eq!(decide(&Facts { requested_cpus: 4.0, ..host }), Reason::Run);
 }
 
 #[test]
-fn unleased_heavy_cpu_reduces_admitted_capacity() {
-    let mut host = facts(Class::Moderate);
-    host.leased_batch_cpus = 16.0;
-    host.unleased_heavy_cores = 3.0;
-    assert_eq!(decide(&host), Reason::DeferCpuCapacity);
-    host.unleased_heavy_cores = 2.0;
-    assert_eq!(decide(&host), Reason::Run);
+fn batch_classes_admit_past_summed_cpu_reservations_on_memory_jobs_and_pressure() {
+    let on = |class: Class, running: usize| Facts {
+        now: 600_000.0,
+        leased_batch_cpus: 19.9,
+        unleased_heavy_cores: 3.0,
+        requested_cpus: 6.0,
+        leases: (0..running).map(|_| super::tests::running("heavy")).collect(),
+        ..facts(class)
+    };
+    let cap = super::admission::batch_jobs_cap(24) as usize;
+    assert_eq!(cap, 12);
+    for class in [Class::Heavy, Class::Moderate] {
+        assert_eq!(decide(&on(class, cap - 1)), Reason::Run, "{class:?} with 22.9 CPUs reserved of 20");
+        assert_eq!(decide(&on(class, cap)), Reason::DeferBatchJobs, "{class:?} at the job cap");
+        assert_eq!(decide(&Facts { memory_available_mib: 20000.0, ..on(class, 0) }), Reason::DeferMemoryHeadroom, "{class:?} short of memory");
+    }
+    assert_eq!(decide(&Facts { cpu_some_avg10_basis_points: 2500, ..on(Class::Heavy, 0) }), Reason::DeferCpuPressure);
+    assert_eq!(decide(&Facts { cpu_some_avg10_basis_points: 3001, ..on(Class::Moderate, 0) }), Reason::DeferCpuPressure);
+    assert_eq!(decide(&on(Class::Runtime, cap)), Reason::Run, "runtime builds stay outside the batch job cap");
+    assert_eq!(decide(&on(Class::Tom, cap)), Reason::Run, "Tom's play builds stay outside the batch job cap");
+    assert_eq!(decide(&Facts { protected_cpu_some_avg10_basis_points: 1000, ..on(Class::Moderate, 0) }), Reason::DeferInteractivePressure);
+    assert_eq!(decide(&Facts { leases: vec![super::tests::running("tom"); cap], ..on(Class::Heavy, 0) }), Reason::Run, "tom work does not fill the batch job cap");
+}
+
+#[test]
+fn the_head_ticket_short_by_a_tenth_of_a_core_on_2026_11_04_now_starts() {
+    let laptop = Facts { now: 600_000.0, cores: 24, leased_batch_cpus: 14.1, requested_cpus: 6.0, cpu_some_avg10_basis_points: 1900, cpu_pressure_measured: true, leases: vec![super::tests::running("heavy"); 3], ..facts(Class::Heavy) };
+    assert_eq!(decide(&laptop), Reason::Run);
 }
 
 #[test]
@@ -392,11 +413,11 @@ fn reserved(class: Class) -> Facts {
 }
 
 #[test]
-fn game_reserve_counts_batch_cpus_against_the_agent_cpus_only() {
+fn game_reserve_admits_heavy_past_its_agent_cpus_and_holds_it_at_the_game_pressure_mark() {
     let busy = Facts { leased_batch_cpus: 12.0, ..reserved(Class::Heavy) };
-    assert_eq!(decide(&busy), Reason::DeferCpuCapacity);
-    assert_eq!(decide(&Facts { leased_batch_cpus: 10.0, ..busy.clone() }), Reason::Run);
-    assert_eq!(decide(&Facts { gaming: false, game_reserve_agent_cpus: None, ..busy }), Reason::Run);
+    assert_eq!(decide(&busy), Reason::Run);
+    assert_eq!(decide(&Facts { cpu_some_avg10_basis_points: 2000, ..busy.clone() }), Reason::DeferCpuPressure);
+    assert_eq!(decide(&Facts { cpu_some_avg10_basis_points: 2000, gaming: false, game_reserve_agent_cpus: None, ..busy }), Reason::Run);
 }
 
 #[test]
@@ -533,10 +554,19 @@ fn a_heavy_ticket_that_does_not_fit_lets_a_fitting_one_behind_it_pass_until_it_h
     let head = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(6.0), queued_seconds };
     let guard = |queued_seconds| AheadTicket { requested_class: Some(Class::Heavy), requested_cpus: Some(2.0), queued_seconds };
     let bound = super::admission::default_mib("backfill_seconds");
-    assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 12.5, &[])), Reason::DeferCpuCapacity);
+    assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 12.5, &[])), Reason::Run);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(21.0)])), Reason::Run);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(21.0), guard(21.0)])), Reason::DeferQueued);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 7.89, &[head(bound)])), Reason::DeferQueued);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(2.0, 5.89, &[head(bound)])), Reason::DeferQueued);
     assert_eq!(decide(&whiterabbit_on_2026_10_31(6.0, 5.89, &[])), Reason::Run);
+    let moderate = |ahead: &[AheadTicket]| Facts { class: Class::Moderate, ..whiterabbit_on_2026_10_31(2.0, 7.89, ahead) };
+    assert_eq!(decide(&moderate(&[head(21.0)])), Reason::Run, "moderate work passes a heavy ticket the free share cannot fit");
+    assert_eq!(decide(&moderate(&[head(bound)])), Reason::DeferQueued);
+}
+
+#[test]
+fn a_one_core_host_admits_against_one_cpu_not_zero() {
+    assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 1), 1.0);
+    assert_eq!(super::admission::aggregate_cpus(Profile::Attended, 24), 20.0);
 }

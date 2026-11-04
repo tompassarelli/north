@@ -40,8 +40,24 @@ pub fn native_slice() -> String {
     format!("native{}.slice", subslice())
 }
 
+pub fn batch_slice() -> String {
+    format!("agent-batch{}.slice", subslice())
+}
+
+pub fn elastic_class(class: &str) -> bool {
+    matches!(class, "heavy" | "moderate")
+}
+
+pub fn slice_class(lease: &serde_json::Value) -> &str {
+    if lease.get("landing").and_then(serde_json::Value::as_bool) == Some(true) { "critical" } else { lease.get("class").and_then(serde_json::Value::as_str).unwrap_or_default() }
+}
+
 pub fn lease_slice(class: &str) -> String {
-    if class == "native" { native_slice() } else { aggregate_slice() }
+    match class {
+        "native" => native_slice(),
+        class if elastic_class(class) => batch_slice(),
+        _ => aggregate_slice(),
+    }
 }
 
 /// systemd nests a-b.slice inside a.slice.
@@ -111,8 +127,8 @@ fn slice_pressure(slice: &str) -> f64 {
 /// Agent work in agent.slice that no lease accounts for, such as bounded jobs; agent sessions and their private-desktop helpers are left out, because at agent.slice's weight their stalls are what leased batch work causes them.
 fn unleased_agent_pressure() -> f64 {
     let path = user_manager_cgroup().join("agent.slice");
-    let aggregate = slice_path(&aggregate_slice());
-    let aggregate = aggregate.split('/').nth(1).unwrap_or_default().to_owned();
+    let top = |slice: String| slice_path(&slice).split('/').nth(1).unwrap_or_default().to_owned();
+    let (aggregate, batch) = (top(aggregate_slice()), top(batch_slice()));
     let Ok(entries) = fs::read_dir(&path) else {
         return 0.0;
     };
@@ -120,7 +136,7 @@ fn unleased_agent_pressure() -> f64 {
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| unleased_agent_work(name, &aggregate))
+        .filter(|name| name != &batch && unleased_agent_work(name, &aggregate))
         .map(|name| slice_pressure(&format!("agent.slice/{name}")))
         .fold(0.0, f64::max)
 }
