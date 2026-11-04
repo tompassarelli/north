@@ -45,12 +45,6 @@ shim_main() {
   fi
 
   case "$tool:${1:-}" in
-    north:dep-gate)
-      "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
-      local status=$?
-      if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_ON_DEP_GATE:-0}" = 1 ]; then rm -f -- "$0"; fi
-      return "$status"
-      ;;
     north:denylist)
       if [ "${2:-}" = attest ]; then
         printf '%s\n' "$*" >>"${SAFE_PUSH_TEST_ATTEST_TRACE:?}"
@@ -60,7 +54,15 @@ shim_main() {
       ;;
     hostname:*) printf '%s\n' "${SAFE_PUSH_TEST_HOSTNAME:?}" ;;
     north:land)
-      case "${2:-}" in checks|scan) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;; esac
+      case "${2:-}" in
+        checks) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+        scan)
+          "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
+          local scan_status=$?
+          if [ "${SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_EMAIL_SCAN:-0}" = 1 ] && [ "${3:-}" = commit-email ]; then rm -f -- "$0"; fi
+          return "$scan_status"
+          ;;
+      esac
       [ -n "${SAFE_PUSH_TEST_ENQUEUE_TRACE:-}" ] || return 2
       [ "${3:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_ENQUEUE_TRACE"
       ;;
@@ -1365,7 +1367,7 @@ exec "${SAFE_PUSH_TEST_RUNTIME_BINARY:?}" "$@"
 SH
 chmod +x "$runtime_wrapper"
 SAFE_PUSH_TEST_REAL_NORTH="$runtime_wrapper" SAFE_PUSH_TEST_RUNTIME_BINARY="$real_north" \
-  SAFE_PUSH_TEST_RUNTIME_CALLS="$runtime_calls" SAFE_PUSH_TEST_REMOVE_NORTH_ON_DEP_GATE=1 \
+  SAFE_PUSH_TEST_RUNTIME_CALLS="$runtime_calls" SAFE_PUSH_TEST_REMOVE_NORTH_AFTER_EMAIL_SCAN=1 \
   SAFE_PUSH_TEST_AUTOLAND_STATUS=$'success\tAutoland landed @SHA@\thttps://example.test/success' run_real_case '' --to main
 expect_status zero
 expect_output 'safe-push: landed '

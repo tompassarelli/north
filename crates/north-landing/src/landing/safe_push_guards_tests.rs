@@ -43,30 +43,6 @@ fn repository() -> Repository {
     Repository { _scratch: scratch, dir, base }
 }
 
-fn shell_function(name: &str) -> String {
-    let script = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/safe-push")).unwrap();
-    let start = format!("{name}() {{");
-    let body: Vec<&str> = script.lines().skip_while(|line| *line != start).collect();
-    let end = body.iter().position(|line| *line == "}").unwrap_or_else(|| panic!("bin/safe-push lost {name}"));
-    body[..=end].iter().map(|line| format!("{line}\n")).collect()
-}
-
-fn shell_scan(repository: &Repository, pushing: &[(&str, &str)]) -> (i32, String) {
-    let range = format!("{}..HEAD", repository.base);
-    let output = Command::new("bash")
-        .arg("-c")
-        .arg(format!("set -euo pipefail\n{}commit_email_scan \"$@\"\n", shell_function("commit_email_scan")))
-        .arg("safe-push")
-        .arg(&range)
-        .current_dir(&repository.dir)
-        .env_remove("GIT_AUTHOR_EMAIL")
-        .env_remove("GIT_COMMITTER_EMAIL")
-        .envs(pushing.iter().copied())
-        .output()
-        .unwrap();
-    (output.status.code().unwrap(), String::from_utf8(output.stdout).unwrap())
-}
-
 fn rust_scan(repository: &Repository, pushing: &[(&str, &str)]) -> (i32, String) {
     let range = format!("{}..HEAD", repository.base);
     let emails: Vec<String> = pushing.iter().map(|(_, email)| (*email).to_owned()).collect();
@@ -76,10 +52,8 @@ fn rust_scan(repository: &Repository, pushing: &[(&str, &str)]) -> (i32, String)
     }
 }
 
-fn same_verdict(case: &str, repository: &Repository, pushing: &[(&str, &str)]) -> (i32, String) {
-    let shell = shell_scan(repository, pushing);
-    assert_eq!(shell, rust_scan(repository, pushing), "{case}: the shell and Rust email scans disagree");
-    shell
+fn same_verdict(_case: &str, repository: &Repository, pushing: &[(&str, &str)]) -> (i32, String) {
+    rust_scan(repository, pushing)
 }
 
 fn refused(case: &str, repository: &Repository, pushing: &[(&str, &str)], role: &str, commit: &str) {
@@ -90,7 +64,7 @@ fn refused(case: &str, repository: &Repository, pushing: &[(&str, &str)], role: 
 }
 
 #[test]
-fn safe_push_email_scan_refuses_private_authors_and_committers_like_the_shell() {
+fn safe_push_email_scan_refuses_private_authors_and_committers() {
     let author = repository();
     empty_commit(&author.dir, "private author", &[("GIT_AUTHOR_EMAIL", PRIVATE)]);
     empty_commit(&author.dir, "later clean commit", &[]);
@@ -122,7 +96,7 @@ fn safe_push_email_scan_refuses_private_authors_and_committers_like_the_shell() 
 }
 
 #[test]
-fn safe_push_email_scan_passes_the_pusher_and_allowed_emails_like_the_shell() {
+fn safe_push_email_scan_passes_the_pusher_and_allowed_emails() {
     let allowed = repository();
     git(&allowed.dir, &["config", "--add", "safe-push.allowEmail", "bot@allowed.example"], &[]);
     git(&allowed.dir, &["config", "--add", "safe-push.allowEmail", "Release@Allowed.Example"], &[]);
@@ -160,53 +134,8 @@ struct DenylistRow {
     south: bool,
     visibility: Option<&'static str>,
     scanned: Scanned,
-}
-
-fn shell_globals() -> String {
-    let script = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bin/safe-push")).unwrap();
-    let lines: Vec<&str> = script.lines().skip_while(|line| !line.starts_with("south=\"${SAFE_PUSH_SOUTH")).collect();
-    let end = lines.iter().position(|line| *line == "origin_visibility=\"\"").expect("bin/safe-push lost its deny-list globals");
-    lines[..=end].iter().map(|line| format!("{line}\n")).collect()
-}
-
-fn shim(dir: &Path, name: &str, body: &str) {
-    north_base::foundation::shim::write_script(&dir.join(name), body);
-}
-
-fn north_output(scanned: Scanned) -> (String, i32) {
-    match scanned {
-        Scanned::Clean => (String::new(), 0),
-        Scanned::Found(found) => (found.iter().map(|finding| format!("denylist: {finding}\n")).collect(), 1),
-        Scanned::Failed(error) => (format!("denylist: cannot scan: {error}\n"), 2),
-    }
-}
-
-fn shell_denylist(row: &DenylistRow, scratch: &Path, config: &Path, south: &Path) -> (i32, String) {
-    let bin = scratch.join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    match row.visibility {
-        Some(visibility) => shim(&bin, "gh", &format!("printf '%s\\n' {visibility}\n")),
-        None => shim(&bin, "gh", "exit 1\n"),
-    }
-    let (output, status) = north_output(row.scanned);
-    std::fs::write(scratch.join("north-output"), output).unwrap();
-    shim(&bin, "north", &format!("cat {}\nexit {status}\n", scratch.join("north-output").display()));
-    let body = format!(
-        "set -euo pipefail\n{}{}{}denylist_scan BASE HEAD release\n",
-        shell_globals(),
-        shell_function("resolve_origin_visibility"),
-        shell_function("denylist_scan")
-    );
-    let output = Command::new("bash")
-        .arg("-c")
-        .arg(body)
-        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
-        .env("SAFE_PUSH_DENYLIST", config)
-        .env("SAFE_PUSH_SOUTH", south)
-        .env("origin_url", "git@github.com:owner/repo.git")
-        .output()
-        .unwrap();
-    (output.status.code().unwrap(), String::from_utf8(output.stdout).unwrap())
+    refused: bool,
+    says: &'static str,
 }
 
 fn rust_denylist(row: &DenylistRow, config: &Path, south: &Path) -> (i32, String) {
@@ -222,20 +151,22 @@ fn rust_denylist(row: &DenylistRow, config: &Path, south: &Path) -> (i32, String
     (i32::from(verdict.refused), verdict.lines.iter().map(|line| format!("{line}\n")).collect())
 }
 
+const FOUND: Scanned = Scanned::Found(&["fake-private-term in identity.txt"]);
+
 const DENYLIST_ROWS: [DenylistRow; 9] = [
-    DenylistRow { case: "no list and no south", listed: Listed::Absent, south: false, visibility: Some("PUBLIC"), scanned: Scanned::Found(&["fake-private-term in identity.txt"]) },
-    DenylistRow { case: "list missing beside south", listed: Listed::Missing, south: true, visibility: Some("PUBLIC"), scanned: Scanned::Clean },
-    DenylistRow { case: "private repository", listed: Listed::Present, south: true, visibility: Some("PRIVATE"), scanned: Scanned::Found(&["fake-private-term in identity.txt"]) },
-    DenylistRow { case: "internal repository", listed: Listed::Present, south: false, visibility: Some("INTERNAL"), scanned: Scanned::Found(&["fake-private-term in identity.txt"]) },
-    DenylistRow { case: "clean public push", listed: Listed::Present, south: false, visibility: Some("PUBLIC"), scanned: Scanned::Clean },
-    DenylistRow { case: "public findings", listed: Listed::Present, south: true, visibility: Some("PUBLIC"), scanned: Scanned::Found(&["fake-private-term in identity.txt", "fake-skill-host in harness/skills/owner-notes.md"]) },
-    DenylistRow { case: "unknown visibility", listed: Listed::Present, south: false, visibility: None, scanned: Scanned::Found(&["fake-private-term in commit 1234567"]) },
-    DenylistRow { case: "scan failure", listed: Listed::Present, south: false, visibility: Some("PUBLIC"), scanned: Scanned::Failed("the deny-list is unreadable") },
-    DenylistRow { case: "list missing without south", listed: Listed::Missing, south: false, visibility: Some("PUBLIC"), scanned: Scanned::Clean },
+    DenylistRow { case: "no list and no south", listed: Listed::Absent, south: false, visibility: Some("PUBLIC"), scanned: FOUND, refused: false, says: "so private values were not scanned" },
+    DenylistRow { case: "list missing beside south", listed: Listed::Missing, south: true, visibility: Some("PUBLIC"), scanned: Scanned::Clean, refused: true, says: "is missing although" },
+    DenylistRow { case: "private repository", listed: Listed::Present, south: true, visibility: Some("PRIVATE"), scanned: FOUND, refused: false, says: "" },
+    DenylistRow { case: "internal repository", listed: Listed::Present, south: false, visibility: Some("INTERNAL"), scanned: FOUND, refused: false, says: "" },
+    DenylistRow { case: "clean public push", listed: Listed::Present, south: false, visibility: Some("PUBLIC"), scanned: Scanned::Clean, refused: false, says: "" },
+    DenylistRow { case: "public findings", listed: Listed::Present, south: true, visibility: Some("PUBLIC"), scanned: Scanned::Found(&["fake-private-term in identity.txt", "fake-skill-host in harness/skills/owner-notes.md"]), refused: true, says: "denylist: fake-skill-host in harness/skills/owner-notes.md\nsafe-push: ✗ PRIVATE VALUE for a PUBLIC repository matched" },
+    DenylistRow { case: "unknown visibility", listed: Listed::Present, south: false, visibility: None, scanned: Scanned::Found(&["fake-private-term in commit 1234567"]), refused: true, says: "PRIVATE VALUE for a UNKNOWN repository" },
+    DenylistRow { case: "scan failure", listed: Listed::Present, south: false, visibility: Some("PUBLIC"), scanned: Scanned::Failed("the deny-list is unreadable"), refused: true, says: "denylist: cannot scan: the deny-list is unreadable\nsafe-push: ✗ the deny-list scan could not run (exit 2)" },
+    DenylistRow { case: "list missing without south", listed: Listed::Missing, south: false, visibility: Some("PUBLIC"), scanned: Scanned::Clean, refused: false, says: "so private values were not scanned" },
 ];
 
 #[test]
-fn safe_push_denylist_stage_decides_like_the_shell() {
+fn safe_push_denylist_stage_decides() {
     for row in &DENYLIST_ROWS {
         let scratch = tempfile::tempdir().unwrap();
         let config = scratch.path().join("denylist.toml");
@@ -247,8 +178,10 @@ fn safe_push_denylist_stage_decides_like_the_shell() {
             std::fs::create_dir_all(&south).unwrap();
         }
         let config = if matches!(row.listed, Listed::Absent) { PathBuf::new() } else { config };
-        let shell = shell_denylist(row, scratch.path(), &config, &south);
-        assert_eq!(shell, rust_denylist(row, &config, &south), "{}: the shell and Rust deny-list stages disagree", row.case);
-        assert!(!shell.1.contains("zebra-quokka-7731"), "{}: printed a matched value", row.case);
+        let (status, text) = rust_denylist(row, &config, &south);
+        assert_eq!(status, i32::from(row.refused), "{}: {text}", row.case);
+        assert!(text.contains(row.says), "{}: {text}", row.case);
+        assert_eq!(text.is_empty(), row.says.is_empty(), "{}: {text}", row.case);
+        assert!(!text.contains("zebra-quokka-7731"), "{}: printed a matched value", row.case);
     }
 }

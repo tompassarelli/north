@@ -366,8 +366,6 @@ check_instruction_limits() {
 # elsewhere; an unknown visibility fails closed.
 south="${SAFE_PUSH_SOUTH:-$HOME/code/south}"
 denylist="${SAFE_PUSH_DENYLIST:-}"
-denylist_source=(--south "$south")
-[ -z "$denylist" ] || denylist_source=(--config "$denylist")
 origin_visibility=""
 resolve_origin_visibility() {
   { [ -f "$denylist" ] || [ -d "$south" ]; } && [ -z "$origin_visibility" ] || return 0
@@ -376,40 +374,14 @@ resolve_origin_visibility() {
 }
 
 commit_email_scan() {
-  local self addr allowed sha author committer role email log
-  local -a allow=()
-  self=$(git config user.email 2>/dev/null) || self=""
-  if [ -z "$self" ]; then
-    echo "safe-push: ✗ git config user.email is empty, so outgoing author and committer emails cannot be checked; set it before pushing; NOT pushed."
-    return 1
-  fi
-  allow=("${self,,}")
-  for addr in "${GIT_AUTHOR_EMAIL:-}" "${GIT_COMMITTER_EMAIL:-}"; do
-    [ -z "$addr" ] || allow+=("${addr,,}")
-  done
-  while IFS= read -r addr; do
-    [ -z "$addr" ] || allow+=("${addr,,}")
-  done < <(git config --get-all safe-push.allowEmail 2>/dev/null || true)
-  allowed=$(printf '%s, ' "${allow[@]}")
-  allowed=${allowed%, }
-  log=$(git log --format='%H %ae %ce' "$@") || { echo "safe-push: cannot read the outgoing commit emails; NOT pushed."; return 1; }
-  while read -r sha author committer; do
-    [ -n "$sha" ] || continue
-    for role in author committer; do
-      email=${!role}
-      for addr in "${allow[@]}"; do
-        [ "${email,,}" != "$addr" ] || continue 2
-      done
-      echo "safe-push: commit $(git rev-parse --short "$sha") $role email $email is not $allowed; re-author with git commit --amend --reset-author (or rebase --exec) before pushing; NOT pushed."
-      return 1
-    done
-  done <<<"$log"
+  north land scan commit-email "$@"
 }
 
 # A claude/ tip on a public Autoland repository gets its denylist status now rather than on the timer.
 denylist_attest() {
   local slug status=0
   case "$1" in claude/*) ;; *) return 0 ;; esac
+  resolve_origin_visibility "$origin_url"
   [ -d "$south" ] && [ "$origin_visibility" = PUBLIC ] || return 0
   autoland_repo "refs/remotes/origin/$(default_branch)" || return 0
   slug=${origin_url%.git}; slug=${slug##*:}
@@ -423,35 +395,12 @@ denylist_attest() {
   esac
 }
 
-native_ref_re='(^|[^[:alnum:]_])(life|accounts|travel|ops)#[0-9]+'
-
 denylist_scan() {
-  if [ ! -f "$denylist" ] && [ ! -d "$south" ]; then
-    echo "safe-push: ⚠ no deny-list at ${denylist:-$south origin/main} and no south checkout at $south, so private values were not scanned."
-    return 0
-  fi
-  resolve_origin_visibility "$origin_url"
-  case "$origin_visibility" in PRIVATE|INTERNAL) return 0 ;; esac
-  if [ -n "$denylist" ] && [ ! -f "$denylist" ]; then
-    echo "safe-push: ✗ the deny-list $denylist is missing although $south exists, so a $origin_visibility push cannot be scanned for private values; restore it in south; NOT pushed."
-    return 1
-  fi
-  local findings status=0
-  findings=$(north denylist scan "${denylist_source[@]}" "$1" "$2" ${3:+--ref "$3"} 2>&1) || status=$?
-  [ "$status" -ne 0 ] || return 0
-  printf '%s\n' "$findings"
-  [ "$status" -eq 1 ] || { echo "safe-push: ✗ the deny-list scan could not run (exit $status), so a $origin_visibility push was not checked for private values; NOT pushed."; return 1; }
-  echo "safe-push: ✗ PRIVATE VALUE for a $origin_visibility repository matched the deny-list ${denylist:-in $south origin/main} — it belongs in south; NOT pushed."
-  return 1
+  north land scan denylist "$1" "$2" "$3"
 }
 
 native_ref_scan() {
-  local text
-  text=$(printf '%s\n' "$@"; git log --format=%B "${scan_range_for_native[@]}" 2>/dev/null) || { echo "safe-push: cannot read the outgoing commit messages for the native-ref scan; NOT pushed."; return 1; }
-  if grep -Eq "$native_ref_re" <<<"$text"; then
-    echo "safe-push: ✗ a branch name or commit message names a native NorthThread item (life/accounts/travel/ops#N); those stay in threads.db — reword without the ref; NOT pushed."
-    return 1
-  fi
+  north land scan native-ref --range "${scan_range_for_native[0]}" -- "$@"
 }
 
 # ~/.local/bin links every tool out-of-store into north bin/ and firn dotfiles/bin/, so a tool removed from main breaks every session.
@@ -840,11 +789,7 @@ run_after_landing_gates() {
 }
 
 publication_scan() {
-  command -v gitleaks >/dev/null 2>&1 || { echo "safe-push: gitleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed." >&2; return 1; }
-  gitleaks detect --no-banner --redact --log-opts="${1:+$1..}$2" \
-    || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed." >&2; return 1; }
-  denylist_scan "$1" "$2" main || return 1
-  commit_email_scan "${1:+$1..}$2" || return 1
+  north land scan publication "$1" "$2"
 }
 
 if [ "${#after_landing[@]}" -eq 3 ]; then
@@ -852,7 +797,6 @@ if [ "${#after_landing[@]}" -eq 3 ]; then
   exit $?
 fi
 if [ "${#publication_scan_range[@]}" -eq 2 ]; then
-  repo_root=$(git rev-parse --show-toplevel) && origin_url=$(git remote get-url --push origin) || exit 2
   publication_scan "${publication_scan_range[@]}"
   exit $?
 fi
@@ -1549,7 +1493,7 @@ check_candidate() {
   if run_language_gate "$base" "$head" 2>&1 | tee -a "$log" >&2 \
       && sync_dependencies >>"$log" 2>&1 \
       && scan_range_for_native=("$base..$head") && native_ref_scan >>"$log" 2>&1 \
-      && gitleaks detect --no-banner --redact --log-opts="$base..$head" >>"$log" 2>&1 \
+      && north land scan secrets "$base..$head" >>"$log" 2>&1 \
       && denylist_scan "$base" "$head" "$to" >>"$log" 2>&1 \
       && commit_email_scan "$base..$head" >>"$log" 2>&1 \
       && candidate_checks "$hook" "$base" "$head" 2>&1 | tee -a "$log" >&2; then
@@ -2000,7 +1944,7 @@ candidate_verdict() {
     class=transient detail="bun install failed"
   elif ! { north_offers language-gate && north_offers build-cache-gate; } 2>>"$log"; then
     class=transient detail="this host's north runtime predates safe-push; run north runtime update"
-  elif ! { run_language_gate "$base" "$head" && native_ref_scan && gitleaks detect --no-banner --redact --log-opts="$base..$head" \
+  elif ! { run_language_gate "$base" "$head" && native_ref_scan && north land scan secrets "$base..$head" \
       && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && north land scan dep-gate "$base..$head" \
       && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
     :
@@ -2175,7 +2119,7 @@ final_scans() {
   fi
   policy_scans "$branch" "$destination_branch" "$scan_range" || failed+=("${policy_failures[@]}")
   echo "safe-push: scanning $scan_range for secrets ($branch_ref@$head_oid -> origin $destination_ref@${destination_oid:-absent})…"
-  gitleaks detect --no-banner --redact --log-opts="$scan_range" \
+  north land scan secrets "$scan_range" \
     || { echo "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed."; failed+=("secret scan"); }
   denylist_scan "${destination_oid:-${absent_base:-}}" "$head_oid" "$destination_branch" || failed+=("deny-list scan")
   commit_email_scan "$scan_range" || failed+=("commit email")
