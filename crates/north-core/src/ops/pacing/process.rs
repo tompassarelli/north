@@ -107,9 +107,16 @@ pub(super) fn adapter(program: &str, args: &[&str]) -> (Vec<Value>, Value) {
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter(Value::is_object)
         .collect();
-    (
-        rows,
-        json!({"elapsed_s":start.elapsed().as_secs_f64(),"code":output.code,
-        "throttled":err.contains("429") || err.contains("rate limit") || err.contains("throttled=true")}),
-    )
+    let mut status = json!({"elapsed_s":start.elapsed().as_secs_f64(),"code":output.code,
+        "throttled":err.contains("429") || err.contains("rate limit") || err.contains("throttled=true")});
+    if output.code != 0 {
+        status["error"] = json!(failure(program, args, &output.err));
+    }
+    (rows, status)
+}
+
+fn failure(program: &str, args: &[&str], err: &str) -> String {
+    let last = err.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("no stderr").trim();
+    let last: String = last.chars().take(200).collect();
+    format!("{program} {}: {last}", args.join(" "))
 }

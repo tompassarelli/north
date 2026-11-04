@@ -10,6 +10,7 @@ use crate::ledger::outcome::read as outcome;
 use crate::threads::landing::tempo as landing;
 use alerts::stall_alert;
 use capacity::saturation_alert;
+use sampler::sampler_alert;
 use guards::actions_verdict;
 use host::{Host, Machine, Places, valid_name};
 use jobs::account_busy;
@@ -28,6 +29,7 @@ mod measure;
 mod notes;
 mod refused;
 mod render;
+mod sampler;
 mod stall;
 mod stranded;
 mod throughput;
@@ -39,6 +41,8 @@ mod capacity_tests;
 mod lanes_tests;
 #[cfg(test)]
 mod readings_tests;
+#[cfg(test)]
+mod sampler_tests;
 #[cfg(test)]
 mod tests;
 
@@ -101,6 +105,9 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     }
     if saturation_alert(places, host, &crate::pace::target::policy_path(), now).is_err() {
         println!("agents flow: saturation alert state error");
+    }
+    if sampler_alert(places, host, now).is_err() {
+        println!("agents flow: sampler alert state error");
     }
     match host.output(&["ci-diagnose"], None, None, Duration::from_secs(1200)) {
         Some(output) => {

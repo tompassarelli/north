@@ -6,6 +6,8 @@ use super::target::{Target, seconds};
 
 const WEEK_SECONDS: f64 = 7.0 * 86_400.0;
 pub(super) const MAX_AGE_SECONDS: f64 = 120.0;
+/// A usage reading older than this is stale: readers mark it so, the sampler never backs off past it, and flow alerts.
+pub const STALE_SECONDS: f64 = 600.0;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Anchor {

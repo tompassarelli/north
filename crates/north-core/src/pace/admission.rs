@@ -1,7 +1,7 @@
 use super::control::Control;
 use super::exhaustion;
 use super::target::seconds;
-use super::window::{MAX_AGE_SECONDS, Window};
+use super::window::{MAX_AGE_SECONDS, STALE_SECONDS, Window};
 
 const MIN_INTERVAL_SECONDS: f64 = 60.0;
 const SLOW_READ_SECONDS: f64 = 20.0;
@@ -14,7 +14,7 @@ pub fn is_fresh(control: &Control, at: f64) -> bool {
 
 pub fn interval(previous: f64, elapsed: f64, throttled: bool, retry_after: f64) -> f64 {
     if throttled {
-        return MIN_INTERVAL_SECONDS.max(previous * 2.0).max(retry_after);
+        return MIN_INTERVAL_SECONDS.max(previous * 2.0).min(STALE_SECONDS).max(retry_after);
     }
     if elapsed > SLOW_READ_SECONDS { MIN_INTERVAL_SECONDS.max((elapsed * 2.0).ceil()) } else { MIN_INTERVAL_SECONDS }
 }

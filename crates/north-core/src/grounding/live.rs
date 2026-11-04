@@ -23,7 +23,7 @@ pub fn pace_lines() -> Vec<String> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(window_line)
+                .map(|w| window_line(w, Timestamp::now()))
                 .collect::<Vec<_>>()
                 .join("; ");
             lines.push(format!(
@@ -43,7 +43,12 @@ pub fn pace_lines() -> Vec<String> {
     }
     lines
 }
-fn window_line(w: &Value) -> String {
+fn window_line(w: &Value, now: Timestamp) -> String {
+    let as_of = Timestamp::parse_loose(&s(w, "as_of"));
+    if as_of.is_none_or(|at| (now.unix_seconds() - at.unix_seconds()) as f64 > crate::pace::window::STALE_SECONDS) {
+        let age = as_of.map_or_else(|| "never read".to_owned(), |at| format!("last read {}Z, {}m ago", slice(&at.iso_minute(), 11, 5), (now.unix_seconds() - at.unix_seconds()) / 60));
+        return format!("{} stale ({age}; the pace sampler is not reading, so no number is quoted)", s(w, "window"));
+    }
     format!(
         "{} {:.0}% (resets {}, as of {}Z)",
         s(w, "window"),
@@ -90,9 +95,20 @@ mod tests {
 
     #[test]
     fn reset_names_day_date_and_time_left() {
+        let now = Timestamp::parse_loose("2026-10-16T09:00:00Z").unwrap();
         let week = json!({"window": "week", "used_pct": 99, "resets_at": "2026-10-17T12:00:00Z", "as_of": "2026-10-16T08:54:03Z"});
-        assert_eq!(window_line(&week), "week 99% (resets Sat 2026-10-17 12:00Z, in 27h, as of 08:54Z)");
+        assert_eq!(window_line(&week, now), "week 99% (resets Sat 2026-10-17 12:00Z, in 27h, as of 08:54Z)");
         let five = json!({"window": "5h", "used_pct": 100, "resets_at": "2026-10-16T09:20:00Z", "as_of": "2026-10-16T08:57:00Z"});
-        assert_eq!(window_line(&five), "5h 100% (resets Fri 2026-10-16 09:20Z, in 23m, as of 08:57Z)");
+        assert_eq!(window_line(&five, now), "5h 100% (resets Fri 2026-10-16 09:20Z, in 23m, as of 08:57Z)");
+    }
+
+    #[test]
+    fn a_window_older_than_ten_minutes_is_marked_stale_instead_of_quoted() {
+        let now = Timestamp::parse_loose("2026-11-05T20:32:00Z").unwrap();
+        let old = json!({"window": "5h", "used_pct": 40, "resets_at": "2026-11-05T22:00:00Z", "as_of": "2026-11-05T15:32:00Z"});
+        assert_eq!(window_line(&old, now), "5h stale (last read 15:32Z, 300m ago; the pace sampler is not reading, so no number is quoted)");
+        let fresh = json!({"window": "5h", "used_pct": 40, "resets_at": "2026-11-05T22:00:00Z", "as_of": "2026-11-05T20:25:00Z"});
+        assert!(window_line(&fresh, now).starts_with("5h 40% "));
+        assert!(window_line(&json!({"window": "week", "used_pct": 3}), now).starts_with("week stale (never read;"));
     }
 }

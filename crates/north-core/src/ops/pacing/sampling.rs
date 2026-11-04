@@ -150,7 +150,7 @@ fn ingest_remote(directory: &std::path::Path, fresh: &[Value], at: f64) -> Resul
     Ok(())
 }
 
-fn record_cadence(
+pub(super) fn record_cadence(
     directory: &std::path::Path,
     state: &mut Value,
     reads: &Reads,
@@ -158,14 +158,11 @@ fn record_cadence(
 ) -> Result<(), String> {
     for (provider, (_, measured)) in reads {
         let previous = number(&state["providers"][*provider]["interval_s"], 60.0);
-        let cadence = admission::interval(
-            previous,
-            number(&measured["elapsed_s"], 0.0),
-            measured["throttled"] == true || measured["code"] != 0,
-            0.0,
-        );
+        let failed = measured["throttled"] == true || measured["code"] != 0;
+        let cadence = admission::interval(previous, number(&measured["elapsed_s"], 0.0), failed, 0.0);
         let mut measured = measured.clone();
         measured["interval_s"] = json!(cadence);
+        measured["sampled_at"] = if failed { state["providers"][*provider]["sampled_at"].clone() } else { json!(at) };
         measured["next_at"] = json!(at + cadence);
         state["providers"][*provider] = measured.clone();
         measured["provider"] = json!(provider);

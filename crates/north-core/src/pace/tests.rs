@@ -240,6 +240,8 @@ fn measured_ramp_never_raises_on_missing_or_over_budget() {
     assert_eq!(interval(60.0, 25.0, false, 0.0), 60.0);
     assert_eq!(interval(60.0, 40.0, false, 0.0), 80.0);
     assert_eq!(interval(60.0, 2.0, true, 180.0), 180.0);
+    assert_eq!(interval(30720.0, 0.02, true, 0.0), 600.0, "a failing sampler retries at least every ten minutes");
+    assert_eq!(interval(600.0, 0.02, true, 900.0), 900.0, "a provider retry-after still wins");
     let stale = Control { at: Some(0.0), ..last };
     assert!(policy.refusal("fixture", &stale, 121.0).unwrap().contains("not fresh"));
 }
