@@ -164,3 +164,18 @@ fn enqueue_replaces() {
 fn enqueue_help_names_its_usage() {
     assert_eq!(run(&["--help".to_owned()]), 0);
 }
+
+#[test]
+fn enqueue_stamps_the_ticket_with_the_second_the_lane_made_its_first_commit_even_after_squashing_it() {
+    let fixture = Fixture::new();
+    let seconds = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let before = seconds();
+    fixture.commit(&fixture.repo, "a.txt", "Add a");
+    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    fixture.commit(&fixture.repo, "b.txt", "Add b");
+    let queued = fixture.enqueue(&fixture.repo);
+    assert!(matches!(queued.squash, Squash::Squashed { commits: 2, .. }), "{:?}", queued.squash);
+    let first = queued.ticket.first_commit_secs.expect("the ticket carries the lane's first commit time");
+    assert!(first >= before && first < seconds(), "first commit {first} is the second of the lane's first commit, not of the squash or the enqueue (started {before})");
+    assert_eq!(fixture.pending()[0].first_commit_secs, Some(first));
+}

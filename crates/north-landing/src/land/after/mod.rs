@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::candidate::git;
 use super::queue::{self, Ticket};
 use super::lander::{Lander, state_home};
+use super::records::{self, Candidate, Decision};
 use super::telemetry::{self, Push, Stages};
 
 const SEND_WAIT: Duration = Duration::from_secs(60);
@@ -102,6 +103,7 @@ fn follow_once(lander: &Lander, base: &str, head: &str) {
 pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets: Vec<(PathBuf, Ticket)>) -> Result<(), String> {
     let _ = git(&lander.worktree, &["fetch", "-q", "--no-tags", "origin", "refs/heads/main"]);
     let state = state_home();
+    let batch_size = tickets.len();
     for (path, ticket) in tickets {
         let name = name_of(&path);
         let repository = telemetry::repository(&ticket.origin);
@@ -112,6 +114,7 @@ pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets:
         if let Err(error) = stages.flush(&state, &repository, &ticket.branch) {
             println!("north land: could not record stages of {}: {error}", ticket.branch);
         }
+        records::write(lander, &path, &ticket, &Candidate { head, batch_size, stages }, &Decision::Landed { sha: head });
         notify(lander, &name, &ticket, head);
         println!("north land: {} ({}): landed {head}", ticket.branch, ticket.head);
         queue::decide(&path, ticket, format!("landed {head}")).map_err(|error| error.to_string())?;

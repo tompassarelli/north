@@ -40,6 +40,8 @@ pub struct Ticket {
     pub head: String,
     pub session: Option<String>,
     pub queued_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_commit_secs: Option<i64>,
     pub red_fix: Option<RedFix>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<String>,
@@ -81,7 +83,7 @@ pub fn read(path: &Path) -> io::Result<Ticket> {
     serde_json::from_str(&fs::read_to_string(path)?).map_err(|error| io::Error::other(format!("{}: {error}", path.display())))
 }
 
-fn queued_micros(path: &Path) -> u128 {
+pub fn queued_micros(path: &Path) -> u128 {
     path.file_name().and_then(|name| name.to_str()).and_then(|name| name.split('-').next()).and_then(|micros| micros.parse().ok()).unwrap_or(u128::MAX)
 }
 

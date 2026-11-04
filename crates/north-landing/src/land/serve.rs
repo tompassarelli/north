@@ -7,6 +7,7 @@ use super::after;
 use super::bisect::{self, Judgement};
 use super::checks::Verdict;
 use super::telemetry::Stages;
+use super::records::{self, Candidate, Decision};
 use super::{queue, red, speculate};
 
 const USAGE: &str = "usage: north land serve [--once] [--repo DIR] [--checker PROGRAM] [--depth 1|2]";
@@ -65,6 +66,7 @@ impl Lander {
         let mut limit = usize::MAX;
         let mut red_only = false;
         let mut rebuilds = 0;
+        let mut bisect_depth = 0;
         let mut progressed = false;
         after::recover(self)?;
         for reason in self.pull_remote() {
@@ -87,6 +89,7 @@ impl Lander {
                 match pick {
                     Pick::Included => included.push((path, ticket)),
                     Pick::Decided(verdict) => {
+                        records::write(self, path, ticket, &Candidate { head: "", batch_size: 0, stages: &Stages::empty() }, &Decision::Refused { verdict });
                         bisect::decide(path, ticket, verdict.clone())?;
                         progressed = true;
                     }
@@ -104,6 +107,7 @@ impl Lander {
             let key = bisect::Strikes::key(&included);
             if included.len() > 1 && strikes.exhausted(&key) {
                 limit = bisect::half(included.len());
+                bisect_depth += 1;
                 println!("north land: a candidate of {} lanes kept ending without a verdict; checking its first {limit} lanes", included.len());
                 continue;
             }
@@ -114,6 +118,8 @@ impl Lander {
             let taken = (limit == usize::MAX && !red_only && self.depth >= 2).then(|| speculate::Taken::new(&tickets, &included));
             let (verdict, next) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
             stages.mark("check");
+            stages.attempts = rebuilds + 1;
+            stages.bisect_depth = bisect_depth;
             if (self.identity()? != identity || identity.0 != built.head) && !matches!(verdict, Verdict::Refused(_)) {
                 return Ok(Round::Waiting(format!("the lander worktree moved while candidate {} was checked; nothing pushed", built.head)));
             }
@@ -157,10 +163,13 @@ impl Lander {
                 Judgement::Halve(half) => {
                     println!("north land: candidate {} refused; checking its first {half} lanes", built.head);
                     limit = half;
+                    bisect_depth += 1;
                 }
                 Judgement::Culprit(detail) => {
                     let (path, ticket) = included[0];
-                    bisect::decide(path, ticket, format!("failed {detail}"))?;
+                    let refusal = format!("failed {detail}");
+                    records::write(self, path, ticket, &Candidate { head: &built.head, batch_size: included.len(), stages: &stages }, &Decision::Refused { verdict: &refusal });
+                    bisect::decide(path, ticket, refusal)?;
                     return Ok(Round::Progress);
                 }
                 Judgement::RedMain(detail) if !red_only && red::narrows(&included) => {

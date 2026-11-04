@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use time::OffsetDateTime;
 
+use super::first_commit;
 use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
 use crate::landing::lane_squash::{self, Squash};
@@ -152,6 +153,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
     git(&root, &["fetch", "-q", "origin", &format!("+refs/heads/{destination}:{remote_ref}")])
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
+    let first_commit_secs = first_commit::seconds(&root, &branch, &base);
     let squash = lane_squash::squash(&root, &base, message)?;
     let head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     let red_fix = red_fix(&root, &base, &destination)?;
@@ -164,6 +166,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
         head,
         session: environment.session.map(str::to_owned),
         queued_at: rfc3339(OffsetDateTime::now_utc()),
+        first_commit_secs,
         red_fix,
         verdict: None,
     };

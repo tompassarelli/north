@@ -17,6 +17,9 @@ struct Landing {
     queued_at: Option<f64>,
     landed_at: Option<f64>,
     landed: bool,
+    first_commit_at: Option<f64>,
+    check_started_at: Option<f64>,
+    check_finished_at: Option<f64>,
 }
 
 fn seconds(text: &str) -> Option<f64> {
@@ -34,11 +37,21 @@ fn percentiles(samples: &[f64]) -> (Option<f64>, Option<f64>) {
     (Some(middle), Some(sorted[(length as f64 * 0.9).ceil() as usize - 1]))
 }
 
+fn minutes_between(rows: &[&Landing], from: impl Fn(&Landing) -> Option<f64>, to: impl Fn(&Landing) -> Option<f64>) -> Vec<f64> {
+    rows.iter().filter_map(|row| Some((to(row)? - from(row)?).max(0.0) / 60.0)).collect()
+}
+
+fn column(db: &Connection, name: &'static str) -> rusqlite::Result<&'static str> {
+    let present: bool = db.query_row("SELECT count(*) > 0 FROM pragma_table_info('landings') WHERE name = ?1", [name], |row| row.get(0))?;
+    Ok(if present { name } else { "NULL" })
+}
+
 fn landings(db: &Connection, repo: &str, since: &str) -> rusqlite::Result<Vec<Landing>> {
-    let mut statement = db.prepare(
-        "SELECT lane, candidate, batch_size, bisect_depth, queued_at, landed_at, verdict = 'landed' FROM landings \
+    let (first, started, finished) = (column(db, "first_commit_at")?, column(db, "check_started_at")?, column(db, "check_finished_at")?);
+    let mut statement = db.prepare(&format!(
+        "SELECT lane, candidate, batch_size, bisect_depth, queued_at, landed_at, verdict = 'landed', {first}, {started}, {finished} FROM landings \
          WHERE repo = ?1 AND coalesce(landed_at, queued_at) >= ?2 ORDER BY queued_at",
-    )?;
+    ))?;
     let rows = statement.query_map([repo, since], |row| {
         Ok(Landing {
             lane: row.get(0)?,
@@ -48,6 +61,9 @@ fn landings(db: &Connection, repo: &str, since: &str) -> rusqlite::Result<Vec<La
             queued_at: row.get::<_, String>(4).ok().and_then(|text| seconds(&text)),
             landed_at: row.get::<_, Option<String>>(5)?.and_then(|text| seconds(&text)),
             landed: row.get(6)?,
+            first_commit_at: row.get::<_, Option<String>>(7)?.and_then(|text| seconds(&text)),
+            check_started_at: row.get::<_, Option<String>>(8)?.and_then(|text| seconds(&text)),
+            check_finished_at: row.get::<_, Option<String>>(9)?.and_then(|text| seconds(&text)),
         })
     })?;
     rows.collect()
@@ -101,6 +117,12 @@ fn read(db: &Connection, repo: &str, now: f64) -> rusqlite::Result<Option<Value>
     let landed: Vec<&Landing> = rows.iter().filter(|row| row.landed).collect();
     let waits: Vec<f64> = landed.iter().filter(|row| row.batch_size > 0).filter_map(|row| Some((row.landed_at? - row.queued_at?) / 60.0)).collect();
     let (median, p90) = percentiles(&waits);
+    let first_to_landed = minutes_between(&landed, |row| row.first_commit_at, |row| row.landed_at);
+    let before_queue = minutes_between(&landed, |row| row.first_commit_at, |row| row.queued_at);
+    let queued = minutes_between(&landed, |row| row.queued_at, |row| row.check_started_at);
+    let checked = minutes_between(&landed, |row| row.check_started_at, |row| row.check_finished_at);
+    let (first_median, first_p90) = percentiles(&first_to_landed);
+    let refusals = rows.iter().filter(|row| !row.landed).count();
     let (relands, relanded_lanes) = re_lands(&rows);
     Ok(Some(json!({
         "window_hours": WINDOW / 3600.0,
@@ -108,6 +130,14 @@ fn read(db: &Connection, repo: &str, now: f64) -> rusqlite::Result<Option<Value>
         "landings_per_hour": landed.len() as f64 / (WINDOW / 3600.0),
         "queue_to_landed_p50_minutes": median,
         "queue_to_landed_p90_minutes": p90,
+        "first_commit_to_landed_p50_minutes": first_median,
+        "first_commit_to_landed_p90_minutes": first_p90,
+        "first_commit_samples": first_to_landed.len(),
+        "before_queue_p50_minutes": percentiles(&before_queue).0,
+        "queued_p50_minutes": percentiles(&queued).0,
+        "check_p50_minutes": percentiles(&checked).0,
+        "refusals": refusals,
+        "refusal_share": (!rows.is_empty()).then(|| refusals as f64 / rows.len() as f64),
         "mean_batch_size": mean_batch(&landed),
         "check_runs": runs,
         "checks_thrown_away": thrown_away,
@@ -132,13 +162,21 @@ fn figure(value: &Value, digits: usize, unit: &str) -> String {
 /// The one line `north flow` prints for a repository's tempo.
 pub fn line(repo: &str, tempo: &Value) -> String {
     let share = tempo["thrown_away_share"].as_f64().map_or_else(|| "n/a".into(), |share| format!("{:.0}%", share * 100.0));
+    let refused = tempo["refusal_share"].as_f64().map_or_else(|| "n/a".into(), |share| format!("{:.0}%", share * 100.0));
     format!(
-        "landing {repo}: {} landings, {} per hour over {:.0}h, finished-to-landed p50 {} p90 {}, mean batch {}, re-lands {} across {} lanes, checks thrown away (main moved) {}/{} = {share}, deepest bisect {}, red main today {}",
+        "landing {repo}: {} landings, {} per hour over {:.0}h, finished-to-landed p50 {} p90 {}, first-commit-to-landed p50 {} p90 {} over {} landings (before queue p50 {}, queued p50 {}, check p50 {}), refusals {} = {refused}, mean batch {}, re-lands {} across {} lanes, checks thrown away (main moved) {}/{} = {share}, deepest bisect {}, red main today {}",
         tempo["landings"],
         figure(&tempo["landings_per_hour"], 2, ""),
         tempo["window_hours"].as_f64().unwrap_or(0.0),
         figure(&tempo["queue_to_landed_p50_minutes"], 1, "m"),
         figure(&tempo["queue_to_landed_p90_minutes"], 1, "m"),
+        figure(&tempo["first_commit_to_landed_p50_minutes"], 1, "m"),
+        figure(&tempo["first_commit_to_landed_p90_minutes"], 1, "m"),
+        tempo["first_commit_samples"],
+        figure(&tempo["before_queue_p50_minutes"], 1, "m"),
+        figure(&tempo["queued_p50_minutes"], 1, "m"),
+        figure(&tempo["check_p50_minutes"], 1, "m"),
+        tempo["refusals"],
         figure(&tempo["mean_batch_size"], 1, ""),
         tempo["re_lands"],
         tempo["re_landed_lanes"],

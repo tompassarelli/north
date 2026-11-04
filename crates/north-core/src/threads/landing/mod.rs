@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS landings(
   landed_sha TEXT,
   verdict TEXT NOT NULL CHECK(verdict IN ('landed','conflict','failed')),
   detail TEXT NOT NULL DEFAULT '',
+  first_commit_at TEXT,
+  check_started_at TEXT,
+  check_finished_at TEXT,
   UNIQUE(repo, lane, tip, queued_at)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS landings_repo_queued ON landings(repo, queued_at);
@@ -60,6 +63,8 @@ CREATE TABLE IF NOT EXISTS main_red(
   revert_sha TEXT NOT NULL DEFAULT '',
   PRIMARY KEY(repo, sha)
 ) STRICT;";
+
+const ADDED_TO_LANDINGS: [&str; 3] = ["first_commit_at", "check_started_at", "check_finished_at"];
 
 const USAGE: &str = "usage: threads land-train record|check|red ...";
 
@@ -93,17 +98,26 @@ fn count(args: &Args, flag: &str) -> Result<i64, Failure> {
     text.parse::<i64>().ok().filter(|value| *value >= 0).ok_or_else(|| Failure::Usage(format!("{flag} {text} is not a count")))
 }
 
+fn add_missing_columns(db: &Connection) -> rusqlite::Result<()> {
+    let present: Vec<String> = db.prepare("SELECT name FROM pragma_table_info('landings')")?.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?;
+    for column in ADDED_TO_LANDINGS.iter().filter(|column| !present.iter().any(|name| name == *column)) {
+        db.execute_batch(&format!("ALTER TABLE landings ADD COLUMN {column} TEXT"))?;
+    }
+    Ok(())
+}
+
 fn write(context: &Context, statement: impl FnOnce(&Connection) -> rusqlite::Result<usize>) -> Outcome {
     let mut db = open(context.database, true)?;
     let tx = immediate(&mut db)?;
     tx.execute_batch(SCHEMA)?;
+    add_missing_columns(&tx)?;
     statement(&tx)?;
     tx.commit()?;
     Ok(String::new())
 }
 
 fn record(argv: &[String], context: &Context) -> Outcome {
-    let valued = ["--repo", "--lane", "--branch", "--tip", "--queued-at", "--candidate", "--tree", "--batch-size", "--bisect-depth", "--attempts", "--landed-at", "--landed-sha", "--verdict", "--detail"];
+    let valued = ["--repo", "--lane", "--branch", "--tip", "--queued-at", "--candidate", "--tree", "--batch-size", "--bisect-depth", "--attempts", "--landed-at", "--landed-sha", "--verdict", "--detail", "--first-commit-at", "--check-started-at", "--check-finished-at"];
     let args = Args::parse(argv, &valued, &[])?;
     let (repo, lane, tip) = (repo_name(&args)?, required(&args, "--lane")?, required(&args, "--tip")?);
     let queued = time(&args, "--queued-at")?.ok_or_else(|| Failure::Usage("--queued-at is required".into()))?;
@@ -112,16 +126,19 @@ fn record(argv: &[String], context: &Context) -> Outcome {
         return Err(Failure::Usage(format!("--verdict {verdict} is not landed, conflict or failed")));
     }
     let landed = time(&args, "--landed-at")?;
+    let (first_commit, check_started, check_finished) = (time(&args, "--first-commit-at")?, time(&args, "--check-started-at")?, time(&args, "--check-finished-at")?);
     let counts = (count(&args, "--batch-size")?, count(&args, "--bisect-depth")?, count(&args, "--attempts")?);
     let text = |flag| args.get(flag).unwrap_or_default().to_owned();
     write(context, |db| {
         db.execute(
-            "INSERT INTO landings(repo, lane, branch, tip, queued_at, candidate, tree, batch_size, bisect_depth, attempts, actor, landed_at, landed_sha, verdict, detail) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
+            "INSERT INTO landings(repo, lane, branch, tip, queued_at, candidate, tree, batch_size, bisect_depth, attempts, actor, landed_at, landed_sha, verdict, detail, first_commit_at, check_started_at, check_finished_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18) \
              ON CONFLICT(repo, lane, tip, queued_at) DO UPDATE SET branch = excluded.branch, candidate = excluded.candidate, tree = excluded.tree, \
              batch_size = excluded.batch_size, bisect_depth = excluded.bisect_depth, attempts = excluded.attempts, actor = excluded.actor, \
-             landed_at = excluded.landed_at, landed_sha = excluded.landed_sha, verdict = excluded.verdict, detail = excluded.detail",
-            params![repo, lane, text("--branch"), tip, queued, text("--candidate"), text("--tree"), counts.0, counts.1, counts.2, context.by(&args), landed, args.get("--landed-sha"), verdict, text("--detail")],
+             landed_at = excluded.landed_at, landed_sha = excluded.landed_sha, verdict = excluded.verdict, detail = excluded.detail, \
+             first_commit_at = coalesce(excluded.first_commit_at, first_commit_at), check_started_at = coalesce(excluded.check_started_at, check_started_at), \
+             check_finished_at = coalesce(excluded.check_finished_at, check_finished_at)",
+            params![repo, lane, text("--branch"), tip, queued, text("--candidate"), text("--tree"), counts.0, counts.1, counts.2, context.by(&args), landed, args.get("--landed-sha"), verdict, text("--detail"), first_commit, check_started, check_finished],
         )
     })
 }

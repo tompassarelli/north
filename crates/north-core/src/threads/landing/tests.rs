@@ -126,3 +126,66 @@ fn a_ledger_without_the_tables_or_the_repository_has_no_tempo() {
     assert!(tempo::tempo(&ledger.path, "wisp", NOW).is_none());
     assert!(tempo::tempo(&ledger.path.with_file_name("missing.db"), "north", NOW).is_none());
 }
+
+struct Timeline {
+    first_commit: f64,
+    queued: f64,
+    check: (f64, f64),
+    landed: f64,
+}
+
+impl Ledger {
+    fn lane_timeline(&self, lane: &str, timeline: &Timeline, verdict: &str) {
+        let ago = |minutes: f64| (NOW - minutes * MINUTE).to_string();
+        let mut argv: Vec<String> = ["record", "--repo", "north", "--lane", lane, "--branch", lane, "--tip", &format!("tip-{lane}"), "--candidate", "cand", "--batch-size", "1", "--attempts", "1", "--verdict", verdict]
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect();
+        argv.extend(["--queued-at".into(), ago(timeline.queued), "--first-commit-at".into(), ago(timeline.first_commit), "--check-started-at".into(), ago(timeline.check.0), "--check-finished-at".into(), ago(timeline.check.1)]);
+        if verdict == "landed" {
+            argv.extend(["--landed-at".into(), ago(timeline.landed)]);
+        }
+        self.ok(&argv);
+    }
+}
+
+#[test]
+fn the_tempo_splits_first_commit_to_landed_into_before_queue_queued_and_check_and_counts_refusals() {
+    let ledger = ledger();
+    ledger.lane_timeline("a", &Timeline { first_commit: 100.0, queued: 40.0, check: (38.0, 33.0), landed: 32.0 }, "landed");
+    ledger.lane_timeline("b", &Timeline { first_commit: 60.0, queued: 20.0, check: (18.0, 13.0), landed: 12.0 }, "landed");
+    ledger.lane_timeline("c", &Timeline { first_commit: 30.0, queued: 10.0, check: (9.0, 6.0), landed: 5.0 }, "landed");
+    ledger.lane_timeline("d", &Timeline { first_commit: 50.0, queued: 45.0, check: (44.0, 41.0), landed: 0.0 }, "failed");
+    ledger.land("legacy", 8.0, Some(2.0), "c9", (1, 0), "landed");
+
+    let tempo = tempo::tempo(&ledger.path, "north", NOW).unwrap();
+    assert_eq!(tempo["landings"], 4);
+    assert_eq!(tempo["first_commit_samples"], 3);
+    assert_eq!(tempo["first_commit_to_landed_p50_minutes"], 48.0);
+    assert_eq!(tempo["first_commit_to_landed_p90_minutes"], 68.0);
+    assert_eq!(tempo["before_queue_p50_minutes"], 40.0);
+    assert_eq!(tempo["queued_p50_minutes"], 2.0);
+    assert_eq!(tempo["check_p50_minutes"], 5.0);
+    assert_eq!(tempo["refusals"], 1);
+    assert_eq!(tempo["refusal_share"], 0.2);
+    let line = tempo::line("north", &tempo);
+    for part in ["first-commit-to-landed p50 48.0m p90 68.0m over 3 landings", "before queue p50 40.0m, queued p50 2.0m, check p50 5.0m", "refusals 1 = 20%"] {
+        assert!(line.contains(part), "{part} missing from {line}");
+    }
+}
+
+#[test]
+fn a_ledger_written_before_the_timeline_columns_gains_them_on_the_next_record_and_reads_without_them() {
+    let ledger = ledger();
+    ledger.land("old", 10.0, Some(1.0), "c0", (1, 0), "landed");
+    Connection::open(&ledger.path)
+        .unwrap()
+        .execute_batch("ALTER TABLE landings DROP COLUMN first_commit_at; ALTER TABLE landings DROP COLUMN check_started_at; ALTER TABLE landings DROP COLUMN check_finished_at;")
+        .unwrap();
+    let before = tempo::tempo(&ledger.path, "north", NOW).unwrap();
+    assert_eq!((&before["landings"], &before["first_commit_to_landed_p50_minutes"]), (&json!(1), &json!(null)));
+
+    ledger.lane_timeline("new", &Timeline { first_commit: 30.0, queued: 20.0, check: (19.0, 15.0), landed: 14.0 }, "landed");
+    let after = tempo::tempo(&ledger.path, "north", NOW).unwrap();
+    assert_eq!((&after["landings"], &after["first_commit_to_landed_p50_minutes"]), (&json!(2), &json!(16.0)));
+}

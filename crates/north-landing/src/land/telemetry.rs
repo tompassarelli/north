@@ -8,6 +8,10 @@ pub fn repository(origin: &str) -> String {
     name.strip_suffix(".git").unwrap_or(name).to_owned()
 }
 
+pub fn epoch() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
+}
+
 pub fn seconds() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs())
 }
@@ -47,7 +51,10 @@ pub fn record_push(state_home: &Path, push: &Push) -> std::io::Result<bool> {
 }
 
 pub struct Stages {
+    pub attempts: usize,
+    pub bisect_depth: usize,
     started_secs: u64,
+    started_epoch: f64,
     started: Instant,
     last: Instant,
     marks: Vec<(String, u128, u128)>,
@@ -56,7 +63,7 @@ pub struct Stages {
 impl Stages {
     pub fn start() -> Self {
         let now = Instant::now();
-        Self { started_secs: seconds(), started: now, last: now, marks: Vec::new() }
+        Self { attempts: 1, bisect_depth: 0, started_secs: seconds(), started_epoch: epoch(), started: now, last: now, marks: Vec::new() }
     }
 
     pub fn empty() -> Self {
@@ -69,6 +76,11 @@ impl Stages {
         let now = Instant::now();
         self.marks.push((stage.to_owned(), now.duration_since(self.last).as_millis(), now.duration_since(self.started).as_millis()));
         self.last = now;
+    }
+
+    pub fn check_window(&self) -> Option<(f64, f64)> {
+        let (_, stage_ms, total_ms) = self.marks.iter().find(|(stage, _, _)| stage == "check")?;
+        Some((self.started_epoch + (total_ms - stage_ms) as f64 / 1000.0, self.started_epoch + *total_ms as f64 / 1000.0))
     }
 
     pub fn flush(&self, state_home: &Path, repository: &str, branch: &str) -> std::io::Result<()> {
