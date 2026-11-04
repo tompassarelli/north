@@ -43,14 +43,14 @@ fn gh(args: &[&str]) -> Result<serde_json::Value, String> {
 fn repository(repo: &str) -> &str {
     repo.strip_prefix("tompassarelli/").unwrap_or(repo)
 }
-fn slug(repo: &str) -> String {
+pub(crate) fn slug(repo: &str) -> String {
     if repo.contains('/') {
         repo.to_owned()
     } else {
         format!("tompassarelli/{repo}")
     }
 }
-fn issue(item: &str) -> Result<(&str, &str), String> {
+pub(crate) fn issue(item: &str) -> Result<(&str, &str), String> {
     item.split_once('#')
         .filter(|(repo, number)| {
             !repo.is_empty()
