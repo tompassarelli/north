@@ -5,6 +5,8 @@ from what actually ran, updates fast and rests on measured estimates, at maximum
 (2026-11-04). This document measures today's admission over the last 7 days, sets the design on top of the six
 boxes already in flight (Wave 0), and splits the rest into boxes. It edits no code. A reviewer of a different tier
 will try to break it, so every assumption is stated where it is used and collected in [Assumptions](#assumptions).
+Revised the same day after an adversarial review (changes requested, 17 findings plus one on ceremony); each
+finding and what changed for it is in [Review disposition](#review-disposition-2026-11-04).
 
 ## Measured baseline, 7 days to 6:40 AM 2026-11-04
 
@@ -92,6 +94,14 @@ committed charge plus the ticket fit the limit, so they waited on CPU pressure o
 accounting. The gex45 column is an upper bound on what placement can move: many of those tickets came from lanes
 that live on gex45 or needed its build inputs, and the laptop's attended reserve and Tom's play come first.
 
+This table was computed on committed-CPU accounting, which elastic-cpu removes, and much of it is the accounting
+burst that elastic-cpu alone fixes. It is therefore not evidence that placement helps once CPU is elastic. Box W2-0
+re-measures it on memory and slots before W2-3 and W2-4 are staffed.
+
+This table was computed on committed-CPU accounting, which elastic-cpu removes. Much of it is the accounting
+burst that elastic-cpu alone fixes, so it is not evidence that placement will help once CPU is elastic. Box W2-0
+re-measures it on memory and slots before W2-3 and W2-4 are staffed.
+
 ### 5. Error of today's per-command sizing
 
 Runs of 10 s or more in heavy, moderate, runtime, gpu, tom and critical:
@@ -130,6 +140,12 @@ Runs of 10 s or more in heavy, moderate, runtime, gpu, tom and critical:
 - Runtime builds: 161 on the laptop (median 862 CPU-s, 389 s wall) and 255 on gex45 in 7 d.
 - The laptop's warm-cache `north` release build has p90 1,162 CPU-s; a cloud VM's cold build is more than that, so
   on its 4 cores it costs at least 5 min before any test.
+- Offload concurrency, 2026-11-04 morning: a single gex45 offload slot per repository serialized every worker's
+  offloaded run for up to 600 s. 32da14e68 gave each repository a pool of three slots, and 1b699074a made a run
+  waiting for a slot print which head holds it every minute. The larger fix was measured the same morning: when
+  workers verify narrowly (the checks their change touches) and leave the full suite to the landing train, which
+  runs it once on the exact tree, the per-worker offload queue disappeared. Nothing in this plan sends a worker's
+  full suite to an offload host; placement moves narrow checks and builds, and the full suite stays the train's.
 
 ## Wave 0, in flight, and what the measurements say about it
 
@@ -200,12 +216,12 @@ saving is ordering checks to fail fast (W3-3).
 | --- | --- | --- |
 | Elastic CPU, memory the only hard-admitted resource, PSI freeze | keep (Wave 0) | leases use 36 to 55% of held cores; Nexus and gex45 sit at 1 to 23% |
 | Learned per-command model updated after every run | keep (Wave 0), with the four corrections | p50 error 1.5x is usable; p90 4.5x and 45 to 54% cold demand backoff and quantiles |
-| Placement by predicted finish time | keep | 86 laptop tickets (14.2 h) and up to 1,115 gex45 tickets (266.6 h) waited while the other host had room |
+| Placement by predicted finish time | keep if W2-0 still finds waiting to move, starting from a deterministic rule | 86 laptop tickets (14.2 h) and up to 1,115 gex45 tickets (266.6 h) waited while the other host had room, measured on the CPU accounting elastic-cpu removes |
 | Reservation backfill from predicted durations | keep, on memory and slots only | with CPU elastic, the 0.1-core head-of-line case disappears; memory, exclusive drains, GPU slots and native client caps still block |
 | Result cache by tree hash, runtime reuse | keep (Wave 0) | 32 to 33% of core-hours went to failing runs; most land checks fail |
 | Shared sccache on gex45 | drop as a new item | each host already shares one disk cache across leases (96854b985); sharing it with the laptop breaks D2/B24; build-cost.md measured `target-seed` ahead of sccache (31 Oct) |
-| Calibration report with drift alarms | keep, plus bounded retuning | thresholds in defaults.toml are mostly priors waiting on counts |
-| GPU on the same model, batch GPU on gex45 | keep, measurement first | gex45 records 0 GPU-seconds; the laptop's gpu class is 8% busy |
+| Calibration report with drift alarms | keep, with aggregate alarms that switch placement and backfill off, and a retune proposal report instead of tuned state | thresholds in defaults.toml are mostly priors waiting on counts; per-key alarms over hundreds of keys would misfire about 4% of the time each |
+| GPU on the same model, batch GPU on gex45 | keep, measurement first; never on the attended laptop | gex45 records 0 GPU-seconds; the laptop's gpu class is 8% busy |
 
 ### Shape
 
@@ -224,43 +240,78 @@ One model, one placement function, one enforcer per host.
    the newest 20 runs at the finest key level with at least 3, each multiplied by a per-host speed factor learned
    from commands run on both hosts (today 0.97). The laptop holds the fleet copy: it pulls gex45's and Nexus's
    rows over ssh, the way `north worker-ledger --emit` already pulls worker rows, so each host stays the owner of
-   its own records.
-3. **Placement (new).** For a ticket j and each eligible target h, predicted finish
-   `F(h, j) = now + wait_h(j) + ship_h(j) + cold_h(j) + run_h(j)`, where `run` is the model's p50 times h's speed
-   factor, `cold` the measured extra for a cold cache on h, `ship` the measured rsync time for the lane (0 locally),
-   and `wait` comes from simulating h's queue with the backfill rule below on predicted p90 ends. Choose the minimum
-   F; break ties toward the host that keeps the laptop free. Two callers use it:
+   its own records. Every row carries its host, and every sizing level (exact command down to class) filters to the
+   asking host: a host sizes its own memory and wall only from its own rows. Remote rows feed placement's
+   prediction for that remote host and nothing else. `cold_h` and the speed factor expire after 14 days, and once a
+   key has 3 runs on a host its per-key per-host walls replace the global speed factor.
+3. **Placement (new), grown from a deterministic rule.** Eligibility is a hard filter applied before any cost:
+   - remote eligibility fails closed: a command is offloadable only if its command key is on an explicit allowlist
+     of code-only checks (`cargo test`, `cargo clippy`, `cargo check`, `cargo nextest`, headless renders whose
+     output is compared, not shipped). Builds, `nix build`, installs, deploys, anything whose output the laptop
+     runs or installs, and any unknown key stay on the laptop. Today's `refusal()` in `build_offload.rs` refuses
+     only landing, already-offloaded and `need`-bearing requests, so it fails open; W2-3 replaces that with the
+     allowlist;
+   - a lane's `target/` is pinned to the host it was created on: moving a lane resets its cache and pays `cold_h`,
+     and no `target/` or sccache directory is copied between hosts;
+   - the laptop is eligible for batch only within the attended reserve and game reserve; while Tom's session or a
+     game is active, batch beyond the reserve is not eligible there at all, whatever it would cost.
+
+   The first rule (W2-3): stay local; if the ticket is deferred longer than a threshold and an eligible remote host
+   serving its needs has memory headroom for its p90 anon and is under its offload cap, offload. Only if replay
+   shows that rule leaves waiting does it grow into the finish-time comparison: for each eligible target h,
+   `F(h, j) = now + wait_h(j) + ship_h(j) + cold_h(j) + run_h(j)`, every term at the same quantile (p90), where
+   `wait` simulates h's queue with the backfill rule and counts offloads already dispatched to h but not yet
+   started as pending load, and the laptop's `run` adds its expected freeze time from the last hour's PSI freezes.
+   A local ticket moves only if the remote F beats the local one by the larger of 60 s or 20%; each target takes
+   at most its offload cap concurrently (gex45's pool is three slots per repository, 32da14e68); 5% of eligible
+   tickets are placed on the runner-up to keep `cold_h`, speed and counterfactual finish measured. Two callers:
    - command placement: `machine-capacity run` and build offload choose among laptop, gex45 and Nexus;
    - session placement: `north fleet launch` and `agents plan --place` choose among laptop, gex45, Nexus and
-     anthropic-cloud for a worker, using the worker ledger's predicted compute for the brief's facets.
+     anthropic-cloud for a worker; it records predicted against actual box wall first and keeps local as the
+     default until that record shows facets predict box wall (W2-5).
 4. **Backfill (new).** The head ticket that does not fit gets a reservation: the earliest time its memory and slots
-   fit given running leases' predicted p90 ends. A later ticket starts now only if it fits now and either ends
-   (predicted p90) before that reservation or still leaves the reservation's memory and slots free. A backfilled
-   lease that overruns is not killed or frozen (freezing frees no memory); the miss is recorded and lowers that
-   key's coverage, which widens its next estimate. `backfill_seconds` stays as the hard bound on how long any head
-   can be passed. This is EASY backfill with system predictions instead of user estimates.
+   fit given running leases' predicted p90 ends. A later ticket starts now only if it fits now, its estimate is
+   warm (at least 3 runs at its answering key level on this host), and either ends (predicted p90) before that
+   reservation or still leaves the reservation's memory and slots free. A cold or unknown estimate never backfills
+   unless the reservation's memory and slots stay free whatever it does. A backfilled lease that overruns is not
+   killed or frozen (freezing frees no memory); the miss is recorded and lowers that key's coverage, which widens
+   its next estimate. The bound is on the head's delay, not its age: `backfill_seconds` (300) becomes the most a
+   head's start may slip past its reservation because of passed tickets; once the head has slipped that far,
+   nothing more passes it. Today `backfill_seconds` in `queued_ahead.rs` is how long a head has waited before
+   passing stops, which wastes backfill for a head whose reservation is far off and bounds nothing for one that is
+   near. This is EASY backfill with system predictions instead of user estimates.
 5. **Never twice (Wave 0 plus W3).** Land-check verdicts by tree and tool identity per host; runtime binary reuse;
-   lane `target-seed` plus the per-host sccache disk cache; skip a queued build whose inputs a newer queued build of
-   the same key supersedes; land checks ordered by predicted fail probability per CPU-second, and a landing's
-   remaining checks cancelled at its first failure.
+   lane `target-seed` plus the per-host sccache disk cache; skip a queued runtime build only while a newer queued
+   build of the same key is queued or running and has not failed, and build the skipped predecessor if the newer
+   one fails; cheap land checks keep running in parallel, and only the expensive ones (predicted over 120 CPU-s) are
+   ordered by predicted fail probability per CPU-second and cancelled at the landing's first failure. Estimates are
+   keyed by outcome (pass, fail, cancelled) so a fail-fast check's bimodal wall does not mix into one quantile.
 6. **Calibration (Wave 0 report, then W3).** `north capacity calibration` prints, per key level and host, predicted
-   versus actual p50 error and p90 coverage over the last 7 days. A drift alarm fires into the watchdog incidents
-   file when a key's p90 coverage over its last 20 runs drops under 80% or its median error doubles against the
-   previous 7 days. A weekly retune replays the recorded week through the admission simulator
-   (`pressure_target_tests.rs` grows into a replay) and writes tuned values for the pressure band, memory margin
-   and backfill bound into a state file that admission reads, clamped to bounds stated in defaults.toml; the
-   defaults keep their sourced values as the fallback.
+   versus actual p50 error and p90 coverage over the last 7 days. Alarms are aggregate, not per key: one fires into
+   the watchdog incidents file when a host's or class's p90 coverage over its last 200 runs drops under 85%, or when
+   the replayed head-start delay of the last day passes its bound. The same signal is a circuit breaker: while it
+   is raised, placement and backfill switch off and admission runs today's FIFO-on-memory policy, and it clears
+   only after 200 runs at 88% or better. The retune is a report, not state: `north capacity retune` replays the
+   week and prints proposed values for the pressure band's batch side, memory margin and backfill bound with the
+   replayed waits for each; a person or worker commits a chosen value to `harness/defaults.toml` with a `source`
+   line naming the report. Tom's protection values (attended reserve, game reserve, the protected-slice PSI marks)
+   are never proposed or tuned.
 7. **GPU.** gex45 gets per-process GPU time from NVML (`nvidia-smi --query-accounted-apps` or pmon) so its gpu and
    native runs carry GPU-seconds. GPU stays slot- and occupancy-admitted. While Tom is present, batch GPU work
-   (renders, captures, headless Chrome) places on gex45 by predicted finish; the laptop's 890M goes to Tom's play
-   and native checks first.
+   (renders, captures, headless Chrome) is not eligible on the laptop: it waits for gex45 however long gex45's GPU
+   queue is. The laptop's 890M goes to Tom's play and native checks. Renders and captures that serve as golden
+   baselines are produced and compared on one named GPU (gex45's), because another GPU or driver can differ.
+8. **Waiting is visible.** A ticket waiting in admission or for an offload slot prints one line a minute with its
+   reason, what holds the resource and its predicted start (1b699074a does this for offload slots). From the same
+   Actions pull, a deterministic check reads main's latest conclusion per repository and writes one incident line
+   when main is red, so a red main is not left for a worker to discover.
 
 ### Placement targets and their rules
 
 | Target | Takes | Never takes | Cost model |
 | --- | --- | --- | --- |
-| laptop | anything it serves; required for whatever produces a binary the laptop runs, Tom's play builds and native checks | batch beyond the attended reserve and game reserve | measured; batch at cpu.idle |
-| gex45 | code-only and its `serves` needs; batch GPU while Tom is present | any artifact the laptop will run or install (D2/B24); authority over laptop gates | measured, plus ship seconds |
+| laptop | anything it serves; required for whatever produces a binary the laptop runs, Tom's play builds and native checks | batch beyond the attended reserve and game reserve (a hard filter, not a cost); batch GPU while Tom is present | measured; batch at cpu.idle, plus expected freeze time |
+| gex45 | allowlisted code-only check keys and its `serves` needs; batch GPU while Tom is present | any unlisted or unknown key; any artifact the laptop will run or install (D2/B24); a laptop lane's `target/`; authority over laptop gates or laptop sizing | measured, plus ship seconds |
 | Nexus (3 cores, 5.9 GiB) | moderate and gpu-free tickets of at most 2 cores and 2 GiB predicted; never the runtime (`builds_runtime = false`) | heavy builds | measured, plus ship seconds |
 | GitHub Actions | the workflows already there (public repositories: standard hosted runners are free; the gex45 farm is gex45's own capacity) | private repositories' secrets beyond what workflows already hold; paid larger runners | job duration and queue from the jobs API (W1-6) |
 | anthropic-cloud | whole worker sessions for code-only boxes in north, makgora and wisp | south or any private repository; boxes needing gex45, Nexus or laptop state; native, GPU or sign-in needs | plan usage of the launching account, plus a cold clone and cold cargo cache each session |
@@ -308,10 +359,13 @@ Delivers alone: work-conserving CPU, a model that learns from every run, reused 
 
 **W1-1. Fleet capacity rows on the laptop.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust.
 Verify: local-test. After: capacity-model. Files: `crates/north-core/src/capacity/host/database.rs`, a `north
-capacity pull` subcommand beside it. Spec: pull each `[hosts.NAME]` ssh host's `capacity_runs` rows newer than the
-last pulled `at` into the laptop's capacity.db with a `host` column; the laptop only reads remote rows. Done when:
-`sqlite3 capacity.db "select host, count(*) from capacity_runs where at >= '2026-11-04' group by host"` lists
-whiterabbit, gex45 and nexus, and a second pull adds 0 rows.
+capacity pull` subcommand beside it, `crates/north-core/src/capacity/host/estimate.rs`. Spec: pull each
+`[hosts.NAME]` ssh host's `capacity_runs` rows newer than the last pulled `at` into the laptop's capacity.db with a
+`host` column; the unique key is `(host, source_id)`, since `source_id` is `jsonl:{path}:{index}` and collides
+across hosts; the laptop only reads remote rows; every sizing level in `estimate.rs` (`levels`, `same_exact` and
+the coarser fallbacks) filters to the asking host. Done when: a fixture test loads laptop rows, sizes a key, adds
+gex45 rows for the same key (including a colliding `source_id`) and gets the identical laptop sizing with all
+rows kept; and a second pull of the same fixture adds 0 rows.
 
 **W1-2. GPU-seconds on gex45.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust. Verify:
 native-check. Files: `crates/north-core/src/capacity/host/gpu.rs`, `measure.rs`. Spec: where DRM fdinfo gives no
@@ -362,82 +416,145 @@ censored share for moderate and heavy, laptop and gex45, and the median anon/pea
 Delivers alone: the fleet's runs in one place, GPU on gex45 visible, ship and cold costs measured, Actions queue
 measured, and cloud workers placed again under accounts with headroom.
 
-### Wave 2: predicted finish and backfill (after Wave 1)
+### Wave 2: replay first, then backfill and placement (after Wave 1)
+
+Every Wave 2 and Wave 3 Done-when is a replay or fixture check that runs inside the box. Checks that need hours or
+days of live traffic are in [Live audits](#live-audits), dated, and run by the lead after the boxes land.
 
 **W2-1. Admission replay simulator.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust.
-Verify: local-test. Files: `crates/north-core/src/capacity/pressure_target_tests.rs` grows a
-`capacity/replay.rs`. Spec: replay a recorded window's tickets (arrival, predicted and actual wall, anon peak,
-class) through `decide` with a policy switch (today, elastic, elastic plus backfill, plus placement); print queue
-wait p50/p90 per class and idle-held core-minutes. Done when: replaying Oct 28 to Nov 3 under today's policy
-reproduces the measured laptop heavy p90 wait within 30% (measured 332 s).
+Verify: local-test. After: elastic-cpu, capacity-model, W1-1. Files:
+`crates/north-core/src/capacity/pressure_target_tests.rs` grows a `capacity/replay.rs`. Spec: replay a recorded
+window's tickets (arrival, class, needs, anon peak, actual wall) through `decide` with a policy switch (today,
+elastic, elastic plus backfill, elastic plus placement, elastic plus both). Predicted durations come from
+walk-forward estimates (each ticket sees only rows before its arrival), never from its own actual wall; actual
+walls only decide when a replayed lease ends. Prints, per host and class, wait p50, p90 and total hours, idle-held
+core-minutes, and for backfill the head-start delay against FIFO (p90 and max). The replay ranks policies against
+each other; it does not predict absolute waits, because it has no record of unleased load or of cpu.idle slowdowns
+and freezes. Done when: replaying Oct 28 to Nov 2 under today's policy reproduces the measured wait p50, p90 and
+total hours for every class on both hosts within 30%, and the held-out day Nov 3 is then replayed with the same
+settings and its errors printed beside them; for the 30 hours with watchdog pressure samples (Nov 2 16:19Z to Nov 3
+23:40Z) the replay also feeds the sampled unleased load and prints both errors.
+
+**W2-0. Re-measure what placement and backfill could move.** Category: research. Spec: measured. Scope: one-file.
+Surface: docs. Verify: none. After: W2-1, elastic-cpu and capacity-model landed. Files:
+`docs/rationale/capacity-scheduler.md` (results). Spec: re-run the "waited while another host had room" query of
+section 4 using memory headroom and slots instead of committed CPU, on rows recorded since elastic-cpu landed, and
+replay the 7-day window under elastic alone. Done when: this document records, per host, tickets and hours still
+waiting over 60 s under elastic alone and how many of them had an eligible host (allowlisted key, needs served,
+memory and slot room) free; and states the staffing verdict: W2-3 and W2-4 are staffed only if elastic alone
+leaves at least 10 h a week of such waiting, otherwise they are parked with that number.
 
 **W2-2. `north capacity predict`.** Category: feature. Spec: measured. Scope: single-module. Surface: rust. Verify:
-local-test. After: W1-1, W1-3. Files: `crates/north-core/src/capacity/host/estimate.rs`, a `predict` subcommand.
-Spec: `north capacity predict -- CMD` prints per eligible host `wait`, `ship`, `cold`, `run` p50/p90 and `finish`,
-with the key level used. Done when: for the next 20 heavy runs on the laptop, the logged prediction's p90 covers at
-least 16 actual walls.
+local-test. After: W1-1, W1-3, W2-1. Files: `crates/north-core/src/capacity/host/estimate.rs`, a `predict`
+subcommand. Spec: `north capacity predict -- CMD` prints per eligible host `wait`, `ship`, `cold`, `run` at p90 and
+`finish`, with the key level used and whether the estimate is warm; `wait` uses W2-1's queue simulation under the
+policy admission is running (FIFO on memory until W2-4 lands, then backfill). Done when: walk-forward over the
+recorded Oct 28 to Nov 3 laptop heavy runs, the p90 covers between 85% and 95% of actual walls and the printed
+median interval width is no wider than 5x the median wall.
 
-**W2-3. Command placement by predicted finish.** Category: feature. Spec: measured. Scope: cross-module. Surface:
-rust. Verify: local-test. After: W2-1, W2-2. Files: `build_offload.rs`, `admission.rs` (offload line). Spec: replace
-the room threshold with the minimum predicted finish across laptop, gex45 and Nexus (Nexus only for predicted at
-most 2 cores and 2 GiB), keeping every rule in the targets table; record chosen and runner-up finish. Done when: the
-W2-1 replay of Oct 28 to Nov 3 shows fewer than 20 laptop tickets waiting over 60 s while another host had room
-(measured 86), and over the next day the chosen host's actual finish beats the runner-up's prediction in at least
-70% of offload decisions.
+**W2-3. Command placement, deterministic rule first.** Category: feature. Spec: measured. Scope: cross-module.
+Surface: rust. Verify: local-test. After: W2-0 (verdict: staff), W2-1, W2-2, W2-4. Files: `build_offload.rs`,
+`admission.rs` (offload line), `run.rs`. Spec: replace `refusal()`'s open default with the fail-closed key
+allowlist and lane `target/` pinning; replace the room threshold with the design's deterministic rule (deferred
+past a threshold, eligible remote with memory headroom under its offload cap), counting dispatched-not-started
+offloads as pending load on the target; laptop eligibility is a hard filter before any cost; 5% exploration on the
+runner-up; record chosen and runner-up with their predictions. The finish-time comparison with its 60 s or 20%
+margin is added only if the replay shows the rule leaves at least a quarter of W2-0's movable hours. Done when: the
+W2-1 replay of Oct 28 to Nov 3 shows (a) zero tickets from non-allowlisted or unknown keys placed off the laptop,
+(b) zero batch placements on the laptop past the reserve while a game or Tom's session was active, (c) no target
+over its offload cap at any instant, and (d) total waiting over 60 s below elastic-without-placement's by the
+margin W2-0 found movable, with p90 wait no worse for any class on either host.
 
 **W2-4. Reservation backfill on memory and slots.** Category: feature. Spec: measured. Scope: single-module.
-Surface: rust. Verify: local-test. After: W2-1, elastic-cpu. Files: `queued_ahead.rs`, `admission.rs`. Spec: the
-backfill rule in the design; `backfill_seconds` stays the hard bound. Done when: the replay shows heavy p90 wait
-below today's policy's on both hosts with no ticket passed for longer than `backfill_seconds`, and a unit test pins
-that a backfilled ticket whose p90 end is after the head's reservation starts only if the reservation's memory stays
-free.
+Surface: rust. Verify: local-test. After: W2-0 (verdict: staff), W2-1, elastic-cpu. Files: `queued_ahead.rs`,
+`admission.rs`. Spec: the backfill rule in the design; `backfill_seconds` redefined as the bound on head-start
+slip past its reservation; cold or unknown estimates never backfill unless the reservation stays free. Done when:
+the replay shows, on both hosts, total and p90 heavy wait below elastic-without-backfill's, head-start delay
+against FIFO with p90 under 60 s and max under `backfill_seconds`; and unit tests pin that a ticket whose p90 end
+is after the reservation starts only if the reservation's memory stays free, that a cold-estimate ticket does not
+pass a head whose memory it would take, and that nothing passes a head that has slipped `backfill_seconds`.
 
-**W2-5. Session placement by predicted finish.** Category: feature. Spec: measured. Scope: cross-module. Surface:
-rust. Verify: local-test. After: W1-4, W2-2. Files: `crates/north-core/src/ops/pacing/placement.rs`,
-`placement/launch.rs`. Spec: rank laptop, gex45, Nexus and anthropic-cloud for a box by the predicted finish of its
-predicted compute (worker ledger facets), cloud including measured session start, clone and cold build per
-repository; record the ranking in the verdict line. Done when: `agents plan --place` on a code-only north brief
-prints all four targets' finish estimates, and for one week of verdicts the chosen target's measured box wall is
-within the predicted p90 for at least 80%.
+**W2-5. Session wall record, then session placement.** Category: feature. Spec: measured. Scope: cross-module.
+Surface: rust. Verify: local-test. After: W1-4, W1-5, W2-2. Files: `crates/north-core/src/ops/pacing/placement.rs`,
+`placement/launch.rs`, the worker ledger. Spec: record each box's predicted compute (ledger facets), actual box
+wall, model time and placement in the ledger first; rank laptop, gex45, Nexus and anthropic-cloud (cloud including
+measured session start, clone and cold build per repository, and only accounts whose headroom W1-4 admits and whose
+launch W1-5 proved) in the verdict line, but keep local as the chosen target until the audit below shows facets
+predict box wall. Done when: on the recorded worker ledger, a fixture of past boxes prints all four targets'
+estimates per box, the verdict picks local for every one, and the printed rank correlation between predicted
+compute and actual box wall is reported.
 
-Delivers alone: work moves to the host that will finish it first, and the queue head no longer blocks smaller work
-for memory it will not get soon.
+Delivers alone: a replay that ranks policies, a measured answer to whether placement and backfill still pay after
+elastic CPU, and backfill and placement only where that answer says so.
 
 ### Wave 3: calibration, waste and GPU placement (after Wave 2, independent of each other)
 
-**W3-1. Drift alarms.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust. Verify: local-test.
-Files: the calibration command, `bin/capacity-watchdog` incidents writer. Spec: the alarm rule in the design. Done
-when: a fixture where a key's walls double fires one alarm line in incidents.md, and the real 7 days fire fewer
-than 5.
+**W3-1. Aggregate alarms and circuit breaker.** Category: tooling. Spec: measured. Scope: single-module. Surface:
+rust. Verify: local-test. After: W2-1. Files: the calibration command, `bin/capacity-watchdog` incidents writer,
+`admission.rs`. Spec: the aggregate alarm rule and circuit breaker in the design. Done when: a fixture where one
+host's class coverage drops to 70% over 200 runs writes one incident line and sets the breaker, after which
+admission's placement and backfill paths report off and FIFO-on-memory decides; a fixture of 200 runs at 90%
+clears it; and replaying the recorded Oct 28 to Nov 3 walk-forward estimates prints the number of alarms raised.
 
-**W3-2. Bounded weekly retune.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust. Verify:
-local-test. After: W2-1. Files: `capacity/replay.rs`, `harness/defaults.toml` (bounds on `admit_psi_*`,
-`capacity_memory_margin`, `backfill_seconds`). Spec: grid-search those values over the last week's replay,
-minimizing heavy p90 wait subject to protected-slice PSI under its high mark in replay; write the result to
-`~/.local/state/agents/machine-capacity/tuned.json`; admission reads it clamped to the bounds. Done when: `north
-capacity retune --dry-run` prints the chosen values and the replayed waits for them and for the defaults.
+**W3-2. Retune proposal report.** Category: tooling. Spec: measured. Scope: single-module. Surface: rust. Verify:
+local-test. After: W2-1. Files: `capacity/replay.rs`, a `retune` subcommand. Spec: grid-search the batch side of
+the pressure band, `capacity_memory_margin` and `backfill_seconds` over the last week's replay and print each
+candidate's replayed waits and head delay beside the defaults; it writes no state file and admission reads
+nothing from it. A chosen value is committed to `harness/defaults.toml` with a `source` line naming the report and
+its date. The attended reserve, game reserve and protected-slice PSI marks are not in the grid. Done when: `north
+capacity retune` on the recorded week prints the table with the defaults' row first, and a test shows the
+protection values are absent from its grid.
 
-**W3-3. Fail-fast land-check order.** Category: performance. Spec: measured. Scope: cross-module. Surface: rust.
-Verify: local-test. After: capacity-model, land-cache. Files: the land-check runner in `crates/north-landing/`.
-Spec: order a landing's checks by predicted fail rate per CPU-second (by check and changed-path class, from
-records), cancel the remaining checks at the first failure. Done when: over 20 failing landings the median
-CPU-seconds spent before the failure verdict is under half of today's median for failing land checks (computed
-from capacity_runs before the change).
+**W3-3. Fail-fast order for expensive land checks.** Category: performance. Spec: measured. Scope: cross-module.
+Verify: local-test. Surface: rust. After: capacity-model, land-cache. Files: the land-check runner in
+`crates/north-landing/`. Spec: cheap checks (predicted under 120 CPU-s) keep running in parallel and always finish,
+so every landing still reports all their failures; expensive checks are ordered by predicted fail rate per
+CPU-second (by check and changed-path class, from records) and cancelled at the first failure; cancelled checks
+write an outcome row `cancelled`, and estimates are keyed by outcome. Done when: replaying the recorded land-check
+runs of Oct 28 to Nov 3 (each check's actual wall, CPU-s and exit) through the new order against cancel-on-first-
+failure with today's order prints both median CPU-seconds before the failure verdict, the new order's is lower,
+and passing landings' wall is no more than 5% above today's.
 
-**W3-4. Skip superseded builds.** Category: performance. Spec: measured. Scope: single-module. Surface: rust.
-Verify: local-test. After: runtime-reuse. Files: `crates/north-core/src/ops/runtime/`. Spec: a queued runtime build
-whose commit a newer queued one for the same host contains does not start. Done when: over one day, runtime builds
-that exit 73 (killed by supersede) drop to 0 and every main commit still reaches the runtime within the current p90
-latency.
+**W3-4. Skip superseded runtime builds, never leave a gap.** Category: performance. Spec: measured. Scope:
+single-module. Surface: rust. Verify: local-test. After: runtime-reuse. Files: `crates/north-core/src/ops/runtime/`.
+Spec: a queued runtime build whose commit a newer queued or running build for the same host contains does not
+start while that newer build has not failed; if the newer build fails, the newest skipped predecessor is built
+next. Done when: fixture tests show a skipped build when the newer one is queued, the skipped predecessor built
+when the newer one fails, and no skip when the newer one has already failed.
 
-**W3-5. Batch GPU on gex45.** Category: feature. Spec: measured. Scope: single-module. Surface: rust. Verify:
-native-check. After: W1-2, W2-3. Files: `gpu_admission.rs`, `build_offload.rs`. Spec: while the laptop is attended,
-gpu-class tickets whose needs gex45 serves place by predicted finish on gex45; the laptop keeps gpu tickets only
-when gex45 is predicted later. Done when: one day attended shows no gpu-class run on the laptop while gex45 had a
-free gpu slot, and DEFER_GPU_BUSY on the laptop counts 0 for agent work.
+**W3-5. Batch GPU on gex45, never on the attended laptop.** Category: feature. Spec: measured. Scope:
+single-module. Surface: rust. Verify: native-check. After: W1-2, W2-3. Files: `gpu_admission.rs`,
+`build_offload.rs`. Spec: while the laptop is attended, gpu-class batch tickets are not eligible on the laptop and
+wait for gex45's GPU slot however long its queue is; renders and captures that serve as golden baselines run only
+on gex45's GPU. Done when: a fixture with the laptop attended and gex45's GPU slot busy keeps a batch gpu ticket
+queued for gex45 rather than placing it on the laptop, and replaying the recorded gpu-class tickets places none on
+the laptop while it was attended.
 
-Delivers alone: estimates stay honest as code changes, failing landings stop burning a third of the core-hours, and
-the laptop GPU is Tom's.
+**W3-6. Red-main incident from the Actions pull.** Category: tooling. Spec: measured. Scope: single-module.
+Surface: rust. Verify: local-test. After: W1-6. Files: the `north capacity actions-pull` command, the incidents
+writer. Spec: after each pull, read main's latest completed run conclusion per repository; on `failure` write one
+incident line naming the repository, run and commit, once per failing commit. Done when: fixture pulls with a green
+then a failing then the same failing main write exactly one incident line.
+
+Delivers alone: estimates stay honest and switch the clever parts off when they are not, failing landings stop
+burning a third of the core-hours without slowing passing ones, the runtime never skips a commit for good, red main
+is reported, and the laptop GPU is Tom's.
+
+### Live audits
+
+Run by the lead after the boxes land, each recorded here as a dated line with its result. They are not Done-whens.
+
+- W2-2, one day after landing: logged predictions' p90 covers 85 to 95% of the next 20 heavy laptop walls.
+- W2-3, one day after landing: chosen-host coverage (actual finish within its predicted p90) and, on the 5%
+  exploration slice, how often the runner-up would have finished first.
+- W2-4, one day after landing: live head-start delay p90 and max from admission's log.
+- W2-5, one week after landing: rank correlation of predicted compute against box wall; only if it is useful does
+  session placement leave its local default.
+- W3-1, one week after landing: alarms raised and breaker time.
+- W3-3, after 20 failing and 20 passing landings: CPU-seconds before the failure verdict, and passing landing wall,
+  against the values computed from `capacity_runs` before the change.
+- W3-4, one day after landing: every main commit reached the runtime or was covered by a newer passing build.
+- W3-5, one attended day: no gpu-class agent run on the laptop.
 
 ## Decisions for Tom
 
@@ -455,26 +572,76 @@ Only one, and only if W1-5's probe finds that account d's cloud sessions cannot 
 
 ## ETA
 
-Wave 0 is in flight. Wave 1 is seven boxes in parallel, about 20 minutes each plus landing; Wave 2 five, of which
-W2-1 and W2-2 run first; Wave 3 five in parallel. Uncalibrated: with three to five workers, Wave 1 lands by about
-8:30 AM, Wave 2 by about 11:00 AM and Wave 3 by about 1:00 PM on 2026-11-04, if Wave 0 lands by 7:30 AM.
+Wave 0 is in flight. Wave 1 is seven boxes in parallel, about 20 minutes each plus landing. Wave 2 is W2-1 first,
+then W2-0 and W2-2 in parallel; W2-3 and W2-4 are staffed only on W2-0's verdict, W2-4 before W2-3; W2-5 runs
+beside them. Wave 3 is six boxes in parallel. Uncalibrated, with three to five workers and Wave 0 landed by about
+8:00 AM: Wave 1 by about 9:00 AM, W2-0's verdict by about 10:00 AM, the rest of Wave 2 by about 11:30 AM and
+Wave 3 by about 1:30 PM on 2026-11-04. The live audits follow over the next day and week.
 
 ## Assumptions
 
 1. The 7-day window is representative except for Oct 31 and Nov 1 on gex45, which carry 354 of its 459 waiting
    hours (all classes); numbers are given per day where that matters.
-2. "Another host had room" uses committed charge only, not PSI or memory, and ignores whether the ticket's needs
-   were served there; it is an upper bound.
+2. "Another host had room" in section 4 uses committed charge only, not PSI or memory, and ignores whether the
+   ticket's needs were served there; it is an upper bound, and W2-0 replaces it with a memory-and-slots measure.
 3. "Under 10% CPU" is a lease using under a tenth of its charged cores, over the whole run (records) or over a 30 s
    sample (watchdog).
 4. Run keys use the recorded command, which has paths redacted, so two lanes' identical commands share a key.
 5. Wave 0 lands as briefed, with the corrections above. If elastic-cpu does not land, W2-4's backfill must also
    cover CPU.
 6. Host speed is the same for both build hosts within the measured spread; the per-host factor is learned anyway.
-7. gex45 and Nexus rows inform the laptop's placement but never its gates or its binaries.
+7. gex45 and Nexus rows inform the laptop's placement but never its gates, its sizing or its binaries; W1-1's
+   host filter and W2-3's allowlist and `target/` pinning are what enforce it.
 8. The cloud VM's 4 cores and 15 GB, and its cold cache each session, are per cloud.md; a setup script's cached
    result could warm dependencies (the cloud docs say a setup script is cached when it finishes in about five
    minutes); W2-5 measures cold start per repository rather than assuming either.
+9. The replay ranks policies against each other; its absolute waits are not predictions, because unleased load
+   before 2026-11-02 and cpu.idle slowdowns are not in the records.
+
+## Review disposition, 2026-11-04
+
+An adversarial review of the first version (cbdabdee8) requested changes. Every finding was accepted; none was
+shown wrong by code or data. Findings 1, 3, 4 and 8 were checked against `build_offload.rs` (`refusal()` refuses
+only landing, already-offloaded and `need`-bearing requests; `first_free` takes the first free host),
+`host/database.rs` (no host column) and `queued_ahead.rs`, and hold.
+
+1. Remote eligibility failed open: now an allowlist of code-only keys, unknown keys stay local, lane `target/`
+   pinned to one host (Shape 3, targets table, W2-3 check a).
+2. The section 4 baseline rests on CPU accounting elastic-cpu removes: W2-0 re-measures on memory and slots and
+   gates W2-3 and W2-4; W2-3 and W2-4 compare against elastic without placement or backfill.
+3. gex45 rows could size laptop runs: host-qualified rows, `(host, source_id)` key, every sizing level filtered to
+   the asking host (Shape 2, W1-1 Spec, Files and Done-when).
+4. Backfill bounded by head age at 4.5x p90 error: now bounded by head-start slip, no backfill on a cold or unknown
+   estimate, head-delay replay metrics (Shape 4, W2-1, W2-4).
+5. Replay judged on one statistic: now p50, p90 and total wait for every class on both hosts, a held-out day, the
+   30 sampled hours with unleased load, walk-forward estimates only, and a stated relative-ranking scope (W2-1,
+   assumption 9).
+6. W3-5 contradicted the GPU rule: batch GPU never on the attended laptop; golden renders on one named GPU.
+7. Laptop eligibility as a cost: now a hard filter before F, plus expected freeze time (Shape 3, W2-3 check b).
+8. Herding and quantile mixing: dispatched offloads count as pending load, a 60 s or 20% margin, a per-target cap,
+   one quantile (p90) throughout (Shape 3, W2-3 check c).
+9. `cold_h` and speed lock in: 5% exploration on the runner-up, 14-day expiry, per-key per-host data once it
+   exists (Shapes 2 and 3).
+10. Dependencies: W2-1 after elastic-cpu, capacity-model and W1-1; W2-2 after W2-1; W2-3 after W2-4; W2-5 after
+    W1-5.
+11. Done-whens needing days of traffic or unprovable: every Wave 2 and 3 Done-when is now a replay or fixture
+    check; the live checks moved to [Live audits](#live-audits); W2-3 no longer compares against an unobserved
+    runner-up; W2-2 bounds interval width; W3-3 compares against cancel-on-first-failure alone; W3-4 drops the
+    exit 73 count; W3-1 drops the arbitrary threshold.
+12. Retune as hidden mutable state: W3-2 is a proposal report committed to `defaults.toml` with a `source` line;
+    protection values are excluded.
+13. Per-key alarms misfire, no breaker: aggregate and class alarms that also switch placement and backfill off
+    (Shape 6, W3-1).
+14. Fail-fast costs latency and information: cheap checks stay parallel, only expensive ones are ordered and
+    cancelled, cancelled checks write an outcome row, estimates keyed by outcome, passing landing wall guarded.
+15. Supersede gap: skip only while the newer build has not failed; build the skipped predecessor on its failure.
+16. Missing incidents: the single offload slot (fixed by 32da14e68, now a per-target cap in placement), silent
+    waits (1b699074a for offload slots; Shape 8 extends it to admission), red main (W3-6). Also recorded: verifying
+    narrowly and leaving the full suite to the exact-tree train removed the per-worker offload queue, so no box
+    sends a worker's full suite to an offload host.
+17. Session placement from build compute: W2-5 records box wall against facets first and keeps local as the
+    default until the audit shows signal; cloud only under accounts with headroom.
+18. Ceremony: W2-3 starts from a deterministic rule and grows into F only if replay shows the rule leaves waiting.
 
 ## Prior art
 
@@ -503,7 +670,7 @@ Each source was fetched on 2026-11-04 and the claim below is what its text says;
   https://manuscript.isc.ac/Inventory/49/827041.htm, the authors' copy was unreachable). Predicting a job's runtime
   as the mean of the same user's last two jobs, with the kill time kept apart from the prediction and predictions
   corrected when exceeded, beat EASY on user estimates. Taken here: predicted p90 ends drive the reservation, an
-  overrun widens the estimate, and `backfill_seconds` stays the kill-free bound.
+  overrun widens the estimate, and `backfill_seconds` bounds how far a head may slip past its reservation.
 - **HEFT** (Topcuoglu, Hariri and Wu, IEEE TPDS 13(3), 2002, abstract at
   https://experts.arizona.edu/en/publications/performance-effective-and-low-complexity-task-scheduling-for-hete/).
   Picks the task with the highest upward rank and places it on the processor that minimizes its earliest finish
