@@ -108,7 +108,7 @@ fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
     let processes = agent_load::processes(&host);
     agent_load::declare_gaming(&host.capacity, true).unwrap();
     assert!(gaming_marked(&host.capacity));
-    agent_load::enforce(&host, gaming_marked(&host.capacity), false, &processes);
+    agent_load::enforce(&host, gaming_marked(&host.capacity), gaming_marked(&host.capacity), &processes);
 
     assert!(exited(&mut client) && exited(&mut desktop) && exited(&mut leaked), "an agent client or desktop survived gaming");
     assert!(tom.try_wait().unwrap().is_none(), "Tom's game was signalled");
@@ -117,7 +117,7 @@ fn gaming_stops_agent_clients_and_leaves_toms_game_running() {
     assert!(!log(root.path()).contains(&format!("stop {heavy_unit}")));
 
     agent_load::declare_gaming(&host.capacity, false).unwrap();
-    agent_load::enforce(&host, gaming_marked(&host.capacity), false, &agent_load::processes(&host));
+    agent_load::enforce(&host, gaming_marked(&host.capacity), gaming_marked(&host.capacity), &agent_load::processes(&host));
     assert!(log(root.path()).contains(&format!("--user thaw {heavy_unit}")));
     assert!(!gaming_marked(&host.capacity));
     assert!(tom.try_wait().unwrap().is_none(), "Tom's game was signalled after gaming ended");
@@ -191,7 +191,7 @@ fn an_agent_owned_launcher_is_ignored_and_gaming_still_stops_agent_wine() {
     fixture(&proc, wine.id(), "wineserver", "/proton/files/bin/wineserver", scope, &[]);
     fixture(&proc, 500, "Battle.net.exe", "C:\\Battle.net\\Battle.net.exe", scope, &[]);
     let processes = agent_load::processes(&host);
-    agent_load::enforce(&host, true, false, &processes);
+    agent_load::enforce(&host, true, true, &processes);
     assert!(exited(&mut wine), "an agent wine process survived gaming");
 }
 
@@ -296,11 +296,11 @@ fn a_busy_admission_lock_leaves_frozen_at_for_the_next_tick_to_bring_in_line_wit
     };
 
     let holder = busy();
-    agent_load::enforce(&host, true, false, &[]);
+    agent_load::enforce(&host, true, true, &[]);
     drop(holder);
     assert!(log(root.path()).contains(&format!("--user freeze {heavy_unit}")));
     assert_eq!(frozen_at(), None, "the pause wrote through a busy lock");
-    agent_load::enforce(&host, true, false, &[]);
+    agent_load::enforce(&host, true, true, &[]);
     assert!(frozen_at().is_some(), "the unit stayed frozen without frozenAt after a tick with the lock free");
 
     let holder = busy();
@@ -328,12 +328,12 @@ fn a_failed_freeze_leaves_frozen_at_unset_and_the_next_tick_retries_it() {
     let freezes = || log(root.path()).matches(&format!("--user freeze {heavy_unit}")).count();
 
     fs::write(root.path().join("fail-freeze"), "").unwrap();
-    agent_load::enforce(&host, true, false, &[]);
+    agent_load::enforce(&host, true, true, &[]);
     assert_eq!(freezes(), 1);
     assert_eq!(frozen_state(&host), (None, Vec::new()), "a refused freeze was recorded as frozen");
 
     fs::remove_file(root.path().join("fail-freeze")).unwrap();
-    agent_load::enforce(&host, true, false, &[]);
+    agent_load::enforce(&host, true, true, &[]);
     assert_eq!(freezes(), 2, "the refused freeze was not retried");
     let (frozen_at, listed) = frozen_state(&host);
     assert!(frozen_at.is_some(), "the retried freeze left frozenAt unset");
@@ -349,7 +349,7 @@ fn a_failed_thaw_keeps_the_unit_frozen_and_charged_until_a_later_thaw_succeeds()
     let heavy_unit = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
     let thaws = || log(root.path()).matches(&format!("--user thaw {heavy_unit}")).count();
 
-    agent_load::enforce(&host, true, false, &[]);
+    agent_load::enforce(&host, true, true, &[]);
     let (frozen_at, listed) = frozen_state(&host);
     assert!(frozen_at.is_some());
     assert_eq!(listed, std::slice::from_ref(&heavy_unit));
@@ -376,10 +376,10 @@ fn game_reserve_leaves_heavy_scopes_running_on_agent_cpus_and_still_freezes_gpu_
     lease(&host, exclusive, "exclusive", "agent-capacity.slice", None, &[]);
     let unit = |id: &str| format!("agent-capacity-{}.scope", id.replace('-', ""));
 
-    agent_load::enforce(&host, true, false, &[]);
+    agent_load::enforce(&host, true, true, &[]);
     assert!(log(root.path()).contains(&format!("--user freeze {}", unit(HEAVY))), "gaming outside a reserve left heavy running");
 
-    agent_load::enforce(&host, true, true, &[]);
+    agent_load::enforce(&host, true, false, &[]);
     assert!(log(root.path()).contains(&format!("--user thaw {}", unit(HEAVY))), "a heavy scope frozen before the reserve stayed frozen");
     let (heavy_frozen_at, mut listed) = frozen_state(&host);
     listed.sort();
@@ -387,7 +387,7 @@ fn game_reserve_leaves_heavy_scopes_running_on_agent_cpus_and_still_freezes_gpu_
     held.sort();
     assert_eq!((heavy_frozen_at, listed), (None, held));
 
-    agent_load::enforce(&host, true, true, &[]);
+    agent_load::enforce(&host, true, false, &[]);
     assert_eq!(log(root.path()).matches(&format!("--user freeze {}", unit(HEAVY))).count(), 1, "the reserve froze heavy again");
     assert!(log(root.path()).contains(&format!("--user freeze {}", unit(gpu))));
     assert!(log(root.path()).contains(&format!("--user freeze {}", unit(exclusive))));
@@ -453,4 +453,48 @@ fn a_pressure_frozen_batch_lease_keeps_its_deadline_and_a_capped_lease_does_not_
     assert!(thawed["frozenAt"].is_null());
     assert!(thawed["expiresAt"].as_u64().unwrap() > 1_000_000, "the deadline moved out by the time spent frozen");
     assert_eq!(read(NATIVE)["expiresAt"].as_u64(), Some(1_000_000));
+}
+
+#[test]
+fn a_tick_on_battery_drains_laptop_placement_and_freezes_heavy_as_play_does_until_ac_returns() {
+    use super::laptop_auto::{discharging_percent, on_battery, sample, shed};
+    use super::mode::{Limits, Mode};
+    use crate::ops::laptop::Ctx;
+    let limits = Limits::bundled();
+    let root = tempfile::tempdir().unwrap();
+    let laptop = host(root.path(), &root.path().join("proc"));
+    lease(&laptop, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
+    let heavy = format!("agent-capacity-{}.scope", HEAVY.replace('-', ""));
+    let battery = root.path().join("power_supply/BAT1");
+    fs::create_dir_all(&battery).unwrap();
+    for (field, value) in [("type", "Battery"), ("status", "Discharging"), ("capacity", "80")] {
+        fs::write(battery.join(field), format!("{value}\n")).unwrap();
+    }
+    let placement = root.path().join("laptop");
+    fs::create_dir_all(&placement).unwrap();
+    fs::write(placement.join("window.json"), r#"{"tz":"UTC","open":"23:00","close":"10:00"}"#).unwrap();
+    Ctx::fixture(&placement, "2026-11-05T00:00:00Z", "true").main(&["open".to_owned()]).unwrap();
+    let tick = |now: &str| {
+        let percent = discharging_percent(&root.path().join("power_supply"));
+        let plan = shed(&laptop, on_battery(limits.effects(Mode::Desktop), percent), &[]);
+        Ctx::fixture(&placement, now, "true").main(&["observe".to_owned(), sample(&laptop, None, false, percent).to_string()]).unwrap();
+        let state: serde_json::Value = serde_json::from_str(&fs::read_to_string(placement.join("placement/laptop.json")).unwrap()).unwrap();
+        (plan, state)
+    };
+
+    let (drained, state) = tick("2026-11-05T00:01:00Z");
+    assert_eq!((state["state"].as_str(), state["reason"].as_str(), state["by"].as_str()), (Some("draining"), Some("battery"), Some("laptop-auto")), "{state}");
+    assert_eq!(drained.freeze, [heavy.clone()].into());
+    assert_eq!(frozen_state(&laptop).1, vec![heavy.clone()]);
+    let played = tempfile::tempdir().unwrap();
+    let play_host = host(played.path(), &played.path().join("proc"));
+    lease(&play_host, HEAVY, "heavy", "agent-capacity.slice", None, &[]);
+    assert_eq!(drained, shed(&play_host, limits.effects(Mode::Play), &[]), "battery froze heavy batch other than play mode's pause_heavy does");
+
+    fs::write(battery.join("status"), "Charging\n").unwrap();
+    let (restored, state) = tick("2026-11-05T00:02:00Z");
+    assert_eq!((state["state"].as_str(), state["reason"].as_str()), (Some("available"), Some("window")), "{state}");
+    assert_eq!(restored.thaw, [heavy.clone()].into());
+    assert!(log(root.path()).contains(&format!("--user thaw {heavy}")));
+    assert_eq!(frozen_state(&laptop), (None, Vec::new()));
 }

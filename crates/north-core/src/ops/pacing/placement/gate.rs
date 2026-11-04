@@ -8,7 +8,7 @@ use super::super::{sampling, target};
 pub use super::repository::{anchored, repository};
 use super::room::{Basis, Rank};
 use super::{credit, facets, field, here_saturation, local, strings};
-use crate::capacity::agent_load;
+use crate::capacity::{agent_load, laptop_auto};
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
 use crate::pace::exhaustion;
@@ -16,6 +16,7 @@ use crate::fleet::roster::{Roster, Standing};
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::path::Path;
 use toml_edit::{DocumentMut, Item};
 
 const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "makgora"];
@@ -80,6 +81,7 @@ pub struct Decision {
     pub machine_lines: Vec<String>,
     pub saturated: Option<String>,
     pub here_saturated: Option<String>,
+    pub here_on_battery: Option<String>,
 }
 
 impl Decision {
@@ -436,6 +438,7 @@ pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bo
         machine_lines,
         saturated: None,
         here_saturated: None,
+        here_on_battery: None,
     };
     decision.target = if let Some(lane) = code_only.then(|| decision.cloud_lane(credit.1)).flatten() {
         Target::Cloud(lane)
@@ -478,7 +481,10 @@ pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, nam
         .unwrap_or_else(storage::now);
     let gate = live_gate();
     let machines = probed(&cfg, fleet_load);
-    let mut decision = decide(text, &cfg, verdicts(&gate, roster, &Basis::new(&cfg, load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &local(), here_in_game_reserve());
+    let here = local();
+    let here_on_battery = on_battery(&here, &laptop_auto::power_supply(), &machines);
+    let mut decision = decide(text, &cfg, verdicts(&gate, roster, &Basis::new(&cfg, load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &here, here_in_game_reserve());
+    decision.here_on_battery = here_on_battery;
     if let Some(name) = named {
         let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
         decision.run_on(machine);
@@ -486,6 +492,15 @@ pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, nam
     decision.here_saturated = here_saturation();
     decision.hold_here();
     Ok(decision)
+}
+
+pub fn on_battery(here: &str, power_supply: &Path, machines: &[Machine]) -> Option<String> {
+    let percent = laptop_auto::discharging_percent(power_supply)?;
+    let elsewhere: Vec<&str> = machines.iter().map(|machine| machine.name.as_str()).filter(|name| *name != here).collect();
+    let instead = if elsewhere.is_empty() { "in anthropic-cloud".to_owned() } else { format!("on {} or in anthropic-cloud", elsewhere.join(" or ")) };
+    Some(format!(
+        "{here} is a laptop on battery (discharging at {percent}%), so --local would drain it; launch the box {instead} without --local, or keep it here with --pin \"<reason>\""
+    ))
 }
 
 pub fn here_in_game_reserve() -> bool {

@@ -547,3 +547,21 @@ mod properties {
         }
     }
 }
+
+#[test]
+fn a_laptop_on_battery_names_its_charge_and_the_machines_and_cloud_that_take_the_box_until_ac_returns() {
+    let root = tempfile::tempdir().unwrap();
+    let battery = root.path().join("BAT1");
+    std::fs::create_dir_all(&battery).unwrap();
+    for (field, value) in [("type", "Battery"), ("status", "Discharging"), ("capacity", "80")] {
+        std::fs::write(battery.join(field), format!("{value}\n")).unwrap();
+    }
+    let here = Machine { name: "laptop".into(), ..gex45() };
+    assert_eq!(
+        gate::on_battery("laptop", root.path(), &[here.clone(), gex45()]).as_deref(),
+        Some("laptop is a laptop on battery (discharging at 80%), so --local would drain it; launch the box on gex45 or in anthropic-cloud without --local, or keep it here with --pin \"<reason>\"")
+    );
+    assert!(gate::on_battery("laptop", root.path(), &[here]).is_some_and(|why| why.contains("launch the box in anthropic-cloud without --local")));
+    std::fs::write(battery.join("status"), "Charging\n").unwrap();
+    assert_eq!(gate::on_battery("laptop", root.path(), &[gex45()]), None);
+}

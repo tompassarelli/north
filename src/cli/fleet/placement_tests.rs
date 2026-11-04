@@ -26,6 +26,7 @@ fn decision(target: Target) -> Decision {
         machine_lines: Vec::new(),
         saturated: None,
         here_saturated: None,
+        here_on_battery: None,
     }
 }
 
@@ -156,6 +157,20 @@ fn a_box_kept_on_a_saturated_launching_host_needs_local_or_a_pin_and_a_move_else
     elsewhere.hold_here();
     assert_eq!(elsewhere.target, Target::Account("claude:a".into()));
     assert_eq!(admit(&elsewhere, &launch, "", &Overrides::default()).unwrap().machine.map(|machine| machine.name), Some("far".to_owned()));
+}
+
+#[test]
+fn a_laptop_on_battery_refuses_local_and_a_pin_keeps_it_with_the_reason_recorded() {
+    let why = "laptop is a laptop on battery (discharging at 80%), so --local would drain it; launch the box on gex45 or in anthropic-cloud without --local, or keep it here with --pin \"<reason>\"";
+    let mut cloud = decision(cloud("a", "laptop"));
+    cloud.here_on_battery = Some(why.into());
+    let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: None };
+    let local = Overrides { local: Some("needs this checkout".into()), ..Overrides::default() };
+    let refused = admit(&cloud, &launch, "", &local).unwrap_err();
+    assert_eq!(refused, Refusal::Final(why.into()));
+    let pinned = Overrides { pin: Some("Tom asked for it here".into()), ..local };
+    assert_eq!(admit(&cloud, &launch, "", &pinned), noted(Some("local: needs this checkout; pin: Tom asked for it here")));
+    assert!(admit(&cloud, &launch, "", &Overrides::default()).unwrap_err().to_string().contains("north cloud launch"));
 }
 
 #[test]

@@ -24,11 +24,10 @@ fn laptop(root: &Path, minute: u32, arguments: &[&str]) -> Value {
 }
 
 fn observe(root: &Path, minute: u32, observed: Value) -> Value {
-    let mut sample = json!({ "gaming": false, "idle": true, "sleeping": false, "battery": null, "battery_low": false });
+    let mut sample = json!({ "gaming": false, "idle": true, "sleeping": false, "battery": null });
     for (key, value) in observed.as_object().unwrap() {
         sample[key] = value.clone();
     }
-    sample["battery_low"] = json!(sample["battery"].as_u64().is_some_and(|percent| percent < 30));
     laptop(root, minute, &["observe", &sample.to_string()])
 }
 
@@ -82,7 +81,7 @@ fn a_sleep_closes_only_an_open_laptop_and_waking_restores_it() {
     assert_eq!(slept["grace"], 120);
     held(&observe(root, 2, json!({})), "available", "window");
     held(&observe(root, 2, json!({ "sleeping": true, "battery": 50 })), "unavailable", "sleep");
-    held(&observe(root, 3, json!({ "battery": 50 })), "available", "window");
+    held(&observe(root, 3, json!({ "battery": 50 })), "draining", "battery");
 
     laptop(root, 3, &["close", "manual"]);
     held(&observe(root, 4, asleep.clone()), "draining", "manual");
@@ -142,8 +141,9 @@ fn a_seat_idle_on_power_reopens_the_laptop_after_the_window_closes_it_and_tom_ac
     held(&observe(root, 158, json!({ "idle": false })), "draining", "active");
     held(&laptop(root, 159, &["tick"]), "unavailable", "drained (active)");
 
-    held(&idle_through(root, 160..200, &json!({ "battery": 80 })), "unavailable", "drained (active)");
-    held(&observe(root, 200, json!({})), "available", "idle");
+    held(&idle_through(root, 160..200, &json!({ "battery": 80 })), "draining", "battery");
+    held(&observe(root, 200, json!({})), "unavailable", "window");
+    held(&observe(root, 201, json!({})), "available", "idle");
 
     laptop(root, 201, &["close", "manual"]);
     held(&laptop(root, 202, &["tick"]), "unavailable", "drained (manual)");

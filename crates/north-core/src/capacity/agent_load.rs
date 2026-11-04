@@ -205,7 +205,7 @@ pub struct Plan {
 
 pub struct Observed<'a> {
     pub gaming: bool,
-    pub game_reserve: bool,
+    pub pause_heavy: bool,
     pub processes: &'a [Process],
     pub leases: &'a [Lease],
     pub frozen: &'a BTreeSet<String>,
@@ -219,8 +219,8 @@ pub fn plan(observed: &Observed, live: impl Fn(&Lease) -> bool, wrapper_alive: i
         let orphan = lease.wrapper_start.is_some() && !wrapper_alive(lease);
         if !vetoed && (orphan || (observed.gaming && lease.class == "native")) {
             plan.stop.insert(unit);
-        } else if observed.gaming {
-            plan.hold_while_gaming(observed, lease, unit);
+        } else if observed.gaming || observed.pause_heavy {
+            plan.hold(observed, lease, unit);
         }
     }
     if observed.gaming {
@@ -231,15 +231,15 @@ pub fn plan(observed: &Observed, live: impl Fn(&Lease) -> bool, wrapper_alive: i
             .filter(|process| !plan.stop.iter().any(|unit| process.in_unit(unit)))
             .map(|process| process.pid)
             .collect();
-    } else {
+    } else if !observed.pause_heavy {
         plan.thaw = observed.frozen.clone();
     }
     plan
 }
 
 impl Plan {
-    fn hold_while_gaming(&mut self, observed: &Observed, lease: &Lease, unit: String) {
-        let held = frozen_while_gaming(&lease.class, observed.game_reserve);
+    fn hold(&mut self, observed: &Observed, lease: &Lease, unit: String) {
+        let held = frozen(&lease.class, observed);
         let frozen = observed.frozen.contains(&unit);
         if held && !frozen {
             self.freeze.insert(unit);
@@ -249,10 +249,10 @@ impl Plan {
     }
 }
 
-fn frozen_while_gaming(class: &str, game_reserve: bool) -> bool {
+fn frozen(class: &str, observed: &Observed) -> bool {
     match class {
-        "exclusive" | "gpu" => true,
-        "heavy" => !game_reserve,
+        "exclusive" | "gpu" => observed.gaming,
+        "heavy" => observed.pause_heavy,
         _ => false,
     }
 }
@@ -294,7 +294,7 @@ pub fn hold_batch_under_pressure(host: &Host, game_reserve: bool) -> Option<Pres
 
 pub fn reap_orphans(host: &Host, processes: &[Process]) -> Plan {
     let leases = leases(host);
-    let observed = Observed { gaming: false, game_reserve: false, processes, leases: &leases, frozen: &BTreeSet::new() };
+    let observed = Observed { gaming: false, pause_heavy: false, processes, leases: &leases, frozen: &BTreeSet::new() };
     let plan = plan(&observed, |lease| lease.scope_dir(host).is_dir(), |lease| wrapper_alive(host, lease));
     plan.stop.iter().for_each(|unit| {
         systemctl_user(host, "stop", unit);
@@ -319,11 +319,11 @@ fn systemctl_user(host: &Host, verb: &str, unit: &str) -> bool {
     Command::new(&host.systemctl).args(["--user", verb, unit]).status().is_ok_and(|status| status.success())
 }
 
-pub fn enforce(host: &Host, gaming: bool, game_reserve: bool, processes: &[Process]) -> Plan {
+pub fn enforce(host: &Host, gaming: bool, pause_heavy: bool, processes: &[Process]) -> Plan {
     let leases = leases(host);
     let frozen_path = host.capacity.join("gaming-frozen.json");
     let frozen: BTreeSet<String> = fs::read(&frozen_path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
-    let observed = Observed { gaming, game_reserve, processes, leases: &leases, frozen: &frozen };
+    let observed = Observed { gaming, pause_heavy, processes, leases: &leases, frozen: &frozen };
     let plan = plan(
         &observed,
         |lease| lease.scope_dir(host).is_dir(),
@@ -343,7 +343,7 @@ pub fn enforce(host: &Host, gaming: bool, game_reserve: bool, processes: &[Proce
         }
     }
     let live = leases.iter().map(Lease::unit).collect::<BTreeSet<_>>();
-    let still: BTreeSet<String> = if gaming {
+    let still: BTreeSet<String> = if gaming || pause_heavy {
         frozen.union(&plan.freeze).filter(|unit| live.contains(*unit) && !unfrozen.contains(*unit) && (!plan.thaw.contains(*unit) || unthawed.contains(*unit))).cloned().collect()
     } else {
         unthawed.into_iter().filter(|unit| live.contains(unit)).collect()

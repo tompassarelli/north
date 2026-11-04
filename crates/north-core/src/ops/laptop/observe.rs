@@ -11,7 +11,7 @@ use super::stamp::{iso, parse, write_atomic};
 use super::state::{GRACE_CLOSE, GRACE_DRAIN, State};
 use super::zone::Window;
 
-const WRONG: &str = "observe wants gaming/sleeping/battery_low booleans and idle boolean or null";
+const WRONG: &str = "observe wants gaming/sleeping booleans, idle boolean or null and battery discharging percent or null";
 const CLEAR_SECONDS: i64 = 600;
 const ACTIVE_SECONDS: i64 = 300;
 const OBSERVATION_FRESH_SECONDS: i64 = 120;
@@ -40,9 +40,8 @@ struct Observations {
 struct Sample {
     gaming: bool,
     sleeping: bool,
-    battery_low: bool,
     idle: Option<bool>,
-    battery_known: bool,
+    discharging: bool,
 }
 
 struct Frame {
@@ -65,13 +64,12 @@ fn sample(arguments: &[String]) -> Option<Sample> {
         Some(Value::Bool(flag)) => Some(*flag),
         Some(_) => return None,
     };
-    Some(Sample {
-        gaming: flag("gaming")?,
-        sleeping: flag("sleeping")?,
-        battery_low: flag("battery_low")?,
-        idle,
-        battery_known: !matches!(object.get("battery"), None | Some(Value::Null)),
-    })
+    let discharging = match object.get("battery") {
+        None | Some(Value::Null) => false,
+        Some(Value::Number(_)) => true,
+        Some(_) => return None,
+    };
+    Some(Sample { gaming: flag("gaming")?, sleeping: flag("sleeping")?, idle, discharging })
 }
 
 fn hold_for(state: &State, sample: &Sample) -> Option<&'static str> {
@@ -79,7 +77,7 @@ fn hold_for(state: &State, sample: &Sample) -> Option<&'static str> {
         Some("gaming")
     } else if sample.sleeping && (state.state == "available" || state.reason == "sleep") {
         Some("sleep")
-    } else if sample.battery_low {
+    } else if sample.discharging {
         Some("battery")
     } else {
         None
@@ -133,7 +131,7 @@ impl Ctx {
         if let Some(settled) = self.active(&frame, seen)? {
             return Ok(settled);
         }
-        if let Some(idle) = seen.idle.as_ref().filter(|_| auto && !sample.battery_known && frame.state.state != "available")
+        if let Some(idle) = seen.idle.as_ref().filter(|_| auto && !sample.discharging && frame.state.state != "available")
             && at - parse(idle)? >= *IDLE_REOPEN_SECONDS
         {
             return self.write("available", at, "idle", "laptop-auto", None, None);
@@ -172,7 +170,7 @@ impl Ctx {
         let clear = match (&seen.clear, reason) {
             (Some(clear), "gaming") => frame.at - parse(clear)? >= CLEAR_SECONDS,
             (None, "gaming") => false,
-            _ => reason == "sleep" || !sample.battery_known,
+            _ => reason == "sleep" || !sample.discharging,
         };
         if !clear {
             return Ok(frame.state.clone());

@@ -1,18 +1,18 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::agent_load::{self, Host};
+use super::agent_load::{self, Host, Plan, Process};
+use super::mode::Effects;
 use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
 const OBSERVE_WAIT: Duration = Duration::from_secs(40);
 const NOTIFY_WAIT: Duration = Duration::from_secs(5);
 const BATTERY_ALERTED: &str = "battery-warned";
-const BATTERY_DRAIN_PERCENT: u8 = 30;
 
 pub fn sample(host: &Host, idle: Option<bool>, sleeping: bool, battery: Option<u8>) -> Value {
     json!({
@@ -20,8 +20,11 @@ pub fn sample(host: &Host, idle: Option<bool>, sleeping: bool, battery: Option<u
         "idle": idle,
         "sleeping": sleeping,
         "battery": battery,
-        "battery_low": battery_low(battery),
     })
+}
+
+pub fn power_supply() -> PathBuf {
+    std::env::var_os("AGENT_LOAD_POWER_SUPPLY").filter(|value| !value.is_empty()).map_or_else(|| "/sys/class/power_supply".into(), PathBuf::from)
 }
 
 pub fn discharging_percent(power_supply: &Path) -> Option<u8> {
@@ -38,8 +41,24 @@ pub fn discharging_percent(power_supply: &Path) -> Option<u8> {
         .min()
 }
 
-fn battery_low(battery: Option<u8>) -> bool {
-    battery.is_some_and(|percent| percent < BATTERY_DRAIN_PERCENT)
+pub fn on_battery(effects: Effects, battery: Option<u8>) -> Effects {
+    Effects { pause_heavy: effects.pause_heavy || battery.is_some(), ..effects }
+}
+
+pub fn shed(host: &Host, effects: Effects, processes: &[Process]) -> Plan {
+    let gaming = effects.hold || effects.reserve;
+    let game_reserve = effects.reserve && !effects.pause_heavy;
+    if let Some(hold) = agent_load::hold_batch_under_pressure(host, game_reserve) {
+        println!("agent-load: batch slice {} at protected CPU pressure {:.2}%", if hold.frozen { "frozen" } else { "thawed" }, hold.pressure_basis_points / 100.0);
+    }
+    let plan = agent_load::enforce(host, gaming, effects.pause_heavy, processes);
+    if plan != Plan::default() {
+        println!(
+            "agent-load: gaming={gaming} pause_heavy={} stopped {:?} froze {:?} thawed {:?} killed {:?}",
+            effects.pause_heavy, plan.stop, plan.freeze, plan.thaw, plan.kill
+        );
+    }
+    plan
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -150,8 +169,7 @@ pub fn run(arguments: &[String]) -> u8 {
     };
     let host = Host::from_env();
     let processes = agent_load::processes(&host);
-    let power_supply = std::env::var_os("AGENT_LOAD_POWER_SUPPLY").unwrap_or_else(|| "/sys/class/power_supply".into());
-    let battery = discharging_percent(Path::new(&power_supply));
+    let battery = discharging_percent(&power_supply());
     let idle = seat_idle();
     if dry {
         println!("{}", sample(&host, idle, preparing_for_sleep(), battery));
@@ -160,18 +178,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let applied = super::mode::tick(&host, idle);
     applied.lines.iter().for_each(|line| println!("{line}"));
     let sample = sample(&host, idle, preparing_for_sleep(), battery);
-    let gaming = applied.effects.hold || applied.effects.reserve;
-    let game_reserve = applied.effects.reserve && !applied.effects.pause_heavy;
-    if let Some(hold) = agent_load::hold_batch_under_pressure(&host, game_reserve) {
-        println!("agent-load: batch slice {} at protected CPU pressure {:.2}%", if hold.frozen { "frozen" } else { "thawed" }, hold.pressure_basis_points / 100.0);
-    }
-    let plan = agent_load::enforce(&host, gaming, game_reserve, &processes);
-    if plan != agent_load::Plan::default() {
-        println!(
-            "agent-load: gaming={gaming} stopped {:?} froze {:?} thawed {:?} killed {:?}",
-            plan.stop, plan.freeze, plan.thaw, plan.kill
-        );
-    }
+    shed(&host, on_battery(applied.effects, battery), &processes);
     let mut laptop = match std::env::var_os("LAPTOP_AUTO_LAPTOP") {
         Some(program) => Command::new(program),
         None => {
