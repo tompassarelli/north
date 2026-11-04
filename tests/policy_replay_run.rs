@@ -199,3 +199,18 @@ fn a_coding_scenario_with_its_own_policy_runs_model_effort_advisor_and_nulls_a_d
     let (fable, _) = go("y.jsonl", &["--advisor", "fable"], &detached);
     assert!(!fable.status.success() && String::from_utf8_lossy(&fable.stderr).contains("Fable"), "{fable:?}");
 }
+
+#[test]
+fn a_replay_launches_the_installed_claude_runtime_over_a_path_entry() {
+    let fixture = Fixture::new("#!/bin/sh\nexit 3\n");
+    let installed = fixture.path("home/.local/lib/claude/current/bin/claude");
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    fs::write(&installed, OK_CLAUDE).unwrap();
+    fs::set_permissions(&installed, fs::Permissions::from_mode(0o755)).unwrap();
+    let out = fixture.path("installed.jsonl");
+    let ran = fixture.run(&fixture.path("agents/replay/a.json"), &out, &[], &[]);
+    assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    let row = fixture.rows(&out).remove(0);
+    assert_eq!(row["pass"], true, "{row}");
+    assert_eq!(row["claude_version"], "9.9", "{row}");
+}

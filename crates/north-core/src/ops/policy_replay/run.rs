@@ -16,6 +16,7 @@ use super::policy::{arm_minus, no_fable, policy_for_arm};
 use super::pyfmt::{round_to, splitlines, strip};
 use super::rows::RunRow;
 use crate::error::NorthError;
+use crate::providers::install;
 
 const BOX_TOOLS: &str = "Bash,Read,Edit,Write,Glob,Grep";
 
@@ -130,7 +131,7 @@ fn claude_version() -> Option<String> {
     static VERSION: OnceLock<Option<String>> = OnceLock::new();
     VERSION
         .get_or_init(|| {
-            let output = Command::new("claude").arg("--version").output().ok()?;
+            let output = Command::new(install::runtime("claude")).arg("--version").output().ok()?;
             let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             (!version.is_empty()).then_some(version)
         })
@@ -191,7 +192,7 @@ fn build_command(scenario: &Value, work: &Path, policy_file: &Path, model: &str,
         None => String::new(),
     };
     let max_turns = scenario.get("max_turns").map_or_else(|| if boxed { "100".to_owned() } else { "1".to_owned() }, Value::to_string);
-    let mut command = Command::new("claude");
+    let mut command = Command::new(install::runtime("claude"));
     command.args(["-p", prompt, "--setting-sources", "project", "--append-system-prompt-file"]).arg(policy_file);
     command.args(["--model", model, "--effort", effort, "--max-turns", &max_turns]);
     command.args(["--output-format", "stream-json", "--verbose", "--no-session-persistence", "--permission-mode", "bypassPermissions"]);
