@@ -47,8 +47,11 @@ impl Store {
     }
 
     pub fn put(&mut self, rows: &[FleetRow]) -> NorthResult<()> {
+        self.put_at(rows, Timestamp::now())
+    }
+
+    pub(crate) fn put_at(&mut self, rows: &[FleetRow], now: Timestamp) -> NorthResult<()> {
         rows.iter().try_for_each(FleetRow::validate)?;
-        let now = Timestamp::now();
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(sql)?;
         for row in rows {
             let inserted = tx.execute(

@@ -286,17 +286,17 @@ fn a_job_start_registers_a_job_wait_with_its_lease_and_each_beat_extends_it_and_
     let (_directory, path) = ledger();
     let mut store = Store::open(&path).unwrap();
 
-    store.put(&[job_row("j-1", RowKind::JobStart, "soak@nexus#7", Some(180), None)]).unwrap();
+    store.put_at(&[job_row("j-1", RowKind::JobStart, "soak@nexus#7", Some(180), None)], Timestamp::from_unix_seconds(1_793_000_000)).unwrap();
     let [started] = store.waits().unwrap().try_into().unwrap();
     assert_eq!((started.session.as_str(), started.kind, started.key.as_str()), ("sc-1", WaitKind::Job, "soak@nexus#7"));
     assert_eq!(seconds_between(&started.created, &started.deadline), 180);
 
-    store.put(&[job_row("j-2", RowKind::JobBeat, "soak@nexus#7", Some(600), None)]).unwrap();
+    store.put_at(&[job_row("j-2", RowKind::JobBeat, "soak@nexus#7", Some(600), None)], Timestamp::from_unix_seconds(1_793_000_007)).unwrap();
     let [beaten] = store.waits().unwrap().try_into().unwrap();
-    assert_eq!(seconds_between(&beaten.created, &beaten.deadline), 600);
+    assert_eq!(seconds_between(&beaten.created, &beaten.deadline), 7 + 600);
     assert_eq!(beaten.created, started.created);
 
-    store.put(&[job_row("j-3", RowKind::JobExit, "soak@nexus#7", None, Some(3))]).unwrap();
+    store.put_at(&[job_row("j-3", RowKind::JobExit, "soak@nexus#7", None, Some(3))], Timestamp::from_unix_seconds(1_793_000_009)).unwrap();
     assert!(store.waits().unwrap().is_empty());
     assert_eq!(count(&path, "SELECT count(*) FROM events WHERE kind IN ('JOB-START','JOB-BEAT','JOB-EXIT')"), 3);
 }

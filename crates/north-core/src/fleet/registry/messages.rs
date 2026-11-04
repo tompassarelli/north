@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn a_send_to_a_name_only_the_cache_holds_is_spooled_for_the_tick_and_names_its_host() {
         let home = tempfile::tempdir().unwrap();
-        let fleet = fleet(home.path());
+        let fleet = fleet(home.path()).hosted_as("laptop");
         cached(&fleet, &["elsewhere"]);
 
         let Sent::Spooled { id, host } = fleet.send_message(Some("lead"), "elsewhere", "hello", Delivery::Now).unwrap() else { panic!("a cached name is spooled") };
