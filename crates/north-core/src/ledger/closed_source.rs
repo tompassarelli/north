@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use crate::error::{NorthError, NorthResult};
@@ -10,6 +11,7 @@ use crate::platform::run_roles::ROLE_SQL;
 use crate::platform::sqlite::{self, Access};
 use crate::platform::github;
 
+use crate::threads::calibration::rework::{Rework, Sources};
 use crate::threads::catalog::{CATALOG, Catalog};
 
 use super::closed::{ClosedReport, SpendRun, summarize};
@@ -51,12 +53,13 @@ fn text(row: &Value, key: &str) -> String {
 }
 
 fn spend_runs(database: &std::path::Path) -> NorthResult<Vec<SpendRun>> {
+    let reworked = reworked_agents(database)?;
     let rows = sqlite::rows(
         database,
         Access::ReadOnly,
         Duration::from_secs(5),
         &format!(
-            "SELECT item, {ROLE_SQL} AS role, tier, category, COALESCE(arm, '') AS arm, model, COALESCE(started, '') AS started, ended, (COALESCE(landed, 0) = 1 OR landed_sha IS NOT NULL) AS landed, \
+            "SELECT agent, item, {ROLE_SQL} AS role, tier, category, COALESCE(arm, '') AS arm, model, COALESCE(started, '') AS started, ended, (COALESCE(landed, 0) = 1 OR landed_sha IS NOT NULL) AS landed, \
          COALESCE(input_tokens, 0) AS input, COALESCE(cache_read_tokens, 0) AS cache_read, COALESCE(tokens, 0) AS output \
          FROM runs WHERE outcome != 'running' AND ended != ''"
         ),
@@ -73,11 +76,18 @@ fn spend_runs(database: &std::path::Path) -> NorthResult<Vec<SpendRun>> {
             started: text(row, "started"),
             ended: text(row, "ended"),
             landed: row["landed"].as_i64() == Some(1),
+            reworked: reworked.contains(row["agent"].as_str().unwrap_or_default()),
             input: row["input"].as_i64().unwrap_or(0),
             cache_read: row["cache_read"].as_i64().unwrap_or(0),
             output: row["output"].as_i64().unwrap_or(0),
         })
         .collect())
+}
+
+fn reworked_agents(database: &std::path::Path) -> NorthResult<HashSet<String>> {
+    let db = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|why| NorthError::Configuration(format!("ledger {}: {why}", database.display())))?;
+    let rework = Rework::read(&db, &Sources::live()).map_err(|why| NorthError::Configuration(format!("rework from {}: {why}", database.display())))?;
+    Ok(rework.reworked().cloned().collect())
 }
 
 fn native_namespaces(database: &std::path::Path) -> NorthResult<HashSet<String>> {

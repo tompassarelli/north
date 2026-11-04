@@ -117,6 +117,9 @@ pub fn run(arguments: &[String]) -> u8 {
     let rows = calibration::read(&select(&database, calibration::QUERY));
     let runs = arms::read(&select(&database, arms::QUERY));
     let (denials, scores) = (jsonl(&state.join("spawn-gate-denials.jsonl")), jsonl(&state.join("goal-scores.jsonl")));
+    for signal in ["agents/spawn-gate-denials.jsonl", "agents/goal-scores.jsonl"] {
+        crate::platform::reader_stamp::touch(&root, signal);
+    }
     let now = Timestamp::now().unix_seconds_f64();
     println!("{}", render(&State { calibration: &rows, denials: &denials, scores: &scores, runs: &runs }, now).join("\n"));
     0

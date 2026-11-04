@@ -22,6 +22,7 @@ fn run(item: &str, (tier, model): (&str, &str), category: &str, started: &str, e
         started: started.into(),
         ended: ended.into(),
         landed: true,
+        reworked: false,
         input: 3_000_000,
         cache_read: 2_000_000,
         output: 100_000,

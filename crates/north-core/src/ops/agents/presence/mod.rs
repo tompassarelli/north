@@ -11,7 +11,7 @@ use time::{Duration, PrimitiveDateTime, Time};
 use toml_edit::DocumentMut;
 
 pub use forecast::{Forecast, sleep_block};
-pub use live::live_signals;
+pub use live::{live_signals, typed_messages};
 pub use zone::{Moment, Zone, iso, parse};
 
 static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| include_str!("../../../../../../harness/defaults.toml").parse().expect("harness/defaults.toml parses"));

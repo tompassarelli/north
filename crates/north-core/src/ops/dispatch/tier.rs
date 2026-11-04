@@ -116,10 +116,11 @@ impl Evidence {
         for cell in report.cells.iter().filter(|cell| cell.category == category) {
             if let Some(tier) = [Tier::Haiku, Tier::Sonnet, Tier::Opus].into_iter().find(|tier| tier.serves(&cell.tier)) {
                 let sum = sums.entry(tier).or_default();
-                *sum = (sum.0 + cell.usd_per_closed() * cell.closed as f64, sum.1 + cell.closed);
+                *sum = (sum.0 + cell.usd + cell.unclosed_usd, sum.1 + cell.kept());
             }
         }
-        Self { usd_per_closed: Some(sums.into_iter().map(|(tier, (usd, closed))| (tier, usd / closed as f64)).collect()), ..self }
+        let per_kept = |(usd, kept): (f64, usize)| if kept == 0 { f64::INFINITY } else { usd / kept as f64 };
+        Self { usd_per_closed: Some(sums.into_iter().map(|(tier, sum)| (tier, per_kept(sum))).collect()), ..self }
     }
 
     pub fn tuned(self, routes: &BTreeMap<String, Tier>, category: &str) -> Self {
@@ -167,7 +168,11 @@ impl Evidence {
     }
 
     pub fn figures(&self, tier: Tier) -> String {
-        let cost = self.cost(tier).map_or_else(|| "no closed box".to_owned(), |usd| format!("${usd:.2} per closed box"));
+        let cost = match self.cost(tier) {
+            None => "no closed box".to_owned(),
+            Some(usd) if usd.is_infinite() => "every closed box reworked".to_owned(),
+            Some(usd) => format!("${usd:.2} per closed box"),
+        };
         format!("{} {:.0}% of {}, {} of {ARM_RUNS} arm runs, {cost}", tier.name(), self.rate(tier), self.all_runs(tier), self.runs(tier))
     }
 }

@@ -335,3 +335,32 @@ fn missing_or_stale_machine_readings_cannot_make_idle_away() {
         assert_eq!(live_now(&rig, now), ("unknown", "unknown"), "{observation:?}");
     }
 }
+
+#[test]
+fn typed_messages_are_the_human_turns_of_toms_home_conversations_with_their_convo_ids_and_texts() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let transcript = dir.path().join("session.jsonl");
+    let rows = [json!({"origin": {"kind": "human"}}), json!({"origin": {"kind": "agent"}}), json!({"origin": {"kind": "human"}}), json!({"isMeta": true})];
+    fs::write(&transcript, rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n")).unwrap();
+    let index = dir.path().join("index-v4.db");
+    let db = Connection::open(&index).unwrap();
+    db.execute_batch(
+        "CREATE TABLE files(id INTEGER,path TEXT,provider TEXT,agent TEXT,cwd TEXT,off INTEGER);\
+         CREATE TABLE msg(id INTEGER,file_id INTEGER,line INTEGER,ts TEXT,role TEXT,tool TEXT,body INTEGER,dup INTEGER);CREATE INDEX msg_file ON msg(file_id,line);\
+         CREATE TABLE body(id INTEGER,text TEXT);",
+    )
+    .unwrap();
+    db.execute("INSERT INTO files VALUES(1,?,'anthropic',NULL,?,0)", (transcript.to_string_lossy(), home.to_string_lossy())).unwrap();
+    db.execute("INSERT INTO files VALUES(2,?,'anthropic',NULL,'/elsewhere',0)", [transcript.to_string_lossy()]).unwrap();
+    for (id, file, line, ts) in [(11, 1, 1, "2026-10-15T05:00:00Z"), (12, 1, 2, "2026-10-15T05:01:00Z"), (13, 1, 3, "2026-10-15T05:30:00Z"), (14, 1, 4, "2026-10-15T05:31:00Z"), (15, 2, 1, "2026-10-15T05:00:00Z")] {
+        db.execute("INSERT INTO msg VALUES(?,?,?,?,'user',NULL,?,0)", (id, file, line, ts, id)).unwrap();
+        db.execute("INSERT INTO body VALUES(?,?)", (id, format!("text {id}"))).unwrap();
+    }
+    drop(db);
+    let found = typed_messages(&index, &home, at("2026-10-15T00:00:00Z"), at("2026-10-16T00:00:00Z"));
+    let ids: Vec<(i64, i64, &str)> = found.iter().map(|typed| (typed.id, typed.at, typed.text.as_str())).collect();
+    assert_eq!(ids, [(11, at("2026-10-15T05:00:00Z").unix_timestamp(), "text 11"), (13, at("2026-10-15T05:30:00Z").unix_timestamp(), "text 13")], "agent and meta rows and another directory's conversation are not Tom's");
+    assert!(found.iter().all(|typed| typed.session == transcript.to_string_lossy()));
+    assert!(typed_messages(&dir.path().join("missing.db"), &home, at("2026-10-15T00:00:00Z"), at("2026-10-16T00:00:00Z")).is_empty());
+}

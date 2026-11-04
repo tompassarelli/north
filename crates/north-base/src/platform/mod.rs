@@ -1,4 +1,5 @@
 pub mod follows;
+pub mod reader_stamp;
 pub mod run_roles;
 pub mod archive_tags;
 pub mod git;

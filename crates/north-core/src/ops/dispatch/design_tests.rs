@@ -25,6 +25,7 @@ fn run(item: &str, tier: &str, model: &str, category: &str, input: i64) -> Spend
         started: "2026-10-27T10:00:00Z".into(),
         ended: "2026-10-27T10:20:00Z".into(),
         landed: true,
+        reworked: false,
         input,
         cache_read: 0,
         output: 1_000,

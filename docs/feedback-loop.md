@@ -27,7 +27,10 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.tokens | north worker-ledger | crates/north-core/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |
 | runs.cost_usd | bin/threads:989 | crates/north-core/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); crates/north-core/src/ops/agents/goal/metrics.rs delivery_metrics; crates/north-core/src/ops/agents/goal/score.rs | read | 4b71ac63 |
 | runs.staffed, review_requested, landed_at | north worker-ledger | crates/north-core/src/ops/agents/goal/metrics.rs delivery_metrics | read | |
-| runs.landed_sha | north worker-ledger | none yet (north#51 box 2) | unread | |
+| runs.landed_sha | north worker-ledger | crates/north-core/src/ledger/outcome/read.rs staffed joins each worker run to its landed commit for `north flow`; crates/north-core/src/threads/calibration/rework.rs landings judges the commit on main; crates/north-core/src/ledger/closed_source.rs reworked_agents feeds the cost per closed box | read | |
+| landings.landed_sha, first_commit_at | north land-train record (the lander) | crates/north-core/src/ledger/outcome/read.rs landed, first-commit-to-main p50 in `north flow`; crates/north-core/src/threads/landing/tempo.rs | read | |
+| Tom's human turns (convo store index-v4.db, transcript origin human) | Claude Code transcripts, indexed by north convo | crates/north-core/src/ops/agents/presence/live.rs typed_messages feeds `north flow` attention, corrections per active day and who noticed each incident first (crates/north-core/src/ledger/outcome/attention.rs) | read | |
+| north/grounding/ledger.jsonl tom correction, tom direction | north grounding distill | crates/north-core/src/ledger/outcome/read.rs corrections, counted only when the row's convo message is one of Tom's human turns | read | |
 | runs.first_commit | none (tally-internal, crates/north-core/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
 | runs.turns, tool_calls, active_min, wait_min | crates/north-core/src/providers/claude/runs/activity.rs (Claude workers; recorded by crates/north-core/src/threads/runs/record.rs; `threads run-ids --settled` leaves out a Claude run with a null active_min so the next ingest re-reads its transcript and fills the four columns, and Codex and Gemini rows stay out of that re-read) | crates/north-core/src/threads/calibration/recommend.rs recommend_eta: the `eta` line of `north worker-ledger --recommend` prints `eta active <median>m (p25 <a>–p90 <b>, n=<N>) wall p75 <W>m wait median <X>m` from the cell's runs that recorded active minutes (at least `eta_min_samples` of them), and `eta wall <W>m (p75 of n=<N>, ...; too few runs with active minutes)` otherwise; active minutes are work, the wall p75 includes the waits | read | |
 | runs.peak_ctx, handoff_fires, handoff_ignored | crates/north-core/src/providers/claude/runs/telemetry.rs (Claude); crates/north-core/src/providers/codex/runs/usage.rs (Codex) | bin/capacity-watchdog:465 | read | |
@@ -82,15 +85,15 @@ Unjudged runs (north#35 FX5): an `unclear` run with no `Item:` is an unbriefed s
 
 ## File signals
 
-State files the loops above write, relative to `~/.local/state`. `north health` compares each file's mtime with its reader stamp (a file the reader rewrites after consuming it) and fails when the file is more than 7 days newer. `unverifiable` means the reader leaves no stamp; `north health` lists those rows rather than guessing, and the reader's owner adds a stamp to make one checkable.
+State files the loops above write, relative to `~/.local/state`. `north health` compares each file's mtime with its reader stamp (a file the reader rewrites after consuming it) and fails when the file is more than 7 days newer. `unverifiable` means the reader leaves no stamp; `north health` lists those rows rather than guessing, and the reader's owner adds a stamp to make one checkable. Each reader below touches its stamp through `platform::reader_stamp::touch` (crates/north-base/src/platform/reader_stamp.rs, 2026-11-05): the spawn gate (guard/spawn_capacity/usage.rs), `north report` (ops/report/mod.rs), capacity sizing (capacity/host/database.rs recent_usage) and the usage reset reader (usage/web.rs).
 
 | signal file | reader stamp |
 |---|---|
-| `agents/usage-gate.json` | unverifiable |
-| `agents/spawn-gate-denials.jsonl` | unverifiable |
-| `agents/goal-scores.jsonl` | unverifiable |
-| `agents/machine-capacity-usage.jsonl` | unverifiable |
-| `agents/usage/claude-web.json` | unverifiable |
+| `agents/usage-gate.json` | `north/reader-stamps/agents/usage-gate.json` |
+| `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` |
+| `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` |
+| `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` |
+| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` |
 
 ## Still unread
 

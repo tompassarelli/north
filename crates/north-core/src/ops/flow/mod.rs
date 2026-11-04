@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::foundation::clock::Timestamp;
+use crate::ledger::outcome::read as outcome;
 use crate::threads::landing::tempo as landing;
 use alerts::stall_alert;
 use capacity::saturation_alert;
@@ -187,6 +188,13 @@ pub fn run(arguments: &[String]) -> u8 {
         println!("{}", rows.iter().map(|row| format_row(row, None)).collect::<Vec<_>>().join("\n"));
         for row in rows.iter().filter(|row| row["landing"].is_object()) {
             println!("{}", landing::line(row["repo"].as_str().unwrap_or_default(), &row["landing"]));
+        }
+        let sources = outcome::Places::live(&places.ledger, &places.state);
+        let at = |seconds: i64| time::OffsetDateTime::from_unix_timestamp(seconds).unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+        let tom = crate::ops::agents::presence::typed_messages(&sources.convo, &places.home, at(now as i64 - outcome::LOOKBACK_S), at(now as i64));
+        match outcome::report(&sources, &tom, now as i64) {
+            Ok(lines) => println!("{}", lines.join("\n")),
+            Err(why) => println!("outcome: unread: {why}"),
         }
     }
     announce(&places, now, &options);

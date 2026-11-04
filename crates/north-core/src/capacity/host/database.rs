@@ -261,6 +261,9 @@ pub fn record_usage(entry: &str) -> std::io::Result<()> {
 /// The latest sizing window of the usage log's last lines that match.
 pub fn recent_usage(lines: usize, matches: impl Fn(&Value) -> bool) -> Vec<Value> {
     let text = read_text(usage_log_path()).unwrap_or_default();
+    if env("AGENT_CAPACITY_USAGE_LOG").is_none() {
+        crate::platform::reader_stamp::touch(&state_root(), "agents/machine-capacity-usage.jsonl");
+    }
     let host = super::model::host_name();
     let all: Vec<&str> = text.split('\n').collect();
     let matching: Vec<Value> = all[all.len().saturating_sub(lines)..]

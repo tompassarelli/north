@@ -271,3 +271,22 @@ fn dispatch_follows_a_fresh_tune_route_cell_and_decides_live_when_it_is_stale_or
     assert_eq!((live.tier, live.arm), (Tier::Sonnet, true), "{}", live.why);
     assert!(super::tuned::routes(&dir.path().join("absent.json"), now).is_empty());
 }
+
+#[test]
+fn a_reworked_landing_counts_against_its_tier_in_the_cost_per_closed_box_decision() {
+    use crate::ledger::closed::{SpendRun, summarize};
+    use crate::ledger::outcome::replay_tests::{judged, ledger, spend_runs};
+    let db = ledger();
+    let runs = spend_runs(&db, &judged(&db));
+    let closed: std::collections::HashSet<String> = runs.iter().filter(|run| run.landed).filter_map(|run| run.item.clone()).collect();
+    let prices = crate::router::pricing::PriceTable::load().unwrap();
+    let report = |runs: &[SpendRun]| summarize(runs, &closed, "2026-10-28T12:00:00Z", &prices);
+    let decide = |runs: &[SpendRun]| Evidence::default().counted(&stamped(15, 15)).priced(&report(runs), "feature");
+    let unaware: Vec<SpendRun> = runs.iter().cloned().map(|run| SpendRun { reworked: false, ..run }).collect();
+    assert_eq!(decide(&unaware).settled(), Some(Tier::Sonnet), "without rework Sonnet's two closed feature boxes cost $5.20 each against Opus's $13.87");
+    let sonnet = report(&runs).cells.into_iter().find(|cell| cell.tier == "sonnet" && cell.category == "feature").unwrap();
+    assert_eq!((sonnet.closed, sonnet.reworked, sonnet.kept()), (2, 2, 0), "one fixed forward, one reverted within 48 h");
+    let aware = decide(&runs);
+    assert_eq!(aware.settled(), Some(Tier::Opus));
+    assert!(aware.figures(Tier::Sonnet).ends_with("every closed box reworked") && aware.figures(Tier::Opus).ends_with("$13.87 per closed box"), "{} / {}", aware.figures(Tier::Sonnet), aware.figures(Tier::Opus));
+}

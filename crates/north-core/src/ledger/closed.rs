@@ -20,6 +20,7 @@ pub struct SpendRun {
     pub started: String,
     pub ended: String,
     pub landed: bool,
+    pub reworked: bool,
     pub input: i64,
     pub cache_read: i64,
     pub output: i64,
@@ -41,6 +42,7 @@ pub struct Cell {
     pub usd: f64,
     pub staffed: bool,
     pub unclosed_usd: f64,
+    pub reworked: usize,
     boxes: Vec<(String, f64)>,
     run_minutes: Vec<f64>,
 }
@@ -48,11 +50,15 @@ pub struct Cell {
 impl Cell {
     #[cfg(test)]
     pub fn priced(tier: &str, category: &str, closed: usize, usd: f64) -> Self {
-        Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, unclosed_usd: 0.0, boxes: Vec::new(), run_minutes: Vec::new() }
+        Self { tier: tier.into(), category: category.into(), closed, usd, staffed: true, unclosed_usd: 0.0, reworked: 0, boxes: Vec::new(), run_minutes: Vec::new() }
     }
 
     pub fn usd_per_closed(&self) -> f64 {
         (self.usd + self.unclosed_usd) / self.closed as f64
+    }
+
+    pub fn kept(&self) -> usize {
+        self.closed - self.reworked
     }
 
     /// The median cost of one closed box of the cell, which one umbrella issue with hundreds of runs does not move; None when no box is recorded.
@@ -137,9 +143,10 @@ pub fn summarize(runs: &[SpendRun], closed: &HashSet<String>, since: &str, price
         runs.sort_by(|a, b| (a.started.as_str(), a.ended.as_str()).cmp(&(b.started.as_str(), b.ended.as_str())));
         let category = runs.iter().map(|run| run.category.as_str()).find(|category| *category != "unknown").unwrap_or("unknown");
         let key = (tier_label(&runs[0].tier), category.to_owned());
-        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, boxes: Vec::new(), run_minutes: Vec::new() });
+        let cell = cells.entry(key.clone()).or_insert(Cell { staffed: staffed.contains(&key.0), tier: key.0, category: key.1, closed: 0, usd: 0.0, unclosed_usd: 0.0, reworked: 0, boxes: Vec::new(), run_minutes: Vec::new() });
         let spent = runs.iter().map(|run| run.usd(prices)).sum::<f64>();
         cell.closed += 1;
+        cell.reworked += usize::from(runs.iter().any(|run| run.landed && run.reworked));
         cell.usd += spent;
         cell.boxes.push(((*item).to_owned(), spent));
         cell.run_minutes.extend(runs.iter().filter_map(|run| run.minutes()));
@@ -234,7 +241,7 @@ impl ClosedReport {
             "all_usd_per_closed": self.per_closed(self.spend_usd),
             "leads_usd_per_closed": self.per_closed(self.leads_usd),
             "cells": self.cells.iter().map(|cell| json!({
-                "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "unclosed_usd": cell.unclosed_usd, "usd_per_closed": cell.usd_per_closed(),
+                "tier": cell.tier, "category": cell.category, "closed": cell.closed, "usd": cell.usd, "unclosed_usd": cell.unclosed_usd, "reworked": cell.reworked, "usd_per_closed": cell.usd_per_closed(),
                 "boxes": cell.boxes.iter().map(|(item, usd)| json!({"item": item, "usd": usd})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
             "arms": self.arms,

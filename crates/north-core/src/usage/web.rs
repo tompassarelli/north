@@ -32,7 +32,9 @@ pub(super) fn resets_keyed(state: &Path, key: &str, now: Timestamp) -> Result<Op
 }
 
 fn cache(state: &Path) -> Option<Value> {
-    fs::read_to_string(state.join("agents/usage/claude-web.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok())
+    let cache = fs::read_to_string(state.join("agents/usage/claude-web.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok())?;
+    crate::platform::reader_stamp::touch(state, "agents/usage/claude-web.json");
+    Some(cache)
 }
 
 fn from_entry(entry: &Value, now: Timestamp) -> Result<Option<Resets>, String> {

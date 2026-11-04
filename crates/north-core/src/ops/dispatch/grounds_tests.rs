@@ -26,6 +26,7 @@ fn run(item: &str, minutes: u32) -> SpendRun {
         started: "2026-10-27T10:00:00Z".into(),
         ended: format!("2026-10-27T{:02}:{:02}:00Z", 10 + minutes / 60, minutes % 60),
         landed: true,
+        reworked: false,
         input: 3_000_000,
         cache_read: 2_000_000,
         output: 100_000,

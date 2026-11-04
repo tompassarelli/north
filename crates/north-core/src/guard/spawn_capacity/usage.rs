@@ -21,6 +21,7 @@ fn read(world: &impl World, provider: &str, granted: bool) -> Result<Option<Valu
     let Some(all) = std::fs::read_to_string(state_dir(world).join("agents/usage-gate.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else {
         return Ok(None);
     };
+    crate::platform::reader_stamp::touch(&state_dir(world), "agents/usage-gate.json");
     let Some(mut verdict) = all.as_object().and_then(|all| all.get(provider)).filter(|verdict| verdict.is_object()).cloned() else {
         return Ok(None);
     };
