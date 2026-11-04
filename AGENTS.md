@@ -24,9 +24,13 @@ Build output stays in the worktree's `target/`.
 
 ## Routers
 
-- `docs/harness.md` for install, where policy lives, staffing and landing.
-- `docs/architecture.md` for the owning boundaries.
-- `docs/features.md` for commands and the feature surface; it is generated, so add a file under `docs/features/` and run `north docs features-index` instead of editing it.
-- `docs/feedback-loop.md` for each recorded signal, its writer and the reader that acts on it.
-- `agent-machinery/README.md` for the provider-independent doctrine, contracts and procedures.
-- `bin/` holds every harness agent command, and `harness/` holds its hooks, skills and policy owners.
+- Before changing `bin/safe-push`, `.safe-push` or `crates/north-landing/src/landing/mod.rs`, read [docs/harness.md](docs/harness.md#landing-a-change) for how a lane reaches main.
+- Before changing `crates/north-core/src/fleet/mod.rs` or `crates/north-core/src/tui/fleet/mod.rs`, read [docs/architecture.md](docs/architecture.md#owning-boundary) and the [fleet sessions](docs/features.md#fleet-sessions) features.
+- Before changing `crates/north-core/src/threads/staffing/mod.rs` or `crates/north-core/src/router.rs`, read [docs/harness.md](docs/harness.md#staffing-a-worker) and the [staffing and routing](docs/features.md#staffing-and-routing) features.
+- Before changing `crates/north-core/src/capacity/admission.rs` or a tuned number in `harness/defaults.toml`, read the [machine-capacity skill](harness/skills/machine-capacity/SKILL.md) and the [capacity](docs/features.md#machines-capacity-and-scheduled-jobs) features.
+- Before changing `harness/policy-owners.toml`, the hook `harness/hooks/north-hook.sh` or a skill per `harness/SKILL-ARCHITECTURE.md`, read [docs/harness.md](docs/harness.md#where-policy-lives) and the [agent-policy skill](harness/skills/agent-policy/SKILL.md).
+- Before changing the policy gate in `crates/north-core/src/agent_config_check/gate.rs` or `agents sync`, read [docs/harness.md](docs/harness.md#install) for how policy is published.
+- Before changing `crates/north-core/src/grounding/sources/repos.rs` or `harness/hooks/prompt-grounding.sh`, read the [policy measurement](docs/features.md#policy-measurement) features, since docs lines feed that index.
+- Before changing what `crates/north-core/src/threads/runs/record.rs` or `crates/north-core/src/ledger/mod.rs` records, read [docs/feedback-loop.md](docs/feedback-loop.md) for each signal and the reader that acts on it.
+- Before adding or changing a command, add its entry under `docs/features/` and run `north docs features-index`, because [docs/features.md](docs/features.md) is generated and never edited by hand.
+- Before changing provider-independent doctrine, contracts or procedures, read [agent-machinery/README.md](agent-machinery/README.md); [docs/terms.md](docs/terms.md) names the layers.
