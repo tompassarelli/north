@@ -189,7 +189,7 @@ impl HookKind {
                 crate::guard::model_identity::evaluate,
                 crate::guard::file_skill::evaluate,
             ],
-            Self::PreAgent => &[crate::guard::worker_tier::evaluate, crate::guard::spawn_capacity::evaluate],
+            Self::PreAgent => &[crate::guard::agent_cwd::evaluate, crate::guard::worker_tier::evaluate, crate::guard::spawn_capacity::evaluate],
             Self::PreTimer => &[crate::guard::lead_timer::evaluate],
             Self::SpawnCapacity => &[crate::guard::spawn_capacity::admission],
             Self::NativeSpawn => &[crate::guard::spawn_capacity::evaluate],
