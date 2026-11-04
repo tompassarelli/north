@@ -22,6 +22,18 @@ fn run(host: &Host, class: &str, owner: &str, command: &[&str]) -> Wrapper {
     Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).spawn().unwrap())
 }
 
+fn park_heavy_behind_a_holder(host: &Host) -> [Wrapper; 2] {
+    let heavy = |owner: &str, command: &[&str]| {
+        let arguments = [&["run", "--class", "heavy", "--owner", owner, "--timeout-seconds", "60", "--"][..], command].concat();
+        Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).env("AGENT_CAPACITY_SETTLE_SECONDS", "600").stdout(Stdio::null()).spawn().unwrap())
+    };
+    let holder = heavy("fixture:/holder", &["sleep", "30"]);
+    host.until("the heavy lease", |host| host.leases("heavy") == 1);
+    let parked = heavy("fixture:/parked", &["true"]);
+    host.until("the parked heavy ticket", |host| host.queued("heavy") == 1);
+    [holder, parked]
+}
+
 fn probe(host: &Host, class: &str) -> Value {
     let output = host.helper(&["probe", "--class", class]).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).output().unwrap();
     serde_json::from_slice(&output.stdout).unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)))
@@ -93,10 +105,7 @@ fn landing_heavy_check_queues_while_gaming_instead_of_taking_a_lease_to_be_froze
 #[test]
 fn moderate_work_that_fits_passes_a_parked_heavy_ticket_the_free_share_cannot_fit() {
     let host = host();
-    let _holder = run(&host, "heavy", "fixture:/holder", &["sleep", "30"]);
-    host.until("the heavy lease", |host| host.leases("heavy") == 1);
-    let _parked = run(&host, "heavy", "fixture:/parked", &["true"]);
-    host.until("the parked heavy ticket", |host| host.queued("heavy") == 1);
+    let _parked = park_heavy_behind_a_holder(&host);
 
     let passed = probe(&host, "moderate");
     assert_eq!(passed["reason"], "RUN", "{passed}");
@@ -119,10 +128,7 @@ fn state_no_cpus(host: &Host) {
 #[test]
 fn only_a_declared_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket() {
     let host = host();
-    let _holder = run(&host, "heavy", "fixture:/holder", &["sleep", "30"]);
-    host.until("the heavy lease", |host| host.leases("heavy") == 1);
-    let _parked = run(&host, "heavy", "fixture:/parked", &["true"]);
-    host.until("the parked heavy ticket", |host| host.queued("heavy") == 1);
+    let _parked = park_heavy_behind_a_holder(&host);
 
     state_no_cpus(&host);
     let ignored = probe(&host, "moderate");
