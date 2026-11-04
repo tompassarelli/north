@@ -1,10 +1,10 @@
 mod capacity_host;
 
-use capacity_host::{Host, SCOPE_SYSTEMCTL, Wrapper, scope_systemd_run};
+use capacity_host::{DrivenClock, Host, SCOPE_SYSTEMCTL, Wrapper, scope_systemd_run};
 use serde_json::{Value, json};
 use std::fs;
 use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const ONE_HEAVY_AND_ONE_MODERATE_CORES: &str = "11";
 
@@ -193,8 +193,8 @@ fn only_lease(host: &Host) -> Value {
     serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap()
 }
 
-fn at(milliseconds: u64) -> SystemTime {
-    UNIX_EPOCH + Duration::from_millis(milliseconds)
+fn unix_millis() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
 fn freeze_past_its_timeout(host: &Host, lease: &Value, wrapper: &mut Wrapper) -> u64 {
@@ -206,44 +206,55 @@ fn freeze_past_its_timeout(host: &Host, lease: &Value, wrapper: &mut Wrapper) ->
     let pid = lease["wrapperPid"].as_u64().unwrap();
     std::os::unix::fs::symlink(format!("/proc/{pid}"), host.path(&format!("proc/{pid}"))).unwrap();
 
+    let before = unix_millis();
     let froze = laptop_auto(host, true);
     assert!(froze.contains(&format!("froze {{\"{unit}\"}}")), "{froze}");
     std::thread::sleep(FROZEN);
     assert!(wrapper.exited().is_none(), "the frozen run was killed by its wall-clock timeout");
     let thawed = laptop_auto(host, false);
+    let after = unix_millis();
     assert!(thawed.contains(&format!("thawed {{\"{unit}\"}}")), "{thawed}");
 
     let paused = only_lease(host)["expiresAt"].as_u64().unwrap() - lease["expiresAt"].as_u64().unwrap();
     let frozen_for = FROZEN.as_millis() as u64;
-    assert!((frozen_for..frozen_for + 1000).contains(&paused), "paused {paused} ms for a {frozen_for} ms freeze");
+    let held_for = after - before + 1;
+    assert!((frozen_for..=held_for).contains(&paused), "paused {paused} ms for a {frozen_for} ms sleep inside a {held_for} ms freeze");
     paused
 }
 
-fn ended_after_its_timeout_plus_the_pause(host: &Host, wrapper: &mut Wrapper, started: u64, paused: u64) -> std::process::ExitStatus {
-    let original_plus_frozen = at(started + WALL_CLOCK_TIMEOUT * 1000 + FROZEN.as_millis() as u64 - 100);
-    std::thread::sleep(original_plus_frozen.duration_since(SystemTime::now()).unwrap_or_default());
+fn ended_at_its_timeout_plus_the_pause(host: &Host, clock: &DrivenClock, wrapper: &mut Wrapper, deadlines: usize, paused: u64) -> std::process::ExitStatus {
+    let timeout = WALL_CLOCK_TIMEOUT * 1000;
+    clock.advance(host, timeout + paused - 1, deadlines);
     assert!(wrapper.exited().is_none(), "the run died before its original timeout plus the time it was frozen");
-    let deadline = at(started + WALL_CLOCK_TIMEOUT * 1000 + paused);
+    let deadline = Instant::now();
+    clock.set(timeout + paused);
     let mut status = None;
     host.until("the deadline kill", |_| {
         status = wrapper.exited();
         status.is_some()
     });
-    let late = SystemTime::now().duration_since(deadline).unwrap_or_default();
+    let late = deadline.elapsed();
     assert!(late < Duration::from_millis(1500), "killed {late:?} after the paused deadline");
     status.unwrap()
+}
+
+fn driven_run(host: &Host, clock: &DrivenClock, arguments: &[&str]) -> Wrapper {
+    let mut command = host.helper(arguments);
+    command.env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null());
+    Wrapper(clock.drive(&mut command).spawn().unwrap())
 }
 
 #[test]
 fn a_lease_frozen_while_gaming_outlives_its_timeout_by_the_time_it_spent_frozen() {
     let host = Host::new("capacity-frozen-", &[("systemd-run", &wall_clock_systemd_run()), ("systemctl", SCOPE_SYSTEMCTL)]);
+    let clock = DrivenClock::new(&host);
     let timeout = WALL_CLOCK_TIMEOUT.to_string();
     let arguments = ["run", "--class", "heavy", "--owner", "fixture:/frozen", "--timeout-seconds", &timeout, "--", "sleep", "60"];
-    let mut frozen = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).spawn().unwrap());
+    let mut frozen = driven_run(&host, &clock, &arguments);
     host.until("the heavy lease", |host| host.leases("heavy") == 1);
     let lease = only_lease(&host);
     let paused = freeze_past_its_timeout(&host, &lease, &mut frozen);
-    let status = ended_after_its_timeout_plus_the_pause(&host, &mut frozen, lease["createdAt"].as_u64().unwrap(), paused);
+    let status = ended_at_its_timeout_plus_the_pause(&host, &clock, &mut frozen, 1, paused);
     assert!(!status.success());
     assert_eq!(host.leases("heavy"), 0);
 }
@@ -251,6 +262,7 @@ fn a_lease_frozen_while_gaming_outlives_its_timeout_by_the_time_it_spent_frozen(
 #[test]
 fn a_nested_run_frozen_with_its_parent_outlives_its_timeout_by_the_time_it_spent_frozen() {
     let host = Host::new("capacity-nested-frozen-", &[("systemd-run", &wall_clock_systemd_run()), ("systemctl", SCOPE_SYSTEMCTL)]);
+    let clock = DrivenClock::new(&host);
     let started = host.path("started");
     let nested = format!(
         "exec bun {bundle} run --class heavy --owner fixture:/nested --timeout-seconds {WALL_CLOCK_TIMEOUT} -- sh -c 'touch {started}; exec sleep 60'",
@@ -258,12 +270,11 @@ fn a_nested_run_frozen_with_its_parent_outlives_its_timeout_by_the_time_it_spent
         started = started.display(),
     );
     let arguments = ["run", "--class", "heavy", "--owner", "fixture:/parent", "--timeout-seconds", "60", "--", "sh", "-c", &nested];
-    let mut parent = Wrapper(host.helper(&arguments).env("AGENT_CAPACITY_CORES", ONE_HEAVY_AND_ONE_MODERATE_CORES).stdout(Stdio::null()).spawn().unwrap());
+    let mut parent = driven_run(&host, &clock, &arguments);
     host.until("the nested run", |_| started.exists());
-    let began = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
     assert_eq!(host.leases("heavy"), 1, "the nested run took a lease of its own");
     let lease = only_lease(&host);
     let paused = freeze_past_its_timeout(&host, &lease, &mut parent);
-    let status = ended_after_its_timeout_plus_the_pause(&host, &mut parent, began, paused);
+    let status = ended_at_its_timeout_plus_the_pause(&host, &clock, &mut parent, 2, paused);
     assert_eq!(status.code(), Some(124), "the nested run did not end at its deadline");
 }

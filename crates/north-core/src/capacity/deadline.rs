@@ -1,6 +1,6 @@
 use std::fs;
 use std::os::unix::process::ExitStatusExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::time::{Duration, Instant};
 
@@ -15,6 +15,7 @@ const KILL_AFTER: Duration = Duration::from_secs(5);
 const TIMED_OUT: u8 = 124;
 const KILLED: u8 = 137;
 const ANCESTRY_LIMIT: usize = 256;
+const DRIVEN_CLOCK: &str = "NORTH_CAPACITY_DEADLINE_CLOCK";
 
 pub fn run(arguments: &[String]) -> u8 {
     let [lease, seconds, separator, program, rest @ ..] = arguments else {
@@ -82,38 +83,63 @@ struct Clock<'a> {
     lease: &'a Path,
     timeout: Duration,
     started: Instant,
+    driven: Option<PathBuf>,
     first: Option<Expiry>,
     paused: Duration,
     queued: Duration,
-    queued_since: Option<Instant>,
+    queued_since: Option<Duration>,
+}
+
+impl Drop for Clock<'_> {
+    fn drop(&mut self) {
+        if let Some(directory) = &self.driven {
+            let _ = fs::remove_file(directory.join(format!("seen.{}", std::process::id())));
+        }
+    }
 }
 
 impl<'a> Clock<'a> {
     fn start(lease: &'a Path, timeout: Duration) -> Self {
-        Self { lease, timeout, started: Instant::now(), first: Expiry::read(lease), paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
+        let driven = std::env::var_os(DRIVEN_CLOCK).filter(|directory| !directory.is_empty()).map(PathBuf::from);
+        Self { lease, timeout, started: Instant::now(), driven, first: Expiry::read(lease), paused: Duration::ZERO, queued: Duration::ZERO, queued_since: None }
+    }
+
+    fn elapsed(&self) -> Duration {
+        match &self.driven {
+            None => self.started.elapsed(),
+            Some(directory) => fs::read_to_string(directory.join("now")).ok().and_then(|text| text.trim().parse().ok()).map_or(Duration::ZERO, Duration::from_millis),
+        }
+    }
+
+    fn acknowledge(&self, now: Duration) {
+        if let Some(directory) = &self.driven {
+            let _ = fs::write(directory.join(format!("seen.{}", std::process::id())), now.as_millis().to_string());
+        }
     }
 
     /// Time this command's processes spent queued for a capacity lease, which delays the deadline instead of spending it.
-    fn waiting(&mut self) -> Duration {
-        let now = Instant::now();
+    fn waiting(&mut self, now: Duration) -> Duration {
         match (self.queued_since, queued_beneath(self.lease)) {
             (None, true) => self.queued_since = Some(now),
             (Some(since), false) => {
-                self.queued += now - since;
+                self.queued += now.saturating_sub(since);
                 self.queued_since = None;
             }
             _ => {}
         }
-        self.queued + self.queued_since.map_or(Duration::ZERO, |since| now - since)
+        self.queued + self.queued_since.map_or(Duration::ZERO, |since| now.saturating_sub(since))
     }
 
     fn expired(&mut self) -> bool {
-        let now = Expiry::read(self.lease);
-        if let (Some(first), Some(now)) = (self.first, now) {
-            self.paused = Duration::from_millis(now.expires_at.saturating_sub(first.expires_at));
+        let elapsed = self.elapsed();
+        let lease = Expiry::read(self.lease);
+        if let (Some(first), Some(lease)) = (self.first, lease) {
+            self.paused = Duration::from_millis(lease.expires_at.saturating_sub(first.expires_at));
         }
-        let waiting = self.waiting();
-        now.is_none_or(|now| !now.frozen) && self.started.elapsed() >= self.timeout + self.paused + waiting
+        let waiting = self.waiting(elapsed);
+        let expired = lease.is_none_or(|lease| !lease.frozen) && elapsed >= self.timeout + self.paused + waiting;
+        self.acknowledge(elapsed);
+        expired
     }
 }
 

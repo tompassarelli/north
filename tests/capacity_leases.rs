@@ -55,12 +55,14 @@ fn child_lease_of_a_held_lease_runs_nested_while_an_exclusive_waits() {
 #[test]
 fn lease_past_its_timeout_has_its_scope_killed_and_is_released() {
     let host = host();
-    let pid = host.path("pid");
-    let script = format!("read host _ </proc/self/stat; echo $host >{}; exec sleep 60", pid.display());
-    let mut overdue = run(&host, "moderate", "fixture:/overdue", "1", &["sh", "-c", &script]);
-    host.until("the overdue lease", |host| host.leases("moderate") == 1 && fs::read_to_string(&pid).is_ok_and(|text| text.ends_with('\n')));
-    let sleeper: u32 = fs::read_to_string(&pid).unwrap().trim().parse().unwrap();
+    let mut overdue = run(&host, "moderate", "fixture:/overdue", "1", &["sleep", "60"]);
+    let mut scope = None;
+    host.until("the overdue lease's scope", |host| {
+        scope = fs::read_dir(host.path("state/scopes")).unwrap().flatten().find_map(|entry| fs::read_to_string(entry.path()).ok().filter(|text| text.ends_with('\n')));
+        scope.is_some()
+    });
     host.until("the reaped lease", |host| host.status()["holding"] == json!([]));
+    let sleeper: u32 = scope.unwrap().split_whitespace().nth(1).unwrap().parse().unwrap();
     let mut status = None;
     host.until("the wrapper", |_| {
         status = overdue.exited();

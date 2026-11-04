@@ -32,7 +32,7 @@ fn set_pressure(host: &Host, reading: &str) {
 }
 
 fn ticket(host: &Host) -> Option<(String, u64)> {
-    let entry = fs::read_dir(host.path("agent-capacity-v1/queue")).ok()?.flatten().next()?;
+    let entry = fs::read_dir(host.path("agent-capacity-v1/queue")).ok()?.flatten().find(|entry| entry.file_name().to_string_lossy().ends_with(".json"))?;
     let ticket: serde_json::Value = serde_json::from_str(&fs::read_to_string(entry.path()).ok()?).ok()?;
     Some((entry.file_name().to_string_lossy().into_owned(), ticket["wrapperPid"].as_u64()?))
 }

@@ -208,3 +208,44 @@ impl Host {
         Instant::now()
     }
 }
+
+pub struct DrivenClock {
+    directory: PathBuf,
+}
+
+impl DrivenClock {
+    pub fn new(host: &Host) -> Self {
+        let clock = Self { directory: host.path("deadline-clock") };
+        fs::create_dir_all(&clock.directory).unwrap();
+        clock.write(0);
+        clock
+    }
+
+    pub fn drive<'a>(&self, command: &'a mut Command) -> &'a mut Command {
+        command.env("NORTH_CAPACITY_DEADLINE_CLOCK", &self.directory)
+    }
+
+    fn write(&self, milliseconds: u64) {
+        let staged = self.directory.join("now.staged");
+        fs::write(&staged, milliseconds.to_string()).unwrap();
+        fs::rename(staged, self.directory.join("now")).unwrap();
+    }
+
+    fn seen(&self) -> Vec<String> {
+        fs::read_dir(&self.directory).unwrap().flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with("seen.")).filter_map(|entry| fs::read_to_string(entry.path()).ok()).collect()
+    }
+
+    /// Moves every deadline's clock to `milliseconds` since its command started and waits until `deadlines` of them have judged that instant.
+    pub fn advance(&self, host: &Host, milliseconds: u64, deadlines: usize) {
+        self.write(milliseconds);
+        let want = milliseconds.to_string();
+        host.until("the deadlines to judge the new instant", |_| {
+            let seen = self.seen();
+            seen.len() >= deadlines && seen.iter().all(|value| *value == want)
+        });
+    }
+
+    pub fn set(&self, milliseconds: u64) {
+        self.write(milliseconds);
+    }
+}
