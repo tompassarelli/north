@@ -611,12 +611,12 @@ ci_workflow_triggered() {
   return 1
 }
 
+budget_repo() { git remote get-url origin 2>/dev/null | sed -E 's/\.git$//; s|.*[/:]||' || true; }
 # Only throughput gates take this way through; correctness and safety refusals stay until the lane fixes them.
 ci_budget_hold() {
   local workflow="$1" reason="$2" median="${3:--}" budget="${4:--}" dir file repo now first
   dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  repo=$(git remote get-url origin 2>/dev/null || true)
-  repo=${repo%.git}; repo=${repo##*/}; repo=${repo##*:}
+  repo=$(budget_repo)
   file="$dir/ci-budget-hold-$(printf '%s-%s' "$repo" "$workflow" | tr -c 'A-Za-z0-9._-' '_')"
   now=$(date +%s)
   mkdir -p "$dir"
@@ -641,8 +641,7 @@ ci_budget_hold() {
 ci_budget_debt() {
   local workflow="$1" median="$2" budget="$3" ceiling="$4" dir repo
   dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  repo=$(git remote get-url origin 2>/dev/null || true)
-  repo=${repo%.git}; repo=${repo##*/}; repo=${repo##*:}
+  repo=$(budget_repo)
   mkdir -p "$dir"
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$repo" "$workflow" "$median" "$budget" "$ceiling" \
     "$(git rev-parse --short HEAD)" "$(git branch --show-current)" >>"$dir/ci-budget-debt.tsv"
@@ -651,11 +650,7 @@ ci_budget_debt() {
 }
 
 ci_budget_clear() {
-  local dir repo
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"
-  repo=$(git remote get-url origin 2>/dev/null || true)
-  repo=${repo%.git}; repo=${repo##*/}; repo=${repo##*:}
-  rm -f -- "$dir/ci-budget-hold-$(printf '%s-%s' "$repo" "$1" | tr -c 'A-Za-z0-9._-' '_')"
+  rm -f -- "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push/ci-budget-hold-$(printf '%s-%s' "$(budget_repo)" "$1" | tr -c 'A-Za-z0-9._-' '_')"
 }
 
 ci_budget_scan() {
@@ -2067,7 +2062,6 @@ land_through_autoland() {
   exit 0
 }
 
-safe_push_common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
 lane_tip=$(git rev-parse -q --verify HEAD) || lane_tip=""
 SAFE_PUSH_LAND_CAPACITY=''
 if [ "$dry" -eq 0 ] && [ "$to_seen" -eq 1 ] && [ "$to" = "$(default_branch)" ]; then
@@ -2161,6 +2155,10 @@ if [ "$to_seen" -eq 1 ] && [ "$dry" = 0 ]; then
   if [ "$to" = main ] && has_land_checks; then hook=""; hook_verified=1; land_train=1; fi
   if [ "$to" = "$(default_branch)" ]; then
     autoland_base=$(fetch_destination) || exit 1
+    if [ "$direct" = 0 ] && [ -z "$several_commits" ] && [ "$(git config --blob "refs/remotes/origin/$to:.safe-push" --get landing.queue 2>/dev/null)" = lander ]; then
+      lander_host=$(git config --blob "refs/remotes/origin/$to:.safe-push" --get landing.lander-host 2>/dev/null) || lander_host=
+      [ -z "$lander_host" ] || [ "$lander_host" != "$(hostname -s)" ] || exec "$safe_push_self" --enqueue ${message_file:+--message "$message_file"}
+    fi
     land_as_one_commit "$autoland_base"
     if autoland_queue "$autoland_base" && [ "$direct" = 1 ]; then
       mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/safe-push"

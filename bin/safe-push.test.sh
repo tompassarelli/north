@@ -58,6 +58,11 @@ shim_main() {
       fi
       exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
       ;;
+    hostname:*) printf '%s\n' "${SAFE_PUSH_TEST_HOSTNAME:?}" ;;
+    north:land)
+      [ -n "${SAFE_PUSH_TEST_ENQUEUE_TRACE:-}" ] || return 2
+      [ "${3:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_ENQUEUE_TRACE"
+      ;;
     north:land-red-check) return "${SAFE_PUSH_TEST_RED_CHECK_STATUS:-0}" ;;
     north:land-red-wait) return 0 ;;
     north:land-actions)
@@ -186,6 +191,7 @@ new_real_bin() {
   mkdir -p "$real_bin"
   ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/gitleaks"
   ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/north"
+  ln -s "$(readlink -f "${BASH_SOURCE[0]}")" "$real_bin/hostname"
 }
 new_real_bin
 
@@ -2928,6 +2934,29 @@ expect_status nonzero
 expect_output 'run north runtime update'
 expect_output 'NOT queued'
 printf 'PASS: --enqueue names north runtime update when the runtime lacks land\n'
+make_real_fixture lander-queue
+printf '[landing]\n\tqueue = lander\n\tlander-host = fixture-host\n' >"$real_repo/.safe-push"
+"$real_git" -C "$real_repo" add .safe-push
+"$real_git" -C "$real_repo" commit -qm 'lander queue'
+"$real_git" -C "$real_repo" push -q origin HEAD:main
+"$real_git" --git-dir="$real_remote" symbolic-ref HEAD refs/heads/main
+printf 'lander work\n' >>"$real_repo/content.txt"
+"$real_git" -C "$real_repo" commit -qam 'lander work'
+lander_main_before=$("$real_git" --git-dir="$real_remote" rev-parse main)
+lander_lane=$("$real_git" -C "$real_repo" rev-parse HEAD)
+lander_trace="$real_fixture/enqueue-trace"
+: >"$lander_trace"
+SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main
+expect_status zero
+[ "$(cat "$lander_trace")" = enqueue ] || fail "the lander host did not queue exactly once: $(cat "$lander_trace")"
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lander_main_before" ] || fail 'the lander host pushed main instead of queueing'
+! grep -Eq '^(gitleaks|north <language-gate>)' "$real_trace" || fail 'the lander host ran checks before queueing'
+SAFE_PUSH_TEST_HOSTNAME=other-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main
+expect_status zero
+[ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lander_lane" ] || fail 'another host did not land per lane'
+[ "$(cat "$lander_trace")" = enqueue ] || fail "another host queued a ticket"
+printf 'PASS: lander-queue: the lander host queues a ticket and pushes nothing, another host lands per lane\n'
+
 } >"$scratch/section-4.log" 2>&1 &
 sections+=($!)
 
