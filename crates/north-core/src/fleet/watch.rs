@@ -391,6 +391,10 @@ impl FrameWatch for TurnWatch {
         self.turns.in_flight()
     }
 
+    fn soonest_rest(&self) -> Option<Duration> {
+        Some(self.idle.registered_park_after)
+    }
+
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest {
         let live = self.scope.detached();
         self.detached = live;

@@ -28,10 +28,10 @@ async fn held(run_for: Option<Duration>, policy: crate::fleet::idle::Policy) -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_session_with_a_detached_run_registers_it_and_parks_at_30_seconds_and_the_runs_end_revives_it_naming_the_run() {
-    let (root, code, lasted, stdin) = held(None, seconds(600, 600)).await;
+async fn a_session_with_a_detached_run_registers_it_and_parks_at_the_registered_park_limit_and_the_runs_end_revives_it_naming_the_run() {
+    let (root, code, lasted, stdin) = held(None, crate::fleet::idle::Policy { registered_park_after: Duration::from_secs(2), ..seconds(600, 600) }).await;
     assert_eq!(code, 143);
-    assert!(lasted >= Duration::from_secs(30) && lasted < Duration::from_secs(55), "parked after {lasted:?}, not at the 10-minute idle limit");
+    assert!(lasted >= Duration::from_secs(2) && lasted < Duration::from_secs(27), "parked after {lasted:?}, not at the 10-minute idle limit");
     assert_eq!(stdin, "", "parked, not woken");
     let waits = Waits::in_root(root.path());
     let registered = waits.of("worker");

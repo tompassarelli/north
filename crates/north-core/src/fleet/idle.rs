@@ -1,8 +1,5 @@
 use std::time::Duration;
 
-/// How long a session with a registered run stays up after its turn ends, so a revival message sent to it starts a turn before it parks again.
-const REGISTERED_PARK_AFTER: Duration = Duration::from_secs(30);
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Policy {
     pub eta_minute: Duration,
@@ -10,11 +7,12 @@ pub struct Policy {
     pub cache_lifetime: Duration,
     pub rollover_min_tokens: u64,
     pub finished_exit_after: Duration,
+    pub registered_park_after: Duration,
 }
 
 impl Default for Policy {
     fn default() -> Self {
-        Self { eta_minute: Duration::from_secs(60), rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60) }
+        Self { eta_minute: Duration::from_secs(60), rollover_after: Duration::from_secs(55 * 60), cache_lifetime: Duration::from_secs(60 * 60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(60 * 60), registered_park_after: Duration::from_secs(30) }
     }
 }
 
@@ -46,7 +44,7 @@ impl Policy {
         if session.in_flight {
             return Step::Wait;
         }
-        if session.registered && session.idle >= REGISTERED_PARK_AFTER {
+        if session.registered && session.idle >= self.registered_park_after {
             return Step::Park;
         }
         if let Some(step) = self.rollover(session) {

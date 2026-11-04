@@ -308,7 +308,7 @@ fn a_launch_flag_never_takes_the_next_flag_as_its_value() {
 }
 
 fn seconds(rollover: u64, finished_exit: u64) -> crate::fleet::idle::Policy {
-    crate::fleet::idle::Policy { eta_minute: Duration::from_secs(60), rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit) }
+    crate::fleet::idle::Policy { eta_minute: Duration::from_secs(60), rollover_after: Duration::from_secs(rollover), cache_lifetime: Duration::from_secs(60), rollover_min_tokens: 200_000, finished_exit_after: Duration::from_secs(finished_exit), registered_park_after: Duration::from_secs(30) }
 }
 
 fn claude_turn(root: &Path, context: u64, reply: &str) -> (HostConfig, PathBuf) {

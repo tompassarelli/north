@@ -182,6 +182,9 @@ pub trait FrameWatch: Send {
     fn sent_log(&self) -> Arc<dyn SentLog>;
     fn in_flight(&self) -> bool;
     fn rest(&mut self, idle: Duration, park_after: Option<Duration>) -> Rest;
+    fn soonest_rest(&self) -> Option<Duration> {
+        None
+    }
     fn close(&mut self);
 }
 
@@ -215,6 +218,10 @@ impl Watcher {
 
     fn output_keeps_awake(&self) -> bool {
         self.with(true, |watch| watch.in_flight())
+    }
+
+    fn soonest_rest(&self) -> Option<Duration> {
+        self.with(None, |watch| watch.soonest_rest())
     }
 
     fn rest(&self, idle: Duration, park_after: Option<Duration>) -> Rest {
@@ -338,7 +345,7 @@ pub async fn run(arguments: &[String], watch_for: impl FnOnce(&HostConfig) -> Op
 }
 
 async fn rest_when_idle(stdin: StdinQueue, watcher: Watcher, park_after: Option<Duration>, child: Option<u32>) {
-    let tick = park_after.map_or(REST_TICK, |limit| (limit / 4).min(REST_TICK));
+    let tick = park_after.into_iter().chain(watcher.soonest_rest()).map(|limit| limit / 4).fold(REST_TICK, Duration::min);
     loop {
         tokio::time::sleep(tick).await;
         match watcher.rest(stdin.activity.idle_for(), park_after) {
