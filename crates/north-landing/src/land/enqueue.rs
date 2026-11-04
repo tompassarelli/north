@@ -10,8 +10,10 @@ use time::OffsetDateTime;
 use super::first_commit;
 use super::lander::state_home;
 use super::queue::{self, RedFix, Ticket};
+use super::scans::outgoing;
 use super::slots::runner;
 use crate::landing::lane_squash::{self, Squash};
+use crate::landing::safe_push_guards::Denylist;
 
 const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE]";
 
@@ -27,6 +29,8 @@ pub struct Environment<'a> {
     pub state_home: &'a Path,
     pub host: &'a str,
     pub session: Option<&'a str>,
+    pub south: &'a Path,
+    pub denylist: Option<&'a Path>,
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
@@ -168,6 +172,8 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
         .map_err(|error| format!("could not fetch origin/{destination}: {error}"))?;
     let base = git(&root, &["rev-parse", "--verify", &format!("{remote_ref}^{{commit}}")])?;
     refuse_static_gates(&root, &base, "HEAD")?;
+    let denylist = Denylist { south: environment.south.to_path_buf(), config: environment.denylist.map(Path::to_path_buf) };
+    outgoing::enqueue_gate(&root, &base, &denylist, &origin, &destination)?;
     let lane_head = git(&root, &["rev-parse", "--verify", "HEAD^{commit}"])?;
     runner::fails_first(&root, &base, &lane_head)?;
     let first_commit_secs = first_commit::seconds(&root, &branch, &base);
@@ -232,7 +238,8 @@ pub fn run(arguments: &[String]) -> u8 {
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned();
     let session = std::env::var("NORTH_FLEET_SESSION").ok().filter(|name| !name.is_empty());
     let state_home = state_home();
-    let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref() };
+    let sources = Denylist::from_env();
+    let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), south: &sources.south, denylist: sources.config.as_deref() };
     match enqueue(repo, supplied.as_deref(), &environment) {
         Ok(queued) => {
             match &queued.squash {

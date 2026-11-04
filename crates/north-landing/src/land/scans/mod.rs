@@ -1,10 +1,11 @@
 mod git;
+pub mod outgoing;
 pub mod test_integrity;
 pub mod tool_removal;
 
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity BASE..HEAD";
+const USAGE: &str = "usage: north land scan dep-gate|tool-removal|test-integrity BASE..HEAD\n       north land scan denylist BASE HEAD REF\n       north land scan commit-email REVISION...\n       north land scan native-ref [--range REVISION]... [-- NAME...]\n       north land scan secrets RANGE\n       north land scan publication BASE HEAD";
 
 struct Range<'a> {
     base: &'a str,
@@ -54,10 +55,10 @@ pub fn run(arguments: &[String]) -> u8 {
             println!("{USAGE}");
             0
         }
-        _ => {
+        _ => outgoing::run(arguments).unwrap_or_else(|| {
             eprintln!("{USAGE}");
             64
-        }
+        }),
     }
 }
 

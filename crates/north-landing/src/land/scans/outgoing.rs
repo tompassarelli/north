@@ -1,0 +1,98 @@
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::landing::safe_push_guards::{self as guards, Denylist};
+use crate::landing::safe_push_state::{Refused, Step, git_read};
+
+const GITLEAKS_MISSING: &str = "safe-push: gitleaks not on PATH — refusing to publish the land check branch without a secret scan; NOT pushed.";
+const SECRET_FOUND: &str = "safe-push: ✗ SECRET DETECTED — fix the leak; NOT pushed.";
+
+pub fn secrets(dir: &Path, range: &str) -> Step {
+    guards::exit_status(Command::new("gitleaks").current_dir(dir).args(["detect", "--no-banner", "--redact", &format!("--log-opts={range}")]).status())
+}
+
+fn origin_url(dir: &Path) -> Step<String> {
+    git_read(dir, &["remote", "get-url", "--push", "origin"]).map_err(|_| Refused(2))
+}
+
+fn top_level(dir: &Path) -> Step<PathBuf> {
+    git_read(dir, &["rev-parse", "--show-toplevel"]).map(PathBuf::from).map_err(|_| Refused(2))
+}
+
+pub fn denylist(dir: &Path, base: &str, head: &str, reference: &str) -> Step {
+    let origin = origin_url(dir)?;
+    Denylist::from_env().scan(&top_level(dir)?, &origin, base, head, reference)
+}
+
+pub fn publication(dir: &Path, base: &str, head: &str) -> Step {
+    let origin = origin_url(dir)?;
+    if !guards::on_path("gitleaks") {
+        eprintln!("{GITLEAKS_MISSING}");
+        return Err(Refused(1));
+    }
+    let range = if base.is_empty() { head.to_owned() } else { format!("{base}..{head}") };
+    if secrets(dir, &range).is_err() {
+        eprintln!("{SECRET_FOUND}");
+        return Err(Refused(1));
+    }
+    Denylist::from_env().scan(&top_level(dir)?, &origin, base, head, "main")?;
+    guards::commit_email_scan(dir, &[range])
+}
+
+pub fn enqueue_gate(root: &Path, base: &str, denylist: &Denylist, origin: &str, destination: &str) -> Result<(), String> {
+    if guards::on_path("gitleaks") {
+        secrets(root, &format!("{base}..HEAD")).map_err(|_| "secret scan refused the landing".to_owned())?;
+    } else {
+        println!("safe-push: ⚠ gitleaks is not on PATH here, so this lane was not scanned for secrets before queueing; the lander's scan stays the gate.");
+    }
+    denylist.scan(root, origin, base, "HEAD", destination).map_err(|_| "deny-list scan refused the landing".to_owned())
+}
+
+struct NativeRefs {
+    ranges: Vec<String>,
+    names: Vec<String>,
+}
+
+fn native_refs(args: &[String]) -> Option<NativeRefs> {
+    let mut parsed = NativeRefs { ranges: Vec::new(), names: Vec::new() };
+    let mut rest = args.iter();
+    while let Some(argument) = rest.next() {
+        match argument.as_str() {
+            "--range" => parsed.ranges.push(rest.next()?.clone()),
+            "--" => {
+                parsed.names.extend(rest.cloned());
+                break;
+            }
+            _ => return None,
+        }
+    }
+    Some(parsed)
+}
+
+fn dispatch(dir: &Path, command: &str, rest: &[String]) -> Option<Step> {
+    let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
+    Some(match (command, rest.as_slice()) {
+        ("denylist", [base, head, reference]) => denylist(dir, base, head, reference),
+        ("commit-email", revisions) => guards::commit_email_scan(dir, &revisions.iter().map(|revision| (*revision).to_owned()).collect::<Vec<_>>()),
+        ("secrets", [range]) => secrets(dir, range),
+        ("publication", [base, head]) => publication(dir, base, head),
+        _ => return None,
+    })
+}
+
+pub fn run(arguments: &[String]) -> Option<u8> {
+    let (command, rest) = arguments.split_first()?;
+    let dir = std::env::current_dir().ok()?;
+    let outcome = if command == "native-ref" {
+        native_refs(rest).map(|parsed| {
+            let names: Vec<&str> = parsed.names.iter().map(String::as_str).collect();
+            guards::native_ref_scan(&dir, &names, &parsed.ranges)
+        })
+    } else {
+        dispatch(&dir, command, rest)
+    };
+    outcome.map(|step| match step {
+        Ok(()) => 0,
+        Err(Refused(code)) => code,
+    })
+}

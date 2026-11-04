@@ -21,9 +21,9 @@ pub mod merge_set;
 pub mod mutant_cli;
 mod mutant_trees;
 mod mutant_verify;
-mod safe_push_guards;
+pub(crate) mod safe_push_guards;
 #[cfg_attr(not(test), allow(dead_code))]
 pub mod safe_push_plan;
-mod safe_push_state;
+pub(crate) mod safe_push_state;
 pub mod safe_push_tag;
 pub mod stale_revert;
