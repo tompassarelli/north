@@ -171,7 +171,7 @@ lanes" entries in [features.md](features.md#landing-and-lanes) describe each gat
    game-reserve ships the lane to another host with room (`north capacity offload`);
 
 4. refuses the push unless every gate passes, among them a gitleaks secret scan, the dependency
-   gate (`north dep-gate`), the stale-revert gate (`north stale-revert`), the bin-reference gate
+   gate (`north land scan dep-gate`), the stale-revert gate (`north stale-revert`), the bin-reference gate
    (`north bin-references`) and the CI time budgets in `.safe-push`; it never force-pushes;
 
 5. pushes to main, removes the clean lane and its branch, and runs `follows-release`.

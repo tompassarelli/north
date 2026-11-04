@@ -454,77 +454,13 @@ native_ref_scan() {
   fi
 }
 
-core_tools="agents threads safe-push capacity-watchdog"
-
-tracked_executable() {
-  local mode
-  mode=$(git -C "$1" ls-tree "$2" -- "$3" 2>/dev/null | awk '{print $1}')
-  [ "$mode" = 100755 ] || [ "$mode" = 120000 ]
-}
-
 # ~/.local/bin links every tool out-of-store into north bin/ and firn dotfiles/bin/, so a tool removed from main breaks every session.
 tool_removal_scan() {
-  local base="${1%%..*}" head="${1##*..}" url own peer peer_bin path name trailers refused=0
-  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
-  url=$(git remote get-url --push origin 2>/dev/null) || return 0
-  case "${url%.git}" in
-    */north) own=bin peer="$HOME/code/nixos-config/main" peer_bin=dotfiles/bin ;; # hardcoded-repo-path:allow
-    */firn) own=dotfiles/bin peer="$HOME/code/north/main" peer_bin=bin ;; # hardcoded-repo-path:allow
-    *) return 0 ;;
-  esac
-  trailers=$(git log --format=%B "$base..$head" | sed -n 's/^Removes-tool:[[:space:]]*\([^[:space:]]*\).*/\1/p')
-  while IFS=$'\t' read -r meta path; do
-    case "$meta" in :100755\ *|:120000\ *) ;; *) continue ;; esac
-    name=${path#"$own"/}
-    case "$name" in */* | *.test.*) continue ;; esac
-    tracked_executable . "$head" "$own/$name" && continue
-    tracked_executable "$peer" refs/remotes/origin/main "$peer_bin/$name" && continue
-    case " $core_tools " in
-      *" $name "*)
-        echo "safe-push: ✗ removes core tool $name with no same-name replacement in $own/ or $peer_bin/ — a core tool cannot be removed; NOT pushed." ;;
-      *) grep -Fxq -- "$name" <<<"$trailers" && continue
-         echo "safe-push: ✗ removes tool $name from $own/ with no same-name replacement — add 'Removes-tool: $name' to the commit message if intended; NOT pushed." ;;
-    esac
-    refused=1
-  done < <(git diff --raw --no-renames --diff-filter=D "$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")" "$head" -- "$own/")
-  [ "$refused" -eq 0 ]
-}
-
-mutant_marker_re='MUTANT:[[:alnum:]_-]'
-test_path_re='(^|/)tests?/|[._]tests?\.[^/]*$|(^|/)test_[^/]*\.py$'
-skip_marker_re='(^|[^[:alnum:]_])(it|test|describe)\.(skip|only)\(|#\[ignore|pytest\.mark\.(skip|xfail)|unittest\.skip'
-
-vendored_trees() {
-  local base="$1" entry
-  command -v jq >/dev/null 2>&1 || return 0
-  {
-    git show "$base:effect-kit.json" 2>/dev/null | jq -r '.vendor // empty' 2>/dev/null || true
-    while IFS= read -r entry; do
-      case "$entry" in repos/*.json) git show "$base:$entry" 2>/dev/null | jq -r '.prefix // empty' 2>/dev/null || true ;; esac
-    done < <(git ls-tree --name-only "$base" repos/ 2>/dev/null)
-  } | grep -E '^[[:alnum:]_-][[:alnum:]._-]*(/[[:alnum:]_-][[:alnum:]._-]*)*$' || true
+  north land scan tool-removal "$1"
 }
 
 test_integrity_scan() {
-  local base="${1%%..*}" head="${1##*..}" allow=0 vendored
-  [ "$base" != "$1" ] && [ -n "$base" ] || return 0
-  base=$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")
-  vendored=$(vendored_trees "$base")
-  git log --format=%B "$base..$head" | grep -E '^Test-change:[[:space:]]*[^[:space:]]' >/dev/null && allow=1
-  git diff --unified=0 --no-color --no-ext-diff --no-renames "$base" "$head" \
-    | MUTANT_RE="$mutant_marker_re" TEST_PATH_RE="$test_path_re" SKIP_RE="$skip_marker_re" SKIP_ALLOWED=$allow VENDORED="$vendored" awk '
-    function in_vendored(file,    i) {
-      for (i = 1; i <= vendored_count; i++) if (file == vendored_tree[i] || index(file, vendored_tree[i] "/") == 1) return 1
-      return 0
-    }
-    BEGIN { vendored_count = split(ENVIRON["VENDORED"], vendored_tree, "\n") }
-    /^diff --git / { header = 1; next }
-    header && /^\+\+\+ / { path = substr($0, 7); header = 0; vendored = in_vendored(path); next }
-    header || vendored || !/^\+/ { next }
-    $0 ~ ENVIRON["MUTANT_RE"] { print "safe-push: ✗ " path " adds a mutation marker: " substr($0, 2) " — mutants stay in scratch copies; NOT pushed."; bad = 1; next }
-    ENVIRON["SKIP_ALLOWED"] != 1 && path ~ ENVIRON["TEST_PATH_RE"] && $0 ~ ENVIRON["SKIP_RE"] {
-      print "safe-push: ✗ " path " adds a skip or focus: " substr($0, 2) " — name the changed requirement in a Test-change: trailer; NOT pushed."; bad = 1 }
-    END { exit bad }'
+  north land scan test-integrity "$1"
 }
 
 generated_rewrite_scan() {
@@ -1589,7 +1525,7 @@ candidate_checks() {
     (cd "$repo_root" && printf 'refs/heads/%s %s refs/heads/%s %s\n' "$train_branch" "$3" "$to" "$2" | "$1" origin "$lock_url")
     return
   fi
-  (cd "$repo_root" && north dep-gate "$2" "$3") && tool_removal_scan "$2..$3" && test_integrity_scan "$2..$3" \
+  north land scan dep-gate "$2..$3" && tool_removal_scan "$2..$3" && test_integrity_scan "$2..$3" \
     && policy_sweep_scan "$2..$3" && run_land_checks "$2" "$3"
 }
 
@@ -2055,7 +1991,7 @@ candidate_verdict() {
   elif ! { north_offers language-gate && north_offers build-cache-gate; } 2>>"$log"; then
     class=transient detail="this host's north runtime predates safe-push; run north runtime update"
   elif ! { run_language_gate "$base" "$head" && native_ref_scan && gitleaks detect --no-banner --redact --log-opts="$base..$head" \
-      && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && (cd "$repo_root" && north dep-gate "$base" "$head") \
+      && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && north land scan dep-gate "$base..$head" \
       && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then
     :
   elif run_land_checks "$base" "$head" >>"$log" 2>&1; then
@@ -2223,8 +2159,8 @@ final_scans() {
     echo "safe-push: north missing on PATH — refusing to push without the dependency gate; NOT pushed."
     failed+=("dependency gate (no north on PATH)")
   else
-    echo "safe-push: north dep-gate ${destination_oid:-${absent_base:-}} $head_oid"
-    (cd "$repo_root" && north dep-gate "${destination_oid:-${absent_base:-}}" "$head_oid") \
+    echo "safe-push: north land scan dep-gate ${destination_oid:-${absent_base:-}}..$head_oid"
+    north land scan dep-gate "${destination_oid:-${absent_base:-}}..$head_oid" \
       || { echo "safe-push: ✗ dependency gate refused — NOT pushed."; failed+=("dependency gate"); }
   fi
   policy_scans "$branch" "$destination_branch" "$scan_range" || failed+=("${policy_failures[@]}")

@@ -60,7 +60,7 @@ shim_main() {
       ;;
     hostname:*) printf '%s\n' "${SAFE_PUSH_TEST_HOSTNAME:?}" ;;
     north:land)
-      [ "${2:-}" != checks ] || exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@"
+      case "${2:-}" in checks|scan) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;; esac
       [ -n "${SAFE_PUSH_TEST_ENQUEUE_TRACE:-}" ] || return 2
       [ "${3:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_ENQUEUE_TRACE"
       ;;
@@ -785,7 +785,7 @@ done
 HOME="$tool_home" run_real_case '' --dry-run
 expect_status zero
 
-eval "$(sed -n '/^tracked_executable() {/,/^}$/p; /^tool_removal_scan() {/,/^}$/p; /^core_tools=/p' "$TARGET")"
+eval "$(sed -n '/^tool_removal_scan() {/,/^}$/p' "$TARGET")"
 "$real_git" -C "$real_repo" reset -q --hard "$tool_base"
 printf '#!/bin/sh\n' >"$real_repo/dotfiles/bin/origin-only"
 chmod +x "$real_repo/dotfiles/bin/origin-only"
@@ -797,7 +797,7 @@ remote_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 "$real_git" -C "$real_repo" commit -qm 'local test helper removal'
 local_tool_head=$("$real_git" -C "$real_repo" rev-parse HEAD)
 printf "%s\n" tool_removal_scan >>"$scratch/cases"
-(cd "$real_repo"; HOME="$tool_home" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
+(cd "$real_repo"; HOME="$tool_home" PATH="$(dirname "$real_north"):$PATH" tool_removal_scan "$remote_tool_head..$local_tool_head") || fail 'tool scan compared with destination instead of merge base'
 
 make_real_fixture vendored-tree
 mkdir -p "$real_repo/repos/upstream" "$real_repo/vendor/lib"
