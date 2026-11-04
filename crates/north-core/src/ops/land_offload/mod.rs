@@ -1,5 +1,7 @@
 use crate::capacity::agent_load;
 use crate::ops::pacing::placement::{config, gate};
+use ship::CommitId;
+use std::path::Path;
 
 mod destinations;
 pub mod room;
@@ -12,12 +14,24 @@ pub fn run(arguments: &[String]) -> u8 {
     match words.as_slice() {
         ["choose"] => choose(),
         ["cost"] => cost(),
-        ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => match seconds.parse() {
-            Ok(timeout_seconds) => offload(host, ship::Land { ssh: "", base, head, timeout_seconds, command }),
-            Err(_) => usage(),
-        },
+        ["run", "--host", host, "--base", base, "--head", head, "--timeout", seconds, "--", command] => {
+            let Ok(timeout_seconds) = seconds.parse() else { return usage() };
+            let resolved = std::env::current_dir().map_err(|error| format!("current directory: {error}")).and_then(|checkout| commits_in(&checkout, base, head).map(|commits| (checkout, commits)));
+            match resolved {
+                Ok((checkout, (base, head))) => offload(host, ship::Land { ssh: "", checkout: &checkout, base, head, timeout_seconds, command }),
+                Err(why) => {
+                    eprintln!("north capacity offload: {why}");
+                    2
+                }
+            }
+        }
         _ => usage(),
     }
+}
+
+fn commits_in(checkout: &Path, base: &str, head: &str) -> Result<(Option<CommitId>, CommitId), String> {
+    let base = if base.is_empty() { None } else { Some(CommitId::resolve(checkout, base)?) };
+    Ok((base, CommitId::resolve(checkout, head)?))
 }
 
 fn usage() -> u8 {
@@ -121,4 +135,22 @@ fn offload(host: &str, land: ship::Land) -> u8 {
         return ship::TRANSPORT_FAILED;
     };
     ship::run(&ship::Land { ssh: &machine.ssh, ..land })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+
+    #[test]
+    fn a_symbolic_head_ships_as_the_commit_it_names_an_empty_base_ships_everything_and_an_unknown_name_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| Command::new("git").current_dir(dir.path()).args(args).output().unwrap();
+        git(&["init", "-q"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "x"]);
+        let sha = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout).unwrap().trim().to_owned();
+        let (base, head) = super::commits_in(dir.path(), "", "HEAD").unwrap();
+        assert_eq!((base, head.as_str()), (None, sha.as_str()));
+        assert!(super::commits_in(dir.path(), "no-such-ref", "HEAD").is_err());
+        assert!(super::commits_in(dir.path(), "", "no-such-ref").is_err());
+    }
 }

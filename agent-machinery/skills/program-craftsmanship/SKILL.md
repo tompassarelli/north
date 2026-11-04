@@ -16,6 +16,7 @@ written: 2026-10-15
 6. Keep each module to its one-line responsibility and call other modules only through their public entry and the `may_use` edges in `structure.toml`, because the gate measures against that map.
 7. Answer a `code-health` message by splitting, moving the import behind an allowed interface, or changing `structure.toml` in the same change, so the map and the code never disagree.
 8. Place files by authority, lifecycle and retrieval, keep native layouts and move every consumer with the files, so a newcomer can find source, inputs, outputs and the rerun command.
-9. Check the final diff for scope and behavior drift.
+9. Resolve cwd, refs and ambient env into explicit values (absolute path, full commit id) before crossing a process, host or agent boundary, verify them on arrival, and stamp results with the commit they ran on, because a result without a stamp counts as not run.
+10. Check the final diff for scope and behavior drift.
 
 Read [refactor and port details](references/notes.md) when classifying a transformation, and [structure, layout and code-health](references/structure.md) when a gate or hook fires, a module boundary moves, or files, data pipelines or handoff layouts need placing.

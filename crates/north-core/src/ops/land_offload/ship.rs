@@ -2,16 +2,17 @@ use std::fs::File;
 use std::io::Seek;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(super) const TRANSPORT_FAILED: u8 = 255;
+const WRONG_TREE: u8 = 98;
 const LOCK_WAIT_SECONDS: u32 = 600;
 const SLOTS: u32 = 6;
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const REMOTE: &str = r#"set -eu
-repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 landing=${7:-}
+repo=$HOME/$1 base=$2 head=$3 limit=$4 name=$5 command=$6 ref=$7 landing=${8:-}
 root=@ROOT@
-ref=refs/land-offload/$head
 mkdir -p "$root"
 waited=0
 while :; do
@@ -49,6 +50,11 @@ if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; els
 git -C "$slot" clean -ffdxq -e /target
 "#;
 
+const VERIFY: &str = r#"landed=$(git -C "$slot" rev-parse HEAD)
+[ "$landed" = "$head" ] || { echo "offload: refusing to run: $slot is on $landed, not the shipped $head" >&2; exit @WRONG_TREE@; }
+echo "offload: running $head in $slot"
+"#;
+
 const RUN: &str = r#"cd "$slot"
 export SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head
 [ "$landing" != 1 ] || export SAFE_PUSH_LANDING=1
@@ -58,6 +64,28 @@ else
   timeout -k 5 "$limit" bash -euo pipefail -c "$command" 9>&-
 fi
 "#;
+
+/// ```compile_fail
+/// let _: north_core::ops::land_offload::ship::CommitId = "HEAD".into();
+/// ```
+///
+/// ```no_run
+/// let _ = north_core::ops::land_offload::ship::CommitId::resolve(std::path::Path::new("/"), "HEAD");
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitId(String);
+
+impl CommitId {
+    pub fn resolve(checkout: &Path, name: &str) -> Result<Self, String> {
+        let output = Command::new("git").current_dir(checkout).args(["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")]).output().map_err(|error| format!("git: {error}"))?;
+        let sha = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if output.status.success() && !sha.is_empty() { Ok(Self(sha)) } else { Err(format!("{name} names no commit in {}", checkout.display())) }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 pub fn quote(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
@@ -75,8 +103,9 @@ fn checkout(directory: &Path) -> Result<(String, String), String> {
 
 pub(super) struct Land<'a> {
     pub(super) ssh: &'a str,
-    pub(super) base: &'a str,
-    pub(super) head: &'a str,
+    pub(super) checkout: &'a Path,
+    pub(super) base: Option<CommitId>,
+    pub(super) head: CommitId,
     pub(super) timeout_seconds: u64,
     pub(super) command: &'a str,
 }
@@ -86,20 +115,30 @@ fn fail(why: &str) -> u8 {
     TRANSPORT_FAILED
 }
 
-fn bundle(land: &Land) -> Result<File, String> {
-    let reference = format!("refs/land-offload/{}", land.head);
+fn job_ref(head: &CommitId) -> String {
+    static JOBS: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    format!("refs/land-offload/{}-{}-{nanos}-{}", head.as_str(), std::process::id(), JOBS.fetch_add(1, Ordering::Relaxed))
+}
+
+fn bundle(land: &Land, reference: &str) -> Result<File, String> {
+    let git = || {
+        let mut command = Command::new("git");
+        command.current_dir(land.checkout);
+        command
+    };
     let file = tempfile::tempfile().map_err(|error| format!("bundle file: {error}"))?;
-    let made = Command::new("git").args(["update-ref", &reference, land.head]).status().is_ok_and(|status| status.success());
+    let made = git().args(["update-ref", reference, land.head.as_str()]).status().is_ok_and(|status| status.success());
     if !made {
-        return Err(format!("cannot name {} for the bundle", land.head));
+        return Err(format!("cannot name {} for the bundle", land.head.as_str()));
     }
-    let mut command = Command::new("git");
-    command.args(["bundle", "create", "-q", "-", &reference]);
-    if !land.base.is_empty() {
-        command.arg(format!("^{}", land.base));
+    let mut command = git();
+    command.args(["bundle", "create", "-q", "-", reference]);
+    if let Some(base) = &land.base {
+        command.arg(format!("^{}", base.as_str()));
     }
     let bundled = command.stdout(file.try_clone().map_err(|error| error.to_string())?).status().is_ok_and(|status| status.success());
-    let _ = Command::new("git").args(["update-ref", "-d", &reference]).status();
+    let _ = git().args(["update-ref", "-d", reference]).status();
     if !bundled {
         return Err("git bundle failed".to_owned());
     }
@@ -109,17 +148,23 @@ fn bundle(land: &Land) -> Result<File, String> {
 }
 
 pub(super) fn run(land: &Land) -> u8 {
-    let (relative, name) = match checkout(Path::new(".")) {
+    let (relative, name) = match checkout(land.checkout) {
         Ok(found) => found,
         Err(why) => return fail(&why),
     };
-    let bundle = match bundle(land) {
+    let reference = job_ref(&land.head);
+    let bundle = match bundle(land, &reference) {
         Ok(file) => file,
         Err(why) => return fail(&why),
     };
-    let script = format!("{REMOTE}{RUN}").replace("@ROOT@", OFFLOAD_ROOT).replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string()).replace("@SLOTS@", &SLOTS.to_string());
+    let script = format!("{REMOTE}{VERIFY}{RUN}")
+        .replace("@ROOT@", OFFLOAD_ROOT)
+        .replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string())
+        .replace("@SLOTS@", &SLOTS.to_string())
+        .replace("@WRONG_TREE@", &WRONG_TREE.to_string());
+    let base = land.base.as_ref().map_or("", CommitId::as_str);
     let landing = if std::env::var("SAFE_PUSH_LANDING").is_ok_and(|value| value == "1") { "1" } else { "" };
-    let words = [relative.as_str(), land.base, land.head, &land.timeout_seconds.to_string(), &name, land.command, landing].map(quote);
+    let words = [relative.as_str(), base, land.head.as_str(), &land.timeout_seconds.to_string(), &name, land.command, &reference, landing].map(quote);
     let remote = format!("sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
         .args(["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", land.ssh, "--", &remote])
@@ -132,58 +177,4 @@ pub(super) fn run(land: &Land) -> u8 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::RUN;
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::Path;
-    use std::process::Command;
-
-    fn remote_run(command: &str, flake: bool) -> String {
-        remote_run_landing(command, flake, "")
-    }
-
-    fn remote_run_landing(command: &str, flake: bool, landing: &str) -> String {
-        let slot = tempfile::tempdir().unwrap();
-        let bin = tempfile::tempdir().unwrap();
-        if flake {
-            fs::write(slot.path().join("flake.nix"), "{}").unwrap();
-        }
-        let nix = bin.path().join("nix");
-        fs::write(&nix, "#!/bin/sh\necho \"nix $*\"\n").unwrap();
-        fs::set_permissions(&nix, fs::Permissions::from_mode(0o755)).unwrap();
-        let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
-        let output = Command::new("sh")
-            .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h landing={}\n{RUN}", shell(slot.path()), shell(Path::new(command)), landing)])
-            .env("PATH", path)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        String::from_utf8(output.stdout).unwrap().replace(&slot.path().display().to_string(), "SLOT")
-    }
-
-    fn shell(word: &Path) -> String {
-        super::quote(&word.display().to_string())
-    }
-
-    #[test]
-    fn a_checkout_with_a_flake_runs_the_command_inside_its_dev_shell() {
-        assert_eq!(remote_run("cargo --version", true), "nix develop SLOT -c bash -euo pipefail -c cargo --version\n");
-    }
-
-    #[test]
-    fn a_checkout_without_a_flake_runs_the_command_plainly() {
-        assert_eq!(remote_run("echo plain", false), "plain\n");
-    }
-
-    #[test]
-    fn the_landing_marker_reaches_the_command_only_when_the_caller_sent_it() {
-        assert_eq!(remote_run_landing("echo \"[${SAFE_PUSH_LANDING-}]\"", false, "1"), "[1]\n");
-        assert_eq!(remote_run_landing("echo \"[${SAFE_PUSH_LANDING-}]\"", false, ""), "[]\n");
-    }
-
-    #[test]
-    fn a_command_that_already_enters_a_dev_shell_is_not_wrapped_again() {
-        assert_eq!(remote_run("nix develop -c cargo --version", true), "nix develop -c cargo --version\n");
-    }
-}
+mod tests;
