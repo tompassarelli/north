@@ -25,5 +25,6 @@ Read this when you wait on a long run, a child's report is late, a Budget line i
 
 ## Reports
 
+- Report a landing-machinery fix (safe-push, the train, land checks) as working only once the installed runtime contains it: `readlink -f "$(command -v safe-push)"` and `readlink ~/.local/state/north/current` name a runtime `<sha>` for which `git merge-base --is-ancestor <fix> <sha>` succeeds, because in the 2026-11-04 retry storm the installed safe-push ran from a stuck main checkout.
 - The runtime records delivery and completion, so keep no ACK lines or re-pushes.
 - A worker that finds independent parts, or projects past twice its ETA, reports `Split:` with the parts as boxes, each with a Done when and what it learned. Those boxes go on its own issue, never into new issues, because the open-issue count measures open outcomes (Tom, 2026-10-29). Fix a finding that fits in 20 minutes in the current lane and land it with the task instead of filing it, and put ideas under `Ideas:` in the final report (Tom, 2026-10-30). The `gh issue create` guard states what a worker may file.
