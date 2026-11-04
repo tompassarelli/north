@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use super::boxes::{BoxRun, box_chains, box_duration};
 use super::read::box_rows;
 use super::verbs::latest_calibration;
+use crate::foundation::clock::Timestamp;
 use super::Knobs;
 use crate::threads::runs::LABEL_CATEGORY;
 use crate::threads::runs::brief::Fields;
@@ -15,7 +16,7 @@ fn text(row: &Value, key: &str) -> Option<String> {
     row.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
-fn box_run(row: &Value) -> Option<BoxRun> {
+pub fn box_run(row: &Value) -> Option<BoxRun> {
     if row.get("role").and_then(Value::as_str).is_some_and(|role| role != "worker") {
         return None;
     }
@@ -46,13 +47,19 @@ pub(super) fn run(context: &Context, stdin: &mut dyn Read) -> Outcome {
     let mut input = String::new();
     stdin.read_to_string(&mut input).map_err(|error| Failure::Refused(format!("box-eta cannot read stdin: {error}")))?;
     let request: Value = serde_json::from_str(&input).map_err(|error| Failure::Usage(format!("box-eta reads {{\"facets\": [...], \"rows\": [...]}} on stdin: {error}")))?;
-    let facets: Vec<&str> = request.get("facets").and_then(Value::as_array).ok_or_else(|| Failure::Usage("box-eta needs a facets list".into()))?.iter().filter_map(Value::as_str).collect();
+    let facets: Vec<String> = request.get("facets").and_then(Value::as_array).ok_or_else(|| Failure::Usage("box-eta needs a facets list".into()))?.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+    let rows = request.get("rows").and_then(Value::as_array);
+    Ok(format!("{}\n", box_durations(context.database, context.now, &facets, rows.map(Vec::as_slice))?))
+}
+
+/// The box ETA of each facet text, over `rows` when given, else over the ledger at `database`, which also gives the scale.
+pub fn box_durations(database: &std::path::Path, now: Timestamp, facets: &[String], rows: Option<&[Value]>) -> Result<Value, Failure> {
     let knobs = Knobs::registry();
-    let (runs, scale) = match request.get("rows").and_then(Value::as_array) {
+    let (runs, scale) = match rows {
         Some(rows) => (rows.iter().filter_map(box_run).collect(), (None, None)),
         None => {
-            let db = open(context.database, false)?;
-            let scale = latest_calibration(&db, &knobs, context.now, "box", "all", true).map(|(value, label)| (value, Some(label))).unwrap_or((None, Some("uncalibrated: no calibration table".to_owned())));
+            let db = open(database, false)?;
+            let scale = latest_calibration(&db, &knobs, now, "box", "all", true).map(|(value, label)| (value, Some(label))).unwrap_or((None, Some("uncalibrated: no calibration table".to_owned())));
             (box_rows(&db)?, scale)
         }
     };
@@ -64,5 +71,5 @@ pub(super) fn run(context: &Context, stdin: &mut dyn Read) -> Outcome {
             json!({"minutes": minutes, "n": n, "source": source})
         })
         .collect();
-    Ok(format!("{}\n", json!({"scale": scale.0, "label": scale.1, "boxes": boxes})))
+    Ok(json!({"scale": scale.0, "label": scale.1, "boxes": boxes}))
 }

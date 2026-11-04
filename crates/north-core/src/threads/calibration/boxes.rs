@@ -72,7 +72,7 @@ pub(super) fn item_chains(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &Box
 }
 
 /// The chains that are boxes: those where one run landed.
-pub(super) fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
+pub fn box_groups(runs: &[BoxRun], gap: f64) -> Vec<Vec<(Timestamp, &BoxRun)>> {
     let mut groups = item_chains(runs, gap);
     groups.retain(|group| group.iter().any(|(_, run)| run.landed));
     groups

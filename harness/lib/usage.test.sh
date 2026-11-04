@@ -11,7 +11,6 @@ here, scratch = map(Path, sys.argv[1:])
 policy = scratch / "accounts.toml"
 sys.path.insert(0, str(here))
 import usage, usage_claude
-from ledger_context import account_id
 from unittest.mock import patch
 policy.write_text('[accounts.claude]\nlabels = { "9b3a7fb5" = "a", "b04cb253" = "b" }\n')
 os.environ.update(AGENTS_ORCHESTRATION=str(policy), CLAUDE_CONFIG_DIR=str(scratch))
@@ -25,7 +24,6 @@ for host in ("whiterabbit", "nexus"):
         for login, cache in caches.items():
             cache_path.write_text(json.dumps({"cachedUsageUtilization": cache}))
             assert usage.local_account("claude") == login
-            assert account_id("claude") == "claude-" + login
             for label, other_cache in caches.items():
                 weekly = next(r for r in usage_claude.rows(other_cache, "2026-10-13T00:00:00Z") if r["kind"] == "window")
                 assert weekly["account"] == label and weekly["used_pct"] == (97 if label == "a" else 98), weekly

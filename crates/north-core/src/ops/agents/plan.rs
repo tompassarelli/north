@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::error::NorthResult;
 
 use super::status::{self, Options};
-use super::{USAGE, replay, script};
+use super::{USAGE, goal, replay};
 
 pub struct Ports<'a> {
     pub harness: &'a Path,
@@ -15,11 +15,7 @@ pub struct Ports<'a> {
 pub fn run(arguments: &[String], ports: &Ports) -> u8 {
     match arguments.first().map(String::as_str) {
         Some("--score") if arguments.len() == 2 => match orchestration(ports) {
-            Ok(config) => script::python_file(
-                ports.harness,
-                "project_score.py",
-                [arguments[1].as_ref(), config.as_os_str()],
-            ),
+            Ok(config) => goal::score(ports.harness, &arguments[1], &config),
             Err(error) => {
                 eprintln!("agents plan: {}", error.user_message());
                 2
@@ -38,7 +34,7 @@ pub fn run(arguments: &[String], ports: &Ports) -> u8 {
             (ports.place)(&request)
         }
         _ if arguments.iter().any(|argument| argument == "--quote") => {
-            script::run(ports.harness, "project_plan.py", arguments)
+            goal::quote(arguments)
         }
         _ => {
             status::update_status();

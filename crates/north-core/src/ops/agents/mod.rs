@@ -1,4 +1,5 @@
 mod busy;
+mod goal;
 mod lines;
 pub mod plan;
 pub mod presence;

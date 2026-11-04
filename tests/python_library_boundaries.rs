@@ -23,24 +23,6 @@ fn executable(path: &Path, body: &str) {
     shim::write_executable(path, body);
 }
 
-const GOAL_RECORD: &str = "import sys\nfrom pathlib import Path\nsys.path.insert(0, sys.argv[1])\nimport goal_eta\n\
-goal_eta.LIB = Path(sys.argv[2])\nassert goal_eta.record({}) is None";
-
-#[test]
-fn a_calibration_that_outlives_its_timeout_warns_once_and_records_nothing() {
-    let scratch = TempDir::new().unwrap();
-    fs::create_dir_all(scratch.path().join("goal/harness/lib")).unwrap();
-    let north = scratch.path().join("north");
-    executable(&north, "#!/usr/bin/env bash\n[[ \"$1 $2 $3\" == \"threads calibrate --write\" ]] || exit 97\nexec sleep 6\n");
-    let output = python(GOAL_RECORD, &[&scratch.path().join("goal/harness/lib")], &[("PYTHONDONTWRITEBYTECODE", Path::new("1")), ("NORTH_BIN", &north)]);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert!(output.stdout.is_empty());
-    assert_eq!(
-        String::from_utf8_lossy(&output.stderr).trim_end(),
-        "warning: threads calibrate --write timed out after 5s; goal ETA row not recorded"
-    );
-}
-
 const HOSTED: &str = "import sys\nsys.path.insert(0, sys.argv[1])\nimport sqlite3, usage\n\
 row = lambda account, pct: dict(zip(usage.COLUMNS, ['2026-10-15T12:00:00Z', 'claude', account, 'window', 'session', pct, 300, '2026-10-15T15:00:00Z', None, 'fixture']))\n\
 db = sqlite3.connect(':memory:')\n\

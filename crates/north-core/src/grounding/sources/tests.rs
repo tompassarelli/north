@@ -192,18 +192,6 @@ fn settings_every_registered_hook_becomes_one_document_carrying_its_event_matche
     );
 }
 #[test]
-fn settings_the_events_db_document_names_the_ledger_path_and_event_kinds_without_row_data() {
-    let d = settings::events_doc(
-        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../harness/lib/durable_events.py"),
-        5.0,
-    )
-    .unwrap();
-    assert!(d.reference.contains("threads.db"));
-    assert!(d.text.contains("events.db"));
-    assert!(d.text.contains("LAND-READY"));
-    assert_keys(&d);
-}
-#[test]
 fn structured_hook_documents_preserve_inline_and_array_table_toml_forms() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("policy-owners.toml");

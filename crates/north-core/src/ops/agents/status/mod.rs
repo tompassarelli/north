@@ -130,6 +130,21 @@ fn unavailable(result: &Value) -> Vec<String> {
     capacity.iter().filter(|(_, hit)| !hit.get("fallback").is_some_and(crate::router::ctx::truthy)).map(|(name, _)| name.clone()).collect()
 }
 
+pub(super) fn available_usd(harness: &Path, config_path: &Path, database: &Path, now: Timestamp) -> Result<Option<f64>, String> {
+    let config = Config::read(config_path)?;
+    let catalog = json_value(read_document(&harness.join("harness/model-catalog.toml"))?.as_item());
+    let costs = json_value(read_document(&config_path.with_file_name("costs.toml"))?.as_item());
+    let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
+    let db = crate::usage::open_ledger(&home, Some(database.into()), &|| {})?;
+    let rows: Vec<Reading> = crate::usage::json_readings(&db, now)?.into_iter().filter_map(|row| serde_json::from_value(row).ok()).collect();
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let ctx = live::context(&config, &catalog, &rows, &Ledger(Some(db)), now, &config.tiers, &costs);
+    let result = ask("plan", json!({"ctx": ctx}))?;
+    Ok(Some(result["accounts"].as_object().into_iter().flatten().filter_map(|(_, account)| account["available_usd"].as_f64()).sum()))
+}
+
 fn status(options: &Options, harness: &Path, config_path: &Path) -> Result<u8, String> {
     let config = Config::read(config_path)?;
     let mode = resolve_mode(&config.tiers, config.mode(), &options.mode)?;
@@ -159,7 +174,7 @@ fn status(options: &Options, harness: &Path, config_path: &Path) -> Result<u8, S
     let mut shown = plan_lines(&live.ctx, &live.result)?;
     shown.extend(readout::promotion_lines(&catalog_value["accounts"], &live.ledger, live.now));
     println!("{}", shown.join("\n"));
-    let goals = goals::lines(harness, config_path, &live.ledger_path);
+    let goals = goals::lines(config_path, &live.ledger_path);
     if !goals.is_empty() {
         println!("{}", goals.join("\n"));
     }

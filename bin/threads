@@ -16,14 +16,12 @@ import sqlite3
 import subprocess
 import sys
 import time
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness/scripts"))
 from calibration import open_ledger
-import durable_events
 from ssh_transport import ssh_argv
 
 DB = os.environ.get("THREADS_DB") or os.path.expanduser("~/.local/state/threads/threads.db")
@@ -42,7 +40,7 @@ ALIASES = {"nixos-config": "firn"}
 # Native namespaces live only in this database and never reach GitHub.
 NATIVE = ["life", "accounts", "travel", "ops"]
 NATIVE_REF = re.compile(r"\b(?:life|accounts|travel|ops)#\d+\b")
-KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen','MESSAGE','GATE','GATE-ANSWER','JOB-START','JOB-BEAT','JOB-EXIT','CONTROL'" + ',' + ','.join(repr(kind) for kind in durable_events.KINDS)
+KINDS = "'claim','release','handoff','need','unneed','run','note','capture','close','reopen','MESSAGE','GATE','GATE-ANSWER','JOB-START','JOB-BEAT','JOB-EXIT','CONTROL','KICKOFF','STUCK','LANDED','QUESTION','LAND-READY','RECYCLE-READY','ANSWER','LEARN'"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events(
@@ -222,7 +220,6 @@ def connect() -> sqlite3.Connection:
         db.execute("PRAGMA journal_mode = WAL")
     with Tx(db):
         migrate_schema(db)
-    durable_events.migrate(db, SCHEMA, Tx)
     return db
 
 
@@ -354,16 +351,6 @@ def no_native_reason() -> str | None:
     return None
 
 
-def gitleaks_clean(text: str):
-    try:
-        p = subprocess.run(["gitleaks", "stdin", "--no-banner", "--redact", "-l", "error"], input=text,
-                           capture_output=True, text=True, cwd="/")
-    except FileNotFoundError:
-        raise Refused("gitleaks is not on PATH; items are scanned for secrets before they are stored")
-    if p.returncode != 0:
-        raise Refused("gitleaks found a secret in the item text; credentials stay in Bitwarden, so nothing was stored")
-
-
 def gh(*args: str) -> str:
     """Run gh, waiting out rate-limit refusals (retry-after unknown: 30 s doubling to 5 min, ~65 min in all)."""
     if any(NATIVE_REF.search(a) for a in args):
@@ -413,13 +400,6 @@ def local_blockers(db, item: str) -> list:
             state = "OPEN" if str(number) in open_issues(db, repo) else "CLOSED"
         out.append({"ref": "a native item" if hidden else needs, "state": state})
     return out
-
-
-def native_item(db, ns: str, number: int):
-    row = db.execute("SELECT * FROM items WHERE ns = ? AND number = ?", (ns, number)).fetchone()
-    if row is None:
-        raise Refused(f"no item {ref(ns, number)}")
-    return row
 
 
 def open_issues(db, repo: str) -> dict:
@@ -524,39 +504,6 @@ def cmd_record_priors(db, a):
                        [(end, *r) for r in rows])
 
 
-def cmd_agent_event(db, a):
-    gitleaks_clean(a.body)
-    item = ref(*parse_ref(a.item)) if a.item else None
-    if item and item.split('#')[0] in NATIVE:
-        native_item(db, *parse_ref(item))
-    for event_id in (a.answer, a.root_event):
-        if event_id is not None:
-            target = durable_events.addressed(db, event_id)
-            if target['item']:
-                parse_ref(target['item'])
-            root = json.loads(target['data']).get('root_event')
-            if root is not None:
-                linked = durable_events.addressed(db, root)
-                if linked['item']:
-                    parse_ref(linked['item'])
-    data = {field: getattr(a, field) for field in ('to_node', 'repo', 'lane', 'sha', 'body', 'packet', 'key', 'root_event', 'answer')}
-    print(json.dumps(durable_events.append(db, a.kind, item, a.from_node, data, now(), Tx)))
-
-
-def cmd_agent_events(db, a):
-    rows = durable_events.pending(db, a.id)
-    if no_native_reason():
-        rows = [row for row in rows if not row['item'] or not NATIVE_REF.fullmatch(row['item'])]
-    print(json.dumps(rows))
-
-
-def cmd_agent_event_state(db, a):
-    row = durable_events.addressed(db, a.id)
-    if row['item']:
-        parse_ref(row['item'])
-    print(json.dumps(durable_events.update_state(db, a.id, json.loads(a.update_json), Tx)))
-
-
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="threads",
@@ -580,22 +527,6 @@ def parser() -> argparse.ArgumentParser:
         s.set_defaults(fn=fn)
         s.add_argument("--by", default=default_actor(), help="who is acting (default $THREADS_ACTOR or $USER)")
         return s
-
-    s = cmd("agent-event", cmd_agent_event, "publish a durable addressed event")
-    s.add_argument("kind", choices=durable_events.KINDS)
-    s.add_argument("item", nargs="?")
-    s.add_argument("--from-node", required=True)
-    s.add_argument("--to-node", required=True)
-    s.add_argument("--body", required=True)
-    for field in ("repo", "lane", "sha", "packet", "key"):
-        s.add_argument("--" + field)
-    for field in ("answer", "root-event"):
-        s.add_argument("--" + field, type=int)
-    s = cmd("agent-events", cmd_agent_events, "read canonical pending addressed events")
-    s.add_argument("--id", type=int)
-    s = cmd("agent-event-state", cmd_agent_event_state, "update durable delivery state")
-    s.add_argument("id", type=int)
-    s.add_argument("--update-json", required=True)
 
     cmd("planner-band", cmd_planner_band, "read-only realized item difficulty, measured planner cut points and leave-one-out accuracy per input set")
     s = cmd("record-priors", cmd_record_priors, "append one calibration row of kind prior per default: cell NAME, n its "
@@ -642,8 +573,7 @@ def flush_spool(dest):
             with f:
                 if path.suffix == ".argv":
                     args = json.loads(f.read())
-                    output = {"stdout": subprocess.DEVNULL} if args[:1] == ["agent-event"] else {}
-                    code = ssh(dest, args, stdin=subprocess.DEVNULL, **output)
+                    code = ssh(dest, args, stdin=subprocess.DEVNULL)
                 else:
                     code = ssh(dest, ["ingest"], stdin=f)
             if code in (UNREACHABLE, RETRY):
@@ -667,18 +597,6 @@ def proxy(dest, argv) -> int:
             print(f"STALE: ledger snapshot from {taken}; {dest} unreachable", file=sys.stderr)
             return None
         return code
-    if argv[:1] == ["agent-event"]:
-        parsed = parser().parse_args(argv)
-        try:
-            gitleaks_clean(parsed.body)
-        except Refused as error:
-            print(f"NorthThreads: {error}", file=sys.stderr)
-            return 1
-        if parsed.key is not None and not parsed.key.strip():
-            print("NorthThreads: key must be nonempty text", file=sys.stderr)
-            return 1
-        if not any(arg == "--key" or arg.startswith("--key=") for arg in argv):
-            argv = [*argv, "--key", str(uuid.uuid4())]
     reachable = flush_spool(dest)
     if argv[:1] == ["ingest"]:
         data = sys.stdin.buffer.read()
@@ -694,7 +612,7 @@ def proxy(dest, argv) -> int:
         path.with_suffix(".tmp").rename(path)
         print(f"NorthThreads: {dest} unreachable; spooled ingest to {path}", file=sys.stderr)
         return 0
-    if argv[:1] in (["job-run"], ["agent-event"]):
+    if argv[:1] == ["job-run"]:
         code = ssh(dest, argv, stdin=subprocess.DEVNULL) if reachable is True else UNREACHABLE
         if code != UNREACHABLE:
             return code
@@ -706,10 +624,6 @@ def proxy(dest, argv) -> int:
         path.with_suffix(".tmp").rename(path)
         return 0
     code = ssh(dest, argv) if reachable else UNREACHABLE
-    if argv[:1] in (["agent-events"], ["agent-event-state"]):
-        if code == UNREACHABLE:
-            print(f"NorthThreads: {dest} unreachable; canonical events unavailable", file=sys.stderr)
-        return code
     if code == 124:
         return code
     if code != UNREACHABLE:

@@ -25,8 +25,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | runs.lens, flaws | north worker-ledger | crates/north-core/src/threads/calibration/summary.rs lens table | read | |
 | runs.repeats | none | none | dropped | 4aecdaf9 |
 | runs.tokens | north worker-ledger | crates/north-core/src/threads/calibration/summary.rs tokens_med, tokens_per_closed | read | |
-| runs.cost_usd | bin/threads:989 | crates/north-core/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); harness/lib/ledger_context.py delivery_metrics; harness/lib/project_score.py:51 | read | 4b71ac63 |
-| runs.staffed, review_requested, landed_at | north worker-ledger | harness/lib/ledger_context.py delivery_metrics | read | |
+| runs.cost_usd | bin/threads:989 | crates/north-core/src/threads/calibration/recommend.rs recommend_usd median $ line (tier choice prices runs.tokens at API-equivalent rates); crates/north-core/src/ops/agents/goal/metrics.rs delivery_metrics; crates/north-core/src/ops/agents/goal/score.rs | read | 4b71ac63 |
+| runs.staffed, review_requested, landed_at | north worker-ledger | crates/north-core/src/ops/agents/goal/metrics.rs delivery_metrics | read | |
 | runs.landed_sha | north worker-ledger | none yet (north#51 box 2) | unread | |
 | runs.first_commit | none (tally-internal, crates/north-core/src/providers/claude/runs/landing.rs tally) | none | dropped | 4aecdaf9 |
 | runs.turns, tool_calls, active_min, wait_min | crates/north-core/src/providers/claude/runs/activity.rs (Claude workers; recorded by crates/north-core/src/threads/runs/record.rs; `threads run-ids --settled` leaves out a Claude run with a null active_min so the next ingest re-reads its transcript and fills the four columns, and Codex and Gemini rows stay out of that re-read) | crates/north-core/src/threads/calibration/recommend.rs recommend_eta: the `eta` line of `north worker-ledger --recommend` prints `eta active <median>m (p25 <a>–p90 <b>, n=<N>) wall p75 <W>m wait median <X>m` from the cell's runs that recorded active minutes (at least `eta_min_samples` of them), and `eta wall <W>m (p75 of n=<N>, ...; too few runs with active minutes)` otherwise; active minutes are work, the wall p75 includes the waits | read | |
@@ -56,7 +56,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | spawn-gate-denials.jsonl | crates/north-core/src/guard/spawn_capacity/logs.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
 | spawn-queue.json | none (harness/lib/spawn.py and spawn_queue.py no longer exist on main) | none | dropped | |
 | land-checks.tsv | none | none | dropped | 4aecdaf9 |
-| goal-scores.jsonl | harness/lib/project_score.py | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
+| goal-scores.jsonl | crates/north-core/src/ops/agents/goal/score.rs | crates/north-core/src/ops/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | harness/lib/plan_usage.py:79; harness/lib/usage.py:267 | read | |
 | costs/*.json | harness/lib/billing_*.py | harness/lib/usage.py:264 service lines | read | |
 | S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-core/src/ops/timers/skill_prune.rs | read | |
@@ -156,7 +156,7 @@ Neither waste-saving interval excludes zero, so neither arm qualifies for adopti
 ## Goal ETA (north#35 box 7)
 
 `agents plan` prints one line per `[projects.P] target`: the critical path over the goal's open Done-when boxes
-(`harness/lib/goal_eta.py`). The goal's issues are `[projects.P] goal = ["P#N", ...]` when set, else the open
+(`crates/north-core/src/ops/agents/goal/`). The goal's issues are `[projects.P] goal = ["P#N", ...]` when set, else the open
 `priority:now` issues. A box's ETA is a box duration, not one run: `threads box_chains` chains an item's worker runs
 in staffed order while each starts within `box_chain_gap_min` (30) minutes of the chain's latest end, and a chain
 with a landed run lasts from its first staffed to its last landed, so it holds the worker run, follow-ups, the lead's
@@ -176,7 +176,7 @@ target lands after it, not from the whole-repo open-issue count. `agents plan --
 independent boxes (`--category` for the box duration) and keeps its $ part.
 
 Replay at each goal's start, from ledger runs ended before it, landings after it dropped, no box calibration
-(`harness/lib/goal_eta.test.py`, fixture `harness/lib/fixtures/goal-eta-2026-10-12.json`):
+(`goals_of_12_oct_replayed_from_their_start` in `crates/north-core/src/ops/agents/goal/tests.rs`, fixture `harness/lib/fixtures/goal-eta-2026-10-12.json`):
 
 | goal | start | predicted (box duration) | lane M (per-run p75) | actual | serial hand-sum | hand estimate then |
 |---|---|---|---|---|---|---|

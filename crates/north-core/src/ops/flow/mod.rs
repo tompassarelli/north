@@ -117,6 +117,16 @@ fn alarm(places: &Places, host: &dyn Host, rows: &[Value], now: f64) {
     }
 }
 
+/// The minutes a push takes to land in this repository, measured; zero when unmeasured.
+pub fn landing_minutes(repo: &str) -> f64 {
+    if !valid_name(repo) {
+        return 0.0;
+    }
+    let (places, machine) = (Places::from_env(), Machine::default());
+    let env = Env::new(&places, &machine, project_targets(&crate::pace::target::policy_path()));
+    get(&env, repo, Timestamp::now().unix_seconds_f64(), &["push_to_land_minutes"])["push_to_land_minutes"].as_f64().unwrap_or(0.0)
+}
+
 fn row(arguments: &[String]) -> u8 {
     let [repo, fields @ ..] = arguments else {
         eprintln!("{USAGE}");
