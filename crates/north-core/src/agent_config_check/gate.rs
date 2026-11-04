@@ -14,6 +14,7 @@ use crate::platform::trials::{Scenarios, TRIALS, Verdict, compare, flips};
 use crate::platform::{process, pystats, toml_json};
 
 const PLAYBOOK_LINES: usize = 500;
+const SKILL_BYTES: usize = 6144;
 const SWEEP_DUE_SHARE: f64 = 0.15;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -267,6 +268,9 @@ impl Gate {
                 budget.errors.push(format!(
                     "{unit}: playbook body is {lines} lines; policy keeps each playbook body at most {PLAYBOOK_LINES} (set metadata.kind: domain for a domain skill)"
                 ));
+            }
+            if text.len() > SKILL_BYTES {
+                budget.errors.push(format!("{unit}: SKILL.md is {} bytes; policy keeps each SKILL.md at most {SKILL_BYTES}, as a router with read-X-when-Y references", text.len()));
             }
             let agents = agents_line.captures(&front).map(|found| found[1].to_owned());
             let size = unit.chars().count() + description(&front).chars().count();

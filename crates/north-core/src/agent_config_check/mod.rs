@@ -200,7 +200,7 @@ fn execute(context: &Context, verbose: bool) -> u8 {
 fn skills_group(context: &Context, report: &mut Report) {
     let gate = gate_for(context.firn.clone(), context.operator.clone(), Roots::from_env());
     let before = report.fail;
-    let failed = "playbook body over 500 lines";
+    let failed = "a skill over its size limit";
     let summary = match gate.run(Mode::Budget) {
         Ok(verdicts) if verdicts.passed => {
             report.ok(&verdicts.text);

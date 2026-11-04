@@ -432,3 +432,25 @@ fn advisory_a_passing_run_between_failures_resets_the_count() {
     record(&mut issues, &state, "gex45", "run-3", &failing("a")).unwrap();
     assert!(issues.created.is_empty());
 }
+
+fn skill_fixture(fixture: &Fixture, name: &str, bytes: usize) {
+    let skill = format!("---\nname: {name}\ndescription: A fixture skill.\n---\n# Fixture\n");
+    let text = format!("{skill}{}", "x".repeat(bytes - skill.len()));
+    fs::create_dir_all(fixture.path(&format!("skills/{name}"))).unwrap();
+    fs::write(fixture.path(&format!("skills/{name}/SKILL.md")), &text).unwrap();
+    let mut catalog: serde_json::Value = serde_json::from_str(&fs::read_to_string(fixture.operator.join("catalog-config.json")).unwrap()).unwrap();
+    catalog["activation"][name] = serde_json::json!({"distributions": [{"type": "skill", "targets": ["shared"]}]});
+    catalog["registrations"][name] = serde_json::json!({"owner": {"repo": "firn", "path": format!("skills/{name}/SKILL.md")}});
+    fs::write(fixture.operator.join("catalog-config.json"), catalog.to_string()).unwrap();
+}
+
+#[test]
+fn a_skill_over_six_kilobytes_fails_the_budget_naming_it_and_one_at_the_limit_passes() {
+    let fixture = Fixture::new();
+    skill_fixture(&fixture, "at-limit", 6144);
+    assert!(fixture.gate().run(Mode::Budget).unwrap().passed);
+    skill_fixture(&fixture, "regrown", 6145);
+    let verdicts = fixture.gate().run(Mode::Budget).unwrap();
+    assert!(!verdicts.passed && verdicts.text.contains("regrown: SKILL.md is 6145 bytes"), "{}", verdicts.text);
+    assert!(!verdicts.text.contains("at-limit"), "{}", verdicts.text);
+}
