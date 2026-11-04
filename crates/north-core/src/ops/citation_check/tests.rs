@@ -60,3 +60,40 @@ fn the_command_exits_one_on_an_undefined_citation_and_zero_when_clean() {
     fs::write(root.path().join("docs/guide.md"), "`north fleet`\n").unwrap();
     assert_eq!(run(&arguments, defined), 0);
 }
+
+fn targets(found: Vec<BrokenPath>) -> Vec<(String, usize, String)> {
+    found.into_iter().map(|broken| (broken.path, broken.line, broken.target)).collect()
+}
+
+#[test]
+fn a_named_path_or_link_that_no_tracked_file_backs_is_named_with_its_line() {
+    let root = repository(&[
+        ("bin/kept", ""),
+        ("docs/guide.md", "Run `bin/kept` and `bin/gone`, see [x](../bin/kept) and [y](terms.md#a).\n```\n`bin/fenced-gone`\n```\n`bin/NAME`, `crates/<crate>/`, `bin/*`, `bin/kept:12`, `nope/x` and [web](https://x.invalid/y)\n"),
+        ("docs/rationale/old.md", "`bin/gone` [z](gone.md)\n"),
+        ("docs/features/01-a/0001-a.md", "[h](harness.md)\n"),
+        ("docs/references/paper.md", "`bin/gone` [r](../gone.md)\n"),
+        ("harness/skills/a/SKILL.md", "`bin/gone` [b](../b/SKILL.md) [c](../c/SKILL.md)\n"),
+        ("agent-machinery/skills/b/SKILL.md", "[a](../a/SKILL.md)\n"),
+    ]);
+    assert_eq!(
+        targets(broken_paths(root.path()).unwrap()),
+        [
+            ("docs/guide.md".into(), 1, "terms.md#a".into()),
+            ("docs/guide.md".into(), 1, "bin/gone".into()),
+            ("docs/references/paper.md".into(), 1, "../gone.md".into()),
+            ("harness/skills/a/SKILL.md".into(), 1, "../c/SKILL.md".into()),
+        ]
+    );
+}
+
+#[test]
+fn the_command_exits_one_on_a_missing_path_and_zero_once_it_exists() {
+    let root = repository(&[("bin/kept", ""), ("docs/x.md", "Run `bin/gone`.\n")]);
+    let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
+    assert_eq!(run(&arguments, defined), 1);
+    fs::create_dir_all(root.path().join("bin")).unwrap();
+    fs::write(root.path().join("bin/gone"), "").unwrap();
+    assert!(Command::new("git").arg("-C").arg(root.path()).args(["add", "-A"]).status().unwrap().success());
+    assert_eq!(run(&arguments, defined), 0);
+}

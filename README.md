@@ -27,17 +27,33 @@ target/debug/north
 How the harness is installed on Tom's machines, how a worker is staffed, where policy lives and how
 a change lands: [docs/harness.md](docs/harness.md).
 
+## Finding a fact
+
+Read in three rings and stop at the first one that answers:
+
+- **First:** this file for people, [AGENTS.md](AGENTS.md) for agents. AGENTS.md holds the rules for
+  working here and names the document to read before touching each area.
+- **When you touch an area:** the concept document for it, below. Concept documents explain how
+  the parts fit and link to the owner of each detail; they do not restate flags or numbers.
+- **For the exact fact:** its owner. `north --help` and each command's own `--help` for commands
+  and flags, [harness/defaults.toml](harness/defaults.toml) for every tuned number with its unit and
+  source, [.safe-push](.safe-push) for the checks a landing runs,
+  [structure.toml](structure.toml) for module boundaries, a skill's SKILL.md for a procedure, and
+  [docs/rationale/](docs/rationale/) for why a choice was made.
+
 ## Where things live
 
-- [src/](src/): the `north` fleet runtime, terminal screen and authorized host effects.
-- [bin/](bin/): every harness command (`agents`, `threads`, `safe-push` and more).
-- [harness/](harness/): hooks, skills, defaults and policy owners.
-- [agent-machinery/](agent-machinery/): provider-independent doctrine, contracts and skills.
-- [docs/](docs/): the documents below.
+- [src/](src/) and [crates/](crates/): the `north` fleet runtime, terminal screen, landing gates and
+  authorized host effects; [docs/architecture.md](docs/architecture.md) maps the owning boundaries.
+- [bin/](bin/): every harness command (`agents`, `threads`, `safe-push` and more);
+  [docs/features.md](docs/features.md) says what each one is for.
+- [harness/](harness/): hooks, skills, defaults and policy owners;
+  [docs/harness.md](docs/harness.md) follows them end to end.
+- [agent-machinery/](agent-machinery/): provider-independent doctrine, contracts and skills;
+  [agent-machinery/README.md](agent-machinery/README.md) introduces the package.
+- [docs/](docs/): the concept documents, the feature entries and the rationale notes.
 
-## Read next
-
-Each document has one job:
+## Concept documents
 
 - [docs/harness.md](docs/harness.md): install, staffing, policy and landing, end to end.
 - [docs/terms.md](docs/terms.md): the four layer terms.
@@ -46,9 +62,13 @@ Each document has one job:
 - [docs/feedback-loop.md](docs/feedback-loop.md): each recorded signal, its writer and its reader.
 - [docs/python-port-order.md](docs/python-port-order.md): the order the remaining Python moves to Rust, from its import cycle.
 - [docs/references.md](docs/references.md): outside sources, what they shaped and what came of them.
-- [docs/rationale/targets.md](docs/rationale/targets.md): why numeric targets gate or not.
 - [docs/rationale/review-triggers.md](docs/rationale/review-triggers.md): why review is triggered by risk, not a landing trailer.
-- [AGENTS.md](AGENTS.md): rules for agents working in this repository, including build and check
-  commands.
-- [agent-machinery/README.md](agent-machinery/README.md): the shared procedures package.
 - [agent-machinery/skills/verification/SKILL.md](agent-machinery/skills/verification/SKILL.md): how tests are kept and run.
+
+## Keeping the docs true
+
+Each fact lives in one place and the docs link to it. `north citation-check` refuses a landing whose
+docs, skills or hooks name a `north` subcommand the CLI does not define, a repository path that no
+longer exists or a relative link that does not resolve. Rationale notes are dated records and keep
+the paths of their day. The layout and the work still open are in
+[docs/rationale/docs-architecture.md](docs/rationale/docs-architecture.md).
