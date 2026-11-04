@@ -1,24 +1,40 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::LazyLock;
-
-use regex::Regex;
 
 use crate::platform::git as platform_git;
 
+#[path = "landing/runtime_floor_invocation.rs"]
+mod invocation;
+#[path = "landing/runtime_floor_surface.rs"]
+mod surface;
+
+pub use invocation::{Invocation, invocations};
+pub use surface::{Gap, Surface};
+
 type Result<T> = std::result::Result<T, String>;
 
-const USAGE: &str = "Usage: north runtime-floor-gate --repo DIR --base REV --head REV";
-const COMMAND_TABLE: [&str; 4] = ["src/main.rs", "src/cli/mod.rs", "src/cli/tools.rs", "src/cli/session.rs"];
-
-static LITERAL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""([a-z][a-z0-9-]*)""#).expect("literal pattern"));
-static CALL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[\s;&|({`!])north\s+([a-z][a-z0-9-]*)").expect("call pattern"));
+const USAGE: &str = "Usage: north runtime-floor-gate --repo DIR --base REV --head REV [--north DIR]";
+const NORTH_MAIN: &str = "north main";
+const OWN_TABLE: &str = "src/cli/mod.rs";
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Floor {
     pub sha: String,
     pub host: String,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Added {
+    pub path: String,
+    pub script: String,
+    pub invocations: Vec<Invocation>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Verdict {
+    Passed,
+    Refused(Vec<String>),
 }
 
 fn git(repo: &Path, args: &[&str]) -> Result<String> {
@@ -31,19 +47,7 @@ fn succeeds(repo: &Path, args: &[&str]) -> bool {
 }
 
 pub fn commands(repo: &Path, rev: &str) -> BTreeSet<String> {
-    COMMAND_TABLE
-        .iter()
-        .filter_map(|path| git(repo, &["show", &format!("{rev}:{path}")]).ok())
-        .flat_map(|source| LITERAL.captures_iter(&source).map(|capture| capture[1].to_owned()).collect::<Vec<_>>())
-        .collect()
-}
-
-pub fn calls(line: &str) -> Vec<String> {
-    let code = line.trim_start();
-    if code.starts_with('#') || code.starts_with("//") {
-        return Vec::new();
-    }
-    CALL.captures_iter(code).map(|capture| capture[1].to_owned()).collect()
+    Surface::read(repo, rev, &BTreeSet::new()).commands().clone()
 }
 
 fn guarded(script: &str, command: &str) -> bool {
@@ -51,7 +55,7 @@ fn guarded(script: &str, command: &str) -> bool {
 }
 
 fn is_script(path: &str, text: &str) -> bool {
-    text.starts_with("#!") || path.ends_with(".sh") || path.ends_with(".bash")
+    text.starts_with("#!") || path.ends_with(".sh") || path.ends_with(".bash") || path.ends_with(".nix")
 }
 
 pub fn state_dir() -> PathBuf {
@@ -60,6 +64,13 @@ pub fn state_dir() -> PathBuf {
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))
         .unwrap_or_default()
         .join("north")
+}
+
+pub fn north_checkout() -> PathBuf {
+    std::env::var_os("NORTH_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join("code/north/main")))
+        .unwrap_or_default()
 }
 
 pub fn live_runtimes(state: &Path) -> Vec<Floor> {
@@ -76,18 +87,14 @@ pub fn live_runtimes(state: &Path) -> Vec<Floor> {
     live
 }
 
-pub fn oldest(repo: &Path, live: Vec<Floor>, base: &str) -> Floor {
+pub fn oldest(repo: &Path, live: Vec<Floor>, fallback: Floor) -> Floor {
     live.into_iter()
         .filter(|floor| succeeds(repo, &["cat-file", "-e", &format!("{}^{{commit}}", floor.sha)]))
         .reduce(|oldest, next| if succeeds(repo, &["merge-base", "--is-ancestor", &next.sha, &oldest.sha]) { next } else { oldest })
-        .unwrap_or_else(|| Floor { sha: base.to_owned(), host: "the landing's base".to_owned() })
+        .unwrap_or(fallback)
 }
 
-pub fn violations(repo: &Path, base: &str, head: &str, floor: &str) -> Result<Vec<String>> {
-    let newer: BTreeSet<String> = commands(repo, head).difference(&commands(repo, floor)).cloned().collect();
-    if newer.is_empty() {
-        return Ok(Vec::new());
-    }
+pub fn added_invocations(repo: &Path, base: &str, head: &str) -> Result<Vec<Added>> {
     let changed = git(repo, &["diff", "--name-only", "--diff-filter=AM", "-z", base, head])?;
     let mut found = Vec::new();
     for path in changed.split('\0').filter(|path| !path.is_empty()) {
@@ -97,37 +104,99 @@ pub fn violations(repo: &Path, base: &str, head: &str, floor: &str) -> Result<Ve
         }
         let diff = git(repo, &["diff", "--no-color", "--no-ext-diff", "--unified=0", base, head, "--", path])?;
         let added = diff.lines().filter(|line| !line.starts_with("+++")).filter_map(|line| line.strip_prefix('+'));
-        let named: BTreeSet<String> = added.flat_map(calls).filter(|command| newer.contains(command) && !guarded(&script, command)).collect();
-        found.extend(named.into_iter().map(|command| format!("{path}: north {command}")));
+        let invocations: Vec<Invocation> = added.flat_map(invocations).collect();
+        if !invocations.is_empty() {
+            found.push(Added { path: path.to_owned(), script, invocations });
+        }
     }
     Ok(found)
 }
 
-fn report(repo: &Path, base: &str, head: &str) -> Result<bool> {
-    let floor = oldest(repo, live_runtimes(&state_dir()), base);
-    let found = violations(repo, base, head, &floor.sha)?;
+pub fn refusals(own: bool, head: &Surface, floor: &Surface, invocation: &Invocation) -> Vec<Gap> {
+    let beyond_head = head.gaps(invocation);
+    floor.gaps(invocation).into_iter().filter(|gap| (!own && gap.is_flag()) || !beyond_head.contains(gap)).collect()
+}
+
+pub fn violations(added: &[Added], own: bool, head: &Surface, floor: &Surface) -> Vec<String> {
+    let named: BTreeSet<String> = added
+        .iter()
+        .flat_map(|file| {
+            file.invocations.iter().flat_map(move |invocation| {
+                refusals(own, head, floor, invocation)
+                    .into_iter()
+                    .filter(move |gap| !matches!(gap, Gap::Command(command) if guarded(&file.script, command)))
+                    .map(move |gap| format!("{}: {}", file.path, gap.name(invocation)))
+            })
+        })
+        .collect();
+    named.into_iter().collect()
+}
+
+pub fn render(found: &[String], floor: &str, host: &str) -> Vec<String> {
+    let mut lines: Vec<String> = found.iter().map(|line| format!("runtime-floor-gate: {line} is missing from the oldest live runtime {floor} ({host})")).collect();
+    lines.push("runtime-floor-gate: land the subcommand or flag first and call it once every host runs a runtime that has it (north runtime settle), or probe a subcommand with `north SUB --help` and say to run north runtime update when it is missing".to_owned());
+    lines
+}
+
+fn is_north_source(repo: &Path, rev: &str) -> bool {
+    succeeds(repo, &["cat-file", "-e", &format!("{rev}:{OWN_TABLE}")])
+}
+
+fn tip(north: &Path) -> Result<String> {
+    ["origin/main", "HEAD"]
+        .iter()
+        .find_map(|rev| git(north, &["rev-parse", "--verify", "-q", &format!("{rev}^{{commit}}")]).ok())
+        .map(|sha| sha.trim().to_owned())
+        .ok_or_else(|| format!("cannot read north's source at {}; set NORTH_HOME to a north checkout", north.display()))
+}
+
+pub fn judge(repo: &Path, north: Option<&Path>, state: &Path, base: &str, head: &str) -> Result<Verdict> {
+    let added = added_invocations(repo, base, head)?;
+    if added.is_empty() {
+        return Ok(Verdict::Passed);
+    }
+    let own = is_north_source(repo, head);
+    let (source, head_rev, fallback) = if own {
+        (repo.to_path_buf(), head.to_owned(), Floor { sha: base.to_owned(), host: "the landing's base".to_owned() })
+    } else {
+        let source = north.map_or_else(north_checkout, Path::to_path_buf);
+        let tip = tip(&source)?;
+        (source, tip.clone(), Floor { sha: tip, host: NORTH_MAIN.to_owned() })
+    };
+    let words: BTreeSet<String> = added.iter().flat_map(|file| &file.invocations).flat_map(|invocation| invocation.words.clone()).collect();
+    let floor = oldest(&source, live_runtimes(state), fallback);
+    let found = violations(&added, own, &Surface::read(&source, &head_rev, &words), &Surface::read(&source, &floor.sha, &words));
     if found.is_empty() {
-        println!("runtime-floor-gate: passed");
-        return Ok(true);
+        return Ok(Verdict::Passed);
     }
-    let short = git(repo, &["rev-parse", "--short=8", &floor.sha]).map_or_else(|_| floor.sha.clone(), |sha| sha.trim().to_owned());
-    for line in &found {
-        println!("runtime-floor-gate: {line} is missing from the oldest live runtime {short} ({})", floor.host);
-    }
-    println!("runtime-floor-gate: land the subcommand first and call it once every host runs a runtime that has it (north runtime settle), or probe it with `north SUB --help` and say to run north runtime update when it is missing");
-    Ok(false)
+    let short = git(&source, &["rev-parse", "--short=8", &floor.sha]).map_or_else(|_| floor.sha.clone(), |sha| sha.trim().to_owned());
+    Ok(Verdict::Refused(render(&found, &short, &floor.host)))
 }
 
 pub fn check(repo: &Path, base: &str, head: &str) -> bool {
-    report(repo, base, head).unwrap_or_else(|error| {
-        eprintln!("runtime-floor-gate: {error}");
-        false
-    })
+    check_with(repo, None, base, head)
+}
+
+fn check_with(repo: &Path, north: Option<&Path>, base: &str, head: &str) -> bool {
+    match judge(repo, north, &state_dir(), base, head) {
+        Ok(Verdict::Passed) => {
+            println!("runtime-floor-gate: passed");
+            true
+        }
+        Ok(Verdict::Refused(lines)) => {
+            lines.iter().for_each(|line| println!("{line}"));
+            false
+        }
+        Err(error) => {
+            eprintln!("runtime-floor-gate: {error}");
+            false
+        }
+    }
 }
 
 pub fn run_gate(args: &[String]) -> ExitCode {
     let parsed = (|| {
-        let (mut repo, mut base, mut head) = (None, None, None);
+        let (mut repo, mut base, mut head, mut north) = (None, None, None, None);
         let mut args = args.iter();
         while let Some(flag) = args.next() {
             let value = args.next().ok_or(USAGE)?;
@@ -135,16 +204,17 @@ pub fn run_gate(args: &[String]) -> ExitCode {
                 "--repo" => &mut repo,
                 "--base" => &mut base,
                 "--head" => &mut head,
+                "--north" => &mut north,
                 _ => return Err(format!("unknown runtime-floor-gate option {flag}")),
             };
             if slot.replace(value.clone()).is_some() {
                 return Err(format!("duplicate option {flag}"));
             }
         }
-        repo.zip(base).zip(head).map(|((repo, base), head)| (repo, base, head)).ok_or_else(|| USAGE.to_owned())
+        repo.zip(base).zip(head).map(|((repo, base), head)| (repo, base, head, north)).ok_or_else(|| USAGE.to_owned())
     })();
     match parsed {
-        Ok((repo, base, head)) if check(Path::new(&repo), &base, &head) => ExitCode::SUCCESS,
+        Ok((repo, base, head, north)) if check_with(Path::new(&repo), north.as_deref().map(Path::new), &base, &head) => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(error) => {
             eprintln!("runtime-floor-gate: {error}");
