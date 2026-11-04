@@ -7,6 +7,8 @@
 [mutant]
 	class = heavy
 	run = nix develop --no-update-lock-file -c bash harness/scripts/mutant-tests.sh
+[flake]
+	build = cargo test --locked --offline --no-run --message-format=json-render-diagnostics
 [ci]
 	budget = cargo.yml 162 600
 	budget = harness.yml 80 600

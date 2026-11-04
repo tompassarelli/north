@@ -13,6 +13,7 @@ pub mod lane_squash;
 pub mod land_test_runner;
 pub mod lane_target;
 pub mod fails_first;
+mod flake;
 mod mutant;
 pub mod merge_set;
 pub mod mutant_cli;

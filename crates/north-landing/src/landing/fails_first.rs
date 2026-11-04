@@ -81,10 +81,6 @@ pub(super) fn check(cwd: &Path, base: &str, head: &str, env: &Env, out: &mut dyn
     let changed = git_bytes(cwd, None, &["diff", "--name-only", "--no-renames", "-z", &base, &head])?;
     let changed: Vec<String> = changed.split(|byte| *byte == 0).filter(|path| !path.is_empty()).map(|path| String::from_utf8_lossy(path).into_owned()).collect();
     let tests: Vec<&str> = changed.iter().map(String::as_str).filter(|path| is_test(path)).collect();
-    if tests.is_empty() || !changed.iter().any(|path| is_code(path)) {
-        writeln!(out, "fails-first: not applicable (the lane does not change both code and tests)")?;
-        return Ok(());
-    }
     let mut names = BTreeSet::new();
     for path in tests.iter().filter(|path| path.ends_with(".rs")) {
         names.extend(named(cwd, &base, &head, path)?);
@@ -93,9 +89,18 @@ pub(super) fn check(cwd: &Path, base: &str, head: &str, env: &Env, out: &mut dyn
         writeln!(out, "fails-first: not applicable (the changed tests add or change no #[test] or prop_ function)")?;
         return Ok(());
     }
-    let message = git_text(cwd, None, &["log", "-1", "--format=%B", &head])?;
+    if changed.iter().any(|path| is_code(path)) {
+        against_base(cwd, &base, &head, &tests, &names, env, out)?;
+    } else {
+        writeln!(out, "fails-first: base runs not applicable (the lane does not change both code and tests)")?;
+    }
+    super::flake::check(cwd, &base, &head, &names, out)
+}
+
+fn against_base(cwd: &Path, base: &str, head: &str, tests: &[&str], names: &BTreeSet<String>, env: &Env, out: &mut dyn Write) -> Result<(), Stop> {
+    let message = git_text(cwd, None, &["log", "-1", "--format=%B", head])?;
     let unchanged = message.lines().any(|line| line.trim() == MARK);
-    let verdicts = match on_base(cwd, &base, &head, &tests, &names, env, out)? {
+    let verdicts = match on_base(cwd, base, head, tests, names, env, out)? {
         Base::Verdicts(verdicts) => verdicts,
         Base::Unverified(reason) => return unverified(out, &reason),
     };
