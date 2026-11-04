@@ -11,7 +11,7 @@ mod tiers;
 #[cfg(test)]
 mod tests;
 
-pub const USAGE: &str = "usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|busy|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alarm]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|report|usage [--refresh] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]}\nagents pace grant ACCOUNT MAX-WORKERS --until UTC --for LEAD --reason TEXT [--task NAME --uses N]";
+pub const USAGE: &str = "usage: agents {status [--json]|stale [--json]|inspect <id> [--json]|path <id>|on <id>|off <id>|sync|busy|presence [--json] [--at ISO]|flow [--json] [--repo NAME]... [--stall-alarm]|plan [--score PROJECT] [--place BRIEF...|--credit] [--quote --project P --boxes N [--category C]] [--json] [--mode split|claude-only] [--at SCENARIO.json]|routines [list|show NAME|pointer NAME] [--crons FILE|-]|report|usage [--refresh [--local]] [--write-pace-gate] [--json] [--gate PROVIDER] [--fast PROVIDER [--domain D] [--cached]]|news [--days 7] [--noise ID|--more ID] [--feedback PATH]}\nagents pace grant ACCOUNT MAX-WORKERS --until UTC --for LEAD --reason TEXT [--task NAME --uses N]";
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Verb {

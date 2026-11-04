@@ -14,7 +14,14 @@ use config::{Check, Step};
 use judge::{Finished, Outcome, Overrides, Places, StatusRequest, Statuses, Steps};
 
 const SOURCE: &str = include_str!("../../../../../north-data/private-checks.toml");
-const USAGE: &str = "usage: north private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]";
+const USAGE: &str = "usage: north private-check [--config PATH] [--check NAME] [--dry-run [--ref REV] [--since REV]]
+
+Runs each [[check]] of north-data/private-checks.toml (built in; --config reads another file): repo, checkout under ~/code, status context, git pathspec paths and [[check.step]] tables (command, dir, machine-capacity class, timeout_seconds).
+A check posts pending, then success when the last step exits 0, failure on exit 1 and error otherwise; a step capacity never admitted (exit 75) posts nothing, records nothing and makes the run exit 75.
+--check NAME   run only that check
+--dry-run      run the steps but print each status request instead of posting, and record nothing
+--ref REV      (dry run) judge REV instead of origin/main
+--since REV    (dry run) diff from REV instead of the last judged tip";
 
 #[derive(Debug, Default)]
 struct Request {
