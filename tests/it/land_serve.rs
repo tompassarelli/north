@@ -106,6 +106,12 @@ impl Fixture {
     }
 
     fn enqueue(&mut self, root: &Path, red_fix: Option<RedFix>) -> PathBuf {
+        let (path, ticket) = self.ticket(root, red_fix);
+        queue::write(&path, &ticket).unwrap();
+        path
+    }
+
+    fn ticket(&mut self, root: &Path, red_fix: Option<RedFix>) -> (PathBuf, Ticket) {
         self.queued += 1;
         let branch = git(root, &["symbolic-ref", "--short", "HEAD"]);
         let ticket = Ticket {
@@ -119,9 +125,7 @@ impl Fixture {
             red_fix,
             verdict: None,
         };
-        let path = self.queue().join(queue::file_name(self.queued, &branch));
-        queue::write(&path, &ticket).unwrap();
-        path
+        (self.queue().join(queue::file_name(self.queued, &branch)), ticket)
     }
 
     fn command(&self) -> Command {
@@ -974,11 +978,12 @@ fn pushed_trees_were_checked(fixture: &Fixture) {
 }
 
 fn speculate_serve(fixture: &mut Fixture, later: &[PathBuf], after: std::time::Duration) -> (Output, std::time::Duration) {
+    let tickets: Vec<(PathBuf, Ticket)> = later.iter().map(|lane| fixture.ticket(lane, None)).collect();
     let started = std::time::Instant::now();
     let child = fixture.command().stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
     std::thread::sleep(after);
-    for lane in later {
-        fixture.enqueue(lane, None);
+    for (path, ticket) in &tickets {
+        queue::write(path, ticket).unwrap();
     }
     let output = child.wait_with_output().unwrap();
     let elapsed = started.elapsed();
