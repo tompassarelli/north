@@ -25,6 +25,9 @@ mod landing_tests;
 mod machine_tests;
 mod measure;
 mod offload_cost;
+mod model;
+mod calibration;
+pub use calibration::{calibration_command, model_command};
 pub(super) mod policy;
 #[cfg(test)]
 mod policy_tests;
@@ -278,6 +281,7 @@ fn requested(options: &args::Options, operation: &str, owner: &str, command: &[S
     } else {
         sizing::size_from_usage(command, owner, cores)
     };
+    sizing::attach_forecast(&mut request, owner, command);
     if request.estimate.is_none() {
         request.estimate = Some(sizing::estimate_command(command, &request.name, Some(owner), cores));
     }

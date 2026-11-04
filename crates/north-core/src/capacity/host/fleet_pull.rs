@@ -12,16 +12,6 @@ pub(super) fn run_columns(db: &Connection) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub(super) fn ensure_columns(db: &Connection) -> rusqlite::Result<()> {
-    let columns = run_columns(db);
-    for (column, kind) in [("host", "TEXT"), ("queuedSeconds", "REAL")] {
-        if !columns.iter().any(|name| name == column) {
-            db.execute_batch(&format!("ALTER TABLE capacity_runs ADD COLUMN {column} {kind}"))?;
-        }
-    }
-    Ok(())
-}
-
 pub(super) fn claim_local_rows(db: &Connection, local: &str) -> rusqlite::Result<()> {
     db.execute("UPDATE capacity_runs SET host = ? WHERE host IS NULL", [local])?;
     Ok(())
@@ -92,7 +82,6 @@ pub(super) fn pull_host(db: &mut Connection, name: &str, fetch: &dyn Fn(&str) ->
 
 pub fn open_fleet_database(local: &str) -> rusqlite::Result<Connection> {
     let db = capacity_database()?;
-    ensure_columns(&db)?;
     claim_local_rows(&db, local)?;
     Ok(db)
 }

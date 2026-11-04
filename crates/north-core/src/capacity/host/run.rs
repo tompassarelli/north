@@ -10,6 +10,7 @@ use super::estimate::task_signature;
 use super::json::{Obj, field, num, round2, text};
 use super::machine::{elastic_class, env, lease_slice, now_ms, read_signals, read_text, scope_cgroup};
 use super::measure::{Usage, measure_scope};
+use super::model::{Observation, Subject, censored, command_key, current_cache_state, host_name, update};
 use super::policy::batch_class;
 use super::quiet_holds::{QuietHolds, quiet_owners};
 use super::requeue;
@@ -355,6 +356,42 @@ fn usage_entry(owner: &str, request: &Request, command: &[String], admitted: &Ob
     entry
 }
 
+fn model_fields(entry: Obj, owner: &str, request: &Request, command: &[String], usage: &Usage, cache: &str, memory_high: Option<f64>) -> Obj {
+    let predicted = |key: &str| request.forecast.as_ref().and_then(|forecast| forecast.get(key)).cloned().unwrap_or(Value::Null);
+    entry
+        .put("key", command_key(owner, command))
+        .put("host", host_name())
+        .put("cache", cache)
+        .put("anonPeakMiB", super::json::opt(usage.anon_peak_mib.map(|anon| (anon + 0.5).floor())))
+        .put("memoryStallUsec", super::json::opt(usage.memory_stall_usec))
+        .put("censored", censored(usage.memory_stall_usec, usage.peak_memory_mib, memory_high))
+        .put("predictedWallSeconds", predicted("wallSeconds"))
+        .put("predictedWallP90Seconds", predicted("wallP90Seconds"))
+        .put("predictedMemoryMiB", predicted("memoryMiB"))
+        .put("predictionBasis", predicted("basis"))
+}
+
+pub(super) fn learn(db: &rusqlite::Connection, row: &Value) -> rusqlite::Result<()> {
+    if field(row, "exitCode") != Some(0.0) {
+        return Ok(());
+    }
+    let subject = Subject {
+        command: row.get("command").map_or_else(String::new, Value::to_string),
+        key: text(row, "key").unwrap_or_default().to_owned(),
+        host: text(row, "host").unwrap_or_default().to_owned(),
+        cache: text(row, "cache").unwrap_or_default().to_owned(),
+    };
+    let censored = row.get("censored").and_then(Value::as_bool).unwrap_or(false);
+    let observation = Observation {
+        subject: &subject,
+        wall_seconds: field(row, "wallSeconds").unwrap_or(f64::NAN),
+        cpu_seconds: field(row, "cpuSeconds").unwrap_or(f64::NAN),
+        anon_peak_mib: field(row, "anonPeakMiB").unwrap_or(f64::NAN),
+        censored_at_mib: censored.then(|| field(row, "reservedMemoryMiB")).flatten(),
+    };
+    update(db, &observation)
+}
+
 fn record(entry: &Obj, usage: &Usage, command: &[String], request: &Request, lease: &str) {
     let cwd = std::env::current_dir().map(|cwd| cwd.to_string_lossy().into_owned()).ok();
     let row = entry
@@ -363,8 +400,12 @@ fn record(entry: &Obj, usage: &Usage, command: &[String], request: &Request, lea
         .put("ioWriteBytes", super::json::opt(usage.io_write_bytes))
         .put("ioPressureSomeUsec", super::json::opt(usage.io_pressure_some_usec))
         .put("diskBusyShare", super::json::opt(usage.disk_busy_share));
-    let stored = super::database::capacity_database().and_then(|db| {
-        super::database::insert_capacity_run(&db, &format!("lease:{lease}"), &row.value(), &task_signature(command, cwd.as_deref(), &request.name, true), cwd.as_deref())
+    let view = row.value();
+    let stored = super::database::capacity_database().and_then(|mut db| {
+        let transaction = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        super::database::insert_capacity_run(&transaction, &format!("lease:{lease}"), &view, &task_signature(command, cwd.as_deref(), &request.name, true), cwd.as_deref())?;
+        learn(&transaction, &view)?;
+        transaction.commit()
     });
     if let Err(error) = stored {
         eprintln!("machine-capacity: capacity database failed: {error}");
@@ -392,12 +433,15 @@ async fn run_admitted(root: &Path, request: &Request, owner: &str, timeout_secon
     let lease = text(&admitted.value(), "lease").unwrap_or_default().to_owned();
     let unit = scope_unit(&lease);
     let child_cpu_before = children_cpu_seconds();
+    let cache = current_cache_state();
     let exit_code = match scope_command(root, request, admitted, timeout_seconds, command).spawn() {
         Ok(child) => {
             let measurement = measure_scope(root, &lease, scope_cgroup(request.admitted_class(), &unit));
             let exit_code = supervise(child, &unit, terminations).await;
             let usage = measurement.finish();
             let entry = usage_entry(owner, request, command, admitted, exit_code, &usage, children_cpu_seconds() - child_cpu_before);
+            let memory_high = admitted.get("scope").and_then(|scope| field(scope, "memoryMiB"));
+            let entry = model_fields(entry, owner, request, command, &usage, cache, memory_high);
             record(&entry, &usage, command, request, &lease);
             exit_code
         }

@@ -133,6 +133,20 @@ fn only_a_declared_gaming_marker_lets_moderate_work_pass_a_parked_heavy_ticket()
     assert_eq!(declared["reason"], "RUN", "{declared}");
 }
 
+const DESKTOP_APPLIED: &str = "no reservation; agents run at their slice weights";
+const PLAY_APPLIED: &str = "play reserve 8 CPUs; game CPUs reserved, native, exclusive and gpu batch held, heavy batch paused";
+
+fn assert_play_hold(line: &str) {
+    assert!(line.starts_with("mode play (since "), "{line}");
+    assert!(line.contains(": quiet hold from Tom's prompt \"north capacity gaming on\" until "), "{line}");
+    assert!(line.ends_with(&format!("; {PLAY_APPLIED}")), "{line}");
+}
+
+fn assert_released(line: &str) {
+    assert!(line.starts_with("mode desktop (since "), "{line}");
+    assert!(line.ends_with(&format!("): released by Tom's prompt; {DESKTOP_APPLIED}")), "{line}");
+}
+
 #[test]
 fn a_running_game_declares_nothing_and_the_gaming_command_declares_and_lifts_the_hold() {
     let host = host();
@@ -146,20 +160,29 @@ fn a_running_game_declares_nothing_and_the_gaming_command_declares_and_lifts_the
         serde_json::from_slice::<Value>(&output.stdout).unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&output.stderr)))
     };
     let gaming = |verb: &str| {
-        let output = host.command(env!("CARGO_BIN_EXE_north")).args(["capacity", "gaming", verb]).output().unwrap();
+        let output = host.command(env!("CARGO_BIN_EXE_north")).args(["capacity", "gaming", verb]).env("CAPACITY_MODE_STATE", host.path("capacity-mode")).output().unwrap();
         (output.status.code(), String::from_utf8_lossy(&output.stdout).trim().to_owned())
     };
     assert_eq!(dry()["gaming"], false);
     assert_eq!(probe(&host, "gpu")["reason"], "RUN");
-    assert_eq!(gaming("status"), (Some(1), "gaming off".to_owned()));
+    assert_eq!(gaming("status"), (Some(1), format!("mode desktop (never ticked): ; {DESKTOP_APPLIED}")));
 
-    assert_eq!(gaming("on"), (Some(0), "gaming on".to_owned()));
+    let (code, line) = gaming("on");
+    assert_eq!(code, Some(0), "{line}");
+    assert_play_hold(&line);
     assert_eq!(dry()["gaming"], true);
     assert_eq!(probe(&host, "gpu")["reason"], "DEFER_GAMING");
-    assert_eq!(gaming("status"), (Some(0), "gaming on".to_owned()));
+    let (code, line) = gaming("status");
+    assert_eq!(code, Some(0), "{line}");
+    assert_play_hold(&line);
 
-    assert_eq!(gaming("off"), (Some(0), "gaming off".to_owned()));
+    let (code, line) = gaming("off");
+    assert_eq!(code, Some(0), "{line}");
+    assert_released(&line);
     assert_eq!(dry()["gaming"], false);
+    let (code, line) = gaming("status");
+    assert_eq!(code, Some(1), "{line}");
+    assert_released(&line);
     assert_eq!(probe(&host, "gpu")["reason"], "RUN");
 }
 
@@ -172,7 +195,8 @@ fn wall_clock_systemd_run() -> String {
 }
 
 fn laptop_auto(host: &Host, gaming: bool) -> String {
-    mark_gaming(host, gaming);
+    let hold = host.command(env!("CARGO_BIN_EXE_north")).args(["capacity", "mode", if gaming { "hold" } else { "release" }]).env("CAPACITY_MODE_STATE", host.path("capacity-mode")).output().unwrap();
+    assert!(hold.status.success(), "{}", String::from_utf8_lossy(&hold.stderr));
     fs::write(host.path("game-reserve.json"), json!({ "on": false }).to_string()).unwrap();
     let output = host
         .command(env!("CARGO_BIN_EXE_north"))
@@ -181,6 +205,7 @@ fn laptop_auto(host: &Host, gaming: bool) -> String {
         .env("AGENT_LOAD_CGROUP", host.path("user-cgroup"))
         .env("AGENT_LOAD_POWER_SUPPLY", host.path("no-power-supply"))
         .env("GAME_RESERVE_STATE", host.path("game-reserve.json"))
+        .env("CAPACITY_MODE_STATE", host.path("capacity-mode"))
         .env("LAPTOP_AUTO_LAPTOP", "true")
         .output()
         .unwrap();

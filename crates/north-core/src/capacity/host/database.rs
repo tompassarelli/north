@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::estimate::{CapacityRun, TaskSignature, task_signature};
 use super::machine::{env, read_text};
+use super::model::{MODEL_COLUMNS, MODEL_SCHEMA};
 use super::policy::sizing_runs;
 
 pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS capacity_runs (
@@ -47,22 +48,32 @@ fn table_columns(db: &Connection) -> Vec<String> {
     db.prepare("PRAGMA table_info(capacity_runs)").and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().collect())).unwrap_or_default()
 }
 
+fn run_columns() -> impl Iterator<Item = (&'static str, &'static str)> {
+    std::iter::once(("command", "TEXT")).chain(OFFLOAD_COLUMNS).chain(MODEL_COLUMNS)
+}
+
+pub(super) fn add_run_columns(db: &Connection) -> rusqlite::Result<()> {
+    let present = table_columns(db);
+    for (name, kind) in run_columns() {
+        if !present.iter().any(|column| column == name) {
+            db.execute_batch(&format!("ALTER TABLE capacity_runs ADD COLUMN {name} {kind}"))?;
+        }
+    }
+    Ok(())
+}
+
 fn has_columns(db: &Connection) -> bool {
     let columns = table_columns(db);
-    OFFLOAD_COLUMNS.iter().all(|(name, _)| columns.iter().any(|column| column == name))
+    run_columns().all(|(name, _)| columns.iter().any(|column| column == name))
 }
 
 /// Whether the schema is already in place, read without a write lock: every capacity command opens the database, and a write transaction per open queued forty queued wrappers behind each other's history reads past the busy timeout when a runtime update re-ran them at once.
 fn current(db: &Connection) -> bool {
     let named = |kind: &str, name: &str| db.query_row("SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?", [kind, name], |_| Ok(())).is_ok();
-    let has_command = db
-        .prepare("PRAGMA table_info(capacity_runs)")
-        .and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).map(|names| names.flatten().any(|name| name == "command")))
-        .unwrap_or(false);
-    has_command && has_columns(db) && named("table", "capacity_imports") && named("table", "capacity_priority") && named("index", "capacity_runs_signature")
+    has_columns(db) && named("table", "capacity_imports") && named("table", "capacity_priority") && named("table", "capacity_model") && named("index", "capacity_runs_signature")
 }
 
-fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
+pub(super) fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
     if current(db) {
         return Ok(false);
     }
@@ -86,15 +97,8 @@ fn migrate(db: &mut Connection) -> rusqlite::Result<bool> {
             }
         }
     }
-    let present = table_columns(&transaction);
-    if !present.iter().any(|name| name == "command") {
-        transaction.execute_batch("ALTER TABLE capacity_runs ADD COLUMN command TEXT")?;
-    }
-    for (name, kind) in OFFLOAD_COLUMNS {
-        if !present.iter().any(|column| column == name) {
-            transaction.execute_batch(&format!("ALTER TABLE capacity_runs ADD COLUMN {name} {kind}"))?;
-        }
-    }
+    add_run_columns(&transaction)?;
+    transaction.execute_batch(MODEL_SCHEMA)?;
     transaction.commit()?;
     Ok(attached)
 }
@@ -141,7 +145,7 @@ pub(super) fn sql(value: Option<&Value>) -> Sql {
 }
 
 pub fn insert_capacity_run(db: &Connection, source: &str, entry: &Value, signature: &TaskSignature, cwd: Option<&str>) -> rusqlite::Result<()> {
-    let columns: Vec<&str> = ["source_id", "at", "family", "repo", "package", "class", "signature_exact", "cwd"].into_iter().chain(MEASUREMENT_COLUMNS).collect();
+    let columns: Vec<&str> = ["source_id", "at", "family", "repo", "package", "class", "signature_exact", "cwd"].into_iter().chain(MEASUREMENT_COLUMNS).chain(MODEL_COLUMNS.map(|(name, _)| name)).collect();
     let placeholders = vec!["?"; columns.len()].join(",");
     let text = |value: &Option<String>| value.clone().map_or(Sql::Null, Sql::Text);
     let mut values = vec![
@@ -154,7 +158,7 @@ pub fn insert_capacity_run(db: &Connection, source: &str, entry: &Value, signatu
         Sql::Integer(i64::from(signature.exact)),
         cwd.map_or(Sql::Null, |cwd| Sql::Text(cwd.to_owned())),
     ];
-    values.extend(MEASUREMENT_COLUMNS.iter().map(|key| sql(entry.get(*key))));
+    values.extend(MEASUREMENT_COLUMNS.iter().copied().chain(MODEL_COLUMNS.map(|(name, _)| name)).map(|key| sql(entry.get(key))));
     db.execute(&format!("INSERT OR IGNORE INTO capacity_runs ({}) VALUES ({placeholders})", columns.join(",")), params_from_iter(values))?;
     Ok(())
 }
@@ -202,6 +206,7 @@ fn capacity_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<CapacityRun> {
         disk_busy_share: real(row, "diskBusyShare")?,
         wall_seconds: real(row, "wallSeconds")?,
         exit_code: real(row, "exitCode")?,
+        host: row.get("host")?,
     })
 }
 
@@ -220,17 +225,18 @@ pub fn record_usage(entry: &str) -> std::io::Result<()> {
     let path = usage_log_path();
     private_parent(&path)?;
     let mut file = fs::OpenOptions::new().create(true).append(true).mode(0o600).open(&path)?;
-    writeln!(file, "{entry}")
+    file.write_all(format!("{entry}\n").as_bytes())
 }
 
 /// The latest sizing window of the usage log's last lines that match.
 pub fn recent_usage(lines: usize, matches: impl Fn(&Value) -> bool) -> Vec<Value> {
     let text = read_text(usage_log_path()).unwrap_or_default();
+    let host = super::model::host_name();
     let all: Vec<&str> = text.split('\n').collect();
     let matching: Vec<Value> = all[all.len().saturating_sub(lines)..]
         .iter()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|entry| matches(entry))
+        .filter(|entry| entry.get("host").and_then(Value::as_str).is_none_or(|recorded| recorded == host) && matches(entry))
         .collect();
     let keep = matching.len().saturating_sub(sizing_runs());
     matching.into_iter().skip(keep).collect()

@@ -205,7 +205,10 @@ fn result(request: &Request, create: Option<&Create>, code: &str, observed: &Obs
         _ => "DEFER",
     };
     let declared = granted.declared.map(|declared| declared.json());
-    let scope = declared.unwrap_or_else(|| granted.charged.json());
+    let mut scope = declared.unwrap_or_else(|| granted.charged.json());
+    if request.memory_from_model {
+        scope["memoryMiB"] = num(granted.charged.memory_mib);
+    }
     let signals = &context.signals;
     Obj::new()
         .put("decision", decision)

@@ -27,6 +27,8 @@ pub struct Request {
     pub latency: bool,
     pub landing: bool,
     pub priority: Option<&'static str>,
+    pub forecast: Option<Value>,
+    pub memory_from_model: bool,
 }
 
 impl Request {

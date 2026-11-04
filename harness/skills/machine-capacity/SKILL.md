@@ -32,10 +32,11 @@ Choose the smallest sufficient class, because oversized claims queue peers for n
 - Add `--priority tom-ask` to a moderate, heavy or gpu `run` or `session` whose output Tom is waiting on: it takes the place of the oldest ticket of its class and still obeys pressure, and each use is recorded.
 - runtime only for `north runtime update` building a landed north runtime, because every landing waits on that build (north#308).
 - Batch `session` defaults to 30 minutes and batch runs last one hour at most; only native sessions have no default deadline.
+- Leave the game reserve and gaming hold to the automatic modes: `north capacity mode status` names away, desktop or play (a running game, or Tom saying he is testing or playing until he says he is done or two hours pass) and why.
 
 ## Read when
 
-- Read [native and GPU](references/native-and-gpu.md) before starting Warcraft clients, a private desktop, a native evidence run (accept, gate runs, capture batches, soaks), GPU work, or when Tom says he is gaming or done gaming.
+- Read [native and GPU](references/native-and-gpu.md) before starting Warcraft clients, a private desktop, a native evidence run (accept, gate runs, capture batches, soaks), or GPU work.
 - Read [diagnosing pressure](references/diagnosing-pressure.md) when admission defers longer than you expect, a build ran on another host, the desktop is slow, or you must find who holds the machine.
 - Read [leases and limits](references/leases-and-limits.md) before reserving an agent lease for a compute-using worker, or when a scope or lease outlives its wrapper.
 - Read [admission details](references/admission-details.md) for exact thresholds, charging and queue rules, or before changing admission.

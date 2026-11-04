@@ -9,6 +9,8 @@ mod aperture;
 pub mod agent_load;
 pub mod gaming;
 pub mod laptop_auto;
+pub mod mode;
+pub mod teardown;
 pub mod seat_idle;
 mod game_reserve;
 mod gate;
@@ -34,6 +36,8 @@ mod build_offload_tests;
 mod agent_load_tests;
 #[cfg(test)]
 mod game_reserve_tests;
+#[cfg(test)]
+mod mode_tests;
 #[cfg(test)]
 mod gate_tests;
 #[cfg(test)]
@@ -70,15 +74,18 @@ fn route(arguments: &[String], offload: fn(&[String]) -> u8) -> Option<u8> {
         Some("actions-pull") => host::actions_pull(&arguments[1..]),
         Some("reap-orphans") if arguments.len() == 1 => agent_load::reap_orphans_run(),
         Some("gaming") => gaming::run(&arguments[1..]),
+        Some("mode") => mode::run(&arguments[1..]),
         Some("game-reserve") => game_reserve::run(&arguments[1..]),
         Some("deadline") => deadline::run(&arguments[1..]),
         Some("dev-shell") => dev_shell::run(&arguments[1..]),
         Some("warcraft-clients") if arguments.len() == 1 => warcraft::run(),
         Some("unleased") if arguments.len() == 1 => unleased::run(),
         Some("watchdog") => watchdog::run(&arguments[1..]),
+        Some("model") => host::model_command(&arguments[1..]),
+        Some("calibration") => host::calibration_command(&arguments[1..]),
         Some("quiet") if arguments.len() == 1 => native_hold::run(admission::quiet_idle_bound()),
         _ => {
-            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | gaming on|off|status | game-reserve on [--auto]|off|auto|playing|status | offload choose|cost|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
+            eprintln!("usage: north capacity admission < FACTS.json | laptop-auto [--dry-run] | seat-idle-hint [--seconds N] | reap-orphans | mode status|tick|hold [PHRASE]|release | gaming on|off|status | game-reserve on [--auto]|off|auto|playing|status | offload choose|cost|run | deadline LEASE_FILE SECONDS -- COMMAND... | dev-shell -- COMMAND... | warcraft-clients | warcraft-limit | disk-share SHARE | unleased | watchdog step|replay | model [KEY] | calibration [--since 24h] | quiet < LEASES.json | host OPERATION ... | pull [--host NAME] | actions-pull | gate [--class] PROGRAM [ARG...]");
             2
         }
     };
@@ -126,8 +133,8 @@ pub fn run(arguments: &[String], host: Host) -> u8 {
 
 /// Admission on the caller's facts, filled in with what this host observes: game reserve, run queue, disk, Warcraft clients, aperture and native holds.
 pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
-    if facts.game_reserve_agent_cpus.is_none() && agent_load::game_reserve_on(&agent_load::Host::from_env()) {
-        facts.game_reserve_agent_cpus = Some(game_reserve::Settings::from_env().agent_cpu_count());
+    if facts.game_reserve_agent_cpus.is_none() && agent_load::game_reserve_on(&agent_load::Host::from_env()) && !mode::heavy_paused() {
+        facts.game_reserve_agent_cpus = Some(mode::reserved_agent_cpus());
     }
     facts.gaming |= facts.game_reserve_agent_cpus.is_some() || agent_load::gaming_marked(&agent_load::capacity_root());
     facts.run_queue_load = facts.run_queue_load.or_else(|| run_queue_load(facts.cpu_some_avg10_basis_points));

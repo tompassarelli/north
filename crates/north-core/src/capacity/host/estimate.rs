@@ -34,6 +34,7 @@ pub struct CapacityRun {
     pub disk_busy_share: Option<f64>,
     pub wall_seconds: Option<f64>,
     pub exit_code: Option<f64>,
+    pub host: Option<String>,
 }
 
 fn basename(word: &str) -> &str {

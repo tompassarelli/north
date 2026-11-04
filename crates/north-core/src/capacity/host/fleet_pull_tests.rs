@@ -1,13 +1,12 @@
 use rusqlite::Connection;
 
 use super::*;
-use crate::capacity::host::database::SCHEMA;
+use crate::capacity::host::database::{SCHEMA, add_run_columns};
 
 fn fixture_database() -> Connection {
     let db = Connection::open_in_memory().expect("open");
     db.execute_batch(SCHEMA).expect("schema");
-    db.execute_batch("ALTER TABLE capacity_runs ADD COLUMN command TEXT").expect("command column");
-    ensure_columns(&db).expect("host column");
+    add_run_columns(&db).expect("run columns");
     db
 }
 

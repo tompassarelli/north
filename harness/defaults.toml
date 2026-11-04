@@ -921,3 +921,152 @@ source = "prior: admission defers on memory as available memory nears its reserv
 settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes in which work waited beside idle cores, so the waste thresholds can be checked against the waits Tom or a lead found by eye" }
 fallback = "none: the threshold is always read"
 consumers = ["crates/north-core/src/ops/watch/waste.rs"]
+
+[capacity_mode_table]
+value = ["away:", "desktop:", "play:reserve,hold,pause-heavy"]
+unit = "what each laptop capacity mode applies: reserve pins the game CPUs (game reserve), hold defers native, exclusive and gpu batch (gpu goes to the offload host) and stops native leases, pause-heavy defers and freezes heavy batch; away and desktop reserve nothing because elastic CPU already runs agent batch in an idle-weighted slice"
+source = "tom: the machine must be quiet while he plays or tests a game so lag is never the computer's load, light use needs only a core or two, and agents take the whole laptop while he is away (2026-11-04)"
+fallback = "a mode missing from the table applies nothing"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_play_release_sec]
+value = 600
+unit = "seconds play mode stays on after the last game process exits"
+source = "prior: game_reserve's 600 s idle release, long enough for a client restart between test runs"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play whose game restarts can be timed against this release" }
+fallback = "none: the release always applies"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_hold_sec]
+value = 7200
+unit = "seconds a quiet hold set by Tom's phrase lasts before it expires by itself"
+source = "tom: nothing noticed when he finished and the reserve sat on for three days, so every phrase hold expires; two hours covers a test session (2026-11-04)"
+fallback = "none: every hold has this expiry"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_play_cpus]
+value = 8
+unit = "game CPUs (SMT threads, half on each sibling set) the play reserve starts with"
+source = "measured: the game reserve pinned 0-3,12-15 (8 of 24 threads) through 2026-11-04"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings that size the reserve" }
+fallback = "the last sized value kept in the mode state"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_play_cpus_min]
+value = 4
+unit = "fewest game CPUs the play reserve narrows to"
+source = "prior: two cores with their siblings keep a Warcraft III client and the compositor"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings" }
+fallback = "none: the clamp always applies"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_play_cpus_max]
+value = 12
+unit = "most game CPUs the play reserve widens to"
+source = "prior: half the laptop's 24 threads, leaving agents the other half"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings" }
+fallback = "none: the clamp always applies"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_play_cpus_step]
+value = 2
+unit = "game CPUs (one core and its sibling) one sizing adjustment adds or removes"
+source = "prior: one physical core per step keeps the reserve on whole cores"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "recorded play reserve adjustments" }
+fallback = "none"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_play_psi_target]
+value = 5.0
+unit = "percent protectedCpuSomeAvg10 (session and native slice CPU pressure) above which the play reserve widens"
+source = "prior: admit_psi_game_low, the band floor batch admission already keeps beside Tom's game"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "capacity episodes during play with protectedCpuSomeAvg10 readings" }
+fallback = "without a pressure reading the reserve keeps its size"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_mode_play_calm_sec]
+value = 600
+unit = "seconds of protectedCpuSomeAvg10 at or under the target before the play reserve narrows one step"
+source = "prior: twenty laptop-auto ticks, so one quiet minute never shrinks the reserve"
+settles_when = { need = 20, count = "count_capacity_episodes", what = "recorded play reserve adjustments" }
+fallback = "none"
+consumers = ["crates/north-core/src/capacity/mode.rs"]
+
+[capacity_phrase_on_verbs]
+value = ["test", "testing", "playtest", "playtesting", "playing"]
+unit = "words in Tom's prompt that, followed within capacity_phrase_window_words by a game word, turn quiet mode on"
+source = "tom: phrases are checked deterministically by a UserPromptSubmit hook rather than by a skill (2026-11-04)"
+fallback = "none"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_phrase_on_objects]
+value = ["game", "map", "wisp", "makgora", "warcraft", "wc3"]
+unit = "game words that complete a quiet-on phrase"
+source = "tom: the games he plays and tests on the laptop (2026-11-04)"
+fallback = "none"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_phrase_off_verbs]
+value = ["done", "finished", "stopped"]
+unit = "words in Tom's prompt that, followed within capacity_phrase_window_words by an activity word, turn quiet mode off and close the test environment"
+source = "tom: saying he is done testing releases the machine and closes what the test started (2026-11-04)"
+fallback = "none"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_phrase_off_objects]
+value = ["testing", "playing", "playtesting", "gaming"]
+unit = "activity words that complete a quiet-off phrase"
+source = "tom: saying he is done testing releases the machine and closes what the test started (2026-11-04)"
+fallback = "none"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_phrase_off_phrases]
+value = ["release the machine"]
+unit = "whole phrases in Tom's prompt that turn quiet mode off"
+source = "tom: saying he is done testing releases the machine and closes what the test started (2026-11-04)"
+fallback = "none"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_phrase_window_words]
+value = 2
+unit = "words after a phrase verb within which its object must appear"
+source = "prior: covers 'test the wisp map' and 'done testing' while 'a test for the map loader' stays out"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available until phrase hook fires are counted; each fire is the measure" }
+fallback = "none"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_phrase_max_words]
+value = 40
+unit = "most words (after quoted text is dropped) a prompt may have for the phrase hook to read it"
+source = "prior: Tom's status remarks are a sentence or two, while task briefs that mention testing a map run to hundreds of words"
+settles_when = { need = 20, count = "count_worker_runs", what = "worker runs available until phrase hook fires are counted; each fire is the measure" }
+fallback = "a longer prompt is never read as a phrase"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]
+
+[capacity_teardown_game_names]
+value = ["Warcraft III.exe"]
+unit = "executables whose process trees the quiet-off teardown closes as the game (matched as an executable path or the kernel's 15-byte comm)"
+source = "standard: game_reserve.rs GAME_ROOT, the Warcraft III client under Proton"
+fallback = "none"
+consumers = ["crates/north-core/src/capacity/teardown.rs"]
+
+[capacity_teardown_launcher_names]
+value = ["Battle.net.exe", "Battle.net Launcher.exe"]
+unit = "launcher executables the quiet-off teardown closes when they share the game's Wine or Proton prefix"
+source = "standard: the Battle.net launcher that starts Warcraft III under Proton (Tom asked that done testing close it, 2026-11-04)"
+fallback = "none"
+consumers = ["crates/north-core/src/capacity/teardown.rs"]
+
+[capacity_teardown_native_names]
+value = ["wisp-window", "smashcraft"]
+unit = "native test client comms the quiet-off teardown closes, beside every process in a native.slice scope and a wisp play --window native tree"
+source = "standard: the binaries of wisp/window/wisp-window and makgora-client/src-tauri (Cargo package names)"
+fallback = "none"
+consumers = ["crates/north-core/src/capacity/teardown.rs"]
+
+[capacity_teardown_grace_sec]
+value = 10
+unit = "seconds the quiet-off teardown waits after SIGTERM before SIGKILL of what remains"
+source = "tom: close gracefully first, wait about ten seconds, then force only what remains (2026-11-04)"
+fallback = "none"
+consumers = ["crates/north-core/src/guard/quiet_phrase.rs"]

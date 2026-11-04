@@ -6,7 +6,6 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::agent_load::{self, Host};
-use super::game_reserve;
 use crate::platform::process::status_within;
 
 const USAGE: &str = "usage: north capacity laptop-auto [--dry-run]";
@@ -72,7 +71,7 @@ fn preparing_for_sleep() -> bool {
         .is_ok_and(|output| output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "b true")
 }
 
-fn seat_idle() -> Option<bool> {
+pub fn seat_idle() -> Option<bool> {
     let output = Command::new("loginctl")
         .args(["show-session", "auto", "-p", "IdleHint", "-p", "Type", "-p", "Active", "-p", "Remote"])
         .output()
@@ -97,16 +96,16 @@ pub fn run(arguments: &[String]) -> u8 {
     let processes = agent_load::processes(&host);
     let power_supply = std::env::var_os("AGENT_LOAD_POWER_SUPPLY").unwrap_or_else(|| "/sys/class/power_supply".into());
     let battery = discharging_percent(Path::new(&power_supply));
-    let sample = sample(&host, seat_idle(), preparing_for_sleep(), battery);
+    let idle = seat_idle();
     if dry {
-        println!("{sample}");
+        println!("{}", sample(&host, idle, preparing_for_sleep(), battery));
         return 0;
     }
-    if let Err(error) = game_reserve::auto(&game_reserve::Settings::from_env()) {
-        eprintln!("north capacity laptop-auto: game-reserve auto: {error}");
-    }
-    let game_reserve = agent_load::game_reserve_on(&host);
-    let gaming = sample["gaming"] == true || game_reserve;
+    let applied = super::mode::tick(&host, idle);
+    applied.lines.iter().for_each(|line| println!("{line}"));
+    let sample = sample(&host, idle, preparing_for_sleep(), battery);
+    let gaming = applied.effects.hold || applied.effects.reserve;
+    let game_reserve = applied.effects.reserve && !applied.effects.pause_heavy;
     if let Some(hold) = agent_load::hold_batch_under_pressure(&host, game_reserve) {
         println!("agent-load: batch slice {} at protected CPU pressure {:.2}%", if hold.frozen { "frozen" } else { "thawed" }, hold.pressure_basis_points / 100.0);
     }

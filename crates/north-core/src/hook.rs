@@ -198,7 +198,7 @@ impl HookKind {
             Self::Stop => &[],
             Self::SubagentStop => &[crate::guard::subagent_teardown::evaluate],
             Self::SessionStart => &[crate::guard::unlanded_work::evaluate],
-            Self::UserPromptSubmit => &[],
+            Self::UserPromptSubmit => &[crate::guard::quiet_phrase::evaluate],
         }
     }
 }

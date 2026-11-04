@@ -22,6 +22,8 @@ pub struct Usage {
     pub cpu_seconds: f64,
     pub peak_cores: f64,
     pub peak_memory_mib: f64,
+    pub anon_peak_mib: Option<f64>,
+    pub memory_stall_usec: Option<f64>,
     pub gpu_seconds: f64,
     pub io_read_bytes: Option<f64>,
     pub io_write_bytes: Option<f64>,
@@ -52,6 +54,15 @@ fn summed(stat: &str, key: &str) -> f64 {
         .sum()
 }
 
+pub fn stat_value(stat: &str, key: &str) -> f64 {
+    stat.lines().find_map(|line| line.strip_prefix(key)?.strip_prefix(' ')?.trim().parse::<f64>().ok()).unwrap_or(f64::NAN)
+}
+
+pub fn some_total(pressure: &str) -> Option<f64> {
+    let line = pressure.lines().find(|line| line.starts_with("some "))?;
+    line.split_whitespace().find_map(|word| word.strip_prefix("total=")?.parse::<u64>().ok()).map(|total| total as f64)
+}
+
 struct Sampler {
     root: PathBuf,
     lease: String,
@@ -74,12 +85,8 @@ impl Sampler {
             self.usage.io_read_bytes = Some(summed(&stat, "rbytes"));
             self.usage.io_write_bytes = Some(summed(&stat, "wbytes"));
         }
-        let pressure = read_text(self.cgroup.join("io.pressure")).and_then(|text| {
-            let line = text.lines().find(|line| line.starts_with("some "))?;
-            line.split_whitespace().find_map(|word| word.strip_prefix("total=")?.parse::<u64>().ok())
-        });
-        if let Some(total) = pressure {
-            self.usage.io_pressure_some_usec = Some(total as f64);
+        if let Some(total) = read_text(self.cgroup.join("io.pressure")).as_deref().and_then(some_total) {
+            self.usage.io_pressure_some_usec = Some(total);
         }
     }
 
@@ -110,6 +117,15 @@ impl Sampler {
     fn memory(&mut self) {
         let read = |name: &str| read_text(self.cgroup.join(name)).map_or(f64::NAN, |text| number(text.trim()));
         let (peak, current) = (read("memory.peak"), read("memory.current"));
+        if let Some(stat) = read_text(self.cgroup.join("memory.stat")) {
+            let anon = stat_value(&stat, "anon") + stat_value(&stat, "shmem");
+            if anon.is_finite() {
+                self.usage.anon_peak_mib = Some(self.usage.anon_peak_mib.unwrap_or(0.0).max(anon / MIB));
+            }
+        }
+        if let Some(total) = read_text(self.cgroup.join("memory.pressure")).as_deref().and_then(some_total) {
+            self.usage.memory_stall_usec = Some(total);
+        }
         if peak.is_finite() {
             self.usage.peak_memory_mib = self.usage.peak_memory_mib.max(peak / MIB);
         }
