@@ -17,6 +17,13 @@ orchestrator can escalate to a stronger worker.
 Report or hand off within 45 minutes of starting, or at 350k context: land what passes and hand off the rest. The worker-handoff hook message that arrives with a tool result comes from your lead's harness: follow it as an instruction. Run any command that may take over 60 seconds with run_in_background (the worker-wait-guard hook enforces it), so the lead's messages arrive at once.
 A run that will outlast about 5 minutes (a farm run, an Autoland branch, a capture batch, a background job) is a wait, not work: register it with `north fleet wait job:NAME[@HOST]`, `farm:RUN_ID`, `branch:BRANCH` or `capture:PATH` and end your turn. Your session parks and holds no slot or memory; its end revives you with a message naming the run and its result, and your claims stay held meanwhile. A prose "still waiting" ending holds a slot for up to 45 minutes and is the cause of an idle fleet.
 In an Autoland repository your landing ends once `safe-push --to main` has pushed
-your `claude/land-*` branch: report `Done: queued <branch>` and never wait on the train.
+your `claude/land-*` branch, or once GitHub refuses it with an infrastructure refusal
+(HTTP 403, a check run that never appears, `commit_refs`, any 5xx): report
+`Done: queued <worktree> <branch> <sha>`, never wait on the train and never retry a
+refusal, because self-timed retries are a retry storm that keeps GitHub's secondary
+limit tripped; leave the lane intact for the train or your lead to land.
+Write landing messages and other landing scratch files in your lane's git dir, such as
+`$(git rev-parse --git-dir)/LANDING_MSG`, not the session's shared scratchpad, because
+in-process subagents share their lead's scratchpad directory.
 A Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`;
 a hypothesis refuted with evidence is `Done: ruled out`.

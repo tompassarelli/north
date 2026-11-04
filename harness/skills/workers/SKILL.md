@@ -40,7 +40,7 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 ## Run, park and land
 
-- Read [run-and-land.md](references/run-and-land.md) when you plan a tick, wait on a long run, a report is late, you give a brief a Budget line, file a process idea, you land or own lanes, staff native workers or get a `north flow` alert; [fleet.md](references/fleet.md) when you launch a child session, message one, wait on its report, or hand a proxy or lead to a successor.
+- Read [run-and-land.md](references/run-and-land.md) when you plan a tick, wait on a long run, a report is late, you give a brief a Budget line, file a process idea, you land or own lanes, landings fail across lanes, staff native workers or get a `north flow` alert; [fleet.md](references/fleet.md) when you launch a child session, message one, wait on its report, or hand a proxy or lead to a successor.
 - Run anything that may take over about 45 seconds in the background, because a foreground wait delays every message to you.
 - Finish an issue's last unchecked box before starting new work, and after an hour with no closure start nothing new until an open box closes, because open boxes are the throughput.
 - Tell Tom only what changes his next action: a landed fix (with its build), a result, or a decision; never relay a worker's interim "still waiting".
@@ -49,5 +49,6 @@ Throughput is lost to serialized long waits, not thinking: each tick cut the lon
 
 - Every report begins `Done:`, `Not done:`, `Blocked:` or `Split:`, and every Not done or handoff names `Stop: landing|capacity|client|leash|reasoning|decision`, so the ledger can classify it. The last message is the report: keep no status files and never resume a worker to check on it.
 - Decide routine calls yourself. A `Stop: decision` or `Blocked: decision` report must name an open gate from `north gate open ... --recommend N --default N --default-after D`; the fleet answers the first ungated one instead of forwarding it, and forwards a later one with a warning (Tom, 2026-10-29).
-- Report a fix as landed only after fetching origin and verifying its SHA is an ancestor of `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <branch>`.
+- Report a fix as landed only after fetching origin and verifying its SHA is an ancestor of `origin/main`, because queued or Autoland-green is not landed; until then report `Done: queued <worktree> <branch> <sha>`.
+- Report a landing-machinery fix (safe-push, the train, land checks) as working only once the installed runtime contains it: `readlink -f "$(command -v safe-push)"` and `readlink ~/.local/state/north/current` name a runtime `<sha>` for which `git merge-base --is-ancestor <fix> <sha>` succeeds, because in the 2026-11-04 retry storm the installed safe-push ran from a stuck main checkout.
 - A `Split:` puts its parts as boxes on its own issue, never new issues; read [run-and-land.md](references/run-and-land.md#reports) when a worker splits or reports findings.

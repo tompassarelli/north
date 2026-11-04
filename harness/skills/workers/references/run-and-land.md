@@ -1,10 +1,10 @@
 # Run, park and land
 
-Read this when you wait on a long run, a child's report is late, a Budget line is reached, you land or own lanes, staff native workers or get a `north flow` alert.
+Read this when you wait on a long run, a child's report is late, a Budget line is reached, you land or own lanes, landings fail across lanes, staff native workers or get a `north flow` alert.
 
 ## Throughput
 
-- Batch ready lanes into one landing, run independent unknown-cause hypotheses in parallel (a `Done: ruled out` with evidence closes one), render 2–4 variants and judge them once, and send code-only work to cloud workers first.
+- Run independent unknown-cause hypotheses in parallel (a `Done: ruled out` with evidence closes one), render 2–4 variants and judge them once, and send code-only work to cloud workers first.
 - Key every generated record, digest and gate only to the inputs it checks, so landing unrelated work never invalidates another lane.
 - Hand Tom the artifact he is waiting for the moment it is usable, and run checks that cannot change it afterwards; only release and landing gates block, and a native capture is never one (see warcraft-modding).
 
@@ -18,6 +18,8 @@ Read this when you wait on a long run, a child's report is late, a Budget line i
 
 ## Landing
 
+- Batch ready lanes into one landing.
+- When landings fail across many lanes for one infrastructure refusal (as the worker definitions list it), hold new landings, move checks off the failing runner onto a warm build host, and land the ready lanes as one train; never let each worker retry its own, because per-lane retries keep GitHub's secondary limit tripped (north docs/rationale/landing-train.md, "Incident, 2026-11-04: landing storm").
 - Land as [notes](notes.md#landing-mechanics) describes for Autoland and other repositories. Lane lifecycle and `lane-gc` belong to `repo-safety`; every unlanded lane `lane-gc` keeps shows in its lead's tick as an `OWNED` row, which the lead continues, lands or archives, and a lead holding more than 25, or any older than 72 h, gets a supply-alert.
 - File an unproven process idea as an issue and promote it to policy only after a measured result.
 

@@ -91,7 +91,7 @@ a rule when its numbers move.
 ## Landing mechanics
 
 - Autoland repository: the worker ends once `safe-push --to main` has pushed
-  its `claude/land-*` branch, and reports `Done: queued <branch>`. Autoland
+  its `claude/land-*` branch, and reports `Done: queued <worktree> <branch> <sha>`. Autoland
   lands it, and a Haiku worker ticks its boxes after landing.
 - Elsewhere: a lead runs `safe-push` in the foreground with a 10-minute
   timeout. A worker runs it in the background, because worker-wait-guard

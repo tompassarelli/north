@@ -428,3 +428,33 @@ RepositoryRole admin as bypass actors; north had no rulesets (`gh api repos/tomp
 
 `gh api repos/tompassarelli/north/keys --jq '.[]|{title,read_only}'` returns nothing (raw response
 `[]`): north has no deploy keys, so no deploy key can write main around the ruleset.
+
+## Incident, 2026-11-04: landing storm (7:30-8:15 AM, laptop clock, +07)
+
+Measured:
+
+- About 25 north lanes ran their own `safe-push` in exact mode with the train bypassed. Each pushed a
+  land-check ref and dispatched its own GitHub Actions run, and every landing restarted every other
+  lane's checks.
+- From 7:55 AM GitHub's secondary limit refused every workflow dispatch with HTTP 403 ("API rate limit
+  exceeded") while the core quota stood at 1935/5000, and answered ref pushes, and one push to main,
+  with "fatal error in commit_refs".
+- Workers each retried on their own 4-5 minute timers, which kept the limit tripped; 30 workers sat
+  idle waiting on their own landings.
+- The lead ended it by holding every north landing, landing the train fix with its checks on a warm
+  build host (the train fix's `SAFE_PUSH_LAND_RUNNER`, no GitHub dispatch), then landing every ready lane as one train.
+- Two in-process subagents wrote the same file (`msg.txt`) in the lead's scratchpad, and the train
+  fix's landing commit picked up the docs plan's subject.
+- The installed `safe-push` ran from a main checkout stuck at 472d13847, so fixes that had landed never
+  reached the lanes.
+
+Rules adopted, each in its owner:
+
+- Workers never retry a landing GitHub refuses; they report it queued and the train or lead lands it
+  (`harness/claude/agents/worker*.md`).
+- Workers write landing messages and landing scratch files in their lane's git dir (same files).
+- A lead that sees one infrastructure cause fail landings across lanes holds landings, moves checks
+  off the failing runner and lands one train (`harness/skills/workers/references/run-and-land.md`,
+  Landing).
+- A landing-machinery fix counts as working only once the installed `safe-push` and the promoted
+  runtime contain it (`harness/skills/workers/SKILL.md`, Reports).
