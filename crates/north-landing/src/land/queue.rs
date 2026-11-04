@@ -44,6 +44,8 @@ pub struct Ticket {
     pub red_fix: Option<RedFix>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_lane: bool,
 }
 
 pub use crate::platform::land_queue::{directory, key};

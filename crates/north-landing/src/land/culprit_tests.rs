@@ -63,6 +63,7 @@ fn lanes(count: usize) -> Vec<(PathBuf, Ticket)> {
                 first_commit_secs: None,
                 red_fix: None,
                 verdict: None,
+                keep_lane: false,
             };
             (PathBuf::from(format!("/queue/{lane}.json")), ticket)
         })

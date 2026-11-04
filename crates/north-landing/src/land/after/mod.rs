@@ -1,3 +1,4 @@
+pub mod cleanup;
 pub mod follow;
 
 use std::fs;
@@ -116,6 +117,7 @@ pub fn finish(lander: &Lander, head: &str, base: &str, stages: &Stages, tickets:
         }
         records::write(lander, &path, &ticket, &Candidate { head, batch_size, stages }, &Decision::Landed { sha: head });
         notify(lander, &name, &ticket, head);
+        cleanup::report(lander, &ticket, head);
         println!("north land: {} ({}): landed {head}", ticket.branch, ticket.head);
         queue::decide(&path, ticket, format!("landed {head}")).map_err(|error| error.to_string())?;
     }

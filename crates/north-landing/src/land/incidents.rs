@@ -88,6 +88,7 @@ mod tests {
             first_commit_secs: None,
             red_fix: None,
             verdict: None,
+            keep_lane: false,
         }
     }
 

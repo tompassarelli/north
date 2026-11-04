@@ -48,7 +48,7 @@ impl Fixture {
         git(repo, &["config", "landing.lander-host", "laptop"]);
         let south = self.root.join("no-south");
         let environment = Environment { state_home: &self.state, host: "laptop", session: Some("worker-7"), south: &south, denylist: None };
-        let queued = enqueue(repo, None, &environment).unwrap();
+        let queued = enqueue(repo, None, false, &environment).unwrap();
         git(repo, &["config", "--unset", "landing.lander-host"]);
         queued
     }
@@ -162,6 +162,17 @@ fn enqueue_replaces() {
     assert_ne!(lane.head, first.ticket.head);
     assert!(tickets.iter().any(|ticket| ticket.branch == "other" && ticket.head == sibling.ticket.head));
     assert!(sibling.path.exists());
+}
+
+#[test]
+fn enqueue_records_keep_lane_on_the_ticket() {
+    let fixture = Fixture::new();
+    fixture.commit(&fixture.repo, "a.txt", "Add a");
+    let south = fixture.root.join("no-south");
+    let environment = Environment { state_home: &fixture.state, host: "laptop", session: None, south: &south, denylist: None };
+    let queued = enqueue(&fixture.repo, None, true, &environment).unwrap();
+    assert!(queued.ticket.keep_lane);
+    assert!(fixture.pending()[0].keep_lane);
 }
 
 #[test]

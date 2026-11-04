@@ -790,7 +790,13 @@ then S2b and S2c in parallel; then S3 and S4.
   follows it.
 - **S21 Lane cleanup by the lander.** Files land/after/cleanup.rs. Done when: the lane cases clean,
   pid-namespace, keep, dirty, remote-merged and remote-unmerged pass against the lander's
-  after-landing cleanup, under the same names.
+  after-landing cleanup, under the same names. After each landing the lander removes a ticket's lane
+  worktree and branch only when the lane still sits at the queued head, every commit is on the landed
+  main, the tree is clean and no process has its working directory inside it (read from the host
+  /proc, so a process in a PID namespace counts); the ticket's `keep_lane` (safe-push `--keep-lane`)
+  keeps it. A kept lane is reported with its reason. The lane's origin branch is deleted, under a
+  lease, only when its commits are on main. Removal uses no `--force`, and the branch goes by
+  `update-ref -d` with the queued head as the expected value.
 
 **Wave L2: stages ported in place.** Parallel, after S2a. Each box ports one group of bash functions
 to Rust, available as `north land scan <name>`. It replaces each function body in bin/safe-push with

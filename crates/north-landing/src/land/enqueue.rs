@@ -19,7 +19,7 @@ use crate::landing::lane_squash::{self, Squash};
 use crate::landing::safe_push_guards::Denylist;
 use crate::watch::facts::slug_of;
 
-const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE]";
+const USAGE: &str = "usage: north land enqueue [--repo DIR] [--message FILE] [--keep-lane]";
 
 #[derive(Debug)]
 pub struct Queued {
@@ -174,7 +174,7 @@ fn refuse_static_gates(root: &Path, base: &str, head: &str) -> Result<(), String
     Ok(())
 }
 
-pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) -> Result<Queued, String> {
+pub fn enqueue(repo: &Path, message: Option<&str>, keep_lane: bool, environment: &Environment) -> Result<Queued, String> {
     let root = PathBuf::from(git(repo, &["rev-parse", "--show-toplevel"])?);
     let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .map_err(|_| "HEAD is detached; switch to the lane's own branch".to_owned())?;
@@ -208,6 +208,7 @@ pub fn enqueue(repo: &Path, message: Option<&str>, environment: &Environment) ->
         first_commit_secs,
         red_fix,
         verdict: None,
+        keep_lane,
     };
     let outbox = off_lander_host(&root, &remote_ref, environment.host);
     let queue = queue::directory(environment.state_home, &origin);
@@ -247,6 +248,10 @@ pub fn run(arguments: &[String]) -> u8 {
         },
         rest => (None, rest),
     };
+    let (keep_lane, rest) = match rest {
+        [flag, rest @ ..] if flag == "--keep-lane" => (true, rest),
+        rest => (false, rest),
+    };
     if !rest.is_empty() {
         eprintln!("{USAGE}");
         return 64;
@@ -256,7 +261,7 @@ pub fn run(arguments: &[String]) -> u8 {
     let state_home = state_home();
     let sources = Denylist::from_env();
     let environment = Environment { state_home: &state_home, host: &host, session: session.as_deref(), south: &sources.south, denylist: sources.config.as_deref() };
-    match enqueue(repo, supplied.as_deref(), &environment) {
+    match enqueue(repo, supplied.as_deref(), keep_lane, &environment) {
         Ok(queued) => {
             match &queued.squash {
                 Squash::Kept(reason) => println!("safe-push: lane not squashed: {reason}"),

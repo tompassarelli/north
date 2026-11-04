@@ -52,6 +52,7 @@ impl World {
             first_commit_secs: None,
             red_fix: None,
             verdict: None,
+            keep_lane: false,
         };
         let directory = queue::directory(&self.state, origin);
         let path = if done { directory.join("done") } else { directory }.join(queue::file_name(micros, "lane"));

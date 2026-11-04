@@ -4,6 +4,8 @@ use std::process::{Command, Output};
 
 use north_landing::land::queue::{self, RedFix, Ticket};
 
+#[path = "land_cleanup.rs"]
+mod cleanup;
 #[path = "land_sheriff.rs"]
 mod sheriff;
 
@@ -149,6 +151,7 @@ impl Fixture {
             first_commit_secs: None,
             red_fix,
             verdict: None,
+            keep_lane: false,
         };
         (self.queue().join(queue::file_name(self.queued, &branch)), ticket)
     }
@@ -604,8 +607,12 @@ fn serve_mixed() {
         assert!(fleet.contains(&format!("fleet send session-lane-{lane} landed lane-{lane} as {sha}")), "{fleet:?}");
     }
     assert_eq!(fleet.len(), 5, "each lane is told once: {fleet:?}");
-    let after: Vec<_> = lanes.iter().map(|lane| worktree_state(lane)).collect();
-    assert_eq!(after, before, "the lander rebases only its own worktree");
+    for landed in [0, 1, 4] {
+        assert!(!lanes[landed].exists(), "a landed clean lane is removed");
+    }
+    for kept in [2, 3] {
+        assert_eq!(worktree_state(&lanes[kept]), before[kept], "the lander touches only its own worktree and the lanes it landed");
+    }
 }
 
 #[test]

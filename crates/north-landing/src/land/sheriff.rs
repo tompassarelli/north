@@ -147,7 +147,7 @@ fn revert(lander: &Lander, worktree: &Path, request: &Request, lane: &str, cases
     let origin = git(&lander.repo, &["remote", "get-url", "--push", "origin"])?;
     let host = fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned();
     let micros = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|error| error.to_string())?.as_micros();
-    let ticket = Ticket { origin, root: worktree.to_owned(), host, branch: branch.clone(), head: head.clone(), session: None, queued_at: rfc3339(OffsetDateTime::now_utc()), first_commit_secs: None, red_fix: Some(RedFix::Marker), verdict: None };
+    let ticket = Ticket { origin, root: worktree.to_owned(), host, branch: branch.clone(), head: head.clone(), session: None, queued_at: rfc3339(OffsetDateTime::now_utc()), first_commit_secs: None, red_fix: Some(RedFix::Marker), verdict: None, keep_lane: true };
     let path = lander.queue.join(queue::file_name(micros, &branch));
     queue::write(&path, &ticket).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     if let Some(owner) = lane_ticket(lander, request, lane)

@@ -3069,6 +3069,10 @@ SAFE_PUSH_TEST_HOSTNAME=other-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" 
 expect_status zero
 [ "$("$real_git" --git-dir="$real_remote" rev-parse main)" = "$lander_lane" ] || fail 'another host did not land per lane'
 [ "$(cat "$lander_trace")" = "$(printf 'enqueue\nenqueue')" ] || fail "another host queued a ticket"
+: >"$lander_trace"
+SAFE_PUSH_TEST_HOSTNAME=fixture-host SAFE_PUSH_TEST_ENQUEUE_TRACE="$lander_trace" run_real_case '' --to main --keep-lane
+expect_status zero
+[ "$(cat "$lander_trace")" = "enqueue --keep-lane" ] || fail "--keep-lane did not reach the ticket: $(cat "$lander_trace")"
 printf 'PASS: lander-queue: the lander host and a remote host queue a ticket and push nothing, another host lands per lane\n'
 
 make_real_fixture lander-default

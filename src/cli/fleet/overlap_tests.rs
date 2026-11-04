@@ -90,7 +90,7 @@ fn a_ticket_queued_at_the_lander_is_a_lane_with_the_task_of_the_session_that_que
     let origin = git(&container.main(), &["remote", "get-url", "--push", "origin"]);
     let state = tempfile::tempdir().unwrap();
     let directory = north_landing::land::queue::directory(state.path(), origin.trim());
-    let ticket = Ticket { origin: origin.trim().into(), root: lane, host: "h".into(), branch: "queued-lane".into(), head, session: Some("worker".into()), queued_at: "t".into(), first_commit_secs: None, red_fix: None, verdict: None };
+    let ticket = Ticket { origin: origin.trim().into(), root: lane, host: "h".into(), branch: "queued-lane".into(), head, session: Some("worker".into()), queued_at: "t".into(), first_commit_secs: None, red_fix: None, verdict: None, keep_lane: false };
     write(&directory.join(file_name(5_000_000, "queued-lane")), &ticket).unwrap();
     let tasks = [("worker".to_owned(), Some("north#7".to_owned()))];
     let lanes = ticket_lanes(&repo, &tasks, state.path());

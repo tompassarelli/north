@@ -12,6 +12,7 @@ fn ticket(branch: &str, red_fix: Option<RedFix>) -> Ticket {
         first_commit_secs: None,
         red_fix,
         verdict: None,
+        keep_lane: false,
     }
 }
 
