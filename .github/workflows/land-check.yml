@@ -42,7 +42,7 @@ jobs:
       - name: Install harness test tools
         uses: ./.github/actions/harness
         with:
-          build: ${{ !contains(matrix.command, 'harness/scripts/cargo-tests.sh') && !contains(matrix.command, '-- cargo clippy') }}
+          build: ${{ !contains(matrix.command, 'harness/scripts/cargo-tests.sh') && !contains(matrix.command, '-- cargo clippy') && !contains(matrix.command, 'harness/scripts/land-checks.sh') }}
           cache-key: cargo-test
           save-cache: false
       - name: Dependencies the offline checks read

@@ -37,3 +37,6 @@ jobs:
         uses: ./.github/actions/cargo-test
       - name: Test
         run: cargo test --locked
+      - name: Warm the check artifacts the clippy land check restores
+        if: github.ref == 'refs/heads/main'
+        run: cargo clippy --all-targets --locked
