@@ -484,6 +484,18 @@ predict box wall. Done when: on the recorded worker ledger, a fixture of past bo
 estimates per box, the verdict picks local for every one, and the printed rank correlation between predicted
 compute and actual box wall is reported.
 
+**W2-6. Offload concurrency from the remote host's own admission, not a slot count.** Category: feature. Spec:
+measured. Scope: cross-module. Surface: rust. Verify: local-test. After: the offload dev-shell lane (same file),
+elastic-cpu, and the pending-load rule of W2-3 (review finding 8). Files:
+`crates/north-core/src/ops/land_offload/ship.rs` (`SLOTS`), `build_offload.rs`. Spec: each offloaded command runs on
+the remote host under that host's own `north capacity host run` admission (memory and pressure once elastic CPU is
+live); the per-repository lock only guards one worktree and target dir, created on demand, so concurrency follows
+measured room; the asking host counts its dispatched-not-started offloads as pending load on the target. Done when:
+`rg -n 'const SLOTS' crates/north-core/src/ops/land_offload` prints nothing; a fixture test with remote admission
+admitting four and deferring the fifth shows four offloads running at once in four on-demand worktrees and the
+fifth waiting with the remote admission's reason printed; and a test shows a target with two dispatched-not-started
+offloads reported with that pending load by the asking host.
+
 Delivers alone: a replay that ranks policies, a measured answer to whether placement and backfill still pay after
 elastic CPU, and backfill and placement only where that answer says so.
 
