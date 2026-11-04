@@ -39,11 +39,13 @@ What the lander did:
     and citation_check/tests.rs: 1 each
   - "unreadable" (a missing head): 1
 
-s18-integrated sent back four times, each against the lane that had just landed on its files:
+s18-integrated sent back four times, each against the lane that had just landed on its files or was
+being picked with it:
 
 - 3:02:35 AM: ship/tests.rs, land/mod.rs, land/serve.rs, onto main cf363a7. The author's rebase took 10 minutes.
-- 3:13:00 AM: land/mod.rs, land/serve.rs, tests/it/land_serve.rs, onto b563103, which had changed
-  land/mod.rs at 3:06:55. The rebase took 4.5 minutes.
+- 3:13:00 AM: land/mod.rs, land/serve.rs, tests/it/land_serve.rs, in the candidate that became
+  63d9e77, after docs-7, b26-depth and land-check-hang were picked onto b563103. The rebase took
+  4.5 minutes.
 - 3:17:34 AM: land/mod.rs, land/serve.rs, onto 63d9e77, whose b26-depth commit c21abdf98 changed both
   files 9 seconds before. The rebase took 4 minutes.
 - 3:21:31 AM: land/enqueue.rs, tests/it/land_enqueue.rs, onto 09cb733, which changed both files
@@ -51,14 +53,66 @@ s18-integrated sent back four times, each against the lane that had just landed 
 
 The brief lists a fifth send-back at 2:54 AM. The journal has no s18-integrated line at 2:54.
 
-Every lane that landed on s18-integrated's files after its first send-back was already queued, or
-already in its own run of send-backs, by then: s10-sheriff-queue and s14-deps were in the candidate under
-check at 3:02, and b26-depth, s13-scan, several-commits and land-check-hang were each first sent back
-at 2:54. Whether s18-integrated sorts ahead of them under a kept position depends on when its first
-ticket was queued. That time is in the microseconds of its done/ file names on the laptop, which box C1
-reads. If it sorts behind them, a kept position or a reservation that holds only later lanes would not
-have stopped one of the four send-backs. What saves author turns in either case is part 2: no send-back
-while lanes ahead on the same files are still landing.
+### s18-integrated replayed on the laptop (box C1)
+
+Each head was picked with `git cherry-pick --allow-empty MAIN..HEAD` onto that round's main alone, in a
+scratch worktree off the laptop's object store, with `merge.conflictStyle diff3`. No path in its
+conflicts has a `merge` attribute today (only structure.toml and harness/machine-bound-tests do).
+
+- **13107824d, 3:02:35 AM, main cf363a7.** Alone it conflicts only on land_offload/ship/tests.rs: one
+  insert/insert block at the end of the file, both sides whole `#[test]` functions and helpers, against
+  offload-no-auto-maintenance (94980cb8c, landed at 3:02:22). Its land/mod.rs and land/serve.rs
+  conflicts were batch-mate conflicts with s10-sheriff-queue and s14-deps, picked before it into the
+  candidate that became b563103. No driver or split merges the ship/tests.rs block: no rule covers that
+  file, and this plan adopts no Rust item union. One genuine author turn.
+- **572a28fa9, 3:13:00 AM, main b563103.** Alone it picks cleanly: b563103 is its parent. The whole
+  verdict was a batch-mate conflict with b26-depth and land-check-hang, which were in the same
+  candidate and had not landed.
+- **af10b142d, 3:17:34 AM, main 63d9e77, picked first onto bare main.** Three modify blocks against
+  b26-depth (c21abdf98): the one-line `USAGE` in land/mod.rs, the one-line `USAGE` in land/serve.rs
+  (b26 made `--depth 1|2` into `--depth D`, s18 added `--all`), and serve.rs's `run` (b26 rewrote its
+  49 lines, s18 replaced it with a 2-line call to `serve_repository`). The land/mod.rs split (C5)
+  removes the first block, since the help would print serve.rs's own `USAGE`. The two serve.rs blocks
+  stay genuine.
+- **7d5a3e04e, 3:21:31 AM, main 09cb733, picked first onto bare main.** Against s13-scan: an
+  insert/insert block of `use` lines in land/enqueue.rs (s13 added `use super::scans::outgoing;`, s18
+  added `repositories` and `setting`), and a modify block in tests/it/land_enqueue.rs, where s13 added
+  two fields to the fixture's `Environment` and s18 wrapped the `enqueue` call in a
+  `landing.lander-host` setting. Neither merges by a driver or the split: enqueue.rs is not a
+  declarations-only file, and the `lines` entry pattern takes only `mod` lines. Genuine.
+
+Positions, from the queued microseconds of each lane's oldest ticket in its run of done/ tickets:
+
+- b26-depth 2:39:35 AM, s13-scan 2:42:41, several-commits 2:43:47, land-check-hang 2:52:57.
+- s18-integrated 2:54:28 (13107824d), 91 seconds behind land-check-hang, so it sorts behind all four.
+  It also sorts behind s10-sheriff-queue (12:50:30 AM) and s14-deps (2:33:11), and ahead of
+  s14-deps's second run, which began at 3:17:20 after its first run landed.
+- The same session's earlier branch, s18-lander-per-repo (queued 12:46:20 AM, sent back), is a
+  different (host, root, branch) lane and gives s18-integrated no earlier position.
+
+The kept position (G4) and the reservation (G5) therefore save s18-integrated nothing on their own,
+as the arch review's 2e disposition expected. Part 2 would have kept it out of all four verdicts:
+
+- **3:02:35, held.** b26-depth, s13-scan, several-commits and land-check-hang were each sent back at
+  2:54 on files s18-integrated changes (land/mod.rs, land/serve.rs, land/enqueue.rs,
+  tests/it/land_serve.rs), so their reservations were live until about 3:14. The pick was also onto a
+  stack, which part 1 alone defers.
+- **3:13:00, held.** b26-depth and land-check-hang were queued in the same candidate, and s13-scan and
+  several-commits were sent back at 3:07, live until about 3:27. Part 1 alone defers it too: the pick
+  was clean on main and conflicted only on the stack.
+- **3:17:34, held.** s13-scan's reservation was live, and several-commits had a queued ticket
+  (1e47420e1, 3:15:50) on land/mod.rs. Without the Held rule, the queued-ahead clause of Defer still
+  defers it.
+- **3:21:31, held.** s13-scan had landed, but several-commits, sent back at 3:17:36 and queued again
+  at 3:29:25 and sent back at 3:34:07, held land/enqueue.rs, tests/it/land_enqueue.rs and land/mod.rs
+  until 3:54 at the latest (G5).
+
+Under part 2, then, s18-integrated is judged once, onto a main that holds b26-depth, land-check-hang
+and s13-scan, and its author rebases once. Its first head picked onto f1745de2e (main after s14-deps,
+3:33 AM) conflicts on seven files: ship/tests.rs, land/enqueue.rs, land/mod.rs (3 blocks),
+land/serve.rs (3), tests/it/land_enqueue.rs, tests/it/land_serve.rs and tests/it/main.rs. The land/mod.rs and tests/it/main.rs blocks
+are in files C5 puts under the `lines` rule. That one send-back replaces four, and its one rebase
+replaces the 18.5 minutes the first three took.
 
 Replay, 19 of the 25 send-backs (s18-integrated's four heads and the 1e47420 head of several-commits
 are not on gex45, and s6b's 3:02 "conflict unreadable" is a missing head, not a conflict):
@@ -297,7 +351,7 @@ the box behind the earliest). After it and C4:
 - **6 genuine, one author turn each:** etxtbsy-helper, b26-depth at 2:54, s13-scan, docs-7,
   default-checks and s14-deps at 3:17.
 
-s18-integrated: unmeasured until C1. G3 bounds it either way.
+s18-integrated (measured by C1, above): 4 send-backs become 1 genuine one, held by part 2 until the lanes ahead on its files land; 1 of the 4 was a pure batch-mate conflict.
 
 ## In-flight lanes: what each part changes, and the landing order
 
