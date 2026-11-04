@@ -1,6 +1,6 @@
 use super::github;
 
-const REPO: &str = "tompassarelli/north";
+const NORTH: &str = "tompassarelli/north";
 
 pub struct Issue {
     pub number: u64,
@@ -29,32 +29,59 @@ pub fn settle(tracker: &mut dyn Tracker, title: &str, body: Option<&str>, closin
     Ok(())
 }
 
-pub struct Gh;
+pub struct Gh {
+    repo: String,
+    preferred_labels: Vec<String>,
+}
+
+impl Gh {
+    pub fn north() -> Self {
+        Self::of(NORTH, &[])
+    }
+
+    pub fn of(repo: &str, preferred_labels: &[&str]) -> Self {
+        Self { repo: repo.to_owned(), preferred_labels: preferred_labels.iter().map(|label| (*label).to_owned()).collect() }
+    }
+
+    fn present_labels(&self) -> Result<Vec<String>, String> {
+        if self.preferred_labels.is_empty() {
+            return Ok(Vec::new());
+        }
+        let listed = github::json(&["label", "list", "-R", &self.repo, "--json", "name", "-L", "500"])?;
+        let present: Vec<&str> = listed.as_array().into_iter().flatten().filter_map(|label| label["name"].as_str()).collect();
+        Ok(self.preferred_labels.iter().filter(|label| present.contains(&label.as_str())).cloned().collect())
+    }
+}
 
 impl Tracker for Gh {
     fn open(&self, title: &str) -> Result<Option<Issue>, String> {
         let search = format!("in:title \"{title}\"");
-        let found = github::json(&["issue", "list", "-R", REPO, "--state", "open", "--search", &search, "--json", "number,title,body"])?;
+        let found = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--search", &search, "--json", "number,title,body"])?;
         Ok(found.as_array().into_iter().flatten().find(|issue| issue["title"] == title).and_then(|issue| {
             Some(Issue { number: issue["number"].as_u64()?, body: issue["body"].as_str().unwrap_or_default().to_owned() })
         }))
     }
 
     fn listed(&self, search: &str) -> Result<Vec<(u64, String)>, String> {
-        let found = github::json(&["issue", "list", "-R", REPO, "--state", "open", "--search", search, "--json", "number,title"])?;
+        let found = github::json(&["issue", "list", "-R", &self.repo, "--state", "open", "--search", search, "--json", "number,title"])?;
         Ok(found.as_array().into_iter().flatten().filter_map(|issue| Some((issue["number"].as_u64()?, issue["title"].as_str()?.to_owned()))).collect())
     }
 
     fn create(&mut self, title: &str, body: &str) -> Result<(), String> {
-        succeeded(github::run(&["issue", "create", "-R", REPO, "--title", title, "--body", body]), "issue create")
+        let labels = self.present_labels()?;
+        let mut command = vec!["issue", "create", "-R", &self.repo, "--title", title, "--body", body];
+        for label in &labels {
+            command.extend(["--label", label]);
+        }
+        succeeded(github::run(&command), "issue create")
     }
 
     fn edit(&mut self, number: u64, body: &str) -> Result<(), String> {
-        succeeded(github::run(&["issue", "edit", &number.to_string(), "-R", REPO, "--body", body]), "issue edit")
+        succeeded(github::run(&["issue", "edit", &number.to_string(), "-R", &self.repo, "--body", body]), "issue edit")
     }
 
     fn close(&mut self, number: u64, comment: &str) -> Result<(), String> {
-        succeeded(github::run(&["issue", "close", &number.to_string(), "-R", REPO, "--comment", comment]), "issue close")
+        succeeded(github::run(&["issue", "close", &number.to_string(), "-R", &self.repo, "--comment", comment]), "issue close")
     }
 }
 

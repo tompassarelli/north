@@ -1,10 +1,9 @@
 use std::fs;
-use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
-use crate::platform::github;
+use crate::platform::rolling_issue::{self, Tracker};
 
 const USAGE: &str = "usage: north after-landing --git-dir DIR --base BASE --head HEAD --safe-push PATH
 
@@ -166,21 +165,18 @@ fn gate_and_file(args: &Args) -> Result<String, String> {
     if failures.is_empty() {
         return Ok(format!("every gate passed on {}", args.head));
     }
-    let existing = filed(&repo)?;
+    let mut tracker = rolling_issue::Gh::of(&repo, &["bug", "priority:later", "evidence:code"]);
+    let existing = tracker.open(TITLE)?.map(|issue| Filed { number: issue.number, body: issue.body });
     let date = git(&main, &["log", "-1", "--format=%cs", &args.head])?;
     match filing(&args.head, date.trim(), existing.as_ref(), &failures) {
         Filing::Nothing => Ok(format!("{repo}#{} already names every failed gate", existing.map_or(0, |filed| filed.number))),
         Filing::Edit { number, body } => {
-            gh_with_input(&["issue", "edit", &number.to_string(), "-R", &repo, "--body-file", "-"], &body)?;
+            tracker.edit(number, &body)?;
             Ok(format!("added the new failures to {repo}#{number}"))
         }
         Filing::Create { title, body } => {
-            let labels = labels(&repo)?;
-            let mut command = vec!["issue", "create", "-R", &repo, "--title", &title, "--body", &body];
-            for label in &labels {
-                command.extend(["--label", label]);
-            }
-            Ok(format!("filed {}", gh(&command)?.trim()))
+            tracker.create(&title, &body)?;
+            Ok(format!("filed {title} in {repo}"))
         }
     }
 }
@@ -269,20 +265,6 @@ pub fn repo_check_failures(tree: &Path, checks: &[(String, String)]) -> Vec<Fail
         .collect()
 }
 
-fn filed(repo: &str) -> Result<Option<Filed>, String> {
-    let search = format!("\"{TITLE}\" in:title");
-    let listed = github::json(&["issue", "list", "-R", repo, "--state", "open", "--search", &search, "--json", "number,title,body"])?;
-    Ok(listed.as_array().into_iter().flatten().find(|issue| issue["title"] == TITLE).and_then(|issue| {
-        Some(Filed { number: issue["number"].as_u64()?, body: issue["body"].as_str().unwrap_or_default().to_owned() })
-    }))
-}
-
-fn labels(repo: &str) -> Result<Vec<String>, String> {
-    let listed = github::json(&["label", "list", "-R", repo, "--json", "name", "-L", "500"])?;
-    let present: Vec<&str> = listed.as_array().into_iter().flatten().filter_map(|label| label["name"].as_str()).collect();
-    Ok(["bug", "priority:later", "evidence:code"].into_iter().filter(|label| present.contains(label)).map(str::to_owned).collect())
-}
-
 fn main_checkout(git_dir: &Path) -> Result<PathBuf, String> {
     let listing = git(Path::new("/"), &["--git-dir", &git_dir.to_string_lossy(), "worktree", "list", "--porcelain"])?;
     main_worktree(&listing).ok_or_else(|| format!("{} lists no main worktree", git_dir.display()))
@@ -312,31 +294,6 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git").arg("-C").arg(dir).args(args).output().map_err(|error| format!("git {}: {error}", args.join(" ")))?;
     if !output.status.success() {
         return Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-fn gh_with_input(args: &[&str], input: &str) -> Result<(), String> {
-    let verb = args[..2].join(" ");
-    let mut child = Command::new("gh")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("gh {verb}: {error}"))?;
-    child.stdin.take().ok_or_else(|| format!("gh {verb}: stdin is not piped"))?.write_all(input.as_bytes()).map_err(|error| format!("gh {verb}: {error}"))?;
-    let output = child.wait_with_output().map_err(|error| format!("gh {verb}: {error}"))?;
-    if !output.status.success() {
-        return Err(format!("gh {verb}: {}", String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    Ok(())
-}
-
-fn gh(args: &[&str]) -> Result<String, String> {
-    let output = github::run(args).map_err(|error| format!("gh {}: {error}", args[..2].join(" ")))?;
-    if !output.status.success() {
-        return Err(format!("gh {}: {}", args[..2].join(" "), String::from_utf8_lossy(&output.stderr).trim()));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }

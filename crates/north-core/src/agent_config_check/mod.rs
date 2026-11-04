@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod accounts;
 mod advisory;
 mod codex;
 mod gate;
@@ -14,6 +15,8 @@ mod vocabulary;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod accounts_tests;
 
 use gate::{Gate, Mode};
 use report::Report;
@@ -168,6 +171,7 @@ fn execute(context: &Context, verbose: bool) -> u8 {
     shared::check(context, &mut report);
     codex::check(context, &mut report);
     routines(context, &mut report);
+    accounts::check(context, &mut report);
 
     skills_group(context, &mut report);
     rules_group(context, &mut report);

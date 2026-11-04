@@ -29,6 +29,7 @@ mod facets;
 mod fleets;
 mod grounds;
 mod handoff;
+mod hotspots;
 mod issues;
 mod manual;
 #[cfg(test)]
@@ -58,6 +59,8 @@ mod revive_tests;
 mod stops_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod hotspots_tests;
 #[cfg(test)]
 mod plan_size_tests;
 #[cfg(test)]
@@ -136,6 +139,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
     let world = issues::World { open: &survey.open, holds: &holds, planned: &planned, at: survey.at };
     let mut history = survey.history.clone();
     let mut handoffs = survey.handoffs.clone();
+    let mut claims = hotspots::Claims::default();
     for issue in ordered(&survey.issues, &survey.projects) {
         if let Some(why) = survey.projects.paused(&issue.repo, survey.at) {
             outcome.skipped.push((issue.reference(), why));
@@ -154,6 +158,10 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
             outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", facets::UNCATEGORISED)));
             continue;
         }
+        if let Some((file, holder)) = claims.conflict(issue) {
+            outcome.skipped.push((issue.reference(), format!("ready, not placed: {}", hotspots::hold_reason(&file, holder))));
+            continue;
+        }
         let route = tier::route(issue, &history, &survey.ledger);
         let grounds = survey.grounds.grounds(&issue.reference().to_string(), issue.created, &issue.body, &route);
         let eta_h = grounds.figures.as_ref().map(|figures| grounds::eta_minutes(figures) / 60.0);
@@ -167,6 +175,7 @@ pub fn decide(survey: &Survey, launched_by: &str) -> Outcome {
         match plan::place(&ready, &capacity, &candidates(survey, &ready.brief), &mut pools) {
             Ok(mut launch) => {
                 history.chose(&launch.route);
+                claims.take(issue);
                 if let Some(arm) = (!launch.cloud && !launch.route.arm).then(|| handoffs.pick(launch.route.tier)).flatten() {
                     launch.brief = handoff::armed(&launch.brief, &arm);
                     launch.handoff = Some(arm);

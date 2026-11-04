@@ -48,7 +48,7 @@ pub(super) fn record(tracker: &mut dyn Tracker, state_path: &Path, host: &str, i
 pub(super) fn record_local(home: &Path, failures: &[String]) {
     let invocation = format!("{}-{}", std::process::id(), crate::foundation::clock::Timestamp::now().unix_nanos());
     let state_path = home.join(".local/state/north/agent-config-check.json");
-    if let Err(error) = record(&mut Gh, &state_path, &crate::platform::host::name(), &invocation, failures) {
+    if let Err(error) = record(&mut Gh::north(), &state_path, &crate::platform::host::name(), &invocation, failures) {
         eprintln!("agent-config-check: issue: {error}");
     }
 }

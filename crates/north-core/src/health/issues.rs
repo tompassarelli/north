@@ -7,12 +7,12 @@ pub(super) fn file(results: &[(String, Verdict)], north_runs: Option<&str>) {
         .iter()
         .filter_map(|(check, result)| Some((check.strip_prefix("unit ")?.to_owned(), result.as_ref().err()?.clone())))
         .collect();
-    if let Err(error) = units::reconcile(&mut Gh, &crate::platform::host::name(), &failing) {
+    if let Err(error) = units::reconcile(&mut Gh::north(), &crate::platform::host::name(), &failing) {
         eprintln!("health: issue: {error}");
     }
     if results.iter().any(|(check, result)| check == "ci" && result.is_ok())
         && let Some(runs) = north_runs
-        && let Err(error) = main_red::settle(&mut Gh, runs)
+        && let Err(error) = main_red::settle(&mut Gh::north(), runs)
     {
         eprintln!("health: main-red: {error}");
     }
