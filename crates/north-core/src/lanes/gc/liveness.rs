@@ -148,7 +148,8 @@ impl Gc {
 
     fn archive_guard(&mut self, main: &Path, name: &str, base: &str, branch: &str, tip: &str, path: Option<&Path>) -> Result<String, String> {
         let claims = self.live_claims()?;
-        if named_issues(main, name, base, tip)?.iter().any(|item| claims.contains(item)) {
+        let origin = origin_repo(main);
+        if named_issues(main, &origin.clone().unwrap_or_else(|| name.to_string()), base, tip)?.iter().any(|item| claims.contains(item)) {
             return Ok("live holder session".into());
         }
         if let Some(path) = path
@@ -165,7 +166,7 @@ impl Gc {
                 return Ok(format!("{peer} {why}"));
             }
         }
-        let Some(repo) = origin_repo(main) else {
+        let Some(repo) = origin else {
             return Ok(String::new());
         };
         let Some(pushes) = self.pushed_refs(&repo) else {

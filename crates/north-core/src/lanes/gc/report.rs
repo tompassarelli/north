@@ -47,13 +47,14 @@ pub(super) fn sorted(rows: &[String]) -> Vec<String> {
 }
 
 impl Gc {
-    pub(super) fn unlanded_row(&mut self, name: &str, main: &Path, base: &str, tip: &str, row: &Row) -> i64 {
-        let when: i64 = git(main, &["log", "-1", "--format=%ct", tip]).out.parse().unwrap_or(0);
+    pub(super) fn unlanded_row(&mut self, name: &str, main: &Path, base: &str, tip: &str, when: i64, row: &Row) -> i64 {
         let hours = (self.now_ms - when * 1000).div_euclid(3_600_000);
         let range = format!("{base}..{tip}");
-        let subjects = git(main, &["log", "--reverse", "--format=%s", &range]).out;
-        let first = subjects.lines().find(|line| !line.is_empty()).unwrap_or(if row.dirty.is_empty() { "-" } else { "uncommitted changes" });
-        let refs = cited_issues(&git(main, &["log", "--format=%B", &range]).out).join(" ");
+        let commits = git(main, &["log", "--format=%s%x1f%B%x1e", &range]).out;
+        let commits: Vec<(&str, &str)> = commits.split_terminator('\x1e').map(|commit| commit.trim_start_matches('\n').split_once('\x1f').unwrap_or((commit, ""))).collect();
+        let first = commits.iter().rev().map(|(subject, _)| *subject).find(|subject| !subject.is_empty()).unwrap_or(if row.dirty.is_empty() { "-" } else { "uncommitted changes" });
+        let bodies: String = commits.iter().map(|(_, body)| format!("{body}\n")).collect();
+        let refs = cited_issues(&bodies).join(" ");
         let fields = [
             format!("{hours}h"),
             name.to_string(),

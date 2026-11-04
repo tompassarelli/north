@@ -4,7 +4,7 @@ use std::time::UNIX_EPOCH;
 
 use super::Gc;
 use super::archive::{Lane, Retired};
-use super::evidence::{LaneClass, branch_hold, LaneFacts, Landed, lane_class, landed, named_issues, origin_repo, protected_branch};
+use super::evidence::{LaneClass, branch_hold, LaneFacts, Landed, committed, committed_each, lane_class, landed, landed_each, named_issues, origin_repo, protected_branch};
 use super::exec::{command, git, git_slow, real, verified};
 use super::super::live_process::any_inside;
 use super::super::repo::is_lander_tree;
@@ -25,10 +25,23 @@ struct Container {
     lanes: PathBuf,
     cutoff_ms: f64,
     github: bool,
+    own: String,
     previous: HashMap<String, String>,
     local_stale: Vec<LocalStale>,
     owned: Vec<Owned>,
     checked_out: HashSet<String>,
+    landed: HashMap<String, Landed>,
+    committed: HashMap<String, i64>,
+}
+
+impl Container {
+    fn landed(&self, tip: &str) -> Landed {
+        self.landed.get(tip).cloned().unwrap_or_else(|| landed(&self.main, &self.base, tip))
+    }
+
+    fn committed(&self, tip: &str) -> i64 {
+        self.committed.get(tip).copied().unwrap_or_else(|| committed(&self.main, tip))
+    }
 }
 
 struct Classified {
@@ -105,9 +118,17 @@ impl Gc {
             git(&main, &["worktree", "prune"]);
         }
         let worktrees = parse_worktrees(&git(&main, &["worktree", "list", "--porcelain"]).out);
+        let listed = git(&main, &["for-each-ref", "--format=%(objectname)", "refs/heads"]).out;
+        let mut tips: Vec<String> = worktrees.iter().filter_map(|fields| fields.get("HEAD").cloned()).chain(listed.lines().map(str::to_owned)).filter(|tip| !tip.is_empty()).collect();
+        tips.sort();
+        tips.dedup();
+        let landed = landed_each(&main, base, &tips);
+        let committed = committed_each(&main, &tips);
+        let origin = origin_repo(&main);
         let previous = self.stale.repo(&name).local_stale.iter().map(|row| (row.path.clone(), row.flagged_at.clone())).collect();
         let mut sweep = Container {
-            github: origin_repo(&main).is_some(),
+            github: origin.is_some(),
+            own: origin.unwrap_or_else(|| name.clone()),
             cutoff_ms: self.now_ms as f64 - self.options.idle_hours * HOUR_MS,
             checked_out: worktrees.iter().map(branch_of).filter(|branch| !branch.is_empty()).collect(),
             lanes: real(&container.join("worktrees")),
@@ -118,6 +139,8 @@ impl Gc {
             previous,
             local_stale: Vec::new(),
             owned: Vec::new(),
+            landed,
+            committed,
         };
         let swept = self.sweep_lanes(&mut sweep, &worktrees, live);
         self.stale.repo(&sweep.name).local_stale = std::mem::take(&mut sweep.local_stale);
@@ -186,11 +209,11 @@ impl Gc {
         if !branch.is_empty() {
             stamps.push(sweep.common.join("logs/refs/heads").join(&branch));
         }
-        let committed = git(&sweep.main, &["log", "-1", "--format=%ct", &tip]).out.parse::<f64>().unwrap_or(0.0) * 1000.0;
+        let committed = sweep.committed(&tip) as f64 * 1000.0;
         let activity_ms = committed.max(newest_mtime(&stamps));
         let lane = Worktree {
             place: self.tilde(&path),
-            landed: landed(&sweep.main, &sweep.base, &tip),
+            landed: sweep.landed(&tip),
             age_h: (self.now_ms as f64 - activity_ms) / HOUR_MS,
             locked: fields.contains_key("locked"),
             path,
@@ -252,7 +275,7 @@ impl Gc {
 
     fn classify_worktree(&mut self, sweep: &mut Container, lane: &Worktree, flagged: bool, live: &[PathBuf]) -> Result<(), String> {
         let dirty = !lane.dirty.is_empty();
-        let issues = named_issues(&sweep.main, &sweep.name, &sweep.base, &lane.tip).unwrap_or_default();
+        let issues = named_issues(&sweep.main, &sweep.own, &sweep.base, &lane.tip).unwrap_or_default();
         let held = self.held(lane, live);
         let states = if dirty || lane.landed.landed { Vec::new() } else { self.issue_states(&issues) };
         let idle_hours = if dirty && self.idle_for(lane, 24.0) { lane.age_h } else { 0.0 };
@@ -274,7 +297,7 @@ impl Gc {
     }
 
     fn surface_worktree(&mut self, sweep: &mut Container, lane: &Worktree, issues: &[String]) -> Result<(), String> {
-        self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, &Self::row(lane, LaneClass::Owned));
+        self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Self::row(lane, LaneClass::Owned));
         let shown = if lane.branch.is_empty() { "(detached)" } else { &lane.branch };
         let owner = self.surface(sweep, &lane.place, shown, lane.age_h.floor() as i64, issues)?;
         self.counts.kept += 1;
@@ -287,7 +310,7 @@ impl Gc {
     fn hold_worktree(&mut self, sweep: &mut Container, lane: &Worktree, verdict: &Classified, why: &str) -> Result<(), String> {
         self.counts.kept += 1;
         if verdict.unlanded {
-            self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, &Self::row(lane, verdict.class));
+            self.unlanded_row(&sweep.name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Self::row(lane, verdict.class));
         }
         if verdict.expired {
             self.surface(sweep, &lane.place, &lane.branch, lane.age_h.floor() as i64, &verdict.issues)?;
@@ -313,7 +336,7 @@ impl Gc {
         if !retired.retired {
             self.counts.kept += 1;
             if verdict.unlanded {
-                self.unlanded_row(&name, &sweep.main, &sweep.base, &lane.tip, &Self::row(lane, verdict.class));
+                self.unlanded_row(&name, &sweep.main, &sweep.base, &lane.tip, sweep.committed(&lane.tip), &Self::row(lane, verdict.class));
             }
             println!("{name}: {label} {}: kept ({})", lane.place, retired.why);
             return Ok(());
@@ -390,7 +413,7 @@ impl Gc {
         if protected_branch(branch) || sweep.checked_out.contains(branch) {
             return Ok(());
         }
-        let verdict = landed(&sweep.main, &sweep.base, tip);
+        let verdict = sweep.landed(tip);
         let branch_age = sweep.cutoff_ms - newest_mtime(&[sweep.common.join("logs/refs/heads").join(branch)]);
         if verdict.how != "ancestor" {
             return self.classify_branch(sweep, branch, tip, &verdict, branch_age);
@@ -409,12 +432,12 @@ impl Gc {
 
     fn classify_branch(&mut self, sweep: &mut Container, branch: &str, tip: &str, verdict: &Landed, branch_age: f64) -> Result<(), String> {
         let name = sweep.name.clone();
-        let issues = named_issues(&sweep.main, &name, &sweep.base, tip).unwrap_or_default();
+        let issues = named_issues(&sweep.main, &sweep.own, &sweep.base, tip).unwrap_or_default();
         let states = if verdict.landed { Vec::new() } else { self.issue_states(&issues) };
         let class = lane_class(&LaneFacts { dirty: false, equivalent: verdict.landed, issues: &states, idle_hours: 0.0, held: false });
         let row = Row { place: "(branch)", branch, ahead: verdict.ahead, dirty: "", class };
         if class == LaneClass::Owned {
-            let hours = self.unlanded_row(&name, &sweep.main, &sweep.base, tip, &row);
+            let hours = self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
             let owner = self.surface(sweep, "(branch)", branch, hours, &issues)?;
             self.counts.kept += 1;
             if self.options.dry_run {
@@ -423,7 +446,7 @@ impl Gc {
             return Ok(());
         }
         let label = class.label();
-        let committed = git(&sweep.main, &["log", "-1", "--format=%ct", tip]).out.parse::<f64>().unwrap_or(0.0) * 1000.0;
+        let committed = sweep.committed(tip) as f64 * 1000.0;
         let activity_ms = committed.max(newest_mtime(&[sweep.common.join("logs/refs/heads").join(branch)]));
         let idle_hours = (self.now_ms as f64 - activity_ms) / HOUR_MS;
         let held = branch_hold(class, sweep.checked_out.contains(branch), idle_hours);
@@ -432,7 +455,7 @@ impl Gc {
         } else if branch_age < 0.0 { format!("touched within {}h", self.options.idle_hours) } else { self.local_archive_guard(&sweep.main, &name, &sweep.base, branch, tip, None) };
         if !why.is_empty() {
             if !verdict.landed {
-                self.unlanded_row(&name, &sweep.main, &sweep.base, tip, &row);
+                self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
             }
             self.counts.kept += 1;
             if self.options.dry_run {
@@ -448,7 +471,7 @@ impl Gc {
         let retired = self.retire_lane(&sweep.main, &name, &Lane { path: None, branch, tip, dirty: false, label: branch })?;
         if !retired.retired || retired.why.starts_with("branch") {
             if !verdict.landed {
-                self.unlanded_row(&name, &sweep.main, &sweep.base, tip, &row);
+                self.unlanded_row(&name, &sweep.main, &sweep.base, tip, sweep.committed(tip), &row);
             }
             self.counts.kept += 1;
             println!("{name}: {label} branch {branch}: kept ({})", retired.why);

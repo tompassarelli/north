@@ -4,7 +4,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::Gc;
-use super::evidence::{LaneClass, LaneFacts, lane_class, landed, named_issues, origin_repo, protected_branch, refs_on};
+use super::evidence::{LaneClass, LaneFacts, lane_class, landed, named_issues, origin_repo, own_repo, protected_branch, refs_on};
 use super::exec::{api, command, git, git_slow, truthy, verified};
 use super::liveness::{open_pull_heads, pending_autoland, tree_is_live};
 use super::state::{LandingPing, RemoteStale};
@@ -294,7 +294,7 @@ impl Gc {
         let class = if is_landed {
             "landed"
         } else {
-            let issues = named_issues(main, name, BASE, branch.tip)?;
+            let issues = named_issues(main, &own_repo(main, name), BASE, branch.tip)?;
             let states = self.issue_states(&issues);
             let class = lane_class(&LaneFacts { dirty: false, equivalent: false, issues: &states, idle_hours: 0.0, held: false });
             if class == LaneClass::Superseded { "superseded" } else { "owned" }
