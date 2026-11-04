@@ -150,6 +150,25 @@ Done when:
   local check per commit, splitting check-owners' `cargo run` compile from its check and machine-bound's build from
   its tests.
 
+B5 result (2026-11-04, lane seeded by `north target-seed`, built at 12da0de8a, then stepped through the three
+commits in order under one moderate lease; user+sys core-seconds / wall seconds; dev-shell was selected for none):
+
+| Commit | Changes | check-owners compile | check-owners check | machine-bound build | machine-bound tests |
+| --- | --- | --- | --- | --- | --- |
+| 2fdb333f1 | `harness/machine-bound-tests` | 0.5 / 0.6 | 1.3 / 4.2 | 0.1 / 0.9 | 0.1 / 0.2 (none selected) |
+| 32da14e68 | `land_offload/ship.rs` | 29.2 / 38.2 (north-core, north) | 3.9 / 7.9 | 0.1 / 0.7 | 1.2 / 1.0 |
+| 1b699074a | `land_offload/ship.rs` | 14.8 / 28.8 (north-core, north) | 1.5 / 7.8 | 0.1 / 2.7 | 1.4 / 3.3 |
+
+- machine-bound's `./bin/land-shell --dev -- cargo build --bin north` is a no-op after check-owners' `cargo run`:
+  both build the same debug `north` in the same `target/`, so check-owners pays the landing's compile.
+- One-commit steps from a warm target put the compile at 0.25 to 0.5 core-min, under B6's gate. Real landings sit
+  higher, because a lane's target is built at its fork point and the landing head is rebased past it: the laptop's
+  usage ledger, 6:24 to 7:32 AM, holds 96 check-owners runs at 10,250 cpu-s (mean 107, 1.8 core-min; 39 over 60 s)
+  and 83 machine-bound runs at 3,369 cpu-s. B6 goes ahead on the ledger number.
+- B6 saves the compile only where machine-bound builds nothing: lanes outside its path filter (11 of 75 main
+  commits today) and lanes whose diff selects no machine-bound test, as 2fdb333f1 did. Elsewhere the same compile
+  moves into machine-bound's build; B7 owns that share.
+
 ### B6. check-owners runs a held runtime binary unless the checker changed (candidate 5, if B5 puts the compile at 1 core-min or more)
 
 Category: performance. Spec: measured. Scope: single-module. Surface: harness. Verify: local-test. Files:
