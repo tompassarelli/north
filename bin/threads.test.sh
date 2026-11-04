@@ -262,40 +262,6 @@ out=$(t recommend 'Category: native-check'; t summary)
 check '[recorded] an unclear run with no Item is unjudged and left out of success; a briefed unclear run is a failure' \
   'grep -qx "  claude:haiku       50% of 6  shrunk 50%  \$ n/a (priced n=0)" <<<"$out" && grep -qE "^native-check +haiku +- +6 +1.0 +5 +83% +50%" <<<"$out"'
 
-week() {  # week PREFIX TIER CATEGORY OK FAIL COST: history runs on 1 Oct, COST $ each (- for none)
-  local i
-  for i in $(seq 1 "$4"); do row --arg id "$1$i" --arg t "$2" --arg b "Category: $3" '{id:$id,started:"2026-10-01T00:00:00Z",ended:"2026-10-01T01:00:00Z",tier:$t,actual_min:5,outcome:"done",landed:1,brief:$b}'; done
-  for i in $(seq 1 "$5"); do row --arg id "$1f$i" --arg t "$2" --arg b "Category: $3" '{id:$id,started:"2026-10-01T00:00:00Z",ended:"2026-10-01T01:00:00Z",tier:$t,actual_min:5,outcome:"not done",landed:0,brief:$b}'; done
-}
-{ week rm medium research 15 0; week rh haiku research 15 0
-  week tm medium tooling 15 0; week ts 'gpt-6.1-sol medium' tooling 15 0
-  week dm medium docs-policy 15 0; week dx 'gpt-6.1-sol xhigh' docs-policy 15 0
-  row '{id:"d-research",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"haiku",actual_min:5,outcome:"not done",landed:0,brief:"Category: research"}'
-  row '{id:"d-tooling",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"gpt-6.1-sol medium",actual_min:5,outcome:"done",landed:1,brief:"Category: tooling"}'
-  row '{id:"d-docs",started:"2026-10-05T00:00:00Z",ended:"2026-10-05T01:00:00Z",tier:"medium",actual_min:5,outcome:"done",landed:1,brief:"Category: docs-policy"}'
-} | THREADS_DB=$scratch/replay.db "$threads" ingest 2>/dev/null
-sqlite3 "$scratch/replay.db" "update runs set tokens = case substr(agent, 1, 2) when 'rh' then 6000000 when 'rm' then 50000 when 'tm' then 100000
-  when 'ts' then 50000 when 'dm' then 100000 end, model = case substr(agent, 1, 2) when 'ts' then 'gpt-6.1-sol' end where substr(agent, 1, 2) in ('rh','rm','tm','ts','dm')"
-out=$(THREADS_DB=$scratch/replay.db t replay-staffing --since 2026-10-04)
-check '[golden] replay-staffing: $ per success moves research off haiku and tooling onto SOL; thin $ falls back to rank for docs' \
-  '[ "$out" = "$(cat <<'"'GOLDEN'"'
-replay-staffing since 2026-10-04: 3 first-assignment runs, picks from strictly earlier runs
-[Category: docs-policy]  claude:opus-medium -> codex:sol-xhigh  runs 1  rule rank (uncalibrated: thin $ codex:sol-xhigh n=0 < 15)
-  codex:sol-xhigh 100% of 15, $ n/a (priced n=0)
-  claude:opus-medium 100% of 15, $2.00/success (priced n=15)
-  actual: new pick 0 (0 ok), old pick 1 (1 ok), other 0
-[Category: research]  claude:haiku -> claude:opus-medium  runs 1  rule $ per success
-  claude:opus-medium 100% of 15, $1.00/success (priced n=15)
-  claude:haiku 100% of 15, $3.00/success (priced n=15)
-  actual: new pick 0 (0 ok), old pick 1 (0 ok), other 0
-[Category: tooling]  claude:opus-medium -> codex:sol-medium  runs 1  rule $ per success
-  codex:sol-medium 100% of 15, $0.50/success (priced n=15)
-  claude:opus-medium 100% of 15, $2.00/success (priced n=15)
-  actual: new pick 1 (1 ok), old pick 0 (0 ok), other 0
-changed 3 of 3 decisions in 3 cells; actual tier was the new pick 1 (1 ok), the old pick 2 (1 ok), another 0
-GOLDEN
-)" ]'
-
 python3 - "$threads" <<'PY' >"$scratch/prop.out" 2>&1
 import importlib.machinery, importlib.util, random, string, sys
 loader = importlib.machinery.SourceFileLoader("threads", sys.argv[1])

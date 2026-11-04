@@ -15,9 +15,9 @@ use crate::error::{NorthError, NorthResult};
 use crate::threads::{board, calibration, claims, ingest_lock, ingest_log, items, jobs, landing, outside, runs, snapshot, staffing, verb};
 use crate::foundation::clock::Timestamp;
 
-const READS: [&str; 12] = [
+const READS: [&str; 11] = [
     "job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate",
-    "replay-staffing", "planner-band", "routing-compare",
+    "planner-band", "routing-compare",
 ];
 const UNREACHABLE: i32 = 255;
 const TIMED_OUT: i32 = 124;

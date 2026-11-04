@@ -28,7 +28,7 @@ CACHE_SECONDS = 60
 REMOTE = os.path.expanduser("~/.config/threads/remote")
 SPOOL = os.path.expanduser("~/.local/state/threads/spool")
 SNAPSHOT = os.path.expanduser("~/.local/state/threads/snapshot.db")
-READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "replay-staffing", "planner-band", "routing-compare"}
+READS = {"job-runs", "show", "ready", "list", "unowned", "run-ids", "summary", "recommend", "calibrate", "planner-band", "routing-compare"}
 UNREACHABLE, RETRY = 255, 75
 
 # Every repository under OWNER whose issues NorthThreads tracks. A ref names the
@@ -642,7 +642,7 @@ def proxy(dest, argv) -> int:
     return code
 
 
-RUST_VERBS = ("claim", "list", "job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "label-runs", "run-ids", "recommend", "calibrate", "replay-staffing", "summary", "eta-calibration", "routing-compare", "land-train")
+RUST_VERBS = ("claim", "list", "job-run", "job-runs", "queue", "show", "ready", "unowned", "release", "need", "unneed", "new", "note", "close", "reopen", "block", "ingest", "label-runs", "run-ids", "recommend", "calibrate", "summary", "eta-calibration", "routing-compare", "land-train")
 
 
 def delegate(argv) -> int:
