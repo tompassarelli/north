@@ -89,6 +89,13 @@ impl Lander {
                     (false, None) => Round::Idle,
                 });
             }
+            let mut strikes = bisect::Strikes::load(&self.queue, &base)?;
+            let key = bisect::Strikes::key(&included);
+            if included.len() > 1 && strikes.exhausted(&key) {
+                limit = bisect::half(included.len());
+                println!("north land: a candidate of {} lanes kept ending without a verdict; checking its first {limit} lanes", included.len());
+                continue;
+            }
             let identity = self.identity()?;
             println!("north land: candidate {} carries {} lanes onto main@{base}; checking it", built.head, built.included());
             let log = logs.join(format!("{}-candidate.log", micros()));
@@ -105,6 +112,9 @@ impl Lander {
                     Err(error) => return Ok(Round::Waiting(format!("transient: {error}"))),
                 },
             };
+            let streak = if moved { 0 } else { strikes.record(&key, &verdict) };
+            let verdict = bisect::escalate(verdict, streak, &log);
+            strikes.save(&self.queue)?;
             match bisect::judge(verdict, included.len(), moved) {
                 Judgement::Land => {
                     after::begin(self, &built.head, &base, &included)?;

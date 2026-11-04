@@ -26,8 +26,14 @@ printf 'land-check ref push\ndispatch\nref delete\n' >>"$LAND_TRACE/github"
 verdict=green
 [ ! -e "$LAND_TRACE/verdict" ] || verdict=$(cat "$LAND_TRACE/verdict")
 [ ! -e "$LAND_TRACE/verdict-$n" ] || verdict=$(cat "$LAND_TRACE/verdict-$n")
+status=0
+if [ -e "$LAND_TRACE/poison" ]; then
+  { read -r poisoned; read -r poison_verdict; read -r poison_status; } <"$LAND_TRACE/poison"
+  [ ! -e "$poisoned" ] || { verdict=$poison_verdict; status=$poison_status; }
+fi
 printf 'checking\nsafe-push: verdict %s\n' "$verdict"
-[ ! -e "$LAND_TRACE/exit-$n" ] || exit "$(cat "$LAND_TRACE/exit-$n")"
+[ ! -e "$LAND_TRACE/exit-$n" ] || status=$(cat "$LAND_TRACE/exit-$n")
+exit "$status"
 "#;
 
 const NORTH: &str = r#"#!/usr/bin/env bash
@@ -479,6 +485,53 @@ fn serve_transient_not_culprit() {
     let mut fleet = fixture.fleet();
     fleet.sort();
     assert_eq!(fleet, ["a", "b", "c"].map(|name| format!("fleet send session-lane-{name} landed lane-{name} as {main}")), "only landed messages go out");
+}
+
+fn persistent_isolates(verdict: &str, exit: &str, class: &str) {
+    let mut fixture = Fixture::new();
+    let tickets: Vec<PathBuf> = ["a", "b", "c"].iter().map(|name| {
+        let lane = fixture.lane(name, &format!("{name}.txt"), name);
+        fixture.enqueue(&lane, None)
+    }).collect();
+    fs::write(fixture.trace.join("poison"), format!("b.txt\n{verdict}\n{exit}\n")).unwrap();
+    for _ in 0..2 {
+        assert_eq!(fixture.serve().status.code(), Some(75));
+    }
+    assert_eq!(fixture.checks().len(), 2);
+    assert!(tickets.iter().all(|ticket| ticket.exists()), "a {class} decided a lane before the third try");
+    assert_eq!(fixture.serve().status.code(), Some(75));
+    let checks = fixture.checks();
+    assert_eq!(checks.len(), 4, "the third {class} halves the candidate and checks its first half");
+    assert_eq!(tree(&fixture, &checks[0].0), tree(&fixture, &checks[2].0));
+    assert_ne!(tree(&fixture, &checks[3].0), tree(&fixture, &checks[2].0));
+    assert!(tickets.iter().all(|ticket| ticket.exists()), "halving decided a lane");
+    assert_eq!(fixture.main(), fixture.base);
+    let mut rounds = 0;
+    while fixture.serve().status.code() == Some(75) {
+        rounds += 1;
+        assert!(rounds < 12, "the queue never settled");
+    }
+    let failure = fixture.verdict(&tickets[1]).unwrap();
+    assert!(failure.starts_with(&format!("failed persistent {class}: ")) && failure.ends_with("-candidate.log"), "{failure}");
+    let main = fixture.main();
+    for ticket in [&tickets[0], &tickets[2]] {
+        assert!(fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed ")));
+    }
+    assert_eq!(fixture.verdict(&tickets[2]), Some(format!("landed {main}")));
+    assert_eq!(fixture.subjects(), ["change from a", "change from c"]);
+    let fleet = fixture.fleet();
+    assert!(fleet.iter().any(|call| call.starts_with("fleet send session-lane-b ") && call.contains(&format!("did not land: {failure}"))), "{fleet:?}");
+    assert!(fleet.iter().filter(|call| call.contains("did not land")).count() == 1, "{fleet:?}");
+}
+
+#[test]
+fn serve_persistent_transient_isolates() {
+    persistent_isolates("green", "75", "transient");
+}
+
+#[test]
+fn serve_persistent_deferred_isolates() {
+    persistent_isolates("deferred DEFER_QUEUED", "0", "deferred");
 }
 
 #[test]

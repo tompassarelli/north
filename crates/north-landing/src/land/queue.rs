@@ -61,7 +61,7 @@ pub fn file_name(queued_micros: u128, branch: &str) -> String {
     format!("{queued_micros}-{}.json", slug(branch))
 }
 
-fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
+pub(super) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| io::Error::other(format!("{} has no parent", path.display())))?;
     fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(".{}.{}.tmp", path.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
