@@ -62,7 +62,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
     assert_eq!(Overrides::default().recorded(note.as_deref()), tiered, "revive keeps the tier reason");
 
     let mut remote = decision(Target::Account("claude:a".into()));
-    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()], saturation: None });
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into(), "c".into()], saturation: None });
     let launch = Launch { name: "box", account: "a", brief: None, cwd: None, machine: None };
     let placed = admit(&remote, &launch, "", &Overrides::default()).unwrap();
     assert_eq!(placed, Placed { account: None, note: None, machine: Some(Machine { name: "far".into(), ssh: "tom@far".into() }), need: None });
@@ -81,7 +81,7 @@ fn an_override_reason_admits_an_off_placement_launch_and_survives_revive() {
 fn the_account_placement_resolved_for_the_machine_needs_no_pin_beside_a_roomier_one_elsewhere() {
     let mut remote = decision(Target::Account("claude:a".into()));
     remote.verdicts.push(verdict("claude:b", Some(90.0)));
-    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(0), accounts: vec!["a".into()], saturation: None });
+    remote.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(0), accounts: vec!["a".into()], saturation: None });
     let launch = |account| Launch { name: "box", account, brief: None, cwd: None, machine: Some("far") };
     assert_eq!(admit(&remote, &launch("a"), "", &Overrides::default()).unwrap().note, None);
     let here = decision(Target::Account("claude:a".into()));
@@ -117,7 +117,7 @@ fn the_account_the_shared_rank_puts_first_is_admitted_without_a_pin_though_anoth
 #[test]
 fn a_launch_on_a_saturated_named_machine_needs_a_pin_and_a_local_keep_does_not() {
     let mut saturated = decision(Target::Account("claude:a".into()));
-    saturated.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
+    saturated.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
     saturated.saturated = Some("far skipped: 14.0 GiB free on the root disk, under 15".into());
     let launch = Launch { name: "worker", account: "a", brief: None, cwd: None, machine: Some("far") };
     let refused = admit(&saturated, &launch, "", &Overrides::default()).unwrap_err();
@@ -152,7 +152,7 @@ fn a_box_kept_on_a_saturated_launching_host_needs_local_or_a_pin_and_a_move_else
     assert_eq!(admit(&held, &launch, "", &pinned).unwrap().note.as_deref(), Some("pin: urgent"));
 
     let mut elsewhere = decision(Target::Account("claude:a".into()));
-    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
+    elsewhere.machine = Some(placement::Machine { name: "far".into(), ssh: "tom@far".into(), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: Some(1), accounts: vec!["a".into()], saturation: None });
     elsewhere.here_saturated = Some(why.into());
     elsewhere.hold_here();
     assert_eq!(elsewhere.target, Target::Account("claude:a".into()));

@@ -10,14 +10,14 @@ const WARCRAFT: &str = "Item: makgora#4 LAN check\nSurface: rust\nNeeds: warcraf
 const PRIVATE: &str = "Item: galileo#3 private change\nSurface: rust\n";
 const UNDECLARED: &str = "Item: wisp#7 a box without facets\n";
 
-fn control(five: (f64, f64, &str), week: (f64, f64)) -> Value {
+pub(super) fn control(five: (f64, f64, &str), week: (f64, f64)) -> Value {
     json!({"windows": [
         {"window": "5h", "used_pct": five.0, "burn_pct_h": five.1, "resets_at": five.2},
         {"window": "week", "used_pct": week.0, "burn_pct_h": week.1, "resets_at": "2026-10-20T00:00:00Z"},
     ]})
 }
 
-fn gate(accounts: &[(&str, Value)]) -> Value {
+pub(super) fn gate(accounts: &[(&str, Value)]) -> Value {
     let controls: serde_json::Map<String, Value> = accounts.iter().map(|(n, c)| ((*n).to_owned(), c.clone())).collect();
     json!({"claude": {"controls": controls}})
 }
@@ -34,12 +34,12 @@ fn verdicts(quota: &Value, roster: &Roster) -> Vec<Verdict> {
     gate::verdicts(quota, roster, &Basis::new(&DocumentMut::new(), json!({}), at))
 }
 
-fn decide(text: &str, cfg: &DocumentMut, quota: &Value, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {
+pub(super) fn decide(text: &str, cfg: &DocumentMut, quota: &Value, credit: (bool, String), machines: &[Machine], here: &str) -> Decision {
     let listed = roster(&[("a", None), ("b", None), ("c", None)]);
     gate::decide(text, cfg, verdicts(quota, &listed), credit, machines, here, false)
 }
 
-fn target(decision: &super::placement::gate::Decision) -> String {
+pub(super) fn target(decision: &super::placement::gate::Decision) -> String {
     match &decision.target {
         Target::Cloud(_) => "anthropic-cloud".into(),
         Target::Account(name) => name.clone(),
@@ -391,7 +391,7 @@ fn placement_picks_the_week_that_expires_soonest_then_a_live_spend_target_ahead_
 }
 
 fn gex45() -> Machine {
-    Machine { name: "gex45".into(), ssh: "gex45".into(), cap: 8, live: Some(0), serves: vec!["native:wisp".into(), "native:makgora".into()], pushes: None, accounts: vec!["a".into()], saturation: None }
+    Machine { name: "gex45".into(), ssh: "gex45".into(), cap: 8, live: Some(0), serves: vec!["native:wisp".into(), "native:makgora".into()], pushes: None, reaches: None, accounts: vec!["a".into()], saturation: None }
 }
 
 fn placed_on(text: &str) -> Option<String> {

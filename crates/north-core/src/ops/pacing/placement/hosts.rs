@@ -367,7 +367,7 @@ mod tests {
     }
 
     fn machine(name: &str) -> Machine {
-        Machine { name: name.into(), ssh: format!("tom@{name}"), serves: Vec::new(), pushes: None, cap: 4, live: None, accounts: Vec::new(), saturation: None }
+        Machine { name: name.into(), ssh: format!("tom@{name}"), serves: Vec::new(), pushes: None, reaches: None, cap: 4, live: None, accounts: Vec::new(), saturation: None }
     }
 
     fn answer() -> Facts {

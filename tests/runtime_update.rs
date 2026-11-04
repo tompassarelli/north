@@ -260,6 +260,37 @@ fn a_build_whose_commit_is_no_longer_origin_main_is_abandoned_and_the_new_head_i
 }
 
 #[test]
+fn a_build_a_tenth_done_when_origin_main_moves_is_abandoned_though_the_last_build_wall_is_known() {
+    let host = Host::new();
+    host.built(PREVIOUS);
+    host.select(PREVIOUS);
+    fs::write(host.path("state/north/runtime-build-seconds"), "100").unwrap();
+    let skill = host.path("skill/machine-capacity");
+    script(&host.path("bin/agents"), &format!("case \"$1\" in path) echo {};; sync) exit 0;; esac\n", skill.display()));
+    script(
+        &host.path("bin/bun"),
+        "n=$(cat \"$TEST_COUNT\" 2>/dev/null || echo 0)\necho $((n + 1)) >\"$TEST_COUNT\"\n[ \"$n\" = 0 ] && exec sleep 120\n\
+         release=\"$HOME/.cache/cargo-target/north/release\"\nmkdir -p \"$release\"\n\
+         for program in north verify-north; do printf '#!/bin/sh\\nexit 0\\n' >\"$release/$program\"; chmod +x \"$release/$program\"; done\n",
+    );
+    let count = host.path("count");
+    let source = host.path("source");
+    let home = host.path("home");
+    let output = std::thread::scope(|scope| {
+        let run = scope.spawn(|| host.north_with(&["runtime", "update"], &[("NORTH_RUNTIME_WATCH_SECONDS", "1"), ("TEST_COUNT", count.to_str().unwrap())]));
+        while !count.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        git(&home, &source, &["commit", "-q", "--allow-empty", "-m", "second"]);
+        run.join().unwrap()
+    });
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    assert!(stdout.contains("abandoned its build") && !stdout.contains("finishing it"), "{stdout}");
+    assert_eq!(fs::read_to_string(&count).unwrap().trim(), "2");
+}
+
+#[test]
 fn a_build_that_capacity_stops_before_cargo_runs_is_deferred_and_one_that_cargo_fails_is_held_back() {
     for (bun, expected, held) in [
         ("echo \"Failed to parse CPUQuota= value '0%'\" >&2\nexit 1\n", 75, false),

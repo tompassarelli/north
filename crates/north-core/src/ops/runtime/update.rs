@@ -461,7 +461,7 @@ mod tests {
     use super::*;
 
     fn machine(name: &str) -> gate::Machine {
-        gate::Machine { name: name.to_owned(), ssh: name.to_owned(), serves: Vec::new(), pushes: None, cap: 0, live: None, accounts: Vec::new(), saturation: None }
+        gate::Machine { name: name.to_owned(), ssh: name.to_owned(), serves: Vec::new(), pushes: None, reaches: None, cap: 0, live: None, accounts: Vec::new(), saturation: None }
     }
 
     #[test]

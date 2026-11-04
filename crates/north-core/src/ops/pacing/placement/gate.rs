@@ -6,6 +6,7 @@
 use super::super::storage::{self, load, rows};
 use super::super::{sampling, target};
 pub use super::repository::{anchored, repository};
+use super::reach::Reach;
 use super::room::{Basis, Rank};
 use super::{credit, facets, field, here_saturation, local, strings};
 use crate::capacity::{agent_load, laptop_auto};
@@ -63,6 +64,8 @@ pub struct Machine {
     pub ssh: String,
     pub serves: Vec<String>,
     pub pushes: Option<Vec<String>>,
+    /// The `[hosts]` names a session there can reach over ssh, None when the host declares no list and so reaches any.
+    pub reaches: Option<Vec<String>>,
     pub cap: i64,
     pub live: Option<i64>,
     pub accounts: Vec<String>,
@@ -233,6 +236,10 @@ pub fn words(text: &str, key: &str) -> Vec<String> {
         .map(str::to_owned)
         .collect()
 }
+pub(super) fn is_local_need(word: &str) -> bool {
+    LOCAL_NEEDS.contains(&word)
+}
+
 /// The needs that keep a box off code-only targets: local `Needs:` and `Surface:` words, and native
 /// verification.
 fn local_needs(text: &str) -> Vec<String> {
@@ -257,6 +264,9 @@ pub fn surface(text: &str, cfg: &DocumentMut) -> (bool, String) {
     }
     if let Some(need) = local_needs(text).first() {
         return (false, format!("needs {need}, not cloud"));
+    }
+    if let Some(host) = Reach::of(text, cfg, "").named().first() {
+        return (false, format!("needs {host}, not cloud"));
     }
     let repo = repository(text);
     let rules = cfg.get("placement");
@@ -289,7 +299,7 @@ pub fn machines(cfg: &DocumentMut) -> Vec<Machine> {
             let host = hosts.get(&name)?;
             let ssh = ssh_destination(host.get("ssh")?.as_str()?)?.to_owned();
             let cap = host.get("resident_cap").and_then(Item::as_integer).unwrap_or(0);
-            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), name, ssh, cap, live: None, accounts: Vec::new(), saturation: None })
+            Some(Machine { serves: strings(host.get("serves")), pushes: pushes(host), reaches: super::reach::reaches(host), name, ssh, cap, live: None, accounts: Vec::new(), saturation: None })
         })
         .collect()
 }
@@ -356,7 +366,7 @@ fn covers(serves: &[String], need: &str, repo: &str) -> bool {
 
 /// The first machine that serves every local need of the box and is below its cap, with one line per
 /// machine, and the need here does not serve with why no host serves it.
-fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool) -> (Option<Machine>, Vec<String>, Option<(String, String)>) {
+fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_gaming: bool, reach: &Reach) -> (Option<Machine>, Vec<String>, Option<(String, String)>) {
     let declared = !words(text, "Surface").is_empty();
     let needs = if declared || !here_gaming { local_needs(text) } else { GAMING_NEEDS.iter().map(|need| (*need).to_owned()).collect() };
     let repo = repository(text);
@@ -375,6 +385,9 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             if !can_push(machine.pushes.as_deref(), &repo) {
                 return format!("{name} skipped: cannot push {repo}");
             }
+            if let Some(host) = reach.unreached(name, machine.reaches.as_deref()) {
+                return format!("{name} skipped: cannot reach {host}");
+            }
             machine.saturation_refusal().unwrap_or_else(|| match machine.live {
                 None => format!("{name} unreachable over ssh {}", machine.ssh),
                 Some(live) if live >= machine.cap => format!("{name} full: {live}/{} resident CLIs", machine.cap),
@@ -385,7 +398,7 @@ fn machine_for(text: &str, machines: &[Machine], here_serves: &[String], here_ga
             })
         })
         .collect();
-    let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}")));
+    let here_lacks = missing(here_serves).map(|need| (need.clone(), format!("no host serves {need} for {repo}"))).or_else(|| reach.unreached_here().map(|host| (host.to_owned(), format!("no host reaches {host}"))));
     (chosen, lines, here_lacks)
 }
 
@@ -426,7 +439,8 @@ fn unavailable(account: &str, reason: String) -> Verdict {
 pub fn decide(text: &str, cfg: &DocumentMut, verdicts: Vec<Verdict>, credit: (bool, String), machines: &[Machine], here: &str, here_gaming: bool) -> Decision {
     let (code_only, surface) = surface(text, cfg);
     let here_serves = strings(cfg.get("hosts").and_then(|hosts| hosts.get(here)).and_then(|host| host.get("serves")));
-    let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves, here_gaming);
+    let reach = Reach::of(text, cfg, here);
+    let (machine, machine_lines, here_lacks) = machine_for(text, machines, &here_serves, here_gaming, &reach);
     let mut decision = Decision {
         target: Target::Held(String::new()),
         code_only,

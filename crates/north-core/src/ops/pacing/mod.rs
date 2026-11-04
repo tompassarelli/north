@@ -13,6 +13,8 @@ pub mod placement;
 #[cfg(test)]
 mod placement_gate_tests;
 #[cfg(test)]
+mod placement_reach_tests;
+#[cfg(test)]
 mod placement_tests;
 mod process;
 mod readout;
