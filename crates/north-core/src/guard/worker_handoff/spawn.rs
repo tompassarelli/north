@@ -4,10 +4,9 @@ use crate::hook::HookInput;
 use crate::platform::pyjson::{self, Value};
 use serde_json::json;
 use std::io::{ErrorKind, Write};
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
-const INGEST_WAIT: Duration = Duration::from_secs(8);
 const ORIGIN: &str = "claude.PostToolUse.Agent";
 
 pub(super) fn truthy(value: &Value) -> bool {
@@ -85,8 +84,10 @@ pub(super) fn record(input: &HookInput, env: &Env) -> Option<String> {
     if confirming && let Err(error) = confirm(input, env) {
         return Some(format!("spawn reservation confirmation failed for lead {lead}: {error}"));
     }
-    let miss = ingest(&format!("{}\n", row?)).err()?;
-    Some(format!("spawn recording boundary miss for lead {lead}: {miss}"))
+    if let Err(miss) = ingest(&format!("{}\n", row?)) {
+        eprintln!("spawn recording boundary miss for lead {lead}: {miss}");
+    }
+    None
 }
 
 fn failure(error: std::io::Error) -> &'static str {
@@ -108,22 +109,9 @@ fn ingest(line: &str) -> Result<(), &'static str> {
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .process_group(0)
         .spawn()
         .map_err(failure)?;
     let mut stdin = child.stdin.take().ok_or("OSError")?;
-    let payload = line.to_owned();
-    std::thread::spawn(move || stdin.write_all(payload.as_bytes()));
-    let deadline = Instant::now() + INGEST_WAIT;
-    loop {
-        match child.try_wait().map_err(failure)? {
-            Some(status) if status.success() => return Ok(()),
-            Some(_) => return Err("CalledProcessError"),
-            None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
-            None => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("TimeoutExpired");
-            }
-        }
-    }
+    stdin.write_all(line.as_bytes()).map_err(failure)
 }

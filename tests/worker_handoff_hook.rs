@@ -26,6 +26,12 @@ impl Lab {
     }
 
     fn run(&self, payload: &[u8], active: &Path, extra: &[(&str, String)]) -> Option<Value> {
+        let (response, stderr) = self.run_captured(payload, active, extra);
+        assert!(stderr.is_empty(), "{stderr}");
+        response
+    }
+
+    fn run_captured(&self, payload: &[u8], active: &Path, extra: &[(&str, String)]) -> (Option<Value>, String) {
         let mut command = Command::new(env!("CARGO_BIN_EXE_north"));
         command
             .args(["hook", "post-tool"])
@@ -43,8 +49,7 @@ impl Lab {
         child.stdin.take().unwrap().write_all(payload).unwrap();
         let output = child.wait_with_output().unwrap();
         assert!(output.status.success());
-        assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
-        serde_json::from_slice(&output.stdout).ok()
+        (serde_json::from_slice(&output.stdout).ok(), String::from_utf8_lossy(&output.stderr).into_owned())
     }
 
     fn stub_threads(&self) {
@@ -57,6 +62,19 @@ impl Lab {
         std::os::unix::fs::symlink(cat, bin.join("cat")).unwrap();
         let script = bin.join("threads");
         shim::write_script(&script, "cat > \"$STUB_OUT\"\nexit \"${STUB_EXIT:-0}\"\n");
+    }
+}
+
+fn wait_for_row(sink: &Path) -> Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        if let Ok(text) = std::fs::read_to_string(sink)
+            && text.ends_with('\n')
+        {
+            return serde_json::from_str(&text).unwrap();
+        }
+        assert!(std::time::Instant::now() < deadline, "detached threads ingest never wrote a complete row to {}", sink.display());
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -110,13 +128,12 @@ fn worker_handoff_records_async_worker_spawns() {
     lab.stub_threads();
     let active = lab.activate("on", "hook north-hook\n");
     let sink = lab.path("ingested.json");
-    let env = |exit: &str| vec![("STUB_OUT", sink.display().to_string()), ("STUB_EXIT", exit.to_owned())];
+    let plain_sink = lab.path("plain.json");
+    let env = |sink: &Path| vec![("STUB_OUT", sink.display().to_string()), ("STUB_EXIT", "0".to_owned())];
     let launched = json!({"status": "async_launched", "agentId": "actual-child", "resolvedModel": "claude-opus-4-6"});
     let payload = spawn_payload(launched.clone());
-    assert_eq!(lab.run(payload.to_string().as_bytes(), &active, &env("0")), None);
-    let text = std::fs::read_to_string(&sink).unwrap();
-    assert!(text.ends_with('\n'));
-    let row: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(lab.run(payload.to_string().as_bytes(), &active, &env(&sink)), None);
+    let row = wait_for_row(&sink);
     let brief = payload["tool_input"]["prompt"].clone();
     assert_eq!(row["id"], "actual-child");
     assert_eq!(row["session"], "claude-lead");
@@ -126,29 +143,29 @@ fn worker_handoff_records_async_worker_spawns() {
     assert_eq!(row["brief_origin"], "claude.PostToolUse.Agent");
     assert_eq!(row["started"], row["staffed"]);
 
-    std::fs::remove_file(&sink).unwrap();
-    for response in [json!({"status": "async_launched"}), json!({"status": "completed", "agentId": "finished-child"})] {
-        let skipped = spawn_payload(response);
-        assert_eq!(lab.run(skipped.to_string().as_bytes(), &active, &env("0")), None);
-    }
     let mut plain = spawn_payload(launched);
     plain["tool_input"]["subagent_type"] = json!("worker");
-    assert_eq!(lab.run(plain.to_string().as_bytes(), &active, &env("0")), None);
-    assert_eq!(serde_json::from_str::<Value>(&std::fs::read_to_string(&sink).unwrap()).unwrap()["tier"], "medium");
+    assert_eq!(lab.run(plain.to_string().as_bytes(), &active, &env(&plain_sink)), None);
+    assert_eq!(wait_for_row(&plain_sink)["tier"], "medium");
 
-    std::fs::remove_file(&sink).unwrap();
-    assert_eq!(lab.run(payload.to_string().as_bytes(), &active, &[("AGENT_NO_AUTHORING_HOOKS", "1".into()), env("0").remove(0)]), None);
-    assert!(!sink.exists());
-
-    let failed = lab.run(payload.to_string().as_bytes(), &active, &env("3"));
-    assert_eq!(context(&failed), Some("spawn recording boundary miss for lead claude-lead: CalledProcessError"));
-    let mut led = payload.clone();
-    led["agent_id"] = json!("lead-agent");
-    let failed = lab.run(led.to_string().as_bytes(), &active, &env("3"));
-    assert_eq!(context(&failed), Some("spawn recording boundary miss for lead lead-agent: CalledProcessError"));
     std::fs::remove_file(lab.path("bin/threads")).unwrap();
-    let missing = lab.run(payload.to_string().as_bytes(), &active, &[]);
-    assert_eq!(context(&missing), Some("spawn recording boundary miss for lead claude-lead: FileNotFoundError"));
+    let silent = |payload: &Value, extra: &[(&str, String)]| {
+        let (response, stderr) = lab.run_captured(payload.to_string().as_bytes(), &active, extra);
+        assert_eq!((response, stderr.as_str()), (None, ""));
+    };
+    for response in [json!({"status": "async_launched"}), json!({"status": "completed", "agentId": "finished-child"})] {
+        silent(&spawn_payload(response), &[]);
+    }
+    silent(&payload, &[("AGENT_NO_AUTHORING_HOOKS", "1".into())]);
+
+    let (failed, stderr) = lab.run_captured(payload.to_string().as_bytes(), &active, &[]);
+    assert_eq!(context(&failed), None);
+    assert_eq!(stderr, "spawn recording boundary miss for lead claude-lead: FileNotFoundError\n");
+    let mut led = payload;
+    led["agent_id"] = json!("lead-agent");
+    let (failed, stderr) = lab.run_captured(led.to_string().as_bytes(), &active, &[]);
+    assert_eq!(context(&failed), None);
+    assert_eq!(stderr, "spawn recording boundary miss for lead lead-agent: FileNotFoundError\n");
 }
 
 #[test]
