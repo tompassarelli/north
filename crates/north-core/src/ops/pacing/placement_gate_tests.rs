@@ -498,3 +498,52 @@ fn an_account_at_its_five_hour_or_weekly_cap_is_never_the_cloud_account() {
     let held = gate::decide(CODE_ONLY, &cfg, verdicts(&none, &four_accounts(&[])), (true, "cloud credit: unread".to_owned()), &[], "here", false);
     assert_eq!(target(&held), "held: every Claude account exhausted or over its burn cap");
 }
+
+mod properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    const LOCAL_NEEDS: [&str; 12] = ["warcraft", "wc3", "client", "native", "sign-ins", "private", "local-state", "tui", "fleet", "live", "desktop", "laptop"];
+
+    fn local_need() -> impl Strategy<Value = &'static str> {
+        proptest::sample::select(LOCAL_NEEDS.to_vec())
+    }
+
+    proptest! {
+        #[test]
+        fn prop_a_box_with_a_local_need_is_never_placed_on_cloud(need in local_need(), on_surface in any::<bool>(), shout in any::<bool>(), five in 0.0..90.0f64) {
+            let need = if shout { need.to_uppercase() } else { need.to_owned() };
+            let text = if on_surface { format!("Item: north#12 tidy\nSurface: rust, {need}\nNeeds: code\n") } else { format!("Item: north#12 tidy\nSurface: rust\nNeeds: code, {need}\n") };
+            let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"wc3\", \"client\", \"native\", \"sign-ins\", \"private\", \"local-state\", \"tui\", \"fleet\", \"live\", \"desktop\", \"laptop\"]\n".parse().unwrap();
+            let quota = gate(&[("claude:a", control((five, 1.0, "2026-10-19T03:00:00Z"), (10.0, 1.0)))]);
+            let decision = decide(&text, &cfg, &quota, (true, "cloud credit: unread".to_owned()), &[], "here");
+            prop_assert!(!decision.code_only, "{}", decision.surface);
+            prop_assert!(!matches!(decision.target, Target::Cloud(_)), "{:?}", decision.target);
+        }
+
+        #[test]
+        fn prop_an_account_at_or_over_the_five_hour_stop_is_never_chosen(
+            five in proptest::collection::vec(prop_oneof![0.0..120.0f64, Just(95.0)], 3),
+            week in proptest::collection::vec(0.0..99.0f64, 3),
+            code_only in any::<bool>(),
+        ) {
+            let cfg: DocumentMut = "[hosts.here]\nserves = [\"warcraft\", \"native\"]\n".parse().unwrap();
+            let names = ["claude:a", "claude:b", "claude:c"];
+            let accounts: Vec<(&str, Value)> = names.iter().zip(five.iter().zip(&week)).map(|(name, (five, week))| (*name, control((*five, 0.0, "2026-10-19T03:00:00Z"), (*week, 0.0)))).collect();
+            let quota = gate(&accounts);
+            let text = if code_only { CODE_ONLY } else { WARCRAFT };
+            let decision = decide(text, &cfg, &quota, (false, "cloud credit: spent".to_owned()), &[], "here");
+            match &decision.target {
+                Target::Account(chosen) => {
+                    let used = names.iter().position(|name| name == chosen).map(|index| five[index]);
+                    prop_assert!(used.is_some_and(|used| used < 95.0), "{chosen} chosen at 5h {used:?}");
+                }
+                Target::Cloud(lane) => {
+                    let used = names.iter().position(|name| *name == lane.account).map(|index| five[index]);
+                    prop_assert!(used.is_some_and(|used| used < 95.0), "{} chosen on cloud at 5h {used:?}", lane.account);
+                }
+                other => prop_assert!(five.iter().all(|used| *used >= 95.0), "{other:?} with an account under the stop: {five:?}"),
+            }
+        }
+    }
+}

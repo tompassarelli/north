@@ -1,6 +1,54 @@
 use super::policy::{charged_resources, memory_margin, resource_class, running_memory_charge};
 use super::sizing::sizing_runs;
 
+mod properties {
+    use super::super::policy::{Resources, aggregate_cpus, clamp_to_grantable, reserved_cpus};
+    use proptest::prelude::*;
+    use super::super::json::num;
+
+    fn profile() -> impl Strategy<Value = &'static str> {
+        prop_oneof![Just("attended"), Just("unattended")]
+    }
+
+    fn amount(most: u32) -> impl Strategy<Value = f64> {
+        prop_oneof![(0..=most).prop_map(f64::from), 0.0..f64::from(most)]
+    }
+
+    fn resources() -> impl Strategy<Value = Resources> {
+        (amount(512), amount(1_048_576)).prop_map(|(cpus, memory_mib)| Resources { cpus, memory_mib })
+    }
+
+    proptest! {
+        #[test]
+        fn prop_aggregate_cpus_is_at_least_one_and_at_most_the_cores(profile in profile(), cores in 1u32..=256) {
+            let aggregate = aggregate_cpus(profile, f64::from(cores));
+            prop_assert!(aggregate >= 1.0, "{profile} on {cores} cores grants {aggregate} CPUs");
+            prop_assert!(aggregate <= f64::from(cores), "{profile} on {cores} cores grants {aggregate} CPUs");
+        }
+
+        #[test]
+        fn prop_reserved_and_aggregate_cpus_sum_to_the_cores_wherever_the_reserve_leaves_a_core(profile in profile(), cores in 1u32..=256) {
+            let cores = f64::from(cores);
+            let reserved = reserved_cpus(profile, cores);
+            prop_assume!(cores - reserved >= 1.0);
+            prop_assert_eq!(reserved + aggregate_cpus(profile, cores), cores);
+        }
+
+        #[test]
+        fn prop_clamp_to_grantable_never_grants_past_the_request_or_maximum_and_reports_exactly_the_fields_it_cut(request in resources(), maximum in resources()) {
+            let (granted, clamped) = clamp_to_grantable(request, maximum);
+            prop_assert!(granted.cpus <= request.cpus && granted.cpus <= maximum.cpus);
+            prop_assert!(granted.memory_mib <= request.memory_mib && granted.memory_mib <= maximum.memory_mib);
+            let cut = |field: &str| clamped.as_ref().and_then(|value| value.get(field)).cloned();
+            let expected = |requested: f64, given: f64| (given != requested).then(|| serde_json::Value::Array(vec![num(requested), num(given)]));
+            prop_assert_eq!(cut("cpus"), expected(request.cpus, granted.cpus));
+            prop_assert_eq!(cut("memoryMiB"), expected(request.memory_mib, granted.memory_mib));
+            prop_assert_eq!(clamped.is_some(), granted != request);
+            prop_assert_eq!(clamped.as_ref().and_then(|value| value.as_object()).map_or(0, serde_json::Map::len), usize::from(granted.cpus != request.cpus) + usize::from(granted.memory_mib != request.memory_mib));
+        }
+    }
+}
+
 #[test]
 fn tom_and_critical_keep_their_cores_and_are_charged_measured_memory_up_to_their_declared_size() {
     for kind in ["tom", "critical"] {
