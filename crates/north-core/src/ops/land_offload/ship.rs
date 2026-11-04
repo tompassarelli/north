@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 
 pub(super) const TRANSPORT_FAILED: u8 = 255;
 const LOCK_WAIT_SECONDS: u32 = 600;
-const SLOTS: u32 = 3;
+const SLOTS: u32 = 6;
 pub(super) const OFFLOAD_ROOT: &str = "${NORTH_OFFLOAD_ROOT:-$HOME/.cache/land-offload}";
 
 const REMOTE: &str = r#"set -eu
@@ -47,8 +47,15 @@ fi
 git -C "$repo" fetch -q "$bundle" "+$ref:$ref"
 if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
 git -C "$slot" clean -ffdxq -e /target
-cd "$slot"
-SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head timeout -k 5 "$limit" bash -euo pipefail -c "$command" 9>&-
+"#;
+
+const RUN: &str = r#"cd "$slot"
+export SAFE_PUSH_LAND_BASE=$base SAFE_PUSH_LAND_HEAD=$head
+if [ -e "$slot/flake.nix" ] && [ "${command#nix develop}" = "$command" ]; then
+  timeout -k 5 "$limit" nix develop "$slot" -c bash -euo pipefail -c "$command" 9>&-
+else
+  timeout -k 5 "$limit" bash -euo pipefail -c "$command" 9>&-
+fi
 "#;
 
 pub fn quote(word: &str) -> String {
@@ -109,7 +116,7 @@ pub(super) fn run(land: &Land) -> u8 {
         Ok(file) => file,
         Err(why) => return fail(&why),
     };
-    let script = REMOTE.replace("@ROOT@", OFFLOAD_ROOT).replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string()).replace("@SLOTS@", &SLOTS.to_string());
+    let script = format!("{REMOTE}{RUN}").replace("@ROOT@", OFFLOAD_ROOT).replace("@LOCK_WAIT@", &LOCK_WAIT_SECONDS.to_string()).replace("@SLOTS@", &SLOTS.to_string());
     let words = [relative.as_str(), land.base, land.head, &land.timeout_seconds.to_string(), &name, land.command].map(quote);
     let remote = format!("sh -c {} offload {}", quote(&script), words.join(" "));
     let sent = Command::new("ssh")
@@ -119,5 +126,52 @@ pub(super) fn run(land: &Land) -> u8 {
     match sent {
         Ok(status) => status.code().and_then(|code| u8::try_from(code).ok()).unwrap_or(TRANSPORT_FAILED),
         Err(error) => fail(&format!("ssh: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RUN;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn remote_run(command: &str, flake: bool) -> String {
+        let slot = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        if flake {
+            fs::write(slot.path().join("flake.nix"), "{}").unwrap();
+        }
+        let nix = bin.path().join("nix");
+        fs::write(&nix, "#!/bin/sh\necho \"nix $*\"\n").unwrap();
+        fs::set_permissions(&nix, fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap());
+        let output = Command::new("sh")
+            .args(["-c", &format!("set -eu\nslot={} command={} limit=10 base=b head=h\n{RUN}", shell(slot.path()), shell(Path::new(command)))])
+            .env("PATH", path)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8(output.stdout).unwrap().replace(&slot.path().display().to_string(), "SLOT")
+    }
+
+    fn shell(word: &Path) -> String {
+        super::quote(&word.display().to_string())
+    }
+
+    #[test]
+    fn a_checkout_with_a_flake_runs_the_command_inside_its_dev_shell() {
+        assert_eq!(remote_run("cargo --version", true), "nix develop SLOT -c bash -euo pipefail -c cargo --version\n");
+    }
+
+    #[test]
+    fn a_checkout_without_a_flake_runs_the_command_plainly() {
+        assert_eq!(remote_run("echo plain", false), "plain\n");
+    }
+
+    #[test]
+    fn a_command_that_already_enters_a_dev_shell_is_not_wrapped_again() {
+        assert_eq!(remote_run("nix develop -c cargo --version", true), "nix develop -c cargo --version\n");
     }
 }

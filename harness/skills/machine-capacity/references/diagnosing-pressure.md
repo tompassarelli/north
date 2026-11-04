@@ -23,6 +23,7 @@ What a DEFER means, where a build went, and who holds the machine. Exact thresho
 ## Landing checks
 
 - A batch land check that safe-push runs under its landing lock (owner land-check, SAFE_PUSH_LAND_HEAD set) is admitted as critical at its own size, so the lock holder never waits on batch load.
+- Expect `north capacity offload run` to run the command inside the checkout's `nix develop` shell on the host whenever the checkout has a flake.nix (not again when the command already starts with `nix develop`), so pass the bare command (`cargo test`, not `nix develop -c cargo test`) and never probe where cargo lives on the host (2026-11-04).
 - While the local host is gaming-held, `safe-push --to main` offloads the land checks: `north capacity offload choose` names the first other `[hosts.NAME]` with an `ssh` destination whose cores (6 free), memory (the heavy request) and disk (20 GiB free where its offload slot lives) have room, and `landing.offloaded-capacity` (moderate class, not gaming-deferred) replaces `landing.capacity` for the light part of the landing. Without such a host, or with a `land.local-only` check, the landing runs here under game reserve and otherwise waits here as before.
 
 ## Desktop and profiles
