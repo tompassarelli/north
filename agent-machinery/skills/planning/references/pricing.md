@@ -7,3 +7,9 @@ Read when a payback price, horizon or stop rule is disputed.
 - Fowler, [TechnicalDebt](https://martinfowler.com/bliki/TechnicalDebt.html): interest is paid only when the code is touched, so price by change frequency.
 - Reinertsen / [SAFe WSJF](https://framework.scaledagile.com/wsjf/): rank by cost of delay per unit duration.
 - [Amdahl's law](https://en.wikipedia.org/wiki/Amdahl%27s_law) and the [Theory of Constraints](https://www.tocinstitute.org/five-focusing-steps.html): a stage's share caps its gain and the constraint moves after each fix.
+
+## Horizon and stop rules
+
+- Extend the 14-day extrapolation to 30 days only when the roadmap names committed volume and two weeks of trend support it.
+- Stop optimizing a stage when its next item no longer beats the top feature, or the gain is a uniform shave under 10% that crosses no task-switch threshold.
+- Predictability matters more than small mean gains: fix variance before mean.

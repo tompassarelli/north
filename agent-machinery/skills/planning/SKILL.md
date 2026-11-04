@@ -15,7 +15,7 @@ written: 2026-10-15
 3. Add migration, recovery, compatibility or rollout only for an affected boundary, because lifecycle machinery without a consumer is ceremony.
 4. Revise the remaining route when evidence breaks a premise and stop when more prose changes no action, because a stale plan item is not work.
 
-A consequential brief carries the behavior trace (what the current system actually does, observed) and the rationale for the current design (why it is that way), because a brief without them lets the worker re-derive or reverse a decision blind.
+A consequential brief carries the behavior trace (what the current system actually does, observed) and the rationale for the current design (why it is that way), because a brief without them lets the worker reverse a decision blind.
 
 Read [plan outline](references/plan-outline.md) when a durable decision needs a written plan.
 
@@ -47,10 +47,10 @@ Read [hardening](references/hardening.md) when choosing failure paths, or [ratio
    - Saving per change `S` = 10 x operator-blocked wait minutes saved (ask to usable build) + 1 x agent-minutes saved; weight agent-minutes 0.5 when the usage cap is not binding. Count the two savings separately before weighting.
    - Rate `R` = changes/day over the trailing 7-14 days, from the project's change ledger, else commits in 14 days / 14.
    - Payback days = `C / (S x R)`.
-2. Extrapolate the trend at most 14 days; extend to 30 only when the roadmap names committed volume and two weeks of trend support it; use 7 in maintenance mode, because volume forecasts decay fast.
-3. Staff at payback <= 3 days (1-2 in maintenance mode); 3-7 days only if it also removes the top bottleneck stage, removes flakes or unpredictability, or enables a queued roadmap item; above 7 only if it beats the top feature on cost of delay per duration, else defer, because feature work is the default use of capacity.
-4. Re-profile the loop after each fix and stop optimizing a stage when its share of operator wait is under 25%, its next item no longer beats the top feature, or the gain is a uniform <10% shave crossing no task-switch threshold; fix variance before mean, because the constraint moves and predictability matters more than small mean gains.
-5. Size the recurring code-health review the same way: its effort is `C`, the hotspot interest it removes is `S`, the touched area's change rate is `R`, because debt costs only when touched.
+2. Extrapolate the trend at most 14 days (7 in maintenance mode), because volume forecasts decay fast; the 30-day extension rule is in pricing.
+3. Staff at payback <= 3 days (1-2 in maintenance mode); 3-7 days only if it also removes the top bottleneck stage, removes flakes or enables a queued roadmap item; above 7 only if it beats the top feature on cost of delay per duration, else defer, because feature work is the default use of capacity.
+4. Re-profile after each fix, stop optimizing a stage when its share of operator wait is under 25%, and fix variance before mean, because the constraint moves; the other stop rules are in pricing.
+5. Size the recurring code-health review the same way (effort `C`, hotspot interest removed `S`, touched area change rate `R`), because debt costs only when touched.
 
 Read [pricing sources](references/pricing.md) when a price is disputed, and [notes](references/notes.md) before asking the operator about one.
 
@@ -61,6 +61,6 @@ Read [pricing sources](references/pricing.md) when a price is disputed, and [not
 3. When completion stalls, reconcile passed criteria, remaining blockers and additional coverage, and record finished outcomes as complete, because starvation looks like busy progress.
 4. Choose the next repair that advances an unmet outcome, never substituting synthetic checks for human judgment or unavailable hardware, because a proxy cannot supply that observation.
 5. Record a consequential deferral or a landing over a soft target with `Target-debt: <bar>; measured <value>; owner <owner>; revisit <trigger>`, because a deferral without a trigger never returns.
-6. Name a gating bar's source in its box or rationale doc; a landing needs no `Provenance:` trailer; Tom approved retiring that gate (2026-11-04) because its failures were fixed by editing a trailer, a record or the runner, never landed code; a rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and brings a gate back on evidence.
+6. Name a gating bar's source in its box or rationale doc; a landing needs no `Provenance:` trailer (retired 2026-11-04), because a rework signal now watches quality.
 
-Read [stewardship notes](references/stewardship.md) when resolving stalled delivery or a deferral; its [deliberate deferral](references/stewardship.md#deliberate-deferral) section has the full record format.
+Read [stewardship notes](references/stewardship.md) when resolving stalled delivery, a deferral or the retired Provenance gate.

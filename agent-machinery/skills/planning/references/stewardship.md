@@ -121,3 +121,7 @@ Use craftsmanship for demonstrated maintenance friction while preserving
 behavior. Use hardening for a named operational guarantee under failure or load.
 Neither is a finishing ritual for every feature. End the current work once its
 requested artifact and bounded correctness check are complete.
+
+## Provenance trailer retired
+
+Tom approved retiring the `Provenance:` gate (2026-11-04) because its failures were fixed by editing a trailer, a record or the runner, never landed code. A rework signal (reverts, follow-up fixes and red-main culprits within 48 h of a landing) now watches quality and brings a gate back on evidence.
