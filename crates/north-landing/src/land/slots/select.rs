@@ -63,6 +63,10 @@ impl Config {
         self.inferred.iter().any(|inferred| inferred == command)
     }
 
+    pub fn runs(&self, command: &str) -> bool {
+        self.checks.iter().any(|entry| entry.split_once(SEPARATOR).is_some_and(|(_, listed)| listed == command)) || self.is_inferred(command)
+    }
+
     pub fn local_reason(&self, command: &str) -> Option<&str> {
         reason(&self.local_only, command)
     }

@@ -18,6 +18,20 @@ fn a_base_check_is_judged_by_every_timing_recorded_for_its_tree_command_and_host
 }
 
 #[test]
+fn a_base_result_is_reused_only_within_its_round() {
+    let root = tempfile::tempdir().unwrap();
+    let timings = Timings::at(root.path().to_owned());
+    assert_eq!(timings.result(TREE, "check", "local", "r1"), None);
+    timings.record_result(TREE, "check", "local", "r1", &BaseResult::Failed("bash: nix: command not found".to_owned())).unwrap();
+    assert_eq!(timings.result(TREE, "check", "local", "r1"), Some(BaseResult::Failed("bash: nix: command not found".to_owned())));
+    assert_eq!(timings.result(TREE, "check", "local", "r2"), None, "a later round reruns the base check");
+    assert_eq!(timings.result(TREE, "check", "local", ""), None, "a run outside a lander round never reuses one");
+    assert_eq!(timings.result(TREE, "check", "buildbox", "r1"), None);
+    timings.record_result(TREE, "check", "local", "r2", &BaseResult::Passed).unwrap();
+    assert_eq!(timings.result(TREE, "check", "local", "r2"), Some(BaseResult::Passed));
+}
+
+#[test]
 fn a_timing_names_its_tree_by_object_id() {
     let root = tempfile::tempdir().unwrap();
     let timings = Timings::at(root.path().to_owned());

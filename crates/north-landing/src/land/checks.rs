@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE"];
+pub const BROKEN_BASE: &str = "main's check environment is broken: ";
+pub const ROUND: &str = "NORTH_LAND_ROUND";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -11,6 +13,7 @@ pub enum Verdict {
     Refused(String),
     RedMain(String),
     Transient(String),
+    BrokenBase(String),
     Deferred(String),
 }
 
@@ -22,6 +25,7 @@ pub fn parse(text: &str) -> Option<Verdict> {
         "green" => Verdict::Green,
         "refused" => Verdict::Refused(detail),
         "red-main" => Verdict::RedMain(detail),
+        "transient" if detail.starts_with(BROKEN_BASE) => Verdict::BrokenBase(detail),
         "transient" => Verdict::Transient(detail),
         "deferred" => Verdict::Deferred(detail),
         other => Verdict::Transient(format!("unknown verdict class {other}")),
@@ -34,7 +38,7 @@ pub struct Started {
     log: PathBuf,
 }
 
-pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_group: bool) -> Result<Started, Verdict> {
+pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_group: bool, round: &str) -> Result<Started, Verdict> {
     let Some((program, prefix)) = checker.split_first() else {
         return Err(Verdict::Transient("no checker configured".to_owned()));
     };
@@ -48,7 +52,7 @@ pub fn start(checker: &[String], worktree: &Path, base: &str, log: &Path, own_gr
         Err(error) => return Err(Verdict::Transient(format!("{}: {error}", log.display()))),
     };
     let mut command = Command::new(program);
-    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", super::lander::OFFLOAD_OWNER);
+    command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", super::lander::OFFLOAD_OWNER).env(ROUND, round);
     if own_group {
         command.process_group(0);
     }
@@ -97,8 +101,8 @@ impl Started {
     }
 }
 
-pub fn run(checker: &[String], worktree: &Path, base: &str, log: &Path) -> Verdict {
-    match start(checker, worktree, base, log, false) {
+pub fn run(checker: &[String], worktree: &Path, base: &str, log: &Path, round: &str) -> Verdict {
+    match start(checker, worktree, base, log, false, round) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     }

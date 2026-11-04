@@ -118,7 +118,7 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     }
     let log = lander.queue.join("logs").join(format!("{}-speculative-{}.log", micros(), level + 2));
     let stages = Stages::start();
-    let check = match checks::start(&lander.checker, worktree, head, &log, true) {
+    let check = match checks::start(&lander.checker, worktree, head, &log, true, &lander.round.load(std::sync::atomic::Ordering::Relaxed).to_string()) {
         Ok(check) => check,
         Err(verdict) => {
             println!("north land: speculative candidate {} not started: {verdict:?}", built.head);
@@ -130,7 +130,7 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
 }
 
 pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>) -> (Verdict, Vec<Next>) {
-    let mut started = match checks::start(&lander.checker, &lander.worktree, base, log, false) {
+    let mut started = match checks::start(&lander.checker, &lander.worktree, base, log, false, &lander.round.load(std::sync::atomic::Ordering::Relaxed).to_string()) {
         Ok(started) => started,
         Err(verdict) => return (verdict, Vec::new()),
     };

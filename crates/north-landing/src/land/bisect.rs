@@ -22,6 +22,7 @@ pub enum Judgement {
     Rebuild,
     RedMain(String),
     Hold(String),
+    Paused(String),
 }
 
 pub fn half(included: usize) -> usize {
@@ -36,6 +37,7 @@ pub fn judge(verdict: Verdict, included: usize, base_moved: bool) -> Judgement {
         Verdict::Refused(detail) => Judgement::Culprit(detail),
         Verdict::RedMain(detail) => Judgement::RedMain(detail),
         Verdict::Transient(detail) => Judgement::Hold(format!("transient {detail}")),
+        Verdict::BrokenBase(detail) => Judgement::Paused(detail),
         Verdict::Deferred(detail) => Judgement::Hold(format!("deferred {detail}")),
     }
 }

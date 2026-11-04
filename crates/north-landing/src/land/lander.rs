@@ -16,6 +16,7 @@ pub struct Lander {
     pub queue: PathBuf,
     pub checker: Vec<String>,
     pub app_token: Vec<String>,
+    pub round: std::sync::atomic::AtomicU64,
 }
 
 pub(super) fn state_home() -> PathBuf {
@@ -44,6 +45,7 @@ impl Lander {
             queue: queue::directory(&state_home(), &origin),
             checker,
             app_token: vec![super::credential::MINT.to_owned()],
+            round: std::sync::atomic::AtomicU64::new(0),
         })
     }
 

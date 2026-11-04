@@ -89,10 +89,14 @@ impl Timings {
     }
 
     fn file(&self, tree: &str, command: &str, class: &str) -> io::Result<PathBuf> {
+        self.entry(tree, command, class, "tsv")
+    }
+
+    fn entry(&self, tree: &str, command: &str, class: &str, extension: &str) -> io::Result<PathBuf> {
         if tree.is_empty() || !tree.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "a check timing names a tree by its hex object id"));
         }
-        Ok(self.root.join(tree).join(format!("{}.tsv", Self::key(command, class))))
+        Ok(self.root.join(tree).join(format!("{}.{extension}", Self::key(command, class))))
     }
 
     fn passes_file(&self, command: &str, class: &str) -> PathBuf {
@@ -151,6 +155,37 @@ impl Timings {
         }
         within.map_or(Base::Exceeded, Base::Within)
     }
+
+    pub fn record_result(&self, tree: &str, command: &str, class: &str, round: &str, result: &BaseResult) -> io::Result<()> {
+        let path = self.entry(tree, command, class, "result")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let line = match result {
+            BaseResult::Passed => format!("{round}\tpassed\t\n"),
+            BaseResult::Failed(first) => format!("{round}\tfailed\t{}\n", first.replace(['\t', '\n'], " ")),
+        };
+        fs::write(path, line)
+    }
+
+    pub fn result(&self, tree: &str, command: &str, class: &str, round: &str) -> Option<BaseResult> {
+        let text = self.entry(tree, command, class, "result").and_then(fs::read_to_string).ok()?;
+        let mut fields = text.trim_end_matches('\n').splitn(3, '\t');
+        if round.is_empty() || fields.next()? != round {
+            return None;
+        }
+        match (fields.next()?, fields.next().unwrap_or_default()) {
+            ("passed", _) => Some(BaseResult::Passed),
+            ("failed", first) => Some(BaseResult::Failed(first.to_owned())),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BaseResult {
+    Passed,
+    Failed(String),
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ use super::credential;
 use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
-use super::{queue, red, sheriff, speculate};
+use super::{pause, queue, red, sheriff, speculate};
 use super::repositories;
 
 const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
@@ -95,6 +95,7 @@ impl Lander {
         let mut searched = None;
         let mut progressed = false;
         let mut warned = false;
+        self.round.store(u64::try_from(micros()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
         after::recover(self)?;
         if let Err(error) = sheriff::patrol(self) {
             println!("north land: waiting: sheriff: {error}");
@@ -113,6 +114,9 @@ impl Lander {
             let tickets = if red_only { red::fixes(&queued) } else { queued };
             if tickets.is_empty() {
                 return Ok(if progressed { Round::Progress } else { Round::Idle });
+            }
+            if let Some(reason) = pause::held(&self.queue) {
+                return Ok(Round::Waiting(reason));
             }
             let base = match candidate::prepare(&self.repo, &self.worktree) {
                 Ok(base) => base,
@@ -155,6 +159,9 @@ impl Lander {
             let taken = (limit == usize::MAX && !red_only && !self.spares.is_empty()).then(|| speculate::Taken::new(&tickets, &included));
             let (verdict, mut stacked) = speculate::check(self, &built.head, &base, &log, taken.as_ref());
             stages.mark("check");
+            if matches!(verdict, Verdict::Green | Verdict::Refused(_)) {
+                pause::resume(&self.queue);
+            }
             stages.attempts = rebuilds + 1;
             stages.bisect_depth = bisect_depth;
             if (self.identity()? != identity || identity.0 != built.head) && !matches!(verdict, Verdict::Refused(_)) {
@@ -184,6 +191,7 @@ impl Lander {
                         Found::Innocent => Judgement::Halve(half),
                         Found::Moved => Judgement::Rebuild,
                         Found::Held(reason) => Judgement::Hold(reason),
+                        Found::Paused(detail) => Judgement::Paused(detail),
                     }
                 }
                 other => other,
@@ -253,6 +261,7 @@ impl Lander {
                 }
                 Judgement::RedMain(detail) => return Ok(Round::Waiting(red::held(&detail, included.len()))),
                 Judgement::Hold(reason) => return Ok(Round::Waiting(reason)),
+                Judgement::Paused(detail) => return Ok(Round::Waiting(pause::raise(&self.queue, &detail)?)),
             }
         }
         Ok(if progressed { Round::Progress } else { Round::Waiting(format!("no candidate settled in {ATTEMPTS} attempts")) })

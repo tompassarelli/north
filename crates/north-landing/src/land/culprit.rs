@@ -21,6 +21,7 @@ pub enum Found {
     Innocent,
     Moved,
     Held(String),
+    Paused(String),
 }
 
 struct Alone {
@@ -84,7 +85,7 @@ fn start_alone(lander: &Lander, base: &str, offset: usize, entry: (&PathBuf, &Ti
     if let Some(reason) = reason {
         return Ok(Start::Ended(Alone { verdict: Verdict::Transient(format!("{} cannot be built alone: {reason}", ticket.branch)), head, log }));
     }
-    Ok(match checks::start(&lander.checker, &worktree, base, &log, true) {
+    Ok(match checks::start(&lander.checker, &worktree, base, &log, true, &lander.round.load(std::sync::atomic::Ordering::Relaxed).to_string()) {
         Ok(started) => Start::Running(started, Alone { verdict: Verdict::Green, head, log }),
         Err(verdict) => Start::Ended(Alone { verdict, head, log }),
     })
@@ -123,8 +124,9 @@ fn check_wave(lander: &Lander, base: &str, wave: &[(&PathBuf, &Ticket)], logs: &
 
 type Refused<'a> = ((&'a PathBuf, &'a Ticket), Alone, String);
 
-fn sort<'a>(included: &[(&'a PathBuf, &'a Ticket)], alone: Vec<Alone>, strikes: &mut Strikes) -> (Vec<Refused<'a>>, Vec<String>) {
+fn sort<'a>(included: &[(&'a PathBuf, &'a Ticket)], alone: Vec<Alone>, strikes: &mut Strikes) -> (Vec<Refused<'a>>, Vec<String>, Option<String>) {
     let mut held = Vec::new();
+    let mut broken = None;
     let mut refused = Vec::new();
     for (entry, alone) in included.iter().zip(alone) {
         let streak = strikes.record(&Strikes::key(&[*entry]), &alone.verdict);
@@ -134,10 +136,11 @@ fn sort<'a>(included: &[(&'a PathBuf, &'a Ticket)], alone: Vec<Alone>, strikes: 
             Verdict::Refused(detail) => refused.push((*entry, alone, detail)),
             Verdict::RedMain(detail) => held.push(format!("{branch} alone: main is red ({detail})")),
             Verdict::Transient(detail) => held.push(format!("{branch} alone: transient {detail}")),
+            Verdict::BrokenBase(detail) => broken = Some(detail),
             Verdict::Deferred(detail) => held.push(format!("{branch} alone: deferred {detail}")),
         }
     }
-    (refused, held)
+    (refused, held, broken)
 }
 
 pub fn search(lander: &Lander, base: &str, included: &[(&PathBuf, &Ticket)], logs: &Path, strikes: &mut Strikes, stages: &Stages) -> Result<Found, String> {
@@ -154,8 +157,11 @@ pub fn search(lander: &Lander, base: &str, included: &[(&PathBuf, &Ticket)], log
         println!("north land: main moved from {base} while the lanes were checked alone; no lane judged");
         return Ok(Found::Moved);
     }
-    let (refused, held) = sort(included, alone, strikes);
+    let (refused, held, broken) = sort(included, alone, strikes);
     strikes.save(&lander.queue)?;
+    if refused.is_empty() && let Some(detail) = broken {
+        return Ok(Found::Paused(detail));
+    }
     if refused.is_empty() {
         return Ok(match held.into_iter().next() {
             Some(reason) => Found::Held(reason),

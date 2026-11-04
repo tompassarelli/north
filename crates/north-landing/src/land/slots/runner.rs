@@ -14,7 +14,8 @@ use tokio::task::JoinSet;
 
 use super::select::Config;
 use crate::land::after::follow::program;
-use crate::landing::check_timings::{self, Base, Deadline, Timing, Timings};
+use crate::land::checks::{BROKEN_BASE, ROUND};
+use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD";
 const OFFLOAD_GRACE: u64 = 900;
@@ -140,6 +141,72 @@ impl Trees {
         };
         Self { base: tree(base), head: tree(head) }
     }
+}
+
+struct Ran {
+    status: i32,
+    seconds: u64,
+    exceeded: bool,
+    log: PathBuf,
+}
+
+impl Ran {
+    fn timing(&self) -> Timing {
+        if self.exceeded { Timing::Exceeded(self.seconds) } else { Timing::Finished(self.seconds) }
+    }
+}
+
+struct Checkout {
+    root: PathBuf,
+    back: Vec<String>,
+}
+
+fn git_in(root: &Path, arguments: &[&str]) -> Result<String, String> {
+    let output = std::process::Command::new("git").args(arguments).current_dir(root).stdin(Stdio::null()).output().map_err(|error| format!("git {}: {error}", arguments.join(" ")))?;
+    if !output.status.success() {
+        return Err(format!("git {} failed: {}", arguments.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+impl Checkout {
+    fn switch(root: &Path, base: &str) -> Result<Self, String> {
+        let back = match git_in(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+            Ok(branch) if !branch.is_empty() => vec![branch],
+            _ => vec!["--detach".to_owned(), git_in(root, &["rev-parse", "HEAD"])?],
+        };
+        git_in(root, &["checkout", "-q", "--force", "--detach", base])?;
+        Ok(Self { root: root.to_owned(), back })
+    }
+
+    fn restore(self) -> Result<(), String> {
+        let mut arguments = vec!["checkout", "-q", "--force"];
+        arguments.extend(self.back.iter().map(String::as_str));
+        git_in(&self.root, &arguments).map(drop)
+    }
+}
+
+const ERROR_WORDS: &[&str] = &["error", "not found", "fail", "panicked", "denied", "no such"];
+const FIRST_ERROR_BOUND: usize = 300;
+
+fn first_error(text: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    let line = lines.iter().find(|line| {
+        let lower = line.to_lowercase();
+        ERROR_WORDS.iter().any(|word| lower.contains(word))
+    }).or_else(|| lines.last())?;
+    let mut cut = line.len().min(FIRST_ERROR_BOUND);
+    while !line.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    Some(line[..cut].to_owned())
+}
+
+fn host_name(class: &str) -> String {
+    if class != "local" {
+        return class.to_owned();
+    }
+    fs::read_to_string("/proc/sys/kernel/hostname").map_or_else(|_| class.to_owned(), |name| name.trim().to_owned())
 }
 
 fn exit_code(status: ExitStatus) -> i32 {
@@ -298,45 +365,34 @@ impl Shared {
         }
     }
 
-    async fn run_check(self: Arc<Self>, command: String, leased: bool) -> i32 {
-        self.outcome.record(&["ran"]);
-        if !self.workflow.is_empty() && self.offload_host_for(&command).is_none() && let Some(reason) = self.config.off_actions_reason(&command) {
-            say(&format!("safe-push: land check runs on this host because it {reason}"));
-        }
+    async fn spawn_check(&self, command: &str, leased: bool, tree: &str, timeout: u64) -> Result<Ran, i32> {
         let environment = &self.environment;
-        let timings = Timings::at(Timings::default_root());
-        let class = self.cache_class(&command);
-        let deadline = environment.timeout.map_or_else(|| timings.deadline(&command, &class), Deadline::configured);
-        let timeout = deadline.seconds;
-        let published = if self.arguments.published.is_empty() { String::new() } else { self.arguments.published.clone() };
-        let argv = if let Some(host) = self.offload_host_for(&command) {
-            if !environment.offload_host.is_empty() && self.config.local_reason(&command).is_some() {
+        let argv = if let Some(host) = self.offload_host_for(command) {
+            if !environment.offload_host.is_empty() && self.config.local_reason(command).is_some() {
                 warn(&format!("safe-push: land check {command} needs this host, which is in game-reserve; NOT pushed."));
-                return 1;
+                return Err(1);
             }
-            let offload = [program(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.clone(), "--base".into(), self.arguments.base.clone(), "--head".into(), self.arguments.head.clone(), "--timeout".into(), timeout.to_string(), "--".into(), command.clone()];
+            let offload = [program(), "capacity".into(), "offload".into(), "run".into(), "--host".into(), host.clone(), "--base".into(), self.arguments.base.clone(), "--head".into(), tree.to_owned(), "--timeout".into(), timeout.to_string(), "--".into(), command.to_owned()];
             let capacity = if environment.offload_host.is_empty() { "" } else { environment.capacity.as_str() };
             let suffix = if environment.offload_host.is_empty() { "" } else { " while this host is in game-reserve" };
             say(&format!("safe-push: offloading to {host}{suffix}"));
             under_capacity(capacity, shell_deadline(timeout + OFFLOAD_GRACE, &offload))
         } else {
-            let local = ["bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), command.clone()];
+            let local = ["bash".to_owned(), "-euo".to_owned(), "pipefail".to_owned(), "-c".to_owned(), command.to_owned()];
             let capacity = if leased { "" } else { environment.capacity.as_str() };
             under_capacity(capacity, shell_deadline(timeout, &local))
         };
         let Some(log) = new_log() else {
             warn("safe-push: could not create a land check log; NOT pushed.");
-            return 1;
+            return Err(1);
         };
-        let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
-        say(&format!("safe-push: land check{label}: {command} ({deadline})"));
         let started = Instant::now();
         let mut child = match Command::new(&argv[0])
             .args(&argv[1..])
             .current_dir(&self.root)
             .env("SAFE_PUSH_LAND_BASE", &self.arguments.base)
             .env("SAFE_PUSH_LAND_HEAD", &self.arguments.head)
-            .env("SAFE_PUSH_LAND_REF", &published)
+            .env("SAFE_PUSH_LAND_REF", &self.arguments.published)
             .env("SAFE_PUSH_LANDING", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -347,7 +403,7 @@ impl Shared {
             Ok(child) => child,
             Err(error) => {
                 warn(&format!("safe-push: land check {command}: {error}; NOT pushed."));
-                return 1;
+                return Err(1);
             }
         };
         let mut readers: Vec<_> = [
@@ -369,21 +425,103 @@ impl Shared {
         }
         let seconds = started.elapsed().as_secs();
         let exceeded = status == TIMED_OUT || (status == KILLED && seconds >= timeout);
-        let _ = timings.record(&self.trees.head, &command, &class, if exceeded { Timing::Exceeded(seconds) } else { Timing::Finished(seconds) });
-        if exceeded {
-            return self.judge_hang(&command, timeout, timings.base(&self.trees.base, &command, &class, timeout), &log).await;
+        Ok(Ran { status, seconds, exceeded, log })
+    }
+
+    async fn run_check(self: Arc<Self>, command: String, leased: bool) -> i32 {
+        self.outcome.record(&["ran"]);
+        if !self.workflow.is_empty() && self.offload_host_for(&command).is_none() && let Some(reason) = self.config.off_actions_reason(&command) {
+            say(&format!("safe-push: land check runs on this host because it {reason}"));
+        }
+        let timings = Timings::at(Timings::default_root());
+        let class = self.cache_class(&command);
+        let deadline = self.environment.timeout.map_or_else(|| timings.deadline(&command, &class), Deadline::configured);
+        let timeout = deadline.seconds;
+        let label = if self.config.is_inferred(&command) { " (inferred)" } else { "" };
+        say(&format!("safe-push: land check{label}: {command} ({deadline})"));
+        let ran = match self.spawn_check(&command, leased, &self.arguments.head, timeout).await {
+            Ok(ran) => ran,
+            Err(status) => return status,
+        };
+        let _ = timings.record(&self.trees.head, &command, &class, ran.timing());
+        if ran.exceeded {
+            return self.judge_hang(&command, timeout, timings.base(&self.trees.base, &command, &class, timeout), &ran.log).await;
         }
         let commands = [command.clone()];
-        if status != 0 {
-            warn(&format!("safe-push: land check {command} exited {status}; log: {}; NOT pushed.", log.display()));
-            self.cache_record(status, &commands).await;
-            self.outcome.record(&["event", "land check", "failed", &format!("{command}; log: {}", log.display())]);
-            return status;
+        if ran.status != 0 {
+            return self.judge_failure(&command, leased, timeout, &ran).await;
         }
-        let _ = timings.passed(&command, &class, seconds);
+        let _ = timings.passed(&command, &class, ran.seconds);
         self.cache_record(0, &commands).await;
-        let _ = fs::remove_file(&log);
+        let _ = fs::remove_file(&ran.log);
         0
+    }
+
+    async fn judge_failure(&self, command: &str, leased: bool, timeout: u64, ran: &Ran) -> i32 {
+        let (status, log) = (ran.status, ran.log.display());
+        if status != INFRASTRUCTURE && let Some(first) = self.base_failure(command, leased, timeout).await {
+            let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
+            let detail = format!("{BROKEN_BASE}{command} on {}: {first}", host_name(&self.cache_class(command)));
+            warn(&format!("safe-push: land check {command} exited {status} on this lane and also failed on base tree {tree}, so the failure is the check environment, not this lane; log: {log}; NOT pushed."));
+            self.outcome.record(&["skip", &detail]);
+            self.outcome.record(&["event", "land check", "failed", &format!("{detail}; log: {log}")]);
+            return INFRASTRUCTURE;
+        }
+        warn(&format!("safe-push: land check {command} exited {status}; log: {log}; NOT pushed."));
+        self.cache_record(status, &[command.to_owned()]).await;
+        self.outcome.record(&["event", "land check", "failed", &format!("{command}; log: {log}")]);
+        status
+    }
+
+    async fn base_failure(&self, command: &str, leased: bool, timeout: u64) -> Option<String> {
+        let round = std::env::var(ROUND).unwrap_or_default();
+        let judged = !round.is_empty() && !*self.cancel.borrow() && !self.trees.base.is_empty() && self.trees.base != self.trees.head && Config::load(&self.root, &self.arguments.base).runs(command);
+        if !judged {
+            return None;
+        }
+        let class = self.cache_class(command);
+        let timings = Timings::at(Timings::default_root());
+        let tree = self.trees.base.get(..12).unwrap_or(&self.trees.base);
+        let result = if let Some(result) = timings.result(&self.trees.base, command, &class, &round) {
+            say(&format!("safe-push: base tree {tree} already ran land check {command} this round"));
+            result
+        } else {
+            say(&format!("safe-push: land check failed; rerunning it on base tree {tree}: {command}"));
+            let result = self.run_on_base(command, leased, timeout).await;
+            let _ = timings.record_result(&self.trees.base, command, &class, &round, &result);
+            result
+        };
+        match result {
+            BaseResult::Failed(first) => Some(first),
+            BaseResult::Passed => None,
+        }
+    }
+
+    async fn run_on_base(&self, command: &str, leased: bool, timeout: u64) -> BaseResult {
+        let base = self.arguments.base.clone();
+        let checkout = if self.offload_host_for(command).is_some() {
+            None
+        } else {
+            match Checkout::switch(&self.root, &base) {
+                Ok(checkout) => Some(checkout),
+                Err(error) => return BaseResult::Failed(error),
+            }
+        };
+        let ran = self.spawn_check(command, leased, &base, timeout).await;
+        if let Some(checkout) = checkout
+            && let Err(error) = checkout.restore()
+        {
+            warn(&format!("safe-push: {error}"));
+        }
+        let Ok(ran) = ran else { return BaseResult::Failed(format!("land check {command} could not start on the base tree")) };
+        let _ = Timings::at(Timings::default_root()).record(&self.trees.base, command, &self.cache_class(command), ran.timing());
+        if ran.status == 0 {
+            let _ = fs::remove_file(&ran.log);
+            return BaseResult::Passed;
+        }
+        let first = first_error(&fs::read_to_string(&ran.log).unwrap_or_default()).unwrap_or_else(|| format!("exited {}", ran.status));
+        say(&format!("safe-push: land check {command} exited {} on the base tree too; log: {}", ran.status, ran.log.display()));
+        BaseResult::Failed(first)
     }
 
     async fn judge_hang(&self, command: &str, timeout: u64, base: Base, log: &Path) -> i32 {

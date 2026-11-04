@@ -710,6 +710,21 @@ then S2b and S2c in parallel; then S3 and S4.
   and `-` otherwise; an empty lease name is a named error, because the old `leases/.json` watched
   no lease and never paused for a freeze. Under `-` the clock pauses while one of the command's
   own processes is queued for capacity or holds a frozen lease.
+  Failure verdict (2026-11-05): a check that exits nonzero inside a lander round reruns once on
+  the base tree, on the same host, through the same wrapper and with `SAFE_PUSH_LAND_HEAD` still
+  naming the lane, so a script that picks the installed runtime or a build from the tree by
+  diffing against the lane (citation-check, check-owners, land-checks selection) takes the same
+  path on the base as on the lane; the base result is kept per (base
+  tree, command, host class) for the round (`safe-push/check-timings/TREE/*.result`), so one broken
+  check costs one base rerun. When the base also fails, the verdict is transient with detail
+  `main's check environment is broken: CHECK on HOST: FIRST ERROR LINE`; the lander keeps every
+  ticket, takes no strike, raises one `supply-alert`, holds new candidates in `land-queue/KEY/base-broken`
+  and retries every 5 min, clearing the hold on the first candidate that passes or is refused. A check
+  the lane adds is not on the base and is never rerun there. From 3:42 to 4:05 AM on 2026-11-05
+  every candidate whose diff forced the checks off the installed runtime (Cargo.lock, src/cli, the
+  catalog or citation_check) failed `nix: command not found`; main passed on the runtime path at
+  3:33 AM, and the lander refused experiments-registry for that environment fault until the service
+  was stopped.
 - **S6b Warm slots, Actions confirms.** Follows S6a. Files land/slots/{select,offload}.rs. With
   `--slots` (passed by `--check-candidate`), portable commands run in the lander's worktree or on a
   gex45 offload slot through `north capacity offload run`, never on Actions; local-only commands stay
