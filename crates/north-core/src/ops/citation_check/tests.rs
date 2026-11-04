@@ -135,3 +135,33 @@ fn a_cited_flag_that_no_source_string_literal_holds_is_named_and_the_command_exi
     fs::write(root.path().join("docs/guide.md"), "Run `north health --root .`.\n").unwrap();
     assert_eq!(run(&arguments, defined), 0);
 }
+
+#[test]
+fn a_named_config_table_or_key_that_no_owner_holds_is_named_and_the_command_exits_one() {
+    let root = repository(&[
+        ("harness/defaults.toml", "[min_runs]\nvalue = 5\n"),
+        (".safe-push", "[land]\n\tcheck = ** :: true\n"),
+        ("bin/safe-push", "git config --get land.local-only\n"),
+        ("crates/a/src/lib.rs", "fn f() { cfg.get(\"placement\").and_then(|t| t.get(\"cloud_host\")); }\n"),
+        ("flake.nix", ""),
+        (
+            "docs/guide.md",
+            "`[min_runs]`, `[min_runs] value`, `land.check`, `land.local-only`, `[placement] cloud_host`, `flake.nix`, `[projects.NAME]`.\n`[no_such_default]`, `[min_runs] gone`, `land.gone`, `[placement] gone`.\n```\n`[fenced_gone]`\n```\n",
+        ),
+        ("docs/rationale/old.md", "`[no_such_default]`\n"),
+    ]);
+    let names: Vec<_> = missing_keys(root.path()).unwrap().into_iter().map(|key| (key.path, key.line, key.name)).collect();
+    assert_eq!(
+        names,
+        [
+            ("docs/guide.md".into(), 2, "[no_such_default]".into()),
+            ("docs/guide.md".into(), 2, "[min_runs] gone".into()),
+            ("docs/guide.md".into(), 2, "land.gone".into()),
+            ("docs/guide.md".into(), 2, "[placement] gone".into()),
+        ]
+    );
+    let arguments = ["--root".to_owned(), root.path().to_string_lossy().into_owned()];
+    assert_eq!(run(&arguments, defined), 1);
+    fs::write(root.path().join("docs/guide.md"), "`[min_runs]`\n").unwrap();
+    assert_eq!(run(&arguments, defined), 0);
+}

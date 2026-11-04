@@ -2,6 +2,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod config_keys;
+
+pub use config_keys::MissingKey;
+
 const ROOTS: &[&str] = &["docs/", "harness/", "bin/", ".claude/", "agent-machinery/", "README.md", "AGENTS.md"];
 const SKIPPED: &[&str] = &["docs/rationale/", "/fixtures/", ".test.", "node_modules/"];
 const SEPARATORS: &[&str] = &["&&", "||", "$(", ";", "|", "(", "`"];
@@ -210,7 +214,7 @@ fn resolves(known: &BTreeSet<String>, dir: &str, target: &str) -> bool {
 
 pub fn scan_paths(path: &str, text: &str, known: &BTreeSet<String>, tops: &BTreeSet<String>) -> Vec<BrokenPath> {
     let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    let names = NAMED_PATHS.iter().any(|prefix| path.starts_with(prefix)) && !LINKS_ONLY.iter().any(|prefix| path.starts_with(prefix));
+    let names = names_paths(path);
     let mut fenced = false;
     let mut found = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -261,27 +265,41 @@ pub fn broken_paths(root: &Path) -> Result<Vec<BrokenPath>, String> {
     Ok(found)
 }
 
+fn names_paths(path: &str) -> bool {
+    NAMED_PATHS.iter().any(|prefix| path.starts_with(prefix)) && !LINKS_ONLY.iter().any(|prefix| path.starts_with(prefix))
+}
+
+pub fn missing_keys(root: &Path) -> Result<Vec<MissingKey>, String> {
+    let files = all_tracked(root)?;
+    let known = known_paths(&files);
+    let owners = config_keys::owners(root, &files)?;
+    let mut found = Vec::new();
+    for path in tracked(root)? {
+        if !path.ends_with(".md") || UNSCANNED.iter().any(|prefix| path.starts_with(prefix)) || !names_paths(&path) {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(root.join(&path)) {
+            found.extend(config_keys::scan(&path, &text, &owners, &known));
+        }
+    }
+    Ok(found)
+}
+
+pub fn problems(root: &Path, defined: fn(&str) -> bool) -> Result<Vec<String>, String> {
+    let mut lines: Vec<String> = undefined(root, defined)?.into_iter().map(|c| format!("{}:{}: north {} is not a defined subcommand", c.path, c.line, c.command)).collect();
+    lines.extend(missing_flags(root, defined)?.into_iter().map(|f| format!("{}:{}: north {} cites flag {}, which no source string literal holds", f.path, f.line, f.command, f.flag)));
+    lines.extend(missing_keys(root)?.into_iter().map(|k| format!("{}:{}: {} names no harness/defaults.toml table, .safe-push key or config north code reads", k.path, k.line, k.name)));
+    lines.extend(broken_paths(root)?.into_iter().map(|b| format!("{}:{}: missing path {}", b.path, b.line, b.target)));
+    Ok(lines)
+}
+
 pub fn verdict(root: &Path, defined: fn(&str) -> bool) -> Result<(), String> {
-    let found = undefined(root, defined)?;
-    let flags = missing_flags(root, defined)?;
-    let broken = broken_paths(root)?;
-    if found.is_empty() && flags.is_empty() && broken.is_empty() {
+    let found = problems(root, defined)?;
+    if found.is_empty() {
         return Ok(());
     }
-    let mut problems = Vec::new();
-    if !found.is_empty() {
-        let shown: Vec<_> = found.iter().take(5).map(|c| format!("{}:{} north {}", c.path, c.line, c.command)).collect();
-        problems.push(format!("{} cited north subcommands are not defined: {}", found.len(), shown.join("; ")));
-    }
-    if !flags.is_empty() {
-        let shown: Vec<_> = flags.iter().take(5).map(|f| format!("{}:{} north {} {}", f.path, f.line, f.command, f.flag)).collect();
-        problems.push(format!("{} cited flags occur in no source string literal: {}", flags.len(), shown.join("; ")));
-    }
-    if !broken.is_empty() {
-        let shown: Vec<_> = broken.iter().take(5).map(|b| format!("{}:{} {}", b.path, b.line, b.target)).collect();
-        problems.push(format!("{} named paths do not exist: {}", broken.len(), shown.join("; ")));
-    }
-    Err(problems.join("; "))
+    let shown: Vec<_> = found.iter().take(5).map(String::as_str).collect();
+    Err(format!("{} stale citations: {}", found.len(), shown.join("; ")))
 }
 
 pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> u8 {
@@ -295,25 +313,21 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> u8 {
             return 2;
         }
     };
-    let found = if list { citations(&root) } else { undefined(&root, defined) };
-    let flags = if list { Ok(Vec::new()) } else { missing_flags(&root, defined) };
-    let broken = if list { Ok(Vec::new()) } else { broken_paths(&root) };
-    match (found, flags, broken) {
-        (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
+    let found = if list {
+        citations(&root).map(|found| found.into_iter().map(|c| format!("{}:{}: north {}", c.path, c.line, c.command)).collect())
+    } else {
+        problems(&root, defined)
+    };
+    match found {
+        Err(error) => {
             eprintln!("citation-check: {error}");
             1
         }
-        (Ok(found), Ok(flags), Ok(broken)) => {
-            for citation in &found {
-                println!("{}:{}: north {}", citation.path, citation.line, citation.command);
+        Ok(found) => {
+            for line in &found {
+                println!("{line}");
             }
-            for flag in &flags {
-                println!("{}:{}: north {} cites missing flag {}", flag.path, flag.line, flag.command, flag.flag);
-            }
-            for path in &broken {
-                println!("{}:{}: missing path {}", path.path, path.line, path.target);
-            }
-            u8::from(!list && (!found.is_empty() || !flags.is_empty() || !broken.is_empty()))
+            u8::from(!list && !found.is_empty())
         }
     }
 }
