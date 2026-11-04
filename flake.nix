@@ -11,9 +11,10 @@
     packages.${system}.shellcheck = pkgs.shellcheck;
     devShells.${system}.default = pkgs.mkShell {
       packages = [ (pkgs.runCommandLocal "capacity-gate-shims" { } "install -Dm755 ${./bin/cargo} $out/bin/cargo; install -Dm755 ${./bin/cargo} $out/bin/bun") rustToolchain pkgs.shellcheck pkgs.bun (pkgs.python3.withPackages (python: [ python.websockets ])) ];
-      # Cargo hashes workspace members by relative path, so without this key another checkout's build into a shared target reads as fresh; a lane's own target is seeded by `north target-seed`, which drops the seeded packages' fingerprints instead.
+      # Cargo hashes workspace members by relative path, so a target outside this checkout is keyed to it lest another checkout's build read as fresh; the checkout's own target stays unkeyed so registry artifacts match its siblings', and `north target-seed` drops the seeded packages' fingerprints instead.
       shellHook = ''
-        if [ -n "$CARGO_TARGET_DIR" ]; then export RUSTFLAGS="-Cmetadata=checkout:$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; fi
+        checkout=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        if [ -n "$CARGO_TARGET_DIR" ] && [ "$(realpath -m "$CARGO_TARGET_DIR")" != "$(realpath -m "$checkout/target")" ]; then export RUSTFLAGS="-Cmetadata=checkout:$checkout"; fi
         north target-seed || true
       '';
     };

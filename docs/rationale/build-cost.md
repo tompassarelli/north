@@ -248,5 +248,28 @@ Done when:
 - Over 24 h, laptop `heavy`-class `cargo test`/`cargo build` runs from lane owners in the usage log fall below 20
   core-min, and gex45's rise by about the same.
 
+### Shared registry artifacts for land checks (north#360)
+
+Cause: the dev shell set `RUSTFLAGS=-Cmetadata=checkout:<toplevel>` whenever `CARGO_TARGET_DIR` was set (54143fd25,
+north#161, against another checkout's build into a shared target reading as fresh), and `north target-seed` skipped
+any checkout with it set. The land checks set `CARGO_TARGET_DIR=target`, the lane's own target, so each fresh lane
+compiled all 146 registry crates and its land checks, keyed to its path, never matched its own unkeyed builds. Now the
+key applies only to a target outside the checkout, and target-seed seeds a checkout's own target.
+
+Shared-registry result (2026-11-04, laptop under 25 to 30 load, cargo `Finished` seconds, queue time excluded):
+
+| Run in a fresh worktree, `CARGO_TARGET_DIR=target` | Compiling lines | Registry crates | cargo s |
+| --- | --- | --- | --- |
+| before, `cargo build --bin north` | 150 | 146 | 47 |
+| before, check-owners `cargo run` | 150 | 146 | 333 |
+| after, `cargo build --bin north`, seeded | 4 | 0 | 81, 85 |
+| after, check-owners `cargo run`, seeded | 4 | 0 | 87 |
+
+- Wall time is bound by north-core (about 77 s on the critical path, as measured above), so removing the registry
+  crates cuts core-seconds more than wall time; the before rows ran under different load, so the walls are not a
+  like-for-like comparison.
+- The seed takes the newest idle sibling target; until every lane rebases past this change, that target may hold
+  only path-keyed registry artifacts from an old land check, and a seed from it still compiles all 150.
+
 Order: B1, B2, B4 and B5 run in parallel; B3 follows B2, B6 follows B5, B8 follows the pull closure, B10 follows B9,
 B11 follows the offload fix.

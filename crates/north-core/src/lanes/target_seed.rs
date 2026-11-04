@@ -17,7 +17,7 @@ pub fn run(arguments: &[String]) -> u8 {
             return 64;
         }
     };
-    if std::env::var_os("CARGO_TARGET_DIR").is_some_and(|dir| !dir.is_empty()) {
+    if std::env::var_os("CARGO_TARGET_DIR").is_some_and(|dir| !dir.is_empty() && !own_target(&here, Path::new(&dir))) {
         return 0;
     }
     match seed(&here) {
@@ -26,6 +26,15 @@ pub fn run(arguments: &[String]) -> u8 {
         Err(error) => eprintln!("target-seed: {error}"),
     }
     0
+}
+
+pub fn own_target(here: &Path, dir: &Path) -> bool {
+    let resolved = |path: &Path| {
+        let parent = path.parent().and_then(|parent| fs::canonicalize(parent).ok());
+        Some(parent?.join(path.file_name()?))
+    };
+    let Some(workspace) = workspace_root(here) else { return false };
+    resolved(&here.join(dir)).is_some_and(|dir| Some(dir) == resolved(&workspace.join("target")))
 }
 
 pub fn seed(here: &Path) -> io::Result<Option<PathBuf>> {

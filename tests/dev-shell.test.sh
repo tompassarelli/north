@@ -26,3 +26,9 @@ build lane || {
   exit 1
 }
 printf 'dev shell: a build from another checkout into a shared target is not run as fresh\n'
+own=$(cd "$scratch/lane" && CARGO_TARGET_DIR=target nix develop "$root" -c sh -c 'printf %s "${RUSTFLAGS:-}"')
+[ -z "$own" ] || {
+  printf "dev shell: keyed the checkout's own target, so its registry artifacts never match a sibling's: %s\n" "$own" >&2
+  exit 1
+}
+printf "dev shell: the checkout's own target is not keyed to it\n"

@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::path::Path;
 
-use super::target_seed::seed;
+use super::target_seed::{own_target, seed};
 
 const LOCK: &str = "[[package]]\nname = \"app\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
 
@@ -65,4 +65,16 @@ fn a_sibling_that_is_mid_build_is_not_copied() {
     building.unlock().unwrap();
     drop(building);
     assert_eq!(seed(&lane.join("sub")).unwrap(), Some(main.join("sub/target")));
+}
+
+#[test]
+fn a_target_dir_is_the_checkouts_own_only_when_it_resolves_to_its_workspace_target() {
+    let scratch = tempfile::tempdir().unwrap();
+    let (main, lane) = lanes(scratch.path(), LOCK);
+    let here = lane.join("sub");
+    assert!(own_target(&here, Path::new("target")));
+    assert!(own_target(&here, Path::new("./target/")));
+    assert!(own_target(&here, &here.join("target")));
+    assert!(!own_target(&here, &main.join("sub/target")));
+    assert!(!own_target(&here, &scratch.path().join("target")));
 }
