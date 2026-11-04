@@ -687,6 +687,11 @@ then S2b and S2c in parallel; then S3 and S4.
 - **S9 Landing records (B12).** Follows B12. Done when: one fixture run of serve leaves one
   `landings` row per lane with tree, batch_size, bisect_depth, attempts and verdict, and `north flow`
   prints queued-to-landed p50 and p90 from those rows.
+  Built 2026-11-04 (north#360): the lander spawns `north land-train record` per lane it lands, and per
+  lane it refuses with a conflict or a failed check; rows carry first_commit_at, check_started_at and
+  check_finished_at. `north land enqueue` stamps the ticket's first-commit second from the lane
+  branch's reflog before the squash, because a rebase or amend resets commit dates, and `north flow`
+  prints first-commit-to-landed p50 and p90 with the before-queue, queued and check split.
 - **S10 Sheriff through the queue (B22).** Follows S2b, B10. Files harness/scripts/main-red.ts,
   land/red.rs. Done when: (1) a fixture where main's post-push suite fails on case X enqueues a
   red-fix revert ticket of only the lane whose removal turns X green, lands it ahead of the queue
