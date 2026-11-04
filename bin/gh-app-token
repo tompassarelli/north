@@ -3,9 +3,10 @@ import { createSign } from "crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync, accessSync, constants } from "fs";
 import { join } from "path";
 
-const USAGE = `usage: gh-app-token
+const USAGE = `usage: gh-app-token [--app socrates|lander] [--repos NAME,NAME]
 
-Print an installation access token for the Socrates Agent GitHub App.
+Print an installation access token for the Socrates Agent GitHub App, or with --app lander for the
+north-lander App (secrets/nexus/north-lander.yaml, field pem, cached apart from the default).
 With --repos, the token is limited to those repositories and contents write, and is not cached.
 Credentials: \${SOUTH_SECRETS:-$HOME/code/south/main/secrets}/github-app.yaml (sops).
 API base: \${GH_APP_API:-https://api.github.com}. Cache: \${XDG_RUNTIME_DIR}/gh-app-token,
@@ -16,17 +17,26 @@ function die(msg: string): never {
   process.exit(1);
 }
 
+const APPS: Record<string, { file: string; pem: string; cache: string }> = {
+  socrates: { file: "github-app.yaml", pem: "private_key", cache: "gh-app-token" },
+  lander: { file: "nexus/north-lander.yaml", pem: "pem", cache: "gh-app-token-lander" },
+};
 let repos: string[] | undefined;
-if (process.argv.length > 2) {
-  if (process.argv[2] === "-h" || process.argv[2] === "--help") { console.log(USAGE); process.exit(0); }
-  if (process.argv[2] !== "--repos" || process.argv.length !== 4) die("takes no arguments or --repos NAME,NAME");
-  repos = process.argv[3].split(",").filter(Boolean);
-  if (!repos.length) die("--repos needs at least one repository name");
+let appName = "socrates";
+const args = process.argv.slice(2);
+while (args.length) {
+  const a = args.shift()!;
+  if (a === "-h" || a === "--help") { console.log(USAGE); process.exit(0); }
+  const v = args.shift();
+  if (a === "--app" && v) appName = v;
+  else if (a === "--repos" && v) { repos = v.split(",").filter(Boolean); if (!repos.length) die("--repos needs at least one repository name"); }
+  else die("takes --app socrates|lander and --repos NAME,NAME");
 }
+const app = APPS[appName] ?? die(`unknown app ${appName}`);
 
 const now = () => Math.floor(Date.now() / 1000);
 const runtime = process.env.XDG_RUNTIME_DIR;
-const cachePath = !repos && runtime ? join(runtime, "gh-app-token") : undefined;
+const cachePath = !repos && runtime ? join(runtime, app.cache) : undefined;
 
 if (cachePath && existsSync(cachePath)) {
   try {
@@ -39,7 +49,7 @@ if (cachePath && existsSync(cachePath)) {
 }
 
 const secrets = process.env.SOUTH_SECRETS || join(process.env.HOME ?? "", "code/south/main/secrets");
-const file = join(secrets, "github-app.yaml");
+const file = join(secrets, app.file);
 if (!existsSync(file)) die(`missing ${file}`);
 
 const keyFile = process.env.SOPS_AGE_KEY_FILE ?? "/var/lib/sops-nix/key.txt";
@@ -48,13 +58,13 @@ try { accessSync(keyFile, constants.R_OK); } catch { readable = false; }
 const sops = ["sops", "-d", "--output-type", "json", file];
 const cmd = readable ? sops : ["sudo", "-n", "env", `SOPS_AGE_KEY_FILE=${keyFile}`, ...sops];
 const dec = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", env: { ...process.env, SOPS_AGE_KEY_FILE: keyFile } });
-if (dec.exitCode !== 0) die("could not decrypt github-app.yaml");
-let creds: { app_id?: unknown; installation_id?: unknown; private_key?: unknown };
-try { creds = JSON.parse(dec.stdout.toString()); } catch { die("decrypted github-app.yaml is not valid"); }
+if (dec.exitCode !== 0) die(`could not decrypt ${app.file}`);
+let creds: Record<string, unknown>;
+try { creds = JSON.parse(dec.stdout.toString()); } catch { die(`decrypted ${app.file} is not valid`); }
 const appId = String(creds.app_id ?? "");
 const installationId = String(creds.installation_id ?? "");
-const privateKey = typeof creds.private_key === "string" ? creds.private_key : "";
-if (!appId || !installationId || !privateKey) die("github-app.yaml lacks app_id, installation_id or private_key");
+const privateKey = typeof creds[app.pem] === "string" ? (creds[app.pem] as string) : "";
+if (!appId || !installationId || !privateKey) die(`${app.file} lacks app_id, installation_id or ${app.pem}`);
 
 const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64url");
 const iat = now() - 60;
