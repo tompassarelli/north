@@ -123,9 +123,8 @@ pub(super) fn ssh_argv(env: &dyn Fn(&str) -> Option<String>, home: &Path, argume
         && runtime.len() + "/north-ssh-".len() + 40 + 20 <= 107
     {
         for option in [
-            "ControlMaster=auto".to_owned(),
+            "ControlMaster=no".to_owned(),
             format!("ControlPath={runtime}/north-ssh-%C"),
-            "ControlPersist=10m".to_owned(),
             "ServerAliveInterval=5".to_owned(),
             "ServerAliveCountMax=2".to_owned(),
         ] {

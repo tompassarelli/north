@@ -66,10 +66,10 @@ fn ssh_reuses_one_connection_unless_the_caller_names_multiplexing() {
     assert_eq!(reused[reused.len() - 3..], ["BatchMode=yes", "nexus", "true"]);
     for explicit in [&["-o", "ControlMaster=no"][..], &["-oControlPath=none"], &["-S", "none"], &["-o", "controlpersist no"]] {
         let argv = ssh_argv(&env, home, &[explicit, &["nexus", "true"][..]].concat());
-        assert!(!argv.iter().any(|arg| arg == "ControlMaster=auto"), "{explicit:?}");
+        assert!(!argv.iter().any(|arg| arg.starts_with("ControlPath=")), "{explicit:?}");
     }
     let long = |name: &str| (name == "XDG_RUNTIME_DIR").then(|| format!("/{}", "a".repeat(36)));
-    assert!(!ssh_argv(&long, home, &["nexus"]).iter().any(|arg| arg == "ControlMaster=auto"));
+    assert!(!ssh_argv(&long, home, &["nexus"]).iter().any(|arg| arg.starts_with("ControlPath=")));
     let configured = |name: &str| (name == "NORTH_SSH_CONFIG").then(|| "/etc/ssh-config".to_owned());
     assert_eq!(ssh_argv(&configured, home, &["nexus"]), ["ssh", "-F", "/etc/ssh-config", "nexus"]);
 }

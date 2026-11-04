@@ -21,8 +21,8 @@ pub fn argv(program: &[OsString], env: &BTreeMap<String, String>, arguments: &[&
         && runtime.len() + "/north-ssh-".len() + 40 + 20 <= SOCKET_LIMIT
     {
         for option in [
-            "ControlMaster=auto".to_owned(), format!("ControlPath={runtime}/north-ssh-%C"),
-            "ControlPersist=10m".to_owned(), "ServerAliveInterval=5".to_owned(), "ServerAliveCountMax=2".to_owned(),
+            "ControlMaster=no".to_owned(), format!("ControlPath={runtime}/north-ssh-%C"),
+            "ServerAliveInterval=5".to_owned(), "ServerAliveCountMax=2".to_owned(),
         ] {
             argv.extend(["-o".into(), option.into()]);
         }
@@ -55,6 +55,10 @@ pub fn run(arguments: &[String]) -> u8 {
 }
 
 #[cfg(test)]
+#[path = "ssh_survival_tests.rs"]
+mod survival_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -64,7 +68,7 @@ mod tests {
     }
 
     fn reuses(argv: &[String]) -> bool {
-        argv.iter().any(|word| word == "ControlMaster=auto")
+        argv.iter().any(|word| word.starts_with("ControlPath=") && word.contains("/north-ssh-"))
     }
 
     #[test]
@@ -84,7 +88,7 @@ mod tests {
             arguments.extend(["nexus", "true"]);
             let argv = with_runtime("/run/user/4242", &arguments);
             assert_eq!(argv[argv.len() - arguments.len()..], arguments, "{words:?}");
-            assert!(!reuses(&argv) && !argv.iter().any(|word| word.starts_with("ControlPath=/run/") || word == "ControlPersist=10m"), "{words:?}");
+            assert!(!reuses(&argv), "{words:?}");
         }
         assert!(reuses(&with_runtime("/run/user/4242", &["nexus", "true"])));
     }
