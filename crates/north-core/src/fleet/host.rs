@@ -170,6 +170,14 @@ impl Host {
         Ok(())
     }
 
+    pub fn closed(&self) -> bool {
+        UnixStream::connect(self.socket()).is_err()
+    }
+
+    pub fn await_end(&self) -> NorthResult<()> {
+        await_exit(self.pid())
+    }
+
     fn socket(&self) -> PathBuf {
         self.dir.join("host.sock")
     }

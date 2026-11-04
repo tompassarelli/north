@@ -251,10 +251,20 @@ impl Fleet {
 
     fn prompt(&self, name: &str, id: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
         let record = self.revive(name, None)?;
-        let transcript = self.recent(self.runtime(&record)?.as_ref(), &record)?;
+        match self.prompt_live(&record, id, text, delivery) {
+            Err(_) if Host::new(record.host_dir.clone()).closed() => {
+                Host::new(record.host_dir.clone()).await_end()?;
+                self.prompt_live(&self.revive(name, None)?, id, text, delivery)
+            }
+            sent => sent,
+        }
+    }
+
+    fn prompt_live(&self, record: &SessionRecord, id: &str, text: &str, delivery: Delivery) -> NorthResult<()> {
+        let transcript = self.recent(self.runtime(record)?.as_ref(), record)?;
         match delivery {
-            Delivery::Now if transcript.status != Status::Idle => self.send_urgent(&record, &transcript, id, text),
-            _ => self.send_text(&record, &transcript, id, text),
+            Delivery::Now if transcript.status != Status::Idle => self.send_urgent(record, &transcript, id, text),
+            _ => self.send_text(record, &transcript, id, text),
         }
     }
 
