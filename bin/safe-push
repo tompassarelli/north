@@ -978,6 +978,13 @@ has_land_checks() {
   git config --blob HEAD:.safe-push --get-all land.check >/dev/null 2>&1
 }
 
+north_offers() {
+  [[ "$(north "$1" --help 2>&1)" == *"unrecognized command '$1"* ]] || return 0
+  local needed; needed=$(git -C "$(dirname "$safe_push_self")" rev-parse --short=12 HEAD 2>/dev/null || echo "this safe-push")
+  echo "safe-push: this host's north runtime lacks north $1, which safe-push $needed calls; run north runtime update to $needed or later; NOT pushed." >&2
+  return 1
+}
+
 run_language_gate() {
   local base="$1" head="$2" root status
   root=$(git rev-parse --show-toplevel)
@@ -986,6 +993,7 @@ run_language_gate() {
     echo 'safe-push: north not on PATH; refusing to land without the language gate; NOT pushed.' >&2
     exit 1
   }
+  north_offers language-gate && north_offers build-cache-gate || exit 1
   north language-gate --repo "$root" --base "$base" --head "$head" || {
     status=$?
     echo 'safe-push: language gate refused the landing; NOT pushed.' >&2
@@ -996,6 +1004,9 @@ run_language_gate() {
     echo 'safe-push: build-cache gate refused the landing; NOT pushed.' >&2
     return "$status"
   }
+  if north_offers runtime-floor-gate 2>/dev/null; then
+    north runtime-floor-gate --repo "$root" --base "$base" --head "$head" || { status=$?; echo 'safe-push: runtime-floor gate refused the landing; NOT pushed.' >&2; return "$status"; }
+  fi
   run_bin_reference_gate "$root" "$base" "$head"
 }
 
@@ -2041,6 +2052,8 @@ candidate_verdict() {
   destination_branch=main destination_ref=refs/heads/main scan_range_for_native=("$base..$head")
   if ! sync_dependencies >>"$log" 2>&1; then
     class=transient detail="bun install failed"
+  elif ! { north_offers language-gate && north_offers build-cache-gate; } 2>>"$log"; then
+    class=transient detail="this host's north runtime predates safe-push; run north runtime update"
   elif ! { run_language_gate "$base" "$head" && native_ref_scan && gitleaks detect --no-banner --redact --log-opts="$base..$head" \
       && denylist_scan "$base" "$head" main && commit_email_scan "$base..$head" && (cd "$repo_root" && north dep-gate "$base" "$head") \
       && tool_removal_scan "$base..$head" && test_integrity_scan "$base..$head" && policy_sweep_scan "$base..$head"; } >>"$log" 2>&1; then

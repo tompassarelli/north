@@ -30,6 +30,11 @@ pub fn language_gate(root: &Path, base: &str, head: &str) -> Step {
         eprintln!("safe-push: build-cache gate refused the landing; NOT pushed.");
         return Err(Refused(1));
     }
+    if !crate::runtime_floor_gate::check(root, &base, head) {
+        cancelled()?;
+        eprintln!("safe-push: runtime-floor gate refused the landing; NOT pushed.");
+        return Err(Refused(1));
+    }
     Ok(())
 }
 

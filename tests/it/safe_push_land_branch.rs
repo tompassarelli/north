@@ -495,3 +495,31 @@ fn an_amended_relanding_withdraws_the_lanes_older_land_branch() {
     assert!(origin_has(&lane, neighbour));
     assert_eq!(lane.land_branches().len(), 2);
 }
+
+#[test]
+fn a_runtime_without_a_gate_subcommand_is_told_to_update_not_refused_by_the_language_gate() {
+    let lane = Lane::new();
+    let shim = lane.root.join("tools/north");
+    fs::remove_file(&shim).unwrap();
+    executable(
+        &shim,
+        &format!(
+            "case \"$1\" in build-cache-gate|runtime-floor-gate) echo \"Error: unrecognized command '$*'\" >&2; exit 2;; esac\nexec {} \"$@\"\n",
+            env!("CARGO_BIN_EXE_north")
+        ),
+    );
+    let needed = git(Path::new(env!("CARGO_MANIFEST_DIR")), &["rev-parse", "--short=12", "HEAD"]);
+    let update = format!("lacks north build-cache-gate, which safe-push {needed} calls; run north runtime update to {needed} or later");
+    let output = lane.run(&["--to", "main"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains(&update), "{stderr}");
+    assert!(!stderr.contains("gate refused"), "{stderr}");
+    assert!(!stderr.contains("failed: language gate"), "{stderr}");
+    assert_eq!(lane.land_branches(), Vec::<String>::new());
+    let base = git(&lane.repo, &["rev-parse", "main"]);
+    let output = lane.run(&["--check-candidate", "--base", &base]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(&update), "{stdout}");
+    assert!(stdout.contains("safe-push: verdict transient this host's north runtime predates safe-push; run north runtime update"), "{stdout}");
+}

@@ -90,7 +90,7 @@ shim_main() {
       [ -n "${SAFE_PUSH_TEST_AFTER_LANDING_TRACE:-}" ] || return 2
       [ "${2:-}" = --help ] || printf '%s\n' "${*:2}" >>"$SAFE_PUSH_TEST_AFTER_LANDING_TRACE"
       ;;
-    north:lane-squash|north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
+    north:lane-squash|north:autoland-status|north:autoland-wait|north:safe-push-result|north:capacity|north:mutant|north:stale-revert|north:bin-references|north:build-cache-gate|north:runtime-floor-gate) exec "${SAFE_PUSH_TEST_REAL_NORTH:?}" "$@" ;;
     north:language-gate)
       if [ -n "${SAFE_PUSH_TEST_LANGUAGE_DENY_OID_FILE:-}" ]; then
         local denied_oid
