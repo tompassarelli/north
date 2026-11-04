@@ -11,6 +11,7 @@ mod report;
 mod roots;
 mod rules;
 mod shared;
+mod tree;
 mod vocabulary;
 
 #[cfg(test)]
@@ -23,7 +24,8 @@ use report::Report;
 use roots::Roots;
 
 const USAGE: &str = "usage: north agent-config-check [--local] [--policy-only] [--verbose]
-       north agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]";
+       north agent-config-check policy-gate (budget|measure|session) [--repo FIRN] [--operator DIR]
+       north agent-config-check tree-policy [--tree DIR]";
 
 struct Context {
     north: PathBuf,
@@ -98,6 +100,22 @@ fn policy_gate_command(arguments: &[String]) -> u8 {
     }
 }
 
+fn tree_policy_command(arguments: &[String]) -> u8 {
+    let tree = match arguments {
+        [] => PathBuf::from("."),
+        [flag, value] if flag == "--tree" => PathBuf::from(value),
+        _ => return usage(),
+    };
+    let verdicts = tree::tree_policy(&tree);
+    if verdicts.passed {
+        println!("{}", verdicts.text);
+        0
+    } else {
+        eprintln!("{}", verdicts.text);
+        1
+    }
+}
+
 fn usage() -> u8 {
     eprintln!("{USAGE}");
     2
@@ -106,6 +124,9 @@ fn usage() -> u8 {
 pub fn run(arguments: &[String]) -> u8 {
     if arguments.first().is_some_and(|first| first == "policy-gate") {
         return policy_gate_command(&arguments[1..]);
+    }
+    if arguments.first().is_some_and(|first| first == "tree-policy") {
+        return tree_policy_command(&arguments[1..]);
     }
     let (mut local, mut policy_only, mut verbose) = (false, false, false);
     for argument in arguments {

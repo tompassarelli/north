@@ -11,6 +11,7 @@ use super::advisory::record;
 use super::gate::{Gate, Mode, hex};
 use super::roots::Roots;
 use super::rules::rule_register;
+use super::tree::tree_policy;
 use super::vocabulary::harness_vocabulary;
 
 const FULL: &str = r#"{"force-push": [3, 3], "other": [3, 3]}"#;
@@ -453,4 +454,36 @@ fn a_skill_over_six_kilobytes_fails_the_budget_naming_it_and_one_at_the_limit_pa
     let verdicts = fixture.gate().run(Mode::Budget).unwrap();
     assert!(!verdicts.passed && verdicts.text.contains("regrown: SKILL.md is 6145 bytes"), "{}", verdicts.text);
     assert!(!verdicts.text.contains("at-limit"), "{}", verdicts.text);
+}
+
+fn tree_skill(tree: &Path, root: &str, name: &str, bytes: usize) {
+    let skill = format!("---\nname: {name}\ndescription: A fixture skill.\n---\n# Fixture\n");
+    let directory = tree.join(root).join(name);
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("SKILL.md"), format!("{skill}{}", "x".repeat(bytes - skill.len()))).unwrap();
+}
+
+#[test]
+fn tree_policy_refuses_a_skill_one_byte_over_the_limit_with_the_sync_message_and_passes_at_the_limit() {
+    let tree = tempfile::tempdir().unwrap();
+    tree_skill(tree.path(), "harness/skills", "at-limit", 6144);
+    tree_skill(tree.path(), "agent-machinery/skills", "also-at-limit", 6144);
+    assert!(tree_policy(tree.path()).passed);
+    tree_skill(tree.path(), "harness/skills", "regrown", 6145);
+    let verdicts = tree_policy(tree.path());
+    assert!(!verdicts.passed && verdicts.text.contains("regrown: SKILL.md is 6145 bytes; policy keeps each SKILL.md at most 6144"), "{}", verdicts.text);
+    assert!(!verdicts.text.contains("at-limit"), "{}", verdicts.text);
+}
+
+#[test]
+fn tree_policy_refuses_a_tree_with_no_skills() {
+    let tree = tempfile::tempdir().unwrap();
+    assert!(!tree_policy(tree.path()).passed);
+}
+
+#[test]
+fn tree_policy_passes_this_repository_tree() {
+    let tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let verdicts = tree_policy(&tree);
+    assert!(verdicts.passed, "{}", verdicts.text);
 }

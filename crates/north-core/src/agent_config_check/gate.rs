@@ -247,8 +247,6 @@ impl Gate {
 
     fn skill_budget(&self, catalog: &Value) -> Result<Budget, String> {
         let mut budget = Budget::default();
-        let kind_domain = Regex::new(r"(?m)^metadata:\n(?:[ \t]+.*\n)*?[ \t]+kind:[ \t]*domain[ \t]*$").unwrap();
-        let agents_line = Regex::new(r"(?m)^agents:\s*\[(.*)\]").unwrap();
         for (unit, entry) in catalog["activation"].as_object().into_iter().flatten() {
             if !distributes_shared_skill(entry) {
                 continue;
@@ -258,28 +256,7 @@ impl Gate {
                 continue;
             };
             let text = fs::read_to_string(&skill).map_err(|error| format!("{}: {error}", skill.display()))?;
-            let Some((front, body_start)) = frontmatter(&text) else {
-                budget.errors.push(format!("{unit}: SKILL.md has no frontmatter"));
-                continue;
-            };
-            let lines = text[body_start..].lines().count();
-            budget.total += lines;
-            if lines > PLAYBOOK_LINES && !kind_domain.is_match(&front) {
-                budget.errors.push(format!(
-                    "{unit}: playbook body is {lines} lines; policy keeps each playbook body at most {PLAYBOOK_LINES} (set metadata.kind: domain for a domain skill)"
-                ));
-            }
-            if text.len() > SKILL_BYTES {
-                budget.errors.push(format!("{unit}: SKILL.md is {} bytes; policy keeps each SKILL.md at most {SKILL_BYTES}, as a router with read-X-when-Y references", text.len()));
-            }
-            let agents = agents_line.captures(&front).map(|found| found[1].to_owned());
-            let size = unit.chars().count() + description(&front).chars().count();
-            if agents.as_ref().is_none_or(|agents| agents.contains("claude")) {
-                budget.claude_listing += size + 4;
-            }
-            if agents.as_ref().is_none_or(|agents| agents.contains("codex")) {
-                budget.listing += size;
-            }
+            budget.measure(unit, &text);
         }
         Ok(budget)
     }
@@ -332,8 +309,8 @@ impl Gate {
 }
 
 #[derive(Default)]
-struct Budget {
-    errors: Vec<String>,
+pub(super) struct Budget {
+    pub(super) errors: Vec<String>,
     total: usize,
     listing: usize,
     claude_listing: usize,
@@ -341,7 +318,34 @@ struct Budget {
 }
 
 impl Budget {
-    fn summary(&self) -> String {
+    pub(super) fn measure(&mut self, unit: &str, text: &str) {
+        let kind_domain = Regex::new(r"(?m)^metadata:\n(?:[ \t]+.*\n)*?[ \t]+kind:[ \t]*domain[ \t]*$").unwrap();
+        let agents_line = Regex::new(r"(?m)^agents:\s*\[(.*)\]").unwrap();
+        let Some((front, body_start)) = frontmatter(text) else {
+            self.errors.push(format!("{unit}: SKILL.md has no frontmatter"));
+            return;
+        };
+        let lines = text[body_start..].lines().count();
+        self.total += lines;
+        if lines > PLAYBOOK_LINES && !kind_domain.is_match(&front) {
+            self.errors.push(format!(
+                "{unit}: playbook body is {lines} lines; policy keeps each playbook body at most {PLAYBOOK_LINES} (set metadata.kind: domain for a domain skill)"
+            ));
+        }
+        if text.len() > SKILL_BYTES {
+            self.errors.push(format!("{unit}: SKILL.md is {} bytes; policy keeps each SKILL.md at most {SKILL_BYTES}, as a router with read-X-when-Y references", text.len()));
+        }
+        let agents = agents_line.captures(&front).map(|found| found[1].to_owned());
+        let size = unit.chars().count() + description(&front).chars().count();
+        if agents.as_ref().is_none_or(|agents| agents.contains("claude")) {
+            self.claude_listing += size + 4;
+        }
+        if agents.as_ref().is_none_or(|agents| agents.contains("codex")) {
+            self.listing += size;
+        }
+    }
+
+    pub(super) fn summary(&self) -> String {
         let mut summary = format!("{} SKILL body lines · {} Codex listing chars", self.total, self.listing);
         if self.missing > 0 {
             summary.push_str(&format!(" · {} unreadable sources skipped", self.missing));

@@ -26,7 +26,7 @@ existed only to record that string and went with it.
 ## What replaces it
 
 - Deterministic gates own the covered paths: `agents sync` (startup tokens and replay conformance) and the safe-push
-  sweep-row refusal for policy text, `north agent-config-check --policy-only` for skills, and the hook and guard
+  sweep-row refusal for policy text, `north agent-config-check tree-policy` for skills, and the hook and guard
   fixture tests in the land checks.
 - A fresh reviewer of a different tier is staffed on risk: a planner's design before staffing, trust-boundary code
   (cross-host authority, credentials, rulesets, runtime pull or deploy, fleet admission) and `Spec: judged`
