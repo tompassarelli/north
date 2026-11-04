@@ -310,7 +310,7 @@ fn landing_probe(repo: &Path, runtime: &Path) -> Output {
     }
 }
 
-fn save(path: &Path, state: &State) -> Result<(), String> {
+fn save(path: &Path, state: &impl Serialize) -> Result<(), String> {
     let parent = path.parent().ok_or("state path has no parent")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
@@ -431,6 +431,9 @@ fn live(dry_run: bool, defined: fn(&str) -> bool) -> Result<bool, String> {
         None
     };
     results.push(("land".into(), land(LandInput { now, output }, &mut state)));
+    let state_file = std::env::var_os("XDG_STATE_HOME").map_or_else(|| home.join(".local/state"), PathBuf::from).join("north/unit-failures.json");
+    let started = failed_starts::check(dry_run, now, &state_file, &failed_starts::journal, &mut failed_starts::tell_proxy);
+    println!("health: unit-failures: {}", started.as_ref().err().map_or("ok", String::as_str));
     let mut alerts = Vec::new();
     for (check, result) in &results {
         println!(
@@ -495,6 +498,7 @@ pub fn run(arguments: &[String], defined: fn(&str) -> bool) -> ExitCode {
     }
 }
 
+mod failed_starts;
 mod issues;
 mod loops;
 mod main_red;

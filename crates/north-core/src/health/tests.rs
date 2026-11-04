@@ -405,3 +405,107 @@ fn health_rework_prints_each_repository_rate_and_fails_above_the_alarm() {
     assert!(rework::verdict(&rates, 30.0).1.is_ok());
     assert_eq!(rework::verdict(&BTreeMap::new(), 20.0), ("no landings on main in 7 days".to_owned(), Ok(())));
 }
+
+fn journal_line(fields: serde_json::Value) -> String {
+    format!("{fields}\n")
+}
+
+fn failed_start(unit: &str) -> String {
+    journal_line(json!({"MESSAGE": format!("Failed to start {unit}: a description."), "USER_UNIT": unit, "_SYSTEMD_USER_UNIT": "init.scope", "SYSLOG_IDENTIFIER": "systemd"}))
+}
+
+fn unit_output(unit: &str, message: &str) -> String {
+    journal_line(json!({"MESSAGE": message, "_SYSTEMD_USER_UNIT": unit, "SYSLOG_IDENTIFIER": "north"}))
+}
+
+fn hour_of_failures() -> String {
+    let mut journal = String::new();
+    for _ in 0..3 {
+        journal += &unit_output("north-watch.service", "error: unrecognized command 'watch --once'");
+        journal += &unit_output("north-watch.service", "Run 'north' to open the TUI, or 'north --help' for help.");
+        journal += &failed_start("north-watch.service");
+    }
+    for _ in 0..2 {
+        journal += &failed_start("fleet-tick.service");
+    }
+    journal += "not json\n";
+    journal += &unit_output("fleet-tick.service", "error: everything is fine");
+    journal
+}
+
+#[test]
+fn unit_failures_name_units_with_three_failed_starts_and_their_last_error_line() {
+    let failing = failed_starts::scan(&hour_of_failures());
+    assert_eq!(
+        failing,
+        [failed_starts::Failing { unit: "north-watch.service".into(), count: 3, error: "error: unrecognized command 'watch --once'".into() }]
+    );
+    let verdict = failed_starts::verdict(&failing).unwrap_err();
+    assert!(verdict.contains("north-watch.service failed to start 3 times in the last hour: error: unrecognized command"));
+    assert!(failed_starts::verdict(&[]).is_ok());
+}
+
+#[test]
+fn a_unit_with_no_error_word_reports_its_last_output_then_its_start_message() {
+    let mut journal = unit_output("a.service", "first");
+    journal += &unit_output("a.service", "second");
+    let mut bare = String::new();
+    for _ in 0..3 {
+        bare += &failed_start("b.service");
+    }
+    for _ in 0..3 {
+        journal += &failed_start("a.service");
+    }
+    let errors: Vec<String> = failed_starts::scan(&(journal + &bare)).into_iter().map(|one| one.error).collect();
+    assert_eq!(errors, ["second", "Failed to start b.service: a description."]);
+}
+
+#[test]
+fn unit_failures_reach_the_proxy_once_per_unit_per_distinct_error_per_day() {
+    let directory = tempfile::tempdir().unwrap();
+    let state_file = directory.path().join("north/unit-failures.json");
+    let journal = hour_of_failures();
+    let mut sent: Vec<String> = Vec::new();
+    let mut run = |now: u64, journal: &str, dry_run: bool| {
+        let text = journal.to_owned();
+        failed_starts::check(dry_run, now, &state_file, &|| Ok(text.clone()), &mut |message| {
+            sent.push(message.to_owned());
+            true
+        })
+    };
+    let day = 20_000 * 86_400;
+    assert!(run(day + 10, &journal, true).is_err());
+    assert!(run(day + 20, &journal, false).is_err());
+    assert!(run(day + 30, &journal, false).is_err());
+    assert!(run(day + 40, &journal.replace("watch --once", "watch --twice"), false).is_err());
+    assert!(run(day + 50, &journal.replace("north-watch", "other"), false).is_err());
+    assert!(run(day + 86_400, &journal, false).is_err());
+    assert!(run(day + 86_500, &"{}\n".repeat(2), false).is_ok());
+    assert_eq!(sent.len(), 4);
+    assert!(sent[0].starts_with("harness unit north-watch.service failed to start 3 times in the last hour: error: unrecognized command 'watch --once'"));
+    assert!(sent[1].contains("watch --twice"));
+    assert!(sent[2].contains("other.service"));
+    assert_eq!(sent[3], sent[0]);
+}
+
+#[test]
+fn a_failed_proxy_message_is_retried_on_the_next_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let state_file = directory.path().join("unit-failures.json");
+    let journal = hour_of_failures();
+    let mut attempts = 0;
+    for delivered in [false, true, true] {
+        let _ = failed_starts::check(false, 1_000, &state_file, &|| Ok(journal.clone()), &mut |_| {
+            attempts += 1;
+            delivered
+        });
+    }
+    assert_eq!(attempts, 2);
+}
+
+#[test]
+fn an_unreadable_journal_is_reported_not_swallowed() {
+    let directory = tempfile::tempdir().unwrap();
+    let error = failed_starts::check(false, 1, &directory.path().join("state.json"), &|| Err("journalctl exited 1".into()), &mut |_| true).unwrap_err();
+    assert_eq!(error, "journalctl exited 1");
+}
