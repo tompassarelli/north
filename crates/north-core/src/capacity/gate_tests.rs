@@ -46,9 +46,14 @@ fn a_capacity_scope_or_a_private_desktop_counts_as_inside_a_lease_and_a_session_
 }
 
 #[test]
-fn the_gate_skips_what_it_already_executed_only_in_the_same_process() {
-    assert_eq!(super::gate::executed(7, Some("7\t/a/bun\t/b/bun")), vec![std::path::PathBuf::from("/a/bun"), std::path::PathBuf::from("/b/bun")]);
-    assert!(super::gate::executed(8, Some("7\t/a/bun")).is_empty(), "a child process inherited its parent's exec chain");
-    assert!(super::gate::executed(7, None).is_empty());
-    assert_eq!(super::gate::executed_value(7, &[std::path::PathBuf::from("/a/bun")], std::path::Path::new("/nonexistent/bun")), "7\t/a/bun\t/nonexistent/bun");
+fn the_gate_skips_only_an_invocation_it_already_executed_in_the_same_process() {
+    assert_eq!(super::gate::executed("7@pid:[1]", Some("7@pid:[1]\ta /a/bun\tb /b/bun")), vec!["a /a/bun".to_owned(), "b /b/bun".to_owned()]);
+    assert!(super::gate::executed("8@pid:[1]", Some("7@pid:[1]\ta /a/bun")).is_empty(), "a child process inherited its parent's exec chain");
+    assert!(super::gate::executed("7@pid:[2]", Some("7@pid:[1]\ta /a/bun")).is_empty(), "a process in a nested pid namespace inherited a chain from another namespace's same pid");
+    assert!(super::gate::executed("7@pid:[1]", None).is_empty());
+    let nix = std::path::Path::new("/nonexistent/nix");
+    let outer = super::gate::invocation(nix, &["develop".to_owned(), "-c".to_owned(), "bash".to_owned(), "check.sh".to_owned()]);
+    let inner = super::gate::invocation(nix, &["develop".to_owned(), "-c".to_owned(), "cargo".to_owned(), "run".to_owned()]);
+    assert_ne!(outer, inner, "a nested nix develop with other arguments counted as a loop");
+    assert_eq!(super::gate::executed_value("7@pid:[1]", std::slice::from_ref(&outer), nix, &["develop".to_owned()]), format!("7@pid:[1]\t{outer}\t{}", super::gate::invocation(nix, &["develop".to_owned()])));
 }

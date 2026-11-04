@@ -154,3 +154,13 @@ fn a_stub_that_execs_the_gate_shim_reaches_the_real_program_instead_of_looping()
     assert!(status.is_some_and(|status| status.success()), "a stub that execs the gate shim looped through the gate instead of reaching the real program");
     assert_eq!(fs::read_to_string(host.path("ran")).unwrap(), "real test\n");
 }
+
+#[test]
+fn a_check_script_that_runs_nix_develop_inside_a_dev_shell_reaches_the_real_nix_behind_the_gate() {
+    let host = host("capacity-gate-nested-nix-", "[hosts.gex45]\nresident_cap = 24\n");
+    let check = host.path("check.sh");
+    fs::write(&check, "exec nix develop --command cargo fmt\n").unwrap();
+    let output = gated(&host, "nix", &["develop", "--command", "bash", &check.to_string_lossy()]).output_exclusive().unwrap();
+    assert!(output.status.success(), "the nested nix did not resolve behind the gate: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(host.path("built")).unwrap(), " fmt\n");
+}
