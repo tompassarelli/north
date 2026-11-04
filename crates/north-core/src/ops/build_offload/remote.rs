@@ -27,8 +27,8 @@ slot_target=0 slot_head=
 slot_head=$(git -C "$slot" rev-parse HEAD 2>/dev/null || true)
 head -c "$blen" >"$root/$name.bundle"
 head -c "$plen" >"$root/$name.patch"
-bundled() { [ "$blen" -gt 0 ] && git -C "$repo" fetch -q "$root/$name.bundle" "+HEAD:refs/build-offload/$name"; }
-bundled || { git -C "$repo" fetch -q origin 2>/dev/null || true; bundled || true; }
+bundled() { [ "$blen" -gt 0 ] && git -C "$repo" fetch -q --no-auto-maintenance "$root/$name.bundle" "+HEAD:refs/build-offload/$name"; }
+bundled || { git -C "$repo" fetch -q --no-auto-maintenance origin 2>/dev/null || true; bundled || true; }
 git -C "$repo" cat-file -e "$head^{commit}" 2>/dev/null || { echo "offload: $repo lacks $head" >&2; exit 97; }
 if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
 git -C "$slot" clean -ffdxq -e target -e node_modules

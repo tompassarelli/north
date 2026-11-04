@@ -42,10 +42,10 @@ trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
 cat >"$bundle"
 if ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1; then
-  git -C "$repo" fetch -q origin 2>/dev/null || true
+  git -C "$repo" fetch -q --no-auto-maintenance origin 2>/dev/null || true
   git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1 || { echo "offload: $repo lacks the commits under $base" >&2; exit 97; }
 fi
-git -C "$repo" fetch -q "$bundle" "+$ref:$ref"
+git -C "$repo" fetch -q --no-auto-maintenance "$bundle" "+$ref:$ref"
 if [ -e "$slot/.git" ]; then git -C "$slot" checkout -q --detach -f "$head"; else git -C "$repo" worktree add -q --detach "$slot" "$head"; fi
 git -C "$slot" clean -ffdxq -e /target
 "#;

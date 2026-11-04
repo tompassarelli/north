@@ -159,3 +159,31 @@ fn a_host_without_a_runtime_directory_keeps_its_path() {
     let path = remote_run_with("echo \"$PATH\"", false, "", "", Some(home.path()));
     assert!(!path.contains(&home.path().display().to_string()), "{path}");
 }
+
+#[test]
+fn shipping_a_job_runs_no_git_maintenance_that_could_prune_a_worktree_while_git_creates_it() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = home.path().join("code/p/main");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "maintenance.autoDetach", "false"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    git(&repo, &["update-ref", "refs/land-offload/job", &head]);
+    let bundle = home.path().join("job.bundle");
+    git(&repo, &["bundle", "create", "-q", bundle.to_str().unwrap(), "refs/land-offload/job"]);
+    git(&repo, &["update-ref", "-d", "refs/land-offload/job"]);
+    let half_made = repo.join(".git/worktrees/half-made");
+    fs::create_dir_all(&half_made).unwrap();
+    let script = super::REMOTE.replace("@ROOT@", super::OFFLOAD_ROOT).replace("@LOCK_WAIT@", "0").replace("@SLOTS@", "1");
+    let output = Command::new("sh")
+        .args(["-c", &script, "offload", "code/p/main", "", &head, "10", "code-p-main", "true", "refs/land-offload/job"])
+        .env("HOME", home.path())
+        .env_remove("NORTH_OFFLOAD_ROOT")
+        .stdin(fs::File::open(&bundle).unwrap())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(git(&home.path().join(".cache/land-offload/code-p-main"), &["rev-parse", "HEAD"]), head);
+    assert!(half_made.is_dir(), "a fetch's auto maintenance pruned a worktree entry that has no gitdir yet, as it would one git worktree add is still creating");
+}
