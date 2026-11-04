@@ -57,36 +57,35 @@ pub fn run_with_input_within(
 }
 
 pub fn run_command_within(command: Command, input: Option<&[u8]>, limit: Duration) -> Option<Output> {
+    try_run_command_within(command, input, limit).ok().flatten()
+}
+
+pub fn try_run_command_within(command: Command, input: Option<&[u8]>, limit: Duration) -> std::io::Result<Option<Output>> {
     run_prepared(command, input, limit, false)
 }
 
 pub fn run_group_within(mut command: Command, limit: Duration) -> Option<Output> {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
-    run_prepared(command, None, limit, true)
+    run_prepared(command, None, limit, true).ok().flatten()
 }
 
-fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool) -> Option<Output> {
+fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, group: bool) -> std::io::Result<Option<Output>> {
     let stdin = match input {
         Some(input) => {
-            let mut file = tempfile::tempfile().ok()?;
-            file.write_all(input).ok()?;
-            file.rewind().ok()?;
+            let mut file = tempfile::tempfile()?;
+            file.write_all(input)?;
+            file.rewind()?;
             Stdio::from(file)
         }
         None => Stdio::null(),
     };
-    let output = tempfile::tempfile().ok()?;
-    let errors = tempfile::tempfile().ok()?;
-    let mut child = command
-        .stdin(stdin)
-        .stdout(output.try_clone().ok()?)
-        .stderr(errors.try_clone().ok()?)
-        .spawn()
-        .ok()?;
+    let output = tempfile::tempfile()?;
+    let errors = tempfile::tempfile()?;
+    let mut child = command.stdin(stdin).stdout(output.try_clone()?).stderr(errors.try_clone()?).spawn()?;
     let started = Instant::now();
     let status = loop {
-        if let Some(status) = child.try_wait().ok()? {
+        if let Some(status) = child.try_wait()? {
             if group {
                 kill(&mut child, group);
             }
@@ -95,19 +94,19 @@ fn run_prepared(mut command: Command, input: Option<&[u8]>, limit: Duration, gro
         if started.elapsed() >= limit {
             kill(&mut child, group);
             let _ = child.wait();
-            return None;
+            return Ok(None);
         }
         std::thread::sleep(Duration::from_millis(1));
     };
     let mut output = output;
-    output.rewind().ok()?;
+    output.rewind()?;
     let mut stdout = Vec::new();
-    output.read_to_end(&mut stdout).ok()?;
+    output.read_to_end(&mut stdout)?;
     let mut errors = errors;
-    errors.rewind().ok()?;
+    errors.rewind()?;
     let mut stderr = Vec::new();
-    errors.read_to_end(&mut stderr).ok()?;
-    Some(Output { status, stdout, stderr })
+    errors.read_to_end(&mut stderr)?;
+    Ok(Some(Output { status, stdout, stderr }))
 }
 
 fn kill(child: &mut std::process::Child, group: bool) {

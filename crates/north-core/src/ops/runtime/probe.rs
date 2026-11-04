@@ -45,7 +45,8 @@ impl Shell {
     }
 
     fn run(&self, script: &str) -> Result<String, String> {
-        let output = process::run_command_within(self.bash(), Some(script.as_bytes()), limit(ASK))
+        let output = process::try_run_command_within(self.bash(), Some(script.as_bytes()), limit(ASK))
+            .map_err(|error| format!("could not start: {error}"))?
             .ok_or_else(|| format!("no answer within {}s", limit(ASK).as_secs()))?;
         if !output.status.success() {
             return Err(format!("{}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()));
@@ -111,6 +112,8 @@ pub(super) fn facts(shell: &Shell) -> Facts {
     facts
 }
 
+pub(super) const LAGS: &str = "live runtime";
+
 pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String> {
     if let Some(why) = &facts.unreachable {
         return vec![format!("unreachable: {why}")];
@@ -118,7 +121,7 @@ pub(super) fn problems(facts: &Facts, live: impl Fn(&str) -> bool) -> Vec<String
     let mut problems = Vec::new();
     match facts.runtime.as_deref() {
         Some(runtime) if live(runtime) => {}
-        Some(runtime) => problems.push(format!("live runtime {} predates the landing", &runtime[..8])),
+        Some(runtime) => problems.push(format!("{LAGS} {} predates the landing", &runtime[..8])),
         None => problems.push("no live runtime".to_owned()),
     }
     for unit in UNITS {

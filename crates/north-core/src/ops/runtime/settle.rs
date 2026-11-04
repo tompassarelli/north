@@ -50,12 +50,15 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     let live = |runtime: &str| landing.as_ref().is_none_or(|landing| runtime == landing.sha || ancestor(&checkout, &landing.sha, runtime));
     let mut records = Vec::new();
     let mut failing = Vec::new();
+    let mut broken = Vec::new();
+    let moved_on = landing.as_ref().is_some_and(|landing| origin_head(&checkout).is_some_and(|head| head != landing.sha));
     for host in &hosts {
         let facts = probe::facts(host);
         let problems = probe::problems(&facts, live);
         println!("north runtime settle: {}: {}", facts.host, if problems.is_empty() { "live and healthy".to_owned() } else { problems.join("; ") });
         if !problems.is_empty() {
             failing.push(format!("{}: {}", facts.host, problems.join("; ")));
+            broken.extend(landing_breakage(&facts.host, &problems, moved_on));
         }
         records.push(probe::record(&facts, &problems));
     }
@@ -63,8 +66,8 @@ pub(super) fn settle(layout: &Layout) -> Result<(), Failure> {
     fs::write(layout.state.join("runtime-settle.json"), format!("{report:#}\n"))?;
     if let Some(landing) = landing.filter(|landing| !judged(layout, &landing.sha)) {
         fs::write(layout.state.join("runtime-settle-judged"), &landing.sha)?;
-        if !failing.is_empty() {
-            alarm(&checkout, &landing, &failing);
+        if !broken.is_empty() {
+            alarm(&checkout, &landing, &broken);
         }
     }
     match failing.is_empty() {
@@ -80,7 +83,7 @@ fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Fail
         .lines()
         .filter_map(|line| line.split_once(' ').and_then(|(at, sha)| Some((at.parse().ok()?, sha.to_owned()))))
         .collect();
-    let head = process::run("git", Some(checkout), &["rev-parse", "--verify", "origin/main^{commit}"]).ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|sha| layout::is_sha(sha));
+    let head = origin_head(checkout);
     if let Some(head) = head.filter(|head| seen.last().is_none_or(|(_, last)| last != head)) {
         seen.push((now(), head));
         let kept = &seen[seen.len().saturating_sub(SEEN_KEPT)..];
@@ -92,6 +95,15 @@ fn due_landing(layout: &Layout, checkout: &Path) -> Result<Option<Landing>, Fail
     };
     let subject = process::run("git", Some(checkout), &["log", "-1", "--format=%s", sha]).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).unwrap_or_default();
     Ok(Some(Landing { sha: sha.clone(), subject }))
+}
+
+fn landing_breakage(host: &str, problems: &[String], moved_on: bool) -> Option<String> {
+    let own: Vec<&str> = problems.iter().map(String::as_str).filter(|problem| !(moved_on && problem.starts_with(probe::LAGS))).collect();
+    (!own.is_empty()).then(|| format!("{host}: {}", own.join("; ")))
+}
+
+fn origin_head(checkout: &Path) -> Option<String> {
+    process::run("git", Some(checkout), &["rev-parse", "--verify", "origin/main^{commit}"]).ok().map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned()).filter(|sha| layout::is_sha(sha))
 }
 
 fn judged(layout: &Layout, sha: &str) -> bool {
@@ -122,7 +134,7 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) {
         if !(reopened.is_ok_and(|status| status.success()) || commented.is_ok_and(|status| status.success())) {
             eprintln!("north runtime settle: could not reopen or comment on north#{number}");
         }
-        recipients.extend(sessions_on(&format!("north#{number}")));
+        recipients.extend(working_on(&format!("north#{number}")));
     }
     recipients.dedup();
     for recipient in recipients {
@@ -133,21 +145,25 @@ fn alarm(checkout: &Path, landing: &Landing, failing: &[String]) {
     }
 }
 
-fn sessions_on(task: &str) -> Vec<String> {
+fn working_on(task: &str) -> Vec<String> {
     let Ok(output) = process::run("north", None, &["fleet", "list", "--json"]) else {
         return Vec::new();
     };
-    let sessions: Value = serde_json::from_slice(&output.stdout).unwrap_or(Value::Null);
+    working_sessions(&serde_json::from_slice(&output.stdout).unwrap_or(Value::Null), task)
+}
+
+fn working_sessions(sessions: &Value, task: &str) -> Vec<String> {
     let names = sessions.as_array().into_iter().flatten().filter(|session| {
         let tasks = session["tasks"].as_array().into_iter().flatten().filter_map(Value::as_str);
-        tasks.chain(session["task_ref"].as_str()).any(|named| named == task)
+        session["status"] == "working" && tasks.chain(session["task_ref"].as_str()).any(|named| named == task)
     });
     names.filter_map(|session| session["name"].as_str().map(str::to_owned)).filter(|name| name != "proxy").collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::issue;
+    use super::{issue, landing_breakage, working_sessions};
+    use serde_json::json;
 
     #[test]
     fn a_landing_names_its_issue_only_in_a_trailing_north_reference() {
@@ -155,5 +171,26 @@ mod tests {
         assert_eq!(issue("Admit heavy work past load"), None);
         assert_eq!(issue("Fix (north#) parsing"), None);
         assert_eq!(issue("Merge (north#12) follow-up"), None);
+    }
+
+    #[test]
+    fn an_alarm_reaches_only_sessions_still_working_on_the_landing_issue() {
+        let fleet = json!([
+            {"name": "builder", "status": "working", "tasks": ["north#9"], "task_ref": null},
+            {"name": "finished", "status": "exited", "tasks": ["north#9"], "task_ref": null},
+            {"name": "resting", "status": "parked", "tasks": [], "task_ref": "north#9"},
+            {"name": "elsewhere", "status": "working", "tasks": ["north#8"], "task_ref": null},
+            {"name": "proxy", "status": "working", "tasks": ["north#9"], "task_ref": null},
+        ]);
+        assert_eq!(working_sessions(&fleet, "north#9"), ["builder"]);
+    }
+
+    #[test]
+    fn a_runtime_lagging_a_newer_main_is_not_this_landings_breakage() {
+        let lag = vec!["live runtime 1234abcd predates the landing".to_owned()];
+        assert_eq!(landing_breakage("nexus", &lag, true), None);
+        assert!(landing_breakage("nexus", &lag, false).is_some_and(|text| text.contains("predates the landing")));
+        let mixed = vec![lag[0].clone(), "north-runtime-follow.service is failed".to_owned()];
+        assert_eq!(landing_breakage("nexus", &mixed, true).as_deref(), Some("nexus: north-runtime-follow.service is failed"));
     }
 }
