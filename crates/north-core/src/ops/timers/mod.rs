@@ -6,6 +6,7 @@ mod runtime_update;
 mod skill_prune;
 mod skill_review;
 mod supply_chain;
+mod watch_review;
 #[cfg(test)]
 mod tests;
 
@@ -28,6 +29,7 @@ pub enum Timer {
     SkillReviewQueue,
     SupplyChainScan,
     UsageWebRead,
+    WatchReview,
 }
 
 impl Timer {
@@ -44,6 +46,7 @@ impl Timer {
             "skill-review-queue" => Self::SkillReviewQueue,
             "supply-chain-scan" => Self::SupplyChainScan,
             "usage-web-read" => Self::UsageWebRead,
+            "watch-review" => Self::WatchReview,
             _ => return None,
         })
     }
@@ -61,6 +64,7 @@ impl Timer {
             Self::SkillReviewQueue => skill_review::run(arguments),
             Self::SupplyChainScan => supply_chain::run(arguments),
             Self::UsageWebRead => crate::ops::usage_web_read::run(arguments),
+            Self::WatchReview => watch_review::run(arguments),
         }
     }
 
