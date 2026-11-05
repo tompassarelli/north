@@ -47,13 +47,8 @@ impl World {
             host: host.to_owned(),
             branch: "lane".to_owned(),
             head: "0".repeat(40),
-            session: None,
             queued_at: "2026-11-05T10:00:00Z".to_owned(),
-            first_commit_secs: None,
-            several_commits: None,
-            red_fix: None,
-            verdict: None,
-            keep_lane: false,
+            ..Default::default()
         };
         let directory = queue::directory(&self.state, origin);
         let path = if done { directory.join("done") } else { directory }.join(queue::file_name(micros, "lane"));

@@ -58,13 +58,7 @@ fn lanes(count: usize) -> Vec<(PathBuf, Ticket)> {
                 host: "host".to_owned(),
                 branch: format!("lane-{lane}"),
                 head: format!("tip-{lane}"),
-                session: None,
-                queued_at: String::new(),
-                first_commit_secs: None,
-                several_commits: None,
-                red_fix: None,
-                verdict: None,
-                keep_lane: false,
+                ..Default::default()
             };
             (PathBuf::from(format!("/queue/{lane}.json")), ticket)
         })

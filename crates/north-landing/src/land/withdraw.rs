@@ -100,13 +100,8 @@ mod tests {
             host: "laptop".into(),
             branch: branch.into(),
             head: "f".repeat(40),
-            session: None,
             queued_at: "2026-11-04T03:00:00Z".into(),
-            first_commit_secs: None,
-            several_commits: None,
-            red_fix: None,
-            verdict: None,
-            keep_lane: false,
+            ..Default::default()
         }
     }
 

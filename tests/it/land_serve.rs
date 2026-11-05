@@ -148,11 +148,8 @@ impl Fixture {
             head: git(root, &["rev-parse", "HEAD"]),
             session: Some(format!("session-{branch}")),
             queued_at: "2026-11-04T10:00:00+07:00".to_owned(),
-            first_commit_secs: None,
-            several_commits: None,
             red_fix,
-            verdict: None,
-            keep_lane: false,
+            ..Default::default()
         };
         (self.queue().join(queue::file_name(self.queued, &branch)), ticket)
     }

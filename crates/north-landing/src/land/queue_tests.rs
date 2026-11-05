@@ -9,11 +9,8 @@ fn ticket(branch: &str, red_fix: Option<RedFix>) -> Ticket {
         head: "a".repeat(40),
         session: Some("worker-1".into()),
         queued_at: "2026-11-04T03:00:00Z".into(),
-        first_commit_secs: None,
-        several_commits: None,
         red_fix,
-        verdict: None,
-        keep_lane: false,
+        ..Default::default()
     }
 }
 

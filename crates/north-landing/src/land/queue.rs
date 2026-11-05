@@ -30,7 +30,7 @@ impl<'de> Deserialize<'de> for RedFix {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ticket {
     pub origin: String,
     pub root: PathBuf,

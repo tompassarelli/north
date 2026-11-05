@@ -901,7 +901,7 @@ fn a_launch_naming_files_two_queued_lanes_changed_is_queued_behind_the_earlier_l
         fs::write(path.join("x.rs"), lane).unwrap();
         git_in(&path, &["commit", "-q", "-am", lane]);
         let head = git_in(&path, &["rev-parse", "HEAD"]).trim().to_owned();
-        let ticket = north_landing::land::queue::Ticket { origin: origin.display().to_string(), root: path, host: "here".into(), branch: lane.into(), head, session: Some(lane.into()), queued_at: "t".into(), first_commit_secs: None, several_commits: None, red_fix: None, verdict: None, keep_lane: false };
+        let ticket = north_landing::land::queue::Ticket { origin: origin.display().to_string(), root: path, host: "here".into(), branch: lane.into(), head, session: Some(lane.into()), queued_at: "t".into(), ..Default::default() };
         north_landing::land::queue::write(&directory.join(north_landing::land::queue::file_name(micros, lane)), &ticket).unwrap();
     }
     let cwd = main.display().to_string();
