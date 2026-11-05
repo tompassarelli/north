@@ -79,7 +79,7 @@ target lands after it, not from the whole-repo open-issue count. `agents plan --
 independent boxes (`--category` for the box duration) and keeps its $ part.
 
 Replay at each goal's start, from ledger runs ended before it, landings after it dropped, no box calibration
-(`goals_of_12_oct_replayed_from_their_start` in `crates/north-ops/src/ops/agents/goal/tests.rs`, fixture `harness/lib/fixtures/goal-eta-2026-10-12.json`):
+(`goals_of_12_oct_replayed_from_their_start` in `crates/north-ops/src/ops/agents/goal/tests.rs`, fixture `crates/north-ops/src/ops/agents/goal/fixtures/goal-eta-2026-10-12.json`):
 
 | goal | start | predicted (box duration) | lane M (per-run p75) | actual | serial hand-sum | hand estimate then |
 |---|---|---|---|---|---|---|

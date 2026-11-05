@@ -11,7 +11,7 @@ use super::schedule::{Task, schedule};
 use super::stamp;
 use crate::threads::calibration::box_durations;
 
-const FIXTURE: &str = include_str!("../../../../../../harness/lib/fixtures/goal-eta-2026-10-12.json");
+const FIXTURE: &str = include_str!("fixtures/goal-eta-2026-10-12.json");
 
 fn fixture() -> Value {
     serde_json::from_str(FIXTURE).unwrap()
