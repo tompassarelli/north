@@ -11,7 +11,7 @@ case "$1" in
   capacity)
     case "$2 $3" in
       "offload choose") printf 'buildbox\n'; exit 0 ;;
-      "offload run") exit 0 ;;
+      "offload run") [ -z "${STUB_OFFLOAD_EXEC:-}" ] || exec bash -euo pipefail -c "${!#}"; exit 0 ;;
     esac
     ;;
   land-red-check) exit "${STUB_RED_STATUS:-0}" ;;
@@ -846,4 +846,26 @@ fn affected_crates_only() {
     assert_eq!(scope_of(&["crates/north-base/src/lib.rs"]), "|--workspace\n", "every crate depends on north-base");
     assert_eq!(scope_of(&["crates/north-landing/src/lib.rs", "Cargo.toml"]), "|--workspace\n");
     assert_eq!(scope_of(&["crates/north-landing/src/lib.rs", "Cargo.lock"]), "|--workspace\n");
+}
+
+#[test]
+fn every_offloaded_land_check_starts_together_whatever_its_fail_fast_rank() {
+    let meet = |me: &str, other: &str| format!("touch ../started-{me}; for i in $(seq 100); do [ -e ../started-{other} ] && exit 0; sleep 0.1; done; exit 9");
+    let (one, two) = (meet("one", "two"), meet("two", "one"));
+    let fixture = Fixture::new(&[("land.runner", "build-host"), ("land.check", &format!("file.txt :: {one}")), ("land.check", &format!("file.txt :: {two}"))]);
+    seed_outcomes(&fixture, &[(one.as_str(), "failed", 300.0), (two.as_str(), "passed", 600.0), (one.as_str(), "failed", 300.0), (two.as_str(), "passed", 600.0)]);
+    let started = Instant::now();
+    let output = fixture.command().env("STUB_OFFLOAD_EXEC", "1").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "two offloaded checks waited for each other: {}", text(&output));
+    assert!(text(&output).contains("2 expensive land check(s)"), "{}", text(&output));
+    assert!(started.elapsed() < Duration::from_secs(9), "offloaded checks ran one after the other");
+    assert!(fixture.trace().lines().filter(|line| line.starts_with("north capacity offload run")).count() == 2, "{}", fixture.trace());
+}
+
+#[test]
+fn every_offloaded_land_check_starts_together_with_no_records() {
+    let meet = |me: &str, other: &str| format!("touch ../started-{me}; for i in $(seq 100); do [ -e ../started-{other} ] && exit 0; sleep 0.1; done; exit 9");
+    let fixture = Fixture::new(&[("land.runner", "build-host"), ("land.check", &format!("file.txt :: {}", meet("one", "two"))), ("land.check", &format!("file.txt :: {}", meet("two", "one")))]);
+    let output = fixture.command().env("STUB_OFFLOAD_EXEC", "1").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "two offloaded checks waited for each other: {}", text(&output));
 }

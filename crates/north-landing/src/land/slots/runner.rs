@@ -741,15 +741,16 @@ impl Shared {
         let stop = Arc::new(stop);
         tokio::spawn(forward_cancel(self.cancel.clone(), Arc::clone(&stop)));
         let expensive = Arc::new(Self { cancel: stopped, fail_fast: true, ..(**self).clone() });
+        let ordered: Vec<String> = plan.ordered().cloned().collect();
         let mut offloaded = JoinSet::new();
         let mut local = Vec::new();
-        for (index, command) in plan.ordered().enumerate() {
+        for (index, command) in ordered.iter().enumerate() {
             if self.offload_host_for(command).is_some() {
                 let shared = if plan.is_expensive(command) { Arc::clone(&expensive) } else { Arc::clone(self) };
                 let (command, stop) = (command.clone(), Arc::clone(&stop));
                 offloaded.spawn(async move {
-                    let status = shared.run_check(command, false).await;
-                    if status != 0 {
+                    let status = Arc::clone(&shared).run_check(command.clone(), false).await;
+                    if status != 0 && !shared.overflows(&command, status) {
                         stop.send_replace(true);
                     }
                     (index, status)
@@ -773,7 +774,7 @@ impl Shared {
         results.sort_unstable();
         let mut overflowed = Vec::new();
         for (index, status) in results {
-            match commands.get(index) {
+            match ordered.get(index) {
                 Some(command) if self.overflows(command, status) => overflowed.push(command.clone()),
                 _ => first_failure(&mut failed, status),
             }
