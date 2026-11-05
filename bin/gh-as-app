@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-token="$("$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/gh-app-token")"
+token="$(north gh-app-token)"
 GH_TOKEN="$token" exec gh "$@"
