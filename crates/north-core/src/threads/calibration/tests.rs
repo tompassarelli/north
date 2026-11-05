@@ -602,3 +602,67 @@ fn a_rise_across_a_window_reset_is_not_counted() {
     let costs = [super::rates::Cost { account: "a".into(), at: "2026-10-01T00:20:00Z".into(), usd: 1.0 }];
     assert!(super::rates::measure(&samples, &costs).is_empty());
 }
+
+/// The real git, with every command it runs recorded.
+#[derive(Default)]
+struct RecordingGit(std::sync::Mutex<Vec<String>>);
+
+impl super::history::Git for RecordingGit {
+    fn run(&self, checkout: &std::path::Path, args: &[&str]) -> Option<String> {
+        self.0.lock().unwrap().push(args.join(" "));
+        super::history::SystemGit.run(checkout, args)
+    }
+}
+
+#[test]
+fn a_second_history_read_at_the_same_main_starts_no_git_log_and_one_after_main_moved_reads_only_the_new_commits() {
+    use super::history::{SystemGit, history_with};
+    let directory = tempfile::tempdir().unwrap();
+    let checkout = directory.path().join("main");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let t0 = Timestamp::parse("2026-10-20T00:00:00Z").unwrap().unix_seconds();
+    git(&checkout, t0, &["init", "-q", "-b", "main"]);
+    land(&checkout, t0, &["a.rs"], "Old");
+    land(&checkout, t0 + 10 * 86_400, &["a.rs", "b.rs"], "Add one");
+    git(&checkout, t0, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let since = Some(t0 + 86_400);
+    let shas = |commits: Vec<super::rework::Commit>| commits.into_iter().map(|commit| (commit.sha, commit.at, commit.subject, commit.body, commit.files)).collect::<Vec<_>>();
+    let logs = |recording: &RecordingGit| recording.0.lock().unwrap().iter().filter(|command| command.starts_with("log ")).cloned().collect::<Vec<_>>();
+
+    let first = RecordingGit::default();
+    let read = shas(history_with(&first, &checkout, since).unwrap());
+    assert_eq!(read.iter().map(|commit| commit.2.as_str()).collect::<Vec<_>>(), ["Add one"]);
+    assert_eq!(logs(&first).len(), 1);
+    let second = RecordingGit::default();
+    assert_eq!(shas(history_with(&second, &checkout, since).unwrap()), read);
+    assert_eq!(logs(&second), Vec::<String>::new());
+
+    let old = git(&checkout, t0, &["rev-parse", "HEAD"]);
+    land(&checkout, t0 + 11 * 86_400, &["b.rs"], "Fix one\n\nFixes proj#1");
+    let head = git(&checkout, t0, &["rev-parse", "HEAD"]);
+    git(&checkout, t0, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let moved = RecordingGit::default();
+    let incremental = shas(history_with(&moved, &checkout, since).unwrap());
+    assert_eq!(logs(&moved), [format!("log --first-parent --reverse --format=%x1e%H%x1f%ct%x1f%s%x1f%b%x1f --name-only {old}..{head} --")]);
+    std::fs::remove_file(checkout.join(".git/north-history.json")).unwrap();
+    assert_eq!(incremental, shas(history_with(&SystemGit, &checkout, since).unwrap()));
+}
+
+#[test]
+fn ten_concurrent_history_reads_of_one_checkout_run_one_git_log_between_them() {
+    use super::history::history_with;
+    let directory = tempfile::tempdir().unwrap();
+    let checkout = directory.path().join("main");
+    std::fs::create_dir_all(&checkout).unwrap();
+    let t0 = Timestamp::parse("2026-10-20T00:00:00Z").unwrap().unix_seconds();
+    git(&checkout, t0, &["init", "-q", "-b", "main"]);
+    land(&checkout, t0, &["a.rs"], "Start");
+    git(&checkout, t0, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let recording = RecordingGit::default();
+    let lengths: Vec<usize> = std::thread::scope(|scope| {
+        let readers: Vec<_> = (0..10).map(|_| scope.spawn(|| history_with(&recording, &checkout, None).unwrap().len())).collect();
+        readers.into_iter().map(|reader| reader.join().unwrap()).collect()
+    });
+    assert_eq!(lengths, [1; 10]);
+    assert_eq!(recording.0.lock().unwrap().iter().filter(|command| command.starts_with("log ")).count(), 1);
+}

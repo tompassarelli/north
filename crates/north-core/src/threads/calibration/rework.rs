@@ -3,11 +3,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::LazyLock;
 
 use regex::Regex;
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
 use crate::foundation::clock::Timestamp;
 use crate::platform::run_roles::worker_where;
@@ -24,7 +24,7 @@ pub enum Cause {
     Culprit,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Commit {
     pub sha: String,
     pub at: i64,
@@ -126,36 +126,12 @@ fn histories(root: &Path, since: Option<i64>) -> Vec<(String, Vec<Commit>)> {
         .filter(|entry| entry.path().join("main/.git").exists())
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let commits = history(&entry.path().join("main"), since)?;
+            let commits = super::history::history(&entry.path().join("main"), since)?;
             Some((CATALOG.canonical(&name).to_owned(), commits))
         })
         .collect();
     found.sort_by(|left, right| left.0.cmp(&right.0));
     found
-}
-
-/// First-parent history of a checkout's origin/main, oldest first, read with `git log` only.
-pub fn history(checkout: &Path, since: Option<i64>) -> Option<Vec<Commit>> {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(checkout).args(["log", "--first-parent", "--reverse", "--format=%x1e%H%x1f%ct%x1f%s%x1f%b%x1f", "--name-only"]);
-    if let Some(since) = since {
-        command.arg(format!("--since={}", Timestamp::from_unix_seconds(since).iso()));
-    }
-    let output = command.arg("origin/main").arg("--").output().ok().filter(|output| output.status.success())?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    Some(
-        text.split('\u{1e}')
-            .filter_map(|record| {
-                let mut fields = record.splitn(5, '\u{1f}');
-                let sha = fields.next()?.trim().to_owned();
-                let at = fields.next()?.trim().parse().ok()?;
-                let subject = fields.next()?.to_owned();
-                let body = fields.next()?.to_owned();
-                let files = fields.next().unwrap_or_default().lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
-                Some(Commit { sha, at, subject, body, files })
-            })
-            .collect(),
-    )
 }
 
 fn culprits(directory: &Path) -> BTreeSet<String> {

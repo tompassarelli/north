@@ -7,6 +7,7 @@ mod calibrate;
 mod eta_calibration;
 mod feeds;
 mod forward;
+mod history;
 mod mode;
 mod rates;
 mod read;
