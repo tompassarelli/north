@@ -13,6 +13,7 @@ doctest = false
 north-capacity-host = { path = "../north-capacity-host" }
 north-github-mirror = { path = "../north-github-mirror" }
 north-core = { path = "../north-core" }
+north-strategy-types = { path = "../north-strategy-types" }
 regex.workspace = true
 rusqlite.workspace = true
 rustix.workspace = true

@@ -8,3 +8,6 @@ rustflags = ["-Zthreads=8"]
 
 [build]
 incremental = true
+
+[env]
+NORTH_DECISION_LOG = { value = "target/decision-log", relative = true }

@@ -6,6 +6,7 @@ pub mod git;
 pub mod land_queue;
 pub mod betterleaks;
 pub mod harness;
+pub mod decision_log;
 pub mod wisp_payoff;
 pub mod frozen_topics;
 pub mod cleanup;

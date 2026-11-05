@@ -18,6 +18,8 @@ use super::hold::{self, Hold};
 use super::watch::{LandedLane, Watch};
 use super::{incidents, pause, queue, red, sheriff, speculate, watchdog};
 use super::repositories;
+use super::steps;
+use crate::platform::decision_log;
 
 const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
@@ -150,6 +152,7 @@ impl Lander {
         let mut rebuilds = 0;
         let mut bisect_depth = 0;
         let mut searched = None;
+        let mut paused: Option<String> = None;
         let mut progressed = false;
         let mut warned = false;
         self.round.store(u64::try_from(micros()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
@@ -187,6 +190,7 @@ impl Lander {
                     return Ok(Round::Waiting(reason));
                 }
                 println!("north land: {reason}; checking the queued red fixes alone");
+                paused = Some(reason.clone());
                 red_only = true;
                 continue;
             }
@@ -218,6 +222,8 @@ impl Lander {
                 }
             }
             if included.is_empty() {
+                let round = steps::Round { base: &base, tickets, built: &built, limit, red_only, pause: paused.as_deref(), strikes: std::collections::BTreeMap::new(), spares: self.spares.len(), rebuilds: rebuilds as u64, bisect_depth: bisect_depth as u64 };
+                steps::batch(&round, &included, None);
                 return Ok(match (progressed, undecided) {
                     (true, _) => Round::Progress,
                     (false, Some(reason)) => Round::Waiting(reason),
@@ -226,8 +232,11 @@ impl Lander {
             }
             let mut strikes = bisect::Strikes::load(&self.queue, &base)?;
             let key = bisect::Strikes::key(&included);
-            if included.len() > 1 && strikes.exhausted(&key) {
-                limit = bisect::half(included.len());
+            let halve = (included.len() > 1 && strikes.exhausted(&key)).then(|| bisect::half(included.len()));
+            let round = steps::Round { base: &base, tickets, built: &built, limit, red_only, pause: paused.as_deref(), strikes: strikes.streaks(), spares: self.spares.len(), rebuilds: rebuilds as u64, bisect_depth: bisect_depth as u64 };
+            let batch = steps::batch(&round, &included, halve);
+            if let Some(half) = halve {
+                limit = half;
                 bisect_depth += 1;
                 println!("north land: a candidate of {} lanes kept ending without a verdict; checking its first {limit} lanes", included.len());
                 continue;
@@ -259,7 +268,9 @@ impl Lander {
             strikes.save(&self.queue)?;
             let refusal = verdict.clone();
             let mut head = built.head.clone();
-            let judgement = match bisect::judge(verdict, included.len(), moved) {
+            let (judged, decide_us) = decision_log::timed(|| bisect::judge(verdict.clone(), included.len(), moved));
+            steps::judge(&steps::Judged { verdict: &verdict, included: &included, base_moved: moved, streak, searched: searched.as_deref() == Some(base.as_str()) }, &judged, &batch, decide_us);
+            let judgement = match judged {
                 Judgement::Halve(_) if searched.as_deref() != Some(base.as_str()) => {
                     stacked.clear();
                     searched = Some(base.clone());

@@ -5,7 +5,7 @@ const FRESH_USAGE_MILLISECONDS: f64 = 3000.0;
 const BATCH_CLASSES: [&str; 4] = ["moderate", "heavy", "exclusive", "gpu"];
 
 /// A live run lease as the host stores it, with the usage sample its wrapper last wrote.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LeaseFact {
     pub id: String,
@@ -32,7 +32,7 @@ pub struct LeaseFact {
     pub started_owners: std::collections::BTreeMap<String, u32>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSample {
     #[serde(default)]
@@ -42,7 +42,7 @@ pub struct UsageSample {
 }
 
 /// A waiting ticket as the host reads it from the queue directory.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueEntry {
     name: String,
@@ -66,7 +66,7 @@ pub struct QuietNative {
     pub run_seconds: Option<f64>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PairLease {
     pub pair: u32,
     pub owner: String,

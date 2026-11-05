@@ -865,6 +865,7 @@ dependencies = [
  "north-landing",
  "north-ops",
  "north-runtime",
+ "north-strategy-types",
  "north-tui",
  "percent-encoding",
  "ratatui",
@@ -888,6 +889,7 @@ name = "north-base"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "north-strategy-types",
  "percent-encoding",
  "proptest",
  "regex",
@@ -909,6 +911,7 @@ name = "north-capacity"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-strategy-types",
  "proptest",
  "rusqlite",
  "rustix 0.38.44",
@@ -974,6 +977,7 @@ dependencies = [
  "north-capacity-host",
  "north-core",
  "north-github-mirror",
+ "north-strategy-types",
  "proptest",
  "regex",
  "rusqlite",
@@ -1021,6 +1025,7 @@ dependencies = [
  "north-core",
  "north-dispatch",
  "north-github-mirror",
+ "north-strategy-types",
  "regex",
  "rusqlite",
  "rustix 0.38.44",
@@ -1037,6 +1042,7 @@ name = "north-landing"
 version = "0.1.0"
 dependencies = [
  "north-base",
+ "north-strategy-types",
  "percent-encoding",
  "proptest",
  "regex",
@@ -1060,6 +1066,7 @@ dependencies = [
  "north-core",
  "north-dispatch",
  "north-github-mirror",
+ "north-strategy-types",
  "percent-encoding",
  "proptest",
  "regex",
@@ -1108,6 +1115,13 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml_edit",
+]
+
+[[package]]
+name = "north-strategy-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

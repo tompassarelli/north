@@ -1,5 +1,6 @@
 use crate::hook::{HookInput, Verdict};
 use serde_json::{Value, json};
+use north_strategy_types::placement::SpawnCpu;
 use std::path::PathBuf;
 
 mod briefs;
@@ -170,11 +171,26 @@ fn capacity_refusal(world: &impl World, event: &Event) -> Option<String> {
 /// The capacity refusal a local `north fleet launch` meets: the same CPU line, pressure limit and
 /// remedy as an Agent-tool spawn, passed by an urgent fact in the brief or the launch's `--pin`.
 pub fn launch_refusal(world: &impl World, brief: &str) -> Option<String> {
+    launch_verdict(&launch_capacity(world)?, brief)
+}
+
+/// What the launch refusal reads from the host: committed and available CPUs, protected pressure, and the
+/// local workers its text counts, read only when the CPU line refuses.
+pub fn launch_capacity(world: &impl World) -> Option<SpawnCpu> {
     let (provisioned, limit, protected) = capacity(world)?;
-    if provisioned < limit && protected <= PROTECTED_PRESSURE_LIMIT {
+    let local_workers = refusing(provisioned, limit, protected).then(|| u32::try_from(logs::local_workers(world)).unwrap_or(u32::MAX));
+    Some(SpawnCpu { provisioned, limit, protected, local_workers })
+}
+
+pub fn launch_verdict(cpu: &SpawnCpu, brief: &str) -> Option<String> {
+    if !refusing(cpu.provisioned, cpu.limit, cpu.protected) {
         return None;
     }
-    urgent_fact([brief]).is_none().then(|| cpu_refusal(world, provisioned, limit, protected))
+    urgent_fact([brief]).is_none().then(|| cpu_refusal_text(cpu.provisioned, cpu.limit, cpu.protected, cpu.local_workers.unwrap_or(0) as usize))
+}
+
+fn refusing(provisioned: f64, limit: f64, protected: f64) -> bool {
+    !(provisioned < limit && protected <= PROTECTED_PRESSURE_LIMIT)
 }
 
 /// The first `CASE=URGENT FACT="..."` fact in the texts, when it is long enough to say why the work can't wait.
@@ -185,10 +201,14 @@ fn urgent_fact<'a>(texts: impl IntoIterator<Item = &'a str>) -> Option<String> {
 }
 
 fn cpu_refusal(world: &impl World, provisioned: f64, limit: f64, protected: f64) -> String {
+    cpu_refusal_text(provisioned, limit, protected, logs::local_workers(world))
+}
+
+fn cpu_refusal_text(provisioned: f64, limit: f64, protected: f64, local_workers: usize) -> String {
     let g = briefs::py_g;
     format!(
         "Capacity leases and unleased heavy load commit {} of the {} CPUs the machine can hand out, protected desktop pressure is {}% (limit {}%), and {} local workers are running. Queue this worker until a lease ends, send heavy checks to the farm, or use a cloud worker for code-only work (workers skill). Workers already running are unaffected. For an urgent fix, start the brief with CASE=URGENT FACT=\"<why it can't wait>\". Codex, whose briefs are encrypted, appends \"<epoch>\\t<agent name>\\t<fact>\" to ~/.local/state/agents/spawn-urgent.tsv first.",
-        g(provisioned), g(limit), g(protected), g(PROTECTED_PRESSURE_LIMIT), logs::local_workers(world)
+        g(provisioned), g(limit), g(protected), g(PROTECTED_PRESSURE_LIMIT), local_workers
     )
 }
 

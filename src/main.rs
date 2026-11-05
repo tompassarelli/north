@@ -18,7 +18,8 @@ use north_dispatch::{dispatch, laptop, loops, pacing, resident_cap, tune};
 fn main() -> std::process::ExitCode {
     pacing::spawn_gate::install(pacing::spawn_gate::SpawnGate {
         summary: || guard::spawn_capacity::gate_summary(&guard::spawn_capacity::Live { pace: pacing::answer }),
-        launch_refusal: |brief| guard::spawn_capacity::launch_refusal(&guard::spawn_capacity::Live { pace: pacing::answer }, brief),
+        launch_capacity: || guard::spawn_capacity::launch_capacity(&guard::spawn_capacity::Live { pace: pacing::answer }),
+        launch_verdict: guard::spawn_capacity::launch_verdict,
     });
     platform::stdio::with_blocking_outputs(|| {
         let arguments = std::env::args().skip(1).collect::<Vec<_>>();

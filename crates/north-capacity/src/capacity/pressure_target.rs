@@ -39,8 +39,13 @@ fn heavy_leases(facts: &Facts) -> impl Iterator<Item = &super::native_hold::Leas
     facts.leases.iter().filter(|lease| matches!(lease.class.as_str(), "heavy" | "runtime"))
 }
 
+/// The seconds after a heavy build starts before another starts.
+pub(super) fn settle_seconds() -> f64 {
+    std::env::var("AGENT_CAPACITY_SETTLE_SECONDS").ok().and_then(|seconds| seconds.parse().ok()).unwrap_or_else(|| default_mib("admit_settle_seconds"))
+}
+
 fn starting(facts: &Facts) -> bool {
-    let settle = std::env::var("AGENT_CAPACITY_SETTLE_SECONDS").ok().and_then(|seconds| seconds.parse().ok()).unwrap_or_else(|| default_mib("admit_settle_seconds"));
+    let settle = settle_seconds();
     heavy_leases(facts).any(|lease| age_seconds(facts, lease.created_at) < settle)
 }
 

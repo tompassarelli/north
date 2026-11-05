@@ -74,6 +74,11 @@ impl Strikes {
         included.iter().map(|(path, ticket)| format!("{}@{}", path.file_name().unwrap_or_default().to_string_lossy(), ticket.head)).collect::<Vec<_>>().join(",")
     }
 
+    /// The streaks as the decision log records them.
+    pub fn streaks(&self) -> BTreeMap<String, north_strategy_types::land::Streak> {
+        self.streaks.iter().map(|(key, streak)| (key.clone(), north_strategy_types::land::Streak { transient: streak.transient, deferred: streak.deferred })).collect()
+    }
+
     pub fn exhausted(&self, key: &str) -> bool {
         self.streaks.get(key).is_some_and(|streak| streak.transient >= PERSISTENT_AFTER || streak.deferred >= PERSISTENT_AFTER)
     }

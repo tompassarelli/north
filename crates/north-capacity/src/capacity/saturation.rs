@@ -73,3 +73,17 @@ impl Saturation {
         self.backlog?.refusal(host)
     }
 }
+
+impl From<Saturation> for north_strategy_types::placement::Saturation {
+    fn from(reading: Saturation) -> Self {
+        let backlog = reading.backlog.map(|backlog| north_strategy_types::placement::Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads });
+        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, backlog }
+    }
+}
+
+impl From<north_strategy_types::placement::Saturation> for Saturation {
+    fn from(reading: north_strategy_types::placement::Saturation) -> Self {
+        let backlog = reading.backlog.map(|backlog| Backlog { queued: backlog.queued, load: backlog.load, threads: backlog.threads });
+        Self { memory_total_mib: reading.memory_total_mib, memory_available_mib: reading.memory_available_mib, disk_free_gib: reading.disk_free_gib, backlog }
+    }
+}

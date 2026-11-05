@@ -7,43 +7,45 @@ use super::gate::Machine;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Mutex;
+use north_strategy_types::placement::{Credit, SpawnCpu};
 use toml_edit::{DocumentMut, Item};
 
 pub(in crate::pacing) fn credit(cfg: &DocumentMut, at: f64) -> (bool, String) {
-    let name = cfg
-        .get("placement")
-        .and_then(|p| p.get("cloud_credit"))
-        .and_then(Item::as_str)
-        .unwrap_or_default();
-    let Some(service) = credit_service(name) else {
-        let detail = if name.is_empty() {
-            "no [placement] cloud_credit"
-        } else {
-            name
-        };
+    let name = credit_name(cfg);
+    credit_verdict(&credit_case(&name), &name, at)
+}
+
+pub(in crate::pacing) fn credit_name(cfg: &DocumentMut) -> String {
+    cfg.get("placement").and_then(|p| p.get("cloud_credit")).and_then(Item::as_str).unwrap_or_default().to_owned()
+}
+
+/// The `costs.toml` service `name` names and its spend readout, as placement records them.
+pub(in crate::pacing) fn credit_case(name: &str) -> Credit {
+    let Some(service) = credit_service(name) else { return Credit::default() };
+    let path = storage::directory().join("costs").join(format!("{name}.json"));
+    let readout = load(&path);
+    Credit {
+        configured: true,
+        expires: credit_expiry(&service),
+        initial: service.get("initial").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|n| n as f64))).unwrap_or(0.0),
+        spent: readout["usd_spent_period"].as_f64(),
+        read_at: moment(&readout["read_at"]).or_else(|| modified_at(&path)),
+    }
+}
+
+pub(in crate::pacing) fn credit_verdict(credit: &Credit, name: &str, at: f64) -> (bool, String) {
+    if !credit.configured {
+        let detail = if name.is_empty() { "no [placement] cloud_credit" } else { name };
         return (false, format!("cloud credit: not configured ({detail})"));
-    };
-    let Some(expiry) = credit_expiry(&service) else {
+    }
+    let Some(expiry) = credit.expires else {
         return (false, format!("cloud credit: not configured ({name})"));
     };
     if expiry <= at {
-        return (
-            false,
-            format!("cloud credit: expired {}Z", &stamp(expiry)[..16]),
-        );
+        return (false, format!("cloud credit: expired {}Z", &stamp(expiry)[..16]));
     }
     let days = ((expiry - at) / 86400.0) as i64;
-    let path = storage::directory()
-        .join("costs")
-        .join(format!("{name}.json"));
-    let readout = load(&path);
-    let spent = readout["usd_spent_period"].as_f64();
-    let read = moment(&readout["read_at"]).or_else(|| modified_at(&path));
-    let initial = service
-        .get("initial")
-        .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|n| n as f64)))
-        .unwrap_or(0.0);
-    credit_standing(spent, read, initial, days, at)
+    credit_standing(credit.spent, credit.read_at, credit.initial, days, at)
 }
 fn credit_service(name: &str) -> Option<toml_edit::Table> {
     let document = std::fs::read_to_string(operator().join("costs.toml"))
@@ -142,18 +144,13 @@ pub(in crate::pacing) fn resident(name: &str, destination: &str) -> Option<i64> 
 
 const SATURATION_CACHE_SECONDS: f64 = 60.0;
 
-pub(in crate::pacing) fn here_saturation() -> Option<String> {
-    let name = local();
-    saturation(&name, "")?.refusal(&name)
-}
-
-/// The spawn gate's CPU refusal for a launch kept here; a PLACEMENT_HOSTS fixture run reads only the
+/// The spawn gate's CPU reading for a launch kept here; a PLACEMENT_HOSTS fixture run reads only the
 /// SPAWN_CAPACITY_STATUS fixture, never this host's live capacity.
-pub(in crate::pacing) fn here_cpu_refusal(brief: &str) -> Option<String> {
+pub(in crate::pacing) fn here_spawn_cpu() -> Option<SpawnCpu> {
     if std::env::var_os("PLACEMENT_HOSTS").is_some() && std::env::var_os("SPAWN_CAPACITY_STATUS").is_none() {
         return None;
     }
-    crate::pacing::spawn_gate::launch_refusal(brief)
+    crate::pacing::spawn_gate::launch_capacity()
 }
 
 impl super::gate::Decision {
@@ -218,6 +215,10 @@ pub(in crate::pacing) struct Facts {
     pub live: Option<i64>,
     pub accounts: Vec<String>,
     pub saturation: Option<Saturation>,
+    /// Seconds since the saturation reading was taken, zero for a fresh probe.
+    pub saturation_age_s: Option<f64>,
+    /// Whether the launch directory asked about exists there.
+    pub has_cwd: Option<bool>,
 }
 
 type Memo = Mutex<Option<HashMap<String, Facts>>>;
@@ -255,28 +256,38 @@ fn remembered(memo: &Memo, key: String, fetch: impl FnOnce() -> Facts) -> Facts 
 }
 
 pub(in crate::pacing) fn probed_machines(machines: Vec<Machine>, fleet_load: &BTreeMap<String, i64>) -> Vec<Machine> {
-    probed_via(&PASS, machines, fleet_load, &fetch)
+    let facts = surveyed(&machines, None);
+    machines.into_iter().zip(facts).map(|(machine, facts)| machine.probed(facts, fleet_load)).collect()
 }
 
-fn probed_via(memo: &Memo, machines: Vec<Machine>, fleet_load: &BTreeMap<String, i64>, ask: &(dyn Fn(&str, &str) -> Facts + Sync)) -> Vec<Machine> {
+/// Each machine's facts in one ssh round trip apiece, asked in parallel; `cwd` adds whether that directory exists there.
+pub(in crate::pacing) fn surveyed(machines: &[Machine], cwd: Option<&str>) -> Vec<Facts> {
+    survey_via(&PASS, machines, cwd, &fetch)
+}
+
+fn survey_via(memo: &Memo, machines: &[Machine], cwd: Option<&str>, ask: &(dyn Fn(&str, &str, Option<&str>) -> Facts + Sync)) -> Vec<Facts> {
     std::thread::scope(|scope| {
         let running: Vec<_> = machines
-            .into_iter()
-            .map(|machine| {
-                scope.spawn(move || {
-                    let facts = remembered(memo, format!("{}\0{}", machine.name, machine.ssh), || ask(&machine.name, &machine.ssh));
-                    let hosted = fleet_load.get(&machine.name).copied().unwrap_or(0);
-                    Machine { live: facts.live.map(|live| live + hosted), accounts: facts.accounts, saturation: facts.saturation, ..machine }
-                })
-            })
+            .iter()
+            .map(|machine| scope.spawn(move || remembered(memo, format!("{}\0{}\0{}", machine.name, machine.ssh, cwd.unwrap_or_default()), || ask(&machine.name, &machine.ssh, cwd))))
             .collect();
         running.into_iter().map(|handle| handle.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
     })
 }
 
-fn fetch(name: &str, destination: &str) -> Facts {
-    if std::env::var_os("PLACEMENT_HOSTS").is_some() {
-        return Facts { live: resident(name, destination), accounts: signed_in(name, destination), saturation: saturation(name, destination) };
+impl Machine {
+    /// The machine with its probed facts, its live count raised by the fleet sessions this machine runs there.
+    pub(in crate::pacing) fn probed(self, facts: Facts, fleet_load: &BTreeMap<String, i64>) -> Self {
+        let hosted = fleet_load.get(&self.name).copied().unwrap_or(0);
+        Self { live: facts.live.map(|live| live + hosted), accounts: facts.accounts, saturation: facts.saturation, ..self }
+    }
+}
+
+fn fetch(name: &str, destination: &str, cwd: Option<&str>) -> Facts {
+    if let Ok(path) = std::env::var("PLACEMENT_HOSTS") {
+        let has_cwd = cwd.map(|_| load(Path::new(&path))[name]["has_cwd"].as_bool().unwrap_or(false));
+        let saturation = saturation(name, destination);
+        return Facts { live: resident(name, destination), accounts: signed_in(name, destination), saturation_age_s: saturation.map(|_| 0.0), saturation, has_cwd };
     }
     let here = name == local();
     let cache = storage::directory().join("saturation").join(format!("{name}.json"));
@@ -284,12 +295,15 @@ fn fetch(name: &str, destination: &str) -> Facts {
     let cached = load(&cache);
     let fresh = cached["at"].as_f64().is_some_and(|at| (0.0..SATURATION_CACHE_SECONDS).contains(&(now - at)));
     let mut facts = Facts { saturation: fresh.then(|| serde_json::from_value(cached["reading"].clone()).ok()).flatten(), ..Facts::default() };
+    facts.saturation_age_s = facts.saturation.and(cached["at"].as_f64()).map(|at| now - at);
+    facts.has_cwd = cwd.map(|_| false);
     let want_saturation = !fresh && !here;
-    let answer = ssh_script(destination, &script(!here, want_saturation)).ok().filter(|r| r.code == 0).map(|r| r.out);
+    let answer = ssh_script(destination, &script(!here, want_saturation, cwd)).ok().filter(|r| r.code == 0).map(|r| r.out);
     if let Some(sections) = answer.as_deref().map(sections) {
         let section = |label: &str| sections.iter().find(|(name, _)| name == label).map(|(_, body)| body.as_str());
         facts.live = section("live").and_then(live_count);
         facts.accounts = section("accounts").map(claude_labels).unwrap_or_default();
+        facts.has_cwd = cwd.map(|_| section("cwd").is_some());
         if want_saturation {
             facts.saturation = section("saturation").and_then(saturation::parse);
         }
@@ -300,6 +314,9 @@ fn fetch(name: &str, destination: &str) -> Facts {
     if here && !fresh {
         facts.saturation = probe(name, destination);
     }
+    if !fresh {
+        facts.saturation_age_s = facts.saturation.map(|_| 0.0);
+    }
     if !fresh && let (Some(reading), Some(dir)) = (facts.saturation, cache.parent()) {
         let _ = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&cache, json!({"at": now, "reading": reading}).to_string()));
     }
@@ -308,7 +325,7 @@ fn fetch(name: &str, destination: &str) -> Facts {
 
 const RESIDENT_BINARY: &str = ".local/state/north/current/tree/bin/north";
 
-fn script(live: bool, saturation: bool) -> String {
+fn script(live: bool, saturation: bool, cwd: Option<&str>) -> String {
     let mut parts = Vec::new();
     if live {
         parts.push(format!("echo '@@live'; {RESIDENT_BINARY} resident-cap status; echo \"@@rc $?\""));
@@ -316,6 +333,9 @@ fn script(live: bool, saturation: bool) -> String {
     parts.push("echo '@@accounts'; north fleet accounts; echo \"@@rc $?\"".to_owned());
     if saturation {
         parts.push(format!("echo '@@saturation'; {}; echo \"@@rc $?\"", saturation::PROBE));
+    }
+    if let Some(directory) = cwd {
+        parts.push(format!("echo '@@cwd'; test -d '{}'; echo \"@@rc $?\"", directory.replace('\'', r"'\''")));
     }
     parts.join("\n")
 }

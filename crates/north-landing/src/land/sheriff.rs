@@ -12,6 +12,8 @@ use super::enqueue::rfc3339;
 use super::lander::Lander;
 use super::queue::{self, RedFix, Ticket};
 use crate::landing::red_check::{self, Failure};
+use north_strategy_types::land::{SheriffCase, SheriffStep};
+use super::steps;
 
 pub const REQUESTS: &str = "refs/heads/claude/land-revert-";
 const PROBE_SECONDS: &str = "1800";
@@ -52,15 +54,24 @@ pub fn is_revert(message: &str) -> bool {
 }
 
 fn bisect(request: &Request, lanes: &[Lane], mut at: impl FnMut(&Lane) -> Option<BTreeSet<Failure>>) -> Option<usize> {
+    let labels = |failures: &BTreeSet<Failure>| failures.iter().map(|failure| failure.label().to_owned()).collect::<Vec<_>>();
+    let mut case = SheriffCase { head: request.head.clone(), failing: labels(&request.failing), lanes: lanes.iter().map(|lane| lane.commit.clone()).collect(), probes: Vec::new() };
     let (mut culprit, mut passing) = (0, lanes.len());
     while passing - culprit > 1 {
         let middle = culprit + (passing - culprit) / 2;
-        if at(&lanes[middle])?.is_disjoint(&request.failing) {
+        steps::sheriff(&case, &SheriffStep::Probe(middle as u64));
+        let Some(found) = at(&lanes[middle]) else {
+            steps::sheriff(&case, &SheriffStep::Unprobed(middle as u64));
+            return None;
+        };
+        case.probes.push((middle as u64, labels(&found)));
+        if found.is_disjoint(&request.failing) {
             passing = middle;
         } else {
             culprit = middle;
         }
     }
+    steps::sheriff(&case, &SheriffStep::Culprit(culprit as u64));
     Some(culprit)
 }
 

@@ -10,6 +10,7 @@ publish = false
 doctest = false
 
 [dependencies]
+north-strategy-types = { path = "../north-strategy-types" }
 north-base = { path = "../north-base" }
 north-capacity = { path = "../north-capacity" }
 north-core = { path = "../north-core" }

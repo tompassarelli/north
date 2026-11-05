@@ -4,12 +4,11 @@
 //! projections and the controller's held or over never hold a launch; an account is out only by the
 //! five-hour stop, the five-hour burn cap or a provider-exhausted week (`crate::pace::exhaustion`).
 use super::super::storage::{self, load, rows};
-use super::super::{sampling, target};
 pub use super::repository::{anchored, repository};
 use super::needs::{LOCAL_NEEDS, words};
 use super::reach::Reach;
 use super::room::{Basis, Rank};
-use super::{credit, facets, here_cpu_refusal, here_saturation, local, strings};
+use super::{facets, strings};
 use crate::capacity::{agent_load, laptop_auto};
 use crate::capacity::saturation::Saturation;
 use crate::fleet::model::ProviderName;
@@ -19,6 +18,7 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::path::Path;
+use north_strategy_types::placement as record;
 use toml_edit::{DocumentMut, Item};
 
 const PUBLIC_REPOS: [&str; 3] = ["north", "wisp", "makgora"];
@@ -202,12 +202,16 @@ fn best(verdicts: &[Verdict], allowed: impl Fn(&str) -> bool, order: impl Fn(&Ve
 /// last wrote, None when every one is out. The measured burn does not count: a probe of two short
 /// replies cannot drain a window, so only the five-hour stop and an exhausted week rule an account out.
 pub fn roomiest_here(gate: &Value, roster: &Roster) -> Option<String> {
-    let here: Vec<Verdict> = standing_verdicts(gate, roster, false).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
+    let here: Vec<Verdict> = standing_verdicts(gate, &standings(gate, roster), false).into_iter().filter(|verdict| verdict.owners.is_empty()).collect();
     best(&here, |_| true, |a, b| a.headroom.total_cmp(&b.headroom)).map(|best| best.account.trim_start_matches("claude:").to_owned())
 }
 
 pub fn live_gate() -> Value {
-    load(&storage::directory().join("usage-gate.json"))
+    load(&live_gate_path())
+}
+
+pub fn live_gate_path() -> std::path::PathBuf {
+    storage::directory().join("usage-gate.json")
 }
 
 fn window_refusal(window: &Value, burn_counts: bool) -> Option<String> {
@@ -445,21 +449,42 @@ fn claude_controls(gate: &Value) -> Vec<(String, &Value)> {
 }
 
 pub fn verdicts(gate: &Value, roster: &Roster, basis: &Basis) -> Vec<Verdict> {
-    standing_verdicts(gate, roster, true)
+    verdicts_of(gate, &standings(gate, roster), basis)
+}
+
+/// The verdicts on each account given its recorded standing in the roster.
+pub fn verdicts_of(gate: &Value, standings: &BTreeMap<String, record::Standing>, basis: &Basis) -> Vec<Verdict> {
+    standing_verdicts(gate, standings, true)
         .into_iter()
         .map(|verdict| Verdict { rank: basis.rank(verdict.available, &verdict.account, &gate["claude"]["controls"][&verdict.account]), ..verdict })
         .collect()
 }
 
-fn standing_verdicts(gate: &Value, roster: &Roster, burn_counts: bool) -> Vec<Verdict> {
+/// Each Claude account's standing in the roster: listed, a duplicate login and why, run by other hosts, or unknown.
+pub fn standings(gate: &Value, roster: &Roster) -> BTreeMap<String, record::Standing> {
     let claude = ProviderName::new("claude");
     claude_controls(gate)
         .into_iter()
-        .map(|(name, control)| match roster.standing(&claude, name.trim_start_matches("claude:")) {
-            Standing::Listed(_) => judged(&name, control, burn_counts),
-            Standing::Duplicate(duplicate) => unavailable(&name, duplicate.to_string()),
-            Standing::Foreign(foreign) => Verdict { owners: foreign.owners.clone(), ..judged(&name, control, burn_counts) },
-            Standing::Unknown => unavailable(&name, "no fleet profile".into()),
+        .map(|(name, _)| {
+            let standing = match roster.standing(&claude, name.trim_start_matches("claude:")) {
+                Standing::Listed(_) => record::Standing::Listed,
+                Standing::Duplicate(duplicate) => record::Standing::Duplicate(duplicate.to_string()),
+                Standing::Foreign(foreign) => record::Standing::Foreign(foreign.owners.clone()),
+                Standing::Unknown => record::Standing::Unknown,
+            };
+            (name, standing)
+        })
+        .collect()
+}
+
+fn standing_verdicts(gate: &Value, standings: &BTreeMap<String, record::Standing>, burn_counts: bool) -> Vec<Verdict> {
+    claude_controls(gate)
+        .into_iter()
+        .map(|(name, control)| match standings.get(&name).unwrap_or(&record::Standing::Unknown) {
+            record::Standing::Listed => judged(&name, control, burn_counts),
+            record::Standing::Duplicate(duplicate) => unavailable(&name, duplicate.clone()),
+            record::Standing::Foreign(owners) => Verdict { owners: owners.clone(), ..judged(&name, control, burn_counts) },
+            record::Standing::Unknown => unavailable(&name, "no fleet profile".into()),
         })
         .collect()
 }
@@ -525,44 +550,35 @@ pub fn summary(decision: &Decision) -> String {
 /// The live decision: South's orchestration.toml, the gate pace-control last wrote, the credit and
 /// each machine's load, given the fleet sessions this machine runs there by machine name.
 pub fn live(text: &str, fleet_load: &BTreeMap<String, i64>, roster: &Roster, named: Option<&str>) -> Result<Decision, String> {
-    let cfg = sampling::config()?;
-    let at = std::env::var("PLACEMENT_NOW")
-        .ok()
-        .and_then(|s| target::seconds(&s))
-        .unwrap_or_else(storage::now);
-    let gate = live_gate();
-    let machines = probed(&cfg, fleet_load);
-    let here = local();
-    let here_on_battery = on_battery(&here, &laptop_auto::power_supply(), &laptop_auto::discharging_since(&agent_load::Host::from_env()), crate::capacity::mode::now(), &machines);
-    let mut decision = decide(text, &cfg, verdicts(&gate, roster, &Basis::new(&cfg, load(&storage::directory().join("pace-control.json")), at)), credit(&cfg, at), &machines, &here, here_in_game_reserve());
-    decision.here_on_battery = here_on_battery;
-    decision.here_closed = here_closed(&here, &laptop_auto::power_supply(), &laptop_auto::discharging_since(&agent_load::Host::from_env()), &crate::capacity::mode::read(&crate::capacity::mode::state_dir()), crate::capacity::mode::now());
-    if let Some(name) = named {
-        let machine = machines.into_iter().find(|machine| machine.name == name).ok_or_else(|| format!("no [hosts.{name}] with an ssh destination"))?;
-        decision.run_on(machine);
-    }
-    decision.here_saturated = here_saturation();
-    decision.here_cpu_held = here_cpu_refusal(text);
-    decision.hold_here();
-    Ok(decision)
+    let launch = record::Launch { named_machine: named.map(str::to_owned), ..record::Launch::default() };
+    super::case::decide(&super::case::gather(&super::case::Ask { launch, brief: text, fleet_load, roster })?)
 }
 
 pub fn on_battery(here: &str, power_supply: &Path, since: &Path, now: u64, machines: &[Machine]) -> Option<String> {
-    let percent = laptop_auto::settled_battery(power_supply, since, now)?;
+    Some(battery_refusal(here, laptop_auto::settled_battery(power_supply, since, now)?, machines))
+}
+
+/// Why `--local` does not keep a box on a laptop discharging at `percent`.
+pub fn battery_refusal(here: &str, percent: u8, machines: &[Machine]) -> String {
     let elsewhere: Vec<&str> = machines.iter().map(|machine| machine.name.as_str()).filter(|name| *name != here).collect();
     let instead = if elsewhere.is_empty() { "in anthropic-cloud".to_owned() } else { format!("on {} or in anthropic-cloud", elsewhere.join(" or ")) };
-    Some(format!(
+    format!(
         "{here} is a laptop on battery (discharging at {percent}%), so --local would drain it; launch the box {instead} without --local, or keep it here with --pin \"<reason>\""
-    ))
+    )
 }
 
 /// Why `here` takes no work that crowded machines turned away: a playtest lease is on, read from the capacity mode state and not inferred from an open game, or the laptop is on battery.
 pub fn here_closed(here: &str, power_supply: &Path, since: &Path, state: &crate::capacity::mode::State, now: u64) -> Option<String> {
-    if let Some(hold) = state.hold.as_ref().filter(|hold| hold.until > now) {
-        let until = crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(hold.until).unwrap_or(i64::MAX)).local_twelve_hour();
+    closed(here, state.hold.as_ref().map(|hold| hold.until), || laptop_auto::settled_battery(power_supply, since, now), now)
+}
+
+/// `here_closed` on a recorded playtest hold and battery reading.
+pub fn closed(here: &str, hold_until: Option<u64>, battery: impl FnOnce() -> Option<u8>, now: u64) -> Option<String> {
+    if let Some(until) = hold_until.filter(|until| *until > now) {
+        let until = crate::foundation::clock::Timestamp::from_unix_seconds(i64::try_from(until).unwrap_or(i64::MAX)).local_twelve_hour();
         return Some(format!("{here} is under a playtest lease until {until}"));
     }
-    let percent = laptop_auto::settled_battery(power_supply, since, now)?;
+    let percent = battery()?;
     Some(format!("{here} is on battery (discharging at {percent}%)"))
 }
 

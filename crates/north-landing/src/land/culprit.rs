@@ -82,6 +82,7 @@ fn free_slots(repo: &Path) -> Option<(usize, usize)> {
 fn wave_size(repo: &Path, wanted: usize) -> (usize, Option<(usize, usize)>) {
     let slots = free_slots(repo);
     let room = slots.map_or(MOST_AT_ONCE, |(free, _)| free.max(1));
+    super::steps::wave(wanted, slots, room.min(wanted));
     (room.min(wanted), slots)
 }
 

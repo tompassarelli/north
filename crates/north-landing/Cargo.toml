@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 north-base = { path = "../north-base" }
+north-strategy-types = { path = "../north-strategy-types" }
 percent-encoding.workspace = true
 regex.workspace = true
 rustix.workspace = true

@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror"]
-default-members = [".", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror"]
+members = ["crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror"]
+default-members = [".", "crates/north-strategy-types", "crates/north-base", "crates/north-pace", "crates/north-fleet", "crates/north-threads", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-capacity", "crates/north-runtime", "crates/north-dispatch", "crates/north-github-mirror"]
 
 [workspace.dependencies]
 crossterm = "0.28.1"
@@ -54,6 +54,7 @@ north-runtime = { path = "crates/north-runtime" }
 north-guard = { path = "crates/north-guard" }
 north-tui = { path = "crates/north-tui" }
 north-landing = { path = "crates/north-landing" }
+north-strategy-types = { path = "crates/north-strategy-types" }
 crossterm.workspace = true
 ratatui.workspace = true
 fancy-regex.workspace = true

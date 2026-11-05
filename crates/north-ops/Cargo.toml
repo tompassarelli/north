@@ -12,6 +12,7 @@ north-capacity-host = { path = "../north-capacity-host" }
 north-core = { path = "../north-core" }
 north-dispatch = { path = "../north-dispatch" }
 north-github-mirror = { path = "../north-github-mirror" }
+north-strategy-types = { path = "../north-strategy-types" }
 fancy-regex.workspace = true
 regex.workspace = true
 percent-encoding.workspace = true

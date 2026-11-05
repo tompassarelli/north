@@ -327,6 +327,18 @@ into its types and reports lines that do not parse. A gather that misses an inpu
 day the first module is replayed against `live`, in the shadow box. This box cannot see it yet, and its
 done-when should not claim to.
 
+**As built** (2026-11-06): `crates/north-strategy-types` holds the records; `north_base::platform::decision_log`
+writes them; placement gathers in `crates/north-dispatch/src/pacing/placement/case.rs` (`gather`, then
+`decide` from the `Case` alone, with `gate::live` the two in a row); admission splits its facts in
+`crates/north-capacity/src/capacity/admission_record.rs`; the lander's lines come from
+`crates/north-landing/src/land/steps.rs` and `candidate.rs`. `NORTH_DECISION_LOG` moves the log (empty
+turns it off), and `.cargo/config.toml` points it into `target/` so tests never write the real log. Two
+parts differ from the brief above. `AGENT_CAPACITY_SETTLE_SECONDS` stays until the admission strategy
+module exists to own the settle window as a parameter, because two capacity-host journeys shorten it to
+run in seconds; each admission line records the window it used (`settle_seconds`). Retention is
+`north strategy log retain` (zstd on closed hours, days past 14 deleted) rather than a step of
+`north retain`, which archives to one host, while this log stays on the host that decided.
+
 ## Replay
 
 ```

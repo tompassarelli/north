@@ -60,6 +60,11 @@ fn tree_sha(root: &Path) -> Option<&str> {
     runtime_sha(root.parent()?)
 }
 
+/// The sha of the promoted runtime `executable` runs from, None outside `runtimes/SHA/`.
+pub fn promoted_runtime(executable: &Path) -> Option<&str> {
+    promoted_sha(executable)
+}
+
 fn promoted_sha(executable: &Path) -> Option<&str> {
     runtime_sha(executable.parent()?)
 }

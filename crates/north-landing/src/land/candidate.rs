@@ -8,6 +8,9 @@ use super::queue::{self, Ticket};
 use super::lane_gates::{self, Lane};
 use super::reservation::{self, Attempt, Judged};
 use crate::landing::{merge_continue, merge_set, stale_revert};
+use crate::platform::decision_log::{self, Entry};
+use north_strategy_types::Kind;
+use north_strategy_types::land::{self, PickCase};
 
 static WORKTREES: RwLock<()> = RwLock::new(());
 
@@ -125,17 +128,20 @@ fn queued_ahead<'a>(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&'a
     earlier.iter().find(|ahead| queue::lane(ahead) != lane && readable(worktree, ahead) && !files(worktree, base, ahead).is_disjoint(&own)).map(|ahead| ahead.branch.as_str())
 }
 
-fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs: &Path, name: &str) -> Result<Pick, String> {
-    if !readable(worktree, ticket) {
+fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs: &Path, name: &str, case: &mut PickCase) -> Result<Pick, String> {
+    case.readable = Some(readable(worktree, ticket));
+    if case.readable == Some(false) {
         return Ok(Pick::Decided("conflict unreadable".to_owned()));
     }
     let cherry = git(worktree, &["cherry", base, &ticket.head])?;
-    if !cherry.lines().any(|line| line.starts_with('+')) {
+    case.unlanded = Some(cherry.lines().any(|line| line.starts_with('+')));
+    if case.unlanded == Some(false) {
         return Ok(Pick::Decided(format!("landed {base}")));
     }
     let picked_onto = git(worktree, &["rev-parse", "HEAD"])?;
     let picked = output(worktree, &["cherry-pick", "--allow-empty", &format!("{base}..{}", ticket.head)])?;
     let resolved = picked.status.success() || merge_continue::finish(worktree, &worktree.join(merge_set::DEFAULT_CONFIG)).is_ok();
+    case.picked_clean = Some(resolved);
     if !resolved {
         let files = git(worktree, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default().lines().collect::<Vec<_>>().join(",");
         let dropped = if files.is_empty() && succeeds(worktree, &["diff", "--cached", "--quiet", "HEAD"]) { git(worktree, &["rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"]).ok() } else { None };
@@ -143,27 +149,34 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs:
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
         }
         if let Some(commit) = dropped {
+            case.dropped = Some(commit.clone());
             return refuse(logs, name, "dropped", &dropped_refusal(base, &commit));
         }
+        case.conflict_files = Some(files.clone());
         let files = if files.is_empty() { "cherry-pick" } else { files.as_str() };
         let bare_main = picked_onto == base;
         let with_main = bare_main || !succeeds(worktree, &["merge-tree", "--write-tree", "--quiet", base, &ticket.head]);
         let red_fix = ticket.red_fix.is_some();
         let queued_ahead = if with_main && !red_fix { queued_ahead(worktree, base, ticket, earlier) } else { None };
+        (case.bare_main, case.with_main, case.queued_ahead) = (Some(bare_main), Some(with_main), queued_ahead.map(str::to_owned));
         return Ok(reservation::judge(&Judged { branch: &ticket.branch, red_fix, bare_main, queued_ahead }, &Attempt::Conflict { files, with_main }));
     }
     let range = format!("{base}..{}", ticket.head);
     if git(worktree, &["rev-list", "--count", &range])? != git(worktree, &["rev-list", "--count", &format!("{picked_onto}..HEAD")])? {
         git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
-        return refuse(logs, name, "dropped", &dropped_refusal(base, &git(worktree, &["rev-list", "--reverse", &range])?.replace('\n', " ")));
+        let commits = git(worktree, &["rev-list", "--reverse", &range])?.replace('\n', " ");
+        case.dropped = Some(commits.clone());
+        return refuse(logs, name, "dropped", &dropped_refusal(base, &commits));
     }
     match merge_continue::generator_moved(worktree, &worktree.join(merge_set::DEFAULT_CONFIG), base, &picked_onto) {
         Ok(None) => {}
         Ok(Some(reason)) => {
+            case.generator_moved = Some(reason.clone());
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
             return Ok(Pick::Deferred(format!("deferred: {}: {reason}; it stays queued for the next candidate", ticket.branch)));
         }
         Err(error) => {
+            case.generator_moved = Some(format!("unreadable: {error}"));
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
             return refuse(logs, name, "regenerate", &format!("could not read the regenerate rules: {error}; NOT landed."));
         }
@@ -176,11 +189,15 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs:
         Ok(found) if found.is_empty() => {
             let head = git(worktree, &["rev-parse", "HEAD"])?;
             let lane = Lane { worktree, base: &picked_onto, head: &head, author: ticket.session.as_deref() };
-            let Some(refused) = lane_gates::judge(&lane, logs, name)? else { return Ok(Pick::Included) };
+            let gate = lane_gates::judge(&lane, logs, name)?;
+            case.stale_reverts = Some(Vec::new());
+            case.lane_gate = gate.as_ref().map(|refused| refused.verdict.clone());
+            let Some(refused) = gate else { return Ok(Pick::Included) };
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
             Ok(Pick::Refused(refused))
         }
         Ok(found) => {
+            case.stale_reverts = Some(found.iter().map(|reverted| reverted.commit.clone()).collect());
             git(worktree, &["reset", "-q", "--hard", &picked_onto])?;
             refuse(logs, name, "stale-revert", &stale_revert::refusal(&found))
         }
@@ -189,6 +206,18 @@ fn pick(worktree: &Path, base: &str, ticket: &Ticket, earlier: &[&Ticket], logs:
             Ok(Pick::Undecided(format!("cannot check whether {} reverts recent main: {error}", ticket.branch)))
         }
     }
+}
+
+/// The pick as the decision log records it.
+pub fn recorded(pick: &Pick) -> land::Pick {
+    let (pick, text) = match pick {
+        Pick::Included => (land::PickKind::Included, String::new()),
+        Pick::Decided(text) => (land::PickKind::Decided, text.clone()),
+        Pick::Refused(refused) => (land::PickKind::Refused, refused.verdict.clone()),
+        Pick::Undecided(text) => (land::PickKind::Undecided, text.clone()),
+        Pick::Deferred(text) => (land::PickKind::Deferred, text.clone()),
+    };
+    land::Pick { pick, text }
 }
 
 pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued: &[(PathBuf, Ticket)], limit: usize, logs: &Path) -> Result<Built, String> {
@@ -207,7 +236,10 @@ pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued:
             Some(at) => queued[..at].iter().filter(|(queued, _)| !decided.contains(queued)).map(|(_, ticket)| ticket).collect(),
             None => Vec::new(),
         };
-        let pick = pick(worktree, base, ticket, &earlier, logs, name)?;
+        let mut case = PickCase { base: base.to_owned(), branch: ticket.branch.clone(), head: ticket.head.clone(), red_fix: ticket.red_fix.is_some(), earlier: earlier.iter().map(|ahead| ahead.branch.clone()).collect(), ..PickCase::default() };
+        let (pick, decide_us) = decision_log::timed(|| pick(worktree, base, ticket, &earlier, logs, name, &mut case));
+        let pick = pick?;
+        decision_log::record(Entry { kind: Kind::LandPick, at: decision_log::now(), follows: None, case: &case, decision: &recorded(&pick), decide_us });
         included += usize::from(matches!(pick, Pick::Included));
         if matches!(pick, Pick::Included) {
             tips.push(git(worktree, &["rev-parse", "HEAD"])?);

@@ -18,14 +18,14 @@ static DEFAULTS: LazyLock<DocumentMut> = LazyLock::new(|| {
         .expect("harness/defaults.toml parses")
 });
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Profile {
     Attended,
     Unattended,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Class {
     Agent,
@@ -39,7 +39,7 @@ pub enum Class {
     Runtime,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Facts {
     pub profile: Profile,
@@ -140,7 +140,7 @@ pub struct Facts {
     pub client_hold: client_reserve::ClientHold,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AheadTicket {
     pub requested_class: Option<Class>,

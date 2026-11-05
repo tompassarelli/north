@@ -17,6 +17,7 @@ pub mod reclaim;
 pub mod remote_serve;
 pub mod review_items;
 pub mod retention;
+pub mod strategy_log;
 pub mod rationale_index;
 pub mod report;
 pub mod policy_replay;

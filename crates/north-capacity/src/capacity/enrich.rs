@@ -5,7 +5,8 @@ use serde_json::json;
 
 use super::admission::{self, Facts};
 use super::effects::Host;
-use super::{agent_load, aperture, mode, native_hold};
+use super::{admission_record, agent_load, aperture, mode, native_hold};
+use crate::platform::decision_log;
 
 fn wisp_pair_queue() -> std::path::PathBuf {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
@@ -32,12 +33,21 @@ pub fn admit_enriched(mut facts: Facts, host: &Host) -> admission::Admission {
             aperture::Bar1::Unknown => {}
         }
     }
-    facts.derive_native_holds();
-    facts.pair_leases.extend(native_hold::queue_pair_leases(&wisp_pair_queue(), &super::local_machine::host_name()));
+    let queued_pairs = native_hold::queue_pair_leases(&wisp_pair_queue(), &super::local_machine::host_name());
     facts.need = facts.need.or_else(|| std::env::var("AGENT_CAPACITY_NEED").ok().filter(|need| !need.is_empty()));
     facts.within_exclusive = std::env::var("AGENT_CAPACITY_LEASE").is_ok_and(|lease| facts.exclusive_leases.contains(&lease));
-    let admitted = admission::admit(&facts, host.serving);
-    let admitted = if disk_measured { reclaim_before_disk_defer(&mut facts, admitted, host) } else { admitted };
+    let mut gathered = admission_record::gathered(&facts, &queued_pairs);
+    facts.derive_native_holds();
+    facts.pair_leases.extend(queued_pairs);
+    let (admitted, decide_us) = decision_log::timed(|| admission::admit(&facts, host.serving));
+    let reclaim = disk_measured && admitted.reason == admission::Reason::DeferDiskFree;
+    let first = gathered.as_mut().map(|gathered| admission_record::record(gathered, facts.disk_free_gib, &admitted, reclaim, None, decide_us));
+    let measured = facts.disk_free_gib;
+    let admitted = if reclaim { reclaim_before_disk_defer(&mut facts, admitted, host) } else { admitted };
+    if let (Some(gathered), Some(first)) = (gathered.as_mut(), first.filter(|_| facts.disk_free_gib != measured)) {
+        let (again, decide_us) = decision_log::timed(|| admission::admit(&facts, host.serving));
+        admission_record::record(gathered, facts.disk_free_gib, &again, false, Some(&first), decide_us);
+    }
     if let Some(ticket) = facts.ticket.as_deref().filter(|_| admitted.reason != admission::Reason::Run) {
         note_reason(ticket, admitted.reason);
     }

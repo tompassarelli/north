@@ -2,15 +2,17 @@
 //! placement puts it, or with the override reason recorded on the session.
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use crate::error::{NorthError, NorthResult};
 use crate::fleet::model::{LaunchRequest, Machine};
 use crate::fleet::registry::Fleet;
 use crate::fleet::roster::Roster;
-use crate::fleet::runtime::binary;
 use crate::dispatch::{cloud_autoland, cloud_branch};
+use crate::pacing::placement::case;
 use crate::pacing::placement::gate::{self, CloudLane, Decision, Target};
+use crate::platform::decision_log;
+use north_strategy_types::placement::{self as record, Case};
+use north_strategy_types::Kind;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Overrides {
@@ -113,14 +115,61 @@ pub(super) fn placed(fleet: &Fleet, request: &LaunchRequest, overrides: &Overrid
 /// Runs live placement, prints one verdict line per account and machine when `report`, and returns where to run.
 /// `fleet_load` counts the live fleet sessions this machine runs on each other machine.
 pub(super) fn check(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster, report: bool) -> NorthResult<Result<Placed, Refusal>> {
-    let decision = decide(launch, text, overrides, fleet_load, roster)?;
+    let ask = case::Ask { launch: recorded_launch(launch, overrides), brief: text, fleet_load, roster };
+    let case = case::gather(&ask).map_err(configuration)?;
+    let (decided, decide_us) = decision_log::timed(|| decide(&case, launch, overrides).map(|decision| {
+        let settled = settle(&decision, launch, text, overrides);
+        (decision, settled)
+    }));
+    let (decision, settled) = decided?;
     if report {
         eprintln!("placement: {}", gate::summary(&decision));
         for line in decision.verdicts.iter().map(|verdict| &verdict.line).chain(&decision.machine_lines) {
             eprintln!("  {line}");
         }
     }
-    Ok(settle(&decision, launch, text, overrides))
+    decision_log::record(decision_log::Entry { kind: Kind::Placement, at: case.at, follows: None, case: &case, decision: &recorded_decision(&decision, &settled), decide_us });
+    Ok(settled)
+}
+
+fn configuration(error: String) -> NorthError {
+    NorthError::Configuration(format!("placement: {error}"))
+}
+
+fn recorded_launch(launch: &Launch, overrides: &Overrides) -> record::Launch {
+    let path = |path: &Path| path.display().to_string();
+    record::Launch {
+        name: launch.name.to_owned(),
+        account: launch.account.to_owned(),
+        fresh: launch.cwd.is_some(),
+        cwd: launch.cwd.map(path),
+        named_machine: launch.machine.map(str::to_owned),
+        overrides: record::Overrides { local: overrides.local.clone(), pin: overrides.pin.clone(), duplicate: overrides.duplicate.clone(), tier: overrides.tier.clone() },
+        provider: "claude".to_owned(),
+        verification: false,
+    }
+}
+
+fn recorded_decision(decision: &Decision, settled: &Result<Placed, Refusal>) -> record::Decision {
+    let target = match &decision.target {
+        Target::Cloud(lane) => record::Target::Cloud { account: lane.account.clone(), host: lane.host.clone(), credit: lane.credit.clone() },
+        Target::Account(account) => record::Target::Account(account.clone()),
+        Target::Held(why) => record::Target::Held(why.clone()),
+        Target::Unserved(why) => record::Target::Unserved(why.clone()),
+    };
+    let outcome = match settled {
+        Ok(placed) => record::Outcome::Placed { account: placed.account.clone(), note: placed.note.clone(), machine: placed.machine.as_ref().map(|machine| machine.name.clone()), need: placed.need.clone() },
+        Err(refusal) => {
+            let kind = match refusal {
+                Refusal::Saturated(_) => record::Refusal::Saturated,
+                Refusal::Exhausted(_) => record::Refusal::Exhausted,
+                Refusal::Final(_) => record::Refusal::Final,
+            };
+            record::Outcome::Refused { kind, why: refusal.to_string() }
+        }
+    };
+    let lines = std::iter::once(gate::summary(decision)).chain(decision.verdicts.iter().map(|verdict| verdict.line.clone())).chain(decision.machine_lines.iter().cloned()).collect();
+    record::Decision { target, machine: decision.machine.as_ref().map(|machine| machine.name.clone()), outcome, lines }
 }
 
 pub(super) fn settle(decision: &Decision, launch: &Launch, text: &str, overrides: &Overrides) -> Result<Placed, Refusal> {
@@ -143,11 +192,11 @@ fn pick(decision: &Decision, overrides: &Overrides) -> Result<String, Refusal> {
     }
 }
 
-fn decide(launch: &Launch, text: &str, overrides: &Overrides, fleet_load: &BTreeMap<String, i64>, roster: &Roster) -> NorthResult<Decision> {
-    let mut decision = gate::live(text, fleet_load, roster, launch.machine).map_err(|error| NorthError::Configuration(format!("placement: {error}")))?;
+fn decide(case: &Case, launch: &Launch, overrides: &Overrides) -> NorthResult<Decision> {
+    let mut decision = case::decide(case).map_err(configuration)?;
     fall_through(&mut decision, launch, overrides);
     let absent = match (&decision.machine, launch.cwd) {
-        (Some(machine), Some(cwd)) if !has_directory(&machine.ssh, cwd) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
+        (Some(machine), Some(cwd)) if !has_directory(case, &machine.name) => Some(format!("{} has no {}, so here", machine.name, cwd.display())),
         _ => None,
     };
     if absent.is_some() {
@@ -250,15 +299,9 @@ fn account_refusal(decision: &Decision, account: &str) -> Option<String> {
     Some(format!("{why}; {instead}, or keep {name} with --account {account} --pin \"<reason>\""))
 }
 
-fn has_directory(ssh: &str, directory: &Path) -> bool {
-    let quoted = format!("'{}'", directory.to_string_lossy().replace('\'', r"'\''"));
-    Command::new(binary("ssh"))
-        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", ssh, "--", "test", "-d", &quoted])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+/// Whether the launch directory exists on `machine`, as the per-machine probe found it.
+fn has_directory(case: &Case, machine: &str) -> bool {
+    case.machines.iter().find(|probed| probed.name == machine).and_then(|probed| probed.has_cwd).unwrap_or(false)
 }
 
 fn cloud_command(launch: &Launch, lane: &CloudLane, here: &str, surface: &str, text: &str) -> String {

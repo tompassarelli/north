@@ -27,6 +27,7 @@ pub mod land_claim;
 pub mod desktop_aperture;
 pub mod effects;
 pub mod enrich;
+mod admission_record;
 mod admission_tests;
 mod build_offload_tests;
 mod agent_load_tests;
