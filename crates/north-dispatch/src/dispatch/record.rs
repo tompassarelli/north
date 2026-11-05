@@ -2,6 +2,7 @@
 //! holds a fresh launch until its session shows, and hands an item that keeps failing to the proxy.
 use super::issues::IssueRef;
 use crate::pacing::placement;
+use crate::pace::projection::Projection;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -41,6 +42,9 @@ pub struct Record {
     /// The effort arm it ran on, as its `Arm:` stamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_arm: Option<String>,
+    /// Its account's five-hour and week used percent projected at its ETA, which `north tune` scores.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection: Option<Projection>,
 }
 
 impl Record {

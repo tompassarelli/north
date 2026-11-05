@@ -126,6 +126,7 @@ impl Start {
             handoff: None,
             hand: true,
             effort_arm: self.route.effort_stamp().filter(|_| !overridden).map(str::to_owned),
+            projection: None,
         };
         record::append(&record::directory(), &entry)
     }

@@ -18,7 +18,7 @@ pub use grounds::{BUDGET_TIMES, WINDOW as LEDGER_WINDOW, eta_minutes};
 pub use manual::{Ask, Start, begin as start_hand, picked_tier, tier_reason, untasked};
 pub use survey::evidence as arm_evidence;
 pub use tuned::current as tuned_routes;
-pub use record::{Record as LaunchRecord, STAFFING_REFUSAL, read as launch_records};
+pub use record::{Record as LaunchRecord, STAFFING_REFUSAL, directory as launch_directory, read as launch_records};
 pub use tier::{ARM_WINDOW, ARMED, Effort, Evidence, Tier, evidenced};
 
 mod brief;

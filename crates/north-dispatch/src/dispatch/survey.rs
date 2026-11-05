@@ -16,6 +16,7 @@ use crate::fleet::model::ProviderName;
 use crate::ledger::ClosedReport;
 use crate::fleet::roster::{Roster, Standing};
 use crate::pacing::placement::{self, gate};
+use crate::pace::projection;
 use crate::platform::process::run_within;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -176,6 +177,7 @@ fn accounts(cfg: &DocumentMut, roster: &Roster, here: &str, at: f64, notes: &mut
                 refusal: account_refusal(name, control, verdict.as_ref(), &room, at),
                 room,
                 burn: sampled.and_then(five_hour_burn),
+                readings: sampled.map(projection::readings).unwrap_or_default(),
             }
         })
         .collect()

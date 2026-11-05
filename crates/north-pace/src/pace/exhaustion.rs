@@ -1,19 +1,17 @@
-//! The only usage rule that keeps a launch off an account: its five-hour window at the stop, its
-//! measured five-hour burn above the cap that keeps a window at least two hours, or a week the
-//! provider reports exhausted. Pace lines, projections, other windows and the controller's held,
-//! over and allowed workers never refuse a launch.
+//! The usage rule that keeps a launch off an account whatever its ETA: its five-hour window at the
+//! stop, its measured five-hour burn above the cap that keeps a window at least two hours, or a week
+//! the provider reports exhausted. Dispatch adds the ETA rules of `projection`; pace lines, other
+//! windows and the controller's held, over and allowed workers never refuse a launch.
 use super::limits;
+use super::projection::week;
 
 pub const FIVE_HOUR_STOP: f64 = 95.0;
-const WEEK_EXHAUSTED: f64 = 100.0;
+pub const WEEK_EXHAUSTED: f64 = 100.0;
 
 pub(super) fn five_hour(window: &str) -> bool {
     window == "5h"
 }
 
-fn week(window: &str) -> bool {
-    window == "week" || window.ends_with(":week")
-}
 
 /// Why `window`, `used` percent and measured `burn_pct_h`, refuses a launch, or None.
 pub fn refusal(window: &str, used: f64, burn_pct_h: Option<f64>) -> Option<String> {

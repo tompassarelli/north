@@ -1,6 +1,7 @@
 //! Free worker slots: a host has its resident cap minus the sessions it runs, and an account the
 //! out-rule keeps out has none; any other account may take every free slot of a host it is signed in on.
 pub use crate::pacing::placement::room::{Charge, PlanSize, Room};
+pub use crate::pace::projection::Reading;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,6 +64,8 @@ pub struct Account {
     pub refusal: Option<String>,
     /// Its measured five-hour burn in its own percent per hour, when its trail spans two readings.
     pub burn: Option<f64>,
+    /// Its five-hour and week windows as usage-gate reads them, which a launch's projection starts from.
+    pub readings: Vec<Reading>,
 }
 
 impl Account {

@@ -11,7 +11,8 @@
 //! same rule as a rise. It prints the share of the last day's finished runs that recorded each
 //! essential field and fails when one is under 98%. It prints each skill's closed-box rate and cost
 //! against matched boxes that did not load it, and flags the installed skills no run loaded and
-//! those whose boxes did worse. A failed read of the arms' evidence keeps the prior routing cells
+//! those whose boxes did worse. It prints placement's five-hour and week projections at each
+//! launch's ETA against what those windows read then, as the p50 and p90 error in points. A failed read of the arms' evidence keeps the prior routing cells
 //! and fails the tick.
 use crate::foundation::clock::Timestamp;
 use crate::ledger::{self, ClosedReport, EstimatedRun};
@@ -31,8 +32,11 @@ mod costs;
 mod coverage;
 mod dividends;
 mod estimates;
+mod projections;
 mod rises;
 mod skills;
+#[cfg(test)]
+mod projections_tests;
 #[cfg(test)]
 mod tests;
 
@@ -62,6 +66,8 @@ pub struct Ledger {
     pub estimates: Result<Vec<EstimatedRun>, String>,
     pub runs: Result<Vec<Value>, String>,
     pub skills: Vec<String>,
+    /// The week's launches' projections, each window beside what it read at the launch's ETA.
+    pub projections: Result<Vec<projections::Scored>, String>,
 }
 
 /// What earlier ticks left: the cells they wrote, the costs and dividend readings they kept, and the
@@ -111,6 +117,10 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
         }
     };
     lines.extend(calibrations.iter().map(estimates::Calibration::line));
+    match &ledger.projections {
+        Ok(scored) => lines.extend(projections::lines(scored)),
+        Err(error) => lines.push(format!("projections: unread ({error})")),
+    }
     let (covered, uncovered) = coverage::check(&ledger.runs);
     lines.extend(covered);
     let mut breaches = prior.breaches.clone();
@@ -122,7 +132,7 @@ pub fn tick(ledger: &Ledger, prior: &Prior, dividends: &[Dividend], tracker: &mu
         Ok(open) => format!("open north issues: {open}"),
         Err(error) => format!("open north issues: unread ({error})"),
     });
-    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || risen.is_err() || unfiled || open.is_err() || told_failed || uncovered;
+    let failed = !ledger.notes.is_empty() || ledger.estimates.is_err() || ledger.projections.is_err() || risen.is_err() || unfiled || open.is_err() || told_failed || uncovered;
     Tick { lines, cells: cells::cells(&decided), records: changes.iter().map(|change| change.record(at)).collect(), costs: today.records, readings, breaches, failed }
 }
 
@@ -219,7 +229,8 @@ fn tune(dry_run: bool) -> Result<Tick, String> {
         eprintln!("north tune: installed skills unread, so none is flagged unused: {error}");
         Vec::new()
     });
-    let ledger = Ledger { week, before, evidence, notes, estimates, runs: coverage::read(), skills };
+    let projections = projections::live(Timestamp::now().unix_seconds() as f64);
+    let ledger = Ledger { week, before, evidence, notes, estimates, runs: coverage::read(), skills, projections };
     let files = Files::here()?;
     let at = Timestamp::now().iso();
     let prior = Prior { cells: files.cells()?, costs: files.costs()?, readings: files.readings()?, breaches: files.breaches()? };

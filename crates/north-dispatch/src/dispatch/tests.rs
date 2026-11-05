@@ -67,7 +67,7 @@ pub(super) const MAX_5X: PlanSize = PlanSize { five_hour: 1.0, week: 1.0 };
 pub(super) const MAX_20X: PlanSize = PlanSize { five_hour: 4.0, week: 2.0 };
 
 pub(super) fn sized(name: &str, hosts: &[&str], plan: PlanSize, room: Room) -> Account {
-    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room, spending: false, refusal: None, burn: None }
+    Account { name: name.into(), hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), plan, room, spending: false, refusal: None, burn: None, readings: Vec::new() }
 }
 
 pub(super) fn issue(repo: &str, number: u64, body: &str, labels: &[&str]) -> Issue {
@@ -324,7 +324,7 @@ fn tom_hears_once_only_when_ready_work_and_free_slots_coexist_and_nothing_launch
 
 #[test]
 fn the_record_holds_a_fresh_launch_and_hands_a_twice_tried_item_to_the_proxy() {
-    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None };
+    let entry = |item: &str, at: f64| record::Record { at, item: item.into(), host: "gex45".into(), account: "claude:b".into(), name: "sc-1-d0000".into(), cloud: false, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None, projection: None };
     let now = 100_000.0;
     let records = vec![entry("makgora#1", now - 600.0), entry("makgora#2", now - 4.0 * 3600.0), entry("wisp#3", now - 5.0 * 3600.0), entry("wisp#3", now - 3.0 * 3600.0)];
     let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
@@ -498,6 +498,7 @@ fn a_box_launched_on_the_laptop_or_here_is_held_to_that_host_and_a_remote_one_na
         pin: None,
         handoff: None,
         burn: None,
+        projection: None,
     };
     let local = |host: &str, given: Option<&str>| {
         let (_, words) = super::effects::command(&launch(host, given), "sc-7", &survey, "/home/tom", "north").unwrap();
@@ -577,7 +578,7 @@ fn a_north_cloud_brief_pushes_its_land_branch_for_a_courier_and_does_not_close_t
 #[test]
 fn a_cloud_launch_holds_its_box_six_hours_and_counts_against_the_lane() {
     let now = 100_000.0;
-    let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None };
+    let cloud = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude login on nexus".into(), name: "sc-7-d0000".into(), cloud: true, launched: true, detail: String::new(), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None, projection: None };
     let records = vec![cloud("makgora#7", now - 5.0 * 3600.0), cloud("makgora#8", now - 7.0 * 3600.0)];
     let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
     assert!(holds.contains_key(&IssueRef::new("makgora", 7)) && !holds.contains_key(&IssueRef::new("makgora", 8)));
@@ -600,7 +601,7 @@ fn a_cloud_launch_gives_claude_a_terminal_and_reads_the_session_through_its_cont
 
 #[test]
 fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
-    let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None };
+    let failed = |item: &str, at: f64| record::Record { at, item: item.into(), host: "anthropic-cloud".into(), account: "claude:a".into(), name: "sc-9-d0000".into(), cloud: true, launched: false, detail: "claude --cloud: exit status: 1".into(), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None, projection: None };
     let now = 100_000.0;
     let records = vec![failed("makgora#9", now - 3600.0), failed("makgora#9", now - 1800.0), failed("wisp#4", now - 300.0)];
     let holds = record::holds(&records, now, &BTreeMap::new(), &BTreeSet::new());
@@ -610,7 +611,7 @@ fn a_launch_that_never_started_is_no_try_and_holds_the_box_only_briefly() {
 
 #[test]
 fn a_staffing_refusal_is_a_short_hold_not_a_failed_launch() {
-    let refused = |at: f64| record::Record { at, item: "north#112".into(), host: "nexus".into(), account: "claude:a".into(), name: "north-112-d0000".into(), cloud: false, launched: false, detail: format!("{} north has 45 lanes queued to land", super::STAFFING_REFUSAL), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None };
+    let refused = |at: f64| record::Record { at, item: "north#112".into(), host: "nexus".into(), account: "claude:a".into(), name: "north-112-d0000".into(), cloud: false, launched: false, detail: format!("{} north has 45 lanes queued to land", super::STAFFING_REFUSAL), tier: None, category: None, arm: false, handoff: None, hand: false, effort_arm: None, projection: None };
     let now = 100_000.0;
     assert!(refused(now).staffing_held());
     let holds = record::holds(&[refused(now - 120.0)], now, &BTreeMap::new(), &BTreeSet::new());

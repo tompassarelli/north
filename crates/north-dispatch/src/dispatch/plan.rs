@@ -5,6 +5,7 @@ use super::cloud::{HOST, SESSIONS};
 use super::slots::{Account, Charge, Pools};
 use crate::pacing::placement::room::Rank;
 use super::tier::Route;
+use crate::pace::projection::{self, Projection};
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -43,6 +44,8 @@ pub struct Launch {
     pub handoff: Option<String>,
     /// The measured burn the account was placed by, when it has one.
     pub burn: Option<String>,
+    /// The account's windows projected at the box's ETA, which `north tune` scores.
+    pub projection: Option<Projection>,
 }
 
 /// One machine a box may run on, and why it refuses this box: no slots now, or needs it does not
@@ -66,10 +69,11 @@ impl Capacity<'_> {
     }
 
     /// Whether the account can take one more box this run without crossing a window's stop, and
-    /// without its measured burn over the box's ETA crossing the five-hour stop.
+    /// without its measured burn over the box's ETA crossing the five-hour stop or exhausting the week.
     fn takes(&self, pools: &Pools, account: &Account, eta_h: Option<f64>) -> bool {
         let charge = self.charge(account);
-        pools.room(account).takes(charge) && pools.room(account).less(charge).five_hour > burned(account, eta_h).unwrap_or(0.0)
+        let after = pools.room(account).less(charge);
+        pools.room(account).takes(charge) && after.five_hour > burned(account, eta_h).unwrap_or(0.0) && projection::week_refusal(&account.readings, after.week, eta_h).is_none()
     }
 }
 
@@ -84,10 +88,16 @@ fn burn_line(pools: &Pools, account: &Account, eta_h: Option<f64>) -> Option<Str
     Some(format!("{} measured burn {burn:.1}%/h over a {:.0} min ETA spends {burned:.1} of the {:.0} points left to its 5h stop", account.name, eta_h? * 60.0, pools.room(account).five_hour))
 }
 
+/// Why the week cannot carry the box on the account after this run's charges, when it cannot.
+fn week_line(capacity: &Capacity, pools: &Pools, account: &Account, eta_h: Option<f64>) -> Option<String> {
+    let left = pools.room(account).less(capacity.charge(account)).week;
+    projection::week_refusal(&account.readings, left, eta_h).map(|why| format!("{} {why}", account.name))
+}
+
 /// The accounts signed in on `host` that would take the box but for their measured burn, each with
-/// the points that burn spends over the ETA.
+/// the points that burn spends over the ETA or the week it projects past exhaustion.
 fn burn_held(capacity: &Capacity, pools: &Pools, host: &str, eta_h: Option<f64>) -> Vec<String> {
-    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.takes(pools, account, None) && !capacity.takes(pools, account, eta_h)).filter_map(|account| burn_line(pools, account, eta_h)).collect()
+    capacity.accounts.iter().filter(|account| pools.pair(host, &account.name) > 0 && capacity.takes(pools, account, None) && !capacity.takes(pools, account, eta_h)).filter_map(|account| week_line(capacity, pools, account, eta_h).or_else(|| burn_line(pools, account, eta_h))).collect()
 }
 
 /// The shared rank (`room::Rank`) of each account's room less what this run has charged it.
@@ -121,6 +131,7 @@ fn pin(capacity: &Capacity, pools: &Pools, host: &str, chosen: &Account) -> Opti
 fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, account: &Account, local: Option<String>) -> Launch {
     let pin = pin(capacity, pools, host, account);
     let burn = burn_line(pools, account, ready.eta_h);
+    let projection = projection::project(&account.readings, ready.eta_h);
     pools.take(host);
     pools.charge(&account.name, capacity.charge(account));
     Launch {
@@ -134,6 +145,7 @@ fn launch(capacity: &Capacity, pools: &mut Pools, ready: &Ready, host: &str, acc
         pin,
         handoff: None,
         burn,
+        projection,
     }
 }
 
@@ -166,7 +178,7 @@ pub fn place(ready: &Ready, capacity: &Capacity, candidates: &[Candidate], pools
             Cloud::Reachable(credit) => {
                 if pools.take_cloud() {
                     let account = format!("claude login on {}", capacity.here);
-                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None, handoff: None, burn: None });
+                    return Ok(Launch { item: ready.item.clone(), host: HOST.into(), account, brief: ready.brief.clone(), route: ready.route.clone(), cloud: true, local: None, pin: None, handoff: None, burn: None, projection: None });
                 }
                 local = Some(format!("north dispatch: cloud lane open ({credit}) but its {SESSIONS} sessions are out"));
             }

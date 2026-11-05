@@ -5,6 +5,9 @@ pub mod admission;
 pub mod control;
 pub mod exhaustion;
 pub mod limits;
+pub mod projection;
+#[cfg(test)]
+mod projection_tests;
 pub mod target;
 #[cfg(test)]
 mod replay_tests;

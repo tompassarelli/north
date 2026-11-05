@@ -41,6 +41,7 @@ fn tried(tier: &str, category: &str, arm: bool) -> Record {
         handoff: None,
         hand: true,
         effort_arm: None,
+        projection: None,
     }
 }
 

@@ -82,6 +82,7 @@ pub fn launch(survey: &Survey, launch: &Launch) -> Result<String, String> {
         handoff: launch.handoff.clone(),
         hand: false,
         effort_arm: launch.route.effort_stamp().map(str::to_owned),
+        projection: launch.projection.clone(),
     };
     record::append(&record::directory(), &entry)?;
     result
