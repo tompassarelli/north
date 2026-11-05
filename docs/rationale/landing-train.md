@@ -1126,3 +1126,70 @@ Rules adopted, each in its owner:
   still runs the whole workspace after landing.
 
 Urgent lanes (2026-11-05): a fix that unblocks the queue itself waited behind 45 lanes after the morning fan-out. `north land urgent TICKET --reason TEXT` marks a queued ticket so the lander orders it with red fixes, ahead of older tickets, in both the batch queue and the per-lane prechecks. The proxy or a lead sets it; the reason is kept on the ticket.
+
+## Land first, test after (2026-11-06)
+
+Tom decided on 2026-11-05 and again on 2026-11-06 that landing takes 10 to 20 seconds, a batched
+train at most 30, and that tests, CI and ceremony that do not need to block the push must not block
+it. North#621 and north#633 record the work. This section supersedes the per-lane precheck (step 5
+above in its precheck form) and makes the sheriff of step 11 act on the lander's own after-landing
+run instead of waiting for main-red.yml.
+
+### Measured before (24 h, 501 landings, proxy reading 2026-11-06 3:45 AM)
+
+- Queue to main p50 712 s, p90 4685 s. A lane's precheck alone p50 71 s, p90 274 s.
+- At 3:15 AM 17 north lanes sat queued behind pre-land cargo test and clippy runs; with 4 prechecks
+  running, every further lane waited minutes for a 6-core slot (`no check host has room ... needs 6`).
+- The same tree was checked four times: per-lane precheck, batch candidate, after-landing tests,
+  GitHub CI. The sheriff had made 0 reverts on 34 red runs, because a red result only reached it as
+  a main-red.yml branch whose rerun probe is rarely able to name a case.
+
+### What runs before the push
+
+Only what is fast and cannot be undone once main moves, all on the lander host with no capacity
+reservation, offload, runner, Actions dispatch or publication (`land.check-local = true`):
+
+- the clean pick of every queued lane onto main (one candidate for all of them),
+- the outgoing scans (secrets, email, deny-list, language, native references), the stale-revert
+  gate, the dropped-commit gate and the review and trailer gates,
+- the `land.check` lines that finish in seconds: the verb-table sort and the tests/it module list.
+
+There is no per-lane precheck, no numbered build slot and no `landing.slots`. Every queued lane joins
+the next candidate; the push is the only wait after the scans.
+
+### What runs after the push
+
+Every other check is a `land.after` line and runs once per landed batch on main, on the build host
+(`landing.runner`) under capacity admission: owners, clippy, code-health, agent-config, package,
+features-index, rationale-index, doctor nix, citation, nix-entry, experiments, cargo test, cargo
+check and the changed-tests selection. The affected-tests pre-land selection of north#360 moved here
+with them. Each landed commit still has every check run on it; none was deleted or weakened, and the
+two coverage waivers are the `Removes-check:` trailers on commit 9fe95ca5a.
+
+### Red after landing: bisect inside the batch, revert the culprit
+
+`north land serve` keeps a watch on every landed batch (speculative stacks included). When the after
+run of the batch head is red, the watcher runs the same after set on the prefix that ends at lane
+k for a binary search over the batch (`land/blame.rs`): about log2(n) extra runs, none for a single
+lane, none when a probe is inconclusive (then the proxy is alarmed and nothing is reverted). The
+first lane whose prefix is red is reverted with `git revert` of exactly its commits, each named in
+a `Reverts:` trailer, and the revert is queued as a red-fix ticket that sorts ahead of the queue. The
+lane's session is told to fix it and queue it again with `Follows:`. A revert is never itself
+reverted: a red run on a red-fix lane alarms the proxy instead. A revert that no longer applies
+cleanly alarms the proxy with the range. The retired main-red.yml request path stays for CI runs the
+lander did not see.
+
+### Why this is safe
+
+- Main can be red for the minutes between the push and the verdict; the old design bought a green
+  main with minutes of queue wait for every worker. Red main is bounded by the after run plus the
+  bisection probes, and the revert lands first in the queue, so lanes that depended on the culprit
+  see a single revert, not a stuck queue.
+- A lane that breaks only in combination with a later lane in the batch is blamed on the first lane
+  whose prefix is red, which is the lane that introduced the break in landing order.
+- A lander restart waits for in-flight after-landing runs and their reverts before exiting and lands
+  nothing more meanwhile, so a runtime swap does not drop a verdict.
+
+### Measured after
+
+Recorded below from the lander's journal once this change is the live runtime (north#633).

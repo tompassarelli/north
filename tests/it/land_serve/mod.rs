@@ -11,17 +11,14 @@ mod baseline;
 mod conflict;
 mod credentials;
 mod culprit_search;
-mod fast_lane;
 mod isolation;
 mod landing;
 mod ledger;
-mod precheck;
+mod post_land;
 mod promote;
 mod remote;
 mod restart;
 mod speculate;
-mod spread;
-mod unfit_host;
 
 #[path = "../support/land_serve_template.rs"]
 mod template;
@@ -38,11 +35,6 @@ fn executable(path: &Path, body: &str) {
 
 const CHECKER: &str = r#"#!/usr/bin/env bash
 set -eu
-if [ -n "${NORTH_LAND_RECHECK:-}" ]; then
-  printf '%s %s\n' "$(git rev-parse HEAD)" "$3" >>"$LAND_TRACE/rechecks"
-  printf 'checking\nsafe-push: verdict green\n'
-  exit 0
-fi
 exec 8>>"$LAND_TRACE/checks.lock"
 flock 8
 n=$(( $(cat "$LAND_TRACE/checks" 2>/dev/null | wc -l) + 1 ))
@@ -75,7 +67,7 @@ echo app-token
 const NORTH: &str = r#"#!/usr/bin/env bash
 printf '%s\n' "${*//$'\n'/\\n}" >>"$LAND_TRACE/north-calls"
 if { [ "$1" = land-train ] || [ "$1" = incident ]; } && [ -n "${LAND_LEDGER:-}" ]; then THREADS_DB="$LAND_LEDGER" exec "$LAND_REAL_NORTH" "$@"; fi
-if [ "$1 $2" = "land checks" ] && [ -e "$LAND_TRACE/post-land-fail" ]; then echo "test fast_lane_probe ... FAILED"; exit 1; fi
+if [ "$1 $2" = "land checks" ] && { [ -e "$LAND_TRACE/post-land-fail" ] || { [ -f "$LAND_TRACE/post-land-red-if" ] && [ -e "$(cat "$LAND_TRACE/post-land-red-if")" ]; }; }; then echo "test after_landing_probe ... FAILED"; exit 1; fi
 if [ "$1 $2" = "runtime follow" ] && [ -n "${NORTH_RUNTIME_LINK:-}" ]; then ln -sfn gen-2 "$NORTH_RUNTIME_LINK"; fi
 [ ! -x "$LAND_TRACE/north-hook" ] || exec "$LAND_TRACE/north-hook" "$@"
 if [ "$1" = fleet ] && [ "$2" = send ] && [ "${6%% *}" = landed ]; then

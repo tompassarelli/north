@@ -25,7 +25,7 @@ mod queue_clippy;
 mod timeout_row;
 pub use queue_clippy::refuse_clippy;
 use crate::land::after::follow::program;
-use crate::land::checks::{BROKEN_BASE, RECHECK, ROUND};
+use crate::land::checks::{BROKEN_BASE, ROUND};
 use crate::landing::check_timings::{self, Base, BaseResult, Deadline, Timing, Timings};
 
 const USAGE: &str = "usage: north land checks --base BASE --head HEAD [--dry 0|1] [--safe-push PATH] [--red-fix ISSUE] [--outcome FILE] [--destination BRANCH] [--event-log FILE --wait-event LINE]\n       north land checks --portable --base BASE --head HEAD\n       north land checks --any --head HEAD\n       north land checks --after --base BASE --head HEAD [--outcome FILE]\n       north land checks --replay [--records FILE] [--since EPOCH] [--until EPOCH]";
@@ -109,6 +109,10 @@ struct Environment {
 }
 
 impl Environment {
+    fn local() -> Self {
+        Self { capacity: String::new(), offload_host: String::new(), timeout: std::env::var("SAFE_PUSH_LAND_CHECK_TIMEOUT").ok().and_then(|value| value.parse().ok()), runner: None }
+    }
+
     fn load() -> Self {
         let text = |name: &str| std::env::var(name).unwrap_or_default();
         Self {
@@ -1086,16 +1090,17 @@ async fn orchestrate(arguments: Arguments) -> i32 {
         return 1;
     };
     let config = Config::load(&root, &arguments.head);
+    let local = !arguments.after && config.local_checks();
     let config = if arguments.after {
         config.after_set()
-    } else if std::env::var_os(RECHECK).is_some() {
-        config.recheck_set()
+    } else if local {
+        config.without_placement()
     } else {
         config
     };
     let (cancel_sender, cancel) = watch::channel(false);
     tokio::spawn(forward_signals(cancel_sender));
-    let environment = Environment::load();
+    let environment = if local { Environment::local() } else { Environment::load() };
     let commands = if arguments.leased {
         arguments.commands.clone()
     } else {

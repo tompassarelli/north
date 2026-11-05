@@ -44,7 +44,7 @@ impl Fixture {
 }
 
 #[test]
-fn enqueue_queues_a_rust_lane_without_running_clippy_because_the_landers_precheck_runs_it() {
+fn enqueue_queues_a_rust_lane_without_running_clippy_because_the_lander_runs_it_after_landing() {
     let fixture = Fixture::new();
     fixture.rust_lane(COLLAPSIBLE);
     let (output, _) = north_enqueue(&fixture);

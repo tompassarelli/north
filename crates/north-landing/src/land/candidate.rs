@@ -72,6 +72,7 @@ pub enum Pick {
 pub struct Built {
     pub head: String,
     pub picks: Vec<Pick>,
+    pub tips: Vec<String>,
 }
 
 impl Built {
@@ -186,6 +187,7 @@ pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued:
     git(worktree, &["reset", "-q", "--hard"])?;
     git(worktree, &["checkout", "-q", "--detach", base])?;
     let mut picks = Vec::new();
+    let mut tips = Vec::new();
     let mut included = 0;
     let mut decided = HashSet::new();
     for (path, ticket) in tickets {
@@ -199,12 +201,15 @@ pub fn build(worktree: &Path, base: &str, tickets: &[(PathBuf, Ticket)], queued:
         };
         let pick = pick(worktree, base, ticket, &earlier, logs, name)?;
         included += usize::from(matches!(pick, Pick::Included));
+        if matches!(pick, Pick::Included) {
+            tips.push(git(worktree, &["rev-parse", "HEAD"])?);
+        }
         if matches!(pick, Pick::Decided(_)) {
             decided.insert(path);
         }
         picks.push(pick);
     }
-    Ok(Built { head: git(worktree, &["rev-parse", "HEAD"])?, picks })
+    Ok(Built { head: git(worktree, &["rev-parse", "HEAD"])?, picks, tips })
 }
 
 #[cfg(test)]

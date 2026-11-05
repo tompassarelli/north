@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use north_landing::land::candidate::{self, git};
 use north_landing::land::lander::Lander;
-use north_landing::land::precheck::State;
+use north_landing::land::watch::Watch;
 use north_landing::land::queue::{self, Ticket};
 use north_landing::land::serve::Round;
 use north_landing::land::{after, checks};
@@ -93,10 +93,6 @@ impl World {
         fs::write(self.plan.join("plan"), steps.iter().map(|step| format!("{step}\n")).collect::<String>()).unwrap();
     }
 
-    fn slots(&self, count: usize) {
-        run(&self.main, &["config", "landing.slots", &count.to_string()]);
-    }
-
     fn lander(&self) -> Lander {
         Lander::new(&self.main, self.checker.clone(), 1).unwrap()
     }
@@ -163,7 +159,7 @@ impl World {
     }
 }
 
-fn drive(lander: &Lander, state: &mut State) -> Vec<String> {
+fn drive(lander: &Lander, state: &mut Watch) -> Vec<String> {
     let mut rounds = Vec::new();
     for _ in 0..ROUNDS {
         if queue::pending(&lander.queue).unwrap().is_empty() && state.in_flight() == 0 {
@@ -190,12 +186,12 @@ fn kill_mid_check(world: &World) {
     let base = candidate::prepare(&killed.repo, &killed.worktree).unwrap();
     let tickets = queue::collect(&killed.queue).unwrap();
     candidate::build(&killed.worktree, &base, &tickets, &[], usize::MAX, &killed.queue.join("logs")).unwrap();
-    let check = checks::start(&checks::Launch::of(&killed), &killed.worktree, &base, &killed.queue.join("logs/killed.log"), true, None).unwrap();
+    let check = checks::start(&checks::Launch::of(&killed), &killed.worktree, &base, &killed.queue.join("logs/killed.log"), true).unwrap();
     fs::write(killed.worktree.join("a.txt"), "half written\n").unwrap();
     fs::write(killed.worktree.join("stray"), "untracked\n").unwrap();
     drop(killed);
     let restarted = world.lander();
-    drive(&restarted, &mut State::default());
+    drive(&restarted, &mut Watch::default());
     drop(check);
     landed(&world.settled(&restarted, &[&a, &b]));
 
@@ -208,64 +204,27 @@ fn kill_mid_check(world: &World) {
     run(&restarted.worktree, &["push", "-q", "origin", &format!("{}:refs/heads/main", built.head)]);
     drop(restarted);
     let again = world.lander();
-    drive(&again, &mut State::default());
+    drive(&again, &mut Watch::default());
     landed(&world.settled(&again, &[&a, &b, &c]));
-}
-
-fn restart_while_draining(world: &World) {
-    world.slots(2);
-    world.plan(&["slow", "slow", "slow", "slow"]);
-    let retiring = world.lander();
-    let a = world.enqueue(&retiring, &world.lane("a"));
-    let b = world.enqueue(&retiring, &world.lane("b"));
-    let c = world.enqueue(&retiring, &world.lane("c"));
-    let mut state = State::default();
-    assert_eq!(retiring.round(&mut state), Ok(Round::Checking));
-    assert_eq!(state.drain(), 2);
-    for _ in 0..ROUNDS {
-        if state.in_flight() == 0 {
-            break;
-        }
-        let _ = retiring.round(&mut state);
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert_eq!(state.in_flight(), 0);
-    let left: Vec<_> = queue::pending(&retiring.queue).unwrap().into_iter().map(|(_, ticket)| ticket.branch).collect();
-    assert_eq!(left, ["b", "c"], "a draining lander starts no lane, lands the one whose check still matches main, and leaves the lane main moved under queued for its successor to check again");
-
-    let d = world.enqueue(&retiring, &world.lane("d"));
-    let restarted = world.lander();
-    let mut cut = State::default();
-    assert_eq!(restarted.round(&mut cut), Ok(Round::Checking));
-    cut.drain();
-    drop(cut);
-    drop(restarted);
-    let fresh = world.lander();
-    drive(&fresh, &mut State::default());
-    landed(&world.settled(&fresh, &[&a, &b, &c, &d]));
 }
 
 fn deleted_lander_worktrees(world: &World) {
     let first = world.lander();
     let a = world.enqueue(&first, &world.lane("a"));
-    drive(&first, &mut State::default());
+    drive(&first, &mut Watch::default());
     fs::remove_dir_all(&first.worktree).unwrap();
     let second = world.lander();
     let b = world.enqueue(&second, &world.lane("b"));
-    drive(&second, &mut State::default());
+    drive(&second, &mut Watch::default());
     landed(&world.settled(&second, &[&a, &b]));
 
-    world.slots(1);
     let third = world.lander();
     let c = world.enqueue(&third, &world.lane("c"));
-    drive(&third, &mut State::default());
-    let precheck = candidate::lander_worktree(&third.repo, "lander-precheck-0").unwrap();
-    assert!(precheck.join(".git").exists());
-    fs::remove_dir_all(&precheck).unwrap();
+    drive(&third, &mut Watch::default());
     fs::remove_dir_all(&third.worktree).unwrap();
     let fourth = world.lander();
     let d = world.enqueue(&fourth, &world.lane("d"));
-    drive(&fourth, &mut State::default());
+    drive(&fourth, &mut Watch::default());
     landed(&world.settled(&fourth, &[&a, &b, &c, &d]));
 }
 
@@ -285,7 +244,7 @@ fn duplicate_branch_names(world: &World) {
     let there = world.enqueue(&base, &world.lane_in(&clone, &clone, "fix", "fix-elsewhere.txt"));
     let slashed = world.enqueue(&base, &world.lane("feature/x"));
     let dashed = world.enqueue(&base, &world.lane_in(&world.main, &world.root.join("proj/worktrees/feature-x-dash"), "feature-x", "feature-x-dash.txt"));
-    drive(&base, &mut State::default());
+    drive(&base, &mut Watch::default());
     landed(&world.settled(&base, &[&early, &here, &there, &slashed, &dashed]));
     assert_eq!(run(&stray_worktree, &["rev-parse", "HEAD"]), held, "another lander worktree's candidate moved under it");
 }
@@ -295,54 +254,20 @@ fn remote_runner_lost_mid_check(world: &World) {
     let lander = world.lander();
     let a = world.enqueue(&lander, &world.lane("a"));
     let b = world.enqueue(&lander, &world.lane("b"));
-    let rounds = drive(&lander, &mut State::default());
+    let rounds = drive(&lander, &mut Watch::default());
     assert!(rounds.iter().filter(|round| round.contains("Waiting") && round.contains("transient")).count() >= 2, "{rounds:?}");
     landed(&world.settled(&lander, &[&a, &b]));
 
-    world.slots(2);
     world.plan(&["lost", "green", "green"]);
     let c = world.enqueue(&lander, &world.lane("c"));
     let d = world.enqueue(&lander, &world.lane("d"));
-    drive(&lander, &mut State::default());
+    drive(&lander, &mut Watch::default());
     landed(&world.settled(&lander, &[&a, &b, &c, &d]));
-}
-
-const COMPILER: &str = r#"echo "recheck=${NORTH_LAND_RECHECK:-}" >> "$HOME/compiler.calls"
-if [ -e builder.txt ] && grep -q breaches record.txt 2>/dev/null; then
-echo "error[E0063]: missing field breaches in initializer of Record" >&2
-echo "safe-push: verdict refused E0063"
-exit 1
-fi
-echo "safe-push: verdict green"
-"#;
-
-fn file_disjoint_lanes_that_break_each_other(world: &World) {
-    world.slots(2);
-    let script = world.root.join("compiler.sh");
-    fs::write(&script, COMPILER).unwrap();
-    let lander = Lander::new(&world.main, vec!["sh".to_owned(), script.display().to_string()], 1).unwrap();
-    let builder = world.enqueue(&lander, &world.lane_in(&world.main, &world.root.join("proj/worktrees/builder"), "builder", "builder.txt"));
-    let mut field = world.lane_in(&world.main, &world.root.join("proj/worktrees/field"), "field", "record.txt");
-    fs::write(field.root.join("record.txt"), "since sent breaches\n").unwrap();
-    run(&field.root, &["commit", "-q", "-am", "lane field adds breaches to Record"]);
-    field.head = run(&field.root, &["rev-parse", "HEAD"]);
-    let field = world.enqueue(&lander, &field);
-    drive(&lander, &mut State::default());
-    let verdicts = world.settled(&lander, &[&builder, &field]);
-    assert!(verdicts[0].starts_with("landed "), "{verdicts:?}");
-    assert!(verdicts[1].starts_with("failed "), "a lane checked on an older main landed beside a change it breaks: {verdicts:?}");
-    let calls = fs::read_to_string(world.root.join("compiler.calls")).unwrap();
-    assert_eq!(calls.lines().filter(|call| *call == "recheck=1").count(), 1, "the lane main moved under, with no file in common, is rechecked with the recheck lines only: {calls}");
 }
 
 #[test]
 fn chaos_kill_mid_check_lands_each_lane_once_after_restart() {
     isolated("land_chaos::chaos_kill_mid_check_lands_each_lane_once_after_restart", kill_mid_check);
-}
-
-#[test]
-fn chaos_restart_while_draining_loses_no_lane() {
-    isolated("land_chaos::chaos_restart_while_draining_loses_no_lane", restart_while_draining);
 }
 
 #[test]
@@ -360,7 +285,3 @@ fn chaos_remote_runner_lost_mid_check_holds_then_lands() {
     isolated("land_chaos::chaos_remote_runner_lost_mid_check_holds_then_lands", remote_runner_lost_mid_check);
 }
 
-#[test]
-fn chaos_file_disjoint_lanes_that_break_each_other_are_rechecked_on_the_main_they_land_on() {
-    isolated("land_chaos::chaos_file_disjoint_lanes_that_break_each_other_are_rechecked_on_the_main_they_land_on", file_disjoint_lanes_that_break_each_other);
-}

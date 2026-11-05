@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::after::{follow, send};
+use super::blame;
 use super::candidate::{change_worktrees_alone, git};
 use super::checks::Verdict;
 use super::lander::{Lander, state_home};
@@ -12,12 +13,19 @@ use super::telemetry;
 const TAIL_LINES: usize = 20;
 const ALARMED: &str = "proxy";
 
+#[derive(Clone)]
 pub struct Landed {
     pub repo: PathBuf,
     pub repository: String,
     pub base: String,
     pub head: String,
     pub lanes: Vec<String>,
+    pub tips: Vec<String>,
+}
+
+pub struct Outcome {
+    pub verdict: Verdict,
+    pub culprit: Option<usize>,
 }
 
 pub struct Run {
@@ -29,23 +37,52 @@ pub struct Run {
     pub offload_owner: String,
 }
 
-pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>) -> std::thread::JoinHandle<Verdict> {
+impl Run {
+    fn at(&self, head: &str) -> Self {
+        let name = format!("post-land-{}", &head[..head.len().min(12)]);
+        let beside = |path: &Path, file: String| path.with_file_name(file);
+        Self {
+            runner: self.runner.clone(),
+            worktree: beside(&self.worktree, name.clone()),
+            log: beside(&self.log, format!("{name}.log")),
+            outcome: beside(&self.outcome, format!("{name}.outcome")),
+            ledger: self.ledger.clone(),
+            offload_owner: self.offload_owner.clone(),
+        }
+    }
+}
+
+pub fn start(lander: &Lander, base: &str, head: &str, lanes: Vec<String>, tips: Vec<String>) -> std::thread::JoinHandle<Outcome> {
     let origin = git(&lander.repo, &["remote", "get-url", "origin"]).unwrap_or_default();
-    let landed = Landed { repo: lander.repo.clone(), repository: telemetry::repository(&origin), base: base.to_owned(), head: head.to_owned(), lanes };
-    let short = &head[..head.len().min(12)];
+    let landed = Landed { repo: lander.repo.clone(), repository: telemetry::repository(&origin), base: base.to_owned(), head: head.to_owned(), lanes, tips };
     let run = Run {
         runner: vec![follow::program(), "land".to_owned(), "checks".to_owned(), "--after".to_owned(), "--dry".to_owned(), "1".to_owned()],
-        worktree: lander.queue.join(format!("post-land-{short}")),
-        log: lander.queue.join("logs").join(format!("post-land-{short}.log")),
-        outcome: lander.queue.join("logs").join(format!("post-land-{short}.outcome")),
+        worktree: lander.queue.join("post-land"),
+        log: lander.queue.join("logs").join("post-land"),
+        outcome: lander.queue.join("logs").join("post-land"),
         ledger: state_home().join("safe-push").join("post-land.tsv"),
         offload_owner: lander.offload_owner.clone(),
-    };
+    }
+    .at(head);
     std::thread::spawn(move || {
         let verdict = settle(&landed, &run, send);
         println!("north land: post-land checks of {} ended {verdict:?}", landed.head);
-        verdict
+        let culprit = if matches!(verdict, Verdict::RedMain(_)) { locate(&landed, &run) } else { None };
+        Outcome { verdict, culprit }
     })
+}
+
+fn locate(landed: &Landed, run: &Run) -> Option<usize> {
+    let culprit = blame::culprit(landed.tips.len(), |count| {
+        let tip = &landed.tips[count - 1];
+        let verdict = check(&Landed { head: tip.clone(), ..landed.clone() }, &run.at(tip));
+        println!("north land: post-land checks with the first {count} of {} landed lanes ended {verdict:?}", landed.tips.len());
+        verdict
+    });
+    if culprit.is_none() {
+        println!("north land: post-land checks of {} are red, but the batch search could not name a lane", landed.head);
+    }
+    culprit
 }
 
 pub fn settle(landed: &Landed, run: &Run, alarm: impl Fn(&str, &str) -> bool) -> Verdict {

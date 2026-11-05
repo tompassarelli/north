@@ -10,7 +10,6 @@ use super::refusal;
 pub const SCRUBBED: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE", "SOPS_AGE_SSH_PRIVATE_KEY_FILE", "NORTH_RUNTIME_LINK"];
 pub const BROKEN_BASE: &str = "main's check environment is broken: ";
 pub const ROUND: &str = "NORTH_LAND_ROUND";
-pub const RECHECK: &str = "NORTH_LAND_RECHECK";
 pub const INFRASTRUCTURE: &str = "infrastructure: the check host is unfit: ";
 const NORTH_MISSING: [&str; 4] = ["north: command not found", "north: not found", "north not on PATH", "north missing on PATH"];
 const OFFLOAD: &str = "north capacity offload: ";
@@ -92,16 +91,15 @@ pub struct Launch<'a> {
     pub checker: &'a [String],
     pub offload_owner: &'a str,
     pub round: String,
-    pub recheck: bool,
 }
 
 impl<'a> Launch<'a> {
     pub fn of(lander: &'a Lander) -> Self {
-        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string(), recheck: false }
+        Self { checker: &lander.checker, offload_owner: &lander.offload_owner, round: lander.round.load(Ordering::Relaxed).to_string() }
     }
 }
 
-pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_group: bool, runner: Option<&str>) -> Result<Started, Verdict> {
+pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_group: bool) -> Result<Started, Verdict> {
     let Some((program, prefix)) = launch.checker.split_first() else {
         return Err(Verdict::Transient("no checker configured".to_owned()));
     };
@@ -116,19 +114,11 @@ pub fn start(launch: &Launch<'_>, worktree: &Path, base: &str, log: &Path, own_g
     };
     let mut command = Command::new(program);
     command.args(prefix).args(["--check-candidate", "--base", base]).current_dir(worktree).stdin(Stdio::null()).stdout(stdout).stderr(stderr).env("NORTH_LAND_SERVING", "1").env("NORTH_OFFLOAD_OWNER", launch.offload_owner).env(ROUND, &launch.round);
-    if launch.recheck {
-        command.env(RECHECK, "1");
-    } else {
-        command.env_remove(RECHECK);
-    }
     if own_group {
         command.process_group(0);
     }
     for name in SCRUBBED {
         command.env_remove(name);
-    }
-    if let Some(runner) = runner {
-        command.env("SAFE_PUSH_LAND_RUNNER", runner);
     }
     match command.spawn() {
         Ok(child) => Ok(Started { child, program: program.clone(), log: log.to_owned(), by_exit: false }),
@@ -180,7 +170,7 @@ impl Started {
 }
 
 pub fn run(lander: &Lander, worktree: &Path, base: &str, log: &Path) -> Verdict {
-    match start(&Launch::of(lander), worktree, base, log, false, None) {
+    match start(&Launch::of(lander), worktree, base, log, false) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     }

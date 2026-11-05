@@ -109,9 +109,10 @@ fn a_runner_whose_host_was_never_probed_keeps_its_checks_off_actions() {
 }
 
 #[test]
-fn a_recheck_runs_only_the_recheck_lines_and_falls_back_to_the_full_set_without_them() {
-    let config = Config { recheck: vec!["src/ :: cargo check".into()], ..config(&["src/ :: cargo clippy"], &[]) };
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
-    assert_eq!(config.recheck_set().commands(repo, "", "HEAD").unwrap(), vec!["cargo check".to_owned()]);
-    assert_eq!(self::config(&["src/ :: cargo clippy"], &[]).recheck_set().commands(repo, "", "HEAD").unwrap(), vec!["cargo clippy".to_owned()]);
+fn local_checks_drop_every_placement_so_they_run_on_the_lander_host_alone() {
+    let placed = Config { workflow: "land-check.yml".into(), publish: Some("land-check/".into()), runner: Some("build-host".into()), capacity: Some("north capacity host run".into()), local_checks: true, ..config(&["src/ :: sed"], &[]) };
+    let local = placed.without_placement();
+    assert!(local.workflow.is_empty() && local.publish.is_none() && local.runner.is_none() && local.capacity.is_none());
+    assert!(local.local_checks());
+    assert_eq!(local.checks, placed.checks);
 }

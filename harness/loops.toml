@@ -194,6 +194,7 @@ constants = [
   "crates/north-landing/src/land/serve.rs::ATTEMPTS",
   "crates/north-landing/src/land/serve.rs::DISCOVERY",
   "crates/north-landing/src/land/serve.rs::POLL",
+  "crates/north-landing/src/land/serve.rs::TICK",
 ]
 
 [[loop]]
@@ -359,10 +360,6 @@ constants = [
   "crates/north-landing/src/landing/stale_revert.rs::RECENT_SECONDS",
   "crates/north-landing/src/landing/stale_revert.rs::WIPE_FLOOR",
   "crates/north-landing/src/land/post_land.rs::TAIL_LINES",
-  "crates/north-landing/src/land/precheck.rs::HOLD",
-  "crates/north-landing/src/land/precheck.rs::ROOM_RETRY",
-  "crates/north-landing/src/land/precheck.rs::SURVEY",
-  "crates/north-landing/src/land/precheck.rs::TICK",
   "crates/north-landing/src/land/promote.rs::ROUNDS",
   "crates/north-landing/src/land/promote.rs::SHADOW_MINUTES",
   "crates/north-landing/src/land/promote.rs::SHADOW_PAUSE",

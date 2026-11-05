@@ -12,7 +12,6 @@ use super::after;
 use super::candidate::{self, git};
 use super::lander::{Lander, state_home};
 use super::pause;
-use super::precheck;
 use super::queue;
 use super::serve::Round;
 
@@ -405,7 +404,7 @@ fn page_text(invariant: Invariant, violations: &[Violation]) -> String {
     if text.chars().count() <= PAGE_LIMIT { text } else { text.chars().take(PAGE_LIMIT).collect::<String>() + "..." }
 }
 
-pub fn after_round(lander: &Lander, state: &precheck::State, round: &Result<Round, String>) {
+pub fn after_round(lander: &Lander, in_flight: usize, round: &Result<Round, String>) {
     let problem = match round {
         Err(error) => Some(error.clone()),
         Ok(Round::Waiting(reason)) if reason.starts_with("transient:") => Some(reason.clone()),
@@ -416,11 +415,11 @@ pub fn after_round(lander: &Lander, state: &precheck::State, round: &Result<Roun
         at_micros: now_micros(),
         repo: lander.repo.clone(),
         worktree: lander.worktree.clone(),
-        slots: state.slots(),
-        busy: state.in_flight(),
-        waiting: state.waiting(&queued),
-        paused: state.draining() || pause::held(&lander.queue).is_some(),
-        hosts_full: state.hosts_full(),
+        slots: 0,
+        busy: in_flight,
+        waiting: queued.len(),
+        paused: pause::held(&lander.queue).is_some(),
+        hosts_full: false,
         problem,
     };
     let at = observation.at_micros;

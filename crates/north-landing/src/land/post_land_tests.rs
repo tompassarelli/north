@@ -15,7 +15,7 @@ fn repository(root: &Path) -> String {
 
 fn fixture(root: &Path, script: &str) -> (Landed, Run) {
     let head = repository(root);
-    let landed = Landed { repo: root.join("repo"), repository: "tompassarelli/north".into(), base: head.clone(), head, lanes: vec!["lane-a".into(), "lane-b".into()] };
+    let landed = Landed { repo: root.join("repo"), repository: "tompassarelli/north".into(), base: head.clone(), head, lanes: vec!["lane-a".into(), "lane-b".into()], tips: Vec::new() };
     let run = Run {
         runner: vec!["sh".into(), "-c".into(), script.into(), "sh".into()],
         worktree: root.join("post-land"),

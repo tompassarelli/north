@@ -1,0 +1,60 @@
+use std::fs;
+
+use super::{Fixture, git};
+
+fn post_land_runs(fixture: &Fixture) -> usize {
+    fixture.calls("land checks --after ").len()
+}
+
+fn files(fixture: &Fixture) -> Vec<String> {
+    git(&fixture.origin, &["ls-tree", "--name-only", "main"]).lines().map(str::to_owned).collect()
+}
+
+#[test]
+fn a_lane_whose_change_breaks_a_test_is_reverted_alone_after_landing_and_the_others_stay() {
+    let mut fixture = Fixture::new();
+    fs::write(fixture.trace.join("post-land-red-if"), "broken.txt").unwrap();
+    let first = fixture.lane("first", "first.txt", "first\n");
+    let breaker = fixture.lane("breaker", "breaker.txt", "breaker\n");
+    fixture.commit(&breaker, "broken.txt", "breaks the test\n", "second change from breaker");
+    let last = fixture.lane("last", "last.txt", "last\n");
+    let tickets = [first, breaker, last].map(|lane| fixture.enqueue(&lane, None));
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from first", "change from breaker", "second change from breaker", "change from last", "Revert second change from breaker"]);
+    let tree = files(&fixture);
+    assert!(tree.iter().any(|file| file == "first.txt") && tree.iter().any(|file| file == "last.txt"), "{tree:?}");
+    assert!(!tree.iter().any(|file| file == "breaker.txt" || file == "broken.txt"), "{tree:?}");
+    let body = git(&fixture.origin, &["log", "-1", "--format=%B", "main"]);
+    for commit in git(&fixture.origin, &["rev-list", "main~1", &format!("^{}", git(&fixture.origin, &["rev-parse", "main~3"]))]).lines() {
+        assert!(body.contains(&format!("Reverts: {commit}")), "{body}");
+    }
+    assert!(tickets.iter().all(|ticket| fixture.verdict(ticket).is_some_and(|verdict| verdict.starts_with("landed "))), "every lane landed first");
+    assert_eq!(post_land_runs(&fixture), 4, "the batch, two bisection probes, and the revert");
+    let told: Vec<String> = fixture.fleet().into_iter().filter(|call| call.starts_with("fleet send --from service:north-land session-lane-breaker ") && call.contains("post-land checks failed") && call.contains("Follows:")).collect();
+    assert_eq!(told.len(), 1, "{:?}", fixture.fleet());
+    assert!(fixture.fleet().iter().all(|call| !call.contains("session-lane-first ") && !call.contains("session-lane-last ") || call.contains("landed ")), "{:?}", fixture.fleet());
+}
+
+#[test]
+fn a_green_batch_is_checked_once_after_landing_and_nothing_is_reverted() {
+    let mut fixture = Fixture::new();
+    let first = fixture.lane("first", "first.txt", "first\n");
+    let second = fixture.lane("second", "second.txt", "second\n");
+    fixture.enqueue(&first, None);
+    fixture.enqueue(&second, None);
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from first", "change from second"]);
+    assert_eq!(post_land_runs(&fixture), 1);
+}
+
+#[test]
+fn a_revert_that_is_itself_red_is_not_reverted_again() {
+    let mut fixture = Fixture::new();
+    fs::write(fixture.trace.join("post-land-fail"), "").unwrap();
+    let lane = fixture.lane("only", "only.txt", "only\n");
+    fixture.enqueue(&lane, None);
+    assert!(fixture.serve().status.success());
+    assert_eq!(fixture.subjects(), ["change from only", "Revert change from only"]);
+    assert_eq!(post_land_runs(&fixture), 2);
+    assert!(fixture.fleet().iter().any(|call| call.starts_with("fleet send --from service:north-land proxy ") && call.contains("a red fix")), "{:?}", fixture.fleet());
+}

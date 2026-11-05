@@ -19,10 +19,10 @@ pub struct Config {
     pub capacity: Option<String>,
     checks: Vec<String>,
     after: Vec<String>,
-    recheck: Vec<String>,
     local_only: Vec<String>,
     machine_bound: Vec<String>,
     inferred: Vec<String>,
+    local_checks: bool,
 }
 
 fn git_lines(repo: &Path, arguments: &[&str]) -> Vec<String> {
@@ -53,10 +53,10 @@ impl Config {
             capacity: first("landing.capacity").filter(|command| !command.is_empty()),
             checks,
             after: blob_values(repo, head, "land.after"),
-            recheck: blob_values(repo, head, "land.recheck"),
             local_only: blob_values(repo, head, "land.local-only"),
             machine_bound: blob_values(repo, head, "land.machine-bound"),
             inferred,
+            local_checks: first("land.check-local").is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "yes" | "on" | "1")),
         }
     }
 
@@ -68,11 +68,12 @@ impl Config {
         Self { checks: self.after.clone(), after: Vec::new(), inferred: Vec::new(), ..self.clone() }
     }
 
-    pub fn recheck_set(&self) -> Self {
-        if self.recheck.is_empty() {
-            return self.clone();
-        }
-        Self { checks: self.recheck.clone(), recheck: Vec::new(), inferred: Vec::new(), ..self.clone() }
+    pub fn local_checks(&self) -> bool {
+        self.local_checks
+    }
+
+    pub fn without_placement(&self) -> Self {
+        Self { workflow: String::new(), publish: None, runner: None, capacity: None, ..self.clone() }
     }
 
     pub fn has_checks(&self) -> bool {

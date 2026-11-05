@@ -5,7 +5,6 @@
 	lander-host = whiterabbit
 	push-app = lander
 	remote-hosts = gex45 ccx33
-	slots = 10
 [mutant]
 	class = heavy
 	run = ./bin/head-north --code crates/north-core/src/capacity/dev_shell.rs,src/cli/ dev-shell run -- bash harness/scripts/mutant-tests.sh
@@ -15,6 +14,7 @@
 	budget = cargo.yml 162 600
 	budget = harness.yml 80 600
 [land]
+	check-local = true
 	check = "src/cli/verbs.rs :: sed -n '/VerbKinds::new(&[[]$/,/^]);$/{//!p}' src/cli/verbs.rs | LC_ALL=C sort -c -u"
 	check = "tests/it/main.rs,tests/it/crates.txt :: ! grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort | uniq -d | grep . && comm -3 <(sed -n 's/^mod //p' tests/it/main.rs | tr -d ';' | LC_ALL=C sort -u) <(grep -v '^#' tests/it/crates.txt | cut -d ' ' -f1 | LC_ALL=C sort -u) | { ! grep .; }"
 	after = ** :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh

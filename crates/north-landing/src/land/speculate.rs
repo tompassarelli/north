@@ -8,6 +8,7 @@ use super::checks::{self, Started, Verdict};
 use super::lander::Lander;
 use super::queue::{self, Lane, Ticket, lane};
 use super::serve::Pushed;
+use super::watch::{LandedLane, Watch};
 use super::telemetry::Stages;
 
 const POLL: Duration = Duration::from_millis(100);
@@ -37,6 +38,7 @@ pub struct Next {
     base: String,
     head: String,
     identity: (String, String),
+    tips: Vec<String>,
     tickets: Vec<(PathBuf, Ticket)>,
     stages: Stages,
     check: Option<Started>,
@@ -103,6 +105,7 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     candidate::ensure(&lander.repo, worktree)?;
     let built = candidate::build(worktree, head, arrived, &[], usize::MAX, &lander.queue.join("logs"))?;
     let tickets: Vec<_> = arrived.iter().zip(&built.picks).filter(|(_, pick)| matches!(pick, Pick::Included)).map(|(entry, _)| entry.clone()).collect();
+    let tips = built.tips.clone();
     if tickets.is_empty() {
         return Ok(None);
     }
@@ -112,7 +115,7 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
     }
     let log = lander.queue.join("logs").join(format!("{}-speculative-{}.log", micros(), level + 2));
     let stages = Stages::start();
-    let check = match checks::start(&checks::Launch::of(lander), worktree, head, &log, true, None) {
+    let check = match checks::start(&checks::Launch::of(lander), worktree, head, &log, true) {
         Ok(check) => check,
         Err(verdict) => {
             println!("north land: speculative candidate {} not started: {verdict:?}", built.head);
@@ -120,11 +123,11 @@ fn start(lander: &Lander, level: usize, head: &str, arrived: &[(PathBuf, Ticket)
         }
     };
     println!("north land: speculative candidate {} carries {} lanes onto candidate {head}; checking it at depth {}", built.head, tickets.len(), level + 2);
-    Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tickets, stages, check: Some(check), verdict: None }))
+    Ok(Some(Next { worktree: worktree.clone(), base: head.to_owned(), head: built.head, identity, tips, tickets, stages, check: Some(check), verdict: None }))
 }
 
 pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<&Taken>) -> (Verdict, Vec<Next>) {
-    let mut started = match checks::start(&checks::Launch::of(lander), &lander.worktree, base, log, false, None) {
+    let mut started = match checks::start(&checks::Launch::of(lander), &lander.worktree, base, log, false) {
         Ok(started) => started,
         Err(verdict) => return (verdict, Vec::new()),
     };
@@ -155,10 +158,10 @@ pub fn check(lander: &Lander, head: &str, base: &str, log: &Path, taken: Option<
     }
 }
 
-pub fn land(lander: &Lander, stack: Vec<Next>, landed: &str) -> Result<(), String> {
+pub fn land(lander: &Lander, watch: &mut Watch, stack: Vec<Next>, landed: &str) -> Result<(), String> {
     let mut landed = landed.to_owned();
     for next in stack {
-        match push(lander, next, &landed)? {
+        match push(lander, watch, next, &landed)? {
             Some(head) => landed = head,
             None => break,
         }
@@ -166,7 +169,7 @@ pub fn land(lander: &Lander, stack: Vec<Next>, landed: &str) -> Result<(), Strin
     Ok(())
 }
 
-fn push(lander: &Lander, mut next: Next, landed: &str) -> Result<Option<String>, String> {
+fn push(lander: &Lander, watch: &mut Watch, mut next: Next, landed: &str) -> Result<Option<String>, String> {
     if next.base != landed {
         println!("north land: speculative candidate {} was built on {}, not on the landed {landed}; discarded", next.head, next.base);
         return Ok(None);
@@ -199,6 +202,8 @@ fn push(lander: &Lander, mut next: Next, landed: &str) -> Result<Option<String>,
         return Ok(None);
     }
     next.stages.mark("push");
+    let lanes = next.tickets.iter().zip(&next.tips).map(|((_, ticket), tip)| LandedLane { ticket: ticket.clone(), tip: tip.clone() }).collect();
+    watch.follow(lander, &next.base, &next.head, lanes);
     after::finish(lander, &next.head, &next.base, &next.stages, std::mem::take(&mut next.tickets))?;
     Ok(Some(next.head.clone()))
 }

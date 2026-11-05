@@ -53,9 +53,9 @@ fn a_refusal_names_the_land_check_or_gate_that_failed() {
 fn refused_by(script: &str) -> Verdict {
     let directory = tempfile::tempdir().unwrap();
     let checker = ["bash".to_owned(), "-c".to_owned(), script.to_owned()];
-    let launch = Launch { checker: &checker, offload_owner: "test", round: "1".to_owned(), recheck: false };
+    let launch = Launch { checker: &checker, offload_owner: "test", round: "1".to_owned() };
     let log = directory.path().join("candidate.log");
-    match start(&launch, directory.path(), &"a".repeat(40), &log, false, None) {
+    match start(&launch, directory.path(), &"a".repeat(40), &log, false) {
         Ok(started) => started.wait(),
         Err(verdict) => verdict,
     }

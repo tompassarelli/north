@@ -15,12 +15,14 @@ use super::telemetry::Stages;
 use super::push_refusal::{self, Backoff, Refusal};
 use super::records::{self, Candidate, Decision};
 use super::hold::{self, Hold};
-use super::{incidents, pause, precheck, queue, red, sheriff, speculate, watchdog};
+use super::watch::{LandedLane, Watch};
+use super::{incidents, pause, queue, red, sheriff, speculate, watchdog};
 use super::repositories;
 
 const USAGE: &str = "usage: north land serve [--once] [--all] [--repo DIR] [--checker PROGRAM] [--depth D] [--app-token PROGRAM]";
 const ATTEMPTS: usize = 4;
 const POLL: Duration = Duration::from_secs(2);
+const TICK: Duration = Duration::from_millis(250);
 const DISCOVERY: Duration = Duration::from_secs(30);
 
 #[derive(Debug, PartialEq, Eq)]
@@ -131,14 +133,17 @@ impl Lander {
         Ok(now.split_whitespace().next() != Some(base))
     }
 
-    pub fn round(&self, precheck: &mut precheck::State) -> Result<Round, String> {
-        if let Some(round) = precheck::round(self, precheck)? {
-            return Ok(round);
+    pub fn round(&self, watch: &mut Watch) -> Result<Round, String> {
+        if watch.settle(self) {
+            return Ok(Round::Progress);
         }
-        self.batch()
+        Ok(match self.batch(watch)? {
+            Round::Idle if watch.in_flight() > 0 => Round::Checking,
+            round => round,
+        })
     }
 
-    fn batch(&self) -> Result<Round, String> {
+    fn batch(&self, watch: &mut Watch) -> Result<Round, String> {
         let logs = self.queue.join("logs");
         let mut limit = usize::MAX;
         let mut red_only = false;
@@ -303,9 +308,9 @@ impl Lander {
                         }
                     }
                     stages.mark("push");
-                    drop(super::post_land::start(self, &base, &head, included.iter().map(|(_, ticket)| ticket.branch.clone()).collect()));
+                    watch.follow(self, &base, &head, included.iter().zip(&built.tips).map(|((_, ticket), tip)| LandedLane { ticket: (*ticket).clone(), tip: tip.clone() }).collect());
                     after::finish(self, &head, &base, &stages, included.into_iter().map(|(path, ticket)| (path.clone(), ticket.clone())).collect())?;
-                    speculate::land(self, stacked, &head)?;
+                    speculate::land(self, watch, stacked, &head)?;
                     return Ok(Round::Progress);
                 }
                 Judgement::Rebuild => {
@@ -361,31 +366,30 @@ fn back_off(lander: &Lander, backoff: &mut Backoff, reason: &str, retire: &Atomi
 fn serve_repository(lander: &Lander, once: bool, retire: &AtomicBool) -> u8 {
     println!("north land: serving {} from queue {}", lander.repo.display(), lander.queue.display());
     let mut backoff = Backoff::default();
-    let mut precheck = precheck::State::default();
+    let mut watch = Watch::default();
     let mut draining = false;
     loop {
         if retire.load(Ordering::Relaxed) {
-            if draining && precheck.in_flight() == 0 {
+            if watch.in_flight() == 0 {
                 return 0;
             }
             if !draining {
                 draining = true;
-                let in_flight = precheck.drain();
-                if in_flight == 0 {
-                    return 0;
-                }
-                println!("north land: the live runtime changed; finishing {in_flight} lane check(s) already running before exiting, and starting none");
+                println!("north land: the live runtime changed; finishing {} after-landing run(s) already started before exiting, and landing nothing more", watch.in_flight());
             }
+            watch.settle(lander);
+            std::thread::sleep(TICK);
+            continue;
         }
-        let round = lander.round(&mut precheck);
-        watchdog::after_round(lander, &precheck, &round);
+        let round = lander.round(&mut watch);
+        watchdog::after_round(lander, watch.in_flight(), &round);
         if matches!(round, Ok(Round::Progress | Round::Idle | Round::Checking)) {
             backoff.clear();
         }
         match round {
             Ok(Round::Progress) => continue,
             Ok(Round::Checking) => {
-                std::thread::sleep(precheck::TICK);
+                std::thread::sleep(TICK);
                 continue;
             }
             Ok(Round::PushRefused(reason)) if once => {
