@@ -116,3 +116,38 @@ through `safe-push`. Codex bindings stay as they are unless the box says otherwi
 9. **Cap prompt grounding (#17).** Done when: the Grounding block is at most 1,500 chars on 20 sampled
    prompts, it no longer repeats the native skill listing, and no `prompt-grounding.sh` `hook_cancelled`
    record appears over a day.
+
+## Hook latency before and after the shell ports (2026-11-05)
+
+north#88 asked for `north hook` p95 over 100 runs before and after the shell guards moved into Rust.
+
+- After: `north hook <kind>` from a debug build of cc77daa34, one build for all rows.
+- Before: the retired shell guard run directly from `git archive` of the parent of its porting commit
+  (dcbc0f2c3 for the #70 command guards, afd2fdae4 for #71, 221017129 for #72, ff2d8119d for #73),
+  on the same payload, plus the after runtime's own `north hook` time for the event. The shell guards
+  ran as separate processes beside `north hook`, so this sum is the serial cost; the longest single
+  process is a parallel lower bound. A pre-port `north hook` was not rebuilt (one build, laptop load).
+- Session-kill: the old `north hook session-kill` kind no longer exists, so its wrapper ran with a
+  stand-in that execs `north hook pre-bash`; its row includes one extra hook run.
+- 100 sequential runs per command after 2 warm-ups, commands of one event interleaved within each
+  iteration so they see the same load; `AGENT_NO_AUTHORING_HOOKS=0` forces every guard on, because the
+  live activation list no longer names the retired guards and the old scripts then exit in 5 ms.
+  The laptop was at load 35 to 55 on 24 threads with a game running, so absolute p95 values carry a
+  scheduler tail of about 40 ms (a 5 ms script shows p95 near 45 ms); read the deltas, not the floor.
+- Payloads: Bash `git status --short` (allow), a worker `safe-push --to main` (worker-wait deny), an
+  `echo x > ~/.claude/settings.json` (policy); Write to `/tmp` and to `~/.claude/settings.json`;
+  PostToolUse Bash and Edit; SubagentStop; SessionStart in north/main; an Agent brief with a priced Payback.
+
+ms, p50 / p95, after then before:
+
+- #70 pre-bash allow: 53 / 308, before 134 / 808. Worker-wait deny: 192 / 400, before 615 / 1,380.
+- #71 pre-bash allow: 53 / 308, before 63 / 402. Pre-bash policy: 113 / 323, before 314 / 741.
+  Pre-edit Write: 18 / 68, before 46 / 179. Pre-edit policy: 7 / 45, before 57 / 411.
+- #72 PostToolUse Bash: 49 / 137, before 82 / 238. PostToolUse Edit: 8 / 54, before 72 / 442.
+  SubagentStop: 9 / 52, before 58 / 398. SessionStart: 585 / 2,020, before 1,258 / 4,178; the old
+  `unlanded-work.sh` alone was 674 / 2,158, so the Rust hook is not slower than the script it replaced.
+- #73 `north hook spawn-capacity` against `spawn-capacity-guard.sh` with its Python decider, 100 runs
+  interleaved, twice: 952 / 1,893 against 1,014 / 1,870 (p95 +23 ms, inside the 8 s outliers of both),
+  then 1,571 / 3,277 against 1,705 / 5,405. Both decide through live `north` queries, which is where
+  the time goes. The full `pre-agent` event adds the worker-tier guard's `north threads recommend`,
+  which this port did not touch and which took over 50 s once under load, so it is not in the numbers.
