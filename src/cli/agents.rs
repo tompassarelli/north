@@ -5,7 +5,7 @@ use crate::agent_catalog::{self, sync_gate};
 use crate::error::{NorthError, NorthResult};
 use crate::ops::agents::{self, Verb, plan, script};
 use crate::fleet::runtimes::Runtimes;
-use crate::ops::runtime_access::RuntimeAccess;
+use crate::runtime_access::RuntimeAccess;
 use crate::ops::{flow, pacing, report};
 use crate::platform::harness;
 use crate::providers::claude::{self, fleet::Claude};
@@ -40,7 +40,7 @@ pub(super) fn run(arguments: &[String]) -> u8 {
             )
         }),
         Verb::Command("flow") => flow::run(rest),
-        Verb::Command("news") => crate::ops::model_watch::run(&[vec!["news".to_owned()], rest.to_vec()].concat(), &claude_access()),
+        Verb::Command("news") => crate::model_watch::run(&[vec!["news".to_owned()], rest.to_vec()].concat(), &claude_access()),
         Verb::Command(_) => report::run(rest),
         Verb::Usage => usage(rest),
         Verb::Script(file) => with_harness(|root| script::run(root, file, rest)),

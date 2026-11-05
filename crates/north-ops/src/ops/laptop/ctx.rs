@@ -196,7 +196,7 @@ fn quote(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\"'\"'"))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Ctx {
     pub fn fixture(root: &std::path::Path, now: &str, threads: &str) -> Self {
         Self {

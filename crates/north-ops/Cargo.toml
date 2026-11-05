@@ -23,6 +23,9 @@ time.workspace = true
 toml_edit.workspace = true
 tokio.workspace = true
 
+[features]
+test-support = []
+
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
 

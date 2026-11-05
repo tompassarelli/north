@@ -116,7 +116,7 @@ trust).
   entered with `nix develop`. Current.
 - north `bin/land-shell:10`, `harness/scripts/citation-check.sh:8`,
   `harness/scripts/check-owners.sh:9`,
-  `crates/north-ops/src/ops/land_offload/ship.rs:66-67`: `nix develop -c CMD`. Current.
+  `crates/north-runtime/src/land_offload/ship.rs:66-67`: `nix develop -c CMD`. Current.
 - north `bin/depbox:43-50` roots the dev shell with `nix print-dev-env --profile`, keyed on the tracked `*.nix`,
   `flake.lock` and toolchain files, with `--no-update-lock-file`. Current: the same GC-root idea nix-direnv 3.1.1
   adopted, and it keeps the weekly `nix.gc` of `modules/nix-settings/default.nix:11-15` from deleting the shell.

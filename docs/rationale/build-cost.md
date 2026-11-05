@@ -65,9 +65,9 @@ The recurring fix for land checks rerunning after a red test is the landing trai
 in design), not a candidate here.
 
 Candidate 3 is decided: the laptop builds the runtime and gex45 never supplies a binary the laptop runs; a separate
-lane is closing the gex45-to-laptop pull in `crates/north-ops/src/ops/runtime/pull.rs`. With `settles_fleet = true`
+lane is closing the gex45-to-laptop pull in `crates/north-runtime/src/runtime/pull.rs`. With `settles_fleet = true`
 on whiterabbit, the laptop deploys to a gex45 set to `builds_runtime = false`
-(`crates/north-ops/src/ops/land_offload/destinations.rs:27`).
+(`crates/north-runtime/src/land_offload/destinations.rs:27`).
 
 Rejected, one line each:
 
@@ -131,10 +131,10 @@ lane and `CARGO_PROFILE_RELEASE_INCREMENTAL=true` on the build command.
 ### B3. Turn on incremental for runtime builds (candidate 2, if B2's on-row is at least 30% below off)
 
 Category: performance. Spec: measured. Scope: single-module. Surface: rust. Verify: local-test. Files:
-`crates/north-ops/src/ops/runtime/update.rs` (and the stable path or remap B2 chose), `docs/features.md`.
+`crates/north-runtime/src/runtime/update.rs` (and the stable path or remap B2 chose), `docs/features.md`.
 
 Done when:
-- `rg -n 'INCREMENTAL' crates/north-ops/src/ops/runtime/update.rs` prints the line on the build command.
+- `rg -n 'INCREMENTAL' crates/north-runtime/src/runtime/update.rs` prints the line on the build command.
 - `cargo test --locked --offline --test runtime_update` passes.
 - After landing, the median `cpuSeconds` of the next 5 exit-0 `north-runtime` runs in the laptop's
   `~/.local/state/agents/machine-capacity-usage.jsonl`, skipping any run that follows a `north reclaim` sweep of
@@ -209,7 +209,7 @@ build, so swapping in a release runtime would hide overflow and `debug_assert` f
 
 Category: performance. Spec: measured. Scope: single-module. Surface: config. Verify: local-test. Files:
 `~/code/south/main/agents/orchestration.toml` (`builds_runtime = false` on gex45). Orders after the lane closing the
-gex45-to-laptop pull in `crates/north-ops/src/ops/runtime/pull.rs` lands.
+gex45-to-laptop pull in `crates/north-runtime/src/runtime/pull.rs` lands.
 
 Done when:
 - Over 24 h, `ssh gex45 "rg '\"owner\":\"north-runtime\"' ~/.local/state/agents/machine-capacity-usage.jsonl" | jq

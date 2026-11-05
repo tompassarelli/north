@@ -489,11 +489,11 @@ compute and actual box wall is reported.
 **W2-6. Offload concurrency from the remote host's own admission, not a slot count.** Category: feature. Spec:
 measured. Scope: cross-module. Surface: rust. Verify: local-test. After: the offload dev-shell lane (same file),
 elastic-cpu, and the pending-load rule of W2-3 (review finding 8). Files:
-`crates/north-ops/src/ops/land_offload/ship.rs` (`SLOTS`), `build_offload.rs`. Spec: each offloaded command runs on
+`crates/north-runtime/src/land_offload/ship.rs` (`SLOTS`), `build_offload.rs`. Spec: each offloaded command runs on
 the remote host under that host's own `north capacity host run` admission (memory and pressure once elastic CPU is
 live); the per-repository lock only guards one worktree and target dir, created on demand, so concurrency follows
 measured room; the asking host counts its dispatched-not-started offloads as pending load on the target. Done when:
-`rg -n 'const SLOTS' crates/north-ops/src/ops/land_offload` prints nothing; a fixture test with remote admission
+`rg -n 'const SLOTS' crates/north-runtime/src/land_offload` prints nothing; a fixture test with remote admission
 admitting four and deferring the fifth shows four offloads running at once in four on-demand worktrees and the
 fifth waiting with the remote admission's reason printed; and a test shows a target with two dispatched-not-started
 offloads reported with that pending load by the asking host.
@@ -548,7 +548,7 @@ medians. On the fixture in `tests/it/land_checks.rs` it prints 600.0 against 200
 The live audit below runs it on real records once 20 failing and 20 passing landings have accumulated.
 
 **W3-4. Skip superseded runtime builds, never leave a gap.** Category: performance. Spec: measured. Scope:
-single-module. Surface: rust. Verify: local-test. After: runtime-reuse. Files: `crates/north-ops/src/ops/runtime/`.
+single-module. Surface: rust. Verify: local-test. After: runtime-reuse. Files: `crates/north-runtime/src/runtime/`.
 Spec: a queued runtime build whose commit a newer queued or running build for the same host contains does not
 start while that newer build has not failed; if the newer build fails, the newest skipped predecessor is built
 next. Done when: fixture tests show a skipped build when the newer one is queued, the skipped predecessor built

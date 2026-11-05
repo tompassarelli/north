@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host"]
-default-members = [".", "crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host"]
+members = ["crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-runtime"]
+default-members = [".", "crates/north-base", "crates/north-core", "crates/north-landing", "crates/north-tui", "crates/north-guard", "crates/north-ops", "crates/north-capacity-host", "crates/north-runtime"]
 
 [workspace.dependencies]
 crossterm = "0.28.1"
@@ -48,6 +48,7 @@ autobins = false
 north-core = { path = "crates/north-core" }
 north-capacity-host = { path = "crates/north-capacity-host" }
 north-ops = { path = "crates/north-ops" }
+north-runtime = { path = "crates/north-runtime" }
 north-guard = { path = "crates/north-guard" }
 north-tui = { path = "crates/north-tui" }
 north-landing = { path = "crates/north-landing" }

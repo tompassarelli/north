@@ -11,7 +11,7 @@
   "crates/north-core/src/catalog/retired_hooks.rs": "production: writes real retired-hook stubs",
   "crates/north-core/src/threads/client.rs": "production: spool directory mode",
   "crates/north-ops/src/ops/private_desktop/start.rs": "production: private desktop startup script",
-  "crates/north-ops/src/ops/runtime/layout.rs": "production: stages the runtime binary",
+  "crates/north-runtime/src/runtime/layout.rs": "production: stages the runtime binary",
   "crates/north-ops/src/ops/reclaim/tests.rs": "data files that are never executed",
   "crates/north-core/src/lanes/hardcoded_paths_tests.rs": "a committed file that is never executed",
   "crates/north-core/src/fleet/registry/gate_rows.rs": "a directory mode, not a script"

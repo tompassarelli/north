@@ -37,7 +37,7 @@ may_use = ["north-dispatch", "north-providers"]
 
 [[crate_dag.crate]]
 name = "north-capacity-host"
-paths = ["crates/north-capacity-host/src/**", "crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**"]
+paths = ["crates/*/src/capacity/host.rs", "crates/*/src/capacity/host/**", "crates/*/src/capacity/gate.rs", "crates/*/src/capacity/gate/**", "crates/*/src/capacity/gate_tests.rs", "crates/*/src/capacity/watchdog.rs", "crates/*/src/capacity/watchdog/**", "crates/north-capacity-host/src/**"]
 may_use = ["north-capacity", "north-fleet", "north-threads"]
 
 [[crate_dag.crate]]
@@ -52,7 +52,7 @@ may_use = ["north-capacity", "north-fleet", "north-providers", "north-threads"]
 
 [[crate_dag.crate]]
 name = "north-runtime"
-paths = ["crates/*/src/ops/runtime.rs", "crates/*/src/ops/runtime/**", "crates/*/src/ops/land_offload.rs", "crates/*/src/ops/land_offload/**", "crates/*/src/ops/build_offload.rs", "crates/*/src/ops/build_offload/**", "crates/*/src/ops/laptop_runner.rs", "crates/*/src/ops/laptop_runner/**", "crates/*/src/ops/agent_contain.rs", "crates/*/src/ops/agent_contain/**", "crates/*/src/ops/laptop_ntfy.rs", "crates/*/src/ops/laptop_ntfy/**", "crates/*/src/ops/timers.rs", "crates/*/src/ops/timers/**", "crates/*/src/ops/model_watch.rs", "crates/*/src/ops/model_watch/**", "crates/*/src/ops/job_watch.rs", "crates/*/src/ops/job_watch/**", "crates/*/src/ops/outside_watch.rs", "crates/*/src/ops/outside_watch/**", "crates/*/src/ops/usage_web_read.rs", "crates/*/src/ops/usage_web_read/**", "crates/*/src/ops/runtime_access.rs", "crates/*/src/ops/runtime_access/**"]
+paths = ["crates/north-runtime/src/**"]
 may_use = ["north-capacity-host", "north-dispatch", "north-providers"]
 
 [[crate_dag.crate]]
@@ -185,7 +185,7 @@ may_use = ["threads", "domain", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "capacity"
-paths = ["crates/north-capacity-host/src/lib.rs", "crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**"]
+paths = ["crates/north-core/src/capacity/**", "crates/north-capacity-host/src/capacity/**", "crates/north-capacity-host/src/lib.rs"]
 responsibility = "Machine capacity leases, admission, watchdog and the game-reserve slice."
 may_use = ["shell", "platform", "foundation", "crate-roots", "fleet", "threads"]
 
@@ -197,7 +197,7 @@ may_use = ["threads", "platform", "foundation", "crate-roots"]
 
 [[module]]
 name = "ops"
-paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**"]
+paths = ["crates/north-ops/src/lib.rs", "crates/north-ops/src/ops/**", "crates/north-core/src/health.rs", "crates/north-core/src/health/**", "crates/north-runtime/src/agent_contain/**", "crates/north-runtime/src/build_offload/**", "crates/north-runtime/src/job_watch/**", "crates/north-runtime/src/land_offload/**", "crates/north-runtime/src/laptop_ntfy/**", "crates/north-runtime/src/laptop_runner/**", "crates/north-runtime/src/lib.rs", "crates/north-runtime/src/model_watch/**", "crates/north-runtime/src/outside_watch/**", "crates/north-runtime/src/runtime/**", "crates/north-runtime/src/runtime_access.rs", "crates/north-runtime/src/timers/**", "crates/north-runtime/src/usage_web_read/**"]
 responsibility = "Operational commands: health, watchers, jobs, infra placement, chat, convo, code-health, runtime update."
 may_use = ["ledger", "fleet", "threads", "capacity", "usage", "domain", "shell", "platform", "foundation", "crate-roots"]
 

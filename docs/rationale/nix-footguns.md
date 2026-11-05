@@ -193,7 +193,7 @@ gate enters the shell itself) come first among the guards.
 One rule runs through every guard below: a footgun is closed where its wrong assumption is first observable, by the
 program that holds the fact, and its message names the fix. Most classes here share one root. North has five places
 that enter a dev shell on their own (`bin/land-shell --dev`, the offload's `RUN` script in
-`crates/north-ops/src/ops/land_offload/ship.rs:61`, `capacity::dev_shell::enter`, three `exec nix develop` check
+`crates/north-runtime/src/land_offload/ship.rs:61`, `capacity::dev_shell::enter`, three `exec nix develop` check
 scripts), each with its own idea of "already inside", none with `--offline`, and one GC
 root among them. So the first guard is architecture: one entry, `north dev-shell run`, that every other caller goes
 through (box D1). Several classes below close by moving their callers onto it.
@@ -419,7 +419,7 @@ No new checker: staleness rides on the two that exist.
   `https://github.com/NixOS/nixpkgs`, path `nixos/doc/manual/release-notes`, MIT). A watch cycle that finds a change
   touching a card's subcommands records it in `docs/rationale/watch/` like any other source.
 - Trigger (a box on north#112, not this plan). `north skill-review-queue`
-  (`crates/north-ops/src/ops/timers/skill_review.rs`, weekly on nexus) already flags a skill more than 30 days past
+  (`crates/north-runtime/src/timers/skill_review.rs`, weekly on nexus) already flags a skill more than 30 days past
   `grounded:`; it also flags a stamped file when `nix --version` on a host moves major.minor past `nix-version:`, when
   the flake.lock it names moves past `nixpkgs-lock:`, or when watch-review records a change to a Nix source after
   `grounded:`, and files the regrounding box the queue already files.

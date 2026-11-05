@@ -163,7 +163,7 @@ Each row of [feedback-loop.md](../feedback-loop.md) not read by a decision, with
 
 Commands no timer, hook, skill or land check calls (14-day gex45 uses in brackets), and why each stays:
 `advisor-report` [0] goes in box 2; `agent-contain` [0] runs inside the laptop runner
-(`crates/north-ops/src/ops/laptop_runner/mod.rs:158`); `safe-push-result` [0] is called by `bin/safe-push`;
+(`crates/north-runtime/src/laptop_runner/mod.rs:158`); `safe-push-result` [0] is called by `bin/safe-push`;
 `session-host` [0] is the fleet's runtime host; `context` [0] was added on 2026-11-04 to measure the skill and hook
 slimming; `orders` [0] is the standing-orders store `north fleet` reads; `laptop-ntfy` [0] is a nixos-config
 service (`modules/nexus-laptop-ntfy`). The rest ran by hand: `agents` [138], `ops` [105], `autoland-status`

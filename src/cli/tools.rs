@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use crate::landing::{after_landing, bin_references, denylist, fails_first, land_actions, land_cache, merge_set, red_check, land_test_runner, landed_tree, lane_squash, lane_target, mutant_cli, safe_push_tag, stale_revert};
-use crate::ops::timers::{self, Timer};
+use crate::timers::{self, Timer};
 use crate::{
     agent_config_check, agent_policy_contract, autoland_status, capacity, dep_gate, follows_release, issue_box_lint,
     land_abandon, provenance,
@@ -83,12 +83,12 @@ const UNIFORM: &[(&str, Run)] = &[
 const DIRECT: &[(&str, Run)] = &[
     ("nexus-ram", crate::ops::nexus_ram::run),
     ("laptop", crate::ops::laptop::run),
-    ("laptop-runner", crate::ops::laptop_runner::run),
-    ("laptop-ntfy", crate::ops::laptop_ntfy::run),
-    ("agent-contain", crate::ops::agent_contain::run),
+    ("laptop-runner", crate::laptop_runner::run),
+    ("laptop-ntfy", crate::laptop_ntfy::run),
+    ("agent-contain", crate::agent_contain::run),
     ("reclaim", crate::ops::reclaim::run),
     ("retain", crate::ops::retention::run),
-    ("runtime", crate::ops::runtime::run),
+    ("runtime", crate::runtime::run),
     ("tune", crate::ops::tune::run),
     ("archives", crate::platform::archive_tags::run),
     ("code-health", code_health),
@@ -137,7 +137,7 @@ impl Tool {
             }),
             Self::Dispatch => ExitCode::from(crate::ops::dispatch::run(arguments, super::fleet::roster)),
             Self::Pace => ExitCode::from(crate::ops::pacing::run(arguments, crate::ops::pacing::FleetFacts { roster: super::fleet::roster, machine_load: super::fleet::fleet_load }, super::token_usage::read)),
-            Self::Capacity => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib, offload: crate::ops::land_offload::run, build_offload: crate::ops::build_offload::offload, lease_builds: crate::ops::pacing::placement::local_lease_builds, reclaim_disk: crate::ops::reclaim::before_disk_defer_here })),
+            Self::Capacity => ExitCode::from(capacity::command::run(arguments, capacity::effects::Host { serving: crate::ops::pacing::placement::serving_host, warcraft_clients: crate::ops::pacing::placement::local_warcraft_clients, bar1_margin_mib: crate::ops::pacing::placement::local_bar1_margin_mib, offload: crate::land_offload::run, build_offload: crate::build_offload::offload, lease_builds: crate::ops::pacing::placement::local_lease_builds, reclaim_disk: crate::ops::reclaim::before_disk_defer_here })),
             Self::SessionUnit => super::failure(crate::platform::session_scope::run(arguments).into()),
             Self::NexusRun => super::in_runtime(async move { Ok(ExitCode::from(timers::nexus_run(arguments).await)) }),
             Self::Timer(timer) => ExitCode::from(timer.run(arguments, &super::agents::claude_access())),

@@ -937,6 +937,7 @@ dependencies = [
  "north-guard",
  "north-landing",
  "north-ops",
+ "north-runtime",
  "north-tui",
  "percent-encoding",
  "ratatui",
@@ -1072,6 +1073,24 @@ dependencies = [
  "sha2",
  "tempfile",
  "time",
+ "tokio",
+ "toml_edit",
+]
+
+[[package]]
+name = "north-runtime"
+version = "0.1.0"
+dependencies = [
+ "north-base",
+ "north-ops",
+ "percent-encoding",
+ "regex",
+ "rusqlite",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "tokio",
  "toml_edit",
 ]

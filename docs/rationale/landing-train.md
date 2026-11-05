@@ -422,7 +422,7 @@ the lander makes unnecessary instead of porting them. Planned at origin/main 602
 4. **Warm build slots, selection by changed paths, Actions confirms.** Candidate checks run in
    persistent slots: on the laptop, the lander's stable worktrees (one per speculation depth), so
    `target/` survives and compiles are incremental; on gex45, the offload slots, whose clean keeps
-   `/target` (crates/north-ops/src/ops/land_offload/ship.rs, `git clean -ffdxq -e /target`). The
+   `/target` (crates/north-runtime/src/land_offload/ship.rs, `git clean -ffdxq -e /target`). The
    `land.check` path filters select checks from base..candidate as today. The full suite runs on main
    after the push (Cargo and Harness workflows), and the sheriff reverts a confirmed culprit through a
    red-fix ticket, so Actions confirms rather than gates.

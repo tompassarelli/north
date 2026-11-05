@@ -31,11 +31,16 @@ uses it. A split pays only when the edited crate has few, small dependents. The 
   subcommand dispatch (`capacity/command.rs`). Its `capacity` module re-exports `north_core::capacity` and adds
   those modules, so `crate::capacity::...` and `super::` paths inside them are unchanged. Depends on
   `north-base` and `north-core`; `north-ops` (for `land_offload`) and the root package import `capacity` from it.
+- `north-runtime`: `runtime`, `land_offload`, `build_offload`, `laptop_runner`, `agent_contain`,
+  `laptop_ntfy`, `timers`, `model_watch`, `job_watch`, `outside_watch`, `usage_web_read` and
+  `runtime_access`, moved out of `ops` (box 4-9). Depends on `north-ops` for `ops::pacing`, `ops::dispatch`
+  and `ops::laptop`, which the plan puts in `north-dispatch`; nothing in `north-ops` uses it. Its tests
+  reach `ops::laptop::Ctx::fixture` through `north-ops`'s `test-support` feature, a dev-dependency only.
 - `north` (the root package): `src/main.rs`, `src/cli/` and the `verify-north` and `fake_claude`
-  binaries, plus the integration tests. Depends on `north-core`, `north-capacity-host`, `north-guard`,
-  `north-landing`, `north-ops` and `north-tui`.
+  binaries, plus the integration tests. Depends on `north-core`, `north-capacity-host`, `north-guard`, `north-landing`,
+  `north-ops`, `north-runtime` and `north-tui`.
 
-A leaf edit in `north-landing`, `north-tui`, `north-guard` or `north-ops` rebuilds that crate and what sits
+A leaf edit in `north-landing`, `north-tui`, `north-guard`, `north-ops` or `north-runtime` rebuilds that crate and what sits
 above it; `north-core` stays cached. An ops leaf edit took 15.5 s wall and 16.2 CPU-seconds for `cargo build
 --bin north` before `ops` moved and 6.3 s and 7.0 CPU-seconds after (median of 3, cloud worker, 4 CPUs). A
 `capacity/host/run.rs` edit leaves `north-core` Fresh and rebuilds `north-capacity-host`, `north-ops` and the
@@ -311,6 +316,12 @@ plus the slowest dependent's test harness, times 1.57. That factor is box 8c's
 loaded gex45 leaf-edit wall (21.7 s, incremental on) over the measured 13.8 s critical path. It is a
 one-point calibration, so the first crate move re-measures it.
 
+Box 4-9 measured the north-runtime leaf edit (a blank line appended to `runtime/probe.rs`, `cargo test
+--no-run`, warm, median of 3) on a cloud worker, 4 CPUs at load 3, with the Cranelift dev profile of
+cd8f3c1: 3.6 s wall and 9.7 CPU-s, from 7.4 s and 18.4 CPU-s for the same edit in `north-ops` at 8bef37c. The
+model's critical path for that edit is 5.2 / 1.57 = 3.3 s, so the cloud factor is 1.08. The 1.57 factor is
+gex45's under load and LLVM codegen; it stands until a gex45 run of the same edit replaces it.
+
 ### Candidate 8 answered
 
 `build-cost.md` rejected a further split because only 4 of 85 north-core commits touched no module of the
@@ -384,7 +395,7 @@ of 17,002 CPU-s over the window (26%). Wall is the predicted leaf-edit `cargo te
 | Rank | Crate | Modules | Lines (non-test) | Cap | Commits | Dependents | CPU | Saved | Wall |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | north-ops | ops minus the groups below, ops/flow, ops/agents, ops/detectors, ops/tool_mine, ops/tempo, health | 30.2k (17.8k) | 25k | 117 | none | 12.3 | 2,270 | 6.6 s |
-| 2 | north-runtime | ops/runtime, land_offload, build_offload, laptop_runner, agent_contain, laptop_ntfy, timers, model_watch, job_watch, outside_watch, usage_web_read, runtime_access | 12.8k (6.3k) | 25k | 102 | none | 10.1 | 2,203 | 5.2 s |
+| 2 | north-runtime | ops/runtime, land_offload, build_offload, laptop_runner, agent_contain, laptop_ntfy, timers, model_watch, job_watch, outside_watch, usage_web_read, runtime_access | 12.8k (6.3k) | 25k | 102 | none | 10.1 | 2,203 | 5.2 s (cloud 3.6 s, 9.7 CPU-s) |
 | 3 | north-guard | guard, hook, hook_tests, hook_rewrite_tests, lanes, code_health | 29.6k (20.1k) | 25k | 82 | none | 12.3 | 1,591 | 6.6 s |
 | 4 | north-capacity-host | capacity/host, capacity/gate, capacity/watchdog | 7.4k (4.5k) | 25k | 74 | runtime | 11.7 | 1,480 | 5.8 s |
 | 5 | north-core (residual) | grounding, catalog, agent_config_check, agent_policy_contract, agent_catalog, build_time, proxy, contract_probe | 14.2k (9.1k) | 25k | 43 | none | 9.8 | 942 | 5.3 s |

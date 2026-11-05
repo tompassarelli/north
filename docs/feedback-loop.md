@@ -53,8 +53,8 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | capacity_runs io, diskBusyShare | crates/north-capacity-host/src/capacity/host/run.rs record | crates/north-capacity-host/src/capacity/host/estimate.rs estimate output | read | |
 | capacity_runs.exitCode | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/estimate.rs duration p75 counts only exit 0 | read | 99f4618d |
 | capacity_runs.command, cpuSeconds | crates/north-capacity-host/src/capacity/host/run.rs usage_entry | crates/north-capacity-host/src/capacity/host/model.rs Subject::levels keys the model by command; update folds cpu_seconds into each level | read | |
-| job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-ops/src/ops/job_watch/mod.rs | read | |
-| model_events | crates/north-ops/src/ops/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
+| job_runs | bin/threads:1748 | crates/north-core/src/threads/jobs/mod.rs job_runs; crates/north-runtime/src/job_watch/mod.rs | read | |
+| model_events | crates/north-runtime/src/model_watch | crates/north-core/src/usage/ctx.rs successors, routing hold | read | 4a58f21e |
 | machine-capacity-usage.jsonl | crates/north-capacity-host/src/capacity/host/database.rs record_usage | crates/north-capacity-host/src/capacity/host/sizing.rs size_from_usage, charge_from_usage | read | |
 | usage-gate.json | crates/north-core/src/usage/gate.rs | crates/north-guard/src/guard/spawn_capacity/usage.rs | read | |
 | spawn-gate-denials.jsonl | crates/north-guard/src/guard/spawn_capacity/logs.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
@@ -63,7 +63,7 @@ sweeps one default over a grid by walk-forward replay and prints n and the score
 | goal-scores.jsonl | crates/north-ops/src/ops/agents/goal/score.rs | crates/north-ops/src/ops/report/mod.rs jsonl | read | 871718bb |
 | S:costs.toml | hand | crates/north-core/src/usage/settings.rs services | read | |
 | costs/*.json | crates/north-core/src/usage/refresh/digitalocean.rs | crates/north-core/src/usage/settings.rs service lines | read | |
-| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-ops/src/ops/timers/skill_prune.rs | read | |
+| S:operating-point.toml | north policy-replay promote | crates/north-core/src/agent_config_check/gate.rs; crates/north-runtime/src/timers/skill_prune.rs | read | |
 | injected context per session (startup, SKILL bodies, skill references, grounding, other hook context; grounding precision and notification-triggered injections), derived from Claude transcripts | Claude Code transcripts under ~/.local/state/north/profiles/claude-*/projects | crates/north-ops/src/ops/context_audit/scan.rs audit_file; `north context audit` measures the skill and hook slimming program | read | |
 | S:incidents.jsonl | north incident-mine (crates/north-ops/src/ops/incident_mine) | crates/north-core/src/agent_config_check/rules.rs | read | |
 | incidents (class, noticed_by, started_at, detected_at, fixed_at, guard, recurred_after_guard) | north incident record from the lander (crates/north-landing/src/land/incidents.rs, every verdict but landed and every held candidate) and north land withdraw; north incident import for backfills | crates/north-core/src/threads/incidents/report.rs, printed by north flow per 7 days and north incident report | read | |
@@ -95,7 +95,7 @@ State files the loops above write, relative to `~/.local/state`. `north health` 
 | `agents/spawn-gate-denials.jsonl` | `north/reader-stamps/agents/spawn-gate-denials.jsonl` | crates/north-guard/src/guard/spawn_capacity/logs.rs | event | north#35 |
 | `agents/goal-scores.jsonl` | `north/reader-stamps/agents/goal-scores.jsonl` | crates/north-ops/src/ops/agents/goal/score.rs | event | north#35 |
 | `agents/machine-capacity-usage.jsonl` | `north/reader-stamps/agents/machine-capacity-usage.jsonl` | crates/north-capacity-host/src/capacity/host/database.rs | event | north#35 |
-| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-ops/src/ops/usage_web_read | 6h | north#35 |
+| `agents/usage/claude-web.json` | `north/reader-stamps/agents/usage/claude-web.json` | crates/north-runtime/src/usage_web_read | 6h | north#35 |
 
 ## Recorded readings
 
