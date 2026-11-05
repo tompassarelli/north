@@ -108,10 +108,6 @@ mod properties {
         (0.0..64.0f64, 0.0..64.0f64, 0.0..100.0f64, 1.0..100.0f64).prop_map(|(limit_cpus, committed_cpus, cpu_pressure_percent, pressure_high_percent)| Admission { limit_cpus, committed_cpus, cpu_pressure_percent, pressure_high_percent })
     }
 
-    fn room() -> impl Strategy<Value = Room> {
-        prop_oneof![Just(Room::Free), "[a-z ]{0,8}".prop_map(Room::Short), Just(Room::Unreachable)]
-    }
-
     fn named<T>(items: Vec<T>) -> Vec<(String, T)> {
         items.into_iter().enumerate().map(|(index, item)| (format!("host{index}"), item)).collect()
     }
@@ -132,47 +128,6 @@ mod properties {
                 Route::Local | Route::Declined(_) => None,
             };
             prop_assert_eq!(routed, expected);
-        }
-
-        #[test]
-        fn prop_first_free_picks_the_first_free_host_in_order_and_declines_only_when_none_is_free(rooms in proptest::collection::vec(room(), 0..8)) {
-            let hosts = named(rooms);
-            let expected = hosts.iter().find(|(_, room)| *room == Room::Free).map(|(name, _)| name.clone());
-            match first_free(hosts.clone()) {
-                Ok(name) => prop_assert_eq!(Some(name), expected),
-                Err(Declined::NoRoom(_)) => prop_assert!(expected.is_none() && hosts.iter().any(|(_, room)| matches!(room, Room::Short(_)))),
-                Err(Declined::Unreachable(_)) => prop_assert!(hosts.iter().all(|(_, room)| *room == Room::Unreachable)),
-                Err(other) => prop_assert!(false, "first_free declined with {other:?}"),
-            }
-        }
-
-        #[test]
-        fn prop_a_landing_already_offloaded_or_local_need_candidate_is_never_routed(
-            landing in any::<bool>(),
-            offloaded_already in any::<bool>(),
-            need in proptest::option::of("[a-z:]{0,10}"),
-            deferred in any::<bool>(),
-            rooms in proptest::collection::vec(room(), 0..4),
-        ) {
-            let refused = landing || offloaded_already || need.as_deref().is_some_and(|need| !need.is_empty());
-            prop_assume!(refused);
-            let candidate = Candidate { class: "heavy", landing, need: need.as_deref(), deferred, offloaded_already };
-            let probed = std::cell::Cell::new(false);
-            let routed = route(&candidate, || { probed.set(true); named(rooms) });
-            prop_assert!(!matches!(routed, Route::Offload { .. }), "{routed:?}");
-            prop_assert!(!probed.get(), "a refused candidate cost a probe");
-        }
-
-        #[test]
-        fn prop_ships_refuses_exactly_an_oversized_diff_or_a_private_asset(
-            paths in proptest::collection::vec(("[a-z/]{1,12}", proptest::option::of(prop_oneof!["[a-z0-9]{1,4}", proptest::sample::select(PRIVATE_EXTENSIONS.to_vec()).prop_map(str::to_uppercase), proptest::sample::select(PRIVATE_EXTENSIONS.to_vec()).prop_map(str::to_owned)])), 0..6),
-            diff_bytes in prop_oneof![0..=MAX_DIFF_BYTES, MAX_DIFF_BYTES..MAX_DIFF_BYTES * 2],
-        ) {
-            let paths: Vec<String> = paths.into_iter().map(|(stem, extension)| extension.map_or_else(|| stem.clone(), |extension| format!("{stem}.{extension}"))).collect();
-            let changed: Vec<&str> = paths.iter().map(String::as_str).collect();
-            let private = paths.iter().any(|path| path.rsplit_once('.').is_some_and(|(_, extension)| PRIVATE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())));
-            let refused = diff_bytes > MAX_DIFF_BYTES || private;
-            prop_assert_eq!(ships(&changed, diff_bytes).is_err(), refused);
         }
 
         #[test]

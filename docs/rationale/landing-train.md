@@ -582,6 +582,16 @@ suite until S20 ports it to `cargo test --test it land_`, under the same name.
 | Lander worktrees survive reapers; lane-controlled check commands never see the push token | none today | `serve-worktree-not-reaped` (lane-gc, wt-reap and auto-reap skip `worktrees/lander*`), `serve-token-scoped` (check env has no `GH_TOKEN`/App token; only the push step does) |
 | GitHub traffic per candidate is bounded | none today | `serve-github-writes` (the gh/git shim trace for a 3-lane candidate shows 1 main push plus, in Wave L0, 1 land-check ref push, 1 dispatch and 1 ref delete; 0 dispatches after S6b) |
 
+### The protocol model
+
+`crates/north-landing/tests/lander_model.rs` checks the landing protocol in stateright over every interleaving of 3
+lander lanes, one peer-host lane, speculative depth 2, bisection by halves and the sheriff. It covers
+`land/serve.rs`, `land/speculate.rs`, `land/bisect.rs`, `land/culprit.rs` and `land/sheriff.rs`, and last matched
+them at `ea630f870`: `4efb7995b` checks each lane of a refused candidate alone before halving, which the model does not
+yet do. It earns its place by failing on two seeded broken variants, a speculative push without its predecessor
+landed and a sheriff reverting a whole red range, both of which produce counterexamples (north#525, E2, 2026-11-05).
+A change to those files that the model no longer describes updates the model or this line.
+
 ### In-flight lanes land into this, not beside it
 
 | In flight (lane) | Where it lands |
