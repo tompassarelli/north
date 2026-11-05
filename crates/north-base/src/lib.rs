@@ -1,4 +1,5 @@
 pub mod autoland_status;
+pub mod build_inputs;
 pub mod error;
 pub mod foundation;
 pub mod platform;

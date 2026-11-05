@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
+code=()
+[ "${1:-}" != --code ] || { code=(--code "$2"); shift 2; }
+live=${XDG_STATE_HOME:-$HOME/.local/state}/north/current/north
+north="" reason="no live runtime at $live"
+if [ -x "$live" ] && reason=$("$live" runtime covers --head "${SAFE_PUSH_LAND_HEAD:-HEAD}" "${code[@]}" 2>&1); then
+  north=$reason
+else
+  printf 'head-north: building north from the tree: %s\n' "${reason%%$'\n'*}" >&2
+  "$root/bin/land-shell" --dev -- cargo build -q --locked --offline --bin north >&2
+  north=$(readlink -f "${CARGO_TARGET_DIR:-target}/debug/north")
+fi
+if [ "${1:-}" = --path ]; then printf '%s\n' "$north"; else exec "$north" "$@"; fi

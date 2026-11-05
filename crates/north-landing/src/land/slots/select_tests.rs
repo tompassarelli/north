@@ -44,3 +44,26 @@ fn a_machine_bound_check_stays_off_actions_without_being_pinned_to_this_host() {
     assert_eq!(config.off_actions_reason("cargo test"), Some("needs this host"));
     assert_eq!(config.off_actions_reason("cargo"), None);
 }
+
+#[test]
+fn the_rust_input_pattern_matches_a_tree_holding_a_rust_build_input_and_nothing_else() {
+    let repo = tempfile::tempdir().unwrap();
+    let git = |arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(repo.path()).args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"]).args(arguments).status().unwrap().success());
+    git(&["init", "-q"]);
+    fs_write(repo.path(), "docs/features.md");
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "docs"]);
+    assert!(!touches(repo.path(), "", "HEAD", "@rust-input"));
+    assert!(touches(repo.path(), "", "HEAD", "@rust-input,docs/"));
+    fs_write(repo.path(), "harness/model-catalog.toml");
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "embedded"]);
+    assert!(touches(repo.path(), "HEAD~1", "HEAD", "@rust-input"));
+    assert!(!touches(repo.path(), "HEAD~1", "HEAD", "docs/"));
+}
+
+fn fs_write(root: &Path, path: &str) {
+    let file = root.join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, "x\n").unwrap();
+}

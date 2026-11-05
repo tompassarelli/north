@@ -1,26 +1,32 @@
+use super::failure::{Failure, failed};
 use super::layout::{self, Layout, PROGRAMS, install};
 use crate::platform::process;
+use north_base::build_inputs::rust_build_input;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-const ROOT_FILES: [&str; 8] = ["Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml", "rust-toolchain", "flake.nix", "flake.lock", "bin/cargo"];
-const ROOT_DIRS: [&str; 4] = ["crates/", "src/", ".cargo/", "harness/claude/agents/"];
-const EMBEDDED: [&str; 7] = [
-    "harness/defaults.toml",
-    "harness/model-catalog.toml",
-    "harness/model-watch-sources.toml",
-    "agent-machinery/file-skills.toml",
-    "north-data/private-checks.toml",
-    "north-data/expectations.toml",
-    "bin/threads",
-];
+fn live(layout: &Layout) -> Option<String> {
+    fs::read_link(layout.current()).ok().and_then(|link| layout::linked_sha(&link).map(str::to_owned))
+}
 
-pub(super) fn rust_input(path: &str) -> bool {
-    ROOT_FILES.contains(&path) || ROOT_DIRS.iter().any(|dir| path.starts_with(dir)) || EMBEDDED.contains(&path) || path == ".gitattributes" || path.ends_with("/.gitattributes")
+const CODE_DEPENDENCIES: [&str; 2] = ["Cargo.lock", "rust-toolchain.toml"];
+
+pub(super) fn covers(layout: &Layout, checkout: &Path, head: &str, code: &[String]) -> Result<PathBuf, Failure> {
+    let live = live(layout).ok_or_else(|| failed(1, format!("no live runtime at {}", layout.current().display())))?;
+    let north = layout.runtime(&live).join("north");
+    if !north.is_file() {
+        return Err(failed(1, format!("{} is missing", north.display())));
+    }
+    let input = |path: &str| if code.is_empty() { rust_build_input(path) } else { CODE_DEPENDENCIES.contains(&path) || code.iter().any(|prefix| path.starts_with(prefix.as_str())) };
+    if !unchanged_by(checkout, &live, head, input) {
+        let what = if code.is_empty() { "a Rust build input".to_owned() } else { format!("{} or {}", code.join(", "), CODE_DEPENDENCIES.join(", ")) };
+        return Err(failed(1, format!("{head} changes {what} since the live runtime {}", layout::short(&live))));
+    }
+    Ok(north)
 }
 
 pub(super) fn reuse(layout: &Layout, checkout: &Path, target: &str, runtime: &Path, own_build_only: bool) -> bool {
-    let Some(live) = fs::read_link(layout.current()).ok().and_then(|link| layout::linked_sha(&link).map(str::to_owned)) else {
+    let Some(live) = live(layout) else {
         return false;
     };
     let source = layout.runtime(&live);
@@ -38,11 +44,15 @@ pub(super) fn reuse(layout: &Layout, checkout: &Path, target: &str, runtime: &Pa
 }
 
 fn unchanged(checkout: &Path, live: &str, target: &str) -> bool {
+    unchanged_by(checkout, live, target, rust_build_input)
+}
+
+fn unchanged_by(checkout: &Path, live: &str, target: &str, input: impl Fn(&str) -> bool) -> bool {
     let args = ["diff", "--name-only", "--no-renames", "--no-ext-diff", "-z", live, target];
     let Ok(output) = process::run("git", Some(checkout), &args) else {
         return false;
     };
-    output.status.success() && output.stdout.split(|byte| *byte == 0).filter(|path| !path.is_empty()).all(|path| std::str::from_utf8(path).is_ok_and(|path| !rust_input(path)))
+    output.status.success() && output.stdout.split(|byte| *byte == 0).filter(|path| !path.is_empty()).all(|path| std::str::from_utf8(path).is_ok_and(|path| !input(path)))
 }
 
 fn install_programs(source: &Path, runtime: &Path) -> std::io::Result<()> {

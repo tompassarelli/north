@@ -1,4 +1,5 @@
-use super::{reuse, rust_input};
+use super::reuse;
+use north_base::build_inputs::rust_build_input;
 use crate::ops::runtime::layout::{self, BUILT_HERE, Layout, PROGRAMS};
 use regex::Regex;
 use std::fs;
@@ -29,7 +30,7 @@ fn only_files_the_release_build_reads_count_as_rust_inputs() {
         "north-data/expectations.toml",
         "bin/threads",
     ] {
-        assert!(rust_input(path), "{path}");
+        assert!(rust_build_input(path), "{path}");
     }
     for path in [
         "docs/features.md",
@@ -42,7 +43,7 @@ fn only_files_the_release_build_reads_count_as_rust_inputs() {
         "agent-machinery/catalog.json",
         "srcs/readme.md",
     ] {
-        assert!(!rust_input(path), "{path}");
+        assert!(!rust_build_input(path), "{path}");
     }
 }
 
@@ -89,7 +90,7 @@ fn every_file_a_source_embeds_at_compile_time_counts_as_a_rust_input() {
             let resolved = normal(&file.parent().unwrap().join(&found[1]));
             let relative = resolved.strip_prefix(&root).unwrap_or_else(|_| panic!("{} embeds {} outside the repository", file.display(), &found[1]));
             let relative = relative.to_string_lossy();
-            assert!(rust_input(&relative), "{} embeds {relative}, which north runtime update would not treat as a Rust build input", file.display());
+            assert!(rust_build_input(&relative), "{} embeds {relative}, which north runtime update would not treat as a Rust build input", file.display());
             embedded += 1;
         }
     }

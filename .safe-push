@@ -16,10 +16,10 @@
 	budget = harness.yml 80 600
 [land]
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/check-owners.sh
-	check = src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --locked --offline -- -D warnings
-	check = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo run --locked --offline --bin north -- agent-config-check tree-policy
-	check = docs/features.md,docs/features/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo run --offline --bin north -- docs features-index --check
-	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo run --offline --bin north -- docs rationale-index --check
+	check = @rust-input,src/,crates/,tests/,examples/,Cargo.toml,Cargo.lock,build.rs,flake.nix,flake.lock,rust-toolchain.toml :: CARGO_TARGET_DIR=target ./bin/land-shell --dev -- cargo clippy --all-targets --locked --offline -- -D warnings
+	check = harness/,agent-machinery/ :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/agent_config_check/ agent-config-check tree-policy
+	check = docs/features.md,docs/features/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/ops/docs.rs,crates/north-core/src/ops/features_index/ docs features-index --check
+	check = docs/rationale/,src/,crates/,Cargo.toml,Cargo.lock :: CARGO_TARGET_DIR=target ./bin/head-north --code crates/north-core/src/ops/docs.rs,crates/north-core/src/ops/rationale_index/ docs rationale-index --check
 	check = harness/defaults.toml,harness/skills/machine-capacity/scripts/ :: harness/skills/machine-capacity/scripts/build-machine-capacity --check
 	check = ** :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	after = bin/,lib/,harness/,src/,crates/,Cargo.toml,Cargo.lock,build.rs :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound
@@ -29,5 +29,5 @@
 	machine-bound = "needs ~/code checkouts, a systemd user manager, live agent state or shellcheck 0.11 (harness/machine-bound-tests) :: CARGO_TARGET_DIR=target bash harness/scripts/land-checks.sh machine-bound"
 	machine-bound = "tests the Nix dev shell, which the Actions runner does not build :: ./bin/depbox run -- bash tests/dev-shell.test.sh"
 	machine-bound = "main's CI does not run the agent-machinery bun tests :: bash -euc 'cd agent-machinery; ../bin/land-shell -- bun install --frozen-lockfile; ../bin/land-shell -- bun test; ../bin/land-shell -- bun run check'"
-	machine-bound = runs the held north runtime when the CLI and the checker are unchanged since it :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
+	machine-bound = runs the live runtime's north when the citation checker is unchanged since it :: CARGO_TARGET_DIR=target bash harness/scripts/citation-check.sh
 	runner = build-host

@@ -2,8 +2,10 @@ use std::path::Path;
 use std::process::Command;
 
 use super::infer::infer;
+use north_base::build_inputs::rust_build_input;
 
 const SEPARATOR: &str = " :: ";
+const RUST_INPUT: &str = "@rust-input";
 const REF_SHORT: usize = 12;
 
 #[derive(Clone, Debug, Default)]
@@ -118,14 +120,18 @@ fn reason<'a>(entries: &'a [String], command: &str) -> Option<&'a str> {
 }
 
 fn touches(repo: &Path, base: &str, head: &str, patterns: &str) -> bool {
-    let specs: Vec<&str> = patterns.split(',').collect();
+    let (rust, specs): (Vec<&str>, Vec<&str>) = patterns.split(',').partition(|spec| *spec == RUST_INPUT);
+    (!rust.is_empty() && changed(repo, base, head, &[]).iter().any(|path| rust_build_input(path))) || (!specs.is_empty() && !changed(repo, base, head, &specs).is_empty())
+}
+
+fn changed(repo: &Path, base: &str, head: &str, specs: &[&str]) -> Vec<String> {
     let mut arguments: Vec<&str> = if base.is_empty() {
         vec!["ls-tree", "-r", "--name-only", head, "--"]
     } else {
         vec!["diff", "--name-only", "--no-renames", base, head, "--"]
     };
     arguments.extend(specs);
-    git_lines(repo, &arguments).iter().any(|line| !line.is_empty())
+    git_lines(repo, &arguments).into_iter().filter(|line| !line.is_empty()).collect()
 }
 
 #[cfg(test)]
