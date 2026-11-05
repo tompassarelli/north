@@ -940,9 +940,12 @@ PASS, and `git diff --numstat` on bin/safe-push to show more lines deleted than 
   bin/safe-push` prints 5 or less; (2) `explicit-main` (now an enqueue) and every lander test pass;
   (3) one real landing in north and one in south go through the exec'd path, each sha an ancestor of
   its origin/main.
+  Superseded 2026-11-06 by safe-push-composition.md (north#621): its P2a-P2c do the deletion, and
+  `safe-push` becomes a symlink to the north binary instead of an exec shim.
 - **S20 Shell suite retired.** Follows S19b. Done when: `git ls-files bin/safe-push.test.sh` prints
   nothing; .language-allowlist.json has no safe-push entry; `cargo test --test it -- --list land_` and
   `cargo test --test it -- --list land_serve` name every test in the guarantee table; both pass.
+  Superseded 2026-11-06 by safe-push-composition.md P12a-P12c.
 
 Rejected, one line each:
 - A faster per-lane `north land` with today's lock ported byte for byte: keeps 25 lanes dispatching

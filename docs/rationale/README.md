@@ -26,6 +26,7 @@ Why north is built the way it is, one note per decision. `north docs rationale-i
 - [Worker read isolation](read-isolation.md): Measured 2026-10-30 for north#59 step 1 (north#361): which Claude Code settings stop a worker session from reading session credentials (`~/.claude/sessions`) and reaching peer session sockets (`/run/user/1000/cc-socks`), whatever command it runs.
 - [Review triggers](review-triggers.md): Why north has no review-trailer landing gate, and when a fresh reviewer is staffed instead.
 - [Rust build times: a measured trigger for crate splits](rust-build-times.md): Tom asked on 2026-11-04 that Rust compile times stay fast as Wisp grows.
+- [Safe-push composition: one Rust crate, one concern per module, no bash](safe-push-composition.md): Tom asked on 2026-11-06 that safe-push be composed of separate files with separated concerns, and then that it become pure Rust with no bash at all: `safe-push` on PATH is a symlink to the north binary, which picks the safe-push entry point from argv[0], and each concern keeps its decisions in pure functions over typed inputs, with git, GitHub, file and process effects in a thin typed shell.
 - [Targets rationale](targets.md): Cold-path reasoning behind numeric performance, time and size targets.
 - [Tier routing rationale](tier-routing.md): Cold-path reasoning behind which model tier a box starts on.
 - [Wake paths: what wakes an agent turn, and what to cut](wake-paths.md): Measured 2026-11-04 over the 7 days 2026-10-28 to 2026-11-04 (UTC).
